@@ -3,14 +3,19 @@ import SwiftUI
 /// The three doors into an existing vault, all on one screen so a person picks
 /// whichever they can do right now (parent spec user story 19).
 ///
-/// The scan door is named and visible from the start rather than hidden,
-/// because the choice is made once; it says pairing is not available yet
-/// instead of pretending, until futo-notes#182 lands it.
+/// The door is chosen through a callback rather than a binding because leaving
+/// the scan door has to stop a live pairing wait, which only the model can do.
 struct UnlockStepView: View {
-    @Binding var door: UnlockDoor
+    let door: UnlockDoor
     let busy: Bool
+    let pairing: PairingState
+    let pairingPayload: String?
+    let pairingExpiresAt: String?
+    let onChooseDoor: (UnlockDoor) -> Void
     let onVaultPassword: (String) -> Void
     let onRecoveryKey: (String) -> Void
+    let onShowPairingCode: () -> Void
+    let onCancelPairing: () -> Void
 
     @Environment(\.localization) private var localization
     @State private var vaultPassword = ""
@@ -23,7 +28,7 @@ struct UnlockStepView: View {
 
         ForEach(UnlockDoor.allCases) { option in
             Button {
-                door = option
+                onChooseDoor(option)
             } label: {
                 HStack {
                     Text(localization.localizedText("sync.hosted.unlock.doors.\(option.rawValue)"))
@@ -54,9 +59,14 @@ struct UnlockStepView: View {
             .onSubmit(submit)
             unlockButton(enabled: !vaultPassword.isEmpty)
         case .scan:
-            Text(localization.localizedText("sync.hosted.unlock.scanNotReady"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            ShowPairingCodeView(
+                pairing: pairing,
+                payload: pairingPayload,
+                expiresAt: pairingExpiresAt,
+                busy: busy,
+                onShow: onShowPairingCode,
+                onCancel: onCancelPairing
+            )
         case .recoveryKey:
             TextField(
                 localization.localizedText("sync.hosted.unlock.recoveryKeyPlaceholder"),

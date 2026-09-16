@@ -13,6 +13,14 @@ final class LiveHostedSetupShell: HostedSetupShell {
         self.store = store
     }
 
+    /// What iOS says this device is called. On a physical device since iOS 16
+    /// an unentitled app is given the model name ("iPhone") rather than the
+    /// name in Settings — a simulator still reports its own. Either is an
+    /// honest answer for the other device's confirmation sheet, and asking for
+    /// the user-assigned-device-name entitlement to make it prettier is not
+    /// worth a review conversation.
+    var deviceName: String { UIDevice.current.name }
+
     func openAuthSheet(_ url: URL, onDismiss: @escaping () -> Void) {
         authSheet.open(url, onDismiss: onDismiss)
     }

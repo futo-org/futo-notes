@@ -34,6 +34,22 @@ struct HostedSetupModelTests {
         var portalURL = "https://pay.example/portal"
         var recoveryKey = "ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345"
 
+        var pairingCode = PairingCode(
+            payload: #"{"futo_notes_pairing":1,"id":"pairing-1"}"#,
+            expiresAt: "2099-01-01T00:05:00Z")
+        var pairingOutcome: PairingOutcome = .paired
+        /// What `awaitPairing` throws instead of answering — the expired and
+        /// refused screens are both reached this way.
+        var pairingFailure: HostedError?
+        /// Hold the wait open so a test can cancel a LIVE one.
+        var suspendAwaitPairing = false
+        /// True once the held wait is actually suspended — the point from which
+        /// cancelling it is cancelling something real.
+        private(set) var waitingForPairing = false
+        private var heldPairingWait: CheckedContinuation<PairingOutcome, Error>?
+        private var pairingCancelledEarly = false
+        private(set) var pairedDeviceNames: [String] = []
+
         var nextFailure: HostedError?
         var cancelWaitCount = 0
         private(set) var calls: [String] = []
@@ -56,7 +72,55 @@ struct HostedSetupModelTests {
             return signInOutcome
         }
 
-        func cancelWait() { cancelWaitCount += 1 }
+        func cancelWait() {
+            cancelWaitCount += 1
+            guard let held = heldPairingWait else {
+                // Cancelled before the wait suspended; the next one ends at once.
+                pairingCancelledEarly = true
+                return
+            }
+            heldPairingWait = nil
+            waitingForPairing = false
+            held.resume(returning: .cancelled)
+        }
+
+        func beginPairing(deviceName: String) async throws -> PairingCode {
+            try record("beginPairing")
+            pairedDeviceNames.append(deviceName)
+            return pairingCode
+        }
+
+        func awaitPairing() async throws -> PairingOutcome {
+            try record("awaitPairing")
+            if let pairingFailure { throw pairingFailure }
+            var outcome = pairingOutcome
+            if suspendAwaitPairing {
+                if pairingCancelledEarly {
+                    pairingCancelledEarly = false
+                    outcome = .cancelled
+                } else {
+                    outcome = try await withCheckedThrowingContinuation { held in
+                        heldPairingWait = held
+                        waitingForPairing = true
+                    }
+                }
+            }
+            if case .paired = outcome { deviceHoldsKey = true }
+            return outcome
+        }
+
+        /// Rust's `PairingRequest` is an opaque handle Swift cannot build —
+        /// that is the point of it, and it is why the wizard reaches parsing
+        /// through an injected `parseScanned` rather than through this. Nothing
+        /// in these tests calls it.
+        func completePairing(scanned: String) throws -> PairingRequest {
+            try record("completePairing")
+            throw HostedError.PairingCodeInvalid
+        }
+
+        func confirmPairing(request: PairingRequest) async throws {
+            try record("confirmPairing")
+        }
 
         func currentStep() async throws -> SetupStep {
             try record("currentStep")
@@ -143,6 +207,8 @@ struct HostedSetupModelTests {
             if dismissImmediately { onDismiss() }
         }
 
+        var deviceName = "A stand-in iPhone"
+
         func closeAuthSheet() { closes += 1 }
         func copyToPasteboard(_ text: String) { pasteboard = text }
         func announce(_ message: LocalizedMessage) { announcements.append(message.path) }
@@ -151,10 +217,34 @@ struct HostedSetupModelTests {
         func dismissSheet() { onDismiss?() }
     }
 
+    /// A scanned code, standing in for the one Rust parses. A simulator has no
+    /// camera, so the string that reaches the wizard is injected — everything
+    /// downstream of it is the same code a real camera would drive (ADR 0003,
+    /// decision 12).
+    final class StandInScan: ScannedPairing {
+        let deviceName: String
+        let platform: String
+        /// What the relay refuses the confirm with, if anything.
+        var failure: HostedError?
+        private(set) var sends = 0
+
+        init(deviceName: String = "New iPad", platform: String = "ios") {
+            self.deviceName = deviceName
+            self.platform = platform
+        }
+
+        func send() async throws {
+            sends += 1
+            if let failure { throw failure }
+        }
+    }
+
     private func makeModel(
         _ setup: StandInSetup,
         _ shell: StandInShell,
-        flow: SignInFlow = .hosted(sellsSubscriptions: true)
+        flow: SignInFlow = .hosted(sellsSubscriptions: true),
+        scan: StandInScan? = nil,
+        scanFailure: HostedError? = nil
     ) -> HostedSetupModel {
         HostedSetupModel(
             makeSetup: { setup },
@@ -164,8 +254,21 @@ struct HostedSetupModelTests {
                     notesRoot: NSTemporaryDirectory() + "hosted-tests",
                     serverUrl: "http://127.0.0.1:1")
             },
-            probe: { _ in flow }
+            probe: { _ in flow },
+            parseScanned: { _, _ in
+                if let scanFailure { throw scanFailure }
+                return scan ?? StandInScan()
+            }
         )
+    }
+
+    /// Lets a task started by a test reach a state, without a sleep. Everything
+    /// here runs on the main actor, so yielding is what hands it the turn.
+    private func settle(until reached: () -> Bool) async {
+        for _ in 0..<1000 {
+            if reached() { return }
+            await Task.yield()
+        }
     }
 
     // MARK: - The two wizard shapes
@@ -226,7 +329,7 @@ struct HostedSetupModelTests {
 
         await model.load()
         await model.signIn()
-        model.unlockDoor = .recoveryKey
+        model.chooseDoor(.recoveryKey)
         await model.unlockWithRecoveryKey("abcd efgh jkmn pqrs tvwx yz01 2345")
 
         #expect(model.screen == .account)
@@ -528,5 +631,285 @@ struct HostedSetupModelTests {
         await model.unlockWithPassword("a long enough one")
         #expect(model.errorMessage == nil)
         #expect(model.screen == .account)
+    }
+
+    // MARK: - Pairing, the show side (this device is the new one)
+
+    /// Walks the unlock screen's scan door to a vault that is open. `.received`
+    /// is the moment the key lands; the account card is what the step read
+    /// answers afterwards.
+    @Test("showing a code and being answered unlocks this device")
+    func showingACodeUnlocksThisDevice() async {
+        let setup = StandInSetup()
+        setup.vaultHasKeyMaterial = true
+        setup.entitled = true
+        let shell = StandInShell()
+        let model = makeModel(setup, shell)
+
+        await model.load()
+        await model.signIn()
+        model.chooseDoor(.scan)
+        await model.showPairingCode()
+
+        #expect(model.pairing == .received)
+        #expect(model.screen == .account)
+        // The code carried this device's name, which is the name the other
+        // device's confirmation sheet shows.
+        #expect(setup.pairedDeviceNames == [shell.deviceName])
+        // The payload is gone the moment the wait ends: a spent code is never
+        // left on screen.
+        #expect(model.pairingPayload == nil)
+    }
+
+    @Test("a live code is on screen with the relay's own deadline beside it")
+    func aLiveCodeIsDrawnWithItsDeadline() async {
+        let setup = StandInSetup()
+        setup.vaultHasKeyMaterial = true
+        setup.entitled = true
+        setup.suspendAwaitPairing = true
+        let model = makeModel(setup, StandInShell())
+
+        await model.load()
+        await model.signIn()
+        model.chooseDoor(.scan)
+        let showing = Task { await model.showPairingCode() }
+        await settle { setup.waitingForPairing }
+
+        #expect(model.pairingPayload == setup.pairingCode.payload)
+        #expect(model.pairingExpiresAt == setup.pairingCode.expiresAt)
+
+        model.cancelPairing()
+        await showing.value
+    }
+
+    /// The relay carries no declined signal: saying no on the other device
+    /// sends nothing, so it reaches a waiting device as the window running out.
+    @Test("a code that runs out says expired, which is also what declining looks like")
+    func anExpiredCodeIsItsOwnState() async {
+        let setup = StandInSetup()
+        setup.vaultHasKeyMaterial = true
+        setup.entitled = true
+        setup.pairingFailure = .PairingExpired
+        let model = makeModel(setup, StandInShell())
+
+        await model.load()
+        await model.signIn()
+        await model.showPairingCode()
+
+        #expect(model.pairing == .expired)
+        #expect(model.pairingPayload == nil)
+        #expect(model.screen == .unlock)
+        // Not an error line: the screen itself says what happened.
+        #expect(model.errorMessage == nil)
+    }
+
+    @Test("a relay that will not serve the pairing says refused, not expired")
+    func aRefusedPairingIsItsOwnState() async {
+        for failure in [HostedError.PairingRefused, HostedError.PairingAlreadyKeyed] {
+            let setup = StandInSetup()
+            setup.vaultHasKeyMaterial = true
+            setup.entitled = true
+            setup.pairingFailure = failure
+            let model = makeModel(setup, StandInShell())
+
+            await model.load()
+            await model.signIn()
+            await model.showPairingCode()
+
+            #expect(model.pairing == .refused)
+            #expect(model.pairingPayload == nil)
+        }
+    }
+
+    @Test("cancelling a live wait stops it and puts the three doors back")
+    func cancellingAWaitPutsTheDoorsBack() async {
+        let setup = StandInSetup()
+        setup.vaultHasKeyMaterial = true
+        setup.entitled = true
+        setup.suspendAwaitPairing = true
+        let model = makeModel(setup, StandInShell())
+
+        await model.load()
+        await model.signIn()
+        model.chooseDoor(.scan)
+        let showing = Task { await model.showPairingCode() }
+        await settle { setup.waitingForPairing }
+
+        model.cancelPairing()
+        await showing.value
+
+        #expect(setup.cancelWaitCount == 1)
+        #expect(model.pairing == .idle)
+        #expect(model.pairingPayload == nil)
+        #expect(model.pairingExpiresAt == nil)
+        #expect(model.screen == .unlock)
+    }
+
+    @Test("choosing another door stops a live wait too")
+    func leavingTheScanDoorStopsTheWait() async {
+        let setup = StandInSetup()
+        setup.vaultHasKeyMaterial = true
+        setup.entitled = true
+        setup.suspendAwaitPairing = true
+        let model = makeModel(setup, StandInShell())
+
+        await model.load()
+        await model.signIn()
+        model.chooseDoor(.scan)
+        let showing = Task { await model.showPairingCode() }
+        await settle { setup.waitingForPairing }
+
+        model.chooseDoor(.vaultPassword)
+        await showing.value
+
+        #expect(setup.cancelWaitCount == 1)
+        #expect(model.pairing == .idle)
+        #expect(model.unlockDoor == .vaultPassword)
+    }
+
+    // MARK: - Pairing, the scan side (this device already holds the key)
+
+    @Test("a scanned code is named before anything is sent")
+    func aScannedCodeIsOnlyParsed() async {
+        let setup = StandInSetup()
+        setup.signedIn = true
+        setup.entitled = true
+        setup.vaultHasKeyMaterial = true
+        setup.deviceHoldsKey = true
+        let scan = StandInScan(deviceName: "Kitchen laptop", platform: "desktop")
+        let model = makeModel(setup, StandInShell(), scan: scan)
+
+        await model.load()
+        #expect(model.screen == .account)
+
+        model.openScanner()
+        #expect(model.scanPhase == .scanning)
+
+        await model.readScannedCode(#"{"futo_notes_pairing":1}"#)
+
+        #expect(model.scanPhase == .confirming)
+        #expect(model.scannedPairing?.deviceName == "Kitchen laptop")
+        #expect(model.scannedPairing?.platform == "desktop")
+        // The confirmation has not happened, so nothing has left this device.
+        #expect(scan.sends == 0)
+    }
+
+    @Test("Send is the only thing that hands over the vault key")
+    func confirmingSendsTheKey() async {
+        let setup = StandInSetup()
+        setup.signedIn = true
+        setup.entitled = true
+        setup.vaultHasKeyMaterial = true
+        setup.deviceHoldsKey = true
+        let scan = StandInScan()
+        let model = makeModel(setup, StandInShell(), scan: scan)
+
+        await model.load()
+        model.openScanner()
+        await model.readScannedCode("code")
+        await model.sendVaultKey()
+
+        #expect(scan.sends == 1)
+        #expect(model.scanPhase == .sent)
+        #expect(model.errorMessage == nil)
+    }
+
+    @Test("cancelling the confirmation sends nothing and keeps the camera up")
+    func decliningSendsNothing() async {
+        let setup = StandInSetup()
+        setup.signedIn = true
+        setup.entitled = true
+        setup.vaultHasKeyMaterial = true
+        setup.deviceHoldsKey = true
+        let scan = StandInScan()
+        let model = makeModel(setup, StandInShell(), scan: scan)
+
+        await model.load()
+        model.openScanner()
+        await model.readScannedCode("code")
+        model.cancelConfirmation()
+
+        #expect(scan.sends == 0)
+        #expect(model.scanPhase == .scanning)
+        #expect(model.scannedPairing == nil)
+    }
+
+    @Test("something that is not a pairing code is named, and nothing is sent")
+    func aWrongScanIsNamed() async {
+        let setup = StandInSetup()
+        setup.signedIn = true
+        setup.entitled = true
+        setup.vaultHasKeyMaterial = true
+        setup.deviceHoldsKey = true
+        let model = makeModel(
+            setup, StandInShell(), scanFailure: .PairingCodeInvalid)
+
+        await model.load()
+        model.openScanner()
+        await model.readScannedCode("a wifi QR code")
+
+        #expect(model.errorMessage?.path == "sync.hosted.errors.pairingCodeInvalid")
+        #expect(model.scanPhase == .scanning)
+        #expect(model.scannedPairing == nil)
+    }
+
+    @Test("a refused confirmation says why and puts the camera back")
+    func aRefusedConfirmationRecovers() async {
+        let setup = StandInSetup()
+        setup.signedIn = true
+        setup.entitled = true
+        setup.vaultHasKeyMaterial = true
+        setup.deviceHoldsKey = true
+        let scan = StandInScan()
+        scan.failure = .PairingAlreadyKeyed
+        let model = makeModel(setup, StandInShell(), scan: scan)
+
+        await model.load()
+        model.openScanner()
+        await model.readScannedCode("code")
+        await model.sendVaultKey()
+
+        #expect(model.errorMessage?.path == "sync.hosted.errors.pairingAlreadyKeyed")
+        #expect(model.scanPhase == .scanning)
+        #expect(model.scannedPairing == nil)
+    }
+
+    @Test("a device that no longer holds the key cannot give it away")
+    func aLockedDeviceCannotShare() async {
+        let setup = StandInSetup()
+        setup.signedIn = true
+        setup.entitled = true
+        setup.vaultHasKeyMaterial = true
+        setup.deviceHoldsKey = true
+        let scan = StandInScan()
+        scan.failure = .VaultLocked
+        let model = makeModel(setup, StandInShell(), scan: scan)
+
+        await model.load()
+        model.openScanner()
+        await model.readScannedCode("code")
+        await model.sendVaultKey()
+
+        #expect(model.errorMessage?.path == "sync.hosted.errors.vaultLocked")
+    }
+
+    @Test("signing out closes the scanner and abandons any code on screen")
+    func signOutClearsPairing() async {
+        let setup = StandInSetup()
+        setup.signedIn = true
+        setup.entitled = true
+        setup.vaultHasKeyMaterial = true
+        setup.deviceHoldsKey = true
+        let model = makeModel(setup, StandInShell())
+
+        await model.load()
+        model.openScanner()
+        await model.readScannedCode("code")
+        await model.signOut()
+
+        #expect(model.scanPhase == .closed)
+        #expect(model.scannedPairing == nil)
+        #expect(model.pairing == .idle)
+        #expect(model.screen == .signIn)
     }
 }

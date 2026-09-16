@@ -75,7 +75,7 @@ targets:
         # PHPicker (out-of-process, no prompt) but the description is required
         # for App Store review hygiene; the camera path genuinely prompts.
         INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "Attach photos from your library to notes."
-        INFOPLIST_KEY_NSCameraUsageDescription: "Take a photo and attach it to a note."
+        INFOPLIST_KEY_NSCameraUsageDescription: "Take a photo to attach to a note, and scan a pairing code when you set up sync on another device."
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         GENERATE_INFOPLIST_FILE: "YES"

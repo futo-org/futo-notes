@@ -42,6 +42,32 @@ enum HostedWait {
     case checkout
 }
 
+/// What the code THIS device is showing is doing, on the scan door of the
+/// unlock screen. Every one of these is Rust's answer rendered; nothing in this
+/// shell decides a state. `refused` is the narrower case where the relay will
+/// not serve the pairing at all — an ordinary decline reaches us as `expired`,
+/// because a person who says no on the other device sends nothing.
+enum PairingState {
+    case idle
+    case waiting
+    case received
+    case expired
+    case refused
+}
+
+/// What the scanner is doing on an already-unlocked device.
+enum ScanPhase {
+    case closed
+    /// The camera is live, waiting for a code.
+    case scanning
+    /// A code was read and parsed; the sheet names the device it came from.
+    case confirming
+    /// Send was pressed: the vault key is being sealed and posted.
+    case sending
+    /// The key is on the relay. The other device collects it.
+    case sent
+}
+
 /// Everything the hosted sync screen renders from, and everything it can do.
 ///
 /// A direct counterpart of the desktop's `createHostedSyncSettings.svelte.ts`,
@@ -66,8 +92,26 @@ final class HostedSetupModel: ObservableObject {
     /// disagree about what a long-enough vault password is.
     @Published private(set) var minimumVaultPasswordLength = 12
 
+    /// The show side of pairing: this device is the new one, drawing a code for
+    /// an unlocked device to read.
+    @Published private(set) var pairing: PairingState = .idle
+    /// The payload to draw, straight from Rust. Non-nil only while a live code
+    /// is on screen.
+    @Published private(set) var pairingPayload: String?
+    /// RFC 3339, the relay's own deadline — what the countdown describes.
+    @Published private(set) var pairingExpiresAt: String?
+
+    /// The scan side: this device is the unlocked one, reading someone else's
+    /// code.
+    @Published private(set) var scanPhase: ScanPhase = .closed
+    /// The parsed code waiting on a confirmation. Holding one is what makes
+    /// Send possible at all; nothing else in this shell can produce one.
+    @Published private(set) var scannedPairing: (any ScannedPairing)?
+
     @Published var recoveryKeySaved = false
-    @Published var unlockDoor: UnlockDoor = .vaultPassword
+    /// Which door the unlock screen is showing. `private(set)` because leaving
+    /// the scan door has to stop a live wait, which a plain binding cannot do.
+    @Published private(set) var unlockDoor: UnlockDoor = .vaultPassword
     @Published var selfHostedOpen = false
 
     /// The state machine this wizard renders. Deferred to the first step so a
@@ -80,6 +124,11 @@ final class HostedSetupModel: ObservableObject {
     /// the one thing `load` does that talks to the network before there is a
     /// state machine to talk through.
     private let probe: (String) async throws -> SignInFlow
+    /// Reads what the camera returned. A parameter because a simulator has no
+    /// camera, so the string has to be injectable — everything downstream of it
+    /// is the same code either way (ADR 0003, decision 12). The live one is
+    /// Rust's `complete_pairing`, which parses and nothing else.
+    private let parseScanned: (HostedSetupClientProtocol, String) throws -> any ScannedPairing
     private var setup: HostedSetupClientProtocol?
 
     init(
@@ -88,12 +137,17 @@ final class HostedSetupModel: ObservableObject {
         makeSignOutTarget: @escaping () -> SyncClient,
         probe: @escaping (String) async throws -> SignInFlow = { serverUrl in
             try await probeSignInFlow(serverUrl: serverUrl)
+        },
+        parseScanned: @escaping (HostedSetupClientProtocol, String) throws -> any ScannedPairing = {
+            setup, code in
+            RustScannedPairing(request: try setup.completePairing(scanned: code), setup: setup)
         }
     ) {
         self.makeSetup = makeSetup
         self.shell = shell
         self.makeSignOutTarget = makeSignOutTarget
         self.probe = probe
+        self.parseScanned = parseScanned
     }
 
     /// A banner is a fact about the account, read the same way the account card
@@ -215,6 +269,118 @@ final class HostedSetupModel: ObservableObject {
         }
     }
 
+    /// Moves the unlock screen to another door, stopping a live pairing wait on
+    /// the way out. A code that is already on the relay cannot be withdrawn, so
+    /// leaving abandons it rather than resuming it.
+    func chooseDoor(_ door: UnlockDoor) {
+        if unlockDoor == .scan, door != .scan { cancelPairing() }
+        unlockDoor = door
+    }
+
+    /// Opens a pairing and shows its code until the other device answers.
+    ///
+    /// One call covers the whole wait: Rust mints the one-time keypair,
+    /// publishes the public half to the relay, and polls for the sealed vault
+    /// key until the relay's own five minutes are up. What comes back decides
+    /// the state, which is why nothing here has its own timer — the countdown
+    /// on screen only describes that deadline, it does not enforce it.
+    func showPairingCode() async {
+        await step { setup in
+            self.pairing = .idle
+            self.pairingPayload = nil
+            let code = try await setup.beginPairing(deviceName: self.shell.deviceName)
+            self.pairingPayload = code.payload
+            self.pairingExpiresAt = code.expiresAt
+            self.pairing = .waiting
+            do {
+                let outcome = try await setup.awaitPairing()
+                self.pairingPayload = nil
+                if case .cancelled = outcome {
+                    self.pairing = .idle
+                    return
+                }
+                // The key arrived and is kept: this device is unlocked. Said
+                // here rather than after the step read, so the code's
+                // disappearance is explained while that read is in flight.
+                self.pairing = .received
+                try await self.readStep(setup)
+            } catch {
+                self.pairingPayload = nil
+                switch error as? HostedError {
+                // A person who declined on the other device sent nothing, so
+                // this is also what declining looks like from here. The copy
+                // says so rather than claiming to know which happened.
+                case .PairingExpired:
+                    self.pairing = .expired
+                case .PairingRefused, .PairingAlreadyKeyed:
+                    self.pairing = .refused
+                default:
+                    self.pairing = .idle
+                    throw error
+                }
+            }
+        }
+    }
+
+    /// Stops waiting and puts the three doors back. Deliberately outside
+    /// `step`: the wait it is cancelling is what holds `busy`.
+    func cancelPairing() {
+        if pairing == .waiting { setup?.cancelWait() }
+        pairing = .idle
+        pairingPayload = nil
+        pairingExpiresAt = nil
+    }
+
+    /// Opens the camera on an unlocked device (parent spec user story 15).
+    func openScanner() {
+        errorMessage = nil
+        scannedPairing = nil
+        scanPhase = .scanning
+    }
+
+    /// One code, from the camera or from a test. Parsing touches no network, no
+    /// secret store, and no vault key — all it answers is the name to put on
+    /// the confirmation sheet.
+    func readScannedCode(_ code: String) async {
+        await step { setup in
+            self.scannedPairing = try self.parseScanned(setup, code)
+            self.scanPhase = .confirming
+        }
+    }
+
+    /// The confirmation (parent spec user story 16). This is the only thing in
+    /// the app that sends a vault key anywhere.
+    func sendVaultKey() async {
+        guard let scanned = scannedPairing else { return }
+        await step { _ in
+            self.scanPhase = .sending
+            do {
+                try await scanned.send()
+            } catch {
+                // A refused or already-answered pairing cannot be retried, and
+                // a locked device has nothing to give: either way the next
+                // useful move is a fresh code, so the camera goes back on with
+                // the reason on screen.
+                self.scannedPairing = nil
+                self.scanPhase = .scanning
+                throw error
+            }
+            self.scanPhase = .sent
+        }
+    }
+
+    /// Said no on the confirmation sheet. Nothing was sent, and nothing is kept.
+    func cancelConfirmation() {
+        scannedPairing = nil
+        errorMessage = nil
+        scanPhase = .scanning
+    }
+
+    func closeScanner() {
+        scannedPairing = nil
+        scanPhase = .closed
+    }
+
     func manageSubscription() async {
         await step { setup in
             let portal = try await setup.billingPortal()
@@ -229,6 +395,8 @@ final class HostedSetupModel: ObservableObject {
     /// Called only after the confirmation dialog: the confirmation is a view
     /// modifier on iOS, so the view owns it and this owns what it does.
     func signOut() async {
+        cancelPairing()
+        closeScanner()
         await step { setup in
             try await setup.signOut(sync: self.makeSignOutTarget())
             try await self.readStep(setup)

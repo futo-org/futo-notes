@@ -56,5 +56,17 @@ func hostedErrorMessage(_ error: Error) -> LocalizedMessage {
         return LocalizedMessage("sync.hosted.errors.secretStore")
     case .Crypto:
         return LocalizedMessage("sync.hosted.errors.crypto")
+    case .PairingCodeInvalid:
+        return LocalizedMessage("sync.hosted.errors.pairingCodeInvalid")
+    case .PairingRefused:
+        return LocalizedMessage("sync.hosted.errors.pairingRefused")
+    case .PairingAlreadyKeyed:
+        return LocalizedMessage("sync.hosted.errors.pairingAlreadyKeyed")
+    case .PairingExpired:
+        return LocalizedMessage("sync.hosted.errors.pairingExpired")
+    case .PairingNotStarted:
+        return LocalizedMessage("sync.hosted.errors.pairingNotStarted")
+    case .VaultLocked:
+        return LocalizedMessage("sync.hosted.errors.vaultLocked")
     }
 }

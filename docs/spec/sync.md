@@ -704,11 +704,11 @@ variable for; a stable `vX.Y.Z` tag — the one that reaches Play — does not. 
   a different message from a well-formed key that belongs to another vault.
   → `hosted/vault.rs` `unlock_with_recovery_key`, UnlockStep.svelte _(desktop)_,
   UnlockStepView.swift _(iOS)_, UnlockStep.kt _(Android)_
-  > **Gap:** _(iOS, Android)_ the scan door is still a placeholder on the two
-  > native shells: it names itself and says pairing is not available yet rather
-  > than doing nothing. The engine landed in futo-notes#180 and desktop's half
-  > in #181; the camera, the confirmation sheet, and the native QR renderer are
-  > #182/#183.
+  > **Gap:** _(Android)_ the scan door is still a placeholder on Android: it
+  > names itself and says pairing is not available yet rather than doing
+  > nothing. The engine landed in futo-notes#180, desktop's half in #181, and
+  > iOS's in #182; Android's camera, confirmation sheet, and QR renderer are
+  > #183.
 - **The desktop scan door shows a code and waits; it never scans.** _(desktop)_
   A laptop is the new device, so it draws the payload Rust hands it as a QR code
   for an unlocked phone to read (parent spec user stories 13 and 14). Four
@@ -726,12 +726,50 @@ variable for; a stable `vX.Y.Z` tag — the one that reaches Play — does not. 
   desktop shell rather than asked of the frontend.
   → ScanDoor.svelte + `qrCode.ts` + `pairingCountdown.ts` _(desktop)_,
   `e2ee_hosted_begin_pairing`
+- **The iOS scan door shows a code too, and a phone can also be the new
+  device.** _(iOS)_ The same four states over the same engine calls, drawn with
+  CoreImage instead of a JavaScript encoder and counted down by a SwiftUI
+  `TimelineView` instead of an interval — the countdown still only describes the
+  relay's `expires_at`, and Rust still decides when a code is dead. The code is
+  black on white in both appearances and drawn without smoothing, so the modules
+  stay square at any size. Cancel and choosing another door both stop the wait
+  and put the three doors back. The name the code carries is
+  `UIDevice.current.name`, which on a physical device without the
+  user-assigned-device-name entitlement is the model name ("iPhone") and on a
+  simulator is that simulator's name. Its **received** line says
+  the vault is unlocked rather than that notes are syncing, because an iOS
+  wizard does not start a cycle yet (the gap under "Reaching a set-up, unlocked
+  vault starts syncing"). → ShowPairingCodeView.swift + PairingCodeImage.swift +
+  PairingCountdown.swift _(iOS)_
+- **An unlocked iOS device can scan another device's code.** _(iOS)_ The account
+  card offers "Scan another device", which opens a full-screen camera reading QR
+  codes, then one confirmation naming the device that showed the code and its
+  platform in words, with Send and Cancel (parent spec user stories 15 and 16).
+  Reading a code parses it and nothing else; Send is the only call that seals
+  and posts a vault key, and Cancel leaves with nothing sent. The camera reports
+  a code only when it changes, so an unreadable one raises its message once
+  rather than on every frame. Something that is not a pairing code is named as
+  such, and a refused or already-answered pairing puts the camera back with the
+  reason on screen instead of ending in a dead end.
+  → ScanAnotherDeviceView.swift + PairingScannerView.swift _(iOS)_,
+  `hosted/pairing.rs` `complete_pairing` / `confirm_pairing`
+- **A device that cannot use its camera says so and names the other door.**
+  _(iOS)_ A refused camera permission, a restricted one (parental or MDM
+  control), and a device with no camera at all each get their own sentence plus
+  the way through anyway: on the device being set up, type the vault password
+  (ADR 0003, decision 5). A refused permission also offers Open Settings. The
+  camera permission string is a catalog entry rendered into per-language
+  `InfoPlist.strings`, and it names both uses of the camera — attaching a photo
+  and reading a pairing code. → ScanAnotherDeviceView.swift,
+  `permissions.ios.cameraUsageDescription`,
+  `scripts/generate-native-language-resources.mjs`
 - **"Expired" is what declining looks like, and the wording says so.**
-  _(desktop)_ The relay carries no declined signal — a person who says no on the
-  scanning device sends nothing at all — so a decline and a walk-away both reach
-  the waiting device as the five minutes running out. The expired screen
-  therefore says a code lasts five minutes and that saying no looks the same from
-  here, with nothing shared either way; it never claims to know which happened.
+  _(desktop, iOS)_ The relay carries no declined signal — a person who says no
+  on the scanning device sends nothing at all — so a decline and a walk-away
+  both reach the waiting device as the five minutes running out. The expired
+  screen therefore says a code lasts five minutes and that saying no looks the
+  same from here, with nothing shared either way; it never claims to know which
+  happened.
   **Refused** is the narrower, rarer case where the relay would not serve the
   pairing at all. → `hosted/pairing.rs` `await_pairing`,
   `sync.hosted.pairing.expired` / `.refused`
@@ -749,8 +787,11 @@ variable for; a stable `vX.Y.Z` tag — the one that reaches Play — does not. 
   returns the device name for the confirmation sheet; it touches no network, no
   secret store, and no vault key. Sealing and posting happen only in the confirm
   step, which takes the parsed scan a shell cannot fabricate — on desktop Rust
-  holds it and the frontend never sees the pairing id or public key at all.
-  → `hosted/pairing.rs` `complete_pairing` / `confirm_pairing`
+  holds it and the frontend never sees the pairing id or public key at all, and
+  on iOS the shell holds an opaque UniFFI handle with no constructor, so the
+  confirmation is a real gate rather than a convention.
+  → `hosted/pairing.rs` `complete_pairing` / `confirm_pairing`,
+  ScannedPairing.swift _(iOS)_
 - **A pairing lives five minutes from creation and is collected exactly once.**
   The collecting poll deletes it, so a second poll is not a replay. Waiting past
   the window is `pairingExpired` — which is also what a declined confirmation
@@ -820,7 +861,10 @@ variable for; a stable `vX.Y.Z` tag — the one that reaches Play — does not. 
 
 > **Gap:** _(iOS, Android)_ the native shells still do not start a sync cycle
 > when their wizard finishes — their SyncManagers have only the password-mode
-> connect. Desktop does, as of futo-notes#181; iOS and Android are #182/#183.
+> connect, and `connect_sync` has no UniFFI projection. Desktop does, as of
+> futo-notes#181. futo-notes#182 landed iOS pairing without this, so the iOS
+> pairing screen says the vault is unlocked rather than that a sync is running;
+> the first sync still waits on a cycle the wizard cannot start.
 
 > **Gap:** _(desktop)_ a hosted session is re-established only when the sync
 > settings screen is opened, because nothing at boot knows this vault is hosted:

@@ -660,6 +660,42 @@
           "refused": {
             "title": "That code can’t be used",
             "body": "The server wouldn’t hand this pairing over — it was already answered, or it belongs to a different account. No key was shared."
+          },
+          "ios": {
+            "codeAccessibilityLabel": "Pairing code for this device",
+            "received": {
+              "body": "The key arrived from your other device. Your vault is unlocked here."
+            }
+          },
+          "scan": {
+            "action": "Scan another device",
+            "title": "Scan a pairing code",
+            "body": "Point the camera at the code showing on the device you are setting up.",
+            "confirm": {
+              "title": "Give this device access to your notes?",
+              "body": "This sends your vault key to {device}. Only continue if that is a device you are setting up right now.",
+              "device": "{name} ({platform})",
+              "platform": {
+                "ios": "iPhone or iPad",
+                "android": "Android",
+                "desktop": "Computer"
+              }
+            },
+            "sending": "Sending the key…",
+            "sent": {
+              "title": "Key sent",
+              "body": "{device} should unlock in a moment."
+            },
+            "permissionDenied": {
+              "title": "FUTO Notes can’t use the camera",
+              "body": "Camera access is off for FUTO Notes, so there is nothing here to read a code with. You can turn it on in Settings."
+            },
+            "noCamera": {
+              "title": "This device has no camera",
+              "body": "There is nothing here to read a pairing code with."
+            },
+            "fallback": "You can set the other device up without a camera: on that device choose “Vault password” and type it.",
+            "openSettings": "Open Settings"
           }
         },
         "account": {
@@ -828,7 +864,7 @@
     },
     "permissions": {
       "ios": {
-        "cameraUsageDescription": "Take a photo and attach it to a note.",
+        "cameraUsageDescription": "Take a photo to attach to a note, and scan a pairing code when you set up sync on another device.",
         "photoLibraryUsageDescription": "Attach photos from your library to notes."
       }
     },

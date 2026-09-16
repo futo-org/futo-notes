@@ -177,14 +177,20 @@ struct HostedSyncSections: View {
             }
         case .unlock:
             UnlockStepView(
-                door: $model.unlockDoor,
+                door: model.unlockDoor,
                 busy: model.busy,
+                pairing: model.pairing,
+                pairingPayload: model.pairingPayload,
+                pairingExpiresAt: model.pairingExpiresAt,
+                onChooseDoor: { model.chooseDoor($0) },
                 onVaultPassword: { vaultPassword in
                     Task { await model.unlockWithPassword(vaultPassword) }
                 },
                 onRecoveryKey: { typed in
                     Task { await model.unlockWithRecoveryKey(typed) }
-                }
+                },
+                onShowPairingCode: { Task { await model.showPairingCode() } },
+                onCancelPairing: { model.cancelPairing() }
             )
         case .account:
             HostedAccountCardView(
@@ -192,7 +198,8 @@ struct HostedSyncSections: View {
                 billing: model.billing,
                 busy: model.busy,
                 onManage: { Task { await model.manageSubscription() } },
-                onSignOut: { Task { await model.signOut() } }
+                onSignOut: { Task { await model.signOut() } },
+                scanDestination: { ScanAnotherDeviceView(model: model) }
             )
         }
     }

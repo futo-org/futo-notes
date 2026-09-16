@@ -102,7 +102,7 @@ describe('native language resources', () => {
     expect(english).toBeDefined();
     expect(simplifiedChinese).toBeDefined();
     expect(iosInfoPlistStrings(simplifiedChinese, english)).toContain(
-      '"NSCameraUsageDescription" = "拍摄照片并将其添加到笔记中。";',
+      '"NSCameraUsageDescription" = "拍摄照片并将其添加到笔记中，以及在为另一台设备设置同步时扫描配对码。";',
     );
     expect(iosInfoPlistStrings(simplifiedChinese, english, true)).toContain(
       '"CFBundleDisplayName" = "FUTO 笔记开发版";',

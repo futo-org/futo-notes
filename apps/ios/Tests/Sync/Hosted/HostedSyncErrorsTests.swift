@@ -46,9 +46,37 @@ struct HostedSyncErrorsTests {
             .NoRecoveryKey,
             .SecretStore(reason: "locked"),
             .Crypto(reason: "bad envelope"),
+            .PairingCodeInvalid,
+            .PairingRefused,
+            .PairingAlreadyKeyed,
+            .PairingExpired,
+            .PairingNotStarted,
+            .VaultLocked,
         ]
         let paths = errors.map { hostedErrorMessage($0).path }
         #expect(Set(paths).count == errors.count)
+    }
+
+    /// Each pairing failure is a different thing to do next: scan something
+    /// else, show a new code, show one on a device nobody has answered yet, or
+    /// unlock this device before giving its key away. Folding them into one
+    /// sentence would leave a person re-scanning a code that can never work.
+    @Test("each pairing failure says what to do about that failure")
+    func pairingFailuresAreDistinct() {
+        #expect(
+            hostedErrorMessage(HostedError.PairingCodeInvalid).path
+                == "sync.hosted.errors.pairingCodeInvalid")
+        #expect(
+            hostedErrorMessage(HostedError.PairingRefused).path
+                == "sync.hosted.errors.pairingRefused")
+        #expect(
+            hostedErrorMessage(HostedError.PairingAlreadyKeyed).path
+                == "sync.hosted.errors.pairingAlreadyKeyed")
+        #expect(
+            hostedErrorMessage(HostedError.PairingExpired).path
+                == "sync.hosted.errors.pairingExpired")
+        #expect(
+            hostedErrorMessage(HostedError.VaultLocked).path == "sync.hosted.errors.vaultLocked")
     }
 
     @Test("the two variants that carry a number pass it to the message")

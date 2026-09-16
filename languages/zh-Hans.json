@@ -666,7 +666,7 @@
     },
     "permissions": {
       "ios": {
-        "cameraUsageDescription": "拍摄照片并将其添加到笔记中。",
+        "cameraUsageDescription": "拍摄照片并将其添加到笔记中，以及在为另一台设备设置同步时扫描配对码。",
         "photoLibraryUsageDescription": "将照片图库中的照片添加到笔记中。"
       }
     },
