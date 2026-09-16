@@ -22,8 +22,8 @@ func licenseKeyRowText(_ card: LicenseCardModel, key: String?, revealed: Bool) -
 /// accent, and a 184pt well that holds the supporter coin when licensed
 /// (docs/plan/license-ship.md D1). The well is unpainted space since
 /// 2026-09-16 — see `well` — and the coin TURNS, as it does on the other two
-/// platforms; `SupporterCoin` projects the same extruded disc desktop renders
-/// in three.js, which is why iOS needs no 3D engine for it (D5, superseded).
+/// platforms, and can be dragged; `SupporterCoin` renders the same Blender model
+/// all three shells render (D5, superseded).
 ///
 /// Nothing in the app is gated on a license: this card is the only difference a
 /// purchase makes. Which controls each state offers is Rust's answer

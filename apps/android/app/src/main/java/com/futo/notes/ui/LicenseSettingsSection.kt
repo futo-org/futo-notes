@@ -72,13 +72,13 @@ private val COIN_DIAMETER = 160.dp
  *
  * One container, not a stack of rows: a gunmetal plate with a gold accent and a
  * circular well sunk into it, the same "Steel Ledger" card desktop and iOS draw
- * (docs/plan/license-ship.md D1). The well is there in every state; the static
- * supporter coin sits in it only when Licensed, and that — with the plate and
- * the label — is the whole reward. Nothing in the app is gated on a license.
+ * (docs/plan/license-ship.md D1). The well is there in every state; the supporter
+ * coin sits in it only when Licensed, and that — with the plate and the label —
+ * is the whole reward. Nothing in the app is gated on a license.
  *
- * The coin turns, as it does on desktop — see [SupporterCoin], which projects
- * the same extruded disc rather than modelling it. Nothing else on the plate
- * animates.
+ * The coin turns, as it does on desktop, and can be dragged — see [SupporterCoin],
+ * which renders the same Blender model all three shells render. Nothing else on
+ * the plate animates.
  *
  * Which controls each state offers is Rust's answer (`licenseRowActions` via
  * [LicenseModel.actions]), so Android and iOS render the same table and the

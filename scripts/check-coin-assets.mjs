@@ -75,6 +75,23 @@ for (const [file, expected] of Object.entries(manifest.outputs)) {
   }
 }
 
+// Android cannot read the .hdr; it reads a cubemap `cmgen` prefiltered from it.
+// That derivation is the one step a person can silently skip — change the studio
+// in Blender, rerun the Blender half, and Android keeps reflecting the OLD room
+// while the other two shells reflect the new one. Nothing about that fails to
+// load, so nothing but this catches it.
+if (manifest.ibl !== undefined) {
+  const hdrNow = manifest.outputs[manifest.ibl.from];
+  if (hdrNow !== manifest.ibl.fromSha256) {
+    problems.push(
+      `assets/coin/studio-env-ibl.ktx was prefiltered from a different ${manifest.ibl.from}.\n` +
+        `    the .ktx was built from ${manifest.ibl.fromSha256}\n` +
+        `    the .hdr on disk is     ${hdrNow}\n` +
+        `    Android would reflect the old studio. Run: node scripts/build-coin-ibl.mjs`,
+    );
+  }
+}
+
 if (problems.length > 0) {
   console.error('Coin asset gate FAILED:\n');
   for (const problem of problems) console.error(`  - ${problem}\n`);
@@ -83,5 +100,5 @@ if (problems.length > 0) {
 
 console.log(
   `Coin asset gate OK — ${Object.keys(manifest.outputs).length} exports match build-coin.py ` +
-    `(Blender ${manifest.blender}).`,
+    `(Blender ${manifest.blender}${manifest.ibl === undefined ? '' : `, ${manifest.ibl.tool}`}).`,
 );

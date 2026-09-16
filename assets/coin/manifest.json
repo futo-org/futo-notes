@@ -3,8 +3,15 @@
   "outputs": {
     "futo-coin.glb": "be817b8f0de39abdf1c0409f10331718b00398dfd6161b854540865e7f13fb57",
     "futo-coin.usdz": "7d2fd9d734de284e1098c52707fdc8e450d1f9dfa37d4327253f48e554994011",
-    "studio-env.hdr": "39bf66023882a2c1c9f74c9a22d8f2606811627fb9cfdc0df7e398b3d92b85cc"
+    "studio-env.hdr": "39bf66023882a2c1c9f74c9a22d8f2606811627fb9cfdc0df7e398b3d92b85cc",
+    "studio-env-ibl.ktx": "bf50cc2c0859c8d51f99d16934b7f35fe3e4809ae08ca347e5259e4820e755eb"
   },
   "source": "build-coin.py",
-  "sourceSha256": "ad6306fcbc637267c58e30ec57a30f4bd35ca32181ee3ed124ff5aca4d14883b"
+  "sourceSha256": "ad6306fcbc637267c58e30ec57a30f4bd35ca32181ee3ed124ff5aca4d14883b",
+  "ibl": {
+    "tool": "cmgen 1.71.5",
+    "size": 64,
+    "from": "studio-env.hdr",
+    "fromSha256": "39bf66023882a2c1c9f74c9a22d8f2606811627fb9cfdc0df7e398b3d92b85cc"
+  }
 }

@@ -24,6 +24,22 @@ val generateLocalizationResources = tasks.register<Exec>("generateLocalizationRe
     commandLine("node", "scripts/generate-native-language-resources.mjs", "--android")
 }
 
+// The supporter coin is modelled once in Blender (assets/coin/build-coin.py) and
+// rendered by all three shells. Staging the two files the Android renderer needs
+// — the model and the prefiltered studio it reflects — rather than committing a
+// second copy under app/src/main/assets keeps `assets/coin/` the only place the
+// coin exists. The whole directory is NOT added as an asset source: it also holds
+// the Blender script, the manifest and the iOS-only .usdz, none of which belong
+// in the APK.
+val generatedCoinAssetsDirectory = layout.buildDirectory.dir("generated/coin-assets")
+val stageCoinAssets = tasks.register<Copy>("stageCoinAssets") {
+    from(repositoryRootDirectory.resolve("assets/coin")) {
+        include("futo-coin.glb")
+        include("studio-env-ibl.ktx")
+    }
+    into(generatedCoinAssetsDirectory)
+}
+
 android {
     namespace = "com.futo.notes"
     // compileSdk 36 is the floor required by the modernized androidx stack.
@@ -195,6 +211,7 @@ android {
         getByName("main") {
             res.srcDir(generatedLocalizationDirectory.map { it.dir("res") })
             java.srcDir(generatedLocalizationDirectory.map { it.dir("kotlin") })
+            assets.srcDir(generatedCoinAssetsDirectory)
         }
         getByName("androidTest") {
             assets.srcDir(repositoryRootDirectory.resolve("tests/localization"))
@@ -206,6 +223,10 @@ android {
 
 tasks.named("preBuild").configure {
     dependsOn(generateLocalizationResources)
+    // Registering the directory as an asset source does NOT make the merge wait
+    // for the task that fills it: the first build after a clean packaged an APK
+    // with no coin in it and failed silently to the flat glyph at runtime.
+    dependsOn(stageCoinAssets)
 }
 
 dependencies {
@@ -238,6 +259,20 @@ dependencies {
 
     // Coroutines for the async SyncClient FFI methods.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // Filament draws the supporter coin (com.futo.notes.ui.SupporterCoin). It is
+    // the only 3D content in the app, and the reason it is worth an engine is
+    // that the coin is gold: metal is defined by what it reflects, and a shape
+    // with a gradient painted on it reads as a sticker however correctly it is
+    // projected. gltfio loads assets/coin/futo-coin.glb; filament-utils supplies
+    // KTX1Loader for the prefiltered environment.
+    //
+    // The version MUST match scripts/coin-ibl-pin.json: cmgen from a different
+    // Filament release can write a cubemap this runtime reads as the wrong
+    // lighting rather than rejecting.
+    implementation("com.google.android.filament:filament-android:1.71.5")
+    implementation("com.google.android.filament:gltfio-android:1.71.5")
+    implementation("com.google.android.filament:filament-utils-android:1.71.5")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

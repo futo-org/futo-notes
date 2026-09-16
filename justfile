@@ -610,6 +610,9 @@ coin:
   set -euo pipefail
   command -v blender >/dev/null || { echo "blender is not on PATH - install it (dnf install blender) or see assets/coin/build-coin.py" >&2; exit 1; }
   blender --background --factory-startup --python assets/coin/build-coin.py -- "$PWD/assets/coin"
+  # Android's Filament needs the studio prefiltered into a cubemap; the other
+  # two shells do that themselves at load time. Downloads a pinned cmgen once.
+  node scripts/build-coin-ibl.mjs
   node scripts/check-coin-assets.mjs
 
 # Fail if the exports no longer match build-coin.py, or were hand-edited (M8).

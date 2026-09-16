@@ -31,6 +31,15 @@ targets:
         buildPhase: resources
       - path: Assets.xcassets
         buildPhase: resources
+      # The supporter coin, modelled once in Blender and shared with the desktop
+      # and Android shells. Referenced in place rather than copied into
+      # Resources/ so assets/coin/ stays the only place the coin exists; the
+      # .glb and the Filament cubemap next to them are the other shells' forms of
+      # the same two files and are deliberately not bundled here.
+      - path: ../../assets/coin/futo-coin.usdz
+        buildPhase: resources
+      - path: ../../assets/coin/studio-env.hdr
+        buildPhase: resources
     dependencies:
       # Rust note-domain + sync/auth/E2EE facade (UniFFI). Static lib
       # xcframework — don't embed. Exposes NoteStore + rules + SyncClient.

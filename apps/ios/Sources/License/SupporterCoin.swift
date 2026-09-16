@@ -1,148 +1,256 @@
+import CoreGraphics
+import ImageIO
+import RealityKit
 import SwiftUI
+import simd
 
-/// The FUTO supporter coin, turning on its spindle.
-///
-/// Desktop renders this coin in three.js (`src/features/license/supporterCoin.ts`)
-/// — an extruded disc with the FUTO diamond punched through it, gold face over a
-/// darker rim. iOS does not carry a 3D engine for one Settings ornament, so this
-/// draws the SAME object by projecting it instead of modelling it, and the
-/// Compose `SupporterCoin` does the identical arithmetic on Android.
-///
-/// The projection is the whole trick. An extruded disc of radius R and depth d,
-/// turned by θ about its vertical axis, lands on screen as two copies of the flat
-/// glyph: the far face at horizontal offset −(d·sinθ)/2 and the near face at
-/// +(d·sinθ)/2, both squeezed horizontally to |cosθ|. Draw the far one in rim
-/// gold and the near one in face gold and the coin has a rim, an inner wall
-/// inside the diamond, and a silhouette that narrows to an edge — all of it for
-/// the cost of drawing one asset twice.
-///
-/// `SupporterCoin` in the asset catalog is that glyph and the ONLY art here: no
-/// path is restated in Swift, so the `supporter-coin-glyph` drift entry still
-/// has exactly its three registered copies.
+/// The coin and the studio it reflects, both exported by assets/coin/build-coin.py
+/// and bundled by apps/ios/project.yml.
+private enum CoinAsset {
+    static let model = (name: "futo-coin", extension: "usdz")
+    static let environment = (name: "studio-env", extension: "hdr")
+}
+
+/// Slow enough to read as an object rather than a spinner: one turn every ~5s.
+/// The same number desktop and Android use, in the same units.
+private let baseSpin: Float = 1.25
+
+/// How fast any departure from the resting speed — a flick — bleeds off.
+private let spinDecay: Float = 2.6
+
+/// Radians of turn per point dragged. Desktop's constant is per CSS pixel and a
+/// point is the same apparent size, so the coin turns the same amount under the
+/// same thumb travel on all three.
+private let dragRadiansPerPoint: Float = 0.018
+
+/// A flick is only a flick if the finger was still moving when it left. Below
+/// this the coin is *placed*, and stays where it was put.
+private let flickMinimumSpeed: Float = 0.6
+
+/// Ceiling on a thrown spin, so a fast swipe cannot turn the coin into a strobe.
+private let flickMaximumSpeed: Float = 24
+
+/// A fixed tilt, so the coin reads as a disc even at the instant its face is
+/// edge-on to the camera. Desktop and Android apply the same angle.
+private let tiltX: Float = 0.24
+
+/// The camera. A 30 degree field of view at this distance frames the model's 0.7
+/// diameter at about 84% of the box, leaving room for the corners as it turns —
+/// the same framing as the other two shells.
+private let cameraFieldOfView: Float = 30
+private let cameraDistance: Float = 1.55
+
+/// Frame-time clamp. A view that was off screen hands back a huge delta on its
+/// first frame; without this the coin jumps a random fraction of a turn.
+private let maximumFrameSeconds: Float = 1 / 20
+
+/**
+ The FUTO supporter coin, turning on its spindle.
+
+ This renders the SAME object desktop and Android render: `assets/coin/futo-coin.usdz`,
+ exported from the Blender model in `assets/coin/build-coin.py`, lit by `studio-env.hdr`
+ — the studio from the same script, which ImageIO happens to read natively
+ (`public.radiance`), so iOS needs no converted copy of it. Nothing about the coin's
+ shape or its materials is written in Swift; this file only frames it, turns it and
+ hands it to RealityKit.
+
+ That replaces a 2D projection which drew the flat glyph twice to fake an extruded
+ disc. The projection was clever and cost nothing, but it could not light metal: gold
+ is defined by what it reflects, and a shape with a gradient painted on it reads as a
+ sticker however correctly it is squeezed.
+
+ Drag it and it turns under your thumb; let go while moving and it spins on. It holds
+ still — as a whole, correct coin, not a placeholder — under Reduce Motion, which is
+ the same answer desktop gives `prefers-reduced-motion`.
+ */
 struct SupporterCoin: View {
-    /// Geometry, as fractions of the coin's box, from `supporterCoin.ts`: the
-    /// disc is radius 22 in a 48 box and the extrusion is a sixth of that radius.
-    private static let discRadiusFraction: CGFloat = 22.0 / 48.0
-    private static let depthFraction: CGFloat = (22.0 / 6.0) / 48.0
-
-    /// One turn every ~5s — `BASE_SPIN` (1.25 rad/s) in desktop's units. Slow
-    /// enough to read as an object rather than a spinner.
-    private static let turnSeconds: Double = 5.027
-
-    /// How dark the face goes as it turns away. Metal edge-on catches almost no
-    /// key light, and without this the coin reads as a flat sticker being rotated.
-    private static let edgeOnShade: CGFloat = 0.40
-
-    /// Rim gold — `RIM_COLOR` in `supporterCoin.ts`.
-    private static let rimGold = Color(red: 0.722, green: 0.525, blue: 0.043)
-
-    /// A quarter turn short of face-on, so a still coin still shows a sliver of
-    /// rim and reads as a solid object rather than a decal.
-    private static let restingTurn: Double = 0.35
-
     let diameter: CGFloat
 
-    /// Motion is opt-out at the OS level, so ask before spinning anything. A
-    /// stopped coin still renders as a whole coin — it just holds still.
+    /// Motion is opt-out at the OS level, so ask before spinning anything.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    @State private var turn = CoinTurn()
+    @State private var loadFailed = false
+    /// Cumulative drag translation at the last change, so each event contributes
+    /// the distance the thumb moved rather than the distance it has moved in total.
+    @State private var lastDragX: CGFloat = 0
+
     var body: some View {
-        // TimelineView drives the angle off the display's own clock rather than
-        // an animation on a state variable, so the coin cannot desynchronise
-        // from the run loop the way a repeating `withAnimation` can.
-        TimelineView(.animation(paused: reduceMotion)) { timeline in
-            coin(
-                turn: reduceMotion
-                    ? Self.restingTurn
-                    : timeline.date.timeIntervalSinceReferenceDate
-                        .truncatingRemainder(dividingBy: Self.turnSeconds)
-                        / Self.turnSeconds * 2 * .pi
-            )
+        Group {
+            if loadFailed {
+                // A whole coin, just a still one. Reached only if the bundled
+                // model or environment will not load, which is also the only
+                // state the old projection-based coin could ever be in.
+                Image(decorative: "SupporterCoin")
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                RealityView { content in
+                    await build(content)
+                }
+            }
         }
         .frame(width: diameter, height: diameter)
         .accessibilityHidden(true)
-    }
-
-    @ViewBuilder
-    private func coin(turn: Double) -> some View {
-        let cosine = CGFloat(cos(turn))
-        let sine = CGFloat(sin(turn))
-        // The squeeze. Floored so the coin never collapses to literally nothing
-        // on the frame it passes through edge-on.
-        let squeeze = max(abs(cosine), 0.04)
-        let separation = Self.depthFraction * sine * diameter / 2
-        let halfWidth = Self.discRadiusFraction * squeeze * diameter
-        let halfHeight = Self.discRadiusFraction * diameter
-
-        ZStack {
-            // The extruded wall: the strip of the coin's edge visible between the
-            // two faces. Drawing the faces alone leaves it out, and the coin looks
-            // pinched at top and bottom, as if the two faces were floating apart
-            // with nothing joining them.
-            //
-            // Subtracting the faces is what keeps the diamond a hole. The leftover
-            // slivers sit at the silhouette's vertical extremes, nowhere near the
-            // centre — until the coin is within about 5° of edge-on, where the
-            // faces are narrower than the gap and the wall does reach the middle.
-            // That is not a flaw: looking along a through-hole, you cannot see
-            // through it.
-            wall(halfWidth: halfWidth, halfHeight: halfHeight, halfGap: separation)
-                .fill(Self.rimGold)
-                .frame(width: diameter, height: diameter)
-
-            // The far face, flat rim gold: what shows past the near face is the
-            // rim, and what shows inside the diamond is the hole's inner wall.
-            // `.template` keeps the glyph's alpha — so the diamond is still a
-            // hole — and replaces its gradient with the one flat rim colour.
-            glyph(template: true)
-                .foregroundStyle(Self.rimGold)
-                .scaleEffect(x: squeeze, y: 1)
-                .offset(x: -separation)
-
-            // The near face, keeping the glyph's own gold gradient.
-            // `colorMultiply` shades what is drawn without touching alpha, so
-            // the diamond stays a hole rather than filling with a dark square.
-            glyph(template: false)
-                .colorMultiply(Color(white: 1 - (1 - abs(cosine)) * Self.edgeOnShade))
-                .scaleEffect(x: squeeze, y: 1)
-                .offset(x: separation)
+        .gesture(
+            DragGesture(minimumDistance: 1)
+                .onChanged { value in
+                    if !turn.dragging {
+                        turn.grab()
+                        lastDragX = value.translation.width
+                    }
+                    let delta = Float(value.translation.width - lastDragX)
+                    lastDragX = value.translation.width
+                    turn.turnBy(delta * dragRadiansPerPoint)
+                }
+                .onEnded { value in
+                    // `velocity` is points/second; the same constant that turns a
+                    // drag into radians turns it into radians/second.
+                    let thrown = Float(value.velocity.width) * dragRadiansPerPoint
+                    turn.release(
+                        abs(thrown) > flickMinimumSpeed
+                            ? min(max(thrown, -flickMaximumSpeed), flickMaximumSpeed)
+                            : nil
+                    )
+                    lastDragX = 0
+                }
+        )
+        .onChange(of: reduceMotion, initial: true) { _, paused in
+            turn.animates = !paused
         }
     }
 
-    /// The band between the two faces with both faces cut out of it.
-    ///
-    /// That band IS the hull of the two face ellipses minus their union: the hull
-    /// is the two ellipses plus the rectangle spanning the gap (at the very top
-    /// and bottom each ellipse is a single point, and the rectangle's edge runs
-    /// exactly between them), so subtracting the ellipses leaves the rectangle
-    /// minus the ellipses and nothing else. Empty face-on, which is correct —
-    /// there is no edge to see then.
-    private func wall(halfWidth: CGFloat, halfHeight: CGFloat, halfGap: CGFloat) -> Path {
-        let gap = abs(halfGap)
-        let middle = diameter / 2
-        let band = Path(
-            CGRect(
-                x: middle - gap, y: middle - halfHeight,
-                width: gap * 2, height: halfHeight * 2))
-        let near = Path(
-            ellipseIn: CGRect(
-                x: middle + gap - halfWidth, y: middle - halfHeight,
-                width: halfWidth * 2, height: halfHeight * 2))
-        let far = Path(
-            ellipseIn: CGRect(
-                x: middle - gap - halfWidth, y: middle - halfHeight,
-                width: halfWidth * 2, height: halfHeight * 2))
-        return band.subtracting(near).subtracting(far)
+    @MainActor
+    private func build(_ content: RealityViewContent) async {
+        guard
+            let modelURL = Bundle.main.url(
+                forResource: CoinAsset.model.name, withExtension: CoinAsset.model.extension),
+            let coin = try? await Entity(contentsOf: modelURL)
+        else {
+            loadFailed = true
+            return
+        }
+
+        // The coin is turned through a PIVOT rather than directly. The exported
+        // model carries its own transform (it is authored lying down and stood up
+        // on export), so turning it directly would tumble it end over end instead
+        // of spinning it on its spindle.
+        let pivot = Entity()
+        pivot.addChild(coin)
+        content.add(pivot)
+        turn.attach(to: pivot)
+
+        if let environment = await Self.studioEnvironment() {
+            // An image-based light rather than a skybox: a skybox would paint the
+            // studio behind the coin, and the coin has to sit on the app's card.
+            // The environment IS the lighting — no directional or ambient light is
+            // added, so every highlight is a reflection of studio-env.hdr, which is
+            // what makes this render and the other two the same object.
+            let light = Entity()
+            light.components.set(
+                ImageBasedLightComponent(source: .single(environment), intensityExponent: 0))
+            content.add(light)
+            pivot.components.set(ImageBasedLightReceiverComponent(imageBasedLight: light))
+        }
+
+        let camera = PerspectiveCamera()
+        camera.camera.fieldOfViewInDegrees = cameraFieldOfView
+        camera.camera.near = 0.1
+        camera.camera.far = 10
+        camera.look(at: .zero, from: [0, 0, cameraDistance], relativeTo: nil)
+        content.add(camera)
+
+        // RealityKit's own update event rather than a SwiftUI timeline: it carries
+        // the real frame delta and fires on the render loop, so the coin cannot
+        // desynchronise from the frames it is being drawn into.
+        turn.subscription = content.subscribe(to: SceneEvents.Update.self) { event in
+            turn.step(Float(event.deltaTime))
+        }
     }
 
-    /// `decorative:` and not `Image("…")`: the coin is announced by the well it
-    /// sits in, and an undecorated Image hands VoiceOver the ASSET NAME — a
-    /// developer string that is in no catalog.
-    private func glyph(template: Bool) -> some View {
-        Image(decorative: "SupporterCoin")
-            .renderingMode(template ? .template : .original)
-            .resizable()
-            .scaledToFit()
-            .frame(width: diameter, height: diameter)
+    /// The studio, decoded straight from the Radiance .hdr the other two shells use.
+    ///
+    /// ImageIO lists `public.radiance` among its readable types, so the file that
+    /// lights the coin on desktop lights it here too — no converted copy, and no
+    /// second thing to keep in step with the Blender script.
+    private static func studioEnvironment() async -> EnvironmentResource? {
+        guard
+            let url = Bundle.main.url(
+                forResource: CoinAsset.environment.name,
+                withExtension: CoinAsset.environment.extension),
+            let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+            let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else { return nil }
+        return try? await EnvironmentResource(equirectangular: image)
+    }
+}
+
+/// Where the coin is pointed, and how that changes over time.
+///
+/// Separate from the view because the angle advances on RealityKit's render loop
+/// rather than on SwiftUI state changes: rebuilding the view sixty times a second
+/// to turn a coin would be its own bug.
+@MainActor
+@Observable
+final class CoinTurn {
+    var animates = true
+    private(set) var dragging = false
+    /// Retained because an `EventSubscription` stops delivering the moment it is
+    /// released, which would leave a coin that renders but never moves.
+    var subscription: EventSubscription?
+
+    private var pivot: Entity?
+    private var angle: Float = 0
+    private var spin: Float = baseSpin
+
+    func attach(to entity: Entity) {
+        pivot = entity
+        apply()
+    }
+
+    func grab() {
+        dragging = true
+    }
+
+    func turnBy(_ radians: Float) {
+        angle += radians
+        apply()
+    }
+
+    /// `thrown` is nil when the finger was resting as it lifted: the coin was
+    /// placed, and eases back to its resting speed from wherever it was put.
+    func release(_ thrown: Float?) {
+        dragging = false
+        spin = thrown ?? restingSpin
+    }
+
+    func step(_ elapsed: Float) {
+        // While a finger is down the gesture owns the angle outright: the coin
+        // tracks the hand exactly rather than being nudged by a velocity, which is
+        // what makes it feel like an object and not a dial.
+        guard !dragging else { return }
+        let delta = min(elapsed, maximumFrameSeconds)
+        // Eases in from either side, so a backwards flick settles as gracefully as
+        // a forwards one.
+        spin = restingSpin + (spin - restingSpin) * exp(-spinDecay * delta)
+        angle += spin * delta
+        apply()
+    }
+
+    private var restingSpin: Float { animates ? baseSpin : 0 }
+
+    private func apply() {
+        pivot?.transform.rotation = Self.tiltedSpin(tilt: tiltX, turn: angle)
+    }
+
+    /// The coin's orientation: tilted about X, then turned about Y.
+    ///
+    /// The order is the one every shell uses. Tilt first gives a coin on a FIXED
+    /// tilted spindle, which is what a coin on a stand does; spinning first and
+    /// tilting after swings the spindle itself and the coin wobbles like a dropped
+    /// hubcap. Quaternion multiplication applies the RIGHT operand first, so this
+    /// reads backwards from the order it performs.
+    static func tiltedSpin(tilt: Float, turn: Float) -> simd_quatf {
+        simd_quatf(angle: tilt, axis: [1, 0, 0]) * simd_quatf(angle: turn, axis: [0, 1, 0])
     }
 }
