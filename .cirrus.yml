@@ -257,6 +257,55 @@ build_macos_task:
   updater_artifacts:
     path: "updater/*"
 
+# Internal, hosted-enabled macOS build (D2, taken —
+# docs/plan/hosted-sync-to-staging.md, ticket C8). Invoked ONLY by
+# .gitlab-ci.yml's build:desktop-internal:macos, on prerelease tags.
+#
+# Deliberately receives none of MACOS_CERT_PASSWORD/ASC_KEY_ID/ASC_ISSUER_ID/
+# TAURI_SIGNING_PRIVATE_KEY — build:desktop-internal:macos exports only CI_*
+# into .cienv, so no Apple certificate, no notarization credential, and no
+# updater signing key ever reaches this VM. Building with the base
+# tauri.conf.json (no --config override, unlike build_macos_task above) means
+# there is no `createUpdaterArtifacts` and so no .sig/.app.tar.gz this job
+# could produce even if it tried — the same M23 guarantee build_macos_task's
+# updater-release config exists to prove, held here by simply never wiring
+# the secrets or the config in. The DMG is unsigned; testers bypass
+# Gatekeeper (right-click → Open, or `xattr -d com.apple.quarantine`).
+build_macos_internal_task:
+  name: buildFutoNotesMacOSInternal
+  macos_instance:
+    image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
+  buildFutoNotesMacOSInternal_script:
+    - brew install fnm
+    - eval "$(fnm env --shell bash)"
+    - fnm use --install-if-missing
+    - node --version
+    - corepack enable
+    - corepack prepare pnpm@10.29.2 --activate
+
+    - curl https://sh.rustup.rs -sSf | sh -s -- -y
+    - export PATH="$HOME/.cargo/bin:$PATH"
+    - rustup target add aarch64-apple-darwin x86_64-apple-darwin
+    - cargo install tauri-cli --locked
+
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - echo "Building internal macOS version $VERSION (hosted sync ON, staging server)"
+
+    - pnpm install --frozen-lockfile
+    - node scripts/desktop-version.mjs "$VERSION"
+
+    - export VITE_HOSTED_SYNC=true
+    - export FUTO_HOSTED_SERVER_BAKED=https://staging-notes-sync.futo.org
+    - unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+
+    - cd apps/tauri
+    - cargo tauri build --target universal-apple-darwin
+    - cd ../..
+
+    - cp target/universal-apple-darwin/release/bundle/dmg/*.dmg ./
+  binary_artifacts:
+    path: "*.dmg"
+
 # Native iOS app (SwiftUI over the futo-notes-ffi UniFFI core + embedded
 # editor.html). Tag builds produce a signed Release IPA for TestFlight;
 # non-tag builds are unsigned simulator compile checks.
