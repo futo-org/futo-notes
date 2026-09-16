@@ -19,9 +19,11 @@ func licenseKeyRowText(_ card: LicenseCardModel, key: String?, revealed: Bool) -
 /// and copy).
 ///
 /// It is the "Steel Ledger" plate: one container, a gunmetal gradient, a gold
-/// accent, and a 184pt circular well that is recessed in every state and holds
-/// the supporter coin when licensed (docs/plan/license-ship.md D1/D5). The coin
-/// here is **static** — only desktop turns it.
+/// accent, and a 184pt well that holds the supporter coin when licensed
+/// (docs/plan/license-ship.md D1). The well is unpainted space since
+/// 2026-09-16 — see `well` — and the coin TURNS, as it does on the other two
+/// platforms; `SupporterCoin` projects the same extruded disc desktop renders
+/// in three.js, which is why iOS needs no 3D engine for it (D5, superseded).
 ///
 /// Nothing in the app is gated on a license: this card is the only difference a
 /// purchase makes. Which controls each state offers is Rust's answer
@@ -94,22 +96,19 @@ struct LicenseSettingsSection: View {
     }
 
     /// The well is present in every state — empty is a state, not an absence
-    /// (D1). No ring and no outline: the inset shadow is the whole edge.
+    /// (D1) — but it is now a reserved SPACE rather than a drawn recess. @justin
+    /// 2026-09-16 asked for the circle border gone on all three platforms, and
+    /// the filled disc plus its inset edge was that border; the coin sits on the
+    /// plate directly. The frame stays, so the layout and the label do not move.
     private var well: some View {
-        Circle()
-            .fill(Theme.Plate.recess)
+        Color.clear
             .frame(width: Self.wellDiameter, height: Self.wellDiameter)
             .overlay {
                 if card?.status == .licensed {
-                    // `decorative:` and not `Image("…")`: the well already
-                    // carries the coin's catalog label, and an undecorated
-                    // Image hands VoiceOver the ASSET NAME — a developer
-                    // string that is in no catalog.
-                    Image(decorative: "SupporterCoin")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: Self.coinDiameter, height: Self.coinDiameter)
-                        .accessibilityHidden(true)
+                    // The well already carries the coin's catalog label, so the
+                    // coin itself is hidden from VoiceOver rather than being a
+                    // second stop that says the same thing.
+                    SupporterCoin(diameter: Self.coinDiameter)
                 }
             }
             .accessibilityElement(children: .ignore)

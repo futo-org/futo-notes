@@ -561,12 +561,27 @@ drift-registered concept, `license-card-copy`
 - **The FUTO coin** is the one thing a purchase *adds*, on all three platforms:
   a gold coin with the FUTO diamond punched through it, sized 160 inside the
   184 well (CSS px on desktop, pt on iOS, dp on Android) while the state is
-  Licensed, and absent — leaving the well an empty recess — in every other
-  state. It is the storefront's own coin, geometry and
+  Licensed, and absent — leaving the well empty — in every other state. The well
+  is **unpainted space**, not a drawn recess: it reserves the 184 box and carries
+  the accessibility label, and nothing is stroked or filled in it on any
+  platform. It was a machined recess with an inset-shadow edge until 2026-09-16,
+  when @justin asked for the circle border gone on all three; on Android that
+  edge had been the entire well. On desktop the well is also **vertically
+  centred** against the field column rather than pinned to its top — the coin is
+  the only thing on that side, and a circle at the top of a taller column reads
+  as having slipped. It is the storefront's own coin, geometry and
   materials ported from lib-polar
   `pylib/futopay_server/static/js/coin-bounce.js` without that file's physics
   world, and one glyph rendered three ways: desktop's inline SVG, an iOS vector
   imageset, an Android vector drawable (drift concept `supporter-coin-glyph`).
+  That glyph is the FUTO diamond — a rounded square on its point, half-diagonal
+  0.45 of the disc radius. Until 2026-09-16 all three copies carried a
+  hand-drawn path that was a pinched figure-eight instead, roughly a quarter of
+  the right width; desktop hid it behind the three.js coin, so it was only ever
+  visible on the two native shells. The path is now DERIVED rather than drawn,
+  and `scripts/check-supporter-coin-glyph.mjs` (in `check:arch-gate`) fails if
+  any of the three stops matching it. →
+  `just check` / `node scripts/check-supporter-coin-glyph.mjs --print`
   The coin is not a claim about a date and renders for a v1 activation
   regardless.
   - *(desktop)* The coin **turns**: three.js, loaded on demand, so it costs a
@@ -582,17 +597,29 @@ drift-registered concept, `license-card-copy`
     on purpose and can leave. → `SupporterCoin.svelte`, `supporterCoin.ts`,
     `license.svelte.ts` (`activations`) + `license.svelte.test.ts` "marking the
     moment of activation"
-  - *(native shells)* The coin is **static** — the same glyph, no motion and no
-    GL surface. Deliberate (plan D5): the plate, not the animation, is what the
-    native shells adopted.
-
-    > **Gap:** the coin animates only on desktop. iOS and Android show the same
-    > plate and the same coin as a still glyph, because a WebGL/three.js canvas
-    > is a web-shell affordance and re-authoring the motion per platform
-    > (SceneKit, a Compose GL surface) is a separate decision from adopting the
-    > coin itself, which they now have. Narrowed 2026-09-16 from "the coin is
-    > desktop-only" (open 2026-09-15), when both native plates shipped the
-    > glyph.
+  - *(native shells)* The coin **turns** too, at the same one-turn-per-5s resting
+    speed, with no 3D engine on either platform: the shells **project** the
+    extruded disc instead of modelling it. Turned by θ about its vertical axis,
+    the disc lands on screen as two copies of the same flat glyph — the far face
+    in rim gold, the near face in face gold, each squeezed horizontally to
+    |cos θ| and separated by d·sin θ — which gives a rim, an inner wall inside
+    the diamond, and a silhouette that narrows to an edge for the cost of drawing
+    one asset twice. Between the two faces the shells fill the **extruded wall** —
+    the band spanning the gap, minus the two faces, which is exactly the part of
+    the silhouette neither face covers. Without it the coin is visibly pinched at
+    top and bottom, where the two projected ellipses each taper to a point and
+    nothing joins them. Subtracting the faces is what keeps the diamond a hole:
+    the leftover slivers sit at the silhouette's vertical extremes until the coin
+    is within about 5° of edge-on, where the faces are narrower than the gap and
+    the wall does close the diamond over — correctly, since a through-hole seen
+    along its axis is occluded. Neither shell restates the glyph
+    path, so `supporter-coin-glyph` still has exactly its three copies. It holds
+    still under `prefers-reduced-motion` (iOS) and a zero animator scale
+    (Android), and — as on desktop — the coin appears only in Settings, never in
+    a surface that sits beside the editor (M5). There is no celebrate spin on
+    mobile: activation there does not pass through a moment the card is already
+    on screen for. → `apps/ios/Sources/License/SupporterCoin.swift`,
+    `apps/android/.../ui/SupporterCoin.kt`
 - **Ambient label** (the thing a purchase removes): the text "Unlicensed" when
   Unlicensed or Expired; "Licensed since {date}" when Licensed with an
   `issued_at`; and **nothing at all** for a v1 license — the element is removed

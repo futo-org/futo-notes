@@ -4,7 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -36,19 +34,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
-import com.futo.notes.R
 import com.futo.notes.license.LICENSE_LOG_TAG
 import com.futo.notes.license.LicenseCardModel
 import com.futo.notes.license.LicenseModel
@@ -56,7 +51,6 @@ import com.futo.notes.license.catalogPath
 import com.futo.notes.license.licenseCardModel
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.components.MicroLabel
-import com.futo.notes.ui.theme.FutoPlateWell
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
@@ -64,7 +58,10 @@ import kotlinx.coroutines.launch
 import uniffi.futo_notes_ffi.LicenseAction
 import uniffi.futo_notes_ffi.LicenseStatus
 
-/** The well is 184dp and the coin 160dp on every platform (D1/D5). */
+/** The well is 184dp and the coin 160dp on every platform (D1/D5). The well is
+ *  a reserved SPACE now, not a drawn recess — @justin 2026-09-16 asked for the
+ *  circle border gone on all three platforms, and on Android the inset-shadow
+ *  ring WAS the whole well, so nothing is painted here any more. */
 private val WELL_DIAMETER = 184.dp
 private val COIN_DIAMETER = 160.dp
 
@@ -79,8 +76,9 @@ private val COIN_DIAMETER = 160.dp
  * supporter coin sits in it only when Licensed, and that — with the plate and
  * the label — is the whole reward. Nothing in the app is gated on a license.
  *
- * Unlike desktop, nothing here animates (D5): the coin is the vector drawable,
- * not a turning three.js disc.
+ * The coin turns, as it does on desktop — see [SupporterCoin], which projects
+ * the same extruded disc rather than modelling it. Nothing else on the plate
+ * animates.
  *
  * Which controls each state offers is Rust's answer (`licenseRowActions` via
  * [LicenseModel.actions]), so Android and iOS render the same table and the
@@ -291,46 +289,15 @@ private fun LicenseWell(licensed: Boolean, label: String?) {
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(WELL_DIAMETER)
-            .clip(CircleShape)
-            .drawBehind {
-                // The shadow hugs the rim: a 6px blur on a 184px circle reaches
-                // about a twelfth of the radius inward, so anything wider stops
-                // reading as a depression and starts reading as the ring D1
-                // explicitly does not want.
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        0.90f to Color.Transparent,
-                        1.0f to FutoPlateWell.Shadow,
-                        radius = size.minDimension / 2f,
-                    ),
-                )
-                // The 2px downward offset: a short cast under the top edge only.
-                drawCircle(
-                    brush = Brush.verticalGradient(
-                        0.0f to FutoPlateWell.Shadow,
-                        0.06f to Color.Transparent,
-                    ),
-                )
-                // inset 0 -1px 0 — one hairline of light at the bottom edge.
-                drawCircle(
-                    brush = Brush.verticalGradient(
-                        0.99f to Color.Transparent,
-                        1.0f to FutoPlateWell.Highlight,
-                    ),
-                )
-            }
             .then(
                 if (label == null) Modifier else Modifier.semantics { contentDescription = label },
             ),
     ) {
         if (licensed) {
-            Image(
-                painter = painterResource(R.drawable.ic_supporter_coin),
-                // The well carries the label; a second one here would make the
-                // coin a separate stop that says the same thing.
-                contentDescription = null,
-                modifier = Modifier.size(COIN_DIAMETER),
-            )
+            // The well carries the label; a second one on the coin would make it
+            // a separate stop that says the same thing, so `SupporterCoin` is
+            // undecorated.
+            SupporterCoin(diameter = COIN_DIAMETER)
         }
     }
 }

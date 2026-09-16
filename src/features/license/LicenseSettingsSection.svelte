@@ -210,7 +210,6 @@
     --plate-ink-dim: #4f5d6a;
     --plate-rule: #a9b4be;
     --plate-accent: #b8860b;
-    --plate-well: #c6ced6;
 
     display: flex;
     flex-wrap: wrap;
@@ -229,24 +228,27 @@
     --plate-ink-dim: #9aa6b1;
     --plate-rule: #3d4650;
     --plate-accent: #ffbb00;
-    --plate-well: #161b20;
   }
 
-  /* A machined recess: inset shadow only, no ring or outline (D1). The size is
-     a constant, not an aspect ratio — in a flex row the main size resolves
-     before the cross size, so `aspect-ratio` has no definite height to work
-     from and collapses. */
+  /* A reserved space, not a drawn recess: @justin 2026-09-16 asked for the
+     circle border gone on all three platforms, and the filled disc plus its
+     inset edge was that border. The box stays so the layout and the empty
+     state keep their shape; nothing is painted in it.
+
+     `align-self: center` and not the plate's `flex-start`: the coin is the
+     only thing on this side, and a 184px circle pinned to the top of a taller
+     text column reads as having slipped rather than as being placed.
+
+     The size is a constant, not an aspect ratio — in a flex row the main size
+     resolves before the cross size, so `aspect-ratio` has no definite height
+     to work from and collapses. */
   .license-well {
     flex: 0 0 auto;
+    align-self: center;
     display: grid;
     place-items: center;
     width: 184px;
     height: 184px;
-    border-radius: 50%;
-    background: var(--plate-well);
-    box-shadow:
-      inset 0 2px 6px rgba(0, 0, 0, 0.28),
-      inset 0 -1px 0 rgba(255, 255, 255, 0.35);
   }
 
   .license-coin {

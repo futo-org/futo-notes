@@ -578,8 +578,8 @@
     {
       "concept": "supporter-coin-glyph",
       "description": "The FUTO supporter coin glyph: a gold-gradient disc with the diamond punched through it (evenOdd), viewBox 0 0 48 48, stops #ffd24d / #ffbb00 / #b8860b at 0 / 55% / 100%. One path, three renderings — desktop draws it as inline SVG (and turns a three.js coin on top of it), iOS carries it as a vector imageset, Android as a vector drawable. It is artwork, not logic: the shells cannot share a file because each platform needs the glyph in its own asset format.",
-      "lockStatus": "unlocked",
-      "note": "Unlocked: nothing but you keeps these three in sync. There is no gate that can compare an inline SVG path, an .svg in an .xcassets imageset and an Android <vector> pathData for visual equivalence, so if the coin art changes, change all three copies in the SAME commit and say so in the message. The desktop copy is the source: it is the one a human edits, and the other two are exported from it.",
+      "lockStatus": "locked",
+      "note": "LOCKED since 2026-09-16 by scripts/check-supporter-coin-glyph.mjs, which DERIVES the glyph from the coin's own constants (disc radius 22 in a 48 box; diamond half-diagonal 0.45 of it, corners 0.16) and asserts all three copies carry that exact path. This entry previously claimed no gate could compare an inline SVG path, an .svg in an .xcassets imageset and an Android <vector> pathData -- true for visual equivalence in general, false here, because the three carry the byte-identical string and the shape is computable. The cost of believing it: all three shipped a hand-drawn pinched figure-eight instead of the FUTO diamond, and because desktop draws the three.js coin on top of its copy, only the two native shells ever showed it. Change the coin by changing the constants in supporterCoin.ts AND in the gate, then paste `node scripts/check-supporter-coin-glyph.mjs --print` into all three files in one commit. The two SupporterCoin views (Compose, SwiftUI) deliberately transform these assets rather than restating the path, which is why spinning the coin natively added no fourth copy.",
       "copies": [
         {
           "location": "src/features/license/SupporterCoin.svelte",
@@ -592,6 +592,34 @@
         {
           "location": "apps/android/app/src/main/res/drawable/ic_supporter_coin.xml",
           "pattern": "ic_supporter_coin|FFFFD24D"
+        }
+      ],
+      "locks": [
+        {
+          "path": "scripts/check-supporter-coin-glyph.mjs",
+          "kind": "gate"
+        }
+      ]
+    },
+    {
+      "concept": "supporter-coin-projection",
+      "description": "How the two native shells turn the flat supporter-coin glyph into a spinning 3D coin without a 3D engine. Same arithmetic in Kotlin and Swift: an extruded disc of radius R and depth d turned by theta projects to two copies of the glyph, the far face at -(d*sin)/2 and the near face at +(d*sin)/2, each squeezed horizontally to |cos|, with the extruded wall filling the band between them minus the faces themselves. Desktop does not share this -- it runs the real three.js coin -- so this is a two-copy concept, not three.",
+      "lockStatus": "partial",
+      "note": "Partial: the subtle half of the law is locked on the Kotlin side by SupporterCoinTest -- where the faces stop covering the centre, which is where the extruded wall starts closing the diamond over. That must happen only within a couple of degrees of edge-on, where a through-hole seen along its axis really is occluded; anywhere earlier and the FUTO coin becomes a disc with a diamond painted on it rather than punched through it. The first cut put the crossover at 30 degrees, and the cut after that drew no wall at all, which left the coin visibly pinched at top and bottom. The Swift copy has no equivalent test yet, so the two can still drift; the geometry constants on both sides are derived from supporterCoin.ts's OUTER_RADIUS/DEPTH and must move with it.",
+      "copies": [
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/ui/SupporterCoin.kt",
+          "pattern": "fun extrudedWall"
+        },
+        {
+          "location": "apps/ios/Sources/License/SupporterCoin.swift",
+          "pattern": "func wall\\(halfWidth"
+        }
+      ],
+      "locks": [
+        {
+          "path": "apps/android/app/src/test/java/com/futo/notes/ui/SupporterCoinTest.kt",
+          "kind": "test"
         }
       ]
     },
