@@ -48,6 +48,12 @@ pub struct LicenseView {
     pub issued_at: Option<String>,
     /// `expires_at`, or `null` for a perpetual license.
     pub expires_at: Option<String>,
+    /// The stored license key, in the crate's normalized form — the same
+    /// string that is on disk. The card shows it masked and reveals it on
+    /// request, so it crosses here rather than being read out of the license
+    /// file by a shell. `None` whenever the state is Unlicensed, which
+    /// includes a stored pair that no longer verifies.
+    pub key: Option<String>,
 }
 
 /// The Buy / Renew and "Lost your key?" destinations, so no shell hardcodes a
@@ -208,11 +214,13 @@ fn view_of(state: &LicenseState) -> LicenseView {
             state: STATE_LICENSED,
             issued_at: details.issued_at.and_then(rfc3339),
             expires_at: details.expires_at.and_then(rfc3339),
+            key: Some(details.key.clone()),
         },
         LicenseState::Expired(details) => LicenseView {
             state: STATE_EXPIRED,
             issued_at: details.issued_at.and_then(rfc3339),
             expires_at: details.expires_at.and_then(rfc3339),
+            key: Some(details.key.clone()),
         },
         LicenseState::Invalid(_) => unlicensed_view(),
     }
@@ -223,6 +231,7 @@ fn unlicensed_view() -> LicenseView {
         state: STATE_UNLICENSED,
         issued_at: None,
         expires_at: None,
+        key: None,
     }
 }
 
@@ -550,6 +559,40 @@ mod tests {
         assert_eq!(view.state, "licensed");
         assert_eq!(view.issued_at, None);
         assert_eq!(view.expires_at, None);
+    }
+
+    /// The card renders the stored key, so it has to cross the boundary —
+    /// there is no other desktop route to it, and a shell that reached past
+    /// this record into the license file would be re-deciding storage (§4).
+    /// It crosses in the crate's **normalized** form (`LicenseDetails::key`),
+    /// which is the exact string `write_pair` put on disk, so the row can
+    /// never disagree with what would be re-sent to the activation endpoint.
+    /// An expired license is still stored and still shows its key.
+    #[test]
+    fn a_licensed_state_carries_the_normalized_key() {
+        let licensed = view_of(&LicenseState::Licensed(details()));
+        let expired = view_of(&LicenseState::Expired(details()));
+
+        assert_eq!(
+            licensed.key.as_deref(),
+            Some("FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78")
+        );
+        assert_eq!(
+            expired.key.as_deref(),
+            Some("FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78")
+        );
+    }
+
+    /// Unlicensed has no key to show, and neither does a stored pair that
+    /// stopped verifying: leaking the key it was minted for would make the
+    /// card render a license the app just refused.
+    #[test]
+    fn an_unlicensed_view_carries_no_key() {
+        assert_eq!(unlicensed_view().key, None);
+        assert_eq!(
+            view_of(&LicenseState::Invalid(InvalidReason::KeyMismatch)).key,
+            None
+        );
     }
 
     /// `InvalidReason` is diagnostic only: a stored pair that no longer

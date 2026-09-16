@@ -70,6 +70,13 @@ pub struct LicenseView {
     /// `expires_at`, or `None` for a perpetual license. A shell must not
     /// invent a date when this is absent; the row drops the clause instead.
     pub expires_at_millis: Option<i64>,
+    /// The stored license key, in the crate's normalized (trimmed, uppercased)
+    /// form — the same string the shell has on disk. The card shows it masked
+    /// and reveals it on request, so it crosses here rather than each shell
+    /// reaching back into its own storage for display. `None` whenever the
+    /// status is Unlicensed, which includes a stored pair that no longer
+    /// verifies.
+    pub key: Option<String>,
 }
 
 /// A license the shell should persist, together with the state to render.
@@ -358,6 +365,7 @@ fn unlicensed() -> LicenseView {
         status: LicenseStatus::Unlicensed,
         issued_at_millis: None,
         expires_at_millis: None,
+        key: None,
     }
 }
 
@@ -374,11 +382,13 @@ fn view_of(state: &LicenseState) -> LicenseView {
             status: LicenseStatus::Licensed,
             issued_at_millis: details.issued_at.map(epoch_millis),
             expires_at_millis: details.expires_at.map(epoch_millis),
+            key: Some(details.key.clone()),
         },
         LicenseState::Expired(details) => LicenseView {
             status: LicenseStatus::Expired,
             issued_at_millis: details.issued_at.map(epoch_millis),
             expires_at_millis: details.expires_at.map(epoch_millis),
+            key: Some(details.key.clone()),
         },
         LicenseState::Invalid(_) => unlicensed(),
     }
@@ -542,6 +552,47 @@ mod tests {
         assert_eq!(view.status, LicenseStatus::Expired);
         assert_eq!(view.issued_at_millis, Some(ISSUED_AT_MILLIS));
         assert_eq!(view.expires_at_millis, Some(EXPIRES_AT_MILLIS));
+    }
+
+    /// The card renders the stored key (masked, revealable), so it crosses on
+    /// this record rather than being read back out of each shell's own
+    /// storage. It crosses **normalized**: a lower-cased or padded paste is
+    /// stored and shown in the one form the crate defines, so the row can
+    /// never disagree with what would be re-sent to the activation endpoint.
+    #[test]
+    fn a_licensed_view_carries_the_normalized_key() {
+        let untidy = LicensePair {
+            key: format!("  {}  ", KEY.to_lowercase()),
+            activation: ACTIVATION.to_string(),
+        };
+
+        let view = evaluate_at(Some(untidy), DEV_BUNDLE_ID, during_term());
+
+        assert_eq!(view.status, LicenseStatus::Licensed);
+        assert_eq!(view.key.as_deref(), Some(KEY));
+    }
+
+    /// An expired license is kept on the device, so its key is still there to
+    /// show — the card asks the user to renew THAT key.
+    #[test]
+    fn an_expired_view_keeps_its_key() {
+        let view = evaluate_at(Some(pair(ACTIVATION)), DEV_BUNDLE_ID, after_term());
+
+        assert_eq!(view.status, LicenseStatus::Expired);
+        assert_eq!(view.key.as_deref(), Some(KEY));
+    }
+
+    /// Unlicensed has no key to show — and neither does a stored pair that
+    /// stopped verifying, including one from the other environment (M3).
+    /// Rendering the key of a license this build just refused would tell the
+    /// user they hold something the app does not honour.
+    #[test]
+    fn an_unlicensed_view_carries_no_key() {
+        assert_eq!(evaluate_at(None, DEV_BUNDLE_ID, during_term()).key, None);
+        assert_eq!(
+            evaluate_at(Some(pair(ACTIVATION)), RELEASE_BUNDLE_ID, during_term()).key,
+            None
+        );
     }
 
     /// CRITICAL (M3). The same staging license must verify on a `.dev` build

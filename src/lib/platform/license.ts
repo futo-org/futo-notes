@@ -22,6 +22,11 @@ export interface LicenseView {
   issuedAt: string | null;
   /** `null` for a perpetual license. */
   expiresAt: string | null;
+  /** The stored license key, normalized by the Rust crate — the same string
+   *  the desktop license file holds. The card shows it masked and reveals it
+   *  on request, so it crosses the boundary instead of being read back out of
+   *  storage here. `null` whenever the state is `unlicensed`. */
+  key: string | null;
 }
 
 /** Which toast an action earned. `invalid` covers both a key the server does
@@ -38,7 +43,12 @@ export interface LicenseLinks {
   support: string;
 }
 
-export const UNLICENSED: LicenseView = { state: 'unlicensed', issuedAt: null, expiresAt: null };
+export const UNLICENSED: LicenseView = {
+  state: 'unlicensed',
+  issuedAt: null,
+  expiresAt: null,
+  key: null,
+};
 
 export async function readLicenseStatus(): Promise<LicenseView> {
   if (platformName !== 'tauri') return UNLICENSED;
