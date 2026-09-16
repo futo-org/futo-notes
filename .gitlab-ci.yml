@@ -1426,6 +1426,17 @@ build:desktop-internal:macos:
     expire_in: 4 weeks
   rules:
     - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+    # Manual MR rehearsal, same pattern as build:desktop-internal:linux (M13).
+    # Unlike build:macos (no MR rule at all — it needs MACOS_CERT_PASSWORD,
+    # a protected var unavailable on non-protected-branch MR pipelines), this
+    # job needs zero Apple secrets (see the comment above), so it can safely
+    # run there.
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - .gitlab-ci.yml
+        - .cirrus.yml
+      when: manual
+      allow_failure: true
 
 # Rebuild the pre-baked Android CI image (JDK + SDK/NDK + Rust targets +
 # emulator + system image + desktop Tauri deps). Manual trigger only —
@@ -2106,6 +2117,262 @@ windows:cleanup:
       allow_failure: true
 
 # ─────────────────────────────────────────────────────────────
+# Internal, hosted-enabled Windows build (D2, taken —
+# docs/plan/hosted-sync-to-staging.md, ticket C8). Prerelease tags only,
+# plus the same MR manual rehearsal as build:desktop-internal:{linux,macos}.
+#
+# Reuses the EXISTING Proxmox provision→build→cleanup chain and template VM
+# (same .proxmox_auth, same proxmoxshell runner, same clone/start/agent-IP
+# script) rather than inventing a second one — the only difference from
+# windows:provision/build:windows/windows:cleanup is the VM name (so the two
+# chains never collide when both run in the same prerelease-tag pipeline)
+# and the hosted flags passed to ci/win-build.ps1. One extra VM clone, on
+# prerelease tags only.
+#
+# Deliberately UNSIGNED — no windows:sign:internal exists. Authenticode
+# signing needs the EV code-signing credential (AWS KMS FUTO-EV-signing-key)
+# in ci/sign-windows.sh; wiring that into an internal/staging-flagged job
+# would be the one platform where M23's isolation gets weaker instead of
+# matching Linux (no signing key touched) and macOS (no Apple credential
+# touched). Recommendation to the coordinator: keep it unsigned, same
+# Gatekeeper-bypass-style friction as the macOS internal build (one SmartScreen
+# "Windows protected your PC" → More info → Run anyway click-through per
+# machine) rather than grow the EV credential's blast radius to cover an
+# internal build track. Not wired without an explicit go-ahead either way.
+windows:provision:internal:
+  stage: build
+  needs:
+    - job: test
+  tags:
+    - proxmoxshell
+  before_script:
+    - *proxmox_auth
+  variables:
+    PROXMOX_HOST: "127.0.0.1"
+    PROXMOX_NODE: "green"
+    TEMPLATE_VMID: "101"
+    # Distinct name from windows:provision's futo-notes-win-${CI_PIPELINE_ID}
+    # — both chains run in the same prerelease-tag pipeline (the production
+    # Windows build jobs run on every tag, including prerelease, for
+    # validation), so this must never resolve to the same VM.
+    VM_NAME: "futo-notes-win-internal-${CI_PIPELINE_ID}"
+    CLONE_TYPE: "1"
+  script:
+    # Get next available VMID
+    - |
+      export NEXT_VMID=$(curl -s -k \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/cluster/nextid" | jq -r '.data')
+      echo "VMID=${NEXT_VMID}" >> provision.env
+      echo "Using VMID: ${NEXT_VMID}"
+
+    # Clone the template VM and poll task until done
+    - |
+      CLONE_RESPONSE=$(curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "newid=${NEXT_VMID}&name=${VM_NAME}&full=${CLONE_TYPE}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${TEMPLATE_VMID}/clone")
+      UPID=$(echo "$CLONE_RESPONSE" | jq -r '.data')
+      echo "Clone task started: $UPID"
+
+    - |
+      UPID_ENCODED=$(printf '%s' "$UPID" | jq -sRr @uri)
+      LATEST_TEMP=""
+      while true; do
+        TASK_STATUS=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/tasks/${UPID_ENCODED}/status")
+        STATUS=$(echo "$TASK_STATUS" | jq -r '.data.status')
+        if [ "$STATUS" = "stopped" ]; then
+          EXIT_STATUS=$(echo "$TASK_STATUS" | jq -r '.data.exitstatus')
+          if [ "$EXIT_STATUS" = "OK" ]; then
+            echo "Clone completed successfully!"
+            break
+          else
+            echo "Clone failed: $EXIT_STATUS"
+            exit 1
+          fi
+        fi
+        TASK_LOG=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/tasks/${UPID_ENCODED}/log?limit=10000")
+        LATEST=$(echo "$TASK_LOG" | jq -r '.data | sort_by(.n) | last | .t // "waiting..."')
+        if [ "$LATEST_TEMP" != "$LATEST" ]; then
+          echo "Status: $STATUS | $LATEST"
+          LATEST_TEMP="$LATEST"
+        fi
+        sleep 5
+      done
+
+    # Start the VM
+    - |
+      source provision.env
+      curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/start"
+
+    # Wait for VM to get an IP via QEMU guest agent
+    - |
+      source provision.env
+      echo "Waiting for VM to boot and get IP..."
+      for i in $(seq 1 60); do
+        IP=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/agent/network-get-interfaces" 2>/dev/null \
+          | jq -r '.data.result[]? | select(.name != "Loopback Pseudo-Interface 1") | ."ip-addresses"[]? | select(."ip-address-type" == "ipv4") | ."ip-address"' \
+          | head -1)
+        if [ -n "$IP" ] && [ "$IP" != "null" ]; then
+          echo "VM_IP=${IP}" >> provision.env
+          echo "VM is up at: ${IP}"
+          break
+        fi
+        echo "Waiting for start and IP... (${i}/60)"
+        sleep 10
+      done
+      if [ -z "$IP" ] || [ "$IP" = "null" ]; then
+        echo "ERROR: No IP after 10 minutes"
+        exit 1
+      fi
+
+  artifacts:
+    when: always
+    reports:
+      dotenv: provision.env
+  rules:
+    - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - .gitlab-ci.yml
+      when: manual
+      allow_failure: true
+
+build:desktop-internal:windows:
+  stage: build
+  tags:
+    - proxmoxshell
+  needs:
+    - job: windows:provision:internal
+      artifacts: true
+  variables:
+    SSHPASS: "$PROXMOX_WIN_PASSWORD"
+  before_script: []
+  script:
+    # Wait for SSH to be ready
+    - |
+      for i in $(seq 1 30); do
+        if sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${PROXMOX_WIN_USER}@${VM_IP}" "echo ready" 2>/dev/null; then
+          echo "SSH is ready!"
+          break
+        fi
+        echo "Waiting for SSH... ($i/30)"
+        sleep 10
+      done
+
+    # Upload build scripts to VM
+    - |
+      sshpass -e scp -o StrictHostKeyChecking=no \
+        ci/win-install-deps.ps1 ci/win-build.ps1 \
+        "${PROXMOX_WIN_USER}@${VM_IP}:C:/Users/${PROXMOX_WIN_USER}/"
+
+    # Install build dependencies
+    - |
+      sshpass -e ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" \
+        "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\${PROXMOX_WIN_USER}\\win-install-deps.ps1"
+
+    # Clone repo and build — same REF/VERSION derivation as build:windows,
+    # plus -HostedSync/-HostedServer (both default off in ci/win-build.ps1,
+    # so build:windows itself is byte-for-byte unchanged).
+    - |
+      REF="${CI_COMMIT_TAG:-${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-$CI_COMMIT_REF_NAME}}"
+      VERSION="${CI_COMMIT_TAG#v}"
+      [ -n "$VERSION" ] || VERSION="0.0.0"
+      echo "Internal Windows build — hosted sync ON, baked hosted server: https://staging-notes-sync.futo.org"
+      sshpass -e ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" \
+        "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\${PROXMOX_WIN_USER}\\win-build.ps1 -RepoUrl ${CI_REPOSITORY_URL} -Branch ${REF} -Version ${VERSION} -HostedSync true -HostedServer https://staging-notes-sync.futo.org"
+
+    # Retrieve build artifacts — own directory, distinct from build:windows's
+    # windows-artifacts/, so both can coexist as separate job artifacts in the
+    # same prerelease-tag pipeline.
+    - mkdir -p windows-internal-artifacts
+    - |
+      sshpass -e scp -o StrictHostKeyChecking=no -r \
+        "${PROXMOX_WIN_USER}@${VM_IP}:C:/build/futo-notes/target/release/bundle/nsis/*" \
+        windows-internal-artifacts/
+    - |
+      echo "=== Internal Windows build artifacts (unsigned, see the job comment on windows:provision:internal) ==="
+      ls -la windows-internal-artifacts/
+
+  artifacts:
+    paths:
+      - windows-internal-artifacts/*
+    expire_in: 4 weeks
+  rules:
+    - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - .gitlab-ci.yml
+        - ci/win-build.ps1
+      when: manual
+      allow_failure: true
+
+windows:cleanup:internal:
+  stage: build
+  tags:
+    - proxmoxshell
+  needs:
+    - job: windows:provision:internal
+      artifacts: true
+    - job: build:desktop-internal:windows
+  when: always
+  before_script:
+    - *proxmox_auth
+  variables:
+    PROXMOX_HOST: "127.0.0.1"
+    PROXMOX_NODE: "green"
+  script:
+    - |
+      if [ -z "$VMID" ]; then
+        echo "No VMID from provision; looking up VM by name futo-notes-win-internal-${CI_PIPELINE_ID}..."
+        VMID=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu" \
+          | jq -r ".data[] | select(.name==\"futo-notes-win-internal-${CI_PIPELINE_ID}\") | .vmid" | head -1)
+      fi
+      if [ -z "$VMID" ] || [ "$VMID" = "null" ]; then
+        echo "No VM found for this pipeline, nothing to clean up."
+        exit 0
+      fi
+      echo "Stopping VM $VMID..."
+      curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/stop"
+    - |
+      echo "Waiting for VM to stop..."
+      for i in $(seq 1 30); do
+        STATUS=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/current" | jq -r '.data.status')
+        if [ "$STATUS" = "stopped" ]; then
+          echo "VM stopped!"
+          break
+        fi
+        sleep 5
+      done
+    - |
+      curl -s -k -X DELETE \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}"
+      echo "VM ${VMID} deleted"
+  rules:
+    - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - .gitlab-ci.yml
+      when: manual
+      allow_failure: true
+
+# ─────────────────────────────────────────────────────────────
 # Release gate — all platform artifacts must exist
 # ─────────────────────────────────────────────────────────────
 
@@ -2473,7 +2740,7 @@ release:
 # nowhere: build:android-native turns hosted sync on for a prerelease tag
 # (C3) but publish:android is stable-tag-only, and there was no desktop build
 # with the flag on at all outside `just tauri-dev`. This publishes exactly
-# what build:android-native and build:desktop-internal:{linux,macos}
+# what build:android-native and build:desktop-internal:{linux,macos,windows}
 # produced as GitLab release assets, so a FUTO person can install one without
 # a terminal or a Rust/Android toolchain.
 #
@@ -2490,9 +2757,11 @@ release:
 #     not futo-notes) at a path release:'s script never references, so the
 #     two artifact trails cannot collide even by a typo.
 #   - The desktop artifacts it publishes were built from the base
-#     tauri.conf.json (build:desktop-internal:{linux,macos}), which has no
-#     `createUpdaterArtifacts` — there is no .sig for this job to embed into
-#     a manifest even if it tried.
+#     tauri.conf.json (build:desktop-internal:{linux,macos,windows}), which
+#     has no `createUpdaterArtifacts` — there is no .sig for this job to
+#     embed into a manifest even if it tried. Windows additionally never
+#     runs windows:sign (Authenticode + minisign) at all — see the comment
+#     on windows:provision:internal for why signing is deliberately withheld.
 # Not a test job (M14): it publishes artifacts other jobs already validated,
 # so it does not enter release:gate.needs — it DEPENDS on release:gate
 # instead, reusing the full test-suite + standard-build quality bar before
@@ -2507,6 +2776,8 @@ release:internal:
     - job: build:desktop-internal:linux
       artifacts: true
     - job: build:desktop-internal:macos
+      artifacts: true
+    - job: build:desktop-internal:windows
       artifacts: true
   script:
     - VERSION="${CI_COMMIT_TAG#v}"
@@ -2549,6 +2820,14 @@ release:internal:
       NAME="FUTO-Notes-Internal-${VERSION}-universal.dmg"
       echo "Uploading $NAME"
       curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$DMG" "${REGISTRY_URL}/${NAME}"
+    # Windows NSIS installer — unsigned (no Authenticode, no updater .sig),
+    # see the job comment on windows:provision:internal.
+    - |
+      EXE=$(find windows-internal-artifacts -name "*.exe" -type f 2>/dev/null | head -1)
+      test -n "$EXE" || { echo "no exe from build:desktop-internal:windows — nothing to publish" >&2; exit 1; }
+      NAME="FUTO-Notes-Internal-${VERSION}-x64-setup.exe"
+      echo "Uploading $NAME"
+      curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$EXE" "${REGISTRY_URL}/${NAME}"
     - |
       curl -sL "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64" \
         -o /usr/local/bin/release-cli && chmod +x /usr/local/bin/release-cli
@@ -2561,12 +2840,13 @@ release:internal:
       release-cli create \
         --name "FUTO Notes ${CI_COMMIT_TAG} (INTERNAL — hosted sync, staging server)" \
         --tag-name "${CI_COMMIT_TAG}" \
-        --description "INTERNAL FUTO-only build. Hosted sync (\"Log in with FUTO\") is ON and points at the STAGING server (staging-notes-sync.futo.org), never production. Desktop builds are unsigned (Linux) or un-notarized (macOS) — bypass Gatekeeper/right-click Open as needed. Not for external distribution, and not reachable from the in-app updater (no manifest exists for this release)." \
+        --description "INTERNAL FUTO-only build. Hosted sync (\"Log in with FUTO\") is ON and points at the STAGING server (staging-notes-sync.futo.org), never production. Desktop builds are unsigned (Linux, Windows) or un-notarized (macOS) — bypass Gatekeeper/SmartScreen/right-click Open as needed. Not for external distribution, and not reachable from the in-app updater (no manifest exists for this release)." \
         --assets-link "{\"name\":\"futo-notes-internal-${VERSION}.apk\",\"url\":\"${REGISTRY_URL}/futo-notes-internal-${VERSION}.apk\",\"link_type\":\"package\"}" \
         --assets-link "{\"name\":\"futo-notes-internal_${VERSION}_amd64.deb\",\"url\":\"${REGISTRY_URL}/futo-notes-internal_${VERSION}_amd64.deb\",\"link_type\":\"package\"}" \
         --assets-link "{\"name\":\"futo-notes-internal-${VERSION}-1.x86_64.rpm\",\"url\":\"${REGISTRY_URL}/futo-notes-internal-${VERSION}-1.x86_64.rpm\",\"link_type\":\"package\"}" \
         --assets-link "{\"name\":\"FUTO-Notes-Internal-${VERSION}-x86_64.AppImage\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-Internal-${VERSION}-x86_64.AppImage\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"FUTO-Notes-Internal-${VERSION}-universal.dmg\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-Internal-${VERSION}-universal.dmg\",\"link_type\":\"package\"}"
+        --assets-link "{\"name\":\"FUTO-Notes-Internal-${VERSION}-universal.dmg\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-Internal-${VERSION}-universal.dmg\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"FUTO-Notes-Internal-${VERSION}-x64-setup.exe\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-Internal-${VERSION}-x64-setup.exe\",\"link_type\":\"package\"}"
   rules:
     - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
 
