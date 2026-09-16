@@ -33,6 +33,13 @@ import uniffi.futo_notes_ffi.BillingStatus
 fun ColumnScope.HostedAccountCard(
     email: String,
     billing: BillingStatus?,
+    /**
+     * What this vault's sync session is doing, in words the sync screen already
+     * uses. Shown here because the end of the wizard is a running sync: a card
+     * that reported only the account would leave a person watching
+     * `0 B of 10 GB used` with no sign anything had started.
+     */
+    syncStatus: String,
     busy: Boolean,
     onManage: () -> Unit,
     onChangeVaultPassword: () -> Unit,
@@ -70,6 +77,8 @@ fun ColumnScope.HostedAccountCard(
             color = c.textSecondary,
         )
     }
+
+    Text(syncStatus, style = FutoType.small, color = c.textSecondary)
 
     // Neither asks for a current secret: this device already holds the vault
     // key, and one set up by scanning a code never knew the vault password

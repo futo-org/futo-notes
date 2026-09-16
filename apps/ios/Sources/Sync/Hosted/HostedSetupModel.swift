@@ -134,7 +134,22 @@ final class HostedSetupModel: ObservableObject {
     /// failure, rather than a view that cannot be built.
     private let makeSetup: () throws -> HostedSetupClientProtocol
     private let shell: HostedSetupShell
-    private let makeSignOutTarget: () -> SyncClient
+    /// Signing out needs a handle on this vault to demote what is on disk,
+    /// exactly as disconnect does — and, once a hosted session is running, it
+    /// must be *that* handle, or the live loop outlives the session it belongs
+    /// to. Building it is shell work: the engine is handed one, it does not
+    /// make one.
+    private let signOutEffect: (HostedSetupClientProtocol) async throws -> Void
+    /// Started the moment this wizard reaches `ready`: the vault is unlocked,
+    /// so a sync can run. Every door ends here — a vault password, a recovery
+    /// key, or a paired device — because all three end with the same two
+    /// secrets in the same place.
+    ///
+    /// Run un-awaited, because it is a whole sync cycle and the account card
+    /// must not wait on one to appear. Fired once per reached session (see
+    /// `connectStarted`), and idempotent beyond that anyway: Rust rebuilds the
+    /// same session from the same facts.
+    private let connectEffect: (HostedSetupClientProtocol) async -> Void
     /// Reads the server's capability document. A parameter only because it is
     /// the one thing `load` does that talks to the network before there is a
     /// state machine to talk through.
@@ -145,11 +160,16 @@ final class HostedSetupModel: ObservableObject {
     /// Rust's `complete_pairing`, which parses and nothing else.
     private let parseScanned: (HostedSetupClientProtocol, String) throws -> any ScannedPairing
     private var setup: HostedSetupClientProtocol?
+    /// Whether the connect for the session this wizard is looking at has been
+    /// started. Reset when it observes a signed-out device, so signing back in
+    /// starts the next session's sync.
+    private var connectStarted = false
 
     init(
         makeSetup: @escaping () throws -> HostedSetupClientProtocol,
         shell: HostedSetupShell,
-        makeSignOutTarget: @escaping () -> SyncClient,
+        signOutEffect: @escaping (HostedSetupClientProtocol) async throws -> Void,
+        connectEffect: @escaping (HostedSetupClientProtocol) async -> Void,
         probe: @escaping (String) async throws -> SignInFlow = { serverUrl in
             try await probeSignInFlow(serverUrl: serverUrl)
         },
@@ -160,7 +180,8 @@ final class HostedSetupModel: ObservableObject {
     ) {
         self.makeSetup = makeSetup
         self.shell = shell
-        self.makeSignOutTarget = makeSignOutTarget
+        self.signOutEffect = signOutEffect
+        self.connectEffect = connectEffect
         self.probe = probe
         self.parseScanned = parseScanned
     }
@@ -473,7 +494,7 @@ final class HostedSetupModel: ObservableObject {
         recoveryKey = nil
         recoveryKeyReplaced = false
         await step { setup in
-            try await setup.signOut(sync: self.makeSignOutTarget())
+            try await self.signOutEffect(setup)
             try await self.readStep(setup)
         }
     }
@@ -488,7 +509,10 @@ final class HostedSetupModel: ObservableObject {
         switch try await setup.currentStep() {
         case .signIn:
             // Nothing below applies before there is a session, and asking for
-            // it would be a round trip that answers "not signed in".
+            // it would be a round trip that answers "not signed in". A signed-
+            // out device also has no session to sync: the next one that reaches
+            // `ready` is a new one and starts its own.
+            connectStarted = false
             email = ""
             billing = nil
             screen = .signIn
@@ -500,6 +524,30 @@ final class HostedSetupModel: ObservableObject {
         }
         email = setup.session()?.email ?? ""
         billing = try await setup.billingStatus()
+        if screen == .account { startConnect(setup) }
+    }
+
+    /// The end of the wizard is a running sync, not a set-up vault that sits
+    /// there. Started once per reached session — the first read that lands on
+    /// `ready`, which is also the read every door ends with — and left to run
+    /// on its own, because a sync cycle is not something the account card
+    /// should wait behind.
+    private func startConnect(_ setup: HostedSetupClientProtocol) {
+        if connectStarted { return }
+        connectStarted = true
+        Task { [weak self] in
+            await self?.connectEffect(setup)
+            await self?.refreshBilling()
+        }
+    }
+
+    /// Re-reads the account after that first cycle, so the usage on the card is
+    /// what this vault now weighs rather than what it weighed before anything
+    /// had been uploaded. A read that fails leaves the card as it was: the
+    /// figure on it is stale, not wrong, and blanking it would say less.
+    private func refreshBilling() async {
+        guard let setup, screen == .account else { return }
+        if let status = try? await setup.billingStatus() { billing = status }
     }
 
     /// Runs one step, reporting whatever it fails with as a sentence. Nothing

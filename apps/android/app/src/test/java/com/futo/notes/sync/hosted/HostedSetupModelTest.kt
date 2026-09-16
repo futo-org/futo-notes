@@ -2,6 +2,8 @@ package com.futo.notes.sync.hosted
 
 import com.futo.notes.localization.LocalizedMessage
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
@@ -198,6 +200,14 @@ class HostedSetupModelTest {
 
         override suspend fun signOut(sync: SyncClient) = error("the shell builds the target")
 
+        override suspend fun connectSync(sync: SyncClient) =
+            error("the shell builds the target")
+
+        override suspend fun hasSavedVault(): Boolean {
+            record("hasSavedVault")
+            return signedIn && deviceHoldsKey
+        }
+
         fun signOutHere() {
             record("signOut")
             signedIn = false
@@ -276,14 +286,39 @@ class HostedSetupModelTest {
         }
     }
 
+    /**
+     * What the wizard hands the app when it finishes: the sync it starts, and
+     * the sign out it routes through the same manager. Counted, because "once"
+     * is the whole question — a second client would leave the first one's live
+     * loop running.
+     */
+    private class StandInSession {
+        var connects = 0
+        var signOuts = 0
+    }
+
+    /**
+     * Where the connect and the account re-read run. `Unconfined` runs them
+     * inline as far as they get without really suspending, which is all the way
+     * for these stand-ins — so a test reads a settled model rather than racing
+     * one. The app uses the screen's own main-thread scope.
+     */
+    private fun effectScope() = CoroutineScope(Dispatchers.Unconfined)
+
     private fun model(
         setup: StandInSetup,
         shell: StandInShell = StandInShell(),
         flow: SignInFlow = SignInFlow.Hosted(sellsSubscriptions = true),
+        session: StandInSession = StandInSession(),
     ) = HostedSetupModel(
         makeSetup = { setup },
         shell = shell,
-        signOutEffect = { setup.signOutHere() },
+        signOutEffect = {
+            session.signOuts += 1
+            setup.signOutHere()
+        },
+        connectEffect = { session.connects += 1 },
+        effectScope = effectScope(),
         probe = { flow },
         readMinimumVaultPasswordLength = { 12 },
         log = {},
@@ -293,11 +328,17 @@ class HostedSetupModelTest {
         setup: StandInSetup,
         shell: StandInShell,
         scanned: StandInScannedPairing,
+        session: StandInSession = StandInSession(),
         parse: (String) -> ScannedPairing = { scanned },
     ) = HostedSetupModel(
         makeSetup = { setup },
         shell = shell,
-        signOutEffect = { setup.signOutHere() },
+        signOutEffect = {
+            session.signOuts += 1
+            setup.signOutHere()
+        },
+        connectEffect = { session.connects += 1 },
+        effectScope = effectScope(),
         probe = { SignInFlow.Hosted(sellsSubscriptions = true) },
         parseScanned = { _, code -> parse(code) },
         readMinimumVaultPasswordLength = { 12 },
@@ -1155,5 +1196,128 @@ class HostedSetupModelTest {
     private companion object {
         const val PAIRING_PAYLOAD =
             """{"futo_notes_pairing":1,"id":"pairing-1","name":"Pixel 8","platform":"android"}"""
+    }
+
+    // ── The end of the wizard is a running sync ──────────────────────────
+
+    @Test
+    fun `reaching ready starts the sync, once`() = runBlocking {
+        val setup = unlockedSetup()
+        val session = StandInSession()
+        val wizard = model(setup, session = session)
+
+        wizard.load()
+
+        assertEquals(HostedScreen.ACCOUNT, wizard.screen)
+        assertEquals(1, session.connects)
+    }
+
+    @Test
+    fun `a second read at ready does not start a second sync`() = runBlocking {
+        val setup = unlockedSetup()
+        val session = StandInSession()
+        val wizard = model(setup, session = session)
+
+        wizard.load()
+        // Every account-card detour ends in another read of the same step.
+        wizard.backToAccount()
+        wizard.backToAccount()
+
+        assertEquals(HostedScreen.ACCOUNT, wizard.screen)
+        assertEquals(1, session.connects)
+    }
+
+    @Test
+    fun `a door landing on ready starts the sync`() = runBlocking {
+        for (door in listOf("vaultPassword", "recoveryKey", "pairing")) {
+            val setup = lockedSetup()
+            val session = StandInSession()
+            val wizard = model(setup, session = session)
+
+            wizard.load()
+            assertEquals(HostedScreen.UNLOCK, wizard.screen)
+            assertEquals("a locked device started a sync it cannot run", 0, session.connects)
+
+            when (door) {
+                "vaultPassword" -> wizard.unlockWithPassword("a long enough one")
+                "recoveryKey" -> wizard.unlockWithRecoveryKey(setup.recoveryKey)
+                else -> {
+                    wizard.chooseDoor(UnlockDoor.SCAN)
+                    wizard.showPairingCode()
+                }
+            }
+
+            assertEquals("$door did not reach the account card", HostedScreen.ACCOUNT, wizard.screen)
+            assertEquals("$door did not start a sync", 1, session.connects)
+        }
+    }
+
+    @Test
+    fun `creating a vault starts the sync only once the key is saved`() = runBlocking {
+        val setup = StandInSetup()
+        val session = StandInSession()
+        val wizard = model(setup, session = session)
+
+        wizard.load()
+        wizard.signIn()
+        wizard.subscribe()
+        wizard.createVault("a long enough one")
+        assertEquals(HostedScreen.RECOVERY_KEY, wizard.screen)
+        assertEquals("a sync started before the key was saved", 0, session.connects)
+
+        wizard.recoveryKeySaved = true
+        wizard.continueAfterRecoveryKey()
+
+        assertEquals(HostedScreen.ACCOUNT, wizard.screen)
+        assertEquals(1, session.connects)
+    }
+
+    @Test
+    fun `signing out and back in starts the next session's sync`() = runBlocking {
+        val setup = unlockedSetup()
+        val session = StandInSession()
+        val wizard = model(setup, session = session)
+
+        wizard.load()
+        assertEquals(1, session.connects)
+
+        wizard.signOut()
+        assertEquals(HostedScreen.SIGN_IN, wizard.screen)
+        assertEquals(1, session.signOuts)
+
+        // Signing in again lands on the account card, because the vault and
+        // this device's key outlived the session.
+        setup.deviceHoldsKey = true
+        wizard.signIn()
+
+        assertEquals(HostedScreen.ACCOUNT, wizard.screen)
+        assertEquals(2, session.connects)
+    }
+
+    @Test
+    fun `the account usage is re-read once the first sync has run`() = runBlocking {
+        val setup = unlockedSetup()
+        setup.usedBytes = 0uL
+        val session = StandInSession()
+        // What the first cycle changes on the server: the vault now weighs
+        // something. A card that never asked again would sit on `0 B` forever.
+        val wizard = HostedSetupModel(
+            makeSetup = { setup },
+            shell = StandInShell(),
+            signOutEffect = { setup.signOutHere() },
+            connectEffect = {
+                session.connects += 1
+                setup.usedBytes = 4_210_688uL
+            },
+            effectScope = effectScope(),
+            probe = { SignInFlow.Hosted(sellsSubscriptions = true) },
+            readMinimumVaultPasswordLength = { 12 },
+            log = {},
+        )
+
+        wizard.load()
+
+        assertEquals(1, session.connects)
+        assertEquals(4_210_688uL, wizard.billing?.bytesUsed)
     }
 }

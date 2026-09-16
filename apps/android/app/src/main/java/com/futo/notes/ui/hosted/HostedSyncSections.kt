@@ -82,7 +82,7 @@ fun ColumnScope.HostedSyncSections(store: NotesStore, sync: SyncManager, secure:
         LiveHostedSetupShell(activity) { currentLocalization.value }
     }
     val model = remember(store.rootPath) {
-        liveHostedSetupModel(store.rootPath, secure, shell)
+        liveHostedSetupModel(store.rootPath, secure, shell, sync)
     }
 
     // A Custom Tab has no dismissal callback, so leaving and returning to the
@@ -217,6 +217,7 @@ fun ColumnScope.HostedSyncSections(store: NotesStore, sync: SyncManager, secure:
         HostedScreen.ACCOUNT -> HostedAccountCard(
             email = model.email,
             billing = model.billing,
+            syncStatus = sync.localizedStatus(localization),
             busy = model.busy,
             onManage = { scope.launch { model.manageSubscription() } },
             onChangeVaultPassword = { model.beginChangeVaultPassword() },

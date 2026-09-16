@@ -8,15 +8,18 @@ import SwiftUI
 /// through setup and reopening land on the right step (ADR 0003, decision 3).
 struct HostedSyncSections: View {
     @StateObject private var model: HostedSetupModel
-    /// The live session, for the one fact the wizard cannot learn on its own:
-    /// whether the last completed cycle's writes were refused.
-    @EnvironmentObject private var sync: SyncManager
+    /// The one session this app runs. The account card reports its status,
+    /// because after the wizard finishes what a person is waiting on is a sync,
+    /// not a screen — and it carries the one fact the wizard cannot learn on its
+    /// own: whether the last completed cycle's writes were refused.
+    @ObservedObject private var sync: SyncManager
     @Environment(\.localization) private var localization
 
-    init(notesRoot: String, store: NotesStore) {
+    init(notesRoot: String, store: NotesStore, sync: SyncManager) {
         _model = StateObject(
-            wrappedValue: HostedSetupModel.live(notesRoot: notesRoot, store: store)
+            wrappedValue: HostedSetupModel.live(notesRoot: notesRoot, store: store, sync: sync)
         )
+        _sync = ObservedObject(wrappedValue: sync)
     }
 
     var body: some View {
@@ -220,6 +223,7 @@ struct HostedSyncSections: View {
             HostedAccountCardView(
                 email: model.email,
                 billing: model.billing,
+                syncStatus: sync.localizedStatus(localization),
                 busy: model.busy,
                 onManage: { Task { await model.manageSubscription() } },
                 onChangeVaultPassword: { model.beginChangeVaultPassword() },

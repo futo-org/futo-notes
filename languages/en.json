@@ -546,6 +546,7 @@
         "reconnecting": "Reconnecting…",
         "reconnectingAccessibilityLabel": "Reconnecting to sync server",
         "connectedAndSyncing": "Connected ({authMode}) · syncing…",
+        "hostedConnectedAndSyncing": "Connected to FUTO · syncing…",
         "syncing": "Syncing…",
         "complete": "Sync complete",
         "error": "Error",
@@ -574,6 +575,7 @@
         "writePausedSubscription": "Sync paused. Your subscription has lapsed, so changes made here are not uploaded. Notes from your other devices still arrive.",
         "writePausedQuota": "Vault is full. You have used all of your storage, so changes made here are not uploaded.",
         "liveUnavailable": "Live sync is temporarily unavailable. FUTO Notes will keep retrying.",
+        "hostedOffline": "Can't reach FUTO right now. FUTO Notes will keep retrying.",
         "forgetPasswordFailed": "Couldn't remove the saved sync password.",
         "dismissWithMessageAccessibilityLabel": "Sync error: {message}. Click to dismiss.",
         "dismissTitle": "{message} — click to dismiss"

@@ -182,6 +182,15 @@ struct HostedSetupModelTests {
             deviceHoldsKey = false
         }
 
+        func connectSync(sync: SyncClient) async throws {
+            try record("connectSync")
+        }
+
+        func hasSavedVault() async throws -> Bool {
+            try record("hasSavedVault")
+            return signedIn && deviceHoldsKey
+        }
+
         /// The two account-card re-wraps. Both hold the rule the engine holds:
         /// a device that does not have the vault key has nothing to re-wrap,
         /// and neither asks for a current secret.
@@ -257,21 +266,38 @@ struct HostedSetupModelTests {
         }
     }
 
+    /// What the wizard hands the app when it finishes: the connect it starts,
+    /// counted, and the sign out it routes through the same manager.
+    final class StandInSession {
+        private(set) var connects = 0
+        private(set) var signOuts = 0
+
+        func connect(_ setup: HostedSetupClientProtocol) async {
+            connects += 1
+        }
+
+        func signOut(_ setup: HostedSetupClientProtocol) async throws {
+            signOuts += 1
+            try await setup.signOut(
+                sync: SyncClient(
+                    notesRoot: NSTemporaryDirectory() + "hosted-tests",
+                    serverUrl: "http://127.0.0.1:1"))
+        }
+    }
+
     private func makeModel(
         _ setup: StandInSetup,
         _ shell: StandInShell,
         flow: SignInFlow = .hosted(sellsSubscriptions: true),
         scan: StandInScan? = nil,
-        scanFailure: HostedError? = nil
+        scanFailure: HostedError? = nil,
+        session: StandInSession = StandInSession()
     ) -> HostedSetupModel {
         HostedSetupModel(
             makeSetup: { setup },
             shell: shell,
-            makeSignOutTarget: {
-                SyncClient(
-                    notesRoot: NSTemporaryDirectory() + "hosted-tests",
-                    serverUrl: "http://127.0.0.1:1")
-            },
+            signOutEffect: { try await session.signOut($0) },
+            connectEffect: { await session.connect($0) },
             probe: { _ in flow },
             parseScanned: { _, _ in
                 if let scanFailure { throw scanFailure }
@@ -708,6 +734,10 @@ struct HostedSetupModelTests {
         let model = makeModel(setup, StandInShell())
 
         await model.load()
+        // Landing on the account card starts a sync and re-reads the account
+        // after it; let that finish, or the failure queued below would be spent
+        // on the read instead of on the portal.
+        await settle(until: { setup.calls.filter { $0 == "billingStatus" }.count == 2 })
         setup.nextFailure = .SignInAgain
         await model.manageSubscription()
 
@@ -1125,5 +1155,146 @@ struct HostedSetupModelTests {
 
         #expect(model.recoveryKey == nil)
         #expect(model.errorMessage?.path == "sync.hosted.errors.vaultLocked")
+    }
+
+    // MARK: - The end of the wizard is a running sync
+
+    @Test("reaching ready starts the sync, once")
+    func reachingReadyStartsTheSync() async {
+        let setup = StandInSetup()
+        setup.signedIn = true
+        setup.entitled = true
+        setup.vaultHasKeyMaterial = true
+        setup.deviceHoldsKey = true
+        let session = StandInSession()
+        let model = makeModel(setup, StandInShell(), session: session)
+
+        await model.load()
+        #expect(model.screen == .account)
+        await settle(until: { session.connects == 1 })
+        #expect(session.connects == 1)
+    }
+
+    @Test("a second read at ready does not start a second sync")
+    func readingReadyAgainStartsNothing() async {
+        let setup = StandInSetup()
+        setup.signedIn = true
+        setup.entitled = true
+        setup.vaultHasKeyMaterial = true
+        setup.deviceHoldsKey = true
+        let session = StandInSession()
+        let model = makeModel(setup, StandInShell(), session: session)
+
+        await model.load()
+        await settle(until: { session.connects == 1 })
+
+        // Every account-card detour ends in another read of the same step. A
+        // second client for a session that already has one would leave the
+        // first one's live loop running.
+        await model.backToAccount()
+        await model.backToAccount()
+        for _ in 0..<50 { await Task.yield() }
+
+        #expect(model.screen == .account)
+        #expect(session.connects == 1)
+    }
+
+    @Test("a door landing on ready starts the sync")
+    func aDoorLandingOnReadyStartsTheSync() async {
+        // The unlock shape: this device has no key until the password is typed,
+        // so `ready` is reached for the first time by walking through a door.
+        for door in ["vaultPassword", "recoveryKey", "pairing"] {
+            let setup = StandInSetup()
+            setup.signedIn = true
+            setup.entitled = true
+            setup.vaultHasKeyMaterial = true
+            let session = StandInSession()
+            let model = makeModel(setup, StandInShell(), session: session)
+
+            await model.load()
+            #expect(model.screen == .unlock)
+            #expect(session.connects == 0, "a locked device started a sync it cannot run")
+
+            switch door {
+            case "vaultPassword": await model.unlockWithPassword("a long enough one")
+            case "recoveryKey": await model.unlockWithRecoveryKey(setup.recoveryKey)
+            default:
+                model.chooseDoor(.scan)
+                await model.showPairingCode()
+            }
+
+            #expect(model.screen == .account, "\(door) did not reach the account card")
+            await settle(until: { session.connects == 1 })
+            #expect(session.connects == 1, "\(door) did not start a sync")
+        }
+    }
+
+    @Test("the vault password door reaches ready through create, and syncs")
+    func creatingAVaultStartsTheSync() async {
+        let setup = StandInSetup()
+        let shell = StandInShell()
+        let session = StandInSession()
+        let model = makeModel(setup, shell, session: session)
+
+        await model.load()
+        await model.signIn()
+        await model.subscribe()
+        await model.createVault(vaultPassword: "a long enough one")
+        #expect(model.screen == .recoveryKey)
+        #expect(session.connects == 0, "a sync started before the key was saved")
+
+        model.recoveryKeySaved = true
+        await model.continueAfterRecoveryKey()
+
+        #expect(model.screen == .account)
+        await settle(until: { session.connects == 1 })
+        #expect(session.connects == 1)
+    }
+
+    @Test("signing out and back in starts the next session's sync")
+    func signingBackInStartsAnotherSync() async {
+        let setup = StandInSetup()
+        setup.signedIn = true
+        setup.entitled = true
+        setup.vaultHasKeyMaterial = true
+        setup.deviceHoldsKey = true
+        let session = StandInSession()
+        let model = makeModel(setup, StandInShell(), session: session)
+
+        await model.load()
+        await settle(until: { session.connects == 1 })
+
+        await model.signOut()
+        #expect(model.screen == .signIn)
+        #expect(session.signOuts == 1)
+
+        // Signing in again lands on the account card, because the vault and
+        // this device's key outlived the session.
+        setup.deviceHoldsKey = true
+        await model.signIn()
+        #expect(model.screen == .account)
+        await settle(until: { session.connects == 2 })
+        #expect(session.connects == 2)
+    }
+
+    @Test("the account usage is re-read once the first sync has run")
+    func theAccountUsageIsReReadAfterTheFirstSync() async {
+        let setup = StandInSetup()
+        setup.signedIn = true
+        setup.entitled = true
+        setup.vaultHasKeyMaterial = true
+        setup.deviceHoldsKey = true
+        setup.usedBytes = 0
+        let session = StandInSession()
+        let model = makeModel(setup, StandInShell(), session: session)
+
+        await model.load()
+        #expect(model.billing?.bytesUsed == 0)
+
+        // What the first cycle changes on the server: the vault now weighs
+        // something. A card that never asked again would sit on `0 B` forever.
+        setup.usedBytes = 4_210_688
+        await settle(until: { model.billing?.bytesUsed == 4_210_688 })
+        #expect(model.billing?.bytesUsed == 4_210_688)
     }
 }

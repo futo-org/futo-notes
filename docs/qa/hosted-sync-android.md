@@ -123,7 +123,7 @@ Release the device afterwards: `just qa-release`, and `just qa-server-stop --dro
 16. Set it, sign out, sign in. Expect the **old** password refused by name and the new
     one to unlock.
 
-## Last run — 2026-09-16
+## Previous run — 2026-09-16 (`3adf4a54`)
 
 Branch docs/vault-unlock-client at `3adf4a54`, debug build with
 `FUTO_ANDROID_FFI_PROFILE=dev`, emulator `futo-qa-2` (`sdk_gphone64_x86_64`, API 36),
@@ -169,9 +169,53 @@ refused with "That is not this vault's password." and the new one unlocked the v
 - **The QR's contents.** futo-notes#183 decoded the code out of a screenshot with ZXing
   and matched it against the relay row byte for byte; this run checked the relay row
   only, because no decoder was to hand.
-- **A first sync.** The account card said `0 B of 10 GB used` with a note on disk —
-  correct, and the gap `docs/spec/sync.md` records: the Android wizard finishes without
-  starting a cycle, because `connect_sync` has no UniFFI projection.
 - **The Custom Tab dismissal race.** The app moved on by itself both times here. The gap
   in `docs/spec/sync.md` is about the case where it cannot, after the app has been out
   of sight long enough for the platform to refuse a background activity start.
+
+## Last run — 2026-09-16 (`hosted/c1` at `e6f7d313`)
+
+The C1 run, which is about the one thing the previous run could not do: whether
+finishing the wizard starts a sync, and whether a relaunch resumes it. Debug build
+installed with `FUTO_ANDROID_FFI_PROFILE=dev bash scripts/build-rust-android.sh` plus
+`./gradlew :app:installDebug` (`apps/android/run.sh` still builds the FFI with the
+default profile, which compiles the address override out — ticket C5), emulator
+`futo-qa-0` (`sdk_gphone64_arm64`, API 36), against the same stand-in server on
+`127.0.0.1:3107`. The second instance was the desktop Tauri dev app on that server.
+
+**Both of the stand-in's listeners have to be reversed**, and pointing the app at
+`127.0.0.1` rather than `10.0.2.2` is what makes the Custom Tab work: the server builds
+its hand-off URL from its own address, so a tab handed `http://127.0.0.1:3107/...`
+inside the emulator needs `adb reverse tcp:3107 tcp:3107` — and the fake issuer it
+redirects to needs `adb reverse tcp:<issuer port> tcp:<issuer port>` as well, or the tab
+dies on `ERR_CONNECTION_REFUSED` at `/authorize`. With `--es futo_hosted_server
+http://10.0.2.2:3107` the sign-in screen names the right address and the POST works, and
+then the tab cannot reach the URL it is given.
+
+**The wizard's end starts a sync: PASS.** After `pm clear` (a genuinely first-run
+device), the storage picker, then **Settings → Sync → Log in with FUTO**: a real Custom
+Tab opened, the stand-in signed in, the tab closed itself and the wizard was already on
+**Unlock your vault** with nothing else tapped. The vault password landed on the account
+card reading `person@standin.test` · `Active` · **`1.4 KB of 10 GB used`** ·
+**`Sync complete`** — the figure the previous run could only see as `0 B of 10 GB used` —
+and all seven notes of the account were in
+`/storage/emulated/0/Android/data/com.futo.notes.dev/files/futo-notes`.
+
+**A note reaches this device with nothing tapped: PASS.** A note written on the desktop
+instance and pushed appeared on the emulator as `c1-android-live-note.md` within twelve
+seconds, over the live stream, with the Sync screen simply left open.
+
+**A restart resumes, with Settings never opened: PASS.** `am force-stop`, then a note
+written on the desktop instance while the app was down, then `am start` of
+`MainActivity`. Without opening Settings, `c1-android-restart-proof.md` was on disk and
+at the top of the note list within twenty seconds.
+
+### Not proven by this run
+
+- **Pairing and sign out** were not re-walked; the previous run above covers them.
+- **A physical phone's camera**, as ever.
+- **A device that has a self-hosted password stored.** `restoreSession` prefers the
+  password branch, so such a device would reconnect to its own server at launch rather
+  than to FUTO; this emulator was cleared first. See the gap in `docs/spec/sync.md`.
+- **Offline at boot.** Covered only by the JVM tests; no run has pulled the network out
+  from under a launching app.

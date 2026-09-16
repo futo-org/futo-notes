@@ -16,7 +16,7 @@ struct SyncView: View {
         NavigationStack {
             Form {
                 if HostedSyncBuild.isEnabled {
-                    HostedSyncSections(notesRoot: store.notesRoot.path, store: store)
+                    HostedSyncSections(notesRoot: store.notesRoot.path, store: store, sync: sync)
                 } else {
                     SelfHostedSyncSections()
                 }

@@ -58,6 +58,12 @@ Two mechanics, from driving this:
   (Xcode 27 ships none), is the normal state after a plain boot. `just qa-claim ios
   --reboot` fixes it; `simctl` screenshots keep working the whole time, which is why it
   looks like an app bug.
+- **A leftover self-hosted password hides the hosted restore.** `restoreSession` takes
+  the password branch first, and `Keychain.syncPassword` is app-global rather than
+  per-vault — so a simulator that ever ran a self-hosted QA story keeps reconnecting to
+  `localhost:3005` at launch and the hosted branch never runs. It looks exactly like the
+  hosted restore being broken. `xcrun simctl uninstall` plus `xcrun simctl keychain
+  "$SIM" reset` before the run is the fix; see the gap in `docs/spec/sync.md`.
 - **`axe tap -x -y` on a SwiftUI `Toggle` reports success and does nothing** — the
   recovery-key checkbox in particular. `axe tap --id <accessibilityIdentifier>` uses the
   element's own activation point with a physical touch and does flip it. This is
@@ -112,7 +118,7 @@ Clean up: stop the server, `just qa-release`, and remove any worktree you added.
     permission ask, then a live preview, then the confirmation sheet naming the other
     device before anything is sent.
 
-## Last run — 2026-09-16
+## Previous run — 2026-09-16 (`3adf4a54`)
 
 Branch docs/vault-unlock-client at `3adf4a54`, Debug build (`just ios-native`,
 `FUTO_IOS_FFI_PROFILE=dev`), simulator `futo-qa-1` (iOS 26.5) on the Mac, Xcode 27.0,
@@ -160,11 +166,51 @@ recovery key is exposed as the `AXValue` of an element with the identifier
   payload between two instances as a string.
 - **The denied-camera-permission screen**, for the same reason: a simulator has no
   camera to refuse.
-- **A first sync.** The account card said `0 B of 10 GB used` with a note on disk —
-  correct, and the gap `docs/spec/sync.md` records: the iOS wizard finishes without
-  starting a cycle, because `connect_sync` has no UniFFI projection.
 - **The vault-password door and Change vault password**, which this run reached through
   the recovery key instead. Both were exercised on a real Android device the same day
   (see the Android story), and both have Swift unit tests.
 - **A signed device build.** Code signing over non-interactive SSH fails with
   `errSecInternalComponent`, so everything here is the simulator.
+
+## Last run — 2026-09-16 (`hosted/c1` at `e6f7d313`)
+
+The C1 run, which is about the one thing the previous run could not do: whether
+finishing the wizard starts a sync, and whether a relaunch resumes it. Debug build
+(`SIM=… just ios-native`, so `FUTO_IOS_FFI_PROFILE=dev`), simulator `futo-qa-2`
+(iOS 26.5), against a real stand-in server on `127.0.0.1:3107` from the
+`fix/compare-tombstone-redelete-oracle` checkout (contains `origin/hosted-server`),
+launched with `SIMCTL_CHILD_FUTO_HOSTED_SERVER`. The second instance was the desktop
+Tauri dev app on the same server (`VITE_HOSTED_SYNC=true FUTO_HOSTED_SERVER=… just
+tauri-dev`), driven through its webview bridge. Server and worktree devices stopped
+afterwards.
+
+**The wizard's end starts a sync: PASS.** A brand-new account walked sign-in → subscribe
+→ vault password → recovery key (`W38N-9SW2-ZKW7-19N6-YK64-5NT2-T40N`) → Continue, and
+the account card came up reading `person@standin.test` · `Active` ·
+**`555 B of 10 GB used`** · **`Sync complete`** — with nothing else tapped. That is the
+figure the previous run could only see as `0 B of 10 GB used`.
+
+**A note reaches this device with nothing tapped: PASS.** With the Sync sheet left open
+on the account card, a note written on the desktop instance and pushed appeared in the
+simulator's `Documents/fake-notes` as `c1-desktop-note.md` within ten seconds, over the
+live stream.
+
+**A second device unlocks and syncs: PASS.** After `simctl uninstall` + `keychain reset`
+(a genuinely first-run device — see the mechanics note above), signing in went straight
+to **Unlock your vault**; the vault password landed on the account card reading
+**`1.2 KB of 10 GB used`** · **`Sync complete`**, with all five notes of the account on
+disk.
+
+**A restart resumes, with Settings never opened: PASS.** `simctl terminate`, then a note
+written on the desktop instance while the app was down, then `simctl launch`. Without
+opening Settings or Sync, `c1-ios-restart-proof.md` was on disk and at the top of the
+note list within fifteen seconds.
+
+### Not proven by this run
+
+- **Pairing, sign out, Change vault password and New recovery key** were not re-walked;
+  the previous run above covers them.
+- **A real camera**, as ever.
+- **Offline at boot.** The muted line and the keep-the-secrets behaviour are covered by
+  `SyncManagerRestoreTests` only; no run has pulled the network out from under a
+  launching device.
