@@ -52,6 +52,8 @@ func hostedErrorMessage(_ error: Error) -> LocalizedMessage {
         return LocalizedMessage("sync.hosted.errors.wrongRecoveryKey")
     case .NoRecoveryKey:
         return LocalizedMessage("sync.hosted.errors.noRecoveryKey")
+    case .VaultKeyChangedElsewhere:
+        return LocalizedMessage("sync.hosted.errors.vaultKeyChangedElsewhere")
     case .SecretStore:
         return LocalizedMessage("sync.hosted.errors.secretStore")
     case .Crypto:

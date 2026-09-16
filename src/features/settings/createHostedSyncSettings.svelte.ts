@@ -6,6 +6,7 @@ import {
   beginHostedSignIn,
   beginPairing,
   cancelHostedWait,
+  changeVaultPassword,
   createHostedVault,
   hostedBillingPortal,
   hostedBillingStatus,
@@ -14,6 +15,7 @@ import {
   hostedSession,
   hostedSignOut,
   minVaultPasswordLength,
+  newRecoveryKey,
   probeSignInFlow,
   saveTextFile,
   unlockWithRecoveryKey,
@@ -39,10 +41,13 @@ import {
  *
  * Five of these are Rust's `SetupStep` verbatim. `recoveryKey` is not a step
  * and deliberately has no Rust variant: it exists only for as long as this
- * object holds the string `createVault` handed back, which happens exactly
- * once per vault because a second create is refused (ADR 0003, decision 3).
- * `loading` and `unavailable` are this shell's own — the moment before Rust
- * has answered, and a server that does not offer hosted sync at all.
+ * object holds the string `createVault` — or, from the account card,
+ * `newRecoveryKey` — handed back, and Rust keeps no copy to hand over twice
+ * (ADR 0003, decision 3). `changeVaultPassword` is the account card's other
+ * detour and is likewise not a step: the wizard is finished and Rust answers
+ * `ready` throughout. `loading` and `unavailable` are this shell's own — the
+ * moment before Rust has answered, and a server that does not offer hosted
+ * sync at all.
  */
 export type HostedScreen =
   | 'loading'
@@ -52,7 +57,8 @@ export type HostedScreen =
   | 'createVault'
   | 'recoveryKey'
   | 'unlock'
-  | 'account';
+  | 'account'
+  | 'changeVaultPassword';
 
 /** What the sync section says when the server would refuse a write. */
 export type HostedBanner = 'none' | 'syncPaused' | 'vaultFull';
@@ -106,6 +112,8 @@ export interface HostedSyncSettings {
   readonly banner: HostedBanner;
   /** Non-null only while the save-it-now screen is up. */
   readonly recoveryKey: string | null;
+  /** True when the key on that screen replaced one a person already had. */
+  readonly recoveryKeyReplaced: boolean;
   readonly minVaultPasswordLength: number;
   recoveryKeySaved: boolean;
   unlockDoor: UnlockDoor;
@@ -131,6 +139,10 @@ export interface HostedSyncSettings {
   showPairingCode(): Promise<void>;
   cancelPairing(): Promise<void>;
   manageSubscription(): Promise<void>;
+  beginChangeVaultPassword(): void;
+  changeVaultPassword(newPassword: string): Promise<void>;
+  newRecoveryKey(): Promise<void>;
+  backToAccount(): Promise<void>;
   signOut(): Promise<void>;
 }
 
@@ -151,6 +163,7 @@ class HostedSyncSettingsState implements HostedSyncSettings {
   // is the only thing that clears it. Rust hands it over once and keeps no
   // copy, so once this is null there is no way to show it again.
   #recoveryKey = $state<string | null>(null);
+  #recoveryKeyReplaced = $state(false);
   #email = $state('');
   #error = $state<LocalizedMessage | null>(null);
 
@@ -165,6 +178,10 @@ class HostedSyncSettingsState implements HostedSyncSettings {
 
   get recoveryKey(): string | null {
     return this.#recoveryKey;
+  }
+
+  get recoveryKeyReplaced(): boolean {
+    return this.#recoveryKeyReplaced;
   }
 
   get pairing(): PairingState {
@@ -263,6 +280,7 @@ class HostedSyncSettingsState implements HostedSyncSettings {
   async createVault(vaultPassword: string): Promise<void> {
     await this.#step(async () => {
       this.#recoveryKey = await createHostedVault(vaultPassword);
+      this.#recoveryKeyReplaced = false;
       this.recoveryKeySaved = false;
       this.screen = 'recoveryKey';
     });
@@ -295,6 +313,7 @@ class HostedSyncSettingsState implements HostedSyncSettings {
 
   async continueAfterRecoveryKey(): Promise<void> {
     this.#recoveryKey = null;
+    this.#recoveryKeyReplaced = false;
     this.recoveryKeySaved = false;
     await this.#step(() => this.#readStep());
   }
@@ -374,6 +393,50 @@ class HostedSyncSettingsState implements HostedSyncSettings {
     this.#pairingExpiresAt = null;
   }
 
+  /**
+   * Opens the new-password screen. No round trip and no current secret asked:
+   * this device holds the vault key already, and a device paired by QR never
+   * knew the old password (ADR 0003, decision 10).
+   */
+  beginChangeVaultPassword(): void {
+    this.screen = 'changeVaultPassword';
+  }
+
+  /**
+   * Re-wraps the password envelope and goes back to the account card.
+   *
+   * Rust re-wraps the same vault key, so every other device carries on with
+   * what it already holds and is never told anything happened (parent spec
+   * user story 33). A `vaultKeyChangedElsewhere` rejection leaves the screen
+   * where it is with that sentence on it, because pressing the button again
+   * is the whole remedy.
+   */
+  async changeVaultPassword(newPassword: string): Promise<void> {
+    await this.#step(async () => {
+      await changeVaultPassword(newPassword);
+      showGlobalToast({ path: 'sync.hosted.vaultPassword.change.changed' });
+      await this.#readStep();
+    });
+  }
+
+  /**
+   * Issues a new recovery key and shows it on the same save screen the wizard
+   * uses — the old one has stopped working by the time it appears.
+   */
+  async newRecoveryKey(): Promise<void> {
+    await this.#step(async () => {
+      this.#recoveryKey = await newRecoveryKey();
+      this.#recoveryKeyReplaced = true;
+      this.recoveryKeySaved = false;
+      this.screen = 'recoveryKey';
+    });
+  }
+
+  /** Leaves an account-card detour without doing anything. */
+  async backToAccount(): Promise<void> {
+    await this.#step(() => this.#readStep());
+  }
+
   async manageSubscription(): Promise<void> {
     await this.#step(async () => {
       openExternalUrl(await hostedBillingPortal());
@@ -389,6 +452,8 @@ class HostedSyncSettingsState implements HostedSyncSettings {
     await this.#step(async () => {
       await hostedSignOut();
       forgetHostedE2ee();
+      this.#recoveryKey = null;
+      this.#recoveryKeyReplaced = false;
       this.#startedSyncing = false;
       this.#pairing = 'idle';
       this.#pairingPayload = null;

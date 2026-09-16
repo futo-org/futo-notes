@@ -5,10 +5,13 @@ import SwiftUI
 ///
 /// Five of these are Rust's `SetupStep` verbatim. `recoveryKey` is not a step
 /// and deliberately has no Rust variant: it exists only for as long as this
-/// object holds the string `createVault` handed back, which happens exactly
-/// once per vault because a second create is refused (ADR 0003, decision 3).
-/// `loading` and `unavailable` are this shell's own — the moment before Rust
-/// has answered, and a server that does not offer hosted sync at all.
+/// object holds the string `createVault` — or, from the account card,
+/// `newRecoveryKey` — handed back, and Rust keeps no copy to hand over twice
+/// (ADR 0003, decision 3). `changeVaultPassword` is the account card's other
+/// detour and is likewise not a step: the wizard is finished and Rust answers
+/// `ready` throughout. `loading` and `unavailable` are this shell's own — the
+/// moment before Rust has answered, and a server that does not offer hosted
+/// sync at all.
 enum HostedScreen {
     case loading
     case unavailable
@@ -18,6 +21,7 @@ enum HostedScreen {
     case recoveryKey
     case unlock
     case account
+    case changeVaultPassword
 }
 
 /// What the sync screen says when the server would refuse a write.
@@ -88,6 +92,8 @@ final class HostedSetupModel: ObservableObject {
     /// that clears it. Rust hands it over once and keeps no copy, so once this
     /// is nil there is no way to show it again.
     @Published private(set) var recoveryKey: String?
+    /// True when the key on that screen replaced one a person already had.
+    @Published private(set) var recoveryKeyReplaced = false
     /// Rust's own minimum, so the Continue button and the engine cannot
     /// disagree about what a long-enough vault password is.
     @Published private(set) var minimumVaultPasswordLength = 12
@@ -238,9 +244,49 @@ final class HostedSetupModel: ObservableObject {
     func createVault(vaultPassword: String) async {
         await step { setup in
             self.recoveryKey = try await setup.createVault(vaultPassword: vaultPassword)
+            self.recoveryKeyReplaced = false
             self.recoveryKeySaved = false
             self.screen = .recoveryKey
         }
+    }
+
+    /// Opens the new-password screen. No round trip and no current secret
+    /// asked: this device holds the vault key already, and a device paired by
+    /// QR never knew the old password (ADR 0003, decision 10).
+    func beginChangeVaultPassword() {
+        errorMessage = nil
+        screen = .changeVaultPassword
+    }
+
+    /// Re-wraps the password envelope and goes back to the account card.
+    ///
+    /// Rust re-wraps the same vault key, so every other device carries on with
+    /// what it already holds and is never told anything happened (parent spec
+    /// user story 33). A `VaultKeyChangedElsewhere` rejection leaves this
+    /// screen up with that sentence on it, because pressing the button again
+    /// is the whole remedy.
+    func changeVaultPassword(_ newPassword: String) async {
+        await step { setup in
+            try await setup.changeVaultPassword(newPassword: newPassword)
+            self.shell.announce(LocalizedMessage("sync.hosted.vaultPassword.change.changed"))
+            try await self.readStep(setup)
+        }
+    }
+
+    /// Issues a new recovery key and shows it on the same save screen the
+    /// wizard uses — the old one has stopped working by the time it appears.
+    func newRecoveryKey() async {
+        await step { setup in
+            self.recoveryKey = try await setup.newRecoveryKey()
+            self.recoveryKeyReplaced = true
+            self.recoveryKeySaved = false
+            self.screen = .recoveryKey
+        }
+    }
+
+    /// Leaves an account-card detour without doing anything.
+    func backToAccount() async {
+        await step { setup in try await self.readStep(setup) }
     }
 
     func copyRecoveryKey() {
@@ -251,6 +297,7 @@ final class HostedSetupModel: ObservableObject {
 
     func continueAfterRecoveryKey() async {
         recoveryKey = nil
+        recoveryKeyReplaced = false
         recoveryKeySaved = false
         await step { setup in try await self.readStep(setup) }
     }
@@ -397,6 +444,8 @@ final class HostedSetupModel: ObservableObject {
     func signOut() async {
         cancelPairing()
         closeScanner()
+        recoveryKey = nil
+        recoveryKeyReplaced = false
         await step { setup in
             try await setup.signOut(sync: self.makeSignOutTarget())
             try await self.readStep(setup)

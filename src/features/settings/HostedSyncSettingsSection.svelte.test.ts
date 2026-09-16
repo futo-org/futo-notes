@@ -37,6 +37,7 @@ function hostedStub(overrides: Partial<HostedSyncSettings> = {}): HostedSyncSett
     billing: null,
     banner: 'none',
     recoveryKey: null,
+    recoveryKeyReplaced: false,
     minVaultPasswordLength: 12,
     recoveryKeySaved: false,
     unlockDoor: 'vaultPassword',
@@ -57,6 +58,10 @@ function hostedStub(overrides: Partial<HostedSyncSettings> = {}): HostedSyncSett
     showPairingCode: vi.fn(async () => {}),
     cancelPairing: vi.fn(async () => {}),
     manageSubscription: vi.fn(async () => {}),
+    beginChangeVaultPassword: vi.fn(),
+    changeVaultPassword: vi.fn(async () => {}),
+    newRecoveryKey: vi.fn(async () => {}),
+    backToAccount: vi.fn(async () => {}),
     signOut: vi.fn(async () => {}),
     ...overrides,
   };
@@ -428,3 +433,89 @@ async function type(field: HTMLInputElement, value: string): Promise<void> {
   field.dispatchEvent(new Event('input', { bubbles: true }));
   await Promise.resolve();
 }
+
+describe('changing the vault password, and a new recovery key', () => {
+  it('offers both from the account card', () => {
+    const hosted = render({ screen: 'account', billing: billing() });
+    expect(button('Change vault password')).toBeDefined();
+    expect(button('New recovery key')).toBeDefined();
+
+    button('Change vault password')!.click();
+    expect(hosted.beginChangeVaultPassword).toHaveBeenCalled();
+    button('New recovery key')!.click();
+    expect(hosted.newRecoveryKey).toHaveBeenCalled();
+  });
+
+  it('asks only for the new password, twice, and never for the old one', () => {
+    render({ screen: 'changeVaultPassword' });
+    expect(text()).toContain('Choose a new vault password');
+    expect(text()).toContain('You are not asked for the old one');
+    expect(text()).not.toContain('Current');
+    expect(target.querySelectorAll('input[type="password"]')).toHaveLength(2);
+  });
+
+  it('keeps the same 12-character minimum and the same meter', async () => {
+    const hosted = render({ screen: 'changeVaultPassword' });
+    const password = target.querySelector<HTMLInputElement>('#hosted-vault-password')!;
+    const repeat = target.querySelector<HTMLInputElement>('#hosted-vault-password-repeat')!;
+
+    await type(password, 'short');
+    expect(button('Set new password')?.disabled).toBe(true);
+    expect(text()).toContain('At least 12 characters');
+
+    await type(password, 'Tr0ubadour&Horse!');
+    expect(text()).toContain('Strong');
+    await type(repeat, 'Tr0ubadour&Horse!');
+    expect(button('Set new password')?.disabled).toBe(false);
+
+    button('Set new password')!.click();
+    expect(hosted.changeVaultPassword).toHaveBeenCalledWith('Tr0ubadour&Horse!');
+  });
+
+  it('can be left without changing anything', () => {
+    const hosted = render({ screen: 'changeVaultPassword' });
+    button('Cancel')!.click();
+    expect(hosted.backToAccount).toHaveBeenCalled();
+    expect(hosted.changeVaultPassword).not.toHaveBeenCalled();
+  });
+
+  it('says a stale-key conflict is worth retrying', () => {
+    render({
+      screen: 'changeVaultPassword',
+      error: "Your vault's key was changed on another device. Try again.",
+    });
+    expect(text()).toContain('Try again');
+  });
+
+  it('shows a replacement key on the same save screen, saying the old one is dead', () => {
+    render({
+      screen: 'recoveryKey',
+      recoveryKey: 'ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345',
+      recoveryKeyReplaced: true,
+    });
+    expect(text()).toContain('ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345');
+    expect(button('Copy')).toBeDefined();
+    expect(button('Save file')).toBeDefined();
+    expect(text()).toContain('Your old recovery key stopped working');
+    expect(button('Continue')?.disabled).toBe(true);
+  });
+
+  it('says nothing about an old key on the wizard’s first one', () => {
+    render({ screen: 'recoveryKey', recoveryKey: 'ABCD-EFGH', recoveryKeyReplaced: false });
+    expect(text()).not.toContain('Your old recovery key stopped working');
+  });
+
+  it('hides "Use my own server" on both account-card detours', () => {
+    render({ screen: 'changeVaultPassword' });
+    expect(button('Use my own server')).toBeUndefined();
+
+    if (app) unmount(app);
+    app = null;
+    target.remove();
+    target = document.createElement('div');
+    document.body.appendChild(target);
+
+    render({ screen: 'recoveryKey', recoveryKey: 'ABCD-EFGH', recoveryKeyReplaced: true });
+    expect(button('Use my own server')).toBeUndefined();
+  });
+});

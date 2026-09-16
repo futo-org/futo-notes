@@ -52,6 +52,8 @@ export function hostedErrorMessage(error: unknown): LocalizedMessage {
       return { path: 'sync.hosted.errors.wrongRecoveryKey' };
     case 'noRecoveryKey':
       return { path: 'sync.hosted.errors.noRecoveryKey' };
+    case 'vaultKeyChangedElsewhere':
+      return { path: 'sync.hosted.errors.vaultKeyChangedElsewhere' };
     case 'secretStore':
       return { path: 'sync.hosted.errors.secretStore' };
     case 'crypto':

@@ -111,6 +111,7 @@ class HostedSyncErrorsTest {
         HostedException.RecoveryKeyTypo(),
         HostedException.WrongRecoveryKey(),
         HostedException.NoRecoveryKey(),
+        HostedException.VaultKeyChangedElsewhere(),
         HostedException.SecretStore("locked"),
         HostedException.Crypto("bad envelope"),
         HostedException.PairingCodeInvalid(),

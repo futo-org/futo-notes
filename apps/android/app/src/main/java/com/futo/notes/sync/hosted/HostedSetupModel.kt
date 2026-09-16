@@ -22,10 +22,13 @@ import uniffi.futo_notes_ffi.probeSignInFlow
  *
  * Five of these are Rust's `SetupStep` verbatim. `RECOVERY_KEY` is not a step
  * and deliberately has no Rust variant: it exists only for as long as this
- * object holds the string `createVault` handed back, which happens exactly once
- * per vault because a second create is refused (ADR 0003, decision 3).
- * `LOADING` and `UNAVAILABLE` are this shell's own — the moment before Rust has
- * answered, and a server that does not offer hosted sync at all.
+ * object holds the string `createVault` — or, from the account card,
+ * `newRecoveryKey` — handed back, and Rust keeps no copy to hand over twice
+ * (ADR 0003, decision 3). `CHANGE_VAULT_PASSWORD` is the account card's other
+ * detour and is likewise not a step: the wizard is finished and Rust answers
+ * `READY` throughout. `LOADING` and `UNAVAILABLE` are this shell's own — the
+ * moment before Rust has answered, and a server that does not offer hosted sync
+ * at all.
  */
 enum class HostedScreen {
     LOADING,
@@ -36,6 +39,7 @@ enum class HostedScreen {
     RECOVERY_KEY,
     UNLOCK,
     ACCOUNT,
+    CHANGE_VAULT_PASSWORD,
 }
 
 /** What the sync screen says when the server would refuse a write. */
@@ -162,6 +166,10 @@ class HostedSetupModel(
     var recoveryKey by mutableStateOf<String?>(null)
         private set
 
+    /** True when the key on that screen replaced one a person already had. */
+    var recoveryKeyReplaced by mutableStateOf(false)
+        private set
+
     var minimumVaultPasswordLength by mutableStateOf(12)
         private set
 
@@ -283,9 +291,49 @@ class HostedSetupModel(
 
     suspend fun createVault(vaultPassword: String) = step { setup ->
         recoveryKey = setup.createVault(vaultPassword)
+        recoveryKeyReplaced = false
         recoveryKeySaved = false
         screen = HostedScreen.RECOVERY_KEY
     }
+
+    /**
+     * Opens the new-password screen. No round trip and no current secret asked:
+     * this device holds the vault key already, and a device paired by QR never
+     * knew the old password (ADR 0003, decision 10).
+     */
+    fun beginChangeVaultPassword() {
+        errorMessage = null
+        screen = HostedScreen.CHANGE_VAULT_PASSWORD
+    }
+
+    /**
+     * Re-wraps the password envelope and goes back to the account card.
+     *
+     * Rust re-wraps the same vault key, so every other device carries on with
+     * what it already holds and is never told anything happened (parent spec
+     * user story 33). A [HostedException.VaultKeyChangedElsewhere] leaves this
+     * screen up with that sentence on it, because pressing the button again is
+     * the whole remedy.
+     */
+    suspend fun changeVaultPassword(newPassword: String) = step { setup ->
+        setup.changeVaultPassword(newPassword)
+        shell.announce(LocalizedMessage("sync.hosted.vaultPassword.change.changed"))
+        readStep(setup)
+    }
+
+    /**
+     * Issues a new recovery key and shows it on the same save screen the wizard
+     * uses — the old one has stopped working by the time it appears.
+     */
+    suspend fun newRecoveryKey() = step { setup ->
+        recoveryKey = setup.newRecoveryKey()
+        recoveryKeyReplaced = true
+        recoveryKeySaved = false
+        screen = HostedScreen.RECOVERY_KEY
+    }
+
+    /** Leaves an account-card detour without doing anything. */
+    suspend fun backToAccount() = step { setup -> readStep(setup) }
 
     fun copyRecoveryKey() {
         val key = recoveryKey ?: return
@@ -301,6 +349,7 @@ class HostedSetupModel(
 
     suspend fun continueAfterRecoveryKey() {
         recoveryKey = null
+        recoveryKeyReplaced = false
         recoveryKeySaved = false
         step { setup -> readStep(setup) }
     }
@@ -442,6 +491,8 @@ class HostedSetupModel(
     suspend fun signOut() {
         cancelPairing()
         closeScanner()
+        recoveryKey = null
+        recoveryKeyReplaced = false
         signOutStep()
     }
 

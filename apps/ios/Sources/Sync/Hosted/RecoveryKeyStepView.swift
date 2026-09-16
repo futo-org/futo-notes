@@ -9,6 +9,10 @@ import SwiftUI
 /// there is no type-back.
 struct RecoveryKeyStepView: View {
     let recoveryKey: String
+    /// True when this replaces a key a person already had. The only difference
+    /// on screen: one line saying the old key stopped working (parent spec
+    /// user story 32).
+    let replaced: Bool
     @Binding var saved: Bool
     let busy: Bool
     let onCopy: () -> Void
@@ -20,6 +24,12 @@ struct RecoveryKeyStepView: View {
         HostedStepHeader(
             title: "sync.hosted.recoveryKey.title",
             explanation: "sync.hosted.recoveryKey.body")
+
+        if replaced {
+            Text(localization.localizedText("sync.hosted.recoveryKey.replaced"))
+                .font(.callout)
+                .accessibilityIdentifier("hosted-recovery-key-replaced")
+        }
 
         Text(recoveryKey)
             .font(.body.monospaced())

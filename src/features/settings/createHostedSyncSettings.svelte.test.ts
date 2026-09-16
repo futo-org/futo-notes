@@ -56,6 +56,8 @@ const rust = vi.hoisted(() => ({
   })),
   awaitPairing: vi.fn(async (): Promise<PairingOutcomeOutput> => ({ kind: 'paired' })),
   hostedSignOut: vi.fn(async () => {}),
+  changeVaultPassword: vi.fn(async () => {}),
+  newRecoveryKey: vi.fn(async () => 'ZYXW-VTSR-QPNM-KJHG-FEDC-BA98-7654'),
   saveTextFile: vi.fn(async () => true),
 }));
 vi.mock('$lib/platform/tauri', () => rust);
@@ -551,5 +553,102 @@ describe('the banners follow the account, not a guess', () => {
     const hosted = createHostedSyncSettings();
     await hosted.load();
     expect(hosted.banner).toBe('none');
+  });
+});
+
+describe('changing the vault password, and a new recovery key', () => {
+  /** A device that finished setup: Rust says ready, so the card is up. */
+  async function onTheAccountCard(): Promise<ReturnType<typeof createHostedSyncSettings>> {
+    stepIs('ready');
+    const hosted = createHostedSyncSettings();
+    await hosted.load();
+    expect(hosted.screen).toBe('account');
+    return hosted;
+  }
+
+  it('opens the new-password screen without asking Rust anything', async () => {
+    const hosted = await onTheAccountCard();
+    rust.hostedCurrentStep.mockClear();
+
+    hosted.beginChangeVaultPassword();
+
+    expect(hosted.screen).toBe('changeVaultPassword');
+    expect(rust.hostedCurrentStep).not.toHaveBeenCalled();
+  });
+
+  it('sends only the new password and lands back on the account card', async () => {
+    const hosted = await onTheAccountCard();
+    hosted.beginChangeVaultPassword();
+
+    await hosted.changeVaultPassword('Tr0ubadour&Horse!');
+
+    expect(rust.changeVaultPassword).toHaveBeenCalledWith('Tr0ubadour&Horse!');
+    expect(rust.changeVaultPassword).toHaveBeenCalledTimes(1);
+    expect(hosted.screen).toBe('account');
+    expect(hosted.error).toBe('');
+    expect(showGlobalToast).toHaveBeenCalledWith({
+      path: 'sync.hosted.vaultPassword.change.changed',
+    });
+  });
+
+  it('leaves the screen up with a retry sentence when another device won the race', async () => {
+    const hosted = await onTheAccountCard();
+    hosted.beginChangeVaultPassword();
+    rust.changeVaultPassword.mockRejectedValueOnce({ kind: 'vaultKeyChangedElsewhere' });
+
+    await hosted.changeVaultPassword('Tr0ubadour&Horse!');
+
+    expect(hosted.screen).toBe('changeVaultPassword');
+    expect(hosted.error).toContain('changed on another device');
+
+    // The same press again: nothing else to do, and no re-read to ask for.
+    await hosted.changeVaultPassword('Tr0ubadour&Horse!');
+    expect(hosted.screen).toBe('account');
+    expect(hosted.error).toBe('');
+  });
+
+  it('backs out of the new-password screen without changing anything', async () => {
+    const hosted = await onTheAccountCard();
+    hosted.beginChangeVaultPassword();
+
+    await hosted.backToAccount();
+
+    expect(hosted.screen).toBe('account');
+    expect(rust.changeVaultPassword).not.toHaveBeenCalled();
+  });
+
+  it('shows a new recovery key on the wizard’s own save screen, marked as a replacement', async () => {
+    const hosted = await onTheAccountCard();
+
+    await hosted.newRecoveryKey();
+
+    expect(hosted.screen).toBe('recoveryKey');
+    expect(hosted.recoveryKey).toBe('ZYXW-VTSR-QPNM-KJHG-FEDC-BA98-7654');
+    expect(hosted.recoveryKeyReplaced).toBe(true);
+    expect(hosted.recoveryKeySaved).toBe(false);
+  });
+
+  it('forgets the replacement key the moment Continue is pressed', async () => {
+    const hosted = await onTheAccountCard();
+    await hosted.newRecoveryKey();
+
+    await hosted.continueAfterRecoveryKey();
+
+    expect(hosted.recoveryKey).toBeNull();
+    expect(hosted.recoveryKeyReplaced).toBe(false);
+    expect(hosted.screen).toBe('account');
+    // Rust keeps no copy either, so there is nothing to ask twice for.
+    expect(rust.newRecoveryKey).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a refused re-wrap as a sentence rather than losing the screen', async () => {
+    const hosted = await onTheAccountCard();
+    rust.newRecoveryKey.mockRejectedValueOnce({ kind: 'vaultLocked' });
+
+    await hosted.newRecoveryKey();
+
+    expect(hosted.screen).toBe('account');
+    expect(hosted.recoveryKey).toBeNull();
+    expect(hosted.error).toContain("doesn't have the vault key");
   });
 });

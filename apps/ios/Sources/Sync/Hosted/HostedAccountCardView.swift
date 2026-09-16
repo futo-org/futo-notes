@@ -10,6 +10,8 @@ struct HostedAccountCardView<ScanDestination: View>: View {
     let billing: BillingStatus?
     let busy: Bool
     let onManage: () -> Void
+    let onChangeVaultPassword: () -> Void
+    let onNewRecoveryKey: () -> Void
     let onSignOut: () -> Void
     /// The scanner, pushed rather than presented — see ScanAnotherDeviceView.
     @ViewBuilder let scanDestination: () -> ScanDestination
@@ -52,6 +54,23 @@ struct HostedAccountCardView<ScanDestination: View>: View {
         )
         .disabled(busy)
         .accessibilityIdentifier("hosted-manage-subscription")
+
+        // Neither asks for a current secret: this device already holds the
+        // vault key, and one set up by scanning a code never knew the vault
+        // password (ADR 0003, decision 10).
+        Button(
+            localization.localizedText("sync.hosted.account.changeVaultPassword"),
+            action: onChangeVaultPassword
+        )
+        .disabled(busy)
+        .accessibilityIdentifier("hosted-change-vault-password")
+
+        Button(
+            localization.localizedText("sync.hosted.account.newRecoveryKey"),
+            action: onNewRecoveryKey
+        )
+        .disabled(busy)
+        .accessibilityIdentifier("hosted-new-recovery-key")
 
         // This device holds the vault key, so it is the one that can hand it to
         // a new device: phones scan, laptops show (ADR 0003, decision 5).

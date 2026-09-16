@@ -161,14 +161,31 @@ struct HostedSyncSections: View {
             .disabled(model.busy)
             .accessibilityIdentifier("hosted-subscribe")
         case .createVault:
-            CreateVaultStepView(minimumLength: model.minimumVaultPasswordLength, busy: model.busy) {
-                vaultPassword in
-                Task { await model.createVault(vaultPassword: vaultPassword) }
-            }
+            VaultPasswordStepView(
+                purpose: .create,
+                minimumLength: model.minimumVaultPasswordLength,
+                busy: model.busy,
+                onSubmit: { vaultPassword in
+                    Task { await model.createVault(vaultPassword: vaultPassword) }
+                }
+            )
+        case .changeVaultPassword:
+            // The same screen, asking for no current secret: this device holds
+            // the vault key, and one paired by QR never knew the old password.
+            VaultPasswordStepView(
+                purpose: .change,
+                minimumLength: model.minimumVaultPasswordLength,
+                busy: model.busy,
+                onSubmit: { vaultPassword in
+                    Task { await model.changeVaultPassword(vaultPassword) }
+                },
+                onCancel: { Task { await model.backToAccount() } }
+            )
         case .recoveryKey:
             if let recoveryKey = model.recoveryKey {
                 RecoveryKeyStepView(
                     recoveryKey: recoveryKey,
+                    replaced: model.recoveryKeyReplaced,
                     saved: $model.recoveryKeySaved,
                     busy: model.busy,
                     onCopy: { model.copyRecoveryKey() },
@@ -198,6 +215,8 @@ struct HostedSyncSections: View {
                 billing: model.billing,
                 busy: model.busy,
                 onManage: { Task { await model.manageSubscription() } },
+                onChangeVaultPassword: { model.beginChangeVaultPassword() },
+                onNewRecoveryKey: { Task { await model.newRecoveryKey() } },
                 onSignOut: { Task { await model.signOut() } },
                 scanDestination: { ScanAnotherDeviceView(model: model) }
             )

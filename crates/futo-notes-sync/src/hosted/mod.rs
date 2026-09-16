@@ -105,6 +105,13 @@ pub enum HostedError {
     /// door does not exist for it.
     #[error("this vault has no recovery key")]
     NoRecoveryKey,
+    /// Another device re-wrapped this vault's key material between the read
+    /// this device is holding and its own write, so the write was refused
+    /// rather than silently overwriting that change. Nothing was sent twice
+    /// and nothing is half-written: read again and retry, which is what the
+    /// next call does on its own.
+    #[error("this vault's key changed on another device; try again")]
+    VaultKeyChangedElsewhere,
     /// The OS secret store refused. Nothing was kept, so this device would ask
     /// again on its next start.
     #[error("{0}")]
@@ -251,6 +258,13 @@ pub struct HostedSetup {
     /// Where this device keeps the vault key and the session token. Absent on
     /// a setup built only to probe or sign in.
     secrets: Option<std::sync::Arc<dyn VaultSecrets>>,
+    /// The vault's key material as this device last saw it, holding the
+    /// revision token that read came with. A re-wrap is guarded by the
+    /// revision the *person* was looking at when they pressed the button —
+    /// re-reading at the moment of the write instead would quietly overwrite a
+    /// change another device made while they were typing.
+    key_material: Mutex<Option<futo_notes_core::e2ee::KeyMaterial>>,
+
     /// The pairing this device is showing a code for, if any: its one-time
     /// keypair and the relay id. In memory only, for the few minutes a code
     /// lives — the private half never reaches disk, a shell, or a log.
@@ -279,6 +293,7 @@ impl HostedSetup {
             http,
             session: Mutex::new(None),
             collection_id: Mutex::new(None),
+            key_material: Mutex::new(None),
             secrets: None,
             pairing: Mutex::new(None),
             sign_in_schedule: PollSchedule::SIGN_IN,

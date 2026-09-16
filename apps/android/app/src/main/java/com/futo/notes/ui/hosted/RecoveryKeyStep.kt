@@ -41,6 +41,12 @@ import com.futo.notes.ui.theme.FutoType
 @Composable
 fun ColumnScope.RecoveryKeyStep(
     recoveryKey: String,
+    /**
+     * True when this replaces a key a person already had. The only difference
+     * on screen: one line saying the old key stopped working (parent spec user
+     * story 32).
+     */
+    replaced: Boolean,
     saved: Boolean,
     busy: Boolean,
     onSavedChange: (Boolean) -> Unit,
@@ -55,6 +61,14 @@ fun ColumnScope.RecoveryKeyStep(
         title = "sync.hosted.recoveryKey.title",
         explanation = "sync.hosted.recoveryKey.body",
     )
+
+    if (replaced) {
+        Text(
+            localization.localizedText("sync.hosted.recoveryKey.replaced"),
+            style = FutoType.body,
+            color = c.textPrimary,
+        )
+    }
 
     Surface(
         color = c.surfaceSunken,

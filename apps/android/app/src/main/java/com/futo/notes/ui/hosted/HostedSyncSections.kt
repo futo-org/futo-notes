@@ -170,13 +170,23 @@ fun ColumnScope.HostedSyncSections(store: NotesStore, sync: SyncManager, secure:
                 onClick = { scope.launch { model.subscribe() } },
             ) { Text(localization.localizedText("sync.hosted.subscribe.button")) }
         }
-        HostedScreen.CREATE_VAULT -> CreateVaultStep(
+        HostedScreen.CREATE_VAULT -> VaultPasswordStep(
+            purpose = VaultPasswordPurpose.CREATE,
             minimumLength = model.minimumVaultPasswordLength,
             busy = model.busy,
         ) { vaultPassword -> scope.launch { model.createVault(vaultPassword) } }
+        // The same screen, asking for no current secret: this device holds the
+        // vault key, and one paired by QR never knew the old password.
+        HostedScreen.CHANGE_VAULT_PASSWORD -> VaultPasswordStep(
+            purpose = VaultPasswordPurpose.CHANGE,
+            minimumLength = model.minimumVaultPasswordLength,
+            busy = model.busy,
+            onCancel = { scope.launch { model.backToAccount() } },
+        ) { newPassword -> scope.launch { model.changeVaultPassword(newPassword) } }
         HostedScreen.RECOVERY_KEY -> model.recoveryKey?.let { key ->
             RecoveryKeyStep(
                 recoveryKey = key,
+                replaced = model.recoveryKeyReplaced,
                 saved = model.recoveryKeySaved,
                 busy = model.busy,
                 onSavedChange = { model.recoveryKeySaved = it },
@@ -202,6 +212,8 @@ fun ColumnScope.HostedSyncSections(store: NotesStore, sync: SyncManager, secure:
             billing = model.billing,
             busy = model.busy,
             onManage = { scope.launch { model.manageSubscription() } },
+            onChangeVaultPassword = { model.beginChangeVaultPassword() },
+            onNewRecoveryKey = { scope.launch { model.newRecoveryKey() } },
             onScanAnotherDevice = { model.openScanner() },
             onSignOut = { scope.launch { model.signOut() } },
         )
@@ -248,7 +260,13 @@ fun ColumnScope.HostedSyncSections(store: NotesStore, sync: SyncManager, secure:
     // Self-hosting is unchanged and stays available. The disclosed panel is
     // literally the rows a flag-off build renders, not a copy of them (parent
     // spec user story 34). The offer goes away once hosted sync is set up.
-    if (model.screen != HostedScreen.ACCOUNT) {
+    // "Use my own server" belongs to someone who has not set hosted sync up.
+    // The account card hides it, and so do the two detours off it — changing
+    // the vault password, and the replacement recovery key.
+    val settingUp = model.screen != HostedScreen.ACCOUNT &&
+        model.screen != HostedScreen.CHANGE_VAULT_PASSWORD &&
+        !(model.screen == HostedScreen.RECOVERY_KEY && model.recoveryKeyReplaced)
+    if (settingUp) {
         Surface(
             color = c.surface,
             shape = RoundedCornerShape(FutoRadius.md),

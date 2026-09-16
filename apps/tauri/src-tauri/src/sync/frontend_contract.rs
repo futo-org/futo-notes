@@ -496,6 +496,9 @@ pub(crate) enum HostedErrorOutput {
     RecoveryKeyTypo,
     WrongRecoveryKey,
     NoRecoveryKey,
+    /// Another device re-wrapped this vault's key material in between. Read
+    /// again and retry; nothing was overwritten and nothing is half-written.
+    VaultKeyChangedElsewhere,
     /// The OS secret store refused; nothing was kept.
     SecretStore {
         reason: String,
@@ -573,6 +576,7 @@ impl From<futo_notes_sync::HostedError> for HostedErrorOutput {
             HostedError::RecoveryKeyTypo => Self::RecoveryKeyTypo,
             HostedError::WrongRecoveryKey => Self::WrongRecoveryKey,
             HostedError::NoRecoveryKey => Self::NoRecoveryKey,
+            HostedError::VaultKeyChangedElsewhere => Self::VaultKeyChangedElsewhere,
             HostedError::SecretStore(reason) => Self::SecretStore { reason },
             HostedError::Crypto(reason) => Self::Crypto { reason },
             HostedError::PairingCodeInvalid => Self::PairingCodeInvalid,

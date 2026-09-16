@@ -289,6 +289,36 @@ pub async fn e2ee_hosted_unlock_with_recovery_key(
         .map_err(Into::into)
 }
 
+/// Sets a new vault password, from the account card. Asks for no current
+/// secret: this device already holds the vault key, and a device paired by QR
+/// never knew the old password. The vault key itself does not change, so every
+/// other device carries on untouched.
+///
+/// `vaultKeyChangedElsewhere` means another device re-wrapped in between;
+/// nothing was overwritten, and calling this again lands.
+#[tauri::command]
+pub async fn e2ee_hosted_change_vault_password(
+    state: State<'_, AppState>,
+    new_password: String,
+) -> Result<(), HostedErrorOutput> {
+    let setup = state.hosted.current()?;
+    setup
+        .change_vault_password(&new_password)
+        .await
+        .map_err(Into::into)
+}
+
+/// Issues a new recovery key and answers with it, for the same save screen the
+/// wizard uses. **The old key stops working**, and like `e2ee_hosted_create_vault`
+/// nothing here keeps a copy of what it returns.
+#[tauri::command]
+pub async fn e2ee_hosted_new_recovery_key(
+    state: State<'_, AppState>,
+) -> Result<String, HostedErrorOutput> {
+    let setup = state.hosted.current()?;
+    setup.new_recovery_key().await.map_err(Into::into)
+}
+
 /// What this computer calls itself on the other device's confirmation sheet.
 ///
 /// The shell's job, not the engine's: iOS and Android read a name a person set

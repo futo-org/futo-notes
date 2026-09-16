@@ -120,6 +120,31 @@ export function unlockWithRecoveryKey(typed: string): Promise<void> {
 }
 
 /**
+ * Sets a new vault password, from the account card.
+ *
+ * Asks for no current secret: this device already holds the vault key, and a
+ * device paired by QR never knew the old password. The vault key itself does
+ * not change, so every other device carries on untouched.
+ *
+ * Rejects with `vaultKeyChangedElsewhere` when another device re-wrapped in
+ * between. Nothing was overwritten; calling this again lands.
+ */
+export function changeVaultPassword(newPassword: string): Promise<void> {
+  return invoke<void>('e2ee_hosted_change_vault_password', { newPassword });
+}
+
+/**
+ * Issues a new recovery key and answers with it, for the same save screen the
+ * wizard uses.
+ *
+ * **The old key stops working.** Like `createHostedVault`, nothing in Rust
+ * keeps a copy, so this string is the only chance a person gets to save it.
+ */
+export function newRecoveryKey(): Promise<string> {
+  return invoke<string>('e2ee_hosted_new_recovery_key');
+}
+
+/**
  * Opens a pairing and returns the code for this device to show as a QR.
  *
  * Called on the **new** device — the one with no vault key. Start

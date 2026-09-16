@@ -35,6 +35,8 @@ fun ColumnScope.HostedAccountCard(
     billing: BillingStatus?,
     busy: Boolean,
     onManage: () -> Unit,
+    onChangeVaultPassword: () -> Unit,
+    onNewRecoveryKey: () -> Unit,
     onScanAnotherDevice: () -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -67,6 +69,32 @@ fun ColumnScope.HostedAccountCard(
             style = FutoType.small,
             color = c.textSecondary,
         )
+    }
+
+    // Neither asks for a current secret: this device already holds the vault
+    // key, and one set up by scanning a code never knew the vault password
+    // (ADR 0003, decision 10).
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        OutlinedButton(
+            enabled = !busy,
+            shape = RoundedCornerShape(FutoRadius.md),
+            onClick = onChangeVaultPassword,
+        ) {
+            Text(
+                localization.localizedText("sync.hosted.account.changeVaultPassword"),
+                color = c.textSecondary,
+            )
+        }
+        OutlinedButton(
+            enabled = !busy,
+            shape = RoundedCornerShape(FutoRadius.md),
+            onClick = onNewRecoveryKey,
+        ) {
+            Text(
+                localization.localizedText("sync.hosted.account.newRecoveryKey"),
+                color = c.textSecondary,
+            )
+        }
     }
 
     // This device holds the vault key, so it is the one that can hand it to a

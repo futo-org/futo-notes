@@ -43,6 +43,8 @@ fun hostedErrorMessage(error: Throwable): LocalizedMessage = when (error) {
     is HostedException.WrongRecoveryKey ->
         LocalizedMessage("sync.hosted.errors.wrongRecoveryKey")
     is HostedException.NoRecoveryKey -> LocalizedMessage("sync.hosted.errors.noRecoveryKey")
+    is HostedException.VaultKeyChangedElsewhere ->
+        LocalizedMessage("sync.hosted.errors.vaultKeyChangedElsewhere")
     is HostedException.SecretStore -> LocalizedMessage("sync.hosted.errors.secretStore")
     is HostedException.Crypto -> LocalizedMessage("sync.hosted.errors.crypto")
     is HostedException.PairingCodeInvalid ->

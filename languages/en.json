@@ -592,21 +592,29 @@
           "button": "Subscribe",
           "waiting": "Finish checkout in your browser."
         },
-        "createVault": {
-          "title": "Choose a vault password",
-          "body": "This password encrypts your notes. It is separate from your FUTO password and is never sent anywhere, so FUTO can store your notes without being able to read them.",
+        "vaultPassword": {
           "label": "Vault password",
           "placeholder": "At least {minimum} characters",
           "repeatLabel": "Repeat vault password",
           "repeatPlaceholder": "Type it again",
           "mismatch": "Those two passwords are different.",
-          "button": "Create vault",
           "strengthAccessibilityLabel": "Vault password strength: {strength}",
           "strength": {
             "tooShort": "At least {minimum} characters",
             "weak": "Weak",
             "fair": "Fair",
             "strong": "Strong"
+          },
+          "create": {
+            "title": "Choose a vault password",
+            "body": "This password encrypts your notes. It is separate from your FUTO password and is never sent anywhere, so FUTO can store your notes without being able to read them.",
+            "button": "Create vault"
+          },
+          "change": {
+            "title": "Choose a new vault password",
+            "body": "You are not asked for the old one: this device already holds the key to your vault. Your other devices keep working, and nothing about your notes changes.",
+            "button": "Set new password",
+            "changed": "Vault password changed."
           }
         },
         "recoveryKey": {
@@ -622,7 +630,8 @@
           "saved": "Recovery key saved.",
           "fileFilterName": "Text file",
           "confirmSaved": "I've saved my recovery key",
-          "continue": "Continue"
+          "continue": "Continue",
+          "replaced": "Your old recovery key stopped working the moment this one appeared."
         },
         "unlock": {
           "title": "Unlock your vault",
@@ -714,6 +723,8 @@
           "heading": "FUTO account",
           "storage": "{used} of {quota} used",
           "manageSubscription": "Manage subscription",
+          "changeVaultPassword": "Change vault password",
+          "newRecoveryKey": "New recovery key",
           "signOut": "Sign out",
           "state": {
             "active": "Active",
@@ -775,7 +786,8 @@
           "vaultLocked": "This device doesn't have the vault key yet, so it can't give it to another device.",
           "checkoutGaveUp": "Checkout hasn't come through yet. Try again in a moment.",
           "noBrowser": "This device has no browser to sign in with.",
-          "unexpected": "Something went wrong. Try again."
+          "unexpected": "Something went wrong. Try again.",
+          "vaultKeyChangedElsewhere": "Your vault's key was changed on another device. Try again."
         }
       }
     },

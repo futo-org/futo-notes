@@ -1647,4 +1647,15 @@ against_the_real_server! {
     a_pairing_can_only_be_answered_once,
     collecting_the_key_spends_the_pairing,
     leaving_the_pairing_screen_cancels_the_wait,
+    // Changing the vault password, and issuing a new recovery key.
+    a_new_vault_password_replaces_the_old_one,
+    changing_the_vault_password_keeps_the_recovery_key_working,
+    a_new_recovery_key_invalidates_the_old_one,
+    a_stale_key_revision_is_refused_and_clears_on_retry,
+    a_stale_recovery_key_revision_is_refused,
+    a_locked_device_cannot_change_the_vault_password,
+    changing_the_vault_password_leaves_another_device_untouched,
+    // Real-server only: the hosted stub mounts the setup routes and nothing
+    // else, so there is no object API on it to run a sync cycle against.
+    changing_the_vault_password_leaves_another_device_syncing,
 }

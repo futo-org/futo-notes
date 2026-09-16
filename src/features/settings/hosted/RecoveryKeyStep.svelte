@@ -4,6 +4,12 @@
   interface Props {
     /** The one copy that will ever exist; there is no way to ask for it again. */
     recoveryKey: string;
+    /**
+     * True when this replaces a key a person already had, rather than being
+     * the vault's first. The only difference on screen: one line saying the
+     * old key stopped working (parent spec user story 32).
+     */
+    replaced: boolean;
     saved: boolean;
     busy: boolean;
     onsavedchange: (saved: boolean) => void;
@@ -12,11 +18,15 @@
     oncontinue: () => void;
   }
 
-  let { recoveryKey, saved, busy, onsavedchange, oncopy, onsavefile, oncontinue }: Props = $props();
+  let { recoveryKey, replaced, saved, busy, onsavedchange, oncopy, onsavefile, oncontinue }: Props =
+    $props();
 </script>
 
 <p class="hosted-title">{localizedText('sync.hosted.recoveryKey.title')}</p>
 <p class="hosted-body">{localizedText('sync.hosted.recoveryKey.body')}</p>
+{#if replaced}
+  <p class="hosted-body">{localizedText('sync.hosted.recoveryKey.replaced')}</p>
+{/if}
 
 <p
   class="hosted-recovery-key"

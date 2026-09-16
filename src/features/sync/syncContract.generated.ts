@@ -77,6 +77,11 @@ export type HostedErrorOutput =
  *  before anything is sent.
  */
 { kind: "recoveryKeyTypo" } | { kind: "wrongRecoveryKey" } | { kind: "noRecoveryKey" } | 
+/**
+ *  Another device re-wrapped this vault's key material in between. Read
+ *  again and retry; nothing was overwritten and nothing is half-written.
+ */
+{ kind: "vaultKeyChangedElsewhere" } | 
 // The OS secret store refused; nothing was kept.
 { kind: "secretStore"; reason: string } | { kind: "crypto"; reason: string } | 
 /**

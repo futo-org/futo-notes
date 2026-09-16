@@ -23,6 +23,7 @@ const EVERY_VARIANT: HostedErrorOutput[] = [
   { kind: 'recoveryKeyTypo' },
   { kind: 'wrongRecoveryKey' },
   { kind: 'noRecoveryKey' },
+  { kind: 'vaultKeyChangedElsewhere' },
   { kind: 'secretStore', reason: 'no secret service' },
   { kind: 'crypto', reason: 'unsupported kdf' },
   { kind: 'pairingCodeInvalid' },

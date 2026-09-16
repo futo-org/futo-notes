@@ -4,10 +4,10 @@
   import type { HostedSyncSettings, UnlockDoor } from './createHostedSyncSettings.svelte';
   import type { SyncSettings } from './createSyncSettings.svelte';
   import SyncSettingsSection from './SyncSettingsSection.svelte';
-  import CreateVaultStep from './hosted/CreateVaultStep.svelte';
   import HostedAccountCard from './hosted/HostedAccountCard.svelte';
   import RecoveryKeyStep from './hosted/RecoveryKeyStep.svelte';
   import UnlockStep from './hosted/UnlockStep.svelte';
+  import VaultPasswordStep from './hosted/VaultPasswordStep.svelte';
 
   interface Props {
     hosted: HostedSyncSettings;
@@ -19,6 +19,18 @@
   }
 
   let { hosted, sync, backgroundError, backgroundErrorMessage, reconnecting }: Props = $props();
+
+  /**
+   * "Use my own server" belongs to someone who has not set hosted sync up.
+   * The account card hides it, and so do the two detours off it — changing the
+   * vault password, and the replacement recovery key — because a person there
+   * is signed in and syncing, not choosing a server.
+   */
+  const settingUp = $derived(
+    hosted.screen !== 'account' &&
+      hosted.screen !== 'changeVaultPassword' &&
+      !(hosted.screen === 'recoveryKey' && hosted.recoveryKeyReplaced),
+  );
 
   /**
    * Leaving the scan door stops waiting on the code it was showing. Without
@@ -103,14 +115,26 @@
         </button>
       </div>
     {:else if hosted.screen === 'createVault'}
-      <CreateVaultStep
+      <VaultPasswordStep
+        purpose="create"
         minimumLength={hosted.minVaultPasswordLength}
         busy={hosted.busy}
-        oncreate={(vaultPassword) => void hosted.createVault(vaultPassword)}
+        onsubmit={(vaultPassword) => void hosted.createVault(vaultPassword)}
+      />
+    {:else if hosted.screen === 'changeVaultPassword'}
+      <!-- The same screen, asking for no current secret: this device holds
+           the vault key, and one paired by QR never knew the old password. -->
+      <VaultPasswordStep
+        purpose="change"
+        minimumLength={hosted.minVaultPasswordLength}
+        busy={hosted.busy}
+        onsubmit={(vaultPassword) => void hosted.changeVaultPassword(vaultPassword)}
+        oncancel={() => void hosted.backToAccount()}
       />
     {:else if hosted.screen === 'recoveryKey' && hosted.recoveryKey}
       <RecoveryKeyStep
         recoveryKey={hosted.recoveryKey}
+        replaced={hosted.recoveryKeyReplaced}
         saved={hosted.recoveryKeySaved}
         busy={hosted.busy}
         onsavedchange={(saved) => (hosted.recoveryKeySaved = saved)}
@@ -137,6 +161,8 @@
         billing={hosted.billing}
         busy={hosted.busy}
         onmanage={() => void hosted.manageSubscription()}
+        onchangevaultpassword={() => hosted.beginChangeVaultPassword()}
+        onnewrecoverykey={() => void hosted.newRecoveryKey()}
         onsignout={() => void hosted.signOut()}
       />
     {/if}
@@ -158,7 +184,7 @@
 <!-- Self-hosting is unchanged and stays available: this is literally the
      screen the flag-off build renders, disclosed rather than reimplemented
      (parent spec user story 34). -->
-{#if hosted.screen !== 'account'}
+{#if settingUp}
   <button
     class="settings-link-btn"
     aria-expanded={hosted.selfHostedOpen}

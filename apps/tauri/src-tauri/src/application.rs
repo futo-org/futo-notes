@@ -116,6 +116,8 @@ pub(crate) fn run() {
             crate::sync::hosted_commands::e2ee_hosted_create_vault,
             crate::sync::hosted_commands::e2ee_hosted_unlock_with_vault_password,
             crate::sync::hosted_commands::e2ee_hosted_unlock_with_recovery_key,
+            crate::sync::hosted_commands::e2ee_hosted_change_vault_password,
+            crate::sync::hosted_commands::e2ee_hosted_new_recovery_key,
             crate::sync::hosted_commands::e2ee_hosted_begin_pairing,
             crate::sync::hosted_commands::e2ee_hosted_complete_pairing,
             crate::sync::hosted_commands::e2ee_hosted_confirm_pairing,

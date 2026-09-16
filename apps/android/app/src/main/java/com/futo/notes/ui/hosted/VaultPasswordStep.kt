@@ -12,6 +12,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,18 +33,35 @@ import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 
 /**
+ * Which of the two vault-password screens this is: the wizard's "choose one",
+ * or the account card's "choose a new one". Everything below the heading is the
+ * same either way — the minimum, the meter, the repeat field — so the two share
+ * one composable rather than one copying the other.
+ */
+enum class VaultPasswordPurpose(val catalogSuffix: String) {
+    CREATE("create"),
+    CHANGE("change"),
+}
+
+/**
  * Choose the password that encrypts this vault.
  *
  * [minimumLength] is Rust's own minimum, read through the FFI, so this screen
  * and the engine cannot disagree about what a long-enough password is. The
  * strength readout is advice on top of that one rule — there are no composition
  * rules (ADR 0003, decision 7).
+ *
+ * The change screen asks for no current secret: this device already holds the
+ * vault key, and a device paired by QR never knew the old password (ADR 0003,
+ * decision 10).
  */
 @Composable
-fun ColumnScope.CreateVaultStep(
+fun ColumnScope.VaultPasswordStep(
+    purpose: VaultPasswordPurpose,
     minimumLength: Int,
     busy: Boolean,
-    onCreate: (String) -> Unit,
+    onCancel: (() -> Unit)? = null,
+    onSubmit: (String) -> Unit,
 ) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
@@ -53,28 +71,28 @@ fun ColumnScope.CreateVaultStep(
     val strength = vaultPasswordStrength(password, minimumLength)
     val strengthLabel = if (strength == VaultPasswordStrength.TOO_SHORT) {
         localization.localizedText(
-            "sync.hosted.createVault.strength.tooShort",
+            "sync.hosted.vaultPassword.strength.tooShort",
             mapOf("minimum" to minimumLength),
         )
     } else {
-        localization.localizedText("sync.hosted.createVault.strength.${strength.catalogSuffix}")
+        localization.localizedText("sync.hosted.vaultPassword.strength.${strength.catalogSuffix}")
     }
     val typedLength = password.codePointCount(0, password.length)
     val ready = typedLength >= minimumLength && repeated == password && !busy
 
     HostedStepHeader(
-        title = "sync.hosted.createVault.title",
-        explanation = "sync.hosted.createVault.body",
+        title = "sync.hosted.vaultPassword.${purpose.catalogSuffix}.title",
+        explanation = "sync.hosted.vaultPassword.${purpose.catalogSuffix}.body",
     )
 
     OutlinedTextField(
         value = password,
         onValueChange = { password = it },
-        label = { Text(localization.localizedText("sync.hosted.createVault.label")) },
+        label = { Text(localization.localizedText("sync.hosted.vaultPassword.label")) },
         placeholder = {
             Text(
                 localization.localizedText(
-                    "sync.hosted.createVault.placeholder",
+                    "sync.hosted.vaultPassword.placeholder",
                     mapOf("minimum" to minimumLength),
                 ),
             )
@@ -106,9 +124,9 @@ fun ColumnScope.CreateVaultStep(
     OutlinedTextField(
         value = repeated,
         onValueChange = { repeated = it },
-        label = { Text(localization.localizedText("sync.hosted.createVault.repeatLabel")) },
+        label = { Text(localization.localizedText("sync.hosted.vaultPassword.repeatLabel")) },
         placeholder = {
-            Text(localization.localizedText("sync.hosted.createVault.repeatPlaceholder"))
+            Text(localization.localizedText("sync.hosted.vaultPassword.repeatPlaceholder"))
         },
         singleLine = true,
         visualTransformation = PasswordVisualTransformation(),
@@ -123,7 +141,7 @@ fun ColumnScope.CreateVaultStep(
 
     if (repeated.isNotEmpty() && repeated != password) {
         Text(
-            localization.localizedText("sync.hosted.createVault.mismatch"),
+            localization.localizedText("sync.hosted.vaultPassword.mismatch"),
             style = FutoType.small,
             color = c.danger,
         )
@@ -136,15 +154,24 @@ fun ColumnScope.CreateVaultStep(
             contentColor = Color.White,
         ),
         shape = RoundedCornerShape(FutoRadius.md),
-        onClick = { onCreate(password) },
+        onClick = { onSubmit(password) },
     ) {
         Text(
             if (busy) {
                 localization.localizedText("sync.working")
             } else {
-                localization.localizedText("sync.hosted.createVault.button")
+                localization.localizedText(
+                    "sync.hosted.vaultPassword.${purpose.catalogSuffix}.button",
+                )
             },
         )
+    }
+
+    // Only the change screen offers a way back; the wizard has none.
+    if (onCancel != null) {
+        TextButton(onClick = onCancel) {
+            Text(localization.localizedText("sync.hosted.cancel"), color = c.textSecondary)
+        }
     }
 }
 

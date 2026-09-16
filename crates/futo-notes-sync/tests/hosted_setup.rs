@@ -49,6 +49,14 @@ against_the_stub! {
     a_pairing_can_only_be_answered_once,
     collecting_the_key_spends_the_pairing,
     leaving_the_pairing_screen_cancels_the_wait,
+    // Changing the vault password, and issuing a new recovery key.
+    a_new_vault_password_replaces_the_old_one,
+    changing_the_vault_password_keeps_the_recovery_key_working,
+    a_new_recovery_key_invalidates_the_old_one,
+    a_stale_key_revision_is_refused_and_clears_on_retry,
+    a_stale_recovery_key_revision_is_refused,
+    a_locked_device_cannot_change_the_vault_password,
+    changing_the_vault_password_leaves_another_device_untouched,
     // Stub-only: a stand-in server has one identity and a fixed five-minute
     // window, so neither of these can be reached against one. Everything else
     // about pairing runs both ways.

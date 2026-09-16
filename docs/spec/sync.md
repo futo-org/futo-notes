@@ -685,8 +685,12 @@ variable for; a stable `vX.Y.Z` tag — the one that reaches Play — does not. 
   disagree. The screen says the password is separate from the FUTO password and
   is never sent anywhere. The estimate is a local length-and-variety measure that
   refuses to call a long repeated character anything but weak; no password
-  dictionary ships. → `vaultPasswordStrength.ts` _(desktop)_,
-  VaultPasswordStrength.swift _(iOS)_, VaultPasswordStrength.kt _(Android)_
+  dictionary ships. **Choosing the first vault password and choosing a new one
+  are one screen with two headings**, so the minimum, the meter, and the repeat
+  field cannot drift apart between them. → `vaultPasswordStrength.ts` +
+  VaultPasswordStep.svelte _(desktop)_, VaultPasswordStrength.swift +
+  VaultPasswordStepView.swift _(iOS)_, VaultPasswordStrength.kt +
+  VaultPasswordStep.kt _(Android)_
 - **The recovery key is shown exactly once and cannot be shown again.** Rust
   returns it from `create_vault` and keeps no copy; a second create is refused
   with `vaultAlreadyExists`. The shell holds it in the wizard object alone —
@@ -695,9 +699,11 @@ variable for; a stable `vX.Y.Z` tag — the one that reaches Play — does not. 
   share sheet _(iOS, Android)_, says plainly that FUTO cannot recover the vault
   without it, and gates Continue on an "I've saved my recovery key" checkbox.
   There is no type-back. What is saved or shared is the key and nothing else, so
-  it pastes straight back into the unlock field. → `hosted/vault.rs`
-  `create_vault`, RecoveryKeyStep.svelte _(desktop)_,
-  RecoveryKeyStepView.swift _(iOS)_, RecoveryKeyStep.kt _(Android)_
+  it pastes straight back into the unlock field. **The same screen shows a
+  replacement key**, with one extra line saying the old one has stopped working.
+  → `hosted/vault.rs` `create_vault` / `new_recovery_key`,
+  RecoveryKeyStep.svelte _(desktop)_, RecoveryKeyStepView.swift _(iOS)_,
+  RecoveryKeyStep.kt _(Android)_
 - **The unlock screen offers three doors on one screen**: vault password, scan
   from another device, and recovery key. A mistyped recovery key is reported as a
   typo — caught by its check character on the device, with nothing sent — and is
@@ -846,7 +852,7 @@ variable for; a stable `vX.Y.Z` tag — the one that reaches Play — does not. 
 - **The account card reads one billing endpoint** and shows the email, the
   subscription state in words ("Active", "Payment failed. In 4 days, sync
   pauses.", "Expired"), storage used against the quota, "Manage subscription",
-  and Sign out. The app writes no billing state: cancellation, invoices, and
+  "Change vault password", "New recovery key", and Sign out. The app writes no billing state: cancellation, invoices, and
   cards live behind the portal link, which is a fresh one-shot URL minted per
   press. → `subscriptionState.ts` + HostedAccountCard.svelte _(desktop)_,
   SubscriptionState.swift + HostedAccountCardView.swift _(iOS)_,
@@ -856,6 +862,49 @@ variable for; a stable `vX.Y.Z` tag — the one that reaches Play — does not. 
   other devices still arrive; a full vault shows **Vault is full** with the
   portal button. Sync paused wins when both are true, because a lapsed
   subscription refuses the write whatever the quota says. Reads are never gated.
+- **Changing the vault password and issuing a new recovery key ask for no
+  current secret.** This device already holds the vault key, and a device set up
+  by scanning a QR code never knew the vault password, so requiring it would
+  lock that device out of both actions. The new vault password is typed twice on
+  the same screen the wizard uses to choose the first one; the new recovery key
+  appears on the wizard's own save screen, and the old one stops working the
+  moment it does. → `hosted/vault.rs` `change_vault_password` /
+  `new_recovery_key`, `e2ee_hosted_change_vault_password` /
+  `e2ee_hosted_new_recovery_key`; `tests/hosted_scenarios/mod.rs`
+  (`a_new_vault_password_replaces_the_old_one`,
+  `a_new_recovery_key_invalidates_the_old_one`)
+- **Each re-wraps one envelope and sends both.** Changing the vault password
+  rebuilds the password envelope and carries the recovery envelope back
+  unchanged; a new recovery key does the reverse. A `PUT` of key material
+  replaces the whole of it, so leaving the other envelope out would delete a
+  working door rather than leave it alone (server ADR 0006, rule 2). Neither
+  changes the vault key itself, which is why notes already stored stay readable.
+  → `tests/hosted_scenarios/mod.rs`
+  (`changing_the_vault_password_keeps_the_recovery_key_working`)
+- **A re-wrap is guarded by the revision the person was looking at.** The engine
+  remembers the `key_updated_at` of the key material it last read and sends it as
+  `previous_key_updated_at`; a server that has moved on answers `409` with the
+  authoritative material. That surfaces as `vaultKeyChangedElsewhere` — "your
+  vault's key was changed on another device, try again" — and nothing is
+  overwritten. The engine adopts what the refusal carried, so the person's own
+  second press lands with no re-read to ask for. Re-reading at the moment of the
+  write instead would quietly overwrite the other device's change.
+  → `server/mod.rs` `rewrap_key`, `hosted/vault.rs` `rewrap`;
+  `tests/hosted_scenarios/mod.rs`
+  (`a_stale_key_revision_is_refused_and_clears_on_retry`,
+  `a_stale_recovery_key_revision_is_refused`)
+- **A device that does not hold the vault key can do neither**, and is told so
+  (`vaultLocked`) rather than shown a screen that cannot work.
+  → `tests/hosted_scenarios/mod.rs`
+  (`a_locked_device_cannot_change_the_vault_password`)
+- **A vault-password change on one device reaches no other device.** The vault
+  key is unchanged, so every other device keeps the key it already holds, stays
+  on the account card rather than being sent back to a wizard, and keeps
+  syncing — it is never told anything happened. → `tests/hosted_scenarios/mod.rs`
+  (`changing_the_vault_password_leaves_another_device_untouched`,
+  `changing_the_vault_password_leaves_another_device_syncing` — the second runs
+  against a real stand-in server only, because the in-test hosted stub mounts the
+  setup routes and has no object API to sync against)
 - **Sign out is one action**: it revokes the session on the server (best
   effort), deletes the vault key and the session token from the OS secret store,
   and demotes this vault's sync state exactly as disconnect does. It asks for

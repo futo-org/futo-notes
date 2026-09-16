@@ -69,6 +69,10 @@ pub enum HostedError {
     WrongRecoveryKey,
     #[error("this vault has no recovery key")]
     NoRecoveryKey,
+    /// Another device re-wrapped this vault's key material in between. Read
+    /// again and retry; nothing was overwritten and nothing is half-written.
+    #[error("this vault's key changed on another device; try again")]
+    VaultKeyChangedElsewhere,
     /// The OS secret store refused; nothing was kept.
     #[error("{reason}")]
     SecretStore { reason: String },
@@ -123,6 +127,7 @@ impl From<sync::HostedError> for HostedError {
             sync::HostedError::RecoveryKeyTypo => Self::RecoveryKeyTypo,
             sync::HostedError::WrongRecoveryKey => Self::WrongRecoveryKey,
             sync::HostedError::NoRecoveryKey => Self::NoRecoveryKey,
+            sync::HostedError::VaultKeyChangedElsewhere => Self::VaultKeyChangedElsewhere,
             sync::HostedError::SecretStore(reason) => Self::SecretStore { reason },
             sync::HostedError::Crypto(reason) => Self::Crypto { reason },
             sync::HostedError::PairingCodeInvalid => Self::PairingCodeInvalid,
@@ -512,6 +517,24 @@ impl HostedSetupClient {
     /// device.
     pub async fn unlock_with_recovery_key(&self, typed: String) -> Result<(), HostedError> {
         Ok(self.setup.unlock_with_recovery_key(&typed).await?)
+    }
+
+    /// Sets a new vault password, from the account card. Asks for no current
+    /// secret: this device already holds the vault key, and a device paired by
+    /// QR never knew the old password. The vault key itself does not change,
+    /// so every other device carries on untouched.
+    ///
+    /// `VaultKeyChangedElsewhere` means another device re-wrapped in between;
+    /// nothing was overwritten, and calling this again lands.
+    pub async fn change_vault_password(&self, new_password: String) -> Result<(), HostedError> {
+        Ok(self.setup.change_vault_password(&new_password).await?)
+    }
+
+    /// Issues a new recovery key and answers with it, for the same save screen
+    /// the wizard uses. **The old key stops working**, and like `create_vault`
+    /// nothing here keeps a copy of what it returns.
+    pub async fn new_recovery_key(&self) -> Result<String, HostedError> {
+        Ok(self.setup.new_recovery_key().await?)
     }
 
     /// One action: revoke the session, forget both secrets, and demote this

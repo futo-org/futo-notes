@@ -182,6 +182,24 @@ struct HostedSetupModelTests {
             deviceHoldsKey = false
         }
 
+        /// The two account-card re-wraps. Both hold the rule the engine holds:
+        /// a device that does not have the vault key has nothing to re-wrap,
+        /// and neither asks for a current secret.
+        var vaultPassword = "a long enough vault password"
+        var replacementRecoveryKey = "ZYXW-VTSR-QPNM-KJHG-FEDC-BA98-7654"
+
+        func changeVaultPassword(newPassword: String) async throws {
+            try record("changeVaultPassword")
+            guard deviceHoldsKey else { throw HostedError.VaultLocked }
+            vaultPassword = newPassword
+        }
+
+        func newRecoveryKey() async throws -> String {
+            try record("newRecoveryKey")
+            guard deviceHoldsKey else { throw HostedError.VaultLocked }
+            return replacementRecoveryKey
+        }
+
         private func record(_ call: String) throws {
             calls.append(call)
             if let failure = nextFailure {
@@ -911,5 +929,118 @@ struct HostedSetupModelTests {
         #expect(model.scannedPairing == nil)
         #expect(model.pairing == .idle)
         #expect(model.screen == .signIn)
+    }
+
+    // MARK: - Changing the vault password, and a new recovery key
+
+    /// A device that finished setup: Rust says ready, so the card is up.
+    private func onTheAccountCard() async -> (StandInSetup, StandInShell, HostedSetupModel) {
+        let setup = StandInSetup()
+        setup.signedIn = true
+        setup.entitled = true
+        setup.vaultHasKeyMaterial = true
+        setup.deviceHoldsKey = true
+        let shell = StandInShell()
+        let model = makeModel(setup, shell)
+        await model.load()
+        #expect(model.screen == .account)
+        return (setup, shell, model)
+    }
+
+    @Test("the new-password screen opens without asking Rust anything")
+    func changeVaultPasswordOpensLocally() async {
+        let (setup, _, model) = await onTheAccountCard()
+        let before = setup.calls.count
+
+        model.beginChangeVaultPassword()
+
+        #expect(model.screen == .changeVaultPassword)
+        #expect(setup.calls.count == before)
+    }
+
+    @Test("only the new password is sent, and the card comes back")
+    func changeVaultPasswordSendsOnlyTheNewOne() async {
+        let (setup, shell, model) = await onTheAccountCard()
+        model.beginChangeVaultPassword()
+
+        await model.changeVaultPassword("Tr0ubadour&Horse!")
+
+        #expect(setup.vaultPassword == "Tr0ubadour&Horse!")
+        #expect(setup.calls.filter { $0 == "changeVaultPassword" }.count == 1)
+        #expect(model.screen == .account)
+        #expect(model.errorMessage == nil)
+        #expect(shell.announcements.contains("sync.hosted.vaultPassword.change.changed"))
+    }
+
+    @Test("a stale-key conflict keeps the screen up, and the retry lands")
+    func aStaleKeyConflictIsRetryable() async {
+        let (setup, _, model) = await onTheAccountCard()
+        model.beginChangeVaultPassword()
+        setup.nextFailure = .VaultKeyChangedElsewhere
+
+        await model.changeVaultPassword("Tr0ubadour&Horse!")
+
+        #expect(model.screen == .changeVaultPassword)
+        #expect(model.errorMessage?.path == "sync.hosted.errors.vaultKeyChangedElsewhere")
+
+        await model.changeVaultPassword("Tr0ubadour&Horse!")
+        #expect(model.screen == .account)
+        #expect(model.errorMessage == nil)
+        #expect(setup.vaultPassword == "Tr0ubadour&Horse!")
+    }
+
+    @Test("backing out changes nothing")
+    func backingOutOfChangeVaultPassword() async {
+        let (setup, _, model) = await onTheAccountCard()
+        let password = setup.vaultPassword
+        model.beginChangeVaultPassword()
+
+        await model.backToAccount()
+
+        #expect(model.screen == .account)
+        #expect(setup.vaultPassword == password)
+        #expect(!setup.calls.contains("changeVaultPassword"))
+    }
+
+    @Test("a new recovery key lands on the wizard's own save screen, marked a replacement")
+    func newRecoveryKeyReusesTheSaveScreen() async {
+        let (_, _, model) = await onTheAccountCard()
+
+        await model.newRecoveryKey()
+
+        #expect(model.screen == .recoveryKey)
+        #expect(model.recoveryKey == "ZYXW-VTSR-QPNM-KJHG-FEDC-BA98-7654")
+        #expect(model.recoveryKeyReplaced)
+        #expect(!model.recoveryKeySaved)
+    }
+
+    @Test("Continue ends the replacement key, and there is no second copy to ask for")
+    func continuingForgetsTheReplacementKey() async {
+        let (setup, _, model) = await onTheAccountCard()
+        await model.newRecoveryKey()
+
+        await model.continueAfterRecoveryKey()
+
+        #expect(model.recoveryKey == nil)
+        #expect(!model.recoveryKeyReplaced)
+        #expect(model.screen == .account)
+        #expect(setup.calls.filter { $0 == "newRecoveryKey" }.count == 1)
+    }
+
+    @Test("a locked device is told why, not left on a half screen")
+    func aLockedDeviceCannotReWrap() async {
+        let setup = StandInSetup()
+        setup.signedIn = true
+        setup.entitled = true
+        setup.vaultHasKeyMaterial = true
+        setup.deviceHoldsKey = false
+        let model = makeModel(setup, StandInShell())
+        await model.load()
+        #expect(model.screen == .unlock)
+
+        await model.newRecoveryKey()
+
+        #expect(model.recoveryKey == nil)
+        #expect(model.errorMessage?.path == "sync.hosted.errors.vaultLocked")
     }
 }

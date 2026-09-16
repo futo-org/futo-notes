@@ -44,6 +44,7 @@ struct HostedSyncErrorsTests {
             .RecoveryKeyTypo,
             .WrongRecoveryKey,
             .NoRecoveryKey,
+            .VaultKeyChangedElsewhere,
             .SecretStore(reason: "locked"),
             .Crypto(reason: "bad envelope"),
             .PairingCodeInvalid,

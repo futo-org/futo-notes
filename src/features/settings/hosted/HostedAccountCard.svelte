@@ -8,10 +8,20 @@
     billing: BillingStatusOutput | null;
     busy: boolean;
     onmanage: () => void;
+    onchangevaultpassword: () => void;
+    onnewrecoverykey: () => void;
     onsignout: () => void;
   }
 
-  let { email, billing, busy, onmanage, onsignout }: Props = $props();
+  let {
+    email,
+    billing,
+    busy,
+    onmanage,
+    onchangevaultpassword,
+    onnewrecoverykey,
+    onsignout,
+  }: Props = $props();
 
   const state = $derived(billing ? resolveLocalizedMessage(subscriptionStateMessage(billing)) : '');
   const storage = $derived(
@@ -33,6 +43,18 @@
 <div class="settings-actions">
   <button class="settings-btn settings-btn-inline" onclick={onmanage} disabled={busy}>
     {localizedText('sync.hosted.account.manageSubscription')}
+  </button>
+</div>
+
+<!-- Neither asks for a current secret: this device already holds the vault
+     key, and a device set up by scanning a code never knew the vault password
+     (ADR 0003, decision 10). -->
+<div class="settings-actions">
+  <button class="settings-btn settings-btn-inline" onclick={onchangevaultpassword} disabled={busy}>
+    {localizedText('sync.hosted.account.changeVaultPassword')}
+  </button>
+  <button class="settings-btn settings-btn-inline" onclick={onnewrecoverykey} disabled={busy}>
+    {localizedText('sync.hosted.account.newRecoveryKey')}
   </button>
 </div>
 
