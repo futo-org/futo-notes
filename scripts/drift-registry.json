@@ -482,6 +482,38 @@
         "extensions": [".ts", ".swift", ".kt"],
         "pattern": "(PRODUCTION_BASE_URL|productionBaseUrl)\\b"
       }
+    },
+    {
+      "concept": "hosted-sync-shell-presentation",
+      "description": "Turning the hosted engine's answers into what a person reads: which catalog message each HostedError variant gets, which sentence each subscription state gets, and the vault-password strength estimate. Hand-written per shell because this is presentation — Rust owns the rules underneath (the 12-character minimum, the error variants themselves). Android grows a third copy in futo-notes#179.",
+      "lockStatus": "unlocked",
+      "note": "UNLOCKED: nothing but you keeps these in step. A new HostedError variant, a new subscription state, or a change to the strength thresholds must land in every copy in one commit. Each side has its own tests (hostedSyncErrors.test.ts / HostedSyncErrorsTests.swift and siblings); no fixture is shared between them yet.",
+      "copies": [
+        {
+          "location": "src/features/sync/hostedSyncErrors.ts",
+          "pattern": "export function hostedErrorMessage"
+        },
+        {
+          "location": "src/features/sync/subscriptionState.ts",
+          "pattern": "export function subscriptionStateMessage"
+        },
+        {
+          "location": "src/features/sync/vaultPasswordStrength.ts",
+          "pattern": "export function vaultPasswordStrength"
+        },
+        {
+          "location": "apps/ios/Sources/Sync/Hosted/HostedSyncErrors.swift",
+          "pattern": "func hostedErrorMessage"
+        },
+        {
+          "location": "apps/ios/Sources/Sync/Hosted/SubscriptionState.swift",
+          "pattern": "func subscriptionStateMessage"
+        },
+        {
+          "location": "apps/ios/Sources/Sync/Hosted/VaultPasswordStrength.swift",
+          "pattern": "func vaultPasswordStrength"
+        }
+      ]
     }
   ]
 }

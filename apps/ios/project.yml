@@ -92,6 +92,15 @@ targets:
         CODE_SIGN_ENTITLEMENTS: FutoNotesNative.entitlements
         CODE_SIGNING_REQUIRED: "NO"
         TARGETED_DEVICE_FAMILY: "1,2"
+        # Hosted sync ("Log in with FUTO") is a build-time flag: on for debug
+        # and for the internal TestFlight build, off for the store until launch
+        # (ADR 0003 decision 13). Debug hard-codes the condition below; Release
+        # takes it from this setting, which is empty here and set to
+        # FUTO_HOSTED_SYNC by the non-tag archive in .cirrus.yml. An indirection
+        # rather than overriding SWIFT_ACTIVE_COMPILATION_CONDITIONS on the
+        # xcodebuild line, because a command-line override of that replaces the
+        # project's value instead of adding to it.
+        FUTO_HOSTED_SYNC_CONDITION: ""
       # ── Dev/prod separation (mirrors the Tauri debug guard) ──
       # Debug builds get a SEPARATE bundle id + data root + keychain service so a
       # dev/debug install can never overwrite the production app or touch the
@@ -112,9 +121,10 @@ targets:
           # DEBUG already defined by Xcode's default Swift flags; FUTO_DEBUG_BUILD
           # is our own compile-time marker so the dev/prod split is explicit and
           # testable independent of the DEBUG macro.
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG FUTO_DEBUG_BUILD"
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG FUTO_DEBUG_BUILD FUTO_HOSTED_SYNC"
         Release:
           PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) $(FUTO_HOSTED_SYNC_CONDITION)"
 
   # Swift Testing unit-test bundle. Hosted by FutoNotesNative (the app
   # dependency below) so `@testable import FutoNotesNative` reaches the app's

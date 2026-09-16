@@ -617,6 +617,7 @@
           "accessibilityLabel": "Your recovery key",
           "copy": "Copy",
           "saveFile": "Save file",
+          "share": "Share",
           "copied": "Recovery key copied.",
           "saved": "Recovery key saved.",
           "fileFilterName": "Text file",
@@ -670,7 +671,10 @@
         },
         "signOut": {
           "confirmationTitle": "Sign out",
-          "confirmationBody": "Sign out of FUTO sync on this device? Your notes stay on this computer, and syncing stops until you sign in again."
+          "confirmationBody": "Sign out of FUTO sync on this device? Your notes stay on this computer, and syncing stops until you sign in again.",
+          "ios": {
+            "confirmationBody": "Sign out of FUTO sync on this device? Your notes stay on this device, and syncing stops until you sign in again."
+          }
         },
         "errors": {
           "signInAgain": "Your session has expired. Log in with FUTO again — your notes and sync state are untouched.",

@@ -320,6 +320,15 @@ build_ios_native_task:
         VERSION="$(node scripts/ios-marketing-version.mjs)"
         BUILD_NUMBER="${CI_PIPELINE_IID:-1}"
         echo "Marketing version $VERSION (build $BUILD_NUMBER)"
+        # Hosted sync is on for the internal dogfood build (default branch →
+        # TestFlight) and off for the store release (tag), per ADR 0003
+        # decision 13. project.yml's Release config expands this setting into
+        # SWIFT_ACTIVE_COMPILATION_CONDITIONS; empty compiles none of it in.
+        HOSTED_SYNC_CONDITION=""
+        if [ -z "${CI_COMMIT_TAG:-}" ]; then
+          HOSTED_SYNC_CONDITION="FUTO_HOSTED_SYNC"
+        fi
+        echo "Hosted sync condition: '${HOSTED_SYNC_CONDITION:-<off>}'"
         ARCHIVE="apps/ios/.build-release/FutoNotesNative.xcarchive"
         xcodebuild -project apps/ios/FutoNotesNative.xcodeproj \
           -scheme FutoNotesNative -configuration Release \
@@ -334,6 +343,7 @@ build_ios_native_task:
           PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
           MARKETING_VERSION="$VERSION" \
           CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+          FUTO_HOSTED_SYNC_CONDITION="$HOSTED_SYNC_CONDITION" \
           archive | tail -5
 
         cat > /tmp/ExportOptionsNative.plist << PLISTEOF

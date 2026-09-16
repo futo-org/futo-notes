@@ -14,11 +14,22 @@ import Security
 /// `kSecAttrAccessibleWhenUnlocked` (readable only while the device is unlocked).
 /// Cleared on explicit `disconnect()`.
 ///
-/// The vault key and session token have no caller yet. They exist because the
-/// hosted flow holds a vault key instead of a password (ADR 0003), and the other
-/// two shells — the desktop keyring and Android `SecureStore` — grew the same
-/// three operations in the same change.
+/// The vault key and the session token are what hosted sync keeps instead of a
+/// password (ADR 0003, decision 4), read and written through
+/// `KeychainVaultSecretStore`. Their accessors throw where the password's do
+/// not: a hosted device that cannot keep its secrets must say so and ask again,
+/// rather than appear set up and fail at the first sync.
 enum Keychain {
+    /// A keychain operation the caller has to know about. Carries the raw
+    /// `OSStatus` because that is the only part that says *why* — -34018, for
+    /// instance, is a missing entitlement on an unsigned build, not a locked
+    /// device.
+    struct Failure: Error, CustomStringConvertible {
+        let operation: String
+        let status: OSStatus
+
+        var description: String { "keychain \(operation) failed: \(status)" }
+    }
     // Config-separated service string so dev and prod sync credentials never
     // collide (F10). Debug builds (FUTO_DEBUG_BUILD, set only by the Debug config
     // in project.yml) use the .dev service; Release uses the prod string
@@ -62,9 +73,9 @@ enum Keychain {
         get { readString(.syncPassword) }
         set {
             if let value = newValue {
-                writeString(value, .syncPassword)
+                try? write(Data(value.utf8), .syncPassword)
             } else {
-                delete(.syncPassword)
+                try? delete(.syncPassword)
             }
         }
     }
@@ -84,16 +95,15 @@ enum Keychain {
         return data
     }
 
-    static func setVaultKey(_ key: Data, notesRoot: String) {
+    static func setVaultKey(_ key: Data, notesRoot: String) throws {
         guard key.count == vaultKeyByteCount else {
-            NSLog("[Keychain] refusing to store a \(key.count)-byte vault key")
-            return
+            throw Failure(operation: "vault-key write", status: errSecParam)
         }
-        write(key, .vaultKey(notesRoot: notesRoot))
+        try write(key, .vaultKey(notesRoot: notesRoot))
     }
 
-    static func deleteVaultKey(notesRoot: String) {
-        delete(.vaultKey(notesRoot: notesRoot))
+    static func deleteVaultKey(notesRoot: String) throws {
+        try delete(.vaultKey(notesRoot: notesRoot))
     }
 
     // ── Session token ────────────────────────────────────────────────────
@@ -102,12 +112,12 @@ enum Keychain {
         readString(.sessionToken(notesRoot: notesRoot))
     }
 
-    static func setSessionToken(_ token: String, notesRoot: String) {
-        writeString(token, .sessionToken(notesRoot: notesRoot))
+    static func setSessionToken(_ token: String, notesRoot: String) throws {
+        try write(Data(token.utf8), .sessionToken(notesRoot: notesRoot))
     }
 
-    static func deleteSessionToken(notesRoot: String) {
-        delete(.sessionToken(notesRoot: notesRoot))
+    static func deleteSessionToken(notesRoot: String) throws {
+        try delete(.sessionToken(notesRoot: notesRoot))
     }
 
     // ── Keychain plumbing ────────────────────────────────────────────────
@@ -141,21 +151,28 @@ enum Keychain {
         return String(data: data, encoding: .utf8)
     }
 
-    private static func write(_ value: Data, _ secret: Secret) {
+    @discardableResult
+    private static func write(_ value: Data, _ secret: Secret) throws -> OSStatus {
         // Replace any existing item so the latest secret always wins.
         SecItemDelete(baseQuery(secret) as CFDictionary)
         var query = baseQuery(secret)
         query[kSecValueData as String] = value
         query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
         let status = SecItemAdd(query as CFDictionary, nil)
-        if status != errSecSuccess { NSLog("[Keychain] write failed: \(status)") }
+        guard status == errSecSuccess else {
+            NSLog("[Keychain] write failed: \(status)")
+            throw Failure(operation: "write", status: status)
+        }
+        return status
     }
 
-    private static func writeString(_ value: String, _ secret: Secret) {
-        write(Data(value.utf8), secret)
-    }
-
-    private static func delete(_ secret: Secret) {
-        SecItemDelete(baseQuery(secret) as CFDictionary)
+    /// Deleting something that is not there succeeds: a device that was never
+    /// set up must be able to sign out without an error.
+    private static func delete(_ secret: Secret) throws {
+        let status = SecItemDelete(baseQuery(secret) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            NSLog("[Keychain] delete failed: \(status)")
+            throw Failure(operation: "delete", status: status)
+        }
     }
 }

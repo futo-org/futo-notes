@@ -34,6 +34,16 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   "Self-hosted sync" until hosted sync existed; it is now just "Sync", because
   self-hosting is one of the two things behind it. →
   `settings.sync.label`, SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
+- **Sync screen, with hosted sync built in** _(iOS)_: a build carrying the
+  `FUTO_HOSTED_SYNC` compilation condition — every Debug build, and the internal
+  TestFlight archive — leads that Sync sheet with the hosted wizard ("Log in with
+  FUTO", the subscribe / vault-password / recovery-key / unlock steps, the account
+  card, and the two refused-write banners) and discloses today's server URL and
+  password fields under **"Use my own server"**. The disclosed rows are the same
+  `SelfHostedSyncSections` a flag-off build renders, so a self-hoster sees the
+  identical screen either way, and with the flag off nothing about the Sync sheet
+  changes. Behaviour is specified once, in [sync.md](sync.md) "Hosted sync". →
+  HostedSyncSections.swift, SyncView.swift, HostedSyncBuild.swift
 - **Appearance**: the Theme Light/Dark/Auto control from "All platforms"
   applies immediately, including to the open Settings sheet the user changed it
   from, in both directions (iOS: the scene's windows get an

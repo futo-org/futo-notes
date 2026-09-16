@@ -616,15 +616,23 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
 ## Hosted sync — Log in with FUTO
 
 Behind a build-time flag: on for debug builds and for any build made with
-`VITE_HOSTED_SYNC=true` _(desktop)_; off for store releases until launch, where
-the sync screen is exactly the self-hosted screen described above and nothing
-in this section exists. → `hostedSyncEnabled.ts`, ADR 0003 decision 13
+`VITE_HOSTED_SYNC=true` _(desktop)_ or with the `FUTO_HOSTED_SYNC` Swift
+compilation condition, which the Debug configuration always carries and the
+internal TestFlight archive sets through `FUTO_HOSTED_SYNC_CONDITION` _(iOS)_;
+off for store releases until launch, where the sync screen is exactly the
+self-hosted screen described above and nothing in this section exists. →
+`hostedSyncEnabled.ts` _(desktop)_, `HostedSyncBuild.swift` + `project.yml` +
+`.cirrus.yml` _(iOS)_, ADR 0003 decision 13
 
 - **The sync screen leads with "Log in with FUTO"; "Use my own server"
   discloses today's URL and password fields, unchanged.** The disclosed panel is
-  literally the same `SyncSettingsSection` the flag-off build renders, not a
-  second copy of it, so self-hosting cannot drift from it. The offer disappears
-  once hosted sync is set up. _(desktop)_ → HostedSyncSettingsSection.svelte
+  literally the same `SyncSettingsSection` _(desktop)_ /
+  `SelfHostedSyncSections` _(iOS)_ the flag-off build renders, not a second copy
+  of it, so self-hosting cannot drift from it. The offer disappears once hosted
+  sync is set up. On iOS this is the Sync sheet reached from Settings → Sync, and
+  "Use my own server" is a disclosure row on it. →
+  HostedSyncSettingsSection.svelte _(desktop)_, HostedSyncSections.swift +
+  SyncView.swift _(iOS)_
 - **Which step the wizard is on is computed from server facts, never
   remembered.** Rust's `current_step` reads whether there is a session, whether
   the vault has key material, whether this device holds the vault key, and — only
@@ -638,10 +646,15 @@ in this section exists. → `hostedSyncEnabled.ts`, ADR 0003 decision 13
   cannot be skipped in the first shape because writing the vault key is
   entitlement-gated.
 - **Sign-in, checkout, and the customer portal open in the system browser
-  through the app's existing opener** _(desktop)_, and the app polls the server
-  for the outcome. There is no URL scheme, universal link, or return deep link
-  anywhere in the flow. Abandoning the browser window leaves no error and no half
-  state — the screen is exactly where it was. → `openExternalUrl.ts`,
+  through the app's existing opener** _(desktop)_ **or in an
+  `ASWebAuthenticationSession` sheet over the app** _(iOS)_, and the app polls the
+  server for the outcome. There is no URL scheme, universal link, or return deep
+  link anywhere in the flow, so the iOS session is created with no callback
+  scheme at all: dismissing it is its only self-completion, and that cancels the
+  wait. The sheet is not ephemeral, so an existing FUTO session in the shared web
+  credential store makes a second sign-in one tap. Abandoning the browser window
+  or the sheet leaves no error and no half state — the screen is exactly where it
+  was. → `openExternalUrl.ts` _(desktop)_, AuthSheet.swift _(iOS)_,
   `HostedSetup::await_sign_in`
 - **A vault password is at least 12 characters, with a strength estimate and no
   composition rules.** The minimum is read from Rust
@@ -649,21 +662,24 @@ in this section exists. → `hostedSyncEnabled.ts`, ADR 0003 decision 13
   disagree. The screen says the password is separate from the FUTO password and
   is never sent anywhere. The estimate is a local length-and-variety measure that
   refuses to call a long repeated character anything but weak; no password
-  dictionary ships. → `vaultPasswordStrength.ts`
+  dictionary ships. → `vaultPasswordStrength.ts` _(desktop)_,
+  VaultPasswordStrength.swift _(iOS)_
 - **The recovery key is shown exactly once and cannot be shown again.** Rust
   returns it from `create_vault` and keeps no copy; a second create is refused
   with `vaultAlreadyExists`. The shell holds it in the wizard object alone —
   never persisted, never re-fetchable — so continuing past the screen ends it.
-  The screen offers Copy and Save file, says plainly that FUTO cannot recover the
-  vault without it, and gates Continue on an "I've saved my recovery key"
-  checkbox. There is no type-back. The saved file contains the key and nothing
-  else, so it pastes straight back into the unlock field. → `hosted/vault.rs`
-  `create_vault`, RecoveryKeyStep.svelte
+  The screen offers Copy and **Save file** _(desktop)_ / **Share**, the system
+  share sheet _(iOS)_, says plainly that FUTO cannot recover the vault without
+  it, and gates Continue on an "I've saved my recovery key" checkbox. There is no
+  type-back. What is saved or shared is the key and nothing else, so it pastes
+  straight back into the unlock field. → `hosted/vault.rs` `create_vault`,
+  RecoveryKeyStep.svelte _(desktop)_, RecoveryKeyStepView.swift _(iOS)_
 - **The unlock screen offers three doors on one screen**: vault password, scan
   from another device, and recovery key. A mistyped recovery key is reported as a
   typo — caught by its check character on the device, with nothing sent — and is
   a different message from a well-formed key that belongs to another vault.
-  → `hosted/vault.rs` `unlock_with_recovery_key`, UnlockStep.svelte
+  → `hosted/vault.rs` `unlock_with_recovery_key`, UnlockStep.svelte _(desktop)_,
+  UnlockStepView.swift _(iOS)_
   > **Gap:** the scan door is a placeholder on every shell: it names itself and
   > says pairing is not available yet rather than doing nothing. Pairing lands in
   > futo-notes#180 (Rust) and #181/#182/#183 (the shells).
@@ -672,7 +688,8 @@ in this section exists. → `hostedSyncEnabled.ts`, ADR 0003 decision 13
   pauses.", "Expired"), storage used against the quota, "Manage subscription",
   and Sign out. The app writes no billing state: cancellation, invoices, and
   cards live behind the portal link, which is a fresh one-shot URL minted per
-  press. → `subscriptionState.ts`, HostedAccountCard.svelte
+  press. → `subscriptionState.ts` + HostedAccountCard.svelte _(desktop)_,
+  SubscriptionState.swift + HostedAccountCardView.swift _(iOS)_
 - **A refused write is a banner, not an error.** An account that may no longer
   write shows **Sync paused** with a Subscribe button and says that notes from
   other devices still arrive; a full vault shows **Vault is full** with the
@@ -686,11 +703,15 @@ in this section exists. → `hostedSyncEnabled.ts`, ADR 0003 decision 13
 - **An expired hosted session is a trip to the browser, never a vault reset.**
   `invalid_session` surfaces as "log in again"; the vault key, the object map,
   the pull cursor, and every note stay exactly where they are. → `hosted/mod.rs`
-  `HostedError::SignInAgain`, `hostedSyncErrors.ts`
+  `HostedError::SignInAgain`, `hostedSyncErrors.ts` _(desktop)_,
+  HostedSyncErrors.swift _(iOS)_
 - **The device keeps the 32-byte vault key and the session token in the OS
   secret store, keyed per notes root; the vault password is never stored.** A
   device set up by password and one set up by recovery key are indistinguishable
-  afterwards, and neither is asked for a password again.
+  afterwards, and neither is asked for a password again. On iOS that store is the
+  Keychain, under the same config-separated service the sync password uses, so a
+  debug build can never read the production vault's key. → Keychain.swift +
+  KeychainVaultSecretStore.swift _(iOS)_
 - **An address that does not offer hosted sign-in says so** rather than opening a
   browser onto a route that is not there. The capability document is probed
   before the first hand-off is minted. → `e2ee_hosted_probe`
