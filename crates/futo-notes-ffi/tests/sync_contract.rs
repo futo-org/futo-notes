@@ -3,6 +3,7 @@ use std::fs;
 use futo_notes_ffi::{
     classify_open_note, ConnectInfo, KeepDraftReason, OpenNoteDisposition, OpenNoteFacts,
     RenamePair, SyncClient, SyncError, SyncEventListener, SyncFailure, SyncStatus, SyncSummary,
+    WriteRefusal,
 };
 
 mod support;
@@ -56,6 +57,7 @@ fn sync_records_errors_callbacks_and_threading_keep_the_full_semantic_shape() {
         peer_updated_ids,
         peer_deleted_ids,
         renamed,
+        write_refusal,
     } = SyncSummary {
         uploaded: 1,
         downloaded: 2,
@@ -72,6 +74,7 @@ fn sync_records_errors_callbacks_and_threading_keep_the_full_semantic_shape() {
             from_id: "old".to_owned(),
             to_id: "new".to_owned(),
         }],
+        write_refusal: Some(WriteRefusal::SubscriptionRequired),
     };
     assert_eq!(
         (
@@ -85,6 +88,12 @@ fn sync_records_errors_callbacks_and_threading_keep_the_full_semantic_shape() {
         ),
         (1, 2, 3, 4, 5, 0, Some("failure"))
     );
+    // A refused write reaches the native shells as a named fact, not as a
+    // status code they would each have to read out of `failures` (M6).
+    assert!(matches!(
+        write_refusal,
+        Some(WriteRefusal::SubscriptionRequired)
+    ));
     // The per-id delta and rename intent are part of the native shells' wire
     // shape, not desktop-only: a shell scopes its refresh and follows reported
     // renames from these, never from the counters above.

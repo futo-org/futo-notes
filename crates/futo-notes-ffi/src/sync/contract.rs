@@ -38,6 +38,30 @@ pub struct SyncSummary {
     /// reported renames; they never infer one from id patterns (CONTEXT.md:
     /// rename intent).
     pub renamed: Vec<RenamePair>,
+    /// Set when the server refused this cycle's writes. The shells turn it
+    /// into a banner with an action; Rust decides which one, including the
+    /// precedence when both a lapse and a full vault are true. `None` on every
+    /// clean cycle, so the banner clears itself.
+    pub write_refusal: Option<WriteRefusal>,
+}
+
+/// Why the server would not take this cycle's writes — `402` and `507`, named
+/// (`futo_notes_sync::WriteRefusal`). A shell renders the banner and its
+/// action; it never reads a status code out of `failures` to decide which
+/// (root AGENTS.md M6).
+#[derive(uniffi::Enum)]
+pub enum WriteRefusal {
+    SubscriptionRequired,
+    QuotaExceeded,
+}
+
+impl From<sync::WriteRefusal> for WriteRefusal {
+    fn from(refusal: sync::WriteRefusal) -> Self {
+        match refusal {
+            sync::WriteRefusal::SubscriptionRequired => Self::SubscriptionRequired,
+            sync::WriteRefusal::QuotaExceeded => Self::QuotaExceeded,
+        }
+    }
 }
 
 /// One reported rename: the note left `from_id` and now lives at `to_id`.
@@ -209,6 +233,7 @@ impl From<sync::SyncSummary> for SyncSummary {
                     to_id: rename.to_id,
                 })
                 .collect(),
+            write_refusal: summary.write_refusal.map(WriteRefusal::from),
         }
     }
 }
@@ -242,6 +267,7 @@ mod tests {
             from_id: "old".to_owned(),
             to_id: "new".to_owned(),
         }];
+        summary.write_refusal = Some(sync::WriteRefusal::QuotaExceeded);
         summary
     }
 
@@ -271,6 +297,7 @@ mod tests {
             peer_updated_ids,
             peer_deleted_ids,
             renamed,
+            write_refusal,
             ..
         } = engine_summary();
 
@@ -290,6 +317,14 @@ mod tests {
         assert_eq!(projected.renamed.len(), renamed.len());
         assert_eq!(projected.renamed[0].from_id, renamed[0].from_id);
         assert_eq!(projected.renamed[0].to_id, renamed[0].to_id);
+        assert!(matches!(
+            write_refusal,
+            Some(sync::WriteRefusal::QuotaExceeded)
+        ));
+        assert!(matches!(
+            projected.write_refusal,
+            Some(WriteRefusal::QuotaExceeded)
+        ));
     }
 
     /// Rust owns the cross-shell failure wording; the shells render it.

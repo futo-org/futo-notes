@@ -6,7 +6,7 @@ mod hosted;
 pub use client::SyncClient;
 pub use contract::{
     classify_open_note, ConnectInfo, KeepDraftReason, OpenNoteDisposition, OpenNoteFacts,
-    RenamePair, SyncError, SyncFailure, SyncStatus, SyncSummary,
+    RenamePair, SyncError, SyncFailure, SyncStatus, SyncSummary, WriteRefusal,
 };
 pub use events::SyncEventListener;
 pub use hosted::{

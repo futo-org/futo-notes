@@ -227,4 +227,17 @@ export type SyncSummary = {
 	peerUpdatedIds: string[],
 	peerDeletedIds: string[],
 	renamed: RenamePair[],
+	/**
+	 *  Set when the server refused this cycle's writes. The shells turn it
+	 *  into a banner with an action; Rust decides which one, including the
+	 *  precedence when both a lapse and a full vault are true
+	 *  (`futo_notes_sync::WriteRefusal`).
+	 */
+	writeRefusal: WriteRefusalOutput | null,
 };
+
+/**
+ *  `futo_notes_sync::WriteRefusal`, projected. A tagged union rather than a
+ *  bare string so the frontend cannot spell a case that does not exist.
+ */
+export type WriteRefusalOutput = "subscriptionRequired" | "quotaExceeded";

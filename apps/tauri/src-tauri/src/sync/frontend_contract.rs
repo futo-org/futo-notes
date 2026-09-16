@@ -92,6 +92,30 @@ pub(crate) struct SyncSummary {
     pub(crate) peer_updated_ids: Vec<String>,
     pub(crate) peer_deleted_ids: Vec<String>,
     pub(crate) renamed: Vec<RenamePair>,
+    /// Set when the server refused this cycle's writes. The shells turn it
+    /// into a banner with an action; Rust decides which one, including the
+    /// precedence when both a lapse and a full vault are true
+    /// (`futo_notes_sync::WriteRefusal`).
+    pub(crate) write_refusal: Option<WriteRefusalOutput>,
+}
+
+/// `futo_notes_sync::WriteRefusal`, projected. A tagged union rather than a
+/// bare string so the frontend cannot spell a case that does not exist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(test, derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum WriteRefusalOutput {
+    SubscriptionRequired,
+    QuotaExceeded,
+}
+
+impl From<futo_notes_sync::WriteRefusal> for WriteRefusalOutput {
+    fn from(refusal: futo_notes_sync::WriteRefusal) -> Self {
+        match refusal {
+            futo_notes_sync::WriteRefusal::SubscriptionRequired => Self::SubscriptionRequired,
+            futo_notes_sync::WriteRefusal::QuotaExceeded => Self::QuotaExceeded,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -221,6 +245,7 @@ impl From<&futo_notes_sync::SyncSummary> for SyncSummary {
                     to_id: rename.to_id.clone(),
                 })
                 .collect(),
+            write_refusal: summary.write_refusal.map(WriteRefusalOutput::from),
         }
     }
 }
@@ -615,6 +640,7 @@ mod tests {
             .register::<E2eeResumeInput>()
             .register::<E2eeStatusOutput>()
             .register::<SyncSummary>()
+            .register::<WriteRefusalOutput>()
             .register::<OpenNoteRequestInput>()
             .register::<OpenNoteDispositionOutput>()
             .register::<SignInFlowOutput>()
@@ -712,8 +738,15 @@ mod tests {
                 from_id: "old".into(),
                 to_id: "new".into(),
             }],
+            write_refusal: Some(WriteRefusalOutput::SubscriptionRequired),
         };
         let json = serde_json::to_string(&summary).unwrap();
+        // The refusal's own case names cross the wire verbatim; the frontend
+        // switches on them.
+        assert!(
+            json.contains(r#""writeRefusal":"subscriptionRequired""#),
+            "write refusal must cross as a camelCase tag: {json}"
+        );
         for key in [
             "updatedIds",
             "peerUpdatedIds",
@@ -723,6 +756,7 @@ mod tests {
             "failureMessage",
             "statusCode",
             "localWritesApplied",
+            "writeRefusal",
         ] {
             assert!(
                 json.contains(&format!("\"{key}\"")),
@@ -769,6 +803,7 @@ mod tests {
                 from_id: "old".to_owned(),
                 to_id: "new".to_owned(),
             }];
+            summary.write_refusal = Some(futo_notes_sync::WriteRefusal::QuotaExceeded);
             summary
         };
         let futo_notes_sync::SyncSummary {
@@ -783,6 +818,7 @@ mod tests {
             peer_updated_ids,
             peer_deleted_ids,
             renamed,
+            write_refusal,
             ..
         } = engine();
 
@@ -805,6 +841,14 @@ mod tests {
         assert_eq!(projected.renamed.len(), renamed.len());
         assert_eq!(projected.renamed[0].from_id, renamed[0].from_id);
         assert_eq!(projected.renamed[0].to_id, renamed[0].to_id);
+        assert_eq!(
+            projected.write_refusal,
+            write_refusal.map(WriteRefusalOutput::from)
+        );
+        assert_eq!(
+            projected.write_refusal,
+            Some(WriteRefusalOutput::QuotaExceeded)
+        );
     }
 
     /// The desktop projection of the open-note verb reaches every arm, and its
