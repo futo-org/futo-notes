@@ -470,6 +470,7 @@ function prodAdvisory(candidates, { exclude = null } = {}) {
 
 const USAGE = `usage:
   node scripts/qa-target.mjs list          every desktop instance, classified
+  node scripts/qa-target.mjs status        THIS worktree's verified instances
   node scripts/qa-target.mjs pid <pid>     verify one PID  (exit 3 = refused)
   node scripts/qa-target.mjs port <port>   verify whoever listens on <port>
   node scripts/qa-target.mjs kill          stop THIS worktree's verified instances`;
@@ -494,6 +495,25 @@ function main(argv) {
       );
     }
     prodAdvisory(candidates);
+    return 0;
+  }
+
+  // Two separate agents reached for `qa-target status` expecting "the current
+  // desktop target" (pc_309aaf57ed30, pc_9f7c0623068c) and got a usage error —
+  // a scoped list is what both meant by it.
+  if (command === 'status') {
+    const candidates = allCandidatePids().map(candidateFor);
+    const mine = candidates.filter(
+      (candidate) => verifyTarget(candidate, context).verdict === 'verified',
+    );
+    if (mine.length === 0) {
+      console.log('no verified desktop instance of this worktree is running.');
+      console.log('Start one with: just tauri-dev');
+      return 0;
+    }
+    for (const candidate of mine) {
+      console.log(`ok  pid ${String(candidate.pid).padStart(7)}  ${candidate.execPath}`);
+    }
     return 0;
   }
 

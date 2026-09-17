@@ -902,7 +902,7 @@ check-theme-single-pace:
 # PID into something you may drive. Verifies the executable is a debug build
 # inside THIS worktree (plus its data dir and vault) and exits 3 on anything
 # else — emphatically an installed application bundle.
-#   just qa-target list | pid <pid> | port <port> | kill
+#   just qa-target list | status | pid <pid> | port <port> | kill
 [positional-arguments]
 qa-target *args:
   @node scripts/qa-target.mjs "$@"
