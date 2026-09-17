@@ -988,6 +988,17 @@ skills-swift:
     ln -s "../../.agents/skills/$skill" ".claude/skills/$skill"
   done
 
+# ── Store release notes ──
+# What App Store and Google Play users read. The tag pipeline submits both
+# stores by itself, so release-notes/vX.Y.Z.md is the only source of that copy
+# and it must be on the TAGGED commit — write it in the release MR. CI runs the
+# same command in `check:release-notes`; run it before tagging.
+#   just release-notes-check            # every committed file
+#   just release-notes-check v1.7.2     # one tag
+# Validate the store release notes (all files, or one tag's).
+release-notes-check tag="":
+  @node scripts/release-notes.mjs {{ if tag == "" { "--all" } else { "--tag " + tag + " --check" } }}
+
 # ── Dependency vulnerability scan ──
 # Needs network and cargo-audit on PATH (`cargo binstall cargo-audit --locked`). `--fix` drops
 # ignore entries whose advisory is gone. CI runs this same script, non-blocking

@@ -45,6 +45,7 @@ Their nested manuals own build, device, release, and test variants. Missing
   device can show (a camera, an OS auth sheet, a keychain), each carrying the result of
   the last run and what that run could not prove; `tests/` (unit, Playwright, and the
   editor gauntlet) and `markdown-spec/`: fixture/oracle systems.
+- `release-notes/`: one `v<X.Y.Z>.md` per stable release — the App Store and Play copy (§5).
 
 Generated and gitignored: native bindings/JNI libraries and `editor.html`. The external sync server
 (its own Go repo) receives only client-encrypted opaque blobs; sync tests download the release
@@ -89,6 +90,12 @@ infrastructure owner.
   scope is a surface or platform. A nontrivial fix's body names the exact failure (pipeline number,
   error string), the root cause, and a `Verified:` line listing the commands run. Risky work uses a
   branch + GitLab MR; migrations and perf land as small per-concern commits. Releases: `/release`.
+- **A stable `vX.Y.Z` tag publishes itself to both app stores** — `publish:android` to the Play
+  PRODUCTION track, `publish:ios:appstore` to Apple review (auto-release on approval). So
+  `release-notes/<tag>.md` is the only source of the copy users read, and it must be on the TAGGED
+  commit: write it in the release MR, because afterwards the only fix is a re-tag. `check:release-notes`
+  gates the tag pipeline in its first minute and is in `release:gate.needs`. Format and limits (App
+  Store 4000 / Play 500): `release-notes/README.md`; verify with `just release-notes-check`.
 - Repo-tooling friction (dead-end tool call, stale doc, broken recipe, missing helper) is a
   **papercut**: file it without stopping the task, `papercuts add "<what you hit>" --tag <area>`.
   Product bugs and spec gaps are never papercuts. Full procedure: `docs/agents/papercuts.md`.
@@ -245,7 +252,8 @@ verified behavior, and force-pushing a feature branch (`--force-with-lease`, nev
    outside your scratchpad — gitignored ≠ disposable, and `target/` is a 31GB rebuild. Cleanup
    removes only paths the script itself created, never a computed ancestor: `rmSync(rel.split('/')[0])`
    ate a worktree's `target/` and the then-tracked `factory/`.
-4. Publishing: Play/TestFlight uploads, tagging a release, posting to Zulip, F-Droid.
+4. Publishing: posting to Zulip, F-Droid, and **tagging a release — a stable tag now goes
+   straight to Play production and Apple review, not to a testing track**.
 5. Changing specified intent rather than closing a Gap.
 6. Sync payload, `BRIDGE_VERSION`, or `AppState` schema changes.
 
