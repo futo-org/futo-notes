@@ -39,7 +39,11 @@ function appDataRoots({ release }) {
   if (fromEnvironment) return [fromEnvironment];
 
   const roots = [];
-  const worktreeDataDir = repoRoot() && join(repoRoot(), '.tauri-data');
+  // The worktree .tauri-data dir is the DEV instance's data dir (what
+  // `just tauri-dev` points at). It used to be pushed first even for
+  // --release, shadowing ~/Library/Application Support/com.futo.notes/journal
+  // in any checkout that had run tauri-dev once (pc_9e542b9c9eca).
+  const worktreeDataDir = !release && repoRoot() && join(repoRoot(), '.tauri-data');
   if (worktreeDataDir) roots.push(worktreeDataDir);
 
   const identifiers = release
