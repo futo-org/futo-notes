@@ -33,7 +33,9 @@ const LICENSED_V2: LicenseViewFixture = {
   key: KEY,
 };
 /** A v1 activation: no issue date and no expiry, which is what production
- *  mints today. The "Licensed since" row must be present and blank (D2). */
+ *  mints today. It renders the same card as a v2 one — since 2026-09-17 the
+ *  card shows neither a purchase date nor a term, so the two differ in nothing
+ *  the user can see. */
 const LICENSED_V1: LicenseViewFixture = {
   state: 'licensed',
   issuedAt: null,
@@ -92,20 +94,24 @@ function removeButton(page: Page) {
 }
 
 test.describe('License card', () => {
-  test('unlicensed: badge, empty well, blank rows, Buy as the only filled button', async ({
+  test('unlicensed: badge, no well, no rows, the ask, Buy as the only filled button', async ({
     page,
   }) => {
     await openLicenseSettings(page, UNLICENSED);
 
     await expect(page.locator('.license-badge')).toHaveText('Unlicensed');
-    await expect(page.locator('.license-well [aria-label="No license"]')).toBeAttached();
+    // No coin, and no empty well standing in for one: an empty circle read as
+    // something that failed to load rather than as "no license".
+    await expect(page.locator('.license-well')).toHaveCount(0);
     await expect(page.locator('.supporter-coin')).toHaveCount(0);
 
-    // Every row is present in every state; a value the activation never carried
-    // renders blank rather than being invented.
-    await expect(rowValue(page, 'Key')).toHaveText('');
-    await expect(rowValue(page, 'Licensed since')).toHaveText('');
-    await expect(rowValue(page, 'Term')).toHaveText('');
+    // Nothing to put in the ledger, so there is no ledger. A lone blank Key row
+    // would be the same void the well was.
+    await expect(page.locator('.license-row')).toHaveCount(0);
+
+    // The ask is the state's headline, not a footnote under the button.
+    await expect(page.locator('.license-pitch-headline')).toHaveText("You don't own a license.");
+    await expect(page.locator('.license-pitch')).toContainText('buy a license');
 
     await expect(buyButton(page)).toBeVisible();
     await expect(removeButton(page)).toHaveCount(0);
@@ -119,42 +125,43 @@ test.describe('License card', () => {
     await expect(page.locator('.license-plate .license-btn-primary')).toHaveCount(1);
   });
 
-  test('licensed (v2): no badge, the coin, a masked key, a date and a term', async ({ page }) => {
+  test('licensed (v2): no badge, the coin, a masked key, and no date or term', async ({ page }) => {
     await openLicenseSettings(page, LICENSED_V2);
 
     await expect(page.locator('.license-badge')).toHaveCount(0);
     await expect(page.locator('.license-well .supporter-coin')).toBeVisible();
 
+    // Key is the whole ledger. Nothing records a purchase date and nothing
+    // limits a license, so neither row exists to be filled or left blank.
+    await expect(page.locator('.license-row')).toHaveCount(1);
     await expect(rowValue(page, 'Key')).toHaveText(MASKED_KEY);
-    await expect(rowValue(page, 'Licensed since')).not.toHaveText('');
-    await expect(rowValue(page, 'Term')).toContainText('Valid until');
 
     await expect(buyButton(page)).toHaveCount(0);
     await expect(removeButton(page)).toBeVisible();
     await expect(page.locator('.license-explanation')).toHaveText(
       'Thank you for paying for FUTO Notes.',
     );
+    // The ask belongs to Unlicensed alone.
+    await expect(page.locator('.license-pitch-headline')).toHaveCount(0);
   });
 
-  test('licensed (v1): the since row is present and blank, and the term is perpetual', async ({
-    page,
-  }) => {
+  test('licensed (v1): a dateless activation renders the same card', async ({ page }) => {
     await openLicenseSettings(page, LICENSED_V1);
 
-    await expect(rowValue(page, 'Licensed since')).toHaveText('');
-    await expect(rowValue(page, 'Term')).toHaveText('Perpetual');
+    await expect(page.locator('.license-well .supporter-coin')).toBeVisible();
+    await expect(page.locator('.license-row')).toHaveCount(1);
     await expect(rowValue(page, 'Key')).toHaveText(MASKED_KEY);
   });
 
-  test('expired: the Expired badge, a dated term, and Renew rather than Buy', async ({ page }) => {
+  test('expired: the Expired badge, the key, and Renew rather than Buy', async ({ page }) => {
     await openLicenseSettings(page, EXPIRED);
 
     await expect(page.locator('.license-badge')).toHaveText('Expired');
     await expect(page.locator('.supporter-coin')).toHaveCount(0);
 
     await expect(rowValue(page, 'Key')).toHaveText(MASKED_KEY);
-    await expect(rowValue(page, 'Licensed since')).not.toHaveText('');
-    await expect(rowValue(page, 'Term')).toContainText('Expired');
+    // Someone Expired has paid once already, so they get Renew, not the ask.
+    await expect(page.locator('.license-pitch-headline')).toHaveCount(0);
 
     await expect(
       page.locator('.license-plate').getByRole('button', { name: 'Renew', exact: true }),
@@ -163,7 +170,10 @@ test.describe('License card', () => {
     await expect(removeButton(page)).toHaveCount(0);
   });
 
-  test('the masked key reveals the full key and offers Copy', async ({ page }) => {
+  // One click reveals the key as plain text and that is all it does. Copying is
+  // left to select-and-copy on purpose (@justin 2026-09-17): a key should not be
+  // one click from the clipboard.
+  test('the masked key reveals the full key, with no copy button', async ({ page }) => {
     await openLicenseSettings(page, LICENSED_V2);
 
     const reveal = page.getByRole('button', { name: 'Show key' });
@@ -173,8 +183,9 @@ test.describe('License card', () => {
     await reveal.click();
 
     await expect(rowValue(page, 'Key')).toContainText(KEY);
-    await expect(page.getByRole('button', { name: 'Show key' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Copy key' })).toBeVisible();
+    // Revealed, the key is no longer a control at all.
+    await expect(page.locator('.license-row button')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Copy key' })).toHaveCount(0);
   });
 
   // The coin is a Blender model (assets/coin/futo-coin.glb) lit by an exported
@@ -249,5 +260,53 @@ test.describe('License card', () => {
     await expect(stage).toHaveAttribute('data-turning', 'true');
     await page.mouse.up();
     await expect(stage).toHaveAttribute('data-turning', 'false');
+  });
+
+  // A click is a drag that went nowhere, and it spins the coin once around fast.
+  // There is no rotation to read from the outside, so this measures the only
+  // thing that is observable: how much the rendered pixels change per frame. The
+  // click's turn is ~12.6 rad/s at its peak against an ambient 1.25 rad/s, so
+  // the gap is an order of magnitude and the 1.5x floor below is generous.
+  test('licensed: clicking the coin spins it a full turn', async ({ page }) => {
+    await openLicenseSettings(page, LICENSED_V2);
+    await expect(page.locator('.supporter-coin-stage-live')).toBeAttached({ timeout: 15000 });
+
+    const stage = page.locator('.supporter-coin-stage');
+    await stage.scrollIntoViewIfNeeded();
+
+    const churn = async (): Promise<number> =>
+      page.evaluate(async () => {
+        const canvas = document.querySelector<HTMLCanvasElement>('.supporter-coin-stage canvas');
+        if (canvas === null) return 0;
+        const scratch = document.createElement('canvas');
+        scratch.width = 48;
+        scratch.height = 48;
+        const context = scratch.getContext('2d');
+        if (context === null) return 0;
+        const sample = (): Uint8ClampedArray => {
+          context.drawImage(canvas, 0, 0, 48, 48);
+          return context.getImageData(0, 0, 48, 48).data;
+        };
+        let peak = 0;
+        let previous = sample();
+        for (let step = 0; step < 8; step += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          const current = sample();
+          let total = 0;
+          for (let i = 0; i < current.length; i += 4) {
+            total += Math.abs(current[i] - previous[i]);
+          }
+          peak = Math.max(peak, total / (current.length / 4));
+          previous = current;
+        }
+        return peak;
+      });
+
+    const ambient = await churn();
+    const box = (await stage.boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    const clicked = await churn();
+
+    expect(clicked).toBeGreaterThan(ambient * 1.5);
   });
 });

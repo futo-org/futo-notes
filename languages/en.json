@@ -768,6 +768,8 @@
     "license": {
       "sectionTitle": "License",
       "explanation": "FUTO's mission is for open-source software and non-malicious software business practices to become a sustainable income source for projects and their developers. That is why FUTO Notes asks you to pay for it, rather than serving you ads or selling your data.",
+      "unlicensedHeadline": "You don't own a license.",
+      "unlicensedPitch": "You're using FUTO Notes anyway, and nothing here is locked \u2014 we would rather ask than force the issue. If this app has earned a place in your day, buy a license.",
       "explanationLicensed": "Thank you for paying for FUTO Notes.",
       "unlicensed": "Unlicensed",
       "statusLicensed": "Licensed",

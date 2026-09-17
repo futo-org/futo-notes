@@ -265,6 +265,9 @@
       </header>
 
       <div class="settings-content">
+        <div bind:this={licenseSection}>
+          <LicenseSettingsSection />
+        </div>
         <StorageSettingsSection
           {notesDirectory}
           {isCustomDirectory}
@@ -300,9 +303,6 @@
             ontoggle={toggleUpdates}
           />
         {/if}
-        <div bind:this={licenseSection}>
-          <LicenseSettingsSection />
-        </div>
         {#if import.meta.env.DEV}
           <DevSyncErrorSettingsSection simulate={onsimulatesync} />
         {/if}

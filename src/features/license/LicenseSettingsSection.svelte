@@ -1,7 +1,5 @@
 <script lang="ts">
-  import { getPlatformFS } from '$lib/platform';
   import { localizedText } from '$shared/localization';
-  import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 
   import { license } from './license.svelte';
   import { licenseCardModel } from './licenseCopy';
@@ -48,45 +46,25 @@
     entering = false;
     draft = '';
   }
-
-  // The clipboard is an OS capability, so it is reached through `PlatformFS`
-  // and never through a plugin import at this call site (platform discipline).
-  async function copyKey(): Promise<void> {
-    const key = license.view.key;
-    if (key === null) return;
-    try {
-      await (await getPlatformFS()).writeClipboardText(key);
-      showGlobalToast({ path: 'license.card.keyCopied' });
-    } catch (error) {
-      console.warn('Failed to copy the license key:', error);
-    }
-  }
 </script>
 
 <section class="settings-section">
   <h3 class="settings-section-title">{localizedText('license.sectionTitle')}</h3>
 
-  <!-- The plate replaces `.settings-card` for this section alone: it is the one
-       surface in Settings that is itself the reward. -->
+  <!-- Its own element rather than `.settings-card`: the geometry is the
+       plate's (a coin well beside a field column), the surface is the sheet's. -->
   <div class="license-plate">
-    <!-- The well is present in every state; it is empty until there is a coin
-         to sit in it, which is what "unlicensed" looks like. -->
-    <div class="license-well">
-      {#if licensed}
+    <!-- The well exists only when there is a coin to sit in it. An empty one
+         reads as a hole where something failed to load, not as "no license"
+         (@justin 2026-09-17) — unlicensed is said by the badge and the pitch,
+         and the fields take the whole plate instead. -->
+    {#if licensed}
+      <div class="license-well">
         <div class="license-coin">
           <SupporterCoin celebrate={license.activations} />
         </div>
-      {:else}
-        <!-- The label sits INSIDE the well rather than on it: `role="img"` makes
-             its subtree presentational, so a label on the well would silence the
-             coin's own one in the licensed state. -->
-        <span
-          class="license-well-empty"
-          role="img"
-          aria-label={localizedText('license.card.emptyWell')}
-        ></span>
-      {/if}
-    </div>
+      </div>
+    {/if}
 
     <div class="license-fields">
       {#if card.badge !== null}
@@ -95,39 +73,36 @@
       <div class="license-eyebrow">{localizedText('license.card.eyebrow')}</div>
       <div class="license-name">{localizedText('license.card.productName')}</div>
 
-      <dl class="license-rows">
-        <div class="license-row license-row-stacked">
-          <dt>{localizedText('license.card.keyLabel')}</dt>
-          <dd>
-            {#if card.maskedKey === null}
-              <span class="license-value license-value-blank"></span>
-            {:else if revealed}
-              <span class="license-value license-key">{license.view.key}</span>
-              <button class="license-plate-link" onclick={copyKey}>
-                {localizedText('license.card.copyKey')}
-              </button>
-            {:else}
-              <!-- `aria-label` names the button by what clicking does; the dots
-                   themselves say nothing out loud. -->
-              <button
-                class="license-value license-key license-key-masked"
-                aria-label={localizedText('license.card.revealKey')}
-                onclick={() => (revealed = true)}
-              >
-                {card.maskedKey}
-              </button>
-            {/if}
-          </dd>
-        </div>
-        <div class="license-row">
-          <dt>{localizedText('license.card.sinceLabel')}</dt>
-          <dd><span class="license-value">{card.since ?? ''}</span></dd>
-        </div>
-        <div class="license-row">
-          <dt>{localizedText('license.card.termLabel')}</dt>
-          <dd><span class="license-value">{card.term}</span></dd>
-        </div>
-      </dl>
+      <!-- Key is the only ledger row left: "Licensed since" and "Term" both
+           went out 2026-09-17 (@justin) because nothing records a purchase date
+           and nothing limits a license. That leaves no blank row to stand for
+           "nothing invented" — a single empty row reads as a void, so with no
+           key there is no list at all and the badge says Unlicensed instead. -->
+      {#if card.maskedKey !== null}
+        <dl class="license-rows">
+          <div class="license-row license-row-stacked">
+            <dt>{localizedText('license.card.keyLabel')}</dt>
+            <dd>
+              {#if revealed}
+                <!-- Revealed is text, not a control: selecting and copying it
+                     is possible but deliberately manual (@justin 2026-09-17) —
+                     a key is not something we want one click away. -->
+                <span class="license-value license-key">{license.view.key}</span>
+              {:else}
+                <!-- `aria-label` names the button by what clicking does; the
+                     dots themselves say nothing out loud. -->
+                <button
+                  class="license-value license-key license-key-masked"
+                  aria-label={localizedText('license.card.revealKey')}
+                  onclick={() => (revealed = true)}
+                >
+                  {card.maskedKey}
+                </button>
+              {/if}
+            </dd>
+          </div>
+        </dl>
+      {/if}
 
       {#if entering}
         <label class="settings-input-label" for="license-key-input">
@@ -159,6 +134,15 @@
           </button>
         </div>
       {:else if !licensed}
+        {#if !expired}
+          <!-- Unlicensed only. Someone Expired already paid once, so they get
+               Renew and the mission paragraph, not the ask (@justin
+               2026-09-17). The app still never calls itself free to use — it
+               asks to be paid and declines to force the issue
+               (docs/spec/license.md § States and copy). -->
+          <p class="license-pitch-headline">{localizedText('license.unlicensedHeadline')}</p>
+          <p class="license-pitch">{localizedText('license.unlicensedPitch')}</p>
+        {/if}
         <!-- The one filled button on the plate. "Enter license key" is the path
              for someone who has already paid, so it reads as a link rather than
              competing with Buy as a second slab of the same weight. -->
@@ -197,18 +181,18 @@
 </section>
 
 <style>
-  /* The plate carries its own palette rather than the app's surface tokens: it
-     is gunmetal in both themes, so `--color-surface`/`--color-text` would fight
-     it. Redefined under `[data-theme='dark']` the way src/styles/theme.css
-     does, and — CRITICAL — nothing here may `transition` a theme-dependent
-     property, or a theme swap repaints the plate at a different pace than the
-     window around it (`just check-theme-single-pace`, docs/spec/app.md). */
+  /* The plate sits on the same surface as every other Settings card
+     (@justin 2026-09-17): it used to carry its own gunmetal gradient, which
+     read as a foreign object in the sheet. Only the gold accent is still the
+     plate's own, because the app has no token for it — and it is the one thing
+     redefined for dark, the way src/styles/theme.css does. CRITICAL: nothing
+     here may `transition` a theme-dependent property, or a theme swap repaints
+     the plate at a different pace than the window around it
+     (`just check-theme-single-pace`, docs/spec/app.md). */
   .license-plate {
-    --plate-a: #dfe4e8;
-    --plate-b: #cdd5dc;
-    --plate-ink: #1c2733;
-    --plate-ink-dim: #4f5d6a;
-    --plate-rule: #a9b4be;
+    --plate-ink: var(--color-text);
+    --plate-ink-dim: var(--color-muted);
+    --plate-rule: var(--color-border);
     --plate-accent: #b8860b;
 
     display: flex;
@@ -217,16 +201,11 @@
     gap: 24px;
     padding: 22px 24px;
     border-radius: 12px;
-    background: linear-gradient(160deg, var(--plate-a), var(--plate-b));
+    background: var(--color-surface);
     color: var(--plate-ink);
   }
 
   :global([data-theme='dark']) .license-plate {
-    --plate-a: #2a3139;
-    --plate-b: #1c2228;
-    --plate-ink: #e6ebef;
-    --plate-ink-dim: #9aa6b1;
-    --plate-rule: #3d4650;
     --plate-accent: #ffbb00;
   }
 
@@ -348,13 +327,6 @@
     flex: 0 0 auto;
   }
 
-  /* A blank row still occupies its line: the value is absent, not the row. */
-  .license-value-blank::before {
-    content: '';
-    display: inline-block;
-    height: 1em;
-  }
-
   .license-key {
     max-width: 100%;
     font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
@@ -445,6 +417,23 @@
 
   .license-plate-link:active {
     opacity: 0.6;
+  }
+
+  /* The ask, in the plate's own voice: bigger than the mission paragraph under
+     it, so the eye lands here and not on the boilerplate. Not a heading
+     element — the section already has one, and this is a sentence. */
+  .license-pitch-headline {
+    margin: 14px 0 6px;
+    font-size: 19px;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+
+  .license-pitch {
+    margin: 0 0 14px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--plate-ink);
   }
 
   .license-explanation {

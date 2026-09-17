@@ -14,7 +14,7 @@ Design decisions recorded 2026-09-09 (spec-first). All three clients implement
 the whole surface as of 2026-09-09, each driven on its own dev build against a
 staging-signed fixture license: all three states, all three input shapes (the
 bare key only as far as its 404 — see the Gaps), the deep link, Buy, Remove and
-Full reset. *(android)* Both distribution flavors were driven, and the
+Full reset. _(android)_ Both distribution flavors were driven, and the
 consumption-only shape was driven too, by building `play` with
 `LICENSE_LINK_OUT=false`.
 
@@ -61,26 +61,26 @@ and the OS deep link, plus Remove back to Unlicensed. What still does not work i
 
 2026-09-16 replaced the one-line License row with the **License card** on all
 three clients (`docs/plan/license-ship.md`), each driven on the commit that
-shipped it. *(desktop)* Unlicensed, Licensed and the reveal/copy path through
+shipped it. _(desktop)_ Unlicensed, Licensed and the reveal/copy path through
 the dev build's webview bridge: the coin measured 160×160 inside the 184×184
 well, Copy put the exact 42-character normalized key on the pasteboard, and
 leaving Settings re-masked it. The celebrate spin is **measured**, not assumed —
 354 sampled frames, the canvas visible on all 355 samples, mean per-frame pixel
 delta decaying 8.9× from the opening half-second to rest, which is what
-`CELEBRATION_SPIN` decaying toward `BASE_SPIN` predicts. *(ios)* Unlicensed and
+`CELEBRATION_SPIN` decaying toward `BASE_SPIN` predicts. _(ios)_ Unlicensed and
 Licensed in both themes on a pooled simulator, the reveal (`xcrun simctl
 pbpaste` returned that same normalized key, nothing else), and a v1 license
 showing "Licensed since" present and blank with the term "Perpetual".
-*(android)* All three states × light and dark × both distribution flavors on a
+_(android)_ All three states × light and dark × both distribution flavors on a
 pooled emulator, with Android's own clipboard chip showing the exact key after
 Copy.
 
 **Expired was reached from a stored license only on Android**, by moving the
-emulator clock forward against the v2 staging fixture. *(ios)* It has never been
+emulator clock forward against the v2 staging fixture. _(ios)_ It has never been
 rendered on an iPhone: the only staging-signed fixture expires 2029 and a
 simulator's clock cannot be moved (`xcrun simctl` has no time subcommand), so
 the Expired card is covered there by `LicenseCopyTests` and the
-`licenseRowActions` golden alone. *(desktop)* Its Expired card was rendered from
+`licenseRowActions` golden alone. _(desktop)_ Its Expired card was rendered from
 an **injected** `license.view`, not from a real activation — no staging-signed
 activation with a past expiry exists and the private key is not in this repo.
 Rust's expiry verdict has its own tests either way; what is unproven is the two
@@ -143,7 +143,7 @@ fixture would close that on all three platforms at once.
     pinned by fixtures (below).
 - **Licensed (v1)** means: the activation is a single base64url segment whose
   signature verifies, against the baked-in FUTOpay public key for this app's
-  org, over the normalized stored license key. Nothing else — the key *is* the
+  org, over the normalized stored license key. Nothing else — the key _is_ the
   signed message, so there is no separate key comparison to make. It is
   **perpetual**: `issued_at` and `expires_at` are absent, so the card leaves the
   rows that need them blank, and no clock ever moves it out of Licensed.
@@ -186,11 +186,11 @@ fixture would close that on all three platforms at once.
   the desktop app data dir), never in the vault, never in the OS keyring, and
   inside the dev/prod-split data location (M3). They survive app updates and
   are wiped by **Full reset** like every other preference (see settings.md,
-  Danger zone). *(ios)* `UserDefaults.standard` is scoped to the bundle id, so
+  Danger zone). _(ios)_ `UserDefaults.standard` is scoped to the bundle id, so
   the dev/prod split is the app sandbox itself. →
   `apps/ios/Sources/License/LicenseStorage.swift` (`futo.license.key`,
   `futo.license.activation`), `FullReset.swift`, `LicenseModel.clearForFullReset`
-  *(android)* `SharedPreferences` in the app-private `futo_prefs` file, whose
+  _(android)_ `SharedPreferences` in the app-private `futo_prefs` file, whose
   package is `.dev`-suffixed on debug builds, so the split is the Android
   sandbox itself. Full reset removes both keys with the vault. →
   `apps/android/app/src/main/java/com/futo/notes/license/LicenseStorage.kt`
@@ -198,7 +198,7 @@ fixture would close that on all three platforms at once.
   `SettingsScreen.kt` (the Danger-zone confirm calls
   `LicenseModel.clearForFullReset`), `LicenseModelTest`
   "fullResetWipesTheStoredLicenseSilently"
-- *(native shells)* Full reset invalidates any activation already in flight. A
+- _(native shells)_ Full reset invalidates any activation already in flight. A
   delayed success is discarded without restoring preference storage, changing
   the Unlicensed state, or announcing activation. → iOS and Android
   `LicenseModel` operation revisions; `fullResetInvalidatesPendingActivation`,
@@ -217,10 +217,10 @@ Why the original reasoning did not survive contact with the deployed product:
   against this app's public key whatever format it is in. `payload.product` is
   belt-and-braces, not the binding.
 - **The deployed product is perpetual.** `GET
-  /checkout/polar/futo-notes/futo-notes-license/info` reports
+/checkout/polar/futo-notes/futo-notes-license/info` reports
   `license_term: null` and `/price` reports a one-time, non-recurring price
   (observed 2026-09-10), so `expires_at` would be `null` even under v2 — Expired
-  and Renew are unreachable *from anything the server mints today*, either way,
+  and Renew are unreachable _from anything the server mints today_, either way,
   until someone sets a term. That is a **product** condition, not a missing code
   path: the client's Expired branch works and was driven on the emulator
   2026-09-10 (#160) by holding the v2 fixture (which carries
@@ -300,14 +300,14 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   (observed 2026-09-11), which is why the marker is sent. Both URLs in this
   spec are built by the Rust crate from
   the selected environment, so no shell hardcodes one and all three agree.
-  *(desktop)* The URL is read from the crate through `license_links` and opened
+  _(desktop)_ The URL is read from the crate through `license_links` and opened
   with the opener plugin, never in a webview. → `license::license_links`,
   `src/lib/platform/openExternalUrl.ts`, `LicenseSettingsSection.svelte`
-  *(ios)* The URL comes from the same crate constants through
+  _(ios)_ The URL comes from the same crate constants through
   `licenseLinks(platform: .ios, bundleId:)` and opens with SwiftUI's `openURL`, which hands
   an `https` URL to the system browser. →
   `apps/ios/Sources/License/LicenseSettingsSection.swift`, `LicenseSurfaceTests`
-  *(android)* The same crate call, `licenseLinks(LicensePlatform.ANDROID, bundleId)`,
+  _(android)_ The same crate call, `licenseLinks(LicensePlatform.ANDROID, bundleId)`,
   opened with an `ACTION_VIEW` intent, which the OS routes to the browser — never
   a WebView. →
   `apps/android/app/src/main/java/com/futo/notes/ui/LicenseSettingsSection.kt`,
@@ -318,9 +318,9 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   so paste is always possible.
 - **Lost key**: the License card offers "Lost your key?" which opens
   `mailto:support@futo.tech`. There is no in-app restore flow (see Gaps). →
-  *(desktop)* `license::license_links`, `LicenseSettingsSection.svelte`;
-  *(ios)* `licenseLinks(platform:bundleId:).support`, opened with `openURL`;
-  *(android)* the same `support` constant, opened with the same `ACTION_VIEW`
+  _(desktop)_ `license::license_links`, `LicenseSettingsSection.svelte`;
+  _(ios)_ `licenseLinks(platform:bundleId:).support`, opened with `openURL`;
+  _(android)_ the same `support` constant, opened with the same `ACTION_VIEW`
   intent as Buy — the OS hands a `mailto:` to the mail client
 - No IAP, no Play Billing, no in-app price, no in-app checkout on any platform.
 
@@ -331,11 +331,11 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   1. a bare license key;
   2. `{key}/{activation}`;
   3. the full `futonotes://license/{key}/{activation}` URL.
-  Recognition of the three shapes is one Rust function shared with the deep-link
-  handler.
+     Recognition of the three shapes is one Rust function shared with the deep-link
+     handler.
 - Shapes 2 and 3 verify **fully offline** and never touch the network.
 - **Paste and the deep link are the supported ways to put an activation in the
-  field; hand-typing one is not.** *(ios)* The system keyboard's smart-dash
+  field; hand-typing one is not.** _(ios)_ The system keyboard's smart-dash
   substitution turns the `--` inside a v2 activation into an en dash, and the
   app then correctly answers a corrupted signature with "This license key isn't
   valid". `.autocorrectionDisabled()` does not disable smart dashes and SwiftUI
@@ -343,26 +343,26 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   `futonotes://` link — activated the same pair on the simulator 2026-09-16, so
   this is a property of the input method rather than a gap in the surface.
 - Shape 1 requires **one** request: `GET
-  {pay2}/api/v1/activate/{url-encoded key}` returns the v2 activation as plain
+{pay2}/api/v1/activate/{url-encoded key}` returns the v2 activation as plain
   text on 200, or 404 (`not found`, `not valid`, `revoked`). The app then
   verifies the pair exactly as for shape 2. Failures:
   - no connectivity / transport error → "Connect to the internet to activate
     this key" (the key is not stored);
   - 404 → "This license key isn't valid";
   - 200 but the pair fails verification → "This license key isn't valid".
-  The request carries no identifiers beyond the key; there is no retry loop and
-  no background re-attempt.
-  The 200 branch was first seen from the real server on 2026-09-11, once a key
-  existed to ask about (minted without a purchase through
-  `/admin/createkey/futo-notes/futo-notes-license` — buying one still does not
-  deliver a key, see the Gaps). *(ios)* On a dev build, key field → the bare key
-  alone → **Activate**: one `GET /api/v1/activate/{key}`, **200**, a **v1**
-  activation, and the row flipped to the single word "Licensed" with **Remove
-  license** as its only action; the stored activation is byte-for-byte the 342
-  chars the endpoint returned, and Remove put the device back to Unlicensed with
-  both preference keys gone. A server-minted key carries **no org prefix** — the
-  `futo-notes` org's `prefix` column is empty — and is eight groups of four from
-  the restricted alphabet, so the shipped grammar takes it unchanged.
+    The request carries no identifiers beyond the key; there is no retry loop and
+    no background re-attempt.
+    The 200 branch was first seen from the real server on 2026-09-11, once a key
+    existed to ask about (minted without a purchase through
+    `/admin/createkey/futo-notes/futo-notes-license` — buying one still does not
+    deliver a key, see the Gaps). _(ios)_ On a dev build, key field → the bare key
+    alone → **Activate**: one `GET /api/v1/activate/{key}`, **200**, a **v1**
+    activation, and the row flipped to the single word "Licensed" with **Remove
+    license** as its only action; the stored activation is byte-for-byte the 342
+    chars the endpoint returned, and Remove put the device back to Unlicensed with
+    both preference keys gone. A server-minted key carries **no org prefix** — the
+    `futo-notes` org's `prefix` column is empty — and is eight groups of four from
+    the restricted alphabet, so the shipped grammar takes it unchanged.
 - The key field is reachable only in the **Unlicensed** and **Expired** states:
   the Licensed card's only action is **Remove license**
   (`license_row_actions`), so there is no "Enter license key" while a license is
@@ -374,18 +374,18 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
 - On success the pair replaces any stored license, state flips to Licensed (or
   Expired, if the key is already past `expires_at` — still stored, with the
   Expired copy shown), and a toast confirms "License activated". Entry is
-  atomic: verify-then-store happens in Rust as one call (§4.6). *(desktop)* That
+  atomic: verify-then-store happens in Rust as one call (§4.6). _(desktop)_ That
   call is `license_enter_key`; the shell hands over the raw text and receives the
   new state with its outcome, so it never sequences activate-then-verify and
   never re-reads the status afterwards. →
   `license::license_enter_key`, `src/lib/platform/license.ts`,
   `src/features/license/license.svelte.ts`
-  *(ios)* The same one call is `licenseEnterKey(input:bundleId:)`, async because
+  _(ios)_ The same one call is `licenseEnterKey(input:bundleId:)`, async because
   the bare-key path makes the one request; the shell persists the returned pair
   and renders the returned state, and never asks again. →
   `crates/futo-notes-ffi/src/license/contract.rs`,
   `apps/ios/Sources/License/LicenseModel.swift`
-  *(android)* The same one call is `licenseEnterKey(input, bundleId)`, from a
+  _(android)_ The same one call is `licenseEnterKey(input, bundleId)`, from a
   coroutine so the bare-key request never touches the main thread; the shell
   persists the returned pair and renders the returned state. →
   `apps/android/app/src/main/java/com/futo/notes/license/LicenseModel.kt`,
@@ -397,10 +397,10 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
 - The scheme is **`futonotes`** on all three platforms: iOS `CFBundleURLTypes`,
   Android an exported `VIEW`/`BROWSABLE` intent filter on the main activity,
   desktop the Tauri deep-link plugin on Linux, macOS and Windows (the Tauri
-  shell is desktop-only). → *(desktop)* `tauri-plugin-deep-link` with
+  shell is desktop-only). → _(desktop)_ `tauri-plugin-deep-link` with
   `plugins.deep-link.desktop.schemes` in `tauri.conf.json`, `license::install`;
   a second launch carrying the link arrives through the single-instance plugin's
-  argv (`license::handle_single_instance_arguments`). *(ios)* `CFBundleURLTypes`
+  argv (`license::handle_single_instance_arguments`). _(ios)_ `CFBundleURLTypes`
   in `apps/ios/Info.plist`, delivered by `.onOpenURL` on the root view. →
   `LicenseSurfaceTests` "the app registers the crate's URL scheme" (asserts the
   shipped plist against the crate's `licenseDeepLinkScheme()`),
@@ -410,9 +410,9 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   as Invalid.
 - Only the path `license/{key}/{activation}` is defined. Any other host or path
   is ignored silently. That verdict is the crate's on every platform, never a
-  shell's. → `license::parse_deep_link`, *(ios)* the `Ignored` arm of
+  shell's. → `license::parse_deep_link`, _(ios)_ the `Ignored` arm of
   `licenseHandleDeepLink`, `LicenseModelTests` "an undefined link is ignored
-  silently"; *(android)* the same `Ignored` arm in `LicenseModel.handle`,
+  silently"; _(android)_ the same `Ignored` arm in `LicenseModel.handle`,
   `LicenseModelTest` "anUndefinedLinkIsIgnoredSilently" — driven on the emulator
   as `am start -d futonotes://settings/open`, which left the screen
   byte-identical
@@ -421,7 +421,7 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   link isn't valid", and changes nothing. No dialog, no navigation; if Settings
   is open its License card updates in place.
 - A link arriving while the app is cold-starting is handled after the shell is
-  interactive (M1): the shell renders first, then applies the link. *(ios)*
+  interactive (M1): the shell renders first, then applies the link. _(ios)_
   SwiftUI hands a launch URL to `.onOpenURL` only once the root view exists, and
   the toast rides the transient banner the note list already mounts, so a
   cold-start link is applied and announced on a painted screen. →
@@ -432,9 +432,9 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   The stored pair is read and RSA-verified away from the main actor after the
   shell renders; a link or other newer action prevents that startup result from
   replacing it. → `LicenseModel.load`, `stateRevision`
-  *(android)* The launch intent's URL is parked in Compose state during
+  _(android)_ The launch intent's URL is parked in Compose state during
   `onCreate` and applied by a `LaunchedEffect` after the first composition, so
-  the note list *shell* is painted before the link lands and the toast appears on
+  the note list _shell_ is painted before the link lands and the toast appears on
   it. Measured frame by frame on the emulator 2026-09-10 (#160, 20 fps
   screenrecord): splash to 3.90s, the shell — top bar, icons, FAB — paints at
   3.95s, the toast begins fading in at 4.05s **after** it, and the note **rows**
@@ -445,12 +445,12 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   the same state carries a link from `onNewIntent`, so both deliveries take one
   path, and a launch intent is consumed once — a recreation that re-delivers it
   does not re-announce a license the user already has. The stored pair is read
-  *and verified* off the main thread (M1), and that answer is not allowed to
+  _and verified_ off the main thread (M1), and that answer is not allowed to
   overwrite a license the link applied while it was in flight. →
   `apps/android/app/src/main/java/com/futo/notes/MainActivity.kt`
   (`pendingLicenseLink`), `LicenseModel.load`/`applyEvaluated`, `LicenseModelTest`
   "aLinkAppliedBeforeTheStoredPairLandsSurvivesIt"
-  *(desktop)* Rust applies and *parks* the outcome — storing blocks no render — and the shell
+  _(desktop)_ Rust applies and _parks_ the outcome — storing blocks no render — and the shell
   drains it once it has painted, so the toast is delivered exactly once whether
   the link arrived before or after the webview existed. The asynchronous startup
   snapshot is revision-guarded, so it cannot overwrite the drained outcome. →
@@ -465,37 +465,60 @@ The License **card** has exactly three states. All strings are catalog entries
 (localization.md) as a **full localized date, never a bare year**.
 
 The card is the same object in every state: a status **badge**, the eyebrow
-"Client license", the product name "FUTO Notes", a circular **well** that holds
-the FUTO coin while Licensed and is empty otherwise, and three ledger rows —
-**Key**, **Licensed since**, **Term** — followed by the state's actions and its
-explanation paragraph. **Every row is present in every state**, and renders
-blank when the license carries no value for it; a blank row is what "nothing is
-invented" looks like, and it is what makes Unlicensed and a v1 license read as
-deliberate rather than broken. → `licenseCardModel` in
+"Client license", the product name "FUTO Notes", a **well** that holds the FUTO
+coin while Licensed, and the ledger rows, followed by the state's actions and
+its explanation paragraph.
+
+_(native shells)_ The well is present in every state and empty when there is no
+coin, and there are three ledger rows — **Key**, **Licensed since**, **Term** —
+each present in every state and blank when the license carries no value for it;
+a blank row is what "nothing is invented" looks like.
+
+_(desktop)_ **The well and the ledger exist only when they have something in
+them** (@justin 2026-09-17). There is no empty well: an empty circle read as
+something that had failed to load rather than as "no license". **Licensed since
+and Term are gone outright** — nothing records a purchase date and nothing
+limits a license today, so both rows only ever said blank or "Perpetual". That
+leaves **Key** as the whole ledger, and with no key there is no ledger at all,
+because one blank row is the same void the well was. The plate also sits on the
+**same surface as every other Settings card** rather than on a gunmetal gradient
+of its own, which read as a foreign object in the sheet; only the gold accent is
+still the plate's own, because the app has no token for it.
+→ `licenseCardModel` in
 `src/features/license/licenseCopy.ts`,
 `apps/ios/Sources/License/LicenseCopy.swift`,
 `apps/android/app/src/main/java/com/futo/notes/license/LicenseCopy.kt` — one
 drift-registered concept, `license-card-copy`
 
-| State | Badge | Key | Licensed since | Term | Actions |
-|---|---|---|---|---|---|
-| **Unlicensed** | "Unlicensed" | blank | blank | blank | **Buy a license** · Enter license key · Lost your key? |
-| **Licensed** | none | masked, revealable | "{date}", blank with no `issued_at` | "Perpetual" or "Valid until {date}" | Remove license |
-| **Expired** | "Expired" | masked, revealable | "{date}" | "Expired {date}" | **Renew** · Enter license key · Lost your key? |
+| State          | Badge        | Key                | Licensed since                      | Term                                | Actions                                                |
+| -------------- | ------------ | ------------------ | ----------------------------------- | ----------------------------------- | ------------------------------------------------------ |
+| **Unlicensed** | "Unlicensed" | blank              | blank                               | blank                               | **Buy a license** · Enter license key · Lost your key? |
+| **Licensed**   | none         | masked, revealable | "{date}", blank with no `issued_at` | "Perpetual" or "Valid until {date}" | Remove license                                         |
+| **Expired**    | "Expired"    | masked, revealable | "{date}"                            | "Expired {date}"                    | **Renew** · Enter license key · Lost your key?         |
+
+_(desktop)_ The Key column is the whole table: the row is absent rather than
+blank when Unlicensed, and the two date columns do not exist.
+
+> **Gap:** the desktop plate dropped the empty well, the Licensed-since and Term
+> rows, the Copy key button and the gunmetal palette on 2026-09-17, and gained
+> the Unlicensed ask and click-to-turn. iOS and Android still render all of it
+> the old way. The copy itself is still shared (`license-card-copy`); it is what
+> each shell chooses to _show_ that has diverged, and the native shells have not
+> been brought across. → `tests/license-card.spec.ts`
 
 - Bold is the one action the state leads with, and on every platform it is the
   **only filled button on the card**: Buy/Renew. Enter license key, Lost your
   key? and Remove license are text links beside it — two filled slabs of equal
   weight read as two equally likely choices, and they are not. Availability is
-  unchanged; this is emphasis, not gating. *(native shells)* Which controls
+  unchanged; this is emphasis, not gating. _(native shells)_ Which controls
   exist at all is Rust's answer, `license_row_actions`, which also owns what
-  `LICENSE_LINK_OUT` hides; *(desktop)* the plate still derives its two buttons
+  `LICENSE_LINK_OUT` hides; _(desktop)_ the plate still derives its two buttons
   inline, because desktop has no `LICENSE_LINK_OUT` to obey (drift concept
   `license-row-actions`).
 - **The Licensed state wears no badge on any platform.** The coin in the well is
   the statement; the word placed over the gold "Client license" eyebrow reads as
   a duplicated eyebrow, which is why iOS removed it after seeing it on a device
-  (2026-09-16). The state stays machine-readable: *(ios)* `license-well` carries
+  (2026-09-16). The state stays machine-readable: _(ios)_ `license-well` carries
   the accessibility value `Licensed` / `Unlicensed` / `Expired`, with its label
   being the coin's or "No license". **A QA playbook that reads `license-status`
   on iOS must fall back to `license-well`'s value in the Licensed state**, where
@@ -506,31 +529,35 @@ drift-registered concept, `license-card-copy`
   activation, which is perpetual by format rather than by guess; "Valid until
   {date}" while a v2 expiry is still in the future; "Expired {date}" once it has
   passed. → `licenseCopy.test.ts` "reads a license with no expiry as Perpetual",
-  *(ios)* `LicenseCopyTests`, *(android)* `LicenseCopyTest`
+  _(ios)_ `LicenseCopyTests`, _(android)_ `LicenseCopyTest`
 - **With no `issued_at` — a v1 activation — the "Licensed since" row is present
   and blank.** There is no dateless variant of the line, no placeholder date,
   and the activation-fetch time is never used as a stand-in. Production mints v1
   today, so a blank "Licensed since" row is what a real buyer sees: the coin,
   the key and the "Perpetual" term carry the state on their own. Observed on the
   simulator 2026-09-16. → `licenseCopy.test.ts` "leaves the since row blank for
-  a v1 license and calls the term perpetual"; *(ios)* `LicenseCopyTests`;
-  *(android)* `LicenseCopyTest`
+  a v1 license and calls the term perpetual"; _(ios)_ `LicenseCopyTests`;
+  _(android)_ `LicenseCopyTest`
 - **The card shows the stored key masked to its last group** — seven groups of
   four middle dots, then the key's real last four characters
   (`···· ···· ···· ···· ···· ···· ···· RS78`) — and clicking or tapping it
-  reveals the whole normalized key and offers **Copy key**, which puts exactly
-  that key on the system clipboard and confirms with the "License key copied"
-  toast. **Revealing and copying is local UI, not a rule**: nothing is verified,
+  reveals the whole normalized key. _(native shells)_ The revealed key is
+  accompanied by **Copy key**, which puts exactly that key on the system
+  clipboard and confirms with the "License key copied" toast. _(desktop)_ There
+  is no copy affordance at all: the revealed key is plain selectable text, and
+  copying it is a deliberate select-and-copy, because a license key should not
+  be one click from the clipboard (@justin 2026-09-17).
+  **Revealing and copying is local UI, not a rule**: nothing is verified,
   fetched or stored, the reveal lasts only while the card is mounted, and
   leaving Settings re-masks it. The key reaches every shell already normalized,
   on the license view itself, so no shell reads it back out of its own storage
   to display it. → `licenseCopy.test.ts` "masks every group of the key but the
-  last", `tests/license-card.spec.ts` "the masked key reveals the full key and
-  offers Copy"; *(ios)* `LicenseSurfaceTests` "the card shows the masked key and
-  reveals on tap"; *(android)* `LicenseSurfaceTest`
+  last", `tests/license-card.spec.ts` "the masked key reveals the full key, with
+  no copy button"; _(ios)_ `LicenseSurfaceTests` "the card shows the masked key and
+  reveals on tap"; _(android)_ `LicenseSurfaceTest`
   "theCardMasksTheStoredKeyAndRevealsItOnTap"
 - Each row pairs a **label with a value**; the arrangement is the platform's.
-  *(native shells)* Every row stacks its label above its value, and *(desktop)*
+  _(native shells)_ Every row stacks its label above its value, and _(desktop)_
   the Key row does too — a 39-character monospace key does not fit beside a
   label at phone width, and beside a 184px well it does not fit on a narrow
   desktop pane either. The well itself sits beside the fields on desktop and
@@ -545,20 +572,31 @@ drift-registered concept, `license-card-copy`
     a sustainable income source for projects and their developers. That is why
     FUTO Notes asks you to pay for it, rather than serving you ads or selling
     your data."
+  - _(desktop)_ Unlicensed **leads with the ask**, above the Buy button and in
+    the plate's own type rather than as a footnote under it: the headline
+    `license.unlicensedHeadline` ("You don't own a license.") and
+    `license.unlicensedPitch` ("You're using FUTO Notes anyway, and nothing here
+    is locked — we would rather ask than force the issue. If this app has earned
+    a place in your day, buy a license."), with the mission paragraph still
+    underneath in muted text. **Expired never shows it**: that user has already
+    paid once and gets Renew. It still does not call the app free to use — it
+    says the app is not locked, which is the same posture stated plainly
+    (@justin 2026-09-17). → `tests/license-card.spec.ts` "unlicensed: badge, no
+    well, no rows, the ask, Buy as the only filled button"
   - Licensed (`license.explanationLicensed`), after FUTO Keyboard's
     `payment_screen_aftersales_paragraph_1`: "Thank you for paying for FUTO
     Notes." One sentence: the second, about continued development, was dropped
     2026-09-16 (plan D7) when the card replaced the row.
-  → all three shells select the key off the state: `LicenseSettingsSection`
-  in `src/features/license/`, `apps/ios/Sources/License/`, and
-  `apps/android/app/src/main/java/com/futo/notes/ui/`
+    → all three shells select the key off the state: `LicenseSettingsSection`
+    in `src/features/license/`, `apps/ios/Sources/License/`, and
+    `apps/android/app/src/main/java/com/futo/notes/ui/`
 - **Renew** is the Buy action; a new key simply replaces the old one.
 - **Remove license** asks for no confirmation (it is reversible by re-entering
   the key) and returns the device to Unlicensed. It exists for testing and
   device hand-off.
 - No state ever shows a price, a countdown, a nag, or a banner. There is no
   pre-expiry notice outside the card's own "Valid until" term.
-- **The FUTO coin** is the one thing a purchase *adds*, on all three platforms:
+- **The FUTO coin** is the one thing a purchase _adds_, on all three platforms:
   a gold coin with the FUTO diamond punched through it, sized 160 inside the
   184 well (CSS px on desktop, pt on iOS, dp on Android) while the state is
   Licensed, and absent — leaving the well empty — in every other state. The well
@@ -606,7 +644,15 @@ drift-registered concept, `license-card-copy`
   `just check` / `node scripts/check-supporter-coin-glyph.mjs --print`
   The coin is not a claim about a date and renders for a v1 activation
   regardless.
-  - *(all platforms)* The coin can be **dragged**: a horizontal drag turns it
+  - _(desktop)_ **Clicking the coin turns it once around**, fast — a half-second
+    eased 360 that leaves it facing the way it was and then hands the angle back
+    to the ambient spin (@justin 2026-09-17). A click is a press that moved 5px
+    or less and lasted 400ms or less, so it is a drag that went nowhere and
+    never steals a real drag or a flick. Distinct from the activation
+    celebration, which is a spin-up the decay bleeds off and which lands
+    wherever it lands. → `tests/license-card.spec.ts` "licensed: clicking the
+    coin spins it a full turn"
+  - _(all platforms)_ The coin can be **dragged**: a horizontal drag turns it
     under the pointer or thumb, and releasing while still moving throws it, the
     spin bleeding back to its resting speed. A vertical swipe is left to the
     scrolling surface underneath, so a drag on a phone never traps the sheet.
@@ -617,7 +663,7 @@ drift-registered concept, `license-card-copy`
     the coin wobbles like a dropped hubcap — it renders either way, which is why
     both native shells lock the order in a test. →
     `SupporterCoinTest.kt`, `SupporterCoinTests.swift`
-  - *(desktop)* The coin **turns**: three.js, loaded on demand along with the
+  - _(desktop)_ The coin **turns**: three.js, loaded on demand along with the
     model and the environment, so it costs a non-supporter nothing at startup.
     It spins up once on the moment of activation and settles again, holds still
     under `prefers-reduced-motion: reduce`, stops entirely when scrolled out of
@@ -634,7 +680,7 @@ drift-registered concept, `license-card-copy`
     on purpose and can leave. → `SupporterCoin.svelte`, `supporterCoin.ts`,
     `license.svelte.ts` (`activations`) + `license.svelte.test.ts` "marking the
     moment of activation"
-  - *(native shells)* Both render the same model, at the same one-turn-per-5s
+  - _(native shells)_ Both render the same model, at the same one-turn-per-5s
     resting speed. Android uses **Filament** (`gltfio` for the model,
     `KTX1Loader` for the prefiltered studio) in a `TextureView`; iOS uses
     **RealityKit** (`RealityView`, `ImageBasedLightComponent`). Until 2026-09-16
@@ -666,20 +712,22 @@ drift-registered concept, `license-card-copy`
   dropping the "Unlicensed" label is the whole visible reward there. It is
   informational, never interrupts, never appears inside the editor, never on
   exported or shared content, and never on user data (M2).
-  - *(desktop)* The bottom-left corner of the sidebar, and the only thing in
+  - _(desktop)_ The bottom-left corner of the sidebar, and the only thing in
     it — the app version used to share that line and no longer appears there
     at all, because Settings → Updates already reads "Currently running
-    v{version}". Clicking it opens Settings at the License card. The License
-    section sits after Updates and before the Danger zone, which stays last. →
+    v{version}". Clicking it opens Settings at the License card. **The License
+    section is the first section of Settings**, above Storage — it used to sit
+    near the bottom, after Updates (@justin 2026-09-17), which now puts all
+    three platforms in the same place. →
     `src/features/license/SidebarLicenseFooter.svelte`,
     `DrawerSidebar.svelte`, `SettingsScreen.svelte` (`initialSection`),
     `licenseCopy.ts` (`licenseAmbientLabel`) + `licenseCopy.test.ts`
-  - *(native shells)* Mobile has no ambient label outside Settings; the License
+  - _(native shells)_ Mobile has no ambient label outside Settings; the License
     card is the **first thing at the top of Settings**, and in the Licensed
     state nothing on screen names the state at all — the coin in the well says
-    it, and the word is available only to assistive technology. → *(ios)*
+    it, and the word is available only to assistive technology. → _(ios)_
     `LicenseSettingsSection` as the first `Section` of `SettingsView`,
-    `LicenseCopyTests`; *(android)* `LicenseSettingsSection` as the first group
+    `LicenseCopyTests`; _(android)_ `LicenseSettingsSection` as the first group
     of `SettingsScreen`,
     `apps/android/app/src/main/java/com/futo/notes/ui/LicenseSettingsSection.kt`,
     `LicenseCopyTest`
@@ -713,10 +761,10 @@ not the rules, is what this section records.
     each value produces is decided once in Rust, so the two shells cannot drift
     on what the flag means. → `license_row_actions`,
     `crates/futo-notes-ffi/src/license/contract.rs` "link_out false hides every
-    way out of the app and nothing else"; *(ios)*
+    way out of the app and nothing else"; _(ios)_
     `apps/ios/Sources/License/LicenseLinkOut.swift`, flipped by the
     `LICENSE_LINK_OUT_DISABLED` compile condition (`apps/ios/project.yml` names
-    it where the build is configured); *(android)* a `buildConfigField` on each
+    it where the build is configured); _(android)_ a `buildConfigField` on each
     product flavor in `apps/android/app/build.gradle.kts`, read once as
     `BuildConfig.LICENSE_LINK_OUT` and passed to `licenseRowActions`, so `play`
     alone can be flipped. `LicenseLinkOutTest` runs under both flavors and
@@ -726,13 +774,13 @@ not the rules, is what this section records.
     key field and the deep link kept working. The iOS fallback
     beyond that is a non-renewing-subscription IAP twin at the same price to
     fit 3.1.3(b); a 3-year expiring license cannot be a non-consumable IAP.
-  - *(Android)* the app gains **`play` and `direct` product flavors now**, same
+  - _(Android)_ the app gains **`play` and `direct` product flavors now**, same
     `applicationId` (`com.futo.notes`, `.dev` suffix unchanged) and same signing,
     so a user can move between Play and a direct APK. At launch the flavors
     differ in nothing license-related — `LICENSE_LINK_OUT` is `true` on both —
     and it can be flipped for `play` alone. Other Play-only behavior (e.g. in-app review prompts) also
     belongs in the `play` flavor. F-Droid builds `direct`.
-  - *(Android, F-Droid)* offline verification adds no anti-feature; the single
+  - _(Android, F-Droid)_ offline verification adds no anti-feature; the single
     activation request to pay2 may earn a Tethered/NonFreeNet label. Accepted.
 - **Never** frame the purchase as a donation in the app or the store listing
   (see Principles).
@@ -808,13 +856,13 @@ relaunching confirmed the state persisted. → 49-shot ledger in
 > and Polar's sandbox then stopped creating benefit grants at all for **any**
 > product (a control purchase on futo-music, previously reliable, also produced
 > none). Polar webhooks to staging FUTOpay were also rejected 403 `Invalid
-> webhook signature` the whole time (`polar_sdk._webhooks.validate_event`
+webhook signature` the whole time (`polar_sdk._webhooks.validate_event`
 > base64-encodes the secret before HMAC; a Standard-Webhooks signature decodes it
 > first), so the webhook fulfilment path was dead too. None of that reproduced on
 > 2026-09-15's purchase — this is one verified success, not proof either fault is
 > permanently fixed on Polar's side; re-verify if purchases start failing again.
 >
-> *A separate, resolved trap for anyone testing this by hand or by agent:* Polar
+> _A separate, resolved trap for anyone testing this by hand or by agent:_ Polar
 > validates `customer_email` for deliverability before it will create a checkout
 > at all, and rejects any `@example.com`/`@example.org`/`@test`/`@localhost`
 > address (null-MX by design) or a domain with no DNS record, with a 422 that
@@ -828,24 +876,24 @@ relaunching confirmed the state persisted. → 49-shot ledger in
 > `@example.*` address.
 
 The **release gate for the License card** was re-run 2026-09-16 on one commit
-across all three clients, each story observed on screen *and* against storage
+across all three clients, each story observed on screen _and_ against storage
 (the desktop app data dir, UserDefaults, `futo_prefs`). All three verdicts were
 SHIP.
 
-- *(desktop)* Unlicensed card, the checkout URL, all four input shapes, a v1
+- _(desktop)_ Unlicensed card, the checkout URL, all four input shapes, a v1
   license, mask/reveal/copy, Remove, Full reset, and dark/light plus a narrow
   pane. The bare-key-offline case was driven by relaunching the dev process
   under a scoped `HTTPS_PROXY=http://127.0.0.1:1` — the offline toast appeared
   and no `license.json` was written. Copy was read back with `pbpaste` from
   outside the app, which is the only way: the app deliberately holds no
   clipboard-read permission.
-- *(ios)* A **fresh real staging purchase on this commit** — Stripe test card,
+- _(ios)_ A **fresh real staging purchase on this commit** — Stripe test card,
   `justin+…@futo.tech`, key `D58B-…-3684` minted, the HTML key page, Activate
   firing the deep link, and the pair landing in UserDefaults. The Buy URL was
   read verbatim from Safari's address bar. The simulator happened to still hold
   a **v1** license at launch, giving a live D2 reading: "Licensed since" present
   and blank, Term "Perpetual".
-- *(android)* A second independent real staging purchase (key `2FFB-…-89J5`),
+- _(android)_ A second independent real staging purchase (key `2FFB-…-89J5`),
   plus the one thing no other platform can do — **Expired rendered from a real
   stored license**, by moving the emulator clock past the fixture's 2029 expiry
   (`auto_time 0`, `adb root`, relaunch). The card showed the EXPIRED badge, an
@@ -857,21 +905,21 @@ SHIP.
   it `true` (D9).
 
 > Three results were **not** obtained, and are recorded here rather than left to
-> be rediscovered as failures. *(ios)* the bare-key-**offline** case: a simulator
+> be rediscovered as failures. _(ios)_ the bare-key-**offline** case: a simulator
 > proxies the host's network and has no Wi-Fi toggle, and host-level networking
 > was deliberately left alone because two sibling legs were mid-purchase against
-> the same host. *(desktop)* the OS browser actually painting the Buy URL: the
+> the same host. _(desktop)_ the OS browser actually painting the Buy URL: the
 > URL and the `openExternalUrl` code path were both proven, but confirming the
 > browser tab would have needed UI scripting, which is forbidden (M24).
-> *(desktop)* Full reset's native confirm sheet is not reachable from the webview
+> _(desktop)_ Full reset's native confirm sheet is not reachable from the webview
 > bridge, so the identical code path (`resetAllNotes()` → `deleteAllNotes()` →
 > `clearLicense()`) was invoked instead.
 
-> *Two false failures that were caught and refuted during that pass, recorded so
-> the next one does not re-report them:* *(ios)* after Remove, `futo.license.
-> activation` lingers in UserDefaults for a few seconds after `futo.license.key`
+> _Two false failures that were caught and refuted during that pass, recorded so
+> the next one does not re-report them:_ _(ios)_ after Remove, `futo.license.
+activation` lingers in UserDefaults for a few seconds after `futo.license.key`
 > has gone — that is `NSUserDefaults` write coalescing, not a storage bug; both
-> are clear on a re-read. *(android)* `adb shell input text` silently truncates
+> are clear on a re-read. _(android)_ `adb shell input text` silently truncates
 > at roughly 250 characters, so entering the 584-character v2 fixture by hand
 > needs chunking — an untruncated single call produces an activation failure
 > that looks exactly like a rejected key.
@@ -893,7 +941,7 @@ SHIP.
 > the fixture license every dev build is driven with is signed by it rather than
 > by the conformance pair. → `crates/futo-notes-license/src/config.rs`
 >
-> From 2026-09-10 to 2026-09-11 it was a *different* real key (`ca4a8698…31514`,
+> From 2026-09-10 to 2026-09-11 it was a _different_ real key (`ca4a8698…31514`,
 > the 1Password `staging-polar-orgs-futo-notes-privk` pair), which **no
 > deployment has ever held** — so every license staging minted verified as
 > Invalid. FUTOpay generates an org's pair itself in `initialize_organizations`
@@ -903,7 +951,7 @@ SHIP.
 > `POLAR__ORGS__FUTO_NOTES__PRIVATE_KEY` from 1Password, no branch of lib-polar
 > reads that variable outside its test suite (lib-polar issue #1). **The
 > authority for either environment's key is therefore the live endpoint**, `GET
-> {pay2}/checkout/polar/futo-notes/activation/public-key` — which is what FUTO
+{pay2}/checkout/polar/futo-notes/activation/public-key` — which is what FUTO
 > Music bakes for both of its environments too. Re-mint the staging-signed
 > fixtures whenever it moves.
 >
@@ -922,11 +970,11 @@ SHIP.
 > at a checkout that cannot take money. Both halves — the org/product and the
 > key — must land before any production release carries this surface.
 
-> **Gap:** _(ios, android)_ The card has a fourth, unspecified state: *not yet
-> known*. The spec gives it three, while desktop initializes to Unlicensed before
+> **Gap:** _(ios, android)_ The card has a fourth, unspecified state: _not yet
+> known_. The spec gives it three, while desktop initializes to Unlicensed before
 > its asynchronous read lands. On both native shells a preference read and an RSA
 > verify are work M1 keeps off the thread that paints the shell, so the card
-> renders its frame with no status until the answer lands — *(android)* the well
+> renders its frame with no status until the answer lands — _(android)_ the well
 > carries no accessibility label at all in that window, because neither "No
 > license" nor the coin's label would yet be true. The window is one
 > background hop during startup and closes long before Settings can normally be

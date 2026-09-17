@@ -48,6 +48,17 @@ const FLICK_MIN_SPEED = 0.6;
 /// coin into a strobe.
 const FLICK_MAX_SPEED = 24;
 
+/// A click on the coin turns it exactly once around, fast, and leaves it facing
+/// the way it was (@justin 2026-09-17). Distinct from `celebrate()`, which is a
+/// spin-up the decay bleeds off and which lands wherever it lands.
+const TAP_TURN = Math.PI * 2;
+const TAP_TURN_SECONDS = 0.5;
+/// A press is a click and not a drag if the pointer barely moved and did not
+/// linger. Both bounds matter: a 2px wobble is still a click, and a slow,
+/// deliberate 2px nudge that holds for a second is not.
+const TAP_MAX_MOVEMENT_PX = 5;
+const TAP_MAX_MILLISECONDS = 400;
+
 /// A fixed tilt, so the coin is read as a disc even at the instant its face is
 /// edge-on to the camera. The native shells apply the same angle.
 const TILT_X = 0.24;
@@ -185,24 +196,15 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
   camera.position.set(0, 0, CAMERA_DISTANCE);
   camera.lookAt(0, 0, 0);
 
-  // The element owns the size. A box that is not square keeps the coin round
-  // and centred rather than stretching it, because the camera always frames the
-  // SHORTER side. A zero-sized box (display:none, or an observer that fires
-  // before layout) is skipped — WebGL rejects a zero-wide drawing buffer.
+  // The element owns the size. A zero-sized box (display:none, or an observer
+  // that fires before layout) is skipped — WebGL rejects a zero-wide drawing
+  // buffer.
   function resize(): void {
     const width = Math.round(mount.clientWidth);
     const height = Math.round(mount.clientHeight);
     if (width === 0 || height === 0) return;
     renderer.setSize(width, height, false);
-    const aspect = width / height;
-    camera.aspect = aspect;
-    // `fov` is the VERTICAL angle, so a wide box needs no change and a tall one
-    // has to widen vertically until the horizontal angle is back to BASE_FOV.
-    camera.fov =
-      aspect >= 1
-        ? BASE_FOV
-        : (2 * Math.atan(Math.tan((BASE_FOV * Math.PI) / 360) / aspect) * 180) / Math.PI;
-    camera.updateProjectionMatrix();
+    frameShortSide(camera, width, height);
     draw();
   }
 
@@ -220,6 +222,8 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
   let spin = BASE_SPIN;
   let spinning = false;
   let dragging = false;
+  /// Seconds into a click's single turn, or -1 when no turn is running.
+  let tapTurn = -1;
   let frame = 0;
   let last = 0;
   let disposed = false;
@@ -243,7 +247,22 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
     // While a finger is down the pointer owns the angle outright: the coin
     // tracks the hand exactly rather than being nudged by a velocity, which is
     // what makes it feel like an object and not a dial.
-    if (!dragging) {
+    if (dragging) {
+      // nothing to integrate: the hand is driving.
+    } else if (tapTurn >= 0) {
+      // A click's turn owns the angle for its half second — `spin` is left
+      // untouched so the ambient turn simply resumes underneath it afterwards,
+      // rather than stacking an extra sixth of a revolution onto the 360.
+      const before = tapTurnEase(tapTurn / TAP_TURN_SECONDS);
+      tapTurn += elapsed;
+      const done = tapTurn >= TAP_TURN_SECONDS;
+      const after = done ? 1 : tapTurnEase(tapTurn / TAP_TURN_SECONDS);
+      pivot.rotation.y += (after - before) * TAP_TURN;
+      if (done) {
+        tapTurn = -1;
+        sync();
+      }
+    } else {
       const rest = restSpin();
       // Eases in from either side, so a backwards flick settles as gracefully
       // as a celebration spins down.
@@ -276,7 +295,7 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
     // Keep stepping while a drag is live or while a flick is still bleeding
     // off, even when the coin does not turn on its own — otherwise a thrown
     // coin freezes mid-air the moment the pointer lifts.
-    if (spinning || dragging || Math.abs(spin - restSpin()) > 0.01) start();
+    if (spinning || dragging || tapTurn >= 0 || Math.abs(spin - restSpin()) > 0.01) start();
     else stop();
   }
 
@@ -309,6 +328,12 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
     release: (thrown) => {
       dragging = false;
       spin = thrown === null ? restSpin() : thrown;
+      sync();
+    },
+    // A click restarts the turn from the top even mid-turn, so an impatient
+    // second click is a second turn rather than being swallowed.
+    tap: () => {
+      tapTurn = 0;
       sync();
     },
   });
@@ -354,6 +379,32 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
   };
 }
 
+/// Points the camera so the coin always fills the SHORTER side of its box: a
+/// box that is not square keeps the coin round and centred rather than
+/// stretching it.
+///
+/// `fov` is the VERTICAL angle, so a wide box needs no change and a tall one has
+/// to widen vertically until the horizontal angle is back to `BASE_FOV`.
+function frameShortSide(
+  camera: import('three').PerspectiveCamera,
+  width: number,
+  height: number,
+): void {
+  const aspect = width / height;
+  camera.aspect = aspect;
+  camera.fov =
+    aspect >= 1
+      ? BASE_FOV
+      : (2 * Math.atan(Math.tan((BASE_FOV * Math.PI) / 360) / aspect) * 180) / Math.PI;
+  camera.updateProjectionMatrix();
+}
+
+/// Eases a click's single turn out: fast off the mark, settling at the end, so
+/// it reads as a flourish rather than a machine rotating a part.
+function tapTurnEase(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
 /// What a drag does to the thing being turned.
 interface TurnTarget {
   grab(): void;
@@ -361,6 +412,10 @@ interface TurnTarget {
   /// Angular velocity in rad/s for a flick, or `null` when the coin was placed
   /// rather than thrown.
   release(thrown: number | null): void;
+  /// The pointer went down and came back up without really moving: a click.
+  /// Always preceded by `grab()` and `release(null)`, since a click is a drag
+  /// that went nowhere.
+  tap(): void;
 }
 
 /// Makes an element's contents turn under a mouse, pen or finger, and returns
@@ -375,6 +430,10 @@ function attachDragToTurn(mount: HTMLElement, target: TurnTarget): () => void {
   let pointer = -1;
   let lastX = 0;
   let lastMoveAt = 0;
+  /// Distance travelled and when the press began — together they separate a
+  /// click from a drag that happened to end where it started.
+  let travelled = 0;
+  let pressedAt = 0;
   /// Radians/second, smoothed — a single sample is noisy enough to throw a wild
   /// flick off the last two pixels of an otherwise slow drag.
   let velocity = 0;
@@ -391,6 +450,8 @@ function attachDragToTurn(mount: HTMLElement, target: TurnTarget): () => void {
     pointer = event.pointerId;
     lastX = event.clientX;
     lastMoveAt = event.timeStamp;
+    pressedAt = event.timeStamp;
+    travelled = 0;
     velocity = 0;
     // Capture keeps a drag tracking after it wanders off the coin. It throws
     // for a pointer id the browser does not consider active — a synthetic
@@ -411,6 +472,7 @@ function attachDragToTurn(mount: HTMLElement, target: TurnTarget): () => void {
     const seconds = (event.timeStamp - lastMoveAt) / 1000;
     lastX = event.clientX;
     lastMoveAt = event.timeStamp;
+    travelled += Math.abs(dx);
     const radians = dx * DRAG_RADIANS_PER_PIXEL;
     target.turnBy(radians);
     if (seconds > 0) velocity = velocity * 0.7 + (radians / seconds) * 0.3;
@@ -425,6 +487,11 @@ function attachDragToTurn(mount: HTMLElement, target: TurnTarget): () => void {
     const stale = event.timeStamp - lastMoveAt > 100;
     const thrown = !stale && Math.abs(velocity) > FLICK_MIN_SPEED;
     target.release(thrown ? Math.max(-FLICK_MAX_SPEED, Math.min(FLICK_MAX_SPEED, velocity)) : null);
+    // After `release`, so the turn starts from a coin that is already back
+    // under its own control.
+    if (travelled <= TAP_MAX_MOVEMENT_PX && event.timeStamp - pressedAt <= TAP_MAX_MILLISECONDS) {
+      target.tap();
+    }
   }
 
   mount.addEventListener('pointerdown', onPointerDown);
