@@ -501,8 +501,8 @@ blank when Unlicensed, and the two date columns do not exist.
 
 > **Gap:** the desktop plate dropped the empty well, the Licensed-since and Term
 > rows, the Copy key button and the gunmetal palette on 2026-09-17, and gained
-> the Unlicensed ask and click-to-turn. iOS and Android still render all of it
-> the old way. The copy itself is still shared (`license-card-copy`); it is what
+> the Unlicensed ask, click-to-turn and the activation coin burst. iOS and
+> Android still render all of it the old way. The copy itself is still shared (`license-card-copy`); it is what
 > each shell chooses to _show_ that has diverged, and the native shells have not
 > been brought across. → `tests/license-card.spec.ts`
 
@@ -644,6 +644,25 @@ blank when Unlicensed, and the two date columns do not exist.
   `just check` / `node scripts/check-supporter-coin-glyph.mjs --print`
   The coin is not a claim about a date and renders for a v1 activation
   regardless.
+  - _(desktop)_ **Activating a license throws a burst of coins across the
+    plate** — around 120 little tumbling gold coins that bounce off the plate's
+    four walls, heap along its bottom edge and fade out after about three
+    seconds. FUTOpay's checkout page does the same on a purchase
+    (`coin-bounce.js` in lib-polar) and @justin asked for it here, with one
+    deliberate difference: **it is confined to the plate**, structurally — the
+    canvas is the plate's own child, clipped by its rounded corners — rather
+    than raining over the notes behind the Settings sheet. It is a plain 2D
+    canvas running ballistic motion and a coefficient of restitution: no physics
+    engine (nothing at this size can show the difference, and a rigid-body
+    dependency would land in the bundle of an app whose editor budget is per
+    keystroke) and no second WebGL context (the document has a small fixed pool
+    and the coin in the well already holds one). It fires on the same
+    `activations` signal the coin celebrates on — the moment this device
+    _became_ licensed, never the startup read of a license it already had — and
+    **`prefers-reduced-motion: reduce` skips it entirely**, unlike the coin,
+    which still has to render. It removes itself when it is done (M5). →
+    `coinShower.ts`, `tests/license-card.spec.ts` "activating a license throws a
+    burst of coins inside the plate" + "no coin burst is thrown at all"
   - _(desktop)_ **Clicking the coin turns it once around**, fast — a half-second
     eased 360 that leaves it facing the way it was and then hands the angle back
     to the ambient spin (@justin 2026-09-17). A click is a press that moved 5px

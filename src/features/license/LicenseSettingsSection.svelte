@@ -1,6 +1,7 @@
 <script lang="ts">
   import { localizedText } from '$shared/localization';
 
+  import { startCoinShower } from './coinShower';
   import { license } from './license.svelte';
   import { licenseCardModel } from './licenseCopy';
   import SupporterCoin from './SupporterCoin.svelte';
@@ -20,6 +21,20 @@
   // Component-local on purpose: leaving Settings unmounts the plate and the key
   // is masked again the next time it is opened. Reveal is a look, not a setting.
   let revealed = $state(false);
+
+  /// The plate itself, so the coin burst is clipped to it.
+  let plate: HTMLDivElement | null = $state(null);
+
+  // The same signal the coin in the well celebrates on: the moment this device
+  // *became* licensed, never the startup read of a license it already had.
+  // Reduced motion opts out of the whole thing — unlike the coin, which still
+  // has to render, a burst that does not move is nothing.
+  $effect(() => {
+    const host = plate;
+    if (license.activations === 0 || host === null) return;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    return startCoinShower(host) ?? undefined;
+  });
 
   const card = $derived(licenseCardModel(license.view));
   const licensed = $derived(license.view.state === 'licensed');
@@ -53,7 +68,7 @@
 
   <!-- Its own element rather than `.settings-card`: the geometry is the
        plate's (a coin well beside a field column), the surface is the sheet's. -->
-  <div class="license-plate">
+  <div class="license-plate" bind:this={plate}>
     <!-- The well exists only when there is a coin to sit in it. An empty one
          reads as a hole where something failed to load, not as "no license"
          (@justin 2026-09-17) — unlicensed is said by the badge and the pitch,
@@ -203,6 +218,11 @@
     border-radius: 12px;
     background: var(--color-surface);
     color: var(--plate-ink);
+    /* The celebration canvas is absolute against this box and must stop at its
+       rounded corners — the coins bounce off the plate's walls, so they must
+       not be drawn outside them either. */
+    position: relative;
+    overflow: hidden;
   }
 
   :global([data-theme='dark']) .license-plate {

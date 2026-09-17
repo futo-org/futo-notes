@@ -49,7 +49,13 @@ const EXPIRED: LicenseViewFixture = {
   key: KEY,
 };
 
-async function mockLicense(page: Page, view: LicenseViewFixture): Promise<void> {
+/** When set, any key the user submits activates and lands on this view — which
+ *  is the only way to reach the *moment* of activation from a browser. */
+async function mockLicense(
+  page: Page,
+  view: LicenseViewFixture,
+  activatesTo?: LicenseViewFixture,
+): Promise<void> {
   await page.route('**/src/lib/platform/license.ts*', async (route) => {
     await route.fulfill({
       status: 200,
@@ -57,8 +63,13 @@ async function mockLicense(page: Page, view: LicenseViewFixture): Promise<void> 
       body: `
         export const UNLICENSED = { state: 'unlicensed', issuedAt: null, expiresAt: null, key: null };
         const VIEW = ${JSON.stringify(view)};
+        const ACTIVATED = ${JSON.stringify(activatesTo ?? null)};
         export async function readLicenseStatus() { return VIEW; }
-        export async function submitLicenseKey() { return { outcome: 'invalid', view: VIEW }; }
+        export async function submitLicenseKey() {
+          return ACTIVATED === null
+            ? { outcome: 'invalid', view: VIEW }
+            : { outcome: 'activated', view: ACTIVATED };
+        }
         export async function clearLicense() { return UNLICENSED; }
         export async function readLicenseLinks() { return { buy: '', support: '' }; }
         export async function takePendingLicenseLink() { return null; }
@@ -68,8 +79,24 @@ async function mockLicense(page: Page, view: LicenseViewFixture): Promise<void> 
   });
 }
 
-async function openLicenseSettings(page: Page, view: LicenseViewFixture): Promise<void> {
-  await mockLicense(page, view);
+/** The celebration canvas: the plate's own, never the coin's WebGL stage. */
+function showerCanvas(page: Page) {
+  return page.locator('.license-plate > canvas');
+}
+
+/** Types any key into the plate and activates it. */
+async function activate(page: Page): Promise<void> {
+  await page.locator('.license-plate').getByRole('button', { name: 'Enter license key' }).click();
+  await page.locator('#license-key-input').fill('FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78');
+  await page.locator('.license-plate').getByRole('button', { name: 'Activate' }).click();
+}
+
+async function openLicenseSettings(
+  page: Page,
+  view: LicenseViewFixture,
+  activatesTo?: LicenseViewFixture,
+): Promise<void> {
+  await mockLicense(page, view, activatesTo);
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');
   await page.locator('.sidebar-settings-btn').click();
@@ -243,6 +270,57 @@ test.describe('License card', () => {
   });
 
   // Drag-to-turn is the whole reason the coin is a model and not a picture.
+  // FUTOpay's checkout page throws coins on a purchase and @justin asked for the
+  // same moment here, with one difference that is the whole point: it is
+  // confined to the plate. The canvas is the plate's own child, so "inside the
+  // container" is structural rather than something a screenshot has to judge.
+  test('activating a license throws a burst of coins inside the plate', async ({ page }) => {
+    await openLicenseSettings(page, UNLICENSED, LICENSED_V2);
+    await expect(showerCanvas(page)).toHaveCount(0);
+
+    await activate(page);
+
+    // The plate is now the Licensed card, and the coins are on it.
+    await expect(page.locator('.license-well .supporter-coin')).toBeVisible();
+    await expect(showerCanvas(page)).toBeAttached();
+
+    // Something is actually drawn — an empty canvas would pass a existence test.
+    const painted = await page.evaluate(() => {
+      const canvas = document.querySelector<HTMLCanvasElement>('.license-plate > canvas');
+      if (canvas === null) return 0;
+      const scratch = document.createElement('canvas');
+      scratch.width = 120;
+      scratch.height = 60;
+      const context = scratch.getContext('2d');
+      if (context === null) return 0;
+      context.drawImage(canvas, 0, 0, 120, 60);
+      const { data } = context.getImageData(0, 0, 120, 60);
+      let opaque = 0;
+      for (let i = 3; i < data.length; i += 4) {
+        if (data[i] > 40) opaque += 1;
+      }
+      return opaque;
+    });
+    expect(painted).toBeGreaterThan(50);
+
+    // And it cleans itself up rather than sitting on the plate forever (M5).
+    await expect(showerCanvas(page)).toHaveCount(0, { timeout: 10000 });
+  });
+
+  test.describe('reduced motion', () => {
+    test.use({ reducedMotion: 'reduce' });
+
+    // Unlike the coin in the well, which still has to render, a burst that does
+    // not move is nothing — so it is skipped outright rather than frozen.
+    test('no coin burst is thrown at all', async ({ page }) => {
+      await openLicenseSettings(page, UNLICENSED, LICENSED_V2);
+      await activate(page);
+
+      await expect(page.locator('.license-well')).toBeAttached();
+      await expect(showerCanvas(page)).toHaveCount(0);
+    });
+  });
+
   test('licensed: dragging across the coin turns it', async ({ page }) => {
     await openLicenseSettings(page, LICENSED_V2);
     await expect(page.locator('.supporter-coin-stage-live')).toBeAttached({ timeout: 15000 });
