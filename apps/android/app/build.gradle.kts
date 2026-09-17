@@ -80,6 +80,10 @@ android {
             // mapping file Play wants. Keep rules for JNA, the UniFFI bindings,
             // and the WebView JS bridge live in proguard-rules.pro.
             isMinifyEnabled = true
+            // Resource shrinking: R8 also drops unreferenced res/ entries (Play
+            // Console flags its absence). assets/ — where the bundled editor.html
+            // lives — is untouched by it.
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
