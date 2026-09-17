@@ -38,6 +38,28 @@ const EMULATOR_HOST_LOOPBACK = '10.0.2.2';
  */
 const NOTE_LIST_MARKER = 'New note';
 
+/** The Settings row that opens the Sync screen (settings.sync.label). It was
+ *  "Self-hosted sync" until hosted sync existed; it is now just "Sync"
+ *  (settings.md), so this alone is ambiguous with the Sync screen's own
+ *  top-bar title ("Sync" too) — SETTINGS_SYNC_SECTION_MARKER anchors it to
+ *  the Settings screen specifically. */
+const SETTINGS_SYNC_ROW_LABEL = 'Sync';
+
+/** The uppercased Settings section header above the Sync row
+ *  (settings.sections.sync, rendered via MicroLabel's `.uppercase()`) — present
+ *  only on the Settings screen, never the Sync screen or the note list, so it
+ *  safely anchors SETTINGS_SYNC_ROW_LABEL's otherwise-ambiguous tap. */
+const SETTINGS_SYNC_SECTION_MARKER = 'SYNC';
+
+/** A hosted build (every debug build, and a prerelease-tag release build —
+ *  settings.md "Sync screen, with hosted sync built in") leads the Sync
+ *  screen with the hosted wizard instead of rendering the self-hosted fields
+ *  this harness drives directly. This disclosure (sync.hosted.useMyOwnServer,
+ *  HostedSyncSections.kt) reveals the identical SelfHostedSyncSections a
+ *  hosted-off build renders up front, so tapping it is the one hosted-aware
+ *  step the rest of the navigation needs. */
+const USE_MY_OWN_SERVER_LABEL = 'Use my own server';
+
 /** Every note this harness creates on the device starts with this, so cleanup
  *  can never touch a note the harness did not write. */
 export const HARNESS_NOTE_PREFIX = 'xsync-';
@@ -181,8 +203,9 @@ class AndroidNativeSyncClient {
     return null;
   }
 
-  /** Reach Settings → Sync from any screen: note list → top-bar gear →
-   *  Self-hosted sync, one dumped snapshot per step. */
+  /** Reach Settings → Sync from any screen: note list → top-bar gear → Sync,
+   *  and past the hosted wizard's "Use my own server" disclosure when a
+   *  hosted build renders it, one dumped snapshot per step. */
   async openSyncScreen() {
     await this.device.waitFor('the sync screen', UI_TIMEOUT_MS, () => {
       const screen = this.device.screen();
@@ -193,7 +216,8 @@ class AndroidNativeSyncClient {
         return false;
       }
       const next =
-        screen.node('Self-hosted sync') ??
+        screen.node(USE_MY_OWN_SERVER_LABEL) ??
+        (screen.has(SETTINGS_SYNC_SECTION_MARKER) ? screen.node(SETTINGS_SYNC_ROW_LABEL) : null) ??
         (screen.has(NOTE_LIST_MARKER) ? screen.node('Settings') : null);
       if (next) {
         this.device.tapPoint(next.x, next.y);
