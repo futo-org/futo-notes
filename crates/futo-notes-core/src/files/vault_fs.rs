@@ -133,7 +133,14 @@ pub fn fail_directory_sync_on_call(call: usize) {
 #[path = "vault_fs/tests.rs"]
 mod tests;
 
-#[cfg(all(test, unix))]
+// Deliberately `cfg(test)` and not `cfg(all(test, unix))`: these are the rules
+// the Windows build has to answer, so the Windows build is the last place they
+// should be absent. Gated to Unix they ran 0 times in ci/win-build.ps1's suite
+// (pipeline 36582), which is github#48's own shape — a check gated away from
+// the platform that needs it. The file is plain `std::fs` and builds anywhere;
+// it is the `fallback` SUITE inside that is Unix-only, because off Unix
+// `platform` already is that code.
+#[cfg(test)]
 #[path = "vault_fs/contract_tests.rs"]
 mod contract_tests;
 

@@ -13,6 +13,11 @@
 //! `cfg(not(unix))` to be COMPILED. So it is compiled here and held to the
 //! same rules as the shipped implementation. Add a rule once; both answer it.
 //!
+//! This file itself is gated on `test` alone, never on `unix`. On Unix it runs
+//! both suites; on Windows `shipped_implementation` runs this same rule set
+//! against the real thing. Gating the file to Unix would leave the rules
+//! absent from the only platform they were written for.
+//!
 //! Rules that depend on descriptor-relative I/O (directory fsync, the
 //! interruption/recovery ladder) stay in `tests.rs`, which is Unix-only
 //! because those are Unix mechanisms rather than shared contract.
@@ -166,4 +171,10 @@ macro_rules! vault_fs_contract {
 }
 
 vault_fs_contract!(shipped_implementation, platform);
+
+// `fallback` exists as a separate module only where it is NOT what ships —
+// i.e. on Unix. On Windows `platform` already IS this code, so the suite above
+// is the portable implementation being held to the rules on the one platform
+// that runs it for real, against real Win32 error codes.
+#[cfg(unix)]
 vault_fs_contract!(portable_implementation, fallback);
