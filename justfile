@@ -148,7 +148,7 @@ ios-native-device:
   apps/ios/run-device.sh
 
 # Compile-only sanity for the native iOS app (no install); `just ios-native` runs it.
-build-ios-native: build-rust-ios
+build-ios-native: editor-deps build-rust-ios
   #!/usr/bin/env bash
   set -euo pipefail
   node_modules/.bin/vite build --config vite.editor.config.ts
@@ -173,6 +173,16 @@ build-ios-native: build-rust-ios
     exit 1
   fi
 
+# Fail fast (or self-install) when the JS deps a recipe needs are absent or
+# stale — BEFORE the 10-25 minute Rust build, not after it. A fresh worktree's
+# `just check` used to die on 'Command "tsx" not found' naming tsx, and
+# `just test-ios-native` lost ~10 minutes of cold Rust builds to a missing
+# node_modules/.bin/vite (pc_40406aa84bc1, pc_7aaa5ba6c080).
+editor-deps:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  bash scripts/editor-deps.sh
+
 # Refuse in ~2s — BEFORE the 10-25 minute Rust/FFI build — when this machine
 # cannot run Gradle: no JDK 21 discoverable for Gradle's daemon-JVM pin
 # (apps/android/gradle/gradle-daemon-jvm.properties — never fix this by
@@ -190,7 +200,7 @@ android-env-check:
 # or buildConfigField that only breaks one of them fails here rather than at
 # release time.
 # Compile-only sanity for the native Android app (both flavors, no install).
-build-android-native: android-env-check build-rust-android
+build-android-native: editor-deps android-env-check build-rust-android
   #!/usr/bin/env bash
   set -euo pipefail
   node_modules/.bin/vite build --config vite.editor.config.ts
@@ -203,7 +213,7 @@ build-android-native: android-env-check build-rust-android
 # on a CONCRETE simulator — `xcodebuild test` cannot run against a generic
 # destination. Honors $SIM (from `just qa-claim ios`); otherwise the single
 # booted simulator. Fails red on any test failure.
-test-ios-native: build-rust-ios
+test-ios-native: editor-deps build-rust-ios
   #!/usr/bin/env bash
   set -euo pipefail
   node_modules/.bin/vite build --config vite.editor.config.ts
@@ -229,14 +239,14 @@ test-ios-native: build-rust-ios
 # flavors: DistributionFlavorTest asserts a per-flavor constant, so one run
 # would only ever see half of it.
 # JVM unit tests for the native Android app, under both flavors.
-test-android-native: android-env-check build-rust-android
+test-android-native: editor-deps android-env-check build-rust-android
   cd apps/android && ./gradlew :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest
 
 # `direct` only: the flavors compile the same androidTest sources against the
 # same applicationId, so running both would install one over the other for no
 # extra signal.
 # Runs Compose instrumentation tests on $ANDROID_SERIAL.
-test-android-native-ui: android-env-check build-rust-android
+test-android-native-ui: editor-deps android-env-check build-rust-android
   cd apps/android && ./gradlew :app:connectedDirectDebugAndroidTest
 
 # Editor performance stories against the REAL native Android app on an
@@ -1004,6 +1014,13 @@ check-node-modules:
 # NOTE: overlaps with `check-node-modules` above (same underlying papercut,
 # two independent fixes that landed on parallel MR stacks). Kept both rather
 # than dropping either — see .rebase-log.md for mr-318.
+#
+# `check` deliberately does NOT depend on `editor-deps` (below), even though
+# every OTHER recipe editor-deps guards does: editor-deps self-installs
+# (`pnpm install`) on a missing/stale node_modules, which is exactly the
+# behind-your-back mutation this recipe's own comment forbids for a gate.
+# check-node-modules/_require-install only refuse and tell you the command;
+# they never run it for you. See .rebase-log.md for mr-320.
 _require-install:
   @[ -d node_modules ] || { echo 'node_modules is missing in this worktree — run: just install' >&2; exit 1; }
 
@@ -1151,7 +1168,7 @@ deploy-rpm:
 # instead, which is the only way to put the exact bytes Play will review on a
 # device (Play itself is fed the AAB from CI, and an AAB cannot be adb-installed).
 # Build a RELEASE-signed Android build of one flavor and install it (com.futo.notes).
-deploy-android flavor="direct": android-env-check
+deploy-android flavor="direct": editor-deps android-env-check
   #!/usr/bin/env bash
   set -euo pipefail
   case '{{flavor}}' in
