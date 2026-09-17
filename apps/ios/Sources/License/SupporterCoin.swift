@@ -40,29 +40,41 @@ private let tiltX: Float = 0.24
 private let cameraFieldOfView: Float = 30
 private let cameraDistance: Float = 1.55
 
+/// How hard the studio lights the coin, as a power of two (so -1.5 is about a
+/// third of the environment's own values).
+///
+/// It is not 0, and the reason is the same one Android's IBL_INTENSITY is not 1:
+/// each renderer scales an image-based light differently, so the same studio,
+/// honestly converted, arrives at a different brightness in each. At 0 the coin
+/// came out a pale yellow-white — the gold's hue washed out, red and green only
+/// 37 apart where desktop holds them 58 apart.
+///
+/// -1.5 is measured, not guessed: it is where the mean colour of the coin's gold
+/// pixels lands within a few points of the other two shells. Change the studio in
+/// build-coin.py and this wants re-measuring.
+private let coinLightExponent: Float = -1.5
+
 /// Frame-time clamp. A view that was off screen hands back a huge delta on its
 /// first frame; without this the coin jumps a random fraction of a turn.
 private let maximumFrameSeconds: Float = 1 / 20
 
-/**
- The FUTO supporter coin, turning on its spindle.
-
- This renders the SAME object desktop and Android render: `assets/coin/futo-coin.usdz`,
- exported from the Blender model in `assets/coin/build-coin.py`, lit by `studio-env.hdr`
- — the studio from the same script, which ImageIO happens to read natively
- (`public.radiance`), so iOS needs no converted copy of it. Nothing about the coin's
- shape or its materials is written in Swift; this file only frames it, turns it and
- hands it to RealityKit.
-
- That replaces a 2D projection which drew the flat glyph twice to fake an extruded
- disc. The projection was clever and cost nothing, but it could not light metal: gold
- is defined by what it reflects, and a shape with a gradient painted on it reads as a
- sticker however correctly it is squeezed.
-
- Drag it and it turns under your thumb; let go while moving and it spins on. It holds
- still — as a whole, correct coin, not a placeholder — under Reduce Motion, which is
- the same answer desktop gives `prefers-reduced-motion`.
- */
+/// The FUTO supporter coin, turning on its spindle.
+///
+/// This renders the SAME object desktop and Android render: `assets/coin/futo-coin.usdz`,
+/// exported from the Blender model in `assets/coin/build-coin.py`, lit by `studio-env.hdr`
+/// — the studio from the same script, which ImageIO happens to read natively
+/// (`public.radiance`), so iOS needs no converted copy of it. Nothing about the coin's
+/// shape or its materials is written in Swift; this file only frames it, turns it and
+/// hands it to RealityKit.
+///
+/// That replaces a 2D projection which drew the flat glyph twice to fake an extruded
+/// disc. The projection was clever and cost nothing, but it could not light metal: gold
+/// is defined by what it reflects, and a shape with a gradient painted on it reads as a
+/// sticker however correctly it is squeezed.
+///
+/// Drag it and it turns under your thumb; let go while moving and it spins on. It holds
+/// still — as a whole, correct coin, not a placeholder — under Reduce Motion, which is
+/// the same answer desktop gives `prefers-reduced-motion`.
 struct SupporterCoin: View {
     let diameter: CGFloat
 
@@ -86,7 +98,7 @@ struct SupporterCoin: View {
                     .scaledToFit()
             } else {
                 RealityView { content in
-                    await build(content)
+                    await build(&content)
                 }
             }
         }
@@ -121,7 +133,7 @@ struct SupporterCoin: View {
     }
 
     @MainActor
-    private func build(_ content: RealityViewContent) async {
+    private func build(_ content: inout RealityViewCameraContent) async {
         guard
             let modelURL = Bundle.main.url(
                 forResource: CoinAsset.model.name, withExtension: CoinAsset.model.extension),
@@ -148,10 +160,17 @@ struct SupporterCoin: View {
             // what makes this render and the other two the same object.
             let light = Entity()
             light.components.set(
-                ImageBasedLightComponent(source: .single(environment), intensityExponent: 0))
+                ImageBasedLightComponent(
+                    source: .single(environment), intensityExponent: coinLightExponent))
             content.add(light)
             pivot.components.set(ImageBasedLightReceiverComponent(imageBasedLight: light))
         }
+
+        // `.virtual` is what lets the PerspectiveCamera below be the camera. The
+        // default on iOS frames the content itself, which would re-frame the coin
+        // every time its silhouette narrowed — it would appear to breathe as it
+        // turned rather than turn in place.
+        content.camera = .virtual
 
         let camera = PerspectiveCamera()
         camera.camera.fieldOfViewInDegrees = cameraFieldOfView

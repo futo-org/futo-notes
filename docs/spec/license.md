@@ -569,26 +569,63 @@ drift-registered concept, `license-card-copy`
   edge had been the entire well. On desktop the well is also **vertically
   centred** against the field column rather than pinned to its top — the coin is
   the only thing on that side, and a circle at the top of a taller column reads
-  as having slipped. It is the storefront's own coin, geometry and
-  materials ported from lib-polar
+  as having slipped. Its dimensions are the storefront's, ported from lib-polar
   `pylib/futopay_server/static/js/coin-bounce.js` without that file's physics
-  world, and one glyph rendered three ways: desktop's inline SVG, an iOS vector
+  world.
+  Since 2026-09-16 the coin is **one 3D model, modelled in Blender** by
+  `assets/coin/build-coin.py` and rendered by all three shells: a bevelled disc
+  with the FUTO diamond punched clean through it, gold face over a darker rim.
+  The script exports `futo-coin.glb` (desktop, Android), `futo-coin.usdz` (iOS)
+  and `studio-env.hdr`, the small studio every shell reflects off it. **The
+  environment is not decoration.** Gold is a metal and a metal renders black with
+  nothing to reflect, which is why the coin's materials carry no emissive term
+  and why the environment ships as an asset. Android cannot read the `.hdr`
+  directly — Filament wants it prefiltered — so `scripts/build-coin-ibl.mjs`
+  derives `studio-env-ibl.ktx` from it with a pinned `cmgen`. iOS reads the
+  `.hdr` itself, because ImageIO decodes `public.radiance`. →
+  `just coin` / `just coin-check`
+  Nothing in TypeScript, Swift or Kotlin restates the coin's shape or materials.
+  CI has no Blender, so `just coin-check` (in `just check`) proves the cheap
+  half: the exports came from the `build-coin.py` on disk, no export was
+  hand-edited (M8), and the Android cubemap was prefiltered from the `.hdr`
+  currently on disk. That last pairing is the one step a person can silently
+  skip — a stale cubemap loads fine and just reflects last week's room on one
+  platform. → `scripts/check-coin-assets.mjs`
+  The flat glyph survives on all three platforms as a **fallback only**, shown
+  when the 3D renderer cannot start: desktop's inline SVG, an iOS vector
   imageset, an Android vector drawable (drift concept `supporter-coin-glyph`).
   That glyph is the FUTO diamond — a rounded square on its point, half-diagonal
-  0.45 of the disc radius. Until 2026-09-16 all three copies carried a
-  hand-drawn path that was a pinched figure-eight instead, roughly a quarter of
-  the right width; desktop hid it behind the three.js coin, so it was only ever
-  visible on the two native shells. The path is now DERIVED rather than drawn,
-  and `scripts/check-supporter-coin-glyph.mjs` (in `check:arch-gate`) fails if
-  any of the three stops matching it. →
+  0.45 of the disc radius, the same four constants the Blender model uses. Until
+  2026-09-16 all three copies carried a hand-drawn path that was a pinched
+  figure-eight instead, roughly a quarter of the right width; desktop hid it
+  behind its 3D coin, so it was only ever visible on the two native shells. The
+  path is now DERIVED rather than drawn, and
+  `scripts/check-supporter-coin-glyph.mjs` (in `check:arch-gate`) fails if any of
+  the three stops matching it. Being a fallback makes a wrong glyph EASIER to
+  ship unnoticed, not harder. →
   `just check` / `node scripts/check-supporter-coin-glyph.mjs --print`
   The coin is not a claim about a date and renders for a v1 activation
   regardless.
-  - *(desktop)* The coin **turns**: three.js, loaded on demand, so it costs a
-    non-supporter nothing at startup. It spins up once on the moment of
-    activation and settles again, holds still under `prefers-reduced-motion:
-    reduce`, stops entirely when scrolled out of view or the window is hidden
-    (M5), and falls back to the flat SVG coin where WebGL is unavailable. The
+  - *(all platforms)* The coin can be **dragged**: a horizontal drag turns it
+    under the pointer or thumb, and releasing while still moving throws it, the
+    spin bleeding back to its resting speed. A vertical swipe is left to the
+    scrolling surface underneath, so a drag on a phone never traps the sheet.
+    The resting speed, decay, drag ratio, flick clamp, tilt and camera framing
+    are the same numbers on all three (drift concept `supporter-coin-motion`),
+    as is the orientation law: **tilt first, then spin**, so the coin turns on a
+    fixed tilted spindle. Composing those the other way swings the spindle and
+    the coin wobbles like a dropped hubcap — it renders either way, which is why
+    both native shells lock the order in a test. →
+    `SupporterCoinTest.kt`, `SupporterCoinTests.swift`
+  - *(desktop)* The coin **turns**: three.js, loaded on demand along with the
+    model and the environment, so it costs a non-supporter nothing at startup.
+    It spins up once on the moment of activation and settles again, holds still
+    under `prefers-reduced-motion: reduce`, stops entirely when scrolled out of
+    view or the window is hidden (M5), and falls back to the flat SVG coin where
+    WebGL is unavailable or either asset fails to load. Tone mapping is Khronos
+    PBR Neutral rather than ACES, which pushes a bright saturated highlight
+    toward white and turns the gold sheen grey exactly where it should be most
+    golden. The
     spin-up was measured on the real app 2026-09-16, not inferred: per-frame
     pixel motion decays 8.9× from the opening half-second to rest.
     **It is deliberately NOT in the sidebar footer**: that corner sits one
@@ -597,28 +634,30 @@ drift-registered concept, `license-card-copy`
     on purpose and can leave. → `SupporterCoin.svelte`, `supporterCoin.ts`,
     `license.svelte.ts` (`activations`) + `license.svelte.test.ts` "marking the
     moment of activation"
-  - *(native shells)* The coin **turns** too, at the same one-turn-per-5s resting
-    speed, with no 3D engine on either platform: the shells **project** the
-    extruded disc instead of modelling it. Turned by θ about its vertical axis,
-    the disc lands on screen as two copies of the same flat glyph — the far face
-    in rim gold, the near face in face gold, each squeezed horizontally to
-    |cos θ| and separated by d·sin θ — which gives a rim, an inner wall inside
-    the diamond, and a silhouette that narrows to an edge for the cost of drawing
-    one asset twice. Between the two faces the shells fill the **extruded wall** —
-    the band spanning the gap, minus the two faces, which is exactly the part of
-    the silhouette neither face covers. Without it the coin is visibly pinched at
-    top and bottom, where the two projected ellipses each taper to a point and
-    nothing joins them. Subtracting the faces is what keeps the diamond a hole:
-    the leftover slivers sit at the silhouette's vertical extremes until the coin
-    is within about 5° of edge-on, where the faces are narrower than the gap and
-    the wall does close the diamond over — correctly, since a through-hole seen
-    along its axis is occluded. Neither shell restates the glyph
-    path, so `supporter-coin-glyph` still has exactly its three copies. It holds
-    still under `prefers-reduced-motion` (iOS) and a zero animator scale
-    (Android), and — as on desktop — the coin appears only in Settings, never in
-    a surface that sits beside the editor (M5). There is no celebrate spin on
-    mobile: activation there does not pass through a moment the card is already
-    on screen for. → `apps/ios/Sources/License/SupporterCoin.swift`,
+  - *(native shells)* Both render the same model, at the same one-turn-per-5s
+    resting speed. Android uses **Filament** (`gltfio` for the model,
+    `KTX1Loader` for the prefiltered studio) in a `TextureView`; iOS uses
+    **RealityKit** (`RealityView`, `ImageBasedLightComponent`). Until 2026-09-16
+    neither carried a 3D engine: both **projected** the flat glyph twice to fake
+    an extruded disc. That was cheap and correct in silhouette, but it could not
+    light metal — a shape with a gradient painted on it reads as a sticker
+    however accurately it is squeezed.
+    Two numbers are deliberately NOT shared, because each renderer scales an
+    image-based light differently and the same studio arrives at a different
+    brightness in each: Filament's IBL intensity is 4.5 where three.js uses 1.0,
+    and RealityKit's intensity exponent is -1.5. Both are **measured**, not
+    guessed — each is where the mean colour of the coin's gold pixels lands
+    within a few points per channel of the other shells. Filament's tone mapper
+    is also set to PBR Neutral for the reason desktop's is; at its ACES default
+    the coin read as brushed aluminium.
+    Each holds still — as a whole, correct coin — under `prefers-reduced-motion`
+    (iOS) and a zero animator scale (Android), falls back to the flat glyph if
+    the renderer cannot start, and appears only in Settings, never beside the
+    editor (M5). There is no celebrate spin on mobile: activation there does not
+    pass through a moment the card is already on screen for. Filament costs
+    **18.0 MB of the 55.1 MB release APK** across the three shipped ABIs, of
+    which `gltfio` is 8.4 MB; RealityKit is a system framework and costs the iOS
+    app nothing. → `apps/ios/Sources/License/SupporterCoin.swift`,
     `apps/android/.../ui/SupporterCoin.kt`
 - **Ambient label** (the thing a purchase removes): the text "Unlicensed" when
   Unlicensed or Expired; "Licensed since {date}" when Licensed with an
