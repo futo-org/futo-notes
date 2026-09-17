@@ -175,6 +175,14 @@ These are observed failures, not generic advice.
   serves its bridge but never rebuilds, or a screenshot of a dead dev server instead of a test
   failure. Terminate by identity only — `just qa-target kill`, the PID/process group you started, or
   a port from `just ports` — never by process name. `just check-qa-input-safety` enforces it.
+- **M26 — Untested platform branch.** A cfg-gated implementation whose tests are gated to
+  the OTHER cfg ships to the only platform that runs it with nothing having executed it, and a
+  green `just check` says nothing about it. github#48: the `cfg(not(unix))` vault filesystem
+  answered "parent folder missing" with an I/O error instead of absence for three releases, so
+  every note synced into a folder a Windows client did not have yet failed forever. A branch that
+  needs no platform APIs to RUN (plain `std::fs`) gets compiled under `cfg(test)` everywhere and
+  held to the shipped branch's rules — `crates/futo-notes-core/src/files/vault_fs/contract_tests.rs`
+  stamps one rule set over both implementations.
 
 ## 7. Quality bar per deliverable
 
