@@ -1,4 +1,4 @@
-import { isTauri } from '$lib/platform';
+import { isMac, isTauri } from '$lib/platform';
 
 // Right-clicking a webview's chrome opens WebKit's own menu — "Reload",
 // "Services", "Inspect Element". Nothing ends the illusion of a native app
@@ -25,17 +25,32 @@ export function shouldSuppressContextMenu(
   return true;
 }
 
-export function installDesktopContextMenuGuard(): () => void {
-  if (!isTauri) return () => {};
+// WebKit delivers a macOS control-click as a `click` (and a second as a
+// `dblclick`) alongside the `contextmenu`; off macOS Ctrl+click opens a tab.
+function swallowSecondaryClick(event: MouseEvent): void {
+  if (!event.ctrlKey) return;
+  event.preventDefault();
+  event.stopPropagation();
+}
 
-  function handleContextMenu(event: MouseEvent): void {
-    // An app-owned menu (note/folder rows) already claimed this click.
-    if (event.defaultPrevented) return;
-    if (shouldSuppressContextMenu(event.target, window.getSelection())) {
-      event.preventDefault();
-    }
+function handleContextMenu(event: MouseEvent): void {
+  // An app-owned menu (note/folder rows) already claimed this click.
+  if (event.defaultPrevented) return;
+  if (shouldSuppressContextMenu(event.target, window.getSelection())) {
+    event.preventDefault();
   }
+}
 
-  window.addEventListener('contextmenu', handleContextMenu);
-  return () => window.removeEventListener('contextmenu', handleContextMenu);
+export function installDesktopContextMenuGuard(): () => void {
+  if (isMac) {
+    window.addEventListener('click', swallowSecondaryClick, true);
+    window.addEventListener('dblclick', swallowSecondaryClick, true);
+  }
+  if (isTauri) window.addEventListener('contextmenu', handleContextMenu);
+
+  return () => {
+    window.removeEventListener('click', swallowSecondaryClick, true);
+    window.removeEventListener('dblclick', swallowSecondaryClick, true);
+    window.removeEventListener('contextmenu', handleContextMenu);
+  };
 }
