@@ -338,55 +338,155 @@ test.describe('License card', () => {
 
   // Clicks QUEUE (@justin 2026-09-18). The unit test proves the arithmetic
   // delivers every radian; this proves the coin ON SCREEN is still working
-  // through them. One turn is fully paid inside ~1.1s, so a coin still spinning
-  // hard 1.5s after eight clicks can only be spinning through the other seven.
-  // Red-proved against the behaviour it replaced — restarting one turn per
-  // click instead of adding one reads as 1.5x ambient here, against 5x for the
-  // queue.
+  // through them.
+  //
+  // It times how LONG the coin keeps moving, not how hard it is moving at one
+  // chosen instant. The instant version read the churn 1.5s after the clicks
+  // and wanted eight clicks to beat one by 3x; that holds on a machine with a
+  // GPU and fails on CI's software WebGL, where a frame can exceed the
+  // renderer's own 1/20s delta clamp and the whole animation runs in slow
+  // motion — one turn is then still going at 1.5s, both readings saturate the
+  // 48x48 sample, and the job goes red on a true behaviour (17.9 vs 19.9,
+  // job 256050). A DURATION ratio survives that: slow motion stretches both
+  // measurements by the same factor.
+  //
+  // Red-proved against the behaviour it replaced, which set the debt to one
+  // turn per click instead of adding one: queued, one tap keeps the coin moving
+  // 671ms and eight keep it 2397ms (3.6x); with the debt reset per tap, eight
+  // taps keep it moving no longer than one does (0.5-0.9x over three runs).
+  // The 2x bar sits between the two, and four copies of this test racing on one
+  // machine still pass.
   test('licensed: eight fast clicks on the coin queue eight turns', async ({ page }) => {
     await openLicenseSettings(page, LICENSED_V2);
     await expect(page.locator('.supporter-coin-stage-live')).toBeAttached({ timeout: 15000 });
 
-    const stage = page.locator('.supporter-coin-stage');
-    await stage.scrollIntoViewIfNeeded();
-    const box = (await stage.boundingBox())!;
-    const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    await page.locator('.supporter-coin-stage').scrollIntoViewIfNeeded();
 
-    const churnAfter = async (clicks: number): Promise<number> => {
-      for (let i = 0; i < clicks; i += 1) await page.mouse.click(centre.x, centre.y);
-      return page.evaluate(async () => {
+    // How far apart two frames 100ms apart are, averaged over the coin. The
+    // coin never stops — it has a resting spin — so this never reaches zero,
+    // and "settled" means "back down to the resting figure".
+    const install = () =>
+      page.evaluate(() => {
         const canvas = document.querySelector<HTMLCanvasElement>('.supporter-coin-stage canvas');
-        if (canvas === null) return 0;
+        if (canvas === null) throw new Error('the coin has no canvas');
         const scratch = document.createElement('canvas');
         scratch.width = 48;
         scratch.height = 48;
         const context = scratch.getContext('2d');
-        if (context === null) return 0;
+        if (context === null) throw new Error('no 2d context for the sampler');
         const sample = (): Uint8ClampedArray => {
           context.drawImage(canvas, 0, 0, 48, 48);
           return context.getImageData(0, 0, 48, 48).data;
         };
-        // Long enough that one queued turn is certainly finished.
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-        let peak = 0;
-        let previous = sample();
-        for (let step = 0; step < 6; step += 1) {
-          await new Promise((resolve) => setTimeout(resolve, 50));
-          const current = sample();
+        const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+        // Per FRAME, not per millisecond. The coin integrates its turn against
+        // the frame delta (clamped at 1/20s), so a slow renderer turns it
+        // further per frame but no further per frame than a fast one does —
+        // which is what makes this reading comparable across machines. Measured
+        // over a wall-clock window instead, a fast renderer turns the coin most
+        // of a revolution between two reads, and a disc that has turned 150
+        // degrees looks no more different than one that has turned 90: the
+        // number stops growing with speed exactly where this test needs it to.
+        const churn = async (): Promise<number> => {
+          let previous = sample();
           let total = 0;
-          for (let i = 0; i < current.length; i += 4) {
-            total += Math.abs(current[i] - previous[i]);
+          const frames = 4;
+          for (let frame = 0; frame < frames; frame += 1) {
+            await nextFrame();
+            const current = sample();
+            let difference = 0;
+            for (let i = 0; i < current.length; i += 4) {
+              difference += Math.abs(current[i] - previous[i]);
+            }
+            total += difference / (current.length / 4);
+            previous = current;
           }
-          peak = Math.max(peak, total / (current.length / 4));
-          previous = current;
-        }
-        return peak;
+          return total / frames;
+        };
+        const globals = window as unknown as {
+          __coinChurn: () => Promise<number>;
+          __coinMovingFor: (ceiling: number, capMs: number) => Promise<number>;
+          __coinTapBurst: (taps: number) => void;
+        };
+        globals.__coinChurn = churn;
+        // The taps are dispatched here rather than driven through
+        // `page.mouse`, which costs ~100ms a click over the protocol — long
+        // enough that the coin pays off most of the burst WHILE it is being
+        // delivered, which is the difference this test is trying to read. The
+        // coin binds plain `pointerdown`/`pointerup` listeners on its mount, so
+        // these go through exactly the handler a real click does (and it
+        // already expects a synthetic pointer id: `setPointerCapture` is
+        // wrapped for it). That real clicks reach the coin at all is the test
+        // above this one.
+        globals.__coinTapBurst = (taps) => {
+          const mount = document.querySelector<HTMLElement>('.supporter-coin-stage');
+          if (mount === null) throw new Error('the coin has no mount');
+          const at = mount.getBoundingClientRect();
+          const clientX = at.left + at.width / 2;
+          const clientY = at.top + at.height / 2;
+          for (let tap = 0; tap < taps; tap += 1) {
+            const pointerId = 1000 + tap;
+            const options = { pointerId, clientX, clientY, bubbles: true };
+            mount.dispatchEvent(new PointerEvent('pointerdown', options));
+            mount.dispatchEvent(new PointerEvent('pointerup', options));
+          }
+        };
+        // Milliseconds the coin spent ABOVE `ceiling` — the time of the LAST
+        // loud read, not the time the settle was confirmed. Confirmation costs
+        // two more reads (two, so one frame the renderer happened to skip
+        // cannot be mistaken for the coin settling), and a read is a fixed
+        // number of FRAMES, so on a loaded machine that tail is hundreds of
+        // milliseconds. Counted, it lands on both measurements equally and
+        // squeezes the ratio towards 1 exactly when the machine is slowest —
+        // which is where this test has to keep working.
+        globals.__coinMovingFor = async (ceiling, capMs) => {
+          const started = performance.now();
+          let lastLoudAt = started;
+          let quiet = 0;
+          while (performance.now() - started < capMs) {
+            if ((await churn()) <= ceiling) {
+              quiet += 1;
+              if (quiet >= 2) break;
+            } else {
+              quiet = 0;
+              lastLoudAt = performance.now();
+            }
+          }
+          return lastLoudAt - started;
+        };
       });
-    };
 
-    const afterOne = await churnAfter(1);
-    const afterEight = await churnAfter(8);
+    await install();
 
-    expect(afterEight).toBeGreaterThan(afterOne * 3);
+    // The resting figure this run: measured, never assumed, because it depends
+    // on how fast this machine can draw.
+    const resting = await page.evaluate(() =>
+      (window as unknown as { __coinChurn: () => Promise<number> }).__coinChurn(),
+    );
+    expect(resting, 'the coin is not turning at all — nothing to measure').toBeGreaterThan(0);
+    const ceiling = resting * 2;
+
+    const movingFor = (taps: number): Promise<number> =>
+      page.evaluate(
+        ([count, limit, cap]) => {
+          const globals = window as unknown as {
+            __coinTapBurst: (taps: number) => void;
+            __coinMovingFor: (ceiling: number, capMs: number) => Promise<number>;
+          };
+          globals.__coinTapBurst(count);
+          return globals.__coinMovingFor(limit, cap);
+        },
+        [taps, ceiling, 30_000],
+      );
+
+    const afterOne = await movingFor(1);
+    const afterEight = await movingFor(8);
+
+    expect(
+      afterEight,
+      `one tap kept the coin moving ${Math.round(afterOne)}ms, eight kept it ` +
+        `${Math.round(afterEight)}ms (resting churn ${resting.toFixed(2)}) — ` +
+        'eight taps should outlast one, not restart it',
+    ).toBeGreaterThan(afterOne * 2);
   });
 });
