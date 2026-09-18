@@ -45,6 +45,24 @@ class LicenseModel {
   /// `#replaceView` and not from the startup read: launching an app that was
   /// already licensed is not an activation, and should not set anything off.
   activations = $state(0);
+  /// How many of those have been marked. A celebration is a MOMENT, not a
+  /// state: before this existed, the plate celebrated whenever it was mounted
+  /// with `activations > 0`, so clicking the sidebar's Unlicensed label threw
+  /// coins over a license that had been removed (@justin 2026-09-18).
+  #celebrated = $state(0);
+
+  /// An activation that nothing has celebrated yet. It is a DEBT the surface
+  /// collects rather than an event it has to be listening for, so a license
+  /// that arrives by deep link while Settings is closed still gets its moment
+  /// the first time the plate is opened — and gets it exactly once.
+  get activationToCelebrate(): boolean {
+    return this.activations > this.#celebrated;
+  }
+
+  /// Spends the debt above. Idempotent.
+  celebrated(): void {
+    this.#celebrated = this.activations;
+  }
 
   #started = false;
   #stateRevision = 0;

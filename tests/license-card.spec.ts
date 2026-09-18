@@ -86,7 +86,7 @@ function showerCanvas(page: Page) {
 
 /** Types any key into the plate and activates it. */
 async function activate(page: Page): Promise<void> {
-  await page.locator('.license-plate').getByRole('button', { name: 'Enter license key' }).click();
+  await page.locator('.license-plate').getByRole('button', { name: 'I already paid' }).click();
   await page.locator('#license-key-input').fill('FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78');
   await page.locator('.license-plate').getByRole('button', { name: 'Activate' }).click();
 }
@@ -121,12 +121,17 @@ function removeButton(page: Page) {
 }
 
 test.describe('License card', () => {
-  test('unlicensed: badge, no well, no rows, the ask, Buy as the only filled button', async ({
-    page,
-  }) => {
+  // The letterhead — badge, eyebrow, uppercase product name — belongs to a card,
+  // and Unlicensed has no card. Stripping it down to a heading, the reason and
+  // one button is the shape Grayjay, FUTO Keyboard and Immich all use
+  // (@justin 2026-09-18).
+  test('unlicensed: the ask, no card chrome, Buy as the only filled button', async ({ page }) => {
     await openLicenseSettings(page, UNLICENSED);
 
-    await expect(page.locator('.license-badge')).toHaveText('Unlicensed');
+    await expect(page.locator('.license-badge')).toHaveCount(0);
+    await expect(page.locator('.license-eyebrow')).toHaveCount(0);
+    await expect(page.locator('.license-name')).toHaveCount(0);
+
     // No coin, and no empty well standing in for one: an empty circle read as
     // something that failed to load rather than as "no license".
     await expect(page.locator('.license-well')).toHaveCount(0);
@@ -136,14 +141,17 @@ test.describe('License card', () => {
     // would be the same void the well was.
     await expect(page.locator('.license-row')).toHaveCount(0);
 
-    // The ask is the state's headline, not a footnote under the button.
-    await expect(page.locator('.license-pitch-headline')).toHaveText("You don't own a license.");
-    await expect(page.locator('.license-pitch')).toContainText('buy a license');
+    // The ask is the state's headline, and the reason — one paragraph, no more —
+    // sits above the button rather than under it.
+    await expect(page.locator('.license-pitch-headline')).toHaveText('Pay for FUTO Notes');
+    await expect(page.locator('.license-pitch')).toHaveCount(1);
+    await expect(page.locator('.license-pitch')).toContainText("FUTO's mission");
+    await expect(page.locator('.license-explanation')).toHaveCount(0);
 
     await expect(buyButton(page)).toBeVisible();
     await expect(removeButton(page)).toHaveCount(0);
     await expect(
-      page.locator('.license-plate').getByRole('button', { name: 'Enter license key' }),
+      page.locator('.license-plate').getByRole('button', { name: 'I already paid' }),
     ).toBeVisible();
     await expect(
       page.locator('.license-plate').getByRole('button', { name: 'Lost your key?' }),
@@ -166,7 +174,7 @@ test.describe('License card', () => {
     await expect(buyButton(page)).toHaveCount(0);
     await expect(removeButton(page)).toBeVisible();
     await expect(page.locator('.license-explanation')).toHaveText(
-      'Thank you for paying for FUTO Notes.',
+      'Thank you for purchasing FUTO Notes.',
     );
     // The ask belongs to Unlicensed alone.
     await expect(page.locator('.license-pitch-headline')).toHaveCount(0);
@@ -187,8 +195,11 @@ test.describe('License card', () => {
     await expect(page.locator('.supporter-coin')).toHaveCount(0);
 
     await expect(rowValue(page, 'Key')).toHaveText(MASKED_KEY);
-    // Someone Expired has paid once already, so they get Renew, not the ask.
+    // Someone Expired has paid once already: same mission paragraph, no
+    // headline, and Renew rather than Buy.
     await expect(page.locator('.license-pitch-headline')).toHaveCount(0);
+    await expect(page.locator('.license-pitch')).toHaveCount(1);
+    await expect(page.locator('.license-pitch')).toContainText("FUTO's mission");
 
     await expect(
       page.locator('.license-plate').getByRole('button', { name: 'Renew', exact: true }),
@@ -307,6 +318,49 @@ test.describe('License card', () => {
     await expect(showerCanvas(page)).toHaveCount(0, { timeout: 10000 });
   });
 
+  // The burst marks a license being STORED, not a license existing. Before the
+  // fix, any mount of the plate with an activation behind it threw coins — so
+  // clicking the sidebar's "Unlicensed" label after removing a license put on a
+  // celebration for nothing (@justin 2026-09-18).
+  test('no coins are thrown for a license that was already stored', async ({ page }) => {
+    await openLicenseSettings(page, LICENSED_V2);
+
+    await expect(page.locator('.license-well .supporter-coin')).toBeVisible();
+    await expect(showerCanvas(page)).toHaveCount(0);
+  });
+
+  test('the burst is spent: reopening Settings does not throw it again', async ({ page }) => {
+    await openLicenseSettings(page, UNLICENSED, LICENSED_V2);
+    await activate(page);
+    await expect(showerCanvas(page)).toBeAttached();
+    // Let it finish on its own rather than racing the teardown assertion below.
+    await expect(showerCanvas(page)).toHaveCount(0, { timeout: 10000 });
+
+    await page.locator('.settings-close').click();
+    await expect(page.locator('.license-plate')).toHaveCount(0);
+    await page.locator('.sidebar-settings-btn').click();
+    await expect(page.locator('.license-plate')).toBeVisible();
+
+    // The plate is back, the coin is in its well, and nothing is raining on it.
+    await expect(page.locator('.license-well .supporter-coin')).toBeVisible();
+    await expect(showerCanvas(page)).toHaveCount(0);
+  });
+
+  test('removing the license and reopening Settings throws no coins', async ({ page }) => {
+    await openLicenseSettings(page, UNLICENSED, LICENSED_V2);
+    await activate(page);
+    await expect(showerCanvas(page)).toHaveCount(0, { timeout: 10000 });
+
+    await removeButton(page).click();
+    await expect(buyButton(page)).toBeVisible();
+
+    await page.locator('.settings-close').click();
+    await page.locator('.sidebar-settings-btn').click();
+    await expect(page.locator('.license-plate')).toBeVisible();
+
+    await expect(showerCanvas(page)).toHaveCount(0);
+  });
+
   test.describe('reduced motion', () => {
     test.use({ reducedMotion: 'reduce' });
 
@@ -386,5 +440,59 @@ test.describe('License card', () => {
     const clicked = await churn();
 
     expect(clicked).toBeGreaterThan(ambient * 1.5);
+  });
+
+  // Clicks QUEUE (@justin 2026-09-18). The unit test proves the arithmetic
+  // delivers every radian; this proves the coin ON SCREEN is still working
+  // through them. One turn is fully paid inside ~1.1s, so a coin still spinning
+  // hard 1.5s after eight clicks can only be spinning through the other seven.
+  // Red-proved against the behaviour it replaced — restarting one turn per
+  // click instead of adding one reads as 1.5x ambient here, against 5x for the
+  // queue.
+  test('licensed: eight fast clicks on the coin queue eight turns', async ({ page }) => {
+    await openLicenseSettings(page, LICENSED_V2);
+    await expect(page.locator('.supporter-coin-stage-live')).toBeAttached({ timeout: 15000 });
+
+    const stage = page.locator('.supporter-coin-stage');
+    await stage.scrollIntoViewIfNeeded();
+    const box = (await stage.boundingBox())!;
+    const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+
+    const churnAfter = async (clicks: number): Promise<number> => {
+      for (let i = 0; i < clicks; i += 1) await page.mouse.click(centre.x, centre.y);
+      return page.evaluate(async () => {
+        const canvas = document.querySelector<HTMLCanvasElement>('.supporter-coin-stage canvas');
+        if (canvas === null) return 0;
+        const scratch = document.createElement('canvas');
+        scratch.width = 48;
+        scratch.height = 48;
+        const context = scratch.getContext('2d');
+        if (context === null) return 0;
+        const sample = (): Uint8ClampedArray => {
+          context.drawImage(canvas, 0, 0, 48, 48);
+          return context.getImageData(0, 0, 48, 48).data;
+        };
+        // Long enough that one queued turn is certainly finished.
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        let peak = 0;
+        let previous = sample();
+        for (let step = 0; step < 6; step += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          const current = sample();
+          let total = 0;
+          for (let i = 0; i < current.length; i += 4) {
+            total += Math.abs(current[i] - previous[i]);
+          }
+          peak = Math.max(peak, total / (current.length / 4));
+          previous = current;
+        }
+        return peak;
+      });
+    };
+
+    const afterOne = await churnAfter(1);
+    const afterEight = await churnAfter(8);
+
+    expect(afterEight).toBeGreaterThan(afterOne * 3);
   });
 });

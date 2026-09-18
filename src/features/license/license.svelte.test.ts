@@ -388,3 +388,74 @@ describe('marking the moment of activation', () => {
     expect(license.activations).toBe(1);
   });
 });
+
+// A celebration is a moment, and a moment is spent. The plate collects this
+// debt rather than watching for an event, so a license that arrives by deep
+// link while Settings is closed still gets its coins the first time the plate
+// is opened — and only then.
+describe('the celebration debt', () => {
+  it('owes nothing until something crosses into licensed', async () => {
+    const license = await freshModel();
+    license.start();
+    await settle();
+
+    expect(license.activationToCelebrate).toBe(false);
+  });
+
+  it('owes nothing for a license that was already stored at startup', async () => {
+    platform.readLicenseStatus.mockResolvedValue(LICENSED);
+    const license = await freshModel();
+
+    license.start();
+    await settle();
+
+    expect(license.activationToCelebrate).toBe(false);
+  });
+
+  it('is owed once per activation and spent once', async () => {
+    platform.submitLicenseKey.mockResolvedValue({ outcome: 'activated', view: LICENSED });
+    const license = await freshModel();
+    license.start();
+    await settle();
+
+    await license.enterKey('FN-AB12-…');
+    expect(license.activationToCelebrate).toBe(true);
+
+    license.celebrated();
+    expect(license.activationToCelebrate).toBe(false);
+    // Idempotent: a second plate mounting must not find a second moment.
+    license.celebrated();
+    expect(license.activationToCelebrate).toBe(false);
+  });
+
+  // The bug this exists for: removing a license left `activations` at 1, so
+  // every later visit to Settings — including clicking the sidebar's
+  // "Unlicensed" label — threw a burst of coins (@justin 2026-09-18).
+  it('stays spent after the license is removed', async () => {
+    platform.submitLicenseKey.mockResolvedValue({ outcome: 'activated', view: LICENSED });
+    const license = await freshModel();
+    license.start();
+    await settle();
+    await license.enterKey('FN-AB12-…');
+    license.celebrated();
+
+    await license.remove();
+
+    expect(license.view).toEqual(UNLICENSED);
+    expect(license.activationToCelebrate).toBe(false);
+  });
+
+  it('is owed again when a new key is entered', async () => {
+    platform.submitLicenseKey.mockResolvedValue({ outcome: 'activated', view: LICENSED });
+    const license = await freshModel();
+    license.start();
+    await settle();
+    await license.enterKey('FN-AB12-…');
+    license.celebrated();
+    await license.remove();
+
+    await license.enterKey('FN-AB12-…');
+
+    expect(license.activationToCelebrate).toBe(true);
+  });
+});

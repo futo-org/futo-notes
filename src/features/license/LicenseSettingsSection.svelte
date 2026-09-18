@@ -25,13 +25,28 @@
   /// The plate itself, so the coin burst is clipped to it.
   let plate: HTMLDivElement | null = $state(null);
 
-  // The same signal the coin in the well celebrates on: the moment this device
-  // *became* licensed, never the startup read of a license it already had.
-  // Reduced motion opts out of the whole thing — unlike the coin, which still
-  // has to render, a burst that does not move is nothing.
+  /// Celebrations this plate has thrown. It only ever goes UP, which is what
+  /// keeps the burst below from being torn down by its own bookkeeping.
+  let celebration = $state(0);
+
+  // Collects the one thing worth celebrating: an activation nothing has marked
+  // yet — a key pasted in, or a `futonotes://` link the OS handed us. Opening
+  // Settings on a license stored earlier is not that, and neither is opening it
+  // on a license that has since been removed, which is how clicking the
+  // sidebar's Unlicensed label used to throw coins (@justin 2026-09-18).
+  $effect(() => {
+    if (!license.activationToCelebrate) return;
+    license.celebrated();
+    celebration += 1;
+  });
+
+  // The burst. It reads `celebration` and not the license state, so nothing
+  // about *being* licensed starts it. Reduced motion opts out of the whole
+  // thing — unlike the coin, which still has to render, a burst that does not
+  // move is nothing.
   $effect(() => {
     const host = plate;
-    if (license.activations === 0 || host === null) return;
+    if (celebration === 0 || host === null) return;
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     return startCoinShower(host) ?? undefined;
   });
@@ -71,29 +86,38 @@
   <div class="license-plate" bind:this={plate}>
     <!-- The well exists only when there is a coin to sit in it. An empty one
          reads as a hole where something failed to load, not as "no license"
-         (@justin 2026-09-17) — unlicensed is said by the badge and the pitch,
+         (@justin 2026-09-17) — unlicensed is said by the headline and the ask,
          and the fields take the whole plate instead. -->
     {#if licensed}
       <div class="license-well">
         <div class="license-coin">
-          <SupporterCoin celebrate={license.activations} />
+          <SupporterCoin celebrate={celebration} />
         </div>
       </div>
     {/if}
 
     <div class="license-fields">
-      {#if card.badge !== null}
-        <span class="license-badge">{card.badge}</span>
-      {/if}
-      <div class="license-eyebrow">{localizedText('license.card.eyebrow')}</div>
-      <div class="license-name">{localizedText('license.card.productName')}</div>
-
-      <!-- Key is the only ledger row left: "Licensed since" and "Term" both
-           went out 2026-09-17 (@justin) because nothing records a purchase date
-           and nothing limits a license. That leaves no blank row to stand for
-           "nothing invented" — a single empty row reads as a void, so with no
-           key there is no list at all and the badge says Unlicensed instead. -->
+      <!-- The letterhead belongs to a card, and Unlicensed has no card: it has
+           an ask. The badge, the eyebrow and the uppercase product name were
+           three pieces of chrome all saying what the section heading and the
+           sidebar label already said (@justin 2026-09-18). What is left is the
+           shape the sibling FUTO apps use — Grayjay's Buy screen, FUTO
+           Keyboard's Payment screen and Immich's purchase panel are each one
+           heading, the reason, one button, and a way in for someone who has
+           already paid. -->
       {#if card.maskedKey !== null}
+        {#if card.badge !== null}
+          <span class="license-badge">{card.badge}</span>
+        {/if}
+        <div class="license-eyebrow">{localizedText('license.card.eyebrow')}</div>
+        <div class="license-name">{localizedText('license.card.productName')}</div>
+
+        <!-- Key is the only ledger row left: "Licensed since" and "Term" both
+             went out 2026-09-17 (@justin) because nothing records a purchase
+             date and nothing limits a license. That leaves no blank row to
+             stand for "nothing invented" — a single empty row reads as a void,
+             so a stored key is the whole condition for there being a card at
+             all. -->
         <dl class="license-rows">
           <div class="license-row license-row-stacked">
             <dt>{localizedText('license.card.keyLabel')}</dt>
@@ -117,6 +141,8 @@
             </dd>
           </div>
         </dl>
+      {:else}
+        <p class="license-pitch-headline">{localizedText('license.unlicensedHeadline')}</p>
       {/if}
 
       {#if entering}
@@ -149,29 +175,27 @@
           </button>
         </div>
       {:else if !licensed}
-        {#if !expired}
-          <!-- Unlicensed only. Someone Expired already paid once, so they get
-               Renew and the mission paragraph, not the ask (@justin
-               2026-09-17). The app still never calls itself free to use — it
-               asks to be paid and declines to force the issue
-               (docs/spec/license.md § States and copy). -->
-          <p class="license-pitch-headline">{localizedText('license.unlicensedHeadline')}</p>
-          <p class="license-pitch">{localizedText('license.unlicensedPitch')}</p>
-        {/if}
-        <!-- The one filled button on the plate. "Enter license key" is the path
-             for someone who has already paid, so it reads as a link rather than
-             competing with Buy as a second slab of the same weight. -->
+        <!-- The reason, then the ask. Grayjay and FUTO Keyboard both put the
+             mission paragraph ABOVE the pay button; an argument printed under
+             the button it argues for is a footnote. It is the ONLY paragraph:
+             a second one saying the app is not locked went out 2026-09-18
+             (@justin). Unlicensed and Expired read the same here — only the
+             button's word differs. -->
+        <p class="license-pitch">{localizedText('license.explanation')}</p>
+        <!-- The one filled button on the plate. "I already paid" is the path
+             for someone who has, so it reads as a link rather than competing
+             with Buy as a second slab of the same weight — the same call
+             Grayjay and FUTO Keyboard make with their own already-paid
+             affordance. -->
         <button
           class="license-btn license-btn-primary license-btn-wide"
           onclick={() => license.openBuyPage()}
         >
           {expired ? localizedText('license.renew') : localizedText('license.buy')}
         </button>
+      {:else}
+        <p class="license-explanation">{localizedText('license.explanationLicensed')}</p>
       {/if}
-
-      <p class="license-explanation">
-        {localizedText(licensed ? 'license.explanationLicensed' : 'license.explanation')}
-      </p>
 
       {#if licensed}
         <div class="license-links">
@@ -443,7 +467,7 @@
      it, so the eye lands here and not on the boilerplate. Not a heading
      element — the section already has one, and this is a sentence. */
   .license-pitch-headline {
-    margin: 14px 0 6px;
+    margin: 0 0 8px;
     font-size: 19px;
     font-weight: 600;
     line-height: 1.25;

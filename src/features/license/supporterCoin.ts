@@ -48,11 +48,32 @@ const FLICK_MIN_SPEED = 0.6;
 /// coin into a strobe.
 const FLICK_MAX_SPEED = 24;
 
-/// A click on the coin turns it exactly once around, fast, and leaves it facing
-/// the way it was (@justin 2026-09-17). Distinct from `celebrate()`, which is a
-/// spin-up the decay bleeds off and which lands wherever it lands.
+/// A click on the coin owes it one more full turn (@justin 2026-09-17).
+/// Distinct from `celebrate()`, which is a spin-up the decay bleeds off and
+/// which lands wherever it lands.
+///
+/// Clicks QUEUE, because what a click adds is an ANGLE and not a restart: ten
+/// fast clicks are ten turns (@justin 2026-09-18). The first version of this
+/// held a phase into a single half-second turn and set it back to zero on every
+/// click, so a burst of clicks delivered one turn and swallowed the rest.
 const TAP_TURN = Math.PI * 2;
-const TAP_TURN_SECONDS = 0.5;
+/// How fast the debt is paid: radians per second for each radian still owed.
+/// One turn owed opens at ~19 rad/s and is nine tenths paid in three quarters
+/// of a second — the single-click turn the coin had before the queue.
+const TAP_PAYOUT = 3;
+/// Ceiling on the payout rate. Ten queued turns owe 63 radians, which without
+/// this would open at 188 rad/s: three turns per frame, i.e. a coin that looks
+/// stationary or strobing. Capped, a burst spins fast and keeps spinning until
+/// every click has been paid.
+const TAP_MAX_RATE = 26;
+/// Floor on the payout rate, so the tail is a coast rather than an asymptote.
+/// A purely proportional payout spends its last second turning the coin by
+/// fractions of a degree — invisible, and it holds the render loop open. Just
+/// above the resting spin, so the coin still reads as finishing something.
+const TAP_MIN_RATE = 2;
+/// Below this the rest of the debt is handed over in one frame: half a degree
+/// is not a turn, and the debt has to actually reach zero.
+const TAP_SETTLE = 0.01;
 /// A press is a click and not a drag if the pointer barely moved and did not
 /// linger. Both bounds matter: a 2px wobble is still a click, and a slow,
 /// deliberate 2px nudge that holds for a second is not.
@@ -76,6 +97,20 @@ const MAX_FRAME_SECONDS = 1 / 20;
 
 /// Exposure for the Khronos PBR Neutral tone map (see `openStage`).
 const TONE_MAPPING_EXPOSURE = 1.0;
+
+/// How much of an owed turn one frame pays off: fastest when the most is owed,
+/// capped so a burst of clicks cannot become a strobe, and handing over the
+/// last sliver whole so the debt actually reaches zero.
+///
+/// Exported for its test. Everything the queue promises — that ten clicks turn
+/// the coin ten times, not once — is this function summing to exactly the debt
+/// it was given.
+export function tapTurnPayout(debt: number, seconds: number): number {
+  if (debt <= 0) return 0;
+  const rate = Math.min(Math.max(debt * TAP_PAYOUT, TAP_MIN_RATE), TAP_MAX_RATE);
+  const paid = rate * seconds;
+  return debt - paid <= TAP_SETTLE ? debt : paid;
+}
 
 export interface CoinHandle {
   /// Sets whether the coin turns on its own. Stopped it still renders, and it
@@ -222,8 +257,9 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
   let spin = BASE_SPIN;
   let spinning = false;
   let dragging = false;
-  /// Seconds into a click's single turn, or -1 when no turn is running.
-  let tapTurn = -1;
+  /// Radians of turn the coin owes its clicks. Each click adds `TAP_TURN`;
+  /// every frame pays some of it back, so nothing is ever dropped.
+  let tapDebt = 0;
   let frame = 0;
   let last = 0;
   let disposed = false;
@@ -238,6 +274,19 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
     renderer.render(scene, camera);
   }
 
+  /// Pays down what the clicks are owed and answers how much turn that buys
+  /// this frame. The debt only ever leaves through here, which is what makes
+  /// "no click is dropped" a property of the code rather than a hope.
+  function payTapDebt(seconds: number): number {
+    const paid = tapTurnPayout(tapDebt, seconds);
+    if (paid === 0) return 0;
+    tapDebt -= paid;
+    // The coin may now have nothing left to do; `step` has already asked for
+    // the next frame, so this is what stops it.
+    if (tapDebt === 0) sync();
+    return paid;
+  }
+
   function step(now: number): void {
     if (disposed) return;
     frame = requestAnimationFrame(step);
@@ -249,25 +298,15 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
     // what makes it feel like an object and not a dial.
     if (dragging) {
       // nothing to integrate: the hand is driving.
-    } else if (tapTurn >= 0) {
-      // A click's turn owns the angle for its half second — `spin` is left
-      // untouched so the ambient turn simply resumes underneath it afterwards,
-      // rather than stacking an extra sixth of a revolution onto the 360.
-      const before = tapTurnEase(tapTurn / TAP_TURN_SECONDS);
-      tapTurn += elapsed;
-      const done = tapTurn >= TAP_TURN_SECONDS;
-      const after = done ? 1 : tapTurnEase(tapTurn / TAP_TURN_SECONDS);
-      pivot.rotation.y += (after - before) * TAP_TURN;
-      if (done) {
-        tapTurn = -1;
-        sync();
-      }
     } else {
       const rest = restSpin();
       // Eases in from either side, so a backwards flick settles as gracefully
       // as a celebration spins down.
       spin = rest + (spin - rest) * Math.exp(-SPIN_DECAY * elapsed);
-      pivot.rotation.y += spin * elapsed;
+      // The clicks' turn is ADDED to the ambient one rather than replacing it,
+      // which is what lets a queue exist at all: there is no single turn with a
+      // start to reset, only an angle still owed.
+      pivot.rotation.y += spin * elapsed + payTapDebt(elapsed);
     }
     draw();
   }
@@ -295,7 +334,7 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
     // Keep stepping while a drag is live or while a flick is still bleeding
     // off, even when the coin does not turn on its own — otherwise a thrown
     // coin freezes mid-air the moment the pointer lifts.
-    if (spinning || dragging || tapTurn >= 0 || Math.abs(spin - restSpin()) > 0.01) start();
+    if (spinning || dragging || tapDebt > 0 || Math.abs(spin - restSpin()) > 0.01) start();
     else stop();
   }
 
@@ -330,10 +369,10 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
       spin = thrown === null ? restSpin() : thrown;
       sync();
     },
-    // A click restarts the turn from the top even mid-turn, so an impatient
-    // second click is a second turn rather than being swallowed.
+    // A click adds a turn to what the coin owes. An impatient second click is a
+    // second turn, and the tenth is the tenth.
     tap: () => {
-      tapTurn = 0;
+      tapDebt += TAP_TURN;
       sync();
     },
   });
@@ -397,12 +436,6 @@ function frameShortSide(
       ? BASE_FOV
       : (2 * Math.atan(Math.tan((BASE_FOV * Math.PI) / 360) / aspect) * 180) / Math.PI;
   camera.updateProjectionMatrix();
-}
-
-/// Eases a click's single turn out: fast off the mark, settling at the end, so
-/// it reads as a flourish rather than a machine rotating a part.
-function tapTurnEase(t: number): number {
-  return 1 - Math.pow(1 - t, 3);
 }
 
 /// What a drag does to the thing being turned.

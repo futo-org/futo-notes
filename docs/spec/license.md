@@ -474,10 +474,13 @@ coin, and there are three ledger rows — **Key**, **Licensed since**, **Term** 
 each present in every state and blank when the license carries no value for it;
 a blank row is what "nothing is invented" looks like.
 
-_(desktop)_ **The well and the ledger exist only when they have something in
-them** (@justin 2026-09-17). There is no empty well: an empty circle read as
-something that had failed to load rather than as "no license". **Licensed since
-and Term are gone outright** — nothing records a purchase date and nothing
+_(desktop)_ **The well, the letterhead and the ledger exist only when they have
+something in them** (@justin 2026-09-17, extended 2026-09-18). There is no empty
+well: an empty circle read as something that had failed to load rather than as
+"no license". The badge, the "Client license" eyebrow and the uppercase product
+name now belong to a **stored license** — the letterhead belongs to a card, and
+Unlicensed has no card, only an ask, so it leads with the headline instead.
+**Licensed since and Term are gone outright** — nothing records a purchase date and nothing
 limits a license today, so both rows only ever said blank or "Perpetual". That
 leaves **Key** as the whole ledger, and with no key there is no ledger at all,
 because one blank row is the same void the well was. The plate also sits on the
@@ -490,18 +493,28 @@ still the plate's own, because the app has no token for it.
 `apps/android/app/src/main/java/com/futo/notes/license/LicenseCopy.kt` — one
 drift-registered concept, `license-card-copy`
 
-| State          | Badge        | Key                | Licensed since                      | Term                                | Actions                                                |
-| -------------- | ------------ | ------------------ | ----------------------------------- | ----------------------------------- | ------------------------------------------------------ |
-| **Unlicensed** | "Unlicensed" | blank              | blank                               | blank                               | **Buy a license** · Enter license key · Lost your key? |
-| **Licensed**   | none         | masked, revealable | "{date}", blank with no `issued_at` | "Perpetual" or "Valid until {date}" | Remove license                                         |
-| **Expired**    | "Expired"    | masked, revealable | "{date}"                            | "Expired {date}"                    | **Renew** · Enter license key · Lost your key?         |
+| State          | Badge        | Key                | Licensed since                      | Term                                | Actions                                             |
+| -------------- | ------------ | ------------------ | ----------------------------------- | ----------------------------------- | --------------------------------------------------- |
+| **Unlicensed** | "Unlicensed" | blank              | blank                               | blank                               | **Buy a license** · I already paid · Lost your key? |
+| **Licensed**   | none         | masked, revealable | "{date}", blank with no `issued_at` | "Perpetual" or "Valid until {date}" | Remove license                                      |
+| **Expired**    | "Expired"    | masked, revealable | "{date}"                            | "Expired {date}"                    | **Renew** · I already paid · Lost your key?         |
 
 _(desktop)_ The Key column is the whole table: the row is absent rather than
-blank when Unlicensed, and the two date columns do not exist.
+blank when Unlicensed, and the two date columns do not exist. **Unlicensed wears
+no badge on desktop either** — the section heading says "License" and the sidebar
+already says "Unlicensed"; a third copy of the word was chrome.
+
+The key-entry action is **"I already paid"** on every platform, which is what
+Grayjay (`i_already_paid`) and FUTO Keyboard (`payment_screen_already_paid_button`)
+both call it: it names the person's situation rather than the mechanism. It is
+one catalog entry, `license.enterKey`, so all three shells moved together
+(@justin 2026-09-18).
 
 > **Gap:** the desktop plate dropped the empty well, the Licensed-since and Term
 > rows, the Copy key button and the gunmetal palette on 2026-09-17, and gained
-> the Unlicensed ask, click-to-turn and the activation coin burst. iOS and
+> the Unlicensed ask, click-to-turn and the activation coin burst. On 2026-09-18
+> it also dropped the badge, eyebrow and product name from the Unlicensed state
+> and moved the mission paragraph above the Buy button. iOS and
 > Android still render all of it the old way. The copy itself is still shared (`license-card-copy`); it is what
 > each shell chooses to _show_ that has diverged, and the native shells have not
 > been brought across. → `tests/license-card.spec.ts`
@@ -572,20 +585,26 @@ blank when Unlicensed, and the two date columns do not exist.
     a sustainable income source for projects and their developers. That is why
     FUTO Notes asks you to pay for it, rather than serving you ads or selling
     your data."
-  - _(desktop)_ Unlicensed **leads with the ask**, above the Buy button and in
-    the plate's own type rather than as a footnote under it: the headline
-    `license.unlicensedHeadline` ("You don't own a license.") and
-    `license.unlicensedPitch` ("You're using FUTO Notes anyway, and nothing here
-    is locked — we would rather ask than force the issue. If this app has earned
-    a place in your day, buy a license."), with the mission paragraph still
-    underneath in muted text. **Expired never shows it**: that user has already
-    paid once and gets Renew. It still does not call the app free to use — it
-    says the app is not locked, which is the same posture stated plainly
-    (@justin 2026-09-17). → `tests/license-card.spec.ts` "unlicensed: badge, no
-    well, no rows, the ask, Buy as the only filled button"
-  - Licensed (`license.explanationLicensed`), after FUTO Keyboard's
-    `payment_screen_aftersales_paragraph_1`: "Thank you for paying for FUTO
-    Notes." One sentence: the second, about continued development, was dropped
+  - _(desktop)_ Unlicensed **leads with the ask** and puts the reason **above**
+    the Buy button, not under it: the headline `license.unlicensedHeadline`
+    ("Pay for FUTO Notes"), then the mission paragraph, then the one filled
+    button. That is the shape all three sibling FUTO-model apps use — Grayjay's
+    Buy screen, FUTO Keyboard's Payment screen and Immich's purchase panel are
+    each a heading, the reason, one pay button and a way in for someone who has
+    already paid — and an argument printed under the button it argues for is a
+    footnote (@justin 2026-09-18). **The mission paragraph is the only
+    paragraph.** A second one in the plate's own voice ("Nothing here is locked,
+    and a license unlocks nothing — we would rather ask than force the issue.",
+    `license.unlicensedPitch`) lived here for one day and went out 2026-09-18
+    (@justin): the state now says what it needs in a heading and a paragraph.
+    Unlicensed and Expired therefore read identically below the headline — only
+    the button's word differs. The app still never calls itself free to use; it
+    asks to be paid and declines to force the issue. →
+    `tests/license-card.spec.ts` "unlicensed: the ask, no card chrome, Buy as
+    the only filled button"
+  - Licensed (`license.explanationLicensed`), verbatim after FUTO Keyboard's
+    `payment_screen_aftersales_paragraph_1`: "Thank you for purchasing FUTO
+    Notes." ("paying for" until 2026-09-18, @justin.) One sentence: the second, about continued development, was dropped
     2026-09-16 (plan D7) when the card replaced the row.
     → all three shells select the key off the state: `LicenseSettingsSection`
     in `src/features/license/`, `apps/ios/Sources/License/`, and
@@ -656,21 +675,36 @@ blank when Unlicensed, and the two date columns do not exist.
     engine (nothing at this size can show the difference, and a rigid-body
     dependency would land in the bundle of an app whose editor budget is per
     keystroke) and no second WebGL context (the document has a small fixed pool
-    and the coin in the well already holds one). It fires on the same
-    `activations` signal the coin celebrates on — the moment this device
-    _became_ licensed, never the startup read of a license it already had — and
+    and the coin in the well already holds one). It fires on the moment a license
+    is **newly stored** — a key pasted in, or a `futonotes://` link the OS handed
+    us — and never on a license the plate merely finds already there. That is a
+    **debt the plate collects and spends**, `license.activationToCelebrate` /
+    `celebrated()`, not a state it reads: an activation that lands while Settings
+    is closed still gets its coins the first time the plate is opened, and gets
+    them exactly once. Counting activations alone was not enough — removing a
+    license left the count at 1, so clicking the sidebar's "Unlicensed" label
+    threw a celebration over nothing (@justin 2026-09-18).
     **`prefers-reduced-motion: reduce` skips it entirely**, unlike the coin,
     which still has to render. It removes itself when it is done (M5). →
     `coinShower.ts`, `tests/license-card.spec.ts` "activating a license throws a
-    burst of coins inside the plate" + "no coin burst is thrown at all"
-  - _(desktop)_ **Clicking the coin turns it once around**, fast — a half-second
-    eased 360 that leaves it facing the way it was and then hands the angle back
-    to the ambient spin (@justin 2026-09-17). A click is a press that moved 5px
-    or less and lasted 400ms or less, so it is a drag that went nowhere and
-    never steals a real drag or a flick. Distinct from the activation
-    celebration, which is a spin-up the decay bleeds off and which lands
-    wherever it lands. → `tests/license-card.spec.ts` "licensed: clicking the
-    coin spins it a full turn"
+    burst of coins inside the plate" + "no coins are thrown for a license that
+    was already stored" + "the burst is spent: reopening Settings does not throw
+    it again" + "removing the license and reopening Settings throws no coins" +
+    "no coin burst is thrown at all"
+  - _(desktop)_ **Clicking the coin turns it once around**, fast, on top of
+    whatever it was already doing (@justin 2026-09-17). A click is a press that
+    moved 5px or less and lasted 400ms or less, so it is a drag that went
+    nowhere and never steals a real drag or a flick. **Clicks queue: ten clicks
+    are ten turns.** What a click adds is an ANGLE the coin owes — paid back
+    fastest when the most is owed, floored so the tail is a coast rather than an
+    asymptote, and capped so a burst cannot become a strobe — so nothing is ever
+    dropped. The first version held a phase into one half-second turn and set it
+    back to zero on each click, which swallowed every click but the last
+    (@justin 2026-09-18). Distinct from the activation celebration, which is a
+    spin-up the decay bleeds off and which lands wherever it lands. →
+    `supporterCoin.test.ts` "turns ten times for ten clicks",
+    `tests/license-card.spec.ts` "licensed: clicking the coin spins it a full
+    turn" + "licensed: eight fast clicks on the coin queue eight turns"
   - _(all platforms)_ The coin can be **dragged**: a horizontal drag turns it
     under the pointer or thumb, and releasing while still moving throws it, the
     spin bleeding back to its resting speed. A vertical swipe is left to the
