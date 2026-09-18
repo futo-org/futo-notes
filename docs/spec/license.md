@@ -510,14 +510,63 @@ both call it: it names the person's situation rather than the mechanism. It is
 one catalog entry, `license.enterKey`, so all three shells moved together
 (@justin 2026-09-18).
 
-> **Gap:** the desktop plate dropped the empty well, the Licensed-since and Term
-> rows, the Copy key button and the gunmetal palette on 2026-09-17, and gained
-> the Unlicensed ask, click-to-turn and the activation coin burst. On 2026-09-18
-> it also dropped the badge, eyebrow and product name from the Unlicensed state
-> and moved the mission paragraph above the Buy button. iOS and
-> Android still render all of it the old way. The copy itself is still shared (`license-card-copy`); it is what
-> each shell chooses to _show_ that has diverged, and the native shells have not
-> been brought across. → `tests/license-card.spec.ts`
+> **Gap:** _(ios, android)_ **The native plates are two rounds behind desktop.**
+> The card COPY is still shared and still in lockstep (`license-card-copy`, and
+> "I already paid" below moved on all three at once because it is one catalog
+> entry); what has diverged is what each shell chooses to _show_. Desktop moved
+> on 2026-09-17 and again on 2026-09-18 and the native shells have not been
+> brought across. Every item below is a deliberate desktop decision to port, not
+> an accident to reconcile — the desktop implementation is
+> `src/features/license/LicenseSettingsSection.svelte`,
+> `supporterCoin.ts`, `coinShower.ts` and `license.svelte.ts` unless noted, and
+> the behaviour each one must end up with is specified in this section:
+>
+> 1. **The empty well goes.** The well exists only while Licensed; there is no
+>    184 box reserved in the other states, and the fields take the whole plate.
+>    An empty circle read as something that had failed to load rather than as
+>    "no license". _(ios, android)_ Both currently reserve it in every state, so
+>    porting this also strips `license.card.emptyWell` of its only reader and
+>    needs a new home for the state that hangs off the well's accessibility
+>    value — see the `license-status` note below, which a QA playbook depends on.
+> 2. **Licensed since and Term go.** Nothing records a purchase date and nothing
+>    limits a license, so both rows only ever said blank or "Perpetual". **Key**
+>    is the whole ledger, and with no key there is no ledger at all.
+>    `licenseCardModel` keeps returning `since` and `term` — the model is shared
+>    law and does not change; the shells stop rendering them.
+> 3. **Unlicensed loses the letterhead.** No badge, no "Client license" eyebrow,
+>    no uppercase product name: the letterhead belongs to a card and Unlicensed
+>    has no card. Licensed and Expired keep all three (Licensed still wears no
+>    badge). The condition is simply "is there a stored key".
+> 4. **Unlicensed leads with the ask, and the reason sits above the button.**
+>    `license.unlicensedHeadline` ("Pay for FUTO Notes"), then the mission
+>    paragraph `license.explanation`, then the one filled Buy button, then the
+>    links. Both native shells put the explanation BELOW the button — iOS last
+>    of all, Android between the button and the links. Expired reads the same
+>    below the headline it does not have; only the button's word differs.
+> 5. **Copy key goes.** The revealed key is plain selectable text; copying is a
+>    deliberate select-and-copy, because a key should not be one click from the
+>    clipboard. Porting this retires `license.card.copyKey` and
+>    `license.card.keyCopied` along with the platform clipboard call.
+> 6. **The plate sits on the ordinary card surface**, not a gunmetal gradient of
+>    its own, which read as a foreign object in the sheet. Only the gold accent
+>    stays the plate's own. _(ios)_ `Theme.Plate.gradient`.
+> 7. **The coin can be clicked, and clicks QUEUE.** A tap is a drag that went
+>    nowhere (≤5px, ≤400ms) and adds one full turn to an angle the coin owes;
+>    ten taps are ten turns. Neither native shell has a tap at all today, so
+>    this is new code, not a change — and the obvious implementation, restarting
+>    one timed turn per tap, is the bug this replaced. The constants live beside
+>    the existing `supporter-coin-motion` numbers, which are unlocked: touch all
+>    three copies in one commit.
+> 8. **Activating a license throws the coin burst.** Confined to the plate,
+>    fired on a license being newly STORED and never on one already there, spent
+>    exactly once, and skipped entirely under the OS reduce-motion setting. The
+>    debt model (`activationToCelebrate` / `celebrated`) is the part to copy,
+>    not just the animation: counting activations alone put on a celebration
+>    every time Settings was opened after a removal.
+>
+> Not in this list because they are already true everywhere: the shared card
+> copy, "I already paid", and "Thank you for purchasing FUTO Notes."
+> → `tests/license-card.spec.ts`, `src/features/license/supporterCoin.test.ts`
 
 - Bold is the one action the state leads with, and on every platform it is the
   **only filled button on the card**: Buy/Renew. Enter license key, Lost your
