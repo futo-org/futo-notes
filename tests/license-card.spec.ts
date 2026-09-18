@@ -337,156 +337,58 @@ test.describe('License card', () => {
   });
 
   // Clicks QUEUE (@justin 2026-09-18). The unit test proves the arithmetic
-  // delivers every radian; this proves the coin ON SCREEN is still working
-  // through them.
+  // delivers every radian; this proves a tap on the real canvas ADDS a turn to
+  // what the coin owes rather than restarting one.
   //
-  // It times how LONG the coin keeps moving, not how hard it is moving at one
-  // chosen instant. The instant version read the churn 1.5s after the clicks
-  // and wanted eight clicks to beat one by 3x; that holds on a machine with a
-  // GPU and fails on CI's software WebGL, where a frame can exceed the
-  // renderer's own 1/20s delta clamp and the whole animation runs in slow
-  // motion — one turn is then still going at 1.5s, both readings saturate the
-  // 48x48 sample, and the job goes red on a true behaviour (17.9 vs 19.9,
-  // job 256050). A DURATION ratio survives that: slow motion stretches both
-  // measurements by the same factor.
-  //
-  // Red-proved against the behaviour it replaced, which set the debt to one
-  // turn per click instead of adding one: queued, one tap keeps the coin moving
-  // 671ms and eight keep it 2397ms (3.6x); with the debt reset per tap, eight
-  // taps keep it moving no longer than one does (0.5-0.9x over three runs).
-  // The 2x bar sits between the two, and four copies of this test racing on one
-  // machine still pass.
+  // It reads the queue, not the screen. Two pixel-based versions of this test
+  // were red on CI for a true behaviour, and the reason is the same both times:
+  // past a certain speed a spinning disc looks no more different between two
+  // frames than a slower one does, so churn stops tracking speed exactly where
+  // this test needs it to. Measuring how long the coin stayed loud instead of
+  // how loud it got only moved the problem — twenty queued turns spin at the
+  // payout cap for seconds, and under load that window read anywhere from
+  // 412ms to 4881ms across three runs of the same code. The queue itself is
+  // one number and it is exact. What the screen does with it is the test above
+  // this one, which clicks with a real mouse and watches the coin move.
   test('licensed: eight fast clicks on the coin queue eight turns', async ({ page }) => {
+    const BURST = 8;
+
     await openLicenseSettings(page, LICENSED_V2);
     await expect(page.locator('.supporter-coin-stage-live')).toBeAttached({ timeout: 15000 });
 
-    await page.locator('.supporter-coin-stage').scrollIntoViewIfNeeded();
-
-    // How far apart two frames 100ms apart are, averaged over the coin. The
-    // coin never stops — it has a resting spin — so this never reaches zero,
-    // and "settled" means "back down to the resting figure".
-    const install = () =>
-      page.evaluate(() => {
-        const canvas = document.querySelector<HTMLCanvasElement>('.supporter-coin-stage canvas');
-        if (canvas === null) throw new Error('the coin has no canvas');
-        const scratch = document.createElement('canvas');
-        scratch.width = 48;
-        scratch.height = 48;
-        const context = scratch.getContext('2d');
-        if (context === null) throw new Error('no 2d context for the sampler');
-        const sample = (): Uint8ClampedArray => {
-          context.drawImage(canvas, 0, 0, 48, 48);
-          return context.getImageData(0, 0, 48, 48).data;
+    // The coin binds plain `pointerdown`/`pointerup` listeners on its mount, so
+    // dispatched events go through exactly the handler a real click does — and
+    // it already expects a synthetic pointer id, since `setPointerCapture`
+    // throws for one. Dispatching them here rather than through `page.mouse`
+    // keeps the burst inside a single frame: over the protocol a click costs
+    // ~100ms, long enough that the coin pays off most of a burst while it is
+    // still being delivered.
+    const owedAfter = (taps: number): Promise<number> =>
+      page.evaluate((count) => {
+        const mount = document.querySelector<HTMLElement>('.supporter-coin-stage');
+        if (mount === null) throw new Error('the coin has no mount');
+        const coin = window.__supporterCoin;
+        if (coin === undefined) throw new Error('the coin published no handle');
+        const at = mount.getBoundingClientRect();
+        const options = {
+          clientX: at.left + at.width / 2,
+          clientY: at.top + at.height / 2,
+          bubbles: true,
         };
-        const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
-        // Per FRAME, not per millisecond. The coin integrates its turn against
-        // the frame delta (clamped at 1/20s), so a slow renderer turns it
-        // further per frame but no further per frame than a fast one does —
-        // which is what makes this reading comparable across machines. Measured
-        // over a wall-clock window instead, a fast renderer turns the coin most
-        // of a revolution between two reads, and a disc that has turned 150
-        // degrees looks no more different than one that has turned 90: the
-        // number stops growing with speed exactly where this test needs it to.
-        const churn = async (): Promise<number> => {
-          let previous = sample();
-          let total = 0;
-          const frames = 4;
-          for (let frame = 0; frame < frames; frame += 1) {
-            await nextFrame();
-            const current = sample();
-            let difference = 0;
-            for (let i = 0; i < current.length; i += 4) {
-              difference += Math.abs(current[i] - previous[i]);
-            }
-            total += difference / (current.length / 4);
-            previous = current;
-          }
-          return total / frames;
-        };
-        const globals = window as unknown as {
-          __coinChurn: () => Promise<number>;
-          __coinMovingFor: (ceiling: number, capMs: number) => Promise<number>;
-          __coinTapBurst: (taps: number) => void;
-        };
-        globals.__coinChurn = churn;
-        // The taps are dispatched here rather than driven through
-        // `page.mouse`, which costs ~100ms a click over the protocol — long
-        // enough that the coin pays off most of the burst WHILE it is being
-        // delivered, which is the difference this test is trying to read. The
-        // coin binds plain `pointerdown`/`pointerup` listeners on its mount, so
-        // these go through exactly the handler a real click does (and it
-        // already expects a synthetic pointer id: `setPointerCapture` is
-        // wrapped for it). That real clicks reach the coin at all is the test
-        // above this one.
-        globals.__coinTapBurst = (taps) => {
-          const mount = document.querySelector<HTMLElement>('.supporter-coin-stage');
-          if (mount === null) throw new Error('the coin has no mount');
-          const at = mount.getBoundingClientRect();
-          const clientX = at.left + at.width / 2;
-          const clientY = at.top + at.height / 2;
-          for (let tap = 0; tap < taps; tap += 1) {
-            const pointerId = 1000 + tap;
-            const options = { pointerId, clientX, clientY, bubbles: true };
-            mount.dispatchEvent(new PointerEvent('pointerdown', options));
-            mount.dispatchEvent(new PointerEvent('pointerup', options));
-          }
-        };
-        // Milliseconds the coin spent ABOVE `ceiling` — the time of the LAST
-        // loud read, not the time the settle was confirmed. Confirmation costs
-        // two more reads (two, so one frame the renderer happened to skip
-        // cannot be mistaken for the coin settling), and a read is a fixed
-        // number of FRAMES, so on a loaded machine that tail is hundreds of
-        // milliseconds. Counted, it lands on both measurements equally and
-        // squeezes the ratio towards 1 exactly when the machine is slowest —
-        // which is where this test has to keep working.
-        globals.__coinMovingFor = async (ceiling, capMs) => {
-          const started = performance.now();
-          let lastLoudAt = started;
-          let quiet = 0;
-          while (performance.now() - started < capMs) {
-            if ((await churn()) <= ceiling) {
-              quiet += 1;
-              if (quiet >= 2) break;
-            } else {
-              quiet = 0;
-              lastLoudAt = performance.now();
-            }
-          }
-          return lastLoudAt - started;
-        };
-      });
+        const before = coin.turnsOwed();
+        for (let tap = 0; tap < count; tap += 1) {
+          const pointerId = 1000 + tap;
+          mount.dispatchEvent(new PointerEvent('pointerdown', { ...options, pointerId }));
+          mount.dispatchEvent(new PointerEvent('pointerup', { ...options, pointerId }));
+        }
+        return coin.turnsOwed() - before;
+      }, taps);
 
-    await install();
-
-    // The resting figure this run: measured, never assumed, because it depends
-    // on how fast this machine can draw.
-    const resting = await page.evaluate(() =>
-      (window as unknown as { __coinChurn: () => Promise<number> }).__coinChurn(),
-    );
-    expect(resting, 'the coin is not turning at all — nothing to measure').toBeGreaterThan(0);
-    const ceiling = resting * 2;
-
-    const movingFor = (taps: number): Promise<number> =>
-      page.evaluate(
-        ([count, limit, cap]) => {
-          const globals = window as unknown as {
-            __coinTapBurst: (taps: number) => void;
-            __coinMovingFor: (ceiling: number, capMs: number) => Promise<number>;
-          };
-          globals.__coinTapBurst(count);
-          return globals.__coinMovingFor(limit, cap);
-        },
-        [taps, ceiling, 30_000],
-      );
-
-    const afterOne = await movingFor(1);
-    const afterEight = await movingFor(8);
-
-    expect(
-      afterEight,
-      `one tap kept the coin moving ${Math.round(afterOne)}ms, eight kept it ` +
-        `${Math.round(afterEight)}ms (resting churn ${resting.toFixed(2)}) — ` +
-        'eight taps should outlast one, not restart it',
-    ).toBeGreaterThan(afterOne * 2);
+    // No frame runs between the taps and the reading, so nothing has been paid
+    // off yet: one tap owes exactly one turn and a burst owes exactly its
+    // count. The behaviour this replaced, which set the debt to one turn per
+    // click instead of adding one, owes 1 either way.
+    expect(await owedAfter(1)).toBeCloseTo(1, 5);
+    expect(await owedAfter(BURST)).toBeCloseTo(BURST, 5);
   });
 });

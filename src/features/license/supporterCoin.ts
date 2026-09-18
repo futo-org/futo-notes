@@ -112,6 +112,14 @@ export function tapTurnPayout(debt: number, seconds: number): number {
   return debt - paid <= TAP_SETTLE ? debt : paid;
 }
 
+declare global {
+  interface Window {
+    /// The live coin, for the browser tests, the same way sync exposes
+    /// `window.__testSync`. Set while a coin is mounted and deleted with it.
+    __supporterCoin?: CoinHandle;
+  }
+}
+
 export interface CoinHandle {
   /// Sets whether the coin turns on its own. Stopped it still renders, and it
   /// can still be dragged — `prefers-reduced-motion` asks for no unrequested
@@ -122,6 +130,13 @@ export interface CoinHandle {
   /// True while a pointer is turning the coin. Exposed for tests and for a
   /// caller that must not fight the user's hand.
   isPointerDown(): boolean;
+  /// Full turns the coin still owes. Exposed for tests: that a tap on the
+  /// canvas ADDS a turn rather than restarting one is the whole promise of the
+  /// queue, and it cannot be read off the screen — a disc spinning at the
+  /// payout cap looks much the same from one frame to the next as one spinning
+  /// at half that, so pixel churn stops telling speeds apart exactly where this
+  /// needs it to.
+  turnsOwed(): number;
   dispose(): void;
 }
 
@@ -394,6 +409,9 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
     },
     isPointerDown(): boolean {
       return dragging;
+    },
+    turnsOwed(): number {
+      return tapDebt / TAP_TURN;
     },
     celebrate(): void {
       spin = CELEBRATION_SPIN;

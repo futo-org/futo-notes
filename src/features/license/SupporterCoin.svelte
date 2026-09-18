@@ -43,6 +43,9 @@
         }
         live = built;
         handle = built;
+        // The live coin, for the browser tests, the same way sync exposes
+        // `window.__testSync` — see `CoinHandle.turnsOwed`.
+        window.__supporterCoin = built;
         // Motion is opt-out at the OS level, so ask before spinning anything.
         // A stopped coin still renders — it just holds still.
         built.setSpinning(!matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -56,6 +59,7 @@
     return () => {
       disposed = true;
       handle = null;
+      if (window.__supporterCoin === live) delete window.__supporterCoin;
       live?.dispose();
     };
   });
