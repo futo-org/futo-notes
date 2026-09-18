@@ -18,7 +18,7 @@ interface LicenseViewFixture {
 
 const KEY = 'AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV';
 /** Seven masked groups of four U+00B7, then the real last four. */
-const MASKED_KEY = '···· ···· ···· ···· ···· ···· ···· 6UJV';
+const MASKED_KEY = '····-····-····-····-····-····-····-6UJV';
 
 const UNLICENSED: LicenseViewFixture = {
   state: 'unlicensed',
@@ -77,18 +77,6 @@ async function mockLicense(
       `,
     });
   });
-}
-
-/** The celebration canvas: the plate's own, never the coin's WebGL stage. */
-function showerCanvas(page: Page) {
-  return page.locator('.license-plate > canvas');
-}
-
-/** Types any key into the plate and activates it. */
-async function activate(page: Page): Promise<void> {
-  await page.locator('.license-plate').getByRole('button', { name: 'I already paid' }).click();
-  await page.locator('#license-key-input').fill('FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78');
-  await page.locator('.license-plate').getByRole('button', { name: 'Activate' }).click();
 }
 
 async function openLicenseSettings(
@@ -281,100 +269,6 @@ test.describe('License card', () => {
   });
 
   // Drag-to-turn is the whole reason the coin is a model and not a picture.
-  // FUTOpay's checkout page throws coins on a purchase and @justin asked for the
-  // same moment here, with one difference that is the whole point: it is
-  // confined to the plate. The canvas is the plate's own child, so "inside the
-  // container" is structural rather than something a screenshot has to judge.
-  test('activating a license throws a burst of coins inside the plate', async ({ page }) => {
-    await openLicenseSettings(page, UNLICENSED, LICENSED_V2);
-    await expect(showerCanvas(page)).toHaveCount(0);
-
-    await activate(page);
-
-    // The plate is now the Licensed card, and the coins are on it.
-    await expect(page.locator('.license-well .supporter-coin')).toBeVisible();
-    await expect(showerCanvas(page)).toBeAttached();
-
-    // Something is actually drawn — an empty canvas would pass a existence test.
-    const painted = await page.evaluate(() => {
-      const canvas = document.querySelector<HTMLCanvasElement>('.license-plate > canvas');
-      if (canvas === null) return 0;
-      const scratch = document.createElement('canvas');
-      scratch.width = 120;
-      scratch.height = 60;
-      const context = scratch.getContext('2d');
-      if (context === null) return 0;
-      context.drawImage(canvas, 0, 0, 120, 60);
-      const { data } = context.getImageData(0, 0, 120, 60);
-      let opaque = 0;
-      for (let i = 3; i < data.length; i += 4) {
-        if (data[i] > 40) opaque += 1;
-      }
-      return opaque;
-    });
-    expect(painted).toBeGreaterThan(50);
-
-    // And it cleans itself up rather than sitting on the plate forever (M5).
-    await expect(showerCanvas(page)).toHaveCount(0, { timeout: 10000 });
-  });
-
-  // The burst marks a license being STORED, not a license existing. Before the
-  // fix, any mount of the plate with an activation behind it threw coins — so
-  // clicking the sidebar's "Unlicensed" label after removing a license put on a
-  // celebration for nothing (@justin 2026-09-18).
-  test('no coins are thrown for a license that was already stored', async ({ page }) => {
-    await openLicenseSettings(page, LICENSED_V2);
-
-    await expect(page.locator('.license-well .supporter-coin')).toBeVisible();
-    await expect(showerCanvas(page)).toHaveCount(0);
-  });
-
-  test('the burst is spent: reopening Settings does not throw it again', async ({ page }) => {
-    await openLicenseSettings(page, UNLICENSED, LICENSED_V2);
-    await activate(page);
-    await expect(showerCanvas(page)).toBeAttached();
-    // Let it finish on its own rather than racing the teardown assertion below.
-    await expect(showerCanvas(page)).toHaveCount(0, { timeout: 10000 });
-
-    await page.locator('.settings-close').click();
-    await expect(page.locator('.license-plate')).toHaveCount(0);
-    await page.locator('.sidebar-settings-btn').click();
-    await expect(page.locator('.license-plate')).toBeVisible();
-
-    // The plate is back, the coin is in its well, and nothing is raining on it.
-    await expect(page.locator('.license-well .supporter-coin')).toBeVisible();
-    await expect(showerCanvas(page)).toHaveCount(0);
-  });
-
-  test('removing the license and reopening Settings throws no coins', async ({ page }) => {
-    await openLicenseSettings(page, UNLICENSED, LICENSED_V2);
-    await activate(page);
-    await expect(showerCanvas(page)).toHaveCount(0, { timeout: 10000 });
-
-    await removeButton(page).click();
-    await expect(buyButton(page)).toBeVisible();
-
-    await page.locator('.settings-close').click();
-    await page.locator('.sidebar-settings-btn').click();
-    await expect(page.locator('.license-plate')).toBeVisible();
-
-    await expect(showerCanvas(page)).toHaveCount(0);
-  });
-
-  test.describe('reduced motion', () => {
-    test.use({ reducedMotion: 'reduce' });
-
-    // Unlike the coin in the well, which still has to render, a burst that does
-    // not move is nothing — so it is skipped outright rather than frozen.
-    test('no coin burst is thrown at all', async ({ page }) => {
-      await openLicenseSettings(page, UNLICENSED, LICENSED_V2);
-      await activate(page);
-
-      await expect(page.locator('.license-well')).toBeAttached();
-      await expect(showerCanvas(page)).toHaveCount(0);
-    });
-  });
-
   test('licensed: dragging across the coin turns it', async ({ page }) => {
     await openLicenseSettings(page, LICENSED_V2);
     await expect(page.locator('.supporter-coin-stage-live')).toBeAttached({ timeout: 15000 });

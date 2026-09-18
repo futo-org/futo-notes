@@ -16,7 +16,7 @@ struct LicenseCopyTests {
     /// Eight hyphenated groups of four from the key alphabet (no I, L, O or 0),
     /// in the normalized form the Rust crate stores and hands over.
     private static let key = "AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV"
-    private static let masked = "···· ···· ···· ···· ···· ···· ···· 6UJV"
+    private static let masked = "····-····-····-····-····-····-····-6UJV"
 
     private func view(
         _ status: LicenseStatus, issued: Int64?, expires: Int64?,
@@ -133,7 +133,37 @@ struct LicenseCopyTests {
         #expect(masked.hasSuffix("6UJV"))
         #expect(!masked.contains("AB12"))
         #expect(!masked.contains("RS3T"))
-        // The dots stand in for the key's own groups, not for its separators.
-        #expect(masked.split(separator: " ").count == 8)
+    }
+
+    /// What makes revealing the key an IN-PLACE swap rather than a jump: the
+    /// mask is the key's own length and keeps its hyphens in the same columns,
+    /// so in a monospace face every dot is replaced by the character that was
+    /// under it. The mask this replaced was a fixed 39 characters joined by
+    /// spaces, so an org-prefixed 42-character key slid three cells right as it
+    /// appeared.
+    @Test("the mask is the key's own length, hyphens included")
+    func maskKeepsTheKeysShape() {
+        for key in [
+            "AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV",
+            "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+        ] {
+            let masked =
+                licenseCardModel(
+                    LicenseView(
+                        status: .licensed, issuedAtMillis: nil, expiresAtMillis: nil, key: key),
+                    localization
+                ).maskedKey ?? ""
+
+            #expect(masked.count == key.count)
+            #expect(!masked.contains(" "))
+            // Every hyphen stays where it was; nothing else survives but the
+            // last group.
+            let maskedCharacters = Array(masked)
+            let keyCharacters = Array(key)
+            for index in 0..<(keyCharacters.count - 4) {
+                #expect(maskedCharacters[index] == (keyCharacters[index] == "-" ? "-" : "·"))
+            }
+            #expect(masked.suffix(4) == key.suffix(4))
+        }
     }
 }

@@ -2,9 +2,9 @@ package com.futo.notes.ui
 
 import android.content.Intent
 import android.net.Uri
-import android.provider.Settings
 import android.util.Log
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,10 +25,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -36,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -101,7 +98,6 @@ fun LicenseSettingsSection(license: LicenseModel) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
     val context = LocalContext.current
-    val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     var entering by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
@@ -167,35 +163,9 @@ fun LicenseSettingsSection(license: LicenseModel) {
         else -> card.badge ?: localization.localizedText("license.unlicensed")
     }
 
-    // Motion is opt-out at the OS level. Unlike the coin, which still has to
-    // render, a burst that does not move is nothing — so it is skipped outright
-    // rather than frozen.
-    val animates = remember {
-        Settings.Global.getFloat(
-            context.contentResolver,
-            Settings.Global.ANIMATOR_DURATION_SCALE,
-            1f,
-        ) != 0f
-    }
-    // Bursts this plate has thrown; null means there is nothing on it now. The
-    // counter only ever goes UP, which keeps the burst from being torn down by
-    // its own bookkeeping.
-    var celebration by remember { mutableStateOf<Int?>(null) }
-
-    // Collects the one thing worth celebrating: an activation nothing has marked
-    // yet — a key pasted in, or a `futonotes://` link the OS handed us. Opening
-    // Settings on a license stored earlier is not that, and neither is opening
-    // it on a license that has since been removed.
-    LaunchedEffect(license.activationToCelebrate) {
-        if (!license.activationToCelebrate) return@LaunchedEffect
-        license.markCelebrated()
-        if (animates) celebration = (celebration ?: 0) + 1
-    }
-
     // The same label + bordered card every other Settings group is built from:
     // the plate is one of the sheet's cards, not a slab of its own material.
     SettingsGroup(localization.localizedText("license.sectionTitle")) {
-        Box {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
@@ -256,7 +226,7 @@ fun LicenseSettingsSection(license: LicenseModel) {
                 } else if (card != null) {
                     Text(
                         localization.localizedText("license.unlicensedHeadline"),
-                        style = FutoType.plateName,
+                        style = FutoType.plateAsk,
                         color = c.textPrimary,
                     )
                 }
@@ -311,25 +281,6 @@ fun LicenseSettingsSection(license: LicenseModel) {
                     }
                 }
             }
-        }
-
-        // The burst, and only ever inside the plate: the canvas is the plate's
-        // own box, so the coins bounce off ITS four walls rather than raining
-        // over the note list behind Settings. `key` restarts it per celebration;
-        // it removes itself when the last coin has faded (M5).
-        celebration?.let { id ->
-            key(id) {
-                CoinShower(
-                    // The middle of the well, so the burst reads as coming from
-                    // the thing that was just earned. A burst can only be thrown
-                    // by an activation, and an activation always leaves a
-                    // Licensed plate with a well at its top.
-                    originY = with(density) { (18.dp + WELL_DIAMETER / 2).toPx() },
-                    onFinished = { celebration = null },
-                    modifier = Modifier.matchParentSize(),
-                )
-            }
-        }
         }
     }
 }
@@ -397,22 +348,35 @@ private fun PlateKeyValue(
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
     val masked = card.maskedKey ?: return
-    if (!revealed || storedKey == null) {
-        TextButton(
-            onClick = onReveal,
-            contentPadding = PaddingValues(vertical = 4.dp),
-            colors = ButtonDefaults.textButtonColors(contentColor = c.textPrimary),
-            // The masked value IS the control, so the button's accessible name
-            // says what tapping it does rather than reading the dots aloud.
-            modifier = Modifier.semantics {
-                contentDescription = localization.localizedText("license.card.revealKey")
-            },
-        ) {
-            Text(masked, style = FutoType.plateKey, color = c.textPrimary)
-        }
-        return
-    }
-    Text(storedKey, style = FutoType.plateKey, color = c.textPrimary)
+    val shown = if (revealed && storedKey != null) storedKey else masked
+    // ONE Text in both states, not a TextButton swapped for a Text. The button
+    // carries a 40dp minimum height and its own content padding, so revealing
+    // the key used to shorten the row and pull everything below it up the
+    // screen. Only the STRING changes now, and because the mask is the key's
+    // own length in a monospace face, the reveal is a glyph-for-glyph swap that
+    // moves nothing at all (@justin 2026-09-18).
+    Text(
+        shown,
+        style = FutoType.plateKey,
+        color = c.textPrimary,
+        modifier = Modifier
+            .padding(vertical = 4.dp)
+            .then(
+                if (revealed && storedKey != null) {
+                    Modifier
+                } else {
+                    // The masked value IS the control, so its accessible name
+                    // says what tapping it does rather than reading the dots
+                    // aloud.
+                    Modifier
+                        .clickable(onClick = onReveal)
+                        .semantics {
+                            contentDescription =
+                                localization.localizedText("license.card.revealKey")
+                        }
+                },
+            ),
+    )
 }
 
 /** Every control on the plate that is not the one filled button. */
@@ -421,7 +385,12 @@ private fun PlateLink(label: String, onClick: () -> Unit) {
     val c = FutoTheme.colors
     TextButton(
         onClick = onClick,
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+        // No horizontal content padding: TextButton's default 12dp (and the 8dp
+        // this carried) indented every plate link relative to the eyebrow, the
+        // key and the paragraph above them, so "Remove license" read as being
+        // nested under the card rather than aligned to it. The row's own 16dp
+        // is the plate's left edge and the only inset these want.
+        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
         colors = ButtonDefaults.textButtonColors(contentColor = c.plateAccent),
     ) {
         Text(label, style = FutoType.caption, color = c.plateAccent)

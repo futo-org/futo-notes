@@ -20,28 +20,6 @@ final class LicenseModel: ObservableObject {
     /// True only while the one activation request is in flight.
     @Published private(set) var busy = false
 
-    /// Moments this device *became* licensed, so the plate can mark the
-    /// occasion. Deliberately driven from [apply] and not from [load]: launching
-    /// an app that was already licensed is not an activation and must not set
-    /// anything off.
-    @Published private(set) var activations = 0
-    /// How many of those have been marked. A celebration is a MOMENT, not a
-    /// state: counting activations alone put on a celebration every time
-    /// Settings was opened after a removal, because the count stayed at 1
-    /// (@justin 2026-09-18).
-    @Published private var celebratedActivations = 0
-
-    /// An activation that nothing has celebrated yet. It is a DEBT the plate
-    /// collects rather than an event it has to be listening for, so a license
-    /// that arrives by deep link while Settings is closed still gets its moment
-    /// the first time the plate is opened — and gets it exactly once.
-    var activationToCelebrate: Bool { activations > celebratedActivations }
-
-    /// Spends the debt above. Idempotent.
-    func markCelebrated() {
-        celebratedActivations = activations
-    }
-
     /// How a message reaches the user. Assigned by the app so the license
     /// module never has to know which banner is on screen; the strings are
     /// catalog paths, because copy is `languages/en.json`'s (§5).
@@ -177,11 +155,6 @@ final class LicenseModel: ObservableObject {
         // row renders — no re-read, no second verdict.
         storage.write(acceptance.pair)
         stateRevision += 1
-        // Only the CROSSING counts. Re-entering a key you already hold leaves
-        // the state at licensed and is not a second activation.
-        if acceptance.view.status == .licensed, view?.status != .licensed {
-            activations += 1
-        }
         view = acceptance.view
         announce(LocalizedMessage("license.activated"))
     }

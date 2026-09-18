@@ -13,7 +13,6 @@ import uniffi.futo_notes_ffi.LicenseAction
 import uniffi.futo_notes_ffi.LicenseException
 import uniffi.futo_notes_ffi.LicenseLinkOutcome
 import uniffi.futo_notes_ffi.LicenseLinks
-import uniffi.futo_notes_ffi.LicenseStatus
 import uniffi.futo_notes_ffi.LicensePlatform
 import uniffi.futo_notes_ffi.LicenseView
 import uniffi.futo_notes_ffi.licenseEnterKey
@@ -61,36 +60,6 @@ class LicenseModel(
     /** True only while the one activation request is in flight. */
     var busy by mutableStateOf(false)
         private set
-
-    /**
-     * Moments this device *became* licensed, so the plate can mark the occasion.
-     * Deliberately driven from [apply] and not from [load]: launching an app
-     * that was already licensed is not an activation and must not set anything
-     * off.
-     */
-    var activations by mutableStateOf(0)
-        private set
-
-    /**
-     * How many of those have been marked. A celebration is a MOMENT, not a
-     * state: counting activations alone put on a celebration every time Settings
-     * was opened after a removal, because the count stayed at 1 (@justin
-     * 2026-09-18).
-     */
-    private var celebratedActivations by mutableStateOf(0)
-
-    /**
-     * An activation that nothing has celebrated yet. It is a DEBT the plate
-     * collects rather than an event it has to be listening for, so a license
-     * that arrives by deep link while Settings is closed still gets its moment
-     * the first time the plate is opened — and gets it exactly once.
-     */
-    val activationToCelebrate: Boolean get() = activations > celebratedActivations
-
-    /** Spends the debt above. Idempotent. */
-    fun markCelebrated() {
-        celebratedActivations = activations
-    }
 
     /**
      * The Buy / Renew and "Lost your key?" destinations, from Rust, so no shell
@@ -245,13 +214,6 @@ class LicenseModel(
         storage.write(acceptance.pair)
         settled = true
         stateRevision += 1
-        // Only the CROSSING counts. Re-entering a key you already hold leaves
-        // the state at licensed and is not a second activation.
-        if (acceptance.view.status == LicenseStatus.LICENSED &&
-            view?.status != LicenseStatus.LICENSED
-        ) {
-            activations += 1
-        }
         view = acceptance.view
         announce(LocalizedMessage("license.activated"))
         if (BuildConfig.DEBUG) Log.i(LICENSE_LOG_TAG, "license applied: ${acceptance.view.status}")

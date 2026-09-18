@@ -47,6 +47,13 @@ object FutoType {
     // plate's name is engraved rather than set.
     val plateName = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 22.sp, lineHeight = 26.sp, letterSpacing = 0.02.em)
 
+    // The Unlicensed state's ask ("Pay for FUTO Notes"). Smaller than the
+    // engraved name above and not tracked, because it is a SENTENCE: it borrowed
+    // plateName at first and read as a second letterhead rather than as the
+    // thing being asked. Desktop sets the same pair at 19px against the name's
+    // 24px; this is that ratio in Barlow.
+    val plateAsk  = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, lineHeight = 24.sp, letterSpacing = (-0.011).em)
+
     // A license key is data, not prose. The platform's own monospace stack
     // (D10) so the masked dots and the revealed key sit on the same grid and
     // the value does not reflow when it is revealed.

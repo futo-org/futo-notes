@@ -96,15 +96,6 @@ struct LicenseSettingsSection: View {
     @State private var revealed = false
     @FocusState private var fieldFocused: Bool
 
-    /// Bursts this plate has thrown. It only ever goes UP, which is what keeps
-    /// the burst below from being torn down by its own bookkeeping; `nil` means
-    /// there is nothing on the plate right now.
-    @State private var celebration: Int?
-
-    /// Motion is opt-out at the OS level. Unlike the coin, which still has to
-    /// render, a burst that does not move is nothing — so it is skipped
-    /// outright rather than frozen.
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The well and the coin, in points. Named because two of the three
     /// platforms quote the same numbers.
@@ -165,26 +156,6 @@ struct LicenseSettingsSection: View {
         }
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // The burst, and only ever inside the plate: the overlay is the plate's
-        // own box, so the coins bounce off ITS four walls rather than raining
-        // over the note list behind Settings.
-        .overlay {
-            if let celebration {
-                CoinShower(originY: burstOriginY) { self.celebration = nil }
-                    .id(celebration)
-                    .accessibilityHidden(true)
-            }
-        }
-        // Collects the one thing worth celebrating: an activation nothing has
-        // marked yet — a key pasted in, or a `futonotes://` link the OS handed
-        // us. Opening Settings on a license stored earlier is not that, and
-        // neither is opening it on a license that has since been removed.
-        .onChange(of: license.activationToCelebrate, initial: true) { _, owed in
-            guard owed else { return }
-            license.markCelebrated()
-            guard !reduceMotion else { return }
-            celebration = (celebration ?? 0) + 1
-        }
         // Where the state is machine-readable from, in EVERY state. It used to
         // hang off the well, and the well is now gone from two of the three
         // states — so the plate, which is always here, carries it. A QA
@@ -234,12 +205,6 @@ struct LicenseSettingsSection: View {
             }
         }
     }
-
-    /// Where the coins come from: the middle of the well, so the burst reads as
-    /// coming from the thing that was just earned. A burst can only be thrown by
-    /// an activation, and an activation always leaves a Licensed plate with a
-    /// well at its top, so this is never guessing at a box that is not there.
-    private var burstOriginY: CGFloat { Self.wellDiameter / 2 }
 
     /// The well is unpainted space, not a drawn recess: @justin 2026-09-16 asked
     /// for the circle border gone on all three platforms, and the filled disc
@@ -322,19 +287,24 @@ struct LicenseSettingsSection: View {
     @ViewBuilder private var keyValue: some View {
         if let card, let shown = licenseKeyRowText(card, key: license.view?.key, revealed: revealed)
         {
+            // The same `keyText` in both states, never a Button swapped for a
+            // label: that swap changed the row's metrics and moved everything
+            // under it. The two branches differ only in what the value DOES —
+            // the Text, its font and its frame are identical — and because the
+            // mask is the key's own length in a monospace face, the reveal is a
+            // glyph-for-glyph swap that moves nothing at all (@justin
+            // 2026-09-18).
             if revealed {
                 keyText(shown)
                     .textSelection(.enabled)
                     .accessibilityIdentifier("license-key-revealed")
             } else {
-                Button {
-                    revealed = true
-                } label: {
-                    keyText(shown)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(localization.localizedText("license.card.revealKey"))
-                .accessibilityIdentifier("license-key-masked")
+                keyText(shown)
+                    .contentShape(Rectangle())
+                    .onTapGesture { revealed = true }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel(localization.localizedText("license.card.revealKey"))
+                    .accessibilityIdentifier("license-key-masked")
             }
         }
     }

@@ -1,9 +1,8 @@
 import Foundation
 
-/// Four U+00B7 middle dots — one masked group of the key.
-private let licenseMaskGroup = "····"
-/// A key is eight groups; the card shows the last one and masks the rest.
-private let licenseMaskedGroups = 7
+/// U+00B7 middle dot — one hidden character of the key.
+private let licenseMaskCharacter: Character = "·"
+/// The card shows the key's last group and masks everything before it.
 private let licenseLastGroupLength = 4
 
 /// What the License card renders, once per state.
@@ -89,13 +88,24 @@ private func unlicensedCard(_ localization: Localization) -> LicenseCardModel {
     )
 }
 
-/// The stored key with everything but its last group replaced by dots:
-/// `···· ···· ···· ···· ···· ···· ···· 6UJV`. The key arrives normalized
-/// (trimmed, uppercased) from the Rust crate, so it is sliced as it stands.
+/// The stored key with every character before its last group replaced by a
+/// middle dot, and its hyphens left where they are:
+/// `····-····-····-····-····-····-····-6UJV`.
+///
+/// The mask is the SAME LENGTH as the key and keeps its separators in the same
+/// columns, which is what makes revealing it an in-place swap: the card renders
+/// the value in a monospace face, so every dot is replaced by the character that
+/// was hiding under it and nothing on the plate moves (@justin 2026-09-18). The
+/// first mask was a fixed seven groups of dots joined by SPACES — 39 characters
+/// whatever the key, so an org-prefixed 42-character key jumped three cells to
+/// the right as it appeared, and the rows below it shifted with it. The key
+/// arrives normalized (trimmed, uppercased) from the Rust crate, so it is masked
+/// as it stands.
 private func maskedLicenseKey(_ key: String?) -> String? {
     guard let key else { return nil }
-    let groups =
-        Array(repeating: licenseMaskGroup, count: licenseMaskedGroups)
-        + [String(key.suffix(licenseLastGroupLength))]
-    return groups.joined(separator: " ")
+    guard key.count > licenseLastGroupLength else { return key }
+    let hidden = key.dropLast(licenseLastGroupLength).map {
+        $0 == "-" ? $0 : licenseMaskCharacter
+    }
+    return String(hidden) + String(key.suffix(licenseLastGroupLength))
 }

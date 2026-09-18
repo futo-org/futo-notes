@@ -8,23 +8,32 @@
 import type { LicenseStateName, LicenseView } from '$lib/platform/license';
 import { localizedAbsoluteDate, localizedText } from '$shared/localization';
 
-/** Four U+00B7 middle dots — one masked group of the key. */
-const MASK_GROUP = '····';
-/** A key is eight groups; the card shows the last one and masks the rest. */
-const MASKED_GROUPS = 7;
+/** U+00B7 middle dot — one hidden character of the key. */
+const MASK_CHARACTER = '·';
+/** The card shows the key's last group and masks everything before it. */
 const LAST_GROUP_LENGTH = 4;
 
 function date(iso: string): string {
   return localizedAbsoluteDate(Date.parse(iso));
 }
 
-/// The stored key with everything but its last group replaced by dots:
-/// `···· ···· ···· ···· ···· ···· ···· 6UJV`. The key arrives normalized
-/// (trimmed, uppercased) from the Rust crate, so it is sliced as it stands.
+/// The stored key with every character before its last group replaced by a
+/// middle dot, and its hyphens left where they are:
+/// `····-····-····-····-····-····-····-6UJV`.
+///
+/// The mask is the SAME LENGTH as the key and keeps its separators in the same
+/// columns, which is what makes revealing it an in-place swap: the card renders
+/// the value in a monospace face, so every dot is replaced by the character
+/// that was hiding under it and nothing on the plate moves (@justin
+/// 2026-09-18). The first mask was a fixed seven groups of dots joined by
+/// SPACES — 39 characters whatever the key, so an org-prefixed 42-character key
+/// jumped three cells to the right as it appeared, and the rows below it
+/// shifted with it. The key arrives normalized (trimmed, uppercased) from the
+/// Rust crate, so it is masked as it stands.
 function maskKey(key: string): string {
-  const groups = Array.from({ length: MASKED_GROUPS }, () => MASK_GROUP);
-  groups.push(key.slice(-LAST_GROUP_LENGTH));
-  return groups.join(' ');
+  if (key.length <= LAST_GROUP_LENGTH) return key;
+  const hidden = key.slice(0, -LAST_GROUP_LENGTH).replace(/[^-]/g, MASK_CHARACTER);
+  return hidden + key.slice(-LAST_GROUP_LENGTH);
 }
 
 /// What the License card renders, once per state.

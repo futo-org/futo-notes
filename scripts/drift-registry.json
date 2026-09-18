@@ -530,7 +530,7 @@
     },
     {
       "concept": "license-card-copy",
-      "description": "How a license state reads on the License card: the badge, the `Licensed since` date, the term and the masked key each shell renders — which `license.*` catalog entry a state selects, formatting issued_at and expires_at as absolute dates, and masking the stored key to its last group. The license RULES are Rust's alone (futo-notes-license, projected through Tauri and UniFFI) and are NOT duplicated; this is the per-shell view-model on top of the already-judged state, which each shell must write in its own UI language.",
+      "description": "How a license state reads on the License card: the badge, the `Licensed since` date, the term and the masked key each shell renders — which `license.*` catalog entry a state selects, formatting issued_at and expires_at as absolute dates, and masking the stored key to its last group — a mask that is the key's own length, with its hyphens left in place, so a monospace reveal swaps glyph for glyph without moving anything. The license RULES are Rust's alone (futo-notes-license, projected through Tauri and UniFFI) and are NOT duplicated; this is the per-shell view-model on top of the already-judged state, which each shell must write in its own UI language.",
       "lockStatus": "partial",
       "note": "Partial: all three copies build the same five-field card model from the same `license.*` catalog entries for the same states, including the identical Expired-without-dates fallback and the identical key mask, and each has its own test doing so — but there is no shared fixture pinning them to identical OUTPUT, because the platforms' date formatters legitimately differ in spacing and separators and each renders the date with its own locale engine. Android's lock is an instrumented test rather than a unit test, because its dates go through android.icu, which a JVM test does not have.",
       "copies": [
@@ -656,53 +656,6 @@
           "kind": "test"
         }
       ]
-    },
-    {
-      "concept": "supporter-coin-burst",
-      "description": "The burst of coins a newly STORED license throws across the License plate: 120 coins, gravity 1500 px/s^2, opening speed 260..760, wall restitution 0.62, floor restitution 0.66, floor friction 0.9, rest below 55 px/s, rest line scattered over 26 px, tumble 6..22 rad/s, radius 5..9, solid for 2300 ms then fading over 900 ms, and a 1/30 s frame-delta clamp; gold #ffd24d over #c8920c with a #8b6508 rim and the FUTO diamond at 0.45 of the radius. Ballistic motion and a coefficient of restitution, no physics engine, confined to the plate's own box on every shell. Ported from FUTOpay's checkout page (lib-polar coin-bounce.js) without that file's physics world.",
-      "lockStatus": "partial",
-      "note": "Partial: each shell's simulation is pure and testable away from its renderer, and iOS (CoinShowerTests) and Android (CoinShowerTest) each assert the three claims a screenshot cannot show -- the burst stays inside the plate on every frame, it heaps along the bottom, and it ends. Desktop's copy is asserted from the outside instead, by tests/license-card.spec.ts reading the plate's own canvas, because its simulation is a closure inside startCoinShower and not separately reachable. Nothing pins the three sets of CONSTANTS to each other: they are prose-identical and nothing but you keeps them so, which is the same standing as supporter-coin-motion's numbers. The debt that decides WHEN a burst is thrown (activationToCelebrate / celebrated) lives with each shell's license model and is tested there.",
-      "copies": [
-        {
-          "location": "src/features/license/coinShower.ts",
-          "pattern": "export function startCoinShower"
-        },
-        {
-          "location": "apps/ios/Sources/License/CoinShower.swift",
-          "pattern": "final class CoinBurst"
-        },
-        {
-          "location": "apps/android/app/src/main/java/com/futo/notes/ui/CoinShower.kt",
-          "pattern": "internal class CoinBurst"
-        }
-      ],
-      "locks": [
-        {
-          "path": "apps/ios/Tests/License/CoinShowerTests.swift",
-          "kind": "test"
-        },
-        {
-          "path": "apps/android/app/src/test/java/com/futo/notes/ui/CoinShowerTest.kt",
-          "kind": "test"
-        },
-        {
-          "path": "tests/license-card.spec.ts",
-          "kind": "test"
-        }
-      ],
-      "scan": {
-        "dirs": [
-          "src",
-          "apps/ios/Sources",
-          "apps/android/app/src/main"
-        ],
-        "extensions": [
-          ".ts",
-          ".swift",
-          ".kt"
-        ],
-        "pattern": "(startCoinShower|class CoinBurst)\\b"
-      }
     }
   ]
 }

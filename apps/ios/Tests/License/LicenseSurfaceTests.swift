@@ -79,7 +79,7 @@ struct LicenseSurfaceTests {
         let masked = licenseKeyRowText(licensed, key: key, revealed: false)
         // Only the last group survives, and the key itself is never in the
         // masked string.
-        #expect(masked == "···· ···· ···· ···· ···· ···· ···· 6UJV")
+        #expect(masked == "····-····-····-····-····-····-····-6UJV")
         #expect(masked?.contains("AB12") == false)
 
         // The tap swaps the same row to the stored key, verbatim — the card

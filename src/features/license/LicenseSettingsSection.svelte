@@ -1,7 +1,6 @@
 <script lang="ts">
   import { localizedText } from '$shared/localization';
 
-  import { startCoinShower } from './coinShower';
   import { license } from './license.svelte';
   import { licenseCardModel } from './licenseCopy';
   import SupporterCoin from './SupporterCoin.svelte';
@@ -22,33 +21,20 @@
   // is masked again the next time it is opened. Reveal is a look, not a setting.
   let revealed = $state(false);
 
-  /// The plate itself, so the coin burst is clipped to it.
-  let plate: HTMLDivElement | null = $state(null);
-
-  /// Celebrations this plate has thrown. It only ever goes UP, which is what
-  /// keeps the burst below from being torn down by its own bookkeeping.
+  /// Activations this plate has marked, which the coin reads to spin itself up
+  /// once. It only ever goes UP, so the spin cannot be torn down by its own
+  /// bookkeeping.
   let celebration = $state(0);
 
-  // Collects the one thing worth celebrating: an activation nothing has marked
-  // yet — a key pasted in, or a `futonotes://` link the OS handed us. Opening
+  // Collects the one thing worth marking: an activation nothing has marked yet
+  // — a key pasted in, or a `futonotes://` link the OS handed us. Opening
   // Settings on a license stored earlier is not that, and neither is opening it
-  // on a license that has since been removed, which is how clicking the
-  // sidebar's Unlicensed label used to throw coins (@justin 2026-09-18).
+  // on a license that has since been removed, which used to spin the coin over
+  // nothing (@justin 2026-09-18).
   $effect(() => {
     if (!license.activationToCelebrate) return;
     license.celebrated();
     celebration += 1;
-  });
-
-  // The burst. It reads `celebration` and not the license state, so nothing
-  // about *being* licensed starts it. Reduced motion opts out of the whole
-  // thing — unlike the coin, which still has to render, a burst that does not
-  // move is nothing.
-  $effect(() => {
-    const host = plate;
-    if (celebration === 0 || host === null) return;
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    return startCoinShower(host) ?? undefined;
   });
 
   const card = $derived(licenseCardModel(license.view));
@@ -83,7 +69,7 @@
 
   <!-- Its own element rather than `.settings-card`: the geometry is the
        plate's (a coin well beside a field column), the surface is the sheet's. -->
-  <div class="license-plate" bind:this={plate}>
+  <div class="license-plate">
     <!-- The well exists only when there is a coin to sit in it. An empty one
          reads as a hole where something failed to load, not as "no license"
          (@justin 2026-09-17) — unlicensed is said by the headline and the ask,
@@ -122,21 +108,35 @@
           <div class="license-row license-row-stacked">
             <dt>{localizedText('license.card.keyLabel')}</dt>
             <dd>
+              <!-- The same ELEMENT in both states, so revealing cannot change
+                   the row's metrics: a `button` and a `span` do not lay out
+                   identically, and swapping them moved everything under the
+                   key. Only the string changes — and the mask is the key's own
+                   length in a monospace face, so each dot is replaced by the
+                   character that was under it and nothing moves (@justin
+                   2026-09-18). Revealed it stops being a control: selecting and
+                   copying is possible but deliberately manual (@justin
+                   2026-09-17), a key is not something we want one click away. -->
               {#if revealed}
-                <!-- Revealed is text, not a control: selecting and copying it
-                     is possible but deliberately manual (@justin 2026-09-17) —
-                     a key is not something we want one click away. -->
                 <span class="license-value license-key">{license.view.key}</span>
               {:else}
-                <!-- `aria-label` names the button by what clicking does; the
+                <!-- `aria-label` names the control by what clicking does; the
                      dots themselves say nothing out loud. -->
-                <button
+                <span
                   class="license-value license-key license-key-masked"
+                  role="button"
+                  tabindex="0"
                   aria-label={localizedText('license.card.revealKey')}
                   onclick={() => (revealed = true)}
+                  onkeydown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      revealed = true;
+                    }
+                  }}
                 >
                   {card.maskedKey}
-                </button>
+                </span>
               {/if}
             </dd>
           </div>
@@ -242,11 +242,6 @@
     border-radius: 12px;
     background: var(--color-surface);
     color: var(--plate-ink);
-    /* The celebration canvas is absolute against this box and must stop at its
-       rounded corners — the coins bounce off the plate's walls, so they must
-       not be drawn outside them either. */
-    position: relative;
-    overflow: hidden;
   }
 
   :global([data-theme='dark']) .license-plate {
@@ -383,11 +378,6 @@
   }
 
   .license-key-masked {
-    padding: 0;
-    text-align: left;
-    border: none;
-    background: none;
-    color: inherit;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }

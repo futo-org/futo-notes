@@ -80,22 +80,23 @@ items the "native plates are two rounds behind desktop" Gap listed, closed
 together. _(android)_ Driven on a pooled emulator across **both** distribution
 flavors: Unlicensed as an ask with no card chrome and no well, Licensed with the
 coin and Key as its whole ledger, and Expired reached for real by moving the
-device clock to 2030 against the v2 staging fixture. The coin burst was thrown
-by the `futonotes://` deep link with Settings already open — it heaps along the
-plate's bottom edge, stays inside the card, and the plate's lower band returns to
-its 792-pixel baseline afterwards, identical to a plate that never had one;
-reopening Settings on the stored license threw nothing. The tap queue was
-measured from 20 fps screenrecord frames: one tap keeps the coin turning fast for
-~1.15 s, eight taps for ~2.5 s, against a flat baseline. _(ios)_ Driven on a
-pooled simulator through `LicensePlateTests`, because this Mac's Xcode 27 ships
-no Simulator.app and a simulator with no window silently swallows every `axe`
-tap while still answering `describe-ui` — XCUITest injects events into the app
+device clock to 2030 against the v2 staging fixture. The tap queue was measured
+from 20 fps screenrecord frames: one tap keeps the coin turning fast for ~1.15 s,
+eight taps for ~2.5 s, against a flat baseline. _(ios)_ Driven on a pooled
+simulator through `LicensePlateTests`, because this Mac's Xcode 27 ships no
+Simulator.app and a simulator with no window silently swallows every `axe` tap
+while still answering `describe-ui` — XCUITest injects events into the app
 process and is unaffected. All three plate states, the OS deep link, the reveal
-(no Copy control), Remove, the burst in flight and the burst skipped entirely
-under Reduce Motion. The coin's colour was checked against a build of the
-preceding commit rather than eyeballed: with Reduce Motion holding it at one
+(no Copy control) and Remove. The coin's colour was checked against a build of
+the preceding commit rather than eyeballed: with Reduce Motion holding it at one
 angle, before and after are the same gold, and a dark-faced screenshot taken
 mid-spin is the coin's own back.
+
+A coin BURST — 120 little coins thrown across the plate on activation, ported
+from FUTOpay's checkout page — shipped on all three clients that same day and
+came straight back out (@justin 2026-09-18): seen running, it was clutter on a
+card whose whole job is to be read. The coin in the well is the only thing a
+purchase adds.
 
 **Expired was reached from a stored license only on Android**, by moving the
 emulator clock forward against the v2 staging fixture. _(ios)_ It has never been
@@ -570,10 +571,19 @@ one catalog entry, `license.enterKey`, so all three shells moved together
   simulator 2026-09-16. → `licenseCopy.test.ts` "leaves the since row blank for
   a v1 license and calls the term perpetual"; _(ios)_ `LicenseCopyTests`;
   _(android)_ `LicenseCopyTest`
-- **The card shows the stored key masked to its last group** — seven groups of
-  four middle dots, then the key's real last four characters
-  (`···· ···· ···· ···· ···· ···· ···· RS78`) — and clicking or tapping it
-  reveals the whole normalized key. **There is no copy affordance on any
+- **The card shows the stored key masked to its last group** — every character
+  before that group replaced by a middle dot, its hyphens left where they are
+  (`··-····-····-····-····-····-····-····-RS78` for a key carrying an org
+  prefix) — and clicking or tapping it reveals the whole normalized key. **The
+  mask is the same length as the key and keeps its separators in the same
+  columns**, and every shell renders the value in a monospace face, so revealing
+  it is an in-place swap: each dot becomes the character that was hiding under
+  it and nothing on the plate moves (@justin 2026-09-18). The first mask was a
+  fixed seven groups of dots joined by spaces — 39 characters whatever the key —
+  so a 42-character prefixed key slid three cells right as it appeared and took
+  the rows under it with it. The masked and revealed states are also the same
+  CONTROL rather than a button swapped for a label, because that swap moved the
+  rows below by the button's minimum height. **There is no copy affordance on any
   platform**: the revealed key is plain selectable text, and copying it is a
   deliberate select-and-copy, because a license key should not be one click from
   the clipboard (@justin 2026-09-17; desktop first, both native shells
@@ -687,41 +697,6 @@ one catalog entry, `license.enterKey`, so all three shells moved together
   `just check` / `node scripts/check-supporter-coin-glyph.mjs --print`
   The coin is not a claim about a date and renders for a v1 activation
   regardless.
-  - **Activating a license throws a burst of coins across the plate** — around
-    120 little tumbling gold coins that bounce off the plate's four walls, heap
-    along its bottom edge and fade out after about three seconds. FUTOpay's
-    checkout page does the same on a purchase (`coin-bounce.js` in lib-polar)
-    and @justin asked for it here, with one deliberate difference: **it is
-    confined to the plate**, structurally — the canvas is the plate's own child
-    on every shell — rather than raining over the notes behind the Settings
-    sheet. It is a plain 2D canvas running ballistic motion and a coefficient of
-    restitution: no physics engine (nothing at this size can show the
-    difference, and a rigid-body dependency would land in the bundle of an app
-    whose editor budget is per keystroke) and no second 3D context (the coin in
-    the well is already holding a WebGL context, a Filament engine or a
-    RealityKit scene). It fires on the moment a license is **newly stored** — a
-    key pasted in, or a `futonotes://` link the OS handed us — and never on a
-    license the plate merely finds already there. That is a **debt the plate
-    collects and spends**, `activationToCelebrate` / `celebrated()`, not a state
-    it reads: an activation that lands while Settings is closed still gets its
-    coins the first time the plate is opened, and gets them exactly once.
-    Counting activations alone was not enough — removing a license left the
-    count at 1, so clicking the sidebar's "Unlicensed" label threw a celebration
-    over nothing (@justin 2026-09-18). **Reduced motion skips it entirely** —
-    `prefers-reduced-motion: reduce` on desktop, Reduce Motion on iOS, a zero
-    animator scale on Android — unlike the coin, which still has to render. It
-    removes itself when it is done (M5). Desktop shipped it 2026-09-18 and both
-    native shells the same day; the three simulations are one drift-registered
-    concept, `supporter-coin-burst`. →
-    `coinShower.ts`, `CoinShower.swift`, `CoinShower.kt`;
-    `tests/license-card.spec.ts` "activating a license throws a
-    burst of coins inside the plate" + "no coins are thrown for a license that
-    was already stored" + "the burst is spent: reopening Settings does not throw
-    it again" + "removing the license and reopening Settings throws no coins" +
-    "no coin burst is thrown at all"; _(ios)_ `CoinShowerTests` and
-    `LicenseModelTests` "a license found on disk owes no celebration";
-    _(android)_ `CoinShowerTest` and `LicenseModelTest`
-    "aLicenseFoundOnDiskOwesNoCelebration"
   - **Clicking or tapping the coin turns it once around**, fast, on top of
     whatever it was already doing (@justin 2026-09-17; desktop first, both
     native shells 2026-09-18, where the coin had no tap at all). A click or tap
@@ -789,10 +764,8 @@ one catalog entry, `license.enterKey`, so all three shells moved together
     Each holds still — as a whole, correct coin — under `prefers-reduced-motion`
     (iOS) and a zero animator scale (Android), falls back to the flat glyph if
     the renderer cannot start, and appears only in Settings, never beside the
-    editor (M5). There is no celebrate SPIN on mobile — the coin arrives in the
-    well at the same instant the burst is thrown, and spinning it up as well
-    read as two celebrations of one thing; the burst is the moment on all three
-    platforms. Filament costs
+    editor (M5). There is no celebrate spin on mobile: activation there does not
+    pass through a moment the card is already on screen for. Filament costs
     **18.0 MB of the 55.1 MB release APK** across the three shipped ABIs, of
     which `gltfio` is 8.4 MB; RealityKit is a system framework and costs the iOS
     app nothing. → `apps/ios/Sources/License/SupporterCoin.swift`,

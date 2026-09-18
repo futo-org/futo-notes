@@ -9,10 +9,9 @@ import uniffi.futo_notes_ffi.LicenseView
 internal const val LICENSE_LOG_TAG = "FutoLicense"
 
 /** Four U+00B7 middle dots — one masked group of the key. */
-private const val MASK_GROUP = "····"
+private const val MASK_CHARACTER = '·'
 
-/** A key is eight groups; the card shows the last one and masks the rest. */
-private const val MASKED_GROUPS = 7
+/** The card shows the key's last group and masks everything before it. */
 private const val LAST_GROUP_LENGTH = 4
 
 /**
@@ -108,12 +107,25 @@ private fun unlicensedCard(localization: Localization) = LicenseCardModel(
 )
 
 /**
- * The stored key with everything but its last group replaced by dots:
- * `···· ···· ···· ···· ···· ···· ···· 6UJV`. The key arrives normalized
- * (trimmed, uppercased) from the Rust crate, so it is sliced as it stands.
+ * The stored key with every character before its last group replaced by a middle
+ * dot, and its hyphens left where they are:
+ * `····-····-····-····-····-····-····-6UJV`.
+ *
+ * The mask is the SAME LENGTH as the key and keeps its separators in the same
+ * columns, which is what makes revealing it an in-place swap: the card renders
+ * the value in a monospace face, so every dot is replaced by the character that
+ * was hiding under it and nothing on the plate moves (@justin 2026-09-18). The
+ * first mask was a fixed seven groups of dots joined by SPACES — 39 characters
+ * whatever the key, so an org-prefixed 42-character key jumped three cells to
+ * the right as it appeared, and the rows below it shifted with it. The key
+ * arrives normalized (trimmed, uppercased) from the Rust crate, so it is masked
+ * as it stands.
  */
-private fun maskLicenseKey(key: String): String =
-    (List(MASKED_GROUPS) { MASK_GROUP } + key.takeLast(LAST_GROUP_LENGTH)).joinToString(" ")
+private fun maskLicenseKey(key: String): String {
+    if (key.length <= LAST_GROUP_LENGTH) return key
+    val hidden = key.dropLast(LAST_GROUP_LENGTH).map { if (it == '-') it else MASK_CHARACTER }
+    return hidden.joinToString("") + key.takeLast(LAST_GROUP_LENGTH)
+}
 
 /**
  * The catalog entry each control's label comes from. Copy is

@@ -13,7 +13,7 @@ const EXPIRES = '2029-06-15T12:00:00Z';
 // Eight hyphenated groups of four, from the key alphabet (no I, L, O or 0), in
 // the normalized form the Rust crate stores and hands over: trimmed, uppercase.
 const KEY = 'AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV';
-const MASKED = '···· ···· ···· ···· ···· ···· ···· 6UJV';
+const MASKED = '····-····-····-····-····-····-····-6UJV';
 
 const unlicensed: LicenseView = {
   state: 'unlicensed',
@@ -149,8 +149,8 @@ describe('the license card', () => {
     }
   });
 
-  // The whole point of the mask: seven groups of dots and the real last group,
-  // so a support conversation can name a key without the screen showing it.
+  // The whole point of the mask: the real last group and nothing else, so a
+  // support conversation can name a key without the screen showing it.
   it('masks every group of the key but the last', () => {
     const masked = licenseCardModel(licensed).maskedKey ?? '';
 
@@ -158,7 +158,27 @@ describe('the license card', () => {
     expect(masked.endsWith('6UJV')).toBe(true);
     expect(masked).not.toContain('AB12');
     expect(masked).not.toContain('RS3T');
-    // The dots stand in for the key's own groups, not for its separators.
-    expect(masked.split(' ')).toHaveLength(8);
+  });
+
+  // What makes revealing the key an IN-PLACE swap rather than a jump: the mask
+  // is the key's own length and keeps its hyphens in the same columns, so in a
+  // monospace face every dot is replaced by the character that was under it.
+  // The mask this replaced was a fixed 39 characters joined by spaces, so an
+  // org-prefixed 42-character key slid three cells right as it appeared.
+  it('masks a key to its own length, hyphens included', () => {
+    for (const key of [
+      'AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV',
+      'FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78',
+    ]) {
+      const masked = licenseCardModel({ ...licensed, key }).maskedKey ?? '';
+
+      expect(masked).toHaveLength(key.length);
+      // Every hyphen stays where it was; nothing else survives but the last group.
+      for (let i = 0; i < key.length - 4; i += 1) {
+        expect(masked[i]).toBe(key[i] === '-' ? '-' : '·');
+      }
+      expect(masked.slice(-4)).toBe(key.slice(-4));
+      expect(masked).not.toContain(' ');
+    }
   });
 });

@@ -24,7 +24,7 @@ class LicenseCopyTest {
     // Eight hyphenated groups of four from the key alphabet (no I, L, O or 0),
     // in the normalized form the Rust crate stores and hands over.
     private val key = "AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV"
-    private val masked = "···· ···· ···· ···· ···· ···· ···· 6UJV"
+    private val masked = "····-····-····-····-····-····-····-6UJV"
 
     private fun view(
         status: LicenseStatus,
@@ -142,7 +142,44 @@ class LicenseCopyTest {
         assertTrue(maskedKey, maskedKey.endsWith("6UJV"))
         assertFalse(maskedKey, maskedKey.contains("AB12"))
         assertFalse(maskedKey, maskedKey.contains("RS3T"))
-        // The dots stand in for the key's own groups, not for its separators.
-        assertEquals(8, maskedKey.split(" ").size)
+    }
+
+    /**
+     * What makes revealing the key an IN-PLACE swap rather than a jump: the mask
+     * is the key's own length and keeps its hyphens in the same columns, so in a
+     * monospace face every dot is replaced by the character that was under it.
+     * The mask this replaced was a fixed 39 characters joined by spaces, so an
+     * org-prefixed 42-character key slid three cells right as it appeared.
+     */
+    @Test
+    fun theMaskIsTheKeysOwnLengthHyphensIncluded() {
+        for (candidate in listOf(
+            "AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV",
+            "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+        )) {
+            val card = licenseCardModel(
+                LicenseView(
+                    status = LicenseStatus.LICENSED,
+                    issuedAtMillis = null,
+                    expiresAtMillis = null,
+                    key = candidate,
+                ),
+                localization,
+            )
+            val masked = card.maskedKey!!
+
+            assertEquals(candidate.length, masked.length)
+            assertFalse(masked, masked.contains(" "))
+            // Every hyphen stays where it was; nothing else survives but the
+            // last group.
+            for (index in 0 until candidate.length - 4) {
+                assertEquals(
+                    "column $index of $masked",
+                    if (candidate[index] == '-') '-' else '·',
+                    masked[index],
+                )
+            }
+            assertEquals(candidate.takeLast(4), masked.takeLast(4))
+        }
     }
 }
