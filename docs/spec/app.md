@@ -6,7 +6,7 @@ Behaviors and constraints that hold across every surface and platform.
 
 - The UI shell renders immediately. **Never gate first render on filesystem
   I/O.** Theme, prefs, notes, and the search index load in the background and
-  apply reactively. → CLAUDE.md "Key Constraints"; `App.svelte` flips
+  apply reactively. → AGENTS.md M1 (gated render); `App.svelte` flips
   `initialized` synchronously. Native Android likewise reaches its first
   composition before reading theme/storage preferences or the migration
   journal; startup recovery then runs on `Dispatchers.IO` and applies
@@ -211,7 +211,7 @@ Behaviors and constraints that hold across every surface and platform.
 
 - Dev/debug builds must never overwrite the production app or notes: a distinct
   bundle id (`com.futo.notes.dev`) and a distinct notes root
-  (`~/Documents/fake-notes` on desktop). → CLAUDE.md,
+  (`~/Documents/fake-notes` on desktop). → AGENTS.md M3,
   `apps/tauri/src-tauri/src/vault_location.rs`
 - Production native mobile builds use the production package/bundle id
   `com.futo.notes`; native debug builds use `com.futo.notes.dev` so local
@@ -298,7 +298,7 @@ Behaviors and constraints that hold across every surface and platform.
   button stuck in its hover state. → shared/dialogs/modal.css,
   crashReportDialog.css, settingsBlockingOverlay.css
 - `window.confirm()` / `window.alert()` don't block in Tauri's webview — use
-  `ask()` / `message()` from `@tauri-apps/plugin-dialog`. → CLAUDE.md
+  `ask()` / `message()` from `@tauri-apps/plugin-dialog`. → apps/tauri/AGENTS.md
 - Confirmation prompts go through `confirmDialog()` (`src/shared/dialogs/confirmDialog.ts`):
   `ask()` under Tauri, `window.confirm()` in the plain web shell (dev server,
   Playwright) where plugin-dialog has no backend and would reject. → confirmDialog.ts

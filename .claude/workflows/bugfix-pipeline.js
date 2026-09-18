@@ -88,7 +88,7 @@ const VERIFY_SCHEMA = {
 // ── Prompts ─────────────────────────────────────────────────────────────────
 
 const REPO_CTX =
-  'This is the FUTO Notes monorepo. Read AGENTS.md / CLAUDE.md for the layout, the ' +
+  'This is the FUTO Notes monorepo. Read AGENTS.md (root and the nearest nested one) for the layout, the ' +
   '"Where logic lives" map (note domain = Rust; UI/state = TS; single-source rule), and ' +
   '"Testing & quality bar" for where tests live and the per-layer verification chains. ' +
   'Use `just` recipes for builds/tests.';
@@ -135,7 +135,7 @@ A prior stage reproduced the bug, diagnosed the root cause, and wrote a FAILING 
 ${JSON.stringify(diag, null, 2)}
 
 Your job:
-1. Apply the MINIMAL fix that addresses the ROOT CAUSE above — never a patch that merely silences the failing test. Follow CLAUDE.md: surgical changes, match existing style, touch only what you must, respect the single-source rule (note rules / CRUD live in the Rust crates — do not re-implement in TS).
+1. Apply the MINIMAL fix that addresses the ROOT CAUSE above — never a patch that merely silences the failing test. Follow AGENTS.md: surgical changes, match existing style, touch only what you must, respect the single-source rule (note rules / CRUD live in the Rust crates — do not re-implement in TS).
 2. Run the test at ${diag.testPath}${diag.testName ? ` (name: ${diag.testName})` : ''} and confirm it now PASSES.
 3. Do NOT weaken, skip, or delete the test to make it pass.
 
