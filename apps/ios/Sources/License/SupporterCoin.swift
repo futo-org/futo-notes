@@ -114,8 +114,8 @@ struct CoinTapDebt {
 private let cameraFieldOfView: Float = 30
 private let cameraDistance: Float = 1.55
 
-/// How hard the studio lights the coin, as a power of two (so -1.5 is about a
-/// third of the environment's own values).
+/// How hard the studio lights the coin, as a power of two (so -0.75 is about
+/// three fifths of the environment's own values).
 ///
 /// It is not 0, and the reason is the same one Android's IBL_INTENSITY is not 1:
 /// each renderer scales an image-based light differently, so the same studio,
@@ -123,10 +123,20 @@ private let cameraDistance: Float = 1.55
 /// came out a pale yellow-white — the gold's hue washed out, red and green only
 /// 37 apart where desktop holds them 58 apart.
 ///
-/// -1.5 is measured, not guessed: it is where the mean colour of the coin's gold
-/// pixels lands within a few points of the other two shells. Change the studio in
-/// build-coin.py and this wants re-measuring.
-private let coinLightExponent: Float = -1.5
+/// Desktop is the reference (@justin 2026-09-18), and this was measured against
+/// it rather than reasoned about. Method: capture 22 frames of each renderer at
+/// random points in the coin's rotation, mask off the antialiased rim, and take
+/// the rotational MEAN of brightness and of saturation — random phase makes the
+/// mean unbiased, where a 22-frame median is noisy enough to be non-monotonic in
+/// exposure. The previous -1.5 measured at 76.1 brightness / 86.1 saturation,
+/// which is the desktop renderer at roughly 0.5-0.65x exposure: a little dim and
+/// noticeably more saturated than desktop's 83.2 / 67.7. -0.75 is the midpoint
+/// of that bracket, +0.75 of a stop.
+///
+/// UNVERIFIED ON DEVICE: the arithmetic is from a real measurement of the -1.5
+/// build, but nothing has yet rendered -0.75. `just coin-tuner`'s exposure slider
+/// is the desktop half of the comparison if it wants redoing.
+private let coinLightExponent: Float = -0.75
 
 /// Frame-time clamp. A view that was off screen hands back a huge delta on its
 /// first frame; without this the coin jumps a random fraction of a turn.

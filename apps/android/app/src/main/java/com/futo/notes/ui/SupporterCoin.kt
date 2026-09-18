@@ -181,17 +181,24 @@ private const val MAX_FRAME_SECONDS = 1f / 20f
 
 /// How hard the studio lights the coin.
 ///
-/// This is NOT 1.0, and the reason is worth writing down: Filament's indirect
-/// light intensity is a physical quantity (lux) applied on top of a cubemap that
-/// cmgen has already normalised, whereas three.js multiplies the environment's
-/// own values straight into the shading. So the same studio, honestly converted,
-/// arrives about four times dimmer here — the first Android render was a deep
-/// bronze next to desktop's gold, at identical geometry and materials.
+/// Desktop is the reference (@justin 2026-09-18): this is whatever value makes
+/// Android's coin read like the three.js one, and it is MEASURED, never reasoned
+/// about. The previous value, 4.5, was reasoned about — its comment said cmgen
+/// had "already normalised" the cubemap, so Filament's lux-denominated intensity
+/// needed scaling back up. That premise is false. studio-env-ibl.ktx is
+/// R11F_G11F_B10F carrying absolute radiance: its mean is 3.41 against the
+/// source .hdr's 3.15 and its peak is 47.0 against 46.75, so cmgen normalised
+/// nothing, and 4.5 was multiplying light that was already at full strength.
+/// On a phone the coin spent most of its rotation paler than desktop's — worst
+/// angle 20% saturation against desktop's 44%.
 ///
-/// 4.5 is measured, not guessed: it is the value at which the mean colour of the
-/// coin's gold pixels matches the desktop renderer's to within a few points per
-/// channel. Change the studio in build-coin.py and this wants re-measuring.
-private const val IBL_INTENSITY = 4.5f
+/// How 1.75 was arrived at, and how to redo it if the studio changes: capture
+/// ~22 frames of each renderer across full rotations, mask off the antialiased
+/// rim, and compare median/extreme brightness and saturation. Android at 4.5
+/// measured equivalent to the desktop renderer at roughly 2.6x exposure, so the
+/// value that lands on desktop's 1.0x is 4.5 / 2.6. `just coin-tuner`'s exposure
+/// slider is the desktop half of that comparison and reaches 6 for this reason.
+private const val IBL_INTENSITY = 1.75f
 private const val CAMERA_EXPOSURE = 1.0f
 
 /**

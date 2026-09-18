@@ -120,16 +120,8 @@
         }
       ],
       "scan": {
-        "dirs": [
-          "src",
-          "apps/ios/Sources",
-          "apps/android/app/src/main"
-        ],
-        "extensions": [
-          ".ts",
-          ".swift",
-          ".kt"
-        ],
+        "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
+        "extensions": [".ts", ".swift", ".kt"],
         "pattern": "(function validateSyncServerUrl|fun validateServerUrl|func validateServerURL)\\b"
       }
     },
@@ -295,18 +287,8 @@
         }
       ],
       "scan": {
-        "dirs": [
-          "packages/editor/src",
-          "crates",
-          "apps/ios/Sources",
-          "apps/android/app/src/main"
-        ],
-        "extensions": [
-          ".ts",
-          ".rs",
-          ".swift",
-          ".kt"
-        ],
+        "dirs": ["packages/editor/src", "crates", "apps/ios/Sources", "apps/android/app/src/main"],
+        "extensions": [".ts", ".rs", ".swift", ".kt"],
         "pattern": "MAX_TITLE_LENGTH\\s*[:=]\\s*(usize\\s*=\\s*)?200|TITLE_MAX_LENGTH\\s*=\\s*200|titleMaxLength\\s*=\\s*200|maxLength\\s*=\\s*200"
       }
     },
@@ -339,14 +321,8 @@
         }
       ],
       "scan": {
-        "dirs": [
-          "apps/ios/Sources",
-          "apps/android/app/src/main"
-        ],
-        "extensions": [
-          ".swift",
-          ".kt"
-        ],
+        "dirs": ["apps/ios/Sources", "apps/android/app/src/main"],
+        "extensions": [".swift", ".kt"],
         "pattern": "enum (class )?EditorExit\\b"
       }
     },
@@ -392,17 +368,8 @@
         }
       ],
       "scan": {
-        "dirs": [
-          ".",
-          ".claude"
-        ],
-        "extensions": [
-          ".mjs",
-          ".ts",
-          ".js",
-          ".md",
-          "justfile"
-        ],
+        "dirs": [".", ".claude"],
+        "extensions": [".mjs", ".ts", ".js", ".md", "justfile"],
         "pattern": "md5[\\s\\S]{0,400}%\\s*\\(?\\s*(?:BigInt\\(|Number\\()?\\s*(50|SLOTS)\\b|%\\s*\\(?\\s*(?:BigInt\\(|Number\\()?\\s*(50|SLOTS)\\b[\\s\\S]{0,400}md5",
         "flags": "i"
       }
@@ -515,16 +482,8 @@
         }
       ],
       "scan": {
-        "dirs": [
-          "src",
-          "apps/ios/Sources",
-          "apps/android/app/src/main"
-        ],
-        "extensions": [
-          ".ts",
-          ".swift",
-          ".kt"
-        ],
+        "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
+        "extensions": [".ts", ".swift", ".kt"],
         "pattern": "(PRODUCTION_BASE_URL|productionBaseUrl)\\b"
       }
     },
@@ -562,16 +521,8 @@
         }
       ],
       "scan": {
-        "dirs": [
-          "src",
-          "apps/ios/Sources",
-          "apps/android/app/src/main"
-        ],
-        "extensions": [
-          ".ts",
-          ".swift",
-          ".kt"
-        ],
+        "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
+        "extensions": [".ts", ".swift", ".kt"],
         "pattern": "(function licenseCardModel|func licenseCardModel|fun licenseCardModel)\\b"
       }
     },
@@ -627,7 +578,7 @@
       "concept": "supporter-coin-motion",
       "description": "How the supporter coin is framed and turned, once per shell. The MODEL is shared (assets/coin/futo-coin.glb / .usdz) and so is the studio that lights it, but each renderer is handed the numbers separately: resting spin 1.25 rad/s, spin decay 2.6, 0.018 radians per pixel/dp/point of drag, flick clamped to 0.6..24 rad/s, tilt 0.24 rad, a 30 degree vertical field of view at distance 1.55, and a frame-delta clamp of 1/20 s. Since 2026-09-18 also the TAP QUEUE: one full turn owed per tap, paid back at 3 rad/s per radian owed, clamped to 2..26 rad/s, settled below 0.01 rad, and a tap recognised as a press that moved 5px/dp/pt or less and lasted 400ms or less. Also the orientation LAW: tilt about X first, then spin about Y, so the coin turns on a fixed tilted spindle rather than wobbling.",
       "lockStatus": "partial",
-      "note": "Partial: the orientation law is locked on Android by SupporterCoinTest (`the spindle does not move as the coin turns`) and on iOS by SupporterCoinTests, which is the one way to get this wrong that still looks plausible on a still screenshot -- composing tilt and spin in the other order swings the spindle and the coin wobbles like a dropped hubcap. TypeScript writes the same law as pivot.rotation.x/y, untested, so it can still drift from the two native shells. The TAP QUEUE is locked on all three: `supporterCoin.test.ts`, `SupporterCoinTest` and `SupporterCoinTests` each run the debt frame by frame and insist ten taps deliver ten turns; all three were red-proved against the restart-per-tap model they replaced. The motion constants themselves are unlocked everywhere: nothing but you keeps the three in step, so touch all three in one commit and say so. Note that IBL_INTENSITY is deliberately NOT shared -- Filament measures indirect light in different units than three.js and RealityKit, and 4.5 there is the measured match for 1.0 here (see the constant's comment).",
+      "note": "Partial: the orientation law is locked on Android by SupporterCoinTest (`the spindle does not move as the coin turns`) and on iOS by SupporterCoinTests, which is the one way to get this wrong that still looks plausible on a still screenshot -- composing tilt and spin in the other order swings the spindle and the coin wobbles like a dropped hubcap. TypeScript writes the same law as pivot.rotation.x/y, untested, so it can still drift from the two native shells. The TAP QUEUE is locked on all three: `supporterCoin.test.ts`, `SupporterCoinTest` and `SupporterCoinTests` each run the debt frame by frame and insist ten taps deliver ten turns; all three were red-proved against the restart-per-tap model they replaced. The motion constants themselves are unlocked everywhere: nothing but you keeps the three in step, so touch all three in one commit and say so. Note that the per-shell LIGHT LEVEL is deliberately NOT shared -- Filament measures indirect light in different units than three.js and RealityKit -- but all three are calibrated against the SAME reference, the desktop renderer at exposure 1.0 (@justin 2026-09-18: 'desktop is just right'). Desktop TONE_MAPPING_EXPOSURE 1.0, Android IBL_INTENSITY 1.75, iOS coinLightExponent -0.75. The previous Android 4.5 came from a false premise -- its comment claimed cmgen normalises the cubemap, and it does not: studio-env-ibl.ktx carries absolute radiance (mean 3.41 vs the .hdr's 3.15, peak 47.0 vs 46.75). Re-measure all three together, never one alone; the method is in each constant's comment and the desktop half is `just coin-tuner`.",
       "copies": [
         {
           "location": "src/features/license/supporterCoin.ts",
@@ -654,6 +605,28 @@
         {
           "path": "src/features/license/supporterCoin.test.ts",
           "kind": "test"
+        }
+      ]
+    },
+    {
+      "concept": "coin-studio-environment",
+      "description": "The studio the supporter coin's gold reflects: a dark floor, a soft bright ceiling, and five lamps (front box, key, right box, fill, kicker) given as direction, cone tightness, intensity and colour. assets/coin/build-coin.py generates studio-env.hdr from it in numpy; scripts/lib/studio-env.mjs runs the same arithmetic so `just coin-tuner` can rebuild the room live while a slider moves, and so the room can be checked at all in CI, which has no Blender. The .hdr is the only thing the three shells ever see — desktop and iOS read it directly, Android reads the cubemap cmgen prefilters from it.",
+      "lockStatus": "locked",
+      "note": "LOCKED by scripts/check-coin-assets.mjs (just coin-check / just check), which rebuilds the studio with the JS copy's SHIPPED numbers, decodes the .hdr on disk, and fails if any pixel disagrees by a full RGBE quantisation step. The format truncates to a per-pixel step, so a faithful port lands at 0.99998 steps and the gate's threshold of 1 sits immediately above it; red-proved by moving one lamp's intensity 46.0 -> 45.0, which reports 5.122 steps. This is the one duplicate here that CI can fully verify without Blender, because the environment half of the coin is pure arithmetic while the mesh half is not. Change the Python and the JS in one commit, then run `just coin` (and scripts/build-coin-ibl.mjs, which the manifest's ibl block gates).",
+      "copies": [
+        {
+          "location": "assets/coin/build-coin.py",
+          "pattern": "def build_environment"
+        },
+        {
+          "location": "scripts/lib/studio-env.mjs",
+          "pattern": "export function buildStudioEnvironment"
+        }
+      ],
+      "locks": [
+        {
+          "path": "scripts/check-coin-assets.mjs",
+          "kind": "gate"
         }
       ]
     }
