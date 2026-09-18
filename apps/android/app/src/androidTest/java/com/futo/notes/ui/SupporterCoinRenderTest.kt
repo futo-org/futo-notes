@@ -9,7 +9,9 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -34,9 +36,22 @@ class SupporterCoinRenderTest {
 
     @Test
     fun theCoinRendersGold() {
+        // The flat glyph is gold too, so on a device that cannot run Filament
+        // this test would pass without Filament ever drawing anything. Skip
+        // there rather than assert something it cannot see; CI's emulator runs
+        // a GL that can (scripts/ci-android-emulator.sh).
+        assumeTrue(
+            "this device cannot run Filament — there is nothing 3D here to measure",
+            FilamentSupport.canRender(
+                InstrumentationRegistry.getInstrumentation().targetContext,
+            ),
+        )
+
         composeTestRule.setContent {
             Box(Modifier.testTag(TAG)) { SupporterCoin(diameter = 160.dp) }
         }
+        composeTestRule.onNodeWithTag(FLAT_COIN_TAG).assertDoesNotExist()
+        composeTestRule.onNodeWithTag(LIVE_COIN_TAG).assertExists()
 
         // Filament loads its assets and draws on the Choreographer, neither of
         // which Compose's idling resources know about, so the first composition
@@ -67,6 +82,29 @@ class SupporterCoinRenderTest {
                 "white one means the exposure is wrong",
             goldShare > 0.8,
         )
+    }
+
+    /**
+     * A device whose GL cannot run Filament gets the flat coin, and no attempt
+     * is made to start the renderer.
+     *
+     * This is the path that used to be a crash rather than a fallback: Filament
+     * aborts the process when a material fails to compile, so a licensed user on
+     * such a device lost the whole app the moment Settings drew the coin. There
+     * is no exception to catch, which is why the refusal has to happen before
+     * Filament is handed a surface — and why this asserts the SURFACE is absent
+     * and not merely that the glyph is present.
+     */
+    @Test
+    fun aDeviceThatCannotRunFilamentGetsTheFlatCoin() {
+        composeTestRule.setContent {
+            Box(Modifier.testTag(TAG)) {
+                SupporterCoin(diameter = 160.dp, glCanRunFilament = false)
+            }
+        }
+
+        composeTestRule.onNodeWithTag(FLAT_COIN_TAG).assertExists()
+        composeTestRule.onNodeWithTag(LIVE_COIN_TAG).assertDoesNotExist()
     }
 
     private data class Sample(

@@ -694,6 +694,23 @@ one catalog entry, `license.enterKey`, so all three shells moved together
   The flat glyph survives on all three platforms as a **fallback only**, shown
   when the 3D renderer cannot start: desktop's inline SVG, an iOS vector
   imageset, an Android vector drawable (drift concept `supporter-coin-glyph`).
+  _(android)_ **"Cannot start" has to be decided BEFORE Filament is handed a
+  surface**, because Filament does not fail when a material will not compile on
+  the device's driver — it calls `abort()`, and the app dies rather than falling
+  back. A licensed user on such a device lost the whole app the moment Settings
+  drew the coin (the CI emulator's SwiftShader is one: `Compilation error in
+  fragment shader "fxaa"`, then `Fatal signal 6 (SIGABRT) in FEngine::loop`).
+  Two guards stand in for the exception there is none of: the driver must report
+  **OpenGL ES 3.1** — the one that aborts reports 3.0, the software driver that
+  runs Filament reports 3.1, and every device this app supports reports 3.1 or
+  better — and the coin **records that it is about to start Filament and clears
+  it when a frame comes back**, so a device that killed two renders in a row is
+  left on the flat glyph. Two, not one, because a user swiping the app away
+  mid-render looks exactly like a driver killing it; and the record is scoped to
+  the build that made it, so a new version is always a fresh chance. Desktop and
+  iOS need neither: WebGL returns a null context and RealityKit throws, both of
+  which are catchable. → _(android)_ `FilamentSupportTest`,
+  `SupporterCoinRenderTest` "aDeviceThatCannotRunFilamentGetsTheFlatCoin"
   That glyph is the FUTO diamond — a rounded square on its point, half-diagonal
   0.45 of the disc radius, the same four constants the Blender model uses. Until
   2026-09-16 all three copies carried a hand-drawn path that was a pinched

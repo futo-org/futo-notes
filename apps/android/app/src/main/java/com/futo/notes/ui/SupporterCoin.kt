@@ -24,6 +24,7 @@ import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -54,6 +55,13 @@ import kotlin.math.sin
 
 /// The coin and the studio it reflects, both exported by assets/coin/build-coin.py
 /// and staged into the APK's assets by the app's Gradle script.
+internal const val FLAT_COIN_TAG = "supporter-coin-flat"
+
+/// The live 3D surface, tagged so a test can tell the two coins apart — the
+/// flat glyph is gold too, so "it looks like a coin" does not say which one
+/// drew it. Desktop marks the same distinction with `.supporter-coin-stage-live`.
+internal const val LIVE_COIN_TAG = "supporter-coin-live"
+
 private const val MODEL_ASSET = "futo-coin.glb"
 private const val ENVIRONMENT_ASSET = "studio-env-ibl.ktx"
 
@@ -233,11 +241,21 @@ private const val CAMERA_EXPOSURE = 1.0f
  * animator scale is zero, which is Android's "I do not want unrequested motion"
  * switch and the same answer desktop gives `prefers-reduced-motion`.
  *
- * If Filament cannot start (no usable GL context), the flat glyph is what shows.
- * It is a whole coin too, just a still one.
+ * If Filament cannot start — no usable GL context, or a driver whose compiler
+ * Filament's own shaders would die on ([FilamentSupport]) — the flat glyph is
+ * what shows. It is a whole coin too, just a still one.
  */
 @Composable
-fun SupporterCoin(diameter: Dp, modifier: Modifier = Modifier) {
+fun SupporterCoin(
+    diameter: Dp,
+    modifier: Modifier = Modifier,
+    /// Whether this device's GL can run Filament at all. A parameter only so a
+    /// test can render the refusal on a device that is perfectly capable;
+    /// nothing in the app passes it.
+    glCanRunFilament: Boolean = LocalContext.current.let { context ->
+        remember(context) { FilamentSupport.canRender(context) }
+    },
+) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
     // Read once: this is a system setting, not something that changes under the
@@ -254,7 +272,9 @@ fun SupporterCoin(diameter: Dp, modifier: Modifier = Modifier) {
     // composable holds the only reference to it. The scene needs that exact
     // view, and reaching into the view tree to find it would break the moment
     // Compose changed how it wraps an AndroidView.
-    val surface = remember { runCatching { FilamentRuntime.surface(context) }.getOrNull() }
+    val surface = remember(glCanRunFilament) {
+        if (glCanRunFilament) runCatching { FilamentRuntime.surface(context) }.getOrNull() else null
+    }
     var scene by remember { mutableStateOf<CoinScene?>(null) }
     var failed by remember { mutableStateOf(surface == null) }
 
@@ -262,6 +282,12 @@ fun SupporterCoin(diameter: Dp, modifier: Modifier = Modifier) {
         if (surface == null) {
             onDispose { }
         } else {
+            // Recorded before Filament is handed the surface, and cleared by
+            // the scene's first returned frame. A device where that frame never
+            // comes back gets the flat coin from its third launch on, which is
+            // the only fallback available for a renderer that aborts the
+            // process instead of failing ([FilamentSupport]).
+            FilamentSupport.beginRenderAttempt(context)
             val built = runCatching { CoinScene(context, surface, animates) }
             val live = built.getOrNull()
             if (live == null) failed = true else scene = live
@@ -275,18 +301,23 @@ fun SupporterCoin(diameter: Dp, modifier: Modifier = Modifier) {
     Box(modifier.size(diameter)) {
         if (failed || surface == null) {
             // A whole coin, just a still one. Reached when this device cannot
-            // give Filament a GL context at all, which is also the only state
-            // the old projection-based coin could ever be in.
+            // give Filament a GL context at all, or gives it one whose compiler
+            // Filament would abort the process over ([FilamentSupport]) — and
+            // it is also the only state the old projection-based coin could
+            // ever be in.
             Image(
                 painter = painterResource(R.drawable.ic_supporter_coin),
                 contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag(FLAT_COIN_TAG),
             )
         } else {
             AndroidView(
                 factory = { surface },
                 modifier = Modifier
                     .fillMaxSize()
+                    .testTag(LIVE_COIN_TAG)
                     // Keyed on the scene so the gesture is re-established once it
                     // exists; before that there is nothing to turn.
                     .pointerInput(scene) {
@@ -371,7 +402,7 @@ fun SupporterCoin(diameter: Dp, modifier: Modifier = Modifier) {
  * loader that made it, the swap chain before the engine.
  */
 private class CoinScene(
-    context: Context,
+    private val context: Context,
     textureView: TextureView,
     private val animates: Boolean,
 ) {
@@ -406,6 +437,8 @@ private class CoinScene(
     private val tapDebt = CoinTapDebt()
     private var lastFrameNanos = 0L
     private var destroyed = false
+    /// Whether a frame has come back from Filament at all — see the render loop.
+    private var rendered = false
 
     private val frameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
@@ -440,6 +473,14 @@ private class CoinScene(
                 if (renderer.beginFrame(chain, frameTimeNanos)) {
                     renderer.render(filamentView)
                     renderer.endFrame()
+                    // The abort a bad driver dies on happens INSIDE that call,
+                    // while Filament compiles its post-process materials. Being
+                    // here means it did not, so the attempt this scene recorded
+                    // on the way in can be cleared ([FilamentSupport]).
+                    if (!rendered) {
+                        rendered = true
+                        FilamentSupport.renderSucceeded(context)
+                    }
                 }
             }
         }
