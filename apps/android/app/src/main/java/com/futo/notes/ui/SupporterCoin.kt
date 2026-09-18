@@ -192,13 +192,24 @@ private const val MAX_FRAME_SECONDS = 1f / 20f
 /// On a phone the coin spent most of its rotation paler than desktop's — worst
 /// angle 20% saturation against desktop's 44%.
 ///
-/// How 1.75 was arrived at, and how to redo it if the studio changes: capture
-/// ~22 frames of each renderer across full rotations, mask off the antialiased
-/// rim, and compare median/extreme brightness and saturation. Android at 4.5
-/// measured equivalent to the desktop renderer at roughly 2.6x exposure, so the
-/// value that lands on desktop's 1.0x is 4.5 / 2.6. `just coin-tuner`'s exposure
+/// How to redo this if the studio changes: capture ~22 frames of each renderer
+/// at random points in the rotation, mask off the antialiased rim, and compare
+/// the rotational MEAN of brightness and saturation. `just coin-tuner`'s exposure
 /// slider is the desktop half of that comparison and reaches 6 for this reason.
-private const val IBL_INTENSITY = 1.75f
+///
+/// Measured that way, 4.5 was the desktop renderer at ~1.95x exposure and 1.75
+/// matched desktop's saturation exactly (69.3 against 67.7) while landing 9
+/// points under on brightness. On a screen beside the desktop app it still read
+/// bright (@justin), so this sits a further step down. The eye wins: the capture
+/// path goes through screencap and a colour key, a side-by-side comparison on one
+/// display does not.
+///
+/// 1.25 was accepted on a REAL DEVICE, which is the bar that matters: a Moto G
+/// Play 2023 (32-bit ARM, PowerVR Rogue GE8320, Filament clamped to feature
+/// level 1) renders the coin visibly deeper than the x86 emulator does at the
+/// same value -- 71.9 brightness / 73.3 saturation against the emulator's 74.2 /
+/// 71.4. Judge this constant on hardware, not on an emulator.
+private const val IBL_INTENSITY = 1.25f
 private const val CAMERA_EXPOSURE = 1.0f
 
 /**
