@@ -30,9 +30,83 @@ private let flickMinimumSpeed: Float = 0.6
 /// Ceiling on a thrown spin, so a fast swipe cannot turn the coin into a strobe.
 private let flickMaximumSpeed: Float = 24
 
+/// A tap on the coin owes it one more full turn (@justin 2026-09-17).
+///
+/// Taps QUEUE, because what a tap adds is an ANGLE and not a restart: ten fast
+/// taps are ten turns (@justin 2026-09-18). The obvious implementation — hold a
+/// phase into a single timed turn and set it back to zero on every tap — is the
+/// bug this replaced; it looks perfectly correct on one tap and swallows every
+/// tap but the last on ten.
+private let tapTurn: Float = .pi * 2
+/// How fast the debt is paid: radians per second for each radian still owed.
+/// One turn owed opens at ~19 rad/s and is nine tenths paid in three quarters
+/// of a second.
+private let tapPayout: Float = 3
+/// Ceiling on the payout rate. Ten queued turns owe 63 radians, which without
+/// this would open at 188 rad/s: three turns in a single frame, i.e. a coin
+/// that looks stationary or strobing.
+private let tapMaximumRate: Float = 26
+/// Floor on the payout rate, so the tail is a coast rather than an asymptote. A
+/// purely proportional payout spends its last second turning the coin by
+/// fractions of a degree.
+private let tapMinimumRate: Float = 2
+/// Below this the rest of the debt is handed over in one frame: half a degree
+/// is not a turn, and the debt has to actually reach zero.
+private let tapSettle: Float = 0.01
+/// A press is a tap and not a drag if the thumb barely moved and did not
+/// linger. Both bounds matter: a 2pt wobble is still a tap, and a slow,
+/// deliberate 2pt nudge held for a second is not.
+private let tapMaximumMovement: CGFloat = 5
+private let tapMaximumMilliseconds: Double = 400
+
 /// A fixed tilt, so the coin reads as a disc even at the instant its face is
 /// edge-on to the camera. Desktop and Android apply the same angle.
 private let tiltX: Float = 0.24
+
+/// How much of an owed turn one frame pays off: fastest when the most is owed,
+/// capped so a burst of taps cannot become a strobe, and handing over the last
+/// sliver whole so the debt actually reaches zero.
+///
+/// Internal for its test. Everything the queue promises — that ten taps turn the
+/// coin ten times, not once — is this function summing to exactly the debt it
+/// was given. Desktop's `tapTurnPayout` is the same arithmetic in TypeScript
+/// (drift concept `supporter-coin-motion`), and Android's is the same in Kotlin.
+func tapTurnPayout(debt: Float, seconds: Float) -> Float {
+    guard debt > 0 else { return 0 }
+    let rate = min(max(debt * tapPayout, tapMinimumRate), tapMaximumRate)
+    let paid = rate * seconds
+    return debt - paid <= tapSettle ? debt : paid
+}
+
+/// The angle the coin owes its taps.
+///
+/// This small value type is the whole difference between "ten taps are ten
+/// turns" and the bug it replaced. [tap] ADDS a turn; it does not set one. The
+/// version this replaced held a phase into a single timed turn and put it back
+/// to zero on every tap, which is indistinguishable from this on one tap and
+/// swallows nine taps out of ten on a burst.
+///
+/// Separate from `CoinTurn` because the scene needs RealityKit and this does
+/// not: `SupporterCoinTests` drives the queue frame by frame. Android keeps the
+/// same object as `CoinTapDebt` in `SupporterCoin.kt`.
+struct CoinTapDebt {
+    /// Radians still owed. Readable so a test can watch the debt reach zero.
+    private(set) var outstanding: Float = 0
+
+    /// One more full turn, on top of whatever is already owed.
+    mutating func tap() {
+        outstanding += tapTurn
+    }
+
+    /// Pays down the debt and answers how much turn that buys this frame. The
+    /// only way the debt ever leaves, which is what makes "no tap is dropped" a
+    /// property of the code rather than a hope.
+    mutating func pay(_ seconds: Float) -> Float {
+        let paid = tapTurnPayout(debt: outstanding, seconds: seconds)
+        outstanding -= paid
+        return paid
+    }
+}
 
 /// The camera. A 30 degree field of view at this distance frames the model's 0.7
 /// diameter at about 84% of the box, leaving room for the corners as it turns —
@@ -72,9 +146,11 @@ private let maximumFrameSeconds: Float = 1 / 20
 /// is defined by what it reflects, and a shape with a gradient painted on it reads as a
 /// sticker however correctly it is squeezed.
 ///
-/// Drag it and it turns under your thumb; let go while moving and it spins on. It holds
-/// still — as a whole, correct coin, not a placeholder — under Reduce Motion, which is
-/// the same answer desktop gives `prefers-reduced-motion`.
+/// Drag it and it turns under your thumb; let go while moving and it spins on. Tap it and
+/// it turns once around, fast, on top of whatever it was already doing — and taps QUEUE,
+/// so ten taps are ten turns. It holds still — as a whole, correct coin, not a
+/// placeholder — under Reduce Motion, which is the same answer desktop gives
+/// `prefers-reduced-motion`.
 struct SupporterCoin: View {
     let diameter: CGFloat
 
@@ -86,6 +162,10 @@ struct SupporterCoin: View {
     /// Cumulative drag translation at the last change, so each event contributes
     /// the distance the thumb moved rather than the distance it has moved in total.
     @State private var lastDragX: CGFloat = 0
+    /// Total distance travelled and when the press began — together they
+    /// separate a tap from a drag that happened to end where it started.
+    @State private var travelled: CGFloat = 0
+    @State private var pressedAt: Date?
 
     var body: some View {
         Group {
@@ -104,16 +184,23 @@ struct SupporterCoin: View {
         }
         .frame(width: diameter, height: diameter)
         .accessibilityHidden(true)
+        // `minimumDistance: 0` so a press that never moves still arrives: a tap
+        // IS a drag that went nowhere, which is how desktop reads a click, and
+        // recognising it any other way would have been a second definition of
+        // the same gesture.
         .gesture(
-            DragGesture(minimumDistance: 1)
+            DragGesture(minimumDistance: 0)
                 .onChanged { value in
                     if !turn.dragging {
                         turn.grab()
                         lastDragX = value.translation.width
+                        travelled = 0
+                        pressedAt = Date()
                     }
-                    let delta = Float(value.translation.width - lastDragX)
+                    let delta = value.translation.width - lastDragX
                     lastDragX = value.translation.width
-                    turn.turnBy(delta * dragRadiansPerPoint)
+                    travelled += abs(delta)
+                    turn.turnBy(Float(delta) * dragRadiansPerPoint)
                 }
                 .onEnded { value in
                     // `velocity` is points/second; the same constant that turns a
@@ -124,7 +211,15 @@ struct SupporterCoin: View {
                             ? min(max(thrown, -flickMaximumSpeed), flickMaximumSpeed)
                             : nil
                     )
+                    // After `release`, so the turn starts from a coin that is
+                    // already back under its own control.
+                    let held = pressedAt.map { Date().timeIntervalSince($0) * 1000 } ?? .infinity
+                    if travelled <= tapMaximumMovement, held <= tapMaximumMilliseconds {
+                        turn.tap()
+                    }
                     lastDragX = 0
+                    travelled = 0
+                    pressedAt = nil
                 }
         )
         .onChange(of: reduceMotion, initial: true) { _, paused in
@@ -221,6 +316,9 @@ final class CoinTurn {
     private var pivot: Entity?
     private var angle: Float = 0
     private var spin: Float = baseSpin
+    /// The angle the coin owes its taps: added to on every tap, paid down every
+    /// frame, and never reset.
+    private var tapDebt = CoinTapDebt()
 
     func attach(to entity: Entity) {
         pivot = entity
@@ -243,6 +341,12 @@ final class CoinTurn {
         spin = thrown ?? restingSpin
     }
 
+    /// A tap adds a turn to what the coin owes. An impatient second tap is a
+    /// second turn, and the tenth is the tenth.
+    func tap() {
+        tapDebt.tap()
+    }
+
     func step(_ elapsed: Float) {
         // While a finger is down the gesture owns the angle outright: the coin
         // tracks the hand exactly rather than being nudged by a velocity, which is
@@ -252,7 +356,10 @@ final class CoinTurn {
         // Eases in from either side, so a backwards flick settles as gracefully as
         // a forwards one.
         spin = restingSpin + (spin - restingSpin) * exp(-spinDecay * delta)
-        angle += spin * delta
+        // The taps' turn is ADDED to the ambient one rather than replacing it,
+        // which is what lets a queue exist at all: there is no single turn with
+        // a start to reset, only an angle still owed.
+        angle += spin * delta + tapDebt.pay(delta)
         apply()
     }
 

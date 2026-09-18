@@ -4,7 +4,7 @@ import simd
 
 @testable import FutoNotesNative
 
-/// The supporter coin's orientation law.
+/// The supporter coin's orientation law, and its tap queue.
 ///
 /// The coin is a Blender model, so its shape and materials are not Swift's business
 /// — `just coin-check` asserts those against the script that produced them. What
@@ -21,8 +21,12 @@ import simd
 /// (drift concept `supporter-coin-motion`). Quaternions and a column-major matrix
 /// are different spellings of it, so these two suites are the only thing keeping
 /// the two shells honest about the order.
+///
+/// The second half of the file is the TAP QUEUE, added 2026-09-18 with the coin's
+/// tap: `CoinTapDebt` is the angle a tap owes, and the one way to get it wrong is
+/// to drop taps.
 @MainActor
-@Suite("Supporter coin orientation")
+@Suite("Supporter coin")
 struct SupporterCoinTests {
     private let tilt: Float = 0.24
 
@@ -75,5 +79,84 @@ struct SupporterCoinTests {
         #expect(abs(simd_dot(x, z)) < 1e-5)
         // Right-handed, or the coin renders inside out.
         #expect(simd_length(simd_cross(x, y) - z) < 1e-5)
+    }
+
+    // ── The tap queue ───────────────────────────────────────────────────────
+    // What a tap adds is an ANGLE the coin owes, and `CoinTapDebt` is the whole
+    // model: `tap()` ADDS a turn and `pay()` is the only way the debt ever
+    // leaves. The version this replaced held a phase into a single timed turn
+    // and put it back to zero on every tap — indistinguishable from this on one
+    // tap, and it swallows nine taps out of ten on a burst.
+    //
+    // "ten taps turn the coin ten times" is therefore the case that matters, and
+    // it is red-proved: with `tap()` changed to `outstanding = tapTurn` it
+    // reports 6.28 radians turned against the 62.83 it expects.
+    //
+    // Android asserts the same model in `SupporterCoinTest`, desktop in
+    // `supporterCoin.test.ts` (drift concept `supporter-coin-motion`).
+
+    /// One tap's worth of turn.
+    private var oneTurn: Float { .pi * 2 }
+    /// A 60 Hz frame.
+    private var frame: Float { 1.0 / 60.0 }
+
+    /// Taps the coin, runs frames until it owes nothing, and reports how much
+    /// turn was actually delivered and how long it took. `tapAfterFrames` queues
+    /// another tap partway through, which is the case a debt handles and a
+    /// restart cannot.
+    private func turnsDelivered(taps: Int, tapAfterFrames: Set<Int> = []) -> (
+        turned: Float, frames: Int
+    ) {
+        var debt = CoinTapDebt()
+        for _ in 0..<taps { debt.tap() }
+        var turned: Float = 0
+        var frames = 0
+        // A ceiling, so a payout that never terminates fails as a test rather
+        // than hanging the suite.
+        while debt.outstanding > 0 && frames < 6000 {
+            if tapAfterFrames.contains(frames) { debt.tap() }
+            turned += debt.pay(frame)
+            frames += 1
+        }
+        #expect(debt.outstanding == 0, "the debt must reach zero")
+        return (turned, frames)
+    }
+
+    @Test("one tap turns the coin exactly once, and finishes")
+    func oneTapIsOneTurn() {
+        let (turned, frames) = turnsDelivered(taps: 1)
+
+        #expect(abs(turned - oneTurn) < 1e-3)
+        // Just over a second: a flourish that coasts, not a wind-down.
+        #expect(frames < 80, "took \(frames) frames")
+    }
+
+    @Test("ten taps turn the coin ten times")
+    func tenTapsAreTenTurns() {
+        let (turned, _) = turnsDelivered(taps: 10)
+
+        #expect(abs(turned - oneTurn * 10) < 1e-2, "turned \(turned)")
+    }
+
+    @Test("a tap that lands while an earlier one is still being paid is kept")
+    func aTapDuringAPayoutIsKept() {
+        let (turned, _) = turnsDelivered(taps: 1, tapAfterFrames: [3])
+
+        #expect(abs(turned - oneTurn * 2) < 1e-2, "turned \(turned)")
+    }
+
+    @Test("however much is owed, the payout never strobes")
+    func payoutNeverStrobes() {
+        // Fifty turns owed would open at 942 rad/s uncapped, which is fifteen
+        // turns in a single 60 Hz frame: a coin that reads as stationary.
+        #expect(tapTurnPayout(debt: oneTurn * 50, seconds: frame) < oneTurn / 2)
+    }
+
+    @Test("an untapped coin owes nothing and is paid nothing")
+    func nothingOwedPaysNothing() {
+        var debt = CoinTapDebt()
+
+        #expect(debt.outstanding == 0)
+        #expect(debt.pay(frame) == 0)
     }
 }

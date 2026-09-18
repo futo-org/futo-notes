@@ -1,7 +1,5 @@
 import Foundation
 
-@testable import FutoNotesNative
-
 /// A real, verifiable staging license, in both accepted activation formats.
 ///
 /// These strings are signed by the FUTO Notes staging org key — the one
@@ -16,6 +14,12 @@ import Foundation
 /// (the staging private key is never in this repo); the same strings are carried
 /// by Android's `LicenseFixture.kt` and the FFI contract tests. If the staging key
 /// is rotated without re-minting, these tests go red — the correct red.
+///
+/// Deliberately free of `@testable import FutoNotesNative`: `apps/ios/project.yml`
+/// compiles this one file into the UI-test target as well, so
+/// `LicensePlateTests` drives the same pair through a real `futonotes://` link
+/// without a fourth copy of it existing (`scripts/gen-license-fixture.mjs`
+/// enumerates the consumers).
 enum LicenseFixture {
     static let key = "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
     static let activation =
@@ -38,30 +42,4 @@ enum LicenseFixture {
     static let devBundleId = "com.futo.notes.dev"
     static let releaseBundleId = "com.futo.notes"
 
-}
-
-/// An in-memory stand-in for `UserDefaults`, so no test can read or write the
-/// simulator's real license — and so a test run leaves nothing behind in the
-/// app container (a `UserDefaults(suiteName:)` writes a plist there that
-/// outlives `removePersistentDomain`).
-final class InMemoryLicenseDefaults: LicenseDefaults, @unchecked Sendable {
-    private var values: [String: String] = [:]
-    private(set) var readOccurredOnMainThread = false
-
-    func string(forKey defaultName: String) -> String? {
-        if Thread.isMainThread { readOccurredOnMainThread = true }
-        return values[defaultName]
-    }
-
-    func set(_ value: Any?, forKey defaultName: String) {
-        guard let string = value as? String else {
-            values.removeValue(forKey: defaultName)
-            return
-        }
-        values[defaultName] = string
-    }
-
-    func removeObject(forKey defaultName: String) {
-        values.removeValue(forKey: defaultName)
-    }
 }

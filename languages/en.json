@@ -794,15 +794,10 @@
         "eyebrow": "Client license",
         "productName": "FUTO Notes",
         "keyLabel": "Key",
-        "sinceLabel": "Licensed since",
-        "termLabel": "Term",
         "termPerpetual": "Perpetual",
         "termValidUntil": "Valid until {date}",
         "termExpired": "Expired {date}",
-        "revealKey": "Show key",
-        "copyKey": "Copy key",
-        "keyCopied": "License key copied",
-        "emptyWell": "No license"
+        "revealKey": "Show key"
       }
     },
     "feedback": {

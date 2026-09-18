@@ -175,6 +175,12 @@ targets:
     deploymentTarget: "18.0"
     sources:
       - path: UITests
+      # The staging license pair, compiled in rather than copied: the UI test
+      # drives the plate through a real `futonotes://` link, and a fourth copy
+      # of that pair is exactly the drift `gen-license-fixture.mjs` enumerates
+      # its consumers to prevent. The file carries no app import for this
+      # reason; `InMemoryLicenseDefaults.swift` next to it does, and stays out.
+      - path: Tests/License/LicenseFixture.swift
     dependencies:
       - target: FutoNotesNative
     settings:

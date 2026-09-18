@@ -42,25 +42,16 @@ object FutoPalette {
     // Text on an ink/inverse surface (warm off-white).
     val OnInk = Color(0xFFF3F1EC)
 
-    // ── Steel Ledger (the License plate) ────────────────────────────────────
-    // Gunmetal and gold, and deliberately NOT the warm neutral ramp above: the
-    // license plate is the one surface in the app made of a different material,
-    // and it is that on all three platforms (docs/plan/license-ship.md D1/D5).
-    // These are the same values the desktop plate defines as --plate-* in
-    // src/features/license/LicenseSettingsSection.svelte — change one, change
-    // all three shells.
-    val PlateTopLight    = Color(0xFFDFE4E8) // --plate-a
-    val PlateBottomLight = Color(0xFFCDD5DC) // --plate-b
-    val PlateInkLight    = Color(0xFF1C2733)
-    val PlateInkDimLight = Color(0xFF4F5D6A)
-    val PlateRuleLight   = Color(0xFFA9B4BE)
+    // ── The License plate's gold ────────────────────────────────────────────
+    // All that is left of the Steel Ledger palette. The plate carried its own
+    // gunmetal gradient, ink, dim ink and hairline until 2026-09-18, when it
+    // moved onto the ordinary Settings card surface and the app's own text
+    // colours — a slab of its own material read as a foreign object in the
+    // sheet. Gold stays because the app has no token for it, and it is the same
+    // value the desktop plate defines as --plate-accent in
+    // src/features/license/LicenseSettingsSection.svelte and iOS as
+    // Theme.Plate.accent: change one, change all three shells.
     val PlateGoldLight   = Color(0xFFB8860B)
-
-    val PlateTopDark     = Color(0xFF2A3139)
-    val PlateBottomDark  = Color(0xFF1C2228)
-    val PlateInkDark     = Color(0xFFE6EBEF)
-    val PlateInkDimDark  = Color(0xFF9AA6B1)
-    val PlateRuleDark    = Color(0xFF3D4650)
     val PlateGoldDark    = Color(0xFFFFBB00)
 }
 
@@ -108,14 +99,8 @@ data class FutoColors(
     val success: Color = FutoPalette.Success,
     val danger: Color = FutoPalette.Danger,
 
-    // The License plate (Steel Ledger). Read only by the license card; every
-    // other Settings group is still the app's own paper-and-hairline surface.
-    val plateTop: Color = FutoPalette.PlateTopLight,
-    val plateBottom: Color = FutoPalette.PlateBottomLight,
-    val plateInk: Color = FutoPalette.PlateInkLight,
-    val plateInkDim: Color = FutoPalette.PlateInkDimLight,
-    val plateRule: Color = FutoPalette.PlateRuleLight,
-    /** Gold. Rules, the badge border and the plate's own links — never a fill. */
+    /** The License plate's gold: the eyebrow, the badge border and the plate's
+     *  own links — never a fill. The one colour that card still owns. */
     val plateAccent: Color = FutoPalette.PlateGoldLight,
 )
 
@@ -139,10 +124,5 @@ val darkFutoColors = FutoColors(
     success = FutoPalette.Success,
     danger = FutoPalette.Danger,
 
-    plateTop = FutoPalette.PlateTopDark,
-    plateBottom = FutoPalette.PlateBottomDark,
-    plateInk = FutoPalette.PlateInkDark,
-    plateInkDim = FutoPalette.PlateInkDimDark,
-    plateRule = FutoPalette.PlateRuleDark,
     plateAccent = FutoPalette.PlateGoldDark,
 )

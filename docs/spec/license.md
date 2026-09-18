@@ -75,6 +75,28 @@ _(android)_ All three states × light and dark × both distribution flavors on a
 pooled emulator, with Android's own clipboard chip showing the exact key after
 Copy.
 
+2026-09-18 brought the two native plates up to the desktop design — the eight
+items the "native plates are two rounds behind desktop" Gap listed, closed
+together. _(android)_ Driven on a pooled emulator across **both** distribution
+flavors: Unlicensed as an ask with no card chrome and no well, Licensed with the
+coin and Key as its whole ledger, and Expired reached for real by moving the
+device clock to 2030 against the v2 staging fixture. The coin burst was thrown
+by the `futonotes://` deep link with Settings already open — it heaps along the
+plate's bottom edge, stays inside the card, and the plate's lower band returns to
+its 792-pixel baseline afterwards, identical to a plate that never had one;
+reopening Settings on the stored license threw nothing. The tap queue was
+measured from 20 fps screenrecord frames: one tap keeps the coin turning fast for
+~1.15 s, eight taps for ~2.5 s, against a flat baseline. _(ios)_ Driven on a
+pooled simulator through `LicensePlateTests`, because this Mac's Xcode 27 ships
+no Simulator.app and a simulator with no window silently swallows every `axe`
+tap while still answering `describe-ui` — XCUITest injects events into the app
+process and is unaffected. All three plate states, the OS deep link, the reveal
+(no Copy control), Remove, the burst in flight and the burst skipped entirely
+under Reduce Motion. The coin's colour was checked against a build of the
+preceding commit rather than eyeballed: with Reduce Motion holding it at one
+angle, before and after are the same gold, and a dark-faced screenshot taken
+mid-spin is the coin's own back.
+
 **Expired was reached from a stored license only on Android**, by moving the
 emulator clock forward against the v2 staging fixture. _(ios)_ It has never been
 rendered on an iPhone: the only staging-signed fixture expires 2029 and a
@@ -469,24 +491,23 @@ The card is the same object in every state: a status **badge**, the eyebrow
 coin while Licensed, and the ledger rows, followed by the state's actions and
 its explanation paragraph.
 
-_(native shells)_ The well is present in every state and empty when there is no
-coin, and there are three ledger rows — **Key**, **Licensed since**, **Term** —
-each present in every state and blank when the license carries no value for it;
-a blank row is what "nothing is invented" looks like.
-
-_(desktop)_ **The well, the letterhead and the ledger exist only when they have
-something in them** (@justin 2026-09-17, extended 2026-09-18). There is no empty
-well: an empty circle read as something that had failed to load rather than as
-"no license". The badge, the "Client license" eyebrow and the uppercase product
-name now belong to a **stored license** — the letterhead belongs to a card, and
-Unlicensed has no card, only an ask, so it leads with the headline instead.
-**Licensed since and Term are gone outright** — nothing records a purchase date and nothing
-limits a license today, so both rows only ever said blank or "Perpetual". That
-leaves **Key** as the whole ledger, and with no key there is no ledger at all,
-because one blank row is the same void the well was. The plate also sits on the
-**same surface as every other Settings card** rather than on a gunmetal gradient
-of its own, which read as a foreign object in the sheet; only the gold accent is
-still the plate's own, because the app has no token for it.
+**The well, the letterhead and the ledger exist only when they have something in
+them** (@justin 2026-09-17, extended 2026-09-18; desktop first, both native
+shells 2026-09-18). There is no empty well: an empty circle read as something
+that had failed to load rather than as "no license". The badge, the "Client
+license" eyebrow and the uppercase product name belong to a **stored license** —
+the letterhead belongs to a card, and Unlicensed has no card, only an ask, so it
+leads with the headline instead. **Licensed since and Term are gone outright** —
+nothing records a purchase date and nothing limits a license today, so both rows
+only ever said blank or "Perpetual". That leaves **Key** as the whole ledger, and
+with no key there is no ledger at all, because one blank row is the same void the
+well was. The plate also sits on the **same surface as every other Settings card**
+rather than on a slab of its own material — a gunmetal gradient on desktop and
+iOS, the same gradient on Android — which read as a foreign object in the sheet;
+only the gold accent is still the plate's own, because no shell has a token for
+it. `licenseCardModel` **keeps returning `since` and `term`**: it is shared law
+across the three shells and did not change, and the shells stopped rendering
+them.
 → `licenseCardModel` in
 `src/features/license/licenseCopy.ts`,
 `apps/ios/Sources/License/LicenseCopy.swift`,
@@ -499,74 +520,17 @@ drift-registered concept, `license-card-copy`
 | **Licensed**   | none         | masked, revealable | "{date}", blank with no `issued_at` | "Perpetual" or "Valid until {date}" | Remove license                                      |
 | **Expired**    | "Expired"    | masked, revealable | "{date}"                            | "Expired {date}"                    | **Renew** · I already paid · Lost your key?         |
 
-_(desktop)_ The Key column is the whole table: the row is absent rather than
-blank when Unlicensed, and the two date columns do not exist. **Unlicensed wears
-no badge on desktop either** — the section heading says "License" and the sidebar
-already says "Unlicensed"; a third copy of the word was chrome.
+The Key column is the whole table on every platform: the row is absent rather
+than blank when Unlicensed, and the two date columns do not exist anywhere.
+**Unlicensed wears no badge either** — the section heading says "License", and on
+desktop the sidebar already says "Unlicensed"; a third copy of the word was
+chrome.
 
 The key-entry action is **"I already paid"** on every platform, which is what
 Grayjay (`i_already_paid`) and FUTO Keyboard (`payment_screen_already_paid_button`)
 both call it: it names the person's situation rather than the mechanism. It is
 one catalog entry, `license.enterKey`, so all three shells moved together
 (@justin 2026-09-18).
-
-> **Gap:** _(ios, android)_ **The native plates are two rounds behind desktop.**
-> The card COPY is still shared and still in lockstep (`license-card-copy`, and
-> "I already paid" below moved on all three at once because it is one catalog
-> entry); what has diverged is what each shell chooses to _show_. Desktop moved
-> on 2026-09-17 and again on 2026-09-18 and the native shells have not been
-> brought across. Every item below is a deliberate desktop decision to port, not
-> an accident to reconcile — the desktop implementation is
-> `src/features/license/LicenseSettingsSection.svelte`,
-> `supporterCoin.ts`, `coinShower.ts` and `license.svelte.ts` unless noted, and
-> the behaviour each one must end up with is specified in this section:
->
-> 1. **The empty well goes.** The well exists only while Licensed; there is no
->    184 box reserved in the other states, and the fields take the whole plate.
->    An empty circle read as something that had failed to load rather than as
->    "no license". _(ios, android)_ Both currently reserve it in every state, so
->    porting this also strips `license.card.emptyWell` of its only reader and
->    needs a new home for the state that hangs off the well's accessibility
->    value — see the `license-status` note below, which a QA playbook depends on.
-> 2. **Licensed since and Term go.** Nothing records a purchase date and nothing
->    limits a license, so both rows only ever said blank or "Perpetual". **Key**
->    is the whole ledger, and with no key there is no ledger at all.
->    `licenseCardModel` keeps returning `since` and `term` — the model is shared
->    law and does not change; the shells stop rendering them.
-> 3. **Unlicensed loses the letterhead.** No badge, no "Client license" eyebrow,
->    no uppercase product name: the letterhead belongs to a card and Unlicensed
->    has no card. Licensed and Expired keep all three (Licensed still wears no
->    badge). The condition is simply "is there a stored key".
-> 4. **Unlicensed leads with the ask, and the reason sits above the button.**
->    `license.unlicensedHeadline` ("Pay for FUTO Notes"), then the mission
->    paragraph `license.explanation`, then the one filled Buy button, then the
->    links. Both native shells put the explanation BELOW the button — iOS last
->    of all, Android between the button and the links. Expired reads the same
->    below the headline it does not have; only the button's word differs.
-> 5. **Copy key goes.** The revealed key is plain selectable text; copying is a
->    deliberate select-and-copy, because a key should not be one click from the
->    clipboard. Porting this retires `license.card.copyKey` and
->    `license.card.keyCopied` along with the platform clipboard call.
-> 6. **The plate sits on the ordinary card surface**, not a gunmetal gradient of
->    its own, which read as a foreign object in the sheet. Only the gold accent
->    stays the plate's own. _(ios)_ `Theme.Plate.gradient`.
-> 7. **The coin can be clicked, and clicks QUEUE.** A tap is a drag that went
->    nowhere (≤5px, ≤400ms) and adds one full turn to an angle the coin owes;
->    ten taps are ten turns. Neither native shell has a tap at all today, so
->    this is new code, not a change — and the obvious implementation, restarting
->    one timed turn per tap, is the bug this replaced. The constants live beside
->    the existing `supporter-coin-motion` numbers, which are unlocked: touch all
->    three copies in one commit.
-> 8. **Activating a license throws the coin burst.** Confined to the plate,
->    fired on a license being newly STORED and never on one already there, spent
->    exactly once, and skipped entirely under the OS reduce-motion setting. The
->    debt model (`activationToCelebrate` / `celebrated`) is the part to copy,
->    not just the animation: counting activations alone put on a celebration
->    every time Settings was opened after a removal.
->
-> Not in this list because they are already true everywhere: the shared card
-> copy, "I already paid", and "Thank you for purchasing FUTO Notes."
-> → `tests/license-card.spec.ts`, `src/features/license/supporterCoin.test.ts`
 
 - Bold is the one action the state leads with, and on every platform it is the
   **only filled button on the card**: Buy/Renew. Enter license key, Lost your
@@ -577,15 +541,21 @@ one catalog entry, `license.enterKey`, so all three shells moved together
   `LICENSE_LINK_OUT` hides; _(desktop)_ the plate still derives its two buttons
   inline, because desktop has no `LICENSE_LINK_OUT` to obey (drift concept
   `license-row-actions`).
-- **The Licensed state wears no badge on any platform.** The coin in the well is
-  the statement; the word placed over the gold "Client license" eyebrow reads as
-  a duplicated eyebrow, which is why iOS removed it after seeing it on a device
-  (2026-09-16). The state stays machine-readable: _(ios)_ `license-well` carries
-  the accessibility value `Licensed` / `Unlicensed` / `Expired`, with its label
-  being the coin's or "No license". **A QA playbook that reads `license-status`
-  on iOS must fall back to `license-well`'s value in the Licensed state**, where
-  no `license-status` element exists — otherwise it reports a false failure. →
-  `apps/ios/Sources/License/LicenseSettingsSection.swift`
+- **The Licensed state wears no badge on any platform**, and neither does
+  Unlicensed. The coin in the well is the statement; the word placed over the
+  gold "Client license" eyebrow reads as a duplicated eyebrow, which is why iOS
+  removed it after seeing it on a device (2026-09-16). Only Expired still names
+  itself, because it is the one state that has to explain itself. The state
+  stays machine-readable, and since 2026-09-18 that reading hangs off the
+  **plate**, not the well — the well now exists only while Licensed, so it could
+  not carry a state in two of the three. _(ios)_ `license-plate` carries the
+  accessibility value `Licensed` / `Unlicensed` / `Expired`; _(android)_ the
+  plate carries the same word as its `stateDescription`. **A QA playbook that
+  reads `license-status` must fall back to the plate's value in every state but
+  Expired**, where alone a `license-status` chip exists — otherwise it reports a
+  false failure. →
+  `apps/ios/Sources/License/LicenseSettingsSection.swift`,
+  `apps/android/app/src/main/java/com/futo/notes/ui/LicenseSettingsSection.kt`
 - **Term** is blank with no license: "Perpetual" there would be a claim the app
   cannot make. It is "Perpetual" when `expires_at` is null **and** for a v1
   activation, which is perpetual by format rather than by guess; "Valid until
@@ -603,12 +573,12 @@ one catalog entry, `license.enterKey`, so all three shells moved together
 - **The card shows the stored key masked to its last group** — seven groups of
   four middle dots, then the key's real last four characters
   (`···· ···· ···· ···· ···· ···· ···· RS78`) — and clicking or tapping it
-  reveals the whole normalized key. _(native shells)_ The revealed key is
-  accompanied by **Copy key**, which puts exactly that key on the system
-  clipboard and confirms with the "License key copied" toast. _(desktop)_ There
-  is no copy affordance at all: the revealed key is plain selectable text, and
-  copying it is a deliberate select-and-copy, because a license key should not
-  be one click from the clipboard (@justin 2026-09-17).
+  reveals the whole normalized key. **There is no copy affordance on any
+  platform**: the revealed key is plain selectable text, and copying it is a
+  deliberate select-and-copy, because a license key should not be one click from
+  the clipboard (@justin 2026-09-17; desktop first, both native shells
+  2026-09-18, which retired `license.card.copyKey` and `license.card.keyCopied`
+  along with the two platform clipboard calls).
   **Revealing and copying is local UI, not a rule**: nothing is verified,
   fetched or stored, the reveal lasts only while the card is mounted, and
   leaving Settings re-masks it. The key reaches every shell already normalized,
@@ -634,10 +604,12 @@ one catalog entry, `license.enterKey`, so all three shells moved together
     a sustainable income source for projects and their developers. That is why
     FUTO Notes asks you to pay for it, rather than serving you ads or selling
     your data."
-  - _(desktop)_ Unlicensed **leads with the ask** and puts the reason **above**
+  - Unlicensed **leads with the ask** and puts the reason **above**
     the Buy button, not under it: the headline `license.unlicensedHeadline`
     ("Pay for FUTO Notes"), then the mission paragraph, then the one filled
-    button. That is the shape all three sibling FUTO-model apps use — Grayjay's
+    button. Desktop first; both native shells followed 2026-09-18, where the
+    explanation had sat below the button — iOS last of all, Android between the
+    button and the links. That is the shape all three sibling FUTO-model apps use — Grayjay's
     Buy screen, FUTO Keyboard's Payment screen and Immich's purchase panel are
     each a heading, the reason, one pay button and a way in for someone who has
     already paid — and an argument printed under the button it argues for is a
@@ -650,7 +622,10 @@ one catalog entry, `license.enterKey`, so all three shells moved together
     the button's word differs. The app still never calls itself free to use; it
     asks to be paid and declines to force the issue. →
     `tests/license-card.spec.ts` "unlicensed: the ask, no card chrome, Buy as
-    the only filled button"
+    the only filled button"; _(ios)_ `LicenseSurfaceTests` "the well, the
+    letterhead and the ledger all belong to a stored license"; _(android)_
+    `LicenseSurfaceTest` "unlicensedLeadsWithTheAskAndCarriesNoCardChrome",
+    which reads the two elements' geometry rather than trusting source order
   - Licensed (`license.explanationLicensed`), verbatim after FUTO Keyboard's
     `payment_screen_aftersales_paragraph_1`: "Thank you for purchasing FUTO
     Notes." ("paying for" until 2026-09-18, @justin.) One sentence: the second, about continued development, was dropped
@@ -712,48 +687,61 @@ one catalog entry, `license.enterKey`, so all three shells moved together
   `just check` / `node scripts/check-supporter-coin-glyph.mjs --print`
   The coin is not a claim about a date and renders for a v1 activation
   regardless.
-  - _(desktop)_ **Activating a license throws a burst of coins across the
-    plate** — around 120 little tumbling gold coins that bounce off the plate's
-    four walls, heap along its bottom edge and fade out after about three
-    seconds. FUTOpay's checkout page does the same on a purchase
-    (`coin-bounce.js` in lib-polar) and @justin asked for it here, with one
-    deliberate difference: **it is confined to the plate**, structurally — the
-    canvas is the plate's own child, clipped by its rounded corners — rather
-    than raining over the notes behind the Settings sheet. It is a plain 2D
-    canvas running ballistic motion and a coefficient of restitution: no physics
-    engine (nothing at this size can show the difference, and a rigid-body
-    dependency would land in the bundle of an app whose editor budget is per
-    keystroke) and no second WebGL context (the document has a small fixed pool
-    and the coin in the well already holds one). It fires on the moment a license
-    is **newly stored** — a key pasted in, or a `futonotes://` link the OS handed
-    us — and never on a license the plate merely finds already there. That is a
-    **debt the plate collects and spends**, `license.activationToCelebrate` /
-    `celebrated()`, not a state it reads: an activation that lands while Settings
-    is closed still gets its coins the first time the plate is opened, and gets
-    them exactly once. Counting activations alone was not enough — removing a
-    license left the count at 1, so clicking the sidebar's "Unlicensed" label
-    threw a celebration over nothing (@justin 2026-09-18).
-    **`prefers-reduced-motion: reduce` skips it entirely**, unlike the coin,
-    which still has to render. It removes itself when it is done (M5). →
-    `coinShower.ts`, `tests/license-card.spec.ts` "activating a license throws a
+  - **Activating a license throws a burst of coins across the plate** — around
+    120 little tumbling gold coins that bounce off the plate's four walls, heap
+    along its bottom edge and fade out after about three seconds. FUTOpay's
+    checkout page does the same on a purchase (`coin-bounce.js` in lib-polar)
+    and @justin asked for it here, with one deliberate difference: **it is
+    confined to the plate**, structurally — the canvas is the plate's own child
+    on every shell — rather than raining over the notes behind the Settings
+    sheet. It is a plain 2D canvas running ballistic motion and a coefficient of
+    restitution: no physics engine (nothing at this size can show the
+    difference, and a rigid-body dependency would land in the bundle of an app
+    whose editor budget is per keystroke) and no second 3D context (the coin in
+    the well is already holding a WebGL context, a Filament engine or a
+    RealityKit scene). It fires on the moment a license is **newly stored** — a
+    key pasted in, or a `futonotes://` link the OS handed us — and never on a
+    license the plate merely finds already there. That is a **debt the plate
+    collects and spends**, `activationToCelebrate` / `celebrated()`, not a state
+    it reads: an activation that lands while Settings is closed still gets its
+    coins the first time the plate is opened, and gets them exactly once.
+    Counting activations alone was not enough — removing a license left the
+    count at 1, so clicking the sidebar's "Unlicensed" label threw a celebration
+    over nothing (@justin 2026-09-18). **Reduced motion skips it entirely** —
+    `prefers-reduced-motion: reduce` on desktop, Reduce Motion on iOS, a zero
+    animator scale on Android — unlike the coin, which still has to render. It
+    removes itself when it is done (M5). Desktop shipped it 2026-09-18 and both
+    native shells the same day; the three simulations are one drift-registered
+    concept, `supporter-coin-burst`. →
+    `coinShower.ts`, `CoinShower.swift`, `CoinShower.kt`;
+    `tests/license-card.spec.ts` "activating a license throws a
     burst of coins inside the plate" + "no coins are thrown for a license that
     was already stored" + "the burst is spent: reopening Settings does not throw
     it again" + "removing the license and reopening Settings throws no coins" +
-    "no coin burst is thrown at all"
-  - _(desktop)_ **Clicking the coin turns it once around**, fast, on top of
-    whatever it was already doing (@justin 2026-09-17). A click is a press that
-    moved 5px or less and lasted 400ms or less, so it is a drag that went
-    nowhere and never steals a real drag or a flick. **Clicks queue: ten clicks
-    are ten turns.** What a click adds is an ANGLE the coin owes — paid back
-    fastest when the most is owed, floored so the tail is a coast rather than an
-    asymptote, and capped so a burst cannot become a strobe — so nothing is ever
-    dropped. The first version held a phase into one half-second turn and set it
-    back to zero on each click, which swallowed every click but the last
-    (@justin 2026-09-18). Distinct from the activation celebration, which is a
-    spin-up the decay bleeds off and which lands wherever it lands. →
+    "no coin burst is thrown at all"; _(ios)_ `CoinShowerTests` and
+    `LicenseModelTests` "a license found on disk owes no celebration";
+    _(android)_ `CoinShowerTest` and `LicenseModelTest`
+    "aLicenseFoundOnDiskOwesNoCelebration"
+  - **Clicking or tapping the coin turns it once around**, fast, on top of
+    whatever it was already doing (@justin 2026-09-17; desktop first, both
+    native shells 2026-09-18, where the coin had no tap at all). A click or tap
+    is a press that moved 5px/dp/pt or less and lasted 400ms or less, so it is a
+    drag that went nowhere and never steals a real drag or a flick. **They
+    queue: ten taps are ten turns.** What a tap adds is an ANGLE the coin owes —
+    paid back fastest when the most is owed, floored so the tail is a coast
+    rather than an asymptote, and capped so a burst cannot become a strobe — so
+    nothing is ever dropped. The first version held a phase into one half-second
+    turn and set it back to zero on each click, which swallowed every click but
+    the last (@justin 2026-09-18); it looks perfectly correct on a single tap,
+    which is why all three shells' tests were red-proved against it. Distinct
+    from the activation celebration, which is a spin-up the decay bleeds off and
+    which lands wherever it lands. The constants are part of
+    `supporter-coin-motion`. →
     `supporterCoin.test.ts` "turns ten times for ten clicks",
     `tests/license-card.spec.ts` "licensed: clicking the coin spins it a full
-    turn" + "licensed: eight fast clicks on the coin queue eight turns"
+    turn" + "licensed: eight fast clicks on the coin queue eight turns";
+    _(ios)_ `SupporterCoinTests` "ten taps turn the coin ten times"; _(android)_
+    `SupporterCoinTest` "ten taps turn the coin ten times"
   - _(all platforms)_ The coin can be **dragged**: a horizontal drag turns it
     under the pointer or thumb, and releasing while still moving throws it, the
     spin bleeding back to its resting speed. A vertical swipe is left to the
@@ -801,8 +789,10 @@ one catalog entry, `license.enterKey`, so all three shells moved together
     Each holds still — as a whole, correct coin — under `prefers-reduced-motion`
     (iOS) and a zero animator scale (Android), falls back to the flat glyph if
     the renderer cannot start, and appears only in Settings, never beside the
-    editor (M5). There is no celebrate spin on mobile: activation there does not
-    pass through a moment the card is already on screen for. Filament costs
+    editor (M5). There is no celebrate SPIN on mobile — the coin arrives in the
+    well at the same instant the burst is thrown, and spinning it up as well
+    read as two celebrations of one thing; the burst is the moment on all three
+    platforms. Filament costs
     **18.0 MB of the 55.1 MB release APK** across the three shipped ABIs, of
     which `gltfio` is 8.4 MB; RealityKit is a system framework and costs the iOS
     app nothing. → `apps/ios/Sources/License/SupporterCoin.swift`,

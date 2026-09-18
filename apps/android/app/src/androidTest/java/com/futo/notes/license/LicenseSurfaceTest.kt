@@ -24,6 +24,7 @@ import com.futo.notes.ui.LicenseSettingsSection
 import com.futo.notes.ui.theme.FutoNotesTheme
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -32,6 +33,7 @@ import uniffi.futo_notes_ffi.LicenseAction
 import uniffi.futo_notes_ffi.LicensePlatform
 import uniffi.futo_notes_ffi.LicenseStatus
 import uniffi.futo_notes_ffi.licenseDeepLinkScheme
+import uniffi.futo_notes_ffi.licenseEvaluate
 import uniffi.futo_notes_ffi.licenseLinks
 import uniffi.futo_notes_ffi.licenseRowActions
 
@@ -145,7 +147,9 @@ class LicenseSurfaceTest {
 
     /**
      * The card shows the stored key masked to its last group, and reveals the
-     * whole thing — with a way to copy it — only when it is asked for (D4).
+     * whole thing only when it is asked for (D4). What it reveals is plain
+     * text: there is no Copy control, because a license key should not be one
+     * tap from the clipboard (@justin 2026-09-17).
      *
      * A Compose test rather than a model one because the masking itself is
      * already locked at the model level (`LicenseCopyTest`): what is untested
@@ -185,10 +189,135 @@ class LicenseSurfaceTest {
             .performClick()
 
         compose.onNodeWithText(storedKey).performScrollTo().assertIsDisplayed()
-        compose
-            .onNodeWithText(localization.localizedText("license.card.copyKey"))
-            .assertIsDisplayed()
         compose.onNodeWithText(masked).assertDoesNotExist()
+    }
+
+    /**
+     * What the Licensed plate actually puts on screen after the 2026-09-18
+     * port, and — more usefully — what it does NOT.
+     *
+     * "Licensed since" and "Term" are gone as rows: nothing records a purchase
+     * date and nothing limits a license, so both only ever said blank or
+     * "Perpetual". `licenseCardModel` still RETURNS both, unchanged and shared
+     * across the three shells, which is why this asserts the SCREEN rather than
+     * the model. Copy key is gone with them: a license key should not be one tap
+     * from the clipboard.
+     */
+    @Test
+    fun theLicensedPlateIsTheCoinTheLetterheadAndTheKey() {
+        val localization = Localization.fromGeneratedCatalogs(listOf("en"), "en-US")
+        val license = licensedModel()
+        val view = checkNotNull(license.view)
+        val card = licenseCardModel(view, localization)
+
+        showPlate(license, localization)
+
+        // The coin is here, and the letterhead with it.
+        compose
+            .onNodeWithContentDescription(
+                localization.localizedText("license.coinAccessibilityLabel"),
+            )
+            .performScrollTo()
+            .assertIsDisplayed()
+        compose
+            .onNodeWithText(localization.localizedText("license.card.eyebrow").uppercase())
+            .assertExists()
+
+        // Key is the whole ledger.
+        compose
+            .onNodeWithText(localization.localizedText("license.card.keyLabel").uppercase())
+            .assertExists()
+        // The fixture is a v2 activation, so the model DOES carry a date and a
+        // term — and neither reaches the screen.
+        assertNotNull("the fixture should carry a purchase date", card.since)
+        compose.onNodeWithText(checkNotNull(card.since)).assertDoesNotExist()
+        compose.onNodeWithText(card.term).assertDoesNotExist()
+
+        // Licensed wears no badge, thanks rather than asks, and offers Remove
+        // as its only action.
+        compose.onNodeWithText(localization.localizedText("license.unlicensedHeadline"))
+            .assertDoesNotExist()
+        compose
+            .onNodeWithText(localization.localizedText("license.explanationLicensed"))
+            .assertExists()
+        compose.onNodeWithText(localization.localizedText("license.remove")).assertExists()
+    }
+
+    /**
+     * Unlicensed is an ask, not a card (@justin 2026-09-18): no badge, no
+     * eyebrow, no product name — and no empty well, which read as something
+     * that had failed to load rather than as "no license".
+     *
+     * The reason sits ABOVE the one filled button. Compose cannot be asked
+     * "which of these is higher up" without reading geometry, so that is
+     * exactly what this does: the mission paragraph's top must be above the Buy
+     * button's.
+     */
+    @Test
+    fun unlicensedLeadsWithTheAskAndCarriesNoCardChrome() {
+        val localization = Localization.fromGeneratedCatalogs(listOf("en"), "en-US")
+        val license = LicenseModel(LicenseStorage(preferences), LicenseFixture.DEV_APPLICATION_ID)
+        license.showMessage = {}
+        license.applyEvaluated(licenseEvaluate(null, LicenseFixture.DEV_APPLICATION_ID))
+
+        showPlate(license, localization)
+
+        compose
+            .onNodeWithText(localization.localizedText("license.unlicensedHeadline"))
+            .performScrollTo()
+            .assertIsDisplayed()
+        compose
+            .onNodeWithText(localization.localizedText("license.card.eyebrow").uppercase())
+            .assertDoesNotExist()
+        compose
+            .onNodeWithText(localization.localizedText("license.card.productName").uppercase())
+            .assertDoesNotExist()
+        compose.onNodeWithText(localization.localizedText("license.unlicensed").uppercase())
+            .assertDoesNotExist()
+        compose
+            .onNodeWithContentDescription(
+                localization.localizedText("license.coinAccessibilityLabel"),
+            )
+            .assertDoesNotExist()
+        compose
+            .onNodeWithText(localization.localizedText("license.card.keyLabel").uppercase())
+            .assertDoesNotExist()
+
+        val reason = compose
+            .onNodeWithText(localization.localizedText("license.explanation"))
+            .performScrollTo()
+            .fetchSemanticsNode()
+            .boundsInRoot
+        val buy = compose
+            .onNodeWithText(localization.localizedText("license.buy"))
+            .fetchSemanticsNode()
+            .boundsInRoot
+        assertTrue(
+            "the reason (${'$'}{reason.top}) must sit above the Buy button (${'$'}{buy.top})",
+            reason.top < buy.top,
+        )
+    }
+
+    /** The plate, in a scrolling column: an assertion must not fail merely
+     *  because this device's screen is shorter than the card. */
+    private fun showPlate(license: LicenseModel, localization: Localization) {
+        compose.setContent {
+            FutoNotesTheme(darkTheme = false) {
+                CompositionLocalProvider(LocalLocalization provides localization) {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        LicenseSettingsSection(license)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun licensedModel(): LicenseModel {
+        val license = LicenseModel(LicenseStorage(preferences), LicenseFixture.DEV_APPLICATION_ID)
+        license.showMessage = {}
+        license.handle(LicenseFixture.deepLink)
+        checkNotNull(license.view) { "the fixture link did not license the device" }
+        return license
     }
 }
 

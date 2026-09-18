@@ -2,9 +2,9 @@ package com.futo.notes.ui
 
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import android.util.Log
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,27 +20,26 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -50,7 +49,6 @@ import com.futo.notes.license.LicenseModel
 import com.futo.notes.license.catalogPath
 import com.futo.notes.license.licenseCardModel
 import com.futo.notes.localization.LocalLocalization
-import com.futo.notes.ui.components.MicroLabel
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
@@ -58,27 +56,41 @@ import kotlinx.coroutines.launch
 import uniffi.futo_notes_ffi.LicenseAction
 import uniffi.futo_notes_ffi.LicenseStatus
 
-/** The well is 184dp and the coin 160dp on every platform (D1/D5). The well is
- *  a reserved SPACE now, not a drawn recess — @justin 2026-09-16 asked for the
+/** The well is 184dp and the coin 160dp on every platform (D1/D5). It is
+ *  unpainted space, not a drawn recess — @justin 2026-09-16 asked for the
  *  circle border gone on all three platforms, and on Android the inset-shadow
- *  ring WAS the whole well, so nothing is painted here any more. */
+ *  ring WAS the whole well. Since 2026-09-18 the box itself is only reserved
+ *  while Licensed: an empty circle read as something that had failed to load
+ *  rather than as "no license". */
 private val WELL_DIAMETER = 184.dp
 private val COIN_DIAMETER = 160.dp
 
 /**
  * The License plate — the FIRST group of Settings on mobile, and the only place
- * the ambient "Unlicensed" label appears on this platform (docs/spec/license.md
- * § States and copy).
+ * a license is visible on this platform (docs/spec/license.md § States and copy).
  *
- * One container, not a stack of rows: a gunmetal plate with a gold accent and a
- * circular well sunk into it, the same "Steel Ledger" card desktop and iOS draw
- * (docs/plan/license-ship.md D1). The well is there in every state; the supporter
- * coin sits in it only when Licensed, and that — with the plate and the label —
- * is the whole reward. Nothing in the app is gated on a license.
+ * It follows the desktop plate, which moved twice in September 2026 and which
+ * this shell was two rounds behind until 2026-09-18:
  *
- * The coin turns, as it does on desktop, and can be dragged — see [SupporterCoin],
- * which renders the same Blender model all three shells render. Nothing else on
- * the plate animates.
+ *   - **The well exists only while Licensed**, so the other two states reserve
+ *     no 184dp box at all and the fields take the whole plate.
+ *   - **Key is the whole ledger.** Nothing records a purchase date and nothing
+ *     limits a license, so "Licensed since" and "Term" only ever said blank or
+ *     "Perpetual". [licenseCardModel] still RETURNS both — it is shared law
+ *     across the three shells (`license-card-copy`) and did not change; this
+ *     screen simply stopped rendering them.
+ *   - **Unlicensed has no letterhead.** The badge, the "Client license" eyebrow
+ *     and the uppercase product name belong to a card, and Unlicensed has no
+ *     card: it has an ask. The condition is "is there a stored key".
+ *   - **Unlicensed leads with the ask**, with the reason ABOVE the one filled
+ *     button rather than between it and the links — the shape Grayjay's Buy
+ *     screen, FUTO Keyboard's Payment screen and Immich's purchase panel share.
+ *   - **The plate is an ordinary Settings card** ([SettingsGroup]), not a
+ *     gunmetal gradient of its own, which read as a foreign object in the sheet.
+ *     Only the gold accent is still the plate's own.
+ *
+ * The coin turns, can be dragged, and a tap queues a turn — see [SupporterCoin].
+ * Nothing else on the plate animates.
  *
  * Which controls each state offers is Rust's answer (`licenseRowActions` via
  * [LicenseModel.actions]), so Android and iOS render the same table and the
@@ -89,7 +101,7 @@ fun LicenseSettingsSection(license: LicenseModel) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
+    val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     var entering by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
@@ -99,6 +111,7 @@ fun LicenseSettingsSection(license: LicenseModel) {
     // "Unlicensed" at a licensed user for a frame.
     val view = license.view
     val card = view?.let { licenseCardModel(it, localization) }
+    val licensed = card?.status == LicenseStatus.LICENSED
 
     // Revealing the key is view state and nothing else. `remember` keyed on the
     // stored key re-masks whenever the card goes away (leaving Settings) AND
@@ -143,167 +156,208 @@ fun LicenseSettingsSection(license: LicenseModel) {
         actions.firstOrNull { it == LicenseAction.BUY || it == LicenseAction.RENEW }
     val otherActions = actions.filter { it != primaryAction }
 
-    // The section label stays exactly where every other Settings group has it;
-    // only the card underneath is made of different material.
-    MicroLabel(
-        localization.localizedText("license.sectionTitle"),
-        Modifier.padding(start = 4.dp, top = 12.dp, bottom = 8.dp),
-    )
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(FutoRadius.md))
-            .background(Brush.verticalGradient(listOf(c.plateTop, c.plateBottom)))
-            .padding(horizontal = 22.dp, vertical = 24.dp),
-    ) {
-        // A phone is narrower than the well plus a legible field column, so the
-        // plate stacks where desktop puts them side by side — the same
-        // re-flow desktop itself does below ~520px, taken as the only layout
-        // here rather than as a breakpoint.
-        LicenseWell(
-            licensed = card?.status == LicenseStatus.LICENSED,
-            // While the stored pair is still being read there is nothing
-            // truthful to call the well: "No license" would be a claim (M1).
-            label = when (card?.status) {
-                null -> null
-                LicenseStatus.LICENSED -> localization.localizedText("license.coinAccessibilityLabel")
-                else -> localization.localizedText("license.card.emptyWell")
-            },
-        )
-        Spacer(Modifier.height(20.dp))
+    // The state as one word, for assistive technology. It used to hang off the
+    // well, and the well is now gone from two of the three states — so the
+    // plate, which is always here, carries it. Licensed and Unlicensed have no
+    // badge to borrow (the coin says one, the ask says the other), so each
+    // reads its own catalog entry.
+    val statusName = when (card?.status) {
+        null -> null
+        LicenseStatus.LICENSED -> localization.localizedText("license.statusLicensed")
+        else -> card.badge ?: localization.localizedText("license.unlicensed")
+    }
 
-        Column(Modifier.fillMaxWidth()) {
-            card?.badge?.let { badge ->
-                PlateBadge(badge)
-                Spacer(Modifier.height(10.dp))
+    // Motion is opt-out at the OS level. Unlike the coin, which still has to
+    // render, a burst that does not move is nothing — so it is skipped outright
+    // rather than frozen.
+    val animates = remember {
+        Settings.Global.getFloat(
+            context.contentResolver,
+            Settings.Global.ANIMATOR_DURATION_SCALE,
+            1f,
+        ) != 0f
+    }
+    // Bursts this plate has thrown; null means there is nothing on it now. The
+    // counter only ever goes UP, which keeps the burst from being torn down by
+    // its own bookkeeping.
+    var celebration by remember { mutableStateOf<Int?>(null) }
+
+    // Collects the one thing worth celebrating: an activation nothing has marked
+    // yet — a key pasted in, or a `futonotes://` link the OS handed us. Opening
+    // Settings on a license stored earlier is not that, and neither is opening
+    // it on a license that has since been removed.
+    LaunchedEffect(license.activationToCelebrate) {
+        if (!license.activationToCelebrate) return@LaunchedEffect
+        license.markCelebrated()
+        if (animates) celebration = (celebration ?: 0) + 1
+    }
+
+    // The same label + bordered card every other Settings group is built from:
+    // the plate is one of the sheet's cards, not a slab of its own material.
+    SettingsGroup(localization.localizedText("license.sectionTitle")) {
+        Box {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 18.dp)
+                .then(
+                    if (statusName == null) {
+                        Modifier
+                    } else {
+                        Modifier.semantics { stateDescription = statusName }
+                    },
+                ),
+        ) {
+            // A phone is narrower than the well plus a legible field column, so
+            // the plate stacks where desktop puts them side by side — the same
+            // re-flow desktop itself does below ~520px, taken as the only
+            // layout here rather than as a breakpoint.
+            if (licensed) {
+                LicenseWell(localization.localizedText("license.coinAccessibilityLabel"))
+                Spacer(Modifier.height(20.dp))
             }
-            Text(
-                localization.localizedText("license.card.eyebrow").uppercase(),
-                style = FutoType.micro,
-                color = c.plateAccent,
-            )
-            Text(
-                localization.localizedText("license.card.productName").uppercase(),
-                style = FutoType.plateName,
-                color = c.plateInk,
-            )
 
-            if (card != null) {
-                Spacer(Modifier.height(16.dp))
-                PlateRule()
-                PlateRow(localization.localizedText("license.card.keyLabel")) {
+            Column(Modifier.fillMaxWidth()) {
+                if (card?.maskedKey != null) {
+                    // The letterhead, and only where there is a card to put it
+                    // on. Licensed wears no badge: the coin is the statement.
+                    card.badge?.let { badge ->
+                        PlateBadge(badge)
+                        Spacer(Modifier.height(10.dp))
+                    }
+                    Text(
+                        localization.localizedText("license.card.eyebrow").uppercase(),
+                        style = FutoType.micro,
+                        color = c.plateAccent,
+                    )
+                    Text(
+                        localization.localizedText("license.card.productName").uppercase(),
+                        style = FutoType.plateName,
+                        color = c.textPrimary,
+                    )
+
+                    // Key is the whole ledger. One blank row would be the same
+                    // void the empty well was, so with no key there is no
+                    // ledger at all.
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        localization.localizedText("license.card.keyLabel").uppercase(),
+                        style = FutoType.micro,
+                        color = c.textMuted,
+                    )
+                    Spacer(Modifier.height(2.dp))
                     PlateKeyValue(
                         card = card,
                         storedKey = view?.key,
                         revealed = revealed,
                         onReveal = { revealed = true },
-                        onCopy = { key ->
-                            clipboard.setText(AnnotatedString(key))
-                            license.announceKeyCopied()
-                        },
+                    )
+                } else if (card != null) {
+                    Text(
+                        localization.localizedText("license.unlicensedHeadline"),
+                        style = FutoType.plateName,
+                        color = c.textPrimary,
                     )
                 }
-                PlateRule()
-                // Present and blank for a v1 activation: nothing is invented to
-                // fill it (D2).
-                PlateRow(localization.localizedText("license.card.sinceLabel")) {
-                    PlateValue(card.since ?: "")
-                }
-                PlateRule()
-                PlateRow(localization.localizedText("license.card.termLabel")) {
-                    PlateValue(card.term)
-                }
-                PlateRule()
-            }
 
-            if (entering) {
-                LicenseKeyField(
-                    draft = draft,
-                    onDraft = { draft = it },
-                    busy = license.busy,
-                    onSubmit = ::submit,
-                    onCancel = ::cancelEntry,
-                )
-            } else if (primaryAction != null) {
-                Spacer(Modifier.height(18.dp))
-                // The ONE filled button on the plate, and it keeps the app's
-                // own primary colour: the gold is for rules, the badge and the
-                // plate's links, never a fill.
-                Button(
-                    onClick = { act(primaryAction) },
-                    shape = RoundedCornerShape(FutoRadius.sm),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(localization.localizedText(primaryAction.catalogPath()))
+                if (entering) {
+                    LicenseKeyField(
+                        draft = draft,
+                        onDraft = { draft = it },
+                        busy = license.busy,
+                        onSubmit = ::submit,
+                        onCancel = ::cancelEntry,
+                    )
+                } else if (card != null) {
+                    Spacer(Modifier.height(14.dp))
+                    // Never "free to use": Unlicensed and Expired ask, Licensed
+                    // thanks. The mission paragraph is the ONLY paragraph, and
+                    // it sits ABOVE the button it argues for — an argument
+                    // printed under its own button is a footnote.
+                    Text(
+                        localization.localizedText(
+                            if (licensed) "license.explanationLicensed" else "license.explanation",
+                        ),
+                        style = FutoType.caption,
+                        color = c.textMuted,
+                    )
+                    if (primaryAction != null) {
+                        Spacer(Modifier.height(16.dp))
+                        // The ONE filled button on the plate, and it keeps the
+                        // app's own primary colour: the gold is for the eyebrow,
+                        // the badge and the plate's links, never a fill.
+                        Button(
+                            onClick = { act(primaryAction) },
+                            shape = RoundedCornerShape(FutoRadius.sm),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(localization.localizedText(primaryAction.catalogPath()))
+                        }
+                    }
                 }
-            }
 
-            // In every state (docs/spec/license.md § States and copy). Never
-            // "free to use": Unlicensed asks, Licensed thanks.
-            Spacer(Modifier.height(16.dp))
-            Text(
-                localization.localizedText(
-                    if (card?.status == LicenseStatus.LICENSED) {
-                        "license.explanationLicensed"
-                    } else {
-                        "license.explanation"
-                    },
-                ),
-                style = FutoType.caption,
-                color = c.plateInkDim,
-            )
-
-            if (!entering && otherActions.isNotEmpty()) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    for (action in otherActions) {
-                        PlateLink(
-                            label = localization.localizedText(action.catalogPath()),
-                            onClick = { act(action) },
-                        )
+                if (!entering && otherActions.isNotEmpty()) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        for (action in otherActions) {
+                            PlateLink(
+                                label = localization.localizedText(action.catalogPath()),
+                                onClick = { act(action) },
+                            )
+                        }
                     }
                 }
             }
+        }
+
+        // The burst, and only ever inside the plate: the canvas is the plate's
+        // own box, so the coins bounce off ITS four walls rather than raining
+        // over the note list behind Settings. `key` restarts it per celebration;
+        // it removes itself when the last coin has faded (M5).
+        celebration?.let { id ->
+            key(id) {
+                CoinShower(
+                    // The middle of the well, so the burst reads as coming from
+                    // the thing that was just earned. A burst can only be thrown
+                    // by an activation, and an activation always leaves a
+                    // Licensed plate with a well at its top.
+                    originY = with(density) { (18.dp + WELL_DIAMETER / 2).toPx() },
+                    onFinished = { celebration = null },
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
+        }
         }
     }
 }
 
 /**
- * The well: a 184dp circular depression in the plate, present in EVERY state.
+ * The well: 184dp of reserved space with the coin in it, and only while
+ * Licensed.
  *
- * It has no fill and no ring (D1) — the plate's own gradient shows through, and
- * only an inset shadow says it is sunk. Compose has no `box-shadow: inset`, so
- * the desktop plate's
- * `inset 0 2px 6px rgba(0,0,0,.28), inset 0 -1px 0 rgba(255,255,255,.35)`
- * is drawn inside the clipped circle as three passes: a rim darkening that is
- * transparent until ~70% of the radius (the 6px blur), a vertical cast under
- * the top edge (the 2px downward offset), and one hairline of light along the
- * bottom inside edge (the `-1px` highlight).
+ * Nothing is painted here — no fill, no ring (D1). The box exists so the coin
+ * has a size to fill and somewhere to hang its accessibility label.
  */
 @Composable
-private fun LicenseWell(licensed: Boolean, label: String?) {
+private fun LicenseWell(label: String) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(WELL_DIAMETER)
-            .then(
-                if (label == null) Modifier else Modifier.semantics { contentDescription = label },
-            ),
+            .semantics { contentDescription = label },
     ) {
-        if (licensed) {
-            // The well carries the label; a second one on the coin would make it
-            // a separate stop that says the same thing, so `SupporterCoin` is
-            // undecorated.
-            SupporterCoin(diameter = COIN_DIAMETER)
-        }
+        // The well carries the label; a second one on the coin would make it
+        // a separate stop that says the same thing, so `SupporterCoin` is
+        // undecorated.
+        SupporterCoin(diameter = COIN_DIAMETER)
     }
 }
 
-/** Unlicensed and Expired name themselves; Licensed wears no badge, because the
- *  coin in the well is the statement. */
+/** Expired names itself; Licensed wears no badge, because the coin in the well
+ *  is the statement, and Unlicensed has no card to wear one on. */
 @Composable
 private fun PlateBadge(badge: String) {
     val c = FutoTheme.colors
@@ -321,50 +375,17 @@ private fun PlateBadge(badge: String) {
     }
 }
 
-/** One hairline of the ledger. */
-@Composable
-private fun PlateRule() {
-    HorizontalDivider(thickness = 1.dp, color = FutoTheme.colors.plateRule)
-}
-
-/**
- * One line of the plate's ledger: the label above its value, both at the
- * plate's full width.
- *
- * Desktop sets these as a two-column `dl` because its Settings pane is wide
- * enough. A phone is not: a 32-character masked key beside a label leaves under
- * 180dp for a monospace value, which wraps mid-group and reads like a mistake.
- * Stacking gives every value the whole plate and keeps all three rows the same
- * shape whatever a translation does to the labels.
- *
- * Every row is present in every state; a row with nothing to say renders blank
- * rather than disappearing, so the plate does not change shape when a license
- * arrives.
- */
-@Composable
-private fun PlateRow(label: String, value: @Composable () -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 8.dp)) {
-        Text(
-            label.uppercase(),
-            style = FutoType.micro,
-            color = FutoTheme.colors.plateInkDim,
-        )
-        Spacer(Modifier.height(2.dp))
-        value()
-    }
-}
-
-@Composable
-private fun PlateValue(value: String) {
-    Text(value, style = FutoType.caption, color = FutoTheme.colors.plateInk)
-}
-
 /**
  * The stored key, masked to its last group until it is asked for (D4).
  *
- * Masking is the shared card model's (`licenseCardModel`); revealing and
- * copying are local UI and no rule at all — Rust neither knows nor cares that
- * the screen is showing the key.
+ * Masking is the shared card model's ([licenseCardModel]); revealing is local
+ * UI and no rule at all — Rust neither knows nor cares that the screen is
+ * showing the key. There is no Copy control: copying is a deliberate
+ * press-and-copy, because a license key should not be one tap from the
+ * clipboard (@justin 2026-09-17).
+ *
+ * Label above value: a 39-character key beside a label leaves under 180dp for a
+ * monospace value, which wraps mid-group and reads like a mistake.
  */
 @Composable
 private fun PlateKeyValue(
@@ -372,45 +393,26 @@ private fun PlateKeyValue(
     storedKey: String?,
     revealed: Boolean,
     onReveal: () -> Unit,
-    onCopy: (String) -> Unit,
 ) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
-    val masked = card.maskedKey
-    if (masked == null || storedKey == null) {
-        // No license: the row is present and empty, like the since row.
-        PlateValue("")
-        return
-    }
-    if (!revealed) {
+    val masked = card.maskedKey ?: return
+    if (!revealed || storedKey == null) {
         TextButton(
             onClick = onReveal,
             contentPadding = PaddingValues(vertical = 4.dp),
-            colors = ButtonDefaults.textButtonColors(contentColor = c.plateInk),
+            colors = ButtonDefaults.textButtonColors(contentColor = c.textPrimary),
             // The masked value IS the control, so the button's accessible name
             // says what tapping it does rather than reading the dots aloud.
             modifier = Modifier.semantics {
                 contentDescription = localization.localizedText("license.card.revealKey")
             },
         ) {
-            Text(masked, style = FutoType.plateKey, color = c.plateInk)
+            Text(masked, style = FutoType.plateKey, color = c.textPrimary)
         }
         return
     }
-    Column {
-        Text(storedKey, style = FutoType.plateKey, color = c.plateInk)
-        TextButton(
-            onClick = { onCopy(storedKey) },
-            contentPadding = PaddingValues(vertical = 4.dp),
-            colors = ButtonDefaults.textButtonColors(contentColor = c.plateAccent),
-        ) {
-            Text(
-                localization.localizedText("license.card.copyKey"),
-                style = FutoType.caption,
-                color = c.plateAccent,
-            )
-        }
-    }
+    Text(storedKey, style = FutoType.plateKey, color = c.textPrimary)
 }
 
 /** Every control on the plate that is not the one filled button. */

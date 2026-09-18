@@ -14,16 +14,66 @@ func licenseKeyRowText(_ card: LicenseCardModel, key: String?, revealed: Bool) -
     return key
 }
 
+/// What the plate puts on screen, before any of it is drawn.
+///
+/// Four independent yes/no answers, and every one of them is a decision the
+/// desktop plate made in September 2026 and this shell was behind on. A free
+/// function rather than four `private var`s so the decisions are testable
+/// without hosting a SwiftUI view — the same reason `licenseKeyRowText` is one.
+struct LicensePlateShape: Equatable {
+    /// The 184pt well, and only while Licensed: an empty circle read as
+    /// something that had failed to load rather than as "no license".
+    let well: Bool
+    /// Badge, "Client license" eyebrow, uppercase product name. Letterhead
+    /// belongs to a card, and only a stored license makes this one.
+    let letterhead: Bool
+    /// The whole ledger — there is no "Licensed since" row and no "Term" row,
+    /// because nothing records a purchase date and nothing limits a license.
+    let keyRow: Bool
+    /// "Pay for FUTO Notes". The ask stands in for the letterhead, never
+    /// beside it.
+    let headline: Bool
+}
+
+/// `nil` while the stored pair is still being read: the plate renders its frame
+/// and claims nothing (M1).
+func licensePlateShape(_ card: LicenseCardModel?) -> LicensePlateShape {
+    guard let card else {
+        return LicensePlateShape(well: false, letterhead: false, keyRow: false, headline: false)
+    }
+    let stored = card.maskedKey != nil
+    return LicensePlateShape(
+        well: card.status == .licensed,
+        letterhead: stored,
+        keyRow: stored,
+        headline: !stored)
+}
+
 /// The License card — the FIRST section of Settings on mobile, and the only
 /// place a license is visible on this platform (docs/spec/license.md § States
 /// and copy).
 ///
-/// It is the "Steel Ledger" plate: one container, a gunmetal gradient, a gold
-/// accent, and a 184pt well that holds the supporter coin when licensed
-/// (docs/plan/license-ship.md D1). The well is unpainted space since
-/// 2026-09-16 — see `well` — and the coin TURNS, as it does on the other two
-/// platforms, and can be dragged; `SupporterCoin` renders the same Blender model
-/// all three shells render (D5, superseded).
+/// It follows the desktop plate, which moved twice in September 2026 and which
+/// this shell was two rounds behind until 2026-09-18:
+///
+///   - **The well exists only while Licensed.** An empty circle read as
+///     something that had failed to load rather than as "no license", so the
+///     other two states have no 184pt box reserved at all.
+///   - **Key is the whole ledger.** Nothing records a purchase date and nothing
+///     limits a license, so "Licensed since" and "Term" only ever said blank or
+///     "Perpetual". `licenseCardModel` still RETURNS both — it is shared law
+///     across the three shells (`license-card-copy`) and did not change; this
+///     view simply stopped rendering them.
+///   - **Unlicensed has no letterhead.** The badge, the "Client license"
+///     eyebrow and the uppercase product name belong to a card, and Unlicensed
+///     has no card: it has an ask. The condition is "is there a stored key".
+///   - **Unlicensed leads with the ask**, with the reason ABOVE the one filled
+///     button rather than under it — the shape Grayjay's Buy screen, FUTO
+///     Keyboard's Payment screen and Immich's purchase panel all use.
+///   - **The plate sits on the ordinary Settings card surface.** It carried a
+///     gunmetal gradient of its own, which read as a foreign object in the
+///     sheet; only the gold accent is still the plate's own, because the app has
+///     no token for it.
 ///
 /// Nothing in the app is gated on a license: this card is the only difference a
 /// purchase makes. Which controls each state offers is Rust's answer
@@ -46,6 +96,16 @@ struct LicenseSettingsSection: View {
     @State private var revealed = false
     @FocusState private var fieldFocused: Bool
 
+    /// Bursts this plate has thrown. It only ever goes UP, which is what keeps
+    /// the burst below from being torn down by its own bookkeeping; `nil` means
+    /// there is nothing on the plate right now.
+    @State private var celebration: Int?
+
+    /// Motion is opt-out at the OS level. Unlike the coin, which still has to
+    /// render, a burst that does not move is nothing — so it is skipped
+    /// outright rather than frozen.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     /// The well and the coin, in points. Named because two of the three
     /// platforms quote the same numbers.
     private static let wellDiameter: CGFloat = 184
@@ -65,13 +125,11 @@ struct LicenseSettingsSection: View {
         license.view.map { licenseCardModel($0, localization) }
     }
 
+    private var shape: LicensePlateShape { licensePlateShape(card) }
+
     var body: some View {
         Section(localization.localizedText("license.sectionTitle")) {
             plate
-                // The plate IS the card, so it replaces the grouped row
-                // background rather than sitting inside one.
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
                 // A different license is a different key: re-mask rather than
                 // reveal a key the user never asked to see. Leaving Settings
                 // re-masks on its own — the sheet drops this view's @State.
@@ -79,55 +137,132 @@ struct LicenseSettingsSection: View {
         }
     }
 
+    /// The plate keeps the Form's own row background: it is one of the sheet's
+    /// cards, not a slab of its own material.
     private var plate: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            well.frame(maxWidth: .infinity, alignment: .center)
-            identity
-            ledger
-            controls
-            explanation
+        VStack(alignment: .leading, spacing: 18) {
+            // The well exists only when there is a coin to sit in it.
+            if shape.well {
+                well.frame(maxWidth: .infinity, alignment: .center)
+            }
+
+            if shape.letterhead {
+                identity
+            }
+            if shape.keyRow {
+                keyRow
+            }
+            if shape.headline {
+                Text(localization.localizedText("license.unlicensedHeadline"))
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("license-headline")
+            }
+
+            stateBody(for: license.view?.status)
+            secondaryControls
         }
-        .padding(22)
+        .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            Theme.Plate.gradient,
-            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-        )
+        // The burst, and only ever inside the plate: the overlay is the plate's
+        // own box, so the coins bounce off ITS four walls rather than raining
+        // over the note list behind Settings.
+        .overlay {
+            if let celebration {
+                CoinShower(originY: burstOriginY) { self.celebration = nil }
+                    .id(celebration)
+                    .accessibilityHidden(true)
+            }
+        }
+        // Collects the one thing worth celebrating: an activation nothing has
+        // marked yet — a key pasted in, or a `futonotes://` link the OS handed
+        // us. Opening Settings on a license stored earlier is not that, and
+        // neither is opening it on a license that has since been removed.
+        .onChange(of: license.activationToCelebrate, initial: true) { _, owed in
+            guard owed else { return }
+            license.markCelebrated()
+            guard !reduceMotion else { return }
+            celebration = (celebration ?? 0) + 1
+        }
+        // Where the state is machine-readable from, in EVERY state. It used to
+        // hang off the well, and the well is now gone from two of the three
+        // states — so the plate, which is always here, carries it. A QA
+        // playbook reads `license-plate`'s VALUE; `license-status` still exists
+        // as the visible chip, but only where there is a badge to show (Expired).
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("license-plate")
+        .accessibilityValue(statusName)
     }
 
-    /// The well is present in every state — empty is a state, not an absence
-    /// (D1) — but it is now a reserved SPACE rather than a drawn recess. @justin
-    /// 2026-09-16 asked for the circle border gone on all three platforms, and
-    /// the filled disc plus its inset edge was that border; the coin sits on the
-    /// plate directly. The frame stays, so the layout and the label do not move.
+    /// The state as one word. Licensed and Unlicensed have no badge to borrow —
+    /// Licensed is said by the coin and Unlicensed by the ask — so each reads
+    /// its own catalog entry; before the license has been evaluated there is no
+    /// state to name.
+    private var statusName: String {
+        guard let card else { return "" }
+        if let badge = card.badge { return badge }
+        return localization.localizedText(
+            card.status == .licensed ? "license.statusLicensed" : "license.unlicensed")
+    }
+
+    /// The reason, the one filled button, and — once Licensed — the thank-you
+    /// in its place. Unlicensed and Expired read identically here; only the
+    /// button's word differs.
+    @ViewBuilder private func stateBody(for status: LicenseStatus?) -> some View {
+        if status == nil {
+            EmptyView()
+        } else if entering {
+            keyField
+        } else if status == .licensed {
+            Text(localization.localizedText("license.explanationLicensed"))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("license-explanation")
+        } else {
+            // The mission paragraph is the ONLY paragraph, and it sits above
+            // the button it argues for: an argument printed under its own
+            // button is a footnote (@justin 2026-09-18).
+            Text(localization.localizedText("license.explanation"))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("license-explanation")
+            ForEach(primaryActions, id: \.self) { action in
+                filledButton(for: action)
+            }
+        }
+    }
+
+    /// Where the coins come from: the middle of the well, so the burst reads as
+    /// coming from the thing that was just earned. A burst can only be thrown by
+    /// an activation, and an activation always leaves a Licensed plate with a
+    /// well at its top, so this is never guessing at a box that is not there.
+    private var burstOriginY: CGFloat { Self.wellDiameter / 2 }
+
+    /// The well is unpainted space, not a drawn recess: @justin 2026-09-16 asked
+    /// for the circle border gone on all three platforms, and the filled disc
+    /// plus its inset edge was that border. What is left reserves the box and
+    /// carries the accessibility label.
     private var well: some View {
         Color.clear
             .frame(width: Self.wellDiameter, height: Self.wellDiameter)
             .overlay {
-                if card?.status == .licensed {
-                    // The well already carries the coin's catalog label, so the
-                    // coin itself is hidden from VoiceOver rather than being a
-                    // second stop that says the same thing.
-                    SupporterCoin(diameter: Self.coinDiameter)
-                }
+                // The well already carries the coin's catalog label, so the
+                // coin itself is hidden from VoiceOver rather than being a
+                // second stop that says the same thing.
+                SupporterCoin(diameter: Self.coinDiameter)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityAddTraits(.isImage)
-            .accessibilityLabel(
-                localization.localizedText(
-                    card?.status == .licensed
-                        ? "license.coinAccessibilityLabel" : "license.card.emptyWell")
-            )
-            // The well is the one element present in every state, so it is also
-            // where the state is readable from: Licensed shows no badge, exactly
-            // as the desktop and Android plates do.
-            .accessibilityValue(statusName)
+            .accessibilityLabel(localization.localizedText("license.coinAccessibilityLabel"))
             .accessibilityIdentifier("license-well")
     }
 
-    /// Status, eyebrow, product name. Licensed wears no chip: the coin in the
-    /// well is the statement, and the state stays readable from the well's
-    /// accessibility value in every state.
+    /// Status, eyebrow, product name — the letterhead, and only where there is
+    /// a card to put it on. Licensed wears no chip: the coin in the well is the
+    /// statement.
     private var identity: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let badge = card?.badge {
@@ -143,12 +278,14 @@ struct LicenseSettingsSection: View {
                     .font(.system(size: 26, weight: .bold))
                     .textCase(.uppercase)
                     .tracking(0.6)
-                    .foregroundStyle(Theme.Plate.ink)
+                    .foregroundStyle(.primary)
             }
         }
     }
 
-    /// Unlicensed and Expired name themselves in a gold chip.
+    /// Expired names itself in a gold chip. Unlicensed used to as well, and
+    /// stopped: the section heading already says "License" and the state has no
+    /// card to wear a badge on.
     private func status(_ badge: String) -> some View {
         Text(badge)
             .font(.caption2.weight(.bold))
@@ -163,77 +300,32 @@ struct LicenseSettingsSection: View {
             .accessibilityIdentifier("license-status")
     }
 
-    /// The state as one word, for the well's accessibility value. Licensed has
-    /// no badge to borrow, so it reads its own catalog entry; before the
-    /// license has been evaluated there is no state to name.
-    private var statusName: String {
-        guard let card else { return "" }
-        return card.badge ?? localization.localizedText("license.statusLicensed")
-    }
-
-    /// Key, Licensed since, Term — three rows, present in every state. A row
-    /// with nothing to say renders blank; nothing is invented to fill it (D2).
-    private var ledger: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ledgerRow("license.card.keyLabel") { keyValue }
-            rule
-            ledgerRow("license.card.sinceLabel") { value(card?.since) }
-            rule
-            ledgerRow("license.card.termLabel") { value(card?.term) }
-        }
-    }
-
-    /// Label above value: the key is 39 characters in both its masked and
-    /// revealed forms, which no phone-width two-column row can hold.
-    private func ledgerRow(
-        _ label: String, @ViewBuilder content: () -> some View
-    ) -> some View {
+    /// Key is the whole ledger: label above value, because the key is 39
+    /// characters in both its masked and revealed forms and no phone-width
+    /// two-column row can hold it.
+    private var keyRow: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(localization.localizedText(label))
+            Text(localization.localizedText("license.card.keyLabel"))
                 .font(.caption2.weight(.semibold))
                 .textCase(.uppercase)
                 .tracking(0.8)
-                .foregroundStyle(Theme.Plate.inkDim)
-            content()
+                .foregroundStyle(.secondary)
+            keyValue
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 9)
     }
 
-    private var rule: some View {
-        Theme.Plate.rule.opacity(0.6).frame(height: 1)
-    }
-
-    private func value(_ text: String?) -> some View {
-        // An empty string still reserves the line, so the three rows keep
-        // their rhythm whatever the state.
-        Text(text?.isEmpty == false ? text! : " ")
-            .font(.subheadline)
-            .foregroundStyle(Theme.Plate.ink)
-    }
-
-    /// Masked until tapped, then the stored key plus a Copy control. The whole
-    /// masked value is the button: it is the affordance.
+    /// Masked until tapped, then the stored key as plain selectable text. There
+    /// is no Copy control: copying is a deliberate press-and-copy, because a
+    /// license key should not be one tap from the clipboard (@justin
+    /// 2026-09-17). The whole masked value is the button — it is the affordance.
     @ViewBuilder private var keyValue: some View {
         if let card, let shown = licenseKeyRowText(card, key: license.view?.key, revealed: revealed)
         {
             if revealed {
-                VStack(alignment: .leading, spacing: 8) {
-                    keyText(shown)
-                    Button {
-                        copyKey(license.view?.key)
-                    } label: {
-                        Label {
-                            Text(localization.localizedText("license.card.copyKey"))
-                        } icon: {
-                            Image(systemName: "doc.on.doc")
-                        }
-                        .font(.footnote.weight(.semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Theme.Plate.accent)
-                    .accessibilityIdentifier("license-key-copy")
-                }
+                keyText(shown)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("license-key-revealed")
             } else {
                 Button {
                     revealed = true
@@ -244,15 +336,13 @@ struct LicenseSettingsSection: View {
                 .accessibilityLabel(localization.localizedText("license.card.revealKey"))
                 .accessibilityIdentifier("license-key-masked")
             }
-        } else {
-            value(nil)
         }
     }
 
     private func keyText(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 13, design: .monospaced))
-            .foregroundStyle(Theme.Plate.ink)
+            .foregroundStyle(.primary)
             .lineLimit(1)
             .minimumScaleFactor(0.6)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -261,23 +351,19 @@ struct LicenseSettingsSection: View {
     /// Buy/Renew is the one filled button; everything else is a text button.
     /// The list itself is Rust's (`licenseRowActions`), including what
     /// `LICENSE_LINK_OUT` hides.
-    @ViewBuilder private var controls: some View {
-        if let view = license.view {
-            if entering {
-                keyField
-            } else {
-                let actions = licenseRowActions(status: view.status, linkOut: linkOut)
-                VStack(alignment: .leading, spacing: 14) {
-                    ForEach(actions.filter(Self.isPrimary), id: \.self) { action in
-                        filledButton(for: action)
-                    }
-                    let secondary = actions.filter { !Self.isPrimary($0) }
-                    if !secondary.isEmpty {
-                        HStack(spacing: 20) {
-                            ForEach(secondary, id: \.self) { action in
-                                textButton(for: action)
-                            }
-                        }
+    private var primaryActions: [LicenseAction] {
+        guard let view = license.view, !entering else { return [] }
+        return licenseRowActions(status: view.status, linkOut: linkOut).filter(Self.isPrimary)
+    }
+
+    @ViewBuilder private var secondaryControls: some View {
+        if let view = license.view, !entering {
+            let secondary = licenseRowActions(status: view.status, linkOut: linkOut)
+                .filter { !Self.isPrimary($0) }
+            if !secondary.isEmpty {
+                HStack(spacing: 20) {
+                    ForEach(secondary, id: \.self) { action in
+                        textButton(for: action)
                     }
                 }
             }
@@ -286,18 +372,6 @@ struct LicenseSettingsSection: View {
 
     private static func isPrimary(_ action: LicenseAction) -> Bool {
         action == .buy || action == .renew
-    }
-
-    private var explanation: some View {
-        // Never "free to use": Unlicensed asks, Licensed thanks
-        // (docs/spec/license.md § States and copy).
-        Text(
-            localization.localizedText(
-                license.view?.status == .licensed
-                    ? "license.explanationLicensed" : "license.explanation")
-        )
-        .font(.caption)
-        .foregroundStyle(Theme.Plate.inkDim)
     }
 
     /// One text field for all three accepted shapes (a bare key, `key/activation`,
@@ -310,20 +384,21 @@ struct LicenseSettingsSection: View {
                 localization.localizedText("license.keyLabel"),
                 text: $draft,
                 prompt: Text(localization.localizedText("license.keyPlaceholder"))
-                    .foregroundStyle(Theme.Plate.inkDim)
+                    .foregroundStyle(.secondary)
             )
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .submitLabel(.done)
             .focused($fieldFocused)
             .font(.system(size: 14, design: .monospaced))
-            .foregroundStyle(Theme.Plate.ink)
+            .foregroundStyle(.primary)
             .tint(Theme.primary)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(
-                Theme.Plate.recess,
-                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(0.06))
+                    .stroke(Color(.separator), lineWidth: 1)
             )
             .accessibilityIdentifier("license-key-field")
             .onSubmit { Task { await submit() } }
@@ -360,6 +435,7 @@ struct LicenseSettingsSection: View {
             perform(action)
         } label: {
             filledLabel(localization.localizedText(Self.copyPath(for: action)))
+                .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(Self.identifier(for: action))
@@ -425,15 +501,6 @@ struct LicenseSettingsSection: View {
         case .remove:
             license.remove()
         }
-    }
-
-    /// Copying is local UI, not a rule: the stored key goes to the pasteboard
-    /// verbatim, and the confirmation rides the same banner path as every
-    /// license outcome so the user never gets two kinds of toast.
-    private func copyKey(_ key: String?) {
-        guard let key, !key.isEmpty else { return }
-        UIPasteboard.general.string = key
-        license.announce(LocalizedMessage("license.card.keyCopied"))
     }
 
     private func submit() async {
