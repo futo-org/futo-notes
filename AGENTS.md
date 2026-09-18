@@ -10,8 +10,9 @@ user data or shipped behavior; never weaken one to make a test, build, or pipeli
 Engineering defaults: the simplest implementation that fully meets the current requirement, and an
 established, well-maintained library over a custom one.
 
-**Read the nearest nested `AGENTS.md` before editing a layer.** This includes `src/`,
-`packages/editor/`, `crates/futo-notes-{core,sync}/`, each app, and `docs/spec/`.
+**Read the nearest nested `AGENTS.md` before editing a layer.** Every crate has one
+(`crates/futo-notes-{core,model,store,search,sync,ffi}/`), as does `src/`, `packages/editor/`,
+each app in `apps/`, `scripts/`, `tests/`, and `docs/spec/`.
 
 For structural work, read `docs/architecture/codebase-organization.md`: use the narrowest real
 owner, make shared code earn its scope, keep entry points as orchestration, co-locate tests, and

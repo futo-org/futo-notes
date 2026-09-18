@@ -95,7 +95,7 @@ targets:
       # ── Dev/prod separation (mirrors the Tauri debug guard) ──
       # Debug builds get a SEPARATE bundle id + data root + keychain service so a
       # dev/debug install can never overwrite the production app or touch the
-      # user's real notes (see CLAUDE.md "Dev/debug builds MUST NOT overwrite").
+      # user's real notes (see AGENTS.md M3, "Dev touches prod data").
       # The two markers below are read at runtime:
       #   - PRODUCT_BUNDLE_IDENTIFIER drives the install identity.
       #   - FUTO_DEBUG_BUILD=1 (Debug only) selects the dev data root +
