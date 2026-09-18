@@ -298,6 +298,46 @@ class LicenseSurfaceTest {
         )
     }
 
+    /**
+     * Revealing the key moves NOTHING: the mask is the key's own length in a
+     * monospace face, so the swap is glyph-for-glyph and the row keeps its box
+     * (@justin 2026-09-18). Desktop and iOS hold this; Android visibly shifted,
+     * which is the regression this pins.
+     *
+     * It reads geometry rather than looks, because "nothing shifts" is not
+     * something a text assertion can see: the key's own box before and after,
+     * and the top of the control below it.
+     */
+    @Test
+    fun revealingTheKeyMovesNothingOnThePlate() {
+        val localization = Localization.fromGeneratedCatalogs(listOf("en"), "en-US")
+        val license = licensedModel()
+        val view = checkNotNull(license.view)
+        val storedKey = checkNotNull(view.key)
+        val masked = checkNotNull(licenseCardModel(view, localization).maskedKey)
+        val remove = localization.localizedText("license.remove")
+
+        showPlate(license, localization)
+
+        compose.onNodeWithText(masked).performScrollTo()
+        val keyBefore = compose.onNodeWithText(masked).fetchSemanticsNode().boundsInRoot
+        val removeBefore = compose.onNodeWithText(remove).fetchSemanticsNode().boundsInRoot
+
+        compose
+            .onNodeWithContentDescription(localization.localizedText("license.card.revealKey"))
+            .performClick()
+
+        val keyAfter = compose.onNodeWithText(storedKey).fetchSemanticsNode().boundsInRoot
+        val removeAfter = compose.onNodeWithText(remove).fetchSemanticsNode().boundsInRoot
+
+        assertEquals("the key row moved: $keyBefore -> $keyAfter", keyBefore, keyAfter)
+        assertEquals(
+            "the plate below the key moved: $removeBefore -> $removeAfter",
+            removeBefore,
+            removeAfter,
+        )
+    }
+
     /** The plate, in a scrolling column: an assertion must not fail merely
      *  because this device's screen is shorter than the card. */
     private fun showPlate(license: LicenseModel, localization: Localization) {

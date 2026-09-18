@@ -583,7 +583,14 @@ one catalog entry, `license.enterKey`, so all three shells moved together
   so a 42-character prefixed key slid three cells right as it appeared and took
   the rows under it with it. The masked and revealed states are also the same
   CONTROL rather than a button swapped for a label, because that swap moved the
-  rows below by the button's minimum height. **There is no copy affordance on any
+  rows below by the button's minimum height. _(android)_ **The monospace face is
+  bundled, not borrowed**: a phone with a system font theme applied (Motorola
+  Styles, and the Samsung/OnePlus equivalents) answers `FontFamily.Monospace` —
+  and `android.graphics.Typeface.MONOSPACE` — with a proportional grotesk, so on
+  a moto g play running "Rookery" the key was set in the theme font and the plate
+  jumped on reveal; Android ships JetBrains Mono NL for this one value
+  (2026-09-18). Desktop's CSS monospace stack and iOS's SF Mono are not
+  substitutable in this way, so neither bundles a file. **There is no copy affordance on any
   platform**: the revealed key is plain selectable text, and copying it is a
   deliberate select-and-copy, because a license key should not be one click from
   the clipboard (@justin 2026-09-17; desktop first, both native shells
@@ -597,7 +604,9 @@ one catalog entry, `license.enterKey`, so all three shells moved together
   last", `tests/license-card.spec.ts` "the masked key reveals the full key, with
   no copy button"; _(ios)_ `LicenseSurfaceTests` "the card shows the masked key and
   reveals on tap"; _(android)_ `LicenseSurfaceTest`
-  "theCardMasksTheStoredKeyAndRevealsItOnTap"
+  "theCardMasksTheStoredKeyAndRevealsItOnTap" +
+  "revealingTheKeyMovesNothingOnThePlate", `LicenseKeyFontTest`
+  "everyCharacterTheKeyCanContainIsTheSameWidth"
 - Each row pairs a **label with a value**; the arrangement is the platform's.
   _(native shells)_ Every row stacks its label above its value, and _(desktop)_
   the Key row does too — a 39-character monospace key does not fit beside a
