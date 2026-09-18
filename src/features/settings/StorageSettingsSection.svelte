@@ -23,7 +23,7 @@
       </p>
     {/if}
     <div class="settings-actions" style="margin-top: 10px">
-      <button class="settings-btn settings-btn-inline" onclick={onchange}
+      <button class="settings-btn settings-btn-secondary" onclick={onchange}
         >{localizedText('settings.storage.changeDirectory')}</button
       >
     </div>
