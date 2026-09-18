@@ -39,6 +39,7 @@ vi.mock('$lib/platform', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   hasFileSystem: true,
   getFS: () => fsMock,
+  getPlatformFS: async () => fsMock,
   onFileDrop: (listener: (payload: FileDropPayload) => void) => {
     fileDropListeners.push(listener);
     return () => {};

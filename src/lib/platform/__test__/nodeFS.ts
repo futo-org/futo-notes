@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { ensureSafeRelativePath } from '../pathSafety';
 import type { DirFileEntry, PlatformFS } from '../types';
 
 export interface TestPlatformFS extends PlatformFS {
@@ -14,8 +15,10 @@ export interface TestPlatformFS extends PlatformFS {
 export function createNodeFS(): TestPlatformFS {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'futo-platform-test-'));
 
+  // Same traversal rule the Tauri adapter applies, so a test that asserts a
+  // rejection is asserting the shipped one.
   function full(relative: string): string {
-    if (relative.includes('..') || path.isAbsolute(relative)) throw new Error('invalid path');
+    ensureSafeRelativePath(relative);
     return path.join(root, relative);
   }
 
@@ -52,14 +55,19 @@ export function createNodeFS(): TestPlatformFS {
         return [];
       }
     },
-    async listDirFiles(): Promise<DirFileEntry[]> {
-      return fs
-        .readdirSync(root, { withFileTypes: true })
-        .filter((entry) => entry.isFile())
-        .map((entry) => {
-          const metadata = fs.statSync(path.join(root, entry.name));
-          return { name: entry.name, size: metadata.size, mtime: metadata.mtimeMs };
-        });
+    async listVaultFiles(include: (path: string) => boolean): Promise<DirFileEntry[]> {
+      const walk = (prefix: string): DirFileEntry[] =>
+        fs
+          .readdirSync(prefix ? path.join(root, prefix) : root, { withFileTypes: true })
+          .filter((entry) => !entry.name.startsWith('.'))
+          .flatMap((entry) => {
+            const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+            if (entry.isDirectory()) return walk(relative);
+            if (!entry.isFile() || !include(relative)) return [];
+            const metadata = fs.statSync(path.join(root, relative));
+            return [{ name: relative, size: metadata.size, mtime: metadata.mtimeMs }];
+          });
+      return walk('');
     },
     async deleteFile(filename) {
       fs.rmSync(full(filename), { force: true });
