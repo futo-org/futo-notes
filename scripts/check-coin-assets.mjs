@@ -12,13 +12,22 @@
 //
 // Both are hashes, recorded by the build into assets/coin/manifest.json.
 //
+// It also proves a third thing, which needs no Blender at all: the studio half
+// of the coin is pure arithmetic, so `scripts/lib/studio-env.mjs` can rerun it
+// and the result can be compared against the .hdr on disk. That is what makes
+// the tuner's copy of the room (`just coin-tuner`) a locked duplicate rather
+// than a hopeful one.
+//
 //   just coin         regenerate (needs Blender)
+//   just coin-tuner   play with the numbers
 //   just coin-check   this gate
 
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+
+import { buildStudioEnvironment, compareToHdr, decodeRadianceHdr } from './lib/studio-env.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const COIN = path.join(ROOT, 'assets/coin');
@@ -92,6 +101,37 @@ if (manifest.ibl !== undefined) {
   }
 }
 
+// The studio is generated from about thirty lines of numpy, and
+// scripts/lib/studio-env.mjs runs the same arithmetic so the coin tuner can
+// rebuild the room while a slider moves. Two copies of one formula, so this
+// holds them together: build the room here, decode the shipped .hdr, and insist
+// they agree to within the file format's own rounding. RGBE truncates to a
+// per-pixel step, so a faithful port lands just under 1 step and a changed
+// formula lands far above it.
+const HDR_TOLERANCE_QUANTA = 1;
+try {
+  const decoded = decodeRadianceHdr(
+    new Uint8Array(readFileSync(path.join(COIN, 'studio-env.hdr'))),
+  );
+  const drift = compareToHdr(buildStudioEnvironment(), decoded);
+  if (!(drift.worst < HDR_TOLERANCE_QUANTA)) {
+    problems.push(
+      `scripts/lib/studio-env.mjs no longer reproduces assets/coin/studio-env.hdr.\n` +
+        `    worst disagreement ${drift.worst.toFixed(3)} quantisation steps ` +
+        `(at row ${drift.row}, column ${drift.column}); anything from ` +
+        `${HDR_TOLERANCE_QUANTA} up is a real difference in the arithmetic.\n` +
+        `    The studio lives in TWO places (drift-registry \`coin-studio-environment\`):\n` +
+        `    assets/coin/build-coin.py \`build_environment\` and that module's SHIPPED +\n` +
+        `    buildStudioEnvironment. Change both in one commit, then: just coin`,
+    );
+  }
+} catch (error) {
+  problems.push(
+    `assets/coin/studio-env.hdr could not be checked against scripts/lib/studio-env.mjs:\n` +
+      `    ${error.message}`,
+  );
+}
+
 if (problems.length > 0) {
   console.error('Coin asset gate FAILED:\n');
   for (const problem of problems) console.error(`  - ${problem}\n`);
@@ -100,5 +140,6 @@ if (problems.length > 0) {
 
 console.log(
   `Coin asset gate OK — ${Object.keys(manifest.outputs).length} exports match build-coin.py ` +
-    `(Blender ${manifest.blender}${manifest.ibl === undefined ? '' : `, ${manifest.ibl.tool}`}).`,
+    `(Blender ${manifest.blender}${manifest.ibl === undefined ? '' : `, ${manifest.ibl.tool}`}), ` +
+    `and studio-env.mjs rebuilds the studio to within a quantisation step.`,
 );

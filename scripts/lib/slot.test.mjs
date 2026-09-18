@@ -63,12 +63,20 @@ describe('portsFor', () => {
       sync: PORT_BASES.sync + slot,
       cdp: PORT_BASES.cdp + slot,
       mcp: PORT_BASES.mcp + slot,
+      coinTuner: PORT_BASES.coinTuner + slot,
     });
   });
 
   // /verify's SKILL.md publishes these ranges, so the literals are the contract.
   it('pins the published port bases', () => {
-    expect(PORT_BASES).toEqual({ tauriVite: 5200, web: 5250, sync: 3100, cdp: 9330, mcp: 9223 });
+    expect(PORT_BASES).toEqual({
+      tauriVite: 5200,
+      web: 5250,
+      sync: 3100,
+      cdp: 9330,
+      mcp: 9223,
+      coinTuner: 5300,
+    });
   });
 
   it('keeps the tauri-dev and web ranges disjoint so both can run at once', () => {
@@ -224,6 +232,7 @@ describe('CLI selectors', () => {
       sync: 'SYNC_PORT',
       cdp: 'CDP_PORT',
       mcp: 'FUTO_MCP_BASE_PORT',
+      coinTuner: 'COIN_TUNER_PORT',
     });
   });
 

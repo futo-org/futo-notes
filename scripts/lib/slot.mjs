@@ -18,6 +18,10 @@ export const PORT_BASES = {
   // needs its own base to be free, and a stride of 1 kept two worktrees fighting
   // over 9223. Kept clear of cdp (9330+).
   mcp: 9223,
+  // `just coin-tuner`'s static server. Clear of web (5250+) so the tuner and a
+  // dev server can be up at once, which is the normal case: you tune the coin
+  // against the real app beside it.
+  coinTuner: 5300,
 };
 
 // The cross-platform sync harness is the one consumer that needs a RANGE, not a
@@ -112,6 +116,7 @@ export const ENV_NAMES = {
   sync: 'SYNC_PORT',
   cdp: 'CDP_PORT',
   mcp: 'FUTO_MCP_BASE_PORT',
+  coinTuner: 'COIN_TUNER_PORT',
 };
 
 export function envLines(root) {

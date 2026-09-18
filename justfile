@@ -615,10 +615,21 @@ coin:
   node scripts/build-coin-ibl.mjs
   node scripts/check-coin-assets.mjs
 
-# Fail if the exports no longer match build-coin.py, or were hand-edited (M8).
+# Fail if the exports no longer match build-coin.py, or were hand-edited (M8),
+# and if scripts/lib/studio-env.mjs no longer rebuilds the shipped studio.
 # Needs no Blender, which is why it can run in CI and in `just check`.
 coin-check:
   node scripts/check-coin-assets.mjs
+
+# Per-shell exposure (no regeneration), material roughness and colour, the room,
+# and each of the five lamps. It reads out what percentage of the coin is blown
+# out and will sweep 360 degrees to find the worst angle, so "too bright at some
+# angles" becomes a number. Nothing is written to the repo: the page prints the
+# constants and names the files to paste them into. Static server on a
+# slot-derived port, Ctrl-C to stop.
+# Play with every dial that decides how bright the supporter coin is.
+coin-tuner:
+  @node scripts/coin-tuner.mjs
 
 # Regenerate the native shells' toolbar specs
 # (apps/ios/Sources/Editor/GeneratedContracts/ToolbarSpec.swift)
