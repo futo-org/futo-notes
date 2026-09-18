@@ -294,6 +294,14 @@ Behaviors and constraints that hold across every surface and platform.
   returns focus to the trigger; the press itself never moves focus, so the
   listbox cannot close on press and reopen on release. Pressing elsewhere
   leaves focus where the user put it. → features/settings/LanguageSettingsSection.svelte
+- **An open overlay covers the scrollbars too.** A context menu or modal that
+  straddles a scrolling surface is drawn over its scrollbar, not under it: while
+  a portalled overlay is mounted, overlay-style scrollbars (ones that reserve no
+  layout width — WebKitGTK, macOS) are hidden, because WebKit paints them after
+  the rest of the page and no z-index outranks that pass. Scrollbars that
+  reserve width are left alone, so nothing reflows when a menu opens. Reported
+  on Ubuntu 2026-09-16: the sidebar scrollbar striped an open note context menu.
+  → shared/dom/portal.ts, styles/stacking.css, shared/dom/portal.test.ts
 - A standard modal is `role="dialog" aria-modal="true"`, named by its title,
   traps Tab inside the card, dismisses on a backdrop click, and returns focus to
   whatever was focused when it opened. → shared/dialogs/Modal.svelte
