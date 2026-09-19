@@ -214,6 +214,41 @@ test.describe('License card', () => {
     await expect(page.getByRole('button', { name: 'Copy key' })).toHaveCount(0);
   });
 
+  // Taking the Copy button away only works if select-and-copy actually does.
+  // `body` sets `user-select: none` (src/styles/base.css) — the rule that gives
+  // the app its native, non-web feel — and it inherits straight down onto the
+  // revealed key, so the one value a buyer must get OUT of the app could not be
+  // selected at all. Justin hit that on his own desktop build on 2026-09-19.
+  //
+  // Two assertions, because either alone would miss it: the computed value, and
+  // a real Range over the span. The desktop ships on WebKit, which honours
+  // `user-select: none` against the Selection API too — a scripted selection
+  // there returns the empty string rather than the key.
+  test('the revealed key is selectable, so select-and-copy can reach it', async ({ page }) => {
+    await openLicenseSettings(page, LICENSED_V2);
+
+    // The mask is a control, not a value: it stays unselectable, so a
+    // double-click on it reveals rather than highlighting thirty-two dots.
+    await expect(page.locator('.license-key-masked')).toHaveCSS('user-select', 'none');
+
+    await page.getByRole('button', { name: 'Show key' }).click();
+
+    const key = page.locator('.license-key');
+    await expect(key).toHaveText(KEY);
+    await expect(key).toHaveCSS('user-select', 'text');
+    await expect(key).toHaveCSS('-webkit-user-select', 'text');
+
+    const selected = await key.evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      return selection?.toString() ?? '';
+    });
+    expect(selected).toBe(KEY);
+  });
+
   // The coin is a Blender model (assets/coin/futo-coin.glb) lit by an exported
   // studio environment, loaded at runtime by three.js. Asserting the canvas
   // exists would prove almost nothing — a failed fetch, a black material or a

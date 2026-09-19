@@ -377,6 +377,18 @@
     overflow-wrap: anywhere;
   }
 
+  /* `body` sets `user-select: none` (src/styles/base.css) — the rule that gives
+     the app its native, non-web feel — and it inherits straight down onto this
+     span. There is no Copy control by design (@justin 2026-09-17), so the
+     revealed key was the one value a buyer has to get OUT of the app and could
+     not be selected at all; on WebKit `none` also defeats a scripted Range, not
+     just a drag. The MASK keeps the app-wide rule: it is a control, so a
+     double-click on it should reveal rather than highlight thirty-two dots. */
+  .license-key:not(.license-key-masked) {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
   .license-key-masked {
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;

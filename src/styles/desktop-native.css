@@ -76,6 +76,13 @@
   html.desktop-chrome .supporter-coin-stage[data-turning='true'] {
     cursor: grabbing !important;
   }
+
+  /* The revealed license key is the one piece of text outside the editor a user
+     is meant to select — there is no Copy button, by design — and in an app
+     where nothing else selects, the I-beam is the only thing that says so. */
+  html.desktop-chrome .license-key:not(.license-key-masked) {
+    cursor: text !important;
+  }
 }
 
 /* macOS "Reduce Motion" (System Settings ▸ Accessibility ▸ Display). A native

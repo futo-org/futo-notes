@@ -1,20 +1,30 @@
 package com.futo.notes.license
 
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.contextmenu.data.TextContextMenuComponent
+import androidx.compose.foundation.text.contextmenu.data.TextContextMenuItem
+import androidx.compose.foundation.text.contextmenu.data.TextContextMenuKeys
+import androidx.compose.foundation.text.contextmenu.data.TextContextMenuSession
+import androidx.compose.foundation.text.contextmenu.provider.LocalTextContextMenuToolbarProvider
+import androidx.compose.foundation.text.contextmenu.provider.TextContextMenuDataProvider
+import androidx.compose.foundation.text.contextmenu.provider.TextContextMenuProvider
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.futo.notes.BuildConfig
@@ -22,6 +32,7 @@ import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.Localization
 import com.futo.notes.ui.LicenseSettingsSection
 import com.futo.notes.ui.theme.FutoNotesTheme
+import kotlinx.coroutines.awaitCancellation
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -336,6 +347,101 @@ class LicenseSurfaceTest {
             removeBefore,
             removeAfter,
         )
+    }
+
+    /**
+     * The revealed key is genuinely selectable, so select-and-copy can reach it.
+     *
+     * There is no Copy control by design (@justin 2026-09-17) — which only
+     * means anything if select-and-copy WORKS. Compose text is not selectable
+     * unless something puts a `SelectionContainer` over it, and this app had
+     * none anywhere, so the 42 characters a buyer has to get off the phone
+     * could only be transcribed by hand. Justin hit the same hole on desktop on
+     * 2026-09-19.
+     *
+     * Asserted at the seam where a long press asks for the floating menu, not
+     * by looking for a `SelectionContainer` in the tree: this fails for the
+     * reason a user would — nothing offered Copy over the key — instead of
+     * restating the source. That seam is `LocalTextContextMenuToolbarProvider`
+     * and NOT `LocalTextToolbar`, because `ComposeFoundationFlags
+     * .isNewContextMenuEnabled` ships true in Compose 1.9; a fake `TextToolbar`
+     * records nothing at all here, which looks exactly like a broken fix.
+     */
+    @Test
+    fun theRevealedKeyCanBeSelectedAndCopied() {
+        val localization = Localization.fromGeneratedCatalogs(listOf("en"), "en-US")
+        val license = licensedModel()
+        val storedKey = checkNotNull(checkNotNull(license.view).key)
+        val menu = RecordingTextContextMenu()
+
+        compose.setContent {
+            FutoNotesTheme(darkTheme = false) {
+                CompositionLocalProvider(
+                    LocalLocalization provides localization,
+                    LocalTextContextMenuToolbarProvider provides menu,
+                ) {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        LicenseSettingsSection(license)
+                    }
+                }
+            }
+        }
+
+        // Masked, the key is a control and nothing else: a long press on it
+        // raises no selection menu. (It does reveal — `clickable` has no
+        // long-press timeout, so the press still lands as the tap it is.)
+        compose
+            .onNodeWithContentDescription(localization.localizedText("license.card.revealKey"))
+            .performScrollTo()
+            .performTouchInput { longClick() }
+        compose.waitForIdle()
+        assertTrue(
+            "the mask offered a selection menu: ${menu.components}",
+            menu.components.isEmpty(),
+        )
+
+        compose.onNodeWithText(storedKey).performScrollTo().performTouchInput { longClick() }
+        compose.waitForIdle()
+
+        val copy = menu.item(TextContextMenuKeys.CopyKey)
+        assertNotNull("no Copy was offered over the revealed key: ${menu.components}", copy)
+
+        // And Copy copies the key. A long press selects the word under it, so
+        // what lands on the clipboard is a run of the key rather than all of it.
+        val clipboard = checkNotNull(context.getSystemService(ClipboardManager::class.java))
+        compose.runOnUiThread { checkNotNull(copy).onClick(NoopSession) }
+        compose.waitForIdle()
+        val copied = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+        assertNotNull("Copy put nothing on the clipboard", copied)
+        assertTrue(
+            "the clipboard holds \"$copied\", which is not part of $storedKey",
+            checkNotNull(copied).isNotEmpty() && storedKey.contains(copied),
+        )
+    }
+
+    /**
+     * The floating text menu, recorded instead of shown. `showTextContextMenu`
+     * suspends for as long as the menu is up, so this parks rather than
+     * returning — returning immediately would tell Compose the menu had already
+     * been dismissed.
+     */
+    private class RecordingTextContextMenu : TextContextMenuProvider {
+        var components: List<TextContextMenuComponent> = emptyList()
+            private set
+
+        fun item(key: Any): TextContextMenuItem? =
+            components.filterIsInstance<TextContextMenuItem>().firstOrNull { it.key == key }
+
+        override suspend fun showTextContextMenu(dataProvider: TextContextMenuDataProvider) {
+            components = dataProvider.data().components
+            awaitCancellation()
+        }
+    }
+
+    /** Invoking an item's action needs the session it would close; nothing here
+     *  has a menu on screen to close. */
+    private object NoopSession : TextContextMenuSession {
+        override fun close() = Unit
     }
 
     /** The plate, in a scrolling column: an assertion must not fail merely

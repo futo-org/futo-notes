@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
@@ -333,7 +334,10 @@ private fun PlateBadge(badge: String) {
  * UI and no rule at all — Rust neither knows nor cares that the screen is
  * showing the key. There is no Copy control: copying is a deliberate
  * press-and-copy, because a license key should not be one tap from the
- * clipboard (@justin 2026-09-17).
+ * clipboard (@justin 2026-09-17) — which is why the revealed key sits in a
+ * [SelectionContainer]. Compose text is not selectable without one, so until
+ * 2026-09-19 that sentence described nothing: the 42 characters a buyer has to
+ * get off the phone could only be transcribed by hand.
  *
  * Label above value: a 39-character key beside a label leaves under 180dp for a
  * monospace value, which wraps mid-group and reads like a mistake.
@@ -345,37 +349,40 @@ private fun PlateKeyValue(
     revealed: Boolean,
     onReveal: () -> Unit,
 ) {
-    val c = FutoTheme.colors
     val localization = LocalLocalization.current
     val masked = card.maskedKey ?: return
-    val shown = if (revealed && storedKey != null) storedKey else masked
     // ONE Text in both states, not a TextButton swapped for a Text. The button
     // carries a 40dp minimum height and its own content padding, so revealing
     // the key used to shorten the row and pull everything below it up the
     // screen. Only the STRING changes now, and because the mask is the key's
     // own length in a monospace face, the reveal is a glyph-for-glyph swap that
-    // moves nothing at all (@justin 2026-09-18).
+    // moves nothing at all (@justin 2026-09-18) — a `SelectionContainer` is a
+    // `Box` around one child, so it measures to the Text and moves nothing
+    // either (`revealingTheKeyMovesNothingOnThePlate` holds that).
+    if (revealed && storedKey != null) {
+        SelectionContainer { PlateKeyText(storedKey, Modifier) }
+    } else {
+        // The masked value IS the control, so it stays unselectable and its
+        // accessible name says what tapping it does rather than reading the
+        // dots aloud.
+        PlateKeyText(
+            masked,
+            Modifier
+                .clickable(onClick = onReveal)
+                .semantics {
+                    contentDescription = localization.localizedText("license.card.revealKey")
+                },
+        )
+    }
+}
+
+@Composable
+private fun PlateKeyText(shown: String, modifier: Modifier) {
     Text(
         shown,
         style = FutoType.plateKey,
-        color = c.textPrimary,
-        modifier = Modifier
-            .padding(vertical = 4.dp)
-            .then(
-                if (revealed && storedKey != null) {
-                    Modifier
-                } else {
-                    // The masked value IS the control, so its accessible name
-                    // says what tapping it does rather than reading the dots
-                    // aloud.
-                    Modifier
-                        .clickable(onClick = onReveal)
-                        .semantics {
-                            contentDescription =
-                                localization.localizedText("license.card.revealKey")
-                        }
-                },
-            ),
+        color = FutoTheme.colors.textPrimary,
+        modifier = Modifier.padding(vertical = 4.dp).then(modifier),
     )
 }
 

@@ -97,6 +97,22 @@ final class LicensePlateTests: XCTestCase {
         XCTAssertEqual(revealed.label, LicenseFixture.key)
         XCTAssertFalse(app.buttons["license-key-copy"].exists, "a Copy key control came back")
 
+        // Taking the Copy control away only works if select-and-copy does, so
+        // that is asserted rather than assumed: a long press on the revealed
+        // key must raise the system edit menu with Copy on it. Desktop and
+        // Android both failed this on 2026-09-19 — they had neither the button
+        // nor the selection — and the only thing standing between iOS and the
+        // same bug is one `.textSelection(.enabled)` modifier, which nothing
+        // else would notice the loss of.
+        revealed.press(forDuration: 1.2)
+        let copyItem = app.menuItems["Copy"]
+        XCTAssertTrue(
+            copyItem.waitForExistence(timeout: 5),
+            "no Copy in the edit menu — the revealed key is not selectable")
+        // Put the menu away before the rest of the story taps the plate.
+        app.staticTexts["license-key-revealed"].tap()
+        XCTAssertFalse(copyItem.waitForExistence(timeout: 2), "the edit menu stayed up")
+
         // Let the burst finish, so the attachment shows the card it leaves
         // behind rather than coins still in the air.
         RunLoop.current.run(until: Date().addingTimeInterval(4))
