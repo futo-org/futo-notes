@@ -31,19 +31,30 @@ export {
 export { createFindMatchReport, type FindMatch, type FindMatchReport } from './findMatches';
 
 /**
- * Whether this editor instance renders the WEB find bar.
+ * Everything a find bar renders — the whole of what the engine tells one.
  *
- * Desktop only. iOS and Android ship native find bars (NoteEditorView.swift,
- * NoteEditorScreen.kt) because a web panel is not native-quality mobile chrome
- * and because the bar has to dock above the soft keyboard, which the page
- * cannot see. Same gate and same reason as `resolveSelectionToolbar`; named
- * here because components never branch on platform (src/AGENTS.md).
- *
- * The ENGINE is mounted on every platform regardless — only the bar is gated.
+ * A bar owns no find logic: it shows this and calls back in. The desktop bar
+ * (`FindPanel.svelte`, drawn by the shell's `NoteWorkspace.svelte`) and the two
+ * native bars all work from exactly these five fields, and `label` is the
+ * engine's own wording, never recomputed.
  */
-export function resolveFindPanel(nativeShell: boolean): 'enabled' | 'disabled' {
-  return nativeShell ? 'disabled' : 'enabled';
+export interface FindBarState {
+  open: boolean;
+  query: string;
+  label: string;
+  hasMatches: boolean;
+  /** Changes on every open, including one that finds the bar already up. */
+  focusToken: number;
 }
+
+/*
+ * There is no `resolveFindPanel(nativeShell)` gate, deliberately. The web bar
+ * is the DESKTOP SHELL's chrome — `NoteWorkspace.svelte` renders it, because it
+ * spans the whole note pane rather than the editor column — and iOS and Android
+ * mount `editor-embed/main.ts`, which has no shell chrome at all. The bar
+ * therefore cannot reach a native host, without a runtime flag having to be
+ * right. The ENGINE is mounted everywhere; only the bar is desktop-only.
+ */
 
 /** The Milkdown plugin: `.use(findEngine({ onMatches }))`. */
 export function findEngine(options: FindPluginOptions = {}) {

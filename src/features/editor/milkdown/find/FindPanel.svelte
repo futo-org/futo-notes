@@ -36,9 +36,19 @@
   let bar: HTMLElement | undefined = $state();
 
   /* Ctrl/Cmd+F with the bar ALREADY open refocuses and selects the query
-   * (docs/spec/editor.md), so this keys off the token rather than off mount. */
+   * (docs/spec/editor.md), so this keys off the token rather than off mount.
+   *
+   * The token's VALUE has to be compared, not merely read. The shell hands
+   * these props down from one `$state` object that is replaced on every engine
+   * report — including the one an edit in the note body produces — so the
+   * effect re-runs on each report with the token unchanged. Focusing there took
+   * the keyboard away from the person typing: the first character reached the
+   * note and the rest went into the query field. */
+  let focusedToken = -1;
   $effect(() => {
-    void focusToken;
+    const token = focusToken;
+    if (token === focusedToken) return;
+    focusedToken = token;
     input?.focus();
     input?.select();
   });
