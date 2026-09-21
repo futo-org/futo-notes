@@ -21,6 +21,18 @@ interface NotePersistenceState {
   title: string;
 }
 
+/**
+ * True while the session is mid-switch to another note: `originalId` may
+ * already point at the note being opened while `title`/`savedContent` still
+ * hold the outgoing note's data (createNoteLoader.load() flips loading
+ * before reassigning originalId, then awaits the read). A save that runs in
+ * this window would write the outgoing note's stale content under the
+ * incoming note's id — refuse rather than straddle. The save queue's flush()
+ * closes this window under normal operation; this is the belt-and-suspenders
+ * backstop for any caller that reaches saveNote() while it is still open.
+ */
+type IsLoading = () => boolean;
+
 interface SavedNoteState {
   content: string;
   id: string;
@@ -36,6 +48,7 @@ interface CreateNotePersistenceOptions {
   getPendingFolder: () => string | null;
   getState: () => NotePersistenceState;
   hasDuplicateTitle: (title: string) => boolean;
+  isLoading: IsLoading;
   onSaved: (state: SavedNoteState) => void;
   reconcileOpenNote: (id: string, parkedDraft: ParkedDraftSnapshot) => Promise<unknown>;
   showTitleWarning: (message: LocalizedMessage) => void;
@@ -46,6 +59,10 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
     const noteId = options.getNoteId();
     const editorContent = options.getEditorContent();
     if (!hasFileSystem || editorContent === undefined) return false;
+    // The session is between notes: title/savedContent may still be the
+    // outgoing note's while originalId already points at the incoming one.
+    // Never write in this window (see IsLoading above).
+    if (options.isLoading()) return false;
 
     try {
       const state = options.getState();

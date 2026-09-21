@@ -156,6 +156,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     },
     getState: () => ({ title, originalId, savedTitle, savedContent, content }),
     hasDuplicateTitle,
+    isLoading: () => loading,
     showTitleWarning: (message) => titleController.showWarning(message, null),
     reconcileOpenNote: deps.reconcileOpenNote,
     onSaved: ({ id, title: newTitle, content: newContent, savedOriginalId, requestedTitle }) => {

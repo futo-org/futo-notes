@@ -33,14 +33,29 @@ export function createNoteSaveQueue(options: NoteSaveQueueOptions) {
     }, 0);
   }
 
+  // An edit can land while this function is awaiting a save it already knew
+  // about (schedule() arms a plain setTimeout, independent of saveInFlight),
+  // and that edit's fresh debounce timer survives a single pass untouched —
+  // flush() would return with it still ticking down. A caller that awaits
+  // flush() (a note-switch load, a rename, a move) then proceeds on the
+  // assumption nothing is left pending, so that survivor can fire later
+  // against a session whose identity has already moved on and write one
+  // note's content under another note's id. Re-check for exactly that after
+  // each await — a timer armed while we were awaiting — and flush it too
+  // before returning.
   async function flush(): Promise<void> {
-    const hadPendingTimer = saveTimer !== null;
-    if (saveTimer !== null) window.clearTimeout(saveTimer);
-    saveTimer = null;
+    for (;;) {
+      const hadPendingTimer = saveTimer !== null;
+      if (saveTimer !== null) window.clearTimeout(saveTimer);
+      saveTimer = null;
 
-    if (hadPendingTimer) await runQueuedSave();
-    else if (saveInFlight) await saveInFlight;
-    else if (options.hasUnseenChanges()) await runQueuedSave();
+      if (hadPendingTimer) await runQueuedSave();
+      else if (saveInFlight) await saveInFlight;
+      else if (options.hasUnseenChanges()) await runQueuedSave();
+      else return;
+
+      if (saveTimer === null) return;
+    }
   }
 
   async function runQueuedSave(): Promise<void> {
