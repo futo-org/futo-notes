@@ -20,19 +20,27 @@
 import type { Editor } from '@milkdown/kit/core';
 import { createCodeBlockCommand, insertHrCommand } from '@milkdown/kit/preset/commonmark';
 import { insertTableCommand } from '@milkdown/kit/preset/gfm';
-import { insert as insertMarkdown } from '@milkdown/kit/utils';
-import { imageReferenceMarkdown } from '@futo-notes/editor';
 
 import { resolveImageInserter } from '../../imageInsert';
+import type { ImageInsertTarget } from '../../imageInsertTarget';
 import { setBlockFormat, type BlockFormat } from '../blockCommands';
-import { editorView } from '../caretContext';
 import { createCommandRunner } from '../commandRunner';
 import { openLinkPrompt } from '../linkPrompt';
 
 /** Item id → what picking it does, given the typed `/query` run's `[from, to)`. */
 export type SlashExecMap = Record<string, (from: number, to: number) => void>;
 
-export function createSlashExec(getEditor: () => Editor | null): SlashExecMap {
+/**
+ * `imageTarget` is WHICH note a picked image belongs to — the picker is
+ * asynchronous and the editor is reused across notes, so inserting wherever
+ * the editor has got to would put the picture in a different note
+ * (`imageInsertTarget.ts`). It is passed in rather than built here because the
+ * owner of that identity is the editor component, not this plugin.
+ */
+export function createSlashExec(
+  getEditor: () => Editor | null,
+  imageTarget: ImageInsertTarget,
+): SlashExecMap {
   const { runAfterDelete, runKeyAfterDelete, deleteRange } = createCommandRunner(getEditor);
 
   const format =
@@ -70,12 +78,7 @@ export function createSlashExec(getEditor: () => Editor | null): SlashExecMap {
      * host that has one. */
     image: (from, to) => {
       deleteRange(from, to);
-      void resolveImageInserter((filename) => {
-        const editor = getEditor();
-        if (!editor) return;
-        editor.action(insertMarkdown(imageReferenceMarkdown(filename)));
-        editorView(editor)?.focus();
-      }).pick();
+      void resolveImageInserter(imageTarget).pick();
     },
     // QA-019: shares the URL prompt the desktop selection toolbar's Link
     // button opens (`linkPrompt/`) rather than a second one — see that

@@ -68,7 +68,10 @@
     installVaultImageUrlResolver,
     uninstallVaultImageUrlResolver,
   } from '$features/images/vaultImageUrlResolver';
+  import { deleteImage } from '$features/images/imageFiles';
   import { onFileDrop } from '$lib/platform';
+  import { createImageInsertTarget } from '../imageInsertTarget';
+  import { dismissLinkPrompt } from './linkPrompt';
   import {
     dropCarriesFiles,
     filePathsFromDrop,
@@ -333,6 +336,33 @@
   /* Only true where this editor installed the per-file URL producer (Tauri
    * desktop), so the teardown removes exactly what the mount added. */
   let ownsImageUrlResolver = false;
+
+  /* WHICH note this editor is holding, as a counter that ticks every time it
+   * adopts a different one — `openNote` is the shell's single note-switch
+   * door (features/notes/createNoteLoader.ts) and there is exactly one of
+   * these components for the whole desktop shell, tabs included.
+   *
+   * It exists for the asynchronous image entry points: saving an image takes
+   * long enough for the user to open another note, and a completion that
+   * inserts into "whatever is open now" puts the picture in a note nobody
+   * dropped it on (imageInsertTarget.ts). Teardown ticks it too — a completion
+   * outliving the component belongs to nothing.
+   *
+   * Deliberately NOT ticked by `setContent`: that is the SAME note arriving
+   * with new bytes (a sync adopt), where the pending image still belongs
+   * exactly where it was going. */
+  let documentGeneration = 0;
+
+  /* The note every asynchronous image completion belongs to. ONE target for
+   * all three doors — clipboard paste, the `/` menu's Image item, an OS drop —
+   * so the rule is stated once rather than remembered at each of them. At
+   * component scope because the `/` menu plugin is built earlier in the mount
+   * than the paste handler and both need it. */
+  const imageTarget = createImageInsertTarget({
+    documentToken: () => documentGeneration,
+    insert: (filename) => insertMarkdown(imageReferenceMarkdown(filename)),
+    discard: deleteImage,
+  });
 
   /* Sorted comma-joined snapshot of the last emitted format-state set, so
    * emitFormatState() below can dedupe without the caller tracking it. */
@@ -646,7 +676,7 @@
        * ProseMirror plugin spec in a ctx slice, so the spec is installed in
        * `.config()` and the plugin pair goes through `.use()`. */
       if (useSlashMenu) {
-        const slashMenu = createSlashMenuPlugin(() => editor);
+        const slashMenu = createSlashMenuPlugin(() => editor, imageTarget);
         builder = builder.config(slashMenu.config).use(slashMenu.plugins);
       }
 
@@ -655,7 +685,10 @@
        * in a ctx slice, so the spec is installed in `.config()` and the plugin
        * pair goes through `.use()`. */
       if (useSelectionToolbar) {
-        const selectionToolbar = createSelectionToolbarPlugin(() => editor);
+        const selectionToolbar = createSelectionToolbarPlugin(
+          () => editor,
+          () => documentGeneration,
+        );
         builder = builder.config(selectionToolbar.config).use(selectionToolbar.plugins);
       }
 
@@ -688,12 +721,10 @@
 
       pasteHandler = createImagePasteHandler({
         sink: resolveImagePasteSink(),
-        insertImage: (filename) => insertMarkdown(imageReferenceMarkdown(filename)),
+        insertImage: imageTarget,
       });
 
-      const imageInserter = resolveImageInserter((filename) =>
-        insertMarkdown(imageReferenceMarkdown(filename)),
-      );
+      const imageInserter = resolveImageInserter(imageTarget);
 
       /* The HTML5 half (macOS/Windows/Linux). A drop carrying files, OR one
        * advertising `text/uri-list` with none (WebKitGTK's shape — see the
@@ -795,6 +826,10 @@
 
     return () => {
       disposed = true;
+      // No document to belong to any more, so a pending image completion is
+      // abandoned rather than inserted into a destroyed editor.
+      documentGeneration += 1;
+      dismissLinkPrompt();
       progressive?.cancel();
       progressive = null;
       // A change notification that lands after the component is gone would
@@ -1491,6 +1526,10 @@
    * not. Recorded as a Gap in docs/spec/editor.md.
    */
   export function openNote(text: string): void {
+    documentGeneration += 1;
+    /* A Link URL prompt left floating from the previous note holds THAT note's
+     * positions; submitting it here would write into this one. */
+    dismissLinkPrompt();
     if (!editor) {
       pendingContent = text;
       hostMarkdown = text;

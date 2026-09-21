@@ -7,6 +7,7 @@ import {
   setVaultImageBaseUrl,
 } from '$features/images/vaultImageSrc';
 
+import { createImageInsertTarget, type ImageInsertTarget } from './imageInsertTarget';
 import {
   createBridgeImagePasteSink,
   createImagePasteHandler,
@@ -37,6 +38,14 @@ function clipboard(options: { types?: string[]; files?: File[]; html?: string })
 
 function pasteEvent(data: DataTransfer | null): ClipboardEvent {
   return { clipboardData: data, preventDefault: vi.fn() } as unknown as ClipboardEvent;
+}
+
+/**
+ * An insert target over ONE note that never changes — the ordinary case, where
+ * the user stays put. The case that swaps the note mid-capture builds its own.
+ */
+function into(insert: (filename: string) => void): ImageInsertTarget {
+  return createImageInsertTarget({ documentToken: () => 'the note', insert });
 }
 
 beforeEach(() => {
@@ -121,7 +130,7 @@ describe('createImagePasteHandler', () => {
   it('claims a paste carrying an image file and inserts the filename the sink returns', async () => {
     const insertImage = vi.fn();
     const s = sink();
-    const handler = createImagePasteHandler({ sink: s, insertImage });
+    const handler = createImagePasteHandler({ sink: s, insertImage: into(insertImage) });
     const event = pasteEvent(clipboard({ files: [pngFile()] }));
 
     expect(handler(event)).toBe(true);
@@ -132,7 +141,7 @@ describe('createImagePasteHandler', () => {
   it('inserts nothing when the sink returns null — the host inserts it', async () => {
     const insertImage = vi.fn();
     const s = { ...sink(), captureFile: vi.fn().mockResolvedValue(null) };
-    createImagePasteHandler({ sink: s, insertImage })(
+    createImagePasteHandler({ sink: s, insertImage: into(insertImage) })(
       pasteEvent(clipboard({ files: [pngFile()] })),
     );
 
@@ -142,7 +151,7 @@ describe('createImagePasteHandler', () => {
 
   it('claims a hidden-bitmap paste and asks the sink for it', async () => {
     const s = sink();
-    const handler = createImagePasteHandler({ sink: s, insertImage: vi.fn() });
+    const handler = createImagePasteHandler({ sink: s, insertImage: into(vi.fn()) });
 
     expect(handler(pasteEvent(clipboard({ types: [] })))).toBe(true);
     await vi.waitFor(() => expect(s.captureHiddenBitmap).toHaveBeenCalled());
@@ -150,7 +159,7 @@ describe('createImagePasteHandler', () => {
 
   it('leaves a hidden-bitmap paste alone when the host cannot capture one', () => {
     const s = { ...sink(), canCaptureHiddenBitmap: false };
-    const handler = createImagePasteHandler({ sink: s, insertImage: vi.fn() });
+    const handler = createImagePasteHandler({ sink: s, insertImage: into(vi.fn()) });
 
     expect(handler(pasteEvent(clipboard({ types: [] })))).toBe(false);
     expect(s.captureHiddenBitmap).not.toHaveBeenCalled();
@@ -158,20 +167,48 @@ describe('createImagePasteHandler', () => {
 
   it('leaves a text paste alone so the editor pastes it normally', () => {
     const s = sink();
-    const handler = createImagePasteHandler({ sink: s, insertImage: vi.fn() });
+    const handler = createImagePasteHandler({ sink: s, insertImage: into(vi.fn()) });
 
     expect(handler(pasteEvent(clipboard({ types: ['text/plain'] })))).toBe(false);
     expect(s.captureFile).not.toHaveBeenCalled();
   });
 
   it('leaves every paste alone when there is no sink for this host', () => {
-    const handler = createImagePasteHandler({ sink: null, insertImage: vi.fn() });
+    const handler = createImagePasteHandler({ sink: null, insertImage: into(vi.fn()) });
     expect(handler(pasteEvent(clipboard({ files: [pngFile()] })))).toBe(false);
   });
 
   it('leaves a paste with no clipboard data alone', () => {
-    const handler = createImagePasteHandler({ sink: sink(), insertImage: vi.fn() });
+    const handler = createImagePasteHandler({ sink: sink(), insertImage: into(vi.fn()) });
     expect(handler(pasteEvent(null))).toBe(false);
+  });
+
+  /*
+   * P1, 2026-09-19 — the paste sibling of the drop bug in `imageInsert.ts`.
+   * The capture is asynchronous and the editor is reused across notes, so a
+   * paste started in note A used to land in whatever note was open when the
+   * bytes came back. The claim is taken synchronously inside the paste event.
+   * → imageInsertTarget.ts, docs/spec/editor.md "Images"
+   */
+  it('does not paste an image into the note the user moved on to', async () => {
+    const insertImage = vi.fn();
+    const discard = vi.fn(async (_filename: string) => {});
+    const note = { id: 'note-a' };
+    const s = sink();
+
+    createImagePasteHandler({
+      sink: s,
+      insertImage: createImageInsertTarget({
+        documentToken: () => note.id,
+        insert: insertImage,
+        discard,
+      }),
+    })(pasteEvent(clipboard({ files: [pngFile()] })));
+
+    note.id = 'note-b';
+
+    await vi.waitFor(() => expect(discard).toHaveBeenCalledWith('image-9.png'));
+    expect(insertImage).not.toHaveBeenCalled();
   });
 
   it('reports a capture failure instead of throwing, and inserts nothing', async () => {
@@ -179,7 +216,7 @@ describe('createImagePasteHandler', () => {
     const insertImage = vi.fn();
     const s = { ...sink(), captureFile: vi.fn().mockRejectedValue(new Error('disk full')) };
 
-    createImagePasteHandler({ sink: s, insertImage, reportError })(
+    createImagePasteHandler({ sink: s, insertImage: into(insertImage), reportError })(
       pasteEvent(clipboard({ files: [pngFile()] })),
     );
 

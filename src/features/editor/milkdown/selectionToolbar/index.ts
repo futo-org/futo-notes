@@ -47,8 +47,19 @@ export interface SelectionToolbarPlugin {
   plugins: MilkdownPlugin[];
 }
 
+/**
+ * `documentToken` is WHICH note the editor is holding, as any value that
+ * changes when it adopts a different one (MilkdownEditor.svelte's
+ * `documentGeneration`). The URL field is the one part of this bar that
+ * outlives a single gesture: it stays open while the user types, and a
+ * keyboard note switch moves no DOM focus and fires no pointerdown, so
+ * neither dismissal path ran — submitting then applied the link to the caret
+ * in a note the user never opened the field on. Same rule as
+ * `imageInsertTarget.ts`, stated for a UI surface instead of a completion.
+ */
 export function createSelectionToolbarPlugin(
   getEditor: () => Editor | null,
+  documentToken: () => unknown,
 ): SelectionToolbarPlugin {
   const tooltip = tooltipFactory('futoSelectionToolbar');
   const exec = createToolbarExec(getEditor);
@@ -64,6 +75,8 @@ export function createSelectionToolbarPlugin(
            * open — and that is the component's own. */
           let target: SelectionToolbarTarget | null = null;
           let editingLink = false;
+          /** The note the open URL field belongs to; null when none is open. */
+          let editingOn: unknown = null;
 
           const content = document.createElement('div');
           content.className = SELECTION_TOOLBAR_CLASS;
@@ -108,6 +121,7 @@ export function createSelectionToolbarPlugin(
               onlink: applyLink,
               onlinkediting: (editing: boolean) => {
                 editingLink = editing;
+                editingOn = editing ? documentToken() : null;
               },
             },
           });
@@ -145,6 +159,10 @@ export function createSelectionToolbarPlugin(
           };
 
           const refresh = (live: ProseView, prevState?: ProseView['state']): void => {
+            // The note changed under an open URL field: close it rather than
+            // let a submit apply the link to this note. `reset` reports the
+            // close back through `onlinkediting`, which clears the pin below.
+            if (editingLink && editingOn !== documentToken()) ui.reset();
             target = editingLink ? target : selectionToolbarTarget(live.state);
             if (target) {
               const { selection, storedMarks, schema } = live.state;

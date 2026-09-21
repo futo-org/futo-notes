@@ -30,6 +30,7 @@ import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
 import { blockFormatAtPos } from '../blockCommands';
 import { editorView } from '../caretContext';
+import type { ImageInsertTarget } from '../../imageInsertTarget';
 import { createSlashExec } from './exec';
 import { filterSlashItems, type SlashItem } from './items';
 import { SlashMenu } from './menu';
@@ -114,9 +115,12 @@ export interface SlashMenuPlugin {
   plugins: MilkdownPlugin[];
 }
 
-export function createSlashMenuPlugin(getEditor: () => Editor | null): SlashMenuPlugin {
+export function createSlashMenuPlugin(
+  getEditor: () => Editor | null,
+  imageTarget: ImageInsertTarget,
+): SlashMenuPlugin {
   const slash = slashFactory('futoBlockMenu');
-  const exec = createSlashExec(getEditor);
+  const exec = createSlashExec(getEditor, imageTarget);
 
   /* Owned by this closure rather than by ProseMirror plugin state: the run
    * itself is recomputed from the document on every update, so the only things

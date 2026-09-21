@@ -4,8 +4,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { getFS } = vi.hoisted(() => ({ getFS: vi.fn() }));
 vi.mock('$lib/platform', () => ({ getFS, isTauri: false }));
 
+import { createImageInsertTarget, type ImageInsertTarget } from '../../imageInsertTarget';
 import { createSlashExec } from './exec';
 import { SLASH_ITEMS } from './items';
+
+/**
+ * Where a picked image goes. The editor component owns this identity in
+ * production (MilkdownEditor.svelte); here it is a target over one note that
+ * never changes, plus the `insert` spy the Image cases assert on.
+ */
+function imageTarget(insert: (filename: string) => void = vi.fn()): ImageInsertTarget {
+  return createImageInsertTarget({ documentToken: () => 'the note', insert });
+}
 
 /**
  * The `/` menu's two halves must cover exactly the same set.
@@ -18,7 +28,7 @@ import { SLASH_ITEMS } from './items';
  */
 describe('slash exec covers the offered items', () => {
   it('implements every id the menu offers, and no others', () => {
-    const implemented = Object.keys(createSlashExec(() => null)).sort();
+    const implemented = Object.keys(createSlashExec(() => null, imageTarget())).sort();
     const offered = SLASH_ITEMS.map((item) => item.id).sort();
     expect(implemented).toEqual(offered);
   });
@@ -43,10 +53,10 @@ describe('the Image item', () => {
       getImageUrl: vi.fn().mockResolvedValue('asset://image-77.png'),
     });
 
-    const action = vi.fn();
-    createSlashExec(() => ({ action }) as never).image(0, 0);
+    const insert = vi.fn();
+    createSlashExec(() => null, imageTarget(insert)).image(0, 0);
 
-    await vi.waitFor(() => expect(action).toHaveBeenCalled());
+    await vi.waitFor(() => expect(insert).toHaveBeenCalledWith('image-77.png'));
     expect(pickImages).toHaveBeenCalled();
     expect(saveImageBytes).toHaveBeenCalledWith(bytes, 'png');
   });
@@ -54,11 +64,11 @@ describe('the Image item', () => {
   it('does nothing on a host with no picker, rather than throwing', async () => {
     getFS.mockReturnValue({ saveImageBytes: vi.fn(), getImageUrl: vi.fn() });
 
-    const action = vi.fn();
-    expect(() => createSlashExec(() => ({ action }) as never).image(0, 0)).not.toThrow();
+    const insert = vi.fn();
+    expect(() => createSlashExec(() => null, imageTarget(insert)).image(0, 0)).not.toThrow();
 
     await Promise.resolve();
-    expect(action).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
   });
 
   it('resolves the picker at PICK time, so an FS that arrives later still works', async () => {
@@ -68,7 +78,7 @@ describe('the Image item', () => {
     getFS.mockImplementation(() => {
       throw new Error('Platform FS not initialized');
     });
-    const exec = createSlashExec(() => null);
+    const exec = createSlashExec(() => null, imageTarget());
 
     const pickImages = vi.fn().mockResolvedValue([]);
     getFS.mockReset();
@@ -89,6 +99,6 @@ describe('the Link item', () => {
     // `openLinkPrompt` reads the current selection through the editor's ctx;
     // a null editor (view not built yet) must be a no-op, the same contract
     // every other item's exec function has.
-    expect(() => createSlashExec(() => null).link(0, 0)).not.toThrow();
+    expect(() => createSlashExec(() => null, imageTarget()).link(0, 0)).not.toThrow();
   });
 });

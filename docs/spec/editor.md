@@ -1170,6 +1170,17 @@ EditorWebView.swift, EditorWebView.kt
   leaves the note untouched. Verified emulator 2026-09-11. →
   src/features/editor/milkdown/linkPrompt/, toolbarExec.ts,
   tests/editor-embed-milkdown-toolbar.spec.ts
+- **An open Link URL prompt belongs to the note it opened on.** It holds that
+  note's document positions, and the editor is reused across notes, so opening
+  a different note (or tearing the editor down) cancels it and leaves both
+  notes untouched. A click outside already cancelled it; a KEYBOARD note switch
+  moves no focus and fires no pointer event, so without this the next submit
+  wrote a link — or rewrote link marks over an unrelated range — in a note the
+  user never opened the prompt on. The desktop selection toolbar's own inline
+  URL field closes on the same event, for the same reason. →
+  src/features/editor/milkdown/linkPrompt/ `dismissLinkPrompt`,
+  milkdown/linkPrompt/noteSwitch.test.ts, milkdown/selectionToolbar/
+  noteSwitch.test.ts
 - Indent nests a list item under its PRECEDING SIBLING item, so it has no
   effect on the first item of a list — there is nothing to nest under, and the
   note's bytes are left untouched. →
@@ -1735,6 +1746,19 @@ unchanged by it.
   > device or a host-pasteboard sync.
   > → tests/editor-embed-milkdown.spec.ts, EditorWebView.swift `clipboardImageData`
 
+- **A delayed image completion belongs to the note it was started on** — the
+  same rule as the native attachment generation below, stated once for the
+  shared editor, which is a SINGLE component reused across every note. Drop,
+  `/image` pick and clipboard paste each claim the live document BEFORE their
+  first `await`; one claim covers a whole multi-image batch. When the editor
+  has adopted another note (or been torn down) by the time the bytes land,
+  nothing is inserted anywhere — never into the note now on screen — and the
+  image file that insertion just created is deleted from the vault, so an
+  abandoned drop leaves no blob nothing points at. Silent: there is no
+  message, because the note the user is looking at is correct and untouched.
+  _(desktop)_ → src/features/editor/imageInsertTarget.ts, imageInsert.ts,
+  imagePasteSink.ts, milkdown/MilkdownEditor.svelte `documentGeneration`,
+  milkdown/imageInsertIdentity.test.ts
 - A delayed native picker/clipboard completion belongs to the editor attachment
   generation that started it. Detaching, deleting, or adopting another note
   invalidates the completion, so it cannot insert Markdown into a different
