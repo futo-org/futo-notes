@@ -2234,6 +2234,18 @@ invariant above is what both must satisfy:
   committing exit; Android round-trips the WebView for navigation and uses the
   live content buffer for move and delete. Coupled to the quarantine gap below —
   revisit the capture source when Android gains one. _(iOS/Android)_
+  > **Gap:** on delete specifically, iOS always captures the live body through
+  > the WebView and is bound by `EditorHost`'s 6 s capture deadline — a
+  > renderer that is busy rather than dead REFUSES the delete rather than
+  > falling back (`NoteEditorView.swift:925` `captureBodyForExit`,
+  > `EditorWebView.swift` `captureDeadlineSeconds`/`captureWithinDeadline`).
+  > Android's delete exit never touches the WebView at all: `captureBody`
+  > returns `content`, the shell's own live buffer kept in step with the
+  > editor's `change` messages (`NoteEditorScreen.kt` DELETE exit). A wedged
+  > renderer can therefore block and refuse a delete on iOS for up to 6
+  > seconds; the identical wedge is invisible to Android's delete, which
+  > always succeeds on whatever the shell last saw. Not tracked as an issue
+  > yet.
 - Move-picker timing: iOS drains before presenting the destination picker (its
   own `prepareMove` exit); Android presents immediately and drains in `onPick`.
   Both complete the drain before the move commits. _(iOS/Android)_
