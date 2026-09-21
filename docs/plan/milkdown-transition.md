@@ -1176,3 +1176,7 @@ Gap it closes so a later pass can grep for it.
   (AGENTS.md M5) with no bound on note size. Bound it with the changed-range approach
   `blockDecorations.ts`'s `changedRanges()` (`blockDecorations.ts:37`) already uses, so the walk
   scales with the edit, not the note.
+- **`EditorSession`'s exit coroutine has no exception isolation (pre-existing).**
+  `NoteEditorScreen.kt` hands it `rememberCoroutineScope()` — a plain, non-supervisor `Job` — so an
+  uncaught non-cancellation exception from an `EditorExitEffects` method still crashes the app;
+  needs a `CoroutineExceptionHandler` or a supervisor scope.
