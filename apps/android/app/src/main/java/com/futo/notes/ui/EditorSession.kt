@@ -66,6 +66,12 @@ internal interface OpenNoteEffects {
  * [runWork], so taking the same lock IS waiting for the in-flight one. A
  * destructive drain additionally latches [isClosing] first, which makes every
  * workflow queued behind it return `null` instead of touching the note.
+ *
+ * The lock only orders work that has already reached [runWork]. A picker round
+ * trip (image insert) can return and queue its own [runWork] call on a later
+ * dispatch than an exit's, so [EditorExitEffects.awaitPendingWork] runs before
+ * every drain to close that gap — an exit that reached the lock first used to
+ * drain a stale, empty body and delete the note out from under the insert.
  */
 internal enum class EditorExit {
     /** Back, the system back gesture, or a resolved wikilink. */
@@ -123,6 +129,35 @@ internal interface EditorExitEffects {
      * already fenced.
      */
     fun prepare() {}
+
+    /**
+     * Suspend until an async producer that has not yet reached [EditorSession.runWork]
+     * settles, so the drain below captures its result instead of racing it.
+     * [runWork] only serializes work that is ALREADY inside the lock; a picker
+     * round trip (image insert) can return and queue its own [EditorSession.runWork]
+     * call on a later dispatch than this exit's, so the lock alone does not
+     * order them — an exit that reached the lock first would drain the stale
+     * body and, seeing it empty and the note untouched, delete it out from
+     * under the insert still in flight. Called once, right after [prepare],
+     * before the drain.
+     *
+     * [EditorExit.NAVIGATE] and [EditorExit.MOVE] both override this: neither
+     * exit disposes the editor as part of its OWN [perform] the way navigation
+     * used to be assumed to, but navigation's `perform` does leave (see
+     * `navigateAfterSaving`), so a body it drains stale is gone for good. Move
+     * keeps the same attachment open afterward, so racing it costs only a
+     * window where the on-disk copy briefly lags the live one — waiting here
+     * removes that window instead of leaving it to the ordinary autosave to
+     * close.
+     *
+     * [EditorExit.DELETE] deliberately does NOT override this. It already
+     * latches [isClosing] before its own drain runs, which makes ANY
+     * [EditorSession.runWork] queued behind it — including a pending image
+     * insert — return null without running: the insert's own file write never
+     * happens, so nothing is orphaned, and delete is not held up finishing
+     * work whose only destination is a note the user just chose to discard.
+     */
+    suspend fun awaitPendingWork() {}
 
     /**
      * Stop the debounced body save. Called as the FIRST step inside the drain,
@@ -358,6 +393,7 @@ internal class EditorSession(
         effects.prepare()
 
         scope.launch {
+            effects.awaitPendingWork()
             var failure: EditorExitFailure? = null
             val outcome = drain(destructive = plan.closes) {
                 if (!effects.isAttached()) return@drain false

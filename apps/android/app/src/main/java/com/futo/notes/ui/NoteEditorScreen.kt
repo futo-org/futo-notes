@@ -238,6 +238,17 @@ fun NoteEditorScreen(
     var editorAttachment by remember(initialNoteId) {
         mutableStateOf<EditorAttachmentToken?>(null)
     }
+    // Counts image saves (saveImageForAttachment) that have been called but
+    // have not yet reached EditorSession.runWork. A picker round trip
+    // (camera/library) calls it only once the system picker Activity returns
+    // — our app is paused and Back cannot fire while that Activity has focus,
+    // so the only real race is the scheduling gap between that callback firing
+    // and session.runWork actually being entered. NAVIGATE's awaitPendingWork()
+    // below waits on this, and onDispose treats a note with one in flight as
+    // touched — closes the race where the exit ran first, deleted the
+    // just-created empty note as "untouched", and the picker's insert then
+    // silently aborted against the now-detached attachment.
+    var pendingImageInsert by remember(initialNoteId) { mutableStateOf(0) }
     var confirmDelete by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
     var interactionLocked by remember(initialNoteId) { mutableStateOf(false) }
@@ -411,6 +422,14 @@ fun NoteEditorScreen(
                 override fun isAttached(): Boolean =
                     attachment != null && host.isCurrentAttachment(attachment)
 
+                // A camera/library round trip returns and queues its own
+                // session.runWork call on a LATER dispatch than this exit's —
+                // the session lock cannot order against work that has not
+                // reached it yet, so wait for it explicitly before draining.
+                override suspend fun awaitPendingWork() {
+                    snapshotFlow { pendingImageInsert }.first { it == 0 }
+                }
+
                 // The legacy-WebView notice (github#8) renders no editor, so
                 // Back must still work there with nothing to drain or commit.
                 override fun exitWithoutEditor() {
@@ -511,21 +530,29 @@ fun NoteEditorScreen(
         failureMessage: LocalizedMessage,
         save: (File) -> String?,
     ) {
+        // Incremented synchronously, before scope.launch, so it is visible to
+        // any exit that runs from this point on — including one already
+        // mid-dispatch when this is called. See pendingImageInsert's doc.
+        pendingImageInsert += 1
         scope.launch {
-            val name = session.runWork {
-                if (!host.isCurrentAttachment(attachment)) {
-                    return@runWork null
-                }
-                store.saveImageIntoVault(
-                    save = save,
-                    useSavedImage = { filename ->
-                        withContext(Dispatchers.Main.immediate) {
-                            check(host.insertImageAndWait(filename, attachment)) {
-                                "The editor was unavailable for image insertion"
+            val name = try {
+                session.runWork {
+                    if (!host.isCurrentAttachment(attachment)) {
+                        return@runWork null
+                    }
+                    store.saveImageIntoVault(
+                        save = save,
+                        useSavedImage = { filename ->
+                            withContext(Dispatchers.Main.immediate) {
+                                check(host.insertImageAndWait(filename, attachment)) {
+                                    "The editor was unavailable for image insertion"
+                                }
                             }
-                        }
-                    },
-                )
+                        },
+                    )
+                }
+            } finally {
+                pendingImageInsert -= 1
             }
             if (name == null && host.isCurrentAttachment(attachment)) {
                 Toast.makeText(
@@ -533,6 +560,16 @@ fun NoteEditorScreen(
                     localization.localizedText(failureMessage.path, failureMessage.arguments),
                     Toast.LENGTH_SHORT,
                 ).show()
+            } else if (name == null) {
+                // The attachment stopped being current before this landed —
+                // most often the note this image was picked for was already
+                // navigated away from and (pre-fix) could even have been
+                // deleted underneath it. Nothing to toast into (the screen is
+                // gone), but this must not be silent.
+                android.util.Log.w(
+                    "NoteEditor",
+                    "image insert for $attachment aborted: attachment no longer current",
+                )
             }
         }
     }
@@ -613,8 +650,14 @@ fun NoteEditorScreen(
             // created placeholder), body still empty. Backing out leaves nothing
             // behind — desktop parity (list.md). deleteAsync runs on the store's
             // scope (onDispose can't suspend and the composable scope is gone).
+            // A pending image insert (see pendingImageInsert's doc) makes this
+            // note NOT untouched even though its body hasn't landed yet — this
+            // is defense in depth behind NAVIGATE's awaitPendingWork(), which
+            // already keeps this dispose from running until any insert settles;
+            // it also covers Move/Delete disposing while one is still in flight.
             if (autoFocus && noteId == initialNoteId && content.isEmpty()
-                && titleValue.text == splitId(initialNoteId).title) {
+                && titleValue.text == splitId(initialNoteId).title
+                && pendingImageInsert == 0) {
                 store.deleteAsync(noteId, ownerToken)
             } else if (loaded && content != savedContent) {
                 store.flushAsync(PendingDraft(noteId, savedContent, content), ownerToken)
@@ -1081,6 +1124,14 @@ fun NoteEditorScreen(
                 confirmDelete = false
                 session.end(
                     EditorExit.DELETE,
+                    // Deliberately does NOT override awaitPendingWork(): the
+                    // session is already latched closed by the time this
+                    // drains, so a picker round trip still in flight for this
+                    // attachment returns null the moment it reaches
+                    // EditorSession.runWork without ever writing the image
+                    // file — nothing is orphaned. Waiting here would only
+                    // delay a delete the user already confirmed to finish
+                    // work whose sole destination is the note being discarded.
                     object : EditorExitEffects {
                         override fun prepare() {
                             // The session has already latched closed, so a
@@ -1155,6 +1206,17 @@ fun NoteEditorScreen(
                 session.end(
                     EditorExit.MOVE,
                     object : EditorExitEffects {
+                        // Move keeps the same editor/attachment open (unlike
+                        // Back, it never disposes this screen), so a picker
+                        // round trip that finishes after the move would still
+                        // land correctly via the ordinary onChange → autosave
+                        // path — but only after a window where the moved
+                        // file briefly lacks the image. Waiting here closes
+                        // that window instead of leaving it to autosave.
+                        override suspend fun awaitPendingWork() {
+                            snapshotFlow { pendingImageInsert }.first { it == 0 }
+                        }
+
                         // Move never touches the WebView, so the live buffer IS
                         // the freshest body. Snapshot it inside the drain and
                         // advance savedContent to that snapshot, not to live
