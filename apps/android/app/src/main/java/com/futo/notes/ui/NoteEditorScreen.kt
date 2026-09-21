@@ -774,7 +774,10 @@ fun NoteEditorScreen(
     val pasteClipboardImage: () -> Unit = {
         val attachment = host.currentAttachment()
         if (attachment != null) {
-            saveImageForAttachment(attachment, "Couldn't paste image") { root ->
+            saveImageForAttachment(
+                attachment,
+                LocalizedMessage("editor.images.pasteFailed"),
+            ) { root ->
                 clipboardImageUri(context)?.let { uri ->
                     saveImageIntoVault(context.contentResolver, root, uri)
                 }
