@@ -8,6 +8,7 @@ import type { FindMatchReport } from './findMatches';
 import {
   FIND_CURRENT_CLASS,
   FIND_MATCH_CLASS,
+  FIND_RESCAN_FALLBACK_MS,
   closeFind,
   createFindPlugin,
   findSuppressesSelectionToolbar,
@@ -242,6 +243,38 @@ describe('editing while find is open', () => {
 
     expect(decoratedText(view).all).toEqual(['cat']);
     expect(view.state.doc.textBetween(1, 6)).toBe('xxcat');
+  });
+});
+
+describe('a starved animation frame', () => {
+  // A large single-paragraph note makes layout heavy enough that a real
+  // WebView's rAF can be delayed far past any reasonable window (or never
+  // fire at all in a hidden/backgrounded WebView) — see the note on
+  // `setFindQuery` above `scanFindResults`. `openFind` computes its first
+  // scan synchronously, so it is unaffected; a query set or changed AFTER
+  // open relies solely on `FindLifecycle`'s scheduled rescan, which used to
+  // have nothing to fall back on when the animation frame never comes.
+  it('still corrects the count when requestAnimationFrame never calls back', async () => {
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(999);
+    try {
+      const { view, reports } = mount(['cat dog']);
+      openFind(view); // No selection and no prior query: opens with query ''.
+      setFindQuery(view, 'cat');
+
+      // The rAF was "scheduled" but its callback never runs — matches stay
+      // stale (a real rAF would also lag by a frame; this simulates it never
+      // arriving at all).
+      expect(getFindState(view.state).scanPending).toBe(true);
+      expect(getFindState(view.state).matches).toHaveLength(0);
+
+      await new Promise<void>((resolve) => setTimeout(resolve, FIND_RESCAN_FALLBACK_MS + 50));
+
+      expect(getFindState(view.state).scanPending).toBe(false);
+      expect(getFindState(view.state).matches).toHaveLength(1);
+      expect(reports.at(-1)).toEqual({ query: 'cat', current: 1, total: 1, label: '1 of 1' });
+    } finally {
+      raf.mockRestore();
+    }
   });
 });
 
