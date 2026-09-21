@@ -130,7 +130,6 @@
   <div class="editor-container">
     <MilkdownEditor
       bind:this={editorApi}
-      content={session.content}
       onchange={(content) => session.debouncedSave(content)}
       onfocuschange={handleFocusChange}
       {oncompositionend}
