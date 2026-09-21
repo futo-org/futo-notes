@@ -1151,10 +1151,28 @@ Gap it closes so a later pass can grep for it.
 - **Front matter aria-label.** `packages/editor/src/milkdown-compat/frontmatter.ts`'s "Front matter"
   aria-label is a literal, not yet routed through the language catalog (AGENTS.md §5, every
   user-visible string is a catalog entry).
+- **Slash-menu filtering matches only the English label.** Each row in `slash/items.ts` carries a
+  hardcoded English `label` for query matching and a separate `labelPath` (`editor.slashMenu.commands.*`)
+  that `menu.ts` renders through `localizedText` for display — deliberate today (the comment at
+  `slash/items.ts:29-31` explains the split), but once a translation lands for a row, typing the
+  WORD THE USER SEES will not match it: matching still runs against the English string nobody is
+  looking at. Closing this needs query matching to consider the localized label too, not just the
+  English one.
 - **iOS swift-format debt.** `apps/ios/Sources/Editor/EditorWebView.swift` carries 11 pre-existing
   `swift-format` lint errors (`just lint-swift`); not introduced by this branch, not cleaned up by
   it either.
 - **Android bridge `"change"` has no attachment-generation check** (unlike `"findMatches"`'s
   `isCurrentFindReportOwner`) — 9 live attempts in the title/body desync window found no corruption,
-  but closing it for real means carrying the generation on `change` in both shells (bridge payload
-  change, needs maintainer sign-off).
+  but the consequence is P0-shaped, not cosmetic: a `"change"` that lands late after an
+  `EditorCaptureOutcome.TimedOut` exit (`EditorNavigationCommit.kt`, `EditorWebView.kt:915`) has
+  nothing to say it belongs to the note the shell just left, so it can be applied as the NEXT note's
+  content and autosaved over it. Closing it for real means carrying the generation on `change` in
+  both shells (bridge payload change, needs maintainer sign-off).
+- **`dividerCaret.ts` runs two whole-document walks per doc-changing transaction.**
+  `newlyCreatedDivider` (`dividerCaret.ts:87-118`) calls `hrPositions()` — a `doc.descendants` walk —
+  once each on `oldState.doc` and `newState.doc`, inside `appendTransaction`, so it re-walks the
+  WHOLE document on every user edit, not just ones that touch an `hr`. Within the measured perf
+  budget at tested note sizes today, but it is an unsanctioned per-keystroke whole-document walk
+  (AGENTS.md M5) with no bound on note size. Bound it with the changed-range approach
+  `blockDecorations.ts`'s `changedRanges()` (`blockDecorations.ts:37`) already uses, so the walk
+  scales with the edit, not the note.

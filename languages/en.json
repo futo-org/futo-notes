@@ -514,6 +514,13 @@
         "needsAtLeastOneRow": "A table needs at least one row.",
         "needsAtLeastOneColumn": "A table needs at least one column."
       },
+      "progressiveLoad": {
+        "loadingRest": "Loading the rest of this note…"
+      },
+      "loadFailed": {
+        "heading": "This note could not be displayed.",
+        "body": "Its markdown is something this version of the editor cannot read, so it is shown read-only. Nothing has been changed on disk."
+      },
       "android": {
         "bridgeVersionMismatch": "Bridge version mismatch: editor v{editorVersion} vs native v{nativeVersion}",
         "legacyWebView": {

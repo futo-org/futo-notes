@@ -274,6 +274,39 @@ test('Escape in the link field leaves the note untouched', async ({ page }) => {
   expect((await getContent(page)).trimEnd()).toBe('hello world');
 });
 
+// F2 (P1) — a native note switch survives an open Link prompt. The native
+// shells switch notes through `FutoEditor.setContent` (no click, no Escape —
+// neither on-screen dismissal path runs), unlike desktop's `openNote`. A
+// prompt left open from the PREVIOUS note holds that note's caret position;
+// submitting it after the switch must not write into the new document.
+test('a note switch through FutoEditor.setContent dismisses an open Link prompt', async ({
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+
+  await hostSetContent(page, 'hello world hello world');
+  await focusEditor(page);
+  await exec(page, 'link');
+
+  const url = linkUrlField(page);
+  await expect(url).toBeVisible();
+  await url.fill('https://example.test');
+
+  // The host adopts a different, much shorter note while the prompt is still
+  // open and focused.
+  await hostSetContent(page, 'x');
+
+  await expect(url).not.toBeVisible();
+  // Nothing left listening for this key should be able to write into the new
+  // note at the old note's (now out-of-range) position.
+  await page.keyboard.press('Enter');
+  await settle(page);
+
+  expect(pageErrors).toEqual([]);
+  expect((await getContent(page)).trimEnd()).toBe('x');
+});
+
 // A bare CARET (no selection) sitting right at the edge of an existing link —
 // reachable on a real phone via a selection-handle drag that resolves back to
 // a collapsed caret (measured on Android: the Link button is lit from
