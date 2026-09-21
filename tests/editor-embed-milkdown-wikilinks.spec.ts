@@ -1,5 +1,7 @@
 import { expect, test as base, type Page } from '@playwright/test';
 
+import { BRIDGE_VERSION } from '@futo-notes/editor';
+
 import { EDITOR_URL } from './editorEmbedBundle';
 import {
   clearMessages,
@@ -65,7 +67,7 @@ async function open(
   notes: typeof VAULT | null = VAULT,
 ): Promise<void> {
   const config = JSON.stringify({
-    bridgeVersion: 7,
+    bridgeVersion: BRIDGE_VERSION,
     theme: 'light',
     content,
     nativeToolbar: true,

@@ -1,5 +1,7 @@
 import { expect, test as base, type Page } from '@playwright/test';
 
+import { BRIDGE_VERSION } from '@futo-notes/editor';
+
 import { EDITOR_URL } from './editorEmbedBundle';
 import { flushFrames, installFakeAndroidHost, type FakeHostWindow } from './lib/editorEmbedHost';
 
@@ -59,7 +61,7 @@ async function open(page: Page, content: string): Promise<void> {
   await page.evaluate(
     (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
     JSON.stringify({
-      bridgeVersion: 7,
+      bridgeVersion: BRIDGE_VERSION,
       theme: 'light',
       content,
       nativeToolbar: true,

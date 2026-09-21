@@ -1,5 +1,7 @@
 import { expect, test as base, type CDPSession, type Page } from '@playwright/test';
 
+import { BRIDGE_VERSION } from '@futo-notes/editor';
+
 import { extractHeaderTagBlock, extractTags } from '../packages/editor/src/tags';
 import { CHECKBOX_SIZE_PX } from '../src/features/editor/milkdown/taskCheckbox';
 import { EDITOR_URL } from './editorEmbedBundle';
@@ -50,7 +52,7 @@ async function open(page: Page, content: string, theme: 'light' | 'dark' = 'ligh
   await page.evaluate(
     (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
     JSON.stringify({
-      bridgeVersion: 7,
+      bridgeVersion: BRIDGE_VERSION,
       theme,
       content,
       nativeToolbar: true,

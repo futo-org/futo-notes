@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+import { BRIDGE_VERSION } from '@futo-notes/editor';
+
 import { EDITOR_URL } from './editorEmbedBundle';
 import { installFakeAndroidHost, type FakeHostWindow } from './lib/editorEmbedHost';
 
@@ -39,16 +41,15 @@ async function imeAttributes(
   await page.waitForFunction(() =>
     (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
   );
-  await page.evaluate(() =>
-    (window as unknown as FakeHostWindow).FutoEditor.initialize(
-      JSON.stringify({
-        bridgeVersion: 7,
-        theme: 'light',
-        content: 'the quick brown fox',
-        nativeToolbar: true,
-        contentPaddingInlinePx: 14,
-      }),
-    ),
+  await page.evaluate(
+    (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
+    JSON.stringify({
+      bridgeVersion: BRIDGE_VERSION,
+      theme: 'light',
+      content: 'the quick brown fox',
+      nativeToolbar: true,
+      contentPaddingInlinePx: 14,
+    }),
   );
   await page.waitForSelector(selector);
   const attributes = await page.evaluate(
@@ -103,16 +104,15 @@ test('code blocks and inline code declare the autocorrect opt-out', async ({ bro
   await page.waitForFunction(() =>
     (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
   );
-  await page.evaluate(() =>
-    (window as unknown as FakeHostWindow).FutoEditor.initialize(
-      JSON.stringify({
-        bridgeVersion: 7,
-        theme: 'light',
-        content: 'prose with `inline code` in it\n\n```js\nconst dont = 1;\n```\n',
-        nativeToolbar: true,
-        contentPaddingInlinePx: 14,
-      }),
-    ),
+  await page.evaluate(
+    (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
+    JSON.stringify({
+      bridgeVersion: BRIDGE_VERSION,
+      theme: 'light',
+      content: 'prose with `inline code` in it\n\n```js\nconst dont = 1;\n```\n',
+      nativeToolbar: true,
+      contentPaddingInlinePx: 14,
+    }),
   );
   await page.waitForSelector('.ProseMirror pre code');
 

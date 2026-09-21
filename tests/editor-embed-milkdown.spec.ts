@@ -4,6 +4,8 @@ import path from 'node:path';
 
 import { expect, test as base, type CDPSession, type Page } from '@playwright/test';
 
+import { BRIDGE_VERSION } from '@futo-notes/editor';
+
 import {
   DEFAULT_LONG_PRESS_MS,
   GHOST_PAD_Y_PX,
@@ -126,7 +128,7 @@ const test = base.extend<{ page: Page }>({
 
 function hostConfig(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
-    bridgeVersion: 7,
+    bridgeVersion: BRIDGE_VERSION,
     theme: 'light',
     content: '',
     nativeToolbar: true,
@@ -155,10 +157,10 @@ async function hostSetContent(page: Page, markdown: string): Promise<void> {
 // Handshake and boot
 // ============================================================
 
-test('posts ready exactly once with bridge version 7', async ({ page }) => {
+test('posts ready exactly once with the bundle bridge version', async ({ page }) => {
   const ready = await messagesOfType(page, 'ready');
   expect(ready).toHaveLength(1);
-  expect(ready[0].version).toBe(7);
+  expect(ready[0].version).toBe(BRIDGE_VERSION);
 });
 
 test('one initialize applies the host config and reports initialized', async ({ page }) => {
@@ -168,7 +170,9 @@ test('one initialize applies the host config and reports initialized', async ({ 
 
   expect(await getContent(page)).toBe('# booted');
   expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
-  expect(await messagesOfType(page, 'initialized')).toEqual([{ type: 'initialized', version: 7 }]);
+  expect(await messagesOfType(page, 'initialized')).toEqual([
+    { type: 'initialized', version: BRIDGE_VERSION },
+  ]);
 });
 
 test('re-initializing restores the open note (the renderer-death path)', async ({ page }) => {
@@ -2879,7 +2883,7 @@ test('prefers the iOS webkit transport when both hosts are present', async ({ br
     () => (window as unknown as { __android: BridgeMessage[] }).__android,
   );
   expect(ios.filter((m) => m.type === 'ready')).toHaveLength(1);
-  expect(ios[0].version).toBe(7);
+  expect(ios[0].version).toBe(BRIDGE_VERSION);
   expect(android).toHaveLength(0);
 
   await context.close();
@@ -2896,7 +2900,7 @@ test('a stale host still gets a working editor, plus a version-mismatch report',
 
   expect(await getContent(page)).toBe('still editable');
   expect(await messagesOfType(page, 'bridgeVersionMismatch')).toEqual([
-    { type: 'bridgeVersionMismatch', hostVersion: 6, bundleVersion: 7 },
+    { type: 'bridgeVersionMismatch', hostVersion: 6, bundleVersion: BRIDGE_VERSION },
   ]);
   expect(await messagesOfType(page, 'initialized')).toHaveLength(1);
 });

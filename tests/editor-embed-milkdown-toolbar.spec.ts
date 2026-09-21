@@ -1,6 +1,6 @@
 import { expect, test as base, type Page } from '@playwright/test';
 
-import { TOOLBAR_EXEC_IDS } from '@futo-notes/editor';
+import { BRIDGE_VERSION, TOOLBAR_EXEC_IDS } from '@futo-notes/editor';
 import { EDITOR_URL } from './editorEmbedBundle';
 import {
   clearMessages,
@@ -804,7 +804,7 @@ async function showEmbedToolbar(page: Page, markdown: string): Promise<void> {
   await page.evaluate(
     (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
     JSON.stringify({
-      bridgeVersion: 7,
+      bridgeVersion: BRIDGE_VERSION,
       theme: 'light',
       content: markdown,
       nativeToolbar: false,
