@@ -80,6 +80,14 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   — an interactive pop cannot be refused once the finger starts it — and the
   alternative is tracked in issue #69. *(iOS)*
   → docs/learnings/ios-swipe-back-over-webview.md
+- Leaving the editor waits for the editor's own answer. When that wait runs out
+  on an editor that is still responding — a note editable from its first chunk
+  while the rest streams — the screen stays where it is rather than leaving on
+  the shell's copy, which can be missing the edit; the usual pending-changes
+  message is shown and pressing Back again is the way out. An editor that
+  responds to nothing at all is not holding anything, and leaving it always
+  works. *(iOS/Android)*
+  → docs/spec/editor.md "Editor exits — every way an open note ends"
 - Creating a note pushes the editor focused for immediate typing (Android
   focuses the native title field; desktop and iOS focus the editor body/heading);
   opening an existing note pushes it without autofocus. → AppNavigation.kt /

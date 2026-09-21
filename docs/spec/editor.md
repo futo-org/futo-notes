@@ -2119,16 +2119,39 @@ EditorSessionTest.kt, EditorSessionTests.swift
   failed draft write never deletes. _(iOS/Android)_
 - "The editor did not answer" is only a failed capture when the answer would have
   been for **another note**. An editor holding NO live document — the bundle has
-  not reported `initialized`, its renderer process died, or it stops answering
-  within the capture deadline — cannot be holding an edit the shell has not seen,
+  not reported `initialized`, its renderer process died, it answered with no
+  `window.FutoEditor` at all, or its JS thread is wedged and answers nothing —
+  cannot be holding an edit the shell has not seen,
   so the exit proceeds against the shell's own body (read from disk, then kept in
   step with every editor `change`) instead of refusing. When the note never
   loaded, that body still equals disk and the commit is a no-op: leaving
-  **abandons the load** rather than saving a prefix. A capture therefore always
-  completes in bounded time, so no exit can be blocked indefinitely by an
-  unresponsive editor. _(iOS/Android)_ → EditorWebView.swift `editorExitBody`,
-  `captureCurrentContent`, EditorExitBodyTests, EditorNavigationCommit.kt
-  `editorExitBody`, EditorWebView.kt `captureContentAndWait`, EditorExitBodyTest
+  **abandons the load** rather than saving a prefix. _(iOS/Android)_
+  → EditorWebView.swift `editorExitBody`, `captureCurrentContent`,
+  EditorExitBodyTests, EditorNavigationCommit.kt `editorExitBody`,
+  EditorWebView.kt `captureContentAndWait`, EditorExitBodyTest
+- A capture that runs out of its **deadline** means one of two opposite things,
+  and the exit tells them apart before deciding. A renderer that is still
+  answering other work is alive and merely busy, so it may be holding an edit the
+  shell has never seen and the exit REFUSES rather than committing the shell's
+  copy; a renderer that answers nothing at all is wedged and never presented an
+  editable document, so the exit proceeds on the shell's copy as above and the
+  user can always leave. The difference is read by dispatching a trivial round
+  trip ahead of the capture: a streamed load yields between chunks and answers
+  it, a JS thread stuck inside one synchronous parse does not. _(iOS/Android)_
+  → EditorWebView.swift `captureWithinDeadline`, `startRendererLivenessProbe`,
+  EditorCaptureDeadlineTests, EditorNavigationCommit.kt `captureWithinDeadline`,
+  EditorWebView.kt `startRendererLivenessProbe`, EditorCaptureDeadlineTest
+- A large note is editable from its first chunk while the rest streams, and the
+  editor withholds its `change` notification for that whole window (a streaming
+  document is a prefix), so the shell's copy does not carry an edit made there —
+  which is why a busy editor's silence cannot be read as "nothing to lose". A
+  refused exit is retried by leaving again, and by then the work is done: the
+  capture is what makes the editor finish the streamed tail, it finishes whether
+  or not the exit is still waiting, and finishing RELEASES the withheld `change`
+  — so the shell's own copy catches up on its own and the retry serializes
+  nothing it has not already cached. _(iOS/Android)_
+  → MilkdownEditor.svelte `getContent`, `finishProgressiveLoad`,
+  EditorCaptureDeadlineTests, EditorCaptureDeadlineTest
 - A **committed** delete's latch is one-way for that session: no pending
   workflow, queued bridge callback, title debounce, or in-flight adoption can
   touch the note afterwards. _(iOS/Android)_
