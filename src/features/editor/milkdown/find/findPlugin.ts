@@ -13,7 +13,8 @@
  * through `DecorationSet.map`, the match list and the anchor through
  * `tr.mapping` — and marks a rescan pending. The rescan itself runs one
  * animation frame later, so the count may lag an edit by a frame, which
- * docs/spec/editor.md explicitly allows.
+ * docs/spec/editor.md explicitly allows — bounded by `FIND_RESCAN_FALLBACK_MS`
+ * in case the frame that scan was waiting on never comes (`FindLifecycle`).
  *
  * Only a QUERY change moves the user's selection to a match. A body edit
  * rescans silently: selecting there would redirect the next keystroke into a
@@ -45,6 +46,16 @@ export const FIND_CURRENT_CLASS = 'futo-find-match-current';
 
 /** Breathing room above and below a revealed match, on top of any bar inset. */
 const REVEAL_PADDING_PX = 8;
+
+/**
+ * Worst-case bound on the scheduled rescan, in case the animation frame it
+ * prefers is starved: a huge single-node paragraph makes one layout pass heavy
+ * enough that no rAF fires within any reasonable window, and rAF never fires
+ * at all in a hidden/backgrounded WebView. `FindLifecycle.schedule()` races
+ * this against `requestAnimationFrame` so the count always self-corrects
+ * instead of sticking at its last value.
+ */
+export const FIND_RESCAN_FALLBACK_MS = 200;
 
 export const findPluginKey = new PluginKey<FindPluginState>('FUTO_FIND');
 
@@ -240,6 +251,7 @@ export function createFindPlugin(options: FindPluginOptions = {}): Plugin<FindPl
  */
 class FindLifecycle {
   private frame = 0;
+  private fallbackTimer = 0;
   private reportKey: string | null = null;
   private notifiedKey: string | null = null;
 
@@ -260,18 +272,36 @@ class FindLifecycle {
 
   destroy(): void {
     if (this.frame) cancelAnimationFrame(this.frame);
+    if (this.fallbackTimer) clearTimeout(this.fallbackTimer);
     this.frame = 0;
+    this.fallbackTimer = 0;
   }
 
+  /**
+   * Prefers one animation frame, same as before, but races it against
+   * `FIND_RESCAN_FALLBACK_MS` of wall-clock time so a starved or absent rAF
+   * cannot leave the count stuck (see the constant's doc comment). Whichever
+   * fires first runs the rescan and cancels the other; `run` is idempotent
+   * against being invoked from both triggers.
+   */
   private schedule(): void {
-    if (this.frame) return;
-    this.frame = requestAnimationFrame(() => {
-      this.frame = 0;
+    if (this.frame || this.fallbackTimer) return;
+    const run = (): void => {
+      if (this.frame) {
+        cancelAnimationFrame(this.frame);
+        this.frame = 0;
+      }
+      if (this.fallbackTimer) {
+        clearTimeout(this.fallbackTimer);
+        this.fallbackTimer = 0;
+      }
       if (!this.view.dom.isConnected) return;
       const find = getFindState(this.view.state);
       if (!find.open || !find.scanPending) return;
       scanFindResults(this.view, find.pendingSelect);
-    });
+    };
+    this.frame = requestAnimationFrame(run);
+    this.fallbackTimer = window.setTimeout(run, FIND_RESCAN_FALLBACK_MS);
   }
 
   private report(find: FindPluginState): void {
