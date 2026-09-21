@@ -42,15 +42,27 @@ describe('the ambient label', () => {
     expect(licenseAmbientLabel(unlicensed)).toBe('Unlicensed');
   });
 
-  // The full localized date, never a bare year (decision D3): the line the
-  // footer shows is the same sentence the card's since row is titled with.
-  it('reads Licensed since the purchase date once licensed', () => {
-    const label = licenseAmbientLabel(licensed);
+  // A paid license says nothing outside Settings (@justin 2026-09-21). This
+  // corner used to read "Licensed since {date}", which made the reward for
+  // paying a permanent line of chrome about having paid — and only for a v2
+  // license, so the v1 that production mints already showed nothing.
+  it('has nothing to show once licensed', () => {
+    expect(licenseAmbientLabel(licensed)).toBeNull();
+  });
 
-    expect(label).toContain('Licensed since');
-    expect(label).toContain('2026');
-    expect(label).not.toBe('Licensed since 2026');
-    expect(label).not.toContain('NaN');
+  // The regression that matters is a date leaking back in, not the null: a
+  // reintroduced "Licensed since" line would pass a bare `toBeNull` written
+  // against the wrong fixture, so assert on the licensed view that HAS a date.
+  it('never shows the purchase date it holds', () => {
+    expect(licensed.issuedAt).not.toBeNull();
+
+    // `?? ''` so this stays an assertion about the TEXT: if the line is ever
+    // reintroduced the label becomes a string and these fail, rather than the
+    // matcher throwing on null and passing for the wrong reason.
+    const label = licenseAmbientLabel(licensed) ?? '';
+
+    expect(label).not.toContain('Licensed since');
+    expect(label).not.toContain('2026');
   });
 
   // The ambient label is the thing a purchase removes — and an expired license

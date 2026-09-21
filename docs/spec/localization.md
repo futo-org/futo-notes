@@ -234,8 +234,10 @@ editor resolve from the catalogs on desktop, Android, and iOS.
   language-independent. Version 1 adds no currency, percentage, or general
   absolute-date formatter without a real caller.
 - `localizedAbsoluteDate(timestamp)` and `localizedYear(timestamp)` are that
-  formatter, added with their caller: the License card's "Licensed since
-  {date}", "Valid until {date}" and "Expired {date}" (license.md). The date
+  formatter, added with their caller: the License card's "Valid until {date}"
+  and "Expired {date}", and its `since` field (license.md — the card stopped
+  rendering a since row on 2026-09-18 and the ambient label stopped naming a
+  date on 2026-09-21, but `licenseCardModel` still formats it). The date
   uses `Intl.DateTimeFormat` `dateStyle: 'medium'`, which names the month rather
   than numbering it, so a date is not read day-first by one locale and
   month-first by another. **A year is a date field, not a number** — through the

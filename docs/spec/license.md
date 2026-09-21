@@ -2,8 +2,10 @@
 
 FUTO Notes asks the user to pay for it, and nothing in the app enforces that.
 A user may **buy a license** for the client. The license unlocks nothing
-functional: it removes the ambient **Unlicensed** label and fills the License
-card's empty well with the FUTO coin, above a **Licensed since {date}** row.
+functional: it removes the ambient **Unlicensed** label — leaving nothing in its
+place, because a paid license says nothing outside Settings — and turns the
+License card into a plate carrying the FUTO coin in its well and the stored key,
+masked.
 Unpaid is a fully working app, but the product never calls itself "free to use"
 — see § States and copy. This is the Grayjay / FUTO Keyboard / Immich model
 ("unregistered HyperCam 2"), sold through FUTOpay (Polar underneath). The server
@@ -797,12 +799,18 @@ one catalog entry, `license.enterKey`, so all three shells moved together
     app nothing. → `apps/ios/Sources/License/SupporterCoin.swift`,
     `apps/android/.../ui/SupporterCoin.kt`
 - **Ambient label** (the thing a purchase removes): the text "Unlicensed" when
-  Unlicensed or Expired; "Licensed since {date}" when Licensed with an
-  `issued_at`; and **nothing at all** for a v1 license — the element is removed
-  rather than blanked, because there is no dateless variant of that line and
-  dropping the "Unlicensed" label is the whole visible reward there. It is
-  informational, never interrupts, never appears inside the editor, never on
-  exported or shared content, and never on user data (M2).
+  Unlicensed or Expired, and **nothing at all** once Licensed — the element is
+  removed rather than blanked, because an empty button is still a click target
+  and is still announced. **A paid license says nothing outside Settings**
+  (@justin 2026-09-21): until then a v2 license read "Licensed since {date}"
+  here, which made the reward for paying a permanent line of chrome about
+  having paid, sitting one keystroke from the editor — and only for a v2, so
+  the v1 that production actually mints already showed nothing and was the
+  better of the two states by accident. Every licensed state is now that state,
+  `license.licensedSince` is retired, and Settings is the only place in the app
+  that mentions the license at all. What is left is informational, never
+  interrupts, never appears inside the editor, never on exported or shared
+  content, and never on user data (M2).
   - _(desktop)_ The bottom-left corner of the sidebar, and the only thing in
     it — the app version used to share that line and no longer appears there
     at all, because Settings → Updates already reads "Currently running

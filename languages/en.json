@@ -773,7 +773,6 @@
       "unlicensed": "Unlicensed",
       "statusLicensed": "Licensed",
       "statusExpired": "Expired",
-      "licensedSince": "Licensed since {date}",
       "buy": "Buy a license",
       "renew": "Renew",
       "enterKey": "I already paid",

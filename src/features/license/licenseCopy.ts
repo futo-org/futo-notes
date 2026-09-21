@@ -67,19 +67,20 @@ function unlicensedCard(): LicenseCardModel {
 }
 
 /// The ambient label — the thing a purchase removes. "Unlicensed" while
-/// Unlicensed *or* Expired; "Licensed since {date}" once Licensed.
+/// Unlicensed *or* Expired, and **nothing at all** once Licensed.
 ///
-/// `null` means **render nothing at all**: a v1 activation carries no
-/// `issued_at`, so there is no date for "Licensed since" and no dateless
-/// variant of that line (decision 2026-09-10, reaffirmed as D2). The footer is
-/// then empty — dropping the "Unlicensed" label is the whole visible reward,
-/// and it still happens.
+/// `null` means render no element, not an empty one: an empty button is still a
+/// click target and is still announced.
+///
+/// A paid license says nothing outside Settings (@justin 2026-09-21). Until
+/// then a v2 license put "Licensed since {date}" in this corner, which inverted
+/// the point of the label: the reward for paying was a permanent line of chrome
+/// about having paid, sitting one keystroke from the editor, while the v1
+/// license production actually mints showed nothing and looked like the
+/// finished state. Now every licensed state is that state, and Settings is the
+/// only place the license is mentioned at all.
 export function licenseAmbientLabel(view: LicenseView): string | null {
-  if (view.state === 'licensed') {
-    return view.issuedAt === null
-      ? null
-      : localizedText('license.licensedSince', { date: date(view.issuedAt) });
-  }
+  if (view.state === 'licensed') return null;
   return localizedText('license.unlicensed');
 }
 

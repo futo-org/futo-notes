@@ -159,9 +159,9 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   images — see [Sidebar tabs](#sidebar-tabs-tauri)) with no "All notes" row and
   no per-folder note counts. → DrawerSidebar.svelte / FolderTreeView.svelte
 - *(desktop)* The sidebar/list footer carries the ambient license label
-  ("Unlicensed" or "Licensed since {date}") and nothing else — the app version
-  no longer shares that line; clicking it opens Settings at the License section.
-  See [license.md](license.md).
+  ("Unlicensed", and nothing at all once Licensed) and nothing else — the app
+  version no longer shares that line; clicking it opens Settings at the License
+  section. See [license.md](license.md).
 
 ## Sidebar drag & drop _(desktop)_
 

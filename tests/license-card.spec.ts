@@ -427,3 +427,60 @@ test.describe('License card', () => {
     expect(await owedAfter(BURST)).toBeCloseTo(BURST, 5);
   });
 });
+
+// The ambient label — the bottom-left corner of the sidebar, and the only
+// place outside Settings the license was ever mentioned (docs/spec/license.md
+// § Where it appears). These do not open Settings: the whole point is what the
+// corner says while the user is just looking at their notes.
+test.describe('Sidebar ambient license label', () => {
+  const footer = (page: Page) => page.locator('.sidebar-footer-license');
+
+  async function openShell(page: Page, view: LicenseViewFixture): Promise<void> {
+    await mockLicense(page, view);
+    await page.goto('/');
+    await page.waitForLoadState('domcontentloaded');
+    // The label is read asynchronously and must never delay the first paint
+    // (M1), so wait on the shell rather than on the label: waiting on the label
+    // would make "it never arrives" indistinguishable from "it is absent".
+    await expect(page.locator('.sidebar-settings-btn')).toBeVisible();
+  }
+
+  // A paid license says nothing outside Settings (@justin 2026-09-21). This
+  // corner used to read "Licensed since {date}", so the reward for paying was a
+  // permanent line of chrome about having paid, one keystroke from the editor.
+  test('says nothing at all once licensed', async ({ page }) => {
+    await openShell(page, LICENSED_V2);
+
+    await expect(footer(page)).toHaveCount(0);
+    // The element is removed, not blanked: an empty button is still a click
+    // target and is still announced.
+    await expect(page.locator('.sidebar-footer')).toHaveText('');
+  });
+
+  // v1 is what production mints and already showed nothing. Locked so the two
+  // licensed shapes cannot drift apart again.
+  test('says nothing for a v1 license either', async ({ page }) => {
+    await openShell(page, LICENSED_V1);
+
+    await expect(footer(page)).toHaveCount(0);
+  });
+
+  test('still reads Unlicensed with no license, and opens the License section', async ({
+    page,
+  }) => {
+    await openShell(page, UNLICENSED);
+
+    await expect(footer(page)).toHaveText('Unlicensed');
+
+    await footer(page).click();
+    await expect(page.locator('.settings-title')).toBeVisible();
+    await expect(page.locator('.license-plate')).toBeVisible();
+  });
+
+  // Expired is the one state that has to explain itself, so it keeps the label.
+  test('still reads Unlicensed once the license has expired', async ({ page }) => {
+    await openShell(page, EXPIRED);
+
+    await expect(footer(page)).toHaveText('Unlicensed');
+  });
+});
