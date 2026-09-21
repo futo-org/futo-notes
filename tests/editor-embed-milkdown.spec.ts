@@ -11,6 +11,7 @@ import {
   GHOST_PAD_Y_PX,
 } from '../src/features/editor/milkdown/mobileBlockDnd';
 import { EDITOR_URL } from './editorEmbedBundle';
+import { PERFORMANCE_BUDGET } from './editor-gauntlet/performanceFloor';
 import {
   type BridgeMessage,
   clearMessages,
@@ -1755,8 +1756,14 @@ mobileDndTest(
     await clearMessages(page);
     const alpha = await blockCenter(page, 'alpha');
     await touch(cdp, 'touchStart', alpha.x, alpha.y);
-    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 150);
-    expect((await messagesOfType(page, 'haptic')).map((m) => m.kind)).toEqual(['lift']);
+    // A fixed sleep then a single, non-retrying snapshot of the message list
+    // raced the long-press timer under CI load (this exact assertion failed
+    // once, on the runner's most contended sampled run — pipeline 36709 also
+    // failed 3 OTHER unrelated tests that same run). Wait for the haptic
+    // message to actually arrive instead of assuming it has by a fixed
+    // deadline.
+    const [haptic] = await waitForMessages(page, 'haptic');
+    expect(haptic.kind).toBe('lift');
     await touch(cdp, 'touchEnd', alpha.x, alpha.y);
   },
 );
@@ -2597,9 +2604,12 @@ function oneParagraphNote(lines: number): string {
 }
 
 const HUGE_PARAGRAPH_LINES = 20_000;
-/** The pre-fix parse of this fixture took 4.8 s (18.1 s at 50k lines); it now
- * takes ~1.6 s in desktop chromium, all of it real work on 40,000 inline nodes.
- * A regression to the quadratic resolver blows straight through this. */
+/** Reference size for the CI-throughput calibration below: same generator,
+ * same declined-chunking (`no-boundary`) code path, an order of magnitude
+ * smaller so its own cost stays dominated by fixed per-open overhead rather
+ * than the parse this test is actually guarding. */
+const REFERENCE_LINES = 1_000;
+/** A regression to the quadratic resolver blows straight through this. */
 const OPEN_BUDGET_MS = 2_000;
 
 async function initializeTimed(page: Page, content: string): Promise<number> {
@@ -2615,11 +2625,36 @@ async function initializeTimed(page: Page, content: string): Promise<number> {
 test('a note that is one enormous paragraph opens instead of blocking the engine', async ({
   page,
 }) => {
+  // CI-2026-09: pipelines 35760-36709 measured THIS test between 2.5 s and
+  // 12.7 s elapsed with no code change in between, while a local desktop
+  // chromium run does the same 20,000-line open in ~0.5 s. That swing tracks
+  // CI runner load, not the product — a fixed CI-only budget would chase a
+  // moving target and need re-bumping every time contention shifts (M15).
+  // Calibrate instead against a note built by the
+  // SAME generator, an order of magnitude smaller, opened moments earlier in
+  // this same page/runner: the per-line cost ratio rides out the runner's
+  // throughput swings while still failing hard on the actual regression class
+  // this test guards against — the quadratic resolver, which does not make
+  // per-line cost a little worse, it makes per-line cost balloon with N.
+  const referenceElapsed = await initializeTimed(page, oneParagraphNote(REFERENCE_LINES));
+  const referencePerLine = referenceElapsed / REFERENCE_LINES;
+
   const note = oneParagraphNote(HUGE_PARAGRAPH_LINES);
-
   const elapsed = await initializeTimed(page, note);
+  const perLine = elapsed / HUGE_PARAGRAPH_LINES;
 
-  expect(elapsed).toBeLessThan(OPEN_BUDGET_MS);
+  // Healthy (linear) parsing amortizes fixed overhead, so perLine at 20,000
+  // lines is normally CHEAPER than at 1,000 (~0.64x locally) — reusing the
+  // gauntlet's own cliff factor keeps one definition of "how much worse
+  // before it's a cliff, not noise" instead of a second unaudited constant.
+  expect(perLine).toBeLessThan(referencePerLine * PERFORMANCE_BUDGET.openCliffFactor);
+  // Absolute backstop, not the primary gate: refuse a pathologically slow
+  // open even if contention or GC pressure hit only the larger doc and hid
+  // it from the ratio above. 15 s clears the worst runner contention seen in
+  // the 2026-09 CI history (12.7 s) with margin, well under the job's 90 s
+  // Playwright timeout, so this fires as a clear assertion instead of an
+  // ambiguous suite timeout.
+  expect(elapsed).toBeLessThan(15_000);
   // It really did mount something the user can read, rather than "opening" by
   // rendering nothing at all.
   expect(await page.locator('.ProseMirror').innerText()).toContain('Line 1 of this note');

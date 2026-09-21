@@ -351,8 +351,22 @@ test('tapping a row inserts that note', async ({ page }) => {
   await focusEditor(page);
   await page.keyboard.type('[[groc');
   await rows(page).first().tap();
-  const [change] = await waitForMessages(page, 'change');
-  expect(change.content).toBe('[[grocery list]]\n');
+
+  // Typing `[[groc` is itself a debounced edit, and the tap right behind it
+  // is a second, independent one — on a slower/contended CI runner the gap
+  // between them can exceed the debounce window, so the TYPING's own change
+  // can post (with the pre-tap `[[groc` text) before the tap's insertion
+  // does. Grabbing "the first 'change' message" then reads the wrong one, no
+  // matter how long the wait. Wait for the specific content the tap
+  // produces instead — the condition this test actually cares about.
+  await page.waitForFunction(() => {
+    const w = window as unknown as FakeHostWindow & {
+      __msgs: { type: string; content?: string }[];
+    };
+    return w.__msgs.some((m) => m.type === 'change' && m.content === '[[grocery list]]\n');
+  });
+  const changes = await messagesOfType(page, 'change');
+  expect(changes.at(-1)?.content).toBe('[[grocery list]]\n');
 });
 
 test('Escape closes the popup and keeps it closed while the run is typed', async ({ page }) => {
