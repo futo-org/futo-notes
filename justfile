@@ -49,7 +49,19 @@ rust-format-check:
 # Lint the hand-written Swift production and test sources (read-only) with swift-format, which
 # ships with Xcode 16+ (`xcrun swift-format`). The generated UniFFI bindings
 # (Sources/Generated) are excluded — they are not ours to style.
+#
+# Skipped, loudly, where swift-format cannot exist (Linux remote runs, Xcode
+# before 16). Nothing ran this recipe automatically, so the Swift sources
+# drifted and the recipe was red on a pristine origin/main — unusable for
+# saying anything about the file you actually changed (pc_481659b55e11,
+# pc_4b221d1f5e28). It is now a `check` dependency.
 lint-swift:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if [ "$(uname -s)" != "Darwin" ] || ! xcrun --find swift-format >/dev/null 2>&1; then
+    echo "==> swift-format is unavailable on this host ($(uname -s)) — skipping Swift lint"
+    exit 0
+  fi
   find apps/ios/Sources apps/ios/Tests apps/ios/UITests \
     -name '*.swift' \
     -not -path '*/Generated/*' \
@@ -1024,7 +1036,7 @@ check-node-modules:
 _require-install:
   @[ -d node_modules ] || { echo 'node_modules is missing in this worktree — run: just install' >&2; exit 1; }
 
-check: check-node-modules _require-install toolbar-spec-check title-spec-check coin-check arch-gate test-rust rust-format-check
+check: check-node-modules _require-install toolbar-spec-check title-spec-check coin-check arch-gate lint-swift test-rust rust-format-check
   #!/usr/bin/env bash
   # See `build:`'s comment: pipefail is required so the `| head`/`| tail`
   # truncation on the last two lines can't mask a failing tsc/vite build.
