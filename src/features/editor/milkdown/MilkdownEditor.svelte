@@ -70,6 +70,7 @@
   } from '$features/images/vaultImageUrlResolver';
   import { deleteImage } from '$features/images/imageFiles';
   import { onFileDrop } from '$lib/platform';
+  import { localizedText } from '$shared/localization';
   import { createImageInsertTarget } from '../imageInsertTarget';
   import { dismissLinkPrompt } from './linkPrompt';
   import {
@@ -1337,6 +1338,12 @@
    */
   function applyExternal(text: string, chunkOptions?: MarkdownChunkOptions): void {
     if (!editor) return;
+    /* A Link URL prompt left floating from before this call holds THAT
+     * document's positions; submitting it after would write into this one.
+     * `openNote` is not the only door — the native shells switch notes
+     * through `setContent`/`applyExternalContent` too (F2), and even a
+     * same-note sync adopt can move the position the prompt was opened at. */
+    dismissLinkPrompt();
     // A different note (or this one, re-parsed whole): nothing still queued is
     // worth parsing.
     endPendingLoad('discard');
@@ -1650,9 +1657,8 @@
    */
   export function openNote(text: string): void {
     documentGeneration += 1;
-    /* A Link URL prompt left floating from the previous note holds THAT note's
-     * positions; submitting it here would write into this one. */
-    dismissLinkPrompt();
+    // A stale Link prompt is dismissed inside `applyExternal` below — the one
+    // place every door that replaces the document passes through (F2).
     if (!editor) {
       pendingContent = text;
       hostMarkdown = text;
@@ -1954,7 +1960,7 @@
   {#if streamingTail}
     <div class="milkdown-stream-tail" role="status" aria-live="polite">
       <span class="milkdown-stream-tail-dot" aria-hidden="true"></span>
-      Loading the rest of this note…
+      {localizedText('editor.progressiveLoad.loadingRest')}
     </div>
   {/if}
 
@@ -1965,9 +1971,8 @@
        on disk is untouched. → docs/spec/editor.md -->
   {#if loadFailed}
     <div class="milkdown-load-failed" role="alert">
-      <strong>This note could not be displayed.</strong>
-      Its markdown is something this version of the editor cannot read, so it is shown read-only. Nothing
-      has been changed on disk.
+      <strong>{localizedText('editor.loadFailed.heading')}</strong>
+      {localizedText('editor.loadFailed.body')}
     </div>
   {/if}
 </div>
