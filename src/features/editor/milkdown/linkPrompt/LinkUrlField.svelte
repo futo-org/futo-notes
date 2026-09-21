@@ -12,6 +12,8 @@
    */
   import { untrack } from 'svelte';
 
+  import { localizedText } from '$shared/localization';
+
   interface Props {
     initialUrl: string;
     /** Add when there is no link yet to edit, Update when there is one. */
@@ -54,8 +56,8 @@
 <input
   class="futo-selection-toolbar-url"
   type="url"
-  placeholder="Paste or type a link"
-  aria-label="Link URL"
+  placeholder={localizedText('editor.linkPrompt.placeholder')}
+  aria-label={localizedText('editor.linkPrompt.urlAccessibilityLabel')}
   bind:this={input}
   bind:value={draft}
   onkeydown={handleKeydown}
@@ -63,7 +65,12 @@
 <button
   class="futo-selection-toolbar-apply"
   type="button"
-  aria-label={applyLabel === 'Add' ? 'Add link' : 'Update link'}
+  aria-label={applyLabel === 'Add'
+    ? localizedText('editor.linkPrompt.addAccessibilityLabel')
+    : localizedText('editor.linkPrompt.updateAccessibilityLabel')}
   onmousedown={preventFocus}
-  onclick={commit}>{applyLabel}</button
+  onclick={commit}
+  >{applyLabel === 'Add'
+    ? localizedText('editor.linkPrompt.add')
+    : localizedText('editor.linkPrompt.update')}</button
 >

@@ -44,6 +44,7 @@
  * a header with zero body rows, and a table with zero columns is nonsense —
  * so both guards simply refuse rather than doing anything destructive.
  */
+import { localizedText } from '$shared/localization';
 import type { Command, EditorState } from '@milkdown/kit/prose/state';
 import {
   addColumn,
@@ -117,14 +118,14 @@ export function canDeleteColumn(loc: CellLocation): boolean {
  * menu to show rather than silently no-op (product requirement: a disabled
  * control must say why). Null when the action is allowed. */
 export function rowDeleteDisabledReason(loc: CellLocation): string | null {
-  if (isHeaderRow(loc)) return "The header row can't be deleted.";
-  if (loc.map.height <= 2) return 'A table needs at least one row.';
+  if (isHeaderRow(loc)) return localizedText('editor.tableGrips.headerRowCannotBeDeleted');
+  if (loc.map.height <= 2) return localizedText('editor.tableGrips.needsAtLeastOneRow');
   return null;
 }
 
 /** Same contract as {@link rowDeleteDisabledReason}, for a column. */
 export function columnDeleteDisabledReason(loc: CellLocation): string | null {
-  if (loc.map.width <= 1) return 'A table needs at least one column.';
+  if (loc.map.width <= 1) return localizedText('editor.tableGrips.needsAtLeastOneColumn');
   return null;
 }
 

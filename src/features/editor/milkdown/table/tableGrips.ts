@@ -43,6 +43,7 @@ import { Plugin, PluginKey, type Command } from '@milkdown/kit/prose/state';
 import { CellSelection } from '@milkdown/kit/prose/tables';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
+import { localizedText } from '$shared/localization';
 import {
   canInsertRowBefore,
   columnDeleteDisabledReason,
@@ -102,14 +103,21 @@ function menuActionsFor(kind: GripKind, pos: number, loc: CellLocation): MenuAct
     const deleteReason = rowDeleteDisabledReason(loc);
     return [
       {
-        label: 'Insert before',
+        label: localizedText('editor.tableGrips.insertBefore'),
         disabled: !insertBeforeAllowed,
-        disabledReason: insertBeforeAllowed ? null : 'The header row must stay first.',
+        disabledReason: insertBeforeAllowed
+          ? null
+          : localizedText('editor.tableGrips.headerRowMustStayFirst'),
         run: insertRowBefore(pos),
       },
-      { label: 'Insert after', disabled: false, disabledReason: null, run: insertRowAfter(pos) },
       {
-        label: 'Delete',
+        label: localizedText('editor.tableGrips.insertAfter'),
+        disabled: false,
+        disabledReason: null,
+        run: insertRowAfter(pos),
+      },
+      {
+        label: localizedText('editor.tableGrips.delete'),
         disabled: deleteReason !== null,
         disabledReason: deleteReason,
         run: deleteRowAt(pos),
@@ -118,10 +126,20 @@ function menuActionsFor(kind: GripKind, pos: number, loc: CellLocation): MenuAct
   }
   const deleteReason = columnDeleteDisabledReason(loc);
   return [
-    { label: 'Insert before', disabled: false, disabledReason: null, run: insertColumnBefore(pos) },
-    { label: 'Insert after', disabled: false, disabledReason: null, run: insertColumnAfter(pos) },
     {
-      label: 'Delete',
+      label: localizedText('editor.tableGrips.insertBefore'),
+      disabled: false,
+      disabledReason: null,
+      run: insertColumnBefore(pos),
+    },
+    {
+      label: localizedText('editor.tableGrips.insertAfter'),
+      disabled: false,
+      disabledReason: null,
+      run: insertColumnAfter(pos),
+    },
+    {
+      label: localizedText('editor.tableGrips.delete'),
       disabled: deleteReason !== null,
       disabledReason: deleteReason,
       run: deleteColumnAt(pos),
@@ -277,7 +295,10 @@ class TableGripsView {
       const el = this.doc.createElement('button');
       el.type = 'button';
       el.className = `${GRIP_CLASS} ${GRIP_COL_CLASS}`;
-      el.setAttribute('aria-label', 'Column options');
+      el.setAttribute(
+        'aria-label',
+        localizedText('editor.tableGrips.columnOptionsAccessibilityLabel'),
+      );
       el.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -294,7 +315,10 @@ class TableGripsView {
       const el = this.doc.createElement('button');
       el.type = 'button';
       el.className = `${GRIP_CLASS} ${GRIP_ROW_CLASS}`;
-      el.setAttribute('aria-label', 'Row options');
+      el.setAttribute(
+        'aria-label',
+        localizedText('editor.tableGrips.rowOptionsAccessibilityLabel'),
+      );
       el.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();

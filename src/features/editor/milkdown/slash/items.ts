@@ -25,10 +25,19 @@
 export interface SlashItem {
   /** Stable id. `exec.ts` implements exactly this set. */
   id: string;
-  /** The row's title. */
+  /**
+   * The row's title, in English — matched against the query (`filterSlashItems`
+   * runs on this, never on the localized text) and never rendered directly.
+   * `menu.ts` renders `localizedText(labelPath)` instead, so matching stays
+   * locale-invariant while the row a user sees is in their own language.
+   */
   label: string;
-  /** The row's second line — what the block is, in the reader's words. */
+  /** The catalog path `menu.ts` resolves for the row's rendered title. */
+  labelPath: string;
+  /** The row's second line, in English — same matching/render split as `label`. */
   hint: string;
+  /** The catalog path `menu.ts` resolves for the row's rendered second line. */
+  hintPath: string;
   /**
    * Extra words a query may match. The label is always matched too, so these
    * are only the names a user might reach for instead: `h1`, `todo`, `hr`.
@@ -37,46 +46,100 @@ export interface SlashItem {
 }
 
 export const SLASH_ITEMS: SlashItem[] = [
-  { id: 'paragraph', label: 'Text', hint: 'Plain paragraph', keywords: ['paragraph', 'body', 'p'] },
-  { id: 'heading-1', label: 'Heading 1', hint: 'Large section heading', keywords: ['h1', 'title'] },
-  { id: 'heading-2', label: 'Heading 2', hint: 'Medium section heading', keywords: ['h2'] },
-  { id: 'heading-3', label: 'Heading 3', hint: 'Small section heading', keywords: ['h3'] },
+  {
+    id: 'paragraph',
+    label: 'Text',
+    labelPath: 'editor.slashMenu.commands.paragraph',
+    hint: 'Plain paragraph',
+    hintPath: 'editor.slashMenu.commands.paragraphHint',
+    keywords: ['paragraph', 'body', 'p'],
+  },
+  {
+    id: 'heading-1',
+    label: 'Heading 1',
+    labelPath: 'editor.slashMenu.commands.headingOne',
+    hint: 'Large section heading',
+    hintPath: 'editor.slashMenu.commands.headingOneHint',
+    keywords: ['h1', 'title'],
+  },
+  {
+    id: 'heading-2',
+    label: 'Heading 2',
+    labelPath: 'editor.slashMenu.commands.headingTwo',
+    hint: 'Medium section heading',
+    hintPath: 'editor.slashMenu.commands.headingTwoHint',
+    keywords: ['h2'],
+  },
+  {
+    id: 'heading-3',
+    label: 'Heading 3',
+    labelPath: 'editor.slashMenu.commands.headingThree',
+    hint: 'Small section heading',
+    hintPath: 'editor.slashMenu.commands.headingThreeHint',
+    keywords: ['h3'],
+  },
   {
     id: 'bullet-list',
     label: 'Bullet list',
+    labelPath: 'editor.slashMenu.commands.bulletList',
     hint: 'Unordered list',
+    hintPath: 'editor.slashMenu.commands.bulletListHint',
     keywords: ['ul', 'unordered', 'list'],
   },
   {
     id: 'ordered-list',
     label: 'Numbered list',
+    labelPath: 'editor.slashMenu.commands.numberedList',
     hint: 'Ordered list',
+    hintPath: 'editor.slashMenu.commands.numberedListHint',
     keywords: ['ol', 'ordered', 'number', 'list'],
   },
   {
     id: 'task-list',
     label: 'Task list',
+    labelPath: 'editor.slashMenu.commands.taskList',
     hint: 'Checkbox list',
+    hintPath: 'editor.slashMenu.commands.taskListHint',
     keywords: ['todo', 'checklist', 'checkbox'],
   },
-  { id: 'quote', label: 'Quote', hint: 'Block quote', keywords: ['blockquote', 'citation'] },
+  {
+    id: 'quote',
+    label: 'Quote',
+    labelPath: 'editor.slashMenu.commands.blockQuote',
+    hint: 'Block quote',
+    hintPath: 'editor.slashMenu.commands.blockQuoteHint',
+    keywords: ['blockquote', 'citation'],
+  },
   {
     id: 'code-block',
     label: 'Code block',
+    labelPath: 'editor.slashMenu.commands.codeBlock',
     hint: 'Fenced code',
+    hintPath: 'editor.slashMenu.commands.codeBlockHint',
     keywords: ['pre', 'fence', 'snippet'],
   },
   {
     id: 'divider',
     label: 'Divider',
+    labelPath: 'editor.slashMenu.commands.divider',
     hint: 'Horizontal rule',
+    hintPath: 'editor.slashMenu.commands.dividerHint',
     keywords: ['hr', 'horizontal', 'rule', 'separator', 'line'],
   },
-  { id: 'table', label: 'Table', hint: 'Markdown table', keywords: ['grid', 'cells', 'rows'] },
+  {
+    id: 'table',
+    label: 'Table',
+    labelPath: 'editor.slashMenu.commands.table',
+    hint: 'Markdown table',
+    hintPath: 'editor.slashMenu.commands.tableHint',
+    keywords: ['grid', 'cells', 'rows'],
+  },
   {
     id: 'link',
     label: 'Link',
+    labelPath: 'editor.slashMenu.commands.link',
     hint: 'Insert a link',
+    hintPath: 'editor.slashMenu.commands.linkHint',
     // Not `href`: it starts with "hr" and would collide with Divider's own
     // `hr` keyword (items.test.ts pins `/hr` to Divider alone).
     keywords: ['url', 'hyperlink'],
@@ -84,7 +147,9 @@ export const SLASH_ITEMS: SlashItem[] = [
   {
     id: 'image',
     label: 'Image',
+    labelPath: 'editor.slashMenu.commands.image',
     hint: 'Insert a picture from a file',
+    hintPath: 'editor.slashMenu.commands.imageHint',
     keywords: ['picture', 'photo', 'img', 'file'],
   },
 ];
