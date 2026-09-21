@@ -88,11 +88,14 @@ async fn noop_cycle_cost() {
         .unwrap();
     }
 
-    let (state, _info) = futo_notes_sync::connect(&vault, &server, common::TEST_PASSWORD)
+    let session = futo_notes_sync::SyncSession::new();
+    session
+        .connect(&vault, &server, common::TEST_PASSWORD)
         .await
         .expect("connect");
     let started = Instant::now();
-    let (summary, state) = futo_notes_sync::run_sync(&state, &vault, &no_progress, &no_pre_write)
+    let summary = session
+        .sync(&vault, &no_progress, &no_pre_write)
         .await
         .expect("initial upload");
     eprintln!(
@@ -102,7 +105,8 @@ async fn noop_cycle_cost() {
     );
 
     // Warm-up cycle so the very first no-op's one-off costs are excluded.
-    let (_, mut state) = futo_notes_sync::run_sync(&state, &vault, &no_progress, &no_pre_write)
+    session
+        .sync(&vault, &no_progress, &no_pre_write)
         .await
         .expect("warm-up");
 
@@ -115,17 +119,16 @@ async fn noop_cycle_cost() {
         let before = checkpoint_mtime(&vault);
         std::thread::sleep(std::time::Duration::from_millis(5));
         let t = Instant::now();
-        let (summary, next) =
-            futo_notes_sync::run_sync(&state, &vault, &no_progress, &no_pre_write)
-                .await
-                .expect("noop cycle");
+        let summary = session
+            .sync(&vault, &no_progress, &no_pre_write)
+            .await
+            .expect("noop cycle");
         durations.push(t.elapsed().as_micros());
         assert_eq!(summary.uploaded, 0);
         assert_eq!(summary.downloaded, 0);
         if checkpoint_mtime(&vault) != before {
             rewrites += 1;
         }
-        state = next;
     }
     let (tw1, est1) = socket_counts(&port);
     durations.sort_unstable();

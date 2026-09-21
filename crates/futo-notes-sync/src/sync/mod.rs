@@ -20,6 +20,8 @@ mod vault;
 mod vault_fs;
 
 use crate::journal::{elapsed_ms, PhaseTimings, SyncRunJournal};
+use crate::server::HttpClients;
+use crate::session::connect;
 use outcome::combine;
 pub(super) use outcome::SyncPhase;
 pub(crate) use outcome::{decision, ReconcileDecision};
@@ -43,13 +45,15 @@ pub(crate) async fn cycle(
     pre_write: &PreWrite,
     run_journal: &SyncRunJournal,
 ) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
-    cycle_with_checkpoint(
+    let clients = HttpClients::new().map_err(connect::http_error)?;
+    cycle_with_checkpoint_and_clients(
         state,
         root,
         progress,
         pre_write,
         &checkpoint::save,
         run_journal,
+        &clients,
     )
     .await
     .map_err(|failure| failure.kind)
@@ -59,6 +63,7 @@ pub(crate) async fn cycle(
 /// then the pull from the cursor captured *before* the push. The journal wraps
 /// this without participating in it — every measurement is taken around a call
 /// whose arguments and ordering are unchanged.
+#[cfg(test)]
 pub(crate) async fn cycle_with_checkpoint(
     state: &ConnectedState,
     root: &Path,
@@ -66,6 +71,31 @@ pub(crate) async fn cycle_with_checkpoint(
     pre_write: &PreWrite,
     save_checkpoint: &SaveCheckpoint,
     run_journal: &SyncRunJournal,
+) -> Result<(SyncSummary, ConnectedState), CycleFailure> {
+    let clients = HttpClients::new().map_err(|error| CycleFailure {
+        kind: connect::http_error(error),
+        state: state.clone(),
+    })?;
+    cycle_with_checkpoint_and_clients(
+        state,
+        root,
+        progress,
+        pre_write,
+        save_checkpoint,
+        run_journal,
+        &clients,
+    )
+    .await
+}
+
+pub(crate) async fn cycle_with_checkpoint_and_clients(
+    state: &ConnectedState,
+    root: &Path,
+    progress: &Progress,
+    pre_write: &PreWrite,
+    save_checkpoint: &SaveCheckpoint,
+    run_journal: &SyncRunJournal,
+    clients: &HttpClients,
 ) -> Result<(SyncSummary, ConnectedState), CycleFailure> {
     let cycle_started = std::time::Instant::now();
     let mut phases = PhaseTimings::default();
@@ -103,10 +133,20 @@ pub(crate) async fn cycle_with_checkpoint(
         ));
     }
 
+    let http = connect::client(clients, state).map_err(|kind| abandon(kind, state, phases))?;
+
     let (bootstrap, ready) = if needs_bootstrap(state) {
         let started = std::time::Instant::now();
-        let bootstrapped =
-            pull::pull_with_checkpoint(state, root, 0, progress, pre_write, save_checkpoint).await;
+        let bootstrapped = pull::pull_with_checkpoint_client(
+            &http,
+            state,
+            root,
+            0,
+            progress,
+            pre_write,
+            save_checkpoint,
+        )
+        .await;
         phases.bootstrap_ms = elapsed_ms(started);
         match bootstrapped {
             Ok(bootstrapped) => bootstrapped,
@@ -117,8 +157,15 @@ pub(crate) async fn cycle_with_checkpoint(
     };
     let pull_since = ready.pull_cursor;
     let started = std::time::Instant::now();
-    let pushed =
-        push::push_with_checkpoint(&ready, root, progress, pre_write, save_checkpoint).await;
+    let pushed = push::push_with_checkpoint_client(
+        &http,
+        &ready,
+        root,
+        progress,
+        pre_write,
+        save_checkpoint,
+    )
+    .await;
     phases.push_ms = elapsed_ms(started);
     let (pushed, after_push) = match pushed {
         Ok(pushed) => pushed,
@@ -130,7 +177,8 @@ pub(crate) async fn cycle_with_checkpoint(
 
     let protected_paths = dirty_mapped_paths(&after_push, root);
     let started = std::time::Instant::now();
-    let pulled = pull::pull_with_checkpoint_protected(
+    let pulled = pull::pull_with_checkpoint_protected_client(
+        &http,
         &after_push,
         root,
         pull_since,

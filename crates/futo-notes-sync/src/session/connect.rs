@@ -4,10 +4,10 @@ use std::path::Path;
 use futo_notes_core::e2ee::{self, KeyMaterial};
 
 use crate::checkpoint::{self, ConnectedState};
-use crate::server::{Collection, Http, HttpError};
+use crate::server::{Collection, Http, HttpClients, HttpError};
 use crate::sync::{ConnectInfo, SyncErrorKind};
 
-fn http_error(error: HttpError) -> SyncErrorKind {
+pub(crate) fn http_error(error: HttpError) -> SyncErrorKind {
     let status = error.status;
     let message = match status {
         Some(status) => format!("HTTP {status}: {}", error.message),
@@ -139,10 +139,11 @@ pub struct AuthenticatedSession {
 /// Logs in and resolves the collection to sync, creating one if the account has
 /// none. Produces no vault key: the notes stay locked until [`unlock_with_password`].
 pub(crate) async fn authenticate(
+    clients: &HttpClients,
     server: &str,
     password: &str,
 ) -> Result<AuthenticatedSession, SyncErrorKind> {
-    let anonymous = Http::new(server).map_err(http_error)?;
+    let anonymous = clients.for_base(server).map_err(http_error)?;
     let auth_mode = anonymous.auth_mode().await.map_err(http_error)?;
     let (user_id, token) = anonymous
         .login(&auth_mode, password)
@@ -182,11 +183,12 @@ pub(crate) async fn unlock_with_password(
 }
 
 pub(crate) async fn connect(
+    clients: &HttpClients,
     root: &Path,
     server: &str,
     password: &str,
 ) -> Result<(ConnectedState, ConnectInfo), SyncErrorKind> {
-    let session = authenticate(server, password).await?;
+    let session = authenticate(clients, server, password).await?;
     let vault_key = unlock_with_password(&session, password).await?;
     let state = connected_state(
         root,
@@ -230,6 +232,7 @@ pub(crate) fn hosted(
 }
 
 pub(crate) async fn resume(
+    clients: &HttpClients,
     root: &Path,
     server: &str,
     token: &str,
@@ -237,7 +240,7 @@ pub(crate) async fn resume(
     collection_id: &str,
     password: &str,
 ) -> Result<ConnectedState, SyncErrorKind> {
-    let http = Http::new(server).map_err(http_error)?.token(token);
+    let http = clients.for_base(server).map_err(http_error)?.token(token);
     let material = http
         .key(collection_id)
         .await
@@ -254,8 +257,9 @@ pub(crate) async fn resume(
     ))
 }
 
-pub(crate) fn client(state: &ConnectedState) -> Result<Http, SyncErrorKind> {
-    Ok(Http::new(&state.base_url)
+pub(crate) fn client(clients: &HttpClients, state: &ConnectedState) -> Result<Http, SyncErrorKind> {
+    Ok(clients
+        .for_base(&state.base_url)
         .map_err(http_error)?
         .token(state.token.clone()))
 }

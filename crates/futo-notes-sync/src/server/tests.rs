@@ -1,4 +1,7 @@
-use std::sync::mpsc;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc};
 
 use super::stalled_http::*;
 use super::*;
@@ -17,6 +20,93 @@ fn batch_blob_frame(key: &str, status: u8, blob: &[u8]) -> Vec<u8> {
 
 fn batch_http(server: &MockServer) -> Http {
     Http::new(&server.uri()).unwrap().token("test-token")
+}
+
+struct KeepAliveServer {
+    base_url: String,
+    connections: Arc<AtomicUsize>,
+    stop: Arc<AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl KeepAliveServer {
+    fn start() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let connections = Arc::new(AtomicUsize::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let server_connections = Arc::clone(&connections);
+        let server_stop = Arc::clone(&stop);
+        let handle = std::thread::spawn(move || {
+            let mut handlers = Vec::new();
+            while !server_stop.load(Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        server_connections.fetch_add(1, Ordering::Relaxed);
+                        let connection_stop = Arc::clone(&server_stop);
+                        handlers.push(std::thread::spawn(move || {
+                            serve_auth_mode_requests(stream, &connection_stop)
+                        }));
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::yield_now();
+                    }
+                    Err(error) => panic!("test server accept failed: {error}"),
+                }
+            }
+            for handler in handlers {
+                handler.join().unwrap();
+            }
+        });
+        Self {
+            base_url: format!("http://{address}"),
+            connections,
+            stop,
+            handle: Some(handle),
+        }
+    }
+}
+
+impl Drop for KeepAliveServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        let _ = TcpStream::connect(self.base_url.trim_start_matches("http://"));
+        if let Some(handle) = self.handle.take() {
+            handle.join().unwrap();
+        }
+    }
+}
+
+fn serve_auth_mode_requests(mut stream: TcpStream, stop: &AtomicBool) {
+    stream
+        .set_read_timeout(Some(Duration::from_millis(10)))
+        .unwrap();
+    let mut request = Vec::new();
+    let mut chunk = [0; 1024];
+    while !stop.load(Ordering::Relaxed) {
+        match stream.read(&mut chunk) {
+            Ok(0) => return,
+            Ok(read) => {
+                request.extend_from_slice(&chunk[..read]);
+                if request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 19\r\n\r\n{\"auth_mode\":\"dev\"}",
+                        )
+                        .unwrap();
+                    stream.flush().unwrap();
+                    request.clear();
+                }
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(_) => return,
+        }
+    }
 }
 
 #[test]
@@ -73,6 +163,57 @@ fn base_url_is_trimmed_and_requires_http() {
     );
     assert!(Http::new("ftp://example.test").is_err());
     assert!(Http::new("example.test").is_err());
+}
+
+#[tokio::test]
+async fn independent_http_owners_do_not_share_connections() {
+    let server = KeepAliveServer::start();
+
+    assert_eq!(
+        Http::new(&server.base_url)
+            .unwrap()
+            .auth_mode()
+            .await
+            .unwrap(),
+        "dev"
+    );
+    assert_eq!(
+        Http::new(&server.base_url)
+            .unwrap()
+            .auth_mode()
+            .await
+            .unwrap(),
+        "dev"
+    );
+
+    assert_eq!(server.connections.load(Ordering::Relaxed), 2);
+}
+
+#[tokio::test]
+async fn one_http_owner_reuses_its_connection() {
+    let server = KeepAliveServer::start();
+    let clients = HttpClients::new().unwrap();
+
+    assert_eq!(
+        clients
+            .for_base(&server.base_url)
+            .unwrap()
+            .auth_mode()
+            .await
+            .unwrap(),
+        "dev"
+    );
+    assert_eq!(
+        clients
+            .for_base(&server.base_url)
+            .unwrap()
+            .auth_mode()
+            .await
+            .unwrap(),
+        "dev"
+    );
+
+    assert_eq!(server.connections.load(Ordering::Relaxed), 1);
 }
 
 #[test]

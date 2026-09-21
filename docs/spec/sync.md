@@ -1715,16 +1715,20 @@ journal --dir` has nothing to read from a phone.
   ~45 s safety poll cover liveness (see "Live sync (SSE)"). → futo-notes-sync
   `session/`
 - **An idle cycle is cheap.** A cycle that finds nothing to push or pull opens
-  no new connection (one process-wide connection pool serves every push, pull,
-  and SSE reconnect, so the TLS handshake is paid once, not per cycle) and
-  writes nothing to disk (`checkpoint::save` leaves `.e2ee-state.json` alone
-  when its bytes already match; a changed, torn, or missing file is still
-  written). The release journal measured the old per-cycle handshake at ~350 ms
-  p50 over 17k cycles, and the old double checkpoint rewrite at ~1.8 MB per idle
-  cycle on a 2.5k-note vault. → futo-notes-sync `server/mod.rs`
-  (`shared_client`), `checkpoint.rs`
-  (`save_leaves_an_identical_checkpoint_untouched_and_rewrites_any_difference`),
-  harness `tests/perf_cycle.rs`
+  no new connection (one connection pool belongs to the `SyncSession` and
+  serves its connect, push, pull, and SSE reconnect requests, so the TLS
+  handshake is paid once per session rather than once per cycle) and writes
+  nothing to disk (`checkpoint::save` leaves `.e2ee-state.json` alone when its
+  bytes already match; a changed, torn, or missing file is still written).
+  Independent sessions never share a pool, so unrelated async runtimes do not
+  accidentally share transport state. The release journal measured the old
+  per-cycle handshake at ~350 ms p50 over 17k cycles, and the old double
+  checkpoint rewrite at ~1.8 MB per idle cycle on a 2.5k-note vault.
+  Regression-guarded by `one_http_owner_reuses_its_connection`,
+  `independent_http_owners_do_not_share_connections`, and
+  `save_leaves_an_identical_checkpoint_untouched_and_rewrites_any_difference`.
+  → futo-notes-sync `server/mod.rs` (`HttpClients`), `checkpoint.rs`, harness
+  `tests/perf_cycle.rs`
 
 - **External filesystem changes to the open note mirror disk, IDE-style
   _(desktop)_.** A watcher `change` whose disk content differs from the

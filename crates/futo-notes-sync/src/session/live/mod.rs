@@ -9,6 +9,7 @@ use futo_notes_core::journal::Journal;
 use tokio::sync::{mpsc, Mutex};
 
 use crate::checkpoint::ConnectedState;
+use crate::server::HttpClients;
 use crate::sync::PreWrite;
 
 use super::SyncSessionListener;
@@ -22,6 +23,7 @@ pub(super) struct LiveTaskContext {
     pub(super) listener: Arc<dyn SyncSessionListener>,
     pub(super) pre_write: Arc<PreWrite>,
     pub(super) journal: Journal,
+    pub(super) clients: HttpClients,
 }
 
 pub(super) struct LiveTask {
@@ -53,6 +55,7 @@ pub(super) fn spawn_live_task(
     listener: Arc<dyn SyncSessionListener>,
     pre_write: Arc<PreWrite>,
     journal: Journal,
+    clients: HttpClients,
 ) -> LiveTask {
     let (cancel_sender, cancel_receiver) = mpsc::channel(1);
     let (note_changed_sender, note_changed_receiver) = mpsc::channel(1);
@@ -64,6 +67,7 @@ pub(super) fn spawn_live_task(
             listener,
             pre_write,
             journal,
+            clients,
         },
         cancel_receiver,
         note_changed_receiver,

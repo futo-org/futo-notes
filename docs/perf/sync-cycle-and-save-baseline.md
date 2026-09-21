@@ -6,11 +6,11 @@ harnesses reproduce every number here:
 - `crates/futo-notes-sync/tests/perf_cycle.rs` — idle sync cycles against a
   live isolated server: wall time, TCP connections opened per cycle, checkpoint
   rewrites. `FUTO_TEST_SERVER=http://127.0.0.1:3055 cargo test -p futo-notes-sync
-  --test perf_cycle -- --ignored --nocapture`
+--test perf_cycle -- --ignored --nocapture`
 - `crates/futo-notes-store/tests/perf_save.rs` — `LocalNoteStore::save` /
   `create` / `startup_listing` / `bootstrap` on a synthetic vault.
   `FUTO_PERF_NOTES=10000 cargo test --release -p futo-notes-store --test
-  perf_save -- --ignored --nocapture`
+perf_save -- --ignored --nocapture`
 
 ## Where the numbers came from
 
@@ -19,13 +19,13 @@ The release app's own instance journal (`just journal type sync_run --release
 vault — roughly 970 cycles a day. Grouped by trigger and whether the cycle
 moved anything:
 
-| cycle kind | n | pull p50 | pull p90 | push p50 | total p50 |
-|---|---|---|---|---|---|
-| safety poll, nothing to do | 11,334 | 365 ms | 493 ms | 14 ms | 399 ms |
-| desktop poll ("manual"), nothing to do | 4,449 | 358 ms | 440 ms | 14 ms | 390 ms |
-| SSE remote change, nothing left to pull | 955 | 350 ms | 388 ms | 13 ms | 377 ms |
-| local edit pushed | 887 | 350 ms | 383 ms | **391 ms** | **765 ms** |
-| remote change pulled | 367 | 354 ms | 470 ms | 393 ms | 763 ms |
+| cycle kind                              | n      | pull p50 | pull p90 | push p50   | total p50  |
+| --------------------------------------- | ------ | -------- | -------- | ---------- | ---------- |
+| safety poll, nothing to do              | 11,334 | 365 ms   | 493 ms   | 14 ms      | 399 ms     |
+| desktop poll ("manual"), nothing to do  | 4,449  | 358 ms   | 440 ms   | 14 ms      | 390 ms     |
+| SSE remote change, nothing left to pull | 955    | 350 ms   | 388 ms   | 13 ms      | 377 ms     |
+| local edit pushed                       | 887    | 350 ms   | 383 ms   | **391 ms** | **765 ms** |
+| remote change pulled                    | 367    | 354 ms   | 470 ms   | 393 ms     | 763 ms     |
 
 Two facts fall out. A pull that fetches nothing costs ~360 ms, and the same
 pull against a localhost server costs 8 ms — so ~350 ms of every cycle is the
@@ -40,21 +40,22 @@ reconnect. Every cycle therefore paid a TCP + TLS handshake to the server. A
 fresh-vs-reused probe on this network with the same reqwest features (public
 FUTO host, one GET, n=10) puts the per-connection tax at roughly 3×:
 
-| | p50 | p90 |
-|---|---|---|
-| fresh client per request | 122 ms | 148 ms |
-| reused client | 40 ms | 47 ms |
+|                                   | p50     | p90     |
+| --------------------------------- | ------- | ------- |
+| fresh client per request          | 122 ms  | 148 ms  |
+| reused client                     | 40 ms   | 47 ms   |
 | `Client::builder().build()` alone | 0.00 ms | 0.02 ms |
 
-**Fix:** one process-wide `reqwest::Client` per role (request / SSE) behind a
-`OnceLock`, cloned into every `Http` (`server/mod.rs` `shared_client`). A client
-is an `Arc` around its pool and is not bound to a host, so one serves any server
-URL; every per-request timeout is unchanged. Harness, 500 notes, 20 idle cycles:
+**Fix:** one session-owned `reqwest::Client` per role (request / SSE), cloned
+into every `Http` used by that `SyncSession` (`server/mod.rs` `HttpClients`). A
+session therefore keeps its connections warm across connect, push, pull, and
+SSE reconnects without sharing transport state with another session; every
+per-request timeout is unchanged. Harness, 500 notes, 20 idle cycles:
 
-| | before | after |
-|---|---|---|
-| TCP connections closed per idle cycle | 1.0 | 0.0 |
-| pooled connection kept across cycles | no | yes |
+|                                       | before | after |
+| ------------------------------------- | ------ | ----- |
+| TCP connections closed per idle cycle | 1.0    | 0.0   |
+| pooled connection kept across cycles  | no     | yes   |
 
 The field number to watch after this ships is the journal's `pull_ms` p50 for
 `safety_poll` cycles: it should fall from ~365 ms toward one round trip.
@@ -100,12 +101,12 @@ passes against the old walk too.
 
 Release build, this machine (btrfs on NVMe, warm cache):
 
-| | 2,500 notes before | after | 10,000 notes before | after |
-|---|---|---|---|---|
-| `save` existing note p50 | 3.79 ms | **1.95 ms** | 16.2 ms | **8.9 ms** |
-| `create` new note p50 | 3.52 ms | **1.95 ms** | 15.6 ms | **8.7 ms** |
-| `startup_listing` (stat-only) | 2.9 ms | 2.9 ms | 12.7 ms | 12.3 ms |
-| `bootstrap` (reads every note) | 3.6 ms | 3.4 ms | 13.4 ms | 11.6 ms |
+|                                | 2,500 notes before | after       | 10,000 notes before | after      |
+| ------------------------------ | ------------------ | ----------- | ------------------- | ---------- |
+| `save` existing note p50       | 3.79 ms            | **1.95 ms** | 16.2 ms             | **8.9 ms** |
+| `create` new note p50          | 3.52 ms            | **1.95 ms** | 15.6 ms             | **8.7 ms** |
+| `startup_listing` (stat-only)  | 2.9 ms             | 2.9 ms      | 12.7 ms             | 12.3 ms    |
+| `bootstrap` (reads every note) | 3.6 ms             | 3.4 ms      | 13.4 ms             | 11.6 ms    |
 
 Debug build at 2,500 notes: 15.4 → 6.5 ms. The win matters most where it was
 not measured: Android's FUSE-backed device storage, where each directory read
@@ -130,7 +131,7 @@ listing 7.0 → 13.6 ms debug). Worth re-trying only on a slow filesystem.
 - Sync push: unchanged files skip by mtime + size before any read or hash.
 - Both native shells pre-warm and reuse one editor WebView for the app's life.
 - Server (Go, SQLite): `List` is indexed on `(collection_id, user_id,
-  change_seq)`, sessions are one SHA-256 + one indexed SELECT per request, and
+change_seq)`, sessions are one SHA-256 + one indexed SELECT per request, and
   `http.ListenAndServe` keeps idle connections open (no `IdleTimeout`), so
   client-side pooling is honored.
 - Frontend bundle: 1.9 MB / ~500 KB gzip, already split; the 549 KB CodeMirror
