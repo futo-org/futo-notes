@@ -53,6 +53,7 @@ interface EditorHandle {
   setContent: (text: string) => void;
   applyEdit: (text: string) => void;
   getContent: () => string | undefined;
+  hasFocus: () => boolean;
   getProseMirrorView: () => import('@milkdown/kit/prose/view').EditorView | null;
 }
 
@@ -326,5 +327,37 @@ describe('a chrome edit during a progressive open', () => {
 
     expect(countFinalParagraphs(handle.getContent())).toBe(1);
     expect(handle.getContent()).not.toContain('#recipes');
+  });
+});
+
+describe('the focus signal the external-change coordinator reads', () => {
+  /*
+   * `hasFocus()` answers "is the user typing HERE, right now" — the question
+   * that decides whether an external file change may be adopted into the open
+   * editor (docs/spec/sync.md "External filesystem changes to the open note
+   * mirror disk"; the focused verdict is DeferAdopt in
+   * crates/futo-notes-sync/src/open_note.rs). The caret staying parked in the
+   * editable is not that: a backgrounded window keeps its activeElement, so an
+   * answer built on the caret alone reports a typist who left hours ago and
+   * the IDE-style mirror never fires again.
+   */
+  it('reports unfocused while the window itself is not focused', () => {
+    editable().focus();
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    expect(handle.hasFocus()).toBe(false);
+  });
+
+  it('reports focused when the caret is in the editor and the window has focus', () => {
+    editable().focus();
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    expect(handle.hasFocus()).toBe(true);
+  });
+
+  it('reports unfocused when the window has focus but the caret is elsewhere', () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const outside = document.createElement('input');
+    document.body.appendChild(outside);
+    outside.focus();
+    expect(handle.hasFocus()).toBe(false);
   });
 });

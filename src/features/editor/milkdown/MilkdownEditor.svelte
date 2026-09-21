@@ -1605,8 +1605,24 @@
     pmView()?.dom.blur();
   }
 
+  /*
+   * "Is the user typing HERE, right now" — the question the external-change
+   * coordinator asks before adopting a peer's or another app's bytes into the
+   * open note (docs/spec/sync.md "External filesystem changes to the open note
+   * mirror disk"; a focused editor gets DeferAdopt from
+   * crates/futo-notes-sync `classify_open_note`).
+   *
+   * ProseMirror's own `hasFocus()` answers a narrower question — is the
+   * editable the document's activeElement — and a backgrounded window keeps its
+   * activeElement. On its own it therefore reports a typist who switched to
+   * another app hours ago, which is precisely when an external file change
+   * arrives: the deferral is never settled (no blur event follows a window
+   * switch) and the note stops mirroring disk for the rest of the session.
+   * CodeMirror's `hasFocus` gated on the document the same way; the Milkdown
+   * port dropped the gate.
+   */
   export function hasFocus(): boolean {
-    return pmView()?.hasFocus() ?? false;
+    return (pmView()?.hasFocus() ?? false) && document.hasFocus();
   }
 
   export function isComposing(): boolean {

@@ -275,6 +275,17 @@ export class AndroidDevice {
     this.shell(`am start -n ${MAIN_ACTIVITY}`);
   }
 
+  /** Stop the app outright and start it again — the only way to make it re-read
+   *  a vault that changed behind its back. Android has no filesystem watcher
+   *  (docs/spec/sync.md), so a note added or removed over adb is invisible to a
+   *  running app: its list keeps showing files that are gone and its sync state
+   *  describes a vault that no longer exists. A process reload rebuilds every
+   *  vault-derived object instead of trusting partial invalidation (M4). */
+  restart() {
+    this.shell(`am force-stop ${DEBUG_PACKAGE}`);
+    this.launch();
+  }
+
   /** Airplane mode — the only way to give the phone a REAL offline window: the
    *  harness server runs on the host, which the emulator reaches through its own
    *  NAT, so cutting the radios cuts sync too. */

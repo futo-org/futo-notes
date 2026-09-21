@@ -132,13 +132,16 @@ async function waitForOpenNoteTitle(client, expectedTitle, timeoutMs = 10_000) {
 
 async function waitForEditorContent(client, expectedContent, timeoutMs = 10_000) {
   const start = Date.now();
+  let last;
   while (Date.now() - start < timeoutMs) {
     const state = await client.getOpenNoteState();
+    last = state.editorContent;
     if (state.editorContent === expectedContent) return state;
     await sleep(100);
   }
   throw new Error(
-    `${client.name}: editor content did not become ${JSON.stringify(expectedContent)} after ${timeoutMs}ms`,
+    `${client.name}: editor content did not become ${JSON.stringify(expectedContent)} after ${timeoutMs}ms ` +
+      `(last seen: ${JSON.stringify(last)})`,
   );
 }
 
@@ -239,14 +242,21 @@ async function editorRoundtripThroughRealSync(a, b, server) {
   await b.pauseAutoSync();
 
   const noteId = 'editor roundtrip';
-  const body = '# Written in CodeMirror\nThis note should sync through the real save pipeline.';
+  // What the harness types, and what the editor writes for it. Milkdown
+  // re-serializes the whole note on a real edit, so composed markdown reaches
+  // the editor buffer and the file in its serialized spelling: a blank line
+  // between blocks and one trailing newline (ADR-0002 normalize-once,
+  // docs/spec/editor.md "WYSIWYG rendering"). Typing source and asserting the
+  // same bytes back was the CodeMirror editor's byte passthrough.
+  const typed = '# Written in Milkdown\nThis note should sync through the real save pipeline.';
+  const body = '# Written in Milkdown\n\nThis note should sync through the real save pipeline.\n';
 
   // A creates a new note through the actual editor path, with the note still
   // living ONLY in the editor buffer when the sync is requested: body + title +
   // syncNow() all happen in one page task, so no debounce or blur flush can
   // persist it first (the harness owns the ordering instead of racing it).
   await a.openNewNote();
-  const composed = await a.composeNoteAndSyncNow(noteId, body);
+  const composed = await a.composeNoteAndSyncNow(noteId, typed);
   // Captured synchronously at the instant syncNow() was called, so these are
   // evidence rather than a poll that lands wherever it lands.
   assertEqual(
@@ -828,7 +838,11 @@ async function externalWatcherReloadsCleanNote(a, _b, _server) {
   await a.flushSave();
   await a.waitForOpenNote('watch clean');
   await a.openNote('watch clean');
-  await waitForEditorContent(a, '# Clean note');
+  // '# Clean note\n': the editor composed this note, so the file holds its
+  // serialized spelling with a trailing newline (ADR-0002 normalize-once), and
+  // reopening hands those same bytes back. Only the EXTERNAL content below is
+  // adopted verbatim.
+  await waitForEditorContent(a, '# Clean note\n');
   await waitForToastClear(a);
   await sleep(1200);
 
@@ -870,7 +884,9 @@ async function externalWatcherProtectsDirtyDraftThenSettles(a, _b, _server) {
   await a.flushSave();
   await a.waitForOpenNote('watch dirty');
   await a.openNote('watch dirty');
-  await waitForEditorContent(a, '# Original content');
+  // Trailing newline for the same reason as in externalWatcherReloadsCleanNote:
+  // the editor composed and saved this note (ADR-0002 normalize-once).
+  await waitForEditorContent(a, '# Original content\n');
 
   await a.setTitle('taken title');
   await a.typeInEditor('\nLocal draft');

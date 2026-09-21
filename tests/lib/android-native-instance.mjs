@@ -546,6 +546,20 @@ class AndroidNativeSyncClient {
     for (const name of SYNC_STATE_FILES) {
       this.device.removeFile(join(this.vaultPath, name));
     }
+    // Every deletion above went around the app, which has no filesystem watcher
+    // to notice it (docs/spec/sync.md — the desktop watcher has no Android
+    // counterpart). Without this restart only the FIRST scenario after an app
+    // launch runs against the vault the harness prepared: the second one
+    // inherits a note list naming files that no longer exist and a sync state
+    // describing a vault that is gone, and its notes then never appear however
+    // long the wait is. Measured: a second `--android-only` run on the same
+    // launch failed all six scenarios on delivery timeouts while the notes
+    // themselves were sitting in the vault on disk.
+    this.device.restart();
+    this.cdp = { port: null, pid: null };
+    await this.device.waitFor(`${this.name} to come back up`, UI_TIMEOUT_MS, () =>
+      this.device.isForeground(),
+    );
     await this.openNoteList();
   }
 
