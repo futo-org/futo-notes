@@ -24,6 +24,8 @@
     hasFocus: () => boolean;
     isComposing: () => boolean;
     refreshDecorations: () => void;
+    openFind: () => void;
+    stepFind: (direction: 1 | -1) => void;
     contentElement: () => HTMLElement | null;
     placeCaretAtCoords: (x: number, y: number) => boolean;
   }

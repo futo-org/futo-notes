@@ -10,6 +10,7 @@ import type { Mark as ProseMark, Node as ProseNode } from '@milkdown/kit/prose/m
 import { TextSelection, type EditorState } from '@milkdown/kit/prose/state';
 
 import { blockFormatAtPos } from '../blockCommands';
+import { findSuppressesSelectionToolbar } from '../find/findPlugin';
 
 /**
  * Whether this editor instance mounts the selection toolbar.
@@ -50,6 +51,13 @@ export interface SelectionToolbarTarget {
  */
 export function selectionToolbarTarget(state: EditorState): SelectionToolbarTarget | null {
   const { selection, doc } = state;
+  /* Find's own step SELECTS its match, and a floating format bar popping up on
+   * every step would sit over the text the user is reading (docs/spec/editor.md
+   * "Find in note"). The bar stays down for the whole time find is open,
+   * including for the selection find leaves behind after Escape — the next
+   * selection the user makes raises it normally, because closing find is what
+   * lifts this gate. */
+  if (findSuppressesSelectionToolbar(state)) return null;
   if (!(selection instanceof TextSelection) || selection.empty) return null;
   const { from, to } = selection;
   if (blockFormatAtPos(selection.$from).kind === 'code') return null;

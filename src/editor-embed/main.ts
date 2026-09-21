@@ -29,6 +29,7 @@ import {
 } from '$features/editor/milkdown/chunkCensusHook';
 import { pickImageInBrowser } from './hostBridge';
 import { warmEditorFonts } from './warmEditorFonts';
+import type { FindMatchReport } from '$features/editor/milkdown/find';
 import {
   createFutoEditorApi,
   type EmbeddedEditorHandle,
@@ -140,31 +141,17 @@ const editor = mount(MilkdownEditor, {
     onblockpress: (pressed: boolean) => {
       post({ type: 'blockPress', pressed });
     },
+    // Find in note: the engine's own {query, current, total, label} report,
+    // which the native find bars render verbatim (bridge.ts FindMatchesMessage).
+    // They never count or word a count themselves.
+    onfindmatches: (report: FindMatchReport) => {
+      post({ type: 'findMatches', ...report });
+    },
     onenginemounted: () => {
       window.__futoEditorMounted = true;
     },
   },
 }) as unknown as EmbeddedEditorHandle;
-
-/* Find in note was a CodeMirror feature (src/features/editor/find/, bridge v8)
- * and the Milkdown swap has not reimplemented it; docs/spec/editor.md's "Find
- * in note" section carries the gap. The bridge contract still declares the
- * calls, because both native shells ship bars that make them — so they are
- * inert here rather than a TypeError on an undefined method, and no
- * `findMatches` message is ever posted back. */
-const findNotImplemented = (): void => {
-  console.warn('FutoEditor: find in note is not implemented in the Milkdown editor yet');
-};
-Object.assign(editor, {
-  openFind: findNotImplemented,
-  closeFind: findNotImplemented,
-  setFindOverlayInset: findNotImplemented,
-  setFindQuery: findNotImplemented,
-  stepFind: findNotImplemented,
-} satisfies Pick<
-  EmbeddedEditorHandle,
-  'openFind' | 'closeFind' | 'setFindOverlayInset' | 'setFindQuery' | 'stepFind'
->);
 
 const toolbarTarget = document.createElement('div');
 document.body.appendChild(toolbarTarget);
