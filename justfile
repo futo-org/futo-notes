@@ -966,7 +966,19 @@ clean:
 check-node-modules:
   @node scripts/check-node-modules.mjs
 
-check: check-node-modules toolbar-spec-check title-spec-check coin-check arch-gate test-rust rust-format-check
+# A fresh worktree has no node_modules, and the first JS recipe `check` reaches
+# dies with `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL Command "tsx" not found` — an
+# error that names a binary, not the missing install (pc_40406aa84bc1). Not an
+# auto-install: `check` is a gate, and installing behind your back changes what
+# it just verified.
+#
+# NOTE: overlaps with `check-node-modules` above (same underlying papercut,
+# two independent fixes that landed on parallel MR stacks). Kept both rather
+# than dropping either — see .rebase-log.md for mr-318.
+_require-install:
+  @[ -d node_modules ] || { echo 'node_modules is missing in this worktree — run: just install' >&2; exit 1; }
+
+check: check-node-modules _require-install toolbar-spec-check title-spec-check coin-check arch-gate test-rust rust-format-check
   #!/usr/bin/env bash
   # See `build:`'s comment: pipefail is required so the `| head`/`| tail`
   # truncation on the last two lines can't mask a failing tsc/vite build.
