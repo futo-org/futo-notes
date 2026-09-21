@@ -124,9 +124,6 @@ export const REFUSED = [
   // Interactive.
   ['tauri-dev', 'interactive'],
   ['tauri-prod', 'interactive'],
-  ['preview', 'interactive'],
-  ['test-headed', 'interactive'],
-  ['test-ui', 'interactive'],
   ['updater-localdev', 'interactive'],
   ['android-drive', 'localMachine'],
   ['journal', 'localMachine'],
@@ -147,7 +144,7 @@ export const REFUSED = [
 // cross-platform sync (both of which boot a browser engine) on top of `check`.
 export const CAVEATED = [
   [
-    /^(test-e2e|test-e2e-full)$/,
+    /^(test-e2e|test-e2e-rest)$/,
     'Playwright here runs Linux Chromium/WebKit builds. Behavior and state are equivalent; ' +
       'paint, compositing and IME/timing are not (M22).',
   ],

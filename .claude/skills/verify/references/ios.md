@@ -219,7 +219,7 @@ launch — `log stream` alone misses it:
 ```bash
 xcrun simctl terminate "$SIM" com.futo.notes.dev 2>/dev/null
 xcrun simctl launch --console-pty "$SIM" com.futo.notes.dev   # stdout incl. print() (blocks; use run_in_background)
-just sim-logs                        # os_log/WebKit stream for the app process
+xcrun simctl spawn "$SIM" log stream --level=debug --predicate 'process == "FutoNotesNative"'   # os_log/WebKit stream for the app process
 ```
 
 ## 5. App data: seeding and verification
@@ -228,7 +228,7 @@ The debug app's vault is plain files in the app container — use it in both
 directions (fixtures in, verification out):
 
 ```bash
-NOTES="$(just sim-container)"        # → <container>/Documents/fake-notes
+NOTES="$(xcrun simctl get_app_container "$SIM" com.futo.notes.dev data)/Documents/fake-notes"
 ls "$NOTES"
 cat "$NOTES/grocery list.md"
 

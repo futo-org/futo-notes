@@ -10,7 +10,7 @@ just remote-check         # the pre-merge umbrella (== a Mac `just check`)
 just remote-rust          # cargo test --workspace
 just remote-sync          # cross-platform E2EE sync
 just remote-android       # Rust .so + bindings + both flavors' debug APKs + JVM unit tests
-just remote test-full     # any other portable recipe
+just remote test-unit     # any other portable recipe
 just remote --rsync test-unit   # ...against your dirty working tree
 ```
 
@@ -90,7 +90,7 @@ prove Windows WebView2): a passing run on the wrong engine is not evidence about
    swift-format (`build-rust-ios`, `build-ios-native`, `test-ios-native`, `ios-native*`,
    `deploy-ios`, `lint-swift`, every `sim-*`), recipes whose _purpose_ is the shipped desktop engine
    (`test-desktop-smoke`), interactive dev/QA commands
-   (`tauri-dev`, `test-headed`, `test-ui`, `android-drive`, …), recipes needing root
+   (`tauri-dev`, `android-drive`, …), recipes needing root
    (`deploy-deb`, `deploy-rpm`), and ones that manage the machine you are sitting at (`qa-claim`,
    `qa-release`, `qa-clone-target` — the last is APFS `cp -Rc`). Refusal resolves the justfile's
    aliases first, so `just remote in` is refused as `ios-native`.

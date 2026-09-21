@@ -8,6 +8,12 @@
 // Node-only by design: no dependencies, so it runs from any checkout without
 // an install step, and `jq` stays a first-class alternative (`cat <dir>/*.jsonl
 // | jq …` answers anything this cannot).
+//
+// Today the app writes one `app_launch` marker per run (the anchor every later
+// event is read against) and one `sync_run` event per sync cycle: trigger
+// (manual/live-catch-up/local-change/remote-change/safety-poll), push and pull
+// timings, counts, the version watermarks either side of the run, and the
+// per-file reconcile decisions with the reason the summary counters throw away.
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir, platform } from 'node:os';

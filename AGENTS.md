@@ -1,6 +1,7 @@
 # AGENTS.md — FUTO Notes Operating Manual
 
-@README.md for project overview. @justfile for all commands.
+@README.md for project overview. `just --list` shows every command with its doc line; the
+justfile is the command authority (longer rationale: `docs/agents/justfile-notes.md`).
 
 FUTO Notes is an offline-first markdown app with a Svelte 5 editor, shared Rust core, Tauri
 desktop, native SwiftUI/Compose mobile shells, and optional E2EE sync.

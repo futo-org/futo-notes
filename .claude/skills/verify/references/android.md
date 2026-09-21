@@ -28,7 +28,6 @@ just qa-claim android       # THE way in a shared/parallel session: claims this
                             # worktree's pooled AVD, boots it, prints
                             # `export ANDROID_SERIAL=<serial>` — set it in every Bash block
 adb devices                 # solo alternative: anything already attached?
-just emu-boot               # boots the first available AVD if nothing is
 ```
 
 `adb` honors `$ANDROID_SERIAL` natively; with multiple devices attached every

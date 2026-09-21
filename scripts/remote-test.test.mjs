@@ -77,8 +77,7 @@ describe('macOS-only deny-list', () => {
     'lint-swift',
     'sim-boot',
     'sim-screenshot',
-    'sim-logs',
-    'sim-container',
+    'sim-appearance',
     'qa-clone-target',
   ])('refuses %s as macOS-only', (recipe) => {
     const verdict = classify(recipe);
@@ -120,7 +119,7 @@ describe('macOS-only deny-list', () => {
   });
 
   it('the regex matchers cover the families they claim', () => {
-    for (const recipe of ['sim-boot', 'sim-screenshot', 'sim-udid', 'sim-logs']) {
+    for (const recipe of ['sim-boot', 'sim-screenshot', 'sim-udid', 'sim-appearance']) {
       expect(recipes.has(recipe), `${recipe} is no longer a justfile recipe`).toBe(true);
       expect(classify(recipe).allowed).toBe(false);
     }
@@ -128,7 +127,7 @@ describe('macOS-only deny-list', () => {
 });
 
 describe('portable suites', () => {
-  it.each(['check', 'test-rust-full', 'test-full', 'build-android-native', 'test-android-native'])(
+  it.each(['check', 'test-rust-full', 'test-unit', 'build-android-native', 'test-android-native'])(
     'allows %s',
     (recipe) => {
       expect(classify(recipe).allowed).toBe(true);
@@ -146,7 +145,7 @@ describe('portable suites', () => {
   });
 
   it('caveats the suites that boot a browser engine', () => {
-    expect(classify('test-e2e-full').caveats.join(' ')).toMatch(/Chromium\/WebKit/);
+    expect(classify('test-e2e').caveats.join(' ')).toMatch(/Chromium\/WebKit/);
     expect(classify('test-cross-platform').caveats.join(' ')).toMatch(/WebKitGTK/);
     // prepush is allowed but must never read as a substitute for the Mac.
     expect(classify('prepush').caveats.join(' ')).toMatch(/NOT a licence to skip the Mac/);
@@ -393,8 +392,8 @@ describe('CLI', () => {
   });
 
   it('accepts an explicit host/user and rsync mode', () => {
-    const opts = parseCliArgs(['--rsync', '--host', 'other', '--user', 'ci', 'test-full']);
-    expect(opts).toMatchObject({ mode: 'rsync', host: 'other', user: 'ci', recipe: 'test-full' });
+    const opts = parseCliArgs(['--rsync', '--host', 'other', '--user', 'ci', 'test-unit']);
+    expect(opts).toMatchObject({ mode: 'rsync', host: 'other', user: 'ci', recipe: 'test-unit' });
   });
 
   it('passes recipe arguments through verbatim, flags included', () => {
