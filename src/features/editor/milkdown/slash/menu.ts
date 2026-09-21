@@ -12,6 +12,8 @@
  * built bundle for exactly this). The wikilink suggestion popup carries the
  * same note — the last time it shipped it crashed the menu on Chromium 80-85.
  */
+import { localizedText } from '$shared/localization';
+
 import type { SlashItem } from './items';
 
 export class SlashMenu {
@@ -22,7 +24,7 @@ export class SlashMenu {
     this.dom = document.createElement('div');
     this.dom.className = 'futo-slash-menu';
     this.dom.setAttribute('role', 'listbox');
-    this.dom.setAttribute('aria-label', 'Insert block');
+    this.dom.setAttribute('aria-label', localizedText('editor.slashMenu.heading'));
     this.list = document.createElement('ul');
     this.dom.appendChild(this.list);
     /*
@@ -61,12 +63,12 @@ export class SlashMenu {
 
       const label = document.createElement('span');
       label.className = 'futo-slash-menu-label';
-      label.textContent = item.label;
+      label.textContent = localizedText(item.labelPath);
       row.appendChild(label);
 
       const hint = document.createElement('span');
       hint.className = 'futo-slash-menu-hint';
-      hint.textContent = item.hint;
+      hint.textContent = localizedText(item.hintPath);
       row.appendChild(hint);
 
       this.list.appendChild(row);

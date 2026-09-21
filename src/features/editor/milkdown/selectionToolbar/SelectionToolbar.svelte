@@ -44,11 +44,15 @@
     ListIndentDecrease,
   };
 
-  const BUTTONS: { id: string; label: string; icon: Component }[] = [
-    { id: 'bold', label: 'Bold', icon: Bold },
-    { id: 'italic', label: 'Italic', icon: Italic },
-    { id: 'strikethrough', label: 'Strikethrough', icon: Strikethrough },
-    { id: 'code', label: 'Code', icon: Code },
+  const BUTTONS: { id: string; labelPath: string; icon: Component }[] = [
+    { id: 'bold', labelPath: 'editor.selectionToolbar.bold', icon: Bold },
+    { id: 'italic', labelPath: 'editor.selectionToolbar.italic', icon: Italic },
+    {
+      id: 'strikethrough',
+      labelPath: 'editor.selectionToolbar.strikethrough',
+      icon: Strikethrough,
+    },
+    { id: 'code', labelPath: 'editor.selectionToolbar.code', icon: Code },
   ];
 
   /** Manifest ids active at the selection, plus `code` (formatState.ts + inline code). */
@@ -97,7 +101,11 @@
   }
 </script>
 
-<div class="futo-selection-toolbar-body" role="toolbar" aria-label="Text formatting">
+<div
+  class="futo-selection-toolbar-body"
+  role="toolbar"
+  aria-label={localizedText('editor.selectionToolbar.accessibilityLabel')}
+>
   {#if editingLink}
     <LinkUrlField
       bind:this={urlField}
@@ -132,7 +140,7 @@
         class="futo-selection-toolbar-btn"
         class:is-active={active.includes(button.id)}
         type="button"
-        aria-label={button.label}
+        aria-label={localizedText(button.labelPath)}
         aria-pressed={active.includes(button.id)}
         onmousedown={preventFocus}
         onclick={() => onexec(button.id)}><Icon size={16} strokeWidth={2.25} /></button
@@ -143,7 +151,9 @@
       class="futo-selection-toolbar-btn"
       class:is-active={linkHref !== null}
       type="button"
-      aria-label={linkHref === null ? 'Link' : 'Edit link'}
+      aria-label={linkHref === null
+        ? localizedText('editor.selectionToolbar.link')
+        : localizedText('editor.selectionToolbar.editLink')}
       aria-pressed={linkHref !== null}
       onmousedown={preventFocus}
       onclick={openLinkField}><Link size={16} strokeWidth={2.25} /></button

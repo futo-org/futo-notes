@@ -429,7 +429,17 @@
         "strikethrough": "Strikethrough",
         "strikethroughTitle": "Strikethrough (Mod-Shift-S)",
         "inlineCode": "Inline code",
-        "link": "Link"
+        "code": "Code",
+        "link": "Link",
+        "editLink": "Edit link"
+      },
+      "linkPrompt": {
+        "placeholder": "Paste or type a link",
+        "urlAccessibilityLabel": "Link URL",
+        "add": "Add",
+        "update": "Update",
+        "addAccessibilityLabel": "Add link",
+        "updateAccessibilityLabel": "Update link"
       },
       "find": {
         "open": "Find in note",
@@ -451,8 +461,8 @@
         "heading": "Insert block",
         "noMatches": "No matching blocks",
         "commands": {
-          "paragraph": "Paragraph",
-          "paragraphHint": "Plain text",
+          "paragraph": "Text",
+          "paragraphHint": "Plain paragraph",
           "headingOne": "Heading 1",
           "headingOneHint": "Large section heading",
           "headingTwo": "Heading 2",
@@ -465,16 +475,18 @@
           "numberedListHint": "Ordered list",
           "taskList": "Task list",
           "taskListHint": "Checkbox list",
-          "blockQuote": "Blockquote",
-          "blockQuoteHint": "Quote block",
+          "blockQuote": "Quote",
+          "blockQuoteHint": "Block quote",
           "codeBlock": "Code block",
           "codeBlockHint": "Fenced code",
           "divider": "Divider",
           "dividerHint": "Horizontal rule",
           "table": "Table",
           "tableHint": "Markdown table",
+          "link": "Link",
+          "linkHint": "Insert a link",
           "image": "Image",
-          "imageHint": "Insert image from file"
+          "imageHint": "Insert a picture from a file"
         }
       },
       "images": {
@@ -491,6 +503,17 @@
         "dragRow": "Drag row",
         "addRowBelow": "Add row below",
         "deleteRow": "Delete row"
+      },
+      "tableGrips": {
+        "insertBefore": "Insert before",
+        "insertAfter": "Insert after",
+        "delete": "Delete",
+        "columnOptionsAccessibilityLabel": "Column options",
+        "rowOptionsAccessibilityLabel": "Row options",
+        "headerRowMustStayFirst": "The header row must stay first.",
+        "headerRowCannotBeDeleted": "The header row can't be deleted.",
+        "needsAtLeastOneRow": "A table needs at least one row.",
+        "needsAtLeastOneColumn": "A table needs at least one column."
       },
       "android": {
         "bridgeVersionMismatch": "Bridge version mismatch: editor v{editorVersion} vs native v{nativeVersion}",
