@@ -1820,19 +1820,19 @@ unchanged by it.
 
   > **Gap:** a note that is ONE giant paragraph — no blank line and none of
   > the interrupting boundaries above anywhere in it — cannot be chunked at
-  > all (`planMarkdownChunks` declines `no-boundary`) and falls back to a
-  > synchronous whole-document parse that blocks the page for as long as
-  > parsing takes, with correct content once it lands. In desktop Chromium
-  > this stays cheap (a fixture of this shape is a real, passing test:
-  > `tests/editor-embed-milkdown.spec.ts` budgets 20,000 lines under 2 s, and
-  > measured live on this branch: 459 ms at 20,000 lines, 1,060 ms at 50,000).
-  > The engine the Linux desktop app actually ships, WebKitGTK, is far slower
-  > at this specific shape — an order of magnitude or more slower than
-  > Chromium at the same fixture in ad hoc testing against this same bundle —
-  > so the real severity of this Gap on desktop needs measuring against the
-  > shipped Tauri app, not against Playwright's Chromium, before it is relied
-  > on for a number. CodeMirror on `main` renders the same file instantly at
-  > any size. → milkdown/markdownChunks.ts `planMarkdownChunks`,
+  > all: `planMarkdownChunks` declines `no-boundary` in ~41 ms and the whole
+  > document goes through a single parse/dispatch of one `<p>` with tens of
+  > thousands of inline children, with correct content once it lands. The
+  > cost is entirely engine-specific (M22). Same fixture, 50,000 lines / one
+  > paragraph / 2,543,891 chars (~2.5 MB): measured live in the shipped Linux
+  > Tauri debug app (WebKitGTK, normal window, GPU compositor) via its own
+  > `futo:editor-open-complete` mark, **desktop opens it in about 41 s**
+  > (41,014 / 41,221 / 41,321 ms across three runs); the identical bundle in
+  > desktop Chromium opens it in **0.93–1.06 s**, which is why the embed
+  > spec's 20,000-line budget stays green — Playwright never runs this suite
+  > on WebKitGTK (M22). CodeMirror on `main` opens the same file instantly at
+  > any size (virtualized DOM). _(desktop, Linux/WebKitGTK)_ →
+  > milkdown/markdownChunks.ts `planMarkdownChunks`,
   > milkdown/progressiveLoad.ts, tests/editor-embed-milkdown.spec.ts
   > `oneParagraphNote`
 

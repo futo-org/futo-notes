@@ -723,13 +723,20 @@ one-run note measured 4,280 lines, which now opens in ~0.2 s.
 **Recorded as a spec Gap (docs/spec/editor.md, "Progressive open"), 2026-09-21.** The 8.9 s number
 above is desktop Chromium; re-measured on this branch it is faster still (1.06 s at 50,000 lines,
 459 ms at 20,000 — `tests/editor-embed-milkdown.spec.ts`'s `oneParagraphNote` test is the live
-budget). WebKitGTK, the engine the Linux desktop app actually ships, is markedly slower than
-Chromium at this exact shape in ad hoc testing against the same bundle — an order of magnitude or
-more at the same fixture sizes — so this Gap's real severity on desktop is engine-dependent and has
-not been pinned down against the shipped Tauri app itself. On Android, the same parse cost also
-blocks the navigation-exit capture (`EditorWebView.kt`'s `CAPTURE_DEADLINE_MS`, 6 s) with no progress
-indicator, and can leave the next note's title showing over the previous note's stale body until its
-own `setContent` finishes parsing. Follow-ups tracked in §10.
+budget, and it stays green because Playwright only ever runs it on Chromium, M22). This IS
+engine-dependent, confirmed by direct triage measuring the same 50,000-line / one-paragraph /
+2,543,891-char (~2.5 MB) fixture in the actual shipped app: **desktop Chromium opens it in
+0.93–1.06 s**; the identical bundle in the **real Linux Tauri debug app (WebKitGTK, normal window,
+GPU compositor) opens it in about 41 s** — 41,014 / 41,221 / 41,321 ms across three runs, via the
+app's own `futo:editor-open-complete` mark. `planMarkdownChunks` itself costs ~41 ms to decline
+`no-boundary`; the whole ~41 s is the parse/dispatch of one `<p>` with tens of thousands of inline
+children. CodeMirror on `main` opens the same file instantly (virtualized DOM). Fixing it for real
+needs chunking on soft line breaks inside a single paragraph, not just at block boundaries — a
+multi-day follow-up, not a quick patch. On
+Android, the same parse cost also blocks the navigation-exit capture (`EditorWebView.kt`'s
+`CAPTURE_DEADLINE_MS`, 6 s) with no progress indicator, and can leave the next note's title showing
+over the previous note's stale body until its own `setContent` finishes parsing. Follow-ups tracked
+in §10.
 
 ### T9 outcome (#106, partial — one budget is MISSED)
 
@@ -1132,13 +1139,22 @@ Gap it closes so a later pass can grep for it.
 - **Giant single-paragraph notes — title gating.** Gate the title swap on a body-applied signal from
   the editor rather than on the note id alone, so the next note's title never shows over the
   previous note's stale body during a slow parse.
-- **Giant single-paragraph notes — non-blocking parse.** Inline-level progressive mount (append
-  inline content into the same paragraph, so block structure and bytes never change) instead of one
-  synchronous parse of the whole run; also re-measure the actual severity on the shipped WebKitGTK
-  desktop engine, not just Chromium (see §5's 2026-09-21 note above).
+- **Giant single-paragraph notes — non-blocking parse.** Confirmed multi-day work, not a quick patch:
+  chunk on soft line breaks INSIDE a paragraph (append inline content into the same paragraph, so
+  block structure and bytes never change), because the 41 s desktop WebKitGTK cost (§5's 2026-09-21
+  note) is the parse/dispatch of one `<p>` with tens of thousands of inline children, not the chunk
+  planner (`planMarkdownChunks` itself declines `no-boundary` in ~41 ms).
+- **WebKitGTK has no `requestIdleCallback`.** `scheduleIdleSlice` (progressiveLoad.ts) already falls
+  back to `setTimeout(0)` when it's absent (Safari/WKWebView), but desktop Linux hits the same
+  fallback path too — every desktop progressive-load idle slice runs on `setTimeout(0)`, never the
+  real browser idle scheduler.
 - **Front matter aria-label.** `packages/editor/src/milkdown-compat/frontmatter.ts`'s "Front matter"
   aria-label is a literal, not yet routed through the language catalog (AGENTS.md §5, every
   user-visible string is a catalog entry).
 - **iOS swift-format debt.** `apps/ios/Sources/Editor/EditorWebView.swift` carries 11 pre-existing
   `swift-format` lint errors (`just lint-swift`); not introduced by this branch, not cleaned up by
   it either.
+- **Android bridge `"change"` has no attachment-generation check** (unlike `"findMatches"`'s
+  `isCurrentFindReportOwner`) — 9 live attempts in the title/body desync window found no corruption,
+  but closing it for real means carrying the generation on `change` in both shells (bridge payload
+  change, needs maintainer sign-off).
