@@ -720,6 +720,24 @@ inline nodes for that fixture, all mounted at once. Fixing it needs inline-level
 not a cap, and not dropping the nodes. No note in the 31k corpus has that shape; the largest real
 one-run note measured 4,280 lines, which now opens in ~0.2 s.
 
+**Recorded as a spec Gap (docs/spec/editor.md, "Progressive open"), 2026-09-21.** The 8.9 s number
+above is desktop Chromium; re-measured on this branch it is faster still (1.06 s at 50,000 lines,
+459 ms at 20,000 — `tests/editor-embed-milkdown.spec.ts`'s `oneParagraphNote` test is the live
+budget, and it stays green because Playwright only ever runs it on Chromium, M22). This IS
+engine-dependent, confirmed by direct triage measuring the same 50,000-line / one-paragraph /
+2,543,891-char (~2.5 MB) fixture in the actual shipped app: **desktop Chromium opens it in
+0.93–1.06 s**; the identical bundle in the **real Linux Tauri debug app (WebKitGTK, normal window,
+GPU compositor) opens it in about 41 s** — 41,014 / 41,221 / 41,321 ms across three runs, via the
+app's own `futo:editor-open-complete` mark. `planMarkdownChunks` itself costs ~41 ms to decline
+`no-boundary`; the whole ~41 s is the parse/dispatch of one `<p>` with tens of thousands of inline
+children. CodeMirror on `main` opens the same file instantly (virtualized DOM). Fixing it for real
+needs chunking on soft line breaks inside a single paragraph, not just at block boundaries — a
+multi-day follow-up, not a quick patch. On
+Android, the same parse cost also blocks the navigation-exit capture (`EditorWebView.kt`'s
+`CAPTURE_DEADLINE_MS`, 6 s) with no progress indicator, and can leave the next note's title showing
+over the previous note's stale body until its own `setContent` finishes parsing. Follow-ups tracked
+in §10.
+
 ### T9 outcome (#106, partial — one budget is MISSED)
 
 `just test-android-perf` builds, installs and drives the REAL native Android app on a physical
@@ -1094,3 +1112,49 @@ Keep everything that feeds markdown strings in/out of the editor behind the engi
 (ADR-0003) replaces the content plumbing without touching plugins, toolbar, chrome, or the bridge
 surface. Prior art to read before that campaign: branch `origin/collab-spike`,
 `~/Developer/stonefruit-collab-spike`.
+
+## 10. Follow-ups / backlog (recorded, not scheduled)
+
+Parity gaps and other divergences from CodeMirror that the maintainer decided to ship as recorded
+`docs/spec/editor.md` Gaps rather than fix pre-merge (2026-09-21 disposition). Each line names the
+Gap it closes so a later pass can grep for it.
+
+- **Table editing parity.** Add a column-alignment picker (left/center/right) and a whole-table
+  delete affordance. → closes the `docs/spec/editor.md` "Tables" Gap on
+  `src/features/editor/milkdown/table/tableCommands.ts`.
+- **Bare URL autolink while typing.** Port an input rule equivalent to the deleted CodeMirror
+  `links/autolinks.ts` so a typed URL linkifies immediately instead of only after save/reopen. →
+  closes the `docs/spec/editor.md` "External links" Gap.
+- **Per-note undo history.** `prosemirror-history` has no stash/restore API; closing this needs a
+  per-note history snapshot it will accept back on re-open, mirroring the CodeMirror engine's
+  `noteHistory.ts`. → closes the `docs/spec/editor.md` "Saving & rename" undo Gap on
+  `MilkdownEditor.svelte` `resetHistory`/`openNote`.
+- **Native body inset.** Give `.ProseMirror` a padding rule that reads the `--futo-cm-pad-inline`
+  CSS variable the shells already send, instead of the fixed 54px/18px gutters. → closes the
+  `docs/spec/editor.md` "Native host boot" Gap on `MilkdownEditor.svelte` `.ProseMirror` padding.
+- **Giant single-paragraph notes — progress indicator.** Show a spinner/loading affordance on both
+  native shells while a synchronous whole-document parse is in flight: Android's
+  `EditorSession.isInteractionLocked` already flags the window, iOS needs the equivalent signal
+  wired to its own exit-capture path.
+- **Giant single-paragraph notes — title gating.** Gate the title swap on a body-applied signal from
+  the editor rather than on the note id alone, so the next note's title never shows over the
+  previous note's stale body during a slow parse.
+- **Giant single-paragraph notes — non-blocking parse.** Confirmed multi-day work, not a quick patch:
+  chunk on soft line breaks INSIDE a paragraph (append inline content into the same paragraph, so
+  block structure and bytes never change), because the 41 s desktop WebKitGTK cost (§5's 2026-09-21
+  note) is the parse/dispatch of one `<p>` with tens of thousands of inline children, not the chunk
+  planner (`planMarkdownChunks` itself declines `no-boundary` in ~41 ms).
+- **WebKitGTK has no `requestIdleCallback`.** `scheduleIdleSlice` (progressiveLoad.ts) already falls
+  back to `setTimeout(0)` when it's absent (Safari/WKWebView), but desktop Linux hits the same
+  fallback path too — every desktop progressive-load idle slice runs on `setTimeout(0)`, never the
+  real browser idle scheduler.
+- **Front matter aria-label.** `packages/editor/src/milkdown-compat/frontmatter.ts`'s "Front matter"
+  aria-label is a literal, not yet routed through the language catalog (AGENTS.md §5, every
+  user-visible string is a catalog entry).
+- **iOS swift-format debt.** `apps/ios/Sources/Editor/EditorWebView.swift` carries 11 pre-existing
+  `swift-format` lint errors (`just lint-swift`); not introduced by this branch, not cleaned up by
+  it either.
+- **Android bridge `"change"` has no attachment-generation check** (unlike `"findMatches"`'s
+  `isCurrentFindReportOwner`) — 9 live attempts in the title/body desync window found no corruption,
+  but closing it for real means carrying the generation on `change` in both shells (bridge payload
+  change, needs maintainer sign-off).
