@@ -898,15 +898,6 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   `shouldOverrideUrlLoading` / `isInAppEditorNavigation`,
   tests/editor-embed-milkdown.spec.ts
 
-  > **Gap:** _(desktop)_ an external link in the editor opens NOTHING on the
-  > Tauri desktop app. The link is a real anchor, so the editor consumes the tap
-  > (`consumesTap` returns true, the default is prevented) and then calls the
-  > `onopenurl` callback — which `NoteWorkspace.svelte` does not pass, so the
-  > click is swallowed and no browser is launched. Only the embed path
-  > (`editor-embed/main.ts`) wires it. → NoteWorkspace.svelte,
-  > src/features/editor/milkdown/MilkdownEditor.svelte `activateLink`,
-  > src/lib/platform/openExternalUrl.ts
-
 - Only the link's own glyphs open it: the hit is the anchor element under the
   pointer, so clicking the blank space past the end of a link — including a link
   that wraps onto several visual lines — places the caret instead of opening the
@@ -1826,6 +1817,38 @@ unchanged by it.
   heading, fence opener, blockquote start, or list item CommonMark lets
   interrupt a paragraph — so a note with no blank line anywhere can still
   open progressively. → milkdown/markdownChunks.ts
+
+  > **Gap:** a note that is ONE giant paragraph — no blank line and none of
+  > the interrupting boundaries above anywhere in it — cannot be chunked at
+  > all (`planMarkdownChunks` declines `no-boundary`) and falls back to a
+  > synchronous whole-document parse that blocks the page for as long as
+  > parsing takes, with correct content once it lands. In desktop Chromium
+  > this stays cheap (a fixture of this shape is a real, passing test:
+  > `tests/editor-embed-milkdown.spec.ts` budgets 20,000 lines under 2 s, and
+  > measured live on this branch: 459 ms at 20,000 lines, 1,060 ms at 50,000).
+  > The engine the Linux desktop app actually ships, WebKitGTK, is far slower
+  > at this specific shape — an order of magnitude or more slower than
+  > Chromium at the same fixture in ad hoc testing against this same bundle —
+  > so the real severity of this Gap on desktop needs measuring against the
+  > shipped Tauri app, not against Playwright's Chromium, before it is relied
+  > on for a number. CodeMirror on `main` renders the same file instantly at
+  > any size. → milkdown/markdownChunks.ts `planMarkdownChunks`,
+  > milkdown/progressiveLoad.ts, tests/editor-embed-milkdown.spec.ts
+  > `oneParagraphNote`
+
+  > **Gap (Android):** the same giant-paragraph parse cost blocks LEAVING such
+  > a note too: `EditorWebView.kt`'s navigation-exit capture holds
+  > `isInteractionLocked` (Back, the toolbar and the text fields disabled) for
+  > up to its 6 s `CAPTURE_DEADLINE_MS`, and gives up rather than waiting
+  > longer if the renderer's JS thread is still inside the parse — with no
+  > progress indicator shown for however long that wait runs. The next note
+  > opened right after can show the PREVIOUS note's body under the new title
+  > until the queued `setContent` for the new note finishes parsing, since the
+  > title updates from local state immediately but the shared WebView's DOM
+  > does not swap until its synchronous parse completes. →
+  > EditorWebView.kt `captureContentAndWait`, `CAPTURE_DEADLINE_MS`,
+  > EditorSession.kt `isInteractionLocked`
+
 - While the tail is still streaming, content cannot leave the editor as a
   PREFIX: `change` is suppressed, and `getContent()` either returns the host's
   original bytes (nothing was edited) or forces the rest of the parse. A pinned
