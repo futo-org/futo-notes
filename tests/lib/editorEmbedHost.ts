@@ -30,6 +30,11 @@ export interface FakeHostWindow extends Window {
     setImageBaseUrl(base: string): void;
     exec(commandId: string): void;
     setNativeToolbar(enabled: boolean): void;
+    openFind(): void;
+    setFindQuery(query: string): void;
+    stepFind(delta: number): void;
+    setFindOverlayInset(bottomOverlayPx: number): void;
+    closeFind(): void;
   };
 }
 

@@ -1349,28 +1349,20 @@ independent: this one is opened by its own affordance and seeded only from the
 editor's own selection or the previous query, and cross-note search is
 unchanged by it.
 
-> **Gap:** nothing below this heading is implemented in the Milkdown editor.
-> The whole engine was CodeMirror (`@codemirror/search` SearchCursor, a CM6
-> top panel, CM6 decorations, and the live-preview reveal controllers) and the
-> editor swap deleted it. The bridge still declares `openFind`,
-> `setFindQuery`, `stepFind`, `setFindOverlayInset` and `closeFind`, and both
-> native shells still ship their find bars, but the page answers every one of
-> them with a no-op and never posts `findMatches` back — so a native bar opens
-> and reports nothing. On desktop nothing claims Ctrl/Cmd+F or Ctrl/Cmd+G at
-> all. _(all platforms)_ → src/editor-embed/main.ts `findNotImplemented`,
-> src/app/NotesShell.svelte
-
 - **One engine, thin platform bars.** All find behavior — matching, highlight
-  decorations, current-match tracking, next/previous stepping with wrap, count
-  arithmetic and count wording, and hidden-source reveal — lives in the shared
-  editor bundle. Desktop renders that engine's full-width CM6 bottom panel.
+  decorations, current-match tracking, next/previous stepping with wrap, and
+  count arithmetic and count wording — lives in the shared
+  editor bundle. Desktop renders that engine's full-width bottom panel.
   iOS and Android render native SwiftUI/Compose bars because the web panel is
   not native-quality mobile chrome; those bars only forward
   query/open/step/close actions and render the bundle's
   `{query, current, total, label}` report verbatim. They never scan text,
-  compute a count, or decide a wrap. The matching machinery uses
-  `@codemirror/search` `SearchCursor` — an established library over a custom
-  scanner — while the visual bars are ours.
+  compute a count, or decide a wrap. Matching is a run scan over the ProseMirror
+  document: every maximal run of ADJACENT text, so a query spanning a mark
+  boundary (`**bo**ld`) matches while one spanning a paragraph boundary cannot.
+  Highlighting is a ProseMirror `DecorationSet` covering the whole document — it
+  maps through a transaction instead of being rebuilt, so a keystroke costs a map
+  and never a scan. → src/features/editor/milkdown/find/
 - Native chrome drives the engine through the bridge-v8 `openFind`,
   `setFindQuery`, `stepFind`, and `closeFind` methods and receives `findMatches`
   reports. Find is NOT an `exec` command or a button in the scrollable formatting
@@ -1394,7 +1386,8 @@ unchanged by it.
   query field, a live match count ("3 of 17"; "0" at zero), next and previous
   buttons, and a completion control. Android uses a single flat, divided bar in
   the platform browser style: query, count, previous, next, then close; its count
-  turns red and its step buttons disable at zero matches. iOS uses a leading
+  turns red and its step buttons disable at zero matches; the desktop bar does
+  the same. iOS uses a leading
   checkmark to close, a search capsule with its count inline, and a separate
   previous/next capsule; desktop keeps its compact full-width panel.
 - Matching is **case-insensitive literal substring** — no case toggle, no
@@ -1403,19 +1396,21 @@ unchanged by it.
   has none of cross-note search's retrieval semantics: no fuzzy, no
   prefix/mid-typing rule, no all-words preference — `cat` finds `concatenate`,
   and `Aug ` (trailing space) finds only `Aug` followed by a space.
-- **Matching runs over the source markdown** — the CM6 document — never over
-  the rendered live-preview text. A match inside syntax the live preview
-  currently hides (emphasis markers, a `[label](url)` URL, wikilink brackets,
-  a heading's `#`) counts and is reachable: stepping to it moves the selection
-  there, and the per-line reveal rule (## Live preview) exposes the hidden
-  syntax, so the CURRENT match is always visible on screen. A non-current
-  match inside a hidden span contributes to the count but paints no highlight
-  until its line reveals. Matching rendered text instead would make results
-  depend on cursor position and reveal state; the document is the single
-  truth, and it is what the selection (and any future replace) operates on.
-- The same visibility requirement holds where live preview swaps in a widget:
-  stepping to a match inside a widget-replaced region (an interactive table's
-  source) must reveal the source the same way placing the caret there does.
+- **Matching runs over the editor's document text.** Results never depend on
+  cursor position or on what is scrolled into view, and every match is a real
+  range the selection (and any future replace) operates on.
+
+  > **Gap:** the CodeMirror editor held the note's SOURCE markdown, so find
+  > reached the syntax characters too — `**`, a `[label](url)` URL, wikilink
+  > brackets, a heading's `#` — and the per-line reveal rule exposed hidden
+  > syntax around the current match. The Milkdown editor is WYSIWYG: its
+  > document holds rendered text and no syntax characters at all, so those are
+  > not findable and there is no hidden syntax to reveal. Searching `bold`
+  > finds the word inside `**bold**`; searching `**` finds nothing, and a
+  > link's address cannot be searched. Closing this would mean searching a
+  > serialization of the document and mapping markdown offsets back to
+  > positions, which is a different feature from the one #26 asked for.
+  > _(all platforms)_ → src/features/editor/milkdown/find/findMatches.ts
 - Find searches the note **body** only. The title is the filename — a native
   field on the native shells, not part of the document text — and titles are
   cross-note search's job (search.md indexes them).
@@ -1429,16 +1424,18 @@ unchanged by it.
   of the editor's own scrolling pane, so the engine measures that panel itself
   and the shell declares nothing; _(Android)_ the bar is a layout sibling above
   the WebView, so the viewport is never covered and no inset is declared.
-  → setFindOverlayInset, findScrollMargin, NoteEditorView.swift, NoteEditorScreen.kt
+  → setFindOverlayInset, findPlugin.ts `revealMatch`, NoteEditorView.swift,
+  NoteEditorScreen.kt
 - Revealing a match inside hidden markdown moves it after the scroll: the
   source appears, the line reflows, and the match can land back under the bar.
   The engine re-measures the current match once that relayout settles and
   re-reveals it, so a match ends up visible wherever the reflow put it.
-  → checkFindReveal
+  → find/findPlugin.ts `revealMatch`
 - _(desktop)_ the selection toolbar does not show for find's own selections:
   it stays down while the bar is open, and for the selection find leaves
   behind after Escape; the next selection the user makes shows it normally.
-  → selectionToolbar.ts
+  → find/findPlugin.ts `findSuppressesSelectionToolbar`,
+  selectionToolbar/target.ts
 - **Stepping to the next occurrence** is the core interaction, and it is
   reachable three ways while the bar is open: the next/previous buttons in the
   bar (the mobile path — they work with the keyboard down), Enter / Shift+Enter
@@ -1458,9 +1455,10 @@ unchanged by it.
   accelerators above, find claims no keys in the note body — Enter,
   Shift+Enter and Escape belong to find only while the query field is focused,
   so typing in the body behaves exactly as it does without find.
-  Recomputation never adds to keystroke latency (M5): match
-  scanning is plain text scanning off the input path, and the count may lag an
-  edit by a frame.
+  Recomputation never adds to keystroke latency (M5): a keystroke only MAPS the
+  matches and decorations it already has through its own transaction, the rescan
+  runs one animation frame later, and the count may therefore lag an edit by a
+  frame.
 - Find state is per open note view: the query and current match survive while
   the note stays on screen — including device rotation on the native shells
   (Android saves the bar's query/visibility and the retained WebView keeps the

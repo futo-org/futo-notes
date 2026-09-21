@@ -108,6 +108,17 @@
     startProgressiveLoad,
     type ProgressiveLoad,
   } from './progressiveLoad';
+  import {
+    closeFind as closeFindIn,
+    createFindMatchReport,
+    findEngine,
+    openFind as openFindIn,
+    setFindOverlayInset as setFindOverlayInsetIn,
+    setFindQuery as setFindQueryIn,
+    stepFind as stepFindIn,
+    type FindBarState,
+    type FindMatchReport,
+  } from './find';
   import { tagDecorations } from './tagDecorations';
   import { DOCUMENT_CHANGE_DEBOUNCE_MS, documentChanges } from './documentChanges';
   import { createBlockSerializer, type BlockSerializer } from './blockSerializer';
@@ -146,6 +157,13 @@
      * recognisers down before they can win, instead of waiting for a lift that
      * may not come (bridge.ts BlockPressMessage / mobileBlockDnd.ts). */
     onblockpress?: (pressed: boolean) => void;
+    /* Find in note's `{query, current, total, label}` report, for the native
+     * bars (bridge.ts FindMatchesMessage). Deduped by the engine, and posted
+     * whether or not this build renders the desktop panel. */
+    onfindmatches?: (report: FindMatchReport) => void;
+    /* Everything a find bar renders, deduped. The desktop shell draws its bar
+     * from this; the native shells ignore it and read `onfindmatches`. */
+    onfindstate?: (state: FindBarState) => void;
     /* The editor engine is up and holding a document. Milkdown's
      * `Editor.make().create()` is ASYNC, so Svelte's `mount()` returns long
      * before this — and the Android WebView gate used to read the host API that
@@ -169,6 +187,8 @@
     onhaptic,
     onblockdrag,
     onblockpress,
+    onfindmatches,
+    onfindstate,
     onenginemounted,
   }: Props = $props();
 
@@ -191,6 +211,28 @@
   /* The floating selection toolbar, desktop only (selectionToolbar/target.ts
    * `resolveSelectionToolbar`) — same gate, same one-shot read. */
   const useSelectionToolbar = $derived(resolveSelectionToolbar(nativeShell) === 'enabled');
+  /* What a find bar renders, mirrored out of the plugin by its
+   * `onStateChange` and handed to whoever draws one. A projection, never the
+   * source of truth: every action a bar takes comes back through the exported
+   * find commands below.
+   *
+   * The desktop bar itself is the SHELL's chrome (NoteWorkspace.svelte), not
+   * this component's: it spans the whole note pane, which is wider than the
+   * editor column this component occupies. That also means the native shells
+   * cannot accidentally get a web bar on top of their own — they never mount
+   * NoteWorkspace. */
+  let findBar: FindBarState = {
+    open: false,
+    query: '',
+    label: '',
+    hasMatches: false,
+    focusToken: 0,
+  };
+
+  function emitFindState(next: Partial<FindBarState>): void {
+    findBar = { ...findBar, ...next };
+    onfindstate?.(findBar);
+  }
 
   /** What the keyboard is told inside code, where its help is corruption.
    * Deliberately the inverse of the editable root's set (see the
@@ -648,6 +690,29 @@
         .use(trailing)
         // AFTER trailing (dividerCaret.ts's header comment says why).
         .use(dividerCaretFix)
+        .use(
+          findEngine({
+            onMatches: (report) => onfindmatches?.(report),
+            onStateChange: (find) => {
+              emitFindState({
+                open: find.open,
+                query: find.query,
+                hasMatches: find.matches.length > 0,
+                /* While a rescan is pending the match list is a frame stale, so
+                 * the previous label stands rather than flashing "0". */
+                ...(find.scanPending && find.open
+                  ? {}
+                  : {
+                      label: createFindMatchReport(
+                        find.query,
+                        find.currentIndex,
+                        find.matches.length,
+                      ).label,
+                    }),
+              });
+            },
+          }),
+        )
         .use(tagDecorations)
         .use(taskCheckbox)
         .use(codeHighlight)
@@ -1684,6 +1749,11 @@
     historyBaselineDepth = 0;
     const view = pmView();
     if (!view) return;
+    /* Find state dies with the note. The host calls this on every
+     * initialize/setContent, so it is the one place every note switch passes
+     * through — and a query, a match list and a highlight from the PREVIOUS
+     * note all point at positions this document no longer has. */
+    closeFindIn(view);
     const { state } = view;
     if (undoDepth(state) === 0 && redoDepth(state) === 0) return;
     view.dispatch(state.tr.setMeta(HISTORY_KEY, { historyState: emptyHistoryState(state.schema) }));
@@ -1774,6 +1844,57 @@
    */
   export function getProseMirrorView(): ProseView | null {
     return pmView();
+  }
+
+  /* Find in note (docs/spec/editor.md). These five are the futoBridge v8 calls
+   * both native shells make for their own find bars, and the desktop bar and
+   * its Ctrl/Cmd+F / Ctrl/Cmd+G accelerators reach the engine through the same
+   * three of them — one implementation, three platforms (M10). */
+  export function openFind(): void {
+    const view = pmView();
+    if (!view) return;
+    openFindIn(view);
+    /* Unconditionally, and AFTER the open: Ctrl/Cmd+F with the bar already up
+     * on the same query changes nothing the plugin reports, so the bar would
+     * never hear about it — and refocusing the query field is the whole point
+     * of that second press (docs/spec/editor.md). */
+    emitFindState({ open: true, focusToken: findBar.focusToken + 1 });
+  }
+
+  export function setFindQuery(query: string): void {
+    const view = pmView();
+    if (view) setFindQueryIn(view, query);
+  }
+
+  export function stepFind(direction: 1 | -1): void {
+    const view = pmView();
+    if (view) stepFindIn(view, direction);
+  }
+
+  /* The bar covering the bottom of the viewport, so a stepped-to match is
+   * never scrolled UNDER it. iOS declares its bar's height here; the desktop
+   * panel measures itself and reports through the same path; Android's bar is
+   * a layout sibling and declares nothing. */
+  export function setFindOverlayInset(bottomOverlayPx: number): void {
+    const view = pmView();
+    if (view) setFindOverlayInsetIn(view, bottomOverlayPx);
+  }
+
+  /* `restoreOrigin` is the native shells' close (docs/spec/editor.md: closing
+   * restores the editor selection and viewport from before find opened). The
+   * desktop bar's own Escape passes `returnFocus` instead and leaves the
+   * selection on the current match. */
+  export function closeFind(): void {
+    const view = pmView();
+    if (view) closeFindIn(view, { restoreOrigin: true });
+  }
+
+  /* The DESKTOP bar's close: leaves the selection on the current match and
+   * hands focus back to the editor (docs/spec/editor.md). The native shells'
+   * `closeFind` above restores the pre-find selection and viewport instead. */
+  export function dismissFind(): void {
+    const view = pmView();
+    if (view) closeFindIn(view, { returnFocus: true });
   }
 
   export function exec(commandId: string): boolean {
@@ -2252,6 +2373,18 @@
    * uses. */
   :global(.futo-milkdown .ProseMirror .futo-tag) {
     color: var(--color-primary, #f26b1f);
+  }
+
+  /* Find in note (find/findPlugin.ts). Painted as a background rather than a
+     selection colour so the CURRENT match can still carry the real selection
+     on top of it and stay legible in both themes. */
+  :global(.futo-milkdown .ProseMirror .futo-find-match) {
+    background: var(--color-find-match);
+    border-radius: 2px;
+  }
+
+  :global(.futo-milkdown .ProseMirror .futo-find-match-current) {
+    background: var(--color-find-match-current);
   }
 
   :global(.futo-milkdown .ProseMirror hr) {

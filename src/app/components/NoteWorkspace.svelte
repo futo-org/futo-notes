@@ -2,6 +2,7 @@
   import type { EditorLinkGesture } from '$features/editor/editorLinkGesture';
 
   import MilkdownEditor from '$features/editor/milkdown/MilkdownEditor.svelte';
+  import { FindPanel, type FindBarState } from '$features/editor/milkdown/find';
   import NoteTagBar from '$features/editor/NoteTagBar.svelte';
   import type { NoteSession } from '$features/notes/noteSession.svelte';
   import type { NotePreview } from '$shared/types/note';
@@ -24,6 +25,11 @@
     hasFocus: () => boolean;
     isComposing: () => boolean;
     refreshDecorations: () => void;
+    openFind: () => void;
+    stepFind: (direction: 1 | -1) => void;
+    setFindQuery: (query: string) => void;
+    setFindOverlayInset: (bottomOverlayPx: number) => void;
+    dismissFind: () => void;
     contentElement: () => HTMLElement | null;
     placeCaretAtCoords: (x: number, y: number) => boolean;
   }
@@ -56,6 +62,17 @@
 
   let editorFocused = $state(false);
   let tagBarEl: HTMLElement | undefined = $state(undefined);
+  /* The find bar's contents, reported by the editor's find engine. The bar is
+   * SHELL chrome rather than editor chrome because it spans the whole note
+   * pane, and because the native shells — which never mount this component —
+   * draw their own. → docs/spec/editor.md "Find in note" */
+  let find: FindBarState = $state({
+    open: false,
+    query: '',
+    label: '',
+    hasMatches: false,
+    focusToken: 0,
+  });
 
   function handleFocusChange(focused: boolean): void {
     editorFocused = focused;
@@ -135,8 +152,22 @@
       {oncompositionend}
       {onopenlink}
       onopenurl={openExternalUrl}
+      onfindstate={(state) => (find = state)}
     />
   </div>
+
+  {#if find.open}
+    <FindPanel
+      query={find.query}
+      label={find.label}
+      hasMatches={find.hasMatches}
+      focusToken={find.focusToken}
+      onquery={(value) => editorApi?.setFindQuery(value)}
+      onstep={(direction) => editorApi?.stepFind(direction)}
+      onheight={(px) => editorApi?.setFindOverlayInset(px)}
+      onclose={() => editorApi?.dismissFind()}
+    />
+  {/if}
 </div>
 
 {#if active}
