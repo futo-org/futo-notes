@@ -40,12 +40,31 @@ enum EditorCaptureOutcome: Equatable {
     /// A different note owns the shared WebView now, so this capture would read
     /// the WRONG document.
     case notOurs
+    /// The capture ran out of its deadline while the renderer was still
+    /// ANSWERING other work — a live JS thread too busy to finish this one read.
+    /// "I do not know", never "there is nothing there".
+    ///
+    /// The distinction from ``noLiveDocument`` is the whole point, and it cannot
+    /// be read off the capture alone: a renderer wedged inside one long
+    /// synchronous parse and a renderer streaming a note's tail in idle slices
+    /// both blow the same deadline. Only a second, trivial round trip issued
+    /// BEFORE the capture separates them — it comes back between idle slices and
+    /// never comes back from a wedge. See
+    /// ``captureWithinDeadline(deadlineSeconds:startLivenessProbe:rendererAnswered:start:)``.
+    case timedOut
 }
 
 /// The body an exit should commit, given what the capture came back with.
 ///
-/// `nil` means REFUSE the exit: reading the editor would answer for the wrong
-/// note, so leaving might discard an edit this shell cannot see.
+/// `nil` means REFUSE the exit, which is what the two answers that leave an edit
+/// unaccounted for get. ``EditorCaptureOutcome/notOurs``: reading the editor
+/// would answer for the wrong note, so leaving might discard an edit this shell
+/// cannot see. ``EditorCaptureOutcome/timedOut``: the editor is alive and busy,
+/// so it may be holding exactly the edit the shell has not been told about — a
+/// note edited while its tail still streams reports no `change` at all. Refusing
+/// costs the user a second Back tap; the retry is cheap, because the first
+/// attempt already paid for the remaining parse (the renderer finishes it
+/// whether or not this side is still listening).
 ///
 /// {@link EditorCaptureOutcome.noLiveDocument} is not that case. An editor that
 /// never presented a document holds nothing, so `shellCopy` — the body this
@@ -67,6 +86,7 @@ func editorExitBody(_ outcome: EditorCaptureOutcome, shellCopy: String) -> Strin
     case .captured(let body): body
     case .noLiveDocument: shellCopy
     case .notOurs: nil
+    case .timedOut: nil
     }
 }
 
@@ -133,6 +153,70 @@ private final class EditorCaptureResumer {
         guard let pending = continuation else { return }
         continuation = nil
         pending.resume(returning: outcome)
+    }
+}
+
+/// One `Bool` the renderer liveness probe sets and the deadline reads.
+///
+/// Unsynchronized on purpose, exactly like ``EditorCaptureResumer`` above: both
+/// the `evaluateJavaScript` completion handler that writes it and the
+/// `DispatchQueue.main` deadline that reads it run on the main thread.
+/// See ``EditorHost/startRendererLivenessProbe()``.
+private final class EditorRendererLivenessBox {
+    var answered = false
+}
+
+/// Race the page's reply against the exit's deadline, and decide what running
+/// out of time MEANS by racing a trivial renderer round trip alongside it.
+///
+/// `start` is handed the one-shot answer callback; whichever of it and the
+/// deadline arrives first wins, and the loser is discarded.
+///
+/// The deadline is what keeps an exit FINITE: `evaluateJavaScript` runs in the
+/// WebContent process, so a JS thread wedged inside one long synchronous parse
+/// never calls back at all, and `.navigate` holds the interaction lock while it
+/// waits — with no deadline, Back is simply dead (2026-09-01, a 50,000-line
+/// single paragraph). Answering that case `.noLiveDocument` is what lets the
+/// user leave, and it is safe: the user never had an editable document for that
+/// note, so the shell's own copy is still the freshest body there is.
+///
+/// But a blown deadline stopped being proof of a wedge once the editor began
+/// streaming large notes. Milkdown mounts the FIRST chunk synchronously and
+/// appends the rest in idle slices; `initialized` — and with it this shell's
+/// `isReady` — arrives after that first chunk, so the user can type into the
+/// first viewport while the tail lands. The editor withholds its `change`
+/// notification for that whole window (a streaming document is a PREFIX of the
+/// note), so the shell's copy does NOT contain that edit, and a capture there
+/// makes the editor finish the remaining parse synchronously — which on a big
+/// enough note costs more than the deadline. Reading THAT as "no live document"
+/// left on the stale copy and dropped the edit.
+///
+/// `startLivenessProbe` tells the two apart, and the ORDER is the mechanism:
+/// dispatched before `start`, it sits ahead of the capture in the WebContent
+/// process's task queue. A streaming editor yields between idle slices, so the
+/// probe comes back in milliseconds even though the capture behind it will not;
+/// a wedged renderer never runs either. `rendererAnswered` is therefore read
+/// only when the deadline expires, and only to choose between "busy" and "dead".
+///
+/// Extracted from ``EditorHost/captureCurrentContent()`` so the one decision
+/// that matters here is assertable without a WKWebView. See
+/// ``editorExitBody(_:shellCopy:)``.
+@MainActor
+func captureWithinDeadline(
+    deadlineSeconds: TimeInterval,
+    startLivenessProbe: () -> Void,
+    rendererAnswered: @escaping () -> Bool,
+    start: (@escaping (EditorCaptureOutcome) -> Void) -> Void
+) async -> EditorCaptureOutcome {
+    await withCheckedContinuation { continuation in
+        let answer = EditorCaptureResumer(continuation)
+        startLivenessProbe()
+        start { answer.resume($0) }
+        // Both the page's reply and this run on the main thread, so the
+        // resumer needs no lock — only the once-only latch.
+        DispatchQueue.main.asyncAfter(deadline: .now() + deadlineSeconds) {
+            answer.resume(rendererAnswered() ? .timedOut : .noLiveDocument)
+        }
     }
 }
 
@@ -886,13 +970,37 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// than a wedge, which does not end.
     private static let captureDeadlineSeconds: TimeInterval = 6
 
+    /// Ask the page for nothing at all, and hand back a reader for whether it
+    /// got round to answering.
+    ///
+    /// Dispatched immediately before the capture so it sits AHEAD of it in the
+    /// WebContent process's task queue: an editor streaming a note's tail in
+    /// idle slices runs this between two of them and answers in milliseconds,
+    /// while a JS thread wedged inside one long synchronous parse runs neither.
+    /// That is the whole difference between `.timedOut` and `.noLiveDocument` —
+    /// see ``captureWithinDeadline(deadlineSeconds:startLivenessProbe:rendererAnswered:start:)``.
+    ///
+    /// Deliberately does NOT touch `window.FutoEditor`: this asks whether the JS
+    /// thread is turning over, not whether the bundle booted. A page that is
+    /// alive without an editor answers the capture itself, promptly, with
+    /// `.noLiveDocument`.
+    private func startRendererLivenessProbe() -> () -> Bool {
+        // A plain box, not an atomic: the completion handler and every read of
+        // it are main-actor-isolated, exactly like the capture's own resumer.
+        let answered = EditorRendererLivenessBox()
+        webView.evaluateJavaScript("1") { _, _ in answered.answered = true }
+        return { answered.answered }
+    }
+
     /// Blur and read the exact document owned by the current attachment.
     ///
     /// A later editor adoption makes the answer `.notOurs`; a page that has not
-    /// reported `initialized`, or does not answer within
-    /// ``captureDeadlineSeconds``, makes it `.noLiveDocument`. See
-    /// ``editorExitBody(_:shellCopy:)`` for why those two are not the same
-    /// answer.
+    /// reported `initialized`, or whose JS thread is wedged, makes it
+    /// `.noLiveDocument`; a live renderer too busy to answer within
+    /// ``captureDeadlineSeconds`` makes it `.timedOut`. See
+    /// ``editorExitBody(_:shellCopy:)`` for why those are not the same answer,
+    /// and ``captureWithinDeadline(deadlineSeconds:startLivenessProbe:rendererAnswered:start:)``
+    /// for how the last two are told apart.
     func captureCurrentContent() async -> EditorCaptureOutcome {
         let capturedGeneration = generation
         await completionQueue.waitForCurrent()
@@ -906,41 +1014,41 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         // — for a note big enough, for a long time — so there is no document on
         // screen and nothing of the user's to lose.
         guard isReady else { return .noLiveDocument }
-        return await withCheckedContinuation { continuation in
-            let answer = EditorCaptureResumer(continuation)
-            webView.evaluateJavaScript(
-                """
-                (() => {
-                  if (!window.FutoEditor) return null;
-                  window.FutoEditor.blur();
-                  return window.FutoEditor.getContent();
-                })()
-                """
-            ) { [weak self] result, error in
-                guard let self,
-                    error == nil,
-                    shouldDeliverEditorCompletion(
-                        capturedGeneration: capturedGeneration,
-                        currentGeneration: self.generation
-                    )
-                else {
-                    answer.resume(.notOurs)
-                    return
+        var rendererAnswered: () -> Bool = { false }
+        return await captureWithinDeadline(
+            deadlineSeconds: EditorHost.captureDeadlineSeconds,
+            startLivenessProbe: { rendererAnswered = self.startRendererLivenessProbe() },
+            rendererAnswered: { rendererAnswered() },
+            start: { answer in
+                webView.evaluateJavaScript(
+                    """
+                    (() => {
+                      if (!window.FutoEditor) return null;
+                      window.FutoEditor.blur();
+                      return window.FutoEditor.getContent();
+                    })()
+                    """
+                ) { [weak self] result, error in
+                    guard let self,
+                        error == nil,
+                        shouldDeliverEditorCompletion(
+                            capturedGeneration: capturedGeneration,
+                            currentGeneration: self.generation
+                        )
+                    else {
+                        answer(.notOurs)
+                        return
+                    }
+                    guard let text = result as? String else {
+                        // The page is alive but has no `window.FutoEditor` — the
+                        // legacy-WebView notice, or a page that failed to boot.
+                        answer(.noLiveDocument)
+                        return
+                    }
+                    answer(.captured(text))
                 }
-                guard let text = result as? String else {
-                    // The page is alive but has no `window.FutoEditor` — the
-                    // legacy-WebView notice, or a page that failed to boot.
-                    answer.resume(.noLiveDocument)
-                    return
-                }
-                answer.resume(.captured(text))
             }
-            // Both this and the completion handler above run on the main thread,
-            // so the resumer needs no lock — only the once-only latch.
-            DispatchQueue.main.asyncAfter(deadline: .now() + EditorHost.captureDeadlineSeconds) {
-                answer.resume(.noLiveDocument)
-            }
-        }
+        )
     }
 
     // MARK: WKScriptMessageHandler

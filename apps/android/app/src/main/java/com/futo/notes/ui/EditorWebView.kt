@@ -28,8 +28,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.futo.notes.BuildConfig
 import com.futo.notes.localization.Localization
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.coroutines.resume
@@ -909,7 +909,11 @@ class EditorHost private constructor(appContext: Context) {
      * is [EditorCaptureOutcome.NotOurs], the answer that refuses the exit. A
      * page with no document to read answers [EditorCaptureOutcome.NoLiveDocument]
      * instead, which lets the exit leave on the shell's own buffer; see
-     * [editorExitBody] for why those two are not the same answer.
+     * [editorExitBody] for why those are not the same answer.
+     *
+     * A renderer that is alive but too busy to answer inside the deadline is the
+     * third refusing case, [EditorCaptureOutcome.TimedOut]; [captureWithinDeadline]
+     * owns how it is told apart from a wedge.
      */
     internal suspend fun captureContentAndWait(
         attachment: EditorAttachmentToken,
@@ -919,8 +923,38 @@ class EditorHost private constructor(appContext: Context) {
         // screen and there is nothing of the user's to lose. Answer without
         // touching the renderer at all.
         if (!isReady) return EditorCaptureOutcome.NoLiveDocument
-        return withTimeoutOrNull(CAPTURE_DEADLINE_MS) { awaitCapture(attachment) }
-            ?: EditorCaptureOutcome.NoLiveDocument
+        var rendererAnswered = { false }
+        return captureWithinDeadline(
+            deadlineMs = CAPTURE_DEADLINE_MS,
+            startLivenessProbe = { rendererAnswered = startRendererLivenessProbe() },
+            rendererAnswered = { rendererAnswered() },
+        ) { awaitCapture(attachment) }
+    }
+
+    /**
+     * Ask the renderer for nothing at all, and hand back a reader for whether it
+     * got round to answering.
+     *
+     * Dispatched immediately before the capture so it sits AHEAD of it in the
+     * renderer's task queue: an editor streaming a note's tail in idle slices
+     * runs this between two of them and answers in milliseconds, while a JS
+     * thread wedged inside one long synchronous parse runs neither. That is the
+     * whole difference between [EditorCaptureOutcome.TimedOut] and
+     * [EditorCaptureOutcome.NoLiveDocument] — see [captureWithinDeadline].
+     *
+     * Deliberately does NOT touch `window.FutoEditor`: this asks whether the JS
+     * thread is turning over, not whether the bundle booted. A page that is
+     * alive without an editor answers the capture itself, promptly, with
+     * [EditorCaptureOutcome.NoLiveDocument].
+     */
+    private fun startRendererLivenessProbe(): () -> Boolean {
+        // `evaluateJavascript` is main-thread-only, and an off-main capture is
+        // already answered NotOurs by [awaitCapture]; probing there would crash
+        // instead. Reporting "no answer" costs nothing — that path never reads it.
+        if (Looper.myLooper() != Looper.getMainLooper()) return { false }
+        val answered = AtomicBoolean(false)
+        webView.evaluateJavascript("1") { answered.set(true) }
+        return { answered.get() }
     }
 
     private suspend fun awaitCapture(
