@@ -17,6 +17,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, tick, unmount } from 'svelte';
+import { undo } from '@milkdown/kit/prose/history';
 import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
 
 vi.mock('$lib/platform', async (importOriginal) => ({
@@ -226,5 +227,104 @@ describe('a note whose parse throws', () => {
     expect(handle.getContent()).toBe('# fine\n\nbody\n');
     expect(target.querySelector('[role="alert"]')).toBeNull();
     expect(editable().getAttribute('contenteditable')).toBe('true');
+  });
+});
+
+/**
+ * A chrome edit that lands while a large note is still streaming
+ * (progressiveLoad.ts).
+ *
+ * The desktop tag bar reads the note with `getContent()` — which never hands
+ * back a prefix, so it gets the WHOLE note — computes new markdown from it,
+ * and hands the whole document back through `applyEdit`. If the in-flight
+ * progressive load is still running when that replace lands, the chunks still
+ * queued append onto the REPLACED document and the note ends up holding its
+ * tail TWICE. The doubled document then reaches `onchange` and is written to
+ * disk. Reproduced on a 502-line note by changing one tag while it opened.
+ *
+ * Deterministic because progressive open applies chunk 0 in the calling task
+ * and schedules everything after it: a call made in the same task as the open
+ * is, by construction, mid-stream.
+ */
+describe('a chrome edit during a progressive open', () => {
+  /** 601 lines — past the 400-line threshold, so the load chunks. */
+  const STREAMING_NOTE =
+    Array.from({ length: 300 }, (_, i) => `Body paragraph ${i}.`).join('\n\n') +
+    '\n\nThe unique final paragraph.\n';
+
+  /** What the tag bar computes: the whole note with a tag line in front. */
+  const TAGGED = `#recipes\n\n${STREAMING_NOTE}`;
+
+  const FINAL_PARAGRAPH = /The unique final paragraph\./gu;
+
+  function countFinalParagraphs(text: string | undefined): number {
+    return text?.match(FINAL_PARAGRAPH)?.length ?? 0;
+  }
+
+  /** Long enough for every queued chunk to have had its idle slice. */
+  function afterStreamSettles(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  /**
+   * The note is genuinely mid-stream at this point — asserted, not assumed. A
+   * planner change that loaded this fixture whole would leave every assertion
+   * after it passing while exercising nothing (AGENTS.md M11). Chunk 0's
+   * budget is 80 lines, so it carries ~40 of the 301 blocks and the final
+   * paragraph is nowhere near it yet.
+   */
+  function expectMidStream(): void {
+    const mounted = editable().children.length;
+    expect(mounted).toBeGreaterThan(0);
+    expect(mounted).toBeLessThan(200);
+    expect(countFinalParagraphs(editable().textContent ?? '')).toBe(0);
+  }
+
+  it('does not append the streaming tail on top of the replaced document', async () => {
+    handle.openNote(STREAMING_NOTE);
+    // Mid-stream by construction — nothing has yielded since the open.
+    expectMidStream();
+    handle.applyEdit(TAGGED);
+
+    await afterStreamSettles();
+
+    expect(countFinalParagraphs(handle.getContent())).toBe(1);
+    expect(countFinalParagraphs(editable().textContent ?? '')).toBe(1);
+    expect(handle.getContent()).toContain('#recipes');
+  });
+
+  it('never reports a doubled note to the host', async () => {
+    handle.openNote(STREAMING_NOTE);
+    expectMidStream();
+    handle.applyEdit(TAGGED);
+
+    await afterStreamSettles();
+    await afterChangeDebounce();
+
+    for (const change of changes) expect(countFinalParagraphs(change)).toBeLessThan(2);
+    expect(countFinalParagraphs(changes.at(-1))).toBe(1);
+    expect(changes.at(-1)).toContain('#recipes');
+  });
+
+  /**
+   * Why the pending load is SETTLED rather than discarded. A chrome edit is
+   * one undoable step, so Ctrl-Z lands on whatever the document held when the
+   * replace ran. Abandon the stream first and that is the half-loaded prefix —
+   * undo would truncate the note, and the truncation goes straight to
+   * `onchange` and the save queue. Discarding trades a doubled note for a
+   * shortened one.
+   */
+  it('leaves undo on the complete note, not the half-loaded prefix', async () => {
+    handle.openNote(STREAMING_NOTE);
+    expectMidStream();
+    handle.applyEdit(TAGGED);
+
+    const view = handle.getProseMirrorView();
+    if (!view) throw new Error('no ProseMirror view');
+    undo(view.state, view.dispatch);
+    await afterStreamSettles();
+
+    expect(countFinalParagraphs(handle.getContent())).toBe(1);
+    expect(handle.getContent()).not.toContain('#recipes');
   });
 });

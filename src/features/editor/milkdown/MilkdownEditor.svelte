@@ -795,8 +795,7 @@
 
     return () => {
       disposed = true;
-      progressive?.cancel();
-      progressive = null;
+      endPendingLoad('discard');
       // A change notification that lands after the component is gone would
       // serialize a destroyed editor and report it as the note.
       if (changeTimer !== null) window.clearTimeout(changeTimer);
@@ -1182,6 +1181,48 @@
   }
 
   /**
+   * Ends the in-flight progressive open, so the caller may replace the whole
+   * document.
+   *
+   * CRITICAL — content duplication. A load still streaming behind a
+   * whole-document replace appends its remaining chunks onto the REPLACEMENT:
+   * changing a tag on a 502-line note while it was still opening left the note
+   * holding its own tail TWICE, and the doubled document went to autosave.
+   * Every path that replaces the document outright goes through here first,
+   * and so does every path that has to READ the whole note.
+   *
+   * Which mode a caller wants follows from what it is about to put in the
+   * document's place:
+   *
+   *   - `'settle'` parses the rest of the note right now
+   *     (`ProgressiveLoad.finishNow`). Everything that replaces the document
+   *     with text DERIVED FROM THIS NOTE wants this, even though the queued
+   *     chunks are markdown the replacement already carries. The reason is the
+   *     undo stack, not the content: a chrome edit is one undoable step
+   *     (`applyEdit`), so the state one Ctrl-Z lands on is whatever the
+   *     document held when the replace ran. Discard, and that is the
+   *     half-streamed PREFIX — undo would truncate the note and hand the
+   *     truncation to autosave, trading this bug for a worse one. Settling
+   *     first makes the undo target the complete note.
+   *   - `'discard'` throws the rest away, for a caller replacing the document
+   *     with something that is not this note at all: another note, or this one
+   *     re-parsed whole. Paying for a parse whose output the very next
+   *     transaction deletes would be seconds of main thread on a note big
+   *     enough to stream, for nothing.
+   *
+   * The bookkeeping matters as much as the ending: a DISCARDED load never
+   * reaches `finishProgressiveLoad`, so the streaming affordance is cleared
+   * here. (A settled one clears it there, and this is then a no-op.)
+   */
+  function endPendingLoad(mode: 'settle' | 'discard'): void {
+    const load = progressive;
+    if (mode === 'settle') load?.finishNow();
+    else load?.cancel();
+    progressive = null;
+    streamingTail = false;
+  }
+
+  /**
    * Loads host content into the editor, progressively when the note is large
    * enough to be worth it (docs/plan/milkdown-transition.md §5).
    *
@@ -1193,9 +1234,9 @@
    */
   function applyExternal(text: string, chunkOptions?: MarkdownChunkOptions): void {
     if (!editor) return;
-    progressive?.cancel();
-    progressive = null;
-    streamingTail = false;
+    // A different note (or this one, re-parsed whole): nothing still queued is
+    // worth parsing.
+    endPendingLoad('discard');
     abortedToWholeDocument = false;
     // A priming loop from the PREVIOUS document has nothing left to prime —
     // its cache entries key on that document's own node identities, which
@@ -1250,9 +1291,7 @@
     let index = 0;
     const abortToWholeDocument = (): void => {
       abortedToWholeDocument = true;
-      progressive?.cancel();
-      progressive = null;
-      streamingTail = false;
+      endPendingLoad('discard');
       if (!applyWholeDocument(text)) recordFailedLoad();
       measureOpen(OPEN_COMPLETE_MEASURE);
     };
@@ -1443,7 +1482,7 @@
       if (!editedSinceLoadStart()) return hostMarkdown ?? '';
       /* Edited: the only answer carrying both the edit and the tail costs the
        * rest of the parse. Pay it rather than hand back a prefix. */
-      progressive.finishNow();
+      endPendingLoad('settle');
     }
     // Only hand back the host's original bytes while the document is still
     // EXACTLY what it loaded; a keystroke inside the change debounce window
@@ -1520,6 +1559,11 @@
     // Same rule as `insertMarkdown`: the tag bar computed this from a document
     // the editor never managed to load, so it is not the note either.
     if (!editor || loadFailed) return;
+    /* CRITICAL — the chunks a large note is still streaming would append onto
+     * this replacement and leave the note holding its tail twice. Settled, not
+     * discarded: this replace is one undoable step, so the document it leaves
+     * behind for Ctrl-Z has to be the complete note (`endPendingLoad`). */
+    endPendingLoad('settle');
     editor.action(replaceAll(text));
     // The document is no longer the host's bytes — and this replace's own
     // debounced change notification is an echo of the report made right here,
@@ -1624,7 +1668,7 @@
   ): { markdown: string | null; chunked: boolean; chunks: number; aborted: boolean } {
     const plan = planMarkdownChunks(text, chunkOptions);
     applyExternal(text, chunkOptions);
-    progressive?.finishNow();
+    endPendingLoad('settle');
     return {
       markdown: readSerialized(),
       chunked: plan.chunked,
@@ -1654,7 +1698,7 @@
    */
   export function censusSerialize(text: string): { whole: string | null; blocks: string | null } {
     applyExternal(text, CENSUS_WHOLE);
-    progressive?.finishNow();
+    endPendingLoad('settle');
     const view = pmView();
     if (!editor || !view) return { whole: null, blocks: null };
     try {
