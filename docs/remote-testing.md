@@ -9,7 +9,7 @@ just remote-doctor        # is the box ready? what needs a human with sudo?
 just remote-check         # the pre-merge umbrella (== a Mac `just check`)
 just remote-rust          # cargo test --workspace
 just remote-sync          # cross-platform E2EE sync
-just remote-android       # Rust .so + bindings + assembleDebug + JVM unit tests
+just remote-android       # Rust .so + bindings + both flavors' debug APKs + JVM unit tests
 just remote test-full     # any other portable recipe
 just remote --rsync test-unit   # ...against your dirty working tree
 ```

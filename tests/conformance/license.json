@@ -1,0 +1,1184 @@
+{
+  "$comment": "Hand-reviewed goldens for the paid client license (docs/spec/license.md). A human decided every `expected` value here; `scripts/gen-license-fixture.mjs` fills in ONLY the two test-only RSA key pairs and the `activation` strings derived from each case's `sign` block, because a signature is not something a reviewer can type. The private keys are test-only and are never used outside this file. Asserted by crates/futo-notes-license/tests/conformance.rs, which is wired into `just test-rust`. Timestamps are RFC 3339 UTC; `now` is the instant the case is evaluated at.",
+  "keys": {
+    "org": {
+      "$comment": "Stands in for the FUTO Notes FUTOpay org key pair.",
+      "publicKeySpkiBase64": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5ZARcpH7Gj6Lr3kDHIJF6ddjYhgVMsWD6n2/YvPMMbcdTrhWTUBMLHd0OrjuppvAJJ85p6MieIv/YsEjdiqjb/f1JNzelXzcmMIy502SSbV8uxnSoZ8xKa4Vv46+AR+iLV3jgYmFMbFJ16oIZKnLHihLLujLtmuGaYJPccIGDxzyGdQ+gPY9wMuROOPd24RkfVfkGpG6XRgod901AdJiYyae7lpM+UjIweOyfGRny9cbwC4xUDGDSF+G//rUGiWJ4gjeQOvjw+uMWVc3Rdd+NLw4/hnBecbLaTziWl4aLE6gL+ZUPF3Bom+PZczy3cFUnJhTJaIlSNf8ysZI+Tt0EwIDAQAB",
+      "privateKeyPkcs8Base64": "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDlkBFykfsaPouveQMcgkXp12NiGBUyxYPqfb9i88wxtx1OuFZNQEwsd3Q6uO6mm8AknzmnoyJ4i/9iwSN2KqNv9/Uk3N6VfNyYwjLnTZJJtXy7GdKhnzEprhW/jr4BH6ItXeOBiYUxsUnXqghkqcseKEsu6Mu2a4Zpgk9xwgYPHPIZ1D6A9j3Ay5E4493bhGR9V+QakbpdGCh33TUB0mJjJp7uWkz5SMjB47J8ZGfL1xvALjFQMYNIX4b/+tQaJYniCN5A6+PD64xZVzdF1340vDj+GcF5xstpPOJaXhosTqAv5lQ8XcGib49lzPLdwVScmFMloiVI1/zKxkj5O3QTAgMBAAECggEABgglDTecu3HNRc0OMd+SarSIHfm4BN9/udeYAceaI+xFzt21Fs6LsddprGlTi/knsU6luyvkKfqzuSqN/frc1IJVZKSRDKh9O15O7BjzsRAduOTSzgBa0FeMpr3fbDQilMKUycCNSWL5J7uGAO8dMSup3g+r2p00qO0NnVWVxyvUyrgRx+i10Vxkhi2VfwjTsMbT/9wArtmijvo6jVeM7kkSZjYOPNu++Q56JPrqvBH0FHyUKKPnT/7HTDAsZPOKVr+eg4PUyLhF7z+3TKuzM+waSwi4H0jq7E5Gq6UZoBwY3t/taxqogwaye6whKvfZQgao4od/+KH/NnHhc0PloQKBgQD3PrN9vuHxo/XZsLUcPfBDn94opok6j38EEKEbbcSUEiujbYiGJ48DnzCsEEUAgOJYew5HQk+1JPSCGqRUNc0w8wZlP1fdUc/e73EeVKbqEzkDS29RAncvDHBropgrW1wfPr2GuBggkxa9JYmKgZ3Fh02LEzGgpMiRYTA5HJvvWwKBgQDtsROYnzgEciMKGr/msI9Dagjt5ZzJHdRmBZgLXtEcPadUzvMCvmbXJz2y9CQ0AWnjUOt9DPsVz0KwA3Jco9Wg2B8gO82pmOan1eGOVFlU2yYdJeD51NCe20hN/t5sG+pUft3VGAhvwBPp+31DB9gA+ot2uXslxfXfThHEK4MjqQKBgCNePdDsIGgvuziT1aSfm6Ig2WfZQuI0qsfLFTDWR/uiicmMHq6KNCQhfpXukeBbj4V2vPkmnD5edfeylfVR6PNqoGyVXh1T2bebawQaufHcJBi7jsX441HApshO7xOsswXpNLVz2ke2otcV6pH8rrQWAdq2OTAwwlxBmeNhm1DnAoGAe8BK7JZQ6velyJf+u5PHMxkcxwdZ5tfyAp/89kaKZsKuwRfyK8aH8pLKq8YypyTpRWGXCYddnpBHLy7MNvFRwyliozyfqiIiTNWtVpYR4H0szdYv2ML1Tw/qCDmfAfhSu2VGB7E4iz4c4CCAqgqGapQHUmvlctgrV/TkiRcCcukCgYEA7aQEOa1/G6Gz8psO9fg2JdDud6D5V/EqOYeWmbptXz368gOT/Gy9cqRLSt9chBlAhhdaBSsSIRUKB6IE1GRbBnwxhe5upt38odvvlmLxMtxMqmfZLikmprEyLoqq0nEgcy8fS4EhQYEIZ+vNZsVN+51+U8IPiiHU4wDchOn5gvE="
+    },
+    "otherOrg": {
+      "$comment": "A different org's key pair \u2014 proves a signature from the wrong signer is rejected rather than merely mis-parsed.",
+      "publicKeySpkiBase64": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr+SOvspK5XCFyVvX5b9Zbbq6XXCqNO7Thv1EaS64sZBsLmuSl82/0ATJc4fVWbsjm9H1SKBUMCKxRJ42Ae2gZeSfBVghUCPDyiHz4CgldaxmEZ9qDTlUKqFxkMLk5aWDbZu9pX6sqtnFBgivK5CytQiqaUP7hEXKdHRBg/EtUO6c52JrdMlaujCkat2tAXmYMNbaxvEBhueE2vUhx+2PrRsL/W6UHZFcv/cFxldLNCnQ9pmTR/ae8HF4gHPVuz8YSqDHOB4bBkLXEITy70g9iipEcB/VSmbtNmpMffQk06CMxrBtavApZ5sMumKpCr2Rj+JuXynOEwK8U68UoMub/wIDAQAB",
+      "privateKeyPkcs8Base64": "MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCv5I6+ykrlcIXJW9flv1lturpdcKo07tOG/URpLrixkGwua5KXzb/QBMlzh9VZuyOb0fVIoFQwIrFEnjYB7aBl5J8FWCFQI8PKIfPgKCV1rGYRn2oNOVQqoXGQwuTlpYNtm72lfqyq2cUGCK8rkLK1CKppQ/uERcp0dEGD8S1Q7pznYmt0yVq6MKRq3a0BeZgw1trG8QGG54Ta9SHH7Y+tGwv9bpQdkVy/9wXGV0s0KdD2mZNH9p7wcXiAc9W7PxhKoMc4HhsGQtcQhPLvSD2KKkRwH9VKZu02akx99CTToIzGsG1q8Clnmwy6YqkKvZGP4m5fKc4TArxTrxSgy5v/AgMBAAECggEAAPPo/gmUfEeuwdd4hOsTbe+8ALOSiHTeunV2wGcbYwLYQywcACyCJHtSKAkNU84atEZf4MPVkOkvMqL0we/qlYK2hc3jaE65ScgDTSyKf2euqdvGNEoiNZToS5Nyr/fEjXxxe4sDHm3NjmnPoRnIjgh8+9L9csr5/MWAcVmGGFEgRXHWhUoyYSbCrhNlUghwLDOH4ifowSWvT0P/ShPvKmjw/YwVKfDqjHmPiLJMFUyPyBhg0gbiCmDiYpudaJ3gVvgkH2VxyPllvAmrldJO0foZSy/LHGTaGVtQd+sOMr1z7vTm3GjNLsMBbGmnGAmji3/DR/VoXAolATFBn/rGaQKBgQDdB4RqFko1FKUIIoDW5nPpOLgS8wo6N/PjtVEFncP1GUSkDj50iHmpKel21WCWYu1aC+FKvRsPzZMskN+CUTefOlPx9u8J/7QW36Gm0WLPAtGZJOjnvlKSkoVIhcvTIr+wrd/wR28KW202Uh0KjnY1/MNC5ataXFDx5Kf/IhBNrQKBgQDLuNj7ggke58m/vGjPTmVx7vWdgdezE4CkETps4HJDEq279C7jtjTqHBqIRAPYcZUa3C6b5qeW4UzMqaFLUJWQ+OCZA3qncG6ClNUlit0JXZRT1OMQBrKlfKfYiLnnHJPvRaShsRawTxutAF/veZZC9Pkbz4hRf4Z9wFOntrDt2wKBgG+V4fWk9yXBHGf081KK2a2+Yr++T0WBBfHJkfPh6BIPBaZFQqaWV8VdUW4a3z5NB0LUiJKw0b6yrEBti0lBM3GBguu/HILRwtthXzzWrKmR5LsJ9UM5xHoW2o74bSRUgK3zugCWL6rs6T/pSJwRvAAZcYKObGmb/YmBRIb7bXupAoGABM8ROCaipnscNQ1yf+o+1MiqPZSSDeUY9UZ+1ZEawWCQf05NSQzFBP2y1qKcYKCVv3ORGhcAv7wDvxUF/KwjS6/ERXhijc9GnIh8240CmLT/ylbNIVS3JNbjc2YO1VjEWTKQp0xx16mWYqgOm62IEX6M3s4wTpQvDYrbrqrOVF8CgYAh+LBxGRl1ExhaFuehRI3XEBKGuRaIwAZsFJwQJsHYp9hFqP3GNs6/QtaDelzYJv7WW6gXiyUdF0JjIux4Uo2hq+aeOVsUHupV7fY/OfFfCZYaJeaJC2rkHxyADKGcZmFBNPq6DbPT8G+TGASudlETnTfWlDv02FIcIh8MSrjgmg=="
+    }
+  },
+  "constants": {
+    "$comment": "The baked-in constants every shell must agree on. Selection between environments follows the existing dev/prod split (M3).",
+    "productSlug": "futo-notes",
+    "checkoutProductSlug": "futo-notes-license",
+    "orgSlug": "futo-notes",
+    "deepLinkScheme": "futonotes",
+    "keyAlphabet": "ABCDEFGHJKMNPQRSTUVWXYZ123456789",
+    "supportMailto": "mailto:support@futo.tech",
+    "buyUrls": {
+      "$comment": "The Buy / Renew destination, opened in the system browser. It is the generated checkout on the environment's own pay2 host \u2014 there is no pay.futo.tech landing page and there will not be one (product decision 2026-09-10). Environment-split like the verification key and the activation host (M3), so a .dev build reaches staging checkout. The product segment is the STOREFRONT slug, `futo-notes-license` \u2014 not `futo-notes`, which is the product field inside an activation payload and names nothing in the storefront (its /price answers \"Product not found: futo-notes\", observed 2026-09-10). `platform` is attribution only; `success` is the buyer's return marker and is `redirect-to-organization-page` because the buyer pays in the system browser: FUTOpay answers that marker with the license key page (the key as HTML plus the Activate deep link), while an empty value answers with the raw activation JSON \u2014 the contract of the in-app-WebView clients this app never runs, and what a buyer who just paid saw on staging 2026-09-11.",
+      "production": {
+        "desktop": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=desktop&success=redirect-to-organization-page",
+        "ios": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=ios&success=redirect-to-organization-page",
+        "android": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=android&success=redirect-to-organization-page"
+      },
+      "staging": {
+        "desktop": "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=desktop&success=redirect-to-organization-page",
+        "ios": "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=ios&success=redirect-to-organization-page",
+        "android": "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=android&success=redirect-to-organization-page"
+      }
+    },
+    "environments": {
+      "production": {
+        "pay2BaseUrl": "https://pay2.futo.org",
+        "bundleIds": [
+          "com.futo.notes"
+        ]
+      },
+      "staging": {
+        "pay2BaseUrl": "https://staging-pay2.futo.org",
+        "bundleIds": [
+          "com.futo.notes.dev"
+        ]
+      },
+      "$comment": "Which build talks to which org. The `.dev` id suffix IS the dev/prod split (M3) and is the only selector, because the native shells compile the FFI with `release-ffi` for their dev apps too \u2014 a compile-profile test would put a .dev phone build on the production key."
+    }
+  },
+  "testPayBaseUrl": "https://pay2.example.test",
+  "licenseKey": [
+    {
+      "name": "the spec's example key",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "normalized": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "valid": true
+    },
+    {
+      "name": "no org prefix",
+      "input": "AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "normalized": "AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "valid": true
+    },
+    {
+      "name": "lowercase is accepted and uppercased",
+      "input": "fn-ab12-cd34-ef56-gh78-jk12-mn34-pq56-rs78",
+      "normalized": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "valid": true
+    },
+    {
+      "name": "surrounding whitespace is trimmed",
+      "input": "  \tFN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78\n ",
+      "normalized": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "valid": true
+    },
+    {
+      "name": "mixed case with whitespace, as pasted out of an email",
+      "input": " Fn-Ab12-cD34-EF56-gh78-JK12-mn34-PQ56-rs78 ",
+      "normalized": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "valid": true
+    },
+    {
+      "name": "seven groups",
+      "input": "AB12-CD34-EF56-GH78-JK12-MN34-PQ56",
+      "normalized": "AB12-CD34-EF56-GH78-JK12-MN34-PQ56",
+      "valid": false
+    },
+    {
+      "name": "prefix plus nine groups",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78-TU99",
+      "normalized": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78-TU99",
+      "valid": false
+    },
+    {
+      "name": "a group of three characters",
+      "input": "AB1-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "normalized": "AB1-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "valid": false
+    },
+    {
+      "name": "letter I is not in the FUTOpay alphabet",
+      "input": "AI12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "normalized": "AI12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "valid": false
+    },
+    {
+      "name": "letter O is not in the FUTOpay alphabet",
+      "input": "ABO2-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "normalized": "ABO2-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "valid": false
+    },
+    {
+      "name": "letter L is not in the FUTOpay alphabet",
+      "input": "ABL2-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "normalized": "ABL2-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "valid": false
+    },
+    {
+      "name": "digit 0 is not in the FUTOpay alphabet",
+      "input": "AB10-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "normalized": "AB10-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "valid": false
+    },
+    {
+      "name": "empty prefix (leading hyphen)",
+      "input": "-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "normalized": "-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "valid": false
+    },
+    {
+      "name": "a long org prefix is accepted \u2014 the spec does not bound it, and refusing one would reject a license the server really minted",
+      "input": "VERYLONGPREFIX-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "normalized": "VERYLONGPREFIX-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "valid": true
+    },
+    {
+      "name": "a prefix may use characters the group alphabet excludes",
+      "input": "IO0L-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "normalized": "IO0L-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "valid": true
+    },
+    {
+      "name": "empty string",
+      "input": "",
+      "normalized": "",
+      "valid": false
+    },
+    {
+      "name": "whitespace only",
+      "input": "   ",
+      "normalized": "",
+      "valid": false
+    },
+    {
+      "name": "a word",
+      "input": "hello",
+      "normalized": "HELLO",
+      "valid": false
+    },
+    {
+      "name": "internal whitespace is not stripped",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS 78",
+      "normalized": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS 78",
+      "valid": false
+    },
+    {
+      "name": "a prefix containing whitespace is not one token",
+      "input": "FN X-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "normalized": "FN X-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "valid": false
+    }
+  ],
+  "recognizeInput": [
+    {
+      "name": "bare key",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "expected": {
+        "shape": "bareKey",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      }
+    },
+    {
+      "name": "bare key, lowercase and padded with whitespace",
+      "input": "\n  fn-ab12-cd34-ef56-gh78-jk12-mn34-pq56-rs78  \t",
+      "expected": {
+        "shape": "bareKey",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      }
+    },
+    {
+      "name": "key/activation pair",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/v2.cGF5bG9hZA.c2ln",
+      "expected": {
+        "shape": "pair",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+        "activation": "v2.cGF5bG9hZA.c2ln"
+      }
+    },
+    {
+      "name": "pair with whitespace and a lowercase key \u2014 the activation's case is preserved",
+      "input": "  fn-ab12-cd34-ef56-gh78-jk12-mn34-pq56-rs78/v2.cGF5bG9hZA.c2ln  ",
+      "expected": {
+        "shape": "pair",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+        "activation": "v2.cGF5bG9hZA.c2ln"
+      }
+    },
+    {
+      "name": "full deep-link URL",
+      "input": "futonotes://license/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/v2.cGF5bG9hZA.c2ln",
+      "expected": {
+        "shape": "pair",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+        "activation": "v2.cGF5bG9hZA.c2ln"
+      }
+    },
+    {
+      "name": "deep-link URL with an uppercase scheme and host, padded",
+      "input": " FUTONOTES://License/fn-ab12-cd34-ef56-gh78-jk12-mn34-pq56-rs78/v2.cGF5bG9hZA.c2ln ",
+      "expected": {
+        "shape": "pair",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+        "activation": "v2.cGF5bG9hZA.c2ln"
+      }
+    },
+    {
+      "name": "deep-link URL with a trailing slash",
+      "input": "futonotes://license/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/v2.cGF5bG9hZA.c2ln/",
+      "expected": {
+        "shape": "pair",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+        "activation": "v2.cGF5bG9hZA.c2ln"
+      }
+    },
+    {
+      "name": "deep-link URL with a query string the checkout page may append",
+      "input": "futonotes://license/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/v2.cGF5bG9hZA.c2ln?src=checkout",
+      "expected": {
+        "shape": "pair",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+        "activation": "v2.cGF5bG9hZA.c2ln"
+      }
+    },
+    {
+      "name": "a malformed key is still recognised as a shape \u2014 content is judged by evaluate, not by recognition",
+      "input": "hello",
+      "expected": {
+        "shape": "bareKey",
+        "key": "HELLO"
+      }
+    },
+    {
+      "name": "empty input is not a license at all",
+      "input": "",
+      "expected": null
+    },
+    {
+      "name": "whitespace only",
+      "input": "   \n ",
+      "expected": null
+    },
+    {
+      "name": "pair with an empty activation",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/",
+      "expected": null
+    },
+    {
+      "name": "pair with an empty key",
+      "input": "/v2.cGF5bG9hZA.c2ln",
+      "expected": null
+    },
+    {
+      "name": "three slash-separated segments is not a shape we accept",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/v2.cGF5bG9hZA.c2ln/extra",
+      "expected": null
+    },
+    {
+      "name": "an https URL pasted into the field",
+      "input": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=desktop&success=redirect-to-organization-page",
+      "expected": null
+    },
+    {
+      "name": "another app's deep link",
+      "input": "grayjay://license/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/c2ln",
+      "expected": null
+    }
+  ],
+  "deepLink": [
+    {
+      "name": "the defined path",
+      "input": "futonotes://license/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/v2.cGF5bG9hZA.c2ln",
+      "expected": {
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+        "activation": "v2.cGF5bG9hZA.c2ln"
+      }
+    },
+    {
+      "name": "scheme and host are case-insensitive; the activation is not",
+      "input": "FutoNotes://LICENSE/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/v2.cGF5bG9hZA.c2ln",
+      "expected": {
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+        "activation": "v2.cGF5bG9hZA.c2ln"
+      }
+    },
+    {
+      "name": "a garbage key still matches the path shape, so the shell toasts rather than ignoring",
+      "input": "futonotes://license/hello/world",
+      "expected": {
+        "key": "HELLO",
+        "activation": "world"
+      }
+    },
+    {
+      "name": "another host is ignored silently",
+      "input": "futonotes://settings/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/v2.cGF5bG9hZA.c2ln",
+      "expected": null
+    },
+    {
+      "name": "the license host with too few segments is ignored silently",
+      "input": "futonotes://license/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "expected": null
+    },
+    {
+      "name": "the license host with too many segments is ignored silently",
+      "input": "futonotes://license/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/v2.cGF5bG9hZA.c2ln/extra",
+      "expected": null
+    },
+    {
+      "name": "no host at all is ignored silently",
+      "input": "futonotes://",
+      "expected": null
+    },
+    {
+      "name": "another scheme is ignored silently",
+      "input": "grayjay://license/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/v2.cGF5bG9hZA.c2ln",
+      "expected": null
+    },
+    {
+      "name": "a bare pair is not a deep link",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/v2.cGF5bG9hZA.c2ln",
+      "expected": null
+    }
+  ],
+  "evaluate": [
+    {
+      "name": "valid license, well inside its term",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2029-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.UW-vdWiyHl70QilqDEJH0xHKaJAuqfArW_UqEIoIqytuSl-y5bwaHh-0r1KSLqGjs9q7E77X3UshG4iBnyheH84FslCUGrs5CV0QUeUd1SLym_g2dAi4XkI7RN8QoDKVY9V4ddYd13lbvIATbgMxA_MDlKalkmvUhJ0gkxjoN2jQnf4SmUivPp38ZuwscHrorA-iy1BQhobXS3lbws9ENO4FcknQ1A5TzWvQJ1hkUagQpWnXj1NIyOYcfqHaWSe0TD5HdXKacDVQftb_puM8YbQ5uHYSxgMdQ_rol6dKYijX0u7IhN9WuKnCTL26_bwpwbEUtAmNDr9SKVU1iO9_Gg",
+      "expected": {
+        "state": "licensed",
+        "issuedAt": "2026-01-15T10:30:00Z",
+        "expiresAt": "2029-01-15T10:30:00Z"
+      }
+    },
+    {
+      "name": "the same license, evaluated after it expired \u2014 still Expired, never Invalid",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2030-02-01T00:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2029-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.UW-vdWiyHl70QilqDEJH0xHKaJAuqfArW_UqEIoIqytuSl-y5bwaHh-0r1KSLqGjs9q7E77X3UshG4iBnyheH84FslCUGrs5CV0QUeUd1SLym_g2dAi4XkI7RN8QoDKVY9V4ddYd13lbvIATbgMxA_MDlKalkmvUhJ0gkxjoN2jQnf4SmUivPp38ZuwscHrorA-iy1BQhobXS3lbws9ENO4FcknQ1A5TzWvQJ1hkUagQpWnXj1NIyOYcfqHaWSe0TD5HdXKacDVQftb_puM8YbQ5uHYSxgMdQ_rol6dKYijX0u7IhN9WuKnCTL26_bwpwbEUtAmNDr9SKVU1iO9_Gg",
+      "expected": {
+        "state": "expired",
+        "issuedAt": "2026-01-15T10:30:00Z",
+        "expiresAt": "2029-01-15T10:30:00Z"
+      }
+    },
+    {
+      "name": "the expiry instant itself is already expired \u2014 the rule is `now < expires_at`",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2029-01-15T10:30:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2029-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.UW-vdWiyHl70QilqDEJH0xHKaJAuqfArW_UqEIoIqytuSl-y5bwaHh-0r1KSLqGjs9q7E77X3UshG4iBnyheH84FslCUGrs5CV0QUeUd1SLym_g2dAi4XkI7RN8QoDKVY9V4ddYd13lbvIATbgMxA_MDlKalkmvUhJ0gkxjoN2jQnf4SmUivPp38ZuwscHrorA-iy1BQhobXS3lbws9ENO4FcknQ1A5TzWvQJ1hkUagQpWnXj1NIyOYcfqHaWSe0TD5HdXKacDVQftb_puM8YbQ5uHYSxgMdQ_rol6dKYijX0u7IhN9WuKnCTL26_bwpwbEUtAmNDr9SKVU1iO9_Gg",
+      "expected": {
+        "state": "expired",
+        "issuedAt": "2026-01-15T10:30:00Z",
+        "expiresAt": "2029-01-15T10:30:00Z"
+      }
+    },
+    {
+      "name": "one second before expiry is still Licensed",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2029-01-15T10:29:59Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2029-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.UW-vdWiyHl70QilqDEJH0xHKaJAuqfArW_UqEIoIqytuSl-y5bwaHh-0r1KSLqGjs9q7E77X3UshG4iBnyheH84FslCUGrs5CV0QUeUd1SLym_g2dAi4XkI7RN8QoDKVY9V4ddYd13lbvIATbgMxA_MDlKalkmvUhJ0gkxjoN2jQnf4SmUivPp38ZuwscHrorA-iy1BQhobXS3lbws9ENO4FcknQ1A5TzWvQJ1hkUagQpWnXj1NIyOYcfqHaWSe0TD5HdXKacDVQftb_puM8YbQ5uHYSxgMdQ_rol6dKYijX0u7IhN9WuKnCTL26_bwpwbEUtAmNDr9SKVU1iO9_Gg",
+      "expected": {
+        "state": "licensed",
+        "issuedAt": "2026-01-15T10:30:00Z",
+        "expiresAt": "2029-01-15T10:30:00Z"
+      }
+    },
+    {
+      "name": "expires_at null is a perpetual license and never expires",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2099-01-01T00:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": null
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6bnVsbH0.tMktpuATNFfLqE3PcGrcvok4Ip0hX2MYroK163xnqBFFsRhNDNt4GRPnYLAk3-IFB18PW8dPm74PgdvVoeUr9xQQvcBW4Bma_5K_MMrudCqUsYfFc-pbP47gbpjAdhj-0JZYmRrqB78TRgL7Md0CI5qVVmwhEE7jw0f2jBFy0npii_qlicH85AgQxQjyyfFDfOpHnHfe7H6dldW7XCSaGRDRvDxO36iN3OvMxKC5nAnVEirtlj5TPZWifp7dUF_3NwwyOLfRbBBs-o1yKle2BRIWaB4yyqjNC3FYAsv1ahjkIEnNINls4An71Ouo61j70byTDOeBgXvA4ggAc2h_CQ",
+      "expected": {
+        "state": "licensed",
+        "issuedAt": "2026-01-15T10:30:00Z",
+        "expiresAt": null
+      }
+    },
+    {
+      "name": "a non-UTC offset is still an instant",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T05:30:00-05:00",
+          "expires_at": "2029-01-15T05:30:00-05:00"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMDU6MzA6MDAtMDU6MDAiLCJleHBpcmVzX2F0IjoiMjAyOS0wMS0xNVQwNTozMDowMC0wNTowMCJ9.C8SXMKkEmVosflAi5XVXd0DWKFxIsv8HL2SbiTGSbjHJv-1ek2_qxlkqUcI9fgJxkTrvyXosvuHEDklwKMshlOArPvyJ2vO5RVpTfK5hMTF-0RAwmXOXqrg0UxJzmlYHMlP2Lh_e95_1Bciel05EheTZaYWTIeKrfPYU5TEJc6AmzS77JuQ2i418_bFBGO2oTHhrC3rwGM8LmYwd1zWckaIywRFkKoB5wzje7EuM6dgnqIvx47USfDnenm3lKsM9WRe2Hij1ODFnNPFau8VKh0oTir1o5qPHoO-Jj7EJ7nwQ1OvN2RHfg2efcwFYpD-Z_EKTLaTy5ve25rD9KtR5Aw",
+      "expected": {
+        "state": "licensed",
+        "issuedAt": "2026-01-15T10:30:00Z",
+        "expiresAt": "2029-01-15T10:30:00Z"
+      }
+    },
+    {
+      "name": "the stored key may be lowercase \u2014 evaluate normalizes before comparing",
+      "key": "  fn-ab12-cd34-ef56-gh78-jk12-mn34-pq56-rs78 ",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2029-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.UW-vdWiyHl70QilqDEJH0xHKaJAuqfArW_UqEIoIqytuSl-y5bwaHh-0r1KSLqGjs9q7E77X3UshG4iBnyheH84FslCUGrs5CV0QUeUd1SLym_g2dAi4XkI7RN8QoDKVY9V4ddYd13lbvIATbgMxA_MDlKalkmvUhJ0gkxjoN2jQnf4SmUivPp38ZuwscHrorA-iy1BQhobXS3lbws9ENO4FcknQ1A5TzWvQJ1hkUagQpWnXj1NIyOYcfqHaWSe0TD5HdXKacDVQftb_puM8YbQ5uHYSxgMdQ_rol6dKYijX0u7IhN9WuKnCTL26_bwpwbEUtAmNDr9SKVU1iO9_Gg",
+      "expected": {
+        "state": "licensed",
+        "issuedAt": "2026-01-15T10:30:00Z",
+        "expiresAt": "2029-01-15T10:30:00Z"
+      }
+    },
+    {
+      "name": "a Grayjay license is the wrong product and is rejected",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "grayjay",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2029-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZ3JheWpheSIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.obe8NmjlgrUpFA3vZ2DJ_d44sYPkezrm61csZObaVbmwIPOQvlkDtKPQMiScG6j1-01nf9WpPRuxMiEOhzx96OOfTDlJz0dJa-BA7Ra_I4wPLFrYe834I7A34qrryfDI8vUZsYdme0opJoqAnNpDxhCKfTBFV8UzIFMDlNGfpNldLoztT_gAusTNc0BGC48dVWJf8rbDDFY1ODoZ4W925IDn0uHC5coJ3IIoG2gWEOFWa-c4IHbcoQ1ph3nXhEThS-sxGjUsCvN2zkoDpun2B-jCidrcwkpDTKRs5uguN--RRcCGCdOrMMJAx3OOGfNfCwEtmIOp8sbx90p6hoHULw",
+      "expected": {
+        "state": "invalid",
+        "reason": "wrongProduct"
+      }
+    },
+    {
+      "name": "the payload was edited to extend the expiry after signing",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2029-01-15T10:30:00Z"
+        },
+        "payloadOverride": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2099-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwOTktMDEtMTVUMTA6MzA6MDBaIn0.UW-vdWiyHl70QilqDEJH0xHKaJAuqfArW_UqEIoIqytuSl-y5bwaHh-0r1KSLqGjs9q7E77X3UshG4iBnyheH84FslCUGrs5CV0QUeUd1SLym_g2dAi4XkI7RN8QoDKVY9V4ddYd13lbvIATbgMxA_MDlKalkmvUhJ0gkxjoN2jQnf4SmUivPp38ZuwscHrorA-iy1BQhobXS3lbws9ENO4FcknQ1A5TzWvQJ1hkUagQpWnXj1NIyOYcfqHaWSe0TD5HdXKacDVQftb_puM8YbQ5uHYSxgMdQ_rol6dKYijX0u7IhN9WuKnCTL26_bwpwbEUtAmNDr9SKVU1iO9_Gg",
+      "expected": {
+        "state": "invalid",
+        "reason": "signatureMismatch"
+      }
+    },
+    {
+      "name": "a correctly signed activation for a different key, pasted against this one",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-ZZ99-YY88-XX77-WW66-VV55-UU44-TT33-SS22",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2029-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1aWjk5LVlZODgtWFg3Ny1XVzY2LVZWNTUtVVU0NC1UVDMzLVNTMjIiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.1yZDbTbq52CcxrfUSOut8qwgjCRVXN6-S2MiJYBD4plCMp2n-y3BBSgIuYVujPoMVcyciDbd3AdqEoxPCPa8vD8PqeL_fyUVYmI0fvTzK_QryRCraDUacJmGp-gQZBXF1XYlMSg9pegYK3pVHViie14KhIt8qtodQXSgQw5xvhi0GHvsxT89TZFaatWei0D0smtWYCBUMko5xhi05ezTzIfC2WKTcjXKVxKUoe9bXmfc4vKjLPsO3zIa2bWP_jqu1DyhWyVtIG7T-KQ8zJ4y0Kw9skst0ISt0gVVgEcr2T31ap2Gl-D7FdJNJWvEIAB1AqV3ineyRCQ0E8a60_ygzg",
+      "expected": {
+        "state": "invalid",
+        "reason": "keyMismatch"
+      }
+    },
+    {
+      "name": "signed by a different org's key",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "otherOrg",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2029-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.S4qClqiHDtInH182N6bYqia0UG24O44MASgVmcojHX5Bh7ud6JKtaCjPCiESLr5bSL2I9bcp5Do_jEJDiX-_o_JL62YjEARFt4aJHBW-3eiWZaGA5DsJbpacPKu0thelIee-KFd_e8CWO55uGZzPUSoM76SxsJEx-RAvDvT9eJCMZK8XsLH9pvvd1Hy-MJtqMjOT86tTkGYKS8N14JQXJ3ES0bWODzQcLVNzYVPfndbafz_lvSu65biZ-Ax1n6fVJJoNvpvy4A0AyWSVRSfXZlKyK-ja-2-k1iuVSTgfUDtYBUBrJLD_fHCArDYc_tXzjBFWa-ala0geiYZy0gBJJw",
+      "expected": {
+        "state": "invalid",
+        "reason": "signatureMismatch"
+      }
+    },
+    {
+      "name": "a v1 activation \u2014 a bare signature over the license key \u2014 is Licensed, perpetually",
+      "$comment": "Reversal recorded 2026-09-10 (issue #161): this vector expected `unsupportedVersion` until FUTO Notes shipped against the activations pay2 actually issues. A v1 signature covers the key string alone, so product binding is the org key pair and there is nothing here to expire. issuedAt and expiresAt are null because the activation says nothing about either \u2014 never `now`, never the fetch time.",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v1",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      },
+      "activation": "UTPJvUenvlIJ3rPKIgHILrXMpw_ihB1h-r72vNDQjRWbKkPGnHdlvYQO-0381ddamINpXIy8u9KmVvNDfkIsiM0_cKV3FoVds6J0Go9wci1w6v3Ot9XyKeOMlLtqpaatI3fh6fjXi26_0CkU5WHCVJPMUXcjng3xNz_-09WGg_1mCOoE-aDVFeyPtq8oByCv-5Vh7rqQf3VUI6e3NLT688bwlRyQ-x0gRYsxl6hUl7YMdDgNXZRBQ7xge6zsKs0-3k2CppVje_ctg8252ryaSumJtQtcMsGwiTcyPw3L1zliiti-fKu1HzvmYsDsrtMxy9eiDZf6ZgeDAotpurlQcQ",
+      "expected": {
+        "state": "licensed",
+        "issuedAt": null,
+        "expiresAt": null
+      }
+    },
+    {
+      "name": "the same v1 activation is still Licensed a decade later \u2014 v1 cannot express an expiry",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2039-01-01T00:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v1",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      },
+      "activation": "UTPJvUenvlIJ3rPKIgHILrXMpw_ihB1h-r72vNDQjRWbKkPGnHdlvYQO-0381ddamINpXIy8u9KmVvNDfkIsiM0_cKV3FoVds6J0Go9wci1w6v3Ot9XyKeOMlLtqpaatI3fh6fjXi26_0CkU5WHCVJPMUXcjng3xNz_-09WGg_1mCOoE-aDVFeyPtq8oByCv-5Vh7rqQf3VUI6e3NLT688bwlRyQ-x0gRYsxl6hUl7YMdDgNXZRBQ7xge6zsKs0-3k2CppVje_ctg8252ryaSumJtQtcMsGwiTcyPw3L1zliiti-fKu1HzvmYsDsrtMxy9eiDZf6ZgeDAotpurlQcQ",
+      "expected": {
+        "state": "licensed",
+        "issuedAt": null,
+        "expiresAt": null
+      }
+    },
+    {
+      "name": "a v1 activation stored under a lowercased key still verifies \u2014 the signed message is the NORMALIZED key",
+      "key": "fn-ab12-cd34-ef56-gh78-jk12-mn34-pq56-rs78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v1",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      },
+      "activation": "UTPJvUenvlIJ3rPKIgHILrXMpw_ihB1h-r72vNDQjRWbKkPGnHdlvYQO-0381ddamINpXIy8u9KmVvNDfkIsiM0_cKV3FoVds6J0Go9wci1w6v3Ot9XyKeOMlLtqpaatI3fh6fjXi26_0CkU5WHCVJPMUXcjng3xNz_-09WGg_1mCOoE-aDVFeyPtq8oByCv-5Vh7rqQf3VUI6e3NLT688bwlRyQ-x0gRYsxl6hUl7YMdDgNXZRBQ7xge6zsKs0-3k2CppVje_ctg8252ryaSumJtQtcMsGwiTcyPw3L1zliiti-fKu1HzvmYsDsrtMxy9eiDZf6ZgeDAotpurlQcQ",
+      "expected": {
+        "state": "licensed",
+        "issuedAt": null,
+        "expiresAt": null
+      }
+    },
+    {
+      "name": "a v1 activation signed by a different org's key is not this app's license",
+      "$comment": "The whole product binding of a v1 activation: FUTO Notes has its own FUTOpay org key pair, so another org's signature over the very same key string verifies against nothing here.",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "otherOrg",
+        "format": "v1",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      },
+      "activation": "T50HpcXlkvo9g4XVSPpBNZupM9BJ4OZZ82HFUbJw873N5d41Up1FOfDYiDqyA1W-sqjTt-hA0dTsQDMWhUYF6N-iDSka58BX2nHswgpDeOpI55fD3ylUexL4JBXm7nKDWPxfdEN3sqIs8I4Iv-XWc82ghZgANZbZNh5-Ys1DmHfNfZiX5K0RiShvY0oiHRfESD77DZpuaUz2iLnYMrwJOfpKIsmyrX4WJlgvgLRa7IYVXigtzTWC_UlBrbs2CDnDicro253GCzCoWv0ebPcJJ3oFVLpe7mOHsSQ9hHzsPId5lzNJWunnRmmdk6_LMO9Nk7DZSVvWmSkMOwLg9x9DRQ",
+      "expected": {
+        "state": "invalid",
+        "reason": "signatureMismatch"
+      }
+    },
+    {
+      "name": "a v1 activation minted for a different license key does not license this one",
+      "$comment": "v1's stand-in for v2's keyMismatch: the key IS the signed message, so a pasted-against-the-wrong-key activation fails verification instead of failing a comparison. Editing a character of the stored key lands here too.",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v1",
+        "key": "FN-ZZ99-YY88-XX77-WW66-VV55-UU44-TT33-SS22"
+      },
+      "activation": "RED8lWGvZMdzJNbbwZEcYV1brizxbbhtKqYu79ABolaKmwR4FzlrjPKlTb7Oq15CJtGq6M1KcpfOJRGlrA1GQlbTaBrzhtmrf5TStRepTA8nWh5FS9nnmgbA-zkZreFg_8zm2zyRdBDu-5VCAMucjRQJiPcCIB-j6QmP49gwh1btMfUE0Ok9BCyU-bYiWO_bDfjOQFoDHSxcG2HKDyHYiKO-42MjgTDYFgk_rl_jqaYRoLldsfo_03yZ2SGGzazSYFfrPPwrq-8CXi8aTSEsYDCw97WpKATxhlkfK-rGy9hc6SAh45wnZkhO47ukm-sk3hM9dHA7aWTKRRWKPrrnoQ",
+      "expected": {
+        "state": "invalid",
+        "reason": "signatureMismatch"
+      }
+    },
+    {
+      "name": "a dot-free activation that is not base64url at all",
+      "$comment": "Since v1 is accepted, a single-segment activation is a signature rather than an unknown version \u2014 so garbage in that position now reads as malformedBase64. Every reason renders as the same message, so this pins the diagnosis, not the copy.",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "not a signature",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedBase64"
+      }
+    },
+    {
+      "name": "an explicit v1. envelope is still an unknown version \u2014 the real v1 format has no envelope",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "v1.cGF5bG9hZA.c2lnbmF0dXJl",
+      "expected": {
+        "state": "invalid",
+        "reason": "unsupportedVersion"
+      }
+    },
+    {
+      "name": "a future version is rejected rather than guessed at",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "v3.cGF5bG9hZA.c2lnbmF0dXJl",
+      "expected": {
+        "state": "invalid",
+        "reason": "unsupportedVersion"
+      }
+    },
+    {
+      "name": "four segments",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "v2.cGF5bG9hZA.c2lnbmF0dXJl.extra",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedActivation"
+      }
+    },
+    {
+      "name": "empty activation",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedActivation"
+      }
+    },
+    {
+      "name": "the payload segment is not base64url",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "v2.not base64!.c2lnbmF0dXJl",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedBase64"
+      }
+    },
+    {
+      "name": "the payload segment uses standard base64's + and /, not base64url",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "v2.a+b/c=.c2lnbmF0dXJl",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedBase64"
+      }
+    },
+    {
+      "name": "the signature segment is not base64url",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "v2.cGF5bG9hZA.not base64!",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedBase64"
+      }
+    },
+    {
+      "name": "a well-formed but wrong-length signature is a signature failure, not a parse failure",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "v2.cGF5bG9hZA.c2lnbmF0dXJl",
+      "expected": {
+        "state": "invalid",
+        "reason": "signatureMismatch"
+      }
+    },
+    {
+      "name": "a correctly signed payload that is not JSON",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payloadRaw": "this is not json"
+      },
+      "activation": "v2.dGhpcyBpcyBub3QganNvbg.3YyVnlsfG-BulM_VSVe1RByAK8J12TC4Vw7xj6xcBJmMNbMl8pJGfSLrZMLoVd7w_KRnMGv05AAjeYMXdlpaM5zQa_wXjbDTejPu1X6XRTzE6VHwW8s1JI183MirgIxAF8JGM1IraRBDK_UAPWduVDTXvxXPt0HsSuP2IvdbNX-hkd0cV-3QGUkcBK407A69bPen3kmcZwD7CGRU-4A5J2KwXse0wiBSDOJHgjooD6T4q4MeBnXzEwYtWsa-RpExJAn3j5ASEaBwnKOQscWBN9E6tVTuYyLwo7fJmvq9y-tLt5Wrv9zwfoXJbLgBqu0Z-APs6lG8zSitA7fmZilnGQ",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedPayload"
+      }
+    },
+    {
+      "name": "a correctly signed payload with expires_at missing entirely \u2014 null must be explicit",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIn0.RLyxIeiYBzUwL3ntaSl5TU-67jk47FWZg5PCSFrwQHdi1W7RefKE5HM_t7p5bFYZTrAwavYwG50HOZXZeNqF4I3CBW4wYvkeCBFip2R0VtijZ2hq-kt53kaP6oOctDySLU6J8B3iEri55nu2BAZCr-b4yRq3hA8wDKuTzgQDzoYZKxgUGzium1eJWRfoFoMu5KRxNX8QV85Z_dXm-QHFAo74aCgbmc35vPyra3uQjb29lE99G53__c9X10ltxlmXLhjvj9hjdxAWEYpROd2kPtKS1gb0H-pQQVwcY5hWOy9mpyXXa4cn_uocTjJOexvX9tGWum25Lalm4VaK932WAw",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedPayload"
+      }
+    },
+    {
+      "name": "a correctly signed payload whose issued_at is not RFC 3339",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "yesterday",
+          "expires_at": "2029-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6Inllc3RlcmRheSIsImV4cGlyZXNfYXQiOiIyMDI5LTAxLTE1VDEwOjMwOjAwWiJ9.OT3D0L57gEJodQ3tq-i_MdghUDAG06MG88b004UAPRTU_2wKZvWXqdyoxj9q9fGNnJug2_uUUWhNNKOGLhE2RiOfuIykxQxgl9uj65MSjIQbAfbZtak1ql8ZVA6Eej2Seuuves5NKrFs2qjAPTXTyXbt_sT2yNif1swczA-Ejb8GiAsgCx6B9Pzetm7iHsH3xV9rPIF5WxHgeLWkiE0g7d8KzHMa6GqZmdzLjh_rY_Gpg3C_G5qh3D5NkLBCl8stxVyeH3UIRCwKYpYm-DM2pPyZCqMqRH541WTi7gW0QVxHh9tkhNDhIMMHfVRhG_dnBPcIjF-CpvA1waDSw7RZnw",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedPayload"
+      }
+    },
+    {
+      "name": "a correctly signed payload whose expires_at is not RFC 3339",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "never"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6Im5ldmVyIn0.Vr_9daPPaS3kNPGSZgn0a4B3CduNupTMrjxGUrMnBTzu9UXlL6YWMZg-tW0Z0DuL1dDNWx1GV_qLtFy__FPUEGTcY0sKZQN80VMPr6a6P0btnZ8mEb_8g33_K9jTUos4wWgvzfSZRcnbK9Osul57OZ_cuyzZTxdzmAYhMtz8HAVk94U21fBMqK7ekXhLsKo5P-QIROqsam0LwJbj201CDfY3Og0JtA9OB0zCzmeBa9TTC10kjnmHlDnF1tImYKkw6yuTZoXYmfNol33rCXn7UrQPD6vW1XBhJC0QeAZbrwj3tsa96WPpwtbOn53oePXoQfl7MA-zd2_BIWwi28zZ9g",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedPayload"
+      }
+    },
+    {
+      "name": "unknown payload fields are ignored \u2014 the server may add fields without breaking clients",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2029-01-15T10:30:00Z",
+          "seats": 3
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIiwic2VhdHMiOjN9.o7KC23K54vNdmii5MFipU4lTovwa4BXL84esDVWjA9yZh72W27fPuObkDNsSZuf_BJJLnfjuXsGIhGRXWg7H-MeTeBHEC4D9YOMYFqAo5hIBGt3VMWiVKo7LHpaBLUQT9jIg2Mpg8D8X2Kzjgb3JppMXbaDh_JAgmhkuYWqTCd6miyS_9xSnNaPrcFbyLwG3hU01GCQJEui033BqkJF3N2lvU4su5O3QpS7hDcQmibs4aFERjnka6KVBiqmwOlM7O8Vg7mJoEYr6AvcGrt4NkvBkC7fttgHVH6noGqyvh-NwVif734fXsHDAteJVghJLAtCYhPX4otd_fCXUnLzJHA",
+      "expected": {
+        "state": "licensed",
+        "issuedAt": "2026-01-15T10:30:00Z",
+        "expiresAt": "2029-01-15T10:30:00Z"
+      }
+    },
+    {
+      "name": "a malformed stored key is rejected before anything else is considered",
+      "key": "hello",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2029-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.UW-vdWiyHl70QilqDEJH0xHKaJAuqfArW_UqEIoIqytuSl-y5bwaHh-0r1KSLqGjs9q7E77X3UshG4iBnyheH84FslCUGrs5CV0QUeUd1SLym_g2dAi4XkI7RN8QoDKVY9V4ddYd13lbvIATbgMxA_MDlKalkmvUhJ0gkxjoN2jQnf4SmUivPp38ZuwscHrorA-iy1BQhobXS3lbws9ENO4FcknQ1A5TzWvQJ1hkUagQpWnXj1NIyOYcfqHaWSe0TD5HdXKacDVQftb_puM8YbQ5uHYSxgMdQ_rol6dKYijX0u7IhN9WuKnCTL26_bwpwbEUtAmNDr9SKVU1iO9_Gg",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedKey"
+      }
+    }
+  ],
+  "enterKey": [
+    {
+      "name": "a pasted key/activation pair verifies with no network at all",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/@valid",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "unavailable"
+      },
+      "requests": [],
+      "expected": {
+        "ok": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "activation": "@valid",
+          "state": "licensed"
+        }
+      }
+    },
+    {
+      "name": "a pasted pair whose activation is in the v1 format verifies offline too",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/@v1",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "unavailable"
+      },
+      "requests": [],
+      "expected": {
+        "ok": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "activation": "@v1",
+          "state": "licensed"
+        }
+      }
+    },
+    {
+      "name": "a deep link verifies with no network at all",
+      "input": "futonotes://license/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/@valid",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "unavailable"
+      },
+      "requests": [],
+      "expected": {
+        "ok": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "activation": "@valid",
+          "state": "licensed"
+        }
+      }
+    },
+    {
+      "name": "an already-expired pair is still accepted and stored, as Expired",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/@valid",
+      "now": "2030-02-01T00:00:00Z",
+      "transport": {
+        "kind": "unavailable"
+      },
+      "requests": [],
+      "expected": {
+        "ok": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "activation": "@valid",
+          "state": "expired"
+        }
+      }
+    },
+    {
+      "name": "a pair for the wrong product is rejected offline and never stored",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/@grayjay",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "unavailable"
+      },
+      "requests": [],
+      "expected": {
+        "error": "invalid",
+        "reason": "wrongProduct"
+      }
+    },
+    {
+      "name": "a bare key makes exactly one request and is activated from its response",
+      "input": "fn-ab12-cd34-ef56-gh78-jk12-mn34-pq56-rs78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "response",
+        "status": 200,
+        "body": "@valid"
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "ok": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "activation": "@valid",
+          "state": "licensed"
+        }
+      }
+    },
+    {
+      "name": "a bare key activated by a v1 response \u2014 what the deployed pay2 actually returns \u2014 is Licensed",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "response",
+        "status": 200,
+        "body": "@v1"
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "ok": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "activation": "@v1",
+          "state": "licensed"
+        }
+      }
+    },
+    {
+      "name": "the response body is trimmed before it is used",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "response",
+        "status": 200,
+        "body": "  @valid\n"
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "ok": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "activation": "@valid",
+          "state": "licensed"
+        }
+      }
+    },
+    {
+      "name": "404 means the key is not a license",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "response",
+        "status": 404,
+        "body": "not found"
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "error": "notFound"
+      }
+    },
+    {
+      "name": "a transport failure asks the user to connect, and stores nothing",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "failure",
+        "message": "dns error: no such host"
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "error": "transport"
+      }
+    },
+    {
+      "name": "a server error is not proof the key is invalid, so it reads as a transport failure",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "response",
+        "status": 500,
+        "body": "internal server error"
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "error": "transport"
+      }
+    },
+    {
+      "name": "200 with an activation that does not verify is an invalid key",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "response",
+        "status": 200,
+        "body": "v2.cGF5bG9hZA.c2lnbmF0dXJl"
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "error": "invalid",
+        "reason": "signatureMismatch"
+      }
+    },
+    {
+      "name": "200 with an empty body is an invalid key, not a crash",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "response",
+        "status": 200,
+        "body": ""
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "error": "invalid",
+        "reason": "malformedActivation"
+      }
+    },
+    {
+      "name": "a malformed bare key never reaches the network",
+      "input": "hello",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "unavailable"
+      },
+      "requests": [],
+      "expected": {
+        "error": "invalid",
+        "reason": "malformedKey"
+      }
+    },
+    {
+      "name": "an unrecognised input never reaches the network",
+      "input": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=desktop&success=redirect-to-organization-page",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "unavailable"
+      },
+      "requests": [],
+      "expected": {
+        "error": "invalid",
+        "reason": "unrecognizedInput"
+      }
+    },
+    {
+      "name": "empty input never reaches the network",
+      "input": "   ",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "unavailable"
+      },
+      "requests": [],
+      "expected": {
+        "error": "invalid",
+        "reason": "unrecognizedInput"
+      }
+    },
+    {
+      "name": "a key with no org prefix builds the same one-request URL",
+      "input": "AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "response",
+        "status": 404,
+        "body": "not found"
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "error": "notFound"
+      }
+    }
+  ],
+  "namedActivations": {
+    "$comment": "Activations the enterKey cases refer to as @name, so a long base64 blob does not have to be repeated inline.",
+    "valid": {
+      "name": "@valid",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2029-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.UW-vdWiyHl70QilqDEJH0xHKaJAuqfArW_UqEIoIqytuSl-y5bwaHh-0r1KSLqGjs9q7E77X3UshG4iBnyheH84FslCUGrs5CV0QUeUd1SLym_g2dAi4XkI7RN8QoDKVY9V4ddYd13lbvIATbgMxA_MDlKalkmvUhJ0gkxjoN2jQnf4SmUivPp38ZuwscHrorA-iy1BQhobXS3lbws9ENO4FcknQ1A5TzWvQJ1hkUagQpWnXj1NIyOYcfqHaWSe0TD5HdXKacDVQftb_puM8YbQ5uHYSxgMdQ_rol6dKYijX0u7IhN9WuKnCTL26_bwpwbEUtAmNDr9SKVU1iO9_Gg"
+    },
+    "grayjay": {
+      "name": "@grayjay",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "grayjay",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2029-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZ3JheWpheSIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.obe8NmjlgrUpFA3vZ2DJ_d44sYPkezrm61csZObaVbmwIPOQvlkDtKPQMiScG6j1-01nf9WpPRuxMiEOhzx96OOfTDlJz0dJa-BA7Ra_I4wPLFrYe834I7A34qrryfDI8vUZsYdme0opJoqAnNpDxhCKfTBFV8UzIFMDlNGfpNldLoztT_gAusTNc0BGC48dVWJf8rbDDFY1ODoZ4W925IDn0uHC5coJ3IIoG2gWEOFWa-c4IHbcoQ1ph3nXhEThS-sxGjUsCvN2zkoDpun2B-jCidrcwkpDTKRs5uguN--RRcCGCdOrMMJAx3OOGfNfCwEtmIOp8sbx90p6hoHULw"
+    },
+    "v1": {
+      "name": "@v1",
+      "sign": {
+        "with": "org",
+        "format": "v1",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      },
+      "activation": "UTPJvUenvlIJ3rPKIgHILrXMpw_ihB1h-r72vNDQjRWbKkPGnHdlvYQO-0381ddamINpXIy8u9KmVvNDfkIsiM0_cKV3FoVds6J0Go9wci1w6v3Ot9XyKeOMlLtqpaatI3fh6fjXi26_0CkU5WHCVJPMUXcjng3xNz_-09WGg_1mCOoE-aDVFeyPtq8oByCv-5Vh7rqQf3VUI6e3NLT688bwlRyQ-x0gRYsxl6hUl7YMdDgNXZRBQ7xge6zsKs0-3k2CppVje_ctg8252ryaSumJtQtcMsGwiTcyPw3L1zliiti-fKu1HzvmYsDsrtMxy9eiDZf6ZgeDAotpurlQcQ"
+    }
+  }
+}

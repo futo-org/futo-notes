@@ -1,0 +1,10 @@
+{
+  "comment": "cmgen turns assets/coin/studio-env.hdr into the prefiltered cubemap Android's Filament renderer needs. It ships as a Maven artifact of the Filament release, so the version here MUST match the com.google.android.filament dependencies in apps/android/app/build.gradle.kts — a mismatched KTX and runtime is a silent wrong-lighting bug, not a load failure. Checksums are pinned rather than fetched, so a tampered or rebuilt binary fails the download. Bump: scripts/build-coin-ibl.mjs --refresh prints a new block.",
+  "version": "1.71.5",
+  "artifactUrl": "https://repo1.maven.org/maven2/com/google/android/filament/cmgen",
+  "binaries": {
+    "linux-x64": { "asset": "cmgen-1.71.5-linux-x86_64.exe", "sha256": "d59f872b7f134df929d7358e0d9ae6b70cef4331768b37ed6cc88efa975f04fc" },
+    "darwin-arm64": { "asset": "cmgen-1.71.5-osx-aarch_64.exe", "sha256": "e7097557fab0b5e6ace3712bd7a0035368601c36a5472e123d7b0f655ab51198" },
+    "win32-x64": { "asset": "cmgen-1.71.5-windows-x86_64.exe", "sha256": "60e2a4cba3a6ccd7a154df1eeda63b185ec5d58a9945b4922468a484dd579b68" }
+  }
+}

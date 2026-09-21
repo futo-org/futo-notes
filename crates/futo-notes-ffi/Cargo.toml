@@ -16,9 +16,14 @@ path = "src/bin/uniffi-bindgen.rs"
 # `tokio` exports async methods; `cli` builds the bundled binding generator.
 uniffi = { version = "0.28", features = ["tokio", "cli"] }
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
+futo-notes-license = { path = "../futo-notes-license" }
 futo-notes-model = { path = "../futo-notes-model" }
 futo-notes-store = { path = "../futo-notes-store" }
 futo-notes-sync = { path = "../futo-notes-sync" }
+# The one activation request the license module ever makes, with the same
+# rustls stack futo-notes-sync already links into this library — so the license
+# projection adds a call site, not a second HTTP implementation on the phones.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 icu_locale = { version = "=2.2.0", features = ["compiled_data"] }
 icu_plurals = { version = "=2.2.0", features = ["compiled_data"] }
 thiserror = "1"

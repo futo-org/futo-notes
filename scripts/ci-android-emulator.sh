@@ -56,6 +56,18 @@ ci_emulator_start() {
     echo "WARNING: /dev/kvm is not usable — booting the emulator unaccelerated"
   fi
 
+  # -gpu swangle_indirect, NOT swiftshader_indirect. Both are software
+  # rasterizers (no GPU in a CI container), but SwiftShader's own GLSL ES
+  # compiler rejects Filament's post-process shaders — `Compilation error in
+  # fragment shader "fxaa"` / `"blitLow"`, then `Fatal signal 6 (SIGABRT) in
+  # FEngine::loop` — and Filament aborts rather than degrading when a material
+  # fails to link. So the app process died the moment an instrumentation test
+  # drew the supporter coin, taking the whole run with it
+  # ("Instrumentation run failed due to Process crashed", job 255825). SwANGLE
+  # routes GL through ANGLE onto SwiftShader's Vulkan device, and ANGLE's
+  # translator compiles those shaders: the same run goes 10/10 green, coin
+  # pixel assertion included. Reproduce either way locally with
+  # `emulator -avd <name> -no-window -gpu <mode>`.
   "$EMULATOR" \
     -avd "$AVD_NAME" \
     -port "$EMULATOR_PORT" \
@@ -64,7 +76,7 @@ ci_emulator_start() {
     -no-boot-anim \
     -no-snapshot \
     "$userdata_flag" \
-    -gpu swiftshader_indirect \
+    -gpu swangle_indirect \
     "${acceleration[@]}" \
     >"$EMULATOR_LOG" 2>&1 &
   EMULATOR_PID=$!

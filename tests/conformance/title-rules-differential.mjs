@@ -991,6 +991,12 @@ const FIXTURES_OUTSIDE_THE_DIFFERENTIAL = {
     'not answerable through the pure futo-notes-model oracle. Locked by this fixture ' +
     'plus src/lib/platform/pathSafety.test.ts and ' +
     'crates/futo-notes-core/tests/path_safety_conformance.rs.',
+  'license.json':
+    'The license rules exist ONCE, in the futo-notes-license crate: parsing, RSA ' +
+    'verification, expiry and deep-link handling are not per-keystroke work, so ' +
+    'AGENTS.md M6 forbids a TypeScript (or Swift/Kotlin) copy to differentiate ' +
+    'against. Shells reach them through Tauri and UniFFI. Locked by this fixture ' +
+    'plus crates/futo-notes-license/tests/conformance.rs.',
   'constants.json':
     'Shared scalar constants, not ops. Locked by crates/futo-notes-model/tests/' +
     'conformance.rs, src/lib/constantsConformance.test.ts, and the Tauri watcher test.',

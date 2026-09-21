@@ -7,16 +7,16 @@ The shipping Android app: a Jetpack Compose shell over the shared Rust core
 WebView. There is no Tauri Android shell.
 
 ```bash
-just android-native            # Rust ffi (all ABIs) → editor bundle → installDebug → launch
-just build-android-native      # compile-only sanity
-just test-android-native       # JVM unit tests
-just test-android-native-ui    # Compose instrumentation tests on $ANDROID_SERIAL
+just android-native            # Rust ffi (all ABIs) → editor bundle → installDirectDebug → launch
+just build-android-native      # compile-only sanity (BOTH distribution flavors)
+just test-android-native       # JVM unit tests (BOTH distribution flavors)
+just test-android-native-ui    # Compose instrumentation tests on $ANDROID_SERIAL (direct)
 just android-drive             # drive the running app; no args prints the commands
 just test-android-storage      # user-level storage stories on a real device
 ```
 
-For app-only Kotlin iteration, `./gradlew :app:installDebug` from here is enough
-**in a warm checkout**. In a FRESH worktree it is not, and both failures look
+For app-only Kotlin iteration, `./gradlew :app:installDirectDebug` from here is
+enough **in a warm checkout**. In a FRESH worktree it is not, and both failures look
 unrelated to what you changed:
 
 - `SDK location not found` — a new worktree has no `local.properties` and a
@@ -39,6 +39,63 @@ The Android FFI build uses the `release-ffi` profile because the workspace
 release profile's `panic = "abort"` breaks UniFFI's `catch_unwind` — never switch
 it to plain release. `versionCode = MAJOR*1e6 + MINOR*1e3 + PATCH`.
 
+## Distribution flavors — `direct` and `play`
+
+Every variant is `<flavor><BuildType>`: `directDebug`, `playDebug`,
+`directRelease`, `playRelease`. There is no plain `assembleDebug` /
+`installDebug` / `testDebugUnitTest` any more — name the flavor.
+
+| Flavor | Distributed by | Shipping artifact | Built by |
+| --- | --- | --- | --- |
+| `direct` | GitLab release, Obtainium, F-Droid | universal APK | `:app:assembleDirectRelease` |
+| `play` | Google Play only | AAB | `:app:bundlePlayRelease` |
+
+`direct` is the default everywhere a human iterates: `just android-native`,
+`just test-android-native-ui`, `just deploy-android` and the CI sync leg all use
+it. To put the other one on a device, `FUTO_ANDROID_FLAVOR=play just
+android-native` (debug) or `just deploy-android play` (release-signed — the only
+way to run the exact build Play reviews, since Play is fed an AAB and an AAB
+cannot be adb-installed).
+
+**They are the same app.** Same `applicationId` (`com.futo.notes`, `.dev` on
+debug), same signing config, no `applicationIdSuffix` on either flavor — so a
+Play install and a direct APK replace each other in place and a user keeps
+their notes when they switch. Never give a flavor its own id or suffix;
+`DistributionFlavorTest` fails both flavors if you do.
+
+### Branching on the flavor
+
+`BuildConfig.IS_PLAY_BUILD` is the seam. Reach for it only for behavior that
+Google Play's policies require and other channels do not — nothing else is a
+flavor difference. Today nothing reads it, and the flavors still behave
+identically: the one per-flavor constant, `LICENSE_LINK_OUT`, is `true` on both.
+
+In order of preference:
+
+1. A `buildConfigField` on each flavor in `app/build.gradle.kts` —
+   `LICENSE_LINK_OUT` is the worked example (a constant, one line per flavor,
+   locked on both by `LicenseLinkOutTest`).
+2. `if (BuildConfig.IS_PLAY_BUILD)` in shared `main` Kotlin.
+3. A flavor source set (`app/src/play`, `app/src/direct`) — last resort, and it
+   needs the same no-op-sibling discipline the Source sets section below
+   describes for `debug`/`release`.
+
+Whichever you pick, **both flavors must still compile and both flavors' unit
+tests must still pass**: `just build-android-native` assembles both debug
+variants and `just test-android-native` runs `:app:testDirectDebugUnitTest`
+**and** `:app:testPlayDebugUnitTest`, which is the only reason a per-flavor
+constant is verified on both sides. CI does the same, and on tags builds the
+direct APK plus the play AAB — both are `release:gate` artifacts (M14).
+
+Adding or renaming a flavor moves every output path under `app/build/outputs/`
+(`apk/debug` → `apk/direct/debug`, `bundle/release` → `bundle/playRelease`),
+and note the asymmetry: APKs nest as `apk/<flavor>/<buildType>/` while bundles
+use the variant name, `bundle/<flavor><BuildType>/`. A missed consumer finds
+nothing and the artifact silently stops existing rather than failing loudly, so
+treat the rename as M17 work. `scripts/premerge-test-parity.test.mjs`
+enumerates every consumer and pins each to the flavor it is allowed to ship —
+read the list there, not from a copy here that would rot.
+
 ## Source sets
 
 | Set | Contents |
@@ -46,7 +103,7 @@ it to plain release. `versionCode = MAJOR*1e6 + MINOR*1e3 + PATCH`.
 | `app/src/main` | the app |
 | `app/src/debug` | debug-only surfaces — currently `testhook/` |
 | `app/src/release` | no-op stand-ins for debug-only surfaces, at the same FQN |
-| `app/src/test` | JVM unit tests; compiled against `main + debug` |
+| `app/src/test` | JVM unit tests; compiled against `main + debug + the flavor` |
 
 Generated and gitignored: `uniffi/` Kotlin bindings, `jniLibs/`,
 `app/src/main/assets/editor.html`. Never edit them — regenerate (M8).

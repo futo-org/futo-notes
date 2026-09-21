@@ -24,6 +24,22 @@ val generateLocalizationResources = tasks.register<Exec>("generateLocalizationRe
     commandLine("node", "scripts/generate-native-language-resources.mjs", "--android")
 }
 
+// The supporter coin is modelled once in Blender (assets/coin/build-coin.py) and
+// rendered by all three shells. Staging the two files the Android renderer needs
+// — the model and the prefiltered studio it reflects — rather than committing a
+// second copy under app/src/main/assets keeps `assets/coin/` the only place the
+// coin exists. The whole directory is NOT added as an asset source: it also holds
+// the Blender script, the manifest and the iOS-only .usdz, none of which belong
+// in the APK.
+val generatedCoinAssetsDirectory = layout.buildDirectory.dir("generated/coin-assets")
+val stageCoinAssets = tasks.register<Copy>("stageCoinAssets") {
+    from(repositoryRootDirectory.resolve("assets/coin")) {
+        include("futo-coin.glb")
+        include("studio-env-ibl.ktx")
+    }
+    into(generatedCoinAssetsDirectory)
+}
+
 android {
     namespace = "com.futo.notes"
     // compileSdk 36 is the floor required by the modernized androidx stack.
@@ -56,6 +72,54 @@ android {
         versionName = System.getenv("VERSION_NAME") ?: "0.1.0"
         manifestPlaceholders["appLabel"] = "@string/app_name"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // ── Distribution flavors ────────────────────────────────────────────────
+    // Where the build is DISTRIBUTED, and nothing else:
+    //
+    //   direct — GitLab releases, Obtainium, F-Droid. Ships the universal APK
+    //            (`:app:assembleDirectRelease`). The dev-loop default, so a
+    //            bare `just android-native` builds what most users install.
+    //   play   — Google Play only. Ships the AAB (`:app:bundlePlayRelease`);
+    //            publish:android uploads that and nothing else.
+    //
+    // CRITICAL: neither flavor sets an applicationIdSuffix, and both use the
+    // same signingConfig. Both are `com.futo.notes` (`.dev` on debug), so a
+    // Play install and a direct APK are literally the same app — a user can
+    // replace one with the other and keep their notes and preferences. A
+    // flavor that added a suffix would strand them with a second, empty
+    // install; DistributionFlavorTest locks that against both flavors.
+    //
+    // BuildConfig.IS_PLAY_BUILD is the seam for Play-only behavior; nothing
+    // reads it yet. Per-flavor constants belong HERE, as buildConfigField
+    // entries on the two flavors below (LICENSE_LINK_OUT is the first one); a
+    // `if (BuildConfig.IS_PLAY_BUILD)` branch in shared Kotlin is the
+    // second choice, and a flavor-specific source set (app/src/play,
+    // app/src/direct) the third — each of those needs both flavors compiled,
+    // which CI and `just build-android-native` do.
+    //
+    // LICENSE_LINK_OUT is the store-posture flag (docs/spec/license.md § Store
+    // posture), `true` on BOTH flavors at launch: the app ships the full
+    // surface worldwide — key field, deep link, and the Buy link out to the
+    // system browser. If Google ever objects, the answer is flipping the `play`
+    // line to false, not a redesign: that hides Buy, Renew and Lost-your-key
+    // and keeps the key field and the deep link (the consumption-only shape
+    // Play explicitly permits). WHICH controls each value produces is decided
+    // once in Rust (`licenseRowActions`), so this flag cannot come to mean
+    // something different here than it does on iOS. It is a build-time
+    // constant, never a preference — a user must not be able to flip it.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("direct") {
+            dimension = "distribution"
+            buildConfigField("boolean", "IS_PLAY_BUILD", "false")
+            buildConfigField("boolean", "LICENSE_LINK_OUT", "true")
+        }
+        create("play") {
+            dimension = "distribution"
+            buildConfigField("boolean", "IS_PLAY_BUILD", "true")
+            buildConfigField("boolean", "LICENSE_LINK_OUT", "true")
+        }
     }
 
     signingConfigs {
@@ -115,7 +179,8 @@ android {
         }
     }
 
-    // Play distribution = Android App Bundle (`./gradlew :app:bundleRelease`).
+    // Play distribution = Android App Bundle of the `play` flavor
+    // (`./gradlew :app:bundlePlayRelease`).
     // Config splits are turned OFF: with splitting on, AGP marks the base APK
     // `isSplitRequired="true"`, and any device that launches without the full
     // split set gets the OS "missing splits" recovery dialog ("Something went
@@ -150,6 +215,7 @@ android {
         getByName("main") {
             res.srcDir(generatedLocalizationDirectory.map { it.dir("res") })
             java.srcDir(generatedLocalizationDirectory.map { it.dir("kotlin") })
+            assets.srcDir(generatedCoinAssetsDirectory)
         }
         getByName("androidTest") {
             assets.srcDir(repositoryRootDirectory.resolve("tests/localization"))
@@ -161,6 +227,10 @@ android {
 
 tasks.named("preBuild").configure {
     dependsOn(generateLocalizationResources)
+    // Registering the directory as an asset source does NOT make the merge wait
+    // for the task that fills it: the first build after a clean packaged an APK
+    // with no coin in it and failed silently to the flat glyph at runtime.
+    dependsOn(stageCoinAssets)
 }
 
 dependencies {
@@ -193,6 +263,20 @@ dependencies {
 
     // Coroutines for the async SyncClient FFI methods.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // Filament draws the supporter coin (com.futo.notes.ui.SupporterCoin). It is
+    // the only 3D content in the app, and the reason it is worth an engine is
+    // that the coin is gold: metal is defined by what it reflects, and a shape
+    // with a gradient painted on it reads as a sticker however correctly it is
+    // projected. gltfio loads assets/coin/futo-coin.glb; filament-utils supplies
+    // KTX1Loader for the prefiltered environment.
+    //
+    // The version MUST match scripts/coin-ibl-pin.json: cmgen from a different
+    // Filament release can write a cubemap this runtime reads as the wrong
+    // lighting rather than rejecting.
+    implementation("com.google.android.filament:filament-android:1.71.5")
+    implementation("com.google.android.filament:gltfio-android:1.71.5")
+    implementation("com.google.android.filament:filament-utils-android:1.71.5")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

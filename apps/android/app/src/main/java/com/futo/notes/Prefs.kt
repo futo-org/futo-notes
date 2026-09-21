@@ -27,6 +27,13 @@ object Prefs {
     const val CRASH_ENABLED = "crash_reporting_enabled"
     const val CRASH_ALWAYS_SEND = "crash_always_send"
 
+    // The paid client license [license.md § Storage]: the two plain strings a
+    // license IS, app-private and inside the dev/prod-split package (M3), never
+    // in the vault and never in the keystore — it is a receipt, not a secret.
+    // Full reset wipes them like every other preference.
+    const val LICENSE_KEY = "license_key"
+    const val LICENSE_ACTIVATION = "license_activation"
+
     const val FEEDBACK_DRAFT = "feedback_draft"
 
     const val CRASHLOG_STAGING = "crashlog_staging"

@@ -102,6 +102,41 @@ class AndroidLocalizationTest {
         assertEquals("zh-Hans", effectiveTagFor("zh-CN"))
     }
 
+    /**
+     * The License row's two date formatters (localization.md, docs/spec/license.md
+     * § States and copy). They are NOT in `tests/localization/cases.json` — the
+     * three platforms' date formatters differ in separators, so a shared golden
+     * string would be wrong somewhere — so each adapter locks them with the same
+     * two assertions of its own (scripts/drift-registry.json,
+     * `localization-shared-catalog`). The web and iOS copies are
+     * `src/shared/localization/localization.test.ts` and
+     * `apps/ios/Tests/Localization/LocalizationTests.swift`.
+     *
+     * A year is a date FIELD, not a number: through a number formatter it would
+     * come out grouped — "2,026" in English.
+     */
+    @Test
+    fun formatsAYearAsAYearNeverAsAGroupedNumber() {
+        // 2026-06-15T12:00:00Z — mid-year, so no timezone can move it.
+        val midYear = 1_781_524_800_000L
+        val localization = Localization.fromGeneratedCatalogs(listOf("en"), "en-US")
+
+        assertEquals("2026", localization.localizedYear(midYear))
+        assertTrue(!localization.localizedYear(midYear).contains(","))
+    }
+
+    /** An absolute date names its month rather than numbering it, so it is not
+     *  read day-first by one locale and month-first by another. */
+    @Test
+    fun namesTheMonthInAnAbsoluteDate() {
+        // 2029-01-15T12:00:00Z — midday, so no timezone can move the date.
+        val formatted = Localization.fromGeneratedCatalogs(listOf("en"), "en-US")
+            .localizedAbsoluteDate(1_863_172_800_000L)
+
+        assertTrue(formatted, formatted.contains("2029"))
+        assertTrue(formatted, formatted.any(Char::isLetter))
+    }
+
     private fun localization(testCase: JSONObject, now: Long = System.currentTimeMillis()) =
         Localization.fromGeneratedCatalogs(
             listOf(testCase.getString("languageTag")),

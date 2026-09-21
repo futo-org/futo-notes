@@ -6,6 +6,7 @@ import {
   type LocalNoteMutation,
   type LocalNoteSnapshot,
 } from '$lib/localNoteStore';
+import { clearLicense } from '$lib/platform/license';
 import { pauseSync, resumeSync, waitForSyncIdle } from '$features/sync/autoSync';
 import { disconnectE2ee, stopLiveSync } from '$features/sync/syncServiceE2ee';
 import { setFolderSnapshot } from '$features/folders/emptyFolders.svelte';
@@ -344,6 +345,10 @@ export async function deleteAllNotes(): Promise<void> {
     await stopLiveSync();
     await waitForSyncIdle();
     await disconnectE2ee();
+    // The stored license is a preference of this build, so Full reset wipes it
+    // like every other one (M4, settings.md § Danger zone). It is recoverable:
+    // the same key can simply be entered again.
+    await clearLicense();
     await getLocalNoteStoreSync().reset();
     notesCache = [];
     setFolderSnapshot([], []);

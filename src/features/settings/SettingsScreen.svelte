@@ -21,6 +21,7 @@
   import BlockingSettingsOverlay from './BlockingSettingsOverlay.svelte';
   import DangerSettingsSection from './DangerSettingsSection.svelte';
   import DevSyncErrorSettingsSection from './DevSyncErrorSettingsSection.svelte';
+  import LicenseSettingsSection from '$features/license/LicenseSettingsSection.svelte';
   import IssueReportingSettingsSection from './IssueReportingSettingsSection.svelte';
   import LanguageSettingsSection from './LanguageSettingsSection.svelte';
   import StorageSettingsSection from './StorageSettingsSection.svelte';
@@ -31,6 +32,9 @@
 
   interface Props {
     onclose: () => void;
+    /** Which section to reveal on open. The ambient "Unlicensed" label opens
+     *  Settings at the License row rather than at the top. */
+    initialSection?: 'license' | null;
     backgroundSyncError: boolean;
     backgroundSyncErrorMessage: string;
     syncReconnecting: boolean;
@@ -40,6 +44,7 @@
 
   let {
     onclose,
+    initialSection = null,
     backgroundSyncError,
     backgroundSyncErrorMessage,
     syncReconnecting,
@@ -58,6 +63,16 @@
   let resetFailed = $state(false);
   let updateSupported = $state(false);
   const sync = createSyncSettings();
+
+  // Opening Settings *at* a section: the ambient license label is the only
+  // caller today. Scrolled after mount, so the sheet still opens at its top and
+  // the reveal reads as a scroll rather than a jump-cut.
+  let licenseSection: HTMLDivElement | null = $state(null);
+
+  $effect(() => {
+    if (initialSection !== 'license' || licenseSection === null) return;
+    licenseSection.scrollIntoView({ block: 'center' });
+  });
 
   const notesDirectory = $derived.by(() => {
     if (notesDirectoryState === 'loading') return localizedText('settings.storage.loading');
@@ -250,6 +265,9 @@
       </header>
 
       <div class="settings-content">
+        <div bind:this={licenseSection}>
+          <LicenseSettingsSection />
+        </div>
         <StorageSettingsSection
           {notesDirectory}
           {isCustomDirectory}

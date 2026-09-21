@@ -239,4 +239,41 @@ struct LocalizationTests {
             #expect(localization.localizedRelativeTime(timestamp) == testCase.expected)
         }
     }
+
+    /// The absolute-date pair the License row needs (localization.md: "added
+    /// with their caller"). `tests/localization/cases.json` does not cover it —
+    /// the platforms' date formatters legitimately differ in separators — so
+    /// each adapter locks it with the same two assertions its siblings make;
+    /// the web's live in `localization.test.ts`.
+    @Test("a year formats as a year, never as a grouped number")
+    func yearIsADateField() {
+        let localization = Localization(
+            runtimeCatalogs: GeneratedLanguageCatalogs.catalogs,
+            requestedLanguageTags: ["en"],
+            regionalLanguageTag: "en-US",
+            reportDiagnostic: { _ in }
+        )
+        // 2026-06-15T12:00:00Z — mid-year, so no timezone can move it.
+        let midYear = 1_781_524_800_000.0
+
+        #expect(localization.localizedYear(midYear) == "2026")
+        #expect(!localization.localizedYear(midYear).contains(","))
+    }
+
+    /// An absolute date names its month rather than numbering it, so it is not
+    /// read day-first by one locale and month-first by another.
+    @Test("an absolute date names the month")
+    func absoluteDateNamesTheMonth() {
+        let localization = Localization(
+            runtimeCatalogs: GeneratedLanguageCatalogs.catalogs,
+            requestedLanguageTags: ["en"],
+            regionalLanguageTag: "en-US",
+            reportDiagnostic: { _ in }
+        )
+        // 2029-01-15T12:00:00Z — midday, so no timezone can move the date.
+        let formatted = localization.localizedAbsoluteDate(1_863_172_800_000.0)
+
+        #expect(formatted.contains("2029"))
+        #expect(formatted.rangeOfCharacter(from: CharacterSet.letters) != nil)
+    }
 }

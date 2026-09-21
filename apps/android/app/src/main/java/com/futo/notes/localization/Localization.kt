@@ -117,6 +117,23 @@ class Localization private constructor(
         return localizedText("units.fileSize.byte", mapOf("value" to bytes))
     }
 
+    /**
+     * An absolute calendar date — "Valid until {date}", "License expired
+     * {date}" on the License row (localization.md). Distinct from
+     * [localizedRelativeTime], which answers "how long ago".
+     */
+    fun localizedAbsoluteDate(timestampMillis: Long): String =
+        AndroidLocalizationRules.formatAbsoluteDate(formatLanguageTag, timestampMillis)
+
+    /**
+     * The year alone.
+     *
+     * **A year is a date field, not a number**: a number formatter would group
+     * it as "2,026", so this goes through the date formatter too.
+     */
+    fun localizedYear(timestampMillis: Long): String =
+        AndroidLocalizationRules.formatYear(formatLanguageTag, timestampMillis)
+
     fun localizedRelativeTime(timestampMillis: Long): String {
         val differenceSeconds = (timestampMillis - currentTimeMillis()) / 1_000.0
         val absoluteSeconds = kotlin.math.abs(differenceSeconds)

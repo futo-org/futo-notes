@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <linearGradient id="supporter-coin-face" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffd24d" />
+      <stop offset="55%" stop-color="#ffbb00" />
+      <stop offset="100%" stop-color="#b8860b" />
+    </linearGradient>
+  </defs>
+  <path
+    fill="url(#supporter-coin-face)"
+    fill-rule="evenodd"
+    d="M24 2a22 22 0 1 1 0 44 22 22 0 0 1 0-44ZM21.511 16.589Q24 14.1 26.489 16.589L31.411 21.511Q33.9 24 31.411 26.489L26.489 31.411Q24 33.9 21.511 31.411L16.589 26.489Q14.1 24 16.589 21.511Z"
+  />
+</svg>

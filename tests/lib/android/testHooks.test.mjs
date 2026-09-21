@@ -17,6 +17,7 @@ const STATE_JSON = JSON.stringify({
   movingNotes: false,
   awaitingStorageConfirmation: false,
   shellVisible: true,
+  license: 'UNLICENSED',
 });
 
 const logLine = (payload) => `07-27 15:12:33.123  4021  4021 I FutoTestHook: ${payload}`;
@@ -101,7 +102,7 @@ describe('parseStateAck', () => {
   it('names the fields that went missing when the app and this reader drift apart', () => {
     const stale = JSON.stringify({ storageMode: 'APP', notes: 0 });
     expect(() => parseStateAck({ name: 'state', detail: stale })).toThrow(
-      /missing vaultPath, onboarding, movingNotes, awaitingStorageConfirmation, shellVisible/,
+      /missing vaultPath, onboarding, movingNotes, awaitingStorageConfirmation, shellVisible, license/,
     );
   });
 

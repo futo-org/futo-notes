@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 
 const BOUNDARIES = [
   {
-    roots: ['futo-notes-core', 'futo-notes-model', 'futo-notes-sync'],
+    roots: ['futo-notes-core', 'futo-notes-model', 'futo-notes-sync', 'futo-notes-license'],
     forbidden: ['tantivy', 'ort', 'ort-sys'],
     reason: 'portable core crates must stay free of search/ML dependencies',
   },
