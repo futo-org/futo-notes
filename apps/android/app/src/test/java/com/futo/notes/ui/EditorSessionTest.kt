@@ -1,6 +1,7 @@
 package com.futo.notes.ui
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -741,6 +742,49 @@ class EditorSessionTest {
         session.end(EditorExit.NAVIGATE, retry)
         scope.settle()
         assertTrue(retry.succeeded)
+    }
+
+    /**
+     * F3: `end()`'s unlatch used to live only in the ordinary "the exit
+     * returned false" branch. `captureBody`/`commitBody`/`perform` are
+     * arbitrary suspend calls into the shell, and none of them are
+     * guaranteed to fail by RETURNING false — a genuinely unexpected error
+     * throws instead. Without a `finally`, that exception unwound straight
+     * out of the launched coroutine and skipped the unlatch entirely,
+     * leaving [EditorSession.isInteractionLocked] true forever: Back, the
+     * toolbar, and every text field stayed dead until process death, because
+     * nothing ever ran to flip it back.
+     *
+     * The test scope needs its own [CoroutineExceptionHandler] for a reason
+     * worth being explicit about: `rememberCoroutineScope()` — what
+     * `NoteEditorScreen` actually passes to [EditorSession] — hands `end()`'s
+     * `scope.launch` a plain (non-supervisor) `Job`, the same shape used
+     * here. A handler is what stops an uncaught exception there from
+     * crashing the whole app instead of merely failing this one exit; this
+     * test is asserting the unlatch behavior for whichever of those two
+     * outcomes is in effect, not asserting that the app survives. A second
+     * `end()` call on the SAME scope after the throw is deliberately not
+     * asserted here: a plain `Job`'s failure semantics cancel the scope
+     * itself (structured concurrency, independent of anything in this
+     * class), so whether a retry can still run depends on that scope
+     * choice, not on this fix.
+     */
+    @Test
+    fun `an effect that throws still releases the interaction lock`() = runBlocking {
+        val scope = CoroutineScope(
+            Dispatchers.Unconfined + Job() + CoroutineExceptionHandler { _, _ -> },
+        )
+        val locks = mutableListOf<Boolean>()
+        val session = EditorSession(scope) { locks += it }
+        val log = mutableListOf<String>()
+        val boom = IllegalStateException("renderer wedged")
+        val effects = RecordingEffects(log, name = "nav", body = { throw boom })
+
+        session.end(EditorExit.NAVIGATE, effects)
+        scope.settle()
+
+        assertFalse(session.isInteractionLocked)
+        assertEquals(listOf(true, false), locks)
     }
 
     /**
