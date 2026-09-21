@@ -2,6 +2,9 @@ packages:
   - apps/*
   - packages/*
 
+# Advisories `pnpm audit --prod` should not fail on. Empty on purpose — see .cargo/audit.toml
+# for the policy. Add the id with a comment saying why; `node scripts/audit.mjs --fix` removes
+# entries whose advisory is gone.
 auditConfig:
   ignoreGhsas: []
 

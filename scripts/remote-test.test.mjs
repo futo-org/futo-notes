@@ -100,6 +100,7 @@ describe('macOS-only deny-list', () => {
     expect(verdict.reason).toMatch(/WKWebView/);
   });
 
+
   it('refuses recipes that need root or manage the local machine', () => {
     expect(classify('deploy-rpm').reason).toMatch(/sudo/);
     expect(classify('qa-claim').reason).toMatch(/device pool/);
@@ -419,27 +420,31 @@ describe('CLI', () => {
 });
 
 describe('justfile wiring', () => {
-  it('exposes the portable suites as remote-* recipes', () => {
+  // remote-doctor/remote-check/remote-rust/remote-android/remote were removed
+  // 2026-09 for zero invocations in 30 days; only remote-sync (used regularly)
+  // stayed a `just` recipe. The rest are called directly: `node
+  // scripts/remote-test.mjs [--flags] <recipe>` (docs/agents/justfile-notes.md
+  // "Removed recipes"). This test guards against one silently coming back
+  // without the same review.
+  it('exposes only remote-sync as a just recipe; the rest are direct script calls', () => {
+    expect(recipes.has('remote-sync'), 'just remote-sync is missing').toBe(true);
     for (const recipe of [
       'remote',
       'remote-doctor',
       'remote-check',
       'remote-rust',
-      'remote-sync',
       'remote-android',
     ]) {
-      expect(recipes.has(recipe), `just ${recipe} is missing`).toBe(true);
+      expect(recipes.has(recipe), `${recipe} should not be a justfile recipe any more`).toBe(false);
     }
   });
 
-  it('routes every remote recipe through this script, so the deny-list cannot be skipped', () => {
+  it('routes remote-sync through this script, so the deny-list cannot be skipped', () => {
     const remoteBlock = justfile
       .split('\n')
       .filter((line) => line.includes('remote-test.mjs'))
       .join('\n');
-    for (const suite of ['check', 'test-rust-full', 'test-cross-platform']) {
-      expect(remoteBlock).toContain(suite);
-    }
+    expect(remoteBlock).toContain('test-cross-platform');
     // No remote recipe may ssh on its own.
     expect(justfile).not.toMatch(/^\s+ssh .*just /m);
   });

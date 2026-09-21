@@ -7,7 +7,6 @@ default:
 
 alias i := install
 alias td := tauri-dev
-alias tp := tauri-prod
 alias tb := tauri-build
 alias an := android-native
 alias in := ios-native
@@ -77,21 +76,11 @@ lint-swift:
 tauri-dev *args:
   node scripts/tauri-dev.mjs "$@"
 
-# Desktop dev pointed at PRODUCTION endpoints (not localhost).
-tauri-prod:
-  pnpm run build
-  cd apps/tauri && WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=1 cargo tauri dev --config src-tauri/tauri.prod.conf.json
-
 # Build the desktop AppImage/bundle for this platform.
 tauri-build:
   pnpm run build
   # NO_STRIP: linuxdeploy's strip can't read newer binutils' AppImages locally; see justfile-notes.md.
   cd apps/tauri && NO_STRIP=true cargo tauri build
-
-# Local updater dry-run with stand-in keys (Linux/AppImage only); see keys/README.md.
-[positional-arguments]
-updater-localdev *args:
-  node scripts/release-build.mjs e2e "$@"
 
 # Read the desktop instance journal (JSONL); native shells don't journal yet.
 [positional-arguments]
@@ -531,37 +520,14 @@ bench-search *args:
   cargo bench -p futo-notes-search --bench search -- "$@"
 
 # ── Remote (Linux) test execution over Tailscale; mechanism: scripts/remote-test.mjs ──
-
-# Report what is present/missing on the remote (node, cargo, NDK, KVM…).
-[positional-arguments]
-remote-doctor *flags:
-  node scripts/remote-test.mjs --doctor "$@"
-
-# Run any portable recipe remotely: `just remote check`, `just remote --rsync test-unit`.
-[positional-arguments]
-remote *args:
-  node scripts/remote-test.mjs "$@"
-
-# The pre-merge umbrella, remotely (tsc, eslint, prettier, svelte-check, vitest, arch gates).
-[positional-arguments]
-remote-check *flags:
-  node scripts/remote-test.mjs "$@" check
-
-# The full Rust workspace, remotely.
-[positional-arguments]
-remote-rust *flags:
-  node scripts/remote-test.mjs "$@" test-rust-full
+# `node scripts/remote-test.mjs --doctor|--help|<recipe>` runs any other portable recipe
+# remotely (`--doctor` reports what jfedora has; `<recipe>` accepts `--rsync`/flags — see
+# docs/remote-testing.md). `remote-sync` is the one wrapper kept as a `just` recipe.
 
 # Cross-platform E2EE sync against the pinned sync-server release, remotely.
 [positional-arguments]
 remote-sync *flags:
   node scripts/remote-test.mjs "$@" test-cross-platform
-
-# Android Rust .so + Kotlin bindings + assembleDebug, then the JVM unit tests, remotely.
-[positional-arguments]
-remote-android *flags:
-  node scripts/remote-test.mjs "$@" build-android-native
-  node scripts/remote-test.mjs "$@" test-android-native
 
 # ── Editor gauntlet (the permanent editor regression suite) ──
 # The matrix and oracles live behind EditorGauntletAdapter, with one adapter
@@ -708,11 +674,6 @@ qa-target *args:
 check-agent-docs:
   node scripts/check-agent-docs.mjs
 
-# Prove architecture gates fail for the violations they claim to catch (see the script).
-[positional-arguments]
-gate-redproofs *args:
-  node scripts/gate-redproofs.mjs --include-cargo "$@"
-
 # Run the focused architecture checks embedded in GitLab's mandatory test job.
 arch-gate:
   pnpm run check:arch-gate
@@ -754,11 +715,6 @@ skills-swift:
 #   just release-notes-check v1.7.2     # one tag
 release-notes-check tag="":
   @node scripts/release-notes.mjs {{ if tag == "" { "--all" } else { "--tag " + tag + " --check" } }}
-
-# Report known vulnerabilities across the project (Rust + npm); needs network + cargo-audit.
-[positional-arguments]
-audit *args:
-  node scripts/audit.mjs "$@"
 
 # ── Code-quality ratchet (big-code-analysis) ──
 # Needs network on first run (downloads a pinned bca release into .bca-cache/);
@@ -888,7 +844,8 @@ deploy-rpm:
 # Build a RELEASE-signed Android build of one flavor and install it (com.futo.notes).
 # Defaults to `direct` (GitLab/Obtainium/F-Droid); `just deploy-android play` installs
 # the Google Play flavor instead. Needs apps/android/keystore.properties (gitignored)
-# or Gradle signs nothing; see justfile-notes.md.
+# or Gradle signs nothing; see justfile-notes.md. NOTE: kept — asserted live by
+# scripts/premerge-test-parity.test.mjs; do not remove as an unused recipe.
 deploy-android flavor="direct": editor-deps android-env-check
   #!/usr/bin/env bash
   set -euo pipefail

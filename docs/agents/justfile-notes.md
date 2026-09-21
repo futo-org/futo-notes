@@ -162,4 +162,59 @@ front and says what's missing instead of failing later at `adb install`. Default
 `direct` flavor — what GitLab/Obtainium/F-Droid users get. `just deploy-android play`
 installs the Google Play flavor's release build instead, which is the only way to put the
 exact bytes Play will review on a device (Play itself is fed the AAB from CI, and an AAB
-cannot be adb-installed).
+cannot be adb-installed). NOTE: this recipe is intentionally NOT in the "Removed recipes"
+list below even though the 2026-09 usage audit flagged it as zero-invocation — it is
+asserted live by `scripts/premerge-test-parity.test.mjs` ("builds both Android distribution
+flavors..."), which requires `deploy-android flavor="direct":` to exist in the justfile.
+
+## Removed recipes
+
+Cut 2026-09 for zero invocations across both of Justin's machines in the prior 30 days
+(shell history + agent transcripts) with only incidental repo references — see the
+usage-audit findings in the MR that removed them. Their bodies are kept here verbatim so
+the procedure isn't lost; run the commands directly instead of through `just`.
+
+### tauri-prod
+
+Desktop dev pointed at PRODUCTION endpoints instead of localhost — the one sanctioned
+exception to "never call `cargo tauri`" directly (root `AGENTS.md` §1), because this mode
+has no `just tauri-dev` equivalent.
+
+```bash
+pnpm run build
+cd apps/tauri && WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=1 cargo tauri dev --config src-tauri/tauri.prod.conf.json
+```
+
+### updater-localdev
+
+Local updater dry-run with stand-in keys (Linux/AppImage only; see `keys/README.md`):
+`node scripts/release-build.mjs e2e`.
+
+### audit
+
+Dependency vulnerability scan (Rust + npm; needs network + `cargo-audit`):
+`node scripts/audit.mjs [--fix]`. Also what CI's `test:audit` job runs directly, since the
+pinned CI image has no `just`.
+
+### gate-redproofs
+
+Proves architecture gates fail for the violations they claim to catch — deliberately
+manual, run when adding or changing a gate: `node scripts/gate-redproofs.mjs
+--include-cargo`.
+
+### remote / remote-check / remote-rust / remote-doctor / remote-android
+
+Thin `just` wrappers around `scripts/remote-test.mjs`, which still does the work — only the
+wrappers were removed (`remote-sync` is the one kept). Call the script directly:
+
+```bash
+node scripts/remote-test.mjs --doctor              # remote environment report
+node scripts/remote-test.mjs <recipe>               # any other portable recipe
+node scripts/remote-test.mjs check                  # the pre-merge umbrella
+node scripts/remote-test.mjs test-rust-full          # the full Rust workspace
+node scripts/remote-test.mjs build-android-native \
+  && node scripts/remote-test.mjs test-android-native   # Android .so + bindings + JVM tests
+```
+
+`--rsync`/other flags go before the recipe name, same as before. See `docs/remote-testing.md`
+for the full flag list and the macOS-only/interactive/local-machine refusal tiers.

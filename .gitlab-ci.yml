@@ -606,7 +606,7 @@ test:audit:
         rm -f "$CARGO_HOME/bin/cargo-audit"
         echo "AUDIT-DID-NOT-RUN: cargo-audit could not be installed; the Rust half was not scanned."
       fi
-    # The pinned image has no `just`, so the script is the shared entry point with `just audit`.
+    # node scripts/audit.mjs is the shared entry point for both CI and a local run.
     - node "$CI_PROJECT_DIR/scripts/audit.mjs"
   rules:
     - if: $CI_COMMIT_TAG
