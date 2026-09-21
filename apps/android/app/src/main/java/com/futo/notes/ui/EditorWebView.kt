@@ -869,11 +869,20 @@ class EditorHost private constructor(appContext: Context) {
      * transaction. Storage migration keeps its vault gate until this returns,
      * so migration cannot start in the post-save callback gap.
      * Callers enter on Main.immediate: dispatching another runnable here would
-     * let cancellation unwind while a stale insertion remained queued. */
+     * let cancellation unwind while a stale insertion remained queued.
+     *
+     * Bounded by [CAPTURE_DEADLINE_MS] — the same ceiling [captureContentAndWait]
+     * holds a navigation exit to. This runs inside [EditorSession.runWork],
+     * the mutex a NAVIGATE exit's `awaitPendingWork()` waits on, so an
+     * unbounded wait here used to leave Back dead for as long as the renderer
+     * stayed wedged — or forever, if it never answered at all (F3). A timeout
+     * resumes `false`, the same answer a live `window.FutoEditor` returning
+     * false already produces, so the caller's existing cleanup and failure
+     * toast (`NotesStore.saveImageIntoVault`) apply unchanged. */
     internal suspend fun insertImageAndWait(
         filename: String,
         attachment: EditorAttachmentToken,
-    ): Boolean =
+    ): Boolean = insertImageWithinDeadline(deadlineMs = CAPTURE_DEADLINE_MS) {
         suspendCancellableCoroutine { continuation ->
             val permit = EditorAttachmentOperationPermit(attachments, attachment)
             continuation.invokeOnCancellation { permit.cancel() }
@@ -900,6 +909,7 @@ class EditorHost private constructor(appContext: Context) {
             }
             insert.run()
         }
+    }
 
     /**
      * Blur and read the live document for save-before-navigation.

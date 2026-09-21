@@ -141,6 +141,30 @@ internal suspend fun captureWithinDeadline(
     }
 }
 
+/**
+ * Bound an image insertion to [deadlineMs], the same ceiling
+ * [captureContentAndWait] holds an exit to.
+ *
+ * Unlike a capture, a timed-out insert has no second interpretation to make:
+ * [captureWithinDeadline] tells "busy" apart from "dead" because one of them
+ * lets the user leave and the other must not, but an insert answers a
+ * `saveImageIntoVault` call that already turns `false` into cleanup and a
+ * failure toast (see `NotesStore.saveImageIntoVault`) — a wedge and an
+ * outright failure both belong there. Extracted so the timeout behavior is
+ * assertable without a WebView, the same reason [captureWithinDeadline] is.
+ *
+ * Before this existed, `EditorWebView.insertImageAndWait` awaited
+ * `evaluateJavascript` with no deadline at all, from inside
+ * `EditorSession.runWork` — the exact mutex a NAVIGATE exit's
+ * `awaitPendingWork()` waits on. A renderer wedged in a long parse delayed
+ * Back for the parse; a renderer that never answers at all (a torn-down
+ * WebView) left Back dead until process death (F3).
+ */
+internal suspend fun insertImageWithinDeadline(
+    deadlineMs: Long,
+    insert: suspend () -> Boolean,
+): Boolean = withTimeoutOrNull(deadlineMs) { insert() } ?: false
+
 internal data class EditorNavigationCommit(
     val savedContent: String,
     val canNavigate: Boolean,

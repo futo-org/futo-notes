@@ -393,50 +393,69 @@ internal class EditorSession(
         effects.prepare()
 
         scope.launch {
-            effects.awaitPendingWork()
-            var failure: EditorExitFailure? = null
-            val outcome = drain(destructive = plan.closes) {
-                if (!effects.isAttached()) return@drain false
-                effects.cancelPendingSave()
-                val body = effects.captureBody()
-                if (body == null) {
-                    failure = EditorExitFailure.CAPTURE
-                    return@drain false
+            // `succeeded` gates the unlatch in `finally` below: a completed
+            // NAVIGATE/MOVE/DELETE leaves its latches set on purpose (the
+            // screen is going away), so only an exit that did NOT leave
+            // resets them. The `finally` — not just the old refusal branch —
+            // is what makes that reset run when an effect THROWS instead of
+            // returning false: `perform()`/`captureBody()`/`commitBody()` are
+            // arbitrary suspend calls into the shell, and an uncaught
+            // exception from any of them used to skip straight past the
+            // unlatch code, leaving `isInteractionLocked` true forever — Back,
+            // the toolbar, and every text field stayed dead until process
+            // death (F3).
+            var succeeded = false
+            try {
+                effects.awaitPendingWork()
+                var failure: EditorExitFailure? = null
+                val outcome = drain(destructive = plan.closes) {
+                    if (!effects.isAttached()) return@drain false
+                    effects.cancelPendingSave()
+                    val body = effects.captureBody()
+                    if (body == null) {
+                        failure = EditorExitFailure.CAPTURE
+                        return@drain false
+                    }
+                    if (!effects.commitBody(body)) {
+                        failure = EditorExitFailure.BODY
+                        return@drain false
+                    }
+                    if (plan.commitsTitle && !effects.commitTitle()) {
+                        failure = EditorExitFailure.TITLE
+                        return@drain false
+                    }
+                    if (!effects.isAttached()) return@drain false
+                    if (!plan.performsInsideDrain) return@drain true
+                    effects.perform().also { if (!it) failure = EditorExitFailure.ACTION }
                 }
-                if (!effects.commitBody(body)) {
-                    failure = EditorExitFailure.BODY
-                    return@drain false
-                }
-                if (plan.commitsTitle && !effects.commitTitle()) {
-                    failure = EditorExitFailure.TITLE
-                    return@drain false
-                }
-                if (!effects.isAttached()) return@drain false
-                if (!plan.performsInsideDrain) return@drain true
-                effects.perform().also { if (!it) failure = EditorExitFailure.ACTION }
-            }
-            if (outcome == null) failure = EditorExitFailure.REJECTED
+                if (outcome == null) failure = EditorExitFailure.REJECTED
 
-            val left = when {
-                outcome != true -> false
-                plan.performsInsideDrain -> true
-                else -> effects.perform().also {
-                    if (!it) failure = EditorExitFailure.ACTION
+                val left = when {
+                    outcome != true -> false
+                    plan.performsInsideDrain -> true
+                    else -> effects.perform().also {
+                        if (!it) failure = EditorExitFailure.ACTION
+                    }
+                }
+
+                if (left) {
+                    succeeded = true
+                    effects.onSucceeded()
+                    return@launch
+                }
+                failure?.let(effects::onFailed)
+            } finally {
+                // A refused exit — including one an effect ended by throwing —
+                // must leave the editor usable and retryable: unlatch
+                // everything this call latched.
+                if (!succeeded) {
+                    if (plan.locksInteraction) {
+                        exiting = false
+                        setInteractionLocked(false)
+                    }
+                    if (plan.closes) closed = false
                 }
             }
-
-            if (left) {
-                effects.onSucceeded()
-                return@launch
-            }
-            // A refused exit must leave the editor usable and retryable: unlatch
-            // everything this call latched, then report why.
-            if (plan.locksInteraction) {
-                exiting = false
-                setInteractionLocked(false)
-            }
-            if (plan.closes) closed = false
-            failure?.let(effects::onFailed)
         }
     }
 
