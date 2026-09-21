@@ -47,6 +47,7 @@ import { registerVaultImageUrl } from '$features/images/vaultImageSrc';
 import { localizedText } from '$shared/localization';
 import { isImageFilename } from '$shared/media/imageFiles';
 
+import type { CompleteImageInsert, ImageInsertTarget } from './imageInsertTarget';
 import { extFromMime, resolveVaultImageFs, type VaultImageFs } from './imagePaste';
 
 /** The last path segment, for a POSIX or a Windows path. */
@@ -221,8 +222,13 @@ export interface ImageInserter {
 export interface ImageInserterOptions {
   /** Null where this host cannot write into a vault (a plain browser). */
   fs: VaultImageFs | null;
-  /** How the editor puts a vault filename into the document. */
-  insert: (filename: string) => void;
+  /**
+   * WHERE the reference goes — the note that was open when the insertion
+   * started, not whichever one the editor holds when the save lands
+   * (`imageInsertTarget.ts`). Every entry point below claims the document
+   * BEFORE its first `await`.
+   */
+  insert: ImageInsertTarget;
   reportError?: (message: string, error: unknown) => void;
 }
 
@@ -238,22 +244,39 @@ export function createImageInserter(options: ImageInserterOptions): ImageInserte
    * bytes are already in the vault, and `vaultImageView.ts` re-asks on a later
    * render (docs/spec/editor.md, "Images").
    */
-  async function saveAndInsert(save: () => Promise<string>): Promise<void> {
+  async function saveAndInsert(
+    complete: CompleteImageInsert,
+    save: () => Promise<string>,
+  ): Promise<void> {
     const filename = await save();
     try {
       registerVaultImageUrl(filename, await fs!.getImageUrl(filename));
     } catch (error) {
       reportError('Image URL could not be resolved yet:', error);
     }
-    insert(filename);
+    complete(filename);
   }
 
-  /** One image's failure must not take the rest of the drop with it. */
-  async function insertEach<T>(items: readonly T[], save: (item: T) => Promise<string>) {
+  /**
+   * One image's failure must not take the rest of the drop with it.
+   *
+   * ONE claim for the whole batch: a drop of several images saves them one
+   * after another, and a claim re-taken per image would adopt the note the
+   * user opened halfway through for the rest of them. A caller that already
+   * had to wait — the picker, whose dialog is itself a chance to switch notes
+   * — passes the claim it took BEFORE that wait; everyone else claims here,
+   * before the first save.
+   */
+  async function insertEach<T>(
+    items: readonly T[],
+    save: (item: T) => Promise<string>,
+    claimed?: CompleteImageInsert,
+  ) {
     if (!fs) return;
+    const complete = claimed ?? insert.begin();
     for (const item of items) {
       try {
-        await saveAndInsert(() => save(item));
+        await saveAndInsert(complete, () => save(item));
       } catch (error) {
         reportError('Image insert failed:', error);
       }
@@ -266,6 +289,10 @@ export function createImageInserter(options: ImageInserterOptions): ImageInserte
     async pick() {
       const pickImages = fs?.pickImages;
       if (!fs || !pickImages) return;
+      // Before the picker OPENS, not after it returns: the user can reach the
+      // sidebar and open another note while a non-modal picker is up, and a
+      // claim taken afterwards would be taken against that other note.
+      const complete = insert.begin();
       let picked;
       try {
         picked = await pickImages({
@@ -276,7 +303,11 @@ export function createImageInserter(options: ImageInserterOptions): ImageInserte
         reportError('Image insert failed:', error);
         return;
       }
-      await insertEach(picked, (image) => fs.saveImageBytes(image.bytes, image.extension));
+      await insertEach(
+        picked,
+        (image) => fs.saveImageBytes(image.bytes, image.extension),
+        complete,
+      );
     },
 
     insertFiles(files) {
@@ -304,7 +335,7 @@ export function createImageInserter(options: ImageInserterOptions): ImageInserte
  * and `blockDragMode.ts` exist.
  */
 export function resolveImageInserter(
-  insert: (filename: string) => void,
+  insert: ImageInsertTarget,
   reportError?: (message: string, error: unknown) => void,
 ): ImageInserter {
   return createImageInserter({ fs: resolveVaultImageFs(), insert, reportError });

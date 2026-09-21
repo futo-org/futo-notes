@@ -33,6 +33,7 @@ import {
 
 import { registerVaultImageUrl } from '$features/images/vaultImageSrc';
 
+import type { ImageInsertTarget } from './imageInsertTarget';
 import {
   classifyImagePaste,
   extFromMime,
@@ -112,11 +113,13 @@ interface ImagePasteHandlerOptions {
   /** Null when this host cannot capture images at all (a plain browser). */
   sink: ImagePasteSink | null;
   /**
-   * How to insert the captured filename. Omitted where the HOST inserts — a
-   * bridge sink always resolves to null and the native shell calls
-   * `FutoEditor.insertImage` back over the bridge.
+   * Where the captured filename goes — the note that was open when the paste
+   * happened, not whichever one the editor holds when the bytes land
+   * (`imageInsertTarget.ts`). Omitted where the HOST inserts: a bridge sink
+   * always resolves to null and the native shell calls `FutoEditor.insertImage`
+   * back over the bridge, gated by its own attachment generation.
    */
-  insertImage?: (filename: string) => void;
+  insertImage?: ImageInsertTarget;
   reportError?: (message: string, error: unknown) => void;
 }
 
@@ -134,10 +137,15 @@ export function createImagePasteHandler(
 ): (event: ClipboardEvent) => boolean {
   const { sink, insertImage, reportError = console.error } = options;
 
-  function capture(work: Promise<string | null>): void {
+  /**
+   * `complete` is claimed by the CALLER, synchronously inside the paste event —
+   * the document the user pasted into is the one that was live then, not the
+   * one still live whenever the capture resolves.
+   */
+  function capture(complete: ((filename: string) => void) | null, work: Promise<string | null>) {
     void work
       .then((filename) => {
-        if (filename) insertImage?.(filename);
+        if (filename) complete?.(filename);
       })
       .catch((error: unknown) => reportError('Image paste failed:', error));
   }
@@ -150,12 +158,12 @@ export function createImagePasteHandler(
     const action = classifyImagePaste(clipboardData);
     if (action.kind === 'file') {
       event.preventDefault();
-      capture(sink.captureFile(action.file));
+      capture(insertImage?.begin() ?? null, sink.captureFile(action.file));
       return true;
     }
     if (action.kind === 'hiddenBitmap' && sink.canCaptureHiddenBitmap) {
       event.preventDefault();
-      capture(sink.captureHiddenBitmap());
+      capture(insertImage?.begin() ?? null, sink.captureHiddenBitmap());
       return true;
     }
     return false;

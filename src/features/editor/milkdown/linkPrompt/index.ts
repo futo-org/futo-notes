@@ -107,6 +107,32 @@ function applyLinkToSelection(
   view.focus();
 }
 
+/*
+ * The prompt currently on screen, so a NOTE SWITCH can take it down.
+ *
+ * It is the link sibling of the delayed-image bug (`imageInsertTarget.ts`):
+ * the prompt floats over the editor holding `pos`/`run` from the note it
+ * opened on, and the editor is reused across notes. A keyboard note switch
+ * moves no DOM focus and fires no pointerdown, so neither dismissal path ran
+ * — Ctrl+Tab with the field open, then Enter, dispatched `tr.insert(pos, …)`
+ * or a `removeMark`/`addMark` over the OLD note's offsets against the NEW
+ * note's document: a link in a note nobody asked for, marks rewritten over an
+ * unrelated range, or a ProseMirror `RangeError` when the new note is shorter.
+ *
+ * There is at most one: `openLinkFieldAt` is only reached from a user gesture
+ * that already dismissed any previous prompt.
+ */
+let openPrompt: ((refocus?: boolean) => void) | null = null;
+
+/**
+ * Cancels the prompt if one is open, leaving the document untouched. Called
+ * when the editor adopts a different note or is torn down; without the
+ * refocus, which would pull the caret into a note the user is leaving.
+ */
+export function dismissLinkPrompt(): void {
+  openPrompt?.(false);
+}
+
 interface LinkFieldOptions {
   initialUrl: string;
   applyLabel: 'Add' | 'Update';
@@ -119,6 +145,10 @@ interface LinkFieldOptions {
  * submit DOES differs between them.
  */
 function openLinkFieldAt(view: ProseView, options: LinkFieldOptions): void {
+  // At most one on screen: a second gesture replaces the first rather than
+  // leaving it mounted with nothing tracking it.
+  dismissLinkPrompt();
+
   const content = document.createElement('div');
   content.className = 'futo-selection-toolbar';
   const body = document.createElement('div');
@@ -146,14 +176,15 @@ function openLinkFieldAt(view: ProseView, options: LinkFieldOptions): void {
     if (!content.contains(event.target as Node)) finish();
   };
 
-  function finish(): void {
+  function finish(refocus = true): void {
     if (settled) return;
     settled = true;
+    if (openPrompt === finish) openPrompt = null;
     document.removeEventListener('pointerdown', onPointerDown, true);
     provider.destroy();
     void unmount(ui);
     content.remove();
-    view.focus();
+    if (refocus) view.focus();
   }
 
   const ui = mount(LinkUrlField, {
@@ -165,7 +196,7 @@ function openLinkFieldAt(view: ProseView, options: LinkFieldOptions): void {
         finish();
         options.onSubmit(href);
       },
-      oncancel: finish,
+      oncancel: () => finish(),
     },
   }) as unknown as LinkUrlFieldHandle;
 
@@ -176,6 +207,7 @@ function openLinkFieldAt(view: ProseView, options: LinkFieldOptions): void {
   // still-detached input, which is a silent no-op. `onShow` fires exactly
   // once the element IS attached (`SlashProvider`'s `#onUpdate` appends it
   // before calling `.show()`), so focusing there is never early.
+  openPrompt = finish;
   provider.onShow = () => ui.focus();
   document.addEventListener('pointerdown', onPointerDown, true);
   provider.update(view);
