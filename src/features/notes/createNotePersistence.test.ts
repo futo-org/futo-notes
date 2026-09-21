@@ -19,6 +19,35 @@ describe('createNotePersistence', () => {
     vi.mocked(_applyLocalMutation).mockClear();
   });
 
+  it('refuses to save while the session is loading (F1 straddle guard)', async () => {
+    // A save that reaches here mid-note-switch would write the outgoing
+    // note's stale title/content under the incoming note's originalId — see
+    // IsLoading in createNotePersistence.ts.
+    const onSaved = vi.fn();
+    const saveNote = createNotePersistence({
+      clearPendingFolder: vi.fn(),
+      getEditorContent: () => 'edited content',
+      getNoteId: () => 'Incoming',
+      getPendingFolder: () => null,
+      getState: () => ({
+        originalId: 'Incoming',
+        savedContent: 'outgoing saved content',
+        savedTitle: 'Outgoing',
+        title: 'Outgoing',
+      }),
+      hasDuplicateTitle: () => false,
+      isLoading: () => true,
+      onSaved,
+      reconcileOpenNote: vi.fn(),
+      showTitleWarning: vi.fn(),
+    });
+
+    await expect(saveNote()).resolves.toBe(false);
+
+    expect(updateNote).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
   it('warns when a duplicate title blocks the save', async () => {
     const showTitleWarning = vi.fn();
     const saveNote = createNotePersistence({
@@ -33,6 +62,7 @@ describe('createNotePersistence', () => {
         title: 'Duplicate',
       }),
       hasDuplicateTitle: () => true,
+      isLoading: () => false,
       onSaved: vi.fn(),
       reconcileOpenNote: vi.fn(),
       showTitleWarning,
@@ -66,6 +96,7 @@ describe('createNotePersistence', () => {
           title: 'Original',
         }),
         hasDuplicateTitle: () => false,
+        isLoading: () => false,
         onSaved,
         reconcileOpenNote,
         showTitleWarning: vi.fn(),
@@ -101,6 +132,7 @@ describe('createNotePersistence', () => {
         title: 'Original',
       }),
       hasDuplicateTitle: () => false,
+      isLoading: () => false,
       onSaved,
       reconcileOpenNote: vi.fn(),
       showTitleWarning: vi.fn(),
@@ -133,6 +165,7 @@ describe('createNotePersistence', () => {
         title: ' Original ',
       }),
       hasDuplicateTitle: () => false,
+      isLoading: () => false,
       onSaved,
       reconcileOpenNote,
       showTitleWarning: vi.fn(),

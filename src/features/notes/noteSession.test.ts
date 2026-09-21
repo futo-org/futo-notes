@@ -528,6 +528,115 @@ describe('stale first-save completion after navigation', () => {
   });
 });
 
+describe('save straddling a note switch (F1)', () => {
+  let editorContent = '';
+  let routeNoteId: string | null = 'A';
+
+  function makeDeps() {
+    return {
+      getEditorContent: () => editorContent,
+      setEditorContent: vi.fn((text: string) => {
+        editorContent = text;
+      }),
+      openEditorNote: vi.fn((_noteId: string | null, text: string) => {
+        editorContent = text;
+      }),
+      forgetEditorNote: vi.fn(),
+      focusEditor: vi.fn(),
+      isEditorFocused: () => false,
+      isComposing: () => false,
+      getNotes: () => [],
+      getNoteBody: () => undefined,
+      getTitleTextarea: () => undefined,
+      getNoteId: () => routeNoteId,
+      setPrevNoteId: vi.fn(),
+      navigate: vi.fn(),
+      onNoteRenamed: vi.fn(),
+      reconcileOpenNote: vi.fn(async () => false),
+    } satisfies NoteSessionDeps;
+  }
+
+  beforeEach(async () => {
+    editorContent = '';
+    routeNoteId = 'A';
+    const { readNote, updateNote } = await import('./notes.svelte');
+    vi.mocked(readNote).mockReset();
+    vi.mocked(updateNote).mockReset();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('flushes a late edit to the outgoing note instead of writing it to the note being opened', async () => {
+    const deps = makeDeps();
+    const session = createNoteSession(deps);
+    const { readNote, updateNote } = await import('./notes.svelte');
+
+    session.seedOpenNote('A', 'A body v1');
+
+    // A first edit debounces normally and its save is left in flight.
+    let resolveFirstSave!: (result: { id: string; mtime: number; disposition: 'wrote' }) => void;
+    const firstSave = new Promise<{ id: string; mtime: number; disposition: 'wrote' }>(
+      (resolve) => {
+        resolveFirstSave = resolve;
+      },
+    );
+    vi.mocked(updateNote).mockImplementationOnce(() => firstSave);
+    vi.mocked(updateNote).mockImplementation(async (id: string) => ({
+      id,
+      mtime: 0,
+      disposition: 'wrote',
+    }));
+
+    editorContent = 'A body v2';
+    session.debouncedSave(editorContent);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(updateNote).toHaveBeenCalledOnce();
+
+    // The user now switches to note B while that first save is still
+    // in-flight; readNote('B') is held open so `loading` stays observable.
+    let resolveReadB!: (content: string) => void;
+    const readB = new Promise<string>((resolve) => {
+      resolveReadB = resolve;
+    });
+    vi.mocked(readNote).mockImplementationOnce(() => readB);
+    routeNoteId = 'B';
+    const opening = session.loadNote('B');
+
+    // A keystroke lands while flushSave() is still awaiting the first save
+    // and `loading` has not flipped yet — this arms a fresh debounce timer
+    // that a naive flush() has already snapshotted past.
+    editorContent = 'A body v3 (typed during in-flight save)';
+    session.debouncedSave(editorContent);
+
+    resolveFirstSave({ id: 'A', mtime: 0, disposition: 'wrote' });
+    await vi.waitFor(() => expect(readNote).toHaveBeenCalledWith('B'));
+
+    // Give any surviving debounce timer a chance to fire while B is still
+    // loading: originalId has already flipped to 'B', but title/savedContent
+    // still belong to A until readNote('B') resolves.
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(updateNote).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ originalId: 'B' }),
+    );
+    // The late edit must reach A's own file, not be silently dropped.
+    expect(updateNote).toHaveBeenCalledWith('A', 'A body v3 (typed during in-flight save)', {
+      originalId: 'A',
+      base: 'A body v2',
+    });
+
+    resolveReadB('B body');
+    await opening;
+    expect(session.originalId).toBe('B');
+    expect(session.content).toBe('B body');
+  });
+});
+
 describe('loadNote focus routing', () => {
   function makeDeps(noteId: string = 'new') {
     return {
