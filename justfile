@@ -515,8 +515,13 @@ cdp-forward:
 # (~2s), and reports what the a11y tree can't — which vault is live, whether a
 # migration is in flight. Run with no arguments for the command list. Debug
 # builds only; honors $ANDROID_SERIAL.
+# `{{args}}` interpolates raw, so a label containing shell metacharacters — the
+# Settings screen's `Connect & Sync` — is split by the shell and the tap
+# silently never happens. `[positional-arguments]` + `"$@"` passes each
+# argument through intact (pc_9b7fd5dba746).
+[positional-arguments]
 android-drive *args:
-  @node scripts/android-drive.mjs {{args}}
+  @node scripts/android-drive.mjs "$@"
 
 build:
   #!/usr/bin/env bash
