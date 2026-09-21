@@ -218,9 +218,8 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
 
 ## Note actions (menu)
 
-- An open note's overflow menu offers: **Graph view** (stub — toast
-  "coming soon"), **Copy file path** (full filesystem path to clipboard),
-  **Move to folder**, **Delete note**. → NotesShell.svelte note menu
+- An open note's overflow menu offers: **Copy file path** (full filesystem path to
+  clipboard), **Move to folder**, **Delete note**. → NotesShell.svelte note menu
 - "Move to folder" opens a folder picker (root "Notes" + folder tree, nesting
   shown); picking a destination moves the file, keeps the note open under its
   new id, and rewrites backlinks. → FolderPickerModal.svelte

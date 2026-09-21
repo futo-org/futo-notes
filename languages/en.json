@@ -205,7 +205,6 @@
       },
       "actions": {
         "optionsAccessibilityLabel": "Note options",
-        "graphView": "Graph view",
         "copyFilePath": "Copy file path",
         "moveToFolder": "Move to folder",
         "moveToFolderEllipsis": "Move to folder…",
@@ -214,7 +213,6 @@
         "moreAccessibilityLabel": "More"
       },
       "shareChooserTitle": "Share note",
-      "graphComingSoon": "Graph view is coming soon.",
       "pathCopied": "Path copied",
       "unavailable": "That note is no longer available.",
       "movedTo": "Moved to {destination}",

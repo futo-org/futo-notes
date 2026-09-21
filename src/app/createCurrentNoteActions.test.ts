@@ -61,22 +61,6 @@ describe('createCurrentNoteActions', () => {
     expect(showToast).toHaveBeenCalledWith({ path: 'notes.deleted' });
   });
 
-  it('keeps the graph stub as a toast-only action', () => {
-    const showToast = vi.fn();
-    const actions = createCurrentNoteActions({
-      getActiveNoteId: () => 'Roadmap',
-      runWithActiveNoteLock: (operation) => operation(),
-      showToast,
-      onMoved: vi.fn(),
-      onDeleted: vi.fn(),
-      onDeleteConfirmed: vi.fn(),
-    });
-
-    actions.graphView();
-
-    expect(showToast).toHaveBeenCalledWith({ path: 'notes.graphComingSoon' });
-  });
-
   it('shows a failure toast and does not reject when the move fails', async () => {
     mocks.moveNote.mockRejectedValue(new Error('A note with that name already exists'));
     const showToast = vi.fn();
