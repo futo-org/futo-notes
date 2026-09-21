@@ -55,46 +55,4 @@
        so shave off 1% to keep the token color. */
     background: color-mix(in srgb, var(--color-selection) 99%, transparent);
   }
-
-  /* CodeMirror global overrides */
-  .cm-editor {
-    background: transparent !important;
-    color: var(--color-text) !important;
-    outline: none !important;
-    box-shadow: none !important;
-  }
-
-  .cm-content {
-    caret-color: transparent !important;
-  }
-
-  .cm-editor.cm-focused,
-  .cm-editor:focus-within,
-  .cm-scroller,
-  .cm-content {
-    outline: none !important;
-    box-shadow: none !important;
-  }
-
-  .cm-gutters {
-    background: var(--color-surface) !important;
-    border-right: 1px solid var(--color-border) !important;
-  }
-
-  .cm-activeLineGutter {
-    background: var(--color-active-line) !important;
-  }
-
-  .cm-cursor {
-    border-left-color: var(--color-primary) !important;
-    border-left-width: 2px !important;
-  }
-
-  .cm-selectionMatch {
-    background: var(--color-selection) !important;
-  }
-
-  .cm-selectionBackground {
-    background: var(--color-selection) !important;
-  }
 }

@@ -3,9 +3,9 @@
 The shared markdown editor code and the native embed contract.
 
 Desktop Tauri consumes the editor as Svelte/TypeScript source and mounts
-`MarkdownEditor.svelte` directly. Native iOS and Android load the generated
+`MilkdownEditor.svelte` directly. Native iOS and Android load the generated
 `editor.html` bundle in a WebView and drive it through the versioned
-`futoBridge` contract.
+`futoBridge` contract — the same component, behind the bridge.
 
 Consumed as TypeScript source with no build step.
 Path alias: `@futo-notes/editor` → `packages/editor/src`.

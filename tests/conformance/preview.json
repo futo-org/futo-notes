@@ -105,6 +105,58 @@
         {
           "input": "![](a.png) xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
           "expected": "🖼️ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        {
+          "input": "alpha\n\n<br />\n\nbeta",
+          "expected": "alpha     beta"
+        },
+        {
+          "input": "<br />\n\nSome text",
+          "expected": "Some text"
+        },
+        {
+          "input": "a<br>b",
+          "expected": "a b"
+        },
+        {
+          "input": "a<br/>b",
+          "expected": "a b"
+        },
+        {
+          "input": "a<br >b",
+          "expected": "a b"
+        },
+        {
+          "input": "a<BR />b",
+          "expected": "a b"
+        },
+        {
+          "input": "a<br\t/>b",
+          "expected": "a b"
+        },
+        {
+          "input": "<br />",
+          "expected": ""
+        },
+        {
+          "input": "press <kbd>K</kbd> now",
+          "expected": "press <kbd>K</kbd> now"
+        },
+        {
+          "input": "a < b and c > d",
+          "expected": "a < b and c > d"
+        },
+        {
+          "input": "<brk>",
+          "expected": "<brk>"
+        },
+        {
+          "input": "<br class=\"x\">",
+          "expected": "<br class=\"x\">"
+        },
+        {
+          "input": "<br /><br /><br />xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "expected": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
         }
       ]
     }

@@ -17,6 +17,53 @@ This package owns the sanctioned synchronous TS mirrors of Rust note rules, the 
   regenerate. The repo-root `editor.html` is the hand-written source — the native copies
   (`apps/*/…/editor.html`) are generated from it by `vite build --config vite.editor.config.ts`.
 
+## Milkdown compat plugins — the M6 carve-out
+
+`src/milkdown-compat/` fixes round-trip defects in `@milkdown/kit` 7.22.1:
+an inline `<br>` deleted with no replacement and `[](url)` losing its href — and retires the preset's `<br />`
+stand-in for an empty paragraph in favour of extra blank lines (`emptyLine.ts`,
+both the parse-side transformer and the serializer `join`; never register a
+plugin under the name `remark-preserve-empty-line`, that is what turns the tag
+back on). On the serializer side it narrows two of remark-stringify's escapes
+(`atxEscape.ts`, `underscoreEscape.ts`, installed through
+`withNarrowedEscapes` in `stringifyHandlers.ts` — by the editor AND by the
+census harness, so both write the same bytes), and scopes the presets' three
+whole-document passes to the touched blocks (`listOrder.ts`, `tablePasses.ts`,
+`touchedRange.ts`; `gfmWithCompat()` pairs with `commonmarkWithCompat()`).
+**CommonMark decides ambiguous list syntax; there is no pre-parse bullet-number rewriting.**
+**These carry no Rust mirror.** They
+are adapters to one editor library's implementation — which mdast node a plugin
+deletes, how a link mark finds text to attach to — not note rules, so M6 does
+not apply. Nothing in Swift, Kotlin, or Rust may hold a second copy either.
+
+`src/milkdown-compat/frontmatter.ts` is in the same directory for the same
+reason but is an ADDITION, not a fork: the preset has no front matter construct,
+so `---\ntags: [a, b]\n---` parsed as a thematic break plus a setext heading and
+any edit wrote back `***` and `tags: \[a, b]`. It has no canary — upstream is
+not wrong, it just does not ship the extension — and it must stay LAST in
+`commonmarkWithCompat()`, because it overrides the preset's own `doc` node by
+re-registering that id and reads the registered entry back to inherit everything
+but the content expression.
+
+Rules that do bind here:
+
+- The parse-side set ships as one `commonmarkWithCompat()` array. Half of it is worse
+  than none: filtering the upstream plugin without the replacement drops every
+  blank line the author typed, and adding the replacement without filtering runs
+  both and brings the `<br />` placeholder back. It is a memoized FUNCTION, not a const, because
+  this package's barrel re-exports the module: building the preset at module
+  scope would run its upstream-shape check on every import of
+  `@futo-notes/editor` and pull `@milkdown/kit` into every bundle that touches
+  the barrel, the codegen scripts' included.
+- **The forks are meant to die.** `tests/editor-embed-milkdown-compat.spec.ts`
+  reproduces each upstream bug against the *unpatched* preset. A red canary means
+  upstream shipped a fix — delete our fork, do not relax the canary. The
+  `@milkdown/kit` version is pinned (not a range) so this stays meaningful.
+- Any change to these plugins is measured, not argued:
+  `just milkdown-census --variant baseline` then
+  `just milkdown-census --diff build/milkdown-census/baseline`. Zero newly-raised
+  flags over ~31k real notes. `tests/milkdown-census/README.md` owns the harness.
+
 ## Rule-change chain
 
 The `tests/conformance/*.json` cases are hand-reviewed behavioral goldens, not output dumped from

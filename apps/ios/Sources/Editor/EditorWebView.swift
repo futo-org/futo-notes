@@ -20,6 +20,76 @@ func editorGenerationAfterDetach(
     detachedToken == currentGeneration ? currentGeneration + 1 : currentGeneration
 }
 
+/// What an exit's attempt to read the open editor came back with.
+///
+/// The three cases exist because `nil` used to mean two opposite things, and the
+/// difference is whether the user can leave the screen. An editor that answered
+/// with its document, an editor that CANNOT hold anything this shell has not
+/// seen, and an editor that belongs to another note are three different
+/// situations; collapsing the middle one into "could not read" is what trapped a
+/// user on a note whose editor never mounted.
+enum EditorCaptureOutcome: Equatable {
+    /// The editor answered with its live document.
+    case captured(String)
+    /// There is no live document to read. The bundle never reported
+    /// `initialized` (a cold WebView, or one whose WebContent process died), or
+    /// it stopped answering altogether — a JS thread blocked on a parse that
+    /// will not finish inside any deadline. Either way it cannot be holding a
+    /// user edit, because it never presented an editable document.
+    case noLiveDocument
+    /// A different note owns the shared WebView now, so this capture would read
+    /// the WRONG document.
+    case notOurs
+    /// The capture ran out of its deadline while the renderer was still
+    /// ANSWERING other work — a live JS thread too busy to finish this one read.
+    /// "I do not know", never "there is nothing there".
+    ///
+    /// The distinction from ``noLiveDocument`` is the whole point, and it cannot
+    /// be read off the capture alone: a renderer wedged inside one long
+    /// synchronous parse and a renderer streaming a note's tail in idle slices
+    /// both blow the same deadline. Only a second, trivial round trip issued
+    /// BEFORE the capture separates them — it comes back between idle slices and
+    /// never comes back from a wedge. See
+    /// ``captureWithinDeadline(deadlineSeconds:startLivenessProbe:rendererAnswered:start:)``.
+    case timedOut
+}
+
+/// The body an exit should commit, given what the capture came back with.
+///
+/// `nil` means REFUSE the exit, which is what the two answers that leave an edit
+/// unaccounted for get. ``EditorCaptureOutcome/notOurs``: reading the editor
+/// would answer for the wrong note, so leaving might discard an edit this shell
+/// cannot see. ``EditorCaptureOutcome/timedOut``: the editor is alive and busy,
+/// so it may be holding exactly the edit the shell has not been told about — a
+/// note edited while its tail still streams reports no `change` at all. Refusing
+/// costs the user a second Back tap; the retry is cheap, because the first
+/// attempt already paid for the remaining parse (the renderer finishes it
+/// whether or not this side is still listening).
+///
+/// {@link EditorCaptureOutcome.noLiveDocument} is not that case. An editor that
+/// never presented a document holds nothing, so `shellCopy` — the body this
+/// shell read from disk and has been keeping in step with the editor's own
+/// `change` messages — IS the freshest body in existence, and the exit proceeds
+/// with it. When the editor never loaded at all, that body still equals what is
+/// on disk and the commit is a no-op: leaving ABANDONS the load rather than
+/// saving a prefix, which is the only honest thing to do with a document the
+/// shell cannot read.
+///
+/// 2026-09-01: without this, opening a 50,000-line single-paragraph note left
+/// the user unable to leave the screen at all — every Back tap answered
+/// "Couldn't read the latest note. Navigation is paused while your changes
+/// remain pending.", forever, with force-quit and Delete Note the only exits.
+/// Android has had the same rule since `EditorSession.exitWithoutEditor`
+/// (docs/spec/editor.md, "Editor exits").
+func editorExitBody(_ outcome: EditorCaptureOutcome, shellCopy: String) -> String? {
+    switch outcome {
+    case .captured(let body): body
+    case .noLiveDocument: shellCopy
+    case .notOurs: nil
+    case .timedOut: nil
+    }
+}
+
 struct FindMatchesReport: Equatable {
     let query: String
     let label: String
@@ -61,6 +131,92 @@ func editorNavigationDecision(
         return .openExternally(url)
     default:
         return .deny
+    }
+}
+
+/// Resumes one capture continuation exactly once, whichever of the page's reply
+/// and the deadline gets there first.
+///
+/// A `withTaskGroup` race cannot do this job: cancelling the group does not
+/// cancel an `evaluateJavaScript` that never calls back, and `withTaskGroup`
+/// waits for every child to finish before returning — so racing a timeout that
+/// way hangs on exactly the case it exists for.
+@MainActor
+private final class EditorCaptureResumer {
+    private var continuation: CheckedContinuation<EditorCaptureOutcome, Never>?
+
+    init(_ continuation: CheckedContinuation<EditorCaptureOutcome, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(_ outcome: EditorCaptureOutcome) {
+        guard let pending = continuation else { return }
+        continuation = nil
+        pending.resume(returning: outcome)
+    }
+}
+
+/// One `Bool` the renderer liveness probe sets and the deadline reads.
+///
+/// Unsynchronized on purpose, exactly like ``EditorCaptureResumer`` above: both
+/// the `evaluateJavaScript` completion handler that writes it and the
+/// `DispatchQueue.main` deadline that reads it run on the main thread.
+/// See ``EditorHost/startRendererLivenessProbe()``.
+private final class EditorRendererLivenessBox {
+    var answered = false
+}
+
+/// Race the page's reply against the exit's deadline, and decide what running
+/// out of time MEANS by racing a trivial renderer round trip alongside it.
+///
+/// `start` is handed the one-shot answer callback; whichever of it and the
+/// deadline arrives first wins, and the loser is discarded.
+///
+/// The deadline is what keeps an exit FINITE: `evaluateJavaScript` runs in the
+/// WebContent process, so a JS thread wedged inside one long synchronous parse
+/// never calls back at all, and `.navigate` holds the interaction lock while it
+/// waits — with no deadline, Back is simply dead (2026-09-01, a 50,000-line
+/// single paragraph). Answering that case `.noLiveDocument` is what lets the
+/// user leave, and it is safe: the user never had an editable document for that
+/// note, so the shell's own copy is still the freshest body there is.
+///
+/// But a blown deadline stopped being proof of a wedge once the editor began
+/// streaming large notes. Milkdown mounts the FIRST chunk synchronously and
+/// appends the rest in idle slices; `initialized` — and with it this shell's
+/// `isReady` — arrives after that first chunk, so the user can type into the
+/// first viewport while the tail lands. The editor withholds its `change`
+/// notification for that whole window (a streaming document is a PREFIX of the
+/// note), so the shell's copy does NOT contain that edit, and a capture there
+/// makes the editor finish the remaining parse synchronously — which on a big
+/// enough note costs more than the deadline. Reading THAT as "no live document"
+/// left on the stale copy and dropped the edit.
+///
+/// `startLivenessProbe` tells the two apart, and the ORDER is the mechanism:
+/// dispatched before `start`, it sits ahead of the capture in the WebContent
+/// process's task queue. A streaming editor yields between idle slices, so the
+/// probe comes back in milliseconds even though the capture behind it will not;
+/// a wedged renderer never runs either. `rendererAnswered` is therefore read
+/// only when the deadline expires, and only to choose between "busy" and "dead".
+///
+/// Extracted from ``EditorHost/captureCurrentContent()`` so the one decision
+/// that matters here is assertable without a WKWebView. See
+/// ``editorExitBody(_:shellCopy:)``.
+@MainActor
+func captureWithinDeadline(
+    deadlineSeconds: TimeInterval,
+    startLivenessProbe: () -> Void,
+    rendererAnswered: @escaping () -> Bool,
+    start: (@escaping (EditorCaptureOutcome) -> Void) -> Void
+) async -> EditorCaptureOutcome {
+    await withCheckedContinuation { continuation in
+        let answer = EditorCaptureResumer(continuation)
+        startLivenessProbe()
+        start { answer.resume($0) }
+        // Both the page's reply and this run on the main thread, so the
+        // resumer needs no lock — only the once-only latch.
+        DispatchQueue.main.asyncAfter(deadline: .now() + deadlineSeconds) {
+            answer.resume(rendererAnswered() ? .timedOut : .noLiveDocument)
+        }
     }
 }
 
@@ -123,9 +279,21 @@ final class EditorCompletionQueue {
 ///   { type: 'openNote', id: <resolved note id> }
 ///   { type: 'openUrl', url: <external url> }                    (v6)
 ///   { type: 'pickImage', source: 'camera' | 'library' }
-///   { type: 'cursorContext', onListLine: <bool> }
+///   { type: 'cursorContext', onListLine: <bool>, inContainer?: <bool> }
 ///   { type: 'saveImageData', data: <base64>, ext: <string> }   (v4)
 ///   { type: 'pasteClipboardImage' }                            (v5)
+///   { type: 'formatState', active: [<toolbar id>], disabled: [<toolbar id>] }
+///     (Milkdown editor, unversioned — see bridge.ts's BRIDGE_VERSION doc
+///     comment; drives toolbar highlighting AND the Undo/Redo grey-out below)
+///   { type: 'haptic', kind: 'lift' | 'move' | 'drop' } (Milkdown editor, unversioned —
+///     the long-press block-drag path both native shells mount; drives the
+///     impact and selection feedback generators below)
+///   { type: 'blockDrag', active: <bool> }              (Milkdown editor, unversioned —
+///     same path; suspends WKWebView's text interaction so the OS magnifier
+///     stays out of the drag. Android needs no equivalent — see bridge.ts)
+///   { type: 'blockPress', pressed: <bool> }            (Milkdown editor, unversioned —
+///     the same path's TOUCH-DOWN half; stands the delayed text interaction
+///     down before it can win the race the lift used to have to)
 ///
 /// The markdown toolbar is NATIVE on iOS: EditorHost installs
 /// FutoKeyboardAccessory as the keyboard's inputAccessoryView (so it docks
@@ -351,6 +519,20 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// Reactive inputs for the NATIVE markdown toolbar (bridge v3
     /// cursorContext drives Indent/Outdent visibility).
     let toolbarState = EditorToolbarState()
+
+    /// iOS long-press mobile block-drag haptics (bridge 'haptic'). Separate
+    /// generators (not one reused instance) so `.medium` (lift) and `.light`
+    /// (drop) each stay primed for their own style; `prepare()` ahead of
+    /// `impactOccurred()` minimizes the click's latency, re-primed immediately
+    /// after firing for the next lift/drop.
+    private let liftHapticFeedback = UIImpactFeedbackGenerator(style: .medium)
+    private let dropHapticFeedback = UIImpactFeedbackGenerator(style: .light)
+    /// The tick as the drop indicator passes each boundary. A SELECTION
+    /// generator rather than a third impact: this is UIKit's "the value under
+    /// your finger changed" feedback — the same one a picker wheel uses — and it
+    /// is deliberately lighter than the lift and the drop so a drag reads as
+    /// one pickup, a run of ticks, and one landing.
+    private let moveHapticFeedback = UISelectionFeedbackGenerator()
     /// The native toolbar, installed as the keyboard's inputAccessoryView via
     /// futo_overrideInputAccessoryView. Lazy: the closure captures self.
     private lazy var toolbarAccessory = EditorToolbarAccessory(
@@ -408,6 +590,148 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         wv.navigationDelegate = self
 
         loadEditor()
+
+        // Prime both haptic generators ahead of the first lift/drop — see
+        // the property doc comment.
+        liftHapticFeedback.prepare()
+        dropHapticFeedback.prepare()
+        moveHapticFeedback.prepare()
+    }
+
+    /// How much of WKWebView's text interaction is currently stood down.
+    ///
+    /// TWO levels, because the two things the editor reports are not equally
+    /// safe to act on. A PRESS is only a maybe — it can still turn out to be a
+    /// tap that places a caret or a scroll — so only the gestures that need a
+    /// HOLD to recognise stand down, and the page stays fully selectable. A
+    /// DRAG is committed, so the whole stack goes, preference included.
+    private enum TextInteractionLevel {
+        /// Nothing suspended.
+        case none
+        /// A finger is down on a block: the DELAYED gestures only (the loupe
+        /// long press, tap-and-a-half select, UIKit's own drag lift). The tap
+        /// and pan recognisers — caret placement, double-tap word select,
+        /// selection-handle adjustment — are deliberately left alone.
+        case press
+        /// A block is airborne: every non-WebKit recogniser on the content
+        /// view, plus `isTextInteractionEnabled`.
+        case full
+    }
+
+    /// Recognisers this suspended, so exactly the ones that were turned off get
+    /// turned back on.
+    private var suspendedTextGestures: [UIGestureRecognizer] = []
+    private var appliedTextInteractionLevel: TextInteractionLevel = .none
+    /// The two halves of the editor's report, tracked separately: the drag ends
+    /// one message before the press does, and the level is recomputed from both
+    /// rather than toggled, so neither message can strand the other's work.
+    private var blockPressActive = false
+    private var blockDragActive = false
+
+    private func setBlockPressActive(_ active: Bool) {
+        blockPressActive = active
+        if !active { blockDragActive = false }  // no drag outlives its press
+        applyTextInteractionLevel()
+    }
+
+    private func setBlockDragActive(_ active: Bool) {
+        blockDragActive = active
+        applyTextInteractionLevel()
+    }
+
+    /// Applies the level the current press/drag state implies.
+    ///
+    /// Restores everything first and re-suspends from scratch, rather than
+    /// diffing: a level change is a handful of `isEnabled` writes on a gesture
+    /// that has already been cancelled, and "restore, then apply" is the only
+    /// shape in which no recogniser can be left disabled by a level that no
+    /// longer names it. Re-enabling mid-touch cannot resurrect a gesture — UIKit
+    /// does not hand an in-flight touch sequence to a recogniser that was
+    /// disabled during it.
+    private func applyTextInteractionLevel() {
+        let level: TextInteractionLevel =
+            blockDragActive ? .full : (blockPressActive ? .press : .none)
+        guard level != appliedTextInteractionLevel else { return }
+        appliedTextInteractionLevel = level
+
+        for gesture in suspendedTextGestures { gesture.isEnabled = true }
+        suspendedTextGestures = []
+        // `isTextInteractionEnabled` belongs to `.full` ALONE. It is a
+        // page-level "this content is not selectable" preference, not a gesture
+        // switch, and a tap that lands while it is off does not place a caret —
+        // which is the whole affordance `.press` exists to preserve.
+        webView.configuration.preferences.isTextInteractionEnabled = (level != .full)
+        switch level {
+        case .none:
+            break
+        case .press:
+            suspendedTextGestures = delayedTextInteractionGestures().filter(\.isEnabled)
+        case .full:
+            suspendedTextGestures = textInteractionGestures().filter(\.isEnabled)
+        }
+        for gesture in suspendedTextGestures { gesture.isEnabled = false }
+
+        let names = suspendedTextGestures.map { String(describing: type(of: $0)) }.joined(
+            separator: ", ")
+        let label: String
+        switch level {
+        case .none: label = "restored"
+        case .press: label = "suspended for press"
+        case .full: label = "suspended"
+        }
+        EditorHost.logger.info(
+            "text interaction \(label, privacy: .public) (\(self.suspendedTextGestures.count, privacy: .public) gestures: \(names, privacy: .public))"
+        )
+    }
+
+    /// The subset of ``textInteractionGestures()`` that recognises on a HOLD —
+    /// the only ones that can take a long press away from the editor's own.
+    ///
+    /// Two rules, unioned, because neither alone is enough. Measured on the pool
+    /// simulator (iOS 26.5), this returns exactly four of the 32 non-WebKit
+    /// recognisers: `UITapAndAHalfRecognizer` and `UIVariableDelayLoupeGesture`
+    /// — the two delayed TEXT gestures, matched BY NAME because neither is a
+    /// `UILongPressGestureRecognizer` subclass — plus `_UIDragLiftGestureRecognizer`
+    /// and `_UIDragLiftPointerGestureRecognizer`, which the long-press rule
+    /// catches and which would otherwise start UIKit's own drag out of the block
+    /// the editor is about to lift. Everything else stays enabled, which is why
+    /// tap-to-place-caret, double-tap-to-select-a-word and its Cut/Copy/Paste
+    /// callout are unaffected (all verified on the device).
+    ///
+    /// The name rule is therefore load-bearing and the type rule is the hedge:
+    /// a future iOS that renames the loupe class but keeps it a long press is
+    /// still covered. Like its superset, this reports what it found, so a future
+    /// iOS that defeats both leaves a "0 gestures" line in the log rather than a
+    /// silent regression.
+    private func delayedTextInteractionGestures() -> [UIGestureRecognizer] {
+        let named: Set<String> = ["UIVariableDelayLoupeGesture", "UITapAndAHalfRecognizer"]
+        return textInteractionGestures().filter { gesture in
+            gesture is UILongPressGestureRecognizer
+                || named.contains(String(describing: type(of: gesture)))
+        }
+    }
+
+    /// UIKit's text-interaction recognisers on the WebView's content view.
+    ///
+    /// WebKit installs recognisers of its own on that view — including the one
+    /// that FORWARDS touch events to the page — so every WK-prefixed class is
+    /// left alone: disabling those would kill the very drag this protects. What
+    /// remains is UIKit's text interaction stack (the long press that magnifies,
+    /// the pans that drag a caret or a selection), which is exactly what has to
+    /// stand down while a block is airborne.
+    ///
+    /// Reached by class name rather than by a private API, and it reports what
+    /// it found: a future iOS that rearranges this leaves a "0 gestures" line in
+    /// the log instead of a silent regression.
+    private func textInteractionGestures() -> [UIGestureRecognizer] {
+        let subviews = webView.scrollView.subviews
+        let content =
+            subviews.first { String(describing: type(of: $0)).contains("WKContentView") }
+            ?? subviews.first
+        guard let content else { return [] }
+        return (content.gestureRecognizers ?? []).filter { gesture in
+            !String(describing: type(of: gesture)).hasPrefix("WK")
+        }
     }
 
     /// Load the bundled editor into the WebView. Used at init and again to
@@ -419,6 +743,12 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// opaque/null origin that `baseURL: nil` produces, leaving the editor
     /// blank. A file:// origin is non-opaque, so the inline module runs.
     private func loadEditor() {
+        // A page that goes away mid-gesture can never post its `blockPress
+        // false`, and the WebView outlives the page (this is also the
+        // WebContent-crash recovery path). Text interaction the editor borrowed
+        // comes back here rather than staying suspended for the rest of the
+        // session.
+        setBlockPressActive(false)
         if let url = editorFileURL {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         } else {
@@ -629,9 +959,49 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             "window.FutoEditor && window.FutoEditor.closeFind();", completionHandler: nil)
     }
 
-    /// Blur and read the exact CodeMirror document owned by the current
-    /// attachment. A later editor adoption invalidates the completion.
-    func captureCurrentContent() async -> String? {
+    /// How long an exit waits for the page to answer before giving up on it.
+    ///
+    /// This is what keeps an exit FINITE. A WKWebView whose JS thread is blocked
+    /// never calls the completion handler at all, and `.navigate` holds the
+    /// interaction lock while it waits — so with no deadline the Back button is
+    /// simply dead, which is a worse trap than the toast. Six seconds is far
+    /// longer than any real capture (milliseconds; low seconds for a
+    /// multi-megabyte note, whose serialization is the cost) and far shorter
+    /// than a wedge, which does not end.
+    private static let captureDeadlineSeconds: TimeInterval = 6
+
+    /// Ask the page for nothing at all, and hand back a reader for whether it
+    /// got round to answering.
+    ///
+    /// Dispatched immediately before the capture so it sits AHEAD of it in the
+    /// WebContent process's task queue: an editor streaming a note's tail in
+    /// idle slices runs this between two of them and answers in milliseconds,
+    /// while a JS thread wedged inside one long synchronous parse runs neither.
+    /// That is the whole difference between `.timedOut` and `.noLiveDocument` —
+    /// see ``captureWithinDeadline(deadlineSeconds:startLivenessProbe:rendererAnswered:start:)``.
+    ///
+    /// Deliberately does NOT touch `window.FutoEditor`: this asks whether the JS
+    /// thread is turning over, not whether the bundle booted. A page that is
+    /// alive without an editor answers the capture itself, promptly, with
+    /// `.noLiveDocument`.
+    private func startRendererLivenessProbe() -> () -> Bool {
+        // A plain box, not an atomic: the completion handler and every read of
+        // it are main-actor-isolated, exactly like the capture's own resumer.
+        let answered = EditorRendererLivenessBox()
+        webView.evaluateJavaScript("1") { _, _ in answered.answered = true }
+        return { answered.answered }
+    }
+
+    /// Blur and read the exact document owned by the current attachment.
+    ///
+    /// A later editor adoption makes the answer `.notOurs`; a page that has not
+    /// reported `initialized`, or whose JS thread is wedged, makes it
+    /// `.noLiveDocument`; a live renderer too busy to answer within
+    /// ``captureDeadlineSeconds`` makes it `.timedOut`. See
+    /// ``editorExitBody(_:shellCopy:)`` for why those are not the same answer,
+    /// and ``captureWithinDeadline(deadlineSeconds:startLivenessProbe:rendererAnswered:start:)``
+    /// for how the last two are told apart.
+    func captureCurrentContent() async -> EditorCaptureOutcome {
         let capturedGeneration = generation
         await completionQueue.waitForCurrent()
         guard
@@ -639,31 +1009,46 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 capturedGeneration: capturedGeneration,
                 currentGeneration: generation
             )
-        else { return nil }
-        guard isReady else { return nil }
-        return await withCheckedContinuation { continuation in
-            webView.evaluateJavaScript(
-                """
-                (() => {
-                  if (!window.FutoEditor) return null;
-                  window.FutoEditor.blur();
-                  return window.FutoEditor.getContent();
-                })()
-                """
-            ) { [weak self] result, error in
-                guard let self,
-                    error == nil,
-                    shouldDeliverEditorCompletion(
-                        capturedGeneration: capturedGeneration,
-                        currentGeneration: self.generation
-                    )
-                else {
-                    continuation.resume(returning: nil)
-                    return
+        else { return .notOurs }
+        // No `initialized` yet: the bundle is still applying this shell's config
+        // — for a note big enough, for a long time — so there is no document on
+        // screen and nothing of the user's to lose.
+        guard isReady else { return .noLiveDocument }
+        var rendererAnswered: () -> Bool = { false }
+        return await captureWithinDeadline(
+            deadlineSeconds: EditorHost.captureDeadlineSeconds,
+            startLivenessProbe: { rendererAnswered = self.startRendererLivenessProbe() },
+            rendererAnswered: { rendererAnswered() },
+            start: { answer in
+                webView.evaluateJavaScript(
+                    """
+                    (() => {
+                      if (!window.FutoEditor) return null;
+                      window.FutoEditor.blur();
+                      return window.FutoEditor.getContent();
+                    })()
+                    """
+                ) { [weak self] result, error in
+                    guard let self,
+                        error == nil,
+                        shouldDeliverEditorCompletion(
+                            capturedGeneration: capturedGeneration,
+                            currentGeneration: self.generation
+                        )
+                    else {
+                        answer(.notOurs)
+                        return
+                    }
+                    guard let text = result as? String else {
+                        // The page is alive but has no `window.FutoEditor` — the
+                        // legacy-WebView notice, or a page that failed to boot.
+                        answer(.noLiveDocument)
+                        return
+                    }
+                    answer(.captured(text))
                 }
-                continuation.resume(returning: result as? String)
             }
-        }
+        )
     }
 
     // MARK: WKScriptMessageHandler
@@ -728,8 +1113,64 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             }
         case .cursorContext:
             // Deduped by the embed — drives Indent/Outdent visibility in the
-            // native toolbar.
+            // native toolbar. `inContainer` is additive: `as? Bool` yields
+            // nil both when the key is absent (an older bundle) and when
+            // JSON parsing hands back NSNull for it, either of which the
+            // toolbar reads as "fall back to onListLine".
             toolbarState.onListLine = (body["onListLine"] as? Bool) ?? false
+            toolbarState.inContainer = body["inContainer"] as? Bool
+        case .formatState:
+            // Milkdown editor — Notion-style active-state highlight on the
+            // matching toolbar button(s). Deduped by the embed. The CodeMirror
+            // editor never sends it, so this stays inert until the Milkdown
+            // transition lands. Android does the same in EditorWebView.kt.
+            toolbarState.activeFormats = Set(body["active"] as? [String] ?? [])
+            // QA-003: Undo/Redo greyed out with an empty prosemirror-history
+            // stack. Same message, same dedupe, additive field (bridge.ts).
+            toolbarState.disabledFormats = Set(body["disabled"] as? [String] ?? [])
+        case .haptic:
+            // Milkdown editor — the long-press block-drag path posts this on
+            // lift and on a COMMITTED drop (never on a
+            // drop-at-source no-op or a cancel). The simulator has no
+            // haptics hardware; this log is the proof of receipt there.
+            let kind = (body["kind"] as? String) ?? ""
+            switch kind {
+            case "lift":
+                liftHapticFeedback.impactOccurred()
+                liftHapticFeedback.prepare()
+            case "move":
+                moveHapticFeedback.selectionChanged()
+                moveHapticFeedback.prepare()
+            case "drop":
+                dropHapticFeedback.impactOccurred()
+                dropHapticFeedback.prepare()
+            default:
+                break
+            }
+            EditorHost.logger.info("haptic received: \(kind, privacy: .public)")
+        case .blockDrag:
+            // Milkdown editor — a block is airborne (or has landed) on the
+            // long-press block-drag path. Suspend the WebView's own text
+            // interaction for that window: WKWebView's long-press gesture
+            // otherwise magnifies the block under the finger (the system loupe)
+            // and drags a caret along behind it, on top of the drag the user is
+            // actually performing. This is a shell duty because the page has no
+            // lever on it — bridge.ts's BlockDragMessage records what was
+            // measured and rejected. The press-level suspension below has been
+            // holding the delayed gestures down since touch-down; this ESCALATES
+            // to the whole stack now that the gesture is committed.
+            setBlockDragActive((body["active"] as? Bool) == true)
+        case .blockPress:
+            // Milkdown editor — a finger is DOWN on a block (or has come off
+            // one) on the long-press block-drag path. Posted at
+            // touch-down, which is the point of it: `blockDrag` cannot arrive
+            // until the editor's 340ms timer has fired, and WKWebView's own text
+            // interaction fires at ~655ms whether or not it does, so a press
+            // that produced no lift used to hand the user the OS magnifier and a
+            // word selection with nothing suspended at all. Only the gestures
+            // that need a hold stand down here, so a tap still places a caret
+            // and a double-tap still selects a word.
+            setBlockPressActive((body["pressed"] as? Bool) == true)
         case .findMatches:
             if let report = FindMatchesReport(body: body) {
                 onFindMatches?(report)

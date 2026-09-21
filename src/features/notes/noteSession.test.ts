@@ -164,10 +164,9 @@ function makeTitleDeps() {
     setEditorContent: vi.fn((text: string) => {
       titleEditorContent = text;
     }),
-    openEditorNote: vi.fn((_noteId: string | null, text: string) => {
+    openEditorNote: vi.fn((text: string) => {
       titleEditorContent = text;
     }),
-    forgetEditorNote: vi.fn(),
     focusEditor: vi.fn(),
     isEditorFocused: () => false,
     isComposing: () => false,
@@ -392,10 +391,9 @@ describe('external unlink during an in-flight save', () => {
       setEditorContent: vi.fn((text: string) => {
         editorContent = text;
       }),
-      openEditorNote: vi.fn((_noteId: string | null, text: string) => {
+      openEditorNote: vi.fn((text: string) => {
         editorContent = text;
       }),
-      forgetEditorNote: vi.fn(),
       focusEditor: vi.fn(),
       isEditorFocused: () => false,
       isComposing: () => false,
@@ -487,10 +485,9 @@ describe('stale first-save completion after navigation', () => {
       setEditorContent: vi.fn((text: string) => {
         editorContent = text;
       }),
-      openEditorNote: vi.fn((_noteId: string | null, text: string) => {
+      openEditorNote: vi.fn((text: string) => {
         editorContent = text;
       }),
-      forgetEditorNote: vi.fn(),
       focusEditor: vi.fn(),
       isEditorFocused: () => false,
       isComposing: () => false,
@@ -643,7 +640,6 @@ describe('loadNote focus routing', () => {
       getEditorContent: () => '',
       setEditorContent: vi.fn(),
       openEditorNote: vi.fn(),
-      forgetEditorNote: vi.fn(),
       focusEditor: vi.fn(),
       isEditorFocused: () => false,
       isComposing: () => false,
@@ -688,7 +684,7 @@ describe('loadNote focus routing', () => {
     const session = createNoteSession(deps);
     await session.loadNote('missing note');
     expect(createNote).not.toHaveBeenCalled();
-    expect(deps.openEditorNote).toHaveBeenCalledWith('missing note', '');
+    expect(deps.openEditorNote).toHaveBeenCalledWith('');
     expect(session.originalId).toBe('missing note');
     expect(deps.focusEditor).not.toHaveBeenCalled();
   });
@@ -738,11 +734,11 @@ describe('loadNote focus routing', () => {
     expect(session.content).toBe('');
     expect(session.originalId).toBeNull();
     expect(session.loading).toBe(false);
-    expect(deps.openEditorNote).not.toHaveBeenCalledWith(expect.anything(), 'late content');
+    expect(deps.openEditorNote).not.toHaveBeenCalledWith('late content');
     expect(deps.navigate).toHaveBeenLastCalledWith('/');
   });
 
-  it('discards the undo history of a note that went away, and releases the editor', async () => {
+  it('releases the editor when the open note goes away', async () => {
     const deps = makeDeps('doomed');
     const session = createNoteSession(deps);
     await session.loadNote('doomed');
@@ -750,8 +746,7 @@ describe('loadNote focus routing', () => {
 
     session.cancelAndClear();
 
-    expect(deps.forgetEditorNote).toHaveBeenCalledWith('doomed');
-    expect(deps.openEditorNote).toHaveBeenCalledWith(null, '');
+    expect(deps.openEditorNote).toHaveBeenCalledWith('');
   });
 });
 
@@ -764,10 +759,9 @@ describe('opening a note is read-only (no autosave on line-ending normalization)
       setEditorContent: vi.fn((text: string) => {
         editorDoc = text.replace(/\r\n?/g, '\n');
       }),
-      openEditorNote: vi.fn((_noteId: string | null, text: string) => {
+      openEditorNote: vi.fn((text: string) => {
         editorDoc = text.replace(/\r\n?/g, '\n');
       }),
-      forgetEditorNote: vi.fn(),
       focusEditor: vi.fn(),
       isEditorFocused: () => false,
       isComposing: () => false,
@@ -818,6 +812,159 @@ describe('opening a note is read-only (no autosave on line-ending normalization)
     session.debouncedSave(editorDoc);
     vi.advanceTimersByTime(600);
     await vi.runAllTicks();
+
+    expect(updateNote).not.toHaveBeenCalled();
+  });
+});
+
+/*
+
+/*
+ * 2026-09-03 DATA LOSS. Three notes in a live vault were overwritten with 0
+ * bytes: two while a hot-module reload replaced the editor component under an
+ * open note, one after a note whose markdown made the parser throw was left
+ * displayed blank. Both leave the SAME state — the editor holds an empty
+ * document for a note it never loaded — and the session read that '' as "the
+ * user deleted everything" and wrote it over the file (the Rust store's
+ * flush_draft truncates a note whose base still matches disk, by design).
+ *
+ * The root-cause fix is in MilkdownEditor (it must never report a document it
+ * failed to load, or never loaded); this is the save pipeline's own half, so
+ * no future editor that goes blank can empty a note through it.
+ */
+describe('an editor that lost the note never empties it on disk', () => {
+  let editorDoc: string | undefined = '';
+  let activeNoteId: string | null = null;
+
+  /**
+   * `editorTakesContent: false` is the editor whose parse threw: the host hands
+   * it the note and the document stays empty.
+   */
+  function makeDeps(editorTakesContent = true) {
+    return {
+      getEditorContent: () => editorDoc,
+      setEditorContent: vi.fn((text: string) => {
+        if (editorTakesContent) editorDoc = text;
+      }),
+      openEditorNote: vi.fn((text: string) => {
+        if (editorTakesContent) editorDoc = text;
+      }),
+      focusEditor: vi.fn(),
+      isEditorFocused: () => false,
+      isComposing: () => false,
+      getNotes: () => [],
+      getNoteBody: () => undefined,
+      getTitleTextarea: () => undefined,
+      getNoteId: () => activeNoteId,
+      setPrevNoteId: vi.fn(),
+      onNoteRenamed: vi.fn(),
+      reconcileOpenNote: vi.fn(async () => false),
+      navigate: vi.fn(),
+    } satisfies NoteSessionDeps;
+  }
+
+  beforeEach(async () => {
+    editorDoc = '';
+    activeNoteId = null;
+    const { updateNote, readNote } = await import('./notes.svelte');
+    vi.mocked(updateNote).mockReset();
+    vi.mocked(updateNote).mockImplementation(async (id: string) => ({
+      id,
+      mtime: 0,
+      disposition: 'wrote' as const,
+    }));
+    vi.mocked(readNote).mockReset();
+    vi.mocked(readNote).mockResolvedValue('');
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Opens `id`, whose disk copy holds `body`. */
+  async function openNoteWithBody(deps: NoteSessionDeps, id: string, body: string) {
+    const { readNote, updateNote } = await import('./notes.svelte');
+    vi.mocked(readNote).mockResolvedValueOnce(body);
+    activeNoteId = id;
+    const session = createNoteSession(deps);
+    await session.loadNote(id);
+    vi.mocked(updateNote).mockClear();
+    return session;
+  }
+
+  it('does not adopt an empty editor document as the saved baseline of a note with content', async () => {
+    // The parse threw: the host handed the note over and the editor kept nothing.
+    const deps = makeDeps(false);
+    const session = await openNoteWithBody(deps, 'How to Do Great Work', '# Great Work\n\nbody\n');
+
+    expect(session.savedContent).toBe('# Great Work\n\nbody\n');
+    expect(session.content).toBe('# Great Work\n\nbody\n');
+  });
+
+  it('flushing a session whose editor went blank leaves the note untouched', async () => {
+    const deps = makeDeps();
+    const session = await openNoteWithBody(deps, 'How to Do Great Work', 'eight thousand bytes\n');
+    const { updateNote } = await import('./notes.svelte');
+
+    // The component is replaced (hot reload) / the deferred parse throws: the
+    // editor now answers for a document that is not this note.
+    editorDoc = '';
+    await session.flushSave();
+
+    expect(updateNote).not.toHaveBeenCalled();
+    expect(session.dirty).toBe(false);
+  });
+
+  it('switching away from a blank editor does not write an empty body', async () => {
+    const deps = makeDeps();
+    const session = await openNoteWithBody(deps, 'CI flake log', 'several paragraphs\n');
+    const { updateNote } = await import('./notes.svelte');
+
+    editorDoc = '';
+    activeNoteId = 'other note';
+    await session.loadNote('other note');
+
+    expect(updateNote).not.toHaveBeenCalled();
+  });
+
+  it('still renames a note whose editor went blank, carrying the body it knows', async () => {
+    const deps = makeDeps();
+    const session = await openNoteWithBody(deps, 'The feed is dying', 'two hundred bytes\n');
+    const { updateNote } = await import('./notes.svelte');
+
+    editorDoc = '';
+    typeTitle(session, 'The feed is reborn');
+    await session.flushSave();
+
+    expect(updateNote).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(updateNote).mock.calls[0][1]).toBe('two hundred bytes\n');
+  });
+
+  it('still empties a note the user really did clear, reported through onchange', async () => {
+    const deps = makeDeps();
+    const session = await openNoteWithBody(deps, 'Scratch', 'delete me\n');
+    const { updateNote } = await import('./notes.svelte');
+
+    // A real select-all-delete reaches the session as a change notification.
+    editorDoc = '';
+    session.debouncedSave('');
+    await session.flushSave();
+
+    expect(updateNote).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(updateNote).mock.calls[0][1]).toBe('');
+  });
+
+  it('never writes for an editor that reports nothing at all', async () => {
+    const deps = makeDeps();
+    const session = await openNoteWithBody(deps, 'Unmounted', 'still here\n');
+    const { updateNote } = await import('./notes.svelte');
+
+    editorDoc = undefined;
+    await session.flushSave();
 
     expect(updateNote).not.toHaveBeenCalled();
   });

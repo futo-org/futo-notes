@@ -1,5 +1,7 @@
 import { test, expect, Locator, Page } from '@playwright/test';
 
+import { EDITOR } from './lib/desktopEditor';
+
 /**
  * Folder support v1 — sidebar folder UI.
  *
@@ -692,7 +694,7 @@ test.describe('Folder support', () => {
       await win.__testNotes.createNote('Work/placeholder', 'placeholder body');
     });
     await page.locator('.note-row[data-note-id="Mover"]').click();
-    await page.waitForSelector('.cm-content', { timeout: 10_000 });
+    await page.waitForSelector(EDITOR, { timeout: 10_000 });
   }
 
   function vaultIds(page: Page): Promise<string[]> {
@@ -738,7 +740,7 @@ test.describe('Folder support', () => {
       .toEqual(['Bystander', 'Work/Mover', 'Work/placeholder']);
 
     await expect(page.locator('.title-input')).toHaveValue('Bystander');
-    await expect(page.locator('.cm-content')).toContainText('bystander body');
+    await expect(page.locator(EDITOR)).toContainText('bystander body');
   });
 
   test('sidebar move acts on the right-clicked note, not one clicked mid-move', async ({

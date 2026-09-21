@@ -19,11 +19,19 @@ class BridgeCoverageTest {
     companion object {
         /** Message types EditorWebView.kt intentionally does not handle. */
         private val EXEMPT = mapOf(
-            // bridge.ts:199-202 — Android's Chromium WebView normally exposes
-            // the pasted image as a File and uses saveImageData instead; this
-            // fallback exists only for WebViews (iOS WKWebView) that hide the
-            // bitmap from the JS paste event.
-            "pasteClipboardImage" to "Android never receives it by design (bridge.ts:199-202)",
+            // Android DOES receive it — it mounts the same long-press block
+            // drag iOS does (blockDragMode.ts) — but it has nothing to do with
+            // it. blockDrag exists so a shell can suspend its WebView's text
+            // interaction while a block is airborne, and measured on a moto g
+            // play 2023 (Android 13, System WebView 151) Chromium shows no word
+            // selection, no handles, no action mode and no magnifier over the
+            // lifted block: the page's own defences in mobileBlockDnd.ts hold.
+            // The one thing that DID leak — the WebView's own long-press
+            // buzz — is handled from the strictly wider blockPress instead
+            // (EditorWebView.setBlockPressActive), because it fires before any
+            // lift.
+            "blockDrag" to
+                "Android receives it and needs no host: Chromium shows no text interaction over the lifted block (measured, Android 13 / WebView 151), and the one leak is handled from the wider blockPress",
         )
     }
 

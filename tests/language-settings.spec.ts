@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+import { EDITOR, openNewNote, setEditorMarkdown } from './lib/desktopEditor';
+
 test('desktop language selection applies immediately', async ({ page }) => {
   await page.goto('/');
   const settingsButton = page.locator('.sidebar-settings-btn');
@@ -87,38 +89,30 @@ test('desktop language picker keeps visible keyboard focus in forced colors', as
   await expect(selectedLanguageOption).toHaveCSS('outline-width', '2px');
 });
 
-test('desktop language selection preserves live markdown decorations', async ({ page }) => {
+test('desktop language selection preserves the rendered table', async ({ page }) => {
   const table = `| Header 1 | Header 2 |
 |----------|----------|
 | Cell 1   | Cell 2   |
 
 More text`;
-  await page.goto('/#/note/new');
-  await page.waitForSelector('.cm-content');
-  await page.waitForFunction(() => typeof (window as any).__cmGetView === 'function');
-  await page.evaluate((content) => {
-    const editorView = (window as any).__cmGetView?.();
-    if (!editorView) throw new Error('CM EditorView not found');
-    editorView.dispatch({
-      changes: { from: 0, to: editorView.state.doc.length, insert: content },
-      selection: { anchor: content.length },
-    });
-  }, table);
-  await page.locator('.title-input').click();
-  await page.locator('.title-input').blur();
+  await openNewNote(page);
+  await setEditorMarkdown(page, table);
 
-  const renderedTable = page.locator('.sf-table');
+  // Rendered as a real table by the Milkdown editor, not as markdown source.
+  const renderedTable = page.locator(`${EDITOR} table`);
   await expect(renderedTable).toBeVisible();
+  await expect(renderedTable.locator('th').first()).toHaveText('Header 1');
+
   await page.locator('.sidebar-settings-btn').click();
   await page.locator('.settings-language-trigger').click();
   await page.getByRole('option', { name: '简体中文' }).click();
 
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-Hans');
+  // Reconfiguring the language must not re-parse or re-render the document:
+  // the table is still a table and still holds its cells.
   await expect(renderedTable).toBeVisible();
-  await expect(page.locator('[data-table-control-action="dragColumn"]').first()).toHaveAttribute(
-    'aria-label',
-    '拖动列',
-  );
+  await expect(renderedTable.locator('th').first()).toHaveText('Header 1');
+  await expect(renderedTable.locator('td').first()).toHaveText('Cell 1');
 });
 
 test('a note created under Simplified Chinese keeps its English Untitled filename', async ({

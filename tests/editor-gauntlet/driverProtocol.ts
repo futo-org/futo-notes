@@ -1,0 +1,120 @@
+// The state contract an editor exposes so the gauntlet's oracles can read it.
+// The adapter synthesizes it off the rendered ProseMirror DOM
+// (milkdownAdapter.ts).
+//
+// Two design constraints:
+//   1. State must be extractable from the live DOM, because the editor
+//      applies decorations through plugins we don't control end-to-end.
+//   2. Semantic kinds (bold-marker, heading-text-2, etc.) are derived
+//      from raw classes at capture time.
+//
+// This contract was the FUTO-side half of the deleted factory/ Obsidian parity
+// judge (docs/learnings/factory-obsidian-judge.md); the gauntlet is the only
+// remaining consumer, so it lives here.
+
+export interface Position {
+  line: number;
+  ch: number;
+  pos: number; // absolute offset in doc, useful when line/ch is ambiguous
+}
+
+export interface Selection {
+  head: Position;
+  anchor: Position;
+}
+
+export type ElementKind =
+  // Inline emphasis
+  | 'bold-text'
+  | 'bold-marker'
+  | 'italic-text'
+  | 'italic-marker'
+  | 'strikethrough-text'
+  | 'strikethrough-marker'
+  // Headings (level 1..6)
+  | 'heading-text-1'
+  | 'heading-text-2'
+  | 'heading-text-3'
+  | 'heading-text-4'
+  | 'heading-text-5'
+  | 'heading-text-6'
+  | 'heading-marker'
+  // Code
+  | 'code-inline'
+  | 'code-block'
+  | 'code-fence-marker'
+  | 'code-lang'
+  // Links
+  | 'link-text'
+  | 'link-url'
+  | 'link-marker'
+  | 'autolink'
+  // Lists
+  | 'list-marker'
+  | 'list-task-checkbox'
+  | 'list-task-text'
+  // Blockquotes
+  | 'quote-marker'
+  | 'quote-text'
+  // Block-level widgets
+  | 'hr-widget'
+  | 'image-widget'
+  | 'table-widget'
+  // FUTO Notes / Obsidian extras
+  | 'wikilink'
+  | 'tag'
+  // Fallback
+  | 'unknown';
+
+export interface DecoratedRange {
+  from: Position;
+  to: Position;
+  kind: ElementKind;
+  // Whether the range is replaced by a widget or hidden entirely
+  // (Decoration.replace) vs just decorated with classes (Decoration.mark).
+  replaced: boolean;
+  // Raw classes from the DOM, kept for debugging.
+  classes: string[];
+  // Text content of the range (post-replacement = the widget text or empty).
+  text: string;
+}
+
+export interface DriverState {
+  doc: string;
+  cursor: Position;
+  selection: Selection;
+  decorations: DecoratedRange[];
+  // innerText of .cm-content with the current cursor, after any
+  // live-preview hide/reveal rules have run.
+  visibleText: string;
+}
+
+export type DriverEvent =
+  | { type: 'place_cursor'; line: number; ch: number }
+  | { type: 'set_doc'; markdown: string }
+  | {
+      type: 'key';
+      key:
+        | 'ArrowUp'
+        | 'ArrowDown'
+        | 'ArrowLeft'
+        | 'ArrowRight'
+        | 'Home'
+        | 'End'
+        | 'Enter'
+        | 'Backspace'
+        | 'Delete'
+        | 'Escape';
+    }
+  | { type: 'type'; text: string }
+  | { type: 'blur' }
+  | { type: 'focus' };
+
+// What both editors implement.
+export interface Driver {
+  setDoc(markdown: string): Promise<void>;
+  dispatch(events: DriverEvent[]): Promise<void>;
+  state(): Promise<DriverState>;
+  // Implementation hint for the judge: which editor is this?
+  identify(): Promise<{ name: 'futo-notes' | 'obsidian'; version: string }>;
+}

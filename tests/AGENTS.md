@@ -6,7 +6,7 @@ you run it and what a green result actually proves.
 | What | Where | Runner |
 |---|---|---|
 | Browser end-to-end | `*.spec.ts` | Playwright, against the Vite dev server |
-| Editor-embed bridge | `editor-embed-bridge.spec.ts` | Playwright, its own config, `file://` |
+| Editor-embed | `editor-embed-*.spec.ts` | Playwright, its own config, `file://` |
 | Cross-language goldens | `conformance/`, `localization/cases.json` | Rust, Vitest, Swift, Kotlin |
 | Real-app harnesses | `*.mjs` + `lib/` | plain Node against a running app or device |
 
@@ -15,7 +15,7 @@ the harness helpers themselves and run under Vitest.
 
 ## Playwright specs
 
-`playwright.config.ts` points at this directory and ignores `editor-embed-bridge.spec.ts` (own
+`playwright.config.ts` points at this directory and ignores `editor-embed-*.spec.ts` (own
 config, no dev server — `globalSetup` builds the single-file `editor.html` and every test loads it
 over `file://`) and `*.test.mjs` (Vitest files, whose matcher runtime conflicts with Playwright's).
 
@@ -23,17 +23,14 @@ over `file://`) and `*.test.mjs` (Vitest files, whose matcher runtime conflicts 
 just test-e2e          # the P0 regression spec — the smoke run
 just test-e2e-rest     # exactly what CI's test:e2e:rest job runs
 just test-e2e-full     # every dev-server spec — NOT the editor-embed one
-just test-markdown-spec           # the markdown-spec/ oracle cases
 pnpm run test:e2e:editor-embed    # the only way to run the embed spec
 pnpm exec playwright test tests/search.spec.ts      # one spec
 pnpm exec playwright test -g 'partial test title'   # one test
 ```
 
 `test-e2e-full` is plain `playwright test` under the default config, which `testIgnore`s
-`editor-embed-bridge.spec.ts` — so "run everything" leaves the native editor's bridge contract
-untested unless you also run `pnpm run test:e2e:editor-embed`. `markdown-spec.spec.ts` drives the
-case files in `markdown-spec/cases/`, the rendering oracle the root manual lists as a fixture
-system.
+`editor-embed-*.spec.ts` — so "run everything" leaves the native editor's bridge contract and the
+Milkdown round-trip suites untested unless you also run `pnpm run test:e2e:editor-embed`.
 
 `just test-one` is **Vitest**, not Playwright — use it for the co-located unit tests and the
 harness helpers under `lib/`, not for a `.spec.ts` here.

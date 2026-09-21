@@ -64,13 +64,6 @@ describe('pre-merge CI routing contracts', () => {
   it('uses bounded Playwright concurrency without multiplying CI jobs', () => {
     const restJob = topLevelBlock(gitlabPipeline, /^test:e2e:rest:$/m);
 
-    // The markdown-spec corpus runs inside test:e2e:rest (its former
-    // standalone job was merged in to stop paying a third dev-server +
-    // browser-install setup); the rest suite must not filter it back out
-    // and must re-run when the corpus changes.
-    expect(gitlabPipeline).not.toMatch(/^test:e2e:markdown-spec:$/m);
-    expect(packageScripts['test:e2e:rest']).not.toContain('Markdown Spec');
-    expect(restJob).toContain('- markdown-spec/**/*');
     expect(restJob).toContain('pnpm run test:e2e:rest');
     expect(packageScripts['test:e2e:rest']).toContain('--workers=2');
     expect(restJob).not.toContain('parallel: 2');

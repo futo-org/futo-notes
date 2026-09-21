@@ -126,7 +126,7 @@ export const RULES = [
     id: 'applescript-keystroke',
     why: 'a synthetic keystroke is delivered by the window server to whatever is focused — it cannot be addressed to a PID, so it can always land in the wrong app.',
     instead:
-      "webview_keyboard / webview_execute_js against the bridge port of a target verified by `node scripts/qa-target.mjs`, or document.execCommand('insertText') for CodeMirror.",
+      "webview_keyboard / webview_execute_js against the bridge port of a target verified by `node scripts/qa-target.mjs`, or document.execCommand('insertText') for the editor.",
     match: (line) => /\bkeystroke\s+["'“]/.test(line) || /\bkey code\s+\d/.test(line),
   },
   {

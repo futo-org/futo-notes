@@ -24,7 +24,11 @@ describe('sidebar drag & drop: dragDropEnabled is off where wry intercepts', () 
     expect(windowConf('tauri.windows.conf.json')?.dragDropEnabled).toBe(false);
   });
 
-  it('dev config disables it too, so the dev build mirrors macOS/Windows', () => {
+  it('Linux build config disables native drag-drop too', () => {
+    expect(windowConf('tauri.linux.conf.json')?.dragDropEnabled).toBe(false);
+  });
+
+  it('dev config disables it too, so the dev build mirrors macOS/Windows/Linux', () => {
     expect(windowConf('tauri.dev.conf.json')?.dragDropEnabled).toBe(false);
   });
 
@@ -36,11 +40,10 @@ describe('sidebar drag & drop: dragDropEnabled is off where wry intercepts', () 
   });
 });
 
-// Linux is the platform with NO overlay file, so the base config IS its config —
-// and it deliberately leaves `dragDropEnabled` unset (default: true). This is not
-// an oversight to be "fixed" by pushing the flag down into the base config; the
-// flag exists to stop a NATIVE drag-drop layer from eating the sidebar's internal
-// HTML5 dragover/drop, and only two of the three backends install one:
+// Linux USED to be the platform with no overlay file, leaving `dragDropEnabled`
+// at its default (true) deliberately: the flag exists to stop a NATIVE
+// drag-drop layer from eating the sidebar's internal HTML5 dragover/drop, and
+// of the three backends only two install one that does that —
 //
 //   Windows (wry webview2/drag_drop.rs)  RegisterDragDrop(hwnd, ...) — replaces the
 //                                        HWND's OLE drop target. Eats internal drags.
@@ -52,18 +55,45 @@ describe('sidebar drag & drop: dragDropEnabled is off where wry intercepts', () 
 //                                        except a file-URI drop. Internal drags are
 //                                        untouched.
 //
-// Verified on the real Linux app (Fedora 44, WebKitGTK 2.52.5, dragDropEnabled at
-// its default) with genuine X11 pointer input, not synthetic DOM events: dragging a
-// note onto a folder fired dragstart 1 / dragenter 5 / dragover 26 / drop 1 and
-// moved the file on disk, and a tab drag reordered the strip. Setting the flag here
-// would change Linux behaviour with no bug behind it.
-describe('sidebar drag & drop: Linux keeps the native layer ON, deliberately', () => {
-  it('the base config leaves dragDropEnabled unset', () => {
+// — and Linux's own X11 GTK relay for an external file-URI drop had been
+// verified working (Fedora 44, WebKitGTK 2.52.5, dragDropEnabled at its
+// default): dragging a note onto a folder fired dragstart/dragenter/dragover/
+// drop and moved the file on disk, and a real file drag from a file manager
+// landed too. That verification pre-dates QA #017 (2026-09-11): on a
+// NATIVE-WAYLAND compositor (confirmed Hyprland/wlroots; matches upstream
+// tauri-apps/tauri#11282, tauri-apps/wry#1256) wry's GTK-signal relay never
+// fires the `drag-drop` signal at all, so an external file drop silently did
+// nothing in a PACKAGED build — invisible from `just tauri-dev`, which has
+// always forced the flag off. Disabling the flag on Linux too means wry never
+// connects that relay, so WebKitGTK's own default drag-and-drop delivers a
+// real HTML5 `drop` DOM event with `dataTransfer.files` on every compositor,
+// exactly as it already does with the flag off in dev builds — where internal
+// sidebar/tab dragging (pure in-page HTML5 DnD, never touched by wry's signal
+// handlers either way) has kept working the whole time.
+describe('sidebar drag & drop: Linux now disables the native layer too (QA #017)', () => {
+  it('the base config leaves dragDropEnabled unset (platform overlays own the flag)', () => {
     expect(windowConf('tauri.conf.json')).not.toHaveProperty('dragDropEnabled');
   });
 
-  it('has no Linux overlay, so the base config is what a Linux build gets', () => {
-    expect(exists('tauri.linux.conf.json')).toBe(false);
+  it('has a Linux overlay now, so a packaged Linux build gets the flag disabled', () => {
+    expect(exists('tauri.linux.conf.json')).toBe(true);
+  });
+});
+
+// The regression gate QA #017 asked for: no future platform/dev overlay may
+// reintroduce a native drag-drop layer by omission. Every overlay that
+// defines a window MUST restate `dragDropEnabled: false` explicitly — an
+// overlay that defines a window but leaves the key out inherits wry's default
+// (true) per Tauri's array-replaces-array merge (see the describe block
+// below), which is exactly how Linux regressed into #017 in the first place.
+describe('regression gate: no platform config may leave drag-drop to a native layer', () => {
+  it.each([
+    'tauri.macos.conf.json',
+    'tauri.windows.conf.json',
+    'tauri.linux.conf.json',
+    'tauri.dev.conf.json',
+  ])('%s explicitly disables dragDropEnabled', (file) => {
+    expect(windowConf(file)?.dragDropEnabled, file).toBe(false);
   });
 });
 

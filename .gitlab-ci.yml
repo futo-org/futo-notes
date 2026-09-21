@@ -645,13 +645,11 @@ test:e2e:rest:
   rules:
     - if: $CI_COMMIT_TAG
     # Same web surface as test:e2e:smoke, plus any spec edit re-runs the
-    # suite that contains it. Includes the markdown-spec corpus (formerly its
-    # own job) — one dev server + browser install instead of two.
+    # suite that contains it.
     - if: $CI_MERGE_REQUEST_IID
       changes:
         - src/**/*
         - packages/editor/**/*
-        - markdown-spec/**/*
         - tests/**/*.spec.ts
         - tests/lib/**/*
         - playwright.config.ts
@@ -692,10 +690,23 @@ test:e2e:editor-embed:
       changes:
         - src/editor-embed/**/*
         - src/features/editor/**/*
+        # The embed inlines app.css, so a stylesheet change can turn these
+        # specs red (they assert rendered geometry and computed token colours).
+        - src/styles/**/*
+        # The vault filename -> loadable URL mapping both editor engines render
+        # images through (features/images/vaultImageSrc.ts) — an MR touching only
+        # that file can blank every image in the embed.
+        - src/features/images/**/*
         - packages/editor/**/*
         - editor.html
         - vite.editor.config.ts
-        - tests/editor-embed-bridge.spec.ts
+        # One glob, not a per-file list: the list missed the T10/T11 additions
+        # (webview-floor, milkdown-interactive), silently dropping this job to
+        # manual+allow_failure on MRs touching only them (M11). The playwright
+        # config discovers specs by the same pattern, so the two can't drift.
+        - tests/editor-embed-*.spec.ts
+        - tests/milkdown-census/**/*
+        - tests/lib/editorEmbedHost.ts
         - tests/editorEmbedBundle.ts
         - playwright.editor-embed.config.ts
         - package.json
@@ -2006,7 +2017,6 @@ release:gate:
     # past a failed test:cross-platform-sync).
     - job: test
     - job: test:e2e:smoke
-    # markdown-spec corpus runs inside test:e2e:rest (merged 2026-08)
     - job: test:e2e:rest
     - job: test:e2e:editor-embed
     - job: test:rust:workspace

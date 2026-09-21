@@ -151,11 +151,22 @@ build-ios-native: build-rust-ios
   xcodegen generate
   # The generic simulator destination links both arm64 and x86_64;
   # build-rust-ios.sh lipos a universal simulator slice so both resolve.
-  xcodebuild -project FutoNotesNative.xcodeproj \
+  # Full output goes to a log file: quiet (last 3 lines) on success, the whole
+  # thing on failure — `build | tail -3` used to throw away the actual error
+  # (e.g. a codesign failure) and leave only "** BUILD FAILED **" + a file path.
+  BUILD_LOG="$(mktemp)"
+  trap 'rm -f "$BUILD_LOG"' EXIT
+  if xcodebuild -project FutoNotesNative.xcodeproj \
     -scheme FutoNotesNative -configuration Debug \
     -destination 'generic/platform=iOS Simulator' \
     -derivedDataPath .build \
-    CODE_SIGNING_ALLOWED=NO build | tail -3
+    CODE_SIGNING_ALLOWED=NO build > "$BUILD_LOG" 2>&1; then
+    tail -3 "$BUILD_LOG"
+  else
+    echo "==> xcodebuild failed:" >&2
+    cat "$BUILD_LOG" >&2
+    exit 1
+  fi
 
 # Assembles BOTH distribution flavors' debug variants (direct =
 # GitLab/Obtainium/F-Droid, play = Google Play) so a flavor-specific source set
@@ -210,6 +221,48 @@ test-android-native: build-rust-android
 # Runs Compose instrumentation tests on $ANDROID_SERIAL.
 test-android-native-ui: build-rust-android
   cd apps/android && ./gradlew :app:connectedDirectDebugAndroidTest
+
+# Editor performance stories against the REAL native Android app on an
+# explicitly claimed device — written for the low-end reference phone, where
+# the budgets are hardest (issue #106, docs/plan/milkdown-transition.md §5):
+# interactive-first-viewport <1s and keystroke p95 <16ms at real-note sizes,
+# open that scales linearly with no cliff, and the first focus after an open
+# under 1s (the tap that starts typing). The
+# build/install is deliberately mandatory so the run always exercises the code
+# being pushed (same rule as test-ios-stories). The maintainer's largest real
+# note joins the fixtures as a LOCAL, UNCOMMITTED file: $FUTO_PERF_NOTE=<path>,
+# or drop it at tests/editor-gauntlet/local/device-perf-note.md (gitignored).
+# Requires $ANDROID_SERIAL (a physical phone, or `just qa-claim android`).
+# Deliberately not in `check`/CI — runners have no device.
+#   just test-android-perf              # ~10 min on the reference phone
+#   just test-android-perf --stress     # adds the 50k rung; 30 min+, see the runner
+test-android-perf *args:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  [ -n "${ANDROID_SERIAL:-}" ] || {
+    echo 'Set ANDROID_SERIAL to the claimed device (the low-end reference phone; adb devices -l).' >&2
+    echo 'Pool emulators: just qa-claim android' >&2
+    exit 1
+  }
+  just android-native
+  node tests/android-editor-perf.mjs {{args}}
+
+# The FAST loop for the numbers above: the freshly built editor.html in the
+# phone's own Chrome (same Chromium build as its System WebView), measured with
+# the SAME in-page snippet the gate uses — no APK build, no install. Seconds per
+# run instead of ~10 minutes, so it is what you iterate on; `test-android-perf`
+# is what you confirm on. Also profiles: --profile (a keystroke) and
+# --profile-open (the open) print where the CPU time went.
+#   just test-android-perf-quick                                  # 1000-lines-blocks
+#   just test-android-perf-quick --fixture 10000-lines-blocks --profile
+test-android-perf-quick *args:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  [ -n "${ANDROID_SERIAL:-}" ] || {
+    echo 'Set ANDROID_SERIAL to the phone (adb devices -l).' >&2
+    exit 1
+  }
+  node tests/android-editor-perf-quick.mjs {{args}}
 
 # User-level storage-location stories against the REAL native Android app: the
 # first-run picker, both migration directions, and opening an already-populated
@@ -509,8 +562,25 @@ test-e2e-rest:
 test-cross-platform:
   pnpm run test:cross-platform
 
-test-markdown-spec:
-  pnpm run test:markdown-spec
+# Prove progressive open's one load-bearing claim: parsing a note in top-level
+# chunks and appending them produces the SAME document as parsing it whole
+# (docs/plan/milkdown-transition.md §5, issue #105). Drives the REAL editor.html
+# over a corpus of real notes at the finest cut granularity the planner allows,
+# and exits non-zero on a single divergence. NOT in `check`/CI: the corpus is
+# real user notes and lives outside this repo. Committed result:
+# docs/evidence/milkdown-chunk-census.md.
+#   just chunk-census                        # full corpus, ~2 min
+#   just chunk-census --limit 2000           # a quick pass
+#   just chunk-census --corpus <path.jsonl>  # somewhere else
+# `--dump-divergences <path>` writes the offending notes for triage; that file
+# carries note TEXT, so keep it out of the repo.
+# `--serialize` runs the OTHER equivalence claim over the same corpus/harness:
+# blockSerializer.ts's per-block cache (the fix for the whole-document
+# getMarkdown() cost on a settled edit) must match Milkdown's own serializer
+# called directly. Report defaults to build/serialize-census/report.md.
+# Prove a chunked parse equals a whole-document parse, over a real note corpus.
+chunk-census *args:
+  node scripts/milkdown-chunk-census.mjs {{args}}
 
 test-headed:
   pnpm run test:headed
@@ -597,6 +667,48 @@ remote-sync *flags:
 remote-android *flags:
   node scripts/remote-test.mjs {{flags}} build-android-native
   node scripts/remote-test.mjs {{flags}} test-android-native
+
+# ── Editor gauntlet (the permanent editor regression suite) ──
+# The matrix and oracles live behind EditorGauntletAdapter, with one adapter
+# per editor. `gauntlet-milkdown*` drives the SAME single-file editor.html the
+# native shells ship (it builds the bundle first).
+# Reports land in tests/editor-gauntlet/local/ (gitignored). Full details,
+# including corpus sharding: tests/editor-gauntlet/README.md.
+
+# The 56-case split-torture matrix against Milkdown, scored against the ledger.
+gauntlet-milkdown:
+  pnpm run test:editor-gauntlet:milkdown
+
+# Milkdown performance floor: hard budgets at real-note sizes, no cliff above.
+gauntlet-milkdown-perf:
+  pnpm run test:editor-gauntlet:milkdown:perf
+
+# Read ~/Developer/futo-notes-ml/NOTICE.md first, then point it at a corpus:
+#   EDITOR_GAUNTLET_CORPUS=~/Developer/futo-notes-ml/dataset/sample.jsonl \
+#     EDITOR_GAUNTLET_CORPUS_LIMIT=100 just gauntlet-milkdown-foreign
+# Milkdown foreign-corpus sweep (never-refuse/never-warn/never-lose).
+gauntlet-milkdown-foreign *args:
+  pnpm run test:editor-gauntlet:milkdown:foreign {{args}}
+
+# ── Milkdown round-trip census ──
+# Run a corpus of real notes through the real Milkdown editor and report what
+# the round trip changed. This is the measurement behind the compat plugin set
+# in packages/editor/src/milkdown-compat/ (docs/plan/milkdown-transition.md §3),
+# and the way to prove a change to it costs nothing:
+#
+#   just milkdown-census --variant baseline          # the UNPATCHED upstream preset
+#   just milkdown-census --diff build/milkdown-census/baseline
+#   just milkdown-census --vault ~/Documents/futo-notes   # your own notes, locally
+#   just milkdown-census --limit 200                 # quick smoke, ~4s
+#
+# ~30k notes in about 3 minutes on 12 pages. Output lands in
+# build/milkdown-census/<variant>/ (gitignored) — results.jsonl carries the
+# round-tripped text of FLAGGED notes, so a vault run's output is your notes:
+# read it locally, never commit it. `--diff` exits non-zero on any newly raised
+# flag. Corpus default: ~/Developer/futo-notes-ml/dataset/notes_corpus.jsonl.gz.
+# Findings write-up: docs/editor/milkdown-roundtrip-census.md.
+milkdown-census *args:
+  node tests/milkdown-census/run.mjs {{args}}
 
 # ── The FUTO supporter coin (Blender -> all three shells) ──
 # The coin is ONE object, modelled in assets/coin/build-coin.py and exported to

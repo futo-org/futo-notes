@@ -395,10 +395,11 @@
         "addTagShort": "+ 标签"
       },
       "toolbar": {
+        "undo": "撤销",
+        "redo": "重做",
         "bold": "粗体",
         "italic": "斜体",
         "strikethrough": "删除线",
-        "heading": "标题",
         "bulletList": "项目符号列表",
         "orderedList": "有序列表",
         "taskList": "任务列表",
@@ -408,7 +409,12 @@
         "indent": "增加缩进",
         "takePhoto": "拍照",
         "chooseFromLibrary": "从图库中选择",
-        "dismissKeyboard": "收起键盘"
+        "dismissKeyboard": "收起键盘",
+        "paragraph": "正文",
+        "headingOne": "标题 1",
+        "headingTwo": "标题 2",
+        "headingThree": "标题 3",
+        "codeBlock": "代码块"
       },
       "selectionToolbar": {
         "accessibilityLabel": "文本格式",

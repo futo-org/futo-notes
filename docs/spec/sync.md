@@ -1147,15 +1147,15 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   `recover_restores_a_note_stranded_in_a_parked_backup` and
   `recover_returns_a_divergent_backup_as_terminal`
 
-- A save may only persist content read from a **live** editor view. The
-  desktop editor's `getContent()` returns `undefined` (never `''`) when the
-  CM6 view is destroyed or not yet mounted, and every save path treats
-  `undefined` as "no editor — skip". An empty string from a dead view is
-  indistinguishable from "the user deleted everything": a stale flush firing
-  against a torn-down editor saved `''` over the open note and sync
-  propagated the truncation to every connected device (observed 2026-06-04
-  via a dev HMR swap; the same teardown race exists on note-switch/quit).
-  → editorContentSync `readDocContent`, MarkdownEditor `getContent`
+- A save may only persist content read from a **live** editor view. The desktop
+  shell's editor read returns `undefined` (never `''`) when no editor component
+  is mounted, and every save path treats `undefined` as "no editor — skip". An
+  empty string from a dead view is indistinguishable from "the user deleted
+  everything": a stale flush firing against a torn-down editor saved `''` over
+  the open note and sync propagated the truncation to every connected device
+  (observed 2026-06-04 via a dev HMR swap; the same teardown race exists on
+  note-switch/quit). → NotesShell.svelte `getEditorContent`,
+  NoteWorkspace.svelte `EditorApi.getContent`, MilkdownEditor `getContent`
 
 - A note's modified time is **server-authoritative** so note-list ordering is
   identical on every device: a real push restamps the local file to the
@@ -1344,16 +1344,28 @@ journal --dir` has nothing to read from a phone.
 
 - The native unfocused clean-adopt **preserves the caret/selection and scroll**:
   the shells push remote content through the embed's `applyExternalContent`
-  (bridge v2), which applies a minimal diff with history suppressed — the
-  same editorContentSync path as the desktop's `applyExternalContent` —
-  instead of the full-replacement `setContent`. Works for consecutive remote
-  edits. Verified cross-device (simulator ↔ emulator) 2026-06-09: with the
-  caret parked mid-document, a peer edit appeared in the open editor and the
-  selection/caret held on both platforms. Neither shell invokes that bridge
+  (bridge v2) rather than through the host `setContent` that also clears undo.
+  Works for consecutive remote edits. Verified cross-device (simulator ↔
+  emulator) 2026-06-09 on the CodeMirror editor: with the caret parked
+  mid-document, a peer edit appeared in the open editor and the selection/caret
+  held on both platforms.
+
+  > **Gap:** the WYSIWYG editor does NOT apply an adopt as a minimal diff. Both
+  > `applyExternalContent` and `setContent` go through one whole-document
+  > `replaceAll`, so the caret and scroll are only whatever ProseMirror's
+  > position mapping happens to preserve across a full replacement, and the
+  > replacement is itself undoable (see the undo Gaps in
+  > [editor.md](editor.md) "Interactive elements"). The CodeMirror editor
+  > diffed and suppressed history (`editorContentSync.ts`, deleted with it).
+  > Re-verify on device before treating the 2026-06-09 result as current. →
+  > src/features/editor/milkdown/MilkdownEditor.svelte `applyExternal`,
+  > src/editor-embed/createFutoEditorApi.ts `applyExternalContent`
+
+  Neither shell invokes that bridge
   while the editor is focused: each remembers `DeferAdopt`, then re-reads and
   classifies current disk content on blur. The blur edge every host settles on
-  is ONE reported fact — the embed's `focus` bridge message, from
-  `editorHasDomFocus` — and it means "CodeMirror holds the caret", not merely
+  is ONE reported fact — the embed's `focus` bridge message, from the editor's
+  own `hasFocus()` — and it means "the editor holds the caret", not merely
   "some node inside the editor is still `document.activeElement`". The lenient
   reading was iOS-only from the start (WKWebView reports a blurred document
   while its contenteditable really is focused); on Android that same shape IS
@@ -1362,8 +1374,9 @@ journal --dir` has nothing to read from a phone.
   meant the shell never saw a blur edge and the deferral was stranded
   indefinitely on superseded peer content (device-verified on
   emulator 2026-08-10). A deferral therefore always has an edge to settle on.
-  → packages/editor bridge v2; `editorDomFocus.ts` (guarded by
-  editorDomFocus.test.ts); iOS `EditorWebView` / `OpenNoteReconciler`; Android
+  → packages/editor bridge v2; MilkdownEditor.svelte `hasFocus` (guarded by
+  tests/editor-focus-signal.spec.ts); iOS `EditorWebView` /
+  `OpenNoteReconciler`; Android
   `EditorSession.settleDeferredAdoption` / `NoteEditorScreen.kt`
 - A **dirty draft against a real remote change** is never replaced. Each
   executor renders the engine's `KeepDraft`: it cancels/drains the pending

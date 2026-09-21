@@ -42,11 +42,23 @@ echo "==> Building app"
 # (sync-password persistence for force-quit survival). The entitlements file is
 # wired via project.yml (CODE_SIGN_ENTITLEMENTS). Unsigned builds get
 # errSecMissingEntitlement (-34018) from the simulator keychain.
-xcodebuild -project apps/ios/FutoNotesNative.xcodeproj \
+# Full output goes to a log file: quiet (last 3 lines) on success, the whole
+# thing on failure — `build | tail -3` used to throw away the actual error
+# (e.g. a codesign failure) and leave only "** BUILD FAILED **" + a file path.
+BUILD_LOG="$(mktemp)"
+trap 'rm -f "$BUILD_LOG"' EXIT
+if xcodebuild -project apps/ios/FutoNotesNative.xcodeproj \
   -scheme FutoNotesNative -configuration Debug \
   -destination "id=$SIM" \
   -derivedDataPath apps/ios/.build \
-  CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" build | tail -3
+  CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" build \
+  > "$BUILD_LOG" 2>&1; then
+  tail -3 "$BUILD_LOG"
+else
+  echo "==> xcodebuild failed:" >&2
+  cat "$BUILD_LOG" >&2
+  exit 1
+fi
 
 APP=$(find apps/ios/.build/Build/Products/Debug-iphonesimulator \
   -maxdepth 1 -name "*.app" | head -1)

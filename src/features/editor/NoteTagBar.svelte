@@ -1,5 +1,4 @@
 <script lang="ts">
-  import type { EditorView } from '@codemirror/view';
   import { extractHeaderTagBlock, isValidTagName, normalizeTagName } from '$lib/rules';
   import { getAllTagNames } from '$features/tags/noteTags';
   import type { NotePreview } from '$shared/types/note';
@@ -7,13 +6,22 @@
 
   interface Props {
     content: string;
-    getEditorView: () => EditorView | null;
+    /** The note's markdown as the editor currently holds it. */
+    readMarkdown: () => string | undefined;
+    /**
+     * Hand the whole note back after a tag edit.
+     *
+     * The bar splices markdown at character offsets, and a markdown offset has
+     * no ProseMirror position to dispatch against, so it rewrites the document
+     * instead of patching it. One undo step, one save.
+     */
+    writeMarkdown: (markdown: string) => void;
     notes: NotePreview[];
     /** The bar's own box, for the shell's blank-space reach. */
     element?: HTMLElement;
   }
 
-  let { content, getEditorView, notes, element = $bindable() }: Props = $props();
+  let { content, readMarkdown, writeMarkdown, notes, element = $bindable() }: Props = $props();
 
   let adding = $state(false);
   let inputValue = $state('');
@@ -66,11 +74,10 @@
       return;
     }
 
-    const view = getEditorView();
-    if (!view) return;
+    const doc = readMarkdown();
+    if (doc === undefined) return;
 
     const tagText = `#${name}`;
-    const doc = view.state.doc.toString();
     const { tags: existingTags, endOffset } = extractHeaderTagBlock(doc);
 
     let insert: string;
@@ -95,18 +102,15 @@
       pos = lastTagLineEnd;
     }
 
-    view.dispatch({
-      changes: { from: pos, to: pos, insert },
-    });
+    writeMarkdown(doc.slice(0, pos) + insert + doc.slice(pos));
 
     cancelAdding();
   }
 
   function removeTag(tag: string) {
-    const view = getEditorView();
-    if (!view) return;
+    const doc = readMarkdown();
+    if (doc === undefined) return;
 
-    const doc = view.state.doc.toString();
     const { endOffset } = extractHeaderTagBlock(doc);
     const headerText = doc.slice(0, endOffset);
 
@@ -136,21 +140,16 @@
     );
 
     if (!hasTagsLeft) {
-      view.dispatch({
-        changes: { from: 0, to: endOffset },
-      });
+      writeMarkdown(doc.slice(endOffset));
     } else {
       let from = removeFrom;
       let to = removeTo;
 
       if (from === 0 || doc[from - 1] === '\n') {
         if (to < doc.length && doc[to] === ' ') to++;
-      } else if (from > 0 && doc[from] === ' ') {
       }
 
-      view.dispatch({
-        changes: { from, to },
-      });
+      writeMarkdown(doc.slice(0, from) + doc.slice(to));
     }
   }
 

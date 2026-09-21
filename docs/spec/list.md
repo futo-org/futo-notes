@@ -102,6 +102,19 @@ The home screen: the vault root's folders and notes, folder browsing, and search
   `make_rich_preview`), mirrored per-keystroke by `packages/editor/src/preview.ts`
   and pinned bit-for-bit by tests/conformance/preview.json.
   → crates/futo-notes-model/src/note.rs / packages/editor/src/preview.ts
+- A `<br>` tag reads as a single space in **every** preview, never as literal
+  `<br />` text, and a line that is nothing but the tag contributes no preview
+  line at all. Both kinds of `<br>` in a vault are covered: the one the WYSIWYG
+  editor writes for a blank line the author typed (markdown cannot represent an
+  empty paragraph, so `@milkdown/preset-commonmark`'s serializer parks a
+  placeholder in the file) and the one an author writes to break a line inside a
+  GFM table cell. Other inline HTML is deliberately left verbatim — `<kbd>K</kbd>`
+  previews as itself — because a rule that removes anything between angle
+  brackets also removes `a <b` in prose. Shared Rust
+  (`replace_line_break_tags`, applied inside `make_preview` and
+  `make_rich_preview`), mirrored per-keystroke by `packages/editor/src/preview.ts`
+  and pinned bit-for-bit by tests/conformance/preview.json.
+  → crates/futo-notes-model/src/note.rs / packages/editor/src/preview.ts
 - Preview text is never interactive: tapping anywhere on a note row — including
   preview text that looks like a URL — always opens the note, never a link.
   _(iOS native)_ `AttributedString(markdown:)` auto-attaches a `.link`

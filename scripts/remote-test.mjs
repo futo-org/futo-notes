@@ -119,7 +119,7 @@ export const REFUSED = [
   [/^sim-/, 'macos'],
   // APFS copy-on-write; `cp -Rc` does not exist on Linux.
   ['qa-clone-target', 'macos'],
-  // Runs the shipped desktop app or the CM6 editor in a browser engine.
+  // Runs the shipped desktop app or the editor in a browser engine.
   ['test-desktop-smoke', 'wkwebview'],
   // Interactive.
   ['tauri-dev', 'interactive'],
@@ -147,7 +147,7 @@ export const REFUSED = [
 // cross-platform sync (both of which boot a browser engine) on top of `check`.
 export const CAVEATED = [
   [
-    /^(test-e2e|test-e2e-full|test-markdown-spec)$/,
+    /^(test-e2e|test-e2e-full)$/,
     'Playwright here runs Linux Chromium/WebKit builds. Behavior and state are equivalent; ' +
       'paint, compositing and IME/timing are not (M22).',
   ],

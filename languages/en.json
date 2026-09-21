@@ -398,10 +398,11 @@
         "addTagShort": "+ Tag"
       },
       "toolbar": {
+        "undo": "Undo",
+        "redo": "Redo",
         "bold": "Bold",
         "italic": "Italic",
         "strikethrough": "Strikethrough",
-        "heading": "Heading",
         "bulletList": "Bullet list",
         "orderedList": "Ordered list",
         "taskList": "Task list",
@@ -411,7 +412,12 @@
         "indent": "Indent",
         "takePhoto": "Take photo",
         "chooseFromLibrary": "Choose from library",
-        "dismissKeyboard": "Dismiss keyboard"
+        "dismissKeyboard": "Dismiss keyboard",
+        "paragraph": "Text",
+        "headingOne": "Heading 1",
+        "headingTwo": "Heading 2",
+        "headingThree": "Heading 3",
+        "codeBlock": "Code block"
       },
       "selectionToolbar": {
         "accessibilityLabel": "Text formatting",
@@ -422,7 +428,17 @@
         "strikethrough": "Strikethrough",
         "strikethroughTitle": "Strikethrough (Mod-Shift-S)",
         "inlineCode": "Inline code",
-        "link": "Link"
+        "code": "Code",
+        "link": "Link",
+        "editLink": "Edit link"
+      },
+      "linkPrompt": {
+        "placeholder": "Paste or type a link",
+        "urlAccessibilityLabel": "Link URL",
+        "add": "Add",
+        "update": "Update",
+        "addAccessibilityLabel": "Add link",
+        "updateAccessibilityLabel": "Update link"
       },
       "find": {
         "open": "Find in note",
@@ -444,8 +460,8 @@
         "heading": "Insert block",
         "noMatches": "No matching blocks",
         "commands": {
-          "paragraph": "Paragraph",
-          "paragraphHint": "Plain text",
+          "paragraph": "Text",
+          "paragraphHint": "Plain paragraph",
           "headingOne": "Heading 1",
           "headingOneHint": "Large section heading",
           "headingTwo": "Heading 2",
@@ -458,16 +474,18 @@
           "numberedListHint": "Ordered list",
           "taskList": "Task list",
           "taskListHint": "Checkbox list",
-          "blockQuote": "Blockquote",
-          "blockQuoteHint": "Quote block",
+          "blockQuote": "Quote",
+          "blockQuoteHint": "Block quote",
           "codeBlock": "Code block",
           "codeBlockHint": "Fenced code",
           "divider": "Divider",
           "dividerHint": "Horizontal rule",
           "table": "Table",
           "tableHint": "Markdown table",
+          "link": "Link",
+          "linkHint": "Insert a link",
           "image": "Image",
-          "imageHint": "Insert image from file"
+          "imageHint": "Insert a picture from a file"
         }
       },
       "images": {
@@ -484,6 +502,24 @@
         "dragRow": "Drag row",
         "addRowBelow": "Add row below",
         "deleteRow": "Delete row"
+      },
+      "tableGrips": {
+        "insertBefore": "Insert before",
+        "insertAfter": "Insert after",
+        "delete": "Delete",
+        "columnOptionsAccessibilityLabel": "Column options",
+        "rowOptionsAccessibilityLabel": "Row options",
+        "headerRowMustStayFirst": "The header row must stay first.",
+        "headerRowCannotBeDeleted": "The header row can't be deleted.",
+        "needsAtLeastOneRow": "A table needs at least one row.",
+        "needsAtLeastOneColumn": "A table needs at least one column."
+      },
+      "progressiveLoad": {
+        "loadingRest": "Loading the rest of this note…"
+      },
+      "loadFailed": {
+        "heading": "This note could not be displayed.",
+        "body": "Its markdown is something this version of the editor cannot read, so it is shown read-only. Nothing has been changed on disk."
       },
       "android": {
         "bridgeVersionMismatch": "Bridge version mismatch: editor v{editorVersion} vs native v{nativeVersion}",

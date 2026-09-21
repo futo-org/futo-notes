@@ -88,8 +88,26 @@ struct KeyboardDismissAccessoryView: View {
 /// EditorHost, which updates it from bridge messages (`cursorContext`).
 @MainActor
 final class EditorToolbarState: ObservableObject {
-    /// Cursor is on a list line — shows the Indent/Outdent items.
+    /// Cursor is on a list line specifically. `inContainer` is what actually
+    /// gates the Indent/Outdent items now; this stays only as the fallback
+    /// for a bundle old enough to have never sent `inContainer` at all.
     @Published var onListLine = false
+    /// Cursor is in a list item OR a blockquote (bridge `cursorContext.
+    /// inContainer`) — shows the Indent/Outdent items. `nil` means the
+    /// message hasn't carried this field at all (an older bundle); the
+    /// toolbar then falls back to `onListLine`, exactly today's behavior for
+    /// that bundle.
+    @Published var inContainer: Bool?
+    /// Toolbar-manifest ids active at the cursor/selection (bridge
+    /// `formatState`, Milkdown editor) — drives the Notion-style highlighted
+    /// button state below. Android's
+    /// counterpart is `EditorHost.activeFormats` (EditorWebView.kt).
+    @Published var activeFormats: Set<String> = []
+    /// Toolbar-manifest ids that are currently INERT (bridge
+    /// `formatState.disabled`, Milkdown editor) — today only `undo`/`redo`
+    /// with an empty prosemirror-history stack. Dims the button and blocks
+    /// the tap below. Android's counterpart is `EditorHost.disabledFormats`.
+    @Published var disabledFormats: Set<String> = []
 }
 
 @MainActor
@@ -114,7 +132,7 @@ final class EditorToolbarLocalization: ObservableObject {
 ///
 /// This view owns NO editing behavior: every tap is handed to `perform`,
 /// which EditorHost routes over the bridge (`FutoEditor.exec`) into the same
-/// markdownToolbar.ts commands the web toolbar runs.
+/// toolbarExec.ts commands the web toolbar runs.
 struct EditorToolbarView: View {
     @ObservedObject var state: EditorToolbarState
     @ObservedObject var toolbarLocalization: EditorToolbarLocalization
@@ -176,9 +194,8 @@ struct EditorToolbarView: View {
                         separator
                     }
                     ForEach(group) { item in
-                        if !item.onlyOnListLine || state.onListLine {
-                            ToolbarIconButton(item: item, label: label(for: item)) { perform(item) }
-                                .background(buttonEdgeReader)
+                        if !item.onlyInContainer || (state.inContainer ?? state.onListLine) {
+                            button(for: item).background(buttonEdgeReader)
                         }
                     }
                 }
@@ -295,6 +312,59 @@ struct EditorToolbarView: View {
 
     private func label(for item: ToolbarItemSpec) -> String {
         toolbarLocalization.localization.localizedText(item.localizationPath)
+    }
+
+    /// Notion-style active highlight (bridge `formatState`, Milkdown editor):
+    /// a rounded-rect fill INSET inside the button's own frame, not
+    /// the whole capsule, plus an accent-tinted icon — so it reads correctly
+    /// nested inside the glass capsule background. Only `.exec` items can be
+    /// active (their id is a toolbar-manifest command id); the dismiss button
+    /// is rendered through this same helper but its id ("dismiss") never
+    /// appears in `activeFormats`, so it is unaffected by construction.
+    private func button(for item: ToolbarItemSpec, foreground: Color = .primary) -> some View {
+        let isActive = state.activeFormats.contains(item.id)
+        let isDisabled = state.disabledFormats.contains(item.id)
+        return Button {
+            perform(item)
+        } label: {
+            Group {
+                if let text = item.text {
+                    Text(text)
+                } else {
+                    Image(systemName: item.sfSymbol)
+                }
+            }
+                .font(.system(size: 17, weight: .medium))
+                // Theme.primary, not Color.accentColor: there is no AccentColor
+                // asset, so accentColor falls back to iOS system blue — and a
+                // view-root `.tint()` does not retarget an explicit
+                // Color.accentColor reference.
+                // The dimmed opacity is baked into the COLOR's own alpha
+                // (`.opacity()` on the Color, not a separate view `.opacity()`
+                // modifier) — measured on an iOS 26.5 simulator: a view-level
+                // `.opacity()` on this label renders at full strength once
+                // composited through the capsule's `.glassEffect()` (Liquid
+                // Glass), while the identical foreground-highlight `.background`
+                // wash right below renders correctly. Baking the alpha into the
+                // paint color sidesteps whatever the glass material's
+                // compositing does to a child view's own opacity layer.
+                .foregroundStyle((isActive ? Theme.primary : foreground).opacity(isDisabled ? 0.35 : 1))
+                .frame(width: ToolbarMetrics.buttonWidth, height: ToolbarMetrics.buttonHeight)
+                .background {
+                    if isActive {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Theme.primary.opacity(0.15))
+                            .padding(4)
+                    }
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // Undo/Redo with an empty prosemirror-history stack (bridge
+        // `formatState.disabled`) — blocks the tap outright, matching the
+        // dimmed look above; never just a visual treatment.
+        .disabled(isDisabled)
+        .accessibilityLabel(label(for: item))
     }
 }
 

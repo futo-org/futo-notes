@@ -1,7 +1,9 @@
 package com.futo.notes
 
 import android.content.ActivityNotFoundException
+import android.content.ClipboardManager
 import android.content.ContentResolver
+import android.content.Context
 import android.net.Uri
 import android.webkit.MimeTypeMap
 import android.widget.Toast
@@ -97,6 +99,23 @@ class ImagePicker(
             callback(emptyList())
         }
     }
+}
+
+/**
+ * The URI the OS clipboard's current clip carries, if any (QA #006's
+ * `pasteClipboardImage` fallback). A clip holding a copied image — from
+ * Photos/Files/Gallery/Drive — carries it as [ClipData.Item.uri], the same
+ * shape [saveImageIntoVault] already accepts from the picker; a clip holding
+ * plain text has none. The first item that has one wins; a paste only ever
+ * carries the one thing the user copied.
+ */
+fun clipboardImageUri(context: Context): Uri? {
+    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+    val clip = manager?.primaryClip ?: return null
+    for (i in 0 until clip.itemCount) {
+        clip.getItemAt(i).uri?.let { return it }
+    }
+    return null
 }
 
 /**

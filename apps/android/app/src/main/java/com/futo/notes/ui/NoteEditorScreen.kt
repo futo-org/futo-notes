@@ -80,6 +80,7 @@ import com.futo.notes.ImagePicker
 import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NotesStore
 import com.futo.notes.PendingDraft
+import com.futo.notes.clipboardImageUri
 import com.futo.notes.confirmedSavedContent
 import com.futo.notes.derivePendingDraft
 import com.futo.notes.saveImageDataIntoVault
@@ -448,8 +449,21 @@ fun NoteEditorScreen(
                     saveJob?.cancel()
                 }
 
+                // null REFUSES the exit, so it is reserved for the one case
+                // where reading the shared WebView is genuinely ambiguous:
+                // another note owns it. An editor holding no live document
+                // cannot be holding an edit this screen has not seen, so the
+                // exit leaves on `content` — read from disk, then kept in step
+                // with every editor `change` — and commitBody's own
+                // savedContent guard makes that a no-op when the note never
+                // finished loading. See editorExitBody.
                 override suspend fun captureBody(): String? =
-                    attachment?.let { host.captureContentAndWait(it) }
+                    editorExitBody(
+                        attachment
+                            ?.let { host.captureContentAndWait(it) }
+                            ?: EditorCaptureOutcome.NotOurs,
+                        shellCopy = content,
+                    )
 
                 override suspend fun commitBody(body: String): Boolean {
                     content = body
@@ -792,6 +806,28 @@ fun NoteEditorScreen(
         }
     }
 
+    // Fallback clipboard image paste (QA #006): the embed classified the
+    // paste as an image it could not read bytes for itself — Android's
+    // Chromium WebView exposes a clipboard image copied from
+    // Photos/Files/Gallery/Drive as a `content://` URI riding on `text/plain`,
+    // not as a `File`, so `saveImageData` above never fires for it. Read the
+    // URI off the OS clipboard directly (the WebView's own JS paste event
+    // cannot resolve it — that's the whole reason this fallback exists) and
+    // copy it into the vault through the SAME path the picker uses.
+    val pasteClipboardImage: () -> Unit = {
+        val attachment = host.currentAttachment()
+        if (attachment != null) {
+            saveImageForAttachment(
+                attachment,
+                LocalizedMessage("editor.images.pasteFailed"),
+            ) { root ->
+                clipboardImageUri(context)?.let { uri ->
+                    saveImageIntoVault(context.contentResolver, root, uri)
+                }
+            }
+        }
+    }
+
     // Select the whole title when the field gains focus AND is still a
     // placeholder ("Untitled"/"Untitled-N"), so a keystroke replaces it; a real
     // title keeps the tapped caret. Keyed on the focus transition so it fires
@@ -987,6 +1023,7 @@ fun NoteEditorScreen(
                         },
                         onPickImage = pickImage,
                         onSaveImageData = saveImageData,
+                        onPasteClipboardImage = pasteClipboardImage,
                         onFindMatches = { report ->
                             if (isFindStateCurrent(savedFindProcessToken, host.processToken)) {
                                 findQuery = report.query
@@ -1045,11 +1082,15 @@ fun NoteEditorScreen(
             // exactly like iOS's inputAccessoryView rather than tracking focus
             // alone (the two can legitimately differ — a hardware keyboard, or
             // the frame in which the IME is still animating). Exec items dispatch
-            // into the SHARED markdownToolbar.ts commands — no editing logic in
-            // Kotlin.
+            // into the SHARED TOOLBAR_EXEC commands — no editing logic in
+            // Kotlin — and `activeFormats` (bridge `formatState`) tints the
+            // buttons that cover the caret.
             if (host.editorFocused && WindowInsets.isImeVisible) {
                 EditorToolbar(
                     onListLine = host.onListLine,
+                    inContainer = host.inContainer,
+                    activeFormats = host.activeFormats,
+                    disabledFormats = host.disabledFormats,
                     perform = { item ->
                         when (val action = item.action) {
                             ToolbarItemAction.Exec -> host.exec(item.id)

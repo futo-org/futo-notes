@@ -1,0 +1,77 @@
+/*
+ * Fenced-code token colours.
+ *
+ * `@lezer/highlight`'s `classHighlighter` names tokens `tok-*`, so the curated
+ * grammars produce the same class names wherever they run; the colours
+ * themselves live in theme.css (`--syntax-*`, light and dark).
+ *
+ * A CONTAINER scope, one rule per colour — never a per-fence decoration. A
+ * ProseMirror node decoration that spans a whole top-level block is stored in
+ * the decoration tree's ROOT, so one per fence makes every keystroke cost
+ * O(fences): measured 4.6 ms per keystroke at 1000 fences, against 0.075 ms
+ * with the decoration gone. milkdown/codeHighlight.test.ts locks that.
+ *
+ * `!important` is inherited from when these rules had to beat CodeMirror's
+ * unlayered injected theme; they are in a cascade layer, so it is still what
+ * keeps them ahead of any unlayered component stylesheet.
+ */
+
+.futo-milkdown .ProseMirror pre .tok-keyword {
+  color: var(--syntax-keyword) !important;
+  font-weight: 600;
+}
+
+.futo-milkdown .ProseMirror pre .tok-string {
+  color: var(--syntax-string) !important;
+}
+
+.futo-milkdown .ProseMirror pre .tok-number,
+.futo-milkdown .ProseMirror pre .tok-literal,
+.futo-milkdown .ProseMirror pre .tok-bool,
+.futo-milkdown .ProseMirror pre .tok-atom {
+  color: var(--syntax-number) !important;
+}
+
+.futo-milkdown .ProseMirror pre .tok-comment {
+  color: var(--color-muted) !important;
+  font-style: italic;
+}
+
+.futo-milkdown .ProseMirror pre .tok-variableName,
+.futo-milkdown .ProseMirror pre .tok-variableName2,
+.futo-milkdown .ProseMirror pre .tok-labelName {
+  color: var(--syntax-variable) !important;
+}
+
+.futo-milkdown .ProseMirror pre .tok-typeName,
+.futo-milkdown .ProseMirror pre .tok-className,
+.futo-milkdown .ProseMirror pre .tok-namespace,
+.futo-milkdown .ProseMirror pre .tok-macroName {
+  color: var(--syntax-type) !important;
+}
+
+.futo-milkdown .ProseMirror pre .tok-propertyName {
+  color: var(--syntax-property) !important;
+}
+
+.futo-milkdown .ProseMirror pre .tok-definition {
+  color: var(--syntax-property) !important;
+}
+
+.futo-milkdown .ProseMirror pre .tok-regexp,
+.futo-milkdown .ProseMirror pre .tok-escape,
+.futo-milkdown .ProseMirror pre .tok-url,
+.futo-milkdown .ProseMirror pre .tok-string2 {
+  color: var(--syntax-regexp) !important;
+}
+
+.futo-milkdown .ProseMirror pre .tok-meta,
+.futo-milkdown .ProseMirror pre .tok-punctuation,
+.futo-milkdown .ProseMirror pre .tok-operator {
+  color: var(--syntax-type) !important;
+}
+
+.futo-milkdown .ProseMirror pre .tok-invalid {
+  color: var(--color-danger) !important;
+  text-decoration: underline wavy currentColor;
+}

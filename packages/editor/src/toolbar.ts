@@ -15,11 +15,9 @@
  *     file by the same script and covered by the same staleness check.
  *
  * The EDITING BEHAVIOR behind each `exec` item is not defined here and never
- * lives in a native shell: native toolbars dispatch
- * `FutoEditor.exec(item.id)` over the bridge, which runs the shared
- * CodeMirror command in `src/features/editor/markdownToolbar.ts` (`TOOLBAR_EXEC`). One
- * implementation of every command, identical behavior on every platform by
- * construction.
+ * lives in a native shell: every toolbar dispatches `exec(item.id)` — over the
+ * bridge on the native shells — into the one shared implementation for
+ * Milkdown editor (`src/features/editor/milkdown/toolbarExec.ts`).
  */
 
 /** What tapping a toolbar item does. */
@@ -42,14 +40,16 @@ export interface ToolbarItem {
    * contentDescription on Android. Identical text on every platform.
    */
   localizationPath: string;
+  /** Optional visible text, used for explicit heading levels. */
+  text?: string;
   /** Icon name in `@lucide/svelte` (web renderers). */
   lucide: string;
   /** SF Symbol name (native iOS renderer). */
   sfSymbol: string;
   /** Material Symbols name (native Android renderer). */
   material: string;
-  /** `onListLine`: only visible while the cursor is on a list line. */
-  when: 'always' | 'onListLine';
+  /** Indentation is available inside lists and quotes. */
+  when: 'always' | 'inContainer';
   action: ToolbarAction;
 }
 
@@ -60,6 +60,33 @@ const EXEC: ToolbarAction = { kind: 'exec' };
  * items render left-to-right in array order.
  */
 export const TOOLBAR_GROUPS: ToolbarItem[][] = [
+  [
+    // QA-003: first items on the mobile toolbar, ahead of every formatting
+    // control. Editing behavior is prosemirror-history's own `undo`/`redo`
+    // commands (toolbarExec.ts), never a hand-rolled stack. Their enabled
+    // state is NOT selection-driven like every other button here — it rides
+    // the same bridge `formatState` message, in its `disabled` field
+    // (bridge.ts FormatStateMessage), computed from `undoDepth`/`redoDepth`
+    // (formatState.ts `computeDisabledFormats`).
+    {
+      id: 'undo',
+      localizationPath: 'editor.toolbar.undo',
+      lucide: 'Undo2',
+      sfSymbol: 'arrow.uturn.backward',
+      material: 'undo',
+      when: 'always',
+      action: EXEC,
+    },
+    {
+      id: 'redo',
+      localizationPath: 'editor.toolbar.redo',
+      lucide: 'Redo2',
+      sfSymbol: 'arrow.uturn.forward',
+      material: 'redo',
+      when: 'always',
+      action: EXEC,
+    },
+  ],
   [
     {
       id: 'bold',
@@ -100,9 +127,40 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
   ],
   [
     {
-      id: 'heading',
-      localizationPath: 'editor.toolbar.heading',
-      lucide: 'Heading',
+      id: 'paragraph',
+      localizationPath: 'editor.toolbar.paragraph',
+      text: 'Text',
+      lucide: 'Type',
+      sfSymbol: 'textformat.size',
+      material: 'format_h1',
+      when: 'always',
+      action: EXEC,
+    },
+    {
+      id: 'heading-1',
+      localizationPath: 'editor.toolbar.headingOne',
+      text: 'H1',
+      lucide: 'Heading1',
+      sfSymbol: 'textformat.size',
+      material: 'format_h1',
+      when: 'always',
+      action: EXEC,
+    },
+    {
+      id: 'heading-2',
+      localizationPath: 'editor.toolbar.headingTwo',
+      text: 'H2',
+      lucide: 'Heading2',
+      sfSymbol: 'textformat.size',
+      material: 'format_h1',
+      when: 'always',
+      action: EXEC,
+    },
+    {
+      id: 'heading-3',
+      localizationPath: 'editor.toolbar.headingThree',
+      text: 'H3',
+      lucide: 'Heading3',
       sfSymbol: 'textformat.size',
       material: 'format_h1',
       when: 'always',
@@ -114,6 +172,22 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
       lucide: 'TextQuote',
       sfSymbol: 'text.quote',
       material: 'format_quote',
+      when: 'always',
+      action: EXEC,
+    },
+    // QA-009: was missing on every mobile shell (there was no manifest item
+    // at all, not an Android-only gap) — Android and iOS both get it now.
+    // One-way (paragraph → code), matching the `/` menu's existing Code block
+    // item (slash/exec.ts `createCodeBlockCommand`) rather than inventing a
+    // toggle back OUT of code the block-conversion model doesn't support
+    // (blockCommands.ts `applyCommand`/`stripCommand` both already refuse a
+    // `code` target/source).
+    {
+      id: 'code-block',
+      localizationPath: 'editor.toolbar.codeBlock',
+      lucide: 'Code',
+      sfSymbol: 'chevron.left.forwardslash.chevron.right',
+      material: 'code',
       when: 'always',
       action: EXEC,
     },
@@ -152,7 +226,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
       lucide: 'ListIndentDecrease',
       sfSymbol: 'decrease.indent',
       material: 'format_indent_decrease',
-      when: 'onListLine',
+      when: 'inContainer',
       action: EXEC,
     },
     {
@@ -161,7 +235,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
       lucide: 'ListIndentIncrease',
       sfSymbol: 'increase.indent',
       material: 'format_indent_increase',
-      when: 'onListLine',
+      when: 'inContainer',
       action: EXEC,
     },
   ],

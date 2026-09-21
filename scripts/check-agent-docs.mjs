@@ -52,7 +52,6 @@ const KNOWN_PATH_PREFIXES = [
   'docs/',
   'tests/',
   'scripts/',
-  'markdown-spec/',
 ];
 
 // Fenced blocks in these languages are example/illustrative source (mostly

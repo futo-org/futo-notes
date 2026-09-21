@@ -29,7 +29,7 @@ satisfy it yet — that's what makes gaps visible.
 |---|---|
 | [app.md](app.md) | Cross-cutting: render lifecycle, data safety, where logic lives |
 | [desktop-rust.md](desktop-rust.md) | Desktop Rust adapter architecture, naming, IPC/event stability, and compatibility rules |
-| [editor.md](editor.md) | The Markdown editor (shared CodeMirror 6 WebView) |
+| [editor.md](editor.md) | The Markdown editor (shared WYSIWYG Milkdown WebView) |
 | [editor-visual.md](editor-visual.md) | Markdown editor appearance and layout |
 | [license.md](license.md) | Paid client license: contract, states, deep link, store posture |
 | [list.md](list.md) | Note list, home feed, folder browsing, note/folder ops |
@@ -49,6 +49,7 @@ satisfy it yet — that's what makes gaps visible.
   rewrite's acceptance criteria.
 - `tests/conformance/*.json` — hand-reviewed pure-rule behavior shared by TS
   and Rust; the rule differential separately checks broad implementation parity.
-- `markdown-spec/cases/*.yaml` — fine-grained editor decoration/cursor fixtures.
+- `tests/editor-gauntlet/` — the editor's permanent regression suite: the
+  split-torture matrix, the foreign-corpus sweep, and the performance floor.
 
 These specs reference the lower layers but don't duplicate them.

@@ -1,16 +1,18 @@
 import { expect, type Page, test } from '@playwright/test';
 
+import { EDITOR } from './lib/desktopEditor';
+
 async function openNewNote(page: Page): Promise<void> {
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');
   await page.goto('/#/note/new');
   await page.waitForLoadState('domcontentloaded');
-  await page.waitForSelector('.cm-content', { timeout: 10000 });
+  await page.waitForSelector(EDITOR, { timeout: 10000 });
 }
 
 async function measurePasteMs(page: Page, itemCount: number, correctlyNumbered: boolean) {
   return page.evaluate(
-    async ({ itemCount, correctlyNumbered }) => {
+    async ({ itemCount, correctlyNumbered, selector }) => {
       interface NotesShellTestHook {
         replaceEditorContent: (content: string) => string;
         getState: () => { editorContent: string };
@@ -24,7 +26,7 @@ async function measurePasteMs(page: Page, itemCount: number, correctlyNumbered: 
         (_, index) => `${correctlyNumbered ? index + 1 : 1}. item number ${index}`,
       ).join('\n');
 
-      const content = document.querySelector('.cm-content') as HTMLElement;
+      const content = document.querySelector(selector) as HTMLElement;
       content.focus();
       const transfer = new DataTransfer();
       transfer.setData('text/plain', pasted);
@@ -44,23 +46,26 @@ async function measurePasteMs(page: Page, itemCount: number, correctlyNumbered: 
       }
       return measured;
     },
-    { itemCount, correctlyNumbered },
+    { itemCount, correctlyNumbered, selector: EDITOR },
   );
 }
 
 // A large single paste must stay proportional to its size. Issue #84 reported a
-// multi-second freeze. The expensive shape is a pasted numbered list whose
-// numbering is WRONG (an exported or hand-written list of all "1." items),
-// because renumbering it is then one edit per item, and three paths scaled with
-// that count: orderedListRenumber gave every affected line its own backward walk
-// to its list-block start; interactiveTableEditor expanded a change out to its
-// enclosing markdown block once per change; and the renumber dispatched one
-// change range per item rather than one per list block (~1.7x slower on desktop).
-// A list that is ALREADY correctly numbered emits no edits and so never exercised
-// the last two — which is why both shapes are measured here.
+// multi-second freeze on the CodeMirror engine, where a pasted numbered list
+// whose numbering was WRONG (an exported or hand-written list of all "1."
+// items) cost one source edit per item across three quadratic paths.
 //
-// Drive the paste through a ClipboardEvent because that is the path
-// CodeMirror's own paste handler serves. Do NOT measure this with CDP
+// None of those paths exist any more: the paste is parsed into a single `<ol>`
+// and the numbers are the browser's own rendering, so the "renumber" is free
+// and only remark-stringify's serialize walks the list. The test is kept
+// because the PROPERTY is the product's, not the engine's — a big paste must
+// not freeze the app — and it is the only thing that would catch a new
+// quadratic arriving in the parse or the serialize. Both shapes are still
+// measured: the all-1s list still comes back renumbered (asserted below), so
+// it still proves the expensive path ran.
+//
+// Drive the paste through a ClipboardEvent because that is the path the
+// editor's own paste handling serves. Do NOT measure this with CDP
 // `Input.insertText` (`page.keyboard.insertText`): a bare contenteditable with
 // no application code shows the same quadratic under it, because the browser
 // splits the insertion into quadratically many editing operations. That is the
@@ -72,7 +77,7 @@ test('pasting a large ordered list stays proportional to paste size', async ({ p
   });
 
   await openNewNote(page);
-  await page.click('.cm-content');
+  await page.click(EDITOR);
 
   // Compare the same shape at two sizes rather than checking a duration. A wall
   // clock measures the machine — a busy one made even the cheap shape 44x slower
@@ -89,13 +94,13 @@ test('pasting a large ordered list stays proportional to paste size', async ({ p
     results[shape] = { small, large, ratio: large / Math.max(small, 5) };
   }
 
-  // Measured basis (2026-08-05, Chromium — the only engine this suite runs):
-  // ratios ~1.2-2.5 after the fix, ~12-16 before it. The sharp machine-independent
-  // guards on the same property are the unit tests, which bound line reads and
-  // change-range count: `listContinuation.test.ts` (2,003,001 reads before, under
-  // 20,000 after; 499 change ranges before, 1 after) and
-  // `table/interactiveTableEditor.test.ts` (159,601 reads before, under 3,200).
-  // Fix a failure here by finding the regression those describe.
+  // Measured basis on the Milkdown engine (2026-09-01, Chromium — the only
+  // engine this suite runs): needs-renumber 131ms at 1250 items / 335ms at
+  // 5000, ratio 2.6x; already-numbered 85ms / 298ms, ratio 3.5x. Quadratic
+  // cost would be ~16x for 4x the items. The budgets at real note sizes, with
+  // hard millisecond gates rather than a ratio, are
+  // `just gauntlet-milkdown-perf` (desktop) and `just test-android-perf` (the
+  // low-end reference phone).
   for (const [shape, { small, large, ratio }] of Object.entries(results)) {
     console.log(
       `${shape}: 1250 items ${small.toFixed(1)}ms, 5000 items ${large.toFixed(1)}ms, ratio ${ratio.toFixed(1)}x`,

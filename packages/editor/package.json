@@ -3,16 +3,22 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Shared CodeMirror editor code plus the editor.html/futoBridge contract for the native iOS and Android hosts.",
+  "description": "Shared editor rules plus the editor.html/futoBridge contract for the native iOS and Android hosts.",
   "exports": {
     ".": "./src/index.ts",
-    "./bridge": "./src/bridge.ts"
+    "./bridge": "./src/bridge.ts",
+    "./milkdown-compat": "./src/milkdown-compat/index.ts"
   },
   "scripts": {
     "build:editor": "vite build --config ../../vite.editor.config.ts",
     "test": "vitest run"
   },
+  "dependencies": {
+    "remark-frontmatter": "5.0.0"
+  },
   "devDependencies": {
+    "mdast-util-from-markdown": "2.0.3",
+    "mdast-util-to-markdown": "2.1.2",
     "vitest": "^4.0.18"
   }
 }

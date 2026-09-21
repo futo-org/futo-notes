@@ -33,6 +33,25 @@ export const IMAGE_PLACEHOLDER = '\u{1F5BC}\u{FE0F}';
 const IMAGE_MARKDOWN_PATTERN = /!\[[^\]]*\]\([^)]*\)/gu;
 
 /**
+ * A `<br>`-family tag: `<br`, spaces/tabs, an optional `/`, spaces/tabs, `>`.
+ *
+ * These reach the vault on their own. Markdown cannot represent an empty
+ * paragraph, so `@milkdown/preset-commonmark`'s serializer parks a placeholder
+ * tag in the file for every blank line the author typed (its parse-side half is
+ * `./milkdown-compat/emptyLine.ts`) — and a preview that showed it read
+ * `<br /> Some text` in the note list. An author's own `<br>`, the standard way
+ * to break a line inside a GFM table cell, reads as a space in preview text
+ * too, so both are covered by the same replacement.
+ *
+ * Deliberately NOT a general HTML-tag strip: `<kbd>K</kbd>` and
+ * `<!-- comment -->` still show, because a rule that eats anything between
+ * angle brackets also eats `a <b` in prose. `[ \t]` rather than `\s`, and Rust
+ * `skip_tag_spacing` matches exactly that — a Unicode-whitespace class would be
+ * one more thing for the two sides to define identically.
+ */
+const LINE_BREAK_TAG_PATTERN = /<br[ \t]*\/?[ \t]*>/giu;
+
+/**
  * ~100-char preview: image markdown stood in as an emoji placeholder, CR/LF/TAB
  * collapsed to single spaces, then trimmed.
  *
@@ -41,6 +60,10 @@ const IMAGE_MARKDOWN_PATTERN = /!\[[^\]]*\]\([^)]*\)/gu;
  *      `IMAGE_PLACEHOLDER`. Previews are read as text, so raw image markdown is
  *      noise — a note starting with an image previewed as
  *      `![](image-20260814-130425.png)`.
+ *   0b. Replace every `<br>`-family tag with a single space, then let step 1's
+ *      collapse and step 2's trim deal with the result — a line that was
+ *      nothing but the editor's empty-paragraph placeholder disappears
+ *      entirely. See `LINE_BREAK_TAG_PATTERN`.
  *   1. Replace `\r\n`, then bare `\n`, then `\t` with a single space each.
  *      (`\r\n` is collapsed first so a CRLF becomes ONE space, not two. A bare
  *      `\r` not followed by `\n` is intentionally left as-is — Rust does the
@@ -56,6 +79,7 @@ const IMAGE_MARKDOWN_PATTERN = /!\[[^\]]*\]\([^)]*\)/gu;
 export function makePreview(content: string): string {
   const collapsed = content
     .replace(IMAGE_MARKDOWN_PATTERN, IMAGE_PLACEHOLDER)
+    .replace(LINE_BREAK_TAG_PATTERN, ' ')
     .replace(/\r\n/g, ' ')
     .replace(/\n/g, ' ')
     .replace(/\t/g, ' ');

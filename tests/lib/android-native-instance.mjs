@@ -360,7 +360,7 @@ class AndroidNativeSyncClient {
    *
    * Evaluating `window.FutoEditor.focus()` over CDP is only the DOM half, and it
    * can never succeed: Chromium withholds the focus event while the document
-   * itself is unfocused, so `.cm-focused` stays unset and `document.hasFocus()`
+   * itself is unfocused, so `.ProseMirror-focused` stays unset and `document.hasFocus()`
    * stays false however long the wait is (measured on a foregrounded, accelerated
    * emulator — this was a missing step, not a slow one). The app's path also does
    * `webView.requestFocus()`, which is what lets the focus land; both halves have
@@ -369,22 +369,22 @@ class AndroidNativeSyncClient {
   async focusOpenEditor() {
     await this.device.callHook('focus-editor');
     await this.device.waitFor(`${this.name}'s editor to gain focus`, UI_TIMEOUT_MS, () =>
-      // Both halves are asserted: `cm-focused` is CM6's own record of the focus
+      // Both halves are asserted: `ProseMirror-focused` is the editor's own record of the focus
       // event, and `document.hasFocus()` is the native focus the DOM-only path
       // could not get. Either one alone would pass for a half-focused editor.
       this.#evaluateInEditor(
-        `document.querySelector('.cm-editor')?.classList.contains('cm-focused') === true &&
+        `document.querySelector('.ProseMirror')?.classList.contains('ProseMirror-focused') === true &&
          document.hasFocus() === true`,
       ),
     );
   }
 
-  /** Does the editor REALLY hold focus right now — CM6's own class plus the
+  /** Does the editor REALLY hold focus right now — the editor's own class plus the
    *  native focus behind it? Lets a scenario distinguish "the shell reported a
    *  blur" from "the editor was blurred". */
   async isOpenEditorFocused() {
     return this.#evaluateInEditor(
-      `document.querySelector('.cm-editor')?.classList.contains('cm-focused') === true &&
+      `document.querySelector('.ProseMirror')?.classList.contains('ProseMirror-focused') === true &&
        document.hasFocus() === true`,
     );
   }
@@ -401,7 +401,7 @@ class AndroidNativeSyncClient {
     );
     await this.device.waitFor(`${this.name}'s editor to lose focus`, UI_TIMEOUT_MS, () =>
       this.#evaluateInEditor(
-        `document.querySelector('.cm-editor')?.classList.contains('cm-focused') !== true`,
+        `document.querySelector('.ProseMirror')?.classList.contains('ProseMirror-focused') !== true`,
       ),
     );
   }
@@ -546,6 +546,20 @@ class AndroidNativeSyncClient {
     for (const name of SYNC_STATE_FILES) {
       this.device.removeFile(join(this.vaultPath, name));
     }
+    // Every deletion above went around the app, which has no filesystem watcher
+    // to notice it (docs/spec/sync.md — the desktop watcher has no Android
+    // counterpart). Without this restart only the FIRST scenario after an app
+    // launch runs against the vault the harness prepared: the second one
+    // inherits a note list naming files that no longer exist and a sync state
+    // describing a vault that is gone, and its notes then never appear however
+    // long the wait is. Measured: a second `--android-only` run on the same
+    // launch failed all six scenarios on delivery timeouts while the notes
+    // themselves were sitting in the vault on disk.
+    this.device.restart();
+    this.cdp = { port: null, pid: null };
+    await this.device.waitFor(`${this.name} to come back up`, UI_TIMEOUT_MS, () =>
+      this.device.isForeground(),
+    );
     await this.openNoteList();
   }
 

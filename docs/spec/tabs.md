@@ -50,6 +50,9 @@ shells are single-document. → TabsStrip.svelte, tabsStore.svelte.ts
 - Ctrl+Tab / Ctrl+Shift+Tab — next/previous tab (Ctrl+PageDown / Ctrl+PageUp
   as fallback; Cmd+Alt+Right/Left on macOS).
 - Ctrl/Cmd+1…9 — jump to tab N; 9 always jumps to the last tab.
-- Editor: Ctrl/Cmd+B bold, Ctrl/Cmd+I italic, Ctrl/Cmd+Shift+S strikethrough,
-  CM6 history undo/redo, Tab/Shift+Tab indent/dedent in lists. →
-  markdownToolbar.ts, listContinuation.ts
+- Editor: Ctrl/Cmd+B bold, Ctrl/Cmd+I italic, Ctrl/Cmd+E inline code,
+  Ctrl/Cmd+Alt+X strikethrough, Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z undo/redo,
+  Tab/Shift+Tab indent/dedent in lists, Ctrl/Cmd+Alt+1…6 headings. These come
+  from the editor's own keymaps, not from app chrome. →
+  `@milkdown/preset-commonmark`, `@milkdown/preset-gfm`,
+  `@milkdown/plugin-history`

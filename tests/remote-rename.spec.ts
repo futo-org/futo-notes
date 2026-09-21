@@ -1,12 +1,13 @@
 import { test, expect, Page } from '@playwright/test';
 
+import { EDITOR } from './lib/desktopEditor';
+
 async function openNewNote(page: Page): Promise<void> {
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');
   await page.goto('/#/note/new');
   await page.waitForLoadState('domcontentloaded');
-  await page.waitForSelector('.cm-editor', { timeout: 10000 });
-  await page.waitForSelector('.cm-content', { timeout: 10000 });
+  await page.waitForSelector(EDITOR, { timeout: 10000 });
 }
 
 async function seedRenamedNote(page: Page, id: string, content: string): Promise<void> {
@@ -43,7 +44,7 @@ test.describe('Remote Rename UX', () => {
     await seedNote(page, 'Old Title', 'Body content');
     await expect(page).toHaveURL(/#\/note\/Old%20Title$/);
     await expect(page.locator('.title-input')).toHaveValue('Old Title');
-    await expect(page.locator('.cm-content')).toContainText('Body content');
+    await expect(page.locator(EDITOR)).toContainText('Body content');
 
     await seedRenamedNote(page, 'Renamed Title', 'Body content');
 
@@ -83,7 +84,7 @@ test.describe('Remote Rename UX', () => {
 
     await expect(page).toHaveURL(/#\/note\/Renamed%20Title$/);
     await expect(page.locator('.title-input')).toHaveValue('Renamed Title');
-    await expect(page.locator('.cm-content')).toContainText('Body content');
+    await expect(page.locator(EDITOR)).toContainText('Body content');
     await expect(page.locator('.toast')).toHaveCount(0);
   });
 

@@ -17,8 +17,7 @@ export interface NoteSessionDeps {
   getEditorContent: () => string | undefined;
   setEditorContent: (text: string) => void;
   /** Points the editor at a note; a `null` id is an unsaved new note. */
-  openEditorNote: (noteId: string | null, text: string) => void;
-  forgetEditorNote: (noteId: string) => void;
+  openEditorNote: (text: string) => void;
   focusEditor: () => void;
   isEditorFocused: () => boolean;
   isComposing: () => boolean;
@@ -68,6 +67,8 @@ export interface NoteSession {
   seedOpenNote: (id: string, body: string) => void;
   cancelAndClear: () => void;
   applyExternalContent: (freshContent: string) => void;
+  /** Re-hands the open note to a newly created editor instance. */
+  reattachEditor: () => void;
   /** Replaces the saved-content base without changing the live editor buffer. */
   rebaseSavedContent: (freshContent: string) => void;
   applyRemoteRename: (toId: string, newTitle: string) => void;
@@ -153,7 +154,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       pendingNewFolder = null;
       deps.clearPendingFolder?.();
     },
-    getState: () => ({ title, originalId, savedTitle, savedContent }),
+    getState: () => ({ title, originalId, savedTitle, savedContent, content }),
     hasDuplicateTitle,
     isLoading: () => loading,
     showTitleWarning: (message) => titleController.showWarning(message, null),
@@ -194,10 +195,14 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     flushSave: saveQueue.flush,
     getNotes: deps.getNotes,
     getEditorContent: deps.getEditorContent,
+    /* `noteId` is the loader's own signal, not the editor's: this branch's
+     * `deps.openEditorNote` takes only the body. A null id opening over the
+     * `new` route is the one case that must remember the folder the note was
+     * created in, because `clearPendingFolder` runs before the first save. */
     openNote: (noteId, value) => {
       if (noteId === null && deps.getNoteId() === 'new')
         pendingNewFolder = deps.getPendingFolder?.() ?? null;
-      deps.openEditorNote(noteId, value);
+      deps.openEditorNote(value);
     },
     getNoteBody: deps.getNoteBody,
     focusEditor: deps.focusEditor,
@@ -225,6 +230,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     return editorHasUnseenChanges({
       editorContent: deps.getEditorContent(),
       savedContent,
+      content,
       title,
       savedTitle,
     });
@@ -263,6 +269,20 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     savedContent = freshContent;
   }
 
+  /**
+   * Re-hands the open note to a NEW editor instance.
+   *
+   * A replaced editor component mounts empty, under a session that still holds
+   * the note — a blank page over a file with content, and (before the editor's
+   * own guard) one flush away from writing that blank page to disk. Today only
+   * a dev hot reload swaps the instance; a `{#key}` or `{#if}` around the
+   * editor would do it in production, which is exactly why the recovery lives
+   * here rather than in a comment. → docs/spec/editor.md
+   */
+  function reattachEditor(): void {
+    deps.openEditorNote(content);
+  }
+
   function applyRemoteRename(toId: string, newTitle: string): void {
     originalId = toId;
     title = newTitle;
@@ -276,7 +296,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     savedTitle = id;
     content = body;
     savedContent = body;
-    deps.openEditorNote(id, body);
+    deps.openEditorNote(body);
     deps.setPrevNoteId(id);
     titleController.clearWarning();
     deps.navigate(`/note/${encodeURIComponent(id)}`);
@@ -286,8 +306,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     noteLoader.cancel();
     saveQueue.cancelPending();
     titleController.clearWarning();
-    if (originalId) deps.forgetEditorNote(originalId);
-    deps.openEditorNote(null, '');
+    deps.openEditorNote('');
     resetSessionState();
     deps.navigate('/');
   }
@@ -345,6 +364,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     seedOpenNote,
     cancelAndClear,
     applyExternalContent,
+    reattachEditor,
     rebaseSavedContent,
     applyRemoteRename,
   };

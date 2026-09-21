@@ -1,10 +1,116 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { BRIDGE_VERSION, postToHost } from './bridge';
+import {
+  BRIDGE_VERSION,
+  postToHost,
+  type CursorContextMessage,
+  type FutoEditorApi,
+  type FutoEditorOutboundMessage,
+} from './bridge';
 
 describe('futoBridge contract', () => {
   it('pins the contract version', () => {
     // Bumping this is a deliberate, breaking change — update all three hosts.
     expect(BRIDGE_VERSION).toBe(8);
+  });
+
+  it('ready message carries the version', () => {
+    const msg: FutoEditorOutboundMessage = { type: 'ready', version: BRIDGE_VERSION };
+    expect(msg).toEqual({ type: 'ready', version: 8 });
+  });
+
+  it('initialized message carries the version', () => {
+    const msg: FutoEditorOutboundMessage = { type: 'initialized', version: BRIDGE_VERSION };
+    expect(msg).toEqual({ type: 'initialized', version: 8 });
+  });
+
+  it('outbound messages are a discriminated union over `type`', () => {
+    const msgs: FutoEditorOutboundMessage[] = [
+      { type: 'ready', version: BRIDGE_VERSION },
+      { type: 'initialized', version: BRIDGE_VERSION },
+      { type: 'bridgeVersionMismatch', hostVersion: 7, bundleVersion: 8 },
+      { type: 'change', content: '# hi' },
+      { type: 'focus', focused: true },
+      { type: 'openNote', id: 'folder/note' },
+      { type: 'openUrl', url: 'https://futo.org' },
+      { type: 'pickImage', source: 'camera' },
+      { type: 'pickImage', source: 'library' },
+      { type: 'cursorContext', onListLine: true },
+      { type: 'saveImageData', data: 'aGk=', ext: 'png' },
+      { type: 'pasteClipboardImage' },
+    ];
+    expect(msgs.map((m) => m.type)).toEqual([
+      'ready',
+      'initialized',
+      'bridgeVersionMismatch',
+      'change',
+      'focus',
+      'openNote',
+      'openUrl',
+      'pickImage',
+      'pickImage',
+      'cursorContext',
+      'saveImageData',
+      'pasteClipboardImage',
+    ]);
+  });
+
+  it('cursorContext.inContainer is additive — present or absent, both compile', () => {
+    // A newer bundle sends both fields.
+    const withContainer: CursorContextMessage = {
+      type: 'cursorContext',
+      onListLine: false,
+      inContainer: true,
+    };
+    expect(withContainer.inContainer).toBe(true);
+    // An older bundle (or a message built before this field existed) sends
+    // only `onListLine` — hosts fall back to it when `inContainer` is absent.
+    const withoutContainer: CursorContextMessage = { type: 'cursorContext', onListLine: true };
+    expect(withoutContainer.inContainer).toBeUndefined();
+  });
+
+  it('FutoEditorApi surface is the eighteen host-callable methods', () => {
+    // A structural stand-in proves the shape compiles; the real impl lives in
+    // src/editor-embed/main.ts.
+    const api: FutoEditorApi = {
+      initialize: () => {},
+      setContent: () => {},
+      getContent: () => '',
+      focus: () => {},
+      blur: () => {},
+      setTheme: () => {},
+      setLanguage: () => {},
+      setNotes: () => {},
+      applyExternalContent: () => {},
+      insertImage: () => {},
+      setImageBaseUrl: () => {},
+      exec: () => {},
+      setNativeToolbar: () => {},
+      openFind: () => {},
+      setFindOverlayInset: () => {},
+      setFindQuery: () => {},
+      stepFind: () => {},
+      closeFind: () => {},
+    };
+    expect(Object.keys(api).sort()).toEqual([
+      'applyExternalContent',
+      'blur',
+      'closeFind',
+      'exec',
+      'focus',
+      'getContent',
+      'initialize',
+      'insertImage',
+      'openFind',
+      'setContent',
+      'setFindOverlayInset',
+      'setFindQuery',
+      'setImageBaseUrl',
+      'setLanguage',
+      'setNativeToolbar',
+      'setNotes',
+      'setTheme',
+      'stepFind',
+    ]);
   });
 });
 
