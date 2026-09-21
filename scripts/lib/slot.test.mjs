@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   ENV_NAMES,
   PORT_BASES,
+  devBundleId,
   PROBE_BAND,
   XPLAT_SYNC_BAND,
   envLines,
@@ -62,12 +63,20 @@ describe('portsFor', () => {
       sync: PORT_BASES.sync + slot,
       cdp: PORT_BASES.cdp + slot,
       mcp: PORT_BASES.mcp + slot,
+      coinTuner: PORT_BASES.coinTuner + slot,
     });
   });
 
   // /verify's SKILL.md publishes these ranges, so the literals are the contract.
   it('pins the published port bases', () => {
-    expect(PORT_BASES).toEqual({ tauriVite: 5200, web: 5250, sync: 3100, cdp: 9330, mcp: 9223 });
+    expect(PORT_BASES).toEqual({
+      tauriVite: 5200,
+      web: 5250,
+      sync: 3100,
+      cdp: 9330,
+      mcp: 9223,
+      coinTuner: 5300,
+    });
   });
 
   it('keeps the tauri-dev and web ranges disjoint so both can run at once', () => {
@@ -223,6 +232,7 @@ describe('CLI selectors', () => {
       sync: 'SYNC_PORT',
       cdp: 'CDP_PORT',
       mcp: 'FUTO_MCP_BASE_PORT',
+      coinTuner: 'COIN_TUNER_PORT',
     });
   });
 
@@ -295,5 +305,29 @@ describe('mcp bridge base port', () => {
 
   it('gives two different worktrees different bases', () => {
     expect(portsFor(ROOTS[0]).mcp).not.toBe(portsFor(ROOTS[1]).mcp);
+  });
+});
+
+// The regression this exists for: the identifier was `com.futo.notes.dev.wt<slot>`,
+// which ends in the slot, not in `.dev`. `Environment::for_bundle_id` matches the
+// SUFFIX, so every worktree dev build resolved to Production — it verified against
+// the production key and would have opened production checkout from Buy. Caught
+// 2026-09-10 while proving the environment-split buy destination on a dev build.
+describe('worktree dev bundle id', () => {
+  it('ends in .dev, which is what makes it a dev build (M3)', () => {
+    for (const root of ROOTS) {
+      expect(devBundleId(root).endsWith('.dev')).toBe(true);
+    }
+  });
+
+  it('is neither of the two shipping ids', () => {
+    for (const root of ROOTS) {
+      expect(devBundleId(root)).not.toBe('com.futo.notes');
+      expect(devBundleId(root)).not.toBe('com.futo.notes.dev');
+    }
+  });
+
+  it('gives two different worktrees different ids', () => {
+    expect(devBundleId(ROOTS[0])).not.toBe(devBundleId(ROOTS[1]));
   });
 });

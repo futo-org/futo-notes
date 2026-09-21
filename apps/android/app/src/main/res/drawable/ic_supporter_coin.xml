@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The FUTO supporter coin, static. The ONE source for this glyph is the flat
+     SVG path in src/features/license/SupporterCoin.svelte — desktop renders that
+     path (and turns a three.js coin on top of it), iOS carries it as a vector
+     imageset, and this is the Android copy. Registered in
+     scripts/drift-registry.json as `supporter-coin-glyph`: change one, change
+     all three in the same commit. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+  <path
+      android:fillType="evenOdd"
+      android:pathData="M24 2a22 22 0 1 1 0 44 22 22 0 0 1 0-44ZM21.511 16.589Q24 14.1 26.489 16.589L31.411 21.511Q33.9 24 31.411 26.489L26.489 31.411Q24 33.9 21.511 31.411L16.589 26.489Q14.1 24 16.589 21.511Z">
+    <aapt:attr name="android:fillColor">
+      <gradient
+          android:type="linear"
+          android:startX="0"
+          android:startY="0"
+          android:endX="48"
+          android:endY="48">
+        <item android:offset="0.0" android:color="#FFFFD24D" />
+        <item android:offset="0.55" android:color="#FFFFBB00" />
+        <item android:offset="1.0" android:color="#FFB8860B" />
+      </gradient>
+    </aapt:attr>
+  </path>
+</vector>

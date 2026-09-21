@@ -9,6 +9,7 @@
   import SearchPopup from '$features/search/SearchPopup.svelte';
   import SettingsScreen from '$features/settings/SettingsScreen.svelte';
   import DrawerSidebar from '$features/sidebar/DrawerSidebar.svelte';
+  import { license } from '$features/license/license.svelte';
   import type { SidebarView } from '$features/sidebar/components/SidebarViewSelector.svelte';
   import { clampSidebarWidth } from '$features/sidebar/sidebarWidth';
   import { createSyncManager } from '$features/sync/syncManager.svelte';
@@ -46,6 +47,9 @@
   let sidebarResizing = $state(false);
   let sidebarView = $state<SidebarView>(readSidebarView());
   let settingsOpen = $state(false);
+  // Which section Settings should reveal on open; the ambient license label is
+  // the only caller that asks for one.
+  let settingsSection = $state<'license' | null>(null);
   let searchOpen = $state(false);
   /** The editor instance the session's open note was last handed to. */
   let attachedEditor: EditorApi | undefined;
@@ -253,12 +257,15 @@
     },
   });
   const stopSync = sync.start();
+  // Read once, un-awaited: the license must never delay the first paint (M1).
+  const stopLicense = license.start();
   const stopShortcuts = registerNotesShellShortcuts({
     openSearch: () => {
       searchOpen = true;
     },
     createNote: () => createNewNote(),
     openSettings: () => {
+      settingsSection = null;
       settingsOpen = true;
     },
     toggleSidebar,
@@ -362,6 +369,7 @@
       stopNativeShell();
       stopShortcuts();
       stopSync();
+      stopLicense();
       stopTabsPersistence();
     };
   });
@@ -396,6 +404,11 @@
       onnewnoteinfolder={createNewNote}
       onhome={() => tabsStore.openNote(null, 'current')}
       onsettings={() => {
+        settingsSection = null;
+        settingsOpen = true;
+      }}
+      onopenlicense={() => {
+        settingsSection = 'license';
         settingsOpen = true;
       }}
       oncollapse={toggleSidebar}
@@ -473,6 +486,7 @@
 
 {#if settingsOpen}
   <SettingsScreen
+    initialSection={settingsSection}
     onclose={() => {
       settingsOpen = false;
     }}

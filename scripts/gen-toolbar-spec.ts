@@ -9,9 +9,9 @@
 //   apps/ios/Sources/Editor/GeneratedContracts/ToolbarSpec.swift    (consumed by EditorToolbar.swift)
 //   apps/android/app/src/main/java/com/futo/notes/ui/ToolbarSpec.kt (consumed by EditorToolbar.kt)
 
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { updateGeneratedFiles, type GeneratedTarget } from './lib/generated-files';
 import {
   TOOLBAR_GROUPS,
   TOOLBAR_DISMISS,
@@ -183,7 +183,7 @@ function renderKotlinFile(): string {
   ].join('\n');
 }
 
-const TARGETS: Array<{ rel: string; render: () => string }> = [
+const TARGETS: GeneratedTarget[] = [
   {
     rel: 'apps/ios/Sources/Editor/GeneratedContracts/ToolbarSpec.swift',
     render: renderSwiftFile,
@@ -194,27 +194,4 @@ const TARGETS: Array<{ rel: string; render: () => string }> = [
   },
 ];
 
-const mode = process.argv.includes('--check') ? 'check' : 'write';
-let stale = false;
-
-for (const target of TARGETS) {
-  const abs = path.join(ROOT, target.rel);
-  const next = target.render();
-  const current = fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : null;
-  if (current === next) {
-    console.log(`${target.rel}: up to date`);
-    continue;
-  }
-  if (mode === 'check') {
-    console.error(
-      `${target.rel} is STALE vs packages/editor/src/toolbar.ts — run \`just toolbar-spec\` and commit.`,
-    );
-    stale = true;
-  } else {
-    fs.mkdirSync(path.dirname(abs), { recursive: true });
-    fs.writeFileSync(abs, next);
-    console.log(`${target.rel}: written`);
-  }
-}
-
-if (stale) process.exit(1);
+updateGeneratedFiles(ROOT, TARGETS, 'packages/editor/src/toolbar.ts', 'toolbar-spec');

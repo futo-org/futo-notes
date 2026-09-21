@@ -32,6 +32,7 @@ owners.
 | `app_menu.rs`                              | macOS application menu; frontend items forwarded as `app-menu` events.               |
 | `window_reveal.rs`                         | Reveals the hidden window once the shell paints, with a timeout fallback.            |
 | `instance_journal.rs`                      | Installs the instance journal under the app data dir.                                |
+| `license.rs`                               | The paid-client-license projection: stored pair, the one activation request, and the `futonotes://` scheme. |
 | `background_tasks.rs`                      | Shared blocking-task boundary and uniform join/I/O error mapping.                    |
 | `system_trash.rs`                          | Recoverable delete with headless hard-delete fallback.                                |
 | `sync/*`                                   | Tauri wiring for the shared sync session/orchestrator.                                |

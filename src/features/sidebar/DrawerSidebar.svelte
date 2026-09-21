@@ -3,6 +3,7 @@
   import CreateFolderModal from '$features/folders/CreateFolderModal.svelte';
   import FolderPickerModal from '$features/folders/FolderPickerModal.svelte';
   import FolderTreeView from '$features/folders/FolderTreeView.svelte';
+  import SidebarLicenseFooter from '$features/license/SidebarLicenseFooter.svelte';
   import ContextMenu from './components/ContextMenu.svelte';
   import SidebarCreateActions from './components/SidebarCreateActions.svelte';
   import SidebarHeader from './components/SidebarHeader.svelte';
@@ -29,6 +30,7 @@
     onnewnoteinfolder: (folder: string) => void;
     onhome: () => void;
     onsettings: () => void;
+    onopenlicense: () => void;
     oncollapse: () => void;
     onopensearch: () => void;
     onresize: (width: number) => void;
@@ -52,6 +54,7 @@
     onnewnoteinfolder,
     onhome,
     onsettings,
+    onopenlicense,
     oncollapse,
     onopensearch,
     onresize,
@@ -147,6 +150,8 @@
   {:else}
     <SidebarImageView />
   {/if}
+
+  <SidebarLicenseFooter {onopenlicense} />
 
   {#if showResize}
     <div

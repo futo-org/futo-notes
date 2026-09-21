@@ -13,7 +13,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { slotOf } from './lib/slot.mjs';
+import { devBundleId } from './lib/slot.mjs';
 
 const USAGE = `Usage: just journal [command] [options]
 
@@ -64,12 +64,12 @@ function repoRoot() {
   }
 }
 
-// `just tauri-dev` gives each worktree its own bundle id (scripts/tauri-dev.mjs
-// derives the same slot); recompute it so this finds that instance's journal.
+// `just tauri-dev` gives each worktree its own bundle id; ask the one owner
+// for it rather than re-deriving, so this finds that instance's journal.
 function devWorktreeIdentifier() {
   const root = repoRoot();
   if (!root) return null;
-  return `com.futo.notes.dev.wt${slotOf(root)}`;
+  return devBundleId(root);
 }
 
 function isDirectory(path) {

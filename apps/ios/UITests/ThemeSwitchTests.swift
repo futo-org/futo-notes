@@ -13,7 +13,9 @@ final class ThemeSwitchTests: XCTestCase {
 
         let settingsBar = app.navigationBars["Settings"]
         XCTAssertTrue(settingsBar.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["Dark"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            scrollToAppearancePicker(app),
+            "The appearance picker never came into view in the Settings sheet")
 
         app.buttons["Dark"].tap()
         XCTAssertTrue(
@@ -34,6 +36,21 @@ final class ThemeSwitchTests: XCTestCase {
         XCTAssertTrue(
             waitForSheet(settingsBar, dark: false),
             "Settings sheet stayed dark after switching to Auto on a light device")
+    }
+
+    /// The License plate is the first section of Settings and is taller than a
+    /// phone screen has to spare, so the appearance picker starts below the
+    /// fold: scroll to it rather than assuming it is on screen. An off-screen
+    /// row is not in the accessibility tree at all, which is why this waits on
+    /// hittability and not on existence.
+    @MainActor
+    private func scrollToAppearancePicker(_ app: XCUIApplication) -> Bool {
+        let dark = app.buttons["Dark"]
+        for _ in 0..<8 {
+            if dark.exists && dark.isHittable { return true }
+            app.swipeUp()
+        }
+        return dark.exists && dark.isHittable
     }
 
     @MainActor

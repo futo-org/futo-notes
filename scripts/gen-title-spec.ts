@@ -13,9 +13,9 @@
 // What is generated: the visible forbidden characters, Unicode control ranges,
 // and MAX_TITLE_LENGTH shared by every implementation.
 
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { updateGeneratedFiles, type GeneratedTarget } from './lib/generated-files';
 import {
   FORBIDDEN_TITLE_CONTROL_RANGES,
   FORBIDDEN_TITLE_CHARS_VISIBLE,
@@ -109,7 +109,7 @@ function renderKotlinFile(): string {
   ].join('\n');
 }
 
-const TARGETS: Array<{ rel: string; render: () => string }> = [
+const TARGETS: GeneratedTarget[] = [
   {
     rel: 'apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift',
     render: renderSwiftFile,
@@ -120,27 +120,4 @@ const TARGETS: Array<{ rel: string; render: () => string }> = [
   },
 ];
 
-const mode = process.argv.includes('--check') ? 'check' : 'write';
-let stale = false;
-
-for (const target of TARGETS) {
-  const abs = path.join(ROOT, target.rel);
-  const next = target.render();
-  const current = fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : null;
-  if (current === next) {
-    console.log(`${target.rel}: up to date`);
-    continue;
-  }
-  if (mode === 'check') {
-    console.error(
-      `${target.rel} is STALE vs packages/editor/src/filename.ts — run \`just title-spec\` and commit.`,
-    );
-    stale = true;
-  } else {
-    fs.mkdirSync(path.dirname(abs), { recursive: true });
-    fs.writeFileSync(abs, next);
-    console.log(`${target.rel}: written`);
-  }
-}
-
-if (stale) process.exit(1);
+updateGeneratedFiles(ROOT, TARGETS, 'packages/editor/src/filename.ts', 'title-spec');

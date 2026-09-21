@@ -18,6 +18,10 @@ export const PORT_BASES = {
   // needs its own base to be free, and a stride of 1 kept two worktrees fighting
   // over 9223. Kept clear of cdp (9330+).
   mcp: 9223,
+  // `just coin-tuner`'s static server. Clear of web (5250+) so the tuner and a
+  // dev server can be up at once, which is the normal case: you tune the coin
+  // against the real app beside it.
+  coinTuner: 5300,
 };
 
 // The cross-platform sync harness is the one consumer that needs a RANGE, not a
@@ -51,6 +55,22 @@ export const PROBE_BAND = {
 export function slotOf(root) {
   const hex = createHash('md5').update(root).digest('hex').slice(0, 8);
   return parseInt(hex, 16) % SLOTS;
+}
+
+/**
+ * The bundle identifier `just tauri-dev` gives this worktree's instance.
+ *
+ * The `.dev` suffix has to stay LAST. It IS the dev/prod split the license
+ * crate reads off the bundle id (AGENTS.md M3, `Environment::for_bundle_id`),
+ * and an id that merely CONTAINS `.dev` resolves to PRODUCTION — the
+ * fail-closed direction there, but the wrong answer for a dev build. This was
+ * `com.futo.notes.dev.wt<slot>`, so every worktree dev build verified against
+ * the production key, and once the buy destination became environment-split it
+ * would have sent a developer to production checkout. The slot is here for
+ * uniqueness (D-Bus single-instance), so it goes in the middle.
+ */
+export function devBundleId(root) {
+  return `com.futo.notes.wt${slotOf(root)}.dev`;
 }
 
 /** The port band tests/cross-platform-sync.mjs may allocate from. */
@@ -96,6 +116,7 @@ export const ENV_NAMES = {
   sync: 'SYNC_PORT',
   cdp: 'CDP_PORT',
   mcp: 'FUTO_MCP_BASE_PORT',
+  coinTuner: 'COIN_TUNER_PORT',
 };
 
 export function envLines(root) {

@@ -17,6 +17,18 @@
 
 
 - The app version is shown.
+- **License**: the License card (Unlicensed / Licensed / Expired, Buy, Enter
+  license key, Remove) follows [license.md](license.md). On the native shells it
+  is the first thing at the top of Settings; on desktop the ambient label lives in
+  the list view and opens Settings here. *(desktop)* The License section sits
+  after Updates and before the Danger zone, and **Full reset** clears the stored
+  license along with every other preference. →
+  `src/features/license/LicenseSettingsSection.svelte`, SettingsScreen.svelte
+  (`initialSection`), `deleteAllNotes` in `src/features/notes/notes.svelte.ts`
+  *(android)* The License group is the first group of `SettingsScreen`, and the
+  Danger-zone confirm clears the stored license with the vault. →
+  `apps/android/app/src/main/java/com/futo/notes/ui/LicenseSettingsSection.kt`,
+  `SettingsScreen.kt`, `license/LicenseModel.clearForFullReset`
 
 ## Native shells
 

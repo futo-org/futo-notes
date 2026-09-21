@@ -98,6 +98,11 @@ if [ "$ALREADY_RUNNING" = false ]; then
   # The `s` prefix on the slot is required: D-Bus well-known names cannot have
   # segments starting with a digit; tauri-plugin-single-instance panics on
   # `.47`, accepts `.s47`.
+  # The trailing `.dev` is NOT decoration: `Environment::for_bundle_id` picks
+  # staging vs production off that literal suffix (M3), so an id ending in the
+  # slot puts the QA instance on the PRODUCTION license key and the production
+  # buy destination — a staging-signed fixture then fails as "invalid" while
+  # every test stays green (pc_a028e420f16d).
   # NOTE: use Bash run_in_background instead of shell `&` — `$!` does not
   # expand correctly inside the Bash tool.
   # FUTO_NOTES_DATA_DIR isolates notes/app data per worktree — the debug
@@ -108,7 +113,7 @@ if [ "$ALREADY_RUNNING" = false ]; then
     FUTO_NOTES_DATA_DIR="$WORKTREE_ROOT/.tauri-data" \
     cargo tauri dev \
       --config src-tauri/tauri.dev.conf.json \
-      --config '{"identifier":"com.futo.notes.verify.s'"$SLOT"'","build":{"beforeDevCommand":"npm run dev --prefix ../.. -- --host 127.0.0.1 --port '"$VITE_PORT"' --strictPort","devUrl":"http://127.0.0.1:'"$VITE_PORT"'"}}' \
+      --config '{"identifier":"com.futo.notes.verify.s'"$SLOT"'.dev","build":{"beforeDevCommand":"npm run dev --prefix ../.. -- --host 127.0.0.1 --port '"$VITE_PORT"' --strictPort","devUrl":"http://127.0.0.1:'"$VITE_PORT"'"}}' \
     > "$TAURI_LOG" 2>&1 &
   echo $! > "$PID_FILE"
   # First build ~60s; rebuilds ~20s.

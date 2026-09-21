@@ -70,6 +70,7 @@ const GATES = {
   'title-spec': ['node_modules/.bin/tsx', ['scripts/gen-title-spec.ts', '--check']],
   'bridge-spec': ['node_modules/.bin/tsx', ['scripts/gen-bridge-spec.ts', '--check']],
   'theme-single-pace': ['node', ['scripts/check-theme-single-pace.mjs']],
+  'supporter-coin-glyph': ['node', ['scripts/check-supporter-coin-glyph.mjs']],
   'rust-dependency-boundaries': ['node', ['scripts/check-rust-dependency-boundaries.mjs']],
 };
 
@@ -308,6 +309,23 @@ const PROOFS = [
     expect: ['.claude/skills/redproof-sentinel-skill', 'fresh clone'],
     absent: ['no such justfile recipe'],
     fix: 'validateSkillLinks()/listSkillEntries() in scripts/check-agent-docs.mjs stopped stat-ing skill symlinks — a committed link into a gitignored directory loads in exactly one checkout and is dead everywhere else.',
+  },
+  {
+    gate: 'supporter-coin-glyph',
+    id: 'one-shell-drawn-a-different-coin',
+    seeded: "narrowed the diamond in Android's ic_supporter_coin.xml, leaving the other two copies",
+    claim:
+      'a supporter-coin copy that stops matching the derived glyph must fail — this is the exact shape of the bug that shipped a pinched figure-eight on both native shells while desktop, which draws the three.js coin over its copy, looked fine',
+    inject: (wt) =>
+      seed.replace(
+        wt,
+        'apps/android/app/src/main/res/drawable/ic_supporter_coin.xml',
+        'Q24 14.1 26.489 16.589',
+        'Q24 14.1 25.2 16.589',
+      ),
+    expect: ['ic_supporter_coin.xml', 'expected', 'actual'],
+    absent: ['SupporterCoin.svelte:'],
+    fix: 'scripts/check-supporter-coin-glyph.mjs stopped comparing every copy against the derived path — the coin can silently go back to being three different shapes, and only the two native shells would show it.',
   },
   {
     gate: 'theme-single-pace',

@@ -64,6 +64,25 @@
   html.desktop-chrome a[href^='mailto'] {
     cursor: pointer !important;
   }
+
+  /* The supporter coin is a physical object you can turn with the pointer, and
+     grab/grabbing is the one cursor pair that says so. `supporterCoin.ts` sets
+     the attribute rather than the cursor, because an inline cursor loses to the
+     sweep above. */
+  html.desktop-chrome .supporter-coin-stage {
+    cursor: grab !important;
+  }
+
+  html.desktop-chrome .supporter-coin-stage[data-turning='true'] {
+    cursor: grabbing !important;
+  }
+
+  /* The revealed license key is the one piece of text outside the editor a user
+     is meant to select — there is no Copy button, by design — and in an app
+     where nothing else selects, the I-beam is the only thing that says so. */
+  html.desktop-chrome .license-key:not(.license-key-masked) {
+    cursor: text !important;
+  }
 }
 
 /* macOS "Reduce Motion" (System Settings ▸ Accessibility ▸ Display). A native

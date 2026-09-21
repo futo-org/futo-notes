@@ -50,6 +50,7 @@ once the Rust oracle is built; it needs `cargo`, so it runs in the
 | `wikilinks.json`   | wikilinks | `resolveWikilink`, `shortestUniqueSuffix`, `rewriteWikilinks`                                                                                                                                                      | `src/shared/note/wikilinks.ts`         | `futo-notes-model/src/wikilinks.rs`                                           |
 | `server-url.json`  | —         | `validateServerUrl`                                                                                                                                                                                                | `src/features/sync/syncServiceE2ee.ts` | **none — see below**                                                          |
 | `path-safety.json` | —         | note-id acceptance                                                                                                                                                                                                 | `src/lib/platform/pathSafety.ts`       | `futo-notes-core/src/files/paths.rs`                                          |
+| `license.json`     | —         | the paid client license: key grammar, input shapes, deep link, v2 activation verification, entry                                                                                                    | **none — see below**                   | `futo-notes-license`                                                          |
 | `constants.json`   | —         | shared scalars                                                                                                                                                                                                     | several                                | several                                                                       |
 
 `op` names are the language-neutral verbs every binding dispatches on. Renaming one
@@ -59,7 +60,8 @@ specs in the same commit.
 Who asserts what:
 
 - Rust goldens → `crates/futo-notes-model/tests/conformance.rs`
-  (`crates/futo-notes-core/tests/path_safety_conformance.rs` for path safety).
+  (`crates/futo-notes-core/tests/path_safety_conformance.rs` for path safety,
+  `crates/futo-notes-license/tests/conformance.rs` for the license).
 - TypeScript goldens → `packages/editor/src/conformance.test.ts`,
   `src/lib/platform/pathSafety.test.ts`, `src/lib/constantsConformance.test.ts`,
   `src/features/sync/syncServiceE2ee.test.ts`.
@@ -132,6 +134,15 @@ A differential that skips something quietly is worse than no differential (M11):
   reachable from Node there is nothing to differentiate against — for this rule the
   fixture _is_ the lock. Growing it means also bumping the hard-coded case count in
   `SyncManagerDefaultsTest.kt` and re-running both native suites.
+- **`license.json`.** The license rules exist once, in `futo-notes-license`: nothing about
+  parsing, RSA verification, expiry, or the deep link is per-keystroke work, so AGENTS.md M6
+  forbids a TypeScript, Swift, or Kotlin copy and there is no second implementation to
+  differentiate against. The shells reach the rules through Tauri and UniFFI. The fixture carries a
+  test-only RSA key pair, so the v2 FUTOpay activation contract is provable before lib-polar ships
+  it; `scripts/gen-license-fixture.mjs` derives the signatures (and only the signatures) that a
+  reviewer cannot author by hand. Locked by
+  `crates/futo-notes-license/tests/conformance.rs`.
+
 - **`path-safety.json`.** `safe_note_path` takes a vault root and returns a resolved
   path, so it is not answerable through the pure `futo-notes-model` oracle. Locked by
   the fixture plus the TS and Rust tests listed above.

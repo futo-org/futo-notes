@@ -159,9 +159,13 @@
         {
           "path": "apps/ios/Tests/Localization/LocalizationTests.swift",
           "kind": "test"
+        },
+        {
+          "path": "src/shared/localization/localization.test.ts",
+          "kind": "test"
         }
       ],
-      "note": "Partial, not locked: tests/localization/cases.json is a happy-path fixture. It does NOT cover missing messages, missing or invalid plural arguments, =N exact selectors, {{ }} escaping, unmatched braces, alias matching, or the generic-catalog fallback hop, so the three interpreters can diverge on any of those without the fixture noticing. A real divergence already existed on this axis: localization.ts falls back regionalLanguageTag ?? requestedLanguageTag when no regional tag is supplied, while both shells pass the regional tag straight through — every fixture message case supplies regionalLanguageTag, so the fixture is structurally unable to see it. Extend cases.json to those error paths before claiming locked."
+      "note": "Partial, not locked: tests/localization/cases.json is a happy-path fixture. It does NOT cover missing messages, missing or invalid plural arguments, =N exact selectors, {{ }} escaping, unmatched braces, alias matching, or the generic-catalog fallback hop, so the three interpreters can diverge on any of those without the fixture noticing. A real divergence already existed on this axis: localization.ts falls back regionalLanguageTag ?? requestedLanguageTag when no regional tag is supplied, while both shells pass the regional tag straight through — every fixture message case supplies regionalLanguageTag, so the fixture is structurally unable to see it. Extend cases.json to those error paths before claiming locked. localizedAbsoluteDate/localizedYear (the License row's dates, localization.md) are NOT in cases.json either — the platforms' date formatters differ in separators — so each adapter locks them with the same two assertions of its own: src/shared/localization/localization.test.ts, apps/ios/Tests/Localization/LocalizationTests.swift and apps/android/app/src/androidTest/java/com/futo/notes/localization/AndroidLocalizationTest.kt (Android's went in with its caller, the License row)."
     },
     {
       "concept": "notes-root-triplet",
@@ -550,6 +554,149 @@
         "extensions": [".ts", ".swift", ".kt"],
         "pattern": "(PRODUCTION_BASE_URL|productionBaseUrl)\\b"
       }
+    },
+    {
+      "concept": "license-card-copy",
+      "description": "How a license state reads on the License card: the badge, the `Licensed since` date, the term and the masked key each shell renders — which `license.*` catalog entry a state selects, formatting issued_at and expires_at as absolute dates, and masking the stored key to its last group — a mask that is the key's own length, with its hyphens left in place, so a monospace reveal swaps glyph for glyph without moving anything. The license RULES are Rust's alone (futo-notes-license, projected through Tauri and UniFFI) and are NOT duplicated; this is the per-shell view-model on top of the already-judged state, which each shell must write in its own UI language.",
+      "lockStatus": "partial",
+      "note": "Partial: all three copies build the same five-field card model from the same `license.*` catalog entries for the same states, including the identical Expired-without-dates fallback and the identical key mask, and each has its own test doing so — but there is no shared fixture pinning them to identical OUTPUT, because the platforms' date formatters legitimately differ in spacing and separators and each renders the date with its own locale engine. Android's lock is an instrumented test rather than a unit test, because its dates go through android.icu, which a JVM test does not have.",
+      "copies": [
+        {
+          "location": "src/features/license/licenseCopy.ts",
+          "pattern": "export function licenseCardModel"
+        },
+        {
+          "location": "apps/ios/Sources/License/LicenseCopy.swift",
+          "pattern": "func licenseCardModel"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/license/LicenseCopy.kt",
+          "pattern": "fun licenseCardModel"
+        }
+      ],
+      "locks": [
+        {
+          "path": "src/features/license/licenseCopy.test.ts",
+          "kind": "test"
+        },
+        {
+          "path": "apps/ios/Tests/License/LicenseCopyTests.swift",
+          "kind": "test"
+        },
+        {
+          "path": "apps/android/app/src/androidTest/java/com/futo/notes/license/LicenseCopyTest.kt",
+          "kind": "test"
+        }
+      ],
+      "scan": {
+        "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
+        "extensions": [".ts", ".swift", ".kt"],
+        "pattern": "(function licenseCardModel|func licenseCardModel|fun licenseCardModel)\\b"
+      }
+    },
+    {
+      "concept": "supporter-coin-glyph",
+      "description": "The FUTO supporter coin glyph: a gold-gradient disc with the diamond punched through it (evenOdd), viewBox 0 0 48 48, stops #ffd24d / #ffbb00 / #b8860b at 0 / 55% / 100%. One path, three renderings — desktop as inline SVG, iOS as a vector imageset, Android as a vector drawable. Since 2026-09-16 all three are FALLBACKS ONLY: every shell renders the Blender model (assets/coin/) and falls back to this flat glyph when the 3D renderer cannot start. It is artwork, not logic: the shells cannot share a file because each platform needs the glyph in its own asset format.",
+      "lockStatus": "locked",
+      "note": "LOCKED by scripts/check-supporter-coin-glyph.mjs, which DERIVES the glyph from the coin's own constants (disc radius 22 in a 48 box; diamond half-diagonal 0.45 of it, corners 0.16) and asserts all three copies carry that exact path. This entry previously claimed no gate could compare an inline SVG path, an .xcassets .svg and an Android <vector> pathData -- true for visual equivalence in general, false here, because the three carry the byte-identical string and the shape is computable. The cost of believing it: all three shipped a hand-drawn pinched figure-eight instead of the FUTO diamond. Those same constants are now ALSO the Blender model's (assets/coin/build-coin.py OUTER_RADIUS / DIAMOND_HALF / CORNER_RADIUS), so changing the coin's shape means changing the script, the gate and all three glyph copies in one commit -- paste `node scripts/check-supporter-coin-glyph.mjs --print` into the three files and run `just coin`. The glyph is reached less often than it used to be, which makes it EASIER to ship a wrong one unnoticed, not harder.",
+      "copies": [
+        {
+          "location": "src/features/license/SupporterCoin.svelte",
+          "pattern": "supporter-coin-face"
+        },
+        {
+          "location": "apps/ios/Assets.xcassets/SupporterCoin.imageset/supporter-coin.svg",
+          "pattern": "supporter-coin-face"
+        },
+        {
+          "location": "apps/android/app/src/main/res/drawable/ic_supporter_coin.xml",
+          "pattern": "ic_supporter_coin|FFFFD24D"
+        }
+      ],
+      "locks": [
+        {
+          "path": "scripts/check-supporter-coin-glyph.mjs",
+          "kind": "gate"
+        }
+      ]
+    },
+    {
+      "concept": "license-row-actions",
+      "description": "Which controls the License row offers in each state (docs/spec/license.md § States and copy). The native shells do NOT decide this: they render `license_row_actions`, which also owns what LICENSE_LINK_OUT hides. Desktop, which landed first and has no LICENSE_LINK_OUT, still derives its two buttons inline in Svelte.",
+      "lockStatus": "partial",
+      "note": "Partial: the Rust side is a golden (`the_row_actions_are_the_specified_table`, `link_out_false_hides_every_way_out_of_the_app_and_nothing_else`) and both native shells read it — iOS through `licenseRowActions(status:linkOut:)`, Android through `LicenseModel.actions()` — so they cannot drift from each other. The desktop Svelte copy is covered only by the spec table it was written from.",
+      "copies": [
+        {
+          "location": "crates/futo-notes-ffi/src/license/contract.rs",
+          "pattern": "pub fn license_row_actions"
+        },
+        {
+          "location": "src/features/license/LicenseSettingsSection.svelte",
+          "pattern": "license\\.renew"
+        }
+      ],
+      "locks": [
+        {
+          "path": "crates/futo-notes-ffi/src/license/contract.rs",
+          "kind": "test"
+        }
+      ]
+    },
+    {
+      "concept": "supporter-coin-motion",
+      "description": "How the supporter coin is framed and turned, once per shell. The MODEL is shared (assets/coin/futo-coin.glb / .usdz) and so is the studio that lights it, but each renderer is handed the numbers separately: resting spin 1.25 rad/s, spin decay 2.6, 0.018 radians per pixel/dp/point of drag, flick clamped to 0.6..24 rad/s, tilt 0.24 rad, a 30 degree vertical field of view at distance 1.55, and a frame-delta clamp of 1/20 s. Since 2026-09-18 also the TAP QUEUE: one full turn owed per tap, paid back at 3 rad/s per radian owed, clamped to 2..26 rad/s, settled below 0.01 rad, and a tap recognised as a press that moved 5px/dp/pt or less and lasted 400ms or less. Also the orientation LAW: tilt about X first, then spin about Y, so the coin turns on a fixed tilted spindle rather than wobbling.",
+      "lockStatus": "partial",
+      "note": "Partial: the orientation law is locked on Android by SupporterCoinTest (`the spindle does not move as the coin turns`) and on iOS by SupporterCoinTests, which is the one way to get this wrong that still looks plausible on a still screenshot -- composing tilt and spin in the other order swings the spindle and the coin wobbles like a dropped hubcap. TypeScript writes the same law as pivot.rotation.x/y, untested, so it can still drift from the two native shells. The TAP QUEUE is locked on all three: `supporterCoin.test.ts`, `SupporterCoinTest` and `SupporterCoinTests` each run the debt frame by frame and insist ten taps deliver ten turns; all three were red-proved against the restart-per-tap model they replaced. The motion constants themselves are unlocked everywhere: nothing but you keeps the three in step, so touch all three in one commit and say so. Note that the per-shell LIGHT LEVEL is deliberately NOT shared -- Filament measures indirect light in different units than three.js and RealityKit -- but all three are calibrated against the SAME reference, the desktop renderer at exposure 1.0 (@justin 2026-09-18: 'desktop is just right'). Desktop TONE_MAPPING_EXPOSURE 1.0, Android IBL_INTENSITY 1.25, iOS coinLightExponent -0.75. The previous Android 4.5 came from a false premise -- its comment claimed cmgen normalises the cubemap, and it does not: studio-env-ibl.ktx carries absolute radiance (mean 3.41 vs the .hdr's 3.15, peak 47.0 vs 46.75). Re-measure all three together, never one alone; the method is in each constant's comment and the desktop half is `just coin-tuner`.",
+      "copies": [
+        {
+          "location": "src/features/license/supporterCoin.ts",
+          "pattern": "const BASE_SPIN"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/ui/SupporterCoin.kt",
+          "pattern": "BASE_SPIN"
+        },
+        {
+          "location": "apps/ios/Sources/License/SupporterCoin.swift",
+          "pattern": "let baseSpin"
+        }
+      ],
+      "locks": [
+        {
+          "path": "apps/android/app/src/test/java/com/futo/notes/ui/SupporterCoinTest.kt",
+          "kind": "test"
+        },
+        {
+          "path": "apps/ios/Tests/License/SupporterCoinTests.swift",
+          "kind": "test"
+        },
+        {
+          "path": "src/features/license/supporterCoin.test.ts",
+          "kind": "test"
+        }
+      ]
+    },
+    {
+      "concept": "coin-studio-environment",
+      "description": "The studio the supporter coin's gold reflects: a dark floor, a soft bright ceiling, and five lamps (front box, key, right box, fill, kicker) given as direction, cone tightness, intensity and colour. assets/coin/build-coin.py generates studio-env.hdr from it in numpy; scripts/lib/studio-env.mjs runs the same arithmetic so `just coin-tuner` can rebuild the room live while a slider moves, and so the room can be checked at all in CI, which has no Blender. The .hdr is the only thing the three shells ever see — desktop and iOS read it directly, Android reads the cubemap cmgen prefilters from it.",
+      "lockStatus": "locked",
+      "note": "LOCKED by scripts/check-coin-assets.mjs (just coin-check / just check), which rebuilds the studio with the JS copy's SHIPPED numbers, decodes the .hdr on disk, and fails if any pixel disagrees by a full RGBE quantisation step. The format truncates to a per-pixel step, so a faithful port lands at 0.99998 steps and the gate's threshold of 1 sits immediately above it; red-proved by moving one lamp's intensity 46.0 -> 45.0, which reports 5.122 steps. This is the one duplicate here that CI can fully verify without Blender, because the environment half of the coin is pure arithmetic while the mesh half is not. Change the Python and the JS in one commit, then run `just coin` (and scripts/build-coin-ibl.mjs, which the manifest's ibl block gates).",
+      "copies": [
+        {
+          "location": "assets/coin/build-coin.py",
+          "pattern": "def build_environment"
+        },
+        {
+          "location": "scripts/lib/studio-env.mjs",
+          "pattern": "export function buildStudioEnvironment"
+        }
+      ],
+      "locks": [
+        {
+          "path": "scripts/check-coin-assets.mjs",
+          "kind": "gate"
+        }
+      ]
     }
   ]
 }

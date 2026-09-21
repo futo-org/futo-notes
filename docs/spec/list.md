@@ -171,6 +171,10 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
 - **Tauri** keeps its own model: a **tabbed folder tree** sidebar (files / tags /
   images — see [Sidebar tabs](#sidebar-tabs-tauri)) with no "All notes" row and
   no per-folder note counts. → DrawerSidebar.svelte / FolderTreeView.svelte
+- *(desktop)* The sidebar/list footer carries the ambient license label
+  ("Unlicensed", and nothing at all once Licensed) and nothing else — the app
+  version no longer shares that line; clicking it opens Settings at the License
+  section. See [license.md](license.md).
 
 ## Sidebar drag & drop _(desktop)_
 
@@ -227,9 +231,8 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
 
 ## Note actions (menu)
 
-- An open note's overflow menu offers: **Graph view** (stub — toast
-  "coming soon"), **Copy file path** (full filesystem path to clipboard),
-  **Move to folder**, **Delete note**. → NotesShell.svelte note menu
+- An open note's overflow menu offers: **Copy file path** (full filesystem path to
+  clipboard), **Move to folder**, **Delete note**. → NotesShell.svelte note menu
 - "Move to folder" opens a folder picker (root "Notes" + folder tree, nesting
   shown); picking a destination moves the file, keeps the note open under its
   new id, and rewrites backlinks. → FolderPickerModal.svelte

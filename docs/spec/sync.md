@@ -1224,7 +1224,7 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   > `futo-notes-ffi`, so a native shell's runs are not recorded and `just
 journal --dir` has nothing to read from a phone.
   > **Gap:** The desktop scheduler's own triggers are not distinguishable in the
-  > record. Launch, poll, resume and local-save all reach Rust through the one
+  > record. Launch, poll, and resume all reach Rust through the one
   > `e2ee_sync_run` command and are journaled as `manual`, so a cycle cannot be
   > told apart from a user pressing "Sync now"; only the live loop's four
   > triggers are recorded faithfully.

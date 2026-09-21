@@ -5,13 +5,12 @@
     open: boolean;
     ontoggle: () => void;
     onclose: () => void;
-    ongraphview: () => void;
     oncopypath: () => void;
     onmove: () => void;
     ondelete: () => void;
   }
 
-  let { open, ontoggle, onclose, ongraphview, oncopypath, onmove, ondelete }: Props = $props();
+  let { open, ontoggle, onclose, oncopypath, onmove, ondelete }: Props = $props();
 </script>
 
 <div class="note-menu-anchor">
@@ -39,9 +38,6 @@
       }}
     ></div>
     <div class="note-menu-dropdown" role="menu">
-      <button role="menuitem" onclick={ongraphview}
-        >{localizedText('notes.actions.graphView')}</button
-      >
       <button role="menuitem" onclick={oncopypath}
         >{localizedText('notes.actions.copyFilePath')}</button
       >

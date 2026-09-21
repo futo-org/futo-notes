@@ -26,6 +26,7 @@ describe('Rust dependency boundaries', () => {
       ['futo-notes-core', 'serde'],
       ['futo-notes-model', 'serde'],
       ['futo-notes-sync', 'futo-notes-core'],
+      ['futo-notes-license', 'ring'],
       ['futo-notes-ffi', 'futo-notes-search'],
       ['futo-notes-search', 'tantivy'],
     ]);
@@ -56,6 +57,7 @@ describe('Rust dependency boundaries', () => {
       ['futo-notes-model', 'helper'],
       ['helper', 'ort', 'dev'],
       ['futo-notes-sync', 'futo-notes-core'],
+      ['futo-notes-license', 'tantivy', 'dev'],
       ['futo-notes-ffi', 'serde'],
     ]);
 

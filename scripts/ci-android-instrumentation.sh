@@ -8,7 +8,16 @@ set -euo pipefail
 # shellcheck source=scripts/ci-android-emulator.sh
 source "$CI_PROJECT_DIR/scripts/ci-android-emulator.sh"
 
-RESULTS_DIR="$CI_PROJECT_DIR/apps/android/app/build/outputs/androidTest-results/connected/debug"
+# AGP writes connected-test results under a per-variant subdirectory whose
+# name it owns, and product flavors renamed it (it was `connected/debug` before
+# the direct/play split). Search the `connected` root instead of guessing the
+# leaf: the whole tree is wiped immediately before the run, so nothing stale can
+# be mistaken for this run's results, and an AGP rename can no longer turn a
+# real pass into a spurious red. (Measured: AGP 8.x writes
+# connected/debug/flavors/direct/<device>/, not connected/directDebug.) WHICH
+# variant ran is pinned by the gradle task below, not by this path; the search
+# only proves that tests actually executed (M11).
+RESULTS_DIR="$CI_PROJECT_DIR/apps/android/app/build/outputs/androidTest-results/connected"
 
 report_failure() {
   local status=$?
@@ -29,13 +38,14 @@ rm -rf "$RESULTS_DIR"
 "$CI_PROJECT_DIR/apps/android/gradlew" \
   --project-dir "$CI_PROJECT_DIR/apps/android" \
   --no-daemon \
-  :app:connectedDebugAndroidTest
+  :app:connectedDirectDebugAndroidTest
 
 result_file="$(find "$RESULTS_DIR" -name 'TEST-*.xml' -type f -print -quit 2>/dev/null || true)"
 if [[ -z "$result_file" ]]; then
-  echo "ERROR: connectedDebugAndroidTest produced no JUnit XML under $RESULTS_DIR" >&2
+  echo "ERROR: connectedDirectDebugAndroidTest produced no JUnit XML under $RESULTS_DIR" >&2
   exit 1
 fi
+echo "Android instrumentation results found at: $(dirname "$result_file")"
 if ! grep -rq '<testcase' "$RESULTS_DIR"; then
   echo "ERROR: Android instrumentation results contain no testcases" >&2
   exit 1

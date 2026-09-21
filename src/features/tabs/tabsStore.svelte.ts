@@ -184,13 +184,7 @@ export const tabsStore = {
   },
 
   newTab(): Tab {
-    const tab: Tab = { id: newId(), noteId: null };
-    const activeIdx = findIndex(_activeTabId);
-    const insertAt = activeIdx === -1 ? _tabs.length : activeIdx + 1;
-    _tabs.splice(insertAt, 0, tab);
-    _activeTabId = tab.id;
-    persist();
-    return tab;
+    return this.openNote(null, 'foreground');
   },
 
   closeTab(id: string): void {
@@ -258,13 +252,7 @@ export const tabsStore = {
   reopenLastClosed(): Tab | null {
     const restored = _recentlyClosed.shift();
     if (!restored) return null;
-    const tab: Tab = { id: newId(), noteId: restored.noteId };
-    const activeIdx = findIndex(_activeTabId);
-    const insertAt = activeIdx === -1 ? _tabs.length : activeIdx + 1;
-    _tabs.splice(insertAt, 0, tab);
-    _activeTabId = tab.id;
-    persist();
-    return tab;
+    return this.openNote(restored.noteId, 'foreground');
   },
 
   moveTab(fromIdx: number, toIdx: number): void {

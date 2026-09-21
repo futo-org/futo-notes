@@ -11,6 +11,8 @@ export { createDesktopLocalization, desktopLocalization } from './desktopLocaliz
 export const localizedText = desktopLocalization.localizedText;
 export const localizedFileSize = desktopLocalization.localizedFileSize;
 export const localizedRelativeTime = desktopLocalization.localizedRelativeTime;
+export const localizedAbsoluteDate = desktopLocalization.localizedAbsoluteDate;
+export const localizedYear = desktopLocalization.localizedYear;
 
 export function resolveLocalizedMessage(message: LocalizedMessage): string {
   return desktopLocalization.localizedText(message.path, message.arguments);

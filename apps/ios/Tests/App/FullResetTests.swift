@@ -24,12 +24,32 @@ struct FullResetTests {
             },
             resetStore: {
                 await recorder.append("reset")
-            }
+            },
+            clearLicense: {}
         )
 
         #expect(
             await recorder.events == ["disconnect-start", "disconnect-finished", "reset"]
         )
+    }
+
+    /// The license is a preference, and Full reset wipes preferences
+    /// (docs/spec/license.md § Storage). It runs last: nothing above it depends
+    /// on the license, and clearing it cannot fail.
+    @Test("the stored license is wiped, after the vault")
+    func clearsTheLicense() async throws {
+        final class Trail: @unchecked Sendable {
+            var events: [String] = []
+        }
+
+        let trail = Trail()
+        try await performFullReset(
+            disconnectSync: { trail.events.append("disconnect") },
+            resetStore: { trail.events.append("reset") },
+            clearLicense: { trail.events.append("license") }
+        )
+
+        #expect(trail.events == ["disconnect", "reset", "license"])
     }
 
     @Test("admission closes before disconnect and reset failures propagate")
@@ -43,13 +63,14 @@ struct FullResetTests {
                 resetStore: {
                     events.append("reset")
                     throw ResetFailure.disk
-                }
+                },
+                clearLicense: { events.append("license") }
             )
             Issue.record("reset failure was swallowed")
         } catch {
             #expect(error is ResetFailure)
         }
+        // No "license": a reset that failed did not wipe preferences either.
         #expect(events == ["closed", "disconnected", "reset"])
     }
-
 }

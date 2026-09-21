@@ -175,7 +175,6 @@
     open={actions.menuOpen}
     ontoggle={actions.toggleMenu}
     onclose={actions.closeMenu}
-    ongraphview={actions.graphView}
     oncopypath={actions.copyFilePath}
     onmove={actions.openMovePicker}
     ondelete={actions.deleteCurrentNote}
