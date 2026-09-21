@@ -1180,3 +1180,8 @@ Gap it closes so a later pass can grep for it.
   `NoteEditorScreen.kt` hands it `rememberCoroutineScope()` — a plain, non-supervisor `Job` — so an
   uncaught non-cancellation exception from an `EditorExitEffects` method still crashes the app;
   needs a `CoroutineExceptionHandler` or a supervisor scope.
+- **Android `insertImageWithinDeadline` timeout (6s) with a BUSY rather than dead renderer:** the
+  queued `FutoEditor.insertImage(filename)` still runs after the deadline, so the note gains an
+  `![](image-…)` reference to a file `deleteImageOnFailure` has already removed (a dangling
+  reference instead of an orphaned blob). Fix: a generation on the insert call so the renderer
+  refuses a late insert; same family as the `change`-generation follow-up.
