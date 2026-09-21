@@ -11,10 +11,11 @@ about.
 - The native shells load the bundle ONCE, pre-warmed at app start, and it shows
   nothing until it is configured: the page posts `ready`, and the shell's only
   correct reply is a single `FutoEditor.initialize(configJson)` carrying its
-  whole intent — bridge version, theme, the open note's markdown, the note
-  universe, the local-image base URL, whether the shell renders its own toolbar,
-  and the note body's inline inset. The bundle applies them in ONE order it
-  owns (layout, toolbar and theme before any text; image base and note universe
+  whole intent — bridge version, theme, effective language, the open note's
+  markdown, the note universe, the local-image base URL, whether the shell
+  renders its own toolbar, and the note body's inline inset. The bundle applies
+  them in ONE order it owns (layout, toolbar and theme before any text; image
+  base and note universe
   before the content so images size and wikilinks resolve on the first render;
   the note text last), then posts `initialized`. _(iOS/Android)_ →
   packages/editor/src/hostBoot.ts, bridge.ts v7, EditorWebView.swift
@@ -176,6 +177,20 @@ about.
   empty paragraphs in front of the next, so a note opened in chunks is the same
   document as the note opened whole. →
   src/features/editor/milkdown/progressiveLoad.ts `seamEmptyParagraphs`
+
+## Localization
+
+- The editor receives the host's effective language during initialization and
+  whenever it changes. It reconfigures FUTO-authored labels and accessibility
+  text without reloading the note or changing its content. →
+  [localization.md](localization.md)
+- Editor UI text resolves through the shared language catalog. The toolbar
+  manifest carries semantic localization paths instead of English labels, and
+  generated Swift and Kotlin toolbar specifications carry those paths without
+  changing command identity, order, visibility, icons, or behavior. →
+  [localization.md](localization.md), packages/editor/src/toolbar.ts,
+  scripts/gen-toolbar-spec.ts
+
 
 ## Cursor
 
@@ -1314,6 +1329,185 @@ EditorWebView.swift, EditorWebView.kt
   simulator), saves the bytes into the vault root under a generated
   space-free name, and calls `insertImage` back into the embed.
 
+## Find in note
+
+Find-in-note locates text inside the OPEN note — match highlighting plus
+next/previous stepping — as opposed to cross-note search ([search.md](search.md)),
+which retrieves whole notes from the vault index. The two surfaces are
+independent: this one is opened by its own affordance and seeded only from the
+editor's own selection or the previous query, and cross-note search is
+unchanged by it.
+
+> **Gap:** nothing below this heading is implemented in the Milkdown editor.
+> The whole engine was CodeMirror (`@codemirror/search` SearchCursor, a CM6
+> top panel, CM6 decorations, and the live-preview reveal controllers) and the
+> editor swap deleted it. The bridge still declares `openFind`,
+> `setFindQuery`, `stepFind`, `setFindOverlayInset` and `closeFind`, and both
+> native shells still ship their find bars, but the page answers every one of
+> them with a no-op and never posts `findMatches` back — so a native bar opens
+> and reports nothing. On desktop nothing claims Ctrl/Cmd+F or Ctrl/Cmd+G at
+> all. _(all platforms)_ → src/editor-embed/main.ts `findNotImplemented`,
+> src/app/NotesShell.svelte
+
+- **One engine, thin platform bars.** All find behavior — matching, highlight
+  decorations, current-match tracking, next/previous stepping with wrap, count
+  arithmetic and count wording, and hidden-source reveal — lives in the shared
+  editor bundle. Desktop renders that engine's full-width CM6 bottom panel.
+  iOS and Android render native SwiftUI/Compose bars because the web panel is
+  not native-quality mobile chrome; those bars only forward
+  query/open/step/close actions and render the bundle's
+  `{query, current, total, label}` report verbatim. They never scan text,
+  compute a count, or decide a wrap. The matching machinery uses
+  `@codemirror/search` `SearchCursor` — an established library over a custom
+  scanner — while the visual bars are ours.
+- Native chrome drives the engine through the bridge-v8 `openFind`,
+  `setFindQuery`, `stepFind`, and `closeFind` methods and receives `findMatches`
+  reports. Find is NOT an `exec` command or a button in the scrollable formatting
+  toolbar: that toolbar stays formatting-only, so the toolbar manifest
+  (packages/editor/src/toolbar.ts) and its generated native specs are untouched.
+  The overflow menu is the only mobile entry point.
+- _(desktop)_ Ctrl/Cmd+F opens the find bar for the active tab's note, query
+  field autofocused — pre-filled with the editor's selection when one exists,
+  otherwise with the previous query, selected either way. Ctrl/Cmd+F with the
+  bar already open refocuses and selects the query. A Home tab has no
+  document, so it does nothing there. The accelerator is recorded in tabs.md's
+  shortcut list. → registerNotesShellShortcuts.ts
+- _(iOS/Android)_ "Find in note" is an entry in the editor screen's existing
+  overflow menu (Android's ⋮ DropdownMenu, iOS's ellipsis-circle Menu), so it
+  is reachable while reading with the keyboard down. The item shows the native
+  bar and calls the shared engine's `openFind` bridge method. →
+  NoteEditorScreen.kt actions, NoteEditorView.swift toolbar Menu
+- The desktop bar spans the bottom of the editor, like Firefox's find bar. On
+  iOS and Android it spans the bottom of the editor viewport, immediately above
+  the virtual keyboard while the query field is focused. The bar shows: the
+  query field, a live match count ("3 of 17"; "0" at zero), next and previous
+  buttons, and a completion control. Android uses a single flat, divided bar in
+  the platform browser style: query, count, previous, next, then close; its count
+  turns red and its step buttons disable at zero matches. iOS uses a leading
+  checkmark to close, a search capsule with its count inline, and a separate
+  previous/next capsule; desktop keeps its compact full-width panel.
+- Matching is **case-insensitive literal substring** — no case toggle, no
+  whole-word, no regex in v1 (the simplest behavior meeting #26; toggles can
+  join the same bar later without breaking anything here). Literal means find
+  has none of cross-note search's retrieval semantics: no fuzzy, no
+  prefix/mid-typing rule, no all-words preference — `cat` finds `concatenate`,
+  and `Aug ` (trailing space) finds only `Aug` followed by a space.
+- **Matching runs over the source markdown** — the CM6 document — never over
+  the rendered live-preview text. A match inside syntax the live preview
+  currently hides (emphasis markers, a `[label](url)` URL, wikilink brackets,
+  a heading's `#`) counts and is reachable: stepping to it moves the selection
+  there, and the per-line reveal rule (## Live preview) exposes the hidden
+  syntax, so the CURRENT match is always visible on screen. A non-current
+  match inside a hidden span contributes to the count but paints no highlight
+  until its line reveals. Matching rendered text instead would make results
+  depend on cursor position and reveal state; the document is the single
+  truth, and it is what the selection (and any future replace) operates on.
+- The same visibility requirement holds where live preview swaps in a widget:
+  stepping to a match inside a widget-replaced region (an interactive table's
+  source) must reveal the source the same way placing the caret there does.
+- Find searches the note **body** only. The title is the filename — a native
+  field on the native shells, not part of the document text — and titles are
+  cross-note search's job (search.md indexes them).
+- Every match is highlighted; the current match is visually distinct from the
+  rest and is scrolled into view when stepped to.
+- A find bar that overlays the editor viewport keeps the scrolled-to current
+  match clear of the strip it covers — so "scrolled into view" means visibly on
+  screen, never under the bar. One engine rule, two ways of learning the
+  height: _(iOS)_ the bar overlays the WebView's bottom edge and declares its
+  rendered height to the engine; _(desktop)_ the bar is docked over the bottom
+  of the editor's own scrolling pane, so the engine measures that panel itself
+  and the shell declares nothing; _(Android)_ the bar is a layout sibling above
+  the WebView, so the viewport is never covered and no inset is declared.
+  → setFindOverlayInset, findScrollMargin, NoteEditorView.swift, NoteEditorScreen.kt
+- Revealing a match inside hidden markdown moves it after the scroll: the
+  source appears, the line reflows, and the match can land back under the bar.
+  The engine re-measures the current match once that relayout settles and
+  re-reveals it, so a match ends up visible wherever the reflow put it.
+  → checkFindReveal
+- _(desktop)_ the selection toolbar does not show for find's own selections:
+  it stays down while the bar is open, and for the selection find leaves
+  behind after Escape; the next selection the user makes shows it normally.
+  → selectionToolbar.ts
+- **Stepping to the next occurrence** is the core interaction, and it is
+  reachable three ways while the bar is open: the next/previous buttons in the
+  bar (the mobile path — they work with the keyboard down), Enter / Shift+Enter
+  while the query field is focused, and _(desktop)_ Ctrl/Cmd+G /
+  Ctrl/Cmd+Shift+G, which step next/previous no matter where focus sits **while
+  the bar is open** — so after clicking into the editor body you can keep
+  jumping through occurrences and typing at the one you wanted. (Escape closes
+  the bar, and a closed bar makes both accelerators no-ops; see below.) Each step moves the selection
+  to that match, makes it the current match, and scrolls it into view.
+  Stepping wraps past either end (the count shows the wrapped position; there
+  is no separate wrap indicator), and with zero matches every step is a no-op.
+  Ctrl/Cmd+G with the bar closed does nothing — it never reopens find. Both G
+  accelerators are recorded in tabs.md's shortcut list. →
+  registerNotesShellShortcuts.ts
+- Editing while the bar is open keeps it open: matches, highlights, and the
+  count recompute against the new text. Apart from the two stepping
+  accelerators above, find claims no keys in the note body — Enter,
+  Shift+Enter and Escape belong to find only while the query field is focused,
+  so typing in the body behaves exactly as it does without find.
+  Recomputation never adds to keystroke latency (M5): match
+  scanning is plain text scanning off the input path, and the count may lag an
+  edit by a frame.
+- Find state is per open note view: the query and current match survive while
+  the note stays on screen — including device rotation on the native shells
+  (Android saves the bar's query/visibility and the retained WebView keeps the
+  engine state; the OS may drop the soft keyboard) — and closing the bar,
+  switching desktop tabs, or leaving the note clears active highlights. A
+  closed bar may remember its previous query for the next open on the same note;
+  no find state crosses a note boundary or persists in `.app-config.json`.
+- _(desktop)_ Escape closes the bar and returns focus to the editor with the
+  selection left on the current match.
+- _(Android)_ System Back with the bar open dismisses the bar, not the screen:
+  that Back is consumed by find. → NoteEditorScreen.kt `findBackAction`
+
+  > **Gap:** _(Android)_ on a gesture-navigation device that promise does not
+  > hold while the keyboard is up, because the system consumes the edge swipe
+  > for the IME rather than delivering it to the app — the bar's Back handling
+  > is `onKeyPreIme` on the query field, which only ever sees key events.
+  > Measured on a gesture-nav Android 16 emulator with the bar open and the
+  > query field focused: the 1st swipe unfocused the field and left the keyboard
+  > up, the 2nd took the keyboard down, the 3rd dismissed the bar, the 4th left
+  > the note. Closing the bar with its X is unaffected (one Back leaves the note
+  > after it). → NoteEditorScreen.kt `FindQueryEditText.onKeyPreIme`
+- _(Android)_ Closing the bar takes the soft keyboard down with it whenever the
+  bar's own query field owned the keyboard, so the next Back leaves the note.
+  The field is a native `EditText`, and Android leaves the IME shown when the
+  view serving it is removed: a keyboard left bound to the departed field
+  swallows the next Back instead (measured before the fix: `mInputShown=true`
+  with the bare `AndroidComposeView` served, and leaving the note took a second
+  Back). Dismissal does NOT hand focus back to the editor body — the WebView
+  stays unfocused until the user taps into it. When the body owns the keyboard
+  instead (the user tapped into the note while the bar was open) it stays up,
+  and standard Android applies: a Back drops the keyboard before a Back leaves
+  the note. → NoteEditorScreen.kt `dismissFind`
+- _(iOS)_ the X closes the bar; the editor's exit chrome (back chevron / edge
+  swipe) exits the note as usual, taking the bar with the screen.
+- _(iOS/Android)_ Closing the find bar clears every match highlight and restores
+  the editor selection and viewport from before find opened.
+- _(iOS/Android)_ the soft keyboard can never cover the bar: it is docked
+  immediately above the keyboard by the shell's keyboard-safe layout.
+  While the native find query field is focused the WebView is unfocused, so the
+  formatting toolbar does not show — that toolbar is editor-body-focus chrome
+  (## Markdown toolbar), and the two bars never stack.
+- **Hand-off from cross-note search is out of scope.** Opening a note from a
+  search result (desktop popup, Android SearchScreen, iOS inline list search)
+  opens the note exactly as it does today: at its normal position, with no
+  find bar and no seeded query. Seeding find from a retrieval query would need
+  the query carried to the note-open path on all three platforms — on the
+  native shells that is a hostBoot/bridge change (stop-and-ask, root AGENTS.md
+  §11.6) — and retrieval semantics are broader than literal find (fuzzy,
+  prefix, all-words), so a retrieval hit does not imply a literal occurrence to
+  land on. Nothing here forecloses it; the find surface is self-contained and a
+  seed can be added later.
+- Replace is **out of scope** for this surface: #26 asks for finding, the
+  engineering default is the simplest implementation that meets the current
+  requirement, and replacing inside markup the live preview hides invites
+  invisible markdown corruption without dedicated UX. The shared
+  `@codemirror/search` core supports layering replace onto the same bar later
+  if it is ever asked for.
+
 ## Images
 
 - Pasting an image into the editor (desktop) saves it to the notes directory
@@ -1692,6 +1886,17 @@ EditorWebView.swift, EditorWebView.kt
   on parse — but an empty one is a failed load, not a normalization, and
   adopting it declares the note empty for every later save. → src/features/
   notes/createNoteLoader.ts
+- A failed desktop disk save blocks switching notes, going Home, and closing the
+  outgoing tab. The outgoing draft stays open and dirty, its tab is restored,
+  and a visible save-failure message permits retry. A converged or durably
+  parked draft permits navigation. _(desktop)_ → `noteSaveQueue.ts`,
+  `createNotePersistence.ts`, `createTabNoteTransition.ts`
+- Editor rename and move send the body, saved baseline, and destination through
+  one Rust workflow. A peer-changed source remains untouched; the local draft
+  becomes a conflict copy at the requested destination, and the editor follows
+  the engine's final id and title. Collision handling and backlink changes stay
+  under the same vault guard. → `LocalNoteStore::save_draft_as`, `move_draft`
+
 - Body edits autosave on a debounce (~400 ms). The save re-reads the current
   note id at fire time, so a save landing **after** a rename writes to the
   renamed note, not a stale id. → NoteEditorScreen.kt / NoteEditorView.swift
@@ -1721,11 +1926,11 @@ EditorWebView.swift, EditorWebView.kt
   committed. _(iOS, Android)_ → `NotesStore.write`,
   NoteEditorScreen.kt / NoteEditorView.swift,
   NativeMutationOutcomeTest / NativeMutationOutcomeTests
-- Title edits debounce (~500 ms) into a rename (iOS commits via the rename
-  dialog instead). Before the file moves, any pending body save is flushed to
-  the _current_ id and the in-flight save is cancelled — otherwise a stale save
-  recreates a ghost note at the old id (data loss). → NoteEditorScreen.kt /
-  NoteEditorView.swift `commitRename`
+- Android title edits debounce into a rename; iOS commits via the rename dialog.
+  Both use the baseline-aware save-and-rename workflow after pending saves are
+  cancelled/drained. Only an actual durable result advances the saved body
+  snapshot; a no-op title never marks a dirty body saved.
+  → NoteEditorScreen.kt / NoteEditorView.swift
 - Leaving the editor flushes a pending save only if the content changed. The
   engine then decides whether the note is written, recreated, or parked.
 - A confirmed local delete is the final editor mutation for that note. Android
@@ -1996,10 +2201,9 @@ left open because closing it is a behavior change, not a refactor:
     (`imeShieldPlugin` / `imeShield.ts`) and the `just verify-ime-shield` guard
     is gone. The native Compose app never carried it and is fine without it.
     (The `FutoImeConnection` / `EditorImeShield` Kotlin classes only ever lived
-    in the gitignored generated Tauri-Android tree, which is no longer generated;
-    the only surviving artifact is the `WRY_RUSTWEBVIEW_CLASS_EXTENSION` override
-    in `apps/tauri/src-tauri/.cargo/config.toml`, still marked DO-NOT-REMOVE for
-    the Tauri-Android build path.)
+    in the gitignored generated Tauri-Android tree, which is no longer generated,
+    and the `WRY_RUSTWEBVIEW_CLASS_EXTENSION` override that injected them is gone
+    from `apps/tauri/src-tauri/.cargo/config.toml`.)
 - Typing must be free of IME/caret glitches on every WebView the editor runs in.
   _(Android)_
   > **Gap:** on some old Android System WebViews (the Chromium 80–98 tier that

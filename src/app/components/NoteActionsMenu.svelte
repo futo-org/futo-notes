@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { localizedText } from '$shared/localization';
+
   interface Props {
     open: boolean;
     ontoggle: () => void;
@@ -15,7 +17,7 @@
 <div class="note-menu-anchor">
   <button
     class="note-menu-toggle"
-    aria-label="Note options"
+    aria-label={localizedText('notes.actions.optionsAccessibilityLabel')}
     aria-expanded={open}
     onclick={ontoggle}
   >
@@ -37,10 +39,18 @@
       }}
     ></div>
     <div class="note-menu-dropdown" role="menu">
-      <button role="menuitem" onclick={ongraphview}>Graph view</button>
-      <button role="menuitem" onclick={oncopypath}>Copy file path</button>
-      <button role="menuitem" data-testid="note-menu-move" onclick={onmove}>Move to folder</button>
-      <button role="menuitem" class="danger" onclick={ondelete}>Delete note</button>
+      <button role="menuitem" onclick={ongraphview}
+        >{localizedText('notes.actions.graphView')}</button
+      >
+      <button role="menuitem" onclick={oncopypath}
+        >{localizedText('notes.actions.copyFilePath')}</button
+      >
+      <button role="menuitem" data-testid="note-menu-move" onclick={onmove}
+        >{localizedText('notes.actions.moveToFolder')}</button
+      >
+      <button role="menuitem" class="danger" onclick={ondelete}
+        >{localizedText('notes.actions.deleteNote')}</button
+      >
     </div>
   {/if}
 </div>

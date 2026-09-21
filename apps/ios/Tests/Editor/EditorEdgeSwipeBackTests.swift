@@ -78,16 +78,4 @@ struct EditorEdgeSwipeBackTests {
         // ambiguous case must not be claimed.
         #expect(strip.gestureRecognizerShouldBegin(recognizer) == false)
     }
-
-    @MainActor
-    @Test("reports a back swipe through its callback")
-    func reportsSwipeThroughCallback() {
-        let strip = EdgeSwipeCaptureView()
-        var reported = 0
-        strip.onSwipeBack = { reported += 1 }
-
-        strip.onSwipeBack?()
-
-        #expect(reported == 1)
-    }
 }

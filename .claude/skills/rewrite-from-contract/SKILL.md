@@ -10,9 +10,9 @@ high-fidelity external tests as the executable contract and legacy internal
 tests as evidence to translate, not private APIs to preserve.
 
 Proven twice in this repo: `docs/learnings/sync-rewrite.md` (8,519-line Rust
-orchestrator → 4-file crate, 171-test ledger) and
+orchestrator → 4-file crate; original 171-test ledger in Git) and
 `docs/learnings/notes-shell-session-sync-rewrite.md` (desktop shell/session/sync
-owners, 61-test ledger). Read the one closest to your scope's layer before
+owners; original 61-test ledger in Git). Read the one closest to your scope's layer before
 starting. Repo-specific suites, isolation, and constraints:
 `references/futo-notes.md`.
 
@@ -55,7 +55,7 @@ The process is identical at every scope; only the blast radius changes.
 |---|---|---|---|
 | One function | clean branch, in-tree | its tests + every caller's tests | ledger inline in the report; no learning doc |
 | Module / file | clean branch or worktree | the owning layer's suite | ledger inline in the report |
-| Crate / subsystem | always a fresh worktree | full acceptance suites incl. real-service / E2E | ledger + learning doc committed to `docs/learnings/` |
+| Crate / subsystem | always a fresh worktree | full acceptance suites incl. real-service / E2E | ledger in the MR; durable lessons in `docs/learnings/` |
 | Whole codebase | never big-bang — decompose into subsystem-sized runs of this skill, sequenced by dependency, each landing as its own MR | per subsystem | per subsystem |
 
 ## Phase 1: isolate and baseline
@@ -334,18 +334,14 @@ When authorized, create intentional commits, push the branch, and open/update
 an MR. Put the full writeup in the MR description, not only in a repository doc.
 Use `references/templates.md` for the structure.
 
-For crate/subsystem scopes, create one canonical learning document containing:
+For crate/subsystem scopes, keep the complete test ledger, verification matrix,
+approval history, and execution transcript in the MR. During work, use a gitignored
+scratch file if needed; the ledger's completeness requirements still apply.
 
-- outcome and measurements;
-- central boundary/ownership lesson;
-- reproducible worktree and external-service setup;
-- safety invariants;
-- failure-derived rules;
-- complete legacy-test ledger;
-- verification matrix;
-- follow-up queue.
-
-Do not split the same learning across several overlapping documents.
+Commit a short learning document only for durable information: the ownership
+lesson, non-obvious failure modes, and unresolved follow-ups. Link to the relevant
+spec and tests instead of copying their contracts or inventories. Existing learning
+files are the first choice; do not create overlapping accounts of the same rewrite.
 
 ## Stop conditions
 

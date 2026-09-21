@@ -97,16 +97,12 @@ The full writeup goes in the MR description itself, not only a repo doc:
 
 ## Learning document structure (crate/subsystem scopes)
 
-One canonical document at `docs/learnings/<scope>-rewrite.md` — never split
-the same learning across overlapping documents:
+The complete test-disposition ledger and verification matrix belong in the MR
+report above. Keep working accounting in gitignored scratch until publication.
 
-1. Outcome and measurements (before/after table: production lines, owners,
-   callbacks/concepts, test counts per layer)
-2. Central boundary/ownership lesson ("who may decide X")
-3. Replication playbook (worktree, isolated external services, exact baseline
-   commands and their recorded results)
-4. Safety invariants (plain English, implementation-free)
-5. Failure-derived rules (what acceptance failures forced into the model)
-6. Complete legacy-test ledger (format above)
-7. Verification matrix
-8. Follow-up queue (numbered, each with its smallest fault-injection seam)
+Use `docs/learnings/<scope>-rewrite.md` only for durable lessons not already captured
+by the code or spec: the ownership decision, non-obvious failure modes, and open
+follow-ups with the smallest test seam needed. Link to the MR for the full record.
+Do not commit function inventories, repeated safety matrices, approval transcripts,
+workspace paths, or command-by-command logs. Condense completed plans into their
+remaining decisions and follow-ups; Git retains the original execution record.

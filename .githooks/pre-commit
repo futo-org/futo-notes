@@ -1,21 +1,6 @@
 #!/bin/sh
-# Pre-commit hook: Prettier + ESLint on staged files, and ensure every
-# AGENTS.md has a sibling CLAUDE.md.
+# Pre-commit hook: Prettier + ESLint on staged files.
 # Installed via: git config core.hooksPath .githooks
-
-REPO_ROOT=$(git rev-parse --show-toplevel)
-
-# Ensure a CLAUDE.md exists next to every AGENTS.md tracked in the repo.
-created=0
-git ls-files -z -- '**/AGENTS.md' 'AGENTS.md' | while IFS= read -r -d '' agents; do
-  claude="$(dirname "$agents")/CLAUDE.md"
-  if [ ! -e "$REPO_ROOT/$claude" ]; then
-    printf '@AGENTS.md\n' > "$REPO_ROOT/$claude"
-    git add -- "$claude"
-    echo "Created $claude"
-    created=1
-  fi
-done
 
 STAGED_FMT=$(git diff --cached --name-only --diff-filter=ACM -- '*.ts' '*.tsx' '*.svelte' '*.js' '*.mjs' '*.cjs' '*.css')
 
@@ -33,5 +18,5 @@ if [ -z "$STAGED_TS" ]; then
   exit 0
 fi
 
-echo "Running ESLint on staged TypeScript files..."
+echo "Running ESLint (whole project; staged TypeScript only decides whether it runs)..."
 pnpm run lint

@@ -70,6 +70,19 @@ func editorExitBody(_ outcome: EditorCaptureOutcome, shellCopy: String) -> Strin
     }
 }
 
+struct FindMatchesReport: Equatable {
+    let query: String
+    let label: String
+
+    init?(body: [String: Any]) {
+        guard let query = body["query"] as? String,
+            let label = body["label"] as? String
+        else { return nil }
+        self.query = query
+        self.label = label
+    }
+}
+
 enum EditorNavigationDecision: Equatable {
     case allow
     case openExternally(URL)
@@ -199,7 +212,7 @@ final class EditorCompletionQueue {
 ///     down before it can win the race the lift used to have to)
 ///
 /// The markdown toolbar is NATIVE on iOS: EditorHost installs
-/// EditorToolbarAccessory as the keyboard's inputAccessoryView (so it docks
+/// FutoKeyboardAccessory as the keyboard's inputAccessoryView (so it docks
 /// and animates with the keyboard), tells the embed to suppress its web
 /// toolbar (setNativeToolbar), and dispatches taps back over the bridge —
 /// `exec(<manifest id>)` runs the SHARED markdownToolbar.ts command, so the
@@ -209,6 +222,7 @@ struct EditorWebView: UIViewRepresentable {
     let content: String
     /// "light" or "dark".
     let theme: String
+    let localization: Localization
     /// Focus the editor + raise the keyboard once ready (brand-new note only).
     var autoFocus: Bool = false
     /// Called when the web page posts a content change.
@@ -216,11 +230,13 @@ struct EditorWebView: UIViewRepresentable {
     /// Reports the embed's authoritative body-focus state. Open-note
     /// reconciliation owns the defer-until-blur duty at this one seam.
     var onFocusChange: (Bool) -> Void = { _ in }
-    /// Called once when the editor signals 'ready'.
-    var onReady: (() -> Void)? = nil
     /// Called when the user taps a RESOLVED wikilink (bridge 'openNote');
     /// receives the resolved note id (path sans .md).
     var onOpenNote: ((String) -> Void)? = nil
+    /// Receives the engine-authored native find-bar state verbatim.
+    var onFindMatches: ((FindMatchesReport) -> Void)? = nil
+    /// Reports this view's host generation so imperative calls can reject a stale screen.
+    var onAttachmentChange: ((Int?) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -229,9 +245,10 @@ struct EditorWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> EditorContainerView {
         let coord = context.coordinator
         coord.sync(
-            content: content, theme: theme, autoFocus: autoFocus,
+            content: content, theme: theme, localization: localization, autoFocus: autoFocus,
             onChange: onChange, onFocusChange: onFocusChange,
-            onReady: onReady, onOpenNote: onOpenNote)
+            onOpenNote: onOpenNote,
+            onFindMatches: onFindMatches, onAttachmentChange: onAttachmentChange)
         let container = EditorContainerView()
         container.backgroundColor = .clear
         coord.container = container
@@ -246,22 +263,36 @@ struct EditorWebView: UIViewRepresentable {
     func updateUIView(_ uiView: EditorContainerView, context: Context) {
         let coord = context.coordinator
         coord.sync(
-            content: content, theme: theme, autoFocus: autoFocus,
+            content: content, theme: theme, localization: localization, autoFocus: autoFocus,
             onChange: onChange, onFocusChange: onFocusChange,
-            onReady: onReady, onOpenNote: onOpenNote)
+            onOpenNote: onOpenNote,
+            onFindMatches: onFindMatches, onAttachmentChange: onAttachmentChange)
         // Only the VISIBLE editor drives the shared WebView. Gating on `window`
         // stops an off-screen editor (covered by a pushed one) from stealing the
         // WebView or pushing its content over the visible note — e.g. when a
         // live-sync `$notes` publish re-renders a stacked-but-hidden editor.
         guard uiView.window != nil else { return }
         coord.adoptIfNeeded()
-        EditorHost.shared.updateDesired(content: content, theme: theme)
+        EditorHost.shared.updateDesired(
+            content: content,
+            theme: theme,
+            localization: localization
+        )
     }
 
     static func dismantleUIView(_ uiView: EditorContainerView, coordinator: Coordinator) {
         // Unbind this view's callbacks unless a newer attach already took over.
         // The shared WebView itself is NEVER torn down — it lives for the whole
         // app so the next note-open reuses it.
+        //
+        // NOTHING ELSE MAY GO HERE THAT WRITES SwiftUI STATE. `onAttachmentChange`
+        // used to be cleared on this line, and that write aborted the app on every
+        // exit from a note: AttributeGraph is invalidating the subgraph that owns
+        // the `@State` while this runs, so setting it trips Swift's exclusivity
+        // check ("Fatal access conflict detected"). `detach` above is also what
+        // makes such a clear redundant — the host's generation is monotonic and
+        // never equal to a detached token again, so a stale attachment token can
+        // no longer satisfy `isCurrentAttachment`.
         EditorHost.shared.detach(coordinator.token)
     }
 
@@ -280,26 +311,31 @@ struct EditorWebView: UIViewRepresentable {
 
         private var content = ""
         private var theme = "light"
+        private var localization = Localization.system()
         private var autoFocus = false
         private var onChange: (String) -> Void = { _ in }
         private var onFocusChange: (Bool) -> Void = { _ in }
-        private var onReady: (() -> Void)?
         private var onOpenNote: ((String) -> Void)?
+        private var onFindMatches: ((FindMatchesReport) -> Void)?
+        private var onAttachmentChange: ((Int?) -> Void)?
 
         func sync(
-            content: String, theme: String, autoFocus: Bool,
+            content: String, theme: String, localization: Localization, autoFocus: Bool,
             onChange: @escaping (String) -> Void,
             onFocusChange: @escaping (Bool) -> Void,
-            onReady: (() -> Void)?,
-            onOpenNote: ((String) -> Void)?
+            onOpenNote: ((String) -> Void)?,
+            onFindMatches: ((FindMatchesReport) -> Void)?,
+            onAttachmentChange: ((Int?) -> Void)?
         ) {
             self.content = content
             self.theme = theme
+            self.localization = localization
             self.autoFocus = autoFocus
             self.onChange = onChange
             self.onFocusChange = onFocusChange
-            self.onReady = onReady
             self.onOpenNote = onOpenNote
+            self.onFindMatches = onFindMatches
+            self.onAttachmentChange = onAttachmentChange
         }
 
         /// Reclaim the shared WebView for this container unless it already hosts it.
@@ -317,15 +353,16 @@ struct EditorWebView: UIViewRepresentable {
             container.addSubview(host.webView)
             // Point the host at THIS note before (re)binding so attach's re-push
             // shows this note's text, not whatever note last drove the host.
-            host.updateDesired(content: content, theme: theme)
-            // autoFocus / onReady fire only on the FIRST adopt: a re-adopt on
-            // Back must not re-pop the keyboard or re-run the ready hook.
+            host.updateDesired(content: content, theme: theme, localization: localization)
+            // autoFocus fires only on the FIRST adopt: a re-adopt on Back must
+            // not re-pop the keyboard.
             token = host.attach(
                 autoFocus: didInitialAdopt ? false : autoFocus,
                 onChange: onChange,
                 onFocusChange: onFocusChange,
-                onReady: didInitialAdopt ? nil : onReady,
-                onOpenNote: onOpenNote)
+                onOpenNote: onOpenNote,
+                onFindMatches: onFindMatches)
+            onAttachmentChange?(token)
             didInitialAdopt = true
         }
     }
@@ -346,7 +383,7 @@ final class EditorContainerView: UIView {
 
 /// Owns the single, app-lifetime editor WKWebView. Pre-warmed once so it has
 /// already reached `ready` (bundle parsed, CodeMirror mounted) by the time the
-/// user opens a note. Per-note bindings (onChange/onReady/autoFocus) are
+/// user opens a note. Per-note bindings (onChange/autoFocus) are
 /// swapped on each [attach]; the bridge forwards to whatever is currently bound.
 ///
 /// Must be constructed on the main thread (WKWebView requirement). `@MainActor`
@@ -363,8 +400,8 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     private var onChange: (String) -> Void = { _ in }
     private var onFocusChange: (Bool) -> Void = { _ in }
-    private var onReady: (() -> Void)? = nil
     private var onOpenNote: ((String) -> Void)? = nil
+    private var onFindMatches: ((FindMatchesReport) -> Void)? = nil
     private var autoFocus = false
 
     /// The bundle has applied this shell's host config and the note is on
@@ -380,6 +417,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     // a view update, not to delete the compares.
     private var currentTheme: String?
     private var desiredTheme = "light"
+    private var currentLanguageTag: String?
+    private var desiredLocalization = Localization.system()
+    private var desiredLanguageTag: String { desiredLocalization.effectiveLanguage.tag }
     private var desiredContent = ""
     /// The last content we pushed in, so we don't re-push our own echoes.
     private var lastPushedContent: String?
@@ -412,7 +452,8 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// The native toolbar, installed as the keyboard's inputAccessoryView via
     /// futo_overrideInputAccessoryView. Lazy: the closure captures self.
     private lazy var toolbarAccessory = EditorToolbarAccessory(
-        state: toolbarState
+        state: toolbarState,
+        localization: desiredLocalization
     ) { [weak self] item in
         self?.performToolbarAction(item)
     }
@@ -627,11 +668,20 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         if let url = editorFileURL {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         } else {
+            let message = desiredLocalization.localizedText("editor.ios.bundleMissing")
             webView.loadHTMLString(
-                "<html><body><p>editor.html not found in bundle</p></body></html>",
+                "<html><body><p>\(htmlEscaped(message))</p></body></html>",
                 baseURL: nil
             )
         }
+    }
+
+    private func htmlEscaped(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
     }
 
     /// Kick off WebView creation + bundle load early (e.g. app start) so the
@@ -641,28 +691,28 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     }
 
     /// Bind a note's callbacks. Returns a token for the matching [detach]. If the
-    /// editor is already warm, push the desired content/theme + fire onReady (and
-    /// focus) now so the "ready for this note" contract holds for reused opens.
+    /// editor is already warm, push the desired content/theme (and focus) now so
+    /// the "ready for this note" contract holds for reused opens.
     func attach(
         autoFocus: Bool,
         onChange: @escaping (String) -> Void,
         onFocusChange: @escaping (Bool) -> Void,
-        onReady: (() -> Void)?,
-        onOpenNote: ((String) -> Void)? = nil
+        onOpenNote: ((String) -> Void)? = nil,
+        onFindMatches: ((FindMatchesReport) -> Void)? = nil
     ) -> Int {
         self.onChange = onChange
         self.onFocusChange = onFocusChange
-        self.onReady = onReady
         self.onOpenNote = onOpenNote
+        self.onFindMatches = onFindMatches
         self.autoFocus = autoFocus
         // A reused (already-ready) WebView still holds the PREVIOUS note's text;
         // force a fresh push by clearing the dedup marker so the new note's
         // content always lands even if the host was last showing it.
         lastPushedContent = nil
         if isReady {
+            pushLanguage(desiredLanguageTag)
             pushTheme(desiredTheme)
             pushContent(desiredContent)
-            onReady?()
             if autoFocus { startAutoFocus() }
         }
         generation += 1
@@ -679,17 +729,37 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         generation = nextGeneration
         onChange = { _ in }
         onFocusChange = { _ in }
-        onReady = nil
         onOpenNote = nil
+        onFindMatches = nil
         autoFocus = false
     }
 
-    func updateDesired(content: String, theme: String) {
+    func isCurrentAttachment(_ token: Int) -> Bool {
+        token == generation
+    }
+
+    func updateDesired(content: String, theme: String, localization: Localization) {
         desiredContent = content
         desiredTheme = theme
+        desiredLocalization = localization
+        toolbarAccessory.updateLocalization(localization)
+        let languageTag = localization.effectiveLanguage.tag
         guard isReady else { return }
+        if languageTag != currentLanguageTag { pushLanguage(languageTag) }
         if theme != currentTheme { pushTheme(theme) }
         if content != lastPushedContent { pushContent(content) }
+    }
+
+    func setLocalization(_ localization: Localization) {
+        desiredLocalization = localization
+        toolbarAccessory.updateLocalization(localization)
+        let languageTag = localization.effectiveLanguage.tag
+        if editorFileURL == nil {
+            loadEditor()
+            return
+        }
+        guard isReady, languageTag != currentLanguageTag else { return }
+        pushLanguage(languageTag)
     }
 
     /// Host → editor: the note universe ([{id,title,modifiedMs,tags}] JSON) for
@@ -762,6 +832,47 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     func blur() {
         webView.evaluateJavaScript(
             "window.FutoEditor && window.FutoEditor.blur();", completionHandler: nil)
+    }
+
+    /// Run a shared toolbar command from the generated toolbar manifest.
+    func exec(_ commandId: String) {
+        webView.evaluateJavaScript(
+            "window.FutoEditor && window.FutoEditor.exec(\(jsLiteral(commandId)));",
+            completionHandler: nil)
+    }
+
+    func openFind() {
+        webView.evaluateJavaScript(
+            "window.FutoEditor && window.FutoEditor.openFind();", completionHandler: nil)
+    }
+
+    /// Report how much of the editor viewport the shell's own chrome covers, so
+    /// find reveals the current match above it. The find bar is a
+    /// `.safeAreaInset` over a WebView that ignores the container's bottom safe
+    /// area, so without this a match stepped to from above lands underneath the
+    /// bar (docs/spec/editor.md: the current match is always visible).
+    func setFindOverlayInset(_ bottomOverlayPx: CGFloat) {
+        let px = Int(max(0, bottomOverlayPx).rounded())
+        webView.evaluateJavaScript(
+            "window.FutoEditor && window.FutoEditor.setFindOverlayInset(\(px));",
+            completionHandler: nil)
+    }
+
+    func setFindQuery(_ query: String) {
+        webView.evaluateJavaScript(
+            "window.FutoEditor && window.FutoEditor.setFindQuery(\(jsLiteral(query)));",
+            completionHandler: nil)
+    }
+
+    func stepFind(_ delta: Int) {
+        guard delta == -1 || delta == 1 else { return }
+        webView.evaluateJavaScript(
+            "window.FutoEditor && window.FutoEditor.stepFind(\(delta));", completionHandler: nil)
+    }
+
+    func closeFind() {
+        webView.evaluateJavaScript(
+            "window.FutoEditor && window.FutoEditor.closeFind();", completionHandler: nil)
     }
 
     /// How long an exit waits for the page to answer before giving up on it.
@@ -857,9 +968,12 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // The desired state can have moved (a sync adopt, a theme flip)
             // between sending the config and this reply; each of these is
             // deduped and so a no-op when it hasn't.
-            updateDesired(content: desiredContent, theme: desiredTheme)
+            updateDesired(
+                content: desiredContent,
+                theme: desiredTheme,
+                localization: desiredLocalization
+            )
             if let json = desiredNotesJson { setNotes(json) }
-            onReady?()
             if autoFocus { startAutoFocus() }
         case .bridgeVersionMismatch:
             // A stale editor.html next to a newer binary, or the reverse — a
@@ -881,7 +995,11 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             let focused = (body["focused"] as? Bool) == true
             onFocusChange(focused)
             // The private WKContentView exists once focused; re-apply the
-            // accessory override here in case it appeared late.
+            // accessory override here in case it appeared late. Only focus
+            // installs: blur leaves UIKit to remove the accessory when that
+            // responder resigns, so a stale blur queued by the editor that
+            // previously owned the shared WKWebView can never strip the toolbar
+            // from a newly focused editor.
             if focused {
                 webView.futo_overrideInputAccessoryView(toolbarAccessory)
             }
@@ -945,6 +1063,10 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // that need a hold stand down here, so a tap still places a caret
             // and a double-tap still selects a word.
             setBlockPressActive((body["pressed"] as? Bool) == true)
+        case .findMatches:
+            if let report = FindMatchesReport(body: body) {
+                onFindMatches?(report)
+            }
         case .openNote:
             // User tapped a RESOLVED wikilink — the bound note view navigates.
             if let id = body["id"] as? String {
@@ -1042,15 +1164,13 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let targetGeneration = generation
         completionQueue.enqueue { [weak self] in
             guard let self else { return }
-            let picked: (Data?, String) = await withCheckedContinuation { continuation in
-                ImagePicker.present(source: source) { data, ext in
-                    continuation.resume(returning: (data, ext))
-                }
+            let picked: [PickedImage] = await withCheckedContinuation { continuation in
+                ImagePicker.present(source: source) { continuation.resume(returning: $0) }
             }
-            guard let data = picked.0 else { return }
+            guard let image = picked.first else { return }
             guard
                 let filename = await VaultImages.save(
-                    data: data, preferredExtension: picked.1)
+                    data: image.data, preferredExtension: image.ext)
             else { return }
             let inserted = await self.insertImage(filename, for: targetGeneration)
             if !inserted {
@@ -1067,8 +1187,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private func performToolbarAction(_ item: ToolbarItemSpec) {
         switch item.action {
         case .exec:
-            let js = "window.FutoEditor && window.FutoEditor.exec(\(jsLiteral(item.id)));"
-            webView.evaluateJavaScript(js, completionHandler: nil)
+            exec(item.id)
         case .pickImage(let source):
             presentImagePicker(source: source)
         case .dismiss:
@@ -1168,6 +1287,14 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
+    private func pushLanguage(_ languageTag: String) {
+        currentLanguageTag = languageTag
+        let js =
+            "window.FutoEditor && window.FutoEditor.setLanguage && "
+            + "window.FutoEditor.setLanguage(\(jsLiteral(languageTag)));"
+        webView.evaluateJavaScript(js, completionHandler: nil)
+    }
+
     private func pushNotes(_ json: String) {
         lastPushedNotesJson = json
         let js = "window.FutoEditor && window.FutoEditor.setNotes(\(jsLiteral(json)));"
@@ -1186,6 +1313,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var config: [String: Any] = [
             "bridgeVersion": BridgeSpec.version,
             "theme": desiredTheme,
+            "languageTag": desiredLanguageTag,
             "content": desiredContent,
             // The markdown toolbar is a native keyboard accessory here, so the
             // embed must keep its own web toolbar hidden.
@@ -1209,6 +1337,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         // Record what the config carries, so the catch-up on `initialized`
         // re-pushes only what actually moved while it was in flight.
         currentTheme = desiredTheme
+        currentLanguageTag = desiredLanguageTag
         lastPushedContent = desiredContent
         lastPushedNotesJson = desiredNotesJson
 

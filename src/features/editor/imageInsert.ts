@@ -36,13 +36,15 @@
  *         any engine that does populate it) into the same path list the
  *         picker produces, so it goes through `insertPaths` exactly like
  *         Tauri's own event would.
- *     It remains the picker's shape either way — `pickImage` returns a path.
+ *     The host's own picker no longer produces this shape: `pickImages` returns
+ *     bytes, so a pick goes through `saveImageBytes` like a file drop does.
  *
  * WHICH files count as images is `isImageFilename` from the shared media rules,
  * never a second list: the vault's accepted extensions are conformance-locked
  * to the canonical Rust rule (packages/editor/src/images.ts).
  */
 import { registerVaultImageUrl } from '$features/images/vaultImageSrc';
+import { localizedText } from '$shared/localization';
 import { isImageFilename } from '$shared/media/imageFiles';
 
 import { extFromMime, resolveVaultImageFs, type VaultImageFs } from './imagePaste';
@@ -259,17 +261,22 @@ export function createImageInserter(options: ImageInserterOptions): ImageInserte
   }
 
   return {
-    canPick: Boolean(fs?.pickImage),
+    canPick: Boolean(fs?.pickImages),
 
     async pick() {
-      const pickImage = fs?.pickImage;
-      if (!fs || !pickImage) return;
+      const pickImages = fs?.pickImages;
+      if (!fs || !pickImages) return;
+      let picked;
       try {
-        const path = await pickImage();
-        if (path) await saveAndInsert(() => fs.saveImage(path));
+        picked = await pickImages({
+          limit: 1,
+          filterName: localizedText('editor.images.filePickerFilter'),
+        });
       } catch (error) {
         reportError('Image insert failed:', error);
+        return;
       }
+      await insertEach(picked, (image) => fs.saveImageBytes(image.bytes, image.extension));
     },
 
     insertFiles(files) {
@@ -278,8 +285,13 @@ export function createImageInserter(options: ImageInserterOptions): ImageInserte
       );
     },
 
+    /* A path carries no bytes, so this needs the host to read the file. Where
+     * it cannot (`saveImagePath` absent), the drop is declined rather than
+     * silently inserting a broken reference. */
     insertPaths(paths) {
-      return insertEach(imagePathsIn(paths), (path) => fs!.saveImage(path));
+      const saveImagePath = fs?.saveImagePath;
+      if (!saveImagePath) return Promise.resolve();
+      return insertEach(imagePathsIn(paths), (path) => saveImagePath(path));
     },
   };
 }

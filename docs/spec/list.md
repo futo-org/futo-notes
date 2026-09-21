@@ -11,9 +11,10 @@ The home screen: the vault root's folders and notes, folder browsing, and search
 - The feed shows the **three** most recently modified notes — the head of the
   engine-ordered note list (a slice; the shell holds no comparator of its
   own); card previews truncate to 60 characters. → forYou.ts
-- Relative times in the desktop UI (For You cards, images tab) use the
-  vocabulary just now / Nm ago / Nh ago / yesterday / Nd ago / Nmo ago /
-  Ny ago. → shared/time/formatRelativeTime.ts
+- Relative modified times in the desktop feed and images view and in Android
+  and iOS note rows resolve through each shell's catalog-backed
+  `localizedRelativeTime`. → shared/localization/localization.ts, Android
+  `localization/Localization.kt`, iOS `Localization/Localization.swift`
 - An empty vault shows a **"FUTO Notes"** heading. On mobile the subtitle reads
   "Create your first note to get started." with a **"Browse notes"** button
   (opens the drawer) and a **"Quick capture"** button below the feed area; on
@@ -56,8 +57,10 @@ The home screen: the vault root's folders and notes, folder browsing, and search
   > the user drags. Same anchoring class as the local-edit invisibility bug
   > fixed 2026-07-02 (local create/edit now re-pin via `requestScrollToItem`
   > on the FAB path and a pop-time re-pin in `AppNavigator.goBack()`); the
-  > `reloadAsync` sync-pull path has no at-top re-pin yet. → NotesStore.kt
-  > `reloadAsync`, AppNavigation.kt `AppNavigator.goBack`
+  > sync live-pull path (`SyncManager` `LiveListener.onSynced` →
+  > `onLocalTreeChanged` → NotesStore.kt `applyLocalTreeChange`) has no at-top
+  > re-pin yet. → NotesStore.kt `applyLocalTreeChange`, AppNavigation.kt
+  > `AppNavigator.goBack`
 - Tapping a note opens it in the editor (no autofocus). → NoteListScreen.kt /
   AppNavigation.kt
 - The list keeps the folder it is browsing and that folder's scroll position
@@ -68,7 +71,8 @@ The home screen: the vault root's folders and notes, folder browsing, and search
   _(iOS)_
 - An empty folder shows an empty state, and **both native shells distinguish the
   case**: "No notes yet" at the vault root, "Empty folder" inside a folder, both
-  subtitled "Tap + to add a note or folder." _(Tauri: "Nothing here yet".)_ The
+  subtitled "Tap + to add a note." on Android and "Tap the compose button to add
+  a note." on iOS. _(Tauri: "Nothing here yet".)_ The
   empty state waits for the first scan (`hasBootstrapped`) so a cold start never
   flashes it (M1). → NoteListView.swift, NoteListScreen.kt `EmptyState`
 - The top bar carries the page surface, and gains a bottom hairline once the
@@ -164,8 +168,6 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   futo-notes-store `refresh_external_changes` + `prune_empty_parents`,
   crates/futo-notes-store/src/tests.rs
   `reported_external_changes_prune_the_directories_the_pull_vacated`
-- `NotesStore.noteCount(under:)` exists on iOS but is only used for delete
-  confirmation text, never surfaced as a per-folder count. → NoteListView.swift
 - **Tauri** keeps its own model: a **tabbed folder tree** sidebar (files / tags /
   images — see [Sidebar tabs](#sidebar-tabs-tauri)) with no "All notes" row and
   no per-folder note counts. → DrawerSidebar.svelte / FolderTreeView.svelte
@@ -203,11 +205,21 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
 
 ## New note
 
-- The FAB creates an "Untitled" note in the folder being browsed (the vault root
-  on the root screen) and opens it with the **body** focused for quick capture
-  (keyboard on the note text, not the title). Its **New folder** sibling likewise
-  creates in the folder being browsed, so both are reachable at every depth.
-  → NoteListScreen.kt
+- **New note and New folder are two separate one-tap controls on every
+  platform** (github#5: a "+" that opened a menu put quick capture behind an
+  extra tap). Desktop: the "+ New" button and its folder-icon sibling
+  (SidebarCreateActions.svelte). Android: the "+" FAB is a plain "New note" and a
+  folder-plus action icon ("New folder") sits in the top app bar before Search
+  and Settings (the Material 3 home for a secondary create action; a stacked
+  small FAB was tried and rejected as a non-M3 speed dial). iOS: a folder-badge-plus
+  button and a compose button side by side in the trailing nav bar. Neither
+  shell has a create menu any more. → SidebarCreateActions.svelte,
+  NoteListScreen.kt, NoteListView.swift
+- The New-note control creates an "Untitled" note in the folder being browsed
+  (the vault root on the root screen) and opens it with the **body** focused for
+  quick capture (keyboard on the note text, not the title). The New-folder
+  control likewise creates in the folder being browsed, so both are reachable at
+  every depth. → NoteListScreen.kt, NoteListView.swift
 - On mobile-width shells, "+ New" opens the note with the **title** focused and
   "Untitled" select-all'd so typing replaces it immediately. Desktop keeps body
   focus; the wikilink-to-missing-note create path keeps body focus everywhere.
@@ -272,8 +284,6 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   trashes the shell through `trash::delete` and asks the plain question. →
   `system_trash::folder_deletes_are_permanent`, deleteConfirmation.ts
   `folderDeleteWarning`
-- A note row in the folder tree offers the same Move/Delete via context menu
-  (desktop right-click / mobile long-press). → FolderTreeView.svelte
 - A note row in the folder tree offers Rename / Move to folder / Delete via
   context menu (desktop right-click / mobile long-press). → FolderTreeView.svelte
 - _(desktop)_ **A note row renames inline**, by the same three gestures as a
@@ -334,8 +344,8 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   only on a committed create, and a failed create says "Couldn't create note.
   Try again." rather than leaving the list unchanged with no message — the
   silence github#13 reported. → NotesStore.kt `createNote`, NoteListScreen.kt
-- **Both native shells create notes as quick capture** (iOS "+" menu → New
-  Note; Android FAB → New note): an "Untitled" note is created in the current
+- **Both native shells create notes as quick capture** (iOS compose button;
+  Android "+" FAB): an "Untitled" note is created in the current
   folder and the editor opens with the **body** focused — no blocking title
   prompt, keyboard straight on the note text (desktop parity). An **untouched**
   quick-capture note — opened brand-new, never renamed, body still empty — is
@@ -361,7 +371,7 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   a `UIViewRepresentable` otherwise sizes itself to the text's natural width and
   drags the whole editor VStack — embedded web view included — with it; Android
   and desktop are pinned declaratively (`fillMaxWidth()`, `width: 100%`).
-  *(verified iOS simulator + Android emulator 2026-07-27)* →
+  _(verified iOS simulator + Android emulator 2026-07-27)_ →
   NoteEditorView.swift `TitleTextField`, TitleTextFieldLayoutTests,
   NoteEditorScreen.kt `BasicTextField`, NoteWorkspace.svelte `.title-input`
 - **The native title fields detect and reject illegal titles, matching desktop.**
@@ -389,10 +399,10 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   (`sanitizeTitle` / `sanitize_title`). → packages/editor `filename.ts`,
   futo-notes-core `files::sanitize_title`;
   tests/conformance/{filename.json,title-rules-differential.mjs}
-- **Android native**'s FAB opens a New note / New folder menu; New folder
-  shows a name dialog that sanitizes via the shared rules and rejects
-  case-insensitive sibling duplicates inline (verified on emulator
-  2026-06-09). → NoteListScreen.kt, NewFolderDialog.kt
+- **Android native**'s top-bar New-folder action shows a name dialog that sanitizes
+  via the shared rules and rejects case-insensitive sibling duplicates inline
+  (verified on emulator 2026-06-09, as a FAB-menu item then). →
+  NoteListScreen.kt, NewFolderDialog.kt
 
 ## Sidebar tabs _(Tauri)_
 
@@ -442,10 +452,27 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   shared Rust `sanitizeTitle`. Folder-name violations are worded for a FOLDER
   ("That character can't be used in a folder name", "Folder name cannot be
   empty") — the shared rules are layered on `validateTitle`, so the surface
-  supplies the noun rather than the manifest. A committed create toasts
+  supplies the noun rather than the manifest. Every shell reaches the
+  `forbidden_chars` verdict out of the shared Rust `validateTitle` rather than
+  carrying its own character list, and reports a name rule **before** the
+  sibling collision its sanitized form would hit. Android routes create,
+  rename and the folder picker's "New folder…" through one dialog
+  (`NewFolderDialog.kt` `folderNameVerdict`); iOS shares one validator between
+  its create and rename dialogs (`FolderNameValidation.swift`
+  `folderNameProblem`). A committed create toasts
   "Folder created". A hard guard in `createFolder` also blocks the
   idempotent `create_dir_all` from silently merging into an existing folder. →
   folderOperations.ts, NewFolderDialog.kt, NoteListView.swift
+
+  > **Gap:** _(iOS)_ the **Move to Folder…** sheet's inline "New Folder…"
+  > validates nothing. It is a plain `.alert` guarded only by
+  > `guard !name.isEmpty`, so it accepts a forbidden character, a
+  > case-insensitive duplicate and a name that sanitizes away — none of
+  > which the New Folder and Rename dialogs allow any more. Android's
+  > folder-picker "New folder…" shares the validated dialog and is not
+  > affected. Closing this means the alert has to become a live-rendering
+  > dialog like the other two so it can show a message at all.
+  > → NoteListView.swift (`MoveToFolderSheet`, `createAndMove`)
 - A folder can be renamed; the rename updates every note path beneath it and
   rewrites wikilinks pointing at those notes. Every folder row exposes the same
   discoverable action set: **Rename**, **Move to Folder…**, **Delete** — through

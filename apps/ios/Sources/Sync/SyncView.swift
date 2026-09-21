@@ -6,6 +6,7 @@ struct SyncView: View {
     @EnvironmentObject private var sync: SyncManager
     @EnvironmentObject private var store: NotesStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.localization) private var localization
 
     /// Seeded from the Keychain so the masked field reflects the REAL saved
     /// password (its true length), not a fixed placeholder — and so a manual
@@ -20,7 +21,7 @@ struct SyncView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Server") {
+                Section(localization.localizedText("sync.serverSection")) {
                     // Once connected the server URL is LOCKED (sync.md) — an
                     // edit here writes straight through @Published→UserDefaults
                     // (disconnect() never resets it) and would silently feed
@@ -28,7 +29,7 @@ struct SyncView: View {
                     // Android's `enabled = !sync.connected` (SyncScreen.kt).
                     // Dimmed while disabled so it reads as non-editable — a
                     // disabled TextField keeps primary-colored text otherwise.
-                    TextField("Server URL", text: $sync.serverURL)
+                    TextField(localization.localizedText("sync.serverUrl"), text: $sync.serverURL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
@@ -37,7 +38,7 @@ struct SyncView: View {
                     // Only relevant before connecting: once connected the Rust
                     // session holds the vault key and Sync Now ignores this field.
                     if !sync.connected {
-                        SecureField("Password", text: $password)
+                        SecureField(localization.localizedText("sync.password"), text: $password)
                     }
                 }
 
@@ -50,7 +51,7 @@ struct SyncView: View {
                                 string: "https://gitlab.futo.org/futo-notes/futo-notes-server")!
                         ) {
                             Label(
-                                "To set up sync, use FUTO Notes server.",
+                                localization.localizedText("sync.serverSetupLink"),
                                 systemImage: "arrow.up.forward.square"
                             )
                             .font(.subheadline)
@@ -70,7 +71,9 @@ struct SyncView: View {
                         }
                     } label: {
                         Label(
-                            sync.connected ? "Sync Now" : "Connect & Sync",
+                            sync.connected
+                                ? localization.localizedText("sync.syncNow")
+                                : localization.localizedText("sync.connectAndSync"),
                             systemImage: "arrow.triangle.2.circlepath")
                     }
                     .disabled(sync.busy)
@@ -79,20 +82,23 @@ struct SyncView: View {
                         Button(role: .destructive) {
                             Task { await sync.disconnect() }
                         } label: {
-                            Label("Disconnect", systemImage: "xmark.circle")
+                            Label(
+                                localization.localizedText("sync.disconnect"),
+                                systemImage: "xmark.circle"
+                            )
                         }
                         .disabled(sync.busy)
                     }
                 }
 
-                Section("Status") {
+                Section(localization.localizedText("sync.statusSection")) {
                     HStack {
                         if sync.busy { ProgressView() }
-                        Text(sync.status)
+                        Text(sync.localizedStatus(localization))
                             .foregroundStyle(sync.connected ? .primary : .secondary)
                     }
                     // Real pull/push failures only — shown in alarming red.
-                    if let err = sync.lastError {
+                    if let err = sync.localizedLastError(localization) {
                         Text(err)
                             .font(.caption)
                             .foregroundStyle(.red)
@@ -101,7 +107,7 @@ struct SyncView: View {
                     // transient stream drop) is NOT a sync failure — the loop
                     // reconnects with backoff and the safety poll still runs.
                     // Shown muted so it doesn't read as "your sync broke".
-                    if let live = sync.liveError {
+                    if let live = sync.localizedLiveError(localization) {
                         Text(live)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -113,19 +119,19 @@ struct SyncView: View {
                 // installs (dev vs release vs custom bundle ids) use SEPARATE
                 // sandboxes, so notes pulled by one install never appear in
                 // another. This row makes the active sandbox visible at a glance.
-                Section("Notes folder") {
+                Section(localization.localizedText("sync.notesFolderSection")) {
                     Text(store.notesRoot.path)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
             }
-            .navigationTitle("Sync")
+            .navigationTitle(localization.localizedText("sync.heading"))
             .navigationBarTitleDisplayMode(.inline)
             .tint(Theme.primary)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
+                    Button(localization.localizedText("common.actions.done")) { dismiss() }
                 }
             }
         }

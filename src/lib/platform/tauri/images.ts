@@ -2,13 +2,17 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { readFile, writeFile } from '@tauri-apps/plugin-fs';
 import { IMAGE_EXTENSIONS } from '@futo-notes/editor';
 
-import { createImageFilename, isImageFilename } from '$shared/media/imageFiles';
+import {
+  createImageFilename,
+  isImageFilename,
+  validateImageExtension,
+} from '$shared/media/imageFiles';
 
-import type { PlatformFS } from '../types';
+import type { PickedImage, PlatformFS } from '../types';
 
 type TauriImages = Pick<
   PlatformFS,
-  'saveImage' | 'saveImageBytes' | 'getImageUrl' | 'pickImage' | 'pasteClipboardImage'
+  'saveImageBytes' | 'saveImagePath' | 'getImageUrl' | 'pickImages' | 'pasteClipboardImage'
 >;
 
 interface TauriImageDependencies {
@@ -48,6 +52,12 @@ async function canDecodeImageUrl(url: string): Promise<boolean> {
   }
 }
 
+function extensionOf(path: string): string {
+  const basename = path.split(/[\\/]/).pop() ?? '';
+  const dot = basename.lastIndexOf('.');
+  return dot > 0 ? basename.slice(dot + 1) : 'jpg';
+}
+
 function validateImageFilename(filename: string): void {
   if (!isImageFilename(filename)) throw new Error('not an image filename');
   if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
@@ -63,16 +73,14 @@ export function createTauriImages({ getNotesRoot }: TauriImageDependencies): Tau
     return assetProtocolCapability;
   }
 
-  return {
-    saveImage(sourcePath) {
-      return invoke<string>('fs_save_image', { sourcePath });
-    },
+  async function saveImageBytes(data: ArrayBuffer, extension: string): Promise<string> {
+    const filename = createImageFilename(extension);
+    await writeFile(`${await getNotesRoot()}/${filename}`, new Uint8Array(data));
+    return filename;
+  }
 
-    async saveImageBytes(data, extension) {
-      const filename = createImageFilename(extension);
-      await writeFile(`${await getNotesRoot()}/${filename}`, new Uint8Array(data));
-      return filename;
-    },
+  return {
+    saveImageBytes,
 
     async getImageUrl(filename) {
       validateImageFilename(filename);
@@ -87,17 +95,37 @@ export function createTauriImages({ getNotesRoot }: TauriImageDependencies): Tau
       );
     },
 
+    async saveImagePath(sourcePath) {
+      const extension = validateImageExtension(extensionOf(sourcePath));
+      const bytes = await readFile(sourcePath);
+      return saveImageBytes(
+        bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        extension,
+      );
+    },
+
     pasteClipboardImage() {
       return invoke<string>('fs_paste_clipboard_image');
     },
 
-    async pickImage() {
+    async pickImages(options) {
+      const limit = Math.max(1, options.limit ?? 1);
       const { open } = await import('@tauri-apps/plugin-dialog');
       const picked = await open({
-        multiple: false,
-        filters: [{ name: 'Images', extensions: [...IMAGE_EXTENSIONS] }],
+        multiple: limit > 1,
+        filters: [{ name: options.filterName, extensions: [...IMAGE_EXTENSIONS] }],
       });
-      return typeof picked === 'string' ? picked : null;
+      const paths = typeof picked === 'string' ? [picked] : (picked ?? []);
+      const images: PickedImage[] = [];
+      for (const path of paths.slice(0, limit)) {
+        const extension = validateImageExtension(extensionOf(path));
+        const bytes = await readFile(path);
+        images.push({
+          bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+          extension,
+        });
+      }
+      return images;
     },
   };
 }

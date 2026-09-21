@@ -1,5 +1,6 @@
 import { isTauri } from '$lib/platform';
 import { vaultStatus } from '$lib/platform/tauri';
+import type { LocalizedMessage } from '$shared/localization';
 
 /**
  * Desktop normally routes a delete through the OS trash, so "cannot be undone"
@@ -8,11 +9,6 @@ import { vaultStatus } from '$lib/platform/tauri';
  * Trash portal declines those paths — and there the confirmation must not imply a
  * recovery that does not exist.
  */
-const RECOVERABLE = 'This action cannot be undone.';
-const PERMANENT = 'This deletes the file for good — it does not go to the trash.';
-const FOLDER = 'Delete this folder? Notes inside it will be moved to the parent folder.';
-const FOLDER_PERMANENT = `${FOLDER} Anything else inside it is deleted for good.`;
-
 let permanence: Promise<{ notes: boolean; folders: boolean }> | null = null;
 
 // One answer per session: the active vault cannot change without a process
@@ -32,9 +28,9 @@ function deletePermanence(): Promise<{ notes: boolean; folders: boolean }> {
 }
 
 /** The sentence a note-delete confirmation ends with. */
-export async function noteDeleteWarning(): Promise<string> {
-  if (!isTauri) return RECOVERABLE;
-  return (await deletePermanence()).notes ? PERMANENT : RECOVERABLE;
+export async function noteDeleteIsPermanent(): Promise<boolean> {
+  if (!isTauri) return false;
+  return (await deletePermanence()).notes;
 }
 
 /**
@@ -43,7 +39,9 @@ export async function noteDeleteWarning(): Promise<string> {
  * can go to the trash: the Trash portal declines directories, so in a Flatpak it
  * cannot, and the dialog must say so.
  */
-export async function folderDeleteWarning(): Promise<string> {
-  if (!isTauri) return FOLDER;
-  return (await deletePermanence()).folders ? FOLDER_PERMANENT : FOLDER;
+export async function folderDeleteConfirmation(): Promise<LocalizedMessage> {
+  if (!isTauri) return { path: 'folders.delete.recoverableConfirmation' };
+  return (await deletePermanence()).folders
+    ? { path: 'folders.delete.permanentConfirmation' }
+    : { path: 'folders.delete.recoverableConfirmation' };
 }

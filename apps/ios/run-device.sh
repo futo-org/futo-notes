@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build & run the FUTO Notes NATIVE iOS spike on a CONNECTED PHYSICAL iPhone.
+# Build & run the FUTO Notes native iOS app on a CONNECTED PHYSICAL iPhone.
 #
 # Same app as run.sh (simulator), but a physical device requires code signing.
 # Uses FUTO_DEV_TEAM or apps/ios/.signing-team for the Apple Developer team.
@@ -40,7 +40,7 @@ echo "==> JS deps"
 [ -d node_modules ] || pnpm install
 
 echo "==> Building Rust note + sync core (UniFFI) -> FutoNotesFfi.xcframework"
-bash "$APP_DIR/build-rust-ios.sh"
+FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" bash "$ROOT/scripts/build-rust-ios.sh"
 
 echo "==> Building embedded editor bundle (single self-contained editor.html)"
 node_modules/.bin/vite build --config vite.editor.config.ts

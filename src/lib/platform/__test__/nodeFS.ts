@@ -9,7 +9,6 @@ export interface TestPlatformFS extends PlatformFS {
   _cleanup(): void;
   /** Test-fixture convenience only; not part of the production platform port. */
   writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number>;
-  readNote(id: string): Promise<string>;
 }
 
 export function createNodeFS(): TestPlatformFS {
@@ -65,11 +64,6 @@ export function createNodeFS(): TestPlatformFS {
     async deleteFile(filename) {
       fs.rmSync(full(filename), { force: true });
     },
-    async saveImage(sourcePath) {
-      const filename = path.basename(sourcePath);
-      fs.copyFileSync(sourcePath, full(filename));
-      return filename;
-    },
     async getImageUrl(filename) {
       return full(filename);
     },
@@ -86,13 +80,6 @@ export function createNodeFS(): TestPlatformFS {
         fs.utimesSync(destination, seconds, seconds);
       }
       return fs.statSync(destination).mtimeMs;
-    },
-    async readNote(id) {
-      try {
-        return fs.readFileSync(full(`${id}.md`), 'utf8');
-      } catch {
-        return '';
-      }
     },
   };
 }

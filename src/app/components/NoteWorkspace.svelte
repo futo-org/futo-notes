@@ -7,6 +7,7 @@
   import type { NotePreview } from '$shared/types/note';
   import FolderPickerModal from '$features/folders/FolderPickerModal.svelte';
   import { openExternalUrl } from '$lib/platform/openExternalUrl';
+  import { localizedText } from '$shared/localization';
 
   import type { createCurrentNoteActions } from '../createCurrentNoteActions.svelte';
   import NoteActionsMenu from './NoteActionsMenu.svelte';
@@ -18,6 +19,7 @@
     applyEdit: (markdown: string) => void;
     insertMarkdown: (text: string) => void;
     focus: () => void;
+    blur: () => void;
     getContent: () => string | undefined;
     hasFocus: () => boolean;
     isComposing: () => boolean;
@@ -93,6 +95,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="note-body"
+  dir="ltr"
   class:is-hidden={!active}
   bind:this={noteBodyEl}
   data-editor-focused={editorFocused ? '' : undefined}
@@ -105,7 +108,7 @@
       value={session.title}
       rows="1"
       spellcheck="false"
-      placeholder="Untitled"
+      placeholder={localizedText('notes.untitledPlaceholder')}
       oninput={session.handleTitleInput}
       onkeydown={session.handleTitleKeydown}
       onblur={session.handleTitleBlur}
@@ -127,6 +130,7 @@
   <div class="editor-container">
     <MilkdownEditor
       bind:this={editorApi}
+      content={session.content}
       onchange={(content) => session.debouncedSave(content)}
       onfocuschange={handleFocusChange}
       {oncompositionend}

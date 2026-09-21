@@ -9,6 +9,13 @@
   the Linux desktop theme, so it is not the source of truth for Auto. →
   SettingsScreen.kt (SharedPreferences `theme_mode`) _(Android)_;
   theme.ts / createAppBootstrap.svelte.ts / SettingsScreen.svelte _(Tauri)_
+- **Language** follows [localization.md](localization.md). Desktop and Android
+  provide a System-first language dropdown and apply changes immediately. iOS
+  provides a row that opens the app's system Settings instead of an in-app
+  dropdown. Both native rows carry a globe icon. The selection is local to the
+  device and never syncs.
+
+
 - The app version is shown.
 
 ## Native shells
@@ -34,6 +41,11 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   `futo.themeMode` / Android SharedPreferences `theme_mode`; survives relaunch —
   verified via the crash-test relaunch). → Theme.swift `appearanceOverride`
   _(iOS)_
+- **Language**: Android's dropdown reads and writes the operating system's
+  per-app language setting on Android 13+, and stores the choice itself on older
+  releases that have none. iOS's row opens the app's system Settings, where the
+  operating system owns selection. Draft settlement follows the platform rules in
+  [localization.md](localization.md).
 - **Storage**: a notes-directory path readout. On Android, **Storage location**
   opens the picker as a Settings sub-screen — Back or its **Cancel** button
   returns to Settings and changes nothing (see nav.md). Changing Device/App
@@ -77,15 +89,14 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   journal and storage preferences on `Dispatchers.IO` after the first
   composition. → `MainActivity.performSwitch`,
   `MainActivity.adoptExistingStorage`, Android `storage/` (`storageSwitchPlan`,
-  `describeStorageAdoption`), `futo-notes-store::vault_migration` (`inspect`);
+  `storageAdoptionMessage`), `futo-notes-store::vault_migration` (`inspect`);
   both directions and the occupied-target confirmation are guarded end-to-end on
   a device by `just test-android-storage` (`tests/android-storage-migration.mjs`)
 - **About**: an open-source link (GitLab) and the app version.
 - **Issue reporting**: "Share crash reports" toggle with a nested **"Send
-  crashes automatically"**, plus a **"Report an issue"** link that opens the
-  FUTO Notes GitHub issue tracker
-  (`https://github.com/futo-org/futo-notes/issues`). See app.md for the crash
-  dialog flow.
+  crashes automatically"**, plus a **"Send feedback"** row that pushes the
+  feedback form. See app.md for the crash dialog flow, and "Feedback" below for
+  the form. → iOS `FeedbackView.swift`, Android `FeedbackScreen.kt`
 - **Danger zone — Full reset**: same modal-confirmation contract as the Tauri
   shell below — tapping **Full reset** opens a confirmation dialog
   ("Permanently delete all notes and app data? This cannot be undone."); only
@@ -93,8 +104,13 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   `.crashlogs`) behind a blocking "Deleting all notes…" overlay, with live
   sync paused and the connection + stored password dropped so a racing sync
   cannot resurrect files; the next launch reseeds the welcome note and stays
-  LOCAL. On iOS the disconnect is awaited before the vault reset begins,
-  guarded by `FullResetTests`. iOS presents a `.confirmationDialog`; Android presents the shared
+  LOCAL. Both native shells stop admitting store and sync work before awaiting
+  sync shutdown and draining admitted mutations. Reset retires all live and
+  retained draft owners, queued flushes, and stale projections; callbacks from
+  retired editors cannot recreate wiped notes after admission resumes. Wipe
+  failures are visible. → `FullResetTests`, `EditorDraftCoordinatorTests`,
+  `EditorLifecycleFlushTest`, native `NotesStore`.
+  iOS presents a `.confirmationDialog`; Android presents the shared
   `ConfirmDialog` (Material 3 `AlertDialog`). (Modal confirm verified on both
   2026-06-30; the earlier two-tap arm/confirm was removed because a stray
   double-tap wiped everything too easily.)
@@ -140,7 +156,7 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
 - The grant the chooser issues carries no document-`delete` permission, which the
   vault does not need: creating, atomically replacing, renaming and unlinking notes
   and folders all work through the granted directory. That permission governs deleting
-  the *document entry*, which the app never does.
+  the _document entry_, which the app never does.
 - Every path shown for a sandboxed vault — in Storage and in the change
   confirmation — is the folder the user actually picked, resolved back through
   `Documents.Info`, never `/run/user/<uid>/doc/<id>/…`. Asking for that name is
@@ -152,11 +168,12 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   nothing. → SettingsScreen.svelte
 - **A vault that has gone missing** — an unmounted drive, a revoked sandbox grant
   — is a recoverable state, not a wedged app: the root is never recreated in
-  place, every note command fails with `Notes folder unavailable`, the shell
-  toasts "Notes folder unavailable — choose a folder in Settings", and the
+  place, every note command fails with the vault-unavailable error, the shell
+  toasts the localized `notesFolderUnavailable` message ("Can't find your vault
+  folder at {folderPath}. Please reconfigure in settings."), and the
   Storage section explains it ("This folder is no longer reachable. Choose it
   again, or reset to the default location.") and keeps both **Change directory**
-  and **Reset to default** usable. `isCustom` is read from the vault's *location*,
+  and **Reset to default** usable. `isCustom` is read from the vault's _location_,
   never from a successful vault read, so **Reset to default** cannot be hidden by
   the failure it is there to undo. → `vault_location::VAULT_UNAVAILABLE`,
   StorageSettingsSection.svelte
@@ -180,10 +197,18 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   (keyring unavailable or forgotten), a "Vault password — required after
   restart" field appears for on-demand re-entry (see sync.md). →
   SyncSettingsSection.svelte, createSyncSettings.svelte.ts
+- **Language**: a System-first dropdown applies the language immediately and
+  persists it locally. System is resolved at launch and foreground entry; save
+  failure and removed-language behavior follow
+  [localization.md](localization.md). → `desktopLocalization.svelte.ts`,
+  `LanguageSettingsSection.svelte`, `createAppBootstrap.svelte.ts`
 - **Issue reporting**: a "Share crash reports" toggle (anonymous crash logs), a
-  nested **"Send crashes automatically"** option, and a **"Report an issue"**
-  link that opens `https://github.com/futo-org/futo-notes/issues`; see app.md
-  for the crash dialog flow.
+  nested **"Send crashes automatically"** option, and a **"Send feedback"** row
+  that discloses the feedback form inside the same card: its chevron turns
+  down, the form appears below the row, and clicking the row again collapses it
+  (there is no Cancel button); see app.md for the crash dialog flow, and
+  "Feedback" below for the form. → IssueReportingSettingsSection.svelte,
+  FeedbackForm.svelte, tests/issue-reporting-settings.spec.ts
 - Dev builds additionally show a **Sync error test** section (fabricated
   sync-failure scenarios that exercise the failure-message UI) and a **Test
   crash** button in the Danger zone; neither ships in release builds
@@ -216,3 +241,46 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   shells implement the same contract (see "Native shells" above). →
   SettingsScreen.svelte (`confirmDialog`), app/resetAllNotes.ts `resetAllNotes`,
   notes.svelte.ts `deleteAllNotes`
+
+## Feedback
+
+The suggestion box behind Settings → **Send feedback**, on every platform. It
+replaced the "Report an issue" link to the GitHub issue tracker.
+
+- A message and up to **3 screenshots**, added from a photos icon in the
+  bottom-right corner of the message box. There is no type to choose — every
+  submission is a catch-all comment. Send stays disabled until the message has
+  non-whitespace content; the server applies the same rule.
+- Message is capped at **10,000 characters**; the server enforces the same limit.
+- Screenshots are capped at **5 MB each**. A picked image is re-encoded once as
+  **JPEG q95** when it is over the cap or is not a PNG/JPEG/WebP, and rejected
+  with a message if it is still too large; each shell uses its own OS codec. The
+  vault-insert path stays byte-faithful — feedback normalisation never touches a
+  note's own image.
+  → `normalizeImage.ts`, `FeedbackImages.swift`, `FeedbackImages.kt`
+- Sends **only** the app version, platform, OS version, device model and what the
+  user typed. Deliberately no route (it leaks note titles), no session id, and
+  nothing vault-derived (the notes root contains a username).
+- **Independent of "Share crash reports"** — that toggle governs automatic crash
+  uploads; pressing Send is explicit consent, so the form works either way.
+- What the form attaches is disclosed in the privacy policy rather than in the
+  form.
+- On success every shell **confirms in its own idiom** with the same words,
+  "Thanks. We'll read it." — a toast on every shell (iOS draws its transient banner
+  over the Settings sheet as well as the note list) — and the form closes. A send that produced no visible confirmation reads as a
+  send that did nothing.
+- On failure the form keeps its contents so the user can retry. The **message
+  text survives a restart**; attached images deliberately do not — they are
+  re-pickable in two taps and would need stale-draft cleanup.
+- Posts to `POST /api/feedback` on the crashlog server, requiring no account.
+  Each shell posts it the same way it already posts a crash report.
+  → `submitFeedback.ts`, `FeedbackSubmission.swift`, `FeedbackSubmission.kt`
+- **Release builds always target production**; the target is only selectable in
+  debug/dev builds, where it defaults to the local collector and a **"Send to the
+  staging server"** switch at the bottom of the feedback form moves it — with
+  crashes — to staging. The target is shown next to the switch, so a dev build
+  can never silently post somewhere invisible.
+  → `crashlogEndpoint.ts`, `CrashlogEndpoint.swift`, `CrashlogEndpoint.kt`
+
+> **Gap:** the desktop form is reached from Settings only; there is no
+> keyboard shortcut or command-palette entry for it.

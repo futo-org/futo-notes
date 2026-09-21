@@ -6,6 +6,7 @@ struct FutoNotesApp: App {
     @StateObject private var sync = SyncManager()
     @ObservedObject private var crash = CrashReporter.shared
     @Environment(\.scenePhase) private var scenePhase
+    @State private var localization = Localization.system()
     private let launchConfiguration: AppLaunchConfiguration
 
     /// "light" | "dark" | "auto" — set from Settings (futo.themeMode), applied
@@ -27,6 +28,7 @@ struct FutoNotesApp: App {
             NoteListView()
                 .environmentObject(store)
                 .environmentObject(sync)
+                .environment(\.localization, localization)
                 .tint(Theme.primary)
                 .appearanceOverride(ThemeMode.resolve(themeMode))
                 // Crash Report sheet for reports found by the launch scan (only
@@ -57,6 +59,7 @@ struct FutoNotesApp: App {
                     // first note-open doesn't pay the WebKit-boot + bundle-parse
                     // cost on the navigation critical path (F11). Mirrors
                     // Android's EditorHost.prewarm in MainActivity.
+                    EditorHost.shared.setLocalization(localization)
                     EditorHost.prewarm()
                     // Crash logs from the previous run — before restoreSession so
                     // a slow/offline server can't delay the crash dialog.
@@ -72,6 +75,9 @@ struct FutoNotesApp: App {
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
+                let refreshedLocalization = Localization.system()
+                localization = refreshedLocalization
+                EditorHost.shared.setLocalization(refreshedLocalization)
                 sync.resumeLiveAsync()
                 // Re-arm the once-per-episode background flush so the next
                 // backgrounding persists again (the flush is coalesced across the

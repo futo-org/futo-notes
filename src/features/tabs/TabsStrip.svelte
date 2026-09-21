@@ -2,6 +2,7 @@
   import { tabsStore, type Tab } from './tabsStore.svelte';
   import type { NotePreview } from '$shared/types/note';
   import { idLeaf } from '$lib/platform/pathSafety';
+  import { localizedText } from '$shared/localization';
   import './tabsStrip.css';
 
   interface Props {
@@ -18,8 +19,8 @@
 
   function titleFor(tab: Tab): string {
     const id = tab.noteId;
-    if (id === null) return 'Home';
-    if (id === 'new') return 'New note';
+    if (id === null) return localizedText('tabs.home');
+    if (id === 'new') return localizedText('tabs.newNote');
     const title = titleById.get(id);
     if (title) return title.split('/').pop() || title;
     return idLeaf(id);
@@ -80,7 +81,12 @@
   }
 </script>
 
-<div class="tabs-strip" role="tablist" aria-label="Tabs" data-tauri-drag-region>
+<div
+  class="tabs-strip"
+  role="tablist"
+  aria-label={localizedText('tabs.accessibilityLabel')}
+  data-tauri-drag-region
+>
   {#each tabsStore.tabs as tab, idx (tab.id)}
     <button
       type="button"
@@ -104,7 +110,7 @@
         class="tab-close-btn"
         role="button"
         tabindex="-1"
-        aria-label="Close tab"
+        aria-label={localizedText('tabs.closeAccessibilityLabel')}
         onclick={(e) => onCloseClick(e, tab)}
         onkeydown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -118,8 +124,8 @@
   <button
     type="button"
     class="tab-new-btn"
-    aria-label="New tab"
-    title="New tab"
+    aria-label={localizedText('tabs.newAccessibilityLabel')}
+    title={localizedText('tabs.newAccessibilityLabel')}
     onclick={onNewTabClick}>+</button
   >
 </div>

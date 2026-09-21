@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { localizedText } from '$shared/localization';
+
   interface Props {
     statusMessage: string;
     indicatorVisible: boolean;
@@ -48,8 +50,10 @@
     type="button"
     class="sync-indicator sync-error"
     onclick={() => onclear?.()}
-    title={`${errorMessage} — click to dismiss`}
-    aria-label={`Sync error: ${errorMessage}. Click to dismiss.`}
+    title={localizedText('sync.errors.dismissTitle', { message: errorMessage })}
+    aria-label={localizedText('sync.errors.dismissWithMessageAccessibilityLabel', {
+      message: errorMessage,
+    })}
   >
     <svg
       width="20"
@@ -67,7 +71,11 @@
     </svg>
   </button>
 {:else if indicatorVisible}
-  <div class="sync-indicator" role="status" aria-label={statusMessage || 'Syncing'}>
+  <div
+    class="sync-indicator"
+    role="status"
+    aria-label={statusMessage || localizedText('sync.status.syncing')}
+  >
     <svg
       class="sync-spinner"
       width="20"
@@ -86,8 +94,8 @@
   <div
     class="sync-indicator sync-reconnecting"
     role="status"
-    aria-label="Reconnecting to sync server"
-    title="Reconnecting to sync server"
+    aria-label={localizedText('sync.status.reconnectingAccessibilityLabel')}
+    title={localizedText('sync.status.reconnectingAccessibilityLabel')}
   >
     <svg
       class="sync-spinner"
@@ -104,7 +112,11 @@
     </svg>
   </div>
 {:else if connected}
-  <div class="sync-indicator sync-idle" role="status" aria-label="Sync up to date">
+  <div
+    class="sync-indicator sync-idle"
+    role="status"
+    aria-label={localizedText('sync.status.upToDateAccessibilityLabel')}
+  >
     <svg
       width="20"
       height="20"

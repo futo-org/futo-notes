@@ -2,14 +2,25 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(target_os = "linux", target_os = "android", target_vendor = "apple")
+))]
 use std::cell::{Cell, RefCell};
 
 use super::parked_backup::{hidden_path, install_temp};
 use super::paths::NAME_MAX;
 use super::timestamps::{file_mtime_ms, set_file_mtime_ms};
 
-#[cfg(test)]
+// These hooks drive the no-replace install ladder BELOW `hard_link` — the
+// flagged rename and the flagless copy — which only Linux/Android/Apple have.
+// Gated to the same platforms as the code they steer: `cargo test` on Windows
+// could not compile this module at all until the gates matched (github#48
+// added the Windows test run that surfaced it).
+#[cfg(all(
+    test,
+    any(target_os = "linux", target_os = "android", target_vendor = "apple")
+))]
 thread_local! {
     static MOVE_NO_REPLACE_BEFORE_RENAME: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
     /// Simulates a filesystem that rejects `RENAME_NOREPLACE`, so the fallback
@@ -116,7 +127,10 @@ pub fn create_new_atomic(path: &Path, bytes: &[u8]) -> Result<bool, String> {
 /// 3. An exclusive create plus copy, which keeps no-replace but not atomicity.
 ///    Android 9/10 shared storage needs it (github#13).
 pub fn move_no_replace(source: &Path, destination: &Path) -> Result<bool, String> {
-    #[cfg(test)]
+    #[cfg(all(
+        test,
+        any(target_os = "linux", target_os = "android", target_vendor = "apple")
+    ))]
     if MOVE_NO_REPLACE_BEFORE_RENAME.with(|hook| hook.borrow().is_some()) {
         // Host filesystems support links; the hook simulates Android FUSE rejecting one.
         return move_no_replace_via_rename(source, destination);
@@ -401,6 +415,7 @@ mod tests {
     // FUSE storage). The host filesystem supports links, so `move_no_replace`
     // would take the link path — call the fallback directly to lock its contract.
     #[test]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     fn rename_fallback_installs_when_links_are_unavailable() {
         let root = temp_dir();
         let source = root.join(".sf-tmp-source");
@@ -416,6 +431,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     fn rename_fallback_refuses_to_replace_and_keeps_the_source() {
         let root = temp_dir();
         let source = root.join(".sf-tmp-source");
@@ -439,6 +455,7 @@ mod tests {
     /// Android 9/10 mount shared storage as sdcardfs, which rejects `link` with
     /// EPERM and answers a flagged `renameat2` with EINVAL. Forces both legs to
     /// fail the way that filesystem does, on a host that supports both.
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     fn with_sdcardfs_rejections<T>(body: impl FnOnce() -> T) -> T {
         MOVE_NO_REPLACE_BEFORE_RENAME.with(|hook| *hook.borrow_mut() = Some(Box::new(|| {})));
         RENAME_FLAGS_REJECTED.with(|rejected| rejected.set(true));
@@ -449,6 +466,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     fn create_new_atomic_installs_a_note_when_links_and_rename_flags_are_both_rejected() {
         let root = temp_dir();
         let path = root.join("Untitled.md");
@@ -469,6 +487,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     fn flagless_install_refuses_to_replace_and_keeps_the_source() {
         let root = temp_dir();
         let source = root.join(".sf-tmp-source");
@@ -493,6 +512,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     fn flagless_install_carries_the_source_mtime_like_the_other_legs() {
         let root = temp_dir();
         let source = root.join(".sf-tmp-source");
@@ -515,6 +535,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     fn rename_fallback_preserves_a_destination_created_in_the_install_window() {
         let root = temp_dir();
         let source = root.join(".sf-tmp-source");

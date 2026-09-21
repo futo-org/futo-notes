@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window';
+  import { localizedText } from '$shared/localization';
 
   // Linux-only custom 36px title bar (nav.md §Desktop shell). macOS and Windows
   // use native window chrome, so this component is only rendered on Linux.
@@ -17,14 +18,22 @@
 </script>
 
 <div class="titlebar" data-tauri-drag-region>
-  <span class="titlebar-title">FUTO Notes</span>
+  <span class="titlebar-title">{localizedText('app.name')}</span>
   <div class="titlebar-controls" data-tauri-drag-region>
-    <button class="titlebar-btn" aria-label="Minimize" onclick={minimize}>
+    <button
+      class="titlebar-btn"
+      aria-label={localizedText('app.desktop.minimizeWindowAccessibilityLabel')}
+      onclick={minimize}
+    >
       <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
         ><line x1="2" y1="6" x2="10" y2="6" stroke="currentColor" stroke-width="1.2" /></svg
       >
     </button>
-    <button class="titlebar-btn" aria-label="Maximize" onclick={toggleMaximize}>
+    <button
+      class="titlebar-btn"
+      aria-label={localizedText('app.desktop.maximizeWindowAccessibilityLabel')}
+      onclick={toggleMaximize}
+    >
       <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
         ><rect
           x="2.5"
@@ -37,7 +46,11 @@
         /></svg
       >
     </button>
-    <button class="titlebar-btn titlebar-close" aria-label="Close" onclick={close}>
+    <button
+      class="titlebar-btn titlebar-close"
+      aria-label={localizedText('app.desktop.closeWindowAccessibilityLabel')}
+      onclick={close}
+    >
       <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
         ><line x1="3" y1="3" x2="9" y2="9" stroke="currentColor" stroke-width="1.2" /><line
           x1="9"

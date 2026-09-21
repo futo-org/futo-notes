@@ -1,4 +1,4 @@
-import { getFS } from '$lib/platform';
+import { getFS, type PickedImage } from '$lib/platform';
 
 const IMAGE_TYPES = [
   'image/png',
@@ -45,13 +45,17 @@ export function extFromMime(mime: string): string {
  * point cannot quietly grow a second, differently-gated copy of it.
  */
 export type VaultImageFs = {
-  /** Copy a file the user already has on disk into the vault. */
-  saveImage: (sourcePath: string) => Promise<string>;
   saveImageBytes: (data: ArrayBuffer, ext: string) => Promise<string>;
   getImageUrl: (filename: string) => Promise<string>;
   pasteClipboardImage?: () => Promise<string>;
+  /**
+   * Copy a file the user already has on disk into the vault. Absent where the
+   * host cannot read an arbitrary OS path — only a Linux WebKitGTK drop and
+   * Tauri's own drag-drop event produce that shape.
+   */
+  saveImagePath?: (sourcePath: string) => Promise<string>;
   /** Opens the host's file picker. Absent where there is no picker. */
-  pickImage?: () => Promise<string | null>;
+  pickImages?: (options: { limit?: number; filterName: string }) => Promise<PickedImage[]>;
 };
 
 /**
@@ -60,9 +64,9 @@ export type VaultImageFs = {
  * the factory judge — `web.ts` has no `saveImageBytes` and its `getImageUrl`
  * throws). Every image entry point resolves it through here.
  *
- * `saveImageBytes` is the gate rather than `saveImage`, which every `PlatformFS`
- * declares: on the web fallback `saveImage` exists and throws, so its presence
- * says nothing about whether this host has a vault to write to.
+ * `saveImageBytes` is the gate: it is declared optional on `PlatformFS` and is
+ * absent on the web fallback, so its presence is what says this host has a
+ * vault to write image bytes into at all.
  */
 export function resolveVaultImageFs(): VaultImageFs | null {
   let fs: ReturnType<typeof getFS>;
@@ -73,11 +77,11 @@ export function resolveVaultImageFs(): VaultImageFs | null {
   }
   if (!fs.saveImageBytes) return null;
   return {
-    saveImage: fs.saveImage.bind(fs),
     saveImageBytes: fs.saveImageBytes.bind(fs),
     getImageUrl: fs.getImageUrl.bind(fs),
     pasteClipboardImage: fs.pasteClipboardImage?.bind(fs),
-    pickImage: fs.pickImage?.bind(fs),
+    saveImagePath: fs.saveImagePath?.bind(fs),
+    pickImages: fs.pickImages?.bind(fs),
   };
 }
 

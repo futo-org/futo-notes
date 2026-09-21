@@ -24,7 +24,7 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 - **Svelte 5 reactivity**: Use `$state()` runes, not stores. Read `onchange` lazily inside callbacks (not in `$effect` body) to avoid tracking it as a dependency — prevents editor destruction/recreation.
 - **Editor responsiveness is sacred.** Never let background operations (sync, search indexing, save) block or delay typing.
 - **Images**: the editor's image node views resolve a vault filename to a URL through `vaultImageSrc.ts` and re-render themselves when it lands. Images are served via the Tauri asset protocol (`asset://`).
-- **Note/folder/search work goes through `getLocalNoteStore()`.** `PlatformFS` is only for shell storage, images, and capabilities; components never invoke note commands or plugin-fs directly. Sync keeps its dedicated `syncServiceE2ee.ts` shim, and user-facing sync errors funnel through `getSyncErrorMessage()`.
+- **Note/folder/search work goes through `getLocalNoteStore()`.** `PlatformFS` is only for shell storage, images, and capabilities; components never invoke note commands or plugin-fs directly. Sync keeps its dedicated `syncServiceE2ee.ts` shim; user-facing sync errors are localized catalog messages, with `classifySyncError()` deciding transient vs actionable and `syncErrorDedupeKey()` collapsing transport variants so a flapping outage toasts once.
 - **Never hand-build note paths** — use `pathSafety.ts` for any path formed before a command call.
 
 ## Common Patterns
@@ -32,18 +32,13 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 - **Adding markdown elements**: a construct the editor should understand is a Milkdown/remark plugin under `src/features/editor/milkdown/` (see `wikilink/` for the full shape: micromark tokenizer, mdast from/to-markdown, schema node, node view, input rule). Anything that is only a paint over existing text is a decoration on `blockDecorations.ts`'s bounded repaint (see `tagDecorations.ts`), never a per-keystroke whole-document walk. Styling goes in `MilkdownEditor.svelte`'s `<style>` block, unless a surface outside the editor needs the same rule — then it goes behind the `src/styles/markdown.css` facade.
 - **Theme tokens**: Tailwind v4; `src/styles/theme.css` → `@theme` block (primary, text, border, surface, muted, bg). Dark mode is `[data-theme='dark']` overrides — there is no `dark:` variant.
 - **New persisted setting**: add the field to `AppState` (`src/shared/state/appState.ts`), guard it in `sanitize()`, default it in `defaultState()`, then thread it through the `AppPreferences` facade. UI-layout state (sidebar width, open folders, tabs) goes in `.app-config.json` via `getConfig`/`saveConfig` instead.
-- **Toasts and dialogs**: `showGlobalToast()` from non-component code; `confirmDialog()` / `ask()` / `message()` from `@tauri-apps/plugin-dialog`. `window.confirm()`/`alert()` do **not** block in Tauri's webview.
+- **Toasts and dialogs**: `showGlobalToast()` from non-component code; `confirmDialog()` (`src/shared/dialogs/confirmDialog.ts`) for confirmations — never import `@tauri-apps/plugin-dialog` from a component (the platform-discipline gate rejects it). `window.confirm()`/`alert()` do **not** block in Tauri's webview.
 - **Platform-specific behavior**: Implement in `PlatformFS` interface, never branch on platform in components.
 - **Search**: Full-text search is owned solely by the shared Rust local-note store. UI code consumes ranked note IDs and must not build, persist, or maintain a second body index in JavaScript. Synchronous wikilink completion filters note IDs from `notesCache`.
 
 ## Tauri MCP Shortcuts
 
-Use `webview-execute-js` against the live app and call:
-
-- `await window.__testSync.connect('http://127.0.0.1:3100', 'testing123')` on desktop
-- `await window.__testSync.status()`
-- `await window.__testSync.syncNow()`
-- `await window.__testSync.disconnect()`
+The dev-only `window.__testSync` hooks and the MCP bridge are documented once, in `apps/tauri/AGENTS.md` (§Tauri MCP).
 
 ## Testing
 

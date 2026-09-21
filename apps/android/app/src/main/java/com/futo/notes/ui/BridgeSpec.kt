@@ -10,7 +10,7 @@ object BridgeSpec {
      *  host config it sends to `FutoEditor.initialize`; the bundle compares
      *  it with its own and posts `bridgeVersionMismatch` when they differ.
      */
-    const val BRIDGE_VERSION: Int = 7
+    const val BRIDGE_VERSION: Int = 8
 
     /** Every `type` value FutoEditorOutboundMessage can carry
      *  (bridge.ts OUTBOUND_MESSAGE_TYPES). BridgeCoverageTest asserts
@@ -23,6 +23,7 @@ object BridgeSpec {
         "focus",
         "openNote",
         "openUrl",
+        "findMatches",
         "pickImage",
         "cursorContext",
         "saveImageData",

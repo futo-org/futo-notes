@@ -17,7 +17,7 @@ enum ToolbarItemAction: Equatable {
 struct ToolbarItemSpec: Identifiable, Equatable {
     let id: String
     /// Accessibility label — same text as the web toolbar's aria-label.
-    let label: String
+    let localizationPath: String
     let text: String?
     let sfSymbol: String
     /// Only visible in a list or quote (cursorContext and formatState).
@@ -31,7 +31,7 @@ enum ToolbarSpec {
         [
             ToolbarItemSpec(
                 id: "undo",
-                label: "Undo",
+                localizationPath: "editor.toolbar.undo",
                 text: nil,
                 sfSymbol: "arrow.uturn.backward",
                 onlyInContainer: false,
@@ -39,7 +39,7 @@ enum ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id: "redo",
-                label: "Redo",
+                localizationPath: "editor.toolbar.redo",
                 text: nil,
                 sfSymbol: "arrow.uturn.forward",
                 onlyInContainer: false,
@@ -49,7 +49,7 @@ enum ToolbarSpec {
         [
             ToolbarItemSpec(
                 id: "bold",
-                label: "Bold",
+                localizationPath: "editor.toolbar.bold",
                 text: nil,
                 sfSymbol: "bold",
                 onlyInContainer: false,
@@ -57,7 +57,7 @@ enum ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id: "italic",
-                label: "Italic",
+                localizationPath: "editor.toolbar.italic",
                 text: nil,
                 sfSymbol: "italic",
                 onlyInContainer: false,
@@ -65,7 +65,7 @@ enum ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id: "strikethrough",
-                label: "Strikethrough",
+                localizationPath: "editor.toolbar.strikethrough",
                 text: nil,
                 sfSymbol: "strikethrough",
                 onlyInContainer: false,
@@ -73,7 +73,7 @@ enum ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id: "link",
-                label: "Link",
+                localizationPath: "editor.toolbar.link",
                 text: nil,
                 sfSymbol: "link",
                 onlyInContainer: false,
@@ -83,7 +83,7 @@ enum ToolbarSpec {
         [
             ToolbarItemSpec(
                 id: "paragraph",
-                label: "Text",
+                localizationPath: "editor.toolbar.paragraph",
                 text: "Text",
                 sfSymbol: "textformat.size",
                 onlyInContainer: false,
@@ -91,7 +91,7 @@ enum ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id: "heading-1",
-                label: "Heading 1",
+                localizationPath: "editor.toolbar.headingOne",
                 text: "H1",
                 sfSymbol: "textformat.size",
                 onlyInContainer: false,
@@ -99,7 +99,7 @@ enum ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id: "heading-2",
-                label: "Heading 2",
+                localizationPath: "editor.toolbar.headingTwo",
                 text: "H2",
                 sfSymbol: "textformat.size",
                 onlyInContainer: false,
@@ -107,7 +107,7 @@ enum ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id: "heading-3",
-                label: "Heading 3",
+                localizationPath: "editor.toolbar.headingThree",
                 text: "H3",
                 sfSymbol: "textformat.size",
                 onlyInContainer: false,
@@ -115,7 +115,7 @@ enum ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id: "quote",
-                label: "Block quote",
+                localizationPath: "editor.toolbar.blockQuote",
                 text: nil,
                 sfSymbol: "text.quote",
                 onlyInContainer: false,
@@ -123,7 +123,7 @@ enum ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id: "code-block",
-                label: "Code block",
+                localizationPath: "editor.toolbar.codeBlock",
                 text: nil,
                 sfSymbol: "chevron.left.forwardslash.chevron.right",
                 onlyInContainer: false,
@@ -133,7 +133,7 @@ enum ToolbarSpec {
         [
             ToolbarItemSpec(
                 id: "bullet-list",
-                label: "Bullet list",
+                localizationPath: "editor.toolbar.bulletList",
                 text: nil,
                 sfSymbol: "list.bullet",
                 onlyInContainer: false,
@@ -141,7 +141,7 @@ enum ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id: "ordered-list",
-                label: "Ordered list",
+                localizationPath: "editor.toolbar.orderedList",
                 text: nil,
                 sfSymbol: "list.number",
                 onlyInContainer: false,
@@ -149,7 +149,7 @@ enum ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id: "task-list",
-                label: "Task list",
+                localizationPath: "editor.toolbar.taskList",
                 text: nil,
                 sfSymbol: "checklist",
                 onlyInContainer: false,
@@ -157,7 +157,7 @@ enum ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id: "outdent",
-                label: "Outdent",
+                localizationPath: "editor.toolbar.outdent",
                 text: nil,
                 sfSymbol: "decrease.indent",
                 onlyInContainer: true,
@@ -165,7 +165,7 @@ enum ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id: "indent",
-                label: "Indent",
+                localizationPath: "editor.toolbar.indent",
                 text: nil,
                 sfSymbol: "increase.indent",
                 onlyInContainer: true,
@@ -175,7 +175,7 @@ enum ToolbarSpec {
         [
             ToolbarItemSpec(
                 id: "camera",
-                label: "Take photo",
+                localizationPath: "editor.toolbar.takePhoto",
                 text: nil,
                 sfSymbol: "camera",
                 onlyInContainer: false,
@@ -183,7 +183,7 @@ enum ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id: "image",
-                label: "Choose from library",
+                localizationPath: "editor.toolbar.chooseFromLibrary",
                 text: nil,
                 sfSymbol: "photo",
                 onlyInContainer: false,
@@ -195,7 +195,7 @@ enum ToolbarSpec {
     /// The fixed (non-scrolling) collapse chevron at the right edge.
     static let dismiss = ToolbarItemSpec(
         id: "dismiss",
-        label: "Dismiss keyboard",
+        localizationPath: "editor.toolbar.dismissKeyboard",
         text: nil,
         sfSymbol: "keyboard.chevron.compact.down",
         onlyInContainer: false,

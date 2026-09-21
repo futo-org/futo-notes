@@ -12,6 +12,7 @@ enum Route: Hashable {
 struct NoteListView: View {
     @EnvironmentObject private var store: NotesStore
     @EnvironmentObject private var sync: SyncManager
+    @Environment(\.localization) private var localization
     @State private var search = ""
     @State private var navPath: [Route] = []
     @State private var showSync = false
@@ -23,8 +24,9 @@ struct NoteListView: View {
     @State private var searchHits: [NoteItem] = []
 
     private var filtered: [NoteItem] {
-        let q = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return store.notes }
+        guard !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return store.notes
+        }
         return searchHits
     }
 
@@ -41,8 +43,8 @@ struct NoteListView: View {
                 }
             }
             .background(Theme.background)
-            .navigationTitle("Notes")
-            .searchable(text: $search, prompt: "Search notes")
+            .navigationTitle(localization.localizedText("notes.heading"))
+            .searchable(text: $search, prompt: localization.localizedText("search.ios.placeholder"))
             .task(id: search) {
                 await runSearch()
             }
@@ -59,7 +61,7 @@ struct NoteListView: View {
                         Image(systemName: "gearshape")
                     }
                     .tint(Theme.primary)
-                    .accessibilityLabel("Settings")
+                    .accessibilityLabel(localization.localizedText("settings.heading"))
                     .accessibilityAddTraits(.isButton)
                     .accessibilityIdentifier("nav-settings")
                 }
@@ -70,7 +72,7 @@ struct NoteListView: View {
                         Image(systemName: sync.connected ? "checkmark.icloud" : "icloud")
                     }
                     .tint(Theme.primary)
-                    .accessibilityLabel("Sync")
+                    .accessibilityLabel(localization.localizedText("sync.heading"))
                     .accessibilityAddTraits(.isButton)
                     .accessibilityIdentifier("nav-sync")
                 }
@@ -89,8 +91,10 @@ struct NoteListView: View {
             // DestructiveConfirmDialog for why (arrow-popover misanchoring).
             .fullScreenCover(isPresented: $showSearchDelete) {
                 DestructiveConfirmDialog(
-                    message: "Delete this note? This action cannot be undone.",
-                    destructiveLabel: "Delete Note",
+                    message: localization.localizedText(
+                        "notes.delete.thisNoteRecoverableConfirmation"
+                    ),
+                    destructiveLabel: localization.localizedText("notes.actions.deleteNote"),
                     onCancel: { setSearchDelete([], visible: false) },
                     onDestructive: {
                         for id in searchDeleteIds { store.deleteAsync(id) }
@@ -120,23 +124,7 @@ struct NoteListView: View {
                 }
             }
         }
-        // Transient status banner (e.g. "peer deleted the open note"), shown over
-        // the whole stack including a pushed editor. iOS has no global toast, so
-        // this is the minimal equivalent; driven by `store.showTransient`.
-        .overlay(alignment: .bottom) {
-            if let message = store.transientMessage {
-                Text(message)
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Capsule().fill(Color.black.opacity(0.82)))
-                    .padding(.bottom, 32)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .allowsHitTesting(false)
-            }
-        }
-        .animation(.easeInOut(duration: 0.2), value: store.transientMessage)
+        .transientMessageBanner(store)
     }
 
     private func runSearch() async {
@@ -163,7 +151,7 @@ struct NoteListView: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 48))
                         .foregroundStyle(Theme.primary)
-                    Text("No matches")
+                    Text(localization.localizedText("search.noMatches"))
                         .font(.title3.bold())
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -202,6 +190,7 @@ struct NoteListView: View {
 /// tapping a subfolder pushes another FolderContentsView via Route.folder.
 struct FolderContentsView: View {
     @EnvironmentObject private var store: NotesStore
+    @Environment(\.localization) private var localization
     /// The folder this view shows ("" = root).
     let folder: String
     @Binding var navPath: [Route]
@@ -242,14 +231,24 @@ struct FolderContentsView: View {
             }
     }
 
-    /// True when the typed name only survives sanitization via the "Untitled"
-    /// fallback (sanitizeTitle's note-title contract turns "", "///", "..."
-    /// into "Untitled"). Creating then would silently make a folder the user
-    /// never named — treat it as invalid instead (2026-07-02 QA: "///" created
-    /// an "Untitled" folder). Literally typing "Untitled" stays allowed.
-    private var newFolderSanitizesAway: Bool {
-        newFolderClean == "Untitled"
-            && newFolderName.trimmingCharacters(in: .whitespacesAndNewlines) != "Untitled"
+    /// The shared filename rules' verdict on the typed name — a forbidden
+    /// character, an empty field, or a name that only survives sanitization via
+    /// the "Untitled" fallback. See FolderNameValidation.swift; the rules
+    /// themselves live in Rust.
+    private var newFolderProblem: FolderNameProblem? {
+        folderNameProblem(newFolderName)
+    }
+
+    /// Catalog path of the inline warning, or nil when the dialog shows its
+    /// ordinary hint. A shared-rule violation is named before a sibling
+    /// collision (desktop's order), and an empty field stays quiet.
+    private var newFolderWarningPath: String? {
+        if let problem = newFolderProblem { return problem.messagePath }
+        return newFolderIsDuplicate ? "folders.duplicateName" : nil
+    }
+
+    private var canCreateNewFolder: Bool {
+        newFolderProblem == nil && !newFolderIsDuplicate
     }
 
     private var renameFolderClean: String {
@@ -272,9 +271,20 @@ struct FolderContentsView: View {
         }
     }
 
-    private var renameFolderSanitizesAway: Bool {
-        renameFolderClean == "Untitled"
-            && renameFolderName.trimmingCharacters(in: .whitespacesAndNewlines) != "Untitled"
+    private var renameFolderProblem: FolderNameProblem? {
+        folderNameProblem(renameFolderName)
+    }
+
+    private var renameFolderWarningPath: String? {
+        if let problem = renameFolderProblem { return problem.messagePath }
+        return renameFolderIsDuplicate ? "folders.duplicateName" : nil
+    }
+
+    /// A rename to the folder's own current path is a no-op, so it is blocked
+    /// too — the only condition the create dialog does not share.
+    private var canRenameFolder: Bool {
+        renameFolderProblem == nil && !renameFolderIsDuplicate
+            && renamedFolderPath != folderRenameTarget
     }
 
     private var renamedFolderPath: String {
@@ -283,7 +293,9 @@ struct FolderContentsView: View {
     }
 
     private var title: String {
-        folder.isEmpty ? "Notes" : (folder.split(separator: "/").last.map(String.init) ?? folder)
+        folder.isEmpty
+            ? localization.localizedText("notes.heading")
+            : (folder.split(separator: "/").last.map(String.init) ?? folder)
     }
 
     private var isEmpty: Bool { subfolders.isEmpty && notes.isEmpty }
@@ -306,30 +318,34 @@ struct FolderContentsView: View {
         .background(Theme.background)
         .navigationTitle(title)
         .toolbar {
-            ToolbarItem(id: "create", placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        // Quick capture: create + open straight into the body,
-                        // no blocking title prompt (desktop parity). [list.md]
-                        createNote()
-                    } label: {
-                        Label("New Note", systemImage: "square.and.pencil")
-                    }
-                    Button {
-                        newFolderName = ""
-                        setNewFolderDialog(visible: true)
-                    } label: {
-                        Label("New Folder", systemImage: "folder.badge.plus")
-                    }
+            // Two SEPARATE nav-bar buttons (desktop parity, github#5): a
+            // folder button and a compose button, the way Notes/Files expose
+            // them. New Note is one tap — quick capture never sits behind a
+            // menu. iOS groups adjacent trailing items into one control
+            // cluster, so this reads as native rather than as two loose icons.
+            ToolbarItem(id: "create-folder", placement: .topBarTrailing) {
+                Button {
+                    newFolderName = ""
+                    setNewFolderDialog(visible: true)
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: "folder.badge.plus")
                 }
                 .tint(Theme.primary)
-                // Explicit AX so VoiceOver/idb can read + activate the create
-                // menu (it otherwise collapses into an unlabeled container).
-                // [nav.md:13]
-                .accessibilityLabel("New note or folder")
-                .accessibilityAddTraits(.isButton)
+                // Explicit AX so VoiceOver/AXe can read + activate it. [nav.md]
+                .accessibilityLabel(localization.localizedText("folders.newFolder"))
+                .accessibilityIdentifier("nav-create-folder")
+            }
+            ToolbarItem(id: "create", placement: .topBarTrailing) {
+                Button {
+                    // Quick capture: create + open straight into the body,
+                    // no blocking title prompt (desktop parity). [list.md]
+                    createNote()
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                }
+                .tint(Theme.primary)
+                // Explicit AX so VoiceOver/AXe can read + activate it. [nav.md]
+                .accessibilityLabel(localization.localizedText("notes.newNote"))
                 .accessibilityIdentifier("nav-create")
             }
         }
@@ -340,22 +356,20 @@ struct FolderContentsView: View {
         // re-renders live — the message flips to the warning as the user types.
         .fullScreenCover(isPresented: $showingNewFolder) {
             NewFolderDialog(
-                title: "New Folder",
-                confirmLabel: "Create",
-                message: newFolderIsDuplicate
-                    ? "A folder with this name already exists"
-                    : (newFolderSanitizesAway
-                        && !newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? "Enter a valid folder name"
-                        : "Create a folder in \(folder.isEmpty ? "Notes" : title)."),
-                messageIsWarning: newFolderIsDuplicate
-                    || (newFolderSanitizesAway
-                        && !newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
+                title: localization.localizedText("folders.newFolderTitleCase"),
+                confirmLabel: localization.localizedText("common.actions.create"),
+                message: newFolderWarningPath.map { localization.localizedText($0) }
+                    ?? (folder.isEmpty
+                        ? localization.localizedText("folders.createInNotesPrompt")
+                        : localization.localizedText(
+                            "folders.createInFolderPrompt",
+                            arguments: ["folderName": title]
+                        )),
+                messageIsWarning: newFolderWarningPath != nil,
                 name: $newFolderName,
-                // Mirror Android: Create is disabled on an empty, sanitize-away,
-                // or case-insensitive-duplicate sibling name (NewFolderDialog.kt).
-                canCreate: !newFolderClean.isEmpty && !newFolderIsDuplicate
-                    && !newFolderSanitizesAway,
+                // Create is disabled on any shared-rule violation or a
+                // case-insensitive-duplicate sibling name. [list.md]
+                canCreate: canCreateNewFolder,
                 onCancel: { setNewFolderDialog(visible: false) },
                 onCreate: {
                     createFolder()
@@ -384,21 +398,13 @@ struct FolderContentsView: View {
                 set: { if !$0 { setFolderRenameTarget(nil) } })
         ) {
             NewFolderDialog(
-                title: "Rename Folder",
-                confirmLabel: "Rename",
-                message: renameFolderIsDuplicate
-                    ? "A folder with this name already exists"
-                    : (renameFolderSanitizesAway
-                        && !renameFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? "Enter a valid folder name"
-                        : "Enter a new folder name."),
-                messageIsWarning: renameFolderIsDuplicate
-                    || (renameFolderSanitizesAway
-                        && !renameFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
+                title: localization.localizedText("folders.renameHeading"),
+                confirmLabel: localization.localizedText("common.actions.rename"),
+                message: renameFolderWarningPath.map { localization.localizedText($0) }
+                    ?? localization.localizedText("folders.renamePrompt"),
+                messageIsWarning: renameFolderWarningPath != nil,
                 name: $renameFolderName,
-                canCreate: !renameFolderClean.isEmpty && !renameFolderIsDuplicate
-                    && !renameFolderSanitizesAway
-                    && renamedFolderPath != folderRenameTarget,
+                canCreate: canRenameFolder,
                 onCancel: { setFolderRenameTarget(nil) },
                 onCreate: { renameFolder() }
             )
@@ -412,8 +418,10 @@ struct FolderContentsView: View {
                 set: { if !$0 { setDeleteTarget(nil) } })
         ) {
             DestructiveConfirmDialog(
-                message: "Delete this note? This action cannot be undone.",
-                destructiveLabel: "Delete Note",
+                message: localization.localizedText(
+                    "notes.delete.thisNoteRecoverableConfirmation"
+                ),
+                destructiveLabel: localization.localizedText("notes.actions.deleteNote"),
                 onCancel: { setDeleteTarget(nil) },
                 onDestructive: {
                     if let note = deleteTarget { store.deleteAsync(note.id) }
@@ -428,8 +436,8 @@ struct FolderContentsView: View {
                 set: { if !$0 { setFolderDeleteTarget(nil) } })
         ) {
             DestructiveConfirmDialog(
-                message: "Delete this folder? Notes inside it will be moved to the parent folder.",
-                destructiveLabel: "Delete Folder",
+                message: localization.localizedText("folders.delete.recoverableConfirmation"),
+                destructiveLabel: localization.localizedText("folders.actions.deleteFolder"),
                 onCancel: { setFolderDeleteTarget(nil) },
                 onDestructive: {
                     if let target = folderDeleteTarget { store.deleteFolder(target) }
@@ -461,24 +469,42 @@ struct FolderContentsView: View {
                             Button(role: .destructive) {
                                 setFolderDeleteTarget(child)
                             } label: {
-                                Label("Delete Folder…", systemImage: "trash")
+                                Label(
+                                    localization.localizedText(
+                                        "folders.actions.deleteFolderEllipsis"
+                                    ),
+                                    systemImage: "trash"
+                                )
                             }
                         }
                         .contextMenu {
                             Button {
                                 setFolderRenameTarget(child)
                             } label: {
-                                Label("Rename", systemImage: "pencil")
+                                Label(
+                                    localization.localizedText("common.actions.rename"),
+                                    systemImage: "pencil"
+                                )
                             }
                             Button {
                                 folderMoveTarget = child
                             } label: {
-                                Label("Move to Folder…", systemImage: "folder")
+                                Label(
+                                    localization.localizedText(
+                                        "folders.actions.moveToFolderEllipsis"
+                                    ),
+                                    systemImage: "folder"
+                                )
                             }
                             Button(role: .destructive) {
                                 setFolderDeleteTarget(child)
                             } label: {
-                                Label("Delete Folder…", systemImage: "trash")
+                                Label(
+                                    localization.localizedText(
+                                        "folders.actions.deleteFolderEllipsis"
+                                    ),
+                                    systemImage: "trash"
+                                )
                             }
                         }
                     }
@@ -496,12 +522,18 @@ struct FolderContentsView: View {
                             Button(role: .destructive) {
                                 setDeleteTarget(note)
                             } label: {
-                                Label("Delete", systemImage: "trash")
+                                Label(
+                                    localization.localizedText("common.actions.delete"),
+                                    systemImage: "trash"
+                                )
                             }
                             Button {
                                 moveTarget = note
                             } label: {
-                                Label("Move", systemImage: "folder")
+                                Label(
+                                    localization.localizedText("common.actions.move"),
+                                    systemImage: "folder"
+                                )
                             }
                             .tint(Theme.primary)
                         }
@@ -509,12 +541,20 @@ struct FolderContentsView: View {
                             Button {
                                 moveTarget = note
                             } label: {
-                                Label("Move to Folder…", systemImage: "folder")
+                                Label(
+                                    localization.localizedText(
+                                        "notes.actions.moveToFolderEllipsis"
+                                    ),
+                                    systemImage: "folder"
+                                )
                             }
                             Button(role: .destructive) {
                                 setDeleteTarget(note)
                             } label: {
-                                Label("Delete", systemImage: "trash")
+                                Label(
+                                    localization.localizedText("common.actions.delete"),
+                                    systemImage: "trash"
+                                )
                             }
                         }
                     }
@@ -530,9 +570,13 @@ struct FolderContentsView: View {
             Image(systemName: folder.isEmpty ? "note.text" : "folder")
                 .font(.system(size: 56))
                 .foregroundStyle(Theme.primary)
-            Text(folder.isEmpty ? "No notes yet" : "Empty folder")
-                .font(.title2.bold())
-            Text("Tap + to add a note or folder.")
+            Text(
+                folder.isEmpty
+                    ? localization.localizedText("notes.list.rootEmptyHeading")
+                    : localization.localizedText("notes.list.folderEmptyHeading")
+            )
+            .font(.title2.bold())
+            Text(localization.localizedText("notes.list.ios.emptyActionHint"))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -555,19 +599,22 @@ struct FolderContentsView: View {
         // the idempotent Rust create_dir_all on an empty name or a
         // case-insensitive sibling collision — that would silently MERGE into
         // the existing folder. [list.md:152]
+        guard canCreateNewFolder else { return }
         let clean = newFolderClean
-        guard !clean.isEmpty, !newFolderIsDuplicate, !newFolderSanitizesAway else { return }
         store.createFolder(folder.isEmpty ? clean : folder + "/" + clean)
     }
 
     private func renameFolder() {
         guard let target = folderRenameTarget else { return }
+        // Same hard guard as createFolder: the disabled Rename button must not
+        // be the only thing standing between a rejected name and the engine.
+        guard canRenameFolder else { return }
         let destination = renamedFolderPath
         Task {
             if await store.renameFolder(from: target, to: destination) != nil {
-                store.showTransient("Folder renamed")
+                store.showTransient(LocalizedMessage("folders.renamed"))
             } else {
-                store.showTransient("Couldn't rename folder")
+                store.showTransient(LocalizedMessage("folders.errors.renameFailed"))
             }
             setFolderRenameTarget(nil)
         }
@@ -618,6 +665,7 @@ private struct NewFolderDialog: View {
     let canCreate: Bool
     let onCancel: () -> Void
     let onCreate: () -> Void
+    @Environment(\.localization) private var localization
 
     @FocusState private var nameFocused: Bool
 
@@ -638,7 +686,7 @@ private struct NewFolderDialog: View {
                         .foregroundStyle(messageIsWarning ? Theme.danger : Color.secondary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
-                    TextField("Folder name", text: $name)
+                    TextField(localization.localizedText("folders.nameField"), text: $name)
                         .textFieldStyle(.roundedBorder)
                         .font(.callout)
                         .focused($nameFocused)
@@ -652,7 +700,7 @@ private struct NewFolderDialog: View {
                 Divider()
                 HStack(spacing: 0) {
                     Button(action: onCancel) {
-                        Text("Cancel")
+                        Text(localization.localizedText("common.actions.cancel"))
                             .fontWeight(.semibold)
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }
@@ -684,14 +732,12 @@ private struct NewFolderDialog: View {
 struct MoveToFolderSheet: View {
     @EnvironmentObject private var store: NotesStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.localization) private var localization
 
     let note: NoteItem
     /// Folder currently being browsed — used as the parent for a brand-new
     /// folder created from this sheet.
     let currentFolder: String
-    /// Invoked with the note's FINAL id once the move lands (a move changes the
-    /// id). The open editor uses this to keep the note open under its new id.
-    var onMoved: ((String) -> Void)? = nil
     /// The editor supplies this synchronous handoff so it owns and tracks the
     /// complete asynchronous move. List-row moves use the default store task.
     var onMoveRequested: ((String) -> Void)? = nil
@@ -707,12 +753,13 @@ struct MoveToFolderSheet: View {
                         move(to: "")
                     } label: {
                         rowLabel(
-                            text: "Root", system: "house.fill",
+                            text: localization.localizedText("folders.root"),
+                            system: "house.fill",
                             isCurrent: note.folder.isEmpty)
                     }
                 }
                 if !store.folders.isEmpty {
-                    Section("Folders") {
+                    Section(localization.localizedText("folders.heading")) {
                         ForEach(store.folders, id: \.self) { path in
                             Button {
                                 move(to: path)
@@ -729,26 +776,45 @@ struct MoveToFolderSheet: View {
                         newFolderName = ""
                         showingNewFolder = true
                     } label: {
-                        Label("New Folder…", systemImage: "folder.badge.plus")
-                            .foregroundStyle(Theme.primary)
+                        Label(
+                            localization.localizedText("folders.newFolderEllipsis"),
+                            systemImage: "folder.badge.plus"
+                        )
+                        .foregroundStyle(Theme.primary)
                     }
                 }
             }
-            .navigationTitle("Move \"\(note.title)\"")
+            .navigationTitle(
+                localization.localizedText(
+                    "notes.moveNamedHeading",
+                    arguments: ["noteTitle": note.title]
+                )
+            )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
+                    Button(localization.localizedText("common.actions.cancel")) { dismiss() }
                         .tint(Theme.primary)
                 }
             }
-            .alert("New Folder", isPresented: $showingNewFolder) {
-                TextField("Folder name", text: $newFolderName)
-                Button("Cancel", role: .cancel) {}
-                Button("Create & Move") { createAndMove() }
+            .alert(
+                localization.localizedText("folders.newFolderTitleCase"),
+                isPresented: $showingNewFolder
+            ) {
+                TextField(
+                    localization.localizedText("folders.nameField"),
+                    text: $newFolderName
+                )
+                Button(localization.localizedText("common.actions.cancel"), role: .cancel) {}
+                Button(localization.localizedText("notes.move.createAndMove")) { createAndMove() }
             } message: {
                 Text(
-                    "Create a folder\(currentFolder.isEmpty ? "" : " in \(currentFolder)") and move the note into it."
+                    currentFolder.isEmpty
+                        ? localization.localizedText("notes.move.createFolderPrompt")
+                        : localization.localizedText(
+                            "notes.move.createFolderInPrompt",
+                            arguments: ["folderName": currentFolder]
+                        )
                 )
             }
         }
@@ -779,13 +845,7 @@ struct MoveToFolderSheet: View {
         if let onMoveRequested {
             onMoveRequested(folder)
         } else {
-            Task {
-                if case .committed(let finalId) =
-                    await store.moveNote(note.id, toFolder: folder)
-                {
-                    onMoved?(finalId)
-                }
-            }
+            Task { _ = await store.moveNote(note.id, toFolder: folder) }
         }
     }
 
@@ -801,6 +861,7 @@ struct MoveToFolderSheet: View {
 struct MoveFolderSheet: View {
     @EnvironmentObject private var store: NotesStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.localization) private var localization
 
     let folder: String
 
@@ -823,11 +884,14 @@ struct MoveFolderSheet: View {
                         move(to: "")
                     } label: {
                         rowLabel(
-                            text: "Root", system: "house.fill", isCurrent: sourceParent.isEmpty)
+                            text: localization.localizedText("folders.root"),
+                            system: "house.fill",
+                            isCurrent: sourceParent.isEmpty
+                        )
                     }
                 }
                 if !destinations.isEmpty {
-                    Section("Folders") {
+                    Section(localization.localizedText("folders.heading")) {
                         ForEach(destinations, id: \.self) { path in
                             Button {
                                 move(to: path)
@@ -842,12 +906,17 @@ struct MoveFolderSheet: View {
                 }
             }
             .navigationTitle(
-                "Move \"\(folder.split(separator: "/").last.map(String.init) ?? folder)\""
+                localization.localizedText(
+                    "folders.moveNamedHeading",
+                    arguments: [
+                        "folderName": folder.split(separator: "/").last.map(String.init) ?? folder
+                    ]
+                )
             )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
+                    Button(localization.localizedText("common.actions.cancel")) { dismiss() }
                         .tint(Theme.primary)
                 }
             }
@@ -873,9 +942,18 @@ struct MoveFolderSheet: View {
     private func move(to destination: String) {
         Task {
             if await store.moveFolder(from: folder, destinationParent: destination) != nil {
-                store.showTransient("Moved to \(destination.isEmpty ? "Root" : destination)")
+                if destination.isEmpty {
+                    store.showTransient(LocalizedMessage("folders.movedToRoot"))
+                } else {
+                    store.showTransient(
+                        LocalizedMessage(
+                            "folders.movedTo",
+                            arguments: ["destination": destination]
+                        )
+                    )
+                }
             } else {
-                store.showTransient("Couldn't move folder — nothing was changed")
+                store.showTransient(LocalizedMessage("folders.errors.moveFailed"))
             }
         }
         dismiss()
@@ -883,6 +961,7 @@ struct MoveFolderSheet: View {
 }
 
 struct NoteRow: View {
+    @Environment(\.localization) private var localization
     let note: NoteItem
     /// Whether to show the folder label (true in flat search results).
     var showFolder: Bool = false
@@ -894,9 +973,13 @@ struct NoteRow: View {
                     .font(.headline)
                     .lineLimit(1)
                 Spacer()
-                Text(note.modified, format: .relative(presentation: .named))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                Text(
+                    localization.localizedRelativeTime(
+                        note.modified.timeIntervalSince1970 * 1_000
+                    )
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             }
             if showFolder && !note.folder.isEmpty {
                 Label(note.folder, systemImage: "folder")

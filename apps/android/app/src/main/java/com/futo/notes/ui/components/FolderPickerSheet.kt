@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.futo.notes.NotesStore
+import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 
@@ -47,11 +48,12 @@ fun FolderPickerSheet(
     store: NotesStore,
     onPick: (folder: String, isNew: Boolean) -> Unit,
     onDismiss: () -> Unit,
-    title: String = "Move to folder",
+    title: String? = null,
     excludePaths: List<String> = emptyList(),
     allowCreate: Boolean = true,
 ) {
     val c = FutoTheme.colors
+    val localization = LocalLocalization.current
     var newFolder by remember { mutableStateOf(false) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = c.surface) {
@@ -61,15 +63,21 @@ fun FolderPickerSheet(
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = 24.dp),
         ) {
-            MicroLabel(title, Modifier.padding(start = 24.dp, bottom = 8.dp))
-            SheetRow(label = "Root", icon = Icons.Filled.Home) { onPick("", false) }
+            MicroLabel(
+                title ?: localization.localizedText("folders.movePickerHeading"),
+                Modifier.padding(start = 24.dp, bottom = 8.dp),
+            )
+            SheetRow(
+                label = localization.localizedText("folders.root"),
+                icon = Icons.Filled.Home,
+            ) { onPick("", false) }
             eligibleFolderDestinations(store.folders, excludePaths).forEach { folder ->
                 SheetRow(label = folder, icon = Icons.Filled.Folder) { onPick(folder, false) }
             }
             if (allowCreate) {
                 HorizontalDivider(color = c.border, modifier = Modifier.padding(vertical = 6.dp))
                 SheetRow(
-                    label = "New Folder…",
+                    label = localization.localizedText("folders.newFolderEllipsis"),
                     icon = Icons.Filled.CreateNewFolder,
                     tint = c.textAccent,
                     labelColor = c.textAccent,

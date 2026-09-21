@@ -1,13 +1,4 @@
-import { isDesktop } from '$lib/platform';
-
-export type UpdaterState =
-  | { phase: 'idle' }
-  | { phase: 'checking' }
-  | { phase: 'up-to-date' }
-  | { phase: 'available'; version: string; notes?: string; date?: string }
-  | { phase: 'downloading'; received: number; total: number | null }
-  | { phase: 'installing' }
-  | { phase: 'error'; message: string };
+import { isTauri } from '$lib/platform';
 
 export interface PendingUpdate {
   version: string;
@@ -18,7 +9,7 @@ export interface PendingUpdate {
 }
 
 export function updaterSupported(): boolean {
-  return isDesktop;
+  return isTauri;
 }
 
 export async function selfUpdateSupported(): Promise<boolean> {

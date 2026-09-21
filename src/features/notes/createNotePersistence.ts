@@ -1,5 +1,7 @@
+import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import { hasFileSystem } from '$lib/platform';
 import { sanitizeFilename, validateTitle } from '$lib/rules';
+import type { LocalizedMessage } from '$shared/localization';
 
 import {
   editorLostTheNote,
@@ -8,6 +10,7 @@ import {
 } from './noteSessionChanges';
 import type { ParkedDraftSnapshot } from './noteSession.svelte';
 import { _applyLocalMutation, recordSaveIdentityChange, updateNote } from './notes.svelte';
+import { titleValidationMessage } from './titleValidationMessage';
 
 interface NotePersistenceState {
   /** The session's live buffer — the last body any change notification reported. */
@@ -22,6 +25,7 @@ interface SavedNoteState {
   content: string;
   id: string;
   savedOriginalId: string | null;
+  requestedTitle: string;
   title: string;
 }
 
@@ -34,7 +38,7 @@ interface CreateNotePersistenceOptions {
   hasDuplicateTitle: (title: string) => boolean;
   onSaved: (state: SavedNoteState) => void;
   reconcileOpenNote: (id: string, parkedDraft: ParkedDraftSnapshot) => Promise<unknown>;
-  showTitleWarning: (message: string) => void;
+  showTitleWarning: (message: LocalizedMessage) => void;
 }
 
 export function createNotePersistence(options: CreateNotePersistenceOptions) {
@@ -56,11 +60,11 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
         ? state.savedContent
         : editorContent;
       // Navigating Home clears the tab's note id before this queued save runs.
-      if (noteId === null && state.originalId === null) return false;
+      if (noteId === null && state.originalId === null && !state.title) return false;
       const newTitle = normalizeTitleForPersistence(state.title);
       const blockingTitleIssue = validateTitle(newTitle).find((issue) => issue.kind !== 'empty');
       if (blockingTitleIssue) {
-        options.showTitleWarning(blockingTitleIssue.message);
+        options.showTitleWarning(titleValidationMessage(blockingTitleIssue.kind));
         return false;
       }
 
@@ -84,11 +88,11 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
         return false;
       }
       if (options.hasDuplicateTitle(newTitle)) {
-        options.showTitleWarning('A note with this name already exists');
+        options.showTitleWarning({ path: 'notes.title.duplicate' });
         return false;
       }
 
-      const result = await updateNote(newId, newTitle, newContent, {
+      const result = await updateNote(newId, newContent, {
         originalId: state.originalId ?? undefined,
         base: state.savedContent,
       });
@@ -100,16 +104,21 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
 
       options.clearPendingFolder();
       if (result.id !== state.originalId) recordSaveIdentityChange(state.originalId, result.id);
+      const savedNote = result.unappliedMutation?.upserted.find(
+        ({ note }) => note.id === result.id,
+      )?.note;
       options.onSaved({
         id: result.id,
-        title: newTitle,
+        title: savedNote?.title ?? newTitle,
+        requestedTitle: state.title,
         content: newContent,
         savedOriginalId: state.originalId,
       });
       return result.disposition !== 'converged';
     } catch (error) {
       console.warn('Failed to save note:', error);
-      return false;
+      showGlobalToast({ path: 'notes.save.failedPending' });
+      throw error;
     }
   };
 }

@@ -36,6 +36,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // The justfile recipe parser already exists (the agent-docs gate validates
 // every `just <recipe>` reference with it); a second copy here would be drift.
 import { parseJustRecipes } from './check-agent-docs.mjs';
+import { PINNED_SERVER_VERSION } from './lib/sync-server.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -110,6 +111,7 @@ export const REFUSED = [
   ['build-rust-ios', 'macos'],
   ['build-ios-native', 'macos'],
   ['test-ios-native', 'macos'],
+  ['test-ios-stories', 'macos'],
   ['ios-native', 'macos'],
   ['ios-native-device', 'macos'],
   ['deploy-ios', 'macos'],
@@ -119,7 +121,6 @@ export const REFUSED = [
   ['qa-clone-target', 'macos'],
   // Runs the shipped desktop app or the editor in a browser engine.
   ['test-desktop-smoke', 'wkwebview'],
-  ['perf-course', 'wkwebview'],
   // Interactive.
   ['tauri-dev', 'interactive'],
   ['tauri-prod', 'interactive'],
@@ -163,7 +164,7 @@ export const CAVEATED = [
   ],
   [
     /^(test-cross-platform|prepush)$/,
-    'derives its ports and its Postgres database from the worktree slot, so two DIFFERENT ' +
+    'derives its ports and its SQLite database from the worktree slot, so two DIFFERENT ' +
       'worktrees can run it at once — but two runs in the same remote worktree are the same ' +
       'slot, and the second now aborts on the busy port instead of adopting the first server. ' +
       'The remote worktree lock is what stops that happening at all.',
@@ -235,18 +236,22 @@ export function ndkVersionFromGradle(gradleText) {
 
 /**
  * Sourced on EVERY invocation: `ssh host cmd` is a non-interactive shell, so it
- * reads none of the box's profile — node lives in nvm and is simply absent from
+ * reads none of the box's profile — node lives in fnm and is simply absent from
  * PATH without this.
  */
 export function remoteEnvPreamble({ ndkVersion }) {
   return [
-    'export NVM_DIR="$HOME/.nvm"',
-    // shellcheck-style guard: a missing nvm must fail loudly at `node`, not here.
-    '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" >/dev/null',
-    // .bun/bin is here because the E2EE sync test server is a bun project —
-    // tests/lib/sync-test-server.mjs shells out to `bun src/index.ts hash`, and
-    // without it the cross-platform suite dies AFTER booting both clients.
-    'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"',
+    // No .bun/bin any more: the sync test server used to be a bun project, and
+    // its absence from a non-interactive PATH killed the cross-platform suite
+    // after both clients were already up. It is a pinned Go binary the harness
+    // downloads now (scripts/lib/sync-server.mjs), so nothing here needs bun.
+    // .local/share/fnm and linuxbrew cover fnm's two install layouts; this must
+    // precede the `fnm env` below, which needs fnm itself on PATH.
+    'export PATH="$HOME/.local/bin:$HOME/.local/share/fnm:/home/linuxbrew/.linuxbrew/bin:$HOME/.cargo/bin:$PATH"',
+    // A missing fnm is not fatal here; it fails at `fnm use` in the runner script,
+    // which is under `set -e`. remote-doctor lists fnm as required and prints the
+    // install command, because the box needs it once.
+    'if command -v fnm >/dev/null 2>&1; then eval "$(fnm env --shell bash)"; fi',
     'export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"',
     'export ANDROID_SDK_ROOT="$ANDROID_HOME"',
     `export ANDROID_NDK_HOME="\${FUTO_REMOTE_NDK:-$ANDROID_HOME/ndk/${ndkVersion}}"`,
@@ -466,6 +471,11 @@ fi`
     : ''
 }
 
+# .nvmrc exists only once the worktree is checked out, so this cannot live in the
+# preamble (whose CWD is $HOME). It must precede the install below, or native
+# modules compile against the box default and the pin buys nothing.
+fnm use --install-if-missing
+
 # pnpm install only when the lockfile actually moved: it is 40s that most runs
 # do not need, and skipping it silently would be worse than paying it. The stamp
 # lives OUTSIDE the checkout so it can never dirty the tree or confuse a
@@ -562,13 +572,13 @@ have() {
   if p="$(command -v "$1" 2>/dev/null)"; then emit "$2" ok "$($3 2>&1 | head -1) — $p"; else emit "$2" missing ""; fi
 }
 
+have fnm         'fnm'          'fnm --version'
 have node        'node'         'node --version'
 have pnpm        'pnpm'         'pnpm --version'
 have cargo       'cargo'        'cargo --version'
 have rustup      'rustup'       'rustup --version'
 have just        'just'         'just --version'
 have git         'git'          'git --version'
-have bun         'bun (sync server)' 'bun --version'
 have rsync       'rsync'        'rsync --version'
 if [ -n "\${JAVA_HOME:-}" ]; then
   emit 'gradle JDK' ok "$("$JAVA_HOME/bin/java" -version 2>&1 | head -1) — $JAVA_HOME"
@@ -613,20 +623,18 @@ else
   emit '/dev/kvm' missing 'no /dev/kvm — Android emulators will be software-rendered'
 fi
 
+SYNC_SERVER_BIN="\${XDG_CACHE_HOME:-$HOME/.cache}/futo-notes/sync-server/${PINNED_SERVER_VERSION}/futo-notes-server"
+if [ -x "$SYNC_SERVER_BIN" ]; then
+  emit 'sync server' ok "${PINNED_SERVER_VERSION} cached at $SYNC_SERVER_BIN"
+else
+  emit 'sync server' warn "${PINNED_SERVER_VERSION} not cached — the first sync run downloads it from gitlab.futo.org"
+fi
+
 if [ -x "$ANDROID_HOME/emulator/emulator" ]; then
   AVDS="$("$ANDROID_HOME/emulator/emulator" -list-avds 2>/dev/null | tr '\\n' ' ')"
   emit 'android emulator' ok "AVDs: $AVDS"
 else
   emit 'android emulator' missing "$ANDROID_HOME/emulator/emulator"
-fi
-
-PG_STATUS="$(docker inspect -f '{{.State.Status}} {{if .State.Health}}({{.State.Health.Status}}){{end}}' futo-notes-postgres 2>/dev/null)"
-if [ -z "$PG_STATUS" ]; then
-  emit 'postgres container' missing 'no container named futo-notes-postgres'
-elif docker exec futo-notes-postgres pg_isready >/dev/null 2>&1; then
-  emit 'postgres container' ok "futo-notes-postgres $PG_STATUS, pg_isready OK"
-else
-  emit 'postgres container' warn "futo-notes-postgres $PG_STATUS but pg_isready failed"
 fi
 
 if pkg-config --modversion webkit2gtk-4.1 >/dev/null 2>&1; then
@@ -690,12 +698,12 @@ const SUDO_HINTS = {
   'gradle JDK': 'sudo dnf install -y java-21-openjdk-devel   # Gradle 8.14 cannot run on Java 25',
   adb: 'sudo dnf install -y android-tools',
   ffmpeg: 'sudo dnf install -y ffmpeg',
+  'sync server':
+    'node scripts/lib/sync-server.mjs path   # pre-downloads the pinned release; the suite does it anyway',
   docker: 'sudo dnf install -y docker && sudo systemctl enable --now docker',
-  'postgres container':
-    "docker start futo-notes-postgres  # or recreate it per futo-notes-server's README",
   'playwright browsers':
     'pnpm exec playwright install chromium webkit   # NOT --with-deps: that needs root',
-  'bun (sync server)': 'curl -fsSL https://bun.sh/install | bash   # the sync test server is bun',
+  fnm: "curl -fsSL https://fnm.vercel.app/install | bash   # supplies .nvmrc's exact Node",
 };
 
 // ---------------------------------------------------------------------------
@@ -720,7 +728,7 @@ export const RSYNC_EXCLUDES = [
 // A doctor run is only a hard failure when the box cannot run ANY suite.
 // Everything else (NDK, KVM, Postgres, browsers) gates a specific suite and is
 // reported as WARN/MISS with the command that fixes it.
-export const DOCTOR_REQUIRED = ['node', 'pnpm', 'cargo', 'just', 'git', 'rsync'];
+export const DOCTOR_REQUIRED = ['fnm', 'node', 'pnpm', 'cargo', 'just', 'git', 'rsync'];
 
 /** `CHECK|name|status|detail` lines → rows, tolerating `|` inside detail. */
 export function parseDoctorOutput(stdout) {

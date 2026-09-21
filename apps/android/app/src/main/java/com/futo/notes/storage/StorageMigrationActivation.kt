@@ -2,9 +2,17 @@ package com.futo.notes.storage
 
 import uniffi.futo_notes_ffi.VaultMigrationFinalization
 
+internal enum class StorageActivationFailure {
+    PREPARATION_DECLINED,
+    FINALIZATION_RECORD_FAILED,
+    DESTINATION_CHANGED,
+    SOURCE_FINALIZATION_FAILED,
+    ACTIVATION_RECORD_FAILED,
+}
+
 internal sealed interface StorageActivationOutcome {
     data object Restart : StorageActivationOutcome
-    data class KeepSource(val feedback: String?) : StorageActivationOutcome
+    data class KeepSource(val failure: StorageActivationFailure) : StorageActivationOutcome
 }
 
 /**
@@ -20,7 +28,7 @@ internal suspend fun activateStagedStorageMigration(
     clearJournal: suspend () -> Unit,
 ): StorageActivationOutcome {
     if (!decision.commitPreference) {
-        return StorageActivationOutcome.KeepSource(decision.feedback)
+        return StorageActivationOutcome.KeepSource(StorageActivationFailure.PREPARATION_DECLINED)
     }
 
     val isSourceRemovalForbidden =
@@ -33,7 +41,7 @@ internal suspend fun activateStagedStorageMigration(
         )
         if (!writeJournal(finalizing)) {
             return StorageActivationOutcome.KeepSource(
-                "The verified notes copy could not be prepared for activation."
+                StorageActivationFailure.FINALIZATION_RECORD_FAILED,
             )
         }
         when (finalizeSource()) {
@@ -41,11 +49,11 @@ internal suspend fun activateStagedStorageMigration(
             VaultMigrationFinalization.SOURCE_RETAINED -> true
             VaultMigrationFinalization.DESTINATION_CHANGED ->
                 return StorageActivationOutcome.KeepSource(
-                    "The current notes folder changed during the move. The original folder remains active."
+                    StorageActivationFailure.DESTINATION_CHANGED,
                 )
             null ->
                 return StorageActivationOutcome.KeepSource(
-                    "The current notes folder could not be finalized. The original folder remains active."
+                    StorageActivationFailure.SOURCE_FINALIZATION_FAILED,
                 )
         }
     } else {
@@ -62,7 +70,7 @@ internal suspend fun activateStagedStorageMigration(
             StorageActivationOutcome.Restart
         } else {
             StorageActivationOutcome.KeepSource(
-                "The verified notes copy could not be activated."
+                StorageActivationFailure.ACTIVATION_RECORD_FAILED,
             )
         }
     }

@@ -96,11 +96,9 @@ describe('macOS-only deny-list', () => {
   });
 
   it('refuses the desktop suites whose whole point is the shipped web engine', () => {
-    for (const recipe of ['test-desktop-smoke', 'perf-course']) {
-      const verdict = classify(recipe);
-      expect(verdict.allowed).toBe(false);
-      expect(verdict.reason).toMatch(/WKWebView/);
-    }
+    const verdict = classify('test-desktop-smoke');
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.reason).toMatch(/WKWebView/);
   });
 
   it('refuses recipes that need root or manage the local machine', () => {
@@ -118,11 +116,7 @@ describe('macOS-only deny-list', () => {
   it('names real recipes, so a renamed recipe cannot silently become allowed', () => {
     const denied = REFUSED.filter(([m]) => typeof m === 'string').map(([m]) => m);
     const absent = denied.filter((name) => !recipes.has(name));
-    // `perf-course` is deliberately pre-denied: it lands with the desktop
-    // obstacle course, and its debug-build timings are only comparable to other
-    // runs on the same machine — a Linux run against Mac baselines is noise.
-    // When it exists, drop it from this exception list (the assertion will say so).
-    expect(absent).toEqual(['perf-course']);
+    expect(absent).toEqual([]);
   });
 
   it('the regex matchers cover the families they claim', () => {
@@ -169,16 +163,40 @@ describe('portable suites', () => {
   });
 });
 
+describe('remote node version', () => {
+  it('activates .nvmrc after the checkout, so a remote run is not on the box default', () => {
+    const script = runScript();
+    const activation = script.indexOf('fnm use --install-if-missing');
+    expect(activation).toBeGreaterThan(-1);
+    // Must land after the worktree exists, and before anything reports or uses node.
+    expect(activation).toBeGreaterThan(script.indexOf('cd "$REMOTE_DIR"'));
+    expect(activation).toBeLessThan(script.indexOf('node --version'));
+    expect(activation).toBeLessThan(script.indexOf('just test-rust-full'));
+    // And before pnpm install, or native modules compile against the box default
+    // and the pin buys nothing. Matched as a command line: the comments around
+    // it name the command too, so indexOf() finds prose and compares the wrong
+    // offsets.
+    const installsDeps = script.search(/^\s*pnpm install$/m);
+    expect(installsDeps).toBeGreaterThan(-1);
+    expect(activation).toBeLessThan(installsDeps);
+  });
+});
+
 describe('remote environment', () => {
-  it('sources nvm, because ssh runs a non-interactive shell with no profile', () => {
+  it('sets up fnm, because ssh runs a non-interactive shell with no profile', () => {
     const preamble = remoteEnvPreamble({ ndkVersion: '28.2.13676358' });
-    expect(preamble).toContain('NVM_DIR="$HOME/.nvm"');
-    expect(preamble).toContain('nvm.sh');
+    expect(preamble).toContain('eval "$(fnm env --shell bash)"');
     expect(preamble).toContain('$HOME/.local/bin');
     expect(preamble).toContain('$HOME/.cargo/bin');
-    // The sync test server shells out to `bun`, which lives in ~/.bun/bin and
-    // is absent from a non-interactive PATH — the suite died there once.
-    expect(preamble).toContain('$HOME/.bun/bin');
+    // The sync test server no longer shells out to anything on PATH: it is the
+    // pinned Go binary scripts/lib/sync-server.mjs downloads. Its predecessor
+    // needed bun from ~/.bun/bin, whose absence killed the suite mid-run.
+    expect(preamble).not.toContain('.bun/bin');
+    // fnm has to be on PATH before `fnm env` runs, so the export must precede it.
+    expect(preamble.indexOf('.local/share/fnm')).toBeLessThan(preamble.indexOf('eval "$(fnm env'));
+    // The version itself is activated in the run script, after the checkout —
+    // .nvmrc does not exist at preamble time, whose CWD is $HOME.
+    expect(preamble).not.toContain('fnm use');
   });
 
   it('never relocates the cargo target dir, and clears an inherited one', () => {
@@ -349,7 +367,7 @@ describe('doctor', () => {
       'rust android targets',
       'pinned NDK',
       '/dev/kvm',
-      'postgres container',
+      'sync server',
       'webkit2gtk-4.1',
       'playwright browsers',
       'android emulator',

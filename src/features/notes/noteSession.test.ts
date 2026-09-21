@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('$lib/platform', () => ({
   hasFileSystem: true,
 }));
-vi.mock('$features/sync/autoSyncV2', () => ({ notifySavedV2: vi.fn() }));
+vi.mock('$features/sync/autoSync', () => ({ notifySaved: vi.fn() }));
 vi.mock('$features/sync/syncServiceE2ee', () => ({
   classifyOpenNote: vi.fn(async () => ({ kind: 'close' })),
 }));
@@ -25,12 +25,12 @@ vi.mock('./notes.svelte', () => ({
 
 import { createWriteSuppressor } from '$lib/platform/writeSuppression';
 import { createExternalChangeCoordinator } from '$features/sync/createExternalChangeCoordinator';
+import { createNoteSession } from './noteSession.svelte.ts';
 import {
-  createNoteSession,
   editorHasUnseenChanges,
   isEditorChangeEcho,
   shouldWriteNoteToDisk,
-} from './noteSession.svelte.ts';
+} from './noteSessionChanges';
 import type { NoteSessionDeps } from './noteSession.svelte.ts';
 
 describe('shouldWriteNoteToDisk', () => {
@@ -214,6 +214,28 @@ describe('committing the title without waiting out the debounce', () => {
   beforeEach(useTitleSaveFakes);
   afterEach(restoreTitleSaveFakes);
 
+  it.each(['B', 'new', null])(
+    'keeps the outgoing draft when save fails before opening %s',
+    async (destination) => {
+      const deps = makeTitleDeps();
+      const session = createNoteSession(deps);
+      const { updateNote, readNote } = await import('./notes.svelte');
+      session.seedOpenNote('A', 'original A');
+      titleEditorContent = 'unsaved A';
+      vi.mocked(updateNote).mockRejectedValueOnce(new Error('disk full'));
+      vi.mocked(readNote).mockClear();
+
+      await expect(session.loadNote(destination)).rejects.toThrow('disk full');
+
+      expect(titleEditorContent).toBe('unsaved A');
+      expect(session.originalId).toBe('A');
+      expect(session.savedContent).toBe('original A');
+      expect(readNote).not.toHaveBeenCalled();
+      await session.flushSave();
+      expect(session.savedContent).toBe('unsaved A');
+    },
+  );
+
   it('renames on flush with no timer advance at all', async () => {
     const session = createNoteSession(makeTitleDeps());
     const { updateNote } = await import('./notes.svelte');
@@ -221,8 +243,10 @@ describe('committing the title without waiting out the debounce', () => {
     typeTitle(session, 'Grocery list');
     await session.flushSave();
 
-    expect(updateNote).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(updateNote).mock.calls[0][1]).toBe('Grocery list');
+    expect(updateNote).toHaveBeenCalledExactlyOnceWith('Grocery list', '', {
+      originalId: undefined,
+      base: '',
+    });
   });
 
   it('renames when the title field loses focus', async () => {
@@ -234,8 +258,10 @@ describe('committing the title without waiting out the debounce', () => {
     // Microtasks only: reaching the 10 s backstop would rename regardless.
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(updateNote).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(updateNote).mock.calls[0][1]).toBe('Grocery list');
+    expect(updateNote).toHaveBeenCalledExactlyOnceWith('Grocery list', '', {
+      originalId: undefined,
+      base: '',
+    });
   });
 });
 
@@ -261,8 +287,10 @@ describe('title debounce vs body debounce (character-loss race)', () => {
 
     vi.advanceTimersByTime(2000);
     await vi.runAllTicks();
-    expect(updateNote).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(updateNote).mock.calls[0][1]).toBe('Grocery list');
+    expect(updateNote).toHaveBeenCalledExactlyOnceWith('Grocery list', '', {
+      originalId: undefined,
+      base: '',
+    });
   });
 
   it('body content edits keep the existing short (500ms) debounce', async () => {
@@ -294,21 +322,10 @@ describe('title debounce vs body debounce (character-loss race)', () => {
     await session.flushSave();
 
     const { updateNote } = await import('./notes.svelte');
-    expect(updateNote).toHaveBeenCalledWith('Untitled', 'Untitled', '# hidden-window keystroke', {
+    expect(updateNote).toHaveBeenCalledWith('Untitled', '# hidden-window keystroke', {
       originalId: undefined,
       base: '',
     });
-  });
-
-  it('awaits only an in-flight save without starting a scheduled save', async () => {
-    const session = createNoteSession(makeTitleDeps());
-    const { updateNote } = await import('./notes.svelte');
-
-    session.debouncedSave('# scheduled');
-    await session.awaitSaveIdle();
-
-    expect(updateNote).not.toHaveBeenCalled();
-    expect(session.savePending).toBe(true);
   });
 
   it('queues saves typed during a local move until the session has retargeted', async () => {
@@ -341,12 +358,10 @@ describe('title debounce vs body debounce (character-loss race)', () => {
     releaseMove();
     await moving;
     await vi.waitFor(() => expect(updateNote).toHaveBeenCalledOnce());
-    expect(updateNote).toHaveBeenCalledWith(
-      'Archive/Roadmap',
-      'Roadmap',
-      'draft typed during move',
-      { originalId: 'Archive/Roadmap', base: 'base' },
-    );
+    expect(updateNote).toHaveBeenCalledWith('Archive/Roadmap', 'draft typed during move', {
+      originalId: 'Archive/Roadmap',
+      base: 'base',
+    });
   });
 });
 
@@ -395,9 +410,9 @@ describe('external unlink during an in-flight save', () => {
     } satisfies NoteSessionDeps;
     const session = createNoteSession(deps);
     const { updateNote } = await import('./notes.svelte');
-    const { notifySavedV2 } = await import('$features/sync/autoSyncV2');
+    const { notifySaved } = await import('$features/sync/autoSync');
     vi.mocked(updateNote).mockImplementationOnce(() => saveResult);
-    vi.mocked(notifySavedV2).mockClear();
+    vi.mocked(notifySaved).mockClear();
     session.seedOpenNote('active', 'base');
 
     editorContent = 'draft';
@@ -427,7 +442,7 @@ describe('external unlink during an in-flight save', () => {
     expect(session.title).toBe('active');
     expect(session.content).toBe('draft');
     expect(deps.onNoteRenamed).toHaveBeenCalledExactlyOnceWith('active', 'Renamed');
-    expect(notifySavedV2).toHaveBeenCalledOnce();
+    expect(notifySaved).toHaveBeenCalledOnce();
     expect(updateNote).toHaveBeenCalledOnce();
     expect(session.savePending).toBe(false);
     externalChanges.stop();
@@ -813,11 +828,11 @@ describe('an editor that lost the note never empties it on disk', () => {
     const { updateNote } = await import('./notes.svelte');
 
     editorDoc = '';
-    session.title = 'The feed is reborn';
+    typeTitle(session, 'The feed is reborn');
     await session.flushSave();
 
     expect(updateNote).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(updateNote).mock.calls[0][2]).toBe('two hundred bytes\n');
+    expect(vi.mocked(updateNote).mock.calls[0][1]).toBe('two hundred bytes\n');
   });
 
   it('still empties a note the user really did clear, reported through onchange', async () => {
@@ -831,7 +846,7 @@ describe('an editor that lost the note never empties it on disk', () => {
     await session.flushSave();
 
     expect(updateNote).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(updateNote).mock.calls[0][2]).toBe('');
+    expect(vi.mocked(updateNote).mock.calls[0][1]).toBe('');
   });
 
   it('never writes for an editor that reports nothing at all', async () => {

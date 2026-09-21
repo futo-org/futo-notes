@@ -17,7 +17,13 @@ struct TitleTextFieldLayoutTests {
         "A very long note title that keeps going and going well past the width of an iPhone screen"
 
     private func hosted(_ title: String) -> UIHostingController<TitleTextField> {
-        UIHostingController(rootView: TitleTextField(text: .constant(title), onChange: { _ in }))
+        UIHostingController(
+            rootView: TitleTextField(
+                text: .constant(title),
+                placeholder: "Untitled",
+                onChange: { _ in }
+            )
+        )
     }
 
     private func measuredWidth(title: String) -> CGFloat {

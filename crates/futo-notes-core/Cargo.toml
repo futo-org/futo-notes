@@ -3,6 +3,9 @@ name = "futo-notes-core"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+test-support = []
+
 [dependencies]
 sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
@@ -14,13 +17,12 @@ rand = "0.8"
 aes-gcm = "0.10"
 pbkdf2 = "0.12"
 hmac = "0.12"
-base64 = "0.22"
 hex = "0.4"
 thiserror = "1"
 time = "0.3"
 unicode-normalization = "0.1.25"
 
-[target.'cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))'.dependencies]
+[target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]

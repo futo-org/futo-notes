@@ -1,20 +1,19 @@
 import { createFolder, validateNewFolderName } from '$features/folders/folderOperations';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
+import type { LocalizedMessage } from '$shared/localization';
 import {
   collectSiblingFolders,
   confirmDeleteSidebarFolder,
   confirmDeleteSidebarNote,
   moveSidebarFolder,
-  moveSidebarFolderToRoot,
   moveSidebarNote,
   moveSidebarNoteToFolder,
-  moveSidebarNoteToRoot,
   renameSidebarFolder,
   renameSidebarNote,
 } from './sidebarFolderMutations';
 
 export interface SidebarFolderMenuItem {
-  label: string;
+  label: LocalizedMessage;
   destructive?: boolean;
   onclick: () => void;
 }
@@ -40,11 +39,11 @@ function folderMenuItems(on: {
   remove: () => void;
 }): SidebarFolderMenuItem[] {
   return [
-    { label: 'New Note', onclick: on.newNote },
-    { label: 'New Folder', onclick: on.newFolder },
-    { label: 'Rename', onclick: on.rename },
-    { label: 'Move to folder', onclick: on.move },
-    { label: 'Delete', destructive: true, onclick: on.remove },
+    { label: { path: 'notes.newNote' }, onclick: on.newNote },
+    { label: { path: 'folders.newFolderTitleCase' }, onclick: on.newFolder },
+    { label: { path: 'common.actions.rename' }, onclick: on.rename },
+    { label: { path: 'folders.actions.moveToFolder' }, onclick: on.move },
+    { label: { path: 'common.actions.delete' }, destructive: true, onclick: on.remove },
   ];
 }
 
@@ -56,9 +55,9 @@ function noteMenuItems(on: {
   remove: () => void;
 }): SidebarFolderMenuItem[] {
   return [
-    { label: 'Rename', onclick: on.rename },
-    { label: 'Move to folder', onclick: on.move },
-    { label: 'Delete', destructive: true, onclick: on.remove },
+    { label: { path: 'common.actions.rename' }, onclick: on.rename },
+    { label: { path: 'notes.actions.moveToFolder' }, onclick: on.move },
+    { label: { path: 'common.actions.delete' }, destructive: true, onclick: on.remove },
   ];
 }
 
@@ -68,7 +67,7 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
   let renameRequest = $state<{ path: string; nonce: number } | null>(null);
   let noteRenameRequest = $state<{ id: string; nonce: number } | null>(null);
   let folderPicker = $state<{
-    title: string;
+    title: LocalizedMessage;
     onpick: (target: string) => void;
     excludePaths: string[];
   } | null>(null);
@@ -87,7 +86,7 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
     isCreateFolderOpen = false;
   }
 
-  function validateCreateFolder(name: string): string | null {
+  function validateCreateFolder(name: string): LocalizedMessage | null {
     return validateNewFolderName(
       createFolderParent,
       name.trim(),
@@ -95,15 +94,15 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
     );
   }
 
-  async function submitCreateFolder(name: string): Promise<string | null> {
+  async function submitCreateFolder(name: string): Promise<LocalizedMessage | null> {
     const result = await createFolder(
       createFolderParent,
       name.trim(),
       collectSiblingFolders(createFolderParent),
     );
-    if (!result.ok) return result.error ?? 'Failed to create folder';
+    if (!result.ok) return result.error ?? { path: 'folders.errors.createFailed' };
     closeCreateFolder();
-    showGlobalToast('Folder created');
+    showGlobalToast({ path: 'folders.created' });
     return null;
   }
 
@@ -143,7 +142,7 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
 
   function openMoveNotePicker(noteId: string): void {
     folderPicker = {
-      title: 'Move to folder',
+      title: { path: 'folders.movePickerHeading' },
       excludePaths: [],
       onpick: (target) => void moveNoteFromPicker(noteId, target),
     };
@@ -152,7 +151,10 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
   function openMoveFolderPicker(folderPath: string): void {
     const components = folderPath.split('/');
     folderPicker = {
-      title: `Move "${components[components.length - 1] ?? folderPath}"`,
+      title: {
+        path: 'folders.moveNamedHeading',
+        arguments: { folderName: components[components.length - 1] ?? folderPath },
+      },
       excludePaths: [folderPath],
       onpick: (target) => void moveFolderFromPicker(folderPath, target),
     };
@@ -203,9 +205,9 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
     closeFolderPicker,
     moveNoteToFolder: (noteId: string, folderPath: string) =>
       moveSidebarNoteToFolder(noteId, folderPath, options),
-    moveNoteToRoot: (noteId: string) => moveSidebarNoteToRoot(noteId, options),
+    moveNoteToRoot: (noteId: string) => moveSidebarNoteToFolder(noteId, '', options),
     moveFolder: (folderPath: string, targetPath: string) =>
       moveSidebarFolder(folderPath, targetPath, options),
-    moveFolderToRoot: (folderPath: string) => moveSidebarFolderToRoot(folderPath, options),
+    moveFolderToRoot: (folderPath: string) => moveSidebarFolder(folderPath, '', options),
   };
 }

@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import com.futo.notes.NoteItem
 import com.futo.notes.NotesStore
+import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.components.MicroLabel
 import com.futo.notes.ui.components.NoteCard
 import com.futo.notes.ui.theme.FutoRadius
@@ -59,6 +60,7 @@ fun SearchScreen(
     onBack: () -> Unit,
 ) {
     val c = FutoTheme.colors
+    val localization = LocalLocalization.current
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<NoteItem>>(emptyList()) }
     val q = query.trim()
@@ -84,7 +86,11 @@ fun SearchScreen(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp),
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = c.textSecondary)
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = localization.localizedText("common.actions.back"),
+                    tint = c.textSecondary,
+                )
             }
             Surface(
                 color = c.surfaceSunken,
@@ -99,7 +105,11 @@ fun SearchScreen(
                     Spacer(Modifier.width(10.dp))
                     Box(Modifier.weight(1f)) {
                         if (query.isEmpty()) {
-                            Text("Search your notes", style = FutoType.body, color = c.textMuted)
+                            Text(
+                                localization.localizedText("search.android.placeholder"),
+                                style = FutoType.body,
+                                color = c.textMuted,
+                            )
                         }
                         BasicTextField(
                             value = query,
@@ -113,7 +123,7 @@ fun SearchScreen(
                     if (query.isNotEmpty()) {
                         Icon(
                             Icons.Filled.Close,
-                            contentDescription = "Clear",
+                            contentDescription = localization.localizedText("search.clearAccessibilityLabel"),
                             tint = c.textMuted,
                             modifier = Modifier.size(18.dp).clickable { query = "" },
                         )
@@ -129,13 +139,25 @@ fun SearchScreen(
         ) {
             if (q.isBlank()) {
                 if (recent.isNotEmpty()) {
-                    item { MicroLabel("Recent", Modifier.padding(start = 4.dp, top = 4.dp)) }
+                    item {
+                        MicroLabel(
+                            localization.localizedText("search.recent"),
+                            Modifier.padding(start = 4.dp, top = 4.dp),
+                        )
+                    }
                     items(recent, key = { it.id }) { NoteCard(it, onClick = { onOpenNote(it.id) }) }
                 }
             } else {
                 item {
                     MicroLabel(
-                        if (results.isEmpty()) "No matches" else "${results.size} results",
+                        if (results.isEmpty()) {
+                            localization.localizedText("search.noMatches")
+                        } else {
+                            localization.localizedText(
+                                "search.resultCount",
+                                mapOf("count" to results.size),
+                            )
+                        },
                         Modifier.padding(start = 4.dp, top = 4.dp),
                     )
                 }

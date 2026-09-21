@@ -6,7 +6,7 @@ Behaviors and constraints that hold across every surface and platform.
 
 - The UI shell renders immediately. **Never gate first render on filesystem
   I/O.** Theme, prefs, notes, and the search index load in the background and
-  apply reactively. → CLAUDE.md "Key Constraints"; `App.svelte` flips
+  apply reactively. → AGENTS.md M1 (gated render); `App.svelte` flips
   `initialized` synchronously. Native Android likewise reaches its first
   composition before reading theme/storage preferences or the migration
   journal; startup recovery then runs on `Dispatchers.IO` and applies
@@ -212,7 +212,7 @@ Behaviors and constraints that hold across every surface and platform.
 
 - Dev/debug builds must never overwrite the production app or notes: a distinct
   bundle id (`com.futo.notes.dev`) and a distinct notes root
-  (`~/Documents/fake-notes` on desktop). → CLAUDE.md,
+  (`~/Documents/fake-notes` on desktop). → AGENTS.md M3,
   `apps/tauri/src-tauri/src/vault_location.rs`
 - Production native mobile builds use the production package/bundle id
   `com.futo.notes`; native debug builds use `com.futo.notes.dev` so local
@@ -280,6 +280,17 @@ Behaviors and constraints that hold across every surface and platform.
   document-level handler and a dialog stack. Escape consumed by an open overlay
   does not also reach the editor or the screen behind it. → shared/dialogs/dismissable.ts,
   shared/dialogs/Modal.svelte, shared/dialogs/dismissable.test.ts
+- **A popover anchored to a trigger (the Settings language dropdown, the
+  sidebar context menu) also closes on a pointer press outside it**, on the
+  press itself, before the click lands on whatever was pressed.
+  → shared/dialogs/dismissable.ts, features/sidebar/components/ContextMenu.svelte.test.ts
+- Focus moving to an element outside such a popover (Tab past the last item)
+  closes it. → shared/dialogs/dismissable.ts,
+  features/settings/LanguageSettingsSection.svelte.test.ts
+- Pressing the language dropdown's trigger while it is open closes it once and
+  returns focus to the trigger; the press itself never moves focus, so the
+  listbox cannot close on press and reopen on release. Pressing elsewhere
+  leaves focus where the user put it. → features/settings/LanguageSettingsSection.svelte
 - A standard modal is `role="dialog" aria-modal="true"`, named by its title,
   traps Tab inside the card, dismisses on a backdrop click, and returns focus to
   whatever was focused when it opened. → shared/dialogs/Modal.svelte
@@ -288,7 +299,7 @@ Behaviors and constraints that hold across every surface and platform.
   button stuck in its hover state. → shared/dialogs/modal.css,
   crashReportDialog.css, settingsBlockingOverlay.css
 - `window.confirm()` / `window.alert()` don't block in Tauri's webview — use
-  `ask()` / `message()` from `@tauri-apps/plugin-dialog`. → CLAUDE.md
+  `ask()` / `message()` from `@tauri-apps/plugin-dialog`. → apps/tauri/AGENTS.md
 - Confirmation prompts go through `confirmDialog()` (`src/shared/dialogs/confirmDialog.ts`):
   `ask()` under Tauri, `window.confirm()` in the plain web shell (dev server,
   Playwright) where plugin-dialog has no backend and would reject. → confirmDialog.ts
@@ -317,11 +328,19 @@ Behaviors and constraints that hold across every surface and platform.
 
 ## Feedback & crash reporting
 
-- Action feedback uses transient toasts (~3 s, one at a time, auto-dismiss):
+- Action feedback uses transient toasts (**5 s** on the web surfaces, one at a time,
+  auto-dismiss; a second toast replaces the first and restarts the clock so the newer
+  message still gets its full read time):
   "Note deleted", "Moved to {folder}", "Folder created", "Path copied", etc. _(Tauri; Android
   native shows the same platform toasts — delete now toasts "Note deleted" from
-  both the editor ⋮ menu and the list long-press)_ → shared/notifications/toastBus.svelte.ts,
+  both the editor ⋮ menu and the list long-press)_ → shared/notifications/toastBus.svelte.ts
+  (`TOAST_DURATION_MS`, guarded by "holds a message for five seconds, then clears it"),
   NoteEditorScreen.kt, NoteListScreen.kt
+  - Raised from 3 s on 2026-09-02. The same slot carries the sync failure toasts, which are
+    the only warning that the notes folder has gone missing, and that message names a full
+    path before saying where to fix it — a capture taken 3.4 s after such a failure caught
+    nothing but the ⚠ indicator (github#44 follow-up). Android keeps `Toast.LENGTH_LONG`,
+    whose duration the OS owns, so the two surfaces are close but not identical.
 - Android emits delete/move success feedback only after the Rust store returns
   a committed mutation. A failed action instead reports that the note remains
   in place; it never navigates away from the editor or dismisses the move

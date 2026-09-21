@@ -33,8 +33,10 @@ you what is missing and prints the exact commands for anything needing root, so 
 is cheap to add.
 
 Every invocation re-establishes the environment, because `ssh host cmd` gets a non-interactive shell
-that reads no profile: nvm is sourced (node is otherwise **absent from `PATH`**), `~/.local/bin` and
-`~/.cargo/bin` are prepended (plus `~/.bun/bin` — the E2EE sync test server is a bun project),
+that reads no profile: the fnm environment is loaded (node is otherwise **absent from `PATH`**), and
+the exact version in `.nvmrc` is activated once the worktree is checked out. The box needs `fnm`
+installed once — `just remote-doctor` reports it as required and prints the command. `~/.local/bin` and
+`~/.cargo/bin` are prepended,
 `ANDROID_NDK_HOME` is pinned, and a repo-root `dist/` is created (M20 — `cargo build` needs it to
 exist).
 
@@ -87,7 +89,7 @@ prove Windows WebView2): a passing run on the wrong engine is not evidence about
 1. **Refused** (exit 2, before any network call) — recipes that need Xcode, the iOS simulator or
    swift-format (`build-rust-ios`, `build-ios-native`, `test-ios-native`, `ios-native*`,
    `deploy-ios`, `lint-swift`, every `sim-*`), recipes whose _purpose_ is the shipped desktop engine
-   (`test-desktop-smoke`, `perf-course`), interactive dev/QA commands
+   (`test-desktop-smoke`), interactive dev/QA commands
    (`tauri-dev`, `test-headed`, `test-ui`, `android-drive`, …), recipes needing root
    (`deploy-deb`, `deploy-rpm`), and ones that manage the machine you are sitting at (`qa-claim`,
    `qa-release`, `qa-clone-target` — the last is APFS `cp -Rc`). Refusal resolves the justfile's
@@ -152,12 +154,12 @@ Three defences, in order of how much they can actually promise:
    asked for, and both modes re-read `HEAD` after the suite finishes and exit `76` if it moved. This
    is the defence that covers what the lock cannot: anyone bypassing `remote-test` entirely. It
    converts silent corruption into a loud, specific error.
-3. **Serialisation on top of isolation.** `test:cross-platform` now derives its port band and its
-   Postgres database from the worktree slot (`xplatSyncBand` in `scripts/lib/slot.mjs`), so two
-   different worktrees on one box no longer collide. That does not retire the lock: two runs in the
-   SAME remote worktree hash to the same slot, so they want the same ports and the same database.
-   What changed is the failure mode — the second run now aborts on the busy port naming the holder,
-   instead of adopting the first run's server and TRUNCATE-ing its sessions mid-scenario (which
+3. **Serialisation on top of isolation.** `test:cross-platform` derives its port band from the
+   worktree slot (`xplatSyncBand` in `scripts/lib/slot.mjs`) and gives every server its own SQLite
+   database in its own temp directory, so two different worktrees on one box no longer collide. That
+   does not retire the lock: two runs in the SAME remote worktree hash to the same slot, so they want
+   the same ports. What changed is the failure mode — the second run now aborts on the busy port
+   naming the holder, instead of adopting the first run's server and its vault mid-scenario (which
    surfaced as a bogus `HTTP 401: session expired`). The lock keeps that from arising at all, and it
    is still cheaper than a per-invocation worktree, which would need its own `node_modules` (a ~40s
    `pnpm install` and real disk per sha).

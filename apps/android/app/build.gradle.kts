@@ -14,6 +14,16 @@ if (hasReleaseKeystore) {
     releaseKeystoreProperties.load(FileInputStream(releaseKeystorePropertiesFile))
 }
 
+val repositoryRootDirectory = rootProject.file("../..")
+val generatedLocalizationDirectory = layout.buildDirectory.dir("generated/localization")
+val generateLocalizationResources = tasks.register<Exec>("generateLocalizationResources") {
+    inputs.dir(repositoryRootDirectory.resolve("languages"))
+    inputs.file(repositoryRootDirectory.resolve("scripts/generate-native-language-resources.mjs"))
+    outputs.dir(generatedLocalizationDirectory)
+    workingDir(repositoryRootDirectory)
+    commandLine("node", "scripts/generate-native-language-resources.mjs", "--android")
+}
+
 android {
     namespace = "com.futo.notes"
     // compileSdk 36 is the floor required by the modernized androidx stack.
@@ -44,7 +54,7 @@ android {
         targetSdk = 36
         versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("VERSION_NAME") ?: "0.1.0"
-        manifestPlaceholders["appLabel"] = "FUTO Notes"
+        manifestPlaceholders["appLabel"] = "@string/app_name"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -62,7 +72,7 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".dev"
-            manifestPlaceholders["appLabel"] = "FUTO Notes Dev"
+            manifestPlaceholders["appLabel"] = "@string/app_name_debug"
         }
 
         release {
@@ -70,6 +80,10 @@ android {
             // mapping file Play wants. Keep rules for JNA, the UniFFI bindings,
             // and the WebView JS bridge live in proguard-rules.pro.
             isMinifyEnabled = true
+            // Resource shrinking: R8 also drops unreferenced res/ entries (Play
+            // Console flags its absence). assets/ — where the bundled editor.html
+            // lives — is untouched by it.
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -132,8 +146,21 @@ android {
         compose = true
         buildConfig = true
     }
+    sourceSets {
+        getByName("main") {
+            res.srcDir(generatedLocalizationDirectory.map { it.dir("res") })
+            java.srcDir(generatedLocalizationDirectory.map { it.dir("kotlin") })
+        }
+        getByName("androidTest") {
+            assets.srcDir(repositoryRootDirectory.resolve("tests/localization"))
+        }
+    }
     // libfuto_notes_ffi.so per-ABI is staged by scripts/build-rust-android.sh.
     // editor.html is staged into src/main/assets by the same flow (see README).
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(generateLocalizationResources)
 }
 
 dependencies {
@@ -151,14 +178,11 @@ dependencies {
     // FileProvider (camera capture staging for the editor image picker).
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     // View-based Material Components: supplies the app's manifest theme
     // (Theme.Material3.DayNight.NoActionBar) used as the Activity window theme.
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.navigation:navigation-compose:2.8.0")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.5")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.5")
 
     // UniFFI-generated Kotlin bindings use JNA to call libfuto_notes_ffi.so.

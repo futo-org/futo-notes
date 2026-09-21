@@ -1,5 +1,7 @@
 import { FORBIDDEN_CHARS_RE, validateTitle } from '$lib/rules';
 import { runWhenPointerIdle } from '$shared/dom/pointerGesture';
+import { resolveLocalizedMessage, type LocalizedMessage } from '$shared/localization';
+import { titleValidationMessage } from './titleValidationMessage';
 
 interface NoteTitleControllerOptions {
   setTitle: (title: string) => void;
@@ -11,24 +13,24 @@ interface NoteTitleControllerOptions {
 }
 
 export function createNoteTitleController(options: NoteTitleControllerOptions) {
-  let warning = $state('');
+  let warning = $state<LocalizedMessage | null>(null);
   let warningTimer: number | null = null;
 
-  function showWarning(message: string, autoHideMilliseconds: number | null): void {
+  function showWarning(message: LocalizedMessage, autoHideMilliseconds: number | null): void {
     if (warningTimer !== null) window.clearTimeout(warningTimer);
     warning = message;
     warningTimer =
       autoHideMilliseconds === null
         ? null
         : window.setTimeout(() => {
-            warning = '';
+            warning = null;
             warningTimer = null;
           }, autoHideMilliseconds);
   }
 
   function clearWarning(): void {
     if (warningTimer !== null) window.clearTimeout(warningTimer);
-    warning = '';
+    warning = null;
     warningTimer = null;
   }
 
@@ -50,7 +52,7 @@ export function createNoteTitleController(options: NoteTitleControllerOptions) {
     if (hadForbidden) {
       const position = input.selectionStart ?? cleaned.length;
       requestAnimationFrame(() => input.setSelectionRange(position - 1, position - 1));
-      showWarning("That character can't be used in a note title", 2000);
+      showWarning({ path: 'notes.title.forbiddenCharacter' }, 2000);
     } else if (input.value !== cleaned) {
       const position = input.selectionStart ?? cleaned.length;
       requestAnimationFrame(() => input.setSelectionRange(position, position));
@@ -59,9 +61,9 @@ export function createNoteTitleController(options: NoteTitleControllerOptions) {
         (item) =>
           item.kind === 'leading_dots' || item.kind === 'trailing_dots' || item.kind === 'too_long',
       );
-      if (issue) showWarning(issue.message, null);
+      if (issue) showWarning(titleValidationMessage(issue.kind), null);
       else if (options.hasDuplicateTitle(cleaned)) {
-        showWarning('A note with this name already exists', null);
+        showWarning({ path: 'notes.title.duplicate' }, null);
       } else clearWarning();
     }
 
@@ -99,7 +101,7 @@ export function createNoteTitleController(options: NoteTitleControllerOptions) {
 
   return {
     get warning() {
-      return warning;
+      return warning ? resolveLocalizedMessage(warning) : '';
     },
     showWarning,
     clearWarning,

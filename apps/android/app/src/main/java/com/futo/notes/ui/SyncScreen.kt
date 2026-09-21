@@ -43,6 +43,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.futo.notes.NotesStore
 import com.futo.notes.SyncManager
+import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.components.TopBar
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
@@ -60,6 +61,7 @@ private const val SERVER_REPO_URL = "https://gitlab.futo.org/futo-notes/futo-not
 @Composable
 fun SyncScreen(store: NotesStore, sync: SyncManager, onBack: () -> Unit) {
     val c = FutoTheme.colors
+    val localization = LocalLocalization.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var password by remember { mutableStateOf("") }
@@ -68,10 +70,20 @@ fun SyncScreen(store: NotesStore, sync: SyncManager, onBack: () -> Unit) {
         containerColor = c.surface,
         topBar = {
             TopBar(
-                title = { Text("Sync", style = FutoType.title, color = c.textPrimary) },
+                title = {
+                    Text(
+                        localization.localizedText("sync.heading"),
+                        style = FutoType.title,
+                        color = c.textPrimary,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = c.textSecondary)
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = localization.localizedText("common.actions.back"),
+                            tint = c.textSecondary,
+                        )
                     }
                 },
             )
@@ -84,7 +96,7 @@ fun SyncScreen(store: NotesStore, sync: SyncManager, onBack: () -> Unit) {
             OutlinedTextField(
                 value = sync.serverUrl,
                 onValueChange = { sync.serverUrl = it },
-                label = { Text("Server URL") },
+                label = { Text(localization.localizedText("sync.serverUrl")) },
                 singleLine = true,
                 enabled = !sync.connected,
                 // A URL is not prose: tell the IME so it stops autocapitalizing
@@ -102,7 +114,7 @@ fun SyncScreen(store: NotesStore, sync: SyncManager, onBack: () -> Unit) {
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("Password") },
+                    label = { Text(localization.localizedText("sync.password")) },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     // PasswordVisualTransformation only masks the DISPLAY — without
@@ -142,15 +154,17 @@ fun SyncScreen(store: NotesStore, sync: SyncManager, onBack: () -> Unit) {
                         )
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            "To set up sync, use FUTO Notes server.",
+                            localization.localizedText("sync.serverSetupLink"),
                             style = FutoType.body,
                             color = c.textAccent,
                         )
                     }
                 }
             }
-            Text(sync.status, style = FutoType.small, color = c.textSecondary)
-            sync.lastError?.let { Text(it, style = FutoType.small, color = c.danger) }
+            Text(sync.localizedStatus(localization), style = FutoType.small, color = c.textSecondary)
+            sync.localizedError(localization)?.let {
+                Text(it, style = FutoType.small, color = c.danger)
+            }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val emberColors = ButtonDefaults.buttonColors(containerColor = c.accent, contentColor = androidx.compose.ui.graphics.Color.White)
@@ -162,18 +176,23 @@ fun SyncScreen(store: NotesStore, sync: SyncManager, onBack: () -> Unit) {
                         onClick = {
                             scope.launch { sync.connectAndSync(store.rootPath, password) }
                         },
-                    ) { Text("Connect & Sync") }
+                    ) { Text(localization.localizedText("sync.connectAndSync")) }
                 } else {
                     Button(
                         enabled = !sync.busy,
                         colors = emberColors,
                         shape = RoundedCornerShape(FutoRadius.md),
                         onClick = { scope.launch { sync.syncNow() } },
-                    ) { Text("Sync now") }
+                    ) { Text(localization.localizedText("sync.syncNow")) }
                     OutlinedButton(
                         shape = RoundedCornerShape(FutoRadius.md),
                         onClick = { scope.launch { sync.disconnect() } },
-                    ) { Text("Disconnect", color = c.textSecondary) }
+                    ) {
+                        Text(
+                            localization.localizedText("sync.disconnect"),
+                            color = c.textSecondary,
+                        )
+                    }
                 }
             }
             if (sync.busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = c.accent)

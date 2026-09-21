@@ -2,11 +2,9 @@
 
 # Dependencies
 node_modules/
-Pods/
 
 # Build output
 dist/
-.sourcemaps
 
 # Android
 .gradle/
@@ -18,7 +16,6 @@ local.properties
 
 # iOS
 xcuserdata/
-Podfile.lock
 *.xcode.env.local
 Build/
 build/
@@ -63,9 +60,6 @@ yarn-error.*
 # above would otherwise eat it). See `just lint-swift`.
 !apps/ios/.swift-format
 
-app-example
-
-# Server
 
 # Playwright
 .playwright-mcp
@@ -125,10 +119,8 @@ scratch/
 # Verification
 test-screenshots
 
-# Perf harness output (regenerable). perf-results is already excluded from
-# remote runs (RSYNC_EXCLUDES in scripts/remote-test.mjs); .perf-course-cache
-# is ~47MB of seeded vaults rebuilt on demand.
-.perf-course-cache/
+# Perf harness output (regenerable); already excluded from remote runs
+# (RSYNC_EXCLUDES in scripts/remote-test.mjs).
 perf-results/
 
 # Factory run captures — screenshots, parity matrices. Only the captures/ dirs:
@@ -140,7 +132,6 @@ factories/*/captures/
 futo-notes-data
 /docker-compose.yml
 /.futo-notes-cli.json
-autoresearch-results.tsv
 
 # CI caches/checkouts that GitLab restores INTO $CI_PROJECT_DIR. Untracked and
 # enormous (a pnpm store is ~185k files / ~25MB of path text), so any tool that
@@ -174,10 +165,6 @@ __pycache__/
 # VC++ redistributable, fetched at Windows build time by ci/win-build.ps1
 apps/tauri/src-tauri/redist/
 
-# Agent-tooling skill mirror (installed per machine; see `just skills-link`).
-# Already ignored above under "Codex" — kept here so the reason is findable.
-.pnpm-store/
-
 # Scratch verification scripts
 /tmp-*.mjs
 
@@ -192,3 +179,11 @@ flatpak/deb/
 flatpak/.build/
 flatpak/.builder-state/
 .flatpak-scratch/
+
+# Ad-hoc test capture (durable fixtures use explicit fixture paths).
+/tests/current-screenshot.png
+
+# Optional Swift reference packages restored by just skills-swift.
+.claude/skills/swiftui-expert-skill
+.claude/skills/swift-concurrency-pro
+.claude/skills/swift-testing-pro

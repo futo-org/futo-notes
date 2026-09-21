@@ -12,3 +12,9 @@ crates/*/target/
 # Whitelist shared package (for future Node.js builds)
 !packages/shared/
 packages/shared/node_modules/
+
+# Whitelist the Node version pin and its installer — both CI images bake them
+!.nvmrc
+!ci
+ci/*
+!ci/install-fnm.sh

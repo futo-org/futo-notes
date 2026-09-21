@@ -4,17 +4,7 @@ import {
   deleteCrashLog,
   type CrashReport,
 } from './crashHandler';
-function getDevHost(): string {
-  return 'localhost';
-}
-
-const CRASH_API_URL = import.meta.env.DEV
-  ? `http://${getDevHost()}:5100/api/crash`
-  : 'https://notes-crashlog.futo.org/api/crash';
-
-const CRASH_BATCH_API_URL = import.meta.env.DEV
-  ? `http://${getDevHost()}:5100/api/crashes`
-  : 'https://notes-crashlog.futo.org/api/crashes';
+import { crashlogBaseUrl } from './crashlogEndpoint';
 
 let lastSendError: string | null = null;
 
@@ -49,7 +39,7 @@ export async function sendCrashReport(
   try {
     const body: Record<string, unknown> = { ...report };
     if (userDescription) body.user_description = userDescription;
-    const res = await post(CRASH_API_URL, body);
+    const res = await post(`${crashlogBaseUrl()}/api/crash`, body);
     if (!res.ok) lastSendError = `HTTP ${res.status}${res.bodyText ? `: ${res.bodyText}` : ''}`;
     return res.ok;
   } catch (e) {
@@ -77,7 +67,7 @@ export async function sendAllPendingReports(
       reports.push(body);
     }
 
-    const res = await post(CRASH_BATCH_API_URL, { crashes: reports });
+    const res = await post(`${crashlogBaseUrl()}/api/crashes`, { crashes: reports });
 
     if (res.ok) {
       for (const filename of filenames) {

@@ -13,12 +13,7 @@ export type Tab = {
   state?: TabState;
 };
 
-export type PersistedTab = {
-  id: string;
-  noteId: string | null;
-  pendingFolder?: string;
-  state?: TabState;
-};
+export type PersistedTab = Tab;
 
 function isValidTabState(s: unknown): s is TabState {
   return !!s && typeof (s as TabState).scroll === 'number';
@@ -281,16 +276,26 @@ export const tabsStore = {
     persist();
   },
 
+  // Navigation is projected before the asynchronous draft flush. Restore even
+  // a closed tab when that flush fails: its editor still owns unsaved content.
+  restoreAfterFailedNavigation(tabId: string, noteId: string | null): void {
+    let tab = findTab(tabId);
+    if (!tab) {
+      tab = { id: tabId, noteId };
+      _tabs.push(tab);
+      _recentlyClosed = _recentlyClosed.filter((closed) => closed.id !== tabId);
+    }
+    tab.noteId = noteId;
+    _activeTabId = tabId;
+    persist();
+  },
+
   replaceTabNoteId(tabId: string, newNoteId: string): void {
     const tab = findTab(tabId);
     if (!tab) return;
     tab.noteId = newNoteId;
     tab.pendingFolder = undefined;
     persist();
-  },
-
-  findTabByNoteId(noteId: string): Tab | null {
-    return _tabs.find((t) => t.noteId === noteId) ?? null;
   },
 
   setTabState(tabId: string, state: TabState | undefined): void {

@@ -7,7 +7,9 @@ machine ready.
 ## 1. Prerequisites
 
 - **Node + pnpm** — the JS toolchain (`pnpm` is the package manager; `npx`/`npm`
-  is not used here).
+  is not used here). The exact version is pinned in [`.nvmrc`](./.nvmrc);
+  [fnm](https://github.com/Schniz/fnm) reads it (`fnm use`), and every CI surface
+  — Linux, macOS and Windows — installs that same version the same way.
 - **Rust** (stable) + `cargo` — for the Tauri backend and the shared crates.
 - **[just](https://github.com/casey/just)** — every build/dev/test command lives
   in the [`justfile`](./justfile). Run `just` with no args to list recipes.
@@ -41,15 +43,25 @@ local `.env`.
 
 This repo ships shared Claude Code config under `.claude/`:
 
-- **Skills** (`.claude/skills/`) — `/bugfix`, `/release`, `/slow-review`,
-  `/test-agent`, `/verify`, `/zulip`. Available automatically when you open the
-  repo in Claude Code. Note `/release`, `/verify`, and `/zulip` need
+- **Skills** (`.claude/skills/`) — `/bugfix`, `/ci-doctor`, `/release`,
+  `/slow-review`, `/spec-sync`, `/test-agent`, `/verify`, `/verify-specs`,
+  `/zulip`, and more (`ls .claude/skills`). Available automatically when you
+  open the repo in Claude Code. Note `/release`, `/verify`, and `/zulip` need
   `GITLAB_TOKEN` / `ZULIP_API_KEY` (see step 3).
 - **Workflows** (`.claude/workflows/`) — multi-agent flows like `sync-adversarial`.
 - **Shared settings** (`.claude/settings.json`) — a small project permission
   allowlist. Personal overrides go in `.claude/settings.local.json` (gitignored).
 
 ### Third-party skills (optional)
+
+The general SwiftUI, Swift concurrency, and Swift Testing references are optional
+local packages. `just skills-swift` restores the exact formerly vendored copies from
+repository commit `3b1c43c139181b91b7384b478b5edec454b80190` into the gitignored `.agents/skills/`
+and links them for this worktree. It refuses to overwrite existing installations.
+A shallow clone must first fetch that commit with `git fetch origin 3b1c43c139181b91b7384b478b5edec454b80190`.
+The snapshot retains the original upstream attribution; future upgrades should be
+explicit, rather than silently replacing reference material during app builds.
+
 
 `skills-lock.json` records the generic engineering skills we borrow from
 `mattpocock/skills` (`/tdd`, `/research`, `/code-review`, `/wayfinder`, …). They
@@ -80,11 +92,16 @@ AGENTS.md §9; the driving playbook is the `/verify` skill's `references/desktop
 
 ## 5. Sync server (for sync tests only)
 
-The E2EE sync server is a **separate repo**:
-<https://gitlab.futo.org/futo-notes/futo-notes-server>. Clone it to
-`~/Developer/futo-notes-server` (or set `FUTO_NOTES_E2EE_SERVER_REPO` to wherever
-you put it). It's only needed for `just test-cross-platform`; everything else
-runs without it.
+Nothing to set up. The E2EE sync server is a **separate repo**
+(<https://gitlab.futo.org/futo-notes/futo-notes-server>) that publishes a static
+Go binary per release; `just test-cross-platform` and `just qa-server` download
+the release pinned in `scripts/sync-server-pin.json` on first use (~15 MB,
+cached in `~/.cache/futo-notes`) and give each server its own SQLite database.
+No checkout, no Postgres, no Docker.
+
+To run an unreleased server change instead, point
+`FUTO_NOTES_E2EE_SERVER_REPO` at your checkout — it is built with `go build` —
+or `FUTO_NOTES_E2EE_SERVER_BIN` at a binary you already have.
 
 ## 6. Where to go next
 

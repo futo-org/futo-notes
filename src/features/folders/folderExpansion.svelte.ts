@@ -129,6 +129,5 @@ export function setDragHoverExpanded(path: string, expanded: boolean): void {
 
 export function clearDragHoverExpanded(): void {
   if (dragHoverExpanded.size === 0) return;
-  const cleared = new Set<string>();
-  dragHoverExpanded = cleared;
+  dragHoverExpanded = new Set<string>();
 }

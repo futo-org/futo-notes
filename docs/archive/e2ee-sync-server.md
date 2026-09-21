@@ -1,3 +1,5 @@
+> **Archived.** Describes a sync-server design two rewrites out of date; the live server is the separate `futo-notes-server` repo and the client behavior is in `docs/spec/sync.md`.
+
 # E2EE Sync Server
 
 FUTO Notes' hosted sync service. The server stores and serves encrypted blobs. It cannot read filenames, content, or metadata. If a user loses their password, their data is unrecoverable.

@@ -4,9 +4,10 @@
 //! previews, images, IDs, and wikilinks. Durable vault behavior belongs to
 //! `futo-notes-store`; this crate never reads or writes a user's note tree.
 //!
-//! Three runtimes consume this crate: Tauri desktop (via `#[tauri::command]`
-//! wrappers), native iOS, and native Android (both via the UniFFI facade in
-//! `futo-notes-ffi`). UI code is presentation only.
+//! Consumers: `futo-notes-store`, which is how Tauri desktop reaches these
+//! rules — the desktop crate does not depend on this one directly — and native
+//! iOS and Android via the UniFFI facade in `futo-notes-ffi`. UI code is
+//! presentation only.
 //!
 //! Low-level primitives (`sanitize_title`, `validate_title`, path safety,
 //! atomic writes, hashing) live in `futo-notes-core` and are reused here, not
@@ -15,7 +16,6 @@
 //! (`crates/futo-notes-model/tests/conformance.rs`).
 
 pub mod filename;
-pub mod image;
 pub mod note;
 pub mod tags;
 pub mod wikilinks;
@@ -31,7 +31,7 @@ pub use filename::{
     has_case_insensitive_sibling_collision, is_valid_folder_name, is_valid_folder_path,
     is_windows_reserved_name, path_depth, validate_folder_name, validate_folder_path,
 };
-pub use image::{is_image_filename, IMAGE_EXTENSIONS};
+pub use futo_notes_core::image::{is_image_filename, IMAGE_EXTENSIONS};
 pub use note::{
     make_id, make_preview, make_rich_preview, note_tags, sanitize_folder_path, split_id,
     IMAGE_PLACEHOLDER, WELCOME_NOTE, WELCOME_NOTE_ID,

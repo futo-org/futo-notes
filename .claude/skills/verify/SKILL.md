@@ -35,73 +35,11 @@ bridge is desktop-only. iOS is driven with `simctl` + `axe`, Android with
 Android + desktop + the Windows qemu VM (no iOS). The playbooks note the few
 OS-specific bits (Wayland env vars, SDK paths).
 
-## Isolation model (parallel sessions — read first)
+## Session setup, evidence, and teardown
 
-One machine can run several QA sessions at once (different windows, different
-MRs) without collisions, because every shared resource is keyed on the
-**worktree**:
-
-- **One session per worktree.** Testing a different MR means a different git
-  worktree — two sessions in one checkout collide at the working-tree level
-  before any device is involved.
-- The worktree path hashes to a **slot**; the slot derives ports, the pooled
-  device, and the sync server + its database. Nothing needs a registry to
-  stay "free" — no other session will ever target your slot's resources.
-- **The one thing NOT keyed on the worktree** is the user's installed release
-  app: same binary name as every dev build, running on their real vault, and
-  reachable by any OS-level input you send (which goes to the focused window,
-  not to a process). Resolve desktop targets only via
-  `node scripts/qa-target.mjs` — see `references/desktop.md` and M24.
-
-Shell variables don't persist between Bash tool calls — **re-compute these at
-the start of any block that needs them**. `scripts/lib/slot.mjs` owns the
-derivation (stock macOS has no `md5sum`, so don't hand-roll it in shell);
-`just ports` prints the whole map:
-
-```bash
-WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
-eval "$(node "$WORKTREE_ROOT/scripts/lib/slot.mjs" env)"   # SLOT, VITE_PORT, WEB_VITE_PORT, SYNC_PORT, CDP_PORT
-TAURI_LOG="/tmp/tauri-verify-${SLOT}.log"
-PID_FILE="/tmp/tauri-verify-${SLOT}.pid"
-echo "Worktree: $WORKTREE_ROOT → Vite port $VITE_PORT, web port $WEB_VITE_PORT (slot $SLOT)"
-```
-
-`vite.config.ts` and `playwright.config.ts` derive the web port from the same
-module, so a plain `pnpm run dev` or `playwright test` already lands on
-`$WEB_VITE_PORT` with no flags. `$FUTO_DEV_PORT` pins it for a one-off run.
-
-| Resource | Range / name | How |
-|---|---|---|
-| Tauri Vite (per worktree) | 5200–5249 | `just ports` (avoids 5173/5180–5182) |
-| Web Vite (per worktree) | 5250–5299 | `just ports`; config-derived, no flags needed |
-| MCP bridge (desktop) | 9223–9322 | loopback-only; per-worktree base (`just ports`), scans up; discover after launch |
-| Android CDP forward | 9330–9379 | `just cdp-forward` prints `export CDP_PORT=…` |
-| Sync server | 3100–3149 + own Postgres DB | `just qa-server` (see sync section) |
-| Cross-platform sync harness | 21000–25999, a band of 100 per worktree, + own Postgres DB (`futo_notes_xplat_s<slot>`) | `pnpm run test:cross-platform`; it allocates from its own band and refuses a port someone else holds rather than adopting it |
-| iOS simulator / Android AVD | pool `futo-qa-0..6` per platform | `just qa-claim` prints `export SIM=…` / `export ANDROID_SERIAL=…` |
-| Windows qemu VM | singleton | one session at a time |
-
-**Devices**: `just qa-claim [ios|android|all]` claims this worktree's pooled
-device — creating and booting it on first use — and prints the export lines.
-Set `SIM` / `ANDROID_SERIAL` in every Bash block that drives a device: all
-`sim-*` recipes and `apps/ios/run.sh` honor `$SIM`, and `adb` honors
-`$ANDROID_SERIAL` natively. `just qa-status` shows who owns what,
-`just qa-release` frees your claims when done, `just qa-gc` reaps devices
-whose worktrees were deleted. Personal (non-pool) simulators/AVDs are never
-touched. Driving a device you didn't claim is how two sessions end up
-install-thrashing one emulator — don't.
-
-> When setting up multiple worktrees, run `pnpm install` in all of them
-> concurrently — separate `node_modules`, no conflicts, ~12s saved each.
-> Then seed each with a warm cargo build via `just qa-clone-target
-> <worktree>` (APFS copy-on-write clone of `target/` — seconds, near-zero
-> real disk) so the first build isn't a cold workspace compile.
-
-> **Within one worktree**, the iOS, Android, and desktop builds all compile
-> the same Cargo workspace and share that worktree's `target/`, so launching
-> them together partially serializes on cargo's build-dir lock — "Blocking
-> waiting for file lock on build directory" is queueing, not a hang. Builds
-> in **different** worktrees are fully parallel (separate `target/`).
+Read `references/session.md` before app QA. It owns worktree/device isolation,
+provisioning, story verdicts, evidence reuse, sync smoke, and cleanup. Read only the
+platform playbook needed for the target. Defect capture lives in `references/evidence.md`.
 
 ## Step 1: Detect what changed (change verification mode only)
 
@@ -129,72 +67,29 @@ categories — a change can match several; run every matching chain:
 
 ## Step 2: Run verification chains
 
-Run the build once upfront if any chain needs it, then the test suites. Stop
-and report on first failure. (The sync server is a separate repo now — there
-is no server code in this repo to verify; see "Features that need a sync
-server" for standing one up.)
+Use the nearest `AGENTS.md` and root §7 to select the owning layer's complete chain;
+`justfile` owns the commands. For shared code before merge, run `just check`;
+use `just prepush` for broad or risky changes. Report any unavailable platform leg.
 
-### Always (unless only CI/spec files changed):
-```bash
-pnpm exec tsc --noEmit 2>&1 | head -30
-```
+For documentation/tooling-only edits, run `just check-agent-docs` and
+`just check-qa-input-safety`, plus tests for any changed executable tooling.
+Spec edits also require the workflow in `docs/spec/AGENTS.md`. CI changes need a
+real pipeline on the changed head with the affected jobs actually executed.
 
-### frontend, styles, or unit-testable logic:
-```bash
-just build 2>&1 | tail -20
-```
+Do not pipe checks through `head` or `tail` without `pipefail`; use the recipes so
+failed builds cannot look green. Read each check's result before continuing.
 
-### frontend or styles — Playwright specs:
-```bash
-grep -rl '<feature-keyword>' tests/*.spec.ts   # find relevant specs
-pnpm run test 2>&1 | tail -40                  # or run the matching specs only
-```
+### shared — note-rule conformance
 
-### shared — note-rule conformance:
+Both consumers and the differential lock are required:
 
 ```bash
 pnpm run test:editor:minimal
-just test-rust # reviewed goldens + the batched TS↔Rust differential (all rule families)
+just test-rust
 ```
 
-The differential covers title, tags, image, preview, and wikilink rules; on a red run
-it names the family, op, and input. Orientation: `tests/conformance/README.md`.
-
-### unit-tests: `just test-unit 2>&1 | tail -30`
-### editor: `pnpm run test:e2e:editor-embed 2>&1 | tail -20` and `just toolbar-spec-check` (toolbar manifest changes)
-### rust-core:
-```bash
-just test-rust 2>&1 | tail -20        # conformance (fast); broad changes: just test-rust-full
-```
-Rust changes reach the native shells through the ffi — if the change touches
-`futo-notes-ffi` or the note domain, also compile-check a native shell (below).
-
-### tauri-rust:
-```bash
-cd apps/tauri/src-tauri && cargo test 2>&1 | tail -30
-```
-
-### ios-native:
-```bash
-just build-ios-native 2>&1 | tail -5    # compile sanity (simulator, no signing)
-just lint-swift                          # hand-written Swift style
-# No unit-test target yet (justfile test-ios-native explains); UI-verify instead.
-```
-
-### android-native:
-```bash
-just test-android-native 2>&1 | tail -20   # JVM unit tests (builds ffi bindings first)
-# or compile-only: just build-android-native
-```
-
-### spec: re-read the `> **Gap:**` notes for the surface you touched (`rg '> \*\*Gap' docs/spec/`) — a change that closes one must delete it.
-
-### ci:
-```bash
-BRANCH=$(git branch --show-current)
-curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-  "https://gitlab.futo.org/api/v4/projects/futo-notes%2Ffuto-notes/pipelines?ref=$BRANCH&per_page=1"
-```
+`packages/editor/AGENTS.md` owns canonical Rust, the hot-path TS mirror, and reviewed
+fixture updates; `tests/conformance/README.md` explains the differential.
 
 ## Step 3: UI Verification
 
@@ -238,8 +133,8 @@ on desktop first (fast), then spot-check one native shell — `just ios-native`
 ### Handling loading/async states in screenshots
 
 A screenshot of a spinner is not verification. If a loading state is visible:
-wait 5s, re-screenshot, repeat up to 6 times (30s total). Resolved → capture
-the final render. Still stuck after 30s → report as **STUCK** and
+wait for the ready condition with a bounded timeout, then capture the final render.
+If it never becomes ready, report as **STUCK** and
 investigate via the platform's log channel. Every verified feature needs at
 least one screenshot of the actual rendered UI.
 
@@ -252,33 +147,10 @@ they break most often.
 
 ### Features that need a sync server
 
-`just qa-server` starts **this worktree's isolated server**: a bun process on
-port `3100 + slot` with its **own Postgres database** (`futo_notes_qa_s<slot>`)
-and blob dir. The per-slot database matters: test tooling TRUNCATEs its
-tables, so parallel sessions sharing one database would wipe each other
-mid-run. Password: `testing123`. Stop with `just qa-server-stop` (`--drop`
-also drops the database).
-
-Prereqs: the sibling server repo (set `FUTO_NOTES_E2EE_SERVER_REPO` when it's
-not at `~/Developer/futo-notes-server`) + any reachable Postgres — the
-recipe tries the repo's `docker compose up -d postgres` itself; a native
-Postgres works too via `FUTO_NOTES_QA_PG=postgres://user:pass@localhost:5432`.
-
-- **Client sync-stack changes**: prefer `just test-cross-platform` — it boots
-  two real Tauri instances plus a fresh server per scenario by itself.
-- **No Docker/Postgres available** (true of some QA machines): record sync
-  happy-path stories as **Blocked**, not failed — the deeper sync logic is
-  already covered by cross-platform + server-side suites.
-- Reaching the server: desktop/iOS-simulator use `http://127.0.0.1:<port>`;
-  the **Android emulator needs `http://10.0.2.2:<port>`**; physical devices
-  need the machine's LAN IP.
-- Connecting: the Tauri **dev** webview exposes `window.__testSync` —
-  `connect(url, password)` / `status()` / `syncNow()` / `disconnect()` /
-  `pauseAutoSync()` / `resumeAutoSync()` (`src/features/sync/testSync.ts`); the
-  native shells have no such hook — use Settings → Sync in the app UI.
-
-After connecting + syncing: check the sync toast count, wait for indexing
-(`GET /search/status` → `idle`, dirty 0), confirm the feature under test.
+Follow `references/session.md` for the isolated server and cross-client smoke.
+For client sync-stack changes, prefer `just test-cross-platform`, which starts its
+own clients and server. A cold offline package cache can block server provisioning;
+report that explicitly. The desktop driver API is in `references/desktop.md`.
 
 ### What to look for
 

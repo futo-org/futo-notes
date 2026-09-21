@@ -1,26 +1,16 @@
 package com.futo.notes
 
-import com.futo.notes.ui.folderDeletedToast
+import com.futo.notes.ui.folderDeletedMessage
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/**
- * Regression: the folder-delete toast read "Folder deleted; moved 1 notes"
- * for a single moved note [list.md:121] — the count must pluralize.
- */
 class FolderDeleteToastTest {
     @Test
-    fun singularForOneMovedNote() {
-        assertEquals("Folder deleted; moved 1 note", folderDeletedToast(1u))
-    }
-
-    @Test
-    fun pluralForZeroMovedNotes() {
-        assertEquals("Folder deleted; moved 0 notes", folderDeletedToast(0u))
-    }
-
-    @Test
-    fun pluralForManyMovedNotes() {
-        assertEquals("Folder deleted; moved 3 notes", folderDeletedToast(3u))
+    fun retainsTheCountForCatalogPluralSelection() {
+        for (count in listOf(0u, 1u, 3u)) {
+            val message = folderDeletedMessage(count)
+            assertEquals("folders.delete.movedNotes", message.path)
+            assertEquals(count.toLong(), message.arguments["count"])
+        }
     }
 }

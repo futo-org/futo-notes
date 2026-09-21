@@ -40,9 +40,7 @@ describe('createNotePersistence', () => {
 
     await expect(saveNote()).resolves.toBe(false);
 
-    expect(showTitleWarning).toHaveBeenCalledExactlyOnceWith(
-      'A note with this name already exists',
-    );
+    expect(showTitleWarning).toHaveBeenCalledExactlyOnceWith({ path: 'notes.title.duplicate' });
     expect(updateNote).not.toHaveBeenCalled();
   });
 
@@ -75,7 +73,7 @@ describe('createNotePersistence', () => {
 
       await expect(saveNote()).resolves.toBe(true);
 
-      expect(updateNote).toHaveBeenCalledWith('Original', 'Original', 'edited content', {
+      expect(updateNote).toHaveBeenCalledWith('Original', 'edited content', {
         originalId: 'Original',
         base: 'original content',
       });

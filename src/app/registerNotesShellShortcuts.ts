@@ -6,6 +6,9 @@ export interface NotesShellShortcutDeps {
   createNote: () => void;
   openSettings: () => void;
   toggleSidebar: () => void;
+  findEnabled: () => boolean;
+  openFind: () => void;
+  stepFind: (direction: 1 | -1) => void;
 }
 
 function isMacAgent(): boolean {
@@ -101,6 +104,15 @@ export function registerNotesShellShortcuts(deps: NotesShellShortcutDeps): () =>
     } else if (key === '\\') {
       event.preventDefault();
       runCommand('toggle-sidebar', deps);
+      // Find stays out of the ShellCommand table on purpose: it has no
+      // application-menu item, and stepping carries a direction the table's
+      // nullary commands cannot express.
+    } else if (key === 'f' && !event.shiftKey) {
+      event.preventDefault();
+      if (deps.findEnabled()) deps.openFind();
+    } else if (key === 'g') {
+      event.preventDefault();
+      if (deps.findEnabled()) deps.stepFind(event.shiftKey ? -1 : 1);
     } else if (key === 't' && event.shiftKey) {
       event.preventDefault();
       runCommand('reopen-tab', deps);

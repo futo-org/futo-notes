@@ -166,6 +166,14 @@ impl From<SyncErrorKind> for SyncError {
             SyncErrorKind::Io(message) => Self::Io(message),
             SyncErrorKind::Auth(message) => Self::Auth(message),
             SyncErrorKind::CollectionGone(message) => Self::CollectionGone(message),
+            // Deliberately folded into `Io` rather than given its own variant:
+            // a new `SyncError` case is a UniFFI contract change that needs
+            // regenerated Swift AND Kotlin bindings plus a branch in both
+            // hosts' error rendering, and the sentence itself already survives
+            // in the payload. `docs/spec/sync.md` carries the gap for naming it
+            // natively. Desktop is unaffected — it stringifies `SyncErrorKind`
+            // directly and shows the sentence verbatim.
+            SyncErrorKind::VaultMissing(message) => Self::Io(message),
             SyncErrorKind::NotConnected => Self::NotConnected,
         }
     }
@@ -223,6 +231,8 @@ mod tests {
             filename: "note.md".to_owned(),
             kind: sync::FailureKind::Upload,
             status_code: Some(500),
+            // Journal-only: the projection below must NOT carry this.
+            detail: Some("engine-internal cause".to_owned()),
         }];
         summary.updated_ids = vec!["updated".to_owned()];
         summary.deleted_ids = vec!["deleted".to_owned()];

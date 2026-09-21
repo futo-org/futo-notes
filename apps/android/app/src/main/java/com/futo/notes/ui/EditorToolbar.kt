@@ -58,6 +58,7 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.theme.FutoTheme
 
 /** Toolbar button tap target / nominal icon-slot width — matches iOS. */
@@ -285,6 +286,8 @@ private fun ToolbarButton(
 ) {
     val accent = FutoTheme.colors.accent
     val dim = if (enabled) 1f else 0.35f
+    val localization = LocalLocalization.current
+    val label = localization.localizedText(item.localizationPath)
     IconButton(
         onClick = { perform(item) },
         enabled = enabled,
@@ -302,12 +305,12 @@ private fun ToolbarButton(
                 Text(
                     text = item.text,
                     color = if (active) accent else tint,
-                    modifier = Modifier.semantics { contentDescription = item.label },
+                    modifier = Modifier.semantics { contentDescription = label },
                 )
             } else {
                 Icon(
                     imageVector = materialIcon(item.material),
-                    contentDescription = item.label,
+                    contentDescription = label,
                     tint = if (active) accent else tint,
                     modifier = Modifier.size(22.dp),
                 )

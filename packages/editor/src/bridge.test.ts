@@ -10,24 +10,24 @@ import {
 describe('futoBridge contract', () => {
   it('pins the contract version', () => {
     // Bumping this is a deliberate, breaking change — update all three hosts.
-    expect(BRIDGE_VERSION).toBe(7);
+    expect(BRIDGE_VERSION).toBe(8);
   });
 
   it('ready message carries the version', () => {
     const msg: FutoEditorOutboundMessage = { type: 'ready', version: BRIDGE_VERSION };
-    expect(msg).toEqual({ type: 'ready', version: 7 });
+    expect(msg).toEqual({ type: 'ready', version: 8 });
   });
 
   it('initialized message carries the version', () => {
     const msg: FutoEditorOutboundMessage = { type: 'initialized', version: BRIDGE_VERSION };
-    expect(msg).toEqual({ type: 'initialized', version: 7 });
+    expect(msg).toEqual({ type: 'initialized', version: 8 });
   });
 
   it('outbound messages are a discriminated union over `type`', () => {
     const msgs: FutoEditorOutboundMessage[] = [
       { type: 'ready', version: BRIDGE_VERSION },
       { type: 'initialized', version: BRIDGE_VERSION },
-      { type: 'bridgeVersionMismatch', hostVersion: 6, bundleVersion: 7 },
+      { type: 'bridgeVersionMismatch', hostVersion: 7, bundleVersion: 8 },
       { type: 'change', content: '# hi' },
       { type: 'focus', focused: true },
       { type: 'openNote', id: 'folder/note' },
@@ -68,7 +68,7 @@ describe('futoBridge contract', () => {
     expect(withoutContainer.inContainer).toBeUndefined();
   });
 
-  it('FutoEditorApi surface is the twelve host-callable methods', () => {
+  it('FutoEditorApi surface is the eighteen host-callable methods', () => {
     // A structural stand-in proves the shape compiles; the real impl lives in
     // src/editor-embed/main.ts.
     const api: FutoEditorApi = {
@@ -78,26 +78,38 @@ describe('futoBridge contract', () => {
       focus: () => {},
       blur: () => {},
       setTheme: () => {},
+      setLanguage: () => {},
       setNotes: () => {},
       applyExternalContent: () => {},
       insertImage: () => {},
       setImageBaseUrl: () => {},
       exec: () => {},
       setNativeToolbar: () => {},
+      openFind: () => {},
+      setFindOverlayInset: () => {},
+      setFindQuery: () => {},
+      stepFind: () => {},
+      closeFind: () => {},
     };
     expect(Object.keys(api).sort()).toEqual([
       'applyExternalContent',
       'blur',
+      'closeFind',
       'exec',
       'focus',
       'getContent',
       'initialize',
       'insertImage',
+      'openFind',
       'setContent',
+      'setFindOverlayInset',
+      'setFindQuery',
       'setImageBaseUrl',
+      'setLanguage',
       'setNativeToolbar',
       'setNotes',
       'setTheme',
+      'stepFind',
     ]);
   });
 });

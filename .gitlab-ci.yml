@@ -6,7 +6,14 @@ default:
   image: gitlab.futo.org:5050/futocore/ci/kitchensink@sha256:2df4951967506d9dc31ad4dea6d7b03eb4ddea21f3bd5e500ef3d3be924e589f
   interruptible: true
   before_script:
-    - . $HOME/.nvm/nvm.sh
+    # The shared base image is another team's and has no fnm, and our own images
+    # only gain it on a manual rebuild — so bootstrap rather than assume. It is a
+    # no-op wherever fnm is already baked in.
+    - sh "$CI_PROJECT_DIR/ci/install-fnm.sh"
+    # Reads .nvmrc from $CI_PROJECT_DIR, and exits non-zero rather than falling
+    # back to another Node.
+    - eval "$(fnm env --shell bash)"
+    - fnm use --install-if-missing
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
     - pnpm config set store-dir "$PNPM_STORE_DIR"
@@ -20,6 +27,39 @@ variables:
   CARGO_CACHE_POLICY: pull-push
   PNPM_STORE_DIR: $CI_PROJECT_DIR/.pnpm-store
   PLAYWRIGHT_BROWSERS_PATH: $CI_PROJECT_DIR/.cache-ms-playwright
+  # Base images are pinned by digest so a registry `:latest` cannot swap the
+  # toolchain under a pipeline. These two are referenced by several jobs each, so
+  # the digest lives here and the jobs carry no copy of it. The AppImage signing
+  # jobs deliberately do NOT use a variable: `variables:` here loses to a
+  # run-pipeline variable, and those two jobs hold the production updater key.
+  #
+  # ci/android is OURS, rebuilt by `build:ci-android-image` (manual). That job
+  # pushes `:latest`; moving consumers onto the new bytes is a deliberate edit of
+  # this line, the same follow-up-commit dance `.ci-test-image` documents. Resolve
+  # a new digest through project registry repository 163.
+  IMAGE_ANDROID: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android@sha256:afed1a7a22a312e1948a7f3b464b138b516dd1149aa3bd8d0aa69827496b7f42
+  #
+  # quay garbage-collects manifests no tag points at, and this pin is EXPECTED
+  # TO DIE PERIODICALLY. Picking a digest that an exact version tag also held
+  # was tried and did not help: sha256:8eca9c2b… was shared by v1.43.2, v1.43,
+  # v1 and latest when it was pinned, and 12 days later it 404'd
+  # ("manifest unknown") because upstream had rebuilt and moved every one of
+  # those tags off it. There is no digest here that stays resolvable forever.
+  #
+  # So: when `build:ci-android-image` or `build:ci-test-image` fails to pull
+  # with "manifest unknown", the pin is dead — re-resolve and update this line
+  # (do NOT switch it back to a floating tag; the point of the pin is that a
+  # registry `:latest` cannot swap the toolchain under a pipeline):
+  #   skopeo inspect --raw docker://quay.io/buildah/stable:v1.43.2 | sha256sum
+  # or read the `Docker-Content-Digest` response header from
+  #   GET https://quay.io/v2/buildah/stable/manifests/v1.43.2
+  # (Accept: application/vnd.oci.image.index.v1+json). Both must agree, and the
+  # raw manifest must be an OCI index containing a linux/amd64 entry — the
+  # runners are amd64 and the index lists ppc64le first.
+  #
+  # Both jobs using this are `when: manual` and web-pipeline only, so no MR
+  # pipeline pulls the image; a dead pin surfaces only when someone rebuilds.
+  IMAGE_BUILDAH: quay.io/buildah/stable@sha256:83045a38da942948cbe8ce53fcf32d76b2d9bfad33bc4586d804522030efc64f
 
 # Pinned by digest, not `:latest`, so a manual rebuild cannot silently change
 # the MR environment. Resolve deliberate updates through project registry
@@ -52,12 +92,12 @@ stages:
 collect-secrets-from-op:
   stage: collect-secrets
   needs: []
-  # Don't inherit default.before_script (nvm/corepack/pnpm) — none of it exists
-  # on the 1password/op image and `. $HOME/.nvm/nvm.sh` would fail the job
-  # before script: runs.
+  # Don't inherit default.before_script (fnm/corepack/pnpm) — none of it exists
+  # on the 1password/op image and `fnm env` would fail the job before script:
+  # runs.
   before_script: []
   image:
-    name: 1password/op
+    name: 1password/op@sha256:3cd5a1febc662c93d46b944b983b301e710da5c016ef63be9d436cf2b1ed30d5
     docker:
       user: root
   variables:
@@ -240,26 +280,27 @@ collect-secrets-from-op:
       echo "Building desktop version $VERSION"
       node "$CI_PROJECT_DIR/scripts/desktop-version.mjs" "$VERSION"
 
-# Clone the E2EE sync server (separate repo, public) and install its deps.
-# tests/lib/sync-test-server.mjs reads FUTO_NOTES_E2EE_SERVER_REPO to locate it.
-# The server migrated to Bun (no pnpm-lock.yaml), so it installs with `bun
-# install` and the harness boots it via `bun src/index.ts`. The kitchensink
-# image has no bun, so install it and put it on PATH for the rest of the job.
+# Fetch the E2EE sync server (separate repo, public). It is a Go project that
+# publishes a static binary per release, so this downloads the release pinned in
+# scripts/sync-server-pin.json — no checkout, no toolchain, no database server,
+# and every job in the pipeline runs the exact server the pin names.
+# scripts/lib/sync-server.mjs owns the resolution and verifies the sha256; the
+# jobs below read the server through $FUTO_NOTES_E2EE_SERVER_BIN.
+#
+# It used to clone the repo and `bun install` it. That broke twice over when the
+# server was rewritten in Go: the harness's `bun src/index.ts` no longer existed,
+# AND `bun install` in a directory with no package.json walks UP to the client's
+# own package.json and overwrites pnpm's node_modules — which is why the Android
+# leg failed with "TS2307: Cannot find module '@codemirror/autocomplete'".
 .setup-futo-notes-server:
   script:
     - |
-      if ! command -v bun >/dev/null 2>&1; then
-        curl -fsSL https://bun.sh/install | bash
-      fi
-      export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
-      export PATH="$BUN_INSTALL/bin:$PATH"
-      bun --version
-      SERVER_DIR="$CI_PROJECT_DIR/.futo-notes-server"
-      git clone --depth 1 \
-        https://gitlab.futo.org/futo-notes/futo-notes-server.git \
-        "$SERVER_DIR"
-      (cd "$SERVER_DIR" && bun install)
-      export FUTO_NOTES_E2EE_SERVER_REPO="$SERVER_DIR"
+      FUTO_NOTES_E2EE_SERVER_BIN="$(node "$CI_PROJECT_DIR/scripts/lib/sync-server.mjs" path)"
+      export FUTO_NOTES_E2EE_SERVER_BIN
+      # An empty or unusable path must stop the job here, not surface later as
+      # a server that never became healthy (M11).
+      test -x "$FUTO_NOTES_E2EE_SERVER_BIN" || { echo "sync server binary not resolved" >&2; exit 1; }
+      echo "sync server: $FUTO_NOTES_E2EE_SERVER_BIN ($(node "$CI_PROJECT_DIR/scripts/lib/sync-server.mjs" version))"
 
 .setup-playwright:
   script:
@@ -450,6 +491,10 @@ test:
   # check-qa-input-safety) run here inside check:arch-gate:portable, so nothing
   # a Markdown-only MR could break goes unchecked — which is the db31586c
   # regression this repo already paid for once (M24).
+  # `test:` deliberately keeps NO before_script of its own: the override only
+  # existed to defer pnpm/Corepack for the deleted docs fast path. Inheriting
+  # default.before_script pins Node from .nvmrc via fnm here too, and sets up
+  # Corepack/pnpm under that same pinned Node.
   cache:
     - !reference [.cache-pnpm, cache]
   script:
@@ -526,6 +571,32 @@ test:audit:
         - scripts/audit.mjs
         - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+test:localization-audit:
+  stage: test
+  needs: []
+  allow_failure: true
+  cache:
+    - !reference [.cache-pnpm, cache]
+  script:
+    - pnpm install --frozen-lockfile --prefer-offline
+    - pnpm run audit:languages
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - languages/**/*
+        - scripts/language-catalogs.mjs
+        - package.json
+        - pnpm-lock.yaml
+        - .gitlab-ci.yml
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - languages/**/*
+        - scripts/language-catalogs.mjs
+        - package.json
+        - pnpm-lock.yaml
+        - .gitlab-ci.yml
 
 test:e2e:smoke:
   stage: test
@@ -669,6 +740,16 @@ test:rust:workspace:
     # One metadata traversal replaces the former standalone dep-guard job.
     # The workspace tests already contain model conformance coverage.
     - node scripts/check-rust-dependency-boundaries.mjs
+    # Windows is the only non-Unix target we ship, and its build is tag-only
+    # and slow, so a cfg-gating mistake in the `cfg(not(unix))` vault layer or
+    # in platform-gated test scaffolding is otherwise found at release time at
+    # the earliest. github#48's fix hit exactly that: `cargo test -p
+    # futo-notes-core` had never compiled on Windows at all. Type-checking that
+    # target needs no linker and no MSVC, and futo-notes-core is the one crate
+    # with no C dependencies (ring/zstd-sys need lib.exe), so it is the crate
+    # this can cover — which is also the crate that owns the platform branches.
+    - rustup target add x86_64-pc-windows-msvc
+    - cargo check --target x86_64-pc-windows-msvc --tests -p futo-notes-core
     - mkdir -p dist
     - cargo test --workspace
     - node --experimental-strip-types "$CI_PROJECT_DIR/tests/conformance/title-rules-differential.mjs"
@@ -794,7 +875,7 @@ test:rust:ffi-android:
   # exclusion, not longer timeouts. The needs: above orders the two within a
   # pipeline so the exclusion never delays the sync suite itself.
   resource_group: cross-platform-sync
-  image: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
+  image: $IMAGE_ANDROID
   # Own single-ABI cache namespace instead of the fat 3-ABI + host `native`
   # archive: restoring that one costs more than this job's warm compile. Safe
   # to pull-push — the resource_group serializes every holder of this key, so
@@ -857,12 +938,6 @@ test:cross-platform-sync:
   # Pin to the fast office runner — see build:android-native.
   tags:
     - dind_fast
-  services:
-    # Digest-pinned so if-not-present can never serve a stale postgres; the
-    # unpinned :15 tag was re-pulled from Docker Hub on every run.
-    - name: postgres:15@sha256:8b2bad884a8156e63d942305d0c547baa41f81953c93dbfc9e6cfe6f90bb8277
-      alias: postgres
-      pull_policy: if-not-present
   variables:
     # Nothing in this job reads git history (the changed-file classifier runs
     # in the `test` job); a full fetch cost ~70s of the job wall.
@@ -871,11 +946,6 @@ test:cross-platform-sync:
     # Source-only MRs consume it without spending ~90s recompressing target/;
     # tags and lockfile changes refresh it in the rules below.
     CARGO_CACHE_POLICY: pull
-    POSTGRES_DB: futo_notes
-    POSTGRES_USER: futo_notes
-    POSTGRES_PASSWORD: futo_notes
-    FUTO_NOTES_E2EE_DATABASE_URL: postgres://futo_notes:futo_notes@postgres:5432/futo_notes
-    PGPASSWORD: futo_notes
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-sync, cache]
@@ -884,23 +954,23 @@ test:cross-platform-sync:
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     - |
-      if command -v Xvfb >/dev/null 2>&1 && command -v psql >/dev/null 2>&1; then
-        echo "Xvfb and PostgreSQL client already present in the image"
+      if command -v Xvfb >/dev/null 2>&1; then
+        echo "Xvfb already present in the image"
       else
-        DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb postgresql-client
+        DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb
       fi
     - !reference [.setup-futo-notes-server, script]
     # Rust server-backed integration suite (futo-notes-sync orchestrator
     # against a REAL server — e.g. the disconnect→reconnect conflict-spam
-    # regressions). Dev-mode server instance on its own database so it can't
-    # interfere with the password-mode server the cross-platform run boots.
-    - psql -h postgres -U futo_notes -d postgres -c 'CREATE DATABASE futo_notes_rust_it'
-    - export PATH="${BUN_INSTALL:-$HOME/.bun}/bin:$PATH"
+    # regressions). Dev-mode instance with its own SQLite database and blob
+    # directory, so it cannot interfere with the password-mode servers the
+    # cross-platform run boots per scenario.
+    - mkdir -p /tmp/rust-it/blobs
     - >-
-      (cd "$CI_PROJECT_DIR/.futo-notes-server" &&
-      AUTH_MODE=dev PORT=3009 BLOB_DIR=/tmp/rust-it-blobs
-      DATABASE_URL=postgres://futo_notes:futo_notes@postgres:5432/futo_notes_rust_it
-      bun src/index.ts &> /tmp/rust-it-server.log &)
+      (cd /tmp/rust-it &&
+      AUTH_MODE=dev PORT=3009 BLOB_DIR=/tmp/rust-it/blobs
+      DATABASE_URL=sqlite:/tmp/rust-it/notes.db
+      "$FUTO_NOTES_E2EE_SERVER_BIN" &> /tmp/rust-it-server.log &)
     - for i in $(seq 1 30); do curl -sf http://127.0.0.1:3009/health && break; sleep 1; done
     - >-
       FUTO_TEST_SERVER=http://127.0.0.1:3009
@@ -959,6 +1029,10 @@ test:cross-platform-sync:
         - src/features/sync/sync*
         - tests/cross-platform-sync.mjs
         - tests/lib/**/*
+        # Which server the suite runs against, and how it is resolved. A pin
+        # bump changes what every sync job proves, so it must re-run them.
+        - scripts/sync-server-pin.json
+        - scripts/lib/sync-server.mjs
         - .gitlab-ci.yml
       variables:
         SYNC_SCENARIO_FLAGS: --skip-slow
@@ -991,7 +1065,7 @@ test:cross-platform-sync:android:
   # may only point at the current or an earlier stage — the debug APK comes from
   # build:android-native. It is still a blocking test job (release:gate.needs).
   stage: build
-  image: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
+  image: $IMAGE_ANDROID
   # Both tags resolve to the office runner: dind_fast for the warm cargo cache
   # (see build:android-native), android_kvm because the emulator wants /dev/kvm.
   # The boot falls back to unaccelerated with a warning if it is missing.
@@ -1009,10 +1083,6 @@ test:cross-platform-sync:android:
   # Share the desktop suite's exclusion: both run Tauri clients on the one
   # pinned runner, and overlapping starves timing-sensitive scenarios (M15).
   resource_group: cross-platform-sync
-  services:
-    - name: postgres:15@sha256:8b2bad884a8156e63d942305d0c547baa41f81953c93dbfc9e6cfe6f90bb8277
-      alias: postgres
-      pull_policy: if-not-present
   variables:
     GIT_DEPTH: "20"
     # Only build:android-native writes the native archive; this job reads the
@@ -1023,11 +1093,6 @@ test:cross-platform-sync:android:
     JAVA_HOME: /opt/jdk-21
     # The AVD baked into ci/android.Dockerfile.
     ANDROID_CI_AVD: ci
-    POSTGRES_DB: futo_notes
-    POSTGRES_USER: futo_notes
-    POSTGRES_PASSWORD: futo_notes
-    FUTO_NOTES_E2EE_DATABASE_URL: postgres://futo_notes:futo_notes@postgres:5432/futo_notes
-    PGPASSWORD: futo_notes
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-sync, cache]
@@ -1036,15 +1101,13 @@ test:cross-platform-sync:android:
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     # xvfb + WebKitGTK are baked into the Android image's desktop layer; the
-    # Mesa software-GL drivers and the psql client used by the harness server
-    # helper are not.
+    # Mesa software-GL drivers are not.
     - |
-      if command -v psql >/dev/null 2>&1 && dpkg -s libgl1-mesa-dri >/dev/null 2>&1; then
-        echo "psql and Mesa DRI drivers already present in the image"
+      if dpkg -s libgl1-mesa-dri >/dev/null 2>&1; then
+        echo "Mesa DRI drivers already present in the image"
       else
         apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-          postgresql-client libgl1-mesa-dri
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libgl1-mesa-dri
       fi
     - !reference [.setup-futo-notes-server, script]
     # Boots the emulator, installs the APK, runs the harness with
@@ -1071,9 +1134,14 @@ test:cross-platform-sync:android:
         - apps/android/**/*
         - crates/futo-notes-ffi/**/*
         - Cargo.lock
+        - languages/**/*
+        - tests/localization/**/*
+        - scripts/generate-native-language-resources.mjs
         - scripts/build-rust-android.sh
         - tests/cross-platform-sync.mjs
         - tests/lib/**/*
+        - scripts/sync-server-pin.json
+        - scripts/lib/sync-server.mjs
         - scripts/ci-android-emulator.sh
         - scripts/ci-android-sync-leg.sh
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -1125,16 +1193,18 @@ build:linux-packages:
     - dind_fast
   needs:
     - job: test
-  image: ubuntu:22.04
+  image: ubuntu:22.04@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc
   before_script: &linux-before-script
     # Protected tag variables are present before setup begins. Preserve the
     # updater key only as a non-exported shell value, then remove both signing
     # variables before apt, curl, package managers, or build tools run.
     - . "$CI_PROJECT_DIR/scripts/prepare-appimage-signing-environment.sh"
     - apt-get update
-    - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates build-essential git file pkg-config
-    - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-    - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nodejs
+    - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates build-essential git file pkg-config unzip
+    # nodesource could only ever pin a major line, and this job builds the binary
+    # we sign. ci/install-fnm.sh owns the pinned release and checksums it.
+    - sh "$CI_PROJECT_DIR/ci/install-fnm.sh"
+    - cd "$CI_PROJECT_DIR" && eval "$(fnm env --shell bash)" && fnm use --install-if-missing
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
     - pnpm config set store-dir "$PNPM_STORE_DIR"
@@ -1181,7 +1251,7 @@ build:linux-appimage:
     - dind_fast
   needs:
     - job: test
-  image: ubuntu:22.04
+  image: ubuntu:22.04@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc
   before_script: *linux-before-script
   cache:
     - !reference [.cache-pnpm, cache]
@@ -1273,7 +1343,7 @@ build:ci-android-image:
   # Image rebuilds are intentionally manual and expensive. A new branch push
   # must not discard a nearly-complete registry image build.
   interruptible: false
-  image: quay.io/buildah/stable:latest
+  image: $IMAGE_BUILDAH
   before_script: []
   variables:
     STORAGE_DRIVER: vfs
@@ -1300,7 +1370,7 @@ build:ci-test-image:
   # Image rebuilds are intentionally manual and expensive. A new branch push
   # must not discard a nearly-complete registry image build.
   interruptible: false
-  image: quay.io/buildah/stable:latest
+  image: $IMAGE_BUILDAH
   before_script: []
   variables:
     STORAGE_DRIVER: vfs
@@ -1359,7 +1429,7 @@ build:android-native:
   # Native verification is independent of the JavaScript suite; starting it
   # immediately removes that suite from the native MR critical path.
   needs: []
-  image: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
+  image: $IMAGE_ANDROID
   cache:
     - !reference [.cache-pnpm, cache]
     # Native cargo work (NDK targets + host lib) is disjoint from the Tauri
@@ -1500,12 +1570,17 @@ build:android-native:
         - apps/android/**/*
         - crates/futo-notes-ffi/**/*
         - Cargo.lock
+        - languages/**/*
+        - tests/localization/**/*
+        - scripts/generate-native-language-resources.mjs
         - scripts/build-rust-android.sh
         - scripts/ci-android-instrumentation.sh
         - scripts/ci-android-emulator.sh
         - scripts/ci-android-sync-leg.sh
         - tests/cross-platform-sync.mjs
         - tests/lib/**/*
+        - scripts/sync-server-pin.json
+        - scripts/lib/sync-server.mjs
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *native-android-changes
       variables:
@@ -1577,6 +1652,9 @@ test:ios-native:
         # builds the same xcframework + app and runs the Swift tests on top.
         - crates/futo-notes-ffi/**/*
         - Cargo.lock
+        - languages/**/*
+        - tests/localization/**/*
+        - scripts/generate-native-language-resources.mjs
         - tests/conformance/**/*
         - packages/editor/src/bridge.ts
         - scripts/build-rust-ios.sh
@@ -1793,12 +1871,14 @@ windows:sign:
   stage: build
   tags:
     - dind
-  image: debian:trixie-slim
+  image: debian@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
   needs:
     - job: build:windows
       artifacts: true
   before_script: []
   script:
+    # Deliberately NOT from .nvmrc: Node here only launches the pinned
+    # @tauri-apps/cli, whose native binary does the signing (M23).
     - |
       if ! command -v aws >/dev/null 2>&1 || ! command -v java >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v npx >/dev/null 2>&1; then
         apt-get update
@@ -1911,7 +1991,8 @@ release:gate:
   stage: verify
   needs:
     # EVERY test job that runs on tag pipelines must be listed here, except
-    # test:audit, which is allow_failure and non-blocking by design. With
+    # test:audit and test:localization-audit, which are allow_failure and
+    # non-blocking by design. With
     # DAG `needs`, release/publish:ios run as soon as their needs succeed —
     # a failed test job NOT in this list does not stop the publish (this
     # nearly shipped v1.4.0 twice: once past a failed test:e2e:rest, once
@@ -2050,7 +2131,7 @@ publish:ios:main:
 publish:android:
   stage: release
   interruptible: false
-  image: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
+  image: $IMAGE_ANDROID
   needs:
     - job: release:gate
     - job: build:android-native
@@ -2276,7 +2357,7 @@ release:
 # the signer, so an unsigned/debug-signed build would break updates.
 update-fdroid:
   stage: trigger
-  image: alpine:latest
+  image: alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
   interruptible: false
   needs:
     - job: release # ensure the package asset is uploaded first

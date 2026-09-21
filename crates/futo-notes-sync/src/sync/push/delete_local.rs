@@ -55,6 +55,7 @@ async fn hydrate_legacy_replay_entry(
                 filename: name.to_owned(),
                 kind: FailureKind::Delete,
                 status_code: error.status,
+                detail: Some(error.message.clone()),
             });
             None
         }
@@ -121,6 +122,7 @@ pub(super) async fn delete_missing_objects(
                     filename: name.clone(),
                     kind: FailureKind::Delete,
                     status_code: error.status,
+                    detail: Some(error.message.clone()),
                 });
                 context.summary.decide_with(
                     SyncPhase::Push,

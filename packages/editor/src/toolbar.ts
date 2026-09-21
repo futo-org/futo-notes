@@ -39,7 +39,7 @@ export interface ToolbarItem {
    * Accessibility label — aria-label on web, accessibilityLabel on iOS,
    * contentDescription on Android. Identical text on every platform.
    */
-  label: string;
+  localizationPath: string;
   /** Optional visible text, used for explicit heading levels. */
   text?: string;
   /** Icon name in `@lucide/svelte` (web renderers). */
@@ -70,7 +70,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     // (formatState.ts `computeDisabledFormats`).
     {
       id: 'undo',
-      label: 'Undo',
+      localizationPath: 'editor.toolbar.undo',
       lucide: 'Undo2',
       sfSymbol: 'arrow.uturn.backward',
       material: 'undo',
@@ -79,7 +79,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'redo',
-      label: 'Redo',
+      localizationPath: 'editor.toolbar.redo',
       lucide: 'Redo2',
       sfSymbol: 'arrow.uturn.forward',
       material: 'redo',
@@ -90,7 +90,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
   [
     {
       id: 'bold',
-      label: 'Bold',
+      localizationPath: 'editor.toolbar.bold',
       lucide: 'Bold',
       sfSymbol: 'bold',
       material: 'format_bold',
@@ -99,7 +99,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'italic',
-      label: 'Italic',
+      localizationPath: 'editor.toolbar.italic',
       lucide: 'Italic',
       sfSymbol: 'italic',
       material: 'format_italic',
@@ -108,7 +108,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'strikethrough',
-      label: 'Strikethrough',
+      localizationPath: 'editor.toolbar.strikethrough',
       lucide: 'Strikethrough',
       sfSymbol: 'strikethrough',
       material: 'format_strikethrough',
@@ -117,7 +117,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'link',
-      label: 'Link',
+      localizationPath: 'editor.toolbar.link',
       lucide: 'Link',
       sfSymbol: 'link',
       material: 'link',
@@ -128,7 +128,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
   [
     {
       id: 'paragraph',
-      label: 'Text',
+      localizationPath: 'editor.toolbar.paragraph',
       text: 'Text',
       lucide: 'Type',
       sfSymbol: 'textformat.size',
@@ -138,7 +138,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'heading-1',
-      label: 'Heading 1',
+      localizationPath: 'editor.toolbar.headingOne',
       text: 'H1',
       lucide: 'Heading1',
       sfSymbol: 'textformat.size',
@@ -148,7 +148,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'heading-2',
-      label: 'Heading 2',
+      localizationPath: 'editor.toolbar.headingTwo',
       text: 'H2',
       lucide: 'Heading2',
       sfSymbol: 'textformat.size',
@@ -158,7 +158,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'heading-3',
-      label: 'Heading 3',
+      localizationPath: 'editor.toolbar.headingThree',
       text: 'H3',
       lucide: 'Heading3',
       sfSymbol: 'textformat.size',
@@ -168,7 +168,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'quote',
-      label: 'Block quote',
+      localizationPath: 'editor.toolbar.blockQuote',
       lucide: 'TextQuote',
       sfSymbol: 'text.quote',
       material: 'format_quote',
@@ -184,7 +184,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     // `code` target/source).
     {
       id: 'code-block',
-      label: 'Code block',
+      localizationPath: 'editor.toolbar.codeBlock',
       lucide: 'Code',
       sfSymbol: 'chevron.left.forwardslash.chevron.right',
       material: 'code',
@@ -195,7 +195,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
   [
     {
       id: 'bullet-list',
-      label: 'Bullet list',
+      localizationPath: 'editor.toolbar.bulletList',
       lucide: 'List',
       sfSymbol: 'list.bullet',
       material: 'format_list_bulleted',
@@ -204,7 +204,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'ordered-list',
-      label: 'Ordered list',
+      localizationPath: 'editor.toolbar.orderedList',
       lucide: 'ListOrdered',
       sfSymbol: 'list.number',
       material: 'format_list_numbered',
@@ -213,7 +213,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'task-list',
-      label: 'Task list',
+      localizationPath: 'editor.toolbar.taskList',
       lucide: 'ListChecks',
       sfSymbol: 'checklist',
       material: 'checklist',
@@ -222,7 +222,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'outdent',
-      label: 'Outdent',
+      localizationPath: 'editor.toolbar.outdent',
       lucide: 'ListIndentDecrease',
       sfSymbol: 'decrease.indent',
       material: 'format_indent_decrease',
@@ -231,7 +231,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'indent',
-      label: 'Indent',
+      localizationPath: 'editor.toolbar.indent',
       lucide: 'ListIndentIncrease',
       sfSymbol: 'increase.indent',
       material: 'format_indent_increase',
@@ -242,7 +242,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
   [
     {
       id: 'camera',
-      label: 'Take photo',
+      localizationPath: 'editor.toolbar.takePhoto',
       lucide: 'Camera',
       sfSymbol: 'camera',
       material: 'photo_camera',
@@ -251,7 +251,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
     },
     {
       id: 'image',
-      label: 'Choose from library',
+      localizationPath: 'editor.toolbar.chooseFromLibrary',
       lucide: 'ImageIcon',
       sfSymbol: 'photo',
       material: 'image',
@@ -264,7 +264,7 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
 /** The fixed (non-scrolling) collapse chevron at the toolbar's right edge. */
 export const TOOLBAR_DISMISS: ToolbarItem = {
   id: 'dismiss',
-  label: 'Dismiss keyboard',
+  localizationPath: 'editor.toolbar.dismissKeyboard',
   lucide: 'ChevronDown',
   sfSymbol: 'keyboard.chevron.compact.down',
   material: 'keyboard_hide',

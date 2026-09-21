@@ -4,7 +4,7 @@
     "src/app/components/TitleBar.svelte",
     "src/app/startNativeShell.ts",
     "src/features/settings/SettingsScreen.svelte",
-    "src/features/sync/autoSyncV2.ts",
+    "src/features/sync/autoSync.ts",
     "src/features/sync/syncManager.svelte.ts",
     "src/features/sync/syncServiceE2ee.ts",
     "src/features/system/theme.ts",

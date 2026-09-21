@@ -15,6 +15,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import java.util.UUID
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -26,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.futo.notes.BuildConfig
+import com.futo.notes.localization.Localization
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
@@ -39,6 +41,63 @@ import kotlin.coroutines.resume
  */
 internal fun isInAppEditorNavigation(scheme: String?): Boolean =
     scheme.equals("file", ignoreCase = true)
+
+internal data class FindMatchesReport(
+    val query: String,
+    val current: Int,
+    val total: Int,
+    val label: String,
+)
+
+internal fun decodeFindMatches(msg: JSONObject): FindMatchesReport? {
+    if (!msg.has("query") || !msg.has("current") || !msg.has("total") || !msg.has("label")) {
+        return null
+    }
+    return FindMatchesReport(
+        query = msg.optString("query"),
+        current = msg.optInt("current"),
+        total = msg.optInt("total"),
+        label = msg.optString("label"),
+    )
+}
+
+/**
+ * Rejects an engine echo for an older native query. Android's EditText may
+ * still have an active composing span when a bridge message arrives; applying
+ * an older query there would replace the user's in-progress IME text.
+ */
+internal class FindReportGate {
+    private var isOpen = false
+    private var expectedQuery: String? = null
+
+    fun opened() {
+        isOpen = true
+        expectedQuery = null
+    }
+
+    fun queryChanged(query: String) {
+        isOpen = true
+        expectedQuery = query
+    }
+
+    fun closed() {
+        isOpen = false
+        expectedQuery = null
+    }
+
+    fun accepts(report: FindMatchesReport): Boolean {
+        if (!isOpen) return false
+        val expected = expectedQuery
+        if (expected != null && report.query != expected) return false
+        expectedQuery = report.query
+        return true
+    }
+}
+
+internal fun isCurrentFindReportOwner(
+    postedAttachmentGeneration: Long,
+    currentAttachment: EditorAttachmentToken?,
+): Boolean = currentAttachment?.generation == postedAttachmentGeneration
 
 /**
  * Compose host for the embedded markdown editor — the Android counterpart of
@@ -73,6 +132,7 @@ internal fun isInAppEditorNavigation(scheme: String?): Boolean =
 internal fun EditorWebView(
     content: String,
     theme: String,
+    languageTag: String,
     autoFocus: Boolean,
     onChange: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -84,6 +144,7 @@ internal fun EditorWebView(
     onPickImage: (String) -> Unit = {},
     onSaveImageData: (String, String) -> Unit = { _, _ -> },
     onPasteClipboardImage: () -> Unit = {},
+    onFindMatches: (FindMatchesReport) -> Unit = {},
     onReady: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -96,6 +157,7 @@ internal fun EditorWebView(
     // the incoming screen's content even when reconciliation itself was fenced.
     if (attachment?.let(host::isCurrentAttachment) == true) {
         host.setTheme(theme)
+        host.setLanguage(languageTag)
         host.setContent(content)
         if (notesJson != null) host.setNotes(notesJson)
         if (imageBaseUrl != null) host.setImageBaseUrl(imageBaseUrl)
@@ -114,9 +176,11 @@ internal fun EditorWebView(
             onPickImage,
             onSaveImageData,
             onPasteClipboardImage,
+            onFindMatches,
         )
         attachment = token
         host.setTheme(theme)
+        host.setLanguage(languageTag)
         host.setContent(content)
         if (notesJson != null) host.setNotes(notesJson)
         if (imageBaseUrl != null) host.setImageBaseUrl(imageBaseUrl)
@@ -171,6 +235,7 @@ class EditorHost private constructor(appContext: Context) {
     private var onPickImage: (String) -> Unit = {}
     private var onSaveImageData: (String, String) -> Unit = { _, _ -> }
     private var onPasteClipboardImage: () -> Unit = {}
+    private var onFindMatches: (FindMatchesReport) -> Unit = {}
     private var autoFocus = false
 
     // Reactive inputs for the NATIVE Compose toolbar (EditorToolbar.kt), fed by
@@ -226,8 +291,10 @@ class EditorHost private constructor(appContext: Context) {
     // the same gate for the same reason; the right way to retire both is to
     // stop pushing from a composition body, not to delete the compares.
     private var currentTheme: String? = null
+    private var currentLanguageTag: String? = null
     private var lastPushedContent: String? = null
     private var desiredTheme: String = "light"
+    private var desiredLanguageTag: String = "en"
     private var desiredContent: String = ""
     // Note universe + image base (bridge v2). The notes JSON can be large, so
     // dedupe holds only its hash, not the string.
@@ -237,6 +304,9 @@ class EditorHost private constructor(appContext: Context) {
     private var currentImageBaseUrl: String? = null
 
     private val attachments = EditorAttachmentGate()
+    private val findReportGate = FindReportGate()
+    @Volatile
+    private var bridgeAttachmentGeneration = -1L
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -244,11 +314,16 @@ class EditorHost private constructor(appContext: Context) {
         @JavascriptInterface
         fun postMessage(json: String) {
             val msg = runCatching { JSONObject(json) }.getOrNull() ?: return
-            main.post { handle(msg) }
+            val postedAttachmentGeneration = bridgeAttachmentGeneration
+            main.post { handle(msg, postedAttachmentGeneration) }
         }
     }
 
     private val appContext = appContext
+    private var localization: Localization? = null
+
+    /** Stable across rotation, fresh after process death. */
+    val processToken: String = UUID.randomUUID().toString()
 
     /** Bumped each time [webView] is rebuilt after a renderer-process death, so
      *  the [EditorWebView] composable re-adopts the fresh instance (key()). */
@@ -293,7 +368,16 @@ class EditorHost private constructor(appContext: Context) {
         // remove [editor.md:121].
         settings.allowFileAccess = true
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
-        WebView.setWebContentsDebuggingEnabled(true)
+        // Debug builds only. This flag is what makes a NON-debuggable app
+        // inspectable (the default is false; a debuggable app is inspectable
+        // regardless), so shipping it `true` handed any authorized adb host a
+        // chrome://inspect session into the editor — and through the single
+        // postMessage bridge below, the whole vault: the note universe arrives
+        // via setNotes, `openNote` + getContent() reads any note, `change`
+        // rewrites it. iOS gates the same capability with #if DEBUG
+        // (apps/ios/Sources/Editor/EditorWebView.swift). `just cdp-forward`
+        // drives com.futo.notes.dev, so the dev tooling is unaffected.
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         addJavascriptInterface(bridge, "futoBridge")
         webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(
@@ -423,7 +507,7 @@ class EditorHost private constructor(appContext: Context) {
         recreations++
     }
 
-    private fun handle(msg: JSONObject) {
+    private fun handle(msg: JSONObject, postedAttachmentGeneration: Long) {
         rescueEngineVerdict()
         when (msg.optString("type")) {
             // The page is alive but shows nothing until it is configured. Hand
@@ -448,6 +532,7 @@ class EditorHost private constructor(appContext: Context) {
                 // between sending the config and this reply; each of these is
                 // deduped and so a no-op when it hasn't.
                 setTheme(desiredTheme)
+                setLanguage(desiredLanguageTag)
                 setContent(desiredContent)
                 desiredImageBaseUrl?.let { setImageBaseUrl(it) }
                 desiredNotesJson?.let { setNotes(it) }
@@ -466,11 +551,19 @@ class EditorHost private constructor(appContext: Context) {
                         "native expects v$hostVersion — rebuild the editor bundle",
                 )
                 if (BuildConfig.DEBUG) {
-                    Toast.makeText(
-                        appContext,
-                        "Bridge version mismatch: editor v$bundleVersion vs native v$hostVersion",
-                        Toast.LENGTH_LONG,
-                    ).show()
+                    localization?.let {
+                        Toast.makeText(
+                            appContext,
+                            it.localizedText(
+                                "editor.android.bridgeVersionMismatch",
+                                mapOf(
+                                    "editorVersion" to bundleVersion.toString(),
+                                    "nativeVersion" to hostVersion.toString(),
+                                ),
+                            ),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
                 }
             }
             "change" -> {
@@ -507,6 +600,16 @@ class EditorHost private constructor(appContext: Context) {
                     for (i in 0 until (disabledIds?.length() ?: 0)) {
                         disabledIds?.optString(i)?.takeIf { it.isNotEmpty() }?.let { add(it) }
                     }
+                }
+            }
+            "findMatches" -> decodeFindMatches(msg)?.let { report ->
+                if (
+                    isCurrentFindReportOwner(
+                        postedAttachmentGeneration,
+                        attachments.current(),
+                    ) && findReportGate.accepts(report)
+                ) {
+                    onFindMatches(report)
                 }
             }
             // User tapped a RESOLVED wikilink — id is the target note's id
@@ -640,6 +743,7 @@ class EditorHost private constructor(appContext: Context) {
         val config = JSONObject().apply {
             put("bridgeVersion", BridgeSpec.BRIDGE_VERSION)
             put("theme", desiredTheme)
+            put("languageTag", desiredLanguageTag)
             put("content", desiredContent)
             // The markdown toolbar is native Compose here (EditorToolbar.kt),
             // so the embed must keep its own web toolbar hidden [editor.md].
@@ -654,6 +758,7 @@ class EditorHost private constructor(appContext: Context) {
         // Record what the config carries, so the catch-up on `initialized`
         // re-pushes only what actually moved while it was in flight.
         currentTheme = desiredTheme
+        currentLanguageTag = desiredLanguageTag
         lastPushedContent = desiredContent
         lastNotesJsonHash = desiredNotesJson?.hashCode()
         currentImageBaseUrl = desiredImageBaseUrl
@@ -675,6 +780,7 @@ class EditorHost private constructor(appContext: Context) {
         onPickImage: (String) -> Unit = {},
         onSaveImageData: (String, String) -> Unit = { _, _ -> },
         onPasteClipboardImage: () -> Unit = {},
+        onFindMatches: (FindMatchesReport) -> Unit = {},
     ): EditorAttachmentToken {
         this.onChange = onChange
         this.onReady = onReady
@@ -682,8 +788,10 @@ class EditorHost private constructor(appContext: Context) {
         this.onPickImage = onPickImage
         this.onSaveImageData = onSaveImageData
         this.onPasteClipboardImage = onPasteClipboardImage
+        this.onFindMatches = onFindMatches
         this.autoFocus = autoFocus
         val token = attachments.attach()
+        bridgeAttachmentGeneration = token.generation
         if (isReady) {
             onReady()
             if (autoFocus) focusEditor()
@@ -695,12 +803,14 @@ class EditorHost private constructor(appContext: Context) {
     internal fun detach(token: EditorAttachmentToken) {
         if (!attachments.permits(token)) return
         attachments.detach(token)
+        bridgeAttachmentGeneration = -1L
         onChange = {}
         onReady = {}
         onOpenNote = {}
         onPickImage = {}
         onSaveImageData = { _, _ -> }
         onPasteClipboardImage = {}
+        onFindMatches = {}
         autoFocus = false
         // Leaving the editor screen detaches the WebView without a blur event;
         // clear the flag so a reopened note doesn't flash a stale toolbar.
@@ -720,6 +830,16 @@ class EditorHost private constructor(appContext: Context) {
     fun setTheme(theme: String) {
         desiredTheme = theme
         if (isReady && theme != currentTheme) pushTheme(theme)
+    }
+
+    fun setLanguage(languageTag: String) {
+        desiredLanguageTag = languageTag
+        if (isReady && languageTag != currentLanguageTag) pushLanguage(languageTag)
+    }
+
+    fun setLocalization(localization: Localization) {
+        this.localization = localization
+        setLanguage(localization.effectiveLanguage.tag)
     }
 
     /** Feed the note universe (wikilink resolution/autocomplete) — a JSON
@@ -849,11 +969,29 @@ class EditorHost private constructor(appContext: Context) {
             capture.run()
         }
 
-    /** Run a shared toolbar command (TOOLBAR_EXEC in markdownToolbar.ts) by
-     *  manifest id — how the native toolbar's Exec items dispatch (bridge v3).
-     *  Editing semantics stay single-source in TS; Kotlin never reimplements. */
+    /** Run a shared editor command (TOOLBAR_EXEC in markdownToolbar.ts). */
     fun exec(commandId: String) {
         eval("window.FutoEditor && window.FutoEditor.exec(${JSONObject.quote(commandId)});")
+    }
+
+    fun openFind() {
+        findReportGate.opened()
+        eval("window.FutoEditor && window.FutoEditor.openFind();")
+    }
+
+    fun setFindQuery(query: String) {
+        findReportGate.queryChanged(query)
+        eval("window.FutoEditor && window.FutoEditor.setFindQuery(${JSONObject.quote(query)});")
+    }
+
+    fun stepFind(delta: Int) {
+        if (delta != -1 && delta != 1) return
+        eval("window.FutoEditor && window.FutoEditor.stepFind($delta);")
+    }
+
+    fun closeFind() {
+        findReportGate.closed()
+        eval("window.FutoEditor && window.FutoEditor.closeFind();")
     }
 
     /** Blur the editor — drops the soft keyboard and (via the resulting focus
@@ -889,6 +1027,14 @@ class EditorHost private constructor(appContext: Context) {
     private fun pushTheme(theme: String) {
         currentTheme = theme
         eval("window.FutoEditor && window.FutoEditor.setTheme(${JSONObject.quote(theme)});")
+    }
+
+    private fun pushLanguage(languageTag: String) {
+        currentLanguageTag = languageTag
+        eval(
+            "window.FutoEditor && window.FutoEditor.setLanguage && " +
+                "window.FutoEditor.setLanguage(${JSONObject.quote(languageTag)});",
+        )
     }
 
     private fun pushNotes(notesJson: String) {

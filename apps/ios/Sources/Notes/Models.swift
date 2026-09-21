@@ -12,9 +12,6 @@ struct NoteItem: Identifiable, Hashable {
     let folder: String
     /// File modification date.
     let modified: Date
-    /// ~100-char preview, newlines collapsed to spaces. Used for search
-    /// filtering (plain text).
-    let preview: String
     /// Multi-line, display-oriented preview (block markdown rewritten for
     /// rendering: ☐/☑ task glyphs, • bullets, tables dropped, inline emphasis
     /// kept). Rendered as an `AttributedString` in the list. See

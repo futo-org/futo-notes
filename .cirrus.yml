@@ -3,8 +3,9 @@ test_rust_macos_task:
   macos_instance:
     image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
   testRustMacOS_script:
-    - brew install node@22
-    - export PATH="$(brew --prefix node@22)/bin:$PATH"
+    - brew install fnm
+    - eval "$(fnm env --shell bash)"
+    - fnm use --install-if-missing
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
     - export PATH="$HOME/.cargo/bin:$PATH"
     - corepack enable
@@ -36,8 +37,9 @@ test_desktop_smoke_macos_task:
   macos_instance:
     image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
   testDesktopSmokeMacOS_script:
-    - brew install node@22
-    - export PATH="$(brew --prefix node@22)/bin:$PATH"
+    - brew install fnm
+    - eval "$(fnm env --shell bash)"
+    - fnm use --install-if-missing
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
     - export PATH="$HOME/.cargo/bin:$PATH"
     - corepack enable
@@ -70,8 +72,9 @@ test_ios_native_task:
   macos_instance:
     image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
   testFutoNotesIOSNative_script:
-    - brew install node@22 xcodegen
-    - export PATH="$(brew --prefix node@22)/bin:$PATH"
+    - brew install fnm xcodegen
+    - eval "$(fnm env --shell bash)"
+    - fnm use --install-if-missing
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
@@ -153,107 +156,6 @@ test_ios_native_task:
     ios_test_results_artifacts:
       path: "apps/ios/.build/TestResults.xcresult/**"
 
-build_ios_task:
-  name: buildFutoNotesIOS
-  macos_instance:
-    image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
-  buildFutoNotesIOS_script:
-    # Fetch secure files (certificates, provisioning profiles, API keys)
-    - curl --silent "https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/download-secure-files/-/raw/main/installer" | bash
-
-    # Install signing certificate
-    - security unlock-keychain -p "admin" ~/Library/Keychains/login.keychain
-    - security import ./.secure_files/Certificates.p12 -k ~/Library/Keychains/login.keychain -P "$IOS_CERT_PASSWORD" -T /usr/bin/codesign
-    - "security set-key-partition-list -S apple-tool:,apple: -s -k admin ~/Library/Keychains/login.keychain"
-
-    # Install provisioning profile
-    - mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-    - PROFILE_PATH=$(ls .secure_files/*.mobileprovision | head -1)
-    - PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(/usr/bin/security cms -D -i "$PROFILE_PATH"))
-    - cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
-
-    # Install Node + pnpm
-    - brew install node@22
-    - export PATH="$(brew --prefix node@22)/bin:$PATH"
-    - node --version
-    - corepack enable
-    - corepack prepare pnpm@10.29.2 --activate
-
-    # Install Rust with iOS target
-    - curl https://sh.rustup.rs -sSf | sh -s -- -y
-    - export PATH="$HOME/.cargo/bin:$PATH"
-    - rustup target add aarch64-apple-ios
-    - cargo install tauri-cli --locked
-
-    # Derive version from git tag
-    - VERSION="${CI_COMMIT_TAG#v}"
-    - echo "Building iOS version $VERSION"
-
-    # Install dependencies
-    - pnpm install --frozen-lockfile
-
-    # Set desktop/Tauri version sources from git tag.
-    - node scripts/desktop-version.mjs "$VERSION"
-
-    # Initialize and build iOS
-    - cd apps/tauri
-    - cargo tauri ios init --config src-tauri/tauri.ios.conf.json
-    # Fetch ORT xcframework — project.yml's pre-build script reads it via
-    # ORT_IOS_XCFWK_PATH from apps/tauri/src-tauri/gen/apple/.
-    - node ../../scripts/fetch-ort-ios.mjs
-    - cargo tauri icon src-tauri/icons/icon-1024-rgba8.png --ios-color '#f0f0f0'
-
-    # Patch Xcode project for manual signing, deployment target, and Swift compat shims
-    - |
-      PBXPROJ=$(find src-tauri/gen/apple -name "project.pbxproj" | head -1)
-      node ../../scripts/patch-ios-pbxproj.mjs "$PBXPROJ"
-
-    - export IPHONEOS_DEPLOYMENT_TARGET=16.0
-    # Build + archive. Tauri's export step will fail (it can't resolve the
-    # provisioning profile with manual signing), so we allow failure here
-    # and do the export manually below.
-    - cargo tauri ios build --export-method app-store-connect --config src-tauri/tauri.ios.conf.json || echo "Tauri export failed (expected) — will export manually"
-    # Verify the xcarchive was created
-    - |
-      ARCHIVE=$(find src-tauri/gen/apple/build -name "*.xcarchive" -type d | head -1)
-      if [ -z "$ARCHIVE" ]; then
-        echo "ERROR: No xcarchive found — build itself failed"
-        exit 1
-      fi
-      echo "Found archive: $ARCHIVE"
-      # Export IPA with explicit provisioning profile mapping
-      cat > /tmp/ExportOptions.plist << 'PLISTEOF'
-      <?xml version="1.0" encoding="UTF-8"?>
-      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-      <plist version="1.0">
-      <dict>
-          <key>method</key>
-          <string>app-store</string>
-          <key>teamID</key>
-          <string>2W7AC6T8T5</string>
-          <key>signingStyle</key>
-          <string>manual</string>
-          <key>provisioningProfiles</key>
-          <dict>
-              <key>com.futo.notes</key>
-              <string>FUTO Notes App Store</string>
-          </dict>
-      </dict>
-      </plist>
-      PLISTEOF
-      xcodebuild -exportArchive \
-        -archivePath "$ARCHIVE" \
-        -exportOptionsPlist /tmp/ExportOptions.plist \
-        -exportPath src-tauri/gen/apple/build/export
-    - cd ../..
-
-    # Copy IPA to artifacts location. TestFlight upload is gated by the
-    # release:gate stage and handled by the publishFutoNotesIOS task.
-    - IPA_PATH=$(find apps/tauri/src-tauri/gen/apple/build -name "*.ipa" -type f | head -1)
-    - cp "$IPA_PATH" ./
-  binary_artifacts:
-    path: "*.ipa"
-
 publish_ios_task:
   name: publishFutoNotesIOS
   macos_instance:
@@ -269,17 +171,10 @@ publish_ios_task:
     # buildFutoNotesIOSNative/binary/*.ipa, and Cirrus rsyncs the working dir
     # into this VM.
     - |
-      # Only search dirs that exist — the legacy buildFutoNotesIOS job is
-      # manual on tag pipelines, so its dir is usually absent and a bare
-      # find over both paths exits non-zero (killing the script under
-      # Cirrus's errexit/pipefail before the native IPA is ever used).
       IPA=""
-      for d in buildFutoNotesIOSNative/binary buildFutoNotesIOS/binary; do
-        if [ -d "$d" ]; then
-          IPA=$(find "$d" -name "*.ipa" -type f | head -1)
-        fi
-        if [ -n "$IPA" ]; then break; fi
-      done
+      if [ -d buildFutoNotesIOSNative/binary ]; then
+        IPA=$(find buildFutoNotesIOSNative/binary -name "*.ipa" -type f | head -1)
+      fi
       if [ -z "$IPA" ]; then
         echo "ERROR: No IPA found in working dir — was build:ios-native artifact propagated?"
         exit 1
@@ -318,8 +213,9 @@ build_macos_task:
     - export APPLE_API_ISSUER="$ASC_ISSUER_ID"
 
     # Install Node + pnpm
-    - brew install node@22
-    - export PATH="$(brew --prefix node@22)/bin:$PATH"
+    - brew install fnm
+    - eval "$(fnm env --shell bash)"
+    - fnm use --install-if-missing
     - node --version
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
@@ -369,8 +265,9 @@ build_ios_native_task:
   macos_instance:
     image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
   build_ios_native_script:
-    - brew install node@22 xcodegen
-    - export PATH="$(brew --prefix node@22)/bin:$PATH"
+    - brew install fnm xcodegen
+    - eval "$(fnm env --shell bash)"
+    - fnm use --install-if-missing
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
     - curl https://sh.rustup.rs -sSf | sh -s -- -y

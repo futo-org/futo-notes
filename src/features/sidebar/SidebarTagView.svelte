@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { NotePreview } from '$shared/types/note';
   import { getSortedTags, getNotesForTag } from '$features/tags/noteTags';
+  import { localizedText } from '$shared/localization';
 
   interface Props {
     notes: NotePreview[];
@@ -42,7 +43,7 @@
 
 <div class="sidebar-tag-view">
   {#if sortedTags.length === 0}
-    <div class="sidebar-tag-empty">No tags yet</div>
+    <div class="sidebar-tag-empty">{localizedText('sidebar.tags.empty')}</div>
   {:else}
     {#each sortedTags as { tag, display, count }}
       <div class="sidebar-tag-row">

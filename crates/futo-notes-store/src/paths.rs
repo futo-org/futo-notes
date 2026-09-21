@@ -79,9 +79,12 @@ pub(crate) fn folder_path(root: &Path, folder: &str) -> Result<PathBuf, String> 
     for component in components {
         path.push(component);
     }
+    futo_notes_core::files::vault_fs::validate_path(root, folder)?;
     Ok(path)
 }
 
 pub(crate) fn note_path(root: &Path, id: &str) -> Result<PathBuf, String> {
-    safe_note_path(root, id)
+    let path = safe_note_path(root, id)?;
+    futo_notes_core::files::vault_fs::validate_path(root, &format!("{id}.md"))?;
+    Ok(path)
 }

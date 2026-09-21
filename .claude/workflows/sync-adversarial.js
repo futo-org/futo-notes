@@ -20,7 +20,7 @@ const BASE_SCHEMA = {
     rustPass: { type: 'boolean', description: 'cargo test -p futo-notes-sync passes' },
     crossPlatformRan: {
       type: 'boolean',
-      description: 'just test-cross-platform actually ran (needs Docker + server)',
+      description: 'just test-cross-platform actually ran (downloads the pinned server)',
     },
     crossPlatformPass: { type: 'boolean' },
     notes: { type: 'string' },
@@ -30,7 +30,7 @@ const baseline = await agent(
   `From the repo root:
    1. Run \`cargo test -p futo-notes-sync\` → rustPass.
    2. Attempt \`just test-cross-platform\` (boots 2 Tauri instances + the E2EE
-      server; needs Docker/Postgres). If the infra is unavailable, set
+      server; needs access to the pinned server package). If the infra is unavailable, set
       crossPlatformRan=false and say why in notes — do NOT treat that as a
       failure. If it runs, report crossPlatformPass.
    Do not modify files.`,
@@ -96,7 +96,7 @@ const results = await pipeline(
        "${s.spec}"
        Prefer driving the real orchestrator logic (unit-level tests against
        futo_notes_sync::orchestrator / state, or the tests/cross-platform-sync.mjs
-       harness if Docker is up). Write any temp test, run it, then leave the tree
+       harness if the pinned server can be provisioned). Write any temp test, run it, then leave the tree
        clean. Report expected vs actual and a pass boolean with evidence.`,
       { label: `gen:${s.key}`, phase: 'Generate', schema: VERDICT_SCHEMA },
     ).catch((err) => {

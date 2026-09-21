@@ -9,6 +9,8 @@
     ListIndentIncrease,
     ListIndentDecrease,
   } from '@lucide/svelte';
+
+  import { localizedText } from '$shared/localization';
   import type { Component } from 'svelte';
   import { TOOLBAR_GROUPS, TOOLBAR_ITEMS } from '@futo-notes/editor';
 
@@ -111,7 +113,7 @@
           class="futo-selection-toolbar-btn"
           class:is-active={active.includes(item.id)}
           type="button"
-          aria-label={item.label}
+          aria-label={localizedText(item.localizationPath)}
           aria-pressed={active.includes(item.id)}
           onmousedown={preventFocus}
           onclick={() => onexec(item.id)}

@@ -28,6 +28,26 @@ export const PORT_BASES = {
 // (32768+), so no random outbound connection can ever be squatting a band port.
 export const XPLAT_SYNC_BAND = { base: 21000, stride: 100 };
 
+// The loopback ports tests/lib/sync-test-server.test.mjs binds to exercise the
+// port-ownership refusal. TWO constraints, and satisfying only one has already
+// cost a red run:
+//   1. clear of every band above, so a probe can never disturb a real sync
+//      server, dev server or QA bridge;
+//   2. slot-derived, so two worktrees running that file at the same moment do
+//      not both bind one port.
+// It was a lone `XPLAT_SYNC_BAND.base - 7` — constraint 1 only, and therefore
+// the same 20993 in every checkout. Seven concurrent worktrees then turned the
+// file that exists to PIN a port-ownership bug into a victim of one:
+// "listen EADDRINUSE: address already in use 127.0.0.1:20993". Do not
+// "simplify" this back to a constant.
+// Sits immediately above the xplat span and is derived from it, so it follows
+// automatically if that band ever grows. Four ports per slot: a delayed
+// scenario needs the pair (proxy on `base`, server on `base + 1`), plus slack.
+export const PROBE_BAND = {
+  base: XPLAT_SYNC_BAND.base + SLOTS * XPLAT_SYNC_BAND.stride,
+  stride: 4,
+};
+
 export function slotOf(root) {
   const hex = createHash('md5').update(root).digest('hex').slice(0, 8);
   return parseInt(hex, 16) % SLOTS;
@@ -38,6 +58,13 @@ export function xplatSyncBand(root) {
   const slot = slotOf(root ?? worktreeRoot());
   const base = XPLAT_SYNC_BAND.base + slot * XPLAT_SYNC_BAND.stride;
   return { slot, base, end: base + XPLAT_SYNC_BAND.stride - 1 };
+}
+
+/** The port band the sync-server port-ownership tests may bind directly. */
+export function probeBand(root) {
+  const slot = slotOf(root ?? worktreeRoot());
+  const base = PROBE_BAND.base + slot * PROBE_BAND.stride;
+  return { slot, base, end: base + PROBE_BAND.stride - 1 };
 }
 
 export function portsFor(root) {

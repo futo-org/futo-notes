@@ -13,10 +13,10 @@ vi.mock('$shared/state/appState', () => ({
   getCachedPreferences: vi.fn(() => preferencesMock),
 }));
 
-const requestSyncV2 = vi.fn();
+const requestSync = vi.fn();
 const wasSyncErrorReported = vi.fn(() => false);
-vi.mock('$features/sync/autoSyncV2', () => ({
-  requestSyncV2: (...args: unknown[]) => requestSyncV2(...args),
+vi.mock('$features/sync/autoSync', () => ({
+  requestSync: (...args: unknown[]) => requestSync(...args),
   wasSyncErrorReported: (...args: unknown[]) => wasSyncErrorReported(...args),
 }));
 
@@ -49,7 +49,7 @@ beforeEach(() => {
   appStateMock.e2eeServerUrl = '';
   appStateMock.e2eeAuthToken = '';
   preferencesMock.sync = { lastError: '', lastSyncedAt: null };
-  requestSyncV2.mockReset().mockResolvedValue({});
+  requestSync.mockReset().mockResolvedValue({});
   wasSyncErrorReported.mockReset().mockReturnValue(false);
   confirmDialog.mockReset();
   connectE2ee.mockReset().mockResolvedValue(undefined);
@@ -69,7 +69,7 @@ describe('createSyncSettings', () => {
     await sync.connect();
 
     expect(connectE2ee).toHaveBeenCalledWith('http://server:3100', 'hunter2');
-    expect(requestSyncV2).toHaveBeenCalledTimes(1);
+    expect(requestSync).toHaveBeenCalledTimes(1);
     expect(sync.connected).toBe(true);
     expect(sync.password).toBe('');
     expect(sync.busy).toBe(false);
@@ -78,7 +78,7 @@ describe('createSyncSettings', () => {
 
   it('renders the granular phase readout (Reconciling/Uploading/Downloading current/total)', async () => {
     let finishSync!: () => void;
-    requestSyncV2.mockReturnValue(
+    requestSync.mockReturnValue(
       new Promise<void>((resolve) => {
         finishSync = resolve;
       }),
@@ -105,7 +105,7 @@ describe('createSyncSettings', () => {
     expect(progressListener).toBeNull();
   });
 
-  it('reports a failed connect inline as "Connect failed: …"', async () => {
+  it('reports a failed connect without exposing the diagnostic', async () => {
     connectE2ee.mockRejectedValue(new Error('bad password'));
     const sync = createSyncSettings();
     sync.url = 'http://server:3100';
@@ -114,11 +114,11 @@ describe('createSyncSettings', () => {
     await sync.connect();
 
     expect(sync.connected).toBe(false);
-    expect(sync.status).toBe('Connect failed: bad password');
+    expect(sync.status).toBe("Couldn't connect or sync. Check the server URL and password.");
   });
 
   it('stays quiet when the sync manager already reported the failure (single-reporter contract)', async () => {
-    requestSyncV2.mockRejectedValue(new Error('cycle failed'));
+    requestSync.mockRejectedValue(new Error('cycle failed'));
     wasSyncErrorReported.mockReturnValue(true);
     const sync = createSyncSettings();
     sync.url = 'http://server:3100';
@@ -177,7 +177,7 @@ describe('createSyncSettings', () => {
   it('seeds status from the persisted last sync error', () => {
     preferencesMock.sync.lastError = 'server exploded';
     const sync = createSyncSettings();
-    expect(sync.status).toBe('Last error: server exploded');
+    expect(sync.status).toBe('The last sync failed. Try again.');
   });
 
   it('syncNow updates lastSyncedAt and clears status on success', async () => {
@@ -187,7 +187,7 @@ describe('createSyncSettings', () => {
 
     await sync.syncNow();
 
-    expect(requestSyncV2).toHaveBeenCalledTimes(1);
+    expect(requestSync).toHaveBeenCalledTimes(1);
     expect(sync.lastSyncedAt).toBe(1234);
     expect(sync.status).toBe('');
   });
@@ -203,7 +203,7 @@ describe('createSyncSettings', () => {
 
     expect(reauthenticateE2ee).toHaveBeenCalledWith('saved-password');
     expect(reauthenticateE2ee.mock.invocationCallOrder[0]).toBeLessThan(
-      requestSyncV2.mock.invocationCallOrder[0],
+      requestSync.mock.invocationCallOrder[0],
     );
     expect(sync.password).toBe('');
     expect(sync.passwordSaved).toBe(true);

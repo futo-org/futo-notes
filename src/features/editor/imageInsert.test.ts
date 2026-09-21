@@ -54,7 +54,7 @@ function transferWithData(
 function fakeFs(overrides: Partial<Record<string, unknown>> = {}) {
   let counter = 0;
   return {
-    saveImage: vi.fn(async (source: string) => `image-from-${source.split('/').pop()}`),
+    saveImagePath: vi.fn(async (source: string) => `image-from-${source.split('/').pop()}`),
     saveImageBytes: vi.fn(async (_data: ArrayBuffer, ext: string) => `image-${++counter}.${ext}`),
     getImageUrl: vi.fn(async (filename: string) => `asset://${filename}`),
     ...overrides,
@@ -291,37 +291,41 @@ describe('filePathsFromDrop', () => {
 });
 
 describe('createImageInserter — the picker', () => {
-  it('saves the picked file into the vault and inserts its reference', async () => {
+  it('saves the picked bytes into the vault and inserts its reference', async () => {
     const fs = fakeFs();
+    const bytes = new ArrayBuffer(4);
     const insert = vi.fn();
     const inserter = createImageInserter({
-      fs: { ...fs, pickImage: vi.fn(async () => '/home/me/holiday.png') },
+      fs: { ...fs, pickImages: vi.fn(async () => [{ bytes, extension: 'png' }]) },
       insert,
     });
 
     expect(inserter.canPick).toBe(true);
     await inserter.pick();
 
-    expect(fs.saveImage).toHaveBeenCalledWith('/home/me/holiday.png');
-    expect(insert).toHaveBeenCalledWith('image-from-holiday.png');
+    expect(fs.saveImageBytes).toHaveBeenCalledWith(bytes, 'png');
+    expect(insert).toHaveBeenCalledWith('image-1.png');
   });
 
   it('registers the URL so the just-inserted image renders without a reload', async () => {
     const fs = fakeFs();
     const inserter = createImageInserter({
-      fs: { ...fs, pickImage: vi.fn(async () => '/home/me/holiday.png') },
+      fs: {
+        ...fs,
+        pickImages: vi.fn(async () => [{ bytes: new ArrayBuffer(4), extension: 'png' }]),
+      },
       insert: vi.fn(),
     });
 
     await inserter.pick();
 
-    expect(resolveVaultImageSrc('image-from-holiday.png')).toBe('asset://image-from-holiday.png');
+    expect(resolveVaultImageSrc('image-1.png')).toBe('asset://image-1.png');
   });
 
   it('inserts nothing when the picker is dismissed', async () => {
     const insert = vi.fn();
     const inserter = createImageInserter({
-      fs: { ...fakeFs(), pickImage: vi.fn(async () => null) },
+      fs: { ...fakeFs(), pickImages: vi.fn(async () => []) },
       insert,
     });
 
@@ -338,7 +342,7 @@ describe('createImageInserter — the picker', () => {
     expect(inserter.canPick).toBe(false);
     await inserter.pick();
 
-    expect(fs.saveImage).not.toHaveBeenCalled();
+    expect(fs.saveImageBytes).not.toHaveBeenCalled();
     expect(insert).not.toHaveBeenCalled();
   });
 
@@ -357,7 +361,7 @@ describe('createImageInserter — the picker', () => {
     const inserter = createImageInserter({
       fs: {
         ...fakeFs(),
-        pickImage: vi.fn(() => Promise.reject(new Error('picker exploded'))),
+        pickImages: vi.fn(() => Promise.reject(new Error('picker exploded'))),
       },
       insert: vi.fn(),
       reportError,
@@ -450,8 +454,8 @@ describe('createImageInserter — dropped paths (the Tauri drag-drop event)', ()
 
     await createImageInserter({ fs, insert }).insertPaths(['/pics/one.png', '/pics/two.jpg']);
 
-    expect(fs.saveImage).toHaveBeenNthCalledWith(1, '/pics/one.png');
-    expect(fs.saveImage).toHaveBeenNthCalledWith(2, '/pics/two.jpg');
+    expect(fs.saveImagePath).toHaveBeenNthCalledWith(1, '/pics/one.png');
+    expect(fs.saveImagePath).toHaveBeenNthCalledWith(2, '/pics/two.jpg');
     expect(insert.mock.calls.map((c) => c[0])).toEqual([
       'image-from-one.png',
       'image-from-two.jpg',
@@ -464,24 +468,23 @@ describe('createImageInserter — dropped paths (the Tauri drag-drop event)', ()
 
     await createImageInserter({ fs, insert }).insertPaths(['/notes/todo.md']);
 
-    expect(fs.saveImage).not.toHaveBeenCalled();
+    expect(fs.saveImagePath).not.toHaveBeenCalled();
     expect(insert).not.toHaveBeenCalled();
   });
 });
 
 describe('resolveImageInserter', () => {
   it('is pickerless on a host that cannot write image bytes (a plain browser)', () => {
-    getFS.mockReturnValue({ saveImage: vi.fn(), getImageUrl: vi.fn() });
+    getFS.mockReturnValue({ getImageUrl: vi.fn() });
     expect(resolveImageInserter(vi.fn()).canPick).toBe(false);
   });
 
   it('picks through the platform FS on a host that can write image bytes', async () => {
-    const pickImage = vi.fn(async () => '/home/me/x.png');
+    const pickImages = vi.fn(async () => [{ bytes: new ArrayBuffer(4), extension: 'png' }]);
     getFS.mockReturnValue({
-      saveImage: vi.fn(async () => 'image-9.png'),
-      saveImageBytes: vi.fn(),
+      saveImageBytes: vi.fn(async () => 'image-9.png'),
       getImageUrl: vi.fn(async () => 'asset://image-9.png'),
-      pickImage,
+      pickImages,
     });
     const insert = vi.fn();
 
@@ -489,7 +492,7 @@ describe('resolveImageInserter', () => {
     expect(inserter.canPick).toBe(true);
     await inserter.pick();
 
-    expect(pickImage).toHaveBeenCalled();
+    expect(pickImages).toHaveBeenCalled();
     expect(insert).toHaveBeenCalledWith('image-9.png');
   });
 

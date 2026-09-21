@@ -1,6 +1,8 @@
 //! One durable owner for the local Markdown vault and its derived search index.
 
+mod editor_draft;
 mod paths;
+mod search;
 mod vault;
 mod vault_migration;
 
@@ -9,16 +11,16 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use futo_notes_core::conflict_names::{conflict_filename, current_conflict_date};
 use futo_notes_core::files::{
-    collides_but_differs, create_new_atomic, move_no_replace, rename_through_temp,
-    safe_appdata_path, set_file_mtime_ms, vault_mutation_guard, write_atomic_text,
+    collides_but_differs, safe_appdata_path, vault_fs, vault_mutation_guard, write_atomic_text,
 };
 use futo_notes_model::{make_id, rewrite_wikilinks, sanitize_folder_path, split_id};
-use futo_notes_search::{SearchConfig, SearchEngine, StatusObserver, DEFAULT_TOPK};
+use futo_notes_search::StatusObserver;
 use serde::{Deserialize, Serialize};
+
+use search::StoreSearch;
 
 pub use futo_notes_model::{WELCOME_NOTE, WELCOME_NOTE_ID};
 pub use futo_notes_search::{SearchHit, SearchStatus};
@@ -112,29 +114,6 @@ pub struct VaultFile {
     pub size_bytes: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FlushOutcome {
-    Wrote,
-    SkippedMissing,
-    SkippedChanged,
-}
-
-/// Outcome of [`LocalNoteStore::create_if_absent`] — an atomic create-if-absent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CreateOutcome {
-    /// No file existed at the id; `content` was created there.
-    Created,
-    /// A file already exists at the id — nothing written (a concurrent writer,
-    /// e.g. a live-sync pull, got there first).
-    Existed,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConditionalWriteResult {
-    pub outcome: FlushOutcome,
-    pub mutation: Option<MutationResult>,
-}
-
 /// The single outcome of one draft flush (CONTEXT.md: flush disposition).
 /// Shells render dispositions; they never decide them (ADR-0001).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -183,30 +162,6 @@ impl BeforeWrite for NoopBeforeWrite {
     fn before_write(&self, _changes: &[FileChange]) {}
 }
 
-/// After a failed search-engine start (a bad/locked index dir, momentary disk
-/// pressure), the store re-attempts the start lazily on the next
-/// search/status/rescan call — but at most once per this cooldown, so a
-/// persistent failure does not reopen the Tantivy index on every keystroke.
-/// This is the iOS `SearchService` F13 self-heal (PKT-10) pushed down into the
-/// single Rust owner, so iOS, Android, and desktop share one implementation
-/// (and it closes the banked Android search-retry-cooldown alignment follow-up).
-const SEARCH_ENGINE_RETRY_COOLDOWN: Duration = Duration::from_secs(15);
-
-/// Poll cadence inside [`LocalNoteStore::wait_until_search_ready`] — matches
-/// the 25ms the shells used before the wait moved down here.
-const SEARCH_READY_POLL_INTERVAL: Duration = Duration::from_millis(25);
-
-/// The owned search engine plus what's needed to re-attempt a failed start.
-#[derive(Default)]
-struct SearchState {
-    engine: Option<SearchEngine>,
-    /// Index dir + status observer retained at `start_search` so a failed start
-    /// can be retried with the same configuration. `None` until first start.
-    pending: Option<(PathBuf, StatusObserver)>,
-    /// When the last start attempt failed; gates the retry cooldown.
-    last_start_failure: Option<Instant>,
-}
-
 #[cfg(test)]
 type InstallWindowHook = Box<dyn Fn(&str) + Send + Sync>;
 
@@ -217,8 +172,7 @@ pub struct LocalNoteStore {
     root: PathBuf,
     before_write: Arc<dyn BeforeWrite>,
     gate: Mutex<()>,
-    search: Mutex<SearchState>,
-    retry_cooldown: Duration,
+    search: StoreSearch,
     /// Fault injection fired between id allocation and no-replace installation
     /// to simulate a concurrent writer landing at the chosen id.
     #[cfg(test)]
@@ -236,11 +190,10 @@ impl LocalNoteStore {
 
     pub fn with_before_write(root: PathBuf, before_write: Arc<dyn BeforeWrite>) -> Self {
         Self {
+            search: StoreSearch::new(root.clone()),
             root,
             before_write,
             gate: Mutex::new(()),
-            search: Mutex::new(SearchState::default()),
-            retry_cooldown: SEARCH_ENGINE_RETRY_COOLDOWN,
             #[cfg(test)]
             install_window_hook: Mutex::new(None),
             #[cfg(test)]
@@ -260,112 +213,26 @@ impl LocalNoteStore {
         index_dir: PathBuf,
         on_status: StatusObserver,
     ) -> Result<(), String> {
-        let mut search = self
-            .search
-            .lock()
-            .map_err(|_| "search lock poisoned".to_owned())?;
-        if search.engine.is_some() {
-            return Ok(());
-        }
-        search.pending = Some((index_dir, on_status));
-        self.try_start_engine(&mut search)
+        self.search.start(index_dir, on_status)
     }
 
     pub fn search(&self, query: &str, limit: Option<usize>) -> Result<Vec<SearchHit>, String> {
-        let mut search = self
-            .search
-            .lock()
-            .map_err(|_| "search lock poisoned".to_owned())?;
-        self.ensure_engine(&mut search);
-        match search.engine.as_ref() {
-            Some(engine) => engine.query(query, limit.unwrap_or(DEFAULT_TOPK)),
-            None => Ok(Vec::new()),
-        }
-    }
-
-    fn search_status(&self) -> SearchStatus {
-        let Ok(mut search) = self.search.lock() else {
-            return SearchStatus::default();
-        };
-        self.ensure_engine(&mut search);
-        search
-            .engine
-            .as_ref()
-            .map(SearchEngine::status)
-            .unwrap_or_default()
+        self.search.query(query, limit)
     }
 
     /// Blocking, bounded wait for engine-owned search readiness. Callers keep
     /// it off the UI thread; a timeout safely degrades to empty search results
     /// while the index continues its self-healing retries.
     pub fn wait_until_search_ready(&self, timeout_ms: u64) -> bool {
-        let deadline = Instant::now() + Duration::from_millis(timeout_ms);
-        loop {
-            if self.search_status().keyword.ready {
-                return true;
-            }
-            let now = Instant::now();
-            if now >= deadline {
-                return false;
-            }
-            std::thread::sleep(SEARCH_READY_POLL_INTERVAL.min(deadline - now));
-        }
+        self.search.wait_until_ready(timeout_ms)
     }
 
     pub fn rebuild_search(&self) {
-        if let Ok(mut search) = self.search.lock() {
-            self.ensure_engine(&mut search);
-            if let Some(engine) = search.engine.as_ref() {
-                engine.rescan();
-            }
-        }
-    }
-
-    /// Start the engine from the retained config, recording success/failure.
-    /// The caller holds the search lock.
-    fn try_start_engine(&self, search: &mut SearchState) -> Result<(), String> {
-        let Some((index_dir, on_status)) = search.pending.clone() else {
-            return Ok(());
-        };
-        match SearchEngine::start(
-            SearchConfig {
-                notes_root: self.root.clone(),
-                index_dir,
-            },
-            on_status,
-        ) {
-            Ok(engine) => {
-                search.engine = Some(engine);
-                search.last_start_failure = None;
-                Ok(())
-            }
-            Err(error) => {
-                search.last_start_failure = Some(Instant::now());
-                Err(error)
-            }
-        }
-    }
-
-    /// Lazily (re-)attempt a search-engine start that has not yet succeeded,
-    /// gated by [`SEARCH_ENGINE_RETRY_COOLDOWN`] so a persistent failure is not
-    /// retried on every call. No-op once the engine is running or when nothing
-    /// has been started yet. The caller holds the search lock.
-    fn ensure_engine(&self, search: &mut SearchState) {
-        if search.engine.is_some() || search.pending.is_none() {
-            return;
-        }
-        let cooling_down = search
-            .last_start_failure
-            .is_some_and(|at| at.elapsed() < self.retry_cooldown);
-        if cooling_down {
-            return;
-        }
-        // A failed retry re-arms the cooldown inside `try_start_engine`.
-        let _ = self.try_start_engine(search);
+        self.search.rebuild();
     }
 
     pub fn observe_external_change(&self, change: FileChange) {
-        self.notify(&change);
+        self.search.notify(&change);
     }
 
     pub fn bootstrap(&self) -> Result<BootstrapResult, String> {
@@ -424,7 +291,7 @@ impl LocalNoteStore {
     /// Bootstrap the vault, then start the owned search index in the background
     /// as a BEST-EFFORT step: a search-start failure is recorded as a warning,
     /// never fatal, so the note list always renders even when the index can't
-    /// open (it self-heals later via the retry cooldown — see `ensure_engine`).
+    /// open (the search lifecycle retries later after its cooldown).
     /// The single rule every adapter's bootstrap shares, so no shell can make
     /// search startup gate the vault (A3).
     pub fn bootstrap_with_search(
@@ -448,22 +315,20 @@ impl LocalNoteStore {
     }
 
     pub fn read(&self, id: &str) -> String {
-        paths::note_path(&self.root, id)
-            .ok()
-            .and_then(|path| fs::read_to_string(path).ok())
-            .unwrap_or_default()
+        self.read_existing(id).ok().flatten().unwrap_or_default()
     }
 
-    /// Atomically distinguish a missing note from an existing, possibly-empty
-    /// note with one filesystem open. Unlike `exists` followed by `read`, this
-    /// cannot observe two different filesystem states.
     pub fn read_existing(&self, id: &str) -> Result<Option<String>, String> {
-        let path = paths::note_path(&self.root, id)?;
-        match fs::read_to_string(path) {
-            Ok(content) => Ok(Some(content)),
-            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(io_error(error)),
-        }
+        paths::note_path(&self.root, id)?;
+        vault_fs::read_optional(&self.root, &note_filename(id))?
+            .map(|bytes| String::from_utf8(bytes).map_err(|error| error.to_string()))
+            .transpose()
+    }
+
+    fn read_note_file(&self, id: &str) -> std::io::Result<String> {
+        self.read_existing(id)
+            .map_err(std::io::Error::other)?
+            .ok_or_else(|| std::io::Error::from(ErrorKind::NotFound))
     }
 
     pub fn exists(&self, id: &str) -> bool {
@@ -504,11 +369,11 @@ impl LocalNoteStore {
         for id in affected_ids {
             match vault::metadata(&self.root, id) {
                 Some(metadata) => {
-                    self.notify(&FileChange::Changed(note_filename(id)));
+                    self.search.notify(&FileChange::Changed(note_filename(id)));
                     notes.push(metadata);
                 }
                 None => {
-                    self.notify(&FileChange::Removed(note_filename(id)));
+                    self.search.notify(&FileChange::Removed(note_filename(id)));
                     // The pull vacated this note's directory exactly as a local
                     // delete or move would, so it gets the same cleanup — the
                     // gone note's now-empty ancestors, nothing else. Without it
@@ -586,64 +451,6 @@ impl LocalNoteStore {
         }
     }
 
-    pub fn write_if_unchanged(
-        &self,
-        id: &str,
-        expected: &str,
-        content: &str,
-    ) -> Result<ConditionalWriteResult, String> {
-        let _gate = self.lock_gate()?;
-        let _vault_mutation = vault_mutation_guard()?;
-        let path = paths::note_path(&self.root, id)?;
-        match fs::read_to_string(&path) {
-            Ok(current) if current == expected => {
-                let metadata = self.write_raw(id, content, None)?;
-                Ok(ConditionalWriteResult {
-                    outcome: FlushOutcome::Wrote,
-                    mutation: Some(self.upsert_mutation(metadata)),
-                })
-            }
-            Ok(_) => Ok(ConditionalWriteResult {
-                outcome: FlushOutcome::SkippedChanged,
-                mutation: None,
-            }),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                Ok(ConditionalWriteResult {
-                    outcome: FlushOutcome::SkippedMissing,
-                    mutation: None,
-                })
-            }
-            Err(error) => Err(io_error(error)),
-        }
-    }
-
-    /// Atomically (re-)create the note at `id` with `content` ONLY IF no file
-    /// exists there yet — a no-replace install via [`create_new_atomic`], so a
-    /// concurrent scan/sync never observes an empty or partial file. The
-    /// editor's leave/background flush uses this to
-    /// honor the peer-delete dirty-keep edit-wins semantic: recreate a note the
-    /// conditional flush just reported [`FlushOutcome::SkippedMissing`] for,
-    /// WITHOUT the unconditional-write clobber risk — a live-sync pull writing
-    /// the same id OUTSIDE this store's serialization cannot have its content
-    /// overwritten. Returns [`CreateOutcome::Existed`] if the id reappeared in
-    /// the window (the caller parks a conflict copy instead). On a
-    /// case-insensitive filesystem (APFS/iOS) a case-variant already on disk
-    /// counts as existing — the safe outcome, we never clobber it.
-    pub fn create_if_absent(&self, id: &str, content: &str) -> Result<CreateOutcome, String> {
-        let _gate = self.lock_gate()?;
-        let _vault_mutation = vault_mutation_guard()?;
-        let path = paths::note_path(&self.root, id)?;
-        let change = FileChange::Changed(note_filename(id));
-        self.before_write
-            .before_write(std::slice::from_ref(&change));
-        if create_new_atomic(&path, content.as_bytes())? {
-            self.notify(&change);
-            Ok(CreateOutcome::Created)
-        } else {
-            Ok(CreateOutcome::Existed)
-        }
-    }
-
     /// THE draft-saving verb (persist-or-park, ADR-0001 / issue #37): persist
     /// `content` for the note at `id`, resolving every surprise itself, and
     /// return one [`FlushDisposition`] plus the mutation to project. `base` is
@@ -663,9 +470,9 @@ impl LocalNoteStore {
         content: &str,
     ) -> Result<FlushDraftResult, String> {
         let _gate = self.lock_gate()?;
-        let path = paths::note_path(&self.root, id)?;
+        paths::note_path(&self.root, id)?;
         let vault_mutation = vault_mutation_guard()?;
-        let current = fs::read_to_string(&path);
+        let current = self.read_note_file(id);
         #[cfg(test)]
         if current.is_ok() {
             if let Some(hook) = self.flush_window_hook.lock().unwrap().as_ref() {
@@ -694,7 +501,7 @@ impl LocalNoteStore {
             Ok(_) => self.park_conflict_draft(id, content),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 drop(vault_mutation);
-                self.recreate_missing_draft(id, content, &path)
+                self.recreate_missing_draft(id, content)
             }
             Err(error) => Err(io_error(error)),
         }
@@ -706,12 +513,7 @@ impl LocalNoteStore {
     /// install is atomic no-replace: a live-sync pull that recreated the id
     /// outside the store's serialization is never clobbered — if the id
     /// reappeared, park the draft unless it converged.
-    fn recreate_missing_draft(
-        &self,
-        id: &str,
-        content: &str,
-        path: &Path,
-    ) -> Result<FlushDraftResult, String> {
+    fn recreate_missing_draft(&self, id: &str, content: &str) -> Result<FlushDraftResult, String> {
         let _vault_mutation = vault_mutation_guard()?;
         // Never recreate at an id that cross-platform-collides (case-insensitive
         // / NFC) with a DIFFERENT surviving note. `create_new_atomic` only fails
@@ -729,16 +531,16 @@ impl LocalNoteStore {
         if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
             hook(id);
         }
-        if create_new_atomic(path, content.as_bytes())? {
+        if vault_fs::create_new(&self.root, &note_filename(&id), content.as_bytes())? {
             let metadata = vault::metadata(&self.root, id)
                 .ok_or_else(|| "note metadata unavailable after recreate".to_owned())?;
-            self.notify(&change);
+            self.search.notify(&change);
             return Ok(FlushDraftResult {
                 disposition: FlushDisposition::Recreated,
                 mutation: Some(self.upsert_mutation(metadata)),
             });
         }
-        match fs::read_to_string(path) {
+        match self.read_note_file(id) {
             Ok(current) if current == content => Ok(FlushDraftResult {
                 disposition: FlushDisposition::Converged,
                 mutation: None,
@@ -804,18 +606,16 @@ impl LocalNoteStore {
                 existing.insert(filename);
                 continue;
             }
-            let path = paths::note_path(&self.root, &parked_id)?;
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent).map_err(io_error)?;
-            }
+            paths::note_path(&self.root, &parked_id)?;
             #[cfg(test)]
             if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
                 hook(&parked_id);
             }
-            if create_new_atomic(&path, content.as_bytes())? {
+            if vault_fs::create_new(&self.root, &note_filename(&parked_id), content.as_bytes())? {
                 let metadata = vault::metadata(&self.root, &parked_id)
                     .ok_or_else(|| "note metadata unavailable after park".to_owned())?;
-                self.notify(&FileChange::Changed(note_filename(&parked_id)));
+                self.search
+                    .notify(&FileChange::Changed(note_filename(&parked_id)));
                 return Ok(FlushDraftResult {
                     disposition: FlushDisposition::ParkedConflict {
                         parked_id: parked_id.clone(),
@@ -858,24 +658,22 @@ impl LocalNoteStore {
         if folder.is_empty() {
             return Err("new folder path is empty".into());
         }
-        let folder_path = paths::folder_path(&self.root, &folder)?;
-        fs::create_dir(&folder_path).map_err(io_error)?;
+        paths::folder_path(&self.root, &folder)?;
+        vault_fs::create_dir(&self.root, &folder)?;
         let (_, title) = split_id(id);
         let wanted = format!("{folder}/{title}");
         match self.rename_raw(id, &wanted) {
             Ok(mutation) => Ok(mutation),
             Err(error) => {
-                let _ = fs::remove_dir(&folder_path);
+                let _ = vault_fs::remove_dir(&self.root, &folder, false);
                 Err(error)
             }
         }
     }
 
     pub fn delete(&self, id: &str) -> Result<MutationResult, String> {
-        self.delete_with(id, |path| match fs::remove_file(path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(io_error(error)),
+        self.delete_with(id, |_| {
+            vault_fs::remove_local(&self.root, &note_filename(id)).map(|_| ())
         })
     }
 
@@ -894,7 +692,7 @@ impl LocalNoteStore {
             .before_write(std::slice::from_ref(&change));
         remove(&path)?;
         prune_empty_parents(&self.root, &path);
-        self.notify(&change);
+        self.search.notify(&change);
         Ok(self.finish_mutation(
             Vec::new(),
             MutationResult {
@@ -910,8 +708,8 @@ impl LocalNoteStore {
         if clean.is_empty() {
             return Ok(self.finish_mutation(Vec::new(), MutationResult::default()));
         }
-        let path = paths::folder_path(&self.root, &clean)?;
-        fs::create_dir_all(path).map_err(io_error)?;
+        paths::folder_path(&self.root, &clean)?;
+        vault_fs::create_dir_all(&self.root, &clean)?;
         Ok(self.finish_mutation(Vec::new(), MutationResult::default()))
     }
 
@@ -1003,11 +801,8 @@ impl LocalNoteStore {
         );
         self.before_write.before_write(&changes);
 
-        if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent).map_err(io_error)?;
-        }
         if collides_but_differs(&from, &to) {
-            rename_through_temp(&source, &destination)?;
+            vault_fs::rename_case(&self.root, from, to)?;
         } else {
             // This renames a DIRECTORY, so the file no-replace primitive
             // (move_no_replace) doesn't apply, and POSIX rename onto a non-empty dir
@@ -1017,7 +812,7 @@ impl LocalNoteStore {
             // (contained notes move via the mapping loop, not this dir rename).
             // A platform-specific no-replace dir rename (renameat2) isn't worth
             // it for that (M17 #8, adjudicated).
-            fs::rename(&source, &destination).map_err(io_error)?;
+            vault_fs::rename_local(&self.root, from, to)?;
         }
         let mut mutation = self.finish_mappings(mappings, relinks, None);
         mutation.final_folder = Some(to.to_owned());
@@ -1028,7 +823,10 @@ impl LocalNoteStore {
     }
 
     pub fn delete_folder(&self, folder: &str) -> Result<MutationResult, String> {
-        self.delete_folder_with(folder, |path| fs::remove_dir_all(path).map_err(io_error))
+        self.delete_folder_with(folder, |path| {
+            let relative = path.strip_prefix(&self.root).map_err(|e| e.to_string())?;
+            vault_fs::remove_dir(&self.root, &relative.to_string_lossy(), true)
+        })
     }
 
     /// Move every note out first, with rollback on a failed move. Only after
@@ -1100,20 +898,14 @@ impl LocalNoteStore {
     /// images and hidden app-data, and reconciles search from the empty tree.
     pub fn reset(&self) -> Result<(), String> {
         let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
         fs::create_dir_all(&self.root).map_err(io_error)?;
         let removals = vault::note_paths(&self.root)
             .into_iter()
             .map(|(id, _)| FileChange::Removed(note_filename(&id)))
             .collect::<Vec<_>>();
         self.before_write.before_write(&removals);
-        for entry in fs::read_dir(&self.root).map_err(io_error)? {
-            let path = entry.map_err(io_error)?.path();
-            if path.is_dir() {
-                fs::remove_dir_all(path).map_err(io_error)?;
-            } else {
-                fs::remove_file(path).map_err(io_error)?;
-            }
-        }
+        vault_fs::clear(&self.root)?;
         self.rebuild_search();
         Ok(())
     }
@@ -1182,18 +974,18 @@ impl LocalNoteStore {
         let mut warnings = Vec::new();
         let mut touched = HashSet::new();
         for (id, content) in relinks {
-            match paths::note_path(&self.root, &id)
-                .and_then(|path| write_atomic_text(&path, &content))
-            {
+            match paths::note_path(&self.root, &id).and_then(|_| {
+                vault_fs::write_atomic_local(&self.root, &note_filename(&id), content.as_bytes())
+            }) {
                 Ok(()) => {
                     touched.insert(id.clone());
-                    self.notify(&FileChange::Changed(note_filename(&id)));
+                    self.search.notify(&FileChange::Changed(note_filename(&id)));
                 }
                 Err(error) => warnings.push(format!("backlink rewrite for {id}: {error}")),
             }
         }
         for (from, to) in &mappings {
-            self.notify(&FileChange::Renamed {
+            self.search.notify(&FileChange::Renamed {
                 from: note_filename(from),
                 to: note_filename(to),
             });
@@ -1289,23 +1081,23 @@ impl LocalNoteStore {
     ) -> Result<NoteMetadata, String> {
         for _ in 0..1000 {
             let id = paths::unique_note_id(&self.root, wanted, None)?;
-            let path = paths::note_path(&self.root, &id)?;
+            paths::note_path(&self.root, &id)?;
             #[cfg(test)]
             if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
                 hook(&id);
             }
-            if !create_new_atomic(&path, content.as_bytes())? {
+            if !vault_fs::create_new(&self.root, &note_filename(&id), content.as_bytes())? {
                 // A writer outside this store's serialization took the id; the
                 // write did not happen. Re-allocate against the now-larger tree
                 // and retry — no suppression to unwind.
                 continue;
             }
             if let Some(modified_ms) = modified_ms.filter(|value| *value >= 0) {
-                set_file_mtime_ms(&path, modified_ms)?;
+                vault_fs::set_mtime_ms(&self.root, &note_filename(&id), modified_ms)?;
             }
             let metadata = vault::metadata(&self.root, &id)
                 .ok_or_else(|| "note metadata unavailable after create".to_owned())?;
-            self.notify(&FileChange::Changed(note_filename(&id)));
+            self.search.notify(&FileChange::Changed(note_filename(&id)));
             return Ok(metadata);
         }
         Err("could not allocate a free note id after repeated collisions".to_owned())
@@ -1341,7 +1133,14 @@ impl LocalNoteStore {
         // landed; just finish the interrupted cleanup. (Content identity, not
         // inode nlink, so it holds on Windows too; mirrors the Swift
         // parkConflictCopyIfAbsent guard.)
-        let backup_content = fs::read_to_string(&recovered.backup).map_err(io_error)?;
+        let backup_relative = recovered
+            .backup
+            .strip_prefix(&self.root)
+            .map_err(|e| e.to_string())?
+            .to_string_lossy()
+            .into_owned();
+        let backup_content = String::from_utf8(vault_fs::read(&self.root, &backup_relative)?)
+            .map_err(|e| e.to_string())?;
         let already_parked = vault::note_paths(&self.root).into_iter().any(|(id, _)| {
             let (id_folder, id_title) = split_id(&id);
             // Only a note this park could have produced — the exact stem or its
@@ -1371,18 +1170,15 @@ impl LocalNoteStore {
         // park re-sweeps rather than strands.
         for _ in 0..1000 {
             let id = paths::unique_note_id(&self.root, &wanted, None)?;
-            let path = paths::note_path(&self.root, &id)?;
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent).map_err(io_error)?;
-            }
+            paths::note_path(&self.root, &id)?;
             #[cfg(test)]
             if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
                 hook(&id);
             }
-            match move_no_replace(&recovered.backup, &path) {
+            match vault_fs::move_no_replace(&self.root, &backup_relative, &note_filename(&id)) {
                 Ok(true) => {
                     let _ = fs::remove_file(&recovered.sidecar);
-                    self.notify(&FileChange::Changed(note_filename(&id)));
+                    self.search.notify(&FileChange::Changed(note_filename(&id)));
                     return Ok(());
                 }
                 Ok(false) => continue,
@@ -1417,17 +1213,17 @@ impl LocalNoteStore {
                 "note id collides with existing cross-platform path: {existing}"
             ));
         }
-        let path = paths::note_path(&self.root, id)?;
+        paths::note_path(&self.root, id)?;
         let change = FileChange::Changed(note_filename(id));
         self.before_write
             .before_write(std::slice::from_ref(&change));
-        write_atomic_text(&path, content)?;
+        vault_fs::write_atomic_local(&self.root, &note_filename(id), content.as_bytes())?;
         if let Some(modified_ms) = modified_ms.filter(|value| *value >= 0) {
-            set_file_mtime_ms(&path, modified_ms)?;
+            vault_fs::set_mtime_ms(&self.root, &note_filename(&id), modified_ms)?;
         }
         let metadata = vault::metadata(&self.root, id)
             .ok_or_else(|| "note metadata unavailable after write".to_owned())?;
-        self.notify(&change);
+        self.search.notify(&change);
         Ok(metadata)
     }
 
@@ -1457,7 +1253,9 @@ impl LocalNoteStore {
             let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
                 continue;
             };
-            if !entry.path().is_file() || !name.to_lowercase().ends_with(".txt") {
+            if !entry.file_type().is_ok_and(|kind| kind.is_file())
+                || !name.to_lowercase().ends_with(".txt")
+            {
                 continue;
             }
             let stem = &name[..name.len() - 4];
@@ -1471,21 +1269,22 @@ impl LocalNoteStore {
                     target = format!("{stem} (imported {suffix}).md");
                 }
             }
-            let source = entry.path();
-            let destination = self.root.join(&target);
             let change = FileChange::Renamed {
                 from: name.clone(),
                 to: target.clone(),
             };
             self.before_write
                 .before_write(std::slice::from_ref(&change));
-            match rename_through_temp(&source, &destination) {
-                Ok(()) => {
+            match vault_fs::move_no_replace(&self.root, &name, &target) {
+                Ok(true) => {
                     migrated += 1;
                     occupied.insert(target.to_lowercase());
                     names.push(target);
-                    self.notify(&change);
+                    self.search.notify(&change);
                 }
+                Ok(false) => warnings.push(format!(
+                    "{name}: migration destination appeared concurrently"
+                )),
                 Err(error) => warnings.push(format!("{name}: {error}")),
             }
         }
@@ -1493,20 +1292,6 @@ impl LocalNoteStore {
             warnings.push(format!("migration sentinel: {error}"));
         }
         (migrated, warnings)
-    }
-
-    fn notify(&self, change: &FileChange) {
-        let Ok(search) = self.search.lock() else {
-            return;
-        };
-        let Some(engine) = search.engine.as_ref() else {
-            return;
-        };
-        match change {
-            FileChange::Changed(path) => engine.notify_changed(path.clone()),
-            FileChange::Removed(path) => engine.notify_removed(path.clone()),
-            FileChange::Renamed { from, to } => engine.notify_renamed(from.clone(), to.clone()),
-        }
     }
 
     fn lock_gate(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {
@@ -1523,18 +1308,6 @@ impl LocalNoteStore {
     #[cfg(test)]
     fn set_flush_window_hook(&self, hook: InstallWindowHook) {
         *self.flush_window_hook.lock().unwrap() = Some(hook);
-    }
-
-    #[cfg(test)]
-    fn search_engine_installed(&self) -> bool {
-        self.search.lock().unwrap().engine.is_some()
-    }
-
-    /// Test seam: clear the failure timestamp so the next search/status/rescan
-    /// treats the retry cooldown as elapsed (deterministic, no wall-clock wait).
-    #[cfg(test)]
-    fn expire_search_retry_cooldown(&self) {
-        self.search.lock().unwrap().last_start_failure = None;
     }
 }
 
@@ -1620,15 +1393,12 @@ fn rename_changes(mappings: &[(String, String)]) -> Vec<FileChange> {
 }
 
 fn move_files_with_rollback(root: &Path, mappings: &[(String, String)]) -> Result<(), String> {
-    let mut completed: Vec<(PathBuf, PathBuf)> = Vec::new();
+    let mut completed: Vec<(String, String)> = Vec::new();
     for (from, to) in mappings {
-        let source = paths::note_path(root, from)?;
+        paths::note_path(root, from)?;
         let destination = paths::note_path(root, to)?;
-        if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent).map_err(io_error)?;
-        }
         let result = if collides_but_differs(from, to) {
-            rename_through_temp(&source, &destination)
+            vault_fs::rename_case(root, &note_filename(from), &note_filename(to))
         } else {
             // No-replace move. The destination id was allocated unique, so a
             // file there now is a writer outside this store's serialization —
@@ -1637,7 +1407,7 @@ fn move_files_with_rollback(root: &Path, mappings: &[(String, String)]) -> Resul
             // carries mtime across, and consumes the source to complete the move;
             // on a collision the caller rolls back — the newcomer and the source
             // both survive.
-            match move_no_replace(&source, &destination) {
+            match vault_fs::move_no_replace(root, &note_filename(from), &note_filename(to)) {
                 Ok(true) => Ok(()),
                 Ok(false) => Err(format!(
                     "rename destination {} appeared under a concurrent writer",
@@ -1648,14 +1418,18 @@ fn move_files_with_rollback(root: &Path, mappings: &[(String, String)]) -> Resul
         };
         if let Err(error) = result {
             for (original, moved) in completed.into_iter().rev() {
-                let _ = fs::rename(moved, original);
+                let _ = vault_fs::move_no_replace(
+                    root,
+                    &note_filename(&moved),
+                    &note_filename(&original),
+                );
             }
             return Err(error);
         }
-        completed.push((source, destination));
+        completed.push((from.clone(), to.clone()));
     }
     for (source, _) in &completed {
-        prune_empty_parents(root, source);
+        prune_empty_parents(root, &root.join(note_filename(source)));
     }
     Ok(())
 }
@@ -1669,7 +1443,14 @@ fn prune_empty_parents(root: &Path, note_path: &Path) {
             .ok()
             .and_then(|mut entries| entries.next())
             .is_none();
-        if !empty || fs::remove_dir(&directory).is_err() {
+        if !empty
+            || vault_fs::remove_dir(
+                root,
+                &directory.strip_prefix(root).unwrap().to_string_lossy(),
+                false,
+            )
+            .is_err()
+        {
             return;
         }
         let Some(parent) = directory.parent() else {
@@ -1698,6 +1479,9 @@ fn remove_empty_source_warning(path: &Path) -> Vec<String> {
 fn io_error(error: std::io::Error) -> String {
     error.to_string()
 }
+
+#[cfg(test)]
+mod test_support;
 
 #[cfg(test)]
 mod tests;

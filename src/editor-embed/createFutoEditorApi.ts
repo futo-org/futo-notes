@@ -11,15 +11,21 @@ import {
 import { setVaultImageBaseUrl } from '$features/images/vaultImageSrc';
 import { setNotesUniverse } from '$features/notes/notes.svelte';
 import type { NotePreview } from '$shared/types/note';
+import { desktopLocalization } from '$shared/localization';
 
 export interface EmbeddedEditorHandle {
   blur: () => void;
+  closeFind: () => void;
   focus: () => void;
   getContent: () => string;
   insertMarkdown: (text: string) => void;
   refreshDecorations: () => void;
   resetHistory: () => void;
+  openFind: () => void;
   setContent: (text: string) => void;
+  setFindOverlayInset: (bottomOverlayPx: number) => void;
+  setFindQuery: (query: string) => void;
+  stepFind: (direction: 1 | -1) => void;
   exec: (commandId: string) => boolean;
   /* The harness probe main.ts exposes for the editor gauntlet. */
   getProseMirrorView?: () => unknown;
@@ -64,6 +70,9 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
   // The page-level effects the boot sequence drives. `hostBoot` decides WHEN
   // each runs and whether it runs at all; these only know HOW.
   const effects: EditorHostEffects = {
+    applyLanguage(languageTag: string): void {
+      desktopLocalization.setSelectedLanguageTag(languageTag);
+    },
     applyContentPadding(px: number): void {
       // The shells only supply the value; nothing renders it today — no
       // stylesheet reads this variable since the CodeMirror editor was
@@ -131,6 +140,9 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
     setTheme(theme: EditorTheme): void {
       boot.setTheme(theme);
     },
+    setLanguage(languageTag: string): void {
+      boot.setLanguage(languageTag);
+    },
     setNotes(notesJson: string): void {
       boot.setNotes(notesJson);
     },
@@ -142,6 +154,31 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
     },
     setImageBaseUrl(base: string): void {
       boot.setImageBaseUrl(base);
+    },
+    openFind(): void {
+      editor.openFind();
+    },
+    setFindOverlayInset(bottomOverlayPx: number): void {
+      if (typeof bottomOverlayPx !== 'number' || !Number.isFinite(bottomOverlayPx)) {
+        console.warn(
+          `FutoEditor.setFindOverlayInset: expected a finite height, received '${bottomOverlayPx}', ignoring`,
+        );
+        return;
+      }
+      editor.setFindOverlayInset(Math.max(0, bottomOverlayPx));
+    },
+    setFindQuery(query: string): void {
+      editor.setFindQuery(query);
+    },
+    stepFind(delta: number): void {
+      if (delta !== -1 && delta !== 1) {
+        console.warn(`FutoEditor.stepFind: expected -1 or 1, received '${delta}', ignoring`);
+        return;
+      }
+      editor.stepFind(delta);
+    },
+    closeFind(): void {
+      editor.closeFind();
     },
     exec(commandId: string): void {
       editor.exec(commandId);

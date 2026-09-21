@@ -40,7 +40,7 @@ function swiftItem(item: ToolbarItem, indent: string): string {
   return (
     `${indent}ToolbarItemSpec(\n` +
     `${indent}    id: ${swiftString(item.id)},\n` +
-    `${indent}    label: ${swiftString(item.label)},\n` +
+    `${indent}    localizationPath: ${swiftString(item.localizationPath)},\n` +
     `${indent}    text: ${item.text ? swiftString(item.text) : 'nil'},\n` +
     `${indent}    sfSymbol: ${swiftString(item.sfSymbol)},\n` +
     `${indent}    onlyInContainer: ${item.when === 'inContainer'},\n` +
@@ -80,7 +80,7 @@ function renderSwiftFile(): string {
     'struct ToolbarItemSpec: Identifiable, Equatable {',
     '    let id: String',
     "    /// Accessibility label — same text as the web toolbar's aria-label.",
-    '    let label: String',
+    '    let localizationPath: String',
     '    let text: String?',
     '    let sfSymbol: String',
     '    /// Only visible in a list or quote (cursorContext and formatState).',
@@ -122,7 +122,7 @@ function kotlinItem(item: ToolbarItem, indent: string): string {
   return (
     `${indent}ToolbarItemSpec(\n` +
     `${indent}    id = ${kotlinString(item.id)},\n` +
-    `${indent}    label = ${kotlinString(item.label)},\n` +
+    `${indent}    localizationPath = ${kotlinString(item.localizationPath)},\n` +
     `${indent}    text = ${item.text ? kotlinString(item.text) : 'null'},\n` +
     `${indent}    material = ${kotlinString(item.material)},\n` +
     `${indent}    onlyInContainer = ${item.when === 'inContainer'},\n` +
@@ -161,9 +161,9 @@ function renderKotlinFile(): string {
     'data class ToolbarItemSpec(',
     '    val id: String,',
     "    /** Accessibility label — same text as the web toolbar's aria-label. */",
-    '    val label: String,',
-    '    /** Material Symbols name; EditorToolbar.kt maps it to an ImageVector. */',
+    '    val localizationPath: String,',
     '    val text: String?,',
+    '    /** Material Symbols name; EditorToolbar.kt maps it to an ImageVector. */',
     '    val material: String,',
     '    /** Only visible in a list or quote (cursorContext and formatState). */',
     '    val onlyInContainer: Boolean,',

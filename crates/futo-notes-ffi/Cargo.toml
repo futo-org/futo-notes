@@ -19,4 +19,6 @@ tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"
 futo-notes-model = { path = "../futo-notes-model" }
 futo-notes-store = { path = "../futo-notes-store" }
 futo-notes-sync = { path = "../futo-notes-sync" }
+icu_locale = { version = "=2.2.0", features = ["compiled_data"] }
+icu_plurals = { version = "=2.2.0", features = ["compiled_data"] }
 thiserror = "1"

@@ -1,17 +1,27 @@
 package com.futo.notes.ui
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.KeyEvent
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import android.widget.Toast
 import java.io.File
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -26,14 +36,20 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -41,11 +57,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -54,6 +73,9 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.futo.notes.ImagePicker
 import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NotesStore
@@ -65,6 +87,8 @@ import com.futo.notes.saveImageDataIntoVault
 import com.futo.notes.saveImageIntoVault
 import com.futo.notes.shouldCompleteNoteAction
 import com.futo.notes.shouldContinueDeleteAfterEditorWrite
+import com.futo.notes.localization.LocalLocalization
+import com.futo.notes.localization.LocalizedMessage
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
 import com.futo.notes.ui.components.TopBar
@@ -100,6 +124,18 @@ private val UNTITLED_PLACEHOLDER = Regex("""^Untitled(-\d+)?$""")
 
 internal fun isPlaceholderTitle(title: String): Boolean = UNTITLED_PLACEHOLDER.matches(title)
 
+private fun titleValidationMessage(kind: String): LocalizedMessage? = when (kind) {
+    "empty" -> LocalizedMessage("notes.title.empty")
+    "forbidden_chars" -> LocalizedMessage("notes.title.forbiddenCharacter")
+    "leading_dots" -> LocalizedMessage("notes.title.leadingDot")
+    "trailing_dots" -> LocalizedMessage("notes.title.trailingDot")
+    "too_long" -> LocalizedMessage(
+        "notes.title.tooLong",
+        mapOf("maxLength" to TitleSpec.maxLength),
+    )
+    else -> null
+}
+
 private fun SyncSummary.affectsOpenNote(id: String): Boolean =
     id in updatedIds ||
         id in deletedIds ||
@@ -109,6 +145,16 @@ internal fun editedDuringOpenNoteGather(
     reconciliationStartVersion: Long,
     currentEditVersion: Long,
 ): Boolean = currentEditVersion != reconciliationStartVersion
+
+internal enum class FindBackAction { DismissFind, ExitNote }
+
+internal fun findBackAction(findVisible: Boolean): FindBackAction =
+    if (findVisible) FindBackAction.DismissFind else FindBackAction.ExitNote
+
+internal fun isFindStateCurrent(savedProcessToken: String, currentProcessToken: String): Boolean =
+    savedProcessToken == currentProcessToken
+
+internal fun canStepFind(total: Int): Boolean = total > 0
 
 private fun logOpenNoteDisposition(
     disposition: OpenNoteDisposition?,
@@ -134,6 +180,7 @@ fun NoteEditorScreen(
     imagePicker: ImagePicker? = null,
 ) {
     val c = FutoTheme.colors
+    val localization = LocalLocalization.current
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val focusManager = LocalFocusManager.current
@@ -142,6 +189,25 @@ fun NoteEditorScreen(
     // EditorWebView props) for the bridge-v2 imperative calls:
     // applyExternalContent (sync adopt) and insertImage (picker round-trip).
     val host = remember { EditorHost.get(context) }
+    var savedFindProcessToken by rememberSaveable(initialNoteId) {
+        mutableStateOf(host.processToken)
+    }
+    var savedFindVisible by rememberSaveable(initialNoteId) { mutableStateOf(false) }
+    var findQuery by rememberSaveable(initialNoteId) { mutableStateOf("") }
+    var findLabel by rememberSaveable(initialNoteId) { mutableStateOf("0") }
+    var findTotal by rememberSaveable(initialNoteId) { mutableStateOf(0) }
+    val findStateCurrent = isFindStateCurrent(savedFindProcessToken, host.processToken)
+    val findVisible = savedFindVisible && findStateCurrent
+
+    LaunchedEffect(host.processToken) {
+        if (!findStateCurrent) {
+            savedFindProcessToken = host.processToken
+            savedFindVisible = false
+            findQuery = ""
+            findLabel = "0"
+            findTotal = 0
+        }
+    }
     // Gate the editor pane on the boot outcome, not a WebView version
     // (EditorEngineSupport.kt). Read as state, not remember{}, so a late verdict
     // swaps the notice in — though the app-start prewarm normally settles it
@@ -159,7 +225,7 @@ fun NoteEditorScreen(
     // Inline title-validation warning (desktop parity): forbidden char → transient
     // 2 s; dot/too-long/duplicate → persistent + blocks the rename. Shown in
     // danger red under the title field.
-    var titleWarning by remember(initialNoteId) { mutableStateOf<String?>(null) }
+    var titleWarning by remember(initialNoteId) { mutableStateOf<LocalizedMessage?>(null) }
     var warningJob by remember { mutableStateOf<Job?>(null) }
     // CRITICAL: never block the editor's first frame on a disk read. Start empty
     // and load the note body off the main thread; the WebView mounts immediately
@@ -178,6 +244,7 @@ fun NoteEditorScreen(
     // The one owner of "a note is open; here is every way it ends" — the task
     // ordering, the latches, and the drain-and-commit each exit runs. See
     // EditorSession.kt for the drain table.
+    val ownerToken = remember(initialNoteId) { store.claimDraftOwnership() }
     val session = remember(initialNoteId) {
         EditorSession(scope) { locked -> interactionLocked = locked }
     }
@@ -192,8 +259,7 @@ fun NoteEditorScreen(
                 val base = savedContent
                 when (
                     val disposition = store.flushDraft(
-                        PendingDraft(targetId, base, snapshot),
-                    )
+                        PendingDraft(targetId, base, snapshot), ownerToken = ownerToken)
                 ) {
                     FlushDisposition.Wrote,
                     FlushDisposition.Converged,
@@ -206,19 +272,37 @@ fun NoteEditorScreen(
                         savedContent = snapshot
                         Toast.makeText(
                             context,
-                            "Conflicting edits saved to a copy",
+                            localization.localizedText("notes.save.conflictCopy"),
                             Toast.LENGTH_SHORT,
                         ).show()
                     }
 
                     null -> Toast.makeText(
                         context,
-                        "Couldn't save note. Your changes are still pending.",
+                        localization.localizedText("notes.save.failedPending"),
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
             }
         }
+    }
+
+    fun dismissFind() {
+        // Take the soft keyboard down with the bar. The query field is a native
+        // EditText, and Android does NOT hide the IME when the view serving it
+        // is removed: closing the bar while it owned the keyboard left
+        // `mInputShown=true` on a served view that accepts no input (the bare
+        // AndroidComposeView), so the next Back was swallowed by the IME instead
+        // of reaching this screen's BackHandler and leaving the note took a
+        // second press. Clearing focus is the mechanism `prepare()` below
+        // already relies on, and the only one measured to drop that keyboard: a
+        // bridge `host.blur()` cannot, because find owns the field and the
+        // WebView is unfocused (document.activeElement is BODY). When the editor
+        // body owns the keyboard the user is typing in the note, so it stays up
+        // and Back behaves as it does without find [editor.md].
+        if (!host.editorFocused) focusManager.clearFocus(force = true)
+        savedFindVisible = false
+        host.closeFind()
     }
 
     fun openNoteEffects(
@@ -286,13 +370,13 @@ fun NoteEditorScreen(
                         when (disposition.reason) {
                             KeepDraftReason.PEER_DELETED -> Toast.makeText(
                                 context,
-                                "This note was deleted elsewhere. Your draft is still open.",
+                                localization.localizedText("notes.save.peerDeletedDraftOpen"),
                                 Toast.LENGTH_SHORT,
                             ).show()
 
                             KeepDraftReason.DIVERGED -> Toast.makeText(
                                 context,
-                                "This note changed elsewhere. Your draft is still open.",
+                                localization.localizedText("notes.save.peerChangedDraftOpen"),
                                 Toast.LENGTH_SHORT,
                             ).show()
 
@@ -307,7 +391,12 @@ fun NoteEditorScreen(
                         // buffer clean before navigation so onDispose cannot
                         // recreate a peer-deleted note.
                         savedContent = content
-                        Toast.makeText(context, "Note deleted elsewhere", Toast.LENGTH_SHORT).show()
+                        dismissFind()
+                        Toast.makeText(
+                            context,
+                            localization.localizedText("notes.deletedElsewhere"),
+                            Toast.LENGTH_SHORT,
+                        ).show()
                         onBack()
                     }
                 }
@@ -325,11 +414,15 @@ fun NoteEditorScreen(
                 // The legacy-WebView notice (github#8) renders no editor, so
                 // Back must still work there with nothing to drain or commit.
                 override fun exitWithoutEditor() {
-                    if (editorPaneUnavailable) navigate()
+                    if (editorPaneUnavailable) {
+                        dismissFind()
+                        navigate()
+                    }
                 }
 
                 override fun prepare() {
                     focusManager.clearFocus(force = true)
+                    dismissFind()
                     host.blur()
                 }
 
@@ -359,7 +452,7 @@ fun NoteEditorScreen(
                         savedContent = savedContent,
                         content = body,
                         flush = { base, snapshot ->
-                            store.flushDraft(PendingDraft(noteId, base, snapshot))
+                            store.flushDraft(PendingDraft(noteId, base, snapshot), ownerToken = ownerToken)
                         },
                     )
                     savedContent = commit.savedContent
@@ -370,6 +463,8 @@ fun NoteEditorScreen(
                 }
 
                 override suspend fun commitTitle(): Boolean {
+                    val requestedTitle = titleValue.text
+                    val flushed = content
                     val titleCommit = commitEditorTitleSnapshot(
                         currentId = noteId,
                         targetId = editorTitleTarget(
@@ -377,9 +472,19 @@ fun NoteEditorScreen(
                             rawTitle = titleValue.text,
                             existingIds = store.notes.mapTo(mutableSetOf()) { it.id },
                         ),
-                        rename = store::rename,
+                        rename = { old, wanted ->
+                            store.rename(
+                                old, wanted, PendingDraft(old, savedContent, flushed),
+                                ownerToken = ownerToken,
+                            ).also { outcome ->
+                                if (outcome is NoteMutationOutcome.Committed) savedContent = flushed
+                            }
+                        },
                     )
                     noteId = titleCommit.id
+                    if (titleCommit.isCommitted && titleValue.text == requestedTitle) {
+                        titleValue = TextFieldValue(splitId(noteId).title)
+                    }
                     return titleCommit.isCommitted
                 }
 
@@ -392,7 +497,7 @@ fun NoteEditorScreen(
                     if (attachment != null && host.isCurrentAttachment(attachment)) {
                         Toast.makeText(
                             context,
-                            "Couldn't save note. Your changes are still pending.",
+                            localization.localizedText("notes.save.failedPending"),
                             Toast.LENGTH_SHORT,
                         ).show()
                     }
@@ -403,7 +508,7 @@ fun NoteEditorScreen(
 
     fun saveImageForAttachment(
         attachment: EditorAttachmentToken,
-        failureMessage: String,
+        failureMessage: LocalizedMessage,
         save: (File) -> String?,
     ) {
         scope.launch {
@@ -423,15 +528,24 @@ fun NoteEditorScreen(
                 )
             }
             if (name == null && host.isCurrentAttachment(attachment)) {
-                Toast.makeText(context, failureMessage, Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    context,
+                    localization.localizedText(failureMessage.path, failureMessage.arguments),
+                    Toast.LENGTH_SHORT,
+                ).show()
             }
         }
     }
 
     BackHandler {
-        // The session refuses a second exit on its own; consuming Back here
-        // keeps the gesture from falling through to the list while one runs.
-        if (!interactionLocked) navigateAfterSaving(onBack)
+        when (findBackAction(findVisible)) {
+            FindBackAction.DismissFind -> dismissFind()
+            FindBackAction.ExitNote -> {
+                // The session refuses a second exit on its own; consuming Back
+                // here keeps the gesture from falling through while one runs.
+                if (!interactionLocked) navigateAfterSaving(onBack)
+            }
+        }
     }
 
     // The editor's note universe [editor.md:77]: id/title/modifiedMs/tags JSON
@@ -471,9 +585,8 @@ fun NoteEditorScreen(
     // remote adopted) and re-keys to the new id on rename (content follows the
     // live noteId), both by construction. `base` = savedContent is the flush's
     // conditional-write expected-previous.
-    // Claim ownership + register the provider inside the effect (NOT in remember —
-    // remember must stay pure; claiming there would advance the generation counter
-    // for a composition that is later abandoned without ever releasing, PKT-12 F6).
+    // Token allocation alone does not register a draft. Publish the provider
+    // inside the effect so an abandoned composition cannot leave a live draft.
     // Keyed on initialNoteId (stable for this editor instance, so a rename doesn't
     // re-claim mid-life). The effect body runs before any leave-foreground flush
     // can occur, so first-publish ordering holds. A superseded editor's release is
@@ -481,7 +594,6 @@ fun NoteEditorScreen(
     // (PKT-1 R2). The provider is the single derivation (derivePendingDraft),
     // pulled synchronously at flush time.
     DisposableEffect(initialNoteId) {
-        val ownerToken = store.claimDraftOwnership()
         store.setDraftProvider(ownerToken) {
             derivePendingDraft(loaded, noteId, savedContent, content)
         }
@@ -503,9 +615,9 @@ fun NoteEditorScreen(
             // scope (onDispose can't suspend and the composable scope is gone).
             if (autoFocus && noteId == initialNoteId && content.isEmpty()
                 && titleValue.text == splitId(initialNoteId).title) {
-                store.deleteAsync(noteId)
+                store.deleteAsync(noteId, ownerToken)
             } else if (loaded && content != savedContent) {
-                store.flushAsync(PendingDraft(noteId, savedContent, content))
+                store.flushAsync(PendingDraft(noteId, savedContent, content), ownerToken)
             }
         }
     }
@@ -539,7 +651,7 @@ fun NoteEditorScreen(
                 android.util.Log.e("NoteEditor", "open-note reconciliation failed", e)
                 Toast.makeText(
                     context,
-                    "Couldn't refresh the open note. Your draft is still open.",
+                    localization.localizedText("notes.save.refreshFailedDraftOpen"),
                     Toast.LENGTH_SHORT,
                 ).show()
             }
@@ -574,6 +686,11 @@ fun NoteEditorScreen(
             // register re-keys to the new id after the rename (its content follows
             // the live noteId), so no manual draft repointing is needed (PKT-1 R4).
             session.runWork {
+                val wantedId = editorTitleTarget(
+                    currentId = noteId, rawTitle = next,
+                    existingIds = store.notes.mapTo(mutableSetOf()) { it.id },
+                )
+                if (wantedId == null || wantedId == noteId) return@runWork
                 saveJob?.cancel()
                 // Snapshot the body BEFORE the suspending write and advance savedContent
                 // to exactly that snapshot — never to the live `content`. If the user
@@ -582,32 +699,23 @@ fun NoteEditorScreen(
                 // newer keystroke as saved and the register would go clean, losing it on
                 // background/process death (PKT-12 F1).
                 val flushed = content
-                if (flushed != savedContent) {
-                    val outcome = store.write(noteId, flushed)
-                    savedContent = confirmedSavedContent(savedContent, flushed, outcome)
-                    if (outcome === NoteMutationOutcome.Failed) {
-                        Toast.makeText(
-                            context,
-                            "Couldn't save note. Your changes are still pending.",
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                        return@runWork
-                    }
-                }
                 val titleCommit = commitEditorTitleSnapshot(
                     currentId = noteId,
-                    targetId = editorTitleTarget(
-                        currentId = noteId,
-                        rawTitle = next,
-                        existingIds = store.notes.mapTo(mutableSetOf()) { it.id },
-                    ),
-                    rename = store::rename,
+                    targetId = wantedId,
+                    rename = { old, wanted ->
+                        store.rename(old, wanted, PendingDraft(old, savedContent, flushed), ownerToken = ownerToken).also { outcome ->
+                            if (outcome is NoteMutationOutcome.Committed) savedContent = flushed
+                        }
+                    },
                 )
                 noteId = titleCommit.id
+                if (titleCommit.isCommitted && titleValue.text == next) {
+                    titleValue = TextFieldValue(splitId(noteId).title)
+                }
                 if (!titleCommit.isCommitted) {
                     Toast.makeText(
                         context,
-                        "Couldn't rename note. Your title is still pending.",
+                        localization.localizedText("notes.title.renameFailed"),
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
@@ -621,16 +729,20 @@ fun NoteEditorScreen(
     // message (kept for older bundles).
     val pickImage: (String) -> Unit = { source ->
         val attachment = host.currentAttachment()
-        val handle: (Uri?) -> Unit = { uri ->
+        val handle: (List<Uri>) -> Unit = { uris ->
+            val uri = uris.firstOrNull()
             if (uri != null && attachment != null) {
-                saveImageForAttachment(attachment, "Unsupported image type") { root ->
+                saveImageForAttachment(
+                    attachment,
+                    LocalizedMessage("editor.images.unsupportedType"),
+                ) { root ->
                     saveImageIntoVault(context.contentResolver, root, uri)
                 }
             }
         }
         when (source) {
             "camera" -> imagePicker?.captureCamera(handle)
-            else -> imagePicker?.pickLibrary(handle)
+            else -> imagePicker?.pickLibrary(callback = handle)
         }
     }
 
@@ -641,7 +753,10 @@ fun NoteEditorScreen(
     val saveImageData: (String, String) -> Unit = { base64, ext ->
         val attachment = host.currentAttachment()
         if (attachment != null) {
-            saveImageForAttachment(attachment, "Couldn't paste image") { root ->
+            saveImageForAttachment(
+                attachment,
+                LocalizedMessage("editor.images.pasteFailed"),
+            ) { root ->
                 val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
                 saveImageDataIntoVault(root, bytes, ext)
             }
@@ -689,7 +804,11 @@ fun NoteEditorScreen(
                         enabled = !interactionLocked,
                         onClick = { navigateAfterSaving(onBack) },
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = c.textSecondary)
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = localization.localizedText("common.actions.back"),
+                            tint = c.textSecondary,
+                        )
                     }
                 },
                 actions = {
@@ -699,32 +818,59 @@ fun NoteEditorScreen(
                             putExtra(Intent.EXTRA_TITLE, titleValue.text)
                             putExtra(Intent.EXTRA_TEXT, content)
                         }
-                        context.startActivity(Intent.createChooser(share, "Share note"))
+                        context.startActivity(
+                            Intent.createChooser(
+                                share,
+                                localization.localizedText("notes.shareChooserTitle"),
+                            ),
+                        )
                     }) {
-                        Icon(Icons.Filled.Share, contentDescription = "Share", tint = c.textSecondary)
+                        Icon(
+                            Icons.Filled.Share,
+                            contentDescription = localization.localizedText("notes.actions.share"),
+                            tint = c.textSecondary,
+                        )
                     }
                     var menu by remember { mutableStateOf(false) }
                     IconButton(enabled = !interactionLocked, onClick = { menu = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = c.textSecondary)
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = localization.localizedText("notes.actions.moreAccessibilityLabel"),
+                            tint = c.textSecondary,
+                        )
                     }
                     // Overflow parity with the list rows [list.md:62].
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(
-                            text = { Text("Move to folder…") },
+                            text = { Text(localization.localizedText("editor.find.open")) },
+                            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = c.textSecondary) },
+                            onClick = {
+                                menu = false
+                                savedFindProcessToken = host.processToken
+                                savedFindVisible = true
+                                host.openFind()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(localization.localizedText("notes.actions.moveToFolderEllipsis")) },
                             leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null, tint = c.textSecondary) },
                             onClick = { menu = false; showMoveSheet = true },
                         )
                         DropdownMenuItem(
-                            text = { Text("Copy file path") },
+                            text = { Text(localization.localizedText("notes.actions.copyFilePath")) },
                             leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = c.textSecondary) },
                             onClick = {
                                 menu = false
                                 clipboard.setText(AnnotatedString("${store.rootPath}/$noteId.md"))
-                                Toast.makeText(context, "Path copied", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(
+                                    context,
+                                    localization.localizedText("notes.pathCopied"),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text("Delete note") },
+                            text = { Text(localization.localizedText("notes.actions.deleteNote")) },
                             leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = c.danger) },
                             onClick = { menu = false; confirmDelete = true },
                         )
@@ -759,7 +905,7 @@ fun NoteEditorScreen(
                         else TextFieldValue(capped, TextRange(minOf(v.selection.end, capped.length)))
                     if (forbidden) {
                         // Transient warning (auto-hide after 2 s).
-                        titleWarning = "That character can't be used in a note title"
+                        titleWarning = LocalizedMessage("notes.title.forbiddenCharacter")
                         warningJob?.cancel()
                         warningJob = scope.launch { delay(2000); titleWarning = null }
                     } else {
@@ -772,8 +918,8 @@ fun NoteEditorScreen(
                                 tgt != noteId && store.notes.any { it.id == tgt }
                             }
                         }
-                        titleWarning = blocking?.message
-                            ?: if (dup) "A note with this name already exists" else null
+                        titleWarning = blocking?.let { titleValidationMessage(it.kind) }
+                            ?: if (dup) LocalizedMessage("notes.title.duplicate") else null
                     }
                 },
                 singleLine = true,
@@ -783,14 +929,18 @@ fun NoteEditorScreen(
                     .onFocusChanged { titleFocused = it.isFocused },
                 decorationBox = { inner ->
                     if (titleValue.text.isEmpty()) {
-                        Text("Untitled", style = FutoType.h3.copy(fontWeight = FontWeight.SemiBold), color = c.textMuted)
+                        Text(
+                            localization.localizedText("notes.untitledPlaceholder"),
+                            style = FutoType.h3.copy(fontWeight = FontWeight.SemiBold),
+                            color = c.textMuted,
+                        )
                     }
                     inner()
                 },
             )
-            titleWarning?.let { w ->
+            titleWarning?.let { warning ->
                 Text(
-                    w,
+                    localization.localizedText(warning.path, warning.arguments),
                     style = FutoType.caption,
                     color = c.danger,
                     modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 2.dp),
@@ -806,6 +956,7 @@ fun NoteEditorScreen(
                 } else {
                     EditorWebView(
                         content = content,
+                        languageTag = localization.effectiveLanguage.tag,
                         // Quick capture: a brand-new note (autoFocus) opens with the
                         // BODY focused — keyboard on the editor, not the title field —
                         // so the first keystrokes are the note, not its name. Opening
@@ -827,6 +978,13 @@ fun NoteEditorScreen(
                         onPickImage = pickImage,
                         onSaveImageData = saveImageData,
                         onPasteClipboardImage = pasteClipboardImage,
+                        onFindMatches = { report ->
+                            if (isFindStateCurrent(savedFindProcessToken, host.processToken)) {
+                                findQuery = report.query
+                                findLabel = report.label
+                                findTotal = report.total
+                            }
+                        },
                         onChange = { newContent ->
                             // Data-loss guard: ignore editor change events until the
                             // off-main initial read has landed (`loaded`). The WebView
@@ -851,6 +1009,24 @@ fun NoteEditorScreen(
                         },
                     )
                 }
+            }
+
+            // This bottom slot is inside the Column's imePadding(), which
+            // keeps the find bar docked directly above the virtual keyboard.
+            if (findVisible) {
+                FindInNoteBar(
+                    query = findQuery,
+                    label = findLabel,
+                    total = findTotal,
+                    onQueryChange = {
+                        findQuery = it
+                        host.setFindQuery(it)
+                    },
+                    onStep = host::stepFind,
+                    onClose = {
+                        dismissFind()
+                    },
+                )
             }
 
             // Native markdown toolbar [editor.md]: rendered from the generated
@@ -895,9 +1071,9 @@ fun NoteEditorScreen(
 
     if (confirmDelete) {
         ConfirmDialog(
-            title = "Delete this note?",
-            body = "This action cannot be undone.",
-            confirmLabel = "Delete",
+            title = localization.localizedText("notes.delete.thisNoteQuestion"),
+            body = localization.localizedText("notes.delete.recoverableWarning"),
+            confirmLabel = localization.localizedText("common.actions.delete"),
             onConfirm = {
                 confirmDelete = false
                 session.end(
@@ -917,7 +1093,7 @@ fun NoteEditorScreen(
                         override suspend fun commitBody(body: String): Boolean {
                             val hasPendingChanges = body != savedContent
                             val writeOutcome = if (hasPendingChanges) {
-                                store.write(noteId, body)
+                                store.write(noteId, body, ownerToken = ownerToken)
                             } else {
                                 null
                             }
@@ -935,13 +1111,18 @@ fun NoteEditorScreen(
                         }
 
                         override suspend fun perform(): Boolean =
-                            shouldCompleteNoteAction(store.delete(noteId))
+                            shouldCompleteNoteAction(store.delete(noteId, ownerToken = ownerToken))
 
                         override fun onSucceeded() {
                             // Mark clean only after delete commits, so onDispose
                             // cannot recreate the deleted note from its dirty draft.
                             savedContent = content
-                            Toast.makeText(context, "Note deleted", Toast.LENGTH_SHORT).show()
+                            dismissFind()
+                            Toast.makeText(
+                                context,
+                                localization.localizedText("notes.deleted"),
+                                Toast.LENGTH_SHORT,
+                            ).show()
                             onBack()
                         }
 
@@ -949,9 +1130,9 @@ fun NoteEditorScreen(
                             Toast.makeText(
                                 context,
                                 if (failure == EditorExitFailure.BODY) {
-                                    "Couldn't save note. Delete is paused while your changes remain pending."
+                                    localization.localizedText("notes.delete.savePending")
                                 } else {
-                                    "Couldn't delete note. It remains in your notes."
+                                    localization.localizedText("notes.errors.deleteFailed")
                                 },
                                 Toast.LENGTH_SHORT,
                             ).show()
@@ -983,38 +1164,30 @@ fun NoteEditorScreen(
                             saveJob?.cancel()
                         }
 
-                        // Flush the draft to the CURRENT id before the file
-                        // moves — a stale save would recreate a ghost at the old
-                        // id. The derived register re-keys to the moved id
-                        // afterwards (its content follows the live noteId), so
-                        // no manual clear (R4).
+                        // The engine will save this snapshot and move it under
+                        // one guard, comparing the original saved baseline.
                         override suspend fun commitBody(body: String): Boolean {
-                            if (body == savedContent) return true
-                            val writeOutcome = store.write(noteId, body)
-                            savedContent =
-                                confirmedSavedContent(savedContent, body, writeOutcome)
-                            if (writeOutcome === NoteMutationOutcome.Failed) {
-                                Toast.makeText(
-                                    context,
-                                    "Couldn't save note. Your changes are still pending.",
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                                return false
-                            }
+                            content = body
                             return true
                         }
 
                         override suspend fun perform(): Boolean {
+                            val requestedTitle = titleValue.text
+                            val flushed = content
                             val moveOutcome = store.moveNote(
                                 noteId,
                                 folder,
                                 createFolder = isNew,
-                            )
+                                draft = PendingDraft(noteId, savedContent, flushed), ownerToken = ownerToken)
                             if (moveOutcome !is NoteMutationOutcome.Committed) return false
                             // Update the live id before releasing the drain. A
                             // delete already waiting behind this move must
                             // target the final id.
+                            savedContent = flushed
                             noteId = moveOutcome.value
+                            if (titleValue.text == requestedTitle) {
+                                titleValue = TextFieldValue(splitId(noteId).title)
+                            }
                             return true
                         }
 
@@ -1022,7 +1195,14 @@ fun NoteEditorScreen(
                             showMoveSheet = false
                             Toast.makeText(
                                 context,
-                                "Moved to ${folder.ifEmpty { "Root" }}",
+                                if (folder.isEmpty()) {
+                                    localization.localizedText("notes.movedToRoot")
+                                } else {
+                                    localization.localizedText(
+                                        "notes.movedTo",
+                                        mapOf("destination" to folder),
+                                    )
+                                },
                                 Toast.LENGTH_SHORT,
                             ).show()
                         }
@@ -1033,7 +1213,7 @@ fun NoteEditorScreen(
                             if (failure == EditorExitFailure.REJECTED) return
                             Toast.makeText(
                                 context,
-                                "Couldn't move note. It remains in its current folder.",
+                                localization.localizedText("notes.errors.moveFailed"),
                                 Toast.LENGTH_SHORT,
                             ).show()
                         }
@@ -1041,5 +1221,175 @@ fun NoteEditorScreen(
                 )
             },
         )
+    }
+}
+
+private class FindQueryEditText(context: Context) : EditText(context) {
+    var onQueryChange: (String) -> Unit = {}
+    var onStep: (Int) -> Unit = {}
+    var onClose: () -> Unit = {}
+    private var applyingQuery = false
+
+    init {
+        isSingleLine = true
+        // hint/contentDescription are catalog-resolved by the composable, in
+        // `update` as well as `factory`, so an interface-language change
+        // re-labels a bar that is already on screen.
+        imeOptions = EditorInfo.IME_ACTION_SEARCH
+        addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                if (!applyingQuery) onQueryChange(s?.toString().orEmpty())
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
+        setOnEditorActionListener { _, actionId, event ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                onStep(1)
+                true
+            } else if (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN) {
+                onStep(if (event.isShiftPressed) -1 else 1)
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    fun applyQuery(query: String) {
+        if (text.toString() == query) return
+        applyingQuery = true
+        setText(query)
+        setSelection(query.length)
+        applyingQuery = false
+    }
+
+    override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
+            onClose()
+            return true
+        }
+        return super.onKeyPreIme(keyCode, event)
+    }
+}
+
+@Composable
+private fun FindInNoteBar(
+    query: String,
+    label: String,
+    total: Int,
+    onQueryChange: (String) -> Unit,
+    onStep: (Int) -> Unit,
+    onClose: () -> Unit,
+) {
+    val c = FutoTheme.colors
+    val context = LocalContext.current
+    val localization = LocalLocalization.current
+    val queryHint = localization.localizedText("editor.find.queryHint")
+    val queryLabel = localization.localizedText("editor.find.queryLabel")
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(c.surface),
+    ) {
+        HorizontalDivider(thickness = 0.5.dp, color = c.border)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .padding(start = 16.dp, end = 4.dp),
+        ) {
+            AndroidView(
+                factory = {
+                    FindQueryEditText(context).apply {
+                        background = null
+                        hint = queryHint
+                        contentDescription = queryLabel
+                        setPadding(0, 0, 0, 0)
+                        setTextColor(c.textPrimary.toArgb())
+                        setHintTextColor(c.textMuted.toArgb())
+                        textSize = 18f
+                        includeFontPadding = false
+                        this.onQueryChange = onQueryChange
+                        this.onStep = onStep
+                        this.onClose = onClose
+                        applyQuery(query)
+                        requestFocus()
+                        // The AndroidView can own focus before its window is
+                        // ready for IME attachment. Let the composed frame
+                        // settle, then repeat focus + show as one operation.
+                        postDelayed({
+                            requestFocus()
+                            context.getSystemService(InputMethodManager::class.java)
+                                ?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+                            ViewCompat.getWindowInsetsController(this)
+                                ?.show(WindowInsetsCompat.Type.ime())
+                        }, 150)
+                    }
+                },
+                update = { field ->
+                    field.hint = queryHint
+                    field.contentDescription = queryLabel
+                    field.onQueryChange = onQueryChange
+                    field.onStep = onStep
+                    field.onClose = onClose
+                    field.setTextColor(c.textPrimary.toArgb())
+                    field.setHintTextColor(c.textMuted.toArgb())
+                    field.applyQuery(query)
+                },
+                modifier = Modifier
+                    .height(55.dp)
+                    .weight(1f),
+            )
+
+            Text(
+                label,
+                style = FutoType.body,
+                color = if (query.isNotEmpty() && total == 0) c.danger else c.textSecondary,
+                modifier = Modifier.padding(horizontal = 12.dp),
+            )
+
+            VerticalDivider(
+                thickness = 0.5.dp,
+                color = c.border,
+                modifier = Modifier.height(36.dp),
+            )
+
+            IconButton(
+                enabled = canStepFind(total),
+                onClick = { onStep(-1) },
+                modifier = Modifier.size(48.dp),
+            ) {
+                Icon(
+                    Icons.Filled.KeyboardArrowUp,
+                    contentDescription = localization.localizedText("editor.find.previousMatch"),
+                    tint = if (canStepFind(total)) c.textSecondary else c.textMuted,
+                )
+            }
+            IconButton(
+                enabled = canStepFind(total),
+                onClick = { onStep(1) },
+                modifier = Modifier.size(48.dp),
+            ) {
+                Icon(
+                    Icons.Filled.KeyboardArrowDown,
+                    contentDescription = localization.localizedText("editor.find.nextMatch"),
+                    tint = if (canStepFind(total)) c.textSecondary else c.textMuted,
+                )
+            }
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier.size(48.dp),
+            ) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = localization.localizedText("editor.find.close"),
+                    tint = c.textPrimary,
+                    modifier = Modifier.size(26.dp),
+                )
+            }
+        }
     }
 }

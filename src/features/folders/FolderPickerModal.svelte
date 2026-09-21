@@ -3,6 +3,7 @@
   import { getEmptyFolders } from './emptyFolders.svelte';
   import Modal from '$shared/dialogs/Modal.svelte';
   import type { NotePreview } from '$shared/types/note';
+  import { localizedText } from '$shared/localization';
 
   interface Props {
     title?: string;
@@ -12,7 +13,9 @@
     oncancel: () => void;
   }
 
-  let { title = 'Move to folder', notes, excludePaths = [], onpick, oncancel }: Props = $props();
+  let { title, notes, excludePaths = [], onpick, oncancel }: Props = $props();
+
+  const resolvedTitle = $derived(title ?? localizedText('folders.movePickerHeading'));
 
   const excludeSet = $derived(new Set(excludePaths));
 
@@ -42,7 +45,7 @@
   const folders = $derived(flattenAll(buildFolderTree(notes, getEmptyFolders())));
 </script>
 
-<Modal {title} cardClass="modal-card-scroll" ondismiss={oncancel}>
+<Modal title={resolvedTitle} cardClass="modal-card-scroll" ondismiss={oncancel}>
   <div class="picker-list">
     <button
       type="button"
@@ -66,7 +69,7 @@
           /><polyline points="14 2 14 8 20 8" />
         </svg>
       </span>
-      Notes
+      {localizedText('folders.notesDestination')}
     </button>
     {#each folders as folder (folder.path)}
       <button
@@ -97,7 +100,9 @@
     {/each}
   </div>
   <div class="modal-actions">
-    <button type="button" class="modal-btn modal-btn-secondary" onclick={oncancel}>Cancel</button>
+    <button type="button" class="modal-btn modal-btn-secondary" onclick={oncancel}
+      >{localizedText('common.actions.cancel')}</button
+    >
   </div>
 </Modal>
 

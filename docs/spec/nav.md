@@ -16,16 +16,17 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   Settings sheet and the cloud button presents the Sync sheet (see settings.md).
   → NoteListView.swift *(iOS)*
   The list nav-bar controls are exposed to accessibility and to automation: the
-  **gear** (Settings), **cloud** (Sync), and **"+"** create-note menu each carry
-  an `accessibilityLabel` ("Settings" / "Sync" / "New note or folder"), a stable
-  `accessibilityIdentifier` (`nav-settings` / `nav-sync` / `nav-create`), and a
+  **gear** (Settings), **cloud** (Sync), **folder-badge-plus** (New folder), and
+  **compose** (New note) buttons each carry an `accessibilityLabel` ("Settings" /
+  "Sync" / "New folder" / "New note"), a stable `accessibilityIdentifier`
+  (`nav-settings` / `nav-sync` / `nav-create-folder` / `nav-create`), and a
   distinct `ToolbarItem(id:)`. Confirmed at runtime on the iOS 26.5 simulator
   2026-07-27: `axe describe-ui` reports each as a `Button` carrying both its
   label and its identifier, `axe tap --id nav-settings --element-type Button`
-  opens the Settings sheet, and `--id nav-create` opens the create menu whose
-  "New Note" item is itself tappable. Every nav item also appears as a wrapping
-  `Group`, so automation must pass `--element-type`. → NoteListView.swift
-  toolbar
+  opens the Settings sheet, and `--id nav-create` creates and opens a note in
+  one tap (it was a New Note / New Folder menu until 2026-09-02, github#5).
+  Every nav item also appears as a wrapping `Group`, so automation must pass
+  `--element-type`. → NoteListView.swift toolbar
 - A typed nav stack holds entries. Note ids and folder paths contain `/`, which
   would break string-based routes, so the stack holds typed `Screen` values
   (`Screen.Folder(path)`, `Screen.Editor(noteId, …)`), not path strings. →
@@ -163,19 +164,25 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   page's own `prefers-color-scheme`, so handing the window back would make a dark
   Linux desktop render light. → theme.ts `windowAppearanceFor`,
   platform_integration.rs (`linux-theme-changed`)
-
-  > **Gap:** on Linux an explicit light/dark choice poisons a later switch back
-  > to **auto** until the next desktop change or relaunch. Pinning the window
-  > writes `gtk-application-prefer-dark-theme`, which is also the property
-  > WebKitGTK answers `prefers-color-scheme` from, so `resolveTheme('auto')`
-  > reads back the value the app itself just wrote: measured on a dark GTK
-  > desktop, `setTheme('light')` makes the webview report
-  > `prefers-color-scheme: dark = false`. Choosing Light and then Auto therefore
-  > leaves a dark desktop showing the light theme. The fix is for `auto` to
-  > resolve from the xdg portal's `color-scheme` on Linux rather than from the
-  > media query — the app already watches that signal, it just cannot read its
-  > current value. macOS and Windows are unaffected: their `auto` hands the
-  > window back to the OS and never writes the appearance it later reads.
+- On **auto** the resolved theme comes from the system's own answer, which is a
+  different signal per platform. macOS and Windows read the page's
+  `prefers-color-scheme`: their `auto` hands the window back to the OS, so they
+  never write the value they read. Linux reads the xdg desktop portal's
+  `org.freedesktop.appearance` / `color-scheme`, because pinning makes the page's
+  media query an echo of the app's own last choice — so on a dark desktop,
+  choosing **Light** and then **Auto** renders dark, and it does so immediately
+  rather than only after a relaunch. Linux falls back to the reported change and
+  then to the media query only when no portal answers. → theme.ts
+  `resolveAutoTheme`, platform_integration.rs `read_desktop_color_scheme`
+- One desktop light/dark change arrives as a **burst** of portal signals, not
+  one, and every signal the app interprets agrees on the same theme, whatever
+  order they arrive in: `color-scheme` is read in both its `uint32` and its
+  `'prefer-dark'`/`'prefer-light'`/`'default'` string spelling, and settings that
+  merely look like a theme are ignored — `accent-color`, and KDE's `ColorScheme`
+  scheme *name*, whose value "BreezeDark" contains "dark" while "BreezeLight"
+  contains no "light". Overlapping theme applies are serialized so the newest
+  request wins, never whichever resolved last. → platform_integration.rs
+  `desktop_theme_from_setting_changed`, theme.ts `applyThemePreference`
 
 ### Application menu *(macOS)*
 
@@ -196,13 +203,20 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 ### Desktop chrome behaves like an application, not a document *(desktop)*
 
 - Chrome shows the arrow cursor — rows, tabs, buttons and toolbar icons never
-  switch to the pointing hand. Text fields keep the I-beam, the sidebar divider
-  keeps the resize cursor, outbound links keep the pointer, and the editor keeps
-  every document cursor it had. → desktop-native.css
+  switch to the pointing hand, and pressing or dragging a row never shows the
+  grabbing hand. Text fields keep the I-beam, the sidebar divider keeps the
+  resize cursor, outbound links keep the pointer, and the editor keeps every
+  document cursor it had. → desktop-native.css
 - Right-clicking chrome opens nothing. Right-clicking inside the editor, inside
   a text field, or on a live selection still opens the native menu — Cut/Copy/
   Paste, Look Up, Share and spellcheck suggestions. The app's own note and
   folder context menus are unaffected. → installDesktopContextMenuGuard.ts
+- _(macOS)_ Opening a context menu never also activates what is under it: a
+  control-click, which WebKit reports as a `click` (and a second one as a
+  `dblclick`) alongside the `contextmenu`, leaves the note unopened, the
+  folder's expansion unchanged, and no inline rename open. Off macOS the
+  secondary button produces no `click` at all and Ctrl+click stays the
+  open-in-background-tab modifier. → installDesktopContextMenuGuard.ts
 - Settings opens with ⌘, and the sidebar toggles with ⌘\ (Ctrl elsewhere). →
   registerNotesShellShortcuts.ts
 - The system "Reduce Motion" setting removes the shell's transitions and

@@ -239,29 +239,6 @@ describe('watcherBatch drainPostSync', () => {
 
     batch.destroy();
   });
-
-  it('keeps external events while filtering exact sync-write echoes', async () => {
-    const onBulkRefresh = vi.fn(async () => {});
-    const suppressor = createWriteSuppressor();
-    const opts = makeOptions({ onBulkRefresh, suppressor });
-    const batch = createWatcherBatch(opts);
-
-    suppressor.recordSyncWrite('synced.md');
-
-    batch.setSyncActive(true);
-    batch.enqueue({ type: 'change', filename: 'synced.md' });
-    batch.enqueue({ type: 'change', filename: 'external.md' });
-
-    batch.setSyncActive(false);
-    batch.drainPostSync();
-
-    await vi.advanceTimersByTimeAsync(500);
-    expect(onBulkRefresh).toHaveBeenCalledTimes(1);
-    const events = onBulkRefresh.mock.calls[0][0] as FileChangeEvent[];
-    expect(events).toEqual([{ type: 'change', filename: 'external.md' }]);
-
-    batch.destroy();
-  });
 });
 
 describe('watcherBatch destroy', () => {

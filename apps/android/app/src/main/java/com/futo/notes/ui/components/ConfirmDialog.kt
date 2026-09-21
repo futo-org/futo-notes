@@ -4,6 +4,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 
@@ -20,6 +21,7 @@ fun ConfirmDialog(
     onDismiss: () -> Unit,
 ) {
     val c = FutoTheme.colors
+    val localization = LocalLocalization.current
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = c.surface,
@@ -29,7 +31,9 @@ fun ConfirmDialog(
             TextButton(onClick = onConfirm) { Text(confirmLabel, color = c.danger) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel", color = c.textSecondary) }
+            TextButton(onClick = onDismiss) {
+                Text(localization.localizedText("common.actions.cancel"), color = c.textSecondary)
+            }
         },
     )
 }

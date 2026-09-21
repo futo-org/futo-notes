@@ -19,13 +19,18 @@ pub(super) use download_single::run_single_downloads;
 pub(in crate::sync) use upload::dispatch_one_upload;
 pub(super) use upload::UploadDispatcher;
 
-fn download_failure(object: Object, status_code: Option<u16>) -> DownloadedObject {
+fn download_failure(
+    object: Object,
+    status_code: Option<u16>,
+    detail: impl Into<String>,
+) -> DownloadedObject {
     (
         object,
         Err(SyncFailure {
             filename: String::new(),
             kind: FailureKind::Download,
             status_code,
+            detail: Some(detail.into()),
         }),
     )
 }

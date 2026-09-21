@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { dismissable } from '$shared/dialogs/dismissable';
   import { portal } from '$shared/dom/portal';
+  import { resolveLocalizedMessage, type LocalizedMessage } from '$shared/localization';
 
   export interface MenuItem {
-    label: string;
+    label: LocalizedMessage;
     onclick: () => void;
     destructive?: boolean;
   }
@@ -17,24 +17,6 @@
   }
 
   let { x, y, items, onclose }: Props = $props();
-  let menuEl: HTMLDivElement | undefined = $state();
-
-  onMount(() => {
-    function handleDocClick(e: MouseEvent): void {
-      if (menuEl && !menuEl.contains(e.target as Node)) onclose();
-    }
-    // Escape comes from the shared dialog stack (use:dismissable below), which
-    // also guarantees a menu opened over a modal closes the menu, not both.
-    const tid = setTimeout(() => {
-      document.addEventListener('mousedown', handleDocClick);
-      document.addEventListener('touchstart', handleDocClick as unknown as EventListener);
-    }, 0);
-    return () => {
-      clearTimeout(tid);
-      document.removeEventListener('mousedown', handleDocClick);
-      document.removeEventListener('touchstart', handleDocClick as unknown as EventListener);
-    };
-  });
 
   function handleItemClick(item: MenuItem): void {
     item.onclick();
@@ -43,20 +25,19 @@
 </script>
 
 <div
-  bind:this={menuEl}
   use:portal
-  use:dismissable={{ ondismiss: onclose }}
+  use:dismissable={{ ondismiss: onclose, outside: true }}
   class="context-menu"
   style="left: {x}px; top: {y}px"
   role="menu"
 >
-  {#each items as item (item.label)}
+  {#each items as item (`${item.label.path}:${JSON.stringify(item.label.arguments ?? {})}`)}
     <button
       type="button"
       role="menuitem"
       class="menu-item"
       class:destructive={item.destructive}
-      onclick={() => handleItemClick(item)}>{item.label}</button
+      onclick={() => handleItemClick(item)}>{resolveLocalizedMessage(item.label)}</button
     >
   {/each}
 </div>

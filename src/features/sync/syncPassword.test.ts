@@ -11,9 +11,9 @@ vi.mock('$lib/platform', async () => {
 });
 
 // Capture toasts (K3 surfaces delete failures through showGlobalToast).
-const toastMock = vi.hoisted(() => ({ messages: [] as string[] }));
+const toastMock = vi.hoisted(() => ({ messages: [] as unknown[] }));
 vi.mock('$shared/notifications/toastBus.svelte', () => ({
-  showGlobalToast: (m: string) => toastMock.messages.push(m),
+  showGlobalToast: (message: unknown) => toastMock.messages.push(message),
   currentToastMessage: () => '',
 }));
 
@@ -98,6 +98,7 @@ function seedAppState(extra: Record<string, unknown>): string {
 
 const PREFS = {
   appearance: { theme: 'dark' as const },
+  language: { selectedLanguageTag: null },
   crashReporting: { enabled: true, alwaysSend: false },
   updates: { enabled: true },
   sync: { serverUrl: '', token: '', lastSyncedAt: null, lastError: '' },
@@ -307,6 +308,8 @@ describe('PKT-17 — legacy sync-state holdover across the boot keyring migratio
       '.app-state.json',
       seedAppState({ e2eeObjectMap: LEGACY_MAP, e2eeMaxVersion: 7 }),
     );
+    // The keyring holds the password, so the auto-sync path can resume the session.
+    kr.store.set('pw', 'pw');
     await svc.initSyncPassword();
     // Rust imported + persisted `.e2ee-state.json`, so the scrub would fire …
     await platform.testFS.writeAppData(
@@ -324,7 +327,7 @@ describe('PKT-17 — legacy sync-state holdover across the boot keyring migratio
     };
     platform.setActiveFS(failingFS);
     try {
-      await expect(svc.syncE2ee('pw')).resolves.toBeUndefined();
+      await expect(svc.syncE2eeAuto()).resolves.toBeUndefined();
       // Holdover retained → the map is not lost and the scrub retries next cycle.
       expect(appState.getLegacySyncState()).toBeDefined();
     } finally {
@@ -404,7 +407,7 @@ describe('K3 — keyring deletion failure surfaces + retries', () => {
     await svc.disconnectE2ee();
 
     expect(toastMock.messages.length).toBe(1);
-    expect(toastMock.messages[0]).toMatch(/sync password/i);
+    expect(toastMock.messages[0]).toEqual({ path: 'sync.errors.forgetPasswordFailed' });
     const raw = await platform.testFS.readAppData('.app-state.json');
     expect(JSON.parse(raw!).pendingKeyringDeletion).toBe(true);
     expect(svc.hasStoredSyncPassword()).toBe(false); // in-memory cleared regardless

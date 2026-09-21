@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { openExternalUrl } from '$lib/platform/openExternalUrl';
+  import { slide } from 'svelte/transition';
 
-  const ISSUE_TRACKER_URL = 'https://github.com/futo-org/futo-notes/issues';
+  import FeedbackForm from '$features/feedback/FeedbackForm.svelte';
+  import { localizedText } from '$shared/localization';
+  import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 
   interface Props {
     enabled: boolean;
@@ -11,10 +13,12 @@
   }
 
   let { enabled, alwaysSend, ontoggleenabled, ontogglealwayssend }: Props = $props();
+
+  let composing = $state(false);
 </script>
 
 <section class="settings-section">
-  <h3 class="settings-section-title">Issue Reporting</h3>
+  <h3 class="settings-section-title">{localizedText('settings.sections.issueReporting')}</h3>
   <div
     class="settings-toggle-row settings-issue-first-row"
     onclick={ontoggleenabled}
@@ -23,12 +27,14 @@
     onkeydown={(event) => event.key === 'Enter' && ontoggleenabled()}
   >
     <span class="settings-toggle-text">
-      <span class="settings-btn-label">Share crash reports</span>
-      <span class="settings-btn-desc"
-        >Help improve FUTO Notes by sharing anonymous crash logs when they occur</span
+      <span class="settings-btn-label"
+        >{localizedText('settings.issueReporting.shareCrashReports')}</span
       >
+      <span class="settings-btn-desc">{localizedText('settings.issueReporting.shareHelp')}</span>
     </span>
-    <div class="settings-switch" class:on={enabled}><div class="settings-switch-thumb"></div></div>
+    <div class="settings-switch" class:on={enabled}>
+      <div class="settings-switch-thumb"></div>
+    </div>
   </div>
   {#if enabled}
     <div
@@ -39,22 +45,57 @@
       onkeydown={(event) => event.key === 'Enter' && ontogglealwayssend()}
     >
       <span class="settings-toggle-text">
-        <span class="settings-btn-label">Send crashes automatically</span>
-        <span class="settings-btn-desc">Send reports without asking each time</span>
+        <span class="settings-btn-label"
+          >{localizedText('settings.issueReporting.sendAutomatically')}</span
+        >
+        <span class="settings-btn-desc"
+          >{localizedText('settings.issueReporting.sendWithoutAsking')}</span
+        >
       </span>
       <div class="settings-switch" class:on={alwaysSend}>
         <div class="settings-switch-thumb"></div>
       </div>
     </div>
   {/if}
-  <button
-    class="settings-btn settings-issue-link"
-    onclick={() => openExternalUrl(ISSUE_TRACKER_URL)}
-  >
-    <span class="settings-btn-text">
-      <span class="settings-btn-label">Report an issue</span>
-      <span class="settings-btn-desc">Open the GitHub issue tracker</span>
-    </span>
-    <span class="settings-external-icon" aria-hidden="true">↗</span>
-  </button>
+  <div class="settings-issue-feedback">
+    <button
+      class="settings-btn settings-issue-link"
+      class:open={composing}
+      aria-expanded={composing}
+      onclick={() => (composing = !composing)}
+    >
+      <span class="settings-btn-text">
+        <span class="settings-btn-label"
+          >{localizedText('settings.issueReporting.sendFeedback')}</span
+        >
+        <span class="settings-btn-desc"
+          >{localizedText('settings.issueReporting.sendFeedbackDescription')}</span
+        >
+      </span>
+      <svg
+        class="settings-issue-chevron"
+        aria-hidden="true"
+        width="22"
+        height="22"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="m9 6 6 6-6 6" />
+      </svg>
+    </button>
+    {#if composing}
+      <div class="settings-issue-form" transition:slide={{ duration: 220 }}>
+        <FeedbackForm
+          onsent={() => {
+            composing = false;
+            showGlobalToast({ path: 'feedback.sentThanks' });
+          }}
+        />
+      </div>
+    {/if}
+  </div>
 </section>

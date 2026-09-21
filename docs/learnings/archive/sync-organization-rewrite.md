@@ -1,27 +1,12 @@
 # Organizing Sync Around Its Behavioral Owners
 
-## Outcome
+Historical rewrite lessons. Current behavior and ownership are defined by `docs/spec/` and
+the implementation. Follow-ups below describe the state at the end of this rewrite, not a
+current issue inventory. The original accounting and execution log are available with:
 
-Rebuilt on current main at `066b8050d40273328e5690ac639dc8b43f1426cf`,
-the sync crate is organized around the ownership rules in the codebase-layout
-blueprint without changing its server protocol, persisted formats, public
-application API, or sync order. The original organizational split began from
-`df7f844d1e9e3a04a1e5dd0ed9b9e6671ac2ed5c`; rebuilding it on main carried
-forward every sync change added since that point.
-
-Production code changed from 2,790 to 3,439 lines (+23.3%), counted before
-`#[cfg(test)]` and excluding test-only files. The initial module split landed
-at 2,926 lines; the follow-up helper extraction added 513 lines of private
-functions and context types so push, pull, remote application, conflict
-resolution, connection, and live streaming each read as short orchestration
-sequences. No production behavior was deliberately added or removed.
-
-The 43 fast tests from the original rewrite were preserved one-for-one, and the
-three data-safety tests added later on main were carried forward under the push
-owner. The default crate command executes all 46, while discovering the same 25
-real-server and 2 SSE tests as ignored unless an isolated test server is
-supplied. The 30 desktop-to-desktop scenarios remain the full application
-acceptance gate.
+```bash
+git show 3b1c43c139181b91b7384b478b5edec454b80190:docs/learnings/archive/sync-organization-rewrite.md
+```
 
 ## Ownership map
 
@@ -41,6 +26,7 @@ acceptance gate.
 
 `lib.rs` remains the deliberate crate facade. `SyncSession` remains the
 application API used by Tauri and UniFFI.
+
 
 ## Invariants and guarding tests
 
@@ -78,50 +64,15 @@ application API used by Tauri and UniFFI.
   `failure_messages_are_honest_and_deterministic`, and the
   `sync-summary-failure-shape` drift-registry entry.
 
-## Test disposition ledger
-
-No tests were deleted or declared obsolete in this rewrite. All 43 fast tests
-from the original branch were moved intact under their new owner or the
-cross-module `sync/behavior_tests.rs` suite. The three tests added on main while
-the branch was behind now live with their operation in `sync/push/`: two guard
-the oversized-note skip/retry state machine and one guards the pull cursor
-across the push-before-pull crash window. The complete plain-English
-disposition ledger for the 171 tests removed by the earlier behavioral rewrite
-remains in `docs/learnings/sync-rewrite.md`; this change does not alter any
-disposition.
 
 ## Bugs found
 
 None. This was an ownership and navigability rewrite over an already-correct
 behavioral center.
 
-## Verification
-
-- Current-main baseline: `cargo test -p futo-notes-sync` — 46/46 fast tests
-  passed; 25 real-server and 2 SSE tests discovered and ignored without a
-  configured server.
-- Rebuilt crate: `cargo test -p futo-notes-sync` — 46/46 fast tests passed;
-  the same 27 server-dependent tests were discovered.
-- `cargo clippy -p futo-notes-sync --all-targets --no-deps -- -D warnings` —
-  passed.
-- `cargo test -p futo-notes-ffi` — compiled and passed (the crate currently
-  defines zero tests).
-- `cargo check -p futo-notes-tauri` — passed after creating the documented
-  empty `dist/` prerequisite.
-- Isolated real-server acceptance on `127.0.0.1:3158` — all 24 standard
-  server cases and both SSE cases passed. The oversize case was correctly
-  skipped there because it requires a separately constrained server.
-- Isolated 4 KiB-blob server acceptance on `127.0.0.1:3066` —
-  `oversize_blob_is_surfaced_skipped_and_recovers` passed.
-- `just test-cross-platform`, with the server-repo override pointed at the
-  local server checkout and an isolated PostgreSQL database — all 30
-  desktop-to-desktop scenarios passed with two real Tauri clients.
-- `just check` — passed, including architecture gates, Rust conformance,
-  lint/format checks, 391 curated TypeScript tests, type checking, and the
-  production Vite build.
 
 ## Follow-up queue
 
-The seven fault-injection cases in `docs/learnings/sync-rewrite.md` remain open.
-This rewrite deliberately did not recreate the old mock-client or planner
-architecture to force them into unit tests.
+The seven fault-injection cases were subsequently closed; see the “Follow-up queue —
+closed” section in `docs/learnings/sync-rewrite.md`. This rewrite itself did not
+recreate the old mock-client or planner architecture to test them.

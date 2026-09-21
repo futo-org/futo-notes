@@ -4,7 +4,7 @@ import type { PendingUpdate } from './updater';
 const checkMock = vi.fn();
 const relaunchMock = vi.fn();
 
-vi.mock('$lib/platform', () => ({ isDesktop: true }));
+vi.mock('$lib/platform', () => ({ isTauri: true }));
 vi.mock('@tauri-apps/plugin-updater', () => ({ check: checkMock }));
 vi.mock('@tauri-apps/plugin-process', () => ({ relaunch: relaunchMock }));
 
@@ -107,7 +107,7 @@ describe('checkForUpdate', () => {
 
   it('returns null without hitting the endpoint when unsupported', async () => {
     vi.resetModules();
-    vi.doMock('$lib/platform', () => ({ isDesktop: false }));
+    vi.doMock('$lib/platform', () => ({ isTauri: false }));
     vi.doMock('@tauri-apps/plugin-updater', () => ({ check: checkMock }));
     const { checkForUpdate: cfu, updaterSupported: us } = await import('./updater');
     checkMock.mockClear();

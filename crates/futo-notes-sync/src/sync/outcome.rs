@@ -28,6 +28,18 @@ pub enum FailureKind {
     Download,
     Decrypt,
     Rejected,
+    /// The server's change arrived intact and applying it to the vault failed.
+    /// A write (no permission, a read-only mount, a full disk, a symlink or a
+    /// plain file standing where a folder belongs, a local edit that landed
+    /// mid-pull) or a remote deletion that could not be carried out locally.
+    /// Kept apart from [`Self::Download`] because github#44 spent an entire
+    /// issue auditing a healthy server and a healthy nginx: the engine produced
+    /// the real reason and the caller refiled it as a download fault.
+    LocalApply,
+    /// The vault folder itself is not there. One condition that explains every
+    /// note in the cycle, so it is reported once, by path, with the way out —
+    /// not as one bullet per note.
+    VaultMissing,
 }
 
 impl FailureKind {
@@ -39,6 +51,8 @@ impl FailureKind {
             Self::Download => "download",
             Self::Decrypt => "decrypt",
             Self::Rejected => "rejected",
+            Self::LocalApply => "local_apply",
+            Self::VaultMissing => "vault_missing",
         }
     }
 }
@@ -48,6 +62,18 @@ pub struct SyncFailure {
     pub filename: String,
     pub kind: FailureKind,
     pub status_code: Option<u16>,
+    /// The engine's own error text, for the instance journal only — never the
+    /// user-facing string, and deliberately NOT projected into either shell
+    /// contract (see `every_failure_field_is_either_projected_or_deliberately_internal`).
+    /// `HttpError` keeps a full `source()` chain precisely so a failure can be
+    /// told apart after the fact (see `server/mod.rs` `transport_error`), and
+    /// every per-item failure used to drop it here — so the one channel built to
+    /// answer "why is that note not on this device" was silent for the two
+    /// causes it was most needed for (github#44).
+    ///
+    /// `pub` only because the shells' contract tests construct failures; treat
+    /// it as engine-internal and route it to the journal, not to a user.
+    pub detail: Option<String>,
 }
 
 pub(super) fn record_checkpoint_failure(summary: &mut SyncSummary) {
@@ -62,6 +88,7 @@ pub(super) fn record_checkpoint_failure(summary: &mut SyncSummary) {
         filename: String::new(),
         kind: FailureKind::Checkpoint,
         status_code: None,
+        detail: None,
     });
 }
 
@@ -182,19 +209,51 @@ impl SyncSummary {
         &self.decisions
     }
 
+    /// The most common status among a set of failures, ties keeping the
+    /// first-seen code so every platform renders the same sentence.
+    fn dominant_status(failures: &[&SyncFailure]) -> Option<u16> {
+        let mut frequencies = Vec::<(u16, usize)>::new();
+        for status in failures.iter().filter_map(|failure| failure.status_code) {
+            if let Some((_, count)) = frequencies.iter_mut().find(|(code, _)| *code == status) {
+                *count += 1;
+            } else {
+                frequencies.push((status, 1));
+            }
+        }
+        frequencies
+            .into_iter()
+            .enumerate()
+            .max_by_key(|(index, (_, count))| (*count, std::cmp::Reverse(*index)))
+            .map(|(_, (status, _))| status)
+    }
+
     pub fn failure_message(&self) -> Option<String> {
-        let server: Vec<_> = self
-            .failures
-            .iter()
-            .filter(|failure| matches!(failure.kind, FailureKind::Upload | FailureKind::Delete))
-            .collect();
-        let count = |kind| {
+        let of = |kind| {
             self.failures
                 .iter()
                 .filter(|failure| failure.kind == kind)
-                .count()
+                .collect::<Vec<_>>()
         };
+        let count = |kind| of(kind).len();
+
+        // The vault folder being gone explains every other failure in the
+        // cycle, so it answers alone and by path. Anything else would bury the
+        // one line that says what to do (github#44: the reporter read "3 notes
+        // couldn't be downloaded" as a server fault and audited his server,
+        // his nginx and his logs before finding the folder).
+        let vault = of(FailureKind::VaultMissing);
+        if let Some(failure) = vault.first() {
+            return Some(format!(
+                "Can't find your vault folder at {}. Please reconfigure in settings.",
+                failure.filename
+            ));
+        }
+
         let mut parts = Vec::new();
+        let server = of(FailureKind::Upload)
+            .into_iter()
+            .chain(of(FailureKind::Delete))
+            .collect::<Vec<_>>();
         if !server.is_empty() {
             let noun = if server.len() == 1 {
                 "change"
@@ -202,48 +261,64 @@ impl SyncSummary {
                 "changes"
             };
             let mut message = format!("{} {noun} couldn't reach the server", server.len());
-            let mut frequencies = Vec::<(u16, usize)>::new();
-            for status in server.iter().filter_map(|failure| failure.status_code) {
-                if let Some((_, count)) = frequencies.iter_mut().find(|(code, _)| *code == status) {
-                    *count += 1;
-                } else {
-                    frequencies.push((status, 1));
-                }
-            }
-            let status = frequencies
-                .into_iter()
-                .enumerate()
-                .max_by_key(|(index, (_, count))| (*count, std::cmp::Reverse(*index)))
-                .map(|(_, (status, _))| status);
-            if let Some(status) = status {
+            if let Some(status) = Self::dominant_status(&server) {
                 message.push_str(&format!(" (HTTP {status})"));
             }
             parts.push(message);
         }
-        for (kind, singular, plural) in [
+        for (kind, singular, plural, suffix) in [
             (
                 FailureKind::Download,
-                "note couldn't be downloaded (will retry)",
-                "notes couldn't be downloaded (will retry)",
+                "note couldn't be downloaded",
+                "notes couldn't be downloaded",
+                " (will retry)",
+            ),
+            // The server's bytes are already in hand; only the local step
+            // failed. Never the network wording — a read-only mount or a full
+            // disk has nothing to do with the server — and "change" rather than
+            // "note" because a remote deletion this client cannot carry out
+            // locally lands here too. The retry promise is the same cursor cap
+            // the download clause relies on.
+            (
+                FailureKind::LocalApply,
+                "change couldn't be applied to your notes folder",
+                "changes couldn't be applied to your notes folder",
+                " (will retry)",
             ),
             (
                 FailureKind::Decrypt,
                 "note couldn't be decrypted",
                 "notes couldn't be decrypted",
+                "",
             ),
             (
                 FailureKind::Rejected,
                 "note had an unsupported name and was skipped",
                 "notes had unsupported names and were skipped",
+                "",
             ),
         ] {
-            let count = count(kind);
-            if count > 0 {
-                parts.push(format!(
-                    "{count} {}",
-                    if count == 1 { singular } else { plural }
-                ));
+            let failures = of(kind);
+            if failures.is_empty() {
+                continue;
             }
+            let mut message = format!(
+                "{} {}",
+                failures.len(),
+                if failures.len() == 1 {
+                    singular
+                } else {
+                    plural
+                }
+            );
+            // Downloads have carried a status since the batch route landed and
+            // the message threw it away, so an nginx 502 and a vanished folder
+            // read identically. Uploads have always named theirs.
+            if let Some(status) = Self::dominant_status(&failures) {
+                message.push_str(&format!(" (HTTP {status})"));
+            }
+            message.push_str(suffix);
+            parts.push(message);
         }
         if count(FailureKind::Checkpoint) > 0 {
             parts.push("sync state couldn't be saved locally".into());
@@ -264,6 +339,12 @@ pub enum SyncErrorKind {
     Io(String),
     #[error("collection-gone: {0}")]
     CollectionGone(String),
+    /// The vault folder is not there. Carries the same sentence as the
+    /// per-item [`FailureKind::VaultMissing`] clause so a user who hits this
+    /// before the cycle starts and one who hits it mid-cycle read the same
+    /// thing, and so the shells render it without knowing the wording.
+    #[error("Can't find your vault folder at {0}. Please reconfigure in settings.")]
+    VaultMissing(String),
     #[error("not connected")]
     NotConnected,
 }

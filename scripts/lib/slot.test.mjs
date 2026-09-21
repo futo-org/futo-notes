@@ -5,8 +5,10 @@ import { fileURLToPath } from 'node:url';
 import {
   ENV_NAMES,
   PORT_BASES,
+  PROBE_BAND,
   XPLAT_SYNC_BAND,
   envLines,
+  probeBand,
   portsFor,
   slotOf,
   webPort,
@@ -123,6 +125,59 @@ describe('xplatSyncBand', () => {
       Array.from({ length: 50 }, (_, slot) => base + slot),
     );
     expect(singles.filter((port) => ALL.some((b) => port >= b.base && port <= b.end))).toEqual([]);
+  });
+});
+
+// tests/lib/sync-test-server.test.mjs binds these ports for real. The probe used
+// to be one hardcoded 20993 in every checkout — outside the real bands, but
+// identical across worktrees — so seven concurrent `pnpm run test:unit` runs
+// made that file reproduce the very port-ownership bug it exists to pin
+// ("listen EADDRINUSE: address already in use 127.0.0.1:20993"). Both halves are
+// asserted here so a "simplification" back to a constant fails red.
+describe('probeBand', () => {
+  const ALL = Array.from({ length: 50 }, (_, slot) => ({
+    base: PROBE_BAND.base + slot * PROBE_BAND.stride,
+    end: PROBE_BAND.base + slot * PROBE_BAND.stride + PROBE_BAND.stride - 1,
+  }));
+
+  it('derives the band from the slot', () => {
+    for (const root of ROOTS) {
+      const slot = slotOf(root);
+      expect(probeBand(root)).toEqual({ slot, ...ALL[slot] });
+    }
+  });
+
+  it('gives two worktrees disjoint probe ports', () => {
+    const a = probeBand(ROOTS[0]);
+    const b = probeBand(ROOTS[1]);
+    expect(a.base).not.toBe(b.base);
+    expect(a.end < b.base || b.end < a.base).toBe(true);
+  });
+
+  it('fits the pair a delayed scenario needs (proxy on base, server on base+1)', () => {
+    expect(PROBE_BAND.stride).toBeGreaterThanOrEqual(2);
+  });
+
+  it('never overlaps the cross-platform sync bands', () => {
+    const xplat = Array.from({ length: 50 }, (_, slot) => ({
+      base: XPLAT_SYNC_BAND.base + slot * XPLAT_SYNC_BAND.stride,
+      end: XPLAT_SYNC_BAND.base + slot * XPLAT_SYNC_BAND.stride + XPLAT_SYNC_BAND.stride - 1,
+    }));
+    for (const probe of ALL) {
+      expect(xplat.some((b) => probe.base <= b.end && probe.end >= b.base)).toBe(false);
+    }
+  });
+
+  it('never overlaps a PORT_BASES range', () => {
+    const singles = Object.values(PORT_BASES).flatMap((base) =>
+      Array.from({ length: 50 }, (_, slot) => base + slot),
+    );
+    expect(singles.filter((port) => ALL.some((b) => port >= b.base && port <= b.end))).toEqual([]);
+  });
+
+  it('stays out of the ephemeral range, where an outbound connection could squat it', () => {
+    expect(Math.max(...ALL.map((b) => b.end))).toBeLessThan(32768);
+    expect(Math.min(...ALL.map((b) => b.base))).toBeGreaterThan(1024);
   });
 });
 

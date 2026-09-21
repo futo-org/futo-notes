@@ -103,6 +103,7 @@ export interface LocalNoteStore {
     wantedId: string,
     content: string,
     modifiedMs?: number,
+    base?: string,
   ): Promise<LocalNoteMutation>;
   /** THE draft-saving verb (persist-or-park, ADR-0001 / issue #37): persist
    * `content` for the note at `id` against `base` (the content the editor
@@ -143,10 +144,6 @@ export function prefetchLocalNoteListing(): void {
 export function getLocalNoteStoreSync(): LocalNoteStore {
   localNotes ??= isTauri ? tauriLocalNoteStore : webLocalNoteStore;
   return localNotes;
-}
-
-export async function getLocalNoteStore(): Promise<LocalNoteStore> {
-  return getLocalNoteStoreSync();
 }
 
 export function _setLocalNoteStoreForTest(store: LocalNoteStore | null): void {

@@ -10,6 +10,10 @@ describe('Tauri capabilities', () => {
     expect(caps.permissions).toContain('core:window:allow-destroy');
   });
 
+  it('allows the localized application title to update the native window', () => {
+    expect(caps.permissions).toContain('core:window:allow-set-title');
+  });
+
   it('includes process:allow-exit so the app can exit cleanly', () => {
     expect(caps.permissions).toContain('process:allow-exit');
   });

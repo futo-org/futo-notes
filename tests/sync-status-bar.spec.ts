@@ -69,7 +69,7 @@ test.describe('Sync status bar', () => {
     await expect(errorButton).toBeVisible();
     await expect(errorButton).toHaveAttribute(
       'title',
-      "1 change couldn't reach the server (HTTP 500) — click to dismiss",
+      'Sync completed with errors. Some changes could not reach the server. — click to dismiss',
     );
 
     await errorButton.click();

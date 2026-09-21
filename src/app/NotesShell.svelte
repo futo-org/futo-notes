@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
 
-  import { isDesktop } from '$lib/platform';
+  import { isTauri } from '$lib/platform';
   import { saveConfig } from '$lib/platform/tauri';
   import { getAllNotes } from '$features/notes/notes.svelte';
   import { createNoteSession, type ParkedDraftSnapshot } from '$features/notes/noteSession.svelte';
@@ -16,6 +16,7 @@
   import { tabsStore, type OpenMode } from '$features/tabs/tabsStore.svelte';
   import { keyboard } from '$features/editor/keyboard.svelte';
   import { showGlobalToast, currentToastMessage } from '$shared/notifications/toastBus.svelte';
+  import { localizedText } from '$shared/localization';
 
   import DesktopTopBand from './components/DesktopTopBand.svelte';
   import NoteWorkspace, { type EditorApi } from './components/NoteWorkspace.svelte';
@@ -187,7 +188,7 @@
   function finishSidebarResize(width: number): void {
     sidebarWidth = clampSidebarWidth(width);
     sidebarResizing = false;
-    if (isDesktop) {
+    if (isTauri) {
       void saveConfig({ sidebarWidth }).catch((error) =>
         console.warn('Failed to persist sidebar width:', error),
       );
@@ -261,6 +262,13 @@
       settingsOpen = true;
     },
     toggleSidebar,
+    // Find in note was a CodeMirror feature (src/features/editor/find/) and the
+    // Milkdown editor has no replacement yet, so nothing claims Ctrl/Cmd+F or
+    // Ctrl/Cmd+G on desktop. docs/spec/editor.md's "Find in note" section
+    // carries the gap; the bridge calls stay declared for the native bars.
+    findEnabled: () => false,
+    openFind: () => {},
+    stepFind: () => {},
   });
   const stopNativeShell = startNativeShell({
     enqueueFileChange: sync.enqueueFileChange,
@@ -359,7 +367,7 @@
   style:--sidebar-width={`${sidebarWidth}px`}
   style:--vv-offset={`${keyboard.offsetTop}px`}
 >
-  {#if isDesktop}
+  {#if isTauri}
     <DesktopTopBand {sidebarCollapsed} ontoggle={toggleSidebar} {notes} />
   {/if}
 
@@ -368,8 +376,8 @@
       {notes}
       activeNoteId={session.originalId}
       view={sidebarView}
-      showCollapse={!isDesktop}
-      showResize={isDesktop}
+      showCollapse={!isTauri}
+      showResize={isTauri}
       onselectview={selectSidebarView}
       onselectnote={openNote}
       onrunwithactivenotelock={session.runWithSaveLock}
@@ -409,10 +417,10 @@
         bind:titleEl={titleTextarea}
       />
 
-      {#if !isDesktop && sidebarCollapsed}
+      {#if !isTauri && sidebarCollapsed}
         <button
           class="sidebar-expand-fallback-btn"
-          aria-label="Expand sidebar"
+          aria-label={localizedText('sidebar.expandAccessibilityLabel')}
           onclick={toggleSidebar}
         >
           <svg

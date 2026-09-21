@@ -1,32 +1,11 @@
 use std::fs;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::*;
-
-struct TestRoot(PathBuf);
-
-impl TestRoot {
-    fn new() -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "futo-local-note-store-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir_all(&path).unwrap();
-        Self(path)
-    }
-}
-
-impl Drop for TestRoot {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
+use crate::test_support::TestRoot;
+use futo_notes_core::files::set_file_mtime_ms;
 
 #[derive(Default)]
 struct RecordingObserver(Mutex<Vec<Vec<FileChange>>>);
@@ -702,104 +681,6 @@ fn rename_never_overwrites_a_case_or_unicode_colliding_destination() {
     assert_eq!(store.read(&final_id), "mine");
 }
 
-#[test]
-fn conditional_flush_does_not_resurrect_or_overwrite_a_changed_note() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    assert_eq!(
-        store
-            .write_if_unchanged("missing", "old", "new")
-            .unwrap()
-            .outcome,
-        FlushOutcome::SkippedMissing
-    );
-    store.write("note", "newer", None).unwrap();
-    assert_eq!(
-        store
-            .write_if_unchanged("note", "stale", "draft")
-            .unwrap()
-            .outcome,
-        FlushOutcome::SkippedChanged
-    );
-    assert_eq!(store.read("note"), "newer");
-    assert_eq!(
-        store
-            .write_if_unchanged("note", "newer", "draft")
-            .unwrap()
-            .outcome,
-        FlushOutcome::Wrote
-    );
-    assert_eq!(store.read("note"), "draft");
-}
-
-// ── create_if_absent: atomic create-if-absent (PKT-10 round-4 P1a) ──
-
-// A missing note is (re-)created with the draft — the edit-wins peer-delete
-// dirty-keep path.
-#[test]
-fn create_if_absent_creates_when_missing() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    assert_eq!(
-        store.create_if_absent("Gone", "recreated-draft").unwrap(),
-        CreateOutcome::Created
-    );
-    assert_eq!(store.read("Gone"), "recreated-draft");
-}
-
-// The anti-clobber guarantee: if the id reappeared (a concurrent sync write
-// recreated it in the TOCTOU window), the no-replace install fails atomically
-// and the newcomer's content is left intact — the caller parks a copy instead.
-#[test]
-fn create_if_absent_never_clobbers_existing() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    store.write("Note", "peer-recreated", None).unwrap();
-    assert_eq!(
-        store.create_if_absent("Note", "local-draft").unwrap(),
-        CreateOutcome::Existed
-    );
-    assert_eq!(
-        store.read("Note"),
-        "peer-recreated",
-        "a note that reappeared must not be clobbered by the recreate"
-    );
-}
-
-// Traversal ids are rejected before any fs work (same guard as write).
-#[test]
-fn create_if_absent_rejects_path_traversal() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    assert!(store.create_if_absent("../escape", "x").is_err());
-    assert!(!root.0.parent().unwrap().join("escape.md").exists());
-}
-
-// No empty/partial file is ever left behind: the create path installs the
-// fully-written content atomically (no `create_new`-then-`write_all` window),
-// and BOTH the Created and Existed paths clean up their sibling temp — so no
-// `.sf-tmp-*` lingers and the note holds the complete content (not "").
-#[test]
-fn create_if_absent_leaves_no_temp_or_partial() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    store.create_if_absent("Note", "full-content").unwrap();
-    assert_eq!(store.read("Note"), "full-content");
-    let stray = |dir: &std::path::Path| {
-        fs::read_dir(dir)
-            .unwrap()
-            .filter_map(|entry| entry.ok())
-            .any(|entry| entry.file_name().to_string_lossy().starts_with(".sf-tmp-"))
-    };
-    assert!(!stray(&root.0), "create left a temp file behind");
-    assert_eq!(
-        store.create_if_absent("Note", "second").unwrap(),
-        CreateOutcome::Existed
-    );
-    assert_eq!(store.read("Note"), "full-content");
-    assert!(!stray(&root.0), "existed path left a temp file behind");
-}
-
 // Bootstrap must render the vault even when the search index can't open — a
 // search-start failure is a warning, never fatal (A3). Every adapter shares
 // this via bootstrap_with_search.
@@ -867,82 +748,6 @@ fn a_failed_source_removal_during_rename_leaves_no_duplicate() {
         !store.exists("Dst/note"),
         "no stranded duplicate at the destination"
     );
-}
-
-// ── search-engine start self-heal (F13 retry, PKT-10, now shared) ──
-
-// A failed engine start degrades (never crashes) and is retried lazily on a
-// later call — but only after the cooldown, so a persistent failure is not
-// reopened on every call. Uses the cheapest real seam: an index dir that is a
-// regular file (TantivyIndices::open's create_dir_all fails), cleared between
-// attempts so the retry can succeed.
-#[test]
-fn search_engine_start_failure_self_heals_after_cooldown() {
-    let root = TestRoot::new();
-    let store = store(&root);
-
-    let index_path = root.0.join("blocking-index");
-    fs::write(&index_path, "not a directory").unwrap();
-    let observer: StatusObserver = Arc::new(|_| {});
-
-    // Degraded, not crashed: start returns Err, search stays usable (empty).
-    assert!(store.start_search(index_path.clone(), observer).is_err());
-    assert!(!store.search_engine_installed());
-    assert!(store.search("anything", None).unwrap().is_empty());
-
-    // Cause cleared, but still WITHIN the cooldown → no re-attempt yet.
-    fs::remove_file(&index_path).unwrap();
-    assert!(store.search("anything", None).unwrap().is_empty());
-    assert!(
-        !store.search_engine_installed(),
-        "must not re-attempt the start within the cooldown"
-    );
-
-    // Cooldown elapsed → the next call retries and, the cause now gone, starts.
-    store.expire_search_retry_cooldown();
-    let _ = store.search("anything", None);
-    assert!(
-        store.search_engine_installed(),
-        "must retry and start once the cooldown elapses"
-    );
-}
-
-#[test]
-fn wait_until_search_ready_returns_false_once_the_budget_elapses() {
-    let root = TestRoot::new();
-    let store = store(&root);
-
-    let started = Instant::now();
-    assert!(!store.wait_until_search_ready(80));
-    let waited = started.elapsed();
-    assert!(
-        waited >= Duration::from_millis(80),
-        "returned before the budget: {waited:?}"
-    );
-    assert!(
-        waited < Duration::from_secs(5),
-        "wait unbounded: {waited:?}"
-    );
-}
-
-#[test]
-fn wait_until_search_ready_reports_readiness_of_a_real_engine() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    store.write("note", "indexable body", None).unwrap();
-    let observer: StatusObserver = Arc::new(|_| {});
-    store
-        .bootstrap_with_search(root.0.join("index"), observer)
-        .unwrap();
-
-    // 60s, not 10s: same background-indexer wait as the ffi note_contract
-    // bootstrap test, which timed out just past 10s on a contended CI runner
-    // (pipeline 32195 / job 201804).
-    assert!(
-        store.wait_until_search_ready(60_000),
-        "keyword index never became ready"
-    );
-    assert!(store.search_status().keyword.ready);
 }
 
 #[test]
@@ -1883,5 +1688,100 @@ fn empty_vault_migration_refuses_an_unrelated_nonempty_destination() {
     assert_eq!(
         fs::read_to_string(destination.0.join("unrelated.md")).unwrap(),
         "keep me"
+    );
+}
+
+#[test]
+fn editor_rename_preserves_peer_changes_and_parks_the_draft() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("Original", "peer edit", None).unwrap();
+    let mutation = store
+        .save_draft_as("Original", "Renamed", "base", "my draft")
+        .unwrap();
+    assert_eq!(store.read("Original"), "peer edit");
+    let final_id = mutation.final_id.unwrap();
+    assert!(final_id.starts_with("Renamed (conflict "));
+    assert_eq!(store.read(&final_id), "my draft");
+    assert!(mutation.renamed.is_empty());
+}
+
+#[test]
+fn editor_move_saves_and_relinks_in_one_workflow() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("Original", "base", None).unwrap();
+    store.write("Link", "[[Original]]", None).unwrap();
+    let mutation = store
+        .save_draft_as("Original", "Folder/Original", "base", "my draft")
+        .unwrap();
+    assert_eq!(mutation.final_id.as_deref(), Some("Folder/Original"));
+    assert!(!store.exists("Original"));
+    assert_eq!(store.read("Folder/Original"), "my draft");
+    assert_eq!(store.read("Link"), "[[Folder/Original]]");
+}
+
+#[cfg(unix)]
+#[test]
+fn note_workflows_reject_symlinked_parents_and_leaves() {
+    use std::os::unix::fs::symlink;
+    let root = TestRoot::new();
+    let outside = TestRoot::new();
+    fs::write(outside.0.join("secret.md"), "outside").unwrap();
+    symlink(&outside.0, root.0.join("linked")).unwrap();
+    symlink(outside.0.join("secret.md"), root.0.join("leaf.md")).unwrap();
+    let store = store(&root);
+    for id in ["linked/secret", "leaf"] {
+        assert!(store.read_existing(id).is_err(), "read escaped via {id}");
+        assert!(
+            store.write(id, "replacement", None).is_err(),
+            "write escaped via {id}"
+        );
+        assert!(store.flush_draft(id, "outside", "draft").is_err());
+        assert!(store.rename(id, "Moved").is_err());
+        assert!(store.delete(id).is_err());
+    }
+    assert!(store.create("linked", "new", "new").is_err());
+    assert!(store.create_folder("linked/nested").is_err());
+    assert_eq!(
+        fs::read_to_string(outside.0.join("secret.md")).unwrap(),
+        "outside"
+    );
+    assert_eq!(fs::read_dir(&outside.0).unwrap().count(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_parent_swapped_after_validation_cannot_redirect_a_write() {
+    struct SwapParent {
+        root: PathBuf,
+        outside: PathBuf,
+    }
+    impl BeforeWrite for SwapParent {
+        fn before_write(&self, _: &[FileChange]) {
+            fs::rename(self.root.join("folder"), self.root.join("original-folder")).unwrap();
+            std::os::unix::fs::symlink(&self.outside, self.root.join("folder")).unwrap();
+        }
+    }
+    let root = TestRoot::new();
+    let outside = TestRoot::new();
+    fs::create_dir(root.0.join("folder")).unwrap();
+    fs::write(root.0.join("folder/note.md"), "base").unwrap();
+    fs::write(outside.0.join("note.md"), "outside").unwrap();
+    let store = LocalNoteStore::with_before_write(
+        root.0.clone(),
+        Arc::new(SwapParent {
+            root: root.0.clone(),
+            outside: outside.0.clone(),
+        }),
+    );
+    assert!(store.write("folder/note", "draft", None).is_err());
+    assert_eq!(
+        fs::read_to_string(outside.0.join("note.md")).unwrap(),
+        "outside"
+    );
+    assert_eq!(
+        fs::read_to_string(root.0.join("original-folder/note.md")).unwrap(),
+        "base"
     );
 }

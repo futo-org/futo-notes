@@ -9,6 +9,7 @@ vi.mock('$features/notes/notes.svelte', () => ({
 }));
 
 import SearchPopup from './SearchPopup.svelte';
+import { isSearchPopupFindShortcut } from './searchPopupShortcuts';
 
 function makeNote(id: string, preview = ''): NotePreview {
   return {
@@ -65,9 +66,7 @@ describe('SearchPopup', () => {
   it('caps the empty-query result list at the 8 most recent notes', async () => {
     // search('') returns every note most-recent-first; the popup owns the 8-cap
     // (search.md "eight recent notes").
-    searchMock.mockResolvedValue(
-      Array.from({ length: 12 }, (_, i) => ({ note: makeNote(`note-${i}`) })),
-    );
+    searchMock.mockResolvedValue(Array.from({ length: 12 }, (_, i) => makeNote(`note-${i}`)));
     mountPopup();
 
     const rows = await resultButtons();
@@ -76,7 +75,7 @@ describe('SearchPopup', () => {
   });
 
   it('passes the modifier state of a result click through to onselect (new-tab path)', async () => {
-    searchMock.mockResolvedValue([{ note: makeNote('alpha') }]);
+    searchMock.mockResolvedValue([makeNote('alpha')]);
     mountPopup();
 
     const [row] = await resultButtons();
@@ -89,7 +88,7 @@ describe('SearchPopup', () => {
   });
 
   it('opens a result on middle-click (auxclick button 1)', async () => {
-    searchMock.mockResolvedValue([{ note: makeNote('alpha') }]);
+    searchMock.mockResolvedValue([makeNote('alpha')]);
     mountPopup();
 
     const [row] = await resultButtons();
@@ -100,10 +99,7 @@ describe('SearchPopup', () => {
   });
 
   it('shows a folder badge only for foldered notes', async () => {
-    searchMock.mockResolvedValue([
-      { note: makeNote('Projects/plan') },
-      { note: makeNote('loose-note') },
-    ]);
+    searchMock.mockResolvedValue([makeNote('Projects/plan'), makeNote('loose-note')]);
     mountPopup();
 
     const rows = await resultButtons();
@@ -144,10 +140,37 @@ describe('SearchPopup', () => {
     }
   });
 
-  it('Escape closes the popup from the panel', async () => {
+  it.each(['f', 'g'])('claims Ctrl+%s so the note editor cannot act behind the popup', (key) => {
     mountPopup();
-    const panel = target.querySelector('.search-panel') as HTMLElement;
-    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    expect(onclose).toHaveBeenCalledTimes(1);
+    const input = target.querySelector('.search-input') as HTMLInputElement;
+    const windowKeydown = vi.fn();
+    window.addEventListener('keydown', windowKeydown);
+    const event = new KeyboardEvent('keydown', {
+      key,
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    input.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(windowKeydown).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(input);
+    window.removeEventListener('keydown', windowKeydown);
+  });
+
+  it('preserves the macOS Control+F caret-forward binding', () => {
+    const chord = {
+      key: 'f',
+      ctrlKey: true,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+    };
+
+    expect(isSearchPopupFindShortcut(chord, true)).toBe(false);
+    expect(isSearchPopupFindShortcut(chord, false)).toBe(true);
+    expect(isSearchPopupFindShortcut({ ...chord, ctrlKey: false, metaKey: true }, true)).toBe(true);
   });
 });

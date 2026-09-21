@@ -15,7 +15,6 @@ import {
   resolveDefaultNotesRoot,
   loadNotesDirOverride,
   saveNotesDirOverride,
-  ensureDirectory,
   vaultDisplayPath,
   vaultStatus,
 } from './notesRoot';
@@ -153,13 +152,5 @@ describe('vaultDisplayPath', () => {
       dir: '/run/user/1000/doc/A1b2C3/Notes',
     });
     expect(shown).toBe('/home/user/Notes');
-  });
-});
-
-describe('ensureDirectory', () => {
-  it('invokes plugin-fs mkdir recursively', async () => {
-    mockMkdir.mockResolvedValueOnce(undefined);
-    await ensureDirectory('/some/path');
-    expect(mockMkdir).toHaveBeenCalledWith('/some/path', { recursive: true });
   });
 });

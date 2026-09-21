@@ -1,5 +1,4 @@
 mod atomic_write;
-mod blob_file;
 mod filenames;
 mod parked_backup;
 mod paths;
@@ -9,7 +8,6 @@ mod vault_lock;
 pub use atomic_write::{
     create_new_atomic, move_no_replace, rename_through_temp, write_atomic_bytes, write_atomic_text,
 };
-pub use blob_file::{read_blob_as_base64, write_base64_as_blob};
 pub use filenames::{
     collides_but_differs, collision_key, is_valid_title, is_windows_reserved_name, sanitize_title,
     validate_title, FilenameIssue, FilenameIssueKind, FALLBACK_TITLE, MAX_TITLE_LENGTH,
@@ -22,3 +20,5 @@ pub use paths::{
 };
 pub use timestamps::{file_mtime_ms, mtime_or_now, now_ms, set_file_mtime_ms};
 pub use vault_lock::vault_mutation_guard;
+
+pub mod vault_fs;

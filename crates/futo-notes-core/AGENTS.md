@@ -6,7 +6,7 @@ Shared Rust crate imported across the workspace — by the Tauri app and, via th
 
 ## Modules
 
-- **`files/`**: Filename/title rules, path safety, timestamps, atomic writes, parked-backup recovery, blob transport, and case/normalization-safe renames. `mod.rs` is the public facade; focused child modules own each capability.
+- **`files/`**: Filename/title rules, path safety, timestamps, atomic writes, parked-backup recovery, and case/normalization-safe renames. `mod.rs` is the public facade; focused child modules own each capability.
 - **`hash.rs`**: SHA-256 content hashing for sync — `hash_sha256()` and `hash_sha256_bytes()`. Any hash change breaks sync protocol compatibility.
 - **`merge.rs`**: Three-way text merge for conflict resolution when both client and server modified the same note.
 - **`e2ee/`**: AES-GCM, PBKDF2 password keys, versioned note frames, and vault-key wrapping. `mod.rs` preserves the public crypto contract while child modules own the wire capabilities.

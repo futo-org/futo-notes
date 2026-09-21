@@ -82,8 +82,9 @@ pub(crate) fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            crate::image_commands::fs_save_image,
             crate::image_commands::fs_paste_clipboard_image,
+            crate::app_menu::app_menu_set_labels,
+            crate::platform_integration::read_desktop_color_scheme,
             crate::filesystem_watcher::fs_start_watcher,
             crate::vault_location::notes_dir_override_load,
             crate::vault_location::notes_dir_override_save,

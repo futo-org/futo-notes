@@ -10,8 +10,9 @@ user data or shipped behavior; never weaken one to make a test, build, or pipeli
 Engineering defaults: the simplest implementation that fully meets the current requirement, and an
 established, well-maintained library over a custom one.
 
-**Read the nearest nested `AGENTS.md` before editing a layer.** This includes `src/`,
-`packages/editor/`, `crates/futo-notes-{core,sync}/`, each app, and `docs/spec/`.
+**Read the nearest nested `AGENTS.md` before editing a layer.** Every crate has one
+(`crates/futo-notes-{core,model,store,search,sync,ffi}/`), as does `src/`, `packages/editor/`,
+each app in `apps/`, `scripts/`, `tests/`, and `docs/spec/`.
 
 For structural work, read `docs/architecture/codebase-organization.md`: use the narrowest real
 owner, make shared code earn its scope, keep entry points as orchestration, co-locate tests, and
@@ -42,7 +43,8 @@ Their nested manuals own build, device, release, and test variants. Missing
 - `docs/spec/`: behavioral truth; `tests/` (unit, Playwright, and the editor gauntlet): fixture/oracle systems.
 
 Generated and gitignored: native bindings/JNI libraries and `editor.html`. The external sync server
-at `~/Developer/futo-notes-server` receives only client-encrypted opaque blobs.
+(its own Go repo) receives only client-encrypted opaque blobs; sync tests download the release
+pinned in `scripts/sync-server-pin.json`, so no checkout of it is needed here.
 
 ## 4. Where logic lives (decision procedure)
 
@@ -67,10 +69,17 @@ infrastructure owner.
 - **Svelte 5 runes only** (`$state`/`$derived`/`$effect`; module state in `.svelte.ts`). Never
   `svelte/store`, `on:click`, or `createEventDispatcher` — use `onclick=` attributes and callback props.
 - Never hand-build note paths: use TS `pathSafety.ts` or Rust `safe_note_path`.
+- **Every new user-visible string is a catalog entry.** Authored UI text — labels, headings,
+  buttons, placeholders, toasts, errors, accessibility and OS-facing labels — is added to
+  `languages/en.json` and read back through the platform's accessor (`localizedText` in TS/Swift/
+  Kotlin), never written as a literal at the call site. An English entry is the minimum bar; a
+  translation is welcome but never required to land. User data is the opposite rule: note titles,
+  filenames, folder names, tags, paths and URLs render verbatim (M2). `languages/README.md` owns
+  the naming and placeholder grammar; `pnpm run check:languages` validates the catalogs.
 - The note cache (`notesCache` in `src/features/notes/notes.svelte.ts`) is a projection. Apply the
   complete post-commit `LocalNoteMutation`; do not optimistically reconstruct collision or backlink
   outcomes.
-- FFI requires the iOS dev profile / Android `release-ffi`; plain release uses `panic = "abort"`
+- FFI builds (iOS and Android) use the `release-ffi` profile; plain release uses `panic = "abort"`
   and breaks UniFFI unwinding. Errors crossing the boundary are `uniffi::Error` enums.
 - Commits use `type(scope): imperative summary` — types `feat|fix|docs|chore|ci|perf|refactor|build|test`,
   scope is a surface or platform. A nontrivial fix's body names the exact failure (pipeline number,
@@ -131,8 +140,8 @@ These are observed failures, not generic advice.
 - **M13 — Untested tag job.** Exercise tag-gated work before tagging, propagate secrets into nested
   VMs, and upload caches `when: always`. Use `/ci-doctor`.
 - **M14 — Missing release dependency.** Every new test job enters `release:gate.needs` in the same
-  commit or it cannot block publication. One deliberate exception: `test:audit` is non-blocking by
-  design (docs/architecture-gates.md).
+  commit or it cannot block publication. Deliberate exceptions: `test:audit` and
+  `test:localization-audit` are non-blocking by design (docs/architecture-gates.md).
 - **M15 — Loosening instead of diagnosing.** Wait on conditions, not sleeps; avoid exact
   cross-platform UI strings. A second timeout bump means stop and root-cause.
 - **M16 — Landed artifacts/debugging.** Gitignore generated paths before building, inspect status,
@@ -169,6 +178,14 @@ These are observed failures, not generic advice.
   serves its bridge but never rebuilds, or a screenshot of a dead dev server instead of a test
   failure. Terminate by identity only — `just qa-target kill`, the PID/process group you started, or
   a port from `just ports` — never by process name. `just check-qa-input-safety` enforces it.
+- **M26 — Untested platform branch.** A cfg-gated implementation whose tests are gated to
+  the OTHER cfg ships to the only platform that runs it with nothing having executed it, and a
+  green `just check` says nothing about it. github#48: the `cfg(not(unix))` vault filesystem
+  answered "parent folder missing" with an I/O error instead of absence for three releases, so
+  every note synced into a folder a Windows client did not have yet failed forever. A branch that
+  needs no platform APIs to RUN (plain `std::fs`) gets compiled under `cfg(test)` everywhere and
+  held to the shipped branch's rules — `crates/futo-notes-core/src/files/vault_fs/contract_tests.rs`
+  stamps one rule set over both implementations.
 
 ## 7. Quality bar per deliverable
 

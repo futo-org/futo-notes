@@ -54,6 +54,7 @@ fn apply_create_dispatch(
                 filename: candidate.file.name.clone(),
                 kind: FailureKind::Upload,
                 status_code,
+                detail: Some(status_detail(status_code)),
             });
             context.summary.decide_with(
                 SyncPhase::Push,
@@ -69,6 +70,7 @@ fn apply_create_dispatch(
                 filename: candidate.file.name.clone(),
                 kind: FailureKind::Upload,
                 status_code: None,
+                detail: Some("create settled as a conflict or an update".into()),
             });
             context.summary.decide(
                 SyncPhase::Push,
@@ -87,11 +89,12 @@ pub(in crate::sync) async fn create_fresh(
 ) -> Result<Option<ObjectState>, SyncErrorKind> {
     let ciphertext = match encrypt(&context.state.vault_key, upload.name, upload.content) {
         Ok(ciphertext) => ciphertext,
-        Err(_) => {
+        Err(error) => {
             context.summary.failures.push(SyncFailure {
                 filename: upload.name.into(),
                 kind: FailureKind::Upload,
                 status_code: None,
+                detail: Some(error.message()),
             });
             context.summary.decide(
                 SyncPhase::Push,

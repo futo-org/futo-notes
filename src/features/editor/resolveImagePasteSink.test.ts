@@ -36,7 +36,6 @@ describe('resolveImagePasteSink', () => {
 
   it('picks the vault-FS sink on a host that can write image bytes', async () => {
     getFS.mockReturnValue({
-      saveImage: vi.fn(),
       saveImageBytes: vi.fn().mockResolvedValue('image-1.png'),
       getImageUrl: vi.fn().mockResolvedValue('asset://image-1.png'),
       pasteClipboardImage: vi.fn(),
@@ -50,7 +49,7 @@ describe('resolveImagePasteSink', () => {
   });
 
   it('reports no hidden-bitmap capture when the host cannot read the OS clipboard', () => {
-    getFS.mockReturnValue({ saveImage: vi.fn(), saveImageBytes: vi.fn(), getImageUrl: vi.fn() });
+    getFS.mockReturnValue({ saveImageBytes: vi.fn(), getImageUrl: vi.fn() });
     expect(resolveImagePasteSink()?.canCaptureHiddenBitmap).toBe(false);
   });
 

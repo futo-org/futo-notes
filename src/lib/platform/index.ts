@@ -1,7 +1,9 @@
 import type { FileDropEvent, PlatformFS, PlatformName } from './types';
+import type { ApplicationMenuLabels } from './tauri/appMenu';
 export type {
   FileChangeEvent,
   FileDropEvent,
+  PickedImage,
   PlatformFS,
   PlatformName,
   PlatformStorage,
@@ -22,8 +24,6 @@ function detectPlatform(): PlatformName {
 
 export const platformName: PlatformName = detectPlatform();
 export const isTauri = platformName === 'tauri';
-
-export const isDesktop = isTauri;
 export const isLinux = typeof navigator !== 'undefined' && /\blinux\b/i.test(navigator.userAgent);
 // True on iOS hardware — the native-shell embed's WKWebView and iOS Safari.
 // iPads masquerade as "Macintosh" in modern WebKit UAs, so also treat
@@ -90,6 +90,20 @@ export function onFileDrop(handler: (event: FileDropEvent) => void): () => void 
   };
 }
 
+export function setApplicationMenuLabels(labels: ApplicationMenuLabels): void {
+  if (platformName !== 'tauri' || !isMac) return;
+  void import('./tauri/appMenu')
+    .then(({ applyApplicationMenuLabels }) => applyApplicationMenuLabels(labels))
+    .catch((error) => console.warn('Failed to localize the app menu:', error));
+}
+
+export function setApplicationWindowTitle(title: string): void {
+  if (platformName !== 'tauri') return;
+  void import('./tauri/windowTitle')
+    .then(({ applyApplicationWindowTitle }) => applyApplicationWindowTitle(title))
+    .catch((error) => console.warn('Failed to localize the app window title:', error));
+}
+
 // Reveal the desktop window once the shell has painted. The window is created
 // hidden so the launch never flashes WKWebView's white; see
 // apps/tauri/src-tauri/src/window_reveal.rs, which shows it anyway after a
@@ -121,6 +135,27 @@ export function setNativeWindowAppearance(theme: 'dark' | 'light' | null): void 
   void import('./tauri/windowAppearance')
     .then(({ applyNativeWindowAppearance }) => applyNativeWindowAppearance(theme))
     .catch((error) => console.warn('Failed to set the native window appearance:', error));
+}
+
+// The desktop environment's own light/dark preference, for the `auto` theme.
+//
+// Distinct from `prefers-color-scheme`: on Linux that media query is derived
+// from `gtk-application-prefer-dark-theme`, which is the same property setting
+// the window's appearance writes — so once the app pins an appearance the page
+// only reads back its own choice. The desktop portal answers for the desktop.
+//
+// `null` means "no answer here" — off Tauri, on macOS and Windows (whose `auto`
+// hands the window back to the OS and so never poisons the media query), and on
+// a Linux desktop with no portal. Callers fall back to the media query.
+export async function readDesktopColorScheme(): Promise<'dark' | 'light' | null> {
+  if (platformName !== 'tauri') return null;
+  try {
+    const { readDesktopColorScheme: read } = await import('./tauri/desktopColorScheme');
+    return await read();
+  } catch (error) {
+    console.warn('Failed to read the desktop color scheme:', error);
+    return null;
+  }
 }
 
 // Lazy-loaded platform filesystem implementation

@@ -27,6 +27,7 @@ function recordHost(bundleVersion: number = BRIDGE_VERSION): RecordedHost {
 
   const effects: EditorHostEffects = {
     applyContentPadding: (px) => steps.push(`padding:${px}`),
+    applyLanguage: (languageTag) => steps.push(`language:${languageTag}`),
     applyNativeToolbar: (enabled) => steps.push(`nativeToolbar:${enabled}`),
     applyTheme: (theme) => steps.push(`theme:${theme}`),
     applyImageBaseUrl: (base) => steps.push(`imageBaseUrl:${base}`),
@@ -52,6 +53,7 @@ function recordHost(bundleVersion: number = BRIDGE_VERSION): RecordedHost {
 function config(overrides: Partial<EditorHostConfig> = {}): string {
   const base: EditorHostConfig = {
     bridgeVersion: BRIDGE_VERSION,
+    languageTag: 'zh-Hans',
     theme: 'light',
     content: '# note',
     notesJson: '[{"id":"a","title":"a","modifiedMs":1}]',
@@ -69,6 +71,7 @@ describe('editor boot sequence', () => {
     host.boot.initialize(config());
 
     expect(host.steps).toEqual([
+      'language:zh-Hans',
       'padding:14',
       'nativeToolbar:true',
       'theme:light',
@@ -84,7 +87,7 @@ describe('editor boot sequence', () => {
     host.boot.initialize(config());
 
     const contentStep = host.steps.indexOf('content:# note');
-    for (const step of ['padding:14', 'nativeToolbar:true', 'theme:light']) {
+    for (const step of ['language:zh-Hans', 'padding:14', 'nativeToolbar:true', 'theme:light']) {
       expect(host.steps.indexOf(step)).toBeLessThan(contentStep);
     }
   });
@@ -107,13 +110,15 @@ describe('editor boot sequence', () => {
     host.boot.initialize(config());
 
     expect(host.posted).toEqual([{ type: 'initialized', version: BRIDGE_VERSION }]);
-    expect(host.steps).toHaveLength(6);
+    expect(host.steps).toHaveLength(7);
   });
 
   it('skips the optional settings a host does not supply', () => {
     const host = recordHost();
 
-    host.boot.initialize(config({ notesJson: undefined, imageBaseUrl: undefined }));
+    host.boot.initialize(
+      config({ notesJson: undefined, imageBaseUrl: undefined, languageTag: undefined }),
+    );
 
     expect(host.steps).toEqual([
       'padding:14',
@@ -130,8 +135,8 @@ describe('editor boot sequence', () => {
     ios.boot.initialize(config({ contentPaddingInlinePx: 14 }));
     android.boot.initialize(config({ contentPaddingInlinePx: 16 }));
 
-    expect(ios.steps[0]).toBe('padding:14');
-    expect(android.steps[0]).toBe('padding:16');
+    expect(ios.steps[1]).toBe('padding:14');
+    expect(android.steps[1]).toBe('padding:16');
   });
 
   it('lets a host that renders no native toolbar keep the web one', () => {
@@ -197,6 +202,7 @@ describe('renderer-death recovery', () => {
     host.boot.initialize(config());
 
     expect(host.steps).toEqual([
+      'language:zh-Hans',
       'padding:14',
       'nativeToolbar:true',
       'theme:light',
@@ -220,6 +226,18 @@ describe('renderer-death recovery', () => {
 });
 
 describe('incremental updates after boot', () => {
+  it('reconfigures language only when it changes', () => {
+    const host = recordHost();
+    host.boot.initialize(config({ languageTag: 'en' }));
+    host.steps.length = 0;
+
+    host.boot.setLanguage('en');
+    host.boot.setLanguage('zh-Hans');
+    host.boot.setLanguage('zh-Hans');
+
+    expect(host.steps).toEqual(['language:zh-Hans']);
+  });
+
   it('ignores a theme the editor already shows', () => {
     const host = recordHost();
     host.boot.initialize(config({ theme: 'light' }));
@@ -304,6 +322,7 @@ describe('parseEditorHostConfig', () => {
 
     expect(parsed).toEqual({
       bridgeVersion: 7,
+      languageTag: undefined,
       theme: 'dark',
       content: '',
       notesJson: undefined,
@@ -323,6 +342,7 @@ describe('parseEditorHostConfig', () => {
     ['a non-numeric inset', config({ contentPaddingInlinePx: '14' as unknown as number })],
     ['a non-string content', config({ content: 0 as unknown as string })],
     ['a non-string notes universe', config({ notesJson: [] as unknown as string })],
+    ['a non-string language tag', config({ languageTag: 42 as unknown as string })],
   ])('rejects %s', (_label, json) => {
     expect(parseEditorHostConfig(json)).toBeNull();
   });

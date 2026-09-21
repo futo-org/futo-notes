@@ -30,9 +30,10 @@ echo "units: $UNIT_DIR"
 
 # Substitute the machine-specific paths into the committed unit templates.
 mkdir -p "$UNIT_DIR"
-sed -e "s#__NODE_BIN__#${NODE_BIN}#g" -e "s#__REPO_DIR__#${REPO_DIR}#g" \
-  "$SCRIPT_DIR/futo-notes-issue-triage.service" \
-  > "$UNIT_DIR/futo-notes-issue-triage.service"
+for unit in futo-notes-issue-triage.service futo-notes-issue-triage-failure.service; do
+  sed -e "s#__NODE_BIN__#${NODE_BIN}#g" -e "s#__REPO_DIR__#${REPO_DIR}#g" \
+    "$SCRIPT_DIR/$unit" > "$UNIT_DIR/$unit"
+done
 sed -e "s#__REPO_DIR__#${REPO_DIR}#g" \
   "$SCRIPT_DIR/futo-notes-issue-triage.timer" \
   > "$UNIT_DIR/futo-notes-issue-triage.timer"
@@ -47,3 +48,4 @@ systemctl --user list-timers futo-notes-issue-triage.timer --no-pager || true
 echo
 echo "One-off manual poll:  systemctl --user start futo-notes-issue-triage.service"
 echo "Logs:                 journalctl --user -u futo-notes-issue-triage.service -n 50"
+echo "Failure alert logs:   journalctl --user -u futo-notes-issue-triage-failure.service -n 50"

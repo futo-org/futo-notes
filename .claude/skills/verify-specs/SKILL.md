@@ -16,15 +16,9 @@ this is the device-driven behavioral pass. Two modes, chosen from the invocation
   <tag>", "just the editor", "what changed on this branch") → map the diff to
   spec surfaces + affected platforms and QA only those.
 
-**Read `/mr-qa` and `/verify` first** — they are the source of truth for the
-isolation model, the pooled-device topology, per-platform driving playbooks,
-and the report format. This skill does **not** duplicate them; it adds three
-things on top: (1) **scope from the spec, not from an MR diff**, (2) a
-**Workflow-driven fan-out** that runs Sonnet at low effort and escalates only
-FAILs to high effort, and (3) **session-limit survival** so a mid-run death
-costs a resume, not a rerun. The subagent is `app-qa` (already Sonnet); the
-low/high effort split is applied per-call by the workflow, which the Agent tool
-cannot do.
+Read `.claude/skills/verify/references/session.md` for shared provisioning,
+isolation, evidence, and cleanup. Platform playbooks live beside it. This skill
+owns spec scoping, the workflow manifest, fan-out, and resumable aggregation.
 
 ## The pipeline at a glance
 
@@ -65,29 +59,10 @@ QA those, skip nav/tabs/settings*").
 
 ## Step 2 — Provision (inline; this is the expensive part, done once)
 
-Follow **`/mr-qa`'s `references/full-spec.md`** and **`/verify`'s "Isolation
-model"** verbatim for the mechanics. The full-run topology (worktree/leg
-table, surface groups, RAM caps, downshift rules) lives in
-**`references/full-run.md`** — read it for a full run. Scoped runs usually
-need only 1–2 worktrees; provision to the scope (`references/scoping.md`).
-
-Provisioning order (eat every build wait HERE, before the fan-out — an agent
-that idle-waits on a cold build gets force-collected):
-
-1. `git worktree add` the extras off the scope's commit; `pnpm install` in all
-   concurrently; `just qa-clone-target <worktree>` to seed a warm `target/`.
-2. Per worktree: `just qa-claim` → record the printed `SIM` / `ANDROID_SERIAL`.
-3. Pre-build every leg's app: `SIM=… just ios-native`, `just android-native`,
-   desktop per `/verify` `references/desktop.md` (NOT `just tauri-dev`).
-   Background them; within a worktree they serialize on the cargo lock (that's
-   queueing, not a hang); across worktrees they're parallel.
-4. `just qa-server` on the main worktree for the mesh (and for single-client
-   sync stories — give that leg its own slot server or tell it exactly what
-   already lives on the shared one).
-
-**Per-platform concurrency equals how many devices you claim** — never hand
-the workflow more device-backed legs of one platform than you booted devices
-for; that's the one way to oversubscribe.
+Follow `.claude/skills/verify/references/session.md` for provisioning. For a full
+run, `references/full-run.md` owns topology and resource limits; scoped runs use
+`references/scoping.md`. Pre-build all apps before fan-out. Never schedule more
+device-backed legs on a platform than the number of distinct devices claimed.
 
 ### Editor dedup — sweep the web editor once
 
@@ -203,7 +178,7 @@ sustain. A scoped run that fits one wave is far more likely to finish clean.
 ## Step 5 — Aggregate & report
 
 The workflow returns `{ legs, confirmedFails, overturned, needsResume,
-verdict }`. Present the `/verify`/`/mr-qa` report format:
+verdict }`. Use the shared session verdict format:
 
 - One verdict table per leg (story id → spec line → verdict → evidence path),
   reading the deep detail from each leg's ledger.
@@ -212,19 +187,17 @@ verdict }`. Present the `/verify`/`/mr-qa` report format:
 - **Overturned** (sweep FAIL the verify pass disproved) — report as a
   false-alarm line, and if it recurs, it's a signal the low-effort sweep is too
   trigger-happy on that surface.
-- Distinguish **BLOCKED** (environment can't exercise it — e.g. no Postgres →
-  sync mesh blocked; Linux → iOS blocked) from **FAIL**.
+- Distinguish **BLOCKED** (environment can't exercise it — e.g. no route to the
+  sync-server package registry → sync mesh blocked; Linux → iOS blocked) from
+  **FAIL**.
 - A confirmed new divergence → follow `/spec-sync` (record a `> **Gap:**` note
   inline in the area file). A regression against previously-verified
   behavior → recommend `/bugfix`, don't silently patch.
 
 ## Step 6 — Teardown
 
-Per worktree: `just qa-release --shutdown` (also stops that worktree's sync
-server), `just qa-server-stop --drop`, kill any launched desktop app, then
-`git worktree remove` unless the user wants to iterate. `just qa-gc` reaps
-strays. Delete `run.json` once the report is delivered and the user is done —
-its presence is the "resume me" signal.
+Follow the shared session teardown protocol. Keep `run.json` until the report is
+delivered and the user is done; its presence is the resume signal.
 
 ## Budgets (measured 2026-07, adjust with the effort experiment)
 

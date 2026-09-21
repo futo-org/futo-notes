@@ -52,6 +52,15 @@
  *      order (see `hostBoot.ts`). A v6 host would configure a v7 bundle only
  *      partially, and a v7 host's single `initialize` means nothing to a v6
  *      bundle, so both native hosts move together (M10).
+ * - 8: native find-in-note bars (openFind/setFindQuery/stepFind/closeFind/
+ *      setFindOverlayInset; findMatches outbound message). Additive — a v7
+ *      host never calls the new methods and simply drops the new report.
+ *      `setFindOverlayInset` joined this entry before v8 ever shipped (both
+ *      halves land in the same MR), so it needs no v9 of its own: the bump
+ *      precedent protects shipped hosts, and no host/bundle pair with a
+ *      narrower v8 exists. Optional even within v8 — a host that never calls
+ *      it gets overlay 0, correct for non-overlaying bars (Android's sibling
+ *      layout).
  *
  * `formatState` (Notion-style toolbar active-state — see
  * {@link FormatStateMessage}) is additive and ships WITHOUT a version bump: it
@@ -113,7 +122,7 @@
  * today's behavior, and both native hosts fall back to `onListLine` when
  * `inContainer` is absent — an older bundle meeting a newer host.
  */
-export const BRIDGE_VERSION = 7 as const;
+export const BRIDGE_VERSION = 8 as const;
 
 /** Editor color theme. */
 export type EditorTheme = 'light' | 'dark';
@@ -155,6 +164,7 @@ export interface FutoEditorApi {
   focus(): void;
   /** Switch the editor theme. */
   setTheme(theme: EditorTheme): void;
+  setLanguage(languageTag: string): void;
   /**
    * Populate the editor's note universe — a JSON-serialized
    * {@link BridgeNote}`[]` (JS↔native can only pass strings). Feeds the
@@ -180,6 +190,31 @@ export interface FutoEditorApi {
    * `futo-asset:///`, Android passes `file://<notesRoot>/`.
    */
   setImageBaseUrl(base: string): void;
+  /** Activate find and immediately report matches for the remembered query. */
+  openFind(): void;
+  /**
+   * Declare the height, in CSS px, of host chrome drawn OVER the editor's
+   * bottom edge, so find keeps the CURRENT match clear of it (docs/spec/
+   * editor.md requires the current match to be visible). iOS docks its find bar
+   * in a `.safeAreaInset` above a WebView that ignores the container's bottom
+   * safe area, so the bar covers the strip a match would otherwise be revealed
+   * into. Android does NOT call this: its bar is a sibling in the editor
+   * Column above a weighted WebView, so the WebView never extends underneath
+   * it — an inset there would scroll matches away from the bar for no reason.
+   *
+   * Optional and latched: a host that never calls it gets 0 — exactly the
+   * pre-existing reveal — and a host that does reports only when its bar's
+   * measured height changes, not on every open. Declaring it while find is
+   * already open re-reveals the current match against the new margin, which is
+   * what lets a shell report a height it only learns after laying the bar out.
+   */
+  setFindOverlayInset(bottomOverlayPx: number): void;
+  /** Replace the active literal query and recompute matches. */
+  setFindQuery(query: string): void;
+  /** Step by exactly -1 or +1 while find is active. */
+  stepFind(delta: number): void;
+  /** Deactivate find, clear highlights, and restore the pre-find selection and viewport. */
+  closeFind(): void;
   /**
    * Run a shared toolbar command by manifest id (a NATIVE toolbar button was
    * tapped). `commandId` is the id of an `exec` item in the toolbar manifest
@@ -475,6 +510,20 @@ export interface BlockPressMessage {
 }
 
 /**
+ * Emitted after each active find recomputation or step. `current` is one-based
+ * (zero only when there are no matches); `label` is the canonical display text
+ * native bars render verbatim so count wording cannot drift across shells.
+ */
+export interface FindMatchesMessage {
+  type: 'findMatches';
+  /** Canonical active query, including a selection-seeded query on open. */
+  query: string;
+  current: number;
+  total: number;
+  label: string;
+}
+
+/**
  * Editor → host messages, posted to the host's `futoBridge` message handler.
  * Discriminated on `type`.
  */
@@ -486,6 +535,7 @@ export type FutoEditorOutboundMessage =
   | FocusMessage
   | OpenNoteMessage
   | OpenUrlMessage
+  | FindMatchesMessage
   | PickImageMessage
   | CursorContextMessage
   | SaveImageDataMessage
@@ -512,6 +562,7 @@ export const OUTBOUND_MESSAGE_TYPES = [
   'focus',
   'openNote',
   'openUrl',
+  'findMatches',
   'pickImage',
   'cursorContext',
   'saveImageData',

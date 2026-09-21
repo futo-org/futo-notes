@@ -60,14 +60,14 @@ describe('SyncSettingsSection status precedence', () => {
 
   it('gives an escalated error priority over reconnecting', () => {
     const text = render('', true, true);
-    expect(text).toContain('Sync failed: HTTP 500');
+    expect(text).toContain('HTTP 500');
     expect(text).not.toContain('Reconnecting…');
   });
 
   it('gives transient operation progress priority over failure state', () => {
     const text = render('Uploading 1/2…', true, true);
     expect(text).toContain('Uploading 1/2…');
-    expect(text).not.toContain('Sync failed:');
+    expect(text).not.toContain('HTTP 500');
     expect(text).not.toContain('Reconnecting…');
   });
 });

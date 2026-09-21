@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
-use indexer::{Ctx, IndexerHandle, IndexerMsg};
+use indexer::{IndexerHandle, IndexerMsg};
 
 /// Default top-K search result limit.
 pub const DEFAULT_TOPK: usize = 50;
@@ -78,11 +78,16 @@ impl SearchEngine {
 
         let status = Arc::new(Mutex::new(SearchStatus::default()));
         let (tx, rx) = mpsc::unbounded_channel::<IndexerMsg>();
-        let ctx = Ctx::new(on_status);
 
         let handle = {
             let _guard = runtime.enter();
-            indexer::spawn(ctx, config.notes_root, config.index_dir, rx, status.clone())?
+            indexer::spawn(
+                on_status,
+                config.notes_root,
+                config.index_dir,
+                rx,
+                status.clone(),
+            )?
         };
 
         Ok(Self {

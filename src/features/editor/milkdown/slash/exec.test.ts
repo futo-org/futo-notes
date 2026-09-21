@@ -34,12 +34,12 @@ describe('the Image item', () => {
   });
 
   it('opens the host picker and inserts what comes back', async () => {
-    const pickImage = vi.fn().mockResolvedValue('/home/me/holiday.png');
-    const saveImage = vi.fn().mockResolvedValue('image-77.png');
+    const bytes = new ArrayBuffer(4);
+    const pickImages = vi.fn().mockResolvedValue([{ bytes, extension: 'png' }]);
+    const saveImageBytes = vi.fn().mockResolvedValue('image-77.png');
     getFS.mockReturnValue({
-      pickImage,
-      saveImage,
-      saveImageBytes: vi.fn(),
+      pickImages,
+      saveImageBytes,
       getImageUrl: vi.fn().mockResolvedValue('asset://image-77.png'),
     });
 
@@ -47,12 +47,12 @@ describe('the Image item', () => {
     createSlashExec(() => ({ action }) as never).image(0, 0);
 
     await vi.waitFor(() => expect(action).toHaveBeenCalled());
-    expect(pickImage).toHaveBeenCalled();
-    expect(saveImage).toHaveBeenCalledWith('/home/me/holiday.png');
+    expect(pickImages).toHaveBeenCalled();
+    expect(saveImageBytes).toHaveBeenCalledWith(bytes, 'png');
   });
 
   it('does nothing on a host with no picker, rather than throwing', async () => {
-    getFS.mockReturnValue({ saveImage: vi.fn(), getImageUrl: vi.fn() });
+    getFS.mockReturnValue({ saveImageBytes: vi.fn(), getImageUrl: vi.fn() });
 
     const action = vi.fn();
     expect(() => createSlashExec(() => ({ action }) as never).image(0, 0)).not.toThrow();
@@ -70,18 +70,17 @@ describe('the Image item', () => {
     });
     const exec = createSlashExec(() => null);
 
-    const pickImage = vi.fn().mockResolvedValue(null);
+    const pickImages = vi.fn().mockResolvedValue([]);
     getFS.mockReset();
     getFS.mockReturnValue({
-      pickImage,
-      saveImage: vi.fn(),
+      pickImages,
       saveImageBytes: vi.fn(),
       getImageUrl: vi.fn(),
     });
 
     exec.image(0, 0);
 
-    await vi.waitFor(() => expect(pickImage).toHaveBeenCalled());
+    await vi.waitFor(() => expect(pickImages).toHaveBeenCalled());
   });
 });
 

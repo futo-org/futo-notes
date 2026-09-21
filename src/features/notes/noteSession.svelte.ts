@@ -1,7 +1,7 @@
 import { hasFileSystem } from '$lib/platform';
 import { sanitizeFilename } from '$lib/rules';
 import type { NotePreview } from '$shared/types/note';
-import { notifySavedV2 } from '$features/sync/autoSyncV2';
+import { notifySaved } from '$features/sync/autoSync';
 import { createNoteSaveQueue } from './noteSaveQueue';
 import { createNoteTitleController } from './createNoteTitleController.svelte';
 import { createNotePersistence } from './createNotePersistence';
@@ -12,12 +12,6 @@ import {
   normalizeTitleForPersistence,
 } from './noteSessionChanges';
 import { getNoteById } from './notes.svelte';
-
-export {
-  editorHasUnseenChanges,
-  isEditorChangeEcho,
-  shouldWriteNoteToDisk,
-} from './noteSessionChanges';
 
 export interface NoteSessionDeps {
   getEditorContent: () => string | undefined;
@@ -63,7 +57,6 @@ export interface NoteSession {
   debouncedSave: (content?: string) => void;
   resumeDraftPersistence: () => void;
   flushSave: () => Promise<void>;
-  awaitSaveIdle: () => Promise<void>;
   runWithSaveLock: <T>(operation: () => Promise<T>) => Promise<T>;
   loadNote: (id: string | null) => Promise<void>;
   handleTitleInput: (event: Event) => void;
@@ -118,6 +111,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   let savedTitle = $state('');
   let loading = $state(false);
   let savedContent = '';
+  let pendingNewFolder: string | null = null;
 
   let suppressSaveOnChange = false;
 
@@ -148,20 +142,23 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     },
     hasDuplicateTitle,
     scheduleSave: () => debouncedSave(),
-    flushSave: () => void saveQueue.flush(),
+    flushSave: () => void saveQueue.flush().catch(() => {}),
     focusEditor: deps.focusEditor,
     getTextarea: deps.getTitleTextarea,
   });
   const saveNote = createNotePersistence({
     getEditorContent: deps.getEditorContent,
     getNoteId: deps.getNoteId,
-    getPendingFolder: () => deps.getPendingFolder?.() ?? null,
-    clearPendingFolder: () => deps.clearPendingFolder?.(),
+    getPendingFolder: () => pendingNewFolder ?? deps.getPendingFolder?.() ?? null,
+    clearPendingFolder: () => {
+      pendingNewFolder = null;
+      deps.clearPendingFolder?.();
+    },
     getState: () => ({ title, originalId, savedTitle, savedContent, content }),
     hasDuplicateTitle,
     showTitleWarning: (message) => titleController.showWarning(message, null),
     reconcileOpenNote: deps.reconcileOpenNote,
-    onSaved: ({ id, title: newTitle, content: newContent, savedOriginalId }) => {
+    onSaved: ({ id, title: newTitle, content: newContent, savedOriginalId, requestedTitle }) => {
       // A first save has no original id, so the route must still identify the
       // new-note session; existing-note saves remain bound by original id.
       const isCurrentSave =
@@ -173,6 +170,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       if (deps.getEditorContent() === newContent) content = newContent;
       savedContent = newContent;
       savedTitle = newTitle;
+      if (title === requestedTitle) title = newTitle;
       if (savedOriginalId !== id) deps.onNoteRenamed(savedOriginalId, id);
     },
   });
@@ -190,13 +188,21 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   const saveQueue = createNoteSaveQueue({
     save: () => serializePersistence(saveNote),
     hasUnseenChanges: hasUnseenEditorChanges,
-    notifySaved: notifySavedV2,
+    notifySaved,
   });
   const noteLoader = createNoteLoader({
     flushSave: saveQueue.flush,
     getNotes: deps.getNotes,
     getEditorContent: deps.getEditorContent,
-    openNote: (value) => deps.openEditorNote(value),
+    /* `noteId` is the loader's own signal, not the editor's: this branch's
+     * `deps.openEditorNote` takes only the body. A null id opening over the
+     * `new` route is the one case that must remember the folder the note was
+     * created in, because `clearPendingFolder` runs before the first save. */
+    openNote: (noteId, value) => {
+      if (noteId === null && deps.getNoteId() === 'new')
+        pendingNewFolder = deps.getPendingFolder?.() ?? null;
+      deps.openEditorNote(value);
+    },
     getNoteBody: deps.getNoteBody,
     focusEditor: deps.focusEditor,
     autoResizeTitle: titleController.autoResizeTextarea,
@@ -218,7 +224,8 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   }
 
   function hasUnseenEditorChanges(): boolean {
-    if (loading || !hasFileSystem || deps.getNoteId() === null) return false;
+    if (loading || !hasFileSystem) return false;
+    if (deps.getNoteId() === null && originalId === null && !title) return false;
     return editorHasUnseenChanges({
       editorContent: deps.getEditorContent(),
       savedContent,
@@ -307,9 +314,6 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     get title() {
       return title;
     },
-    set title(v: string) {
-      title = v;
-    },
     get content() {
       return content;
     },
@@ -349,7 +353,6 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     debouncedSave,
     resumeDraftPersistence: saveQueue.resume,
     flushSave: saveQueue.flush,
-    awaitSaveIdle: saveQueue.awaitSaveIdle,
     runWithSaveLock,
     loadNote: noteLoader.load,
     handleTitleInput: titleController.handleInput,

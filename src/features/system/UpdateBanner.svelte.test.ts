@@ -102,7 +102,7 @@ describe('UpdateBanner', () => {
     expect(upd.restart).not.toHaveBeenCalled();
   });
 
-  it('error: shows "Update failed", exposes the message as a title, retries on click', () => {
+  it('error: shows a localized title without exposing the diagnostic, retries on click', () => {
     upd.bannerVisible = true;
     upd.phase = 'error';
     upd.pending = { version: '1.6.0', currentVersion: '1.5.0' };
@@ -111,7 +111,7 @@ describe('UpdateBanner', () => {
 
     expect(el.querySelector('.update-pill-label')?.textContent).toContain('Update failed');
     const pill = el.querySelector('.update-pill') as HTMLButtonElement;
-    expect(pill.title).toContain('invalid encoding in minisign data');
+    expect(pill.title).toBe('Update failed');
 
     pill.click();
     expect(upd.install).toHaveBeenCalledOnce();

@@ -17,12 +17,14 @@ import { dirname, resolve } from 'node:path';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CI = readFileSync(resolve(ROOT, '.gitlab-ci.yml'), 'utf8');
 
-/** Pull the stable-tag regex out of the `$CI_COMMIT_TAG =~ /.../` release rule. */
+/** Pull the stable-tag regex out of the `release:` job's `$CI_COMMIT_TAG =~ /.../` rule. */
 function extractStableTagRegex() {
-  // The only `=~` against $CI_COMMIT_TAG in the file is the release: channel gate.
-  const m = CI.match(/\$CI_COMMIT_TAG\s*=~\s*\/(\^v.+?\$)\//);
-  if (!m)
-    throw new Error('could not find the $CI_COMMIT_TAG =~ /.../ release rule in .gitlab-ci.yml');
+  // Several publish jobs carry the same guard; anchor on the `release:` job so a
+  // broadening of THAT rule cannot hide behind an untouched sibling.
+  const start = CI.search(/^release:\s*$/m);
+  if (start === -1) throw new Error('could not find the release: job in .gitlab-ci.yml');
+  const m = CI.slice(start).match(/\$CI_COMMIT_TAG\s*=~\s*\/(\^v.+?\$)\//);
+  if (!m) throw new Error('could not find the $CI_COMMIT_TAG =~ /.../ rule in the release: job');
   return new RegExp(m[1]);
 }
 

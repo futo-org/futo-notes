@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { EmptyFolderPlaceholderNode } from './folderTree';
+  import { localizedText } from '$shared/localization';
 
   interface Props {
     node: EmptyFolderPlaceholderNode;
@@ -20,5 +21,5 @@
   data-folder-path={node.parentPath}
   data-testid="folder-empty-state"
 >
-  Nothing here yet
+  {localizedText('folders.empty')}
 </div>

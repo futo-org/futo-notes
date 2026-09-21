@@ -24,9 +24,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.NorthEast
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -56,6 +60,8 @@ import com.futo.notes.NotesStore
 import com.futo.notes.Prefs
 import com.futo.notes.storage.StorageMode
 import com.futo.notes.SyncManager
+import com.futo.notes.localization.LocalLocalization
+import com.futo.notes.localization.Localization
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.MicroLabel
 import com.futo.notes.ui.components.TopBar
@@ -69,12 +75,11 @@ import kotlinx.coroutines.withContext
 enum class ThemeMode { LIGHT, DARK, AUTO }
 
 private const val SOURCE_URL = "https://gitlab.futo.org/futo-notes/futo-notes"
-private const val ISSUE_TRACKER_URL = "https://github.com/futo-org/futo-notes/issues"
 
-private fun storageModeLabel(mode: StorageMode): String = when (mode) {
-    StorageMode.DEVICE -> "Shared folder · visible in Files"
-    StorageMode.APP -> "App folder · private"
-    StorageMode.INTERNAL -> "Internal · private (legacy)"
+private fun storageModeLabel(mode: StorageMode, localization: Localization): String = when (mode) {
+    StorageMode.DEVICE -> localization.localizedText("settings.storage.sharedFolderDescription")
+    StorageMode.APP -> localization.localizedText("settings.storage.appFolderDescription")
+    StorageMode.INTERNAL -> localization.localizedText("settings.storage.legacyInternalDescription")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -84,12 +89,16 @@ fun SettingsScreen(
     sync: SyncManager,
     themeMode: ThemeMode,
     onThemeMode: (ThemeMode) -> Unit,
+    selectedLanguageTag: String?,
+    onSelectLanguage: (String?) -> Unit,
     onOpenSync: () -> Unit,
+    onOpenFeedback: () -> Unit,
     storageMode: StorageMode,
     onChangeStorage: () -> Unit,
     onBack: () -> Unit,
 ) {
     val c = FutoTheme.colors
+    val localization = LocalLocalization.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Same prefs file the Activity already loaded — getSharedPreferences is a
@@ -105,10 +114,20 @@ fun SettingsScreen(
         containerColor = c.surface,
         topBar = {
             TopBar(
-                title = { Text("Settings", style = FutoType.title, color = c.textPrimary) },
+                title = {
+                    Text(
+                        localization.localizedText("settings.heading"),
+                        style = FutoType.title,
+                        color = c.textPrimary,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = c.textSecondary)
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = localization.localizedText("common.actions.back"),
+                            tint = c.textSecondary,
+                        )
                     }
                 },
             )
@@ -122,21 +141,42 @@ fun SettingsScreen(
             // The whole Sync surface is one "Self-hosted sync" row: cloud icon,
             // connected-vs-local status, SYNCED/LOCAL badge. No separate account
             // header, no separate "Server" row (settings.md). Routes to SyncScreen.
-            SettingsGroup("Sync") {
+            SettingsGroup(localization.localizedText("settings.sections.sync")) {
                 SettingsRow(
-                    title = "Self-hosted sync",
-                    subtitle = sync.status,
+                    title = localization.localizedText("settings.sync.selfHosted"),
+                    subtitle = sync.localizedStatus(localization),
                     onClick = onOpenSync,
                     leading = { Icon(Icons.Filled.Cloud, contentDescription = null, tint = c.textAccent) },
                 ) { SyncBadge(connected = sync.connected) }
             }
 
-            SettingsGroup("Appearance") {
-                SettingsRow(title = "Theme") {
+            SettingsGroup(localization.localizedText("settings.sections.appearance")) {
+                SettingsRow(title = localization.localizedText("settings.appearance.theme")) {
                     Segmented(
-                        options = listOf("Light", "Dark", "Auto"),
+                        options = listOf(
+                            localization.localizedText("settings.appearance.light"),
+                            localization.localizedText("settings.appearance.dark"),
+                            localization.localizedText("settings.appearance.auto"),
+                        ),
                         selectedIndex = themeMode.ordinal,
                         onSelect = { onThemeMode(ThemeMode.entries[it]) },
+                    )
+                }
+            }
+
+            SettingsGroup(localization.localizedText("settings.language.heading")) {
+                SettingsRow(
+                    title = localization.localizedText("settings.language.heading"),
+                    leading = {
+                        Icon(Icons.Filled.Language, contentDescription = null, tint = c.textAccent)
+                    },
+                ) {
+                    LanguageMenu(
+                        localization = localization,
+                        selectedLanguageTag = selectedLanguageTag?.let {
+                            localization.effectiveLanguage.tag
+                        },
+                        onSelect = onSelectLanguage,
                     )
                 }
             }
@@ -144,8 +184,11 @@ fun SettingsScreen(
             // Issue reporting [settings.md]. Reports never leave the device
             // without the toggle being on (and either a per-crash OK or the
             // always-send opt-in).
-            SettingsGroup("Issue reporting") {
-                SettingsRow(title = "Share crash reports", subtitle = "Reports are saved locally first") {
+            SettingsGroup(localization.localizedText("settings.sections.issueReporting")) {
+                SettingsRow(
+                    title = localization.localizedText("settings.issueReporting.shareCrashReports"),
+                    subtitle = localization.localizedText("settings.issueReporting.reportsSavedLocallyFirst"),
+                ) {
                     Switch(
                         checked = crashEnabled,
                         onCheckedChange = {
@@ -157,7 +200,10 @@ fun SettingsScreen(
                 }
                 if (crashEnabled) {
                     Divider()
-                    SettingsRow(title = "Send crashes automatically", subtitle = "Skip the crash dialog") {
+                    SettingsRow(
+                        title = localization.localizedText("settings.issueReporting.sendAutomatically"),
+                        subtitle = localization.localizedText("settings.issueReporting.skipCrashDialog"),
+                    ) {
                         Switch(
                             checked = crashAlwaysSend,
                             onCheckedChange = {
@@ -170,16 +216,12 @@ fun SettingsScreen(
                 }
                 Divider()
                 SettingsRow(
-                    title = "Report an issue",
-                    subtitle = "Open the GitHub issue tracker",
-                    onClick = {
-                        runCatching {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ISSUE_TRACKER_URL)))
-                        }
-                    },
+                    title = localization.localizedText("settings.issueReporting.sendFeedback"),
+                    subtitle = localization.localizedText("settings.issueReporting.sendFeedbackDescription"),
+                    onClick = onOpenFeedback,
                 ) {
                     Icon(
-                        Icons.Filled.NorthEast,
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
                         contentDescription = null,
                         tint = c.textMuted,
                         modifier = Modifier.size(18.dp),
@@ -187,10 +229,10 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsGroup("Storage") {
+            SettingsGroup(localization.localizedText("settings.sections.storage")) {
                 SettingsRow(
-                    title = "Storage location",
-                    subtitle = storageModeLabel(storageMode),
+                    title = localization.localizedText("settings.storage.storageLocation"),
+                    subtitle = storageModeLabel(storageMode, localization),
                     onClick = onChangeStorage,
                 ) {
                     Icon(
@@ -201,18 +243,21 @@ fun SettingsScreen(
                     )
                 }
                 Divider()
-                SettingsRow(title = "Folder", subtitle = store.rootPath)
+                SettingsRow(
+                    title = localization.localizedText("settings.storage.folder"),
+                    subtitle = store.rootPath,
+                )
             }
 
-            SettingsGroup("About") {
+            SettingsGroup(localization.localizedText("settings.sections.about")) {
                 SettingsRow(
-                    title = "Open source",
+                    title = localization.localizedText("settings.about.openSource"),
                     onClick = {
                         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(SOURCE_URL))) }
                     },
                 ) { Icon(Icons.Filled.NorthEast, contentDescription = null, tint = c.textMuted, modifier = Modifier.size(18.dp)) }
                 Divider()
-                SettingsRow(title = "Version") {
+                SettingsRow(title = localization.localizedText("settings.about.version")) {
                     Text(
                         BuildConfig.VERSION_NAME,
                         style = FutoType.caption.copy(fontFamily = FontFamily.Monospace),
@@ -221,27 +266,30 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsGroup("Danger zone") {
+            SettingsGroup(localization.localizedText("settings.sections.dangerZone")) {
                 SettingsRow(
-                    title = "Full reset",
+                    title = localization.localizedText("settings.danger.fullReset"),
                     // Shared copy [settings-visual.md "Copy is shared"] — same
                     // wording as desktop's Danger-zone row.
-                    subtitle = "Permanently remove all notes and app data",
+                    subtitle = localization.localizedText("settings.danger.permanentlyRemoveAll"),
                     titleColor = c.danger,
                     onClick = { confirmReset = true },
                 )
             }
 
             if (BuildConfig.DEBUG) {
-                SettingsGroup("Debug") {
+                SettingsGroup(localization.localizedText("settings.debug.heading")) {
                     SettingsRow(
-                        title = "Test crash",
-                        subtitle = "Throws RuntimeException to exercise the crash pipeline",
+                        title = localization.localizedText("settings.debug.testCrash.title"),
+                        subtitle = localization.localizedText(
+                            "settings.debug.testCrash.android.description",
+                        ),
                         titleColor = c.danger,
                         onClick = { throw RuntimeException("Test crash from Settings (debug)") },
                     )
                 }
             }
+
             Spacer(Modifier.height(32.dp))
         }
     }
@@ -250,25 +298,28 @@ fun SettingsScreen(
     // be able to wipe the vault — only confirming in this dialog deletes.
     if (confirmReset) {
         ConfirmDialog(
-            title = "Full reset",
-            body = "Permanently delete all notes and app data? This cannot be undone.",
-            confirmLabel = "Delete everything",
+            title = localization.localizedText("settings.danger.fullReset"),
+            body = localization.localizedText("settings.danger.confirmation"),
+            confirmLabel = localization.localizedText("settings.danger.deleteEverything"),
             onConfirm = {
                 confirmReset = false
                 resetting = true
                 scope.launch {
-                    // Pause live sync + auto-push so the wipe can't race a
-                    // push, wipe the vault, then drop the session (also clears
-                    // the stored password). Parity model: desktop
-                    // resetAllNotes (src/app/resetAllNotes.ts).
-                    sync.pauseLive()
+                    // Close writer admission, join sync and discard its stored
+                    // credential, then drain old work before wiping the vault.
                     store.suppressAutoPush = true
                     try {
                         withContext(NonCancellable) {
-                            store.deleteAll()
-                            sync.disconnect()
+                            store.deleteAll { sync.disconnectForReset() }
                         }
+                    } catch (e: Exception) {
+                        android.widget.Toast.makeText(
+                            context,
+                            localization.localizedText("settings.danger.failed"),
+                            android.widget.Toast.LENGTH_LONG,
+                        ).show()
                     } finally {
+                        sync.finishReset()
                         store.suppressAutoPush = false
                         resetting = false
                     }
@@ -293,7 +344,11 @@ fun SettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(20.dp)) {
                     CircularProgressIndicator(color = c.accent, strokeWidth = 2.5.dp, modifier = Modifier.size(22.dp))
                     Spacer(Modifier.width(14.dp))
-                    Text("Deleting all notes…", style = FutoType.body, color = c.textPrimary)
+                    Text(
+                        localization.localizedText("settings.danger.deleting"),
+                        style = FutoType.body,
+                        color = c.textPrimary,
+                    )
                 }
             }
         }
@@ -301,11 +356,57 @@ fun SettingsScreen(
     }
 }
 
+@Composable
+private fun LanguageMenu(
+    localization: Localization,
+    selectedLanguageTag: String?,
+    onSelect: (String?) -> Unit,
+) {
+    val c = FutoTheme.colors
+    val systemOption = localization.localizedText("settings.language.systemOption")
+    val options = listOf<Pair<String?, String>>(null to systemOption) +
+        localization.availableLanguages.map { it.tag to it.nativeName }
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.clickable { expanded = true },
+        ) {
+            Text(
+                options.firstOrNull { it.first == selectedLanguageTag }?.second ?: systemOption,
+                color = c.textMuted,
+            )
+            Icon(
+                Icons.Filled.ArrowDropDown,
+                contentDescription = null,
+                tint = c.textMuted,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            for ((languageTag, name) in options) {
+                DropdownMenuItem(
+                    text = { Text(name) },
+                    onClick = {
+                        expanded = false
+                        if (languageTag != selectedLanguageTag) onSelect(languageTag)
+                    },
+                )
+            }
+        }
+    }
+}
+
 /// SYNCED / LOCAL pill shown on the single "Self-hosted sync" row.
 @Composable
 private fun SyncBadge(connected: Boolean) {
     val c = FutoTheme.colors
-    val badge = if (connected) "SYNCED" else "LOCAL"
+    val localization = LocalLocalization.current
+    val badge = if (connected) {
+        localization.localizedText("settings.sync.syncedBadge")
+    } else {
+        localization.localizedText("settings.sync.localBadge")
+    }
     val badgeColor = if (connected) c.success else c.textMuted
     Surface(color = badgeColor.copy(alpha = 0.14f), shape = RoundedCornerShape(FutoRadius.pill)) {
         Text(

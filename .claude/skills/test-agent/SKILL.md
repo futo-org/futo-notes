@@ -82,8 +82,8 @@ mkdir -p "$TEST_AGENT_DIR"/{tests,results,screenshots}
 
 #### Writing ephemeral sync tests
 
-The sync server is a separate repo (`~/Developer/futo-notes-server`) — there is no server crate in
-this repo to write Rust integration tests against. Sync-engine logic (conflicts, merges,
+The sync server is a separate repo, run from the release pinned in `scripts/sync-server-pin.json`
+— there is no server crate in this repo to write Rust integration tests against. Sync-engine logic (conflicts, merges,
 tombstones, multi-device) lives in `crates/futo-notes-sync` and is tested there:
 
 ```bash

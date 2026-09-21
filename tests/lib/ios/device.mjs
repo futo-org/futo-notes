@@ -52,7 +52,7 @@ export function createIosDevice({ udid = process.env.SIM } = {}) {
     const limit = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const interval = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     const deadline = Date.now() + limit;
-    let lastError = null;
+    let lastError;
 
     for (;;) {
       try {

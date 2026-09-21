@@ -1,7 +1,7 @@
 //! Tauri commands for image import and clipboard paste.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use tauri::AppHandle;
 
@@ -40,21 +40,6 @@ fn write_image(root: &Path, bytes: &[u8], extension: &str) -> Result<String, Str
 }
 
 #[tauri::command]
-pub async fn fs_save_image(app: AppHandle, source_path: String) -> Result<String, String> {
-    blocking(move || {
-        let source = PathBuf::from(source_path);
-        let extension = source
-            .extension()
-            .and_then(|value| value.to_str())
-            .unwrap_or("jpg");
-        let extension = validate_extension(extension)?;
-        let bytes = fs::read(source).map_err(io_error)?;
-        write_image(&crate::vault_location::root(&app)?, &bytes, &extension)
-    })
-    .await
-}
-
-#[tauri::command]
 pub async fn fs_paste_clipboard_image(app: AppHandle) -> Result<String, String> {
     blocking(move || {
         use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -90,6 +75,7 @@ pub async fn fs_paste_clipboard_image(app: AppHandle) -> Result<String, String> 
 mod tests {
     //! Tests for image import and validation commands.
     use super::*;
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     fn temp_dir() -> PathBuf {

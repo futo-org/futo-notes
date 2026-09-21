@@ -58,7 +58,7 @@ describe('createCurrentNoteActions', () => {
     expect(mocks.deleteNote.mock.invocationCallOrder[0]).toBeLessThan(
       onDeleteConfirmed.mock.invocationCallOrder[0],
     );
-    expect(showToast).toHaveBeenCalledWith('Note deleted');
+    expect(showToast).toHaveBeenCalledWith({ path: 'notes.deleted' });
   });
 
   it('keeps the graph stub as a toast-only action', () => {
@@ -74,7 +74,7 @@ describe('createCurrentNoteActions', () => {
 
     actions.graphView();
 
-    expect(showToast).toHaveBeenCalledWith('coming soon');
+    expect(showToast).toHaveBeenCalledWith({ path: 'notes.graphComingSoon' });
   });
 
   it('shows a failure toast and does not reject when the move fails', async () => {
@@ -92,7 +92,7 @@ describe('createCurrentNoteActions', () => {
 
     await expect(actions.moveToFolder('Archive')).resolves.toBeUndefined();
 
-    expect(showToast).toHaveBeenCalledWith('A note with that name already exists');
+    expect(showToast).toHaveBeenCalledWith({ path: 'notes.errors.moveFailed' });
     expect(onMoved).not.toHaveBeenCalled();
   });
 });
@@ -123,7 +123,7 @@ describe('createCurrentNoteActions note targeting', () => {
     await actions.deleteCurrentNote();
 
     expect(mocks.deleteNote).not.toHaveBeenCalled();
-    expect(showToast).toHaveBeenCalledWith('That note is no longer available');
+    expect(showToast).toHaveBeenCalledWith({ path: 'notes.unavailable' });
   });
 
   it('deletes the picked note, not one navigated to while the flush ran', async () => {
@@ -196,7 +196,7 @@ describe('createCurrentNoteActions note targeting', () => {
 
     expect(mocks.deleteNote).not.toHaveBeenCalled();
     expect(onDeleted).not.toHaveBeenCalled();
-    expect(showToast).toHaveBeenCalledWith('That note is no longer available');
+    expect(showToast).toHaveBeenCalledWith({ path: 'notes.unavailable' });
   });
 
   it('moves the picked note, not one navigated to while the flush ran', async () => {

@@ -29,14 +29,26 @@ export interface PlatformStorage {
   listAppData(dir: string): Promise<string[]>;
   listDirFiles(): Promise<DirFileEntry[]>;
   deleteFile(filename: string): Promise<void>;
-  saveImage(sourcePath: string): Promise<string>;
   saveImageBytes?(data: ArrayBuffer, ext: string): Promise<string>;
   getImageUrl(filename: string): Promise<string>;
   getAppVersion(): Promise<string>;
 }
 
+export interface PickedImage {
+  bytes: ArrayBuffer;
+  extension: string;
+}
+
 export interface NativeCapabilities {
-  pickImage?(): Promise<string | null>;
+  pickImages?(options: { limit?: number; filterName: string }): Promise<PickedImage[]>;
+  /**
+   * Copy an image the OS handed us as a PATH, with no bytes, into the vault and
+   * return its vault filename. That shape is a Linux WebKitGTK drop and Tauri's
+   * own drag-drop event (src/features/editor/imageInsert.ts) — every other drop
+   * arrives as `File` bytes and goes through `saveImageBytes` instead. Present
+   * only where the host can read an arbitrary OS path.
+   */
+  saveImagePath?(sourcePath: string): Promise<string>;
   /**
    * Reads an image off the OS clipboard into the vault and returns its
    * filename. Present only where the OS clipboard is reachable at all (Tauri

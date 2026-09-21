@@ -28,8 +28,8 @@ class SyncManagerOutcomeTest {
             ),
         )
         mgr.applyOutcome(summary())
-        assertEquals("Sync complete", mgr.status)
-        assertNull(mgr.lastError)
+        assertEquals("sync.status.complete", mgr.statusMessage.path)
+        assertNull(mgr.lastErrorDiagnostic)
     }
 
     @Test
@@ -45,7 +45,7 @@ class SyncManagerOutcomeTest {
                 failureMessage = message,
             ),
         )
-        assertEquals("Error", mgr.status)
-        assertEquals(message, mgr.lastError)
+        assertEquals("sync.status.error", mgr.statusMessage.path)
+        assertEquals(message, mgr.lastErrorDiagnostic)
     }
 }

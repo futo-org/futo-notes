@@ -38,6 +38,7 @@ export interface EditorHostConfig {
    * is reported rather than enforced.
    */
   bridgeVersion: number;
+  languageTag?: string;
   /** Editor color theme. */
   theme: EditorTheme;
   /** The open note's markdown. */
@@ -64,6 +65,7 @@ export interface EditorHostConfig {
 /** The page-level effects {@link createEditorHostBoot} drives. */
 export interface EditorHostEffects {
   applyContentPadding(px: number): void;
+  applyLanguage(languageTag: string): void;
   applyNativeToolbar(enabled: boolean): void;
   applyTheme(theme: EditorTheme): void;
   applyImageBaseUrl(base: string): void;
@@ -83,6 +85,7 @@ export interface EditorHostEffects {
 export interface EditorHostBoot {
   /** Apply a whole {@link EditorHostConfig} (JSON) — the boot sequence. */
   initialize(configJson: string): void;
+  setLanguage(languageTag: string): void;
   setTheme(theme: EditorTheme): void;
   setContent(markdown: string): void;
   setNotes(notesJson: string): void;
@@ -119,9 +122,11 @@ export function parseEditorHostConfig(configJson: string): EditorHostConfig | nu
   if (typeof candidate.contentPaddingInlinePx !== 'number') return null;
   if (!isOptionalString(candidate.notesJson)) return null;
   if (!isOptionalString(candidate.imageBaseUrl)) return null;
+  if (!isOptionalString(candidate.languageTag)) return null;
 
   return {
     bridgeVersion: candidate.bridgeVersion,
+    languageTag: candidate.languageTag,
     theme: candidate.theme,
     content: candidate.content,
     notesJson: candidate.notesJson,
@@ -146,6 +151,7 @@ export function createEditorHostBoot(
   // reference for "is this a change?" is the live document, not what we last
   // received.
   let appliedTheme: EditorTheme | null = null;
+  let appliedLanguageTag: string | null = null;
   let appliedNotesJson: string | null = null;
   let appliedImageBaseUrl: string | null = null;
 
@@ -174,6 +180,7 @@ export function createEditorHostBoot(
       //       the base URL and the note universe already in place that happens
       //       on the first render instead of needing a second pass.
       //   6   the note text, last — the frame the user is waiting for.
+      if (config.languageTag !== undefined) effects.applyLanguage(config.languageTag);
       effects.applyContentPadding(config.contentPaddingInlinePx);
       effects.applyNativeToolbar(config.nativeToolbar);
       effects.applyTheme(config.theme);
@@ -182,10 +189,17 @@ export function createEditorHostBoot(
       effects.applyContent(config.content);
 
       appliedTheme = config.theme;
+      appliedLanguageTag = config.languageTag ?? null;
       appliedNotesJson = config.notesJson ?? null;
       appliedImageBaseUrl = config.imageBaseUrl ?? null;
 
       effects.post({ type: 'initialized', version: bundleVersion });
+    },
+
+    setLanguage(languageTag: string): void {
+      if (languageTag === appliedLanguageTag) return;
+      appliedLanguageTag = languageTag;
+      effects.applyLanguage(languageTag);
     },
 
     setTheme(theme: EditorTheme): void {

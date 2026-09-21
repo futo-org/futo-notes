@@ -1,5 +1,6 @@
 <script lang="ts">
   import { TOOLBAR_GROUPS, TOOLBAR_DISMISS, type ToolbarItem } from '@futo-notes/editor';
+  import { localizedText } from '$shared/localization';
   import type { Component } from 'svelte';
   import {
     Bold,
@@ -174,7 +175,7 @@
               onmousedown={preventFocus}
               ontouchstart={preventFocus}
               onclick={() => activate(item)}
-              aria-label={item.label}
+              aria-label={localizedText(item.localizationPath)}
               >{#if item.text}{item.text}{:else}<Icon
                   size={18}
                   strokeWidth={item.action.kind === 'pickImage' ? 2 : 2.5}
@@ -189,7 +190,8 @@
       onmousedown={preventFocus}
       ontouchstart={preventFocus}
       onclick={() => activate(TOOLBAR_DISMISS)}
-      aria-label={TOOLBAR_DISMISS.label}><DismissIcon size={20} strokeWidth={2.5} /></button
+      aria-label={localizedText(TOOLBAR_DISMISS.localizationPath)}
+      ><DismissIcon size={20} strokeWidth={2.5} /></button
     >
   </div>
 {/if}

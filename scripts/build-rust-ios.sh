@@ -2,9 +2,14 @@
 # Build futo-notes-ffi for iOS (device + simulator), generate the UniFFI Swift
 # bindings, and assemble FutoNotesFfi.xcframework that the SwiftUI app links.
 #
-# NOTE: built with the DEV profile on purpose — the workspace release profile
-# uses panic="abort", which breaks UniFFI's panic catching.
+# Built with the `release-ffi` profile (Cargo.toml) by default: the workspace
+# release profile uses panic="abort", which breaks UniFFI's panic catching.
+# FUTO_IOS_FFI_PROFILE=dev skips LTO so this script reruns in ~10s instead of
+# ~50s after a crate edit; apps/ios/run.sh and run-device.sh set it.
 set -euo pipefail
+
+PROFILE="${FUTO_IOS_FFI_PROFILE:-release-ffi}"
+case "$PROFILE" in dev) OUT_DIR=debug ;; *) OUT_DIR="$PROFILE" ;; esac
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -21,13 +26,13 @@ XCF="$APP/FutoNotesFfi.xcframework"
 HEADERS="$ROOT/target/uniffi-headers"
 
 echo "==> Building futo-notes-ffi for device (aarch64-apple-ios)"
-cargo build -p futo-notes-ffi --target aarch64-apple-ios
+cargo build -p futo-notes-ffi --target aarch64-apple-ios --profile "$PROFILE"
 
 echo "==> Building futo-notes-ffi for simulator (aarch64-apple-ios-sim)"
-cargo build -p futo-notes-ffi --target aarch64-apple-ios-sim
+cargo build -p futo-notes-ffi --target aarch64-apple-ios-sim --profile "$PROFILE"
 
 echo "==> Building futo-notes-ffi for simulator (x86_64-apple-ios)"
-cargo build -p futo-notes-ffi --target x86_64-apple-ios
+cargo build -p futo-notes-ffi --target x86_64-apple-ios --profile "$PROFILE"
 
 echo "==> Building host lib (for binding generation metadata)"
 cargo build -p futo-notes-ffi
@@ -51,11 +56,11 @@ SIM_UNIVERSAL="$ROOT/target/universal-apple-ios-sim"
 rm -rf "$SIM_UNIVERSAL"
 mkdir -p "$SIM_UNIVERSAL"
 lipo -create \
-  target/aarch64-apple-ios-sim/debug/libfuto_notes_ffi.a \
-  target/x86_64-apple-ios/debug/libfuto_notes_ffi.a \
+  target/aarch64-apple-ios-sim/$OUT_DIR/libfuto_notes_ffi.a \
+  target/x86_64-apple-ios/$OUT_DIR/libfuto_notes_ffi.a \
   -output "$SIM_UNIVERSAL/libfuto_notes_ffi.a"
 xcodebuild -create-xcframework \
-  -library target/aarch64-apple-ios/debug/libfuto_notes_ffi.a -headers "$HEADERS" \
+  -library target/aarch64-apple-ios/$OUT_DIR/libfuto_notes_ffi.a -headers "$HEADERS" \
   -library "$SIM_UNIVERSAL/libfuto_notes_ffi.a" -headers "$HEADERS" \
   -output "$XCF"
 

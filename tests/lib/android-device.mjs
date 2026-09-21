@@ -93,7 +93,7 @@ export class AndroidDevice {
       });
     } catch (err) {
       if (allowFailure) return '';
-      throw new Error(`adb ${args.join(' ')} failed: ${err.stderr || err.message}`);
+      throw new Error(`adb ${args.join(' ')} failed: ${err.stderr || err.message}`, { cause: err });
     }
   }
 
@@ -159,6 +159,7 @@ export class AndroidDevice {
             ? `${DEBUG_PACKAGE} is running but registered no hook: is this a DEBUG build?`
             : `${DEBUG_PACKAGE} is not running`
         }`,
+        { cause: error },
       );
     }
     const failure = describeHookFailure(name, ack);

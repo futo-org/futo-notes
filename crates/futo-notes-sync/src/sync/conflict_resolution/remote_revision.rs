@@ -26,6 +26,7 @@ pub(super) async fn fetch_current_object(
                 filename: file.name.clone(),
                 kind: FailureKind::Upload,
                 status_code: error.status,
+                detail: Some(error.message),
             });
             None
         }

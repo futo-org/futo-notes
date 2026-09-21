@@ -58,9 +58,7 @@ class StorageAdoptionTest {
         val outcome = recorder.run()
 
         assertEquals(
-            StorageAdoptionOutcome.KeepCurrent(
-                "That folder could not be saved as the notes location, so it was not changed."
-            ),
+            StorageAdoptionOutcome.KeepCurrent(StorageAdoptionFailure.PREFERENCE_SAVE_FAILED),
             outcome,
         )
     }
@@ -72,9 +70,7 @@ class StorageAdoptionTest {
         val outcome = recorder.run()
 
         assertEquals(
-            StorageAdoptionOutcome.KeepCurrent(
-                "The previous move could not be closed out, so the folder was not changed."
-            ),
+            StorageAdoptionOutcome.KeepCurrent(StorageAdoptionFailure.JOURNAL_CLEAR_FAILED),
             outcome,
         )
         assertEquals(listOf("sync", "flush", "journal"), recorder.steps)
@@ -88,9 +84,7 @@ class StorageAdoptionTest {
         val outcome = recorder.run()
 
         assertEquals(
-            StorageAdoptionOutcome.KeepCurrent(
-                "Your notes could not be saved first, so the folder was not changed."
-            ),
+            StorageAdoptionOutcome.KeepCurrent(StorageAdoptionFailure.DRAFT_FLUSH_FAILED),
             outcome,
         )
         assertEquals(listOf("sync", "flush"), recorder.steps)
@@ -108,7 +102,7 @@ class StorageAdoptionTest {
         val outcome = recorder.run()
 
         assertEquals(
-            StorageAdoptionOutcome.KeepCurrent(SYNC_CONNECTED_STORAGE_REFUSAL),
+            StorageAdoptionOutcome.KeepCurrent(StorageAdoptionFailure.SYNC_CONNECTED),
             outcome,
         )
         assertEquals(listOf("sync"), recorder.steps)

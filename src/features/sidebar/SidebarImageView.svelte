@@ -5,7 +5,7 @@
     listImageFiles,
     type ImageFileEntry,
   } from '$features/images/imageFiles';
-  import { formatRelativeTime } from '$shared/time/formatRelativeTime';
+  import { localizedFileSize, localizedRelativeTime, localizedText } from '$shared/localization';
 
   let images: ImageFileEntry[] = $state([]);
   let selectedImage: string | null = $state(null);
@@ -37,12 +37,6 @@
     }
   }
 
-  function formatSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
   function getSelectedEntry(): ImageFileEntry | undefined {
     return images.find((img) => img.filename === selectedImage);
   }
@@ -54,16 +48,16 @@
 
 <div class="sidebar-image-view">
   {#if loading}
-    <div class="sidebar-image-empty">Loading images...</div>
+    <div class="sidebar-image-empty">{localizedText('sidebar.images.loading')}</div>
   {:else if images.length === 0}
-    <div class="sidebar-image-empty">No images</div>
+    <div class="sidebar-image-empty">{localizedText('sidebar.images.empty')}</div>
   {:else if selectedImage}
     {@const entry = getSelectedEntry()}
     <div class="sidebar-image-detail">
       <div class="sidebar-image-detail-header">
         <button
           class="sidebar-image-back"
-          aria-label="Back"
+          aria-label={localizedText('sidebar.images.backAccessibilityLabel')}
           onclick={() => {
             selectedImage = null;
             menuOpen = false;
@@ -85,7 +79,7 @@
         <div class="sidebar-image-detail-menu-anchor">
           <button
             class="sidebar-image-menu-btn"
-            aria-label="Image options"
+            aria-label={localizedText('sidebar.images.optionsAccessibilityLabel')}
             onclick={() => {
               menuOpen = !menuOpen;
             }}
@@ -111,31 +105,33 @@
             <button
               type="button"
               class="sidebar-image-menu-backdrop"
-              aria-label="Close image menu"
+              aria-label={localizedText('sidebar.images.closeMenuAccessibilityLabel')}
               onclick={() => {
                 menuOpen = false;
               }}
             ></button>
             <div class="sidebar-image-menu">
-              <button class="danger" onclick={handleDelete}>Delete image</button>
+              <button class="danger" onclick={handleDelete}
+                >{localizedText('sidebar.images.delete')}</button
+              >
             </div>
           {/if}
         </div>
       </div>
       <div class="sidebar-image-preview">
         {#await getImageWebPath(selectedImage)}
-          <div class="sidebar-image-empty">Loading...</div>
+          <div class="sidebar-image-empty">{localizedText('sidebar.images.loading')}</div>
         {:then url}
           <img src={url} alt={selectedImage} />
         {:catch}
-          <div class="sidebar-image-empty">Failed to load</div>
+          <div class="sidebar-image-empty">{localizedText('sidebar.images.failed')}</div>
         {/await}
       </div>
       <div class="sidebar-image-info">
         <div class="sidebar-image-info-name">{selectedImage}</div>
         {#if entry}
           <div class="sidebar-image-info-size">
-            {formatSize(entry.size)} · {formatRelativeTime(entry.mtime)}
+            {localizedFileSize(entry.size)} · {localizedRelativeTime(entry.mtime)}
           </div>
         {/if}
       </div>
@@ -158,7 +154,7 @@
           {/await}
           <span class="sidebar-image-thumb-label">{image.filename}</span>
           <span class="sidebar-image-thumb-meta"
-            >{formatSize(image.size)} · {formatRelativeTime(image.mtime)}</span
+            >{localizedFileSize(image.size)} · {localizedRelativeTime(image.mtime)}</span
           >
         </button>
       {/each}

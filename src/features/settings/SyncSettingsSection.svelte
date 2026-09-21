@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { formatRelativeTime } from '$shared/time/formatRelativeTime';
+  import { localizedRelativeTime, localizedText } from '$shared/localization';
 
   import type { SyncSettings } from './createSyncSettings.svelte';
 
@@ -14,9 +14,9 @@
 </script>
 
 <section class="settings-section">
-  <h3 class="settings-section-title">Sync</h3>
+  <h3 class="settings-section-title">{localizedText('settings.sections.sync')}</h3>
   <div class="settings-card">
-    <label class="settings-input-label" for="sync-url">Server URL</label>
+    <label class="settings-input-label" for="sync-url">{localizedText('sync.serverUrl')}</label>
     <input
       id="sync-url"
       class="settings-input"
@@ -32,19 +32,21 @@
     />
 
     {#if !sync.connected}
-      <label class="settings-input-label" for="sync-password">Password</label>
+      <label class="settings-input-label" for="sync-password"
+        >{localizedText('sync.password')}</label
+      >
       <input
         id="sync-password"
         class="settings-input"
         type="password"
         bind:value={sync.password}
-        placeholder="Server password"
+        placeholder={localizedText('sync.serverPasswordPlaceholder')}
         autocapitalize="off"
         autocomplete="current-password"
         spellcheck="false"
       />
       <p class="settings-btn-desc settings-hint">
-        Use the password you configured when installing your FUTO Notes server.
+        {localizedText('sync.passwordHelp')}
       </p>
       <div class="settings-actions">
         <button
@@ -52,24 +54,26 @@
           onclick={sync.connect}
           disabled={sync.busy}
         >
-          {sync.busy ? 'Working...' : 'Connect'}
+          {sync.busy ? localizedText('sync.working') : localizedText('sync.connect')}
         </button>
       </div>
     {:else}
       {#if !sync.passwordSaved}
-        <label class="settings-input-label" for="sync-password">Vault password</label>
+        <label class="settings-input-label" for="sync-password"
+          >{localizedText('sync.vaultPassword')}</label
+        >
         <input
           id="sync-password"
           class="settings-input"
           type="password"
           bind:value={sync.password}
-          placeholder="Required after restart"
+          placeholder={localizedText('sync.restartPasswordPlaceholder')}
           autocapitalize="off"
           autocomplete="current-password"
           spellcheck="false"
         />
       {:else}
-        <p class="settings-btn-desc settings-hint">Password saved on this device.</p>
+        <p class="settings-btn-desc settings-hint">{localizedText('sync.passwordSavedOnDevice')}</p>
       {/if}
       <div class="settings-actions">
         <button
@@ -77,28 +81,32 @@
           onclick={sync.syncNow}
           disabled={sync.busy}
         >
-          {sync.busy ? 'Working...' : 'Sync now'}
+          {sync.busy ? localizedText('sync.working') : localizedText('sync.syncNow')}
         </button>
       </div>
       {#if sync.passwordSaved}
         <button class="settings-link-btn" onclick={() => void sync.forgetPassword()}
-          >Forget password</button
+          >{localizedText('sync.forgetPassword')}</button
         >
       {/if}
       <button class="settings-link-btn" onclick={() => void sync.resetConnection()}
-        >Reset connection</button
+        >{localizedText('sync.resetConnection')}</button
       >
     {/if}
 
     <p class="settings-btn-desc settings-hint">
-      Last sync: {sync.lastSyncedAt ? formatRelativeTime(sync.lastSyncedAt) : 'never'}
+      {localizedText('sync.lastSyncValue', {
+        time: sync.lastSyncedAt
+          ? localizedRelativeTime(sync.lastSyncedAt)
+          : localizedText('sync.never'),
+      })}
     </p>
     {#if sync.status}
       <p class="settings-btn-desc settings-hint">{sync.status}</p>
     {:else if backgroundError}
-      <p class="settings-btn-desc settings-hint">Sync failed: {backgroundErrorMessage}</p>
+      <p class="settings-btn-desc settings-hint">{backgroundErrorMessage}</p>
     {:else if reconnecting}
-      <p class="settings-btn-desc settings-hint">Reconnecting…</p>
+      <p class="settings-btn-desc settings-hint">{localizedText('sync.status.reconnecting')}</p>
     {/if}
   </div>
 </section>

@@ -68,7 +68,7 @@ describe('confirmDeleteSidebarNote', () => {
     expect(mocks.deleteNote.mock.invocationCallOrder[0]).toBeLessThan(
       onActiveNoteDeleted.mock.invocationCallOrder[0],
     );
-    expect(mocks.showGlobalToast).toHaveBeenCalledWith('Note deleted');
+    expect(mocks.showGlobalToast).toHaveBeenCalledWith({ path: 'notes.deleted' });
   });
 
   it('does not disturb the live session when deleting a background note', async () => {
@@ -230,7 +230,7 @@ describe('sidebar note targeting', () => {
 
     expect(mocks.deleteNote).not.toHaveBeenCalled();
     expect(onNoteIdsDeleted).not.toHaveBeenCalled();
-    expect(mocks.showGlobalToast).toHaveBeenCalledWith('That note is no longer available');
+    expect(mocks.showGlobalToast).toHaveBeenCalledWith({ path: 'notes.unavailable' });
   });
 });
 
@@ -273,32 +273,32 @@ describe('renameSidebarNote', () => {
   });
 
   it('reports a forbidden character instead of sanitizing it away', async () => {
-    await expect(renameSidebarNote('Roadmap', 'a:b', options())).resolves.toBe(
-      "That character can't be used in a note title",
-    );
+    await expect(renameSidebarNote('Roadmap', 'a:b', options())).resolves.toEqual({
+      path: 'notes.title.forbiddenCharacter',
+    });
     expect(mocks.moveNote).not.toHaveBeenCalled();
   });
 
   it('rejects a path separator rather than moving the note into a new folder', async () => {
-    await expect(renameSidebarNote('Roadmap', 'a/b', options())).resolves.toBe(
-      "That character can't be used in a note title",
-    );
+    await expect(renameSidebarNote('Roadmap', 'a/b', options())).resolves.toEqual({
+      path: 'notes.title.forbiddenCharacter',
+    });
     expect(mocks.moveNote).not.toHaveBeenCalled();
   });
 
   it('rejects an empty name and leaves the note alone', async () => {
-    await expect(renameSidebarNote('Roadmap', '   ', options())).resolves.toBe(
-      'Title cannot be empty',
-    );
+    await expect(renameSidebarNote('Roadmap', '   ', options())).resolves.toEqual({
+      path: 'notes.title.empty',
+    });
     expect(mocks.moveNote).not.toHaveBeenCalled();
   });
 
   it('blocks a case-insensitive duplicate in the same folder', async () => {
     mocks.getAllNotes.mockReturnValue([{ id: 'Projects/Roadmap' }, { id: 'Projects/Notes' }]);
 
-    await expect(renameSidebarNote('Projects/Roadmap', 'notes', options())).resolves.toBe(
-      'A note with this name already exists',
-    );
+    await expect(renameSidebarNote('Projects/Roadmap', 'notes', options())).resolves.toEqual({
+      path: 'notes.title.duplicate',
+    });
     expect(mocks.moveNote).not.toHaveBeenCalled();
   });
 
@@ -332,6 +332,8 @@ describe('renameSidebarNote', () => {
   it('reports a store failure instead of losing the edit', async () => {
     mocks.moveNote.mockRejectedValue(new Error('disk is full'));
 
-    await expect(renameSidebarNote('Roadmap', 'Plan', options())).resolves.toBe('disk is full');
+    await expect(renameSidebarNote('Roadmap', 'Plan', options())).resolves.toEqual({
+      path: 'notes.errors.renameFailed',
+    });
   });
 });

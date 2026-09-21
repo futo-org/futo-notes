@@ -7,7 +7,7 @@ const e2eeMocks = vi.hoisted(() => ({
   disconnectE2ee: vi.fn(),
 }));
 const autoSyncMocks = vi.hoisted(() => ({
-  requestSyncV2: vi.fn(),
+  requestSync: vi.fn(),
 }));
 
 vi.mock('./syncServiceE2ee', () => ({
@@ -16,10 +16,10 @@ vi.mock('./syncServiceE2ee', () => ({
   SyncSummary: {},
 }));
 
-vi.mock('./autoSyncV2', () => ({
-  requestSyncV2: autoSyncMocks.requestSyncV2,
-  pauseAutoSyncV2: vi.fn(),
-  resumeAutoSyncV2: vi.fn(),
+vi.mock('./autoSync', () => ({
+  requestSync: autoSyncMocks.requestSync,
+  pauseAutoSync: vi.fn(),
+  resumeAutoSync: vi.fn(),
 }));
 
 async function freshModules() {
@@ -33,7 +33,7 @@ describe('testSync', () => {
   beforeEach(() => {
     e2eeMocks.connectE2ee.mockReset();
     e2eeMocks.disconnectE2ee.mockReset();
-    autoSyncMocks.requestSyncV2.mockReset();
+    autoSyncMocks.requestSync.mockReset();
   });
 
   it('connect clears E2EE state before reconnecting', async () => {
@@ -54,7 +54,7 @@ describe('testSync', () => {
 
     await appState.loadAppState();
 
-    autoSyncMocks.requestSyncV2.mockResolvedValue({
+    autoSyncMocks.requestSync.mockResolvedValue({
       uploaded: 1,
       downloaded: 2,
       deleted: 0,

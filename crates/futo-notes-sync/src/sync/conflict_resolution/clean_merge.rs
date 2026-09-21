@@ -87,11 +87,12 @@ fn apply_merged_write(
     );
     let replacement = match replacement {
         Ok(replacement) => replacement,
-        Err(_) => {
+        Err(error) => {
             context.summary.failures.push(SyncFailure {
                 filename: file.name.clone(),
                 kind: FailureKind::Upload,
                 status_code: None,
+                detail: Some(error),
             });
             return MergeAttempt::Failed;
         }

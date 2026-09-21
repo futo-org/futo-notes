@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
+import com.futo.notes.localization.Localization
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -25,6 +26,8 @@ private val canonicalImageExtensions: Set<String> by lazy { imageExtensions().to
 private fun isCanonicalImageExtension(extension: String): Boolean =
     extension in canonicalImageExtensions
 
+const val MAX_PICKED_IMAGES = 3
+
 /**
  * Native image pickers behind the editor's `pickImage` bridge message
  * [editor.md:121, editor.md:130]. The Photo Picker needs no permission on any
@@ -35,28 +38,44 @@ private fun isCanonicalImageExtension(extension: String): Boolean =
  * Must be constructed during Activity onCreate: ActivityResult contracts have
  * to register before the activity is started.
  */
-class ImagePicker(private val activity: ComponentActivity) {
-    private var onPicked: ((Uri?) -> Unit)? = null
+class ImagePicker(
+    private val activity: ComponentActivity,
+    private val localization: () -> Localization,
+) {
+    private var onPicked: ((List<Uri>) -> Unit)? = null
     private var cameraUri: Uri? = null
+
+    private fun deliver(uris: List<Uri>) {
+        val callback = onPicked
+        onPicked = null
+        callback?.invoke(uris)
+    }
 
     private val pickMedia =
         activity.registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-            onPicked?.invoke(uri)
-            onPicked = null
+            deliver(listOfNotNull(uri))
+        }
+
+    private val pickMultipleMedia =
+        activity.registerForActivityResult(
+            ActivityResultContracts.PickMultipleVisualMedia(MAX_PICKED_IMAGES)
+        ) { uris ->
+            deliver(uris)
         }
 
     private val takePicture =
         activity.registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-            onPicked?.invoke(if (ok) cameraUri else null)
-            onPicked = null
+            deliver(if (ok) listOfNotNull(cameraUri) else emptyList())
         }
 
-    fun pickLibrary(callback: (Uri?) -> Unit) {
-        onPicked = callback
-        pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    fun pickLibrary(limit: Int = 1, callback: (List<Uri>) -> Unit) {
+        val capped = limit.coerceIn(1, MAX_PICKED_IMAGES)
+        onPicked = { uris -> callback(uris.take(capped)) }
+        val request = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        if (capped > 1) pickMultipleMedia.launch(request) else pickMedia.launch(request)
     }
 
-    fun captureCamera(callback: (Uri?) -> Unit) {
+    fun captureCamera(callback: (List<Uri>) -> Unit) {
         onPicked = callback
         val dir = File(activity.cacheDir, "camera").apply { mkdirs() }
         val file = File(dir, "capture-${System.currentTimeMillis()}.jpg")
@@ -72,8 +91,12 @@ class ImagePicker(private val activity: ComponentActivity) {
             onPicked = null
             cameraUri = null
             android.util.Log.w("ImagePicker", "no camera activity for IMAGE_CAPTURE", e)
-            Toast.makeText(activity, "No camera app available", Toast.LENGTH_LONG).show()
-            callback(null)
+            Toast.makeText(
+                activity,
+                localization().localizedText("editor.images.cameraUnavailable"),
+                Toast.LENGTH_LONG,
+            ).show()
+            callback(emptyList())
         }
     }
 }

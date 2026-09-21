@@ -1,86 +1,89 @@
 package com.futo.notes.storage
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Test
 
-/**
- * The confirmation body is the only thing standing between the user and opening a
- * folder whose notes are older than the ones they were just editing — the folder
- * being opened is often a backup this app left behind on an earlier switch. So it
- * must always state both note counts, where the current notes stay, and how old
- * the destination is.
- */
 class StorageAdoptionMessageTest {
-    private val now = 1_700_000_000_000L
+    private val currentTimeMillis = 1_700_000_000_000L
 
     private fun summary(
         destinationNotes: Int = 3,
-        destinationLastModifiedMs: Long = now - 3 * DAY,
+        destinationLastModifiedMillis: Long = currentTimeMillis - 3 * MILLISECONDS_PER_DAY,
         currentNotes: Int = 14,
     ) = StorageAdoptionSummary(
         destinationNotes = destinationNotes,
-        destinationLastModifiedMs = destinationLastModifiedMs,
+        destinationLastModifiedMillis = destinationLastModifiedMillis,
         currentPath = "/storage/emulated/0/Android/data/com.futo.notes/files/futo-notes",
         currentNotes = currentNotes,
-        nowMs = now,
+        currentTimeMillis = currentTimeMillis,
     )
 
     @Test
-    fun statesBothSidesAndThatTheCurrentNotesAreKept() {
-        val body = describeStorageAdoption(summary())
-        assertTrue("names the destination note count", body.contains("3 notes"))
-        assertTrue("names the current note count", body.contains("14 notes"))
-        assertTrue("says where the current notes stay", body.contains("futo-notes"))
-        assertTrue(
-            "promises the current notes survive",
-            body.contains("not moved or deleted"),
+    fun carriesBothFolderDetails() {
+        val message = storageAdoptionMessage(summary()) { "3 days ago" }
+        assertEquals(3, message.arguments["destinationNotes"])
+        assertEquals(14, message.arguments["currentNotes"])
+        assertEquals(
+            "/storage/emulated/0/Android/data/com.futo.notes/files/futo-notes",
+            message.arguments["currentPath"],
         )
     }
 
     @Test
-    fun datesAStaleBackupSoOlderNotesAreRecognisable() {
-        assertTrue(describeStorageAdoption(summary()).contains("3 days ago"))
-        assertTrue(
-            describeStorageAdoption(summary(destinationLastModifiedMs = now)).contains("today"),
-        )
-        assertTrue(
-            describeStorageAdoption(summary(destinationLastModifiedMs = now - DAY))
-                .contains("yesterday"),
-        )
-        assertTrue(
-            describeStorageAdoption(summary(destinationLastModifiedMs = now - 400 * DAY))
-                .contains("over a month ago"),
-        )
-    }
+    fun usesSharedRelativeTimeForKnownModificationTime() {
+        val destinationLastModifiedMillis = currentTimeMillis - 3 * MILLISECONDS_PER_DAY
+        var formattedTimestamp: Long? = null
+        val message = storageAdoptionMessage(
+            summary(destinationLastModifiedMillis = destinationLastModifiedMillis),
+        ) { timestamp ->
+            formattedTimestamp = timestamp
+            "3 days ago"
+        }
 
-    /** An unknown or future mtime must not produce "last changed -2 days ago". */
-    @Test
-    fun omitsTheAgeWhenItIsUnknownOrInTheFuture() {
-        assertFalse(
-            describeStorageAdoption(summary(destinationLastModifiedMs = 0)).contains("last changed"),
-        )
-        assertFalse(
-            describeStorageAdoption(summary(destinationLastModifiedMs = now + 5 * DAY))
-                .contains("last changed"),
-        )
+        assertEquals(destinationLastModifiedMillis, formattedTimestamp)
+        assertEquals("storage.android.adoptionWithLastChanged", message.path)
+        assertEquals("3 days ago", message.arguments["lastChanged"])
     }
 
     @Test
-    fun saysSoWhenTheFolderHoldsFilesButNoNotes() {
-        val body = describeStorageAdoption(summary(destinationNotes = 0))
-        assertTrue(body.contains("no notes"))
-        assertFalse("no bogus age for a folder with no notes", body.contains("last changed"))
+    fun omitsAnUnknownOrFutureModificationTime() {
+        val unusableModificationTimes = listOf(0L, currentTimeMillis + 5 * MILLISECONDS_PER_DAY)
+        for (destinationLastModifiedMillis in unusableModificationTimes) {
+            var relativeTimeWasFormatted = false
+            val message = storageAdoptionMessage(
+                summary(destinationLastModifiedMillis = destinationLastModifiedMillis),
+            ) {
+                relativeTimeWasFormatted = true
+                "unused"
+            }
+
+            assertEquals("storage.android.adoption", message.path)
+            assertFalse(relativeTimeWasFormatted)
+            assertNull(message.arguments["lastChanged"])
+        }
     }
 
     @Test
-    fun singularNoteReadsAsOneNote() {
-        val body = describeStorageAdoption(summary(destinationNotes = 1, currentNotes = 1))
-        assertTrue(body.contains("1 note"))
-        assertFalse(body.contains("1 notes"))
+    fun usesGeneralAdoptionMessageForNoNotes() {
+        var relativeTimeWasFormatted = false
+        val message = storageAdoptionMessage(
+            summary(destinationNotes = 0),
+        ) {
+            relativeTimeWasFormatted = true
+            "unused"
+        }
+
+        assertEquals("storage.android.adoption", message.path)
+        assertFalse(relativeTimeWasFormatted)
+        assertEquals(
+            0,
+            message.arguments["destinationNotes"],
+        )
     }
 
     private companion object {
-        const val DAY = 24 * 60 * 60 * 1000L
+        const val MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000L
     }
 }

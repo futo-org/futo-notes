@@ -179,6 +179,12 @@ model, OS version, a random session id, and any note you choose to add) to
 notes-crashlog.futo.org to help us fix bugs. These reports are not linked to
 your identity and are not used for tracking or advertising.
 
+Feedback (optional, only when you send it): Settings -> Send feedback lets you
+send us a bug report, feature request or comment. Only what you type, any
+screenshots you attach, and your app version, platform, OS version and device
+model are sent to notes-crashlog.futo.org. No account is required, your notes
+are never included, and we cannot reply to individual messages.
+
 We do not use analytics, advertising, or third-party tracking.
 
 Contact: <email/URL for data questions or deletion requests>

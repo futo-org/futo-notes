@@ -5,10 +5,10 @@ use std::sync::{Arc, Mutex};
 
 use futo_notes_store::{
     BeforeWrite, BootstrapResult, FileChange, FlushDraftResult, ListingSnapshot, LocalNoteStore,
-    MutationResult, NoteRename, SearchHit, SearchStatus, Snapshot, VaultFile,
+    MutationResult, NoteRename, SearchHit, Snapshot, VaultFile,
 };
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::application_state::AppState;
 use crate::background_tasks::blocking;
@@ -109,13 +109,6 @@ fn search_index_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(directory)
 }
 
-fn search_observer(app: &AppHandle) -> Arc<dyn Fn(&SearchStatus) + Send + Sync> {
-    let emit_app = app.clone();
-    Arc::new(move |status: &SearchStatus| {
-        let _ = emit_app.emit("search:status", status);
-    })
-}
-
 pub(crate) fn init_on_startup(app: &AppHandle) {
     let app = app.clone();
     let _ = crate::background_tasks::spawn("futo-local-notes-listing", move || {
@@ -142,12 +135,9 @@ pub async fn local_notes_bootstrap(
     // (and search self-heals on the retry cooldown); the desktop no longer
     // propagates the error with `?`.
     let index_dir = search_index_dir(&app)?;
-    let observer = search_observer(&app);
-    blocking(move || store.bootstrap_with_search(index_dir, observer)).await
-}
-
-fn local_notes_startup_listing_impl(store: &LocalNoteStore) -> DesktopListingSnapshot {
-    DesktopListingSnapshot::from(store.startup_listing())
+    // Readiness is served by `local_notes_wait_until_search_ready`; nothing
+    // listens for a status event, so the observer is a no-op.
+    blocking(move || store.bootstrap_with_search(index_dir, Arc::new(|_| {}))).await
 }
 
 #[derive(Serialize)]
@@ -179,7 +169,7 @@ pub(crate) async fn local_notes_startup_listing(
     if let Some(listing) = state.notes.take_startup_listing(store.root()) {
         return Ok(DesktopListingSnapshot::from(listing));
     }
-    blocking(move || Ok(local_notes_startup_listing_impl(&store))).await
+    blocking(move || Ok(DesktopListingSnapshot::from(store.startup_listing()))).await
 }
 
 #[tauri::command]
@@ -228,20 +218,14 @@ pub async fn local_notes_save(
     wanted_id: String,
     content: String,
     modified_ms: Option<i64>,
+    base: Option<String>,
 ) -> Result<MutationResult, String> {
     let store = store(&app, &state)?;
-    blocking(move || store.save(original_id.as_deref(), &wanted_id, &content, modified_ms)).await
-}
-
-/// THE draft-saving verb (persist-or-park, ADR-0001 / issue #37), used by the
-/// desktop editor through the shared TypeScript note persistence path.
-fn local_notes_flush_draft_impl(
-    store: &LocalNoteStore,
-    id: &str,
-    base: &str,
-    content: &str,
-) -> Result<FlushDraftResult, String> {
-    store.flush_draft(id, base, content)
+    blocking(move || match (original_id.as_deref(), base.as_deref()) {
+        (Some(id), Some(base)) => store.save_draft_as(id, &wanted_id, base, &content),
+        _ => store.save(original_id.as_deref(), &wanted_id, &content, modified_ms),
+    })
+    .await
 }
 
 #[tauri::command]
@@ -253,7 +237,7 @@ pub async fn local_notes_flush_draft(
     content: String,
 ) -> Result<FlushDraftResult, String> {
     let store = store(&app, &state)?;
-    blocking(move || local_notes_flush_draft_impl(&store, &id, &base, &content)).await
+    blocking(move || store.flush_draft(&id, &base, &content)).await
 }
 
 #[tauri::command]
@@ -301,14 +285,6 @@ pub async fn local_notes_rename_folder(
     blocking(move || store.rename_folder(&from, &to)).await
 }
 
-fn local_notes_move_folder_impl(
-    store: &LocalNoteStore,
-    from: &str,
-    destination_parent: &str,
-) -> Result<MutationResult, String> {
-    store.move_folder(from, destination_parent)
-}
-
 #[tauri::command]
 pub async fn local_notes_move_folder(
     app: AppHandle,
@@ -317,7 +293,7 @@ pub async fn local_notes_move_folder(
     destination_parent: String,
 ) -> Result<MutationResult, String> {
     let store = store(&app, &state)?;
-    blocking(move || local_notes_move_folder_impl(&store, &from, &destination_parent)).await
+    blocking(move || store.move_folder(&from, &destination_parent)).await
 }
 
 #[tauri::command]
@@ -437,39 +413,35 @@ mod tests {
     }
 
     #[test]
-    fn flush_draft_impl_projects_the_engine_result() {
-        let root = temp_root();
-        let store = LocalNoteStore::new(root.clone());
-        store.write("note", "base", None).unwrap();
-
-        let result = local_notes_flush_draft_impl(&store, "note", "base", "draft").unwrap();
-
-        assert_eq!(
-            result.disposition,
-            futo_notes_store::FlushDisposition::Wrote
-        );
-        assert_eq!(store.read("note"), "draft");
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn startup_listing_impl_returns_the_ordered_content_free_projection() {
-        let root = temp_root();
-        let store = LocalNoteStore::new(root.clone());
-        store.write("Older", "large body #tag", Some(10)).unwrap();
-        store.write("Folder/Newer", "other body", Some(20)).unwrap();
-
-        let result = local_notes_startup_listing_impl(&store);
+    fn startup_listing_serializes_all_fields_in_engine_order() {
+        let result = DesktopListingSnapshot::from(ListingSnapshot {
+            notes: vec![
+                futo_notes_store::NoteListingMetadata {
+                    id: "Folder/Newer".to_owned(),
+                    title: "Newer".to_owned(),
+                    folder: "Folder".to_owned(),
+                    modified_ms: 20,
+                },
+                futo_notes_store::NoteListingMetadata {
+                    id: "Older".to_owned(),
+                    title: "Older".to_owned(),
+                    folder: String::new(),
+                    modified_ms: 10,
+                },
+            ],
+            folders: vec!["Folder".to_owned()],
+        });
 
         assert_eq!(
-            result
-                .notes
-                .iter()
-                .map(|note| note.0.as_str())
-                .collect::<Vec<_>>(),
-            ["Folder/Newer", "Older"]
+            serde_json::to_value(result).unwrap(),
+            serde_json::json!({
+                "notes": [
+                    ["Folder/Newer", "Newer", "Folder", 20],
+                    ["Older", "Older", "", 10]
+                ],
+                "folders": ["Folder"]
+            })
         );
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -520,22 +492,6 @@ mod tests {
         assert_eq!(mutation.upserted.len(), 1);
         assert_eq!(mutation.upserted[0].note.id, "New");
         assert_eq!(mutation.upserted[0].position, 0);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn move_folder_impl_projects_the_collision_resolved_folder() {
-        let root = temp_root();
-        let store = LocalNoteStore::new(root.clone());
-        store.write("Source/Plans/note", "body", None).unwrap();
-        store
-            .write("Target/Plans/existing", "occupied", None)
-            .unwrap();
-
-        let mutation = local_notes_move_folder_impl(&store, "Source/Plans", "Target").unwrap();
-
-        assert_eq!(mutation.final_folder.as_deref(), Some("Target/Plans-2"));
-        assert_eq!(store.read("Target/Plans-2/note"), "body");
         std::fs::remove_dir_all(root).unwrap();
     }
 }

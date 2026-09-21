@@ -21,9 +21,9 @@ sealed interface ToolbarItemAction {
 data class ToolbarItemSpec(
     val id: String,
     /** Accessibility label — same text as the web toolbar's aria-label. */
-    val label: String,
-    /** Material Symbols name; EditorToolbar.kt maps it to an ImageVector. */
+    val localizationPath: String,
     val text: String?,
+    /** Material Symbols name; EditorToolbar.kt maps it to an ImageVector. */
     val material: String,
     /** Only visible in a list or quote (cursorContext and formatState). */
     val onlyInContainer: Boolean,
@@ -36,7 +36,7 @@ object ToolbarSpec {
         listOf(
             ToolbarItemSpec(
                 id = "undo",
-                label = "Undo",
+                localizationPath = "editor.toolbar.undo",
                 text = null,
                 material = "undo",
                 onlyInContainer = false,
@@ -44,7 +44,7 @@ object ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id = "redo",
-                label = "Redo",
+                localizationPath = "editor.toolbar.redo",
                 text = null,
                 material = "redo",
                 onlyInContainer = false,
@@ -54,7 +54,7 @@ object ToolbarSpec {
         listOf(
             ToolbarItemSpec(
                 id = "bold",
-                label = "Bold",
+                localizationPath = "editor.toolbar.bold",
                 text = null,
                 material = "format_bold",
                 onlyInContainer = false,
@@ -62,7 +62,7 @@ object ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id = "italic",
-                label = "Italic",
+                localizationPath = "editor.toolbar.italic",
                 text = null,
                 material = "format_italic",
                 onlyInContainer = false,
@@ -70,7 +70,7 @@ object ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id = "strikethrough",
-                label = "Strikethrough",
+                localizationPath = "editor.toolbar.strikethrough",
                 text = null,
                 material = "format_strikethrough",
                 onlyInContainer = false,
@@ -78,7 +78,7 @@ object ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id = "link",
-                label = "Link",
+                localizationPath = "editor.toolbar.link",
                 text = null,
                 material = "link",
                 onlyInContainer = false,
@@ -88,7 +88,7 @@ object ToolbarSpec {
         listOf(
             ToolbarItemSpec(
                 id = "paragraph",
-                label = "Text",
+                localizationPath = "editor.toolbar.paragraph",
                 text = "Text",
                 material = "format_h1",
                 onlyInContainer = false,
@@ -96,7 +96,7 @@ object ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id = "heading-1",
-                label = "Heading 1",
+                localizationPath = "editor.toolbar.headingOne",
                 text = "H1",
                 material = "format_h1",
                 onlyInContainer = false,
@@ -104,7 +104,7 @@ object ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id = "heading-2",
-                label = "Heading 2",
+                localizationPath = "editor.toolbar.headingTwo",
                 text = "H2",
                 material = "format_h1",
                 onlyInContainer = false,
@@ -112,7 +112,7 @@ object ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id = "heading-3",
-                label = "Heading 3",
+                localizationPath = "editor.toolbar.headingThree",
                 text = "H3",
                 material = "format_h1",
                 onlyInContainer = false,
@@ -120,7 +120,7 @@ object ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id = "quote",
-                label = "Block quote",
+                localizationPath = "editor.toolbar.blockQuote",
                 text = null,
                 material = "format_quote",
                 onlyInContainer = false,
@@ -128,7 +128,7 @@ object ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id = "code-block",
-                label = "Code block",
+                localizationPath = "editor.toolbar.codeBlock",
                 text = null,
                 material = "code",
                 onlyInContainer = false,
@@ -138,7 +138,7 @@ object ToolbarSpec {
         listOf(
             ToolbarItemSpec(
                 id = "bullet-list",
-                label = "Bullet list",
+                localizationPath = "editor.toolbar.bulletList",
                 text = null,
                 material = "format_list_bulleted",
                 onlyInContainer = false,
@@ -146,7 +146,7 @@ object ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id = "ordered-list",
-                label = "Ordered list",
+                localizationPath = "editor.toolbar.orderedList",
                 text = null,
                 material = "format_list_numbered",
                 onlyInContainer = false,
@@ -154,7 +154,7 @@ object ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id = "task-list",
-                label = "Task list",
+                localizationPath = "editor.toolbar.taskList",
                 text = null,
                 material = "checklist",
                 onlyInContainer = false,
@@ -162,7 +162,7 @@ object ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id = "outdent",
-                label = "Outdent",
+                localizationPath = "editor.toolbar.outdent",
                 text = null,
                 material = "format_indent_decrease",
                 onlyInContainer = true,
@@ -170,7 +170,7 @@ object ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id = "indent",
-                label = "Indent",
+                localizationPath = "editor.toolbar.indent",
                 text = null,
                 material = "format_indent_increase",
                 onlyInContainer = true,
@@ -180,7 +180,7 @@ object ToolbarSpec {
         listOf(
             ToolbarItemSpec(
                 id = "camera",
-                label = "Take photo",
+                localizationPath = "editor.toolbar.takePhoto",
                 text = null,
                 material = "photo_camera",
                 onlyInContainer = false,
@@ -188,7 +188,7 @@ object ToolbarSpec {
             ),
             ToolbarItemSpec(
                 id = "image",
-                label = "Choose from library",
+                localizationPath = "editor.toolbar.chooseFromLibrary",
                 text = null,
                 material = "image",
                 onlyInContainer = false,
@@ -200,7 +200,7 @@ object ToolbarSpec {
     /** The fixed (non-scrolling) collapse chevron at the right edge. */
     val dismiss = ToolbarItemSpec(
         id = "dismiss",
-        label = "Dismiss keyboard",
+        localizationPath = "editor.toolbar.dismissKeyboard",
         text = null,
         material = "keyboard_hide",
         onlyInContainer = false,

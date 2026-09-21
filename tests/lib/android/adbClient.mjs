@@ -35,7 +35,9 @@ export function createAdbClient({ pkg, serial = process.env.ANDROID_SERIAL ?? nu
       return output.replace(/\r\n/g, '\n');
     } catch (error) {
       if (allowFailure) return '';
-      throw new Error(`adb ${args.join(' ')} failed: ${error.stderr || error.message}`);
+      throw new Error(`adb ${args.join(' ')} failed: ${error.stderr || error.message}`, {
+        cause: error,
+      });
     }
   }
 

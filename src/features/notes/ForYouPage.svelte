@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { NotePreview } from '$shared/types/note';
-  import { getForYouNotes } from './forYou';
-  import { formatRelativeTime } from '$shared/time/formatRelativeTime';
+  import { localizedRelativeTime, localizedText } from '$shared/localization';
 
   interface Props {
     notes: NotePreview[];
@@ -9,7 +8,7 @@
   }
 
   let { notes, onnavigate }: Props = $props();
-  const forYouNotes = $derived(getForYouNotes(notes));
+  const forYouNotes = $derived(notes.slice(0, 3));
 
   function handleCardClick(id: string): void {
     onnavigate(id);
@@ -19,7 +18,7 @@
 <div class="for-you-page">
   <div class="for-you-content">
     {#if forYouNotes.length > 0}
-      <div class="for-you-header">For You</div>
+      <div class="for-you-header">{localizedText('notes.forYou.heading')}</div>
       <div class="for-you-cards">
         {#each forYouNotes as note (note.id)}
           <button class="for-you-card" onclick={() => handleCardClick(note.id)}>
@@ -27,16 +26,14 @@
             {#if note.preview}
               <div class="for-you-card-preview">{note.preview.slice(0, 60)}</div>
             {/if}
-            <div class="for-you-card-time">{formatRelativeTime(note.modificationTime)}</div>
+            <div class="for-you-card-time">{localizedRelativeTime(note.modificationTime)}</div>
           </button>
         {/each}
       </div>
     {:else}
       <div class="for-you-empty">
-        <div class="for-you-empty-title">FUTO Notes</div>
-        <div class="for-you-empty-subtitle">
-          Create your first note from the sidebar to get started.
-        </div>
+        <div class="for-you-empty-title">{localizedText('app.name')}</div>
+        <div class="for-you-empty-subtitle">{localizedText('notes.forYou.empty')}</div>
       </div>
     {/if}
   </div>

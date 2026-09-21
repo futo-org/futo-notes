@@ -30,13 +30,13 @@ import { rewriteLoopbackHost } from './tauri-test-client.mjs';
 const EMULATOR_HOST_LOOPBACK = '10.0.2.2';
 
 /**
- * How a note-list screen is recognised: the create FAB's content description.
+ * How a note-list screen is recognised: the New-note FAB's content description.
  * The list is now a folder browser (root notes + top-level folders, tapping a
  * folder pushes its contents), so there is no "All notes" title to anchor on and
  * the top-bar title is whichever folder is showing. The FAB is on every folder
  * screen and nowhere else.
  */
-const NOTE_LIST_MARKER = 'Create';
+const NOTE_LIST_MARKER = 'New note';
 
 /** Every note this harness creates on the device starts with this, so cleanup
  *  can never touch a note the harness did not write. */

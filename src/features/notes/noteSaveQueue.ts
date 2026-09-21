@@ -17,7 +17,7 @@ export function createNoteSaveQueue(options: NoteSaveQueueOptions) {
     if (saveTimer !== null) window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => {
       saveTimer = null;
-      void runQueuedSave();
+      void runQueuedSave().catch(() => {});
     }, delayMilliseconds);
   }
 
@@ -29,7 +29,7 @@ export function createNoteSaveQueue(options: NoteSaveQueueOptions) {
     }
     saveTimer = window.setTimeout(() => {
       saveTimer = null;
-      void runQueuedSave();
+      void runQueuedSave().catch(() => {});
     }, 0);
   }
 
@@ -38,17 +38,9 @@ export function createNoteSaveQueue(options: NoteSaveQueueOptions) {
     if (saveTimer !== null) window.clearTimeout(saveTimer);
     saveTimer = null;
 
-    try {
-      if (hadPendingTimer) await runQueuedSave();
-      else if (saveInFlight) await saveInFlight;
-      else if (options.hasUnseenChanges()) await runQueuedSave();
-    } catch (error) {
-      console.warn('Failed to flush note save:', error);
-    }
-  }
-
-  async function awaitSaveIdle(): Promise<void> {
-    if (saveInFlight) await saveInFlight;
+    if (hadPendingTimer) await runQueuedSave();
+    else if (saveInFlight) await saveInFlight;
+    else if (options.hasUnseenChanges()) await runQueuedSave();
   }
 
   async function runQueuedSave(): Promise<void> {
@@ -88,7 +80,6 @@ export function createNoteSaveQueue(options: NoteSaveQueueOptions) {
     schedule,
     resume,
     flush,
-    awaitSaveIdle,
     cancelPending,
   };
 }

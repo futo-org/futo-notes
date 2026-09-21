@@ -7,6 +7,7 @@ import {
 } from './crashReporter';
 import { getCachedPreferences, savePreferences } from '$shared/state/appState';
 import { getPlatformFS, hasFileSystem } from '$lib/platform';
+import type { ToastMessage } from '$shared/notifications/toastBus.svelte';
 
 interface CrashDialogResult {
   action: 'send' | 'discard';
@@ -14,7 +15,7 @@ interface CrashDialogResult {
   userDescription?: string;
 }
 
-export function createCrashReporting(showToast: (message: string) => void) {
+export function createCrashReporting(showToast: (message: ToastMessage) => void) {
   let reports = $state<CrashReport[]>([]);
   let dialogOpen = $state(false);
 
@@ -56,12 +57,10 @@ export function createCrashReporting(showToast: (message: string) => void) {
 
     const result = await sendAllPendingReports();
     if (result.sent > 0) {
-      showToast(`Sent ${result.sent} crash report${result.sent > 1 ? 's' : ''}`);
+      showToast({ path: 'crashReporting.sentCount', arguments: { count: result.sent } });
     } else if (result.failed > 0) {
-      const reason = getLastSendError();
-      showToast(
-        reason ? `Auto-send failed: ${reason}` : 'Auto-send failed — reports saved locally',
-      );
+      console.warn('Automatic crash report send failed:', getLastSendError());
+      showToast({ path: 'crashReporting.sendFailed' });
     }
   }
 
@@ -73,7 +72,7 @@ export function createCrashReporting(showToast: (message: string) => void) {
       preferences.crashReporting.enabled = false;
       await savePreferences(preferences);
       await discardAllPendingReports();
-      showToast('Crash reporting disabled. Re-enable in Settings.');
+      showToast({ path: 'crashReporting.disabled' });
       reports = [];
       return;
     }
@@ -86,10 +85,10 @@ export function createCrashReporting(showToast: (message: string) => void) {
 
     const sendResult = await sendAllPendingReports(result.userDescription);
     if (sendResult.sent > 0) {
-      showToast(`Sent ${sendResult.sent} crash report${sendResult.sent > 1 ? 's' : ''}`);
+      showToast({ path: 'crashReporting.sentCount', arguments: { count: sendResult.sent } });
     } else if (sendResult.failed > 0) {
-      const reason = getLastSendError();
-      showToast(reason ? `Failed to send: ${reason}` : 'Failed to send — reports saved locally');
+      console.warn('Crash report send failed:', getLastSendError());
+      showToast({ path: 'crashReporting.sendFailed' });
     }
     reports = [];
   }

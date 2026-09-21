@@ -10,6 +10,8 @@ object Prefs {
 
     const val THEME = "theme_mode"
 
+    const val LANGUAGE = "language"
+
     // Vault storage location [app.md]. One of StorageMode (DEVICE/APP/INTERNAL).
     // Absent = undecided: a fresh install shows the storage picker; an existing
     // install (non-empty internal vault) is grandfathered on INTERNAL.
@@ -24,4 +26,8 @@ object Prefs {
     // Crash reporting [settings.md:43]. Enabled defaults ON; always-send OFF.
     const val CRASH_ENABLED = "crash_reporting_enabled"
     const val CRASH_ALWAYS_SEND = "crash_always_send"
+
+    const val FEEDBACK_DRAFT = "feedback_draft"
+
+    const val CRASHLOG_STAGING = "crashlog_staging"
 }

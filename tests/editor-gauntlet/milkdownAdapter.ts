@@ -547,7 +547,7 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
        * Those two stay 0 and every consumer here reads `pos`.
        */
       const at = (element: Element, side: 0 | 1): DecoratedRange['from'] => {
-        let pos = 0;
+        let pos: number;
         try {
           pos = view?.posAtDOM(element, side) ?? 0;
         } catch {

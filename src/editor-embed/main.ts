@@ -146,6 +146,26 @@ const editor = mount(MilkdownEditor, {
   },
 }) as unknown as EmbeddedEditorHandle;
 
+/* Find in note was a CodeMirror feature (src/features/editor/find/, bridge v8)
+ * and the Milkdown swap has not reimplemented it; docs/spec/editor.md's "Find
+ * in note" section carries the gap. The bridge contract still declares the
+ * calls, because both native shells ship bars that make them — so they are
+ * inert here rather than a TypeError on an undefined method, and no
+ * `findMatches` message is ever posted back. */
+const findNotImplemented = (): void => {
+  console.warn('FutoEditor: find in note is not implemented in the Milkdown editor yet');
+};
+Object.assign(editor, {
+  openFind: findNotImplemented,
+  closeFind: findNotImplemented,
+  setFindOverlayInset: findNotImplemented,
+  setFindQuery: findNotImplemented,
+  stepFind: findNotImplemented,
+} satisfies Pick<
+  EmbeddedEditorHandle,
+  'openFind' | 'closeFind' | 'setFindOverlayInset' | 'setFindQuery' | 'stepFind'
+>);
+
 const toolbarTarget = document.createElement('div');
 document.body.appendChild(toolbarTarget);
 toolbar = mount(EmbedToolbar, {

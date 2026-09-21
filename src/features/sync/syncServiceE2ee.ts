@@ -7,7 +7,7 @@
  * and `crates/futo-notes-core/src/e2ee/`. This file exists so the rest of
  * the app's import path stays stable: `connectE2ee`, `syncE2eeAuto`,
  * `disconnectE2ee`, `setSyncProgressListener`, and the `SyncSummary` /
- * `SyncProgress` types continue to be re-exported from `$lib/syncServiceE2ee`
+ * `SyncProgress` types continue to be exported from `$features/sync/syncServiceE2ee`
  * the way callers expect.
  */
 
@@ -23,7 +23,6 @@ import {
   saveAppState,
 } from '$shared/state/appState';
 import { getPlatformFS, isTauri } from '$lib/platform';
-import { getSyncErrorMessage } from './syncErrorMessage';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import type {
   E2eeConnectInput,
@@ -72,7 +71,7 @@ let cachedPassword: string | null = null;
 // loaded by `initSyncPassword` below — until it finishes, a fully configured
 // vault still reports "not configured". Auto-sync waits on this rather than on
 // a wall-clock guess, so the first cycle runs the moment it can instead of at a
-// time chosen to be safely after it. → autoSyncV2.startAutoSyncV2
+// time chosen to be safely after it. → autoSync.startAutoSync
 let markSyncCredentialsSettled: () => void = () => {};
 const syncCredentialsSettled = new Promise<void>((resolve) => {
   markSyncCredentialsSettled = resolve;
@@ -121,7 +120,7 @@ async function deleteStoredPassword(): Promise<void> {
     // Orphaned OS credential: don't fail the flow, but don't let it vanish
     // silently either — tell the user and persist a marker so the next launch
     // retries the delete (see initSyncPassword).
-    showGlobalToast(`Couldn't remove the saved sync password: ${getSyncErrorMessage(e)}`);
+    showGlobalToast({ path: 'sync.errors.forgetPasswordFailed' });
     console.warn('[e2ee] could not delete vault password from keyring:', e);
     await saveAppState({ ...getAppState(), pendingKeyringDeletion: true });
   }
@@ -458,18 +457,6 @@ export async function syncE2eeAuto(): Promise<SyncSummary> {
     }
     throw e;
   }
-}
-
-/**
- * Variant used by `__testSync` flows: the caller passes the password
- * explicitly (often a fresh value not yet in app-state). Rust re-derives
- * the key before running sync.
- */
-export async function syncE2ee(password: string): Promise<SyncSummary> {
-  await ensureConnected(password);
-  const summary = await invoke<SyncSummary>('e2ee_sync_run');
-  await scrubLegacySyncStateIfConsumed();
-  return summary;
 }
 
 // ── Progress events ─────────────────────────────────────────────────────

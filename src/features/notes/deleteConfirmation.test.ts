@@ -18,53 +18,50 @@ beforeEach(() => {
   vi.resetModules();
 });
 
-describe('noteDeleteWarning', () => {
+describe('noteDeleteIsPermanent', () => {
   it('promises no recovery on a vault the OS trash cannot take', async () => {
     mocks.vaultStatus.mockResolvedValue(status(true));
-    const { noteDeleteWarning } = await import('./deleteConfirmation');
-    await expect(noteDeleteWarning()).resolves.toBe(
-      'This deletes the file for good — it does not go to the trash.',
-    );
+    const { noteDeleteIsPermanent } = await import('./deleteConfirmation');
+    await expect(noteDeleteIsPermanent()).resolves.toBe(true);
   });
 
   it('keeps the trash-backed wording on an ordinary vault', async () => {
     mocks.vaultStatus.mockResolvedValue(status(false));
-    const { noteDeleteWarning } = await import('./deleteConfirmation');
-    await expect(noteDeleteWarning()).resolves.toBe('This action cannot be undone.');
+    const { noteDeleteIsPermanent } = await import('./deleteConfirmation');
+    await expect(noteDeleteIsPermanent()).resolves.toBe(false);
   });
 
   it('asks Rust once per session, not once per delete', async () => {
     mocks.vaultStatus.mockResolvedValue(status(true));
-    const { noteDeleteWarning } = await import('./deleteConfirmation');
-    await noteDeleteWarning();
-    await noteDeleteWarning();
+    const { noteDeleteIsPermanent } = await import('./deleteConfirmation');
+    await noteDeleteIsPermanent();
+    await noteDeleteIsPermanent();
     expect(mocks.vaultStatus).toHaveBeenCalledOnce();
   });
 
   it('falls back to the milder claim when the vault cannot be read', async () => {
     mocks.vaultStatus.mockRejectedValue(new Error('vault unavailable'));
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { noteDeleteWarning } = await import('./deleteConfirmation');
-    await expect(noteDeleteWarning()).resolves.toBe('This action cannot be undone.');
+    const { noteDeleteIsPermanent } = await import('./deleteConfirmation');
+    await expect(noteDeleteIsPermanent()).resolves.toBe(false);
   });
 });
 
-describe('folderDeleteWarning', () => {
+describe('folderDeleteConfirmation', () => {
   it('discloses the permanently deleted shell where folders cannot be trashed', async () => {
     // A Flatpak default vault: notes trash fine, the folder shell cannot.
     mocks.vaultStatus.mockResolvedValue(status(false, true));
-    const { folderDeleteWarning } = await import('./deleteConfirmation');
-    await expect(folderDeleteWarning()).resolves.toBe(
-      'Delete this folder? Notes inside it will be moved to the parent folder. ' +
-        'Anything else inside it is deleted for good.',
-    );
+    const { folderDeleteConfirmation } = await import('./deleteConfirmation');
+    await expect(folderDeleteConfirmation()).resolves.toEqual({
+      path: 'folders.delete.permanentConfirmation',
+    });
   });
 
   it('asks the plain question where the shell goes to the trash', async () => {
     mocks.vaultStatus.mockResolvedValue(status(false));
-    const { folderDeleteWarning } = await import('./deleteConfirmation');
-    await expect(folderDeleteWarning()).resolves.toBe(
-      'Delete this folder? Notes inside it will be moved to the parent folder.',
-    );
+    const { folderDeleteConfirmation } = await import('./deleteConfirmation');
+    await expect(folderDeleteConfirmation()).resolves.toEqual({
+      path: 'folders.delete.recoverableConfirmation',
+    });
   });
 });

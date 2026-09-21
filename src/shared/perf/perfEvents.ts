@@ -13,8 +13,6 @@ export interface PerfEvent {
   detail?: string;
 }
 
-export type EndPerfSpan = (extraDetail?: string) => void;
-
 const MAX_BUFFERED_EVENTS = 500;
 const MAX_FRAME_DELTA_SAMPLES = 10000;
 
@@ -26,23 +24,6 @@ export function recordPerfEvent(name: string, durationMs: number, detail?: strin
   bufferedEvents.push(event);
   // Bounded ring: drop the oldest event rather than grow without limit.
   if (bufferedEvents.length > MAX_BUFFERED_EVENTS) bufferedEvents.shift();
-}
-
-// Returns an `end` function that records the span. Ending twice is a no-op;
-// a span that never ends (superseded load, stale search response) records
-// nothing, so cancelled work can never contaminate the numbers.
-export function beginPerfSpan(name: string, detail?: string): EndPerfSpan {
-  const spanStartMs = performance.now();
-  let ended = false;
-  return (extraDetail?: string) => {
-    if (ended) return;
-    ended = true;
-    const combinedDetail =
-      detail !== undefined && extraDetail !== undefined
-        ? `${detail} ${extraDetail}`
-        : (extraDetail ?? detail);
-    recordPerfEvent(name, performance.now() - spanStartMs, combinedDetail);
-  };
 }
 
 export function drainPerfEvents(): PerfEvent[] {

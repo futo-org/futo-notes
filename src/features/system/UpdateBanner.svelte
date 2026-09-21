@@ -1,5 +1,6 @@
 <script lang="ts">
   import { updateChecker as upd } from './updateChecker.svelte';
+  import { localizedText } from '$shared/localization';
 
   function primary(): void {
     void upd.install();
@@ -12,7 +13,7 @@
       class="update-pill"
       onclick={primary}
       disabled={upd.busy || upd.phase === 'restart'}
-      title={upd.phase === 'error' ? upd.error || 'Update failed' : undefined}
+      title={upd.phase === 'error' ? localizedText('settings.updates.failed') : undefined}
     >
       {#if upd.phase === 'available'}
         <span class="update-pill-icon" aria-hidden="true">
@@ -38,15 +39,19 @@
 
       <span class="update-pill-label">
         {#if upd.phase === 'available'}
-          Install v{upd.pending?.version}
+          {localizedText('settings.updates.installVersion', {
+            version: upd.pending?.version ?? '',
+          })}
         {:else if upd.phase === 'downloading'}
-          Downloading… {upd.percent != null ? `${upd.percent}%` : ''}
+          {upd.percent != null
+            ? localizedText('settings.updates.downloadingProgress', { percent: upd.percent })
+            : localizedText('settings.updates.downloading')}
         {:else if upd.phase === 'installing'}
-          Installing…
+          {localizedText('settings.updates.installing')}
         {:else if upd.phase === 'restart'}
-          Restarting…
+          {localizedText('settings.updates.restarting')}
         {:else if upd.phase === 'error'}
-          Update failed
+          {localizedText('settings.updates.failed')}
         {/if}
       </span>
 

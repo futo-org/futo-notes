@@ -90,7 +90,7 @@ desktop, iOS, and Android query that owner through thin adapters.
   (`SEARCH_ENGINE_RETRY_COOLDOWN`) so a persistent failure is not reopened on
   every call. This self-heal lives in the shared `futo-notes-store` owner, so
   iOS, Android, and desktop share it (it replaces the former iOS-only
-  `SearchService` retry). → `futo-notes-store` `ensure_engine`
+  `SearchService` retry). → `crates/futo-notes-store/src/search.rs` `EngineState::engine`
 
 ## Desktop UI
 

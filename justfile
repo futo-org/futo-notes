@@ -17,6 +17,7 @@ alias pp := prepush
 alias dd := deploy-deb
 alias dr := deploy-rpm
 alias di := deploy-ios
+alias wt := worktree
 
 install:
   pnpm install
@@ -53,6 +54,7 @@ lint-swift:
     -name '*.swift' \
     -not -path '*/Generated/*' \
     -not -path '*/GeneratedContracts/*' \
+    -not -path '*/GeneratedLocalization/*' \
     -print0 \
     | xargs -0 xcrun swift-format lint --strict --configuration apps/ios/.swift-format
 
@@ -189,10 +191,9 @@ test-ios-native: build-rust-ios
   echo "==> Simulator: $SIM"
   cd apps/ios
   xcodegen generate
-  # A concrete -destination "id=$SIM" resolves to ONE arm64 simulator, so the
-  # arm64-only FFI sim slice links without EXCLUDED_ARCHS (contrast the generic
-  # destination in build-ios-native). Ad-hoc sign so the app test host launches
-  # with its keychain entitlement (mirrors run.sh).
+  # A concrete -destination "id=$SIM" resolves to ONE simulator (build-rust-ios.sh
+  # lipos a universal sim slice, so either arch links). Ad-hoc sign so the app
+  # test host launches with its keychain entitlement (mirrors run.sh).
   xcodebuild test -project FutoNotesNative.xcodeproj \
     -scheme FutoNotesNative \
     -destination "id=$SIM" \
@@ -277,7 +278,7 @@ test-ios-stories:
 
 # ── Parallel QA isolation (multiple worktrees, one machine) ──
 # Worktree path → slot → pooled devices (futo-qa-0..6 per platform) + a
-# per-slot sync server with its own Postgres database. Your personal
+# per-slot sync server with its own SQLite database. Your personal
 # simulators/AVDs are never touched. See scripts/qa.mjs and the /verify
 # skill's "Isolation model" section.
 
@@ -308,6 +309,56 @@ qa-release *flags:
 qa-gc:
   @node scripts/qa.mjs gc
 
+# Create or switch to a git worktree for <name>.
+# If the branch exists, reuse its worktree. If not, create branch + worktree from HEAD.
+# Usage: cd "$(just worktree <name>)"
+worktree name:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  REPO_ROOT="$(git rev-parse --show-toplevel)"
+  BRANCH="{{name}}"
+  # Branch names like 'feat/license' nest under the branch, which makes the
+  # sibling worktree land in a 'feat/' directory; use only the final segment.
+  WT_NAME="${BRANCH##*/}"
+  WORKTREE_PATH="$(cd "${REPO_ROOT}/.." && pwd)/${WT_NAME}"
+
+  # A different branch may already own this path (e.g. 'feat/license' vs
+  # 'fix/license'); fail clearly instead of a cryptic git error.
+  if git worktree list --porcelain | grep -qx "worktree ${WORKTREE_PATH}"; then
+    OWNER=$(git worktree list --porcelain | awk -v p="${WORKTREE_PATH}" '
+      /^worktree / { path=substr($0, 10) }
+      /^branch /   { if (path == p) print $2 }
+    ' | head -1)
+    if [ -n "${OWNER}" ] && [ "${OWNER}" != "refs/heads/${BRANCH}" ]; then
+      echo "error: ${WORKTREE_PATH} is already a worktree for ${OWNER}" >&2
+      exit 1
+    fi
+  fi
+
+  # Check if branch already exists
+  if git show-ref --verify --quiet "refs/heads/${BRANCH}"; then
+    echo "Branch '${BRANCH}' exists." >&2
+    # Check if a worktree already points to this branch
+    EXISTING_PATH=$(git worktree list --porcelain | awk -v b="${BRANCH}" '
+      /^worktree / { path=substr($0, 10) }
+      /^branch /   { if ($2 == "refs/heads/" b) print path }
+    ' | head -1)
+    if [ -n "${EXISTING_PATH}" ]; then
+      echo "Worktree already exists at: ${EXISTING_PATH}" >&2
+      echo "$(cd "${EXISTING_PATH}" && pwd)"
+      exit 0
+    fi
+    echo "Creating worktree for existing branch at: ${WORKTREE_PATH}" >&2
+    git worktree add "${WORKTREE_PATH}" "${BRANCH}"
+  else
+    echo "Branch '${BRANCH}' does not exist. Creating from HEAD..." >&2
+    git branch "${BRANCH}"
+    echo "Creating worktree at: ${WORKTREE_PATH}" >&2
+    git worktree add "${WORKTREE_PATH}" "${BRANCH}"
+  fi
+
+  echo "$(cd "${WORKTREE_PATH}" && pwd)"
+
 # APFS-clone (copy-on-write) this checkout's target/ into a worktree: a 31GB
 # target/ clones in seconds and shares blocks until builds diverge, killing
 # the cold-build tax on parallel QA worktrees. Run from a built checkout.
@@ -321,11 +372,13 @@ qa-clone-target dest:
   cp -Rc target '{{dest}}/target'
   echo "Cloned target/ → {{dest}}/target (APFS copy-on-write)"
 
-# Start this worktree's isolated sync server (own port + own Postgres DB).
+# Start this worktree's isolated sync server (own port + own SQLite DB). Runs
+# the futo-notes-server release pinned in scripts/sync-server-pin.json,
+# downloaded on first use — no checkout, no database server, no Docker.
 qa-server:
   @node scripts/qa.mjs server-start
 
-# Stop it (add --drop to also drop its database and blobs).
+# Stop it (add --drop to also delete its database and blobs).
 qa-server-stop *flags:
   @node scripts/qa.mjs server-stop {{flags}}
 
@@ -460,7 +513,7 @@ test-full:
 # fresh worktree. `pnpm exec vitest ...` from a worktree with no node_modules
 # fails with ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL / 'Command "vitest" not found',
 # which says nothing about the real cause (pc_cd6fa6e7aa76).
-#   just test-one src/features/notes/notes.test.ts
+#   just test-one src/features/notes/noteSession.test.ts
 #   just test-one -t 'renames a note'
 # Run ONE test file or -t pattern (installs deps if the worktree is fresh).
 test-one *args:
@@ -535,6 +588,17 @@ test-rust-full:
   cargo test --workspace
   node --experimental-strip-types tests/conformance/title-rules-differential.mjs
 
+# Shared search engine correctness and reproducible synthetic-vault benchmarks.
+[positional-arguments]
+test-search *args:
+  cargo test -p futo-notes-search "$@"
+
+# Criterion keeps comparisons in target/criterion. Override SEARCH_BENCH_NOTES
+# for a different corpus size; see crates/futo-notes-search/benches/search.rs.
+[positional-arguments]
+bench-search *args:
+  cargo bench -p futo-notes-search --bench search -- "$@"
+
 # ── Remote (Linux) test execution ──
 # Everything that does NOT need macOS/Xcode/WKWebView runs on a Linux box over
 # Tailscale (default: jfedora, 32 cores / 125 GB / KVM), so the Mac stays free
@@ -554,7 +618,7 @@ test-rust-full:
 
 # Prints the exact commands a human with sudo must run; start here when adding
 # a second Linux box.
-# Report what is present/missing on the remote (node, cargo, NDK, KVM, Postgres…).
+# Report what is present/missing on the remote (node, cargo, NDK, KVM…).
 remote-doctor *flags:
   node scripts/remote-test.mjs --doctor {{flags}}
 
@@ -576,10 +640,11 @@ remote-rust *flags:
   node scripts/remote-test.mjs {{flags}} test-rust-full
 
 # Sync state and files are engine-independent; rendering is not (see the doc).
-# Ports and the Postgres database are slot-derived, so different worktrees don't
-# collide; two runs in the SAME remote worktree share a slot, which the worktree
-# lock prevents (and the harness now refuses loudly instead of adopting).
-# Cross-platform E2EE sync against the box's own Postgres + server checkout.
+# Ports are slot-derived and every server gets its own SQLite database, so
+# different worktrees don't collide; two runs in the SAME remote worktree share a
+# slot, which the worktree lock prevents (and the harness refuses loudly instead
+# of adopting).
+# Cross-platform E2EE sync against the pinned sync-server release.
 remote-sync *flags:
   node scripts/remote-test.mjs {{flags}} test-cross-platform
 
@@ -761,6 +826,34 @@ arch-gate:
 skills-link:
   @node scripts/skills-link.mjs
 
+# Restore the former vendored Swift references from a pinned repository snapshot.
+# Optional, per-worktree, and refuses to overwrite any installed skill or link.
+skills-swift:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  snapshot=3b1c43c139181b91b7384b478b5edec454b80190
+  skills=(swiftui-expert-skill swift-concurrency-pro swift-testing-pro)
+  git cat-file -e "$snapshot^{commit}"
+  for skill in "${skills[@]}"; do
+    for destination in ".agents/skills/$skill" ".claude/skills/$skill"; do
+      if [[ -e "$destination" || -L "$destination" ]]; then
+        echo "Already present: $destination; leaving installed skills unchanged." >&2
+        exit 1
+      fi
+    done
+  done
+  mkdir -p .agents/skills .claude/skills
+  staging=$(mktemp -d .agents/swift-install.XXXXXX)
+  trap 'rm -rf "$staging"' EXIT
+  git archive "$snapshot" "${skills[@]/#/.claude/skills/}" | tar -xf - --strip-components=2 -C "$staging"
+  for skill in "${skills[@]}"; do
+    test -f "$staging/$skill/SKILL.md"
+  done
+  for skill in "${skills[@]}"; do
+    mv "$staging/$skill" ".agents/skills/$skill"
+    ln -s "../../.agents/skills/$skill" ".claude/skills/$skill"
+  done
+
 # ── Dependency vulnerability scan ──
 # Needs network and cargo-audit on PATH (`cargo binstall cargo-audit --locked`). `--fix` drops
 # ignore entries whose advisory is gone. CI runs this same script, non-blocking
@@ -788,8 +881,8 @@ check: toolbar-spec-check title-spec-check arch-gate test-rust rust-format-check
   pnpm exec tsc --noEmit | head -30
   pnpm run build | tail -20
 
-# Cross-platform sync needs the server repo at ~/Developer/futo-notes-server
-# (+ Postgres); the full Playwright run needs installed browsers. Budget
+# Cross-platform sync downloads the pinned server release on first use; the
+# full Playwright run needs installed browsers. Budget
 # 30-60 min. What it still can't see: native-shell runtime behavior (device
 # QA) and Windows/WebView2 (scripts/win-vm/).
 # --retries=1: the local 30s test timeout (CI gets 90s) makes a ~250-test run
@@ -804,9 +897,6 @@ prepush: check test-rust-full
   pnpm run test:cross-platform
   bash scripts/run-ios-stories-if-available.sh
   echo "prepush green — check + rust workspace + full e2e + cross-platform sync + available iOS stories all passed"
-
-ci:
-  pnpm run ci
 
 # Build .deb from current repo state and install it
 deploy-deb:

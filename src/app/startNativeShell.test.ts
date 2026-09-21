@@ -26,6 +26,7 @@ vi.mock('@tauri-apps/api/window', () => ({
 }));
 vi.mock('@tauri-apps/plugin-process', () => ({ exit: vi.fn() }));
 
+import enCatalog from '../../languages/en.json';
 import { startNativeShell } from './startNativeShell';
 
 const vaultStatus = (overrides: { available?: boolean } = {}) => ({
@@ -115,9 +116,7 @@ describe('startNativeShell', () => {
     onStartFailed('inotify limit reached');
 
     await vi.waitFor(() =>
-      expect(mocks.showGlobalToast).toHaveBeenCalledWith(
-        'External file changes will not be detected until you restart',
-      ),
+      expect(mocks.showGlobalToast).toHaveBeenCalledWith({ path: 'system.watcherUnavailable' }),
     );
   });
 
@@ -134,23 +133,34 @@ describe('startNativeShell', () => {
     // One toast slot: the watcher failure is a symptom, and overwriting the message
     // that names the way out would leave the user with nothing actionable.
     await vi.waitFor(() =>
-      expect(mocks.showGlobalToast).toHaveBeenCalledWith(
-        'Notes folder unavailable — choose a folder in Settings',
-      ),
+      expect(mocks.showGlobalToast).toHaveBeenCalledWith({
+        path: 'system.notesFolderUnavailable',
+        arguments: { folderPath: '/vault' },
+      }),
     );
-    expect(mocks.showGlobalToast).not.toHaveBeenCalledWith(
-      'External file changes will not be detected until you restart',
-    );
+    expect(mocks.showGlobalToast).not.toHaveBeenCalledWith({
+      path: 'system.watcherUnavailable',
+    });
   });
 
-  it('points at Settings when the notes folder is unreachable', async () => {
+  // The folder has to be NAMED: github#44's reporter read an unnamed failure as
+  // a server fault and audited a healthy server before looking at his disk.
+  it('names the unreachable notes folder and points at Settings', async () => {
     mocks.vaultStatus.mockResolvedValue(vaultStatus({ available: false }));
     startNativeShell({ enqueueFileChange: vi.fn(), flushSave: vi.fn(async () => undefined) });
 
     await vi.waitFor(() =>
-      expect(mocks.showGlobalToast).toHaveBeenCalledWith(
-        'Notes folder unavailable — choose a folder in Settings',
-      ),
+      expect(mocks.showGlobalToast).toHaveBeenCalledWith({
+        path: 'system.notesFolderUnavailable',
+        arguments: { folderPath: '/vault' },
+      }),
+    );
+
+    // The descriptor only carries the folder; the sentence has to spend it. Pin
+    // the English catalog wording so a translation pass cannot quietly drop the
+    // placeholder and take github#44's fix back out.
+    expect(enCatalog.messages.system.notesFolderUnavailable).toBe(
+      "Can't find your vault folder at {folderPath}. Please reconfigure in settings.",
     );
   });
 

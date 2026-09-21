@@ -172,13 +172,6 @@ struct EventSink {
 
 impl EventSink {
     fn change(&self, kind: &str, relative_path: &str) {
-        if relative_path.is_empty() {
-            return;
-        }
-        let lower = relative_path.to_lowercase();
-        if !lower.ends_with(".md") && !lower.ends_with(".txt") {
-            return;
-        }
         if self.suppression.consume(relative_path) {
             return;
         }
