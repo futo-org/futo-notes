@@ -425,7 +425,19 @@ test('editing inside a fence re-colours it', async ({ page }) => {
   await waitForTokens(page);
 
   await page.locator('.ProseMirror pre').click();
-  await page.keyboard.press('Control+End');
+  // NOT Control+End: this doc's last (only) node is a code_block, so
+  // "move to document end" lands in ProseMirror's gap cursor position AFTER
+  // the fence rather than inside its text — confirmed by a CI failure
+  // artifact (pipeline 36709, job 256798) whose page snapshot showed
+  // "let b = 2;" as a sibling paragraph below an empty paragraph, both
+  // outside the `<pre>`, instead of a second line inside it. Every other
+  // Control+End caller in this suite targets a doc that ends in an ordinary
+  // paragraph, where there is no gap to land in — this fence fixture is the
+  // only one where the browser-native "end of editable" landing spot is
+  // ambiguous. `End` stays scoped to the current line within the textblock
+  // ProseMirror already has focus in, with no cross-node gap involved, and
+  // this fence is one line, so end-of-line is end-of-content.
+  await page.keyboard.press('End');
   await page.keyboard.type('\nlet b = 2;');
   await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
 
