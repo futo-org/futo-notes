@@ -51,7 +51,7 @@ against spec. Written so the **next** run is faster. Append freely.
 | iOS sim | `just ios-native` | Rust xcframework + vite editor + xcodegen + xcodebuild + install/launch on booted sim. arm64. |
 | iOS device (debug) | `just ios-native-device` | bundle `com.futo.notes.dev`. |
 | Android | `just android-native` | needs `ANDROID_NDK_HOME`. Host = `10.0.2.2` for sync. |
-| Sync server | `bash scripts/start-test-server.sh` | needs Docker (Postgres on 5433); server on 3100, password `testing123`. Connect via `window.__testSync.connect('http://127.0.0.1:3100','testing123')`. |
+| Sync server | `bash scripts/start-test-server.sh` | needs Docker (Postgres on 5433); server on 3100 + worktree slot (3138 in this worktree; the script prints the exact URL), password `testing123`. Connect via `window.__testSync.connect('<printed URL>','testing123')`. |
 | Cross-platform sync suite | `just test-cross-platform` | 2 Tauri instances + server, 12 scenarios. |
 
 ## Gap-rollup mechanics
