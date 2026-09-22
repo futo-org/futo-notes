@@ -1,4 +1,5 @@
-//! OS-keyring-backed storage for the E2EE vault password.
+//! OS-keyring-backed storage for this device's E2EE sync secrets: the vault
+//! password, the 32-byte vault key, and the session token.
 //!
 //! The vault password used to live in plaintext inside `.app-state.json`
 //! under the notes root (F6), so any vault backup / Syncthing / Dropbox /
@@ -9,10 +10,17 @@
 //! when the OS store is unavailable the commands return an error and the JS
 //! layer degrades to prompting for the password per session.
 //!
-//! The password is scoped per vault: the keyring *account* is the canonical
-//! notes-root path, so the debug (`fake-notes`) and production
+//! Every secret is scoped per vault: the keyring *account* is built from the
+//! canonical notes-root path, so the debug (`fake-notes`) and production
 //! (`futo-notes`) vaults — and any `FUTO_NOTES_DATA_DIR` worktree — keep
 //! independent entries, exactly like the old per-`.app-state.json` scoping.
+//! The password's account is the bare path and stays that way, so entries
+//! written by earlier versions keep resolving; the key and the token prefix it.
+//!
+//! The vault key and session token are what the hosted flow keeps instead of a
+//! password (ADR 0003): [`KeyringVaultSecrets`] hands them to the engine's
+//! `VaultSecrets` port, so the hosted state machine reads and writes this
+//! device's secret store without knowing it is a keyring.
 //!
 //! A document-portal vault's path contains a document id. Re-picking the same
 //! folder returns the SAME id while its entry exists (`REUSE_EXISTING`), so an
@@ -86,6 +94,115 @@ fn set_impl(store: &dyn SecretStore, root: &Path, secret: &str) -> Result<(), St
 
 fn delete_impl(store: &dyn SecretStore, root: &Path) -> Result<(), String> {
     store.delete(&account_for(root))
+}
+
+/// Bytes in a vault key — the symmetric key the sync engine encrypts notes
+/// with, not anything derived from it at read time.
+const VAULT_KEY_BYTES: usize = 32;
+
+fn vault_key_account_for(root: &Path) -> String {
+    format!("vault-key:{}", root.to_string_lossy())
+}
+
+fn session_token_account_for(root: &Path) -> String {
+    format!("session-token:{}", root.to_string_lossy())
+}
+
+// The keyring stores strings, so the key travels as lowercase hex. A stored
+// entry that is not 32 bytes of hex is an error rather than a silently short
+// key: a caller that encrypted notes with it would produce unreadable objects.
+fn vault_key_get_impl(
+    store: &dyn SecretStore,
+    root: &Path,
+) -> Result<Option<[u8; VAULT_KEY_BYTES]>, String> {
+    let Some(encoded) = store.get(&vault_key_account_for(root))? else {
+        return Ok(None);
+    };
+    let bytes = hex::decode(&encoded).map_err(|e| format!("stored vault key is not hex: {e}"))?;
+    let key: [u8; VAULT_KEY_BYTES] = bytes.try_into().map_err(|bytes: Vec<u8>| {
+        format!(
+            "stored vault key is {} bytes, expected {VAULT_KEY_BYTES}",
+            bytes.len()
+        )
+    })?;
+    Ok(Some(key))
+}
+
+fn vault_key_set_impl(
+    store: &dyn SecretStore,
+    root: &Path,
+    key: &[u8; VAULT_KEY_BYTES],
+) -> Result<(), String> {
+    store.set(&vault_key_account_for(root), &hex::encode(key))
+}
+
+fn vault_key_delete_impl(store: &dyn SecretStore, root: &Path) -> Result<(), String> {
+    store.delete(&vault_key_account_for(root))
+}
+
+fn session_token_get_impl(store: &dyn SecretStore, root: &Path) -> Result<Option<String>, String> {
+    store.get(&session_token_account_for(root))
+}
+
+fn session_token_set_impl(store: &dyn SecretStore, root: &Path, token: &str) -> Result<(), String> {
+    store.set(&session_token_account_for(root), token)
+}
+
+fn session_token_delete_impl(store: &dyn SecretStore, root: &Path) -> Result<(), String> {
+    store.delete(&session_token_account_for(root))
+}
+
+/// This vault's hosted secrets in the OS keyring, as the engine's port.
+///
+/// One instance is scoped to one notes root, which is what keeps the debug
+/// (`fake-notes`) and production (`futo-notes`) vaults — and every worktree's
+/// `FUTO_NOTES_DATA_DIR` — reading independent entries (M3).
+///
+/// It also reaches the self-hosted password entry, which the engine clears
+/// when a hosted session starts. That is not a fourth hosted secret: it is the
+/// *other* credential, and the two are exclusive.
+pub(crate) struct KeyringVaultSecrets {
+    root: std::path::PathBuf,
+}
+
+impl KeyringVaultSecrets {
+    pub(crate) fn for_vault(root: std::path::PathBuf) -> Self {
+        Self { root }
+    }
+}
+
+impl futo_notes_sync::VaultSecrets for KeyringVaultSecrets {
+    fn vault_key(&self) -> Result<Option<[u8; VAULT_KEY_BYTES]>, String> {
+        vault_key_get_impl(&KeyringStore, &self.root)
+    }
+
+    fn set_vault_key(&self, key: &[u8; VAULT_KEY_BYTES]) -> Result<(), String> {
+        vault_key_set_impl(&KeyringStore, &self.root, key)
+    }
+
+    fn delete_vault_key(&self) -> Result<(), String> {
+        vault_key_delete_impl(&KeyringStore, &self.root)
+    }
+
+    fn session_token(&self) -> Result<Option<String>, String> {
+        session_token_get_impl(&KeyringStore, &self.root)
+    }
+
+    fn set_session_token(&self, token: &str) -> Result<(), String> {
+        session_token_set_impl(&KeyringStore, &self.root, token)
+    }
+
+    fn delete_session_token(&self) -> Result<(), String> {
+        session_token_delete_impl(&KeyringStore, &self.root)
+    }
+
+    /// The same per-vault entry the `e2ee_password_*` commands read and write —
+    /// the engine reaches it here so a hosted connect leaves exactly one sync
+    /// credential on this machine, on every platform at once rather than three
+    /// times over.
+    fn delete_sync_password(&self) -> Result<(), String> {
+        delete_impl(&KeyringStore, &self.root)
+    }
 }
 
 #[tauri::command]
@@ -201,6 +318,120 @@ mod tests {
         assert_eq!(
             get_impl(&store, Path::new("/home/u/Documents/fake-notes")).unwrap(),
             Some("dev-pw".to_owned())
+        );
+    }
+
+    // ── Vault key and session token ──────────────────────────────────────
+
+    const A_KEY: [u8; VAULT_KEY_BYTES] = [7u8; VAULT_KEY_BYTES];
+
+    #[test]
+    fn vault_key_roundtrips_and_deletes_idempotently() {
+        let store = MemStore::default();
+        let root = Path::new("/vault");
+        assert_eq!(vault_key_get_impl(&store, root).unwrap(), None);
+        vault_key_set_impl(&store, root, &A_KEY).unwrap();
+        assert_eq!(vault_key_get_impl(&store, root).unwrap(), Some(A_KEY));
+        vault_key_delete_impl(&store, root).unwrap();
+        assert_eq!(vault_key_get_impl(&store, root).unwrap(), None);
+        vault_key_delete_impl(&store, root).unwrap();
+    }
+
+    #[test]
+    fn session_token_roundtrips_and_deletes_idempotently() {
+        let store = MemStore::default();
+        let root = Path::new("/vault");
+        assert_eq!(session_token_get_impl(&store, root).unwrap(), None);
+        session_token_set_impl(&store, root, "session-abc").unwrap();
+        assert_eq!(
+            session_token_get_impl(&store, root).unwrap(),
+            Some("session-abc".to_owned())
+        );
+        session_token_delete_impl(&store, root).unwrap();
+        assert_eq!(session_token_get_impl(&store, root).unwrap(), None);
+        session_token_delete_impl(&store, root).unwrap();
+    }
+
+    #[test]
+    fn the_three_secrets_are_independent_entries_for_one_vault() {
+        // The point of the prefactor: adding a key and a token must not disturb
+        // the password entry, and deleting one must not take the others with it.
+        let store = MemStore::default();
+        let root = Path::new("/vault");
+        set_impl(&store, root, "hunter2").unwrap();
+        vault_key_set_impl(&store, root, &A_KEY).unwrap();
+        session_token_set_impl(&store, root, "session-abc").unwrap();
+
+        vault_key_delete_impl(&store, root).unwrap();
+        assert_eq!(get_impl(&store, root).unwrap(), Some("hunter2".to_owned()));
+        assert_eq!(
+            session_token_get_impl(&store, root).unwrap(),
+            Some("session-abc".to_owned())
+        );
+    }
+
+    #[test]
+    fn the_password_account_is_still_the_bare_notes_root_path() {
+        // Pins the compatibility promise in the module header: entries written
+        // before the key and the token existed must keep resolving.
+        assert_eq!(
+            account_for(Path::new("/home/u/Documents/fake-notes")),
+            "/home/u/Documents/fake-notes"
+        );
+    }
+
+    #[test]
+    fn distinct_vault_roots_do_not_share_a_key_or_a_token() {
+        // The M3 dev/prod split again, for the two new secrets.
+        let store = MemStore::default();
+        let dev = Path::new("/home/u/Documents/fake-notes");
+        let prod = Path::new("/home/u/Documents/futo-notes");
+        vault_key_set_impl(&store, dev, &A_KEY).unwrap();
+        session_token_set_impl(&store, dev, "dev-session").unwrap();
+        assert_eq!(vault_key_get_impl(&store, prod).unwrap(), None);
+        assert_eq!(session_token_get_impl(&store, prod).unwrap(), None);
+    }
+
+    #[test]
+    fn a_stored_vault_key_of_the_wrong_length_is_an_error_not_a_short_key() {
+        let store = MemStore::default();
+        let root = Path::new("/vault");
+        store
+            .set(&vault_key_account_for(root), &hex::encode([1u8; 16]))
+            .unwrap();
+        let error = vault_key_get_impl(&store, root).unwrap_err();
+        assert!(error.contains("16 bytes"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn a_stored_vault_key_that_is_not_hex_is_an_error() {
+        let store = MemStore::default();
+        let root = Path::new("/vault");
+        store
+            .set(&vault_key_account_for(root), "not hex at all")
+            .unwrap();
+        let error = vault_key_get_impl(&store, root).unwrap_err();
+        assert!(error.contains("not hex"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn clearing_the_sync_password_leaves_the_hosted_secrets_alone() {
+        // What `VaultSecrets::delete_sync_password` does here: a hosted connect
+        // must end this vault's self-hosted password and nothing else — the key
+        // and token it just saved have to survive it.
+        let store = MemStore::default();
+        let root = Path::new("/vault");
+        set_impl(&store, root, "hunter2").unwrap();
+        vault_key_set_impl(&store, root, &A_KEY).unwrap();
+        session_token_set_impl(&store, root, "session-abc").unwrap();
+
+        delete_impl(&store, root).unwrap();
+
+        assert_eq!(get_impl(&store, root).unwrap(), None);
+        assert_eq!(vault_key_get_impl(&store, root).unwrap(), Some(A_KEY));
+        assert_eq!(
+            session_token_get_impl(&store, root).unwrap(),
+            Some("session-abc".to_owned())
         );
     }
 

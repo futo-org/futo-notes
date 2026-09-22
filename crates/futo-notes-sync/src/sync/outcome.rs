@@ -57,6 +57,57 @@ impl FailureKind {
     }
 }
 
+/// Why the server would not take this cycle's writes.
+///
+/// Two HTTP statuses, named once. `402 subscription_required` and `507
+/// quota_exceeded` are not ordinary sync faults — nothing is broken, the
+/// account simply may not write — so the shells answer them with a banner and
+/// an action rather than the red failure line (ADR 0003 decision 8).
+///
+/// Deriving it here is the point: three shells reading `failures` for a status
+/// code would be the same sync rule written three times, which is the
+/// duplicate class the root AGENTS.md forbids (M6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteRefusal {
+    /// `402` — the subscription lapsed. Reads keep working; writes do not.
+    SubscriptionRequired,
+    /// `507` — the vault is at its plan's ceiling.
+    QuotaExceeded,
+}
+
+impl WriteRefusal {
+    /// Stable wire identifier, for the shell contracts that carry a string.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::SubscriptionRequired => "subscriptionRequired",
+            Self::QuotaExceeded => "quotaExceeded",
+        }
+    }
+}
+
+/// THE precedence, decided here and nowhere else: a lapsed subscription wins
+/// over a full vault, because it refuses the write whatever the quota says —
+/// telling someone to buy more storage would be the wrong instruction.
+///
+/// Only the write half of the cycle can be refused, so only [`FailureKind::Upload`]
+/// and [`FailureKind::Delete`] are read. A 402 arriving on a download would mean
+/// something else entirely and must not raise "Sync paused"; reads are never
+/// gated (docs/spec/sync.md).
+fn derive_write_refusal(failures: &[SyncFailure]) -> Option<WriteRefusal> {
+    let write_statuses = || {
+        failures
+            .iter()
+            .filter(|failure| matches!(failure.kind, FailureKind::Upload | FailureKind::Delete))
+            .filter_map(|failure| failure.status_code)
+    };
+    if write_statuses().any(|status| status == 402) {
+        return Some(WriteRefusal::SubscriptionRequired);
+    }
+    write_statuses()
+        .any(|status| status == 507)
+        .then_some(WriteRefusal::QuotaExceeded)
+}
+
 #[derive(Debug, Clone)]
 pub struct SyncFailure {
     pub filename: String,
@@ -161,6 +212,11 @@ pub struct SyncSummary {
     pub peer_updated_ids: Vec<String>,
     pub peer_deleted_ids: Vec<String>,
     pub renamed: Vec<RenamePair>,
+    /// Set when the server refused this cycle's writes, and what the shells
+    /// must say about it. `None` on every clean cycle, so it is never a latch:
+    /// the next cycle that is not refused clears the banner by replacing this.
+    /// Written only by [`combine`], from the failures the cycle recorded.
+    pub write_refusal: Option<WriteRefusal>,
     /// Diagnostics for the instance journal, not part of any shell contract —
     /// the Tauri and UniFFI projections build their own summaries field by
     /// field and never see this.
@@ -487,6 +543,11 @@ pub(super) fn combine(mut push: SyncSummary, pull: SyncSummary) -> SyncSummary {
     // keeps the decisions in the order they were actually taken.
     push.decisions.extend(pull.decisions);
     remove_rename_ghost_ids(&mut push);
+    // Last, so it sees every failure the cycle recorded on either side. This is
+    // the ONE place the field is written: `run_cycle` assembles every summary a
+    // shell ever sees through here, so a refusal cannot reach one shell and
+    // miss another.
+    push.write_refusal = derive_write_refusal(&push.failures);
     push
 }
 
@@ -522,9 +583,153 @@ mod summary_shape_tests {
             peer_updated_ids: _,
             peer_deleted_ids: _,
             renamed: _,
+            write_refusal: _,
             // Deliberately NOT projected: instance-journal diagnostics. The
             // shells build their summaries field by field and never see this.
             decisions: _,
         } = SyncSummary::default();
+    }
+}
+
+#[cfg(test)]
+mod write_refusal_tests {
+    use super::*;
+
+    fn failure(kind: FailureKind, status: u16) -> SyncFailure {
+        SyncFailure {
+            filename: "note.md".to_owned(),
+            kind,
+            status_code: Some(status),
+            detail: None,
+        }
+    }
+
+    fn cycle(failures: Vec<SyncFailure>) -> SyncSummary {
+        let mut push = SyncSummary::default();
+        push.failures = failures;
+        combine(push, SyncSummary::default())
+    }
+
+    #[test]
+    fn a_clean_cycle_refuses_nothing() {
+        assert_eq!(cycle(Vec::new()).write_refusal, None);
+    }
+
+    #[test]
+    fn a_402_on_a_write_is_a_lapsed_subscription() {
+        assert_eq!(
+            cycle(vec![failure(FailureKind::Upload, 402)]).write_refusal,
+            Some(WriteRefusal::SubscriptionRequired)
+        );
+        // A delete is a write too: an account that may not write may not
+        // remove either, and the banner is the same one.
+        assert_eq!(
+            cycle(vec![failure(FailureKind::Delete, 402)]).write_refusal,
+            Some(WriteRefusal::SubscriptionRequired)
+        );
+    }
+
+    #[test]
+    fn a_507_on_a_write_is_a_full_vault() {
+        assert_eq!(
+            cycle(vec![failure(FailureKind::Upload, 507)]).write_refusal,
+            Some(WriteRefusal::QuotaExceeded)
+        );
+    }
+
+    /// THE precedence, and the reason this lives in one place: a lapsed
+    /// subscription refuses the write whatever the quota says, so "buy more
+    /// storage" would be the wrong instruction. Both orderings, because a
+    /// cycle does not promise which failure it recorded first.
+    #[test]
+    fn a_lapsed_subscription_wins_over_a_full_vault_in_the_same_cycle() {
+        assert_eq!(
+            cycle(vec![
+                failure(FailureKind::Upload, 507),
+                failure(FailureKind::Upload, 402),
+            ])
+            .write_refusal,
+            Some(WriteRefusal::SubscriptionRequired)
+        );
+        assert_eq!(
+            cycle(vec![
+                failure(FailureKind::Upload, 402),
+                failure(FailureKind::Upload, 507),
+            ])
+            .write_refusal,
+            Some(WriteRefusal::SubscriptionRequired)
+        );
+    }
+
+    /// Reads are never gated. A 402 that somehow arrives on the pull half is
+    /// not the server refusing a write and must not raise "Sync paused".
+    #[test]
+    fn only_the_write_half_can_be_refused() {
+        assert_eq!(
+            cycle(vec![
+                failure(FailureKind::Download, 402),
+                failure(FailureKind::Decrypt, 507),
+                failure(FailureKind::LocalApply, 402),
+            ])
+            .write_refusal,
+            None
+        );
+    }
+
+    #[test]
+    fn an_ordinary_server_fault_is_not_a_refusal() {
+        assert_eq!(
+            cycle(vec![
+                failure(FailureKind::Upload, 500),
+                failure(FailureKind::Upload, 502),
+                SyncFailure {
+                    filename: "note.md".to_owned(),
+                    kind: FailureKind::Upload,
+                    status_code: None,
+                    detail: None,
+                },
+            ])
+            .write_refusal,
+            None
+        );
+    }
+
+    /// Never a latch. The field is rebuilt from the failures of the cycle that
+    /// produced it, so the first cycle that is not refused clears the banner
+    /// without anything having to remember to reset it.
+    #[test]
+    fn the_next_clean_cycle_clears_it() {
+        let refused = cycle(vec![failure(FailureKind::Upload, 402)]);
+        assert_eq!(
+            refused.write_refusal,
+            Some(WriteRefusal::SubscriptionRequired)
+        );
+        assert_eq!(cycle(Vec::new()).write_refusal, None);
+    }
+
+    /// The push half carries the refusal into the combined cycle even when the
+    /// pull half succeeded — which is the whole shape of a lapsed account:
+    /// reads arrive, writes do not.
+    #[test]
+    fn a_refused_push_survives_a_clean_pull() {
+        let mut push = SyncSummary::default();
+        push.failures = vec![failure(FailureKind::Upload, 402)];
+        let mut pull = SyncSummary::default();
+        pull.downloaded = 3;
+        let combined = combine(push, pull);
+        assert_eq!(combined.downloaded, 3);
+        assert_eq!(
+            combined.write_refusal,
+            Some(WriteRefusal::SubscriptionRequired)
+        );
+    }
+
+    #[test]
+    fn the_wire_identifiers_are_stable() {
+        assert_eq!(
+            WriteRefusal::SubscriptionRequired.as_str(),
+            "subscriptionRequired"
+        );
+        assert_eq!(WriteRefusal::QuotaExceeded.as_str(), "quotaExceeded");
     }
 }

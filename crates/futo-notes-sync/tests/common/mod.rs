@@ -1,8 +1,21 @@
 //! Shared helpers for the live-server integration suites.
 //!
 //! These tests talk to a REAL `futo-notes-server` over HTTP, so they are
-//! `#[ignore]`d by default and only run when `FUTO_TEST_SERVER` points at a
-//! running server, e.g.:
+//! `#[ignore]`d by default and only run when a server variable points at a
+//! running one. There are TWO, because the suites need two servers that cannot
+//! be one:
+//!
+//!   $FUTO_TEST_SERVER        a DEV-mode server (`AUTH_MODE=dev`). The sync
+//!                            scenarios authenticate through the dev login;
+//!                            against a hosted server they all fail
+//!                            `connect: Auth("unauthorized")`.
+//!   $FUTO_TEST_HOSTED_SERVER a STAND-IN-mode server (`STANDIN_MODE=true`,
+//!                            hosted/OIDC). The hosted scenarios need Log in
+//!                            with FUTO and a billing provider; a dev-mode
+//!                            server mounts none of those routes.
+//!
+//! `node tests/sync-integration.mjs` starts both and sets both, so one command
+//! runs the whole file. By hand:
 //!
 //!   FUTO_TEST_SERVER=http://127.0.0.1:3005 \
 //!     cargo test -p futo-notes-sync --test server_integration --test sse_live \

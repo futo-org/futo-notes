@@ -257,6 +257,62 @@ build_macos_task:
   updater_artifacts:
     path: "updater/*"
 
+# Internal, hosted-enabled macOS build (D2, taken —
+# docs/plan/hosted-sync-to-staging.md, ticket C8). Invoked ONLY by
+# .gitlab-ci.yml's build:desktop-internal:macos, on prerelease tags.
+#
+# Deliberately receives none of MACOS_CERT_PASSWORD/ASC_KEY_ID/ASC_ISSUER_ID/
+# TAURI_SIGNING_PRIVATE_KEY — build:desktop-internal:macos exports only CI_*
+# into .cienv, so no Apple certificate, no notarization credential, and no
+# updater signing key ever reaches this VM. Building with the base
+# tauri.conf.json (no --config override, unlike build_macos_task above) means
+# there is no `createUpdaterArtifacts` and so no .sig/.app.tar.gz this job
+# could produce even if it tried — the same M23 guarantee build_macos_task's
+# updater-release config exists to prove, held here by simply never wiring
+# the secrets or the config in. The DMG is unsigned; testers bypass
+# Gatekeeper (right-click → Open, or `xattr -d com.apple.quarantine`).
+build_macos_internal_task:
+  name: buildFutoNotesMacOSInternal
+  macos_instance:
+    image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
+  buildFutoNotesMacOSInternal_script:
+    - brew install fnm
+    - eval "$(fnm env --shell bash)"
+    - fnm use --install-if-missing
+    - node --version
+    - corepack enable
+    - corepack prepare pnpm@10.29.2 --activate
+
+    - curl https://sh.rustup.rs -sSf | sh -s -- -y
+    - export PATH="$HOME/.cargo/bin:$PATH"
+    - rustup target add aarch64-apple-darwin x86_64-apple-darwin
+    - cargo install tauri-cli --locked
+
+    # Tag builds derive the version from the tag; MR rehearsal builds have no
+    # tag, so fall back to 0.0.0 (same fallback build:windows uses in
+    # .gitlab-ci.yml) rather than passing desktop-version.mjs an empty string.
+    - |
+      VERSION="${CI_COMMIT_TAG#v}"
+      if [ -z "$VERSION" ]; then
+        VERSION="0.0.0"
+      fi
+    - echo "Building internal macOS version $VERSION (hosted sync ON, staging server)"
+
+    - pnpm install --frozen-lockfile
+    - node scripts/desktop-version.mjs "$VERSION"
+
+    - export VITE_HOSTED_SYNC=true
+    - export FUTO_HOSTED_SERVER_BAKED=https://staging-notes-sync.futo.org
+    - unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+
+    - cd apps/tauri
+    - cargo tauri build --target universal-apple-darwin
+    - cd ../..
+
+    - cp target/universal-apple-darwin/release/bundle/dmg/*.dmg ./
+  binary_artifacts:
+    path: "*.dmg"
+
 # Native iOS app (SwiftUI over the futo-notes-ffi UniFFI core + embedded
 # editor.html). Tag builds produce a signed Release IPA for TestFlight;
 # non-tag builds are unsigned simulator compile checks.
@@ -274,6 +330,17 @@ build_ios_native_task:
     - export PATH="$HOME/.cargo/bin:$PATH"
     - rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
     - pnpm install --frozen-lockfile
+    # Hosted sync is on for the internal dogfood build (default branch →
+    # TestFlight) and off for tag/MR builds, per ADR 0003 decision 13 (the
+    # archive step below re-derives the same condition for
+    # HOSTED_SYNC_CONDITION). Determined here, before the Rust FFI build, so
+    # the dogfood build's xcframework also bakes the staging hosted address
+    # rather than the production one (C3, ADR 0003 decision 2).
+    - |
+      if [ -z "${CI_COMMIT_TAG:-}" ] && [ -n "${CI_DEFAULT_BRANCH:-}" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}" ]; then
+        export FUTO_HOSTED_SERVER_BAKED=https://staging-notes-sync.futo.org
+        echo "Default-branch build — internal dogfood, baked hosted server: $FUTO_HOSTED_SERVER_BAKED"
+      fi
     # Shared Rust FFI -> FutoNotesFfi.xcframework + Swift bindings (uses
     # xcodebuild -create-xcframework).
     - bash scripts/build-rust-ios.sh
@@ -320,6 +387,15 @@ build_ios_native_task:
         VERSION="$(node scripts/ios-marketing-version.mjs)"
         BUILD_NUMBER="${CI_PIPELINE_IID:-1}"
         echo "Marketing version $VERSION (build $BUILD_NUMBER)"
+        # Hosted sync is on for the internal dogfood build (default branch →
+        # TestFlight) and off for the store release (tag), per ADR 0003
+        # decision 13. project.yml's Release config expands this setting into
+        # SWIFT_ACTIVE_COMPILATION_CONDITIONS; empty compiles none of it in.
+        HOSTED_SYNC_CONDITION=""
+        if [ -z "${CI_COMMIT_TAG:-}" ]; then
+          HOSTED_SYNC_CONDITION="FUTO_HOSTED_SYNC"
+        fi
+        echo "Hosted sync condition: '${HOSTED_SYNC_CONDITION:-<off>}'"
         ARCHIVE="apps/ios/.build-release/FutoNotesNative.xcarchive"
         xcodebuild -project apps/ios/FutoNotesNative.xcodeproj \
           -scheme FutoNotesNative -configuration Release \
@@ -334,6 +410,7 @@ build_ios_native_task:
           PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
           MARKETING_VERSION="$VERSION" \
           CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+          FUTO_HOSTED_SYNC_CONDITION="$HOSTED_SYNC_CONDITION" \
           archive | tail -5
 
         cat > /tmp/ExportOptionsNative.plist << PLISTEOF

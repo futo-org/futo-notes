@@ -33,6 +33,18 @@ pub struct ResumeCredentials {
     pub password: String,
 }
 
+/// What a hosted setup hands over once its vault is unlocked. The vault key is
+/// here in place of a password, which is the whole difference between the two
+/// unlock models: password mode derives the key at every connect, hosted mode
+/// holds it (ADR 0003, decision 4).
+pub struct HostedCredentials {
+    pub server_url: String,
+    pub token: String,
+    pub user_id: String,
+    pub collection_id: String,
+    pub vault_key: [u8; 32],
+}
+
 #[derive(Default)]
 pub struct SyncSession {
     state: Arc<Mutex<Option<ConnectedState>>>,
@@ -73,6 +85,29 @@ impl SyncSession {
         let (state, info) = connect::connect(root, server, password).await?;
         *self.state.lock().await = Some(state);
         Ok(info)
+    }
+
+    /// Connects with secrets a hosted setup already holds, rather than with a
+    /// password. This is what makes the end of the hosted wizard a session that
+    /// can run a cycle; [`crate::HostedSetup::connect_sync`] is the only caller,
+    /// because it is the thing that knows the key and the token are real.
+    pub async fn connect_hosted(
+        &self,
+        root: &Path,
+        credentials: HostedCredentials,
+    ) -> Result<(), SyncErrorKind> {
+        self.stop_live();
+        let _gate = self.cycle_gate.lock().await;
+        let state = connect::hosted(
+            root,
+            &credentials.server_url,
+            credentials.token,
+            credentials.user_id,
+            credentials.collection_id,
+            credentials.vault_key,
+        )?;
+        *self.state.lock().await = Some(state);
+        Ok(())
     }
 
     pub async fn resume(

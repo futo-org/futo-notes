@@ -397,9 +397,9 @@
     },
     {
       "concept": "wikilink-grammar",
-      "description": "What counts as a `[[wikilink]]`, stated twice in TypeScript: the scanner the rename rewriter mirrors (WIKILINK_RE / findWikilinks, itself a registered note-rules-ts-rust copy) and the micromark tokenizer the Milkdown editor parses with. They exist separately because a regex over raw text cannot be a micromark text construct; a disagreement is a data bug \u2014 the editor shows a chip the rewriter will not rewrite (a rename silently breaks the link), or the rewriter rewrites text the editor showed as prose. Why the tokenizer is hand-written rather than an adopted library: docs/plan/milkdown-transition.md \u00a73.8 (the #101 survey).",
+      "description": "What counts as a `[[wikilink]]`, stated twice in TypeScript: the scanner the rename rewriter mirrors (WIKILINK_RE / findWikilinks, itself a registered note-rules-ts-rust copy) and the micromark tokenizer the Milkdown editor parses with. They exist separately because a regex over raw text cannot be a micromark text construct; a disagreement is a data bug — the editor shows a chip the rewriter will not rewrite (a rename silently breaks the link), or the rewriter rewrites text the editor showed as prose. Why the tokenizer is hand-written rather than an adopted library: docs/plan/milkdown-transition.md §3.8 (the #101 survey).",
       "lockStatus": "locked",
-      "note": "LOCKED: syntax.test.ts asks both implementations the same corpus \u2014 34 hand-picked inline edges plus a 10\u00d78 target\u00d7frame cross-product \u2014 through a REAL Milkdown editor, and fails on any divergence. The one deliberate difference, wikilinks inside code spans and fences, is asserted separately: the editor is right there per docs/spec/editor.md, and the raw-text scanner has no notion of code.",
+      "note": "LOCKED: syntax.test.ts asks both implementations the same corpus — 34 hand-picked inline edges plus a 10×8 target×frame cross-product — through a REAL Milkdown editor, and fails on any divergence. The one deliberate difference, wikilinks inside code spans and fences, is asserted separately: the editor is right there per docs/spec/editor.md, and the raw-text scanner has no notion of code.",
       "copies": [
         {
           "location": "src/shared/note/wikilinks.ts",
@@ -553,6 +553,125 @@
         "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
         "extensions": [".ts", ".swift", ".kt"],
         "pattern": "(PRODUCTION_BASE_URL|productionBaseUrl)\\b"
+      }
+    },
+    {
+      "concept": "hosted-sync-pairing-countdown",
+      "description": "How long a pairing code has left, rendered for a person: whole seconds until the relay's own expires_at, and m:ss. Presentation, per shell, because the deadline itself is Rust's — await_pairing rebuilds its poll schedule from the same timestamp and is the only thing that ends a wait.",
+      "lockStatus": "unlocked",
+      "note": "UNLOCKED: nothing but you keeps these in step. All three read an unparseable timestamp as no time left, deliberately — a code shown as spent is the safe way to be wrong. Each has its own suite (pairingCountdown.test.ts / PairingCodeTests.swift / PairingCountdownTest.kt); no fixture is shared between them.",
+      "copies": [
+        {
+          "location": "src/features/sync/pairingCountdown.ts",
+          "pattern": "export function secondsUntil"
+        },
+        {
+          "location": "apps/ios/Sources/Sync/Hosted/PairingCountdown.swift",
+          "pattern": "func pairingSecondsRemaining"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/sync/hosted/PairingCountdown.kt",
+          "pattern": "fun pairingSecondsRemaining"
+        }
+      ]
+    },
+    {
+      "concept": "hosted-sync-shell-presentation",
+      "description": "Turning the hosted engine's answers into what a person reads: which catalog message each HostedError variant gets, which sentence each subscription state gets, and the vault-password strength estimate. Hand-written per shell because this is presentation — Rust owns the rules underneath (the 12-character minimum, the error variants themselves). Android is the third copy (futo-notes#179).",
+      "lockStatus": "unlocked",
+      "note": "UNLOCKED: nothing but you keeps these in step. A new HostedError variant, a new subscription state, or a change to the strength thresholds must land in every copy in one commit. Each side has its own tests (hostedSyncErrors.test.ts / HostedSyncErrorsTests.swift / HostedSyncErrorsTest.kt and siblings), and the three strength suites deliberately assert the same inputs; no fixture is shared between them yet.",
+      "copies": [
+        {
+          "location": "src/features/sync/hostedSyncErrors.ts",
+          "pattern": "export function hostedErrorMessage"
+        },
+        {
+          "location": "src/features/sync/subscriptionState.ts",
+          "pattern": "export function subscriptionStateMessage"
+        },
+        {
+          "location": "src/features/sync/vaultPasswordStrength.ts",
+          "pattern": "export function vaultPasswordStrength"
+        },
+        {
+          "location": "apps/ios/Sources/Sync/Hosted/HostedSyncErrors.swift",
+          "pattern": "func hostedErrorMessage"
+        },
+        {
+          "location": "apps/ios/Sources/Sync/Hosted/SubscriptionState.swift",
+          "pattern": "func subscriptionStateMessage"
+        },
+        {
+          "location": "apps/ios/Sources/Sync/Hosted/VaultPasswordStrength.swift",
+          "pattern": "func vaultPasswordStrength"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/sync/hosted/HostedSyncErrors.kt",
+          "pattern": "fun hostedErrorMessage"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/sync/hosted/SubscriptionState.kt",
+          "pattern": "fun subscriptionStateMessage"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/sync/hosted/VaultPasswordStrength.kt",
+          "pattern": "fun vaultPasswordStrength"
+        }
+      ]
+    },
+    {
+      "concept": "hosted-sync-banner-rule",
+      "description": "Which refused-write banner an account earns from its billing status and from the last cycle's own write refusal: none, Sync paused, or Vault is full. One rule, three copies, because each shell reads its own BillingStatus and renders its own banner enum. Sync paused wins over a full vault, and a quota of zero is 'unknown' rather than 'full' — the second of those is why the stand-in server's filled quota shows no banner on an account that has stored nothing (futo-notes#178/#179 recorded it as unprovable on a device for that reason).",
+      "lockStatus": "unlocked",
+      "note": "UNLOCKED: nothing but you keeps these in step. The TS copy was extracted out of createHostedSyncSettings.svelte.ts into its own file (futo-notes#186) so the `__testSync` hosted hook could assert on the same rule the sync screen renders — a second TS copy would have made the tests prove something that does not ship. A change to the precedence, to the zero-quota reading, or to how the last cycle's `SyncSummary.writeRefusal` feeds in (futo-notes C4) must land in all three in one commit. Each has its own tests (hostedBanner.test.ts / HostedSetupModelTests.swift / HostedSetupModelTest.kt), and tests/cross-platform-sync.mjs drives the TS one against a real stand-in server.",
+      "copies": [
+        {
+          "location": "src/features/sync/hostedBanner.ts",
+          "pattern": "export function hostedBanner"
+        },
+        {
+          "location": "apps/ios/Sources/Sync/Hosted/HostedSetupModel.swift",
+          "pattern": "var banner: HostedBanner"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/sync/hosted/HostedSetupModel.kt",
+          "pattern": "val banner: HostedBanner"
+        }
+      ]
+    },
+    {
+      "concept": "sync-session-mode-precedence",
+      "description": "Which sync session wins, hand-written x2 (native shells only). `hostedConnectEntry` says what a hosted connect does about a session already in hand — skip the wizard's idempotent re-entry, replace a live self-hosted one, or proceed (D8). `restoreBranch` says which credential a cold launch reaches for, including the one stranded device that holds both (D9). Justin's calls of 2026-09-16, specified once in docs/spec/sync.md.",
+      "lockStatus": "locked",
+      "note": "LOCKED: both consumers read the full shared fixture — Swift's SyncSessionModeConformanceTests.swift and Kotlin's SyncSessionModeConformanceTest.kt each assert all 8 hostedConnectEntry and all 4 restoreBranch cases, and both assert the case counts first so a truncated fixture fails rather than passing vacuously. Desktop has NO copy on purpose: it holds ONE engine session and `SyncSession::connect_hosted` stops the previous live loop itself, so there is no teardown to sequence and `ensureConnected` already prefers hosted — a Swift/Kotlin-shaped copy there would be drift, not parity.",
+      "copies": [
+        {
+          "location": "apps/ios/Sources/Sync/SyncManager.swift",
+          "pattern": "static func hostedConnectEntry"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/SyncManager.kt",
+          "pattern": "fun hostedConnectEntry"
+        }
+      ],
+      "locks": [
+        {
+          "path": "tests/conformance/sync-session-mode.json",
+          "kind": "fixture"
+        },
+        {
+          "path": "apps/ios/Tests/Sync/SyncSessionModeConformanceTests.swift",
+          "kind": "test"
+        },
+        {
+          "path": "apps/android/app/src/test/java/com/futo/notes/SyncSessionModeConformanceTest.kt",
+          "kind": "test"
+        }
+      ],
+      "scan": {
+        "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
+        "extensions": [".ts", ".swift", ".kt"],
+        "pattern": "(func hostedConnectEntry|fun hostedConnectEntry|func restoreBranch|fun restoreBranch)\\b"
       }
     },
     {

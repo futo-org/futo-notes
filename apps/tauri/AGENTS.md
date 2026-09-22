@@ -15,9 +15,9 @@ From the monorepo root, prefer the `just` wrappers: `just tauri-dev`, `just taur
 The desktop adapter is split by responsibility:
 
 - **`local_notes.rs`**: the complete `local_notes_*` projection over one `LocalNoteStore`, including desktop trash policy.
-- **`sync/`**: `mod.rs` is only the module map. `tauri_commands.rs` owns the stable `e2ee_*` command surface, `cycle_runner.rs` wires manual/live push-first cycles, `frontend_contract.rs` owns serialization, `tauri_events.rs` translates callbacks, and `password_store.rs` keeps the E2EE vault password
-  in the OS keyring (never on disk). The session itself is the `sync: SyncSession` field on
-  `AppState` — there is no separate session-state bridge module.
+- **`sync/`**: `mod.rs` is only the module map. `tauri_commands.rs` owns the stable `e2ee_*` command surface, `hosted_commands.rs` the `e2ee_hosted_*` one (hosted setup — sign-in, billing, checkout, create/unlock vault, sign out; the engine's `HostedSetup` owns the sequence and this holds the attempt in progress, building one over the keyring when a cold start has none), `cycle_runner.rs` wires manual/live push-first cycles, `frontend_contract.rs` owns serialization, `tauri_events.rs` translates callbacks, and `password_store.rs` keeps this device's E2EE sync secrets — vault password, vault key,
+  session token — in the OS keyring (never on disk). The session itself is the `sync: SyncSession`
+  field on `AppState` — there is no separate session-state bridge module.
 - **`vault_location.rs`**: the only authority for environment overrides, persisted custom roots, and the CRITICAL debug (`fake-notes`) / release (`futo-notes`) default split.
 - **`filesystem_watcher.rs`**: `notify` lifecycle, rename-cookie pairing, relative-path normalization, `fs:change` emission, and the typed one-shot `WatcherSuppression` service shared by note/folder/sync commands.
 - **`image_commands.rs`**: native clipboard bitmap → PNG ingestion (`fs_paste_clipboard_image`); file-based image import goes through `PlatformFS`, not this module.
@@ -66,10 +66,25 @@ For sync server switching, use the dev-only webview hook:
 - `await window.__testSync.pauseAutoSync()`
 - `await window.__testSync.resumeAutoSync()`
 
+The hosted half (Log in with FUTO) is on the same object:
+
+- `await window.__testSync.connectHosted({ serverUrl, vaultPassword, door, recoveryKey, stopAtStep })` —
+  runs the wizard to a first sync, whichever shape the account is in
+- `window.__testSync.hostedProgress()` — which step it is on, the URL it is waiting
+  on a browser to visit, the recovery key, a live pairing payload
+- `await window.__testSync.hostedAccount()` — email, billing, banner
+- `await window.__testSync.hostedSessionToken()` — for the stand-in server's `/standin/*` controls
+- `await window.__testSync.showPairingCode()` / `.acceptPairing(scanned)` — the two pairing sides
+- `await window.__testSync.hostedSignOut()` / `.forgetHosted()`
+
 Notes:
 - Desktop dev server URLs use `127.0.0.1`
 - `connect()` clears cached E2EE state first so sync state does not bleed across backend switches
 - The same test hooks are available in debug builds created with `VITE_INCLUDE_TEST_HOOKS=true`, which is how `just test-cross-platform` drives the app
+- `connectHosted()` never opens a browser: it publishes the URL on `hostedProgress()`
+  and keeps polling, so the caller visits it (`tests/lib/standin-browser.mjs` does,
+  with a cookie jar). `serverUrl` is required — the compiled-in hosted address is the
+  real service.
 
 ## Building & Testing
 

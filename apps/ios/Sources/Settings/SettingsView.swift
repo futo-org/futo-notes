@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 /// App settings sheet (gear button in the note list). Mirrors the desktop
-/// Settings surface (settings.md): the License row, a single "Self-hosted sync" row, appearance,
+/// Settings surface (settings.md): the License row, a single "Sync" row, appearance,
 /// storage readout, issue reporting, about, and the danger-zone full reset.
 /// Sync details/actions stay in SyncView — the Sync row just opens it.
 struct SettingsView: View {
@@ -40,7 +40,7 @@ struct SettingsView: View {
                 // § States and copy).
                 LicenseSettingsSection(license: license)
 
-                // The whole Sync surface is one "Self-hosted sync" row: cloud
+                // The whole Sync surface is one "Sync" row: cloud
                 // icon, connected-vs-local status, SYNCED/LOCAL badge. No
                 // separate account header, no separate "Server" row
                 // (settings.md). Tapping opens SyncView.
@@ -53,7 +53,7 @@ struct SettingsView: View {
                                 .font(.title3)
                                 .foregroundStyle(Theme.primary)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(localization.localizedText("settings.sync.selfHosted"))
+                                Text(localization.localizedText("settings.sync.label"))
                                     .foregroundStyle(.primary)
                                 Text(
                                     sync.connected
@@ -206,7 +206,7 @@ struct SettingsView: View {
         .interactiveDismissDisabled(resetting)
     }
 
-    /// SYNCED / LOCAL pill shown on the single "Self-hosted sync" row.
+    /// SYNCED / LOCAL pill shown on the single "Sync" row.
     private var syncBadge: some View {
         Text(
             sync.connected

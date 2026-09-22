@@ -5,6 +5,7 @@
   import { getAppVersion } from '$features/system/crashHandler';
   import { updateChecker } from '$features/system/updateChecker.svelte';
   import { selfUpdateSupported, updaterSupported } from '$features/system/updater';
+  import { hostedSyncEnabled } from '$features/sync/hostedSyncEnabled';
   import type { SyncSummary } from '$features/sync/syncServiceE2ee';
   import { confirmDialog } from '$shared/dialogs/confirmDialog';
   import { dismissable } from '$shared/dialogs/dismissable';
@@ -21,12 +22,14 @@
   import BlockingSettingsOverlay from './BlockingSettingsOverlay.svelte';
   import DangerSettingsSection from './DangerSettingsSection.svelte';
   import DevSyncErrorSettingsSection from './DevSyncErrorSettingsSection.svelte';
+  import HostedSyncSettingsSection from './HostedSyncSettingsSection.svelte';
   import LicenseSettingsSection from '$features/license/LicenseSettingsSection.svelte';
   import IssueReportingSettingsSection from './IssueReportingSettingsSection.svelte';
   import LanguageSettingsSection from './LanguageSettingsSection.svelte';
   import StorageSettingsSection from './StorageSettingsSection.svelte';
   import SyncSettingsSection from './SyncSettingsSection.svelte';
   import UpdatesSettingsSection from './UpdatesSettingsSection.svelte';
+  import { createHostedSyncSettings } from './createHostedSyncSettings.svelte';
   import { createSyncSettings } from './createSyncSettings.svelte';
   import './settings.css';
 
@@ -63,6 +66,10 @@
   let resetFailed = $state(false);
   let updateSupported = $state(false);
   const sync = createSyncSettings();
+  // Off is not a variant of this screen — it is `SyncSettingsSection` alone,
+  // exactly as it shipped, so a release build before launch cannot regress a
+  // self-hosted user (ADR 0003, decision 13).
+  const hostedSync = hostedSyncEnabled() ? createHostedSyncSettings() : null;
 
   // Opening Settings *at* a section: the ambient license label is the only
   // caller today. Scrolled after mount, so the sheet still opens at its top and
@@ -211,6 +218,10 @@
     }
   }
 
+  // Un-awaited: the sync screen paints its "checking" line immediately and
+  // fills in once Rust has answered (M1).
+  if (hostedSync) void hostedSync.load();
+
   if (isTauri) {
     // Read the vault's *location*, not the vault: `vaultStatus` answers for a
     // folder that has gone missing too, where reading the config would leave
@@ -284,12 +295,22 @@
           languages={desktopLocalization.availableLanguages}
           onchange={(selectedLanguageTag) => void changeLanguage(selectedLanguageTag)}
         />
-        <SyncSettingsSection
-          {sync}
-          backgroundError={backgroundSyncError}
-          backgroundErrorMessage={backgroundSyncErrorMessage}
-          reconnecting={syncReconnecting}
-        />
+        {#if hostedSync}
+          <HostedSyncSettingsSection
+            hosted={hostedSync}
+            {sync}
+            backgroundError={backgroundSyncError}
+            backgroundErrorMessage={backgroundSyncErrorMessage}
+            reconnecting={syncReconnecting}
+          />
+        {:else}
+          <SyncSettingsSection
+            {sync}
+            backgroundError={backgroundSyncError}
+            backgroundErrorMessage={backgroundSyncErrorMessage}
+            reconnecting={syncReconnecting}
+          />
+        {/if}
         <IssueReportingSettingsSection
           enabled={preferences.crashReporting.enabled}
           alwaysSend={preferences.crashReporting.alwaysSend}

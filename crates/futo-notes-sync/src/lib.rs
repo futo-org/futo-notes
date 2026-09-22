@@ -6,6 +6,7 @@
 mod checkpoint;
 #[cfg(test)]
 mod fault_injection;
+mod hosted;
 mod journal;
 mod open_note;
 mod server;
@@ -15,13 +16,44 @@ mod sync;
 use std::path::Path;
 
 pub use checkpoint::{ConnectedState, ObjectState as E2eeObjectMapEntry};
+pub use hosted::{
+    hosted_server, probe_sign_in_flow, BillingStatus, Checkout, EntitlementOutcome, HostedError,
+    HostedSession, HostedSetup, PairingCode, PairingOutcome, PairingRequest, PollSchedule,
+    SetupStep, SignInFlow, SignInHandoff, SignInOutcome, VaultSecrets, HOSTED_SERVER,
+    MIN_VAULT_PASSWORD_CHARS,
+};
 pub use journal::SyncTrigger;
 pub use open_note::{classify_open_note, KeepDraftReason, OpenNoteDisposition, OpenNoteFacts};
-pub use session::{ResumeCredentials, SyncSession, SyncSessionListener};
+pub use session::connect::AuthenticatedSession;
+pub use session::{HostedCredentials, ResumeCredentials, SyncSession, SyncSessionListener};
 pub use sync::{
     ConnectInfo, FailureKind, PreWrite, Progress, RenamePair, SyncErrorKind, SyncFailure,
-    SyncProgress, SyncSummary,
+    SyncProgress, SyncSummary, WriteRefusal,
 };
+
+/// Logs in and resolves the collection to sync. The vault stays locked: a
+/// session on its own cannot read a note.
+///
+/// Callers that want password-mode sync use [`SyncSession::connect`], which
+/// composes this with [`unlock_with_password`] in the one order that is
+/// correct. This verb is separate because the hosted flow authenticates once
+/// and then unlocks by a door other than the password.
+pub async fn authenticate(
+    server: &str,
+    password: &str,
+) -> Result<AuthenticatedSession, SyncErrorKind> {
+    session::connect::authenticate(server, password).await
+}
+
+/// Turns an authenticated session into the 32-byte vault key by unwrapping the
+/// collection's key material with the vault password, minting that material
+/// when a fresh collection has none.
+pub async fn unlock_with_password(
+    session: &AuthenticatedSession,
+    password: &str,
+) -> Result<[u8; 32], SyncErrorKind> {
+    session::connect::unlock_with_password(session, password).await
+}
 
 // Kept as a narrow compatibility surface for the server acceptance tests.
 // Applications use SyncSession instead.

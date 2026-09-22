@@ -70,7 +70,7 @@
         "dangerZone": "Danger zone"
       },
       "sync": {
-        "selfHosted": "Self-hosted sync",
+        "label": "Sync",
         "localDescription": "Notes stay on this device until you connect sync.",
         "syncedBadge": "SYNCED",
         "localBadge": "LOCAL"
@@ -139,7 +139,9 @@
             "uploadHttp403": "Upload 403",
             "deleteHttp500": "Delete 500",
             "networkWithoutStatus": "Network (no status)",
-            "threeFailures": "3 failures"
+            "threeFailures": "3 failures",
+            "subscriptionRequired": "Refused 402 (sync paused)",
+            "quotaExceeded": "Refused 507 (vault full)"
           },
           "successfulSync": "Successful sync"
         }
@@ -579,6 +581,7 @@
         "reconnecting": "Reconnecting…",
         "reconnectingAccessibilityLabel": "Reconnecting to sync server",
         "connectedAndSyncing": "Connected ({authMode}) · syncing…",
+        "hostedConnectedAndSyncing": "Connected to FUTO · syncing…",
         "syncing": "Syncing…",
         "complete": "Sync complete",
         "error": "Error",
@@ -604,10 +607,229 @@
         "syncFailed": "Sync failed. Try again.",
         "previousFailure": "The last sync failed. Try again.",
         "completedWithErrors": "Sync completed with errors. Some changes could not reach the server.",
+        "writePausedSubscription": "Sync paused. Your subscription has lapsed, so changes made here are not uploaded. Notes from your other devices still arrive.",
+        "writePausedQuota": "Vault is full. You have used all of your storage, so changes made here are not uploaded.",
         "liveUnavailable": "Live sync is temporarily unavailable. FUTO Notes will keep retrying.",
+        "hostedOffline": "Can't reach FUTO right now. FUTO Notes will keep retrying.",
         "forgetPasswordFailed": "Couldn't remove the saved sync password.",
         "dismissWithMessageAccessibilityLabel": "Sync error: {message}. Click to dismiss.",
         "dismissTitle": "{message} — click to dismiss"
+      },
+      "hosted": {
+        "loading": "Checking your account…",
+        "unavailable": "This address doesn't offer FUTO accounts. Use your own server below.",
+        "useMyOwnServer": "Use my own server",
+        "cancel": "Cancel",
+        "signIn": {
+          "title": "Sync with FUTO",
+          "body": "Sign in with your FUTO account to sync your notes between devices. Your notes are encrypted on this device before they are uploaded.",
+          "button": "Log in with FUTO",
+          "serverLine": "You will sign in at {server}.",
+          "waiting": "Finish signing in in your browser."
+        },
+        "subscribe": {
+          "title": "Subscribe to FUTO sync",
+          "body": "Sync needs a subscription. Checkout opens in your browser and the app picks up the result on its own.",
+          "button": "Subscribe",
+          "waiting": "Finish checkout in your browser."
+        },
+        "vaultPassword": {
+          "label": "Vault password",
+          "placeholder": "At least {minimum} characters",
+          "repeatLabel": "Repeat vault password",
+          "repeatPlaceholder": "Type it again",
+          "mismatch": "Those two passwords are different.",
+          "strengthAccessibilityLabel": "Vault password strength: {strength}",
+          "strength": {
+            "tooShort": "At least {minimum} characters",
+            "weak": "Weak",
+            "fair": "Fair",
+            "strong": "Strong"
+          },
+          "create": {
+            "title": "Choose a vault password",
+            "body": "This password encrypts your notes. It is separate from your FUTO password and is never sent anywhere, so FUTO can store your notes without being able to read them.",
+            "button": "Create vault"
+          },
+          "change": {
+            "title": "Choose a new vault password",
+            "body": "You are not asked for the old one: this device already holds the key to your vault. Your other devices keep working, and nothing about your notes changes.",
+            "button": "Set new password",
+            "changed": "Vault password changed."
+          }
+        },
+        "recoveryKey": {
+          "title": "Save your recovery key",
+          "body": "This key is the way back into your notes if you lose every device and forget your vault password.",
+          "warning": "FUTO cannot recover your vault without it. Nobody at FUTO has a copy.",
+          "shownOnce": "You will not be shown this key again.",
+          "accessibilityLabel": "Your recovery key",
+          "copy": "Copy",
+          "saveFile": "Save file",
+          "share": "Share",
+          "copied": "Recovery key copied.",
+          "saved": "Recovery key saved.",
+          "fileFilterName": "Text file",
+          "confirmSaved": "I've saved my recovery key",
+          "continue": "Continue",
+          "replaced": "Your old recovery key stopped working the moment this one appeared."
+        },
+        "unlock": {
+          "title": "Unlock your vault",
+          "body": "Your notes are already encrypted. Unlock them on this device.",
+          "doorsAccessibilityLabel": "How to unlock this vault",
+          "doors": {
+            "vaultPassword": "Vault password",
+            "scan": "Scan from another device",
+            "recoveryKey": "Recovery key"
+          },
+          "vaultPasswordLabel": "Vault password",
+          "vaultPasswordPlaceholder": "Your vault password",
+          "recoveryKeyLabel": "Recovery key",
+          "recoveryKeyPlaceholder": "ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345",
+          "recoveryKeyHint": "Dashes and capitals do not matter.",
+          "button": "Unlock"
+        },
+        "pairing": {
+          "title": "Scan this code with an unlocked device",
+          "body": "On a device that already has your notes, open FUTO Notes, choose “Scan another device”, and point it at this code.",
+          "codeAccessibilityLabel": "Pairing code for this computer",
+          "expiresIn": "This code expires in {remaining}.",
+          "expiresInAccessibilityLabel": "Time left on this code: {remaining}",
+          "showCode": "Show a pairing code",
+          "showNewCode": "Show a new code",
+          "received": {
+            "title": "Your vault is unlocked",
+            "body": "The key arrived from your other device. Syncing your notes now…"
+          },
+          "expired": {
+            "title": "That code expired",
+            "body": "A code lasts five minutes. Saying no on the other device looks the same from here — either way nothing was sent and no key was shared."
+          },
+          "refused": {
+            "title": "That code can’t be used",
+            "body": "The server wouldn’t hand this pairing over — it was already answered, or it belongs to a different account. No key was shared."
+          },
+          "ios": {
+            "codeAccessibilityLabel": "Pairing code for this device",
+            "received": {
+              "body": "The key arrived from your other device. Your vault is unlocked here."
+            }
+          },
+          "android": {
+            "codeAccessibilityLabel": "Pairing code for this device",
+            "received": {
+              "body": "The key arrived from your other device. Your vault is unlocked here."
+            }
+          },
+          "scan": {
+            "action": "Scan another device",
+            "title": "Scan a pairing code",
+            "body": "Point the camera at the code showing on the device you are setting up.",
+            "confirm": {
+              "title": "Give this device access to your notes?",
+              "body": "This sends your vault key to {device}. Only continue if that is a device you are setting up right now.",
+              "device": "{name} ({platform})",
+              "platform": {
+                "ios": "iPhone or iPad",
+                "android": "Android",
+                "desktop": "Computer"
+              }
+            },
+            "sending": "Sending the key…",
+            "sent": {
+              "title": "Key sent",
+              "body": "{device} should unlock in a moment."
+            },
+            "permissionDenied": {
+              "title": "FUTO Notes can’t use the camera",
+              "body": "Camera access is off for FUTO Notes, so there is nothing here to read a code with. You can turn it on in Settings."
+            },
+            "noCamera": {
+              "title": "This device has no camera",
+              "body": "There is nothing here to read a pairing code with."
+            },
+            "fallback": "You can set the other device up without a camera: on that device choose “Vault password” and type it.",
+            "openSettings": "Open Settings",
+            "android": {
+              "rationale": {
+                "title": "FUTO Notes needs the camera to read a code",
+                "body": "The camera is used here to read the pairing code on your other device, and for nothing else. Nothing is recorded or sent anywhere."
+              },
+              "allowCamera": "Allow the camera"
+            }
+          }
+        },
+        "account": {
+          "heading": "FUTO account",
+          "storage": "{used} of {quota} used",
+          "manageSubscription": "Manage subscription",
+          "changeVaultPassword": "Change vault password",
+          "newRecoveryKey": "New recovery key",
+          "signOut": "Sign out",
+          "state": {
+            "active": "Active",
+            "trialing": "Trial",
+            "pastDue": "Payment failed. {when}, sync pauses.",
+            "pastDueNoDate": "Payment failed. Sync will pause.",
+            "expired": "Expired",
+            "none": "No subscription",
+            "paused": "Paused",
+            "incomplete": "Payment not finished"
+          }
+        },
+        "banner": {
+          "syncPaused": {
+            "title": "Sync paused",
+            "body": "Your subscription has lapsed, so changes made here are not uploaded. Notes from your other devices still arrive.",
+            "action": "Subscribe"
+          },
+          "vaultFull": {
+            "title": "Vault is full",
+            "body": "You have used all of your storage, so changes made here are not uploaded.",
+            "action": "Manage subscription"
+          }
+        },
+        "signOut": {
+          "confirmationTitle": "Sign out",
+          "confirmationBody": "Sign out of FUTO sync on this device? Your notes stay on this computer, and syncing stops until you sign in again.",
+          "ios": {
+            "confirmationBody": "Sign out of FUTO sync on this device? Your notes stay on this device, and syncing stops until you sign in again."
+          },
+          "android": {
+            "confirmationBody": "Sign out of FUTO sync on this device? Your notes stay on this device, and syncing stops until you sign in again."
+          }
+        },
+        "errors": {
+          "signInAgain": "Your session has expired. Log in with FUTO again — your notes and sync state are untouched.",
+          "signInExpired": "That sign-in took too long. Try again.",
+          "notSignedIn": "You are not signed in.",
+          "notHosted": "This address does not offer FUTO accounts.",
+          "rateLimited": "Too many sign-in attempts. Try again in {seconds} seconds.",
+          "server": "The server could not answer. Try again.",
+          "network": "Couldn't reach the server. Check your connection.",
+          "notEntitled": "A subscription is needed before a vault can be created.",
+          "vaultAlreadyExists": "This account already has a vault. Unlock it instead.",
+          "noVault": "This account has no vault yet.",
+          "vaultPasswordTooShort": "A vault password must be at least {minimum} characters.",
+          "wrongVaultPassword": "That is not this vault's password.",
+          "recoveryKeyFormat": "That does not look like a recovery key.",
+          "recoveryKeyTypo": "That recovery key has a typo. Check it character by character.",
+          "wrongRecoveryKey": "That is not this vault's recovery key.",
+          "noRecoveryKey": "This vault has no recovery key.",
+          "secretStore": "This device's secret store refused. Nothing was saved.",
+          "crypto": "The vault's key material could not be read.",
+          "pairingCodeInvalid": "That is not a FUTO Notes pairing code.",
+          "pairingRefused": "That pairing code is no longer valid. Show a new one on the other device.",
+          "pairingAlreadyKeyed": "Another device has already answered this pairing code. Show a new one.",
+          "pairingExpired": "That pairing code expired. Show a new one.",
+          "pairingNotStarted": "No pairing is in progress on this device.",
+          "vaultLocked": "This device doesn't have the vault key yet, so it can't give it to another device.",
+          "checkoutGaveUp": "Checkout hasn't come through yet. Try again in a moment.",
+          "noBrowser": "This device has no browser to sign in with.",
+          "unexpected": "Something went wrong. Try again.",
+          "vaultKeyChangedElsewhere": "Your vault's key was changed on another device. Try again."
+        }
       }
     },
     "storage": {
@@ -707,7 +929,7 @@
     },
     "permissions": {
       "ios": {
-        "cameraUsageDescription": "Take a photo and attach it to a note.",
+        "cameraUsageDescription": "Take a photo to attach to a note, and scan a pairing code when you set up sync on another device.",
         "photoLibraryUsageDescription": "Attach photos from your library to notes."
       }
     },

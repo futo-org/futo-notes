@@ -3,10 +3,11 @@ use std::time::Duration;
 use futo_notes_core::e2ee::KeyMaterial;
 use reqwest::{Method, StatusCode};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 
 mod batch_download;
 mod batch_upload;
+mod hosted;
 #[cfg(test)]
 mod tests;
 
@@ -16,6 +17,7 @@ pub(crate) use batch_upload::{
     batch_write_frame_size, BatchMutation, BatchWriteEntry, BatchWriteOperation,
 };
 use batch_upload::{encode_batch_write_frames, parse_batch_write_results};
+pub(crate) use hosted::{hosted_error, HandoffPoll, PairingPoll};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -45,6 +47,18 @@ impl HttpError {
     pub fn is(&self, status: u16) -> bool {
         self.status == Some(status)
     }
+}
+
+/// How a re-wrap of the vault's key material ended.
+///
+/// Losing the guard is not a failure to report as one: the server hands back
+/// the material that is actually stored, and re-wrapping from that is the
+/// whole of the fix.
+pub(crate) enum KeyRewrap {
+    Written(KeyMaterial),
+    /// The revision token was stale — another device re-wrapped in between.
+    /// This is the authoritative material, as the server sent it.
+    Stale(KeyMaterial),
 }
 
 /// Every failure that never reached a status line — DNS, no route, a refused or
@@ -353,6 +367,73 @@ impl Http {
         )
         .await?
         .key)
+    }
+
+    /// `PUT …/key` carrying the revision token the material was last read at:
+    /// the **re-wrap** shape, which a change of vault password and a new
+    /// recovery key both take.
+    ///
+    /// A stale token comes back as [`KeyRewrap::Stale`] rather than as an
+    /// error, because the server sends the authoritative material with the
+    /// `409` and the whole remedy is to re-wrap from that one instead.
+    ///
+    /// The body is the material plus `previous_key_updated_at`. Both envelopes
+    /// go in every write — there is no way to address one on its own, and
+    /// omitting the recovery fields deletes the recovery envelope rather than
+    /// leaving it alone (server ADR 0006, rule 2).
+    pub async fn rewrap_key(
+        &self,
+        collection: &str,
+        key: &KeyMaterial,
+        previous_key_updated_at: &str,
+    ) -> Result<KeyRewrap, HttpError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            #[serde(flatten)]
+            key: &'a KeyMaterial,
+            previous_key_updated_at: &'a str,
+        }
+        #[derive(Deserialize)]
+        struct Written {
+            key: KeyMaterial,
+        }
+        // The one camelCase field in an otherwise snake_case API; named here
+        // exactly as the server writes it.
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Conflicted {
+            current_key: KeyMaterial,
+        }
+
+        let response = self
+            .request(Method::PUT, &format!("/api/collections/{collection}/key"))
+            .json(&Body {
+                key,
+                previous_key_updated_at,
+            })
+            .send()
+            .await
+            .map_err(transport_error)?;
+        if response.status() == StatusCode::CONFLICT {
+            return response
+                .json::<Conflicted>()
+                .await
+                .map(|body| KeyRewrap::Stale(body.current_key))
+                // Keeps the 409 the caller dispatches on — only the body was
+                // unreadable — but still names why it was unreadable.
+                .map_err(|error| HttpError {
+                    status: Some(409),
+                    message: error_chain(&error),
+                });
+        }
+        if !response.status().is_success() {
+            return Err(Self::response_error(response).await);
+        }
+        response
+            .json::<Written>()
+            .await
+            .map(|body| KeyRewrap::Written(body.key))
+            .map_err(transport_error)
     }
 
     pub async fn objects(&self, collection: &str, since: u64) -> Result<Vec<Object>, HttpError> {

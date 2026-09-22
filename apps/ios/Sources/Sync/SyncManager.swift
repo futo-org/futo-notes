@@ -35,6 +35,14 @@ final class SyncManager: ObservableObject {
     /// Whether the SSE live stream is currently connected.
     @Published private(set) var live = false
 
+    /// Whether the LAST completed cycle's writes were refused, and which way
+    /// (`futo_notes_sync::WriteRefusal`). Held here because this object
+    /// outlives the sync sheet, and the whole point is that a refusal arrives
+    /// while the person is somewhere else; `HostedSyncSections` hands it to the
+    /// hosted model, which turns it into a banner with an action. Never a
+    /// latch — every completed cycle writes its own answer, `nil` included.
+    @Published private(set) var lastWriteRefusal: WriteRefusal?
+
     private var resetting = false
     private var liveStartsInFlight = 0
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
@@ -66,6 +74,11 @@ final class SyncManager: ObservableObject {
     /// can surface from both the manual sync path and the live loop at once.
     private var healing = false
 
+    /// Which door opened the session in `client`, so `connectHosted` can tell
+    /// the session it must not duplicate from the one it must replace. Set only
+    /// where a session is adopted, cleared only where one is dropped.
+    private var sessionMode: SessionMode?
+
     func localizedStatus(_ localization: Localization) -> String {
         localization.localizedText(statusMessage.path, arguments: statusMessage.arguments)
     }
@@ -93,13 +106,41 @@ final class SyncManager: ObservableObject {
     /// counts); per-item failures → the red error line, using
     /// `failureMessage` (computed once in the Rust core so every shell shows
     /// identical wording). Cleared by the next clean cycle.
+    ///
+    /// A refused write is the one failure that is not a fault: nothing is
+    /// broken, the account simply may not write, so the status line says so in
+    /// its own words instead of "Sync completed with errors", which sent people
+    /// looking for a server problem that was not there (ADR 0003 decision 8).
+    /// Rust names the refusal; this only chooses the sentence.
     private func applyOutcome(_ s: SyncSummary) {
-        if s.failureMessage != nil {
+        lastWriteRefusal = s.writeRefusal
+        if let refusal = s.writeRefusal {
+            statusMessage = LocalizedMessage(Self.writeRefusalHeadline(refusal))
+            lastErrorMessage = LocalizedMessage(Self.writeRefusalExplanation(refusal))
+        } else if s.failureMessage != nil {
             statusMessage = LocalizedMessage("sync.status.error")
             lastErrorMessage = LocalizedMessage("sync.errors.completedWithErrors")
         } else {
             statusMessage = LocalizedMessage("sync.status.complete")
             lastErrorMessage = nil
+        }
+    }
+
+    /// The short form, for the Settings row that shows sync status at a glance.
+    /// `internal` so the unit tests can pin the mapping.
+    static func writeRefusalHeadline(_ refusal: WriteRefusal) -> String {
+        switch refusal {
+        case .subscriptionRequired: "sync.hosted.banner.syncPaused.title"
+        case .quotaExceeded: "sync.hosted.banner.vaultFull.title"
+        }
+    }
+
+    /// The whole sentence, including what still works. Mirrors the desktop
+    /// status line's wording exactly — both read the same catalog entry.
+    static func writeRefusalExplanation(_ refusal: WriteRefusal) -> String {
+        switch refusal {
+        case .subscriptionRequired: "sync.errors.writePausedSubscription"
+        case .quotaExceeded: "sync.errors.writePausedQuota"
         }
     }
 
@@ -132,6 +173,97 @@ final class SyncManager: ObservableObject {
         s.downloaded > 0 || s.deleted > 0 || s.localWritesApplied > 0
     }
 
+    // ── Which session wins ──────────────────────────────────────────────
+    //
+    // Two decisions, both `static` and both pure, so they are pinned by the
+    // shared cross-shell case-set in `tests/conformance/sync-session-mode.json`
+    // rather than only by whatever a device happened to do. Kotlin carries the
+    // same pair (`SyncManager.hostedConnectEntry` / `restoreBranch`).
+
+    /// Which door opened the session this manager is currently holding.
+    /// `internal` so the conformance test can name it.
+    enum SessionMode {
+        case selfHosted
+        case hosted
+    }
+
+    /// What a hosted connect does about the session already in hand.
+    enum HostedConnectEntry {
+        /// The wizard re-entering on a session it already has. It fires a
+        /// connect whenever it sees an unlocked vault, and a second client
+        /// would leave the first one's live loop running.
+        case skip
+        /// The switch: end the self-hosted session, then connect hosted.
+        case replaceSelfHosted
+        /// An ordinary connect with nothing in the way.
+        case proceed
+
+        var fixtureName: String {
+            switch self {
+            case .skip: "skip"
+            case .replaceSelfHosted: "replaceSelfHosted"
+            case .proceed: "proceed"
+            }
+        }
+    }
+
+    /// Mode-aware because it did not used to be: the guard skipped on *any*
+    /// live session, and a self-hosted one is not a reason to skip the connect
+    /// that is meant to replace it. Completing the wizard over a live password
+    /// session left a normal-looking account card reading `0 B of 10 GB used`
+    /// with no cycle behind it, and the next launch went back to the old
+    /// server (iOS simulator, 2026-09-16). Justin's call the same day:
+    /// finishing hosted setup replaces a self-hosted session. → sync.md
+    static func hostedConnectEntry(
+        connected: Bool, hasClient: Bool, healing: Bool, mode: SessionMode?
+    ) -> HostedConnectEntry {
+        // A client that is gone cannot be holding a live loop, and a session
+        // being healed is being rebuilt — neither is a session to skip for.
+        if connected, hasClient, !healing, mode == .hosted { return .skip }
+        // `hasClient` and not `connected`: a cycle that failed still leaves the
+        // live loop running, and that loop is exactly what must not be orphaned.
+        if hasClient, mode == .selfHosted { return .replaceSelfHosted }
+        return .proceed
+    }
+
+    /// Which credential a cold launch reaches for.
+    enum RestoreBranch {
+        case hosted
+        case selfHosted
+        case nothing
+
+        var fixtureName: String {
+            switch self {
+            case .hosted: "hosted"
+            case .selfHosted: "selfHosted"
+            case .nothing: "nothing"
+            }
+        }
+    }
+
+    /// Both inputs are local secret-store reads, so this costs no network even
+    /// on a launch with none.
+    ///
+    /// **Holding both is a one-time migration heal that retires itself, not a
+    /// change of precedence.** With no hosted vault the password still wins —
+    /// that is what keeps a self-hosted device self-hosted, and it is the whole
+    /// difference between this and the "just invert the precedence" option that
+    /// was rejected for breaking the reverse case identically. Both shells stop
+    /// offering the self-hosted fields once hosted sync is set up
+    /// (`HostedSyncSections`, `model.screen != .account`), so a device can no
+    /// longer arrive at both secrets by any route a person can take; the only
+    /// devices that hold both are ones stranded by a build from before a hosted
+    /// connect cleared the password. Taking the hosted branch there runs that
+    /// clear, after which the state cannot recur — so this branch stops being
+    /// reachable on its own rather than needing a flag to switch it off. Do not
+    /// "simplify" it into unconditional hosted-first. Justin's call,
+    /// 2026-09-16. → sync.md
+    static func restoreBranch(hasStoredPassword: Bool, hasHostedVault: Bool) -> RestoreBranch {
+        if hasHostedVault { return .hosted }
+        if hasStoredPassword { return .selfHosted }
+        return .nothing
+    }
+
     /// Connect (login + unwrap vault key) then run an initial sync.
     func connectAndSync(notesRoot: String, password: String) async {
         guard !resetting, !busy else { return }
@@ -160,29 +292,138 @@ final class SyncManager: ObservableObject {
         do {
             let c = SyncClient(notesRoot: notesRoot, serverUrl: normalizedURL)
             let info = try await c.connect(password: password)
-            client = c
-            connected = true
             // Persist the (now-validated) password so a cold relaunch can
             // auto-reconnect — see `restoreSession`. Cleared on `disconnect`.
             Keychain.syncPassword = password
-            statusMessage = LocalizedMessage(
-                "sync.status.connectedAndSyncing",
-                arguments: ["authMode": info.authMode]
-            )
-            let summary = try await c.syncNow()
-            applyOutcome(summary)
-            // Refresh the list/editor if the initial (catch-up) sync changed
-            // the local tree — pulls OR push-side merges (F2). Covers
-            // `restoreSession` on a cold launch, where there's no Sync view to
-            // project the summary afterward.
-            if Self.wroteLocalChanges(summary) { onLocalTreeChanged?(summary) }
-            await startLive()
+            try await afterConnect(
+                c,
+                mode: .selfHosted,
+                status: LocalizedMessage(
+                    "sync.status.connectedAndSyncing",
+                    arguments: ["authMode": info.authMode]
+                ))
         } catch {
             NSLog("[Sync] connect failed: %@", describe(error))
             connected = client != nil
             statusMessage = LocalizedMessage("sync.status.error")
             lastErrorMessage = LocalizedMessage("sync.errors.connectFailed")
         }
+    }
+
+    /// The tail every connect shares, whichever door opened the session: adopt
+    /// the client, run one ORDINARY cycle, and go live. Hosted and self-hosted
+    /// differ only in how the client was authenticated — from here they are the
+    /// same `syncNow` path every later trigger goes through, not a second one
+    /// written for hosted.
+    private func afterConnect(
+        _ c: SyncClient, mode: SessionMode, status: LocalizedMessage
+    ) async throws {
+        client = c
+        sessionMode = mode
+        connected = true
+        statusMessage = status
+        let summary = try await c.syncNow()
+        applyOutcome(summary)
+        // Refresh the list/editor if the initial (catch-up) sync changed
+        // the local tree — pulls OR push-side merges (F2). Covers
+        // `restoreSession` on a cold launch, where there's no Sync view to
+        // project the summary afterward.
+        if Self.wroteLocalChanges(summary) { onLocalTreeChanged?(summary) }
+        await startLive()
+    }
+
+    // ── Hosted sessions ─────────────────────────────────────────────────────
+
+    /// How this manager reaches the hosted wizard's state machine. Rust's
+    /// `HostedSetupClient` is a handle on this vault's Keychain entries rather
+    /// than a session, so building one is cheap and carries nothing between
+    /// calls. A property so a test can hand over a stand-in; a build with
+    /// hosted sync compiled out has none at all, and every hosted path here
+    /// then does nothing.
+    var makeHostedSetup: (String) -> HostedSetupClientProtocol? = { notesRoot in
+        guard HostedSyncBuild.isEnabled else { return nil }
+        return try? HostedSetupClient.hosted(
+            secrets: KeychainVaultSecretStore(notesRoot: notesRoot))
+    }
+
+    /// Connect the hosted session this device already holds: Rust hands the
+    /// saved vault key and session token to the engine, and one ordinary cycle
+    /// runs. Called when the wizard reaches `ready` — whichever door got it
+    /// there — and at every cold start that finds a saved vault.
+    ///
+    /// **Nothing is written to `Keychain.syncPassword`.** A hosted device has
+    /// no password to store, and storing one would send the next
+    /// `restoreSession` down the self-hosted branch with a password no server
+    /// accepts.
+    func connectHosted(notesRoot: String, setup: HostedSetupClientProtocol) async {
+        guard !resetting, !busy else { return }
+        let entry = Self.hostedConnectEntry(
+            connected: connected, hasClient: client != nil, healing: healing, mode: sessionMode)
+        if entry == .skip { return }
+        busy = true
+        defer { finishCycle() }
+        // Finishing hosted setup REPLACES a live self-hosted session, rather
+        // than skipping the connect because one is running. The teardown is the
+        // real one — Rust stops the live loop and demotes this vault's sync
+        // state — because dropping the reference alone leaves an orphaned SSE
+        // loop pulling into a vault this device no longer syncs that way.
+        // Deliberately not `disconnect()`: that also clears the stored
+        // password, and the single owner of that rule is Rust's `connect_sync`
+        // below, which clears it only once the hosted session is certain.
+        if entry == .replaceSelfHosted { await tearDownSession() }
+        lastErrorMessage = nil
+        liveErrorMessage = nil
+        statusMessage = LocalizedMessage("sync.status.connecting")
+        self.notesRoot = notesRoot
+        do {
+            let c = SyncClient(notesRoot: notesRoot, serverUrl: setup.serverUrl())
+            try await setup.connectSync(sync: c)
+            try await afterConnect(
+                c, mode: .hosted,
+                status: LocalizedMessage("sync.status.hostedConnectedAndSyncing"))
+        } catch let error as HostedError {
+            NSLog("[Sync] hosted connect failed: %@", "\(error)")
+            applyHostedConnectFailure(error)
+        } catch {
+            NSLog("[Sync] hosted connect failed: %@", describe(error))
+            connected = client != nil
+            statusMessage = LocalizedMessage("sync.status.error")
+            lastErrorMessage = LocalizedMessage("sync.errors.connectFailed")
+        }
+    }
+
+    /// A hosted connect that did not land is usually nothing to alarm anyone
+    /// about. `NotSignedIn` and `VaultLocked` mean the wizard is not finished —
+    /// the ordinary state of a device that never set hosted sync up — so they
+    /// read as not connected. A transport failure means the phone is offline:
+    /// the two secrets are still good and the next foreground or session heal
+    /// retries, so it takes the muted live line rather than the red one and
+    /// throws nothing away.
+    private func applyHostedConnectFailure(_ error: HostedError) {
+        connected = client != nil
+        switch error {
+        case .NotSignedIn, .VaultLocked:
+            statusMessage = LocalizedMessage("sync.status.notConnected")
+        case .Network:
+            statusMessage = LocalizedMessage("sync.status.notConnected")
+            liveErrorMessage = LocalizedMessage("sync.errors.hostedOffline")
+        default:
+            statusMessage = LocalizedMessage("sync.status.error")
+            lastErrorMessage = LocalizedMessage("sync.errors.connectFailed")
+        }
+    }
+
+    /// Hosted sign out, routed through this manager so the session Rust revokes
+    /// is the one actually running. `sign_out` stops live sync and demotes this
+    /// vault's state through the handle it is given — handed a throwaway, the
+    /// live loop would outlive the session it belongs to.
+    func signOutHosted(notesRoot: String, setup: HostedSetupClientProtocol) async throws {
+        let target = client ?? SyncClient(notesRoot: notesRoot, serverUrl: setup.serverUrl())
+        // Whichever way this ends, Rust forgot the secrets and demoted the
+        // vault before it could throw, so the manager must not go on believing
+        // it holds a session.
+        defer { forgetSession() }
+        try await setup.signOut(sync: target)
     }
 
     /// Signal Rust that a local note changed so the live loop debounces and
@@ -233,19 +474,40 @@ final class SyncManager: ObservableObject {
     private func healSession() {
         guard !resetting else { return }
         guard !healing else { return }
-        guard let root = notesRoot, let password = Keychain.syncPassword else {
-            statusMessage = LocalizedMessage("sync.status.error")
-            lastErrorMessage = LocalizedMessage("sync.errors.previousFailure")
+        guard let root = notesRoot else {
+            reportUnavailableSessionRecovery()
             return
         }
         healing = true
         client?.stopLive()
         Task {
-            // The dead session's live loop stopped itself; connectAndSync builds
-            // a fresh authenticated client + live loop without deleting state.
-            await connectAndSync(notesRoot: root, password: password)
+            // The dead session's live loop stopped itself; both branches build a
+            // fresh authenticated client + live loop without deleting state.
+            if let password = Keychain.syncPassword {
+                await connectAndSync(notesRoot: root, password: password)
+            } else if let setup = makeHostedSetup(root), await hasSavedVault(setup) {
+                // A hosted session rebuilt from the same two secrets. A token
+                // the server no longer accepts is a trip to the browser, which
+                // Rust arranges by dropping it — the wizard then answers
+                // `signIn` and the vault key stays where it is.
+                await connectHosted(notesRoot: root, setup: setup)
+            } else {
+                reportUnavailableSessionRecovery()
+            }
             healing = false
         }
+    }
+
+    private func reportUnavailableSessionRecovery() {
+        statusMessage = LocalizedMessage("sync.status.error")
+        lastErrorMessage = LocalizedMessage("sync.errors.previousFailure")
+    }
+
+    /// Does this vault have hosted secrets to resume? A local Keychain read in
+    /// Rust, never a request — which is what lets boot restore ask it before it
+    /// has a network, and treat a refusal to answer as "not hosted".
+    private func hasSavedVault(_ setup: HostedSetupClientProtocol) async -> Bool {
+        ((try? await setup.hasSavedVault()) ?? false)
     }
 
     /// Open the SSE live stream. The Rust task does all the reconnect/backoff/
@@ -287,13 +549,34 @@ final class SyncManager: ObservableObject {
         live = false
     }
 
-    /// Auto-reconnect on a cold launch using the password stored at last connect.
-    /// No-op if already connected/busy or nothing is stored. Drives the full
-    /// connect → initial sync → live path, so a force-quit/relaunch resumes sync
-    /// without the user re-entering the password.
+    /// Auto-reconnect on a cold launch. No-op if already connected/busy or this
+    /// device has nothing saved. Drives the full connect → initial sync → live
+    /// path, so a force-quit and relaunch resumes sync **without Settings ever
+    /// being opened**.
+    ///
+    /// A self-hosted vault is the one with a password to reconnect with; a
+    /// hosted vault has none and is recognised instead by the two secrets Rust
+    /// saved. Both are local reads — no request of any kind — so a launch with
+    /// no network still knows which kind of vault this is.
+    ///
+    /// `restoreBranch` owns the choice, including the one device that answers
+    /// to both; read its doc before changing the order here.
     func restoreSession(notesRoot: String) async {
-        guard !connected, !busy, let password = Keychain.syncPassword else { return }
-        await connectAndSync(notesRoot: notesRoot, password: password)
+        guard !connected, !busy else { return }
+        let setup = makeHostedSetup(notesRoot)
+        let hasHostedVault = if let setup { await hasSavedVault(setup) } else { false }
+        switch Self.restoreBranch(
+            hasStoredPassword: Keychain.syncPassword != nil, hasHostedVault: hasHostedVault)
+        {
+        case .hosted:
+            guard let setup else { return }
+            await connectHosted(notesRoot: notesRoot, setup: setup)
+        case .selfHosted:
+            guard let password = Keychain.syncPassword else { return }
+            await connectAndSync(notesRoot: notesRoot, password: password)
+        case .nothing:
+            return
+        }
     }
 
     // ── Live-listener callbacks (invoked on the main actor by LiveListener) ──
@@ -347,18 +630,34 @@ final class SyncManager: ObservableObject {
     func finishReset() { resetting = false }
 
     func disconnect() async {
-        if let c = client { try? await c.disconnect() }  // Rust stops live internally too
-        client = nil
-        connected = false
-        live = false
-        liveListener = nil
+        await tearDownSession()
         // Clear the stored password so we don't auto-reconnect after an explicit
         // disconnect.
         Keychain.syncPassword = nil
+    }
+
+    /// Ends the session this manager is holding, for real: Rust stops the live
+    /// loop and demotes this vault's sync state, and nothing local is left
+    /// pointing at a client that is gone. Touches no stored secret — the
+    /// explicit `disconnect` adds the password clear, and the hosted switch
+    /// leaves it to Rust's `connect_sync`.
+    private func tearDownSession() async {
+        if let c = client { try? await c.disconnect() }  // Rust stops live internally too
+        forgetSession()
+    }
+
+    /// Drops this manager's view of a session, without touching disk or any
+    /// secret — what is left to do once Rust has revoked and demoted one.
+    private func forgetSession() {
+        client = nil
+        sessionMode = nil
+        connected = false
+        live = false
+        liveListener = nil
+        healing = false  // clear any stalled heal so a future session can heal
         statusMessage = LocalizedMessage("sync.status.notConnected")
         lastErrorMessage = nil
         liveErrorMessage = nil
-        healing = false  // clear any stalled heal so a future session can heal
     }
 
     private func describe(_ error: Error) -> String {

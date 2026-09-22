@@ -29,7 +29,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { portsFor, slotOf } from './lib/slot.mjs';
-import { SERVER_PASSWORD, syncServerBinary, syncServerEnv } from './lib/sync-server.mjs';
+import {
+  REPORTED_AUTH_MODE,
+  SERVER_PASSWORD,
+  serverCapabilities,
+  serverProcessEnv,
+  standinModeAvailable,
+  syncServerBinary,
+  syncServerEnv,
+} from './lib/sync-server.mjs';
 
 const POOL = 7; // devices per platform; bump if you routinely run more worktrees
 const IS_MAC = process.platform === 'darwin';
@@ -542,7 +550,21 @@ const pidAlive = (pid) => {
   }
 };
 
-async function cmdServerStart() {
+/**
+ * `--standin` starts the server in hosted stand-in test mode instead of
+ * password mode: Log in with FUTO and the payment provider answered by
+ * in-process fakes, which is what the hosted QA stories under docs/qa/ drive
+ * the native apps against. A server that ignores STANDIN_MODE boots in its
+ * default mode and looks perfectly healthy, so the mode is read back from the
+ * capability document before this reports success (M11).
+ */
+async function cmdServerStart(args) {
+  const standin = args.includes('--standin');
+  if (standin) {
+    const { available, why } = standinModeAvailable();
+    if (!available) die(`--standin needs a server that has stand-in test mode: ${why}`);
+  }
+  const mode = standin ? 'standin' : 'password';
   const root = worktreeRoot();
   const slot = slotOf(root);
   const port = portsFor(root).sync;
@@ -551,9 +573,14 @@ async function cmdServerStart() {
 
   const existing = readPid(pidFile);
   if (existing && pidAlive(existing)) {
-    info(
-      `already running: http://127.0.0.1:${port} (pid ${existing}, data ${dir}, password ${SERVER_PASSWORD})`,
-    );
+    const running = readJson(path.join(dir, 'meta.json'))?.mode ?? 'password';
+    if (running !== mode) {
+      die(
+        `a ${running}-mode server is already running on port ${port} (pid ${existing}). ` +
+          `Stop it first: just qa-server-stop`,
+      );
+    }
+    info(`already running: http://127.0.0.1:${port} (pid ${existing}, ${mode}, data ${dir})`);
     return;
   }
   fs.mkdirSync(dir, { recursive: true });
@@ -569,14 +596,17 @@ async function cmdServerStart() {
     cwd: dir,
     detached: true,
     stdio: ['ignore', log, log],
-    env: { ...process.env, ...syncServerEnv({ port, dataDir: dir }) },
+    // serverProcessEnv, not a spread: stand-in mode REFUSES TO BOOT next to an
+    // inherited AUTH_MODE or OIDC_*, so those keys have to be deleted from the
+    // child's environment rather than merged over.
+    env: serverProcessEnv(syncServerEnv({ port, dataDir: dir, mode })),
   });
   child.unref();
   fs.writeFileSync(pidFile, String(child.pid));
   fs.writeFileSync(
     path.join(dir, 'meta.json'),
     JSON.stringify(
-      { worktree: root, port, server: source, startedAt: new Date().toISOString() },
+      { worktree: root, port, mode, server: source, startedAt: new Date().toISOString() },
       null,
       2,
     ),
@@ -590,8 +620,25 @@ async function cmdServerStart() {
     await sleep(1000);
     if (i === 29) die(`server did not become healthy — see ${path.join(dir, 'server.log')}`);
   }
+  const reported = (await serverCapabilities(`http://127.0.0.1:${port}`)).auth_mode;
+  if (reported !== REPORTED_AUTH_MODE[mode]) {
+    stopServerDir(dir, readJson(path.join(dir, 'meta.json')), false);
+    die(
+      `asked for ${mode} mode but the server reports auth_mode "${reported}" — it ignored the ` +
+        `setting, so it predates that mode. See ${path.join(dir, 'server.log')}`,
+    );
+  }
   info(`sync server: http://127.0.0.1:${port}  (Android emulator: http://10.0.2.2:${port})`);
-  info(`password: ${SERVER_PASSWORD}   data: ${dir}   log: ${path.join(dir, 'server.log')}`);
+  if (standin) {
+    info(`mode: stand-in (Log in with FUTO and billing are fakes; loopback only)`);
+    info(`  point a debug app at it — Android: --es futo_hosted_server http://10.0.2.2:${port}`);
+    info(
+      `                            iOS: SIMCTL_CHILD_FUTO_HOSTED_SERVER=http://127.0.0.1:${port}`,
+    );
+  } else {
+    info(`password: ${SERVER_PASSWORD}`);
+  }
+  info(`data: ${dir}   log: ${path.join(dir, 'server.log')}`);
 }
 
 function stopServerDir(dir, meta, drop) {
@@ -640,7 +687,7 @@ switch (cmd) {
     cmdGc();
     break;
   case 'server-start':
-    await cmdServerStart();
+    await cmdServerStart(args);
     break;
   case 'server-stop':
     serverStop(worktreeRoot(), args.includes('--drop'));
@@ -651,6 +698,6 @@ switch (cmd) {
     break;
   default:
     die(
-      'usage: qa.mjs claim [ios|android|all] [--reboot] | status | release [--shutdown] | gc | server-start | server-stop [--drop] | avd-baseline',
+      'usage: qa.mjs claim [ios|android|all] [--reboot] | status | release [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline',
     );
 }

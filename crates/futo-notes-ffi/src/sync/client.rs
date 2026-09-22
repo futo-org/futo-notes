@@ -16,6 +16,15 @@ pub struct SyncClient {
     session: SyncSession,
 }
 
+impl SyncClient {
+    /// What signing out of hosted sync needs to demote this vault's state by
+    /// the same route `disconnect` does, rather than a second teardown that
+    /// has to be kept in step with it.
+    pub(crate) fn parts(&self) -> (&SyncSession, &std::path::Path) {
+        (&self.session, &self.notes_root)
+    }
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 impl SyncClient {
     #[uniffi::constructor]

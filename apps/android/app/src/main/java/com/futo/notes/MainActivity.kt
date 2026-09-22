@@ -58,6 +58,7 @@ import com.futo.notes.storage.storageRecoveryMessage
 import com.futo.notes.storage.storageSwitchFailureMessage
 import com.futo.notes.storage.storageSwitchFailureStage
 import com.futo.notes.storage.storageSwitchPlan
+import com.futo.notes.testhook.DebugHostedServer
 import com.futo.notes.testhook.TestHooks
 import com.futo.notes.ui.components.ClearFocusOnImeDismiss
 import com.futo.notes.ui.components.imeTargetVisible
@@ -111,6 +112,12 @@ class MainActivity : ComponentActivity() {
     // stream shouldn't stay open while backgrounded; re-foregrounding gets a
     // fresh `ready` that drives a catch-up pull.
     private lateinit var sync: SyncManager
+
+    /** Keystore-backed secret store for this install: the self-hosted sync
+     *  password, and the hosted vault key + session token (scoped per notes
+     *  root). Hoisted out of [initVault] because the Sync screen hands it to the
+     *  hosted wizard's `VaultSecretStore`. */
+    private val secure: SecureStore by lazy { SecureStore(prefs) }
 
     // Native image pickers for the editor's pickImage bridge message — must
     // register their ActivityResult contracts during onCreate.
@@ -255,6 +262,11 @@ class MainActivity : ComponentActivity() {
         imagePicker = ImagePicker(this) { localization }
 
         TestHooks.install(this, testHooks())
+        // A debug build can be launched pointed at a local hosted server; a
+        // release build compiles the no-op sibling and always uses the baked
+        // address. Applied before anything can ask the engine where hosted sync
+        // lives.
+        DebugHostedServer.applyOverride(intent)
 
         setContent {
             ProvideLocalization(appLanguage.selectedLanguageTag) {
@@ -506,6 +518,7 @@ class MainActivity : ComponentActivity() {
                 is Screen.Sync -> SyncScreen(
                     store = s,
                     sync = sync,
+                    secure = secure,
                     onBack = navigator::goBack,
                 )
                 is Screen.Feedback -> FeedbackScreen(
@@ -585,7 +598,7 @@ class MainActivity : ComponentActivity() {
         CrashReporter.install(root, BuildConfig.VERSION_NAME)
 
         val s = NotesStore(root, File(filesDir, "search"))
-        sync = SyncManager(SecureStore(prefs), prefs)
+        sync = SyncManager(secure, prefs)
         // Sync writes bypass local mutations, so project the engine-reported
         // affected rows and deliver the same summary to an open editor.
         sync.onLocalTreeChanged = { summary -> s.localTreeChanged(summary) }

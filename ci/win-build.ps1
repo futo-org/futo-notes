@@ -1,7 +1,14 @@
 param(
     [string]$RepoUrl,
     [string]$Branch = "main",
-    [string]$Version = "0.1.0"
+    [string]$Version = "0.1.0",
+    # Internal, hosted-enabled build only (D2 — docs/plan/hosted-sync-to-staging.md,
+    # ticket C8). Both default off, matching every existing (store) caller of this
+    # script exactly: build:windows never passes them, so its build is byte-for-byte
+    # unchanged. When set, VITE_HOSTED_SYNC/FUTO_HOSTED_SERVER_BAKED are exported
+    # before the frontend + Tauri build, same as the Linux/macOS internal jobs.
+    [string]$HostedSync = "",
+    [string]$HostedServer = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -152,6 +159,12 @@ Invoke-Step "Installing npm dependencies" {
     # The Windows desktop build only needs the root app, Tauri shell, and editor package.
     # Excluding the server workspace avoids native server-only deps like better-sqlite3.
     pnpm install --filter . --filter @futo-notes/tauri --filter @futo-notes/editor --frozen-lockfile
+}
+
+if ($HostedSync -eq "true") {
+    Write-Host "=== Internal build: hosted sync ON, baked hosted server: $HostedServer ==="
+    $env:VITE_HOSTED_SYNC = "true"
+    $env:FUTO_HOSTED_SERVER_BAKED = $HostedServer
 }
 
 Invoke-Step "Building frontend" {

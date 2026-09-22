@@ -8,6 +8,7 @@
     "dialog:allow-ask",
     "dialog:allow-message",
     "dialog:allow-open",
+    "dialog:allow-save",
     "process:allow-restart",
     "process:allow-exit",
     "updater:default",

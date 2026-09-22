@@ -1,0 +1,104 @@
+{
+  "_source": "Hand-reviewed behavioral goldens for the two 'which sync session wins' decisions, shared by the native shells' copies: Swift SyncManager.hostedConnectEntry / SyncManager.restoreBranch (apps/ios/Sources/Sync/SyncManager.swift) and Kotlin SyncManager.hostedConnectEntry / SyncManager.restoreBranch (apps/android/.../SyncManager.kt). Each shell's unit test asserts its copy against these cases so the two cannot silently drift. Desktop has no copy: syncServiceE2ee's ensureConnected already prefers hosted and has no live-session teardown to sequence.",
+  "description": "Justin's calls of 2026-09-16 (D8 + D9), specified in docs/spec/sync.md. hostedConnectEntry says what a hosted connect does about whatever session the manager is already holding; restoreBranch says which credential a cold launch reaches for.",
+  "ops": {
+    "hostedConnectEntry": {
+      "description": "D8. Inputs are the manager's own live state. 'skip' is the wizard's idempotent re-entry — it fires a connect whenever it sees an unlocked vault, and a second client would leave the first one's live loop running. 'replaceSelfHosted' is the switch: finishing hosted setup tears the self-hosted session down (a REAL teardown — Rust stops the live loop and demotes the vault) and then connects hosted. 'proceed' is an ordinary first connect. The guard is mode-aware precisely because a live password session used to satisfy it and silently skip the whole hosted connect.",
+      "cases": [
+        {
+          "name": "a first connect on a device holding nothing",
+          "connected": false,
+          "hasClient": false,
+          "healing": false,
+          "mode": null,
+          "expected": "proceed"
+        },
+        {
+          "name": "the wizard re-entering on an already-hosted session",
+          "connected": true,
+          "hasClient": true,
+          "healing": false,
+          "mode": "hosted",
+          "expected": "skip"
+        },
+        {
+          "name": "a hosted session being healed is rebuilt, not skipped",
+          "connected": true,
+          "hasClient": true,
+          "healing": true,
+          "mode": "hosted",
+          "expected": "proceed"
+        },
+        {
+          "name": "hosted setup finishing over a live self-hosted session",
+          "connected": true,
+          "hasClient": true,
+          "healing": false,
+          "mode": "selfHosted",
+          "expected": "replaceSelfHosted"
+        },
+        {
+          "name": "a self-hosted session mid-heal is still replaced",
+          "connected": true,
+          "hasClient": true,
+          "healing": true,
+          "mode": "selfHosted",
+          "expected": "replaceSelfHosted"
+        },
+        {
+          "name": "a self-hosted client whose last cycle failed still owns a live loop",
+          "connected": false,
+          "hasClient": true,
+          "healing": false,
+          "mode": "selfHosted",
+          "expected": "replaceSelfHosted"
+        },
+        {
+          "name": "connected hosted with no client left is not a session to skip for",
+          "connected": true,
+          "hasClient": false,
+          "healing": false,
+          "mode": "hosted",
+          "expected": "proceed"
+        },
+        {
+          "name": "a self-hosted session already torn down needs no second teardown",
+          "connected": false,
+          "hasClient": false,
+          "healing": false,
+          "mode": "selfHosted",
+          "expected": "proceed"
+        }
+      ]
+    },
+    "restoreBranch": {
+      "description": "D9. What a cold launch reaches for, from two local secret-store reads and no network. Holding BOTH is the one ambiguous state, and it resolves to hosted: it can only be a device stranded by a build from before a hosted connect cleared the password, because both shells stop offering the self-hosted fields once hosted sync is set up. The hosted connect then clears the password, so the state cannot recur and the branch retires itself. This is NOT a general inversion of the precedence — with no hosted vault the password still wins, which is what keeps a self-hosted device self-hosted.",
+      "cases": [
+        {
+          "name": "a device that has never synced",
+          "hasStoredPassword": false,
+          "hasHostedVault": false,
+          "expected": "nothing"
+        },
+        {
+          "name": "a self-hosted device reconnects to its own server",
+          "hasStoredPassword": true,
+          "hasHostedVault": false,
+          "expected": "selfHosted"
+        },
+        {
+          "name": "a hosted device resumes its hosted session",
+          "hasStoredPassword": false,
+          "hasHostedVault": true,
+          "expected": "hosted"
+        },
+        {
+          "name": "a device stranded holding both resumes hosted and heals",
+          "hasStoredPassword": true,
+          "hasHostedVault": true,
+          "expected": "hosted"
+        }
+      ]
+    }
+  }
+}

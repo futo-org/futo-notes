@@ -1,0 +1,521 @@
+// @vitest-environment jsdom
+//
+// The hosted sync section, driven by a stand-in state machine.
+//
+// Nothing here reaches Tauri, Rust, or a server: the section renders from one
+// `HostedSyncSettings` object and holds no state of its own, so every screen
+// and every banner is reachable by handing it one. What each test asserts is
+// what a person would see on that screen.
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mount, unmount } from 'svelte';
+
+import HostedSyncSettingsSection from './HostedSyncSettingsSection.svelte';
+import type { HostedSyncSettings } from './createHostedSyncSettings.svelte';
+import type { SyncSettings } from './createSyncSettings.svelte';
+import type { BillingStatusOutput } from '$features/sync/syncContract.generated';
+
+function billing(overrides: Partial<BillingStatusOutput> = {}): BillingStatusOutput {
+  return {
+    entitled: true,
+    state: 'active',
+    graceUntil: null,
+    storageQuotaBytes: 10_000_000_000,
+    blobMaxBytes: 104_857_600,
+    bytesUsed: 1_500_000_000,
+    ...overrides,
+  };
+}
+
+function hostedStub(overrides: Partial<HostedSyncSettings> = {}): HostedSyncSettings {
+  return {
+    screen: 'signIn',
+    busy: false,
+    waiting: null,
+    error: '',
+    serverUrl: 'https://notes-sync.futo.org',
+    email: 'person@standin.test',
+    billing: null,
+    banner: 'none',
+    recoveryKey: null,
+    recoveryKeyReplaced: false,
+    minVaultPasswordLength: 12,
+    recoveryKeySaved: false,
+    unlockDoor: 'vaultPassword',
+    selfHostedOpen: false,
+    pairing: 'idle',
+    pairingPayload: null,
+    pairingExpiresAt: null,
+    load: vi.fn(async () => {}),
+    signIn: vi.fn(async () => {}),
+    cancelWaiting: vi.fn(async () => {}),
+    subscribe: vi.fn(async () => {}),
+    createVault: vi.fn(async () => {}),
+    copyRecoveryKey: vi.fn(async () => {}),
+    saveRecoveryKeyToFile: vi.fn(async () => {}),
+    continueAfterRecoveryKey: vi.fn(async () => {}),
+    unlockWithPassword: vi.fn(async () => {}),
+    unlockWithRecoveryKey: vi.fn(async () => {}),
+    showPairingCode: vi.fn(async () => {}),
+    cancelPairing: vi.fn(async () => {}),
+    manageSubscription: vi.fn(async () => {}),
+    beginChangeVaultPassword: vi.fn(),
+    changeVaultPassword: vi.fn(async () => {}),
+    newRecoveryKey: vi.fn(async () => {}),
+    backToAccount: vi.fn(async () => {}),
+    signOut: vi.fn(async () => {}),
+    ...overrides,
+  };
+}
+
+/** Today's self-hosted settings; only ever read through the disclosure. */
+function syncStub(): SyncSettings {
+  return {
+    url: '',
+    password: '',
+    busy: false,
+    status: '',
+    lastSyncedAt: null,
+    connected: false,
+    passwordSaved: false,
+    connecting: false,
+    connectPhase: '',
+    connectError: '',
+    connect: vi.fn(async () => {}),
+    cancelConnect: vi.fn(),
+    resetConnection: vi.fn(async () => {}),
+    forgetPassword: vi.fn(async () => {}),
+    handleUrlClick: vi.fn(),
+    syncNow: vi.fn(async () => {}),
+  } as unknown as SyncSettings;
+}
+
+let target: HTMLDivElement;
+let app: ReturnType<typeof mount> | null = null;
+
+beforeEach(() => {
+  target = document.createElement('div');
+  document.body.appendChild(target);
+});
+
+afterEach(() => {
+  if (app) unmount(app);
+  app = null;
+  target.remove();
+});
+
+function render(overrides: Partial<HostedSyncSettings> = {}): HostedSyncSettings {
+  const hosted = hostedStub(overrides);
+  app = mount(HostedSyncSettingsSection, {
+    target,
+    props: {
+      hosted,
+      sync: syncStub(),
+      backgroundError: false,
+      backgroundErrorMessage: '',
+      reconnecting: false,
+    },
+  });
+  return hosted;
+}
+
+const text = (): string => target.textContent ?? '';
+const button = (label: string): HTMLButtonElement | undefined =>
+  [...target.querySelectorAll('button')].find((node) => node.textContent?.trim() === label);
+
+describe('every step of both wizard shapes', () => {
+  it('says it is checking before Rust has answered', () => {
+    render({ screen: 'loading' });
+    expect(text()).toContain('Checking your account');
+    expect(button('Log in with FUTO')).toBeUndefined();
+  });
+
+  it('leads with Log in with FUTO and names where sign-in happens', () => {
+    render({ screen: 'signIn' });
+    expect(button('Log in with FUTO')).toBeDefined();
+    expect(text()).toContain('notes-sync.futo.org');
+  });
+
+  it('offers the subscription on the subscribe step', () => {
+    render({ screen: 'subscribe' });
+    expect(button('Subscribe')).toBeDefined();
+    expect(text()).toContain('Subscribe to FUTO sync');
+  });
+
+  it('asks for a vault password and says it is never sent anywhere', () => {
+    render({ screen: 'createVault' });
+    expect(target.querySelector('#hosted-vault-password')).not.toBeNull();
+    expect(target.querySelector('#hosted-vault-password-repeat')).not.toBeNull();
+    expect(text()).toContain('never sent anywhere');
+    expect(text()).toContain('At least 12 characters');
+  });
+
+  it('keeps Create vault disabled until the password is long enough and matches', async () => {
+    const hosted = render({ screen: 'createVault' });
+    const password = target.querySelector<HTMLInputElement>('#hosted-vault-password')!;
+    const repeat = target.querySelector<HTMLInputElement>('#hosted-vault-password-repeat')!;
+
+    await type(password, 'short');
+    expect(button('Create vault')?.disabled).toBe(true);
+
+    await type(password, 'rhubarb crumble');
+    await type(repeat, 'rhubarb crumbl');
+    expect(button('Create vault')?.disabled).toBe(true);
+    expect(text()).toContain('Those two passwords are different');
+
+    await type(repeat, 'rhubarb crumble');
+    expect(button('Create vault')?.disabled).toBe(false);
+    button('Create vault')!.click();
+    expect(hosted.createVault).toHaveBeenCalledWith('rhubarb crumble');
+  });
+
+  it('shows the strength meter moving with the password', async () => {
+    render({ screen: 'createVault' });
+    const password = target.querySelector<HTMLInputElement>('#hosted-vault-password')!;
+
+    await type(password, 'aaa');
+    expect(text()).toContain('At least 12 characters');
+
+    await type(password, 'aaaaaaaaaaaaaaaa');
+    expect(text()).toContain('Weak');
+
+    await type(password, 'Tr0ubadour&Horse!');
+    expect(text()).toContain('Strong');
+  });
+});
+
+describe('the recovery-key screen', () => {
+  it('shows the recovery key with Copy, Save file, and the unrecoverable warning', () => {
+    render({ screen: 'recoveryKey', recoveryKey: 'ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345' });
+    expect(text()).toContain('ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345');
+    expect(button('Copy')).toBeDefined();
+    expect(button('Save file')).toBeDefined();
+    expect(text()).toContain('FUTO cannot recover your vault without it');
+    expect(text()).toContain('You will not be shown this key again');
+  });
+
+  it('gates Continue on the saved checkbox', () => {
+    render({ screen: 'recoveryKey', recoveryKey: 'ABCD-EFGH', recoveryKeySaved: false });
+    expect(button('Continue')?.disabled).toBe(true);
+  });
+
+  it('lets Continue through once the checkbox is ticked', () => {
+    const hosted = render({
+      screen: 'recoveryKey',
+      recoveryKey: 'ABCD-EFGH',
+      recoveryKeySaved: true,
+    });
+    expect(button('Continue')?.disabled).toBe(false);
+    button('Continue')!.click();
+    expect(hosted.continueAfterRecoveryKey).toHaveBeenCalled();
+  });
+
+  it('renders nothing of the key once the state machine no longer holds one', () => {
+    // There is no way back to this screen: the key lives only in the object
+    // that create_vault handed it to, and Rust keeps no copy to hand over
+    // again. A `recoveryKey` screen without a key falls through to nothing.
+    render({ screen: 'recoveryKey', recoveryKey: null });
+    expect(button('Continue')).toBeUndefined();
+    expect(text()).not.toContain('Save your recovery key');
+  });
+});
+
+describe('the three unlock doors', () => {
+  it('offers all three unlock doors on one screen', () => {
+    render({ screen: 'unlock' });
+    expect(button('Vault password')).toBeDefined();
+    expect(button('Scan from another device')).toBeDefined();
+    expect(button('Recovery key')).toBeDefined();
+  });
+
+  it('unlocks with the vault password through the first door', async () => {
+    const hosted = render({ screen: 'unlock', unlockDoor: 'vaultPassword' });
+    const field = target.querySelector<HTMLInputElement>('#hosted-unlock-password')!;
+    expect(field.type).toBe('password');
+    await type(field, 'rhubarb crumble');
+    button('Unlock')!.click();
+    expect(hosted.unlockWithPassword).toHaveBeenCalledWith('rhubarb crumble');
+  });
+
+  it('offers a pairing code behind the scan door, with nothing to type', () => {
+    const hosted = render({ screen: 'unlock', unlockDoor: 'scan' });
+    expect(button('Unlock')).toBeUndefined();
+    button('Show a pairing code')!.click();
+    expect(hosted.showPairingCode).toHaveBeenCalled();
+  });
+
+  it('stops waiting on a code when the person leaves the scan door', () => {
+    const hosted = render({ screen: 'unlock', unlockDoor: 'scan', pairing: 'waiting' });
+    button('Vault password')!.click();
+    expect(hosted.cancelPairing).toHaveBeenCalled();
+    expect(hosted.unlockDoor).toBe('vaultPassword');
+  });
+
+  it('unlocks with a typed recovery key through the third door', async () => {
+    const hosted = render({ screen: 'unlock', unlockDoor: 'recoveryKey' });
+    const field = target.querySelector<HTMLInputElement>('#hosted-unlock-recovery-key')!;
+    await type(field, 'abcd efgh');
+    button('Unlock')!.click();
+    expect(hosted.unlockWithRecoveryKey).toHaveBeenCalledWith('abcd efgh');
+  });
+});
+
+/**
+ * One test per pairing state, on the door that shows a code.
+ *
+ * Desktop never scans: it draws what Rust hands it and waits. Which state it
+ * is in is Rust's answer, so each of these is just that answer rendered.
+ */
+describe('one test per pairing state on the scan door', () => {
+  const PAYLOAD = JSON.stringify({
+    futo_notes_pairing: 1,
+    id: '01JBXYZABCDEF0123456789ABCD',
+    public_key: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+    device_name: 'Kitchen laptop',
+    platform: 'desktop',
+  });
+
+  function waiting(secondsLeft: number): Partial<HostedSyncSettings> {
+    return {
+      screen: 'unlock',
+      unlockDoor: 'scan',
+      pairing: 'waiting',
+      pairingPayload: PAYLOAD,
+      pairingExpiresAt: new Date(Date.now() + secondsLeft * 1000).toISOString(),
+    };
+  }
+
+  it('waiting: draws the code, says what to do with it, and counts it down', () => {
+    render(waiting(300));
+
+    const code = target.querySelector<SVGElement>('svg[role="img"]')!;
+    expect(code.getAttribute('aria-label')).toBe('Pairing code for this computer');
+    // A grid, not an empty frame: the path carries one box per dark module.
+    expect(code.querySelector('path')!.getAttribute('d')!.length).toBeGreaterThan(1000);
+
+    expect(text()).toContain('Scan this code with an unlocked device');
+    expect(text()).toContain('Scan another device');
+    expect(text()).toContain('This code expires in 5:00.');
+  });
+
+  it('waiting: Cancel puts the three doors back rather than leaving a poll running', () => {
+    const hosted = render(waiting(300));
+    button('Cancel')!.click();
+    expect(hosted.cancelPairing).toHaveBeenCalled();
+  });
+
+  it('received: says the vault is unlocked and that the notes are on their way', () => {
+    render({ screen: 'unlock', unlockDoor: 'scan', pairing: 'received' });
+    expect(text()).toContain('Your vault is unlocked');
+    expect(text()).toContain('Syncing your notes now');
+    expect(target.querySelector('svg[role="img"]')).toBeNull();
+  });
+
+  it('expired: offers a new code and does NOT claim to know whether it was declined', () => {
+    const hosted = render({ screen: 'unlock', unlockDoor: 'scan', pairing: 'expired' });
+    expect(text()).toContain('That code expired');
+    // The relay has no declined signal, so the copy has to say that saying no
+    // and walking away look the same — and must never claim a refusal it
+    // cannot see.
+    expect(text()).toContain('looks the same from here');
+    expect(text()).not.toContain('declined');
+    expect(target.querySelector('svg[role="img"]')).toBeNull();
+
+    button('Show a new code')!.click();
+    expect(hosted.showPairingCode).toHaveBeenCalled();
+  });
+
+  it('refused: names the server turning the pairing down, and offers a new code', () => {
+    const hosted = render({ screen: 'unlock', unlockDoor: 'scan', pairing: 'refused' });
+    expect(text()).toContain('That code can’t be used');
+    expect(text()).toContain('already answered');
+    expect(text()).toContain('No key was shared');
+
+    button('Show a new code')!.click();
+    expect(hosted.showPairingCode).toHaveBeenCalled();
+  });
+});
+
+describe('the account card', () => {
+  it('shows email, subscription state in words, storage used, and the portal', () => {
+    const hosted = render({ screen: 'account', billing: billing() });
+    expect(text()).toContain('person@standin.test');
+    expect(text()).toContain('Active');
+    expect(text()).toContain('1.5 GB of 10 GB used');
+    button('Manage subscription')!.click();
+    expect(hosted.manageSubscription).toHaveBeenCalled();
+  });
+
+  it('offers Sign out from the account card', () => {
+    const hosted = render({ screen: 'account', billing: billing() });
+    button('Sign out')!.click();
+    expect(hosted.signOut).toHaveBeenCalled();
+  });
+
+  it('says when a past-due subscription stops syncing', () => {
+    const graceUntil = new Date(Date.now() + 5.5 * 24 * 60 * 60 * 1000).toISOString();
+    render({ screen: 'account', billing: billing({ state: 'past_due', graceUntil }) });
+    expect(text()).toContain('Payment failed');
+    expect(text()).toContain('In 5 days, sync pauses');
+  });
+});
+
+describe('one test per banner state', () => {
+  it('shows no banner on a healthy account', () => {
+    render({ screen: 'account', banner: 'none', billing: billing() });
+    expect(text()).not.toContain('Sync paused');
+    expect(text()).not.toContain('Vault is full');
+  });
+
+  it('shows Sync paused with Subscribe, and says reads still arrive', () => {
+    const hosted = render({
+      screen: 'account',
+      banner: 'syncPaused',
+      billing: billing({ entitled: false, state: 'canceled' }),
+    });
+    expect(text()).toContain('Sync paused');
+    expect(text()).toContain('still arrive');
+    button('Subscribe')!.click();
+    expect(hosted.subscribe).toHaveBeenCalled();
+  });
+
+  it('shows Vault is full with the portal button', () => {
+    const hosted = render({
+      screen: 'account',
+      banner: 'vaultFull',
+      billing: billing({ bytesUsed: 10_000_000_000 }),
+    });
+    expect(text()).toContain('Vault is full');
+    button('Manage subscription')!.click();
+    expect(hosted.manageSubscription).toHaveBeenCalled();
+  });
+});
+
+describe('waiting, errors, and the self-hosted disclosure', () => {
+  it('says a browser window is open and offers to stop waiting', () => {
+    const hosted = render({ screen: 'signIn', waiting: 'signIn' });
+    expect(text()).toContain('Finish signing in in your browser');
+    button('Cancel')!.click();
+    expect(hosted.cancelWaiting).toHaveBeenCalled();
+  });
+
+  it('shows a failure as a sentence with an alert role', () => {
+    render({ screen: 'signIn', error: 'Couldn’t reach the server.' });
+    expect(target.querySelector('[role="alert"]')?.textContent).toContain('Couldn’t reach');
+  });
+
+  it('says so when the address offers no FUTO accounts at all', () => {
+    render({ screen: 'unavailable' });
+    expect(text()).toContain("doesn't offer FUTO accounts");
+  });
+
+  it('hides today self-hosted fields behind Use my own server', () => {
+    render({ screen: 'signIn', selfHostedOpen: false });
+    expect(button('Use my own server')).toBeDefined();
+    expect(target.querySelector('#sync-url')).toBeNull();
+  });
+
+  it('reveals exactly today self-hosted URL and password fields when opened', () => {
+    render({ screen: 'signIn', selfHostedOpen: true });
+    expect(target.querySelector('#sync-url')).not.toBeNull();
+    expect(target.querySelector('#sync-password')).not.toBeNull();
+    expect(button('Connect')).toBeDefined();
+  });
+
+  it('drops the self-hosted offer once hosted sync is set up', () => {
+    render({ screen: 'account', billing: billing() });
+    expect(button('Use my own server')).toBeUndefined();
+  });
+});
+
+/** Types into a bound input the way Svelte 5 listens for it. */
+async function type(field: HTMLInputElement, value: string): Promise<void> {
+  field.value = value;
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+  await Promise.resolve();
+}
+
+describe('changing the vault password, and a new recovery key', () => {
+  it('offers both from the account card', () => {
+    const hosted = render({ screen: 'account', billing: billing() });
+    expect(button('Change vault password')).toBeDefined();
+    expect(button('New recovery key')).toBeDefined();
+
+    button('Change vault password')!.click();
+    expect(hosted.beginChangeVaultPassword).toHaveBeenCalled();
+    button('New recovery key')!.click();
+    expect(hosted.newRecoveryKey).toHaveBeenCalled();
+  });
+
+  it('asks only for the new password, twice, and never for the old one', () => {
+    render({ screen: 'changeVaultPassword' });
+    expect(text()).toContain('Choose a new vault password');
+    expect(text()).toContain('You are not asked for the old one');
+    expect(text()).not.toContain('Current');
+    expect(target.querySelectorAll('input[type="password"]')).toHaveLength(2);
+  });
+
+  it('keeps the same 12-character minimum and the same meter', async () => {
+    const hosted = render({ screen: 'changeVaultPassword' });
+    const password = target.querySelector<HTMLInputElement>('#hosted-vault-password')!;
+    const repeat = target.querySelector<HTMLInputElement>('#hosted-vault-password-repeat')!;
+
+    await type(password, 'short');
+    expect(button('Set new password')?.disabled).toBe(true);
+    expect(text()).toContain('At least 12 characters');
+
+    await type(password, 'Tr0ubadour&Horse!');
+    expect(text()).toContain('Strong');
+    await type(repeat, 'Tr0ubadour&Horse!');
+    expect(button('Set new password')?.disabled).toBe(false);
+
+    button('Set new password')!.click();
+    expect(hosted.changeVaultPassword).toHaveBeenCalledWith('Tr0ubadour&Horse!');
+  });
+
+  it('can be left without changing anything', () => {
+    const hosted = render({ screen: 'changeVaultPassword' });
+    button('Cancel')!.click();
+    expect(hosted.backToAccount).toHaveBeenCalled();
+    expect(hosted.changeVaultPassword).not.toHaveBeenCalled();
+  });
+
+  it('says a stale-key conflict is worth retrying', () => {
+    render({
+      screen: 'changeVaultPassword',
+      error: "Your vault's key was changed on another device. Try again.",
+    });
+    expect(text()).toContain('Try again');
+  });
+
+  it('shows a replacement key on the same save screen, saying the old one is dead', () => {
+    render({
+      screen: 'recoveryKey',
+      recoveryKey: 'ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345',
+      recoveryKeyReplaced: true,
+    });
+    expect(text()).toContain('ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345');
+    expect(button('Copy')).toBeDefined();
+    expect(button('Save file')).toBeDefined();
+    expect(text()).toContain('Your old recovery key stopped working');
+    expect(button('Continue')?.disabled).toBe(true);
+  });
+
+  it('says nothing about an old key on the wizard’s first one', () => {
+    render({ screen: 'recoveryKey', recoveryKey: 'ABCD-EFGH', recoveryKeyReplaced: false });
+    expect(text()).not.toContain('Your old recovery key stopped working');
+  });
+
+  it('hides "Use my own server" on both account-card detours', () => {
+    render({ screen: 'changeVaultPassword' });
+    expect(button('Use my own server')).toBeUndefined();
+
+    if (app) unmount(app);
+    app = null;
+    target.remove();
+    target = document.createElement('div');
+    document.body.appendChild(target);
+
+    render({ screen: 'recoveryKey', recoveryKey: 'ABCD-EFGH', recoveryKeyReplaced: true });
+    expect(button('Use my own server')).toBeUndefined();
+  });
+});

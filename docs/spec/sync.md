@@ -613,6 +613,477 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   `SyncSession::stop_live_and_wait`, `SyncManager.quiesceForStorageMigration`,
   `NotesStore.migrateVault`, Android `storage/StorageMigrationGateTest`
 
+## Hosted sync — Log in with FUTO
+
+Behind a build-time flag: on for debug builds and for any build made with
+`VITE_HOSTED_SYNC=true` _(desktop)_, with the `FUTO_HOSTED_SYNC` Swift
+compilation condition, which the Debug configuration always carries and the
+internal TestFlight archive sets through `FUTO_HOSTED_SYNC_CONDITION` _(iOS)_,
+or with `BuildConfig.HOSTED_SYNC`, which the debug build type always sets and the
+release build type reads from the `FUTO_HOSTED_SYNC` environment variable
+_(Android)_; off for store releases until launch, where the sync screen is
+exactly the self-hosted screen described above and nothing in this section
+exists. On Android the internal track is a prerelease tag, which builds
+everything and publishes nothing, so that is the only release build CI sets the
+variable for; a stable `vX.Y.Z` tag — the one that reaches Play — does not. →
+`hostedSyncEnabled.ts` _(desktop)_, `HostedSyncBuild.swift` + `project.yml` +
+`.cirrus.yml` _(iOS)_, `HostedSyncBuild.kt` + `app/build.gradle.kts` +
+`.gitlab-ci.yml` _(Android)_, ADR 0003 decision 13
+
+Everywhere the flag turns on for an internal build (debug, the iOS
+default-branch dogfood archive, the Android prerelease-tag build), CI also
+sets `FUTO_HOSTED_SERVER_BAKED=https://staging-notes-sync.futo.org` before the
+Rust FFI build, so the hosted address compiled into that build is staging, not
+production; a store build sets neither and keeps `notes-sync.futo.org`. →
+`crates/futo-notes-sync/src/hosted/address.rs`, ADR 0003 decision 2
+
+- **The sync screen leads with "Log in with FUTO"; "Use my own server"
+  discloses today's URL and password fields, unchanged.** The disclosed panel is
+  literally the same `SyncSettingsSection` _(desktop)_ /
+  `SelfHostedSyncSections` _(iOS, Android)_ the flag-off build renders, not a
+  second copy of it, so self-hosting cannot drift from it. The offer disappears
+  once hosted sync is set up. On iOS this is the Sync sheet reached from
+  Settings → Sync, and on Android the Sync screen reached the same way; "Use my
+  own server" is a disclosure row on both. →
+  HostedSyncSettingsSection.svelte _(desktop)_, HostedSyncSections.swift +
+  SyncView.swift _(iOS)_, HostedSyncSections.kt + SyncScreen.kt _(Android)_
+- **Which step the wizard is on is computed from server facts, never
+  remembered.** Rust's `current_step` reads whether there is a session, whether
+  the vault has key material, whether this device holds the vault key, and — only
+  when there is no vault — whether the account may write. Quitting halfway and
+  reopening therefore lands on the right screen by construction; no shell keeps
+  a wizard position, and none may start. → `hosted/vault.rs` `current_step`,
+  `createHostedSyncSettings.svelte.ts`; guarded by "the wizard position is
+  Rust's, not the shell's" in `createHostedSyncSettings.svelte.test.ts`
+- **Two shapes.** No vault yet: sign in → subscribe → choose a vault password →
+  save the recovery key → sync. Vault exists: sign in → unlock → sync. Subscribe
+  cannot be skipped in the first shape because writing the vault key is
+  entitlement-gated. → `tests/cross-platform-sync.mjs` (`hosted no vault shape
+  reaches a first sync`, `hosted vault exists unlocks by vault password`,
+  `hosted vault exists unlocks by recovery key`), which drive the real desktop
+  app against a server in stand-in test mode
+- **Sign-in, checkout, and the customer portal open in the system browser
+  through the app's existing opener** _(desktop)_**, in an
+  `ASWebAuthenticationSession` sheet over the app** _(iOS)_**, or in a Chrome
+  Custom Tab over the app** _(Android)_, and the app polls the server for the
+  outcome. There is no URL scheme, universal link, or return deep
+  link anywhere in the flow, so the iOS session is created with no callback
+  scheme at all: dismissing it is its only self-completion, and that cancels the
+  wait. The sheet is not ephemeral, so an existing FUTO session in the shared web
+  credential store makes a second sign-in one tap. A Custom Tab keeps the
+  browser's own cookies for the same reason _(Android)_; a device with no Custom
+  Tabs provider gets a plain `ACTION_VIEW`, which is the same journey with
+  different chrome, and a device with no browser at all says so. Abandoning the
+  browser window, the sheet, or the tab leaves no error and no half state — the
+  screen is exactly where it was. A Custom Tab has no dismissal callback, so
+  Android reads the person's return from the activity's pause/resume pair
+  _(Android)_. → `openExternalUrl.ts` _(desktop)_, AuthSheet.swift _(iOS)_,
+  CustomTabsAuthSheet.kt _(Android)_, `HostedSetup::await_sign_in`
+  > **Gap:** Android cannot reliably take the browser down once the outcome
+  > arrives. iOS dismisses its own sheet; a Custom Tab belongs to the browser,
+  > and the app's attempt to pop it by re-launching itself is refused as a
+  > background activity start ("Background activity launch blocked",
+  > `goo.gle/android-bal`) whenever it has had no visible window for a while. It
+  > succeeds when the app is still visible and is refused otherwise, so the
+  > server's completion page asks the person to go back to FUTO Notes; their
+  > return lands on the step the engine reports, and is not mistaken for a
+  > dismissal. Closing this needs either a return deep link, which ADR 0003
+  > decision 1 rules out, or a foreground-service exemption.
+- **A vault password is at least 12 characters, with a strength estimate and no
+  composition rules.** The minimum is read from Rust
+  (`e2ee_hosted_min_vault_password_length`) so the button and the engine cannot
+  disagree. The screen says the password is separate from the FUTO password and
+  is never sent anywhere. The estimate is a local length-and-variety measure that
+  refuses to call a long repeated character anything but weak; no password
+  dictionary ships. **Choosing the first vault password and choosing a new one
+  are one screen with two headings**, so the minimum, the meter, and the repeat
+  field cannot drift apart between them. → `vaultPasswordStrength.ts` +
+  VaultPasswordStep.svelte _(desktop)_, VaultPasswordStrength.swift +
+  VaultPasswordStepView.swift _(iOS)_, VaultPasswordStrength.kt +
+  VaultPasswordStep.kt _(Android)_
+- **The recovery key is shown exactly once and cannot be shown again.** Rust
+  returns it from `create_vault` and keeps no copy; a second create is refused
+  with `vaultAlreadyExists`. The shell holds it in the wizard object alone —
+  never persisted, never re-fetchable — so continuing past the screen ends it.
+  The screen offers Copy and **Save file** _(desktop)_ / **Share**, the system
+  share sheet _(iOS, Android)_, says plainly that FUTO cannot recover the vault
+  without it, and gates Continue on an "I've saved my recovery key" checkbox.
+  There is no type-back. What is saved or shared is the key and nothing else, so
+  it pastes straight back into the unlock field. **The same screen shows a
+  replacement key**, with one extra line saying the old one has stopped working.
+  → `hosted/vault.rs` `create_vault` / `new_recovery_key`,
+  RecoveryKeyStep.svelte _(desktop)_, RecoveryKeyStepView.swift _(iOS)_,
+  RecoveryKeyStep.kt _(Android)_
+- **The unlock screen offers three doors on one screen**: vault password, scan
+  from another device, and recovery key. A mistyped recovery key is reported as a
+  typo — caught by its check character on the device, with nothing sent — and is
+  a different message from a well-formed key that belongs to another vault.
+  → `hosted/vault.rs` `unlock_with_recovery_key`, UnlockStep.svelte _(desktop)_,
+  UnlockStepView.swift _(iOS)_, UnlockStep.kt _(Android)_
+- **The desktop scan door shows a code and waits; it never scans.** _(desktop)_
+  A laptop is the new device, so it draws the payload Rust hands it as a QR code
+  for an unlocked phone to read (parent spec user stories 13 and 14). Four
+  states, each one Rust's answer rendered: **waiting** (the code, a live
+  countdown to the relay's own `expires_at`, and Cancel), **received** (the key
+  arrived, the vault is unlocked, the first sync is running), **expired**, and
+  **refused**. Cancel stops the wait and puts the three doors back, as does
+  choosing another door; the code itself stays live on the relay until it ages
+  out, so showing one again mints a new one. The countdown only describes the
+  deadline — `await_pairing` is rebuilt from that same timestamp and is the only
+  thing that ends a wait, so no shell clock can disagree with the engine about
+  whether a code is alive. The code is drawn black-on-white in both themes,
+  because a camera reads dark modules on a light field. The name on the other
+  device's confirmation sheet is this computer's hostname, filled in by the
+  desktop shell rather than asked of the frontend.
+  → ScanDoor.svelte + `qrCode.ts` + `pairingCountdown.ts` _(desktop)_,
+  `e2ee_hosted_begin_pairing`
+- **The iOS scan door shows a code too, and a phone can also be the new
+  device.** _(iOS)_ The same four states over the same engine calls, drawn with
+  CoreImage instead of a JavaScript encoder and counted down by a SwiftUI
+  `TimelineView` instead of an interval — the countdown still only describes the
+  relay's `expires_at`, and Rust still decides when a code is dead. The code is
+  black on white in both appearances and drawn without smoothing, so the modules
+  stay square at any size. Cancel and choosing another door both stop the wait
+  and put the three doors back. The name the code carries is
+  `UIDevice.current.name`, which on a physical device without the
+  user-assigned-device-name entitlement is the model name ("iPhone") and on a
+  simulator is that simulator's name. Its **received** line says
+  the vault is unlocked rather than that notes are syncing, because an iOS
+  wizard does not start a cycle yet (the gap under "Reaching a set-up, unlocked
+  vault starts syncing"). → ShowPairingCodeView.swift + PairingCodeImage.swift +
+  PairingCountdown.swift _(iOS)_
+- **An unlocked iOS device can scan another device's code.** _(iOS)_ The account
+  card offers "Scan another device", which opens a full-screen camera reading QR
+  codes, then one confirmation naming the device that showed the code and its
+  platform in words, with Send and Cancel (parent spec user stories 15 and 16).
+  Reading a code parses it and nothing else; Send is the only call that seals
+  and posts a vault key, and Cancel leaves with nothing sent. The camera reports
+  a code only when it changes, so an unreadable one raises its message once
+  rather than on every frame. Something that is not a pairing code is named as
+  such, and a refused or already-answered pairing puts the camera back with the
+  reason on screen instead of ending in a dead end.
+  → ScanAnotherDeviceView.swift + PairingScannerView.swift _(iOS)_,
+  `hosted/pairing.rs` `complete_pairing` / `confirm_pairing`
+- **A device that cannot use its camera says so and names the other door.**
+  _(iOS)_ A refused camera permission, a restricted one (parental or MDM
+  control), and a device with no camera at all each get their own sentence plus
+  the way through anyway: on the device being set up, type the vault password
+  (ADR 0003, decision 5). A refused permission also offers Open Settings. The
+  camera permission string is a catalog entry rendered into per-language
+  `InfoPlist.strings`, and it names both uses of the camera — attaching a photo
+  and reading a pairing code. → ScanAnotherDeviceView.swift,
+  `permissions.ios.cameraUsageDescription`,
+  `scripts/generate-native-language-resources.mjs`
+- **The Android scan door shows a code too.** _(Android)_ The same four states
+  over the same engine calls, drawn with ZXing instead of CoreImage and counted
+  down by a Compose effect instead of a `TimelineView` — the countdown still
+  only describes the relay's `expires_at`, and Rust still decides when a code is
+  dead. The code is black on white in whatever theme, drawn with no filtering so
+  the modules stay square, and carries its four-module quiet zone inside the
+  picture rather than relying on layout padding. Cancel and choosing another
+  door both stop the wait and put the three doors back. The name the code
+  carries is the device name a person set in system settings, falling back to
+  the model name when that is unset or unreadable. Its **received** line says
+  the vault is unlocked rather than that notes are syncing, because an Android
+  wizard does not start a cycle yet (the gap under "Reaching a set-up, unlocked
+  vault starts syncing"). → ShowPairingCode.kt + `PairingCodeMatrix.kt` +
+  `PairingCountdown.kt` _(Android)_
+- **An unlocked Android device can scan another device's code.** _(Android)_ The
+  account card offers "Scan another device", which fills the screen with a
+  CameraX preview reading QR codes, then one confirmation naming the device that
+  showed the code and its platform in words, with Send and Cancel (parent spec
+  user stories 15 and 16). Reading a code parses it and nothing else; Send is
+  the only call that seals and posts a vault key, and Cancel leaves with nothing
+  sent. The camera reports a code only when it changes, so an unreadable one
+  raises its message once rather than on every frame. Something that is not a
+  pairing code is named as such, and a refused or already-answered pairing puts
+  the camera back with the reason on screen instead of ending in a dead end.
+  Decoding is **ZXing, not ML Kit**, so the scanner behaves the same on a device
+  with no Google Play services — an F-Droid or de-Googled install is not a
+  quietly broken one. → ScanAnotherDeviceScreen.kt + PairingScannerView.kt +
+  `PairingCodeDecoder.kt` _(Android)_
+- **Android asks for the camera at the moment of use, and a refusal is not a
+  dead end.** _(Android)_ The `CAMERA` permission is declared in the manifest
+  and requested when the scanner screen opens — never during onboarding, never
+  on the sync screen. A first refusal gets the reason and an Allow button that
+  asks again; a final refusal gets the "camera access is off" sentence and Open
+  Settings; a device with no camera at all gets its own sentence. All three also
+  name the door that is still open: on the device being set up, type the vault
+  password (ADR 0003, decision 5). The two booleans Android answers with are
+  read in one place, so "never asked" and "refused for good" — which the system
+  reports identically — cannot be confused. → PairingCameraAccess.kt,
+  ScanAnotherDeviceScreen.kt, `AndroidManifest.xml`
+- **"Expired" is what declining looks like, and the wording says so.**
+  _(desktop, iOS, Android)_ The relay carries no declined signal — a person who
+  says no on the scanning device sends nothing at all — so a decline and a
+  walk-away both reach the waiting device as the five minutes running out. The
+  expired screen therefore says a code lasts five minutes and that saying no
+  looks the same from here, with nothing shared either way; it never claims to
+  know which happened.
+  **Refused** is the narrower, rarer case where the relay would not serve the
+  pairing at all. → `hosted/pairing.rs` `await_pairing`,
+  `sync.hosted.pairing.expired` / `.refused`
+- **QR pairing moves the vault key between two devices, new-device-shows.** The
+  new device opens a pairing on the server's account-scoped relay and shows a
+  code carrying the pairing id, a **one-time X25519 public key**, and its own
+  name and platform; the unlocked device scans it, confirms, seals the vault key
+  to that public key, and posts the ciphertext; the new device collects it,
+  opens it, and keeps the key — after which it is indistinguishable from a
+  device set up by password. The private half of the one-time key never leaves
+  the new device: it lives only in memory for the life of the code and is never
+  returned across the FFI or Tauri boundary.
+  → `hosted/pairing.rs` `begin_pairing` / `await_pairing`, `e2ee/sealed_box.rs`,
+  `tests/cross-platform-sync.mjs` (`hosted pairing between two desktop
+  instances`, which passes the payload between two real app instances as a
+  string, the camera being the one part a test cannot have)
+- **A wrong scan sends nothing, structurally.** Reading a scanned code parses and
+  returns the device name for the confirmation sheet; it touches no network, no
+  secret store, and no vault key. Sealing and posting happen only in the confirm
+  step, which takes the parsed scan a shell cannot fabricate — on desktop Rust
+  holds it and the frontend never sees the pairing id or public key at all, and
+  on iOS and Android the shell holds an opaque UniFFI handle with no
+  constructor a shell can reach, so the confirmation is a real gate rather than
+  a convention. → `hosted/pairing.rs` `complete_pairing` / `confirm_pairing`,
+  ScannedPairing.swift _(iOS)_, ScannedPairing.kt _(Android)_
+- **A pairing lives five minutes from creation and is collected exactly once.**
+  The collecting poll deletes it, so a second poll is not a replay. Waiting past
+  the window is `pairingExpired` — which is also what a declined confirmation
+  looks like from the waiting device, because declining sends nothing. A relay
+  that will not serve the pairing is `pairingRefused`, one answer for unknown,
+  expired, already collected, and another account's, because the server answers
+  all four identically so a pairing id cannot be probed from another account. A
+  second key posted to one's own pairing is `pairingAlreadyKeyed` and is never
+  retried: a sealed box is nondeterministic, so a repeat is new bytes the server
+  cannot match. → server ADR 0008,
+  `tests/hosted_scenarios/mod.rs` (`pairing_hands_the_vault_key_to_a_new_device`,
+  `a_scanned_code_sends_nothing_until_the_person_confirms`,
+  `collecting_the_key_spends_the_pairing`,
+  `a_pairing_this_account_cannot_reach_is_refused`,
+  `a_pairing_can_only_be_answered_once`,
+  `an_expired_pairing_code_is_its_own_error`,
+  `another_accounts_live_pairing_is_refused`)
+- **The account card reads one billing endpoint** and shows the email, the
+  subscription state in words ("Active", "Payment failed. In 4 days, sync
+  pauses.", "Expired"), storage used against the quota, "Manage subscription",
+  "Change vault password", "New recovery key", and Sign out. The app writes no billing state: cancellation, invoices, and
+  cards live behind the portal link, which is a fresh one-shot URL minted per
+  press. → `subscriptionState.ts` + HostedAccountCard.svelte _(desktop)_,
+  SubscriptionState.swift + HostedAccountCardView.swift _(iOS)_,
+  SubscriptionState.kt + HostedAccountCard.kt _(Android)_
+- **A refused write is a banner, not an error.** An account that may no longer
+  write shows **Sync paused** with a Subscribe button and says that notes from
+  other devices still arrive; a full vault shows **Vault is full** with the
+  portal button. Sync paused wins when both are true, because a lapsed
+  subscription refuses the write whatever the quota says. Reads are never gated.
+  → `hostedBanner.ts` _(desktop)_, HostedSetupModel.swift _(iOS)_,
+  HostedSetupModel.kt _(Android)_; `tests/cross-platform-sync.mjs` (`hosted
+  lapsed subscription pauses writes and keeps reads`, `hosted full vault raises
+  the vault full banner`) proves both banners and the read still arriving on the
+  real desktop app
+- **The refused cycle raises the banner itself, before anyone opens the account
+  screen.** The engine reports a `402` or `507` on the write half of a cycle as
+  one named verdict on that cycle — the same precedence, decided once in Rust —
+  and each shell keeps the newest one beside its billing reading, so the banner
+  is up the moment the refused cycle ends rather than on the next billing read.
+  It is never a latch: the first cycle that is not refused clears it, which is
+  how buying room makes the banner go away with nothing reset.
+  → `futo_notes_sync::WriteRefusal` + `SyncSummary.write_refusal`
+  (`sync/outcome.rs`), projected as `writeRefusal` through both shell
+  contracts; `hostedWriteRefusal.svelte.ts` _(desktop)_,
+  `SyncManager.lastWriteRefusal` _(iOS, Android)_; the two cross-platform
+  scenarios above assert the banner with no billing call in between
+- **A refused write says what actually happened on the sync status line.** It
+  reads "Sync paused" / "Vault is full" with the explanation, not "Sync
+  completed with errors" — nothing is broken, the account simply may not write,
+  and the generic wording sent people looking for a server fault. The Subscribe
+  and portal buttons live on the banner on the sync screen. → ADR 0003 decision
+  8; `syncManager.svelte.ts` `syncErrorForSource` _(desktop)_,
+  `SyncManager.applyOutcome` _(iOS, Android)_,
+  `sync.errors.writePausedSubscription` / `writePausedQuota`
+- **Changing the vault password and issuing a new recovery key ask for no
+  current secret.** This device already holds the vault key, and a device set up
+  by scanning a QR code never knew the vault password, so requiring it would
+  lock that device out of both actions. The new vault password is typed twice on
+  the same screen the wizard uses to choose the first one; the new recovery key
+  appears on the wizard's own save screen, and the old one stops working the
+  moment it does. → `hosted/vault.rs` `change_vault_password` /
+  `new_recovery_key`, `e2ee_hosted_change_vault_password` /
+  `e2ee_hosted_new_recovery_key`; `tests/hosted_scenarios/mod.rs`
+  (`a_new_vault_password_replaces_the_old_one`,
+  `a_new_recovery_key_invalidates_the_old_one`)
+- **Each re-wraps one envelope and sends both.** Changing the vault password
+  rebuilds the password envelope and carries the recovery envelope back
+  unchanged; a new recovery key does the reverse. A `PUT` of key material
+  replaces the whole of it, so leaving the other envelope out would delete a
+  working door rather than leave it alone (server ADR 0006, rule 2). Neither
+  changes the vault key itself, which is why notes already stored stay readable.
+  → `tests/hosted_scenarios/mod.rs`
+  (`changing_the_vault_password_keeps_the_recovery_key_working`)
+- **A re-wrap is guarded by the revision the person was looking at.** The engine
+  remembers the `key_updated_at` of the key material it last read and sends it as
+  `previous_key_updated_at`; a server that has moved on answers `409` with the
+  authoritative material. That surfaces as `vaultKeyChangedElsewhere` — "your
+  vault's key was changed on another device, try again" — and nothing is
+  overwritten. The engine adopts what the refusal carried, so the person's own
+  second press lands with no re-read to ask for. Re-reading at the moment of the
+  write instead would quietly overwrite the other device's change.
+  → `server/mod.rs` `rewrap_key`, `hosted/vault.rs` `rewrap`;
+  `tests/hosted_scenarios/mod.rs`
+  (`a_stale_key_revision_is_refused_and_clears_on_retry`,
+  `a_stale_recovery_key_revision_is_refused`)
+- **A device that does not hold the vault key can do neither**, and is told so
+  (`vaultLocked`) rather than shown a screen that cannot work.
+  → `tests/hosted_scenarios/mod.rs`
+  (`a_locked_device_cannot_change_the_vault_password`)
+- **A vault-password change on one device reaches no other device.** The vault
+  key is unchanged, so every other device keeps the key it already holds, stays
+  on the account card rather than being sent back to a wizard, and keeps
+  syncing — it is never told anything happened. → `tests/hosted_scenarios/mod.rs`
+  (`changing_the_vault_password_leaves_another_device_untouched`,
+  `changing_the_vault_password_leaves_another_device_syncing` — the second runs
+  against a real stand-in server only, because the in-test hosted stub mounts the
+  setup routes and has no object API to sync against)
+- **Sign out is one action**: it revokes the session on the server (best
+  effort), deletes the vault key and the session token from the OS secret store,
+  and demotes this vault's sync state exactly as disconnect does — desktop
+  clears the shown "last synced" time on both paths, through the same
+  `clearLastSyncedAt` call. It asks for confirmation first. The notes on disk
+  are untouched. There is no locked-but-signed-in halfway state. →
+  `hosted/vault.rs` `sign_out`, `syncServiceE2ee.ts` `disconnectE2ee` /
+  `forgetHostedE2ee`
+- **An expired hosted session is a trip to the browser, never a vault reset.**
+  `invalid_session` surfaces as "log in again"; the vault key, the object map,
+  the pull cursor, and every note stay exactly where they are. → `hosted/mod.rs`
+  `HostedError::SignInAgain`, `hostedSyncErrors.ts` _(desktop)_,
+  HostedSyncErrors.swift _(iOS)_, HostedSyncErrors.kt _(Android)_
+- **The device keeps the 32-byte vault key and the session token in the OS
+  secret store, keyed per notes root; the vault password is never stored.** A
+  device set up by password and one set up by recovery key are indistinguishable
+  afterwards, and neither is asked for a password again. On iOS that store is the
+  Keychain, under the same config-separated service the sync password uses, so a
+  debug build can never read the production vault's key. On Android it is the
+  Keystore-backed `SecureStore`, whose AES-256/GCM key never leaves the Keystore
+  and whose prefs live under the build's own application id, so a debug build
+  cannot read the production vault's key either; a write that the Keystore does
+  not keep is an error rather than a device that looks set up. → Keychain.swift +
+  KeychainVaultSecretStore.swift _(iOS)_, SecureStore.kt +
+  KeystoreVaultSecretStore.kt _(Android)_
+- **An address that does not offer hosted sign-in says so** rather than opening a
+  browser onto a route that is not there. The capability document is probed
+  before the first hand-off is minted. → `e2ee_hosted_probe`
+
+- **Reaching a set-up, unlocked vault starts syncing.** Whichever door got there
+  — vault password, recovery key, or a paired device — the engine hands the vault
+  key and the session token it already holds to `SyncSession` and one ordinary
+  cycle runs: the same `requestSync` path a self-hosted connect and every later
+  auto-sync go through, not a second one written for hosted. The connect carries
+  no password. **Within the process that ran the wizard it makes no request** —
+  the session and the collection are already resolved — but on a cold process it
+  is not free: it validates the saved token with `current_user` and claims the
+  collection, so it can fail with a transport error on a device that is offline.
+  A device with no vault key is refused rather than half-connected.
+  → `hosted/vault.rs` `connect_sync`, `session/connect.rs` `hosted`,
+  `e2ee_hosted_connect`, `syncServiceE2ee.ts` `connectHostedE2ee` _(desktop)_
+- **Whether this vault is hosted is a local read.** `has_saved_vault` answers from
+  the OS secret store alone, with no request of any kind: true iff this device
+  holds **both** the vault key and the session token. It is what a shell asks at
+  a cold start, before it is willing to spend a round trip and while it may have
+  no network at all — neither `current_step` nor `connect_sync` can answer it
+  offline. Either secret alone is not a session to resume. → `hosted/vault.rs`
+  `has_saved_vault`, `HostedSetupClient.hasSavedVault` _(iOS, Android)_,
+  `e2ee_hosted_has_saved_vault` _(desktop)_
+- **Reaching `ready` starts the sync, and a restart resumes it without Settings.**
+  The wizard fires its connect the first time it observes `ready` in a model's
+  life and again after any door lands there, un-awaited, so the account card is
+  not held behind a cycle; the account is re-read once that cycle ends, so the
+  storage figure is what the vault now weighs. At a cold start the shell asks
+  both local questions — is there a stored password, and does
+  `has_saved_vault` say this device holds a hosted vault — and connects the one
+  that answers; neither costs a request, so a launch with no network still
+  knows which kind of vault this is, and a force-quit and relaunch resumes sync
+  with Settings never opened. **A device that answers to both resumes hosted.**
+  That is the one ambiguous state and it is a one-time migration heal, not a
+  change of precedence: with no hosted vault the password still wins, which is
+  what keeps a self-hosted device self-hosted. Both shells stop offering the
+  self-hosted fields once hosted sync is set up, so no route a person can take
+  produces both secrets any more — a device holding both was stranded by a
+  build from before "Exactly one sync credential exists at a time" below, and
+  resuming hosted runs the clear that ends the ambiguity, so the branch retires
+  itself rather than needing a flag to switch it off. Justin's call, 2026-09-16;
+  it is deliberately not the rejected "invert the precedence", which changed the
+  rule for every case and broke the reverse direction identically. → `SyncManager.restoreBranch` _(iOS, Android;
+  shared cases in `tests/conformance/sync-session-mode.json`)_ `NotSignedIn` and `VaultLocked` mean the wizard
+  is unfinished and read as not connected, never as a failure; a transport failure
+  keeps both secrets and takes the muted live line, and the next foreground or
+  session heal retries. → SyncManager.swift / SyncManager.kt `connectHosted` +
+  `restoreSession`, HostedSetupModel `connectEffect`
+
+- **A restart resumes the hosted session at launch _(desktop)_**, not on the
+  first visit to Settings. The boot credential load asks Rust — a local secret
+  store read with no request of any kind — whether this vault holds both a vault
+  key and a session token, and if it does it connects inside the same credential
+  lock, so `isE2eeConfigured()` is already true when auto-sync's first cycle is
+  released. A build without the hosted flow never asks. → `hosted/vault.rs`
+  `has_saved_vault`, `e2ee_hosted_has_saved_vault`, `syncServiceE2ee.ts`
+  `resumeHostedSessionOnBoot`
+- **A launch with no network leaves the vault configured and retries the
+  connect on the next sync trigger _(desktop)_**, rather than reporting it
+  unconfigured and skipping it until Settings is opened. The retry is the
+  ordinary `ensureConnected` on the way into a cycle, carried by auto-sync's
+  existing initial and background retry ladders. → `syncServiceE2ee.ts`
+  `isE2eeConfigured` + `ensureConnected`
+
+- **Exactly one sync credential exists at a time: starting a hosted session
+  clears the stored self-hosted sync password.** The password is app-global
+  rather than scoped per vault, and every shell restores the password session
+  before asking `has_saved_vault` — so a device that had ever connected to
+  someone's own server reconnected there at every launch and the hosted branch
+  never ran, with the hosted secrets untouched and the sync screen still
+  connecting, which presents exactly like the hosted restore being broken (iOS
+  simulator, 2026-09-16, `docs/qa/hosted-sync-ios.md`). The rule makes the
+  presence of a password a correct answer to "which mode is this device in?"
+  rather than a guess, and reads as **whichever mode you set up last wins**:
+  finishing hosted setup clears the password, while setting up self-hosted sync
+  leaves the hosted secrets to the sign-out that owns them and the password
+  branch takes precedence from there. Justin's call, 2026-09-16; the rejected
+  alternatives were an explicit mode field in `AppState` (correct, but a schema
+  change plus migration) and inverting the branch precedence (a guess, and it
+  breaks the reverse case identically). It is one rule in the engine, not three
+  shell copies: `connect_sync` clears the password through the same secret-store
+  port it already reads the vault key and token through, at the point where all
+  three hosted facts — session, vault key, collection — are in hand. Before the
+  engine is handed the session and not after, so opening the hosted screen on a
+  self-hosted device costs nobody a password they still need, and a connect that
+  then fails because the device is offline still leaves the next launch resuming
+  *this* vault. → `hosted/secrets.rs` `VaultSecrets::delete_sync_password`,
+  `hosted/vault.rs` `connect_sync`, KeychainVaultSecretStore.swift _(iOS)_,
+  KeystoreVaultSecretStore.kt _(Android)_, `sync/password_store.rs` +
+  `syncServiceE2ee.ts` `connectHostedE2ee` _(desktop)_
+
+- **Finishing hosted setup replaces a live self-hosted session.** The switch
+  action does what it says: the self-hosted session is torn down and the hosted
+  one started, rather than the connect being skipped because a session is
+  already running. The guard that skips a redundant connect is mode-aware —
+  it exists so the wizard's repeated connects (it fires one whenever it sees an
+  unlocked vault) cannot stack a second live loop for the **same** mode, and a
+  live *password* session is not that. Before it was mode-aware, completing the
+  wizard over a live password session ran to a normal-looking account card
+  reading **`0 B of 10 GB used`** with no cycle behind it, and the next launch
+  went back to the old server (iOS simulator, 2026-09-16). Justin's call the
+  same day. The teardown is the real one — Rust stops the live loop and demotes
+  the vault, exactly as an explicit disconnect does — because dropping the
+  client reference alone leaves an orphaned SSE loop pulling into a vault this
+  device no longer syncs that way; it deliberately does **not** clear the stored
+  password, which stays the business of the hosted connect below. _(desktop)_
+  needs no teardown of its own: it holds one engine session and
+  `SyncSession::connect_hosted` stops the previous live loop before swapping it,
+  but the shell must drop its "the stream is already running" flag or the hosted
+  session gets no stream at all. → `SyncManager.hostedConnectEntry` _(iOS,
+  Android; shared cases in `tests/conformance/sync-session-mode.json`)_,
+  `syncServiceE2ee.ts` `connectHostedE2ee` _(desktop)_
+
+
+
 ## Live sync (SSE)
 
 - After connecting, the client opens the server's SSE stream
@@ -761,8 +1232,9 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   deliberate:
   storing the password on-device means device compromise → password → vault key.
   The stored password is cleared on explicit disconnect (after which a relaunch
-  stays local) and by Full reset (desktop `resetAllNotes` → `disconnectE2ee`
-  deletes the keyring entry, M4). Verified on the emulator 2026-06-09: connect →
+  stays local), by Full reset (desktop `resetAllNotes` → `disconnectE2ee`
+  deletes the keyring entry, M4), and by a hosted connect — see "Exactly one
+  sync credential exists at a time" under "Hosted sync". Verified on the emulator 2026-06-09: connect →
   `am force-stop` → relaunch reconnects silently (SYNCED); disconnect → relaunch
   stays LOCAL.
   On web (non-Tauri, not a shipping sync surface) there is no OS keyring, so the
@@ -771,7 +1243,12 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   → Keychain.swift _(iOS)_, SecureStore.kt _(Android)_,
   sync/password_store.rs + syncServiceE2ee.ts _(desktop)_
 - **An expired server bearer session reauthenticates transparently from the
-  securely saved password without resetting sync state.** Server bearer tokens
+  securely saved password without resetting sync state — in password mode.**
+  This whole paragraph is about password mode, where the login password is also
+  the vault secret and is on the device, so a 401 can be recovered from without
+  asking anyone anything. Hosted sync stores no password and cannot do this: its
+  expired session surfaces as "log in again" with every byte of sync state left
+  alone (see "Hosted sync" above). Server bearer tokens
   have a fixed seven-day lifetime that authenticated activity does not extend;
   a 401 therefore does NOT mean the password changed. Desktop catches
   401 during cold `resume` and an active sync, stops the dead live loop, calls

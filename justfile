@@ -128,7 +128,9 @@ build-rust-ios:
 # Requires Android SDK + NDK + cargo-ndk + a device/emulator. Builds the
 # `direct` distribution flavor; `FUTO_ANDROID_FLAVOR=play just android-native`
 # installs the Google Play flavor instead (same applicationId, so it replaces
-# whichever is installed).
+# whichever is installed). FUTO_HOSTED_SERVER, if set, switches the FFI build to
+# the `dev` profile (the only one that honours the override) and launches
+# already pointed at that address — see docs/qa/hosted-sync-android.md.
 # Build + run the native Android Compose app (Rust core + WebView editor).
 android-native:
   apps/android/run.sh
@@ -387,8 +389,13 @@ qa-clone-target dest:
 # Start this worktree's isolated sync server (own port + own SQLite DB). Runs
 # the futo-notes-server release pinned in scripts/sync-server-pin.json,
 # downloaded on first use — no checkout, no database server, no Docker.
-qa-server:
-  @node scripts/qa.mjs server-start
+# `--standin` starts it in hosted stand-in test mode instead (Log in with FUTO
+# and billing answered by in-process fakes) — what the hosted QA stories under
+# docs/qa/ drive the native apps against. The pinned release predates that
+# mode, so today it needs FUTO_NOTES_E2EE_SERVER_REPO=<server checkout>
+# FUTO_NOTES_E2EE_SERVER_STANDIN=1 and it says so if it cannot.
+qa-server *flags:
+  @node scripts/qa.mjs server-start {{flags}}
 
 # Stop it (add --drop to also delete its database and blobs).
 qa-server-stop *flags:
@@ -561,6 +568,26 @@ test-e2e-rest:
 
 test-cross-platform:
   pnpm run test:cross-platform
+
+# The Rust server-backed sync suites against REAL servers, in one command.
+# server_integration.rs holds two families that need two different server
+# modes — the sync scenarios need a DEV-mode server, the hosted ones a
+# STAND-IN-mode server (STANDIN_MODE=true) — so this starts both on this
+# worktree's slot-derived ports, points each family at its own, and stops both
+# by PID. Extra arguments go to the test binary: `just test-sync-integration
+# --skip measure_first_sync_large_vault`.
+#
+# The hosted leg runs only when the resolved server can do stand-in mode
+# (`standinMode` in scripts/sync-server-pin.json, or
+# FUTO_NOTES_E2EE_SERVER_STANDIN=1 with your own build); when it cannot, the
+# run says so and those scenarios stay covered by the in-test stub
+# (`cargo test -p futo-notes-sync --test hosted_setup`).
+[positional-arguments]
+test-sync-integration *args:
+  node tests/sync-integration.mjs "$@"
+
+test-markdown-spec:
+  pnpm run test:markdown-spec
 
 # Prove progressive open's one load-bearing claim: parsing a note in top-level
 # chunks and appending them produces the SAME document as parsing it whole

@@ -21,8 +21,11 @@ import {
   getLegacySyncState,
   loadAppState,
   saveAppState,
+  updateAppState,
 } from '$shared/state/appState';
 import { getPlatformFS, isTauri } from '$lib/platform';
+import { connectHostedSync, hasHostedSavedVault } from '$lib/platform/tauri/hostedSync';
+import { hostedSyncEnabled } from './hostedSyncEnabled';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import type {
   E2eeConnectInput,
@@ -192,6 +195,11 @@ async function loadCredentialsOnBoot(): Promise<void> {
     } catch (e) {
       console.warn('[e2ee] keyring unavailable; vault password not loaded:', e);
     }
+    // A hosted vault keeps no password here — both its secrets live in the OS
+    // secret store where only Rust can read them — so the check above cannot
+    // see one. Ask Rust, in the same lock, before the caller settles the
+    // credential promise.
+    await resumeHostedSessionOnBoot();
   });
 }
 
@@ -207,7 +215,97 @@ export async function forgetStoredSyncPassword(): Promise<void> {
   });
 }
 
+// ── Hosted sessions ─────────────────────────────────────────────────────
+//
+// A hosted vault has no password to cache and no token on disk: both secrets
+// live in the OS keyring, keyed per notes root, and Rust reads them (ADR 0003,
+// decision 4). So the password-mode configured check below cannot see one, and
+// this flag is what says "the engine is holding a hosted session this process
+// connected". It is deliberately in-memory only — a restart re-derives it from
+// Rust rather than from anything written down here.
+let hostedConnected = false;
+
+// And this one says "this vault HAS hosted secrets", which is a different fact
+// and the one auto-sync actually needs. A connect that fails because the
+// machine came up with no network leaves the vault every bit as configured as
+// it was a moment earlier; saying otherwise is what made a hosted desktop skip
+// its own vault until somebody opened Settings. Set from the local read at
+// boot (and by a successful connect), cleared by sign-out and by a reset —
+// never persisted, for the same reason `hostedConnected` is not.
+let hostedSavedVault = false;
+
+/**
+ * Hands this vault's hosted secrets to the engine, so cycles can run. Called
+ * when the hosted wizard reaches its set-up, unlocked state, whichever door
+ * got it there, and again at launch for a vault that was already set up.
+ * Idempotent: Rust rebuilds the session from the same two secrets, with no
+ * password.
+ *
+ * A hosted session that started means this machine no longer has a self-hosted
+ * sync password — exactly one sync credential exists at a time, and Rust
+ * dropped the keyring entry inside the connect above (`VaultSecrets::
+ * delete_sync_password`). Dropping `cachedPassword` is not a second copy of
+ * that rule and never re-decides it: it refreshes this module's in-memory
+ * mirror of the keyring, which `hasStoredSyncPassword()` and
+ * `isE2eeConfigured()` answer from synchronously and would otherwise keep
+ * reporting a password that is gone. → docs/spec/sync.md
+ */
+export async function connectHostedE2ee(): Promise<void> {
+  await connectHostedSync();
+  hostedConnected = true;
+  hostedSavedVault = true;
+  cachedPassword = null;
+  // Rust stops whatever live loop the previous session had before it swaps the
+  // session out (`SyncSession::connect_hosted` calls `stop_live` first), so
+  // this process's "the stream is already running" flag is now stale. Left
+  // set, a switch from a live self-hosted session makes `ensureLiveSync` a
+  // no-op and the hosted session gets no stream at all. Desktop needs no
+  // teardown of its own — unlike the native shells it holds ONE engine session
+  // and the engine replaces it — but it does have to stop believing this.
+  liveStarted = false;
+}
+
+/**
+ * Resumes a hosted vault during the boot credential load, so
+ * `isE2eeConfigured()` is already true when `markSyncCredentialsSettled()`
+ * releases auto-sync's first cycle — a restart syncs at launch instead of
+ * waiting for the account card to be opened. → docs/spec/sync.md
+ *
+ * `hasHostedSavedVault` is a local secret-store read and makes no request, so
+ * a password-mode or brand-new vault costs nothing here. Only the connect
+ * itself can be slow, and only when there is a hosted session to rebuild.
+ *
+ * Never throws: offline at launch is the ordinary case, and the vault is
+ * recorded either way, so the next auto-sync trigger retries the connect
+ * through `ensureConnected` rather than skipping the vault.
+ */
+async function resumeHostedSessionOnBoot(): Promise<void> {
+  if (!hostedSyncEnabled()) return;
+  try {
+    if (!(await hasHostedSavedVault())) return;
+    hostedSavedVault = true;
+    await connectHostedE2ee();
+  } catch (e) {
+    console.warn('[e2ee] hosted session not resumed at launch; will retry on the next sync:', e);
+  }
+}
+
+/** Signing out ends the hosted session as far as this module is concerned;
+    Rust has already forgotten both secrets and demoted the sync state. */
+export async function forgetHostedE2ee(): Promise<void> {
+  hostedConnected = false;
+  hostedSavedVault = false;
+  liveStarted = false;
+  await clearLastSyncedAt();
+}
+
 export function isE2eeConfigured(): boolean {
+  // `hostedSavedVault` without `hostedConnected` is the launch-time offline
+  // case: the vault is configured, this process just has not handed its
+  // secrets to the engine yet. Answering true is what lets the next auto-sync
+  // trigger reach `ensureConnected`, which does the connect — so the retry
+  // rides the ladder auto-sync already has instead of needing one of its own.
+  if (hostedConnected || hostedSavedVault) return true;
   const s = getAppState();
   return Boolean(
     s.e2eeServerUrl && s.e2eeAuthToken && s.e2eeUserId && s.e2eeCollectionId && cachedPassword,
@@ -265,6 +363,16 @@ export async function reauthenticateE2ee(password: string): Promise<void> {
 async function ensureConnected(passwordOverride?: string): Promise<void> {
   const status = await invoke<E2eeStatusOutput>('e2ee_status');
   if (status.connected && passwordOverride == null) return;
+
+  // A hosted session has no password to resume with, and needs none: the key
+  // and the token are already in the keyring, so reconnecting is the same call
+  // that made it in the first place. This is also the retry for a launch
+  // connect that failed — `hostedSavedVault` without `hostedConnected` — which
+  // is why it is here and not on a timer of auto-sync's own.
+  if ((hostedConnected || hostedSavedVault) && passwordOverride == null) {
+    await connectHostedE2ee();
+    return;
+  }
 
   const s = getAppState();
   const password = passwordOverride ?? cachedPassword ?? undefined;
@@ -407,10 +515,25 @@ export async function connectE2ee(serverUrl: string, password: string): Promise<
   await scrubLegacySyncStateIfConsumed();
 }
 
+/** Clears the "last synced" time Settings shows, so a disconnected or
+    signed-out vault can never display a stale one. Shared by self-hosted
+    disconnect and hosted sign-out — sign-out "demotes this vault's sync
+    state exactly as disconnect does" (ADR 0003 decision 9), and this is
+    part of that state. */
+async function clearLastSyncedAt(): Promise<void> {
+  await updateAppState({ lastSyncedAt: null });
+}
+
 export async function disconnectE2ee(): Promise<void> {
   // The Rust `e2ee_disconnect` already stops the live loop internally;
   // reset the flag so a future reconnect can restart the live stream.
   liveStarted = false;
+  // A hosted session is a session too: a reset must not leave this module
+  // claiming one the engine has just dropped — including the saved-vault fact,
+  // which would otherwise keep reporting the vault configured and resume it on
+  // the next trigger (M4).
+  hostedConnected = false;
+  hostedSavedVault = false;
   try {
     await invoke('e2ee_disconnect');
   } catch {
@@ -434,6 +557,7 @@ export async function disconnectE2ee(): Promise<void> {
       e2eeSalt: undefined,
     });
   });
+  await clearLastSyncedAt();
 }
 
 export async function syncE2eeAuto(): Promise<SyncSummary> {

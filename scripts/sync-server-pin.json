@@ -1,6 +1,8 @@
 {
   "comment": "The futo-notes-server release every sync harness runs against. Bump `version` and the five sha256s together (scripts/lib/sync-server.mjs --refresh prints the new block). Checksums are pinned here, not fetched, so a rebuilt or tampered asset fails the download instead of silently changing what the suite tested.",
   "version": "v0.7.0",
+  "standinModeComment": "Whether the pinned release carries STAND-IN TEST MODE (STANDIN_MODE=true, futo-notes-server#14-#17) — the hosted-mode server the Rust hosted scenarios in crates/futo-notes-sync/tests/server_integration.rs need. v0.7.0 predates it, so those scenarios run only against the in-test stub (cargo test -p futo-notes-sync --test hosted_setup). Flip this to true in the SAME commit as the version bump once a release carries it; tests/sync-integration.mjs then starts the second server and the scenarios must pass. FUTO_NOTES_E2EE_SERVER_STANDIN=1 forces it on for a locally built server.",
+  "standinMode": false,
   "packageUrl": "https://gitlab.futo.org/api/v4/projects/547/packages/generic/futo-notes-server",
   "binaries": {
     "linux-x64": {

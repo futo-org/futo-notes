@@ -116,11 +116,32 @@ fn canonical_collection_id(collections: Vec<Collection>) -> Option<String> {
         .map(|collection| collection.id)
 }
 
-pub(crate) async fn connect(
-    root: &Path,
+/// What authenticating against the server yields: who you are, which collection
+/// this device syncs, and the session token — everything except the vault key.
+/// Unlocking turns it into a usable session.
+///
+/// Password mode composes [`authenticate`] and [`unlock_with_password`] inside
+/// [`connect`], so a caller never has to remember the ordering. The two verbs
+/// are separate because the hosted flow authenticates once and then unlocks by
+/// a different door (vault password, recovery key, or a paired device).
+pub struct AuthenticatedSession {
+    /// The server address exactly as the caller gave it.
+    pub server_url: String,
+    pub user_id: String,
+    pub token: String,
+    pub collection_id: String,
+    pub auth_mode: String,
+    /// The authenticated client this session was born with. Kept so unlocking
+    /// reuses the same connection pool instead of opening a second one.
+    http: Http,
+}
+
+/// Logs in and resolves the collection to sync, creating one if the account has
+/// none. Produces no vault key: the notes stay locked until [`unlock_with_password`].
+pub(crate) async fn authenticate(
     server: &str,
     password: &str,
-) -> Result<(ConnectedState, ConnectInfo), SyncErrorKind> {
+) -> Result<AuthenticatedSession, SyncErrorKind> {
     let anonymous = Http::new(server).map_err(http_error)?;
     let auth_mode = anonymous.auth_mode().await.map_err(http_error)?;
     let (user_id, token) = anonymous
@@ -138,26 +159,74 @@ pub(crate) async fn connect(
             )?
         }
     };
-    let material = load_or_create_key_material(&http, &collection_id, password).await?;
-    let vault_key = unlock_vault_key(password, material).await?;
+    Ok(AuthenticatedSession {
+        server_url: server.to_owned(),
+        user_id,
+        token,
+        collection_id,
+        auth_mode,
+        http,
+    })
+}
+
+/// Derives the vault key for an authenticated session from the vault password.
+/// A collection with no key material yet and no objects gets one minted here —
+/// that is how a fresh password-mode vault is born.
+pub(crate) async fn unlock_with_password(
+    session: &AuthenticatedSession,
+    password: &str,
+) -> Result<[u8; 32], SyncErrorKind> {
+    let material =
+        load_or_create_key_material(&session.http, &session.collection_id, password).await?;
+    unlock_vault_key(password, material).await
+}
+
+pub(crate) async fn connect(
+    root: &Path,
+    server: &str,
+    password: &str,
+) -> Result<(ConnectedState, ConnectInfo), SyncErrorKind> {
+    let session = authenticate(server, password).await?;
+    let vault_key = unlock_with_password(&session, password).await?;
     let state = connected_state(
         root,
-        server,
-        token.clone(),
-        user_id.clone(),
-        collection_id.clone(),
+        &session.server_url,
+        session.token.clone(),
+        session.user_id.clone(),
+        session.collection_id.clone(),
         vault_key,
     );
     checkpoint::save(root, &state).map_err(SyncErrorKind::Io)?;
     Ok((
         state,
         ConnectInfo {
-            user_id,
-            collection_id,
-            token,
-            auth_mode,
+            user_id: session.user_id,
+            collection_id: session.collection_id,
+            token: session.token,
+            auth_mode: session.auth_mode,
         },
     ))
+}
+
+/// Builds a session from secrets a hosted setup already holds.
+///
+/// Nothing is fetched and nothing is derived: the hosted wizard has already
+/// signed in, resolved the collection, and unwrapped the vault key by whichever
+/// door the person used, so the only thing left is to hand those facts to the
+/// sync engine. That is why this is the one connect with no password and no
+/// network — a hosted device set up by password, by recovery key, or by a
+/// paired device reaches here identically (ADR 0003, decision 4).
+pub(crate) fn hosted(
+    root: &Path,
+    server: &str,
+    token: String,
+    user_id: String,
+    collection_id: String,
+    vault_key: [u8; 32],
+) -> Result<ConnectedState, SyncErrorKind> {
+    let state = connected_state(root, server, token, user_id, collection_id, vault_key);
+    checkpoint::save(root, &state).map_err(SyncErrorKind::Io)?;
+    Ok(state)
 }
 
 pub(crate) async fn resume(

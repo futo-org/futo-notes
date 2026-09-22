@@ -69,7 +69,7 @@
         "dangerZone": "危险操作"
       },
       "sync": {
-        "selfHosted": "自托管同步",
+        "label": "同步",
         "localDescription": "连接同步之前，笔记只保存在此设备上。",
         "syncedBadge": "已同步",
         "localBadge": "本地"
@@ -670,7 +670,7 @@
     },
     "permissions": {
       "ios": {
-        "cameraUsageDescription": "拍摄照片并将其添加到笔记中。",
+        "cameraUsageDescription": "拍摄照片并将其添加到笔记中，以及在为另一台设备设置同步时扫描配对码。",
         "photoLibraryUsageDescription": "将照片图库中的照片添加到笔记中。"
       }
     },
