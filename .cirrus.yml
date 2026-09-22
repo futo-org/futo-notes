@@ -1,7 +1,67 @@
+# ─────────────────────────────────────────────────────────────
+# Cargo caching on the single macscript runner
+# ─────────────────────────────────────────────────────────────
+# Every task here boots a FRESH Tart VM, so without a cache each one recompiles
+# the whole Rust workspace from zero — job traces show 1064 / 1088 / 1091
+# "Compiling" lines for build:ios-native / test:ios-native / desktop-smoke.
+# The `cache` instruction fixes that. Under `cirrus run` (the CLI, not Cirrus
+# Cloud) each cache blob is stored on the RUNNER ITSELF, in
+# ~/Library/Caches/cirrus/projects/<project>/<key> (Go's os.UserCacheDir), so a
+# single-machine runner needs no CIRRUS_HTTP_CACHE_HOST and no extra flag on
+# the `cirrus run` lines in .gitlab-ci.yml. The blob is restored into the VM
+# before the task's scripts run.
+#
+# Why a CONSTANT `fingerprint_key` rather than hashing Cargo.lock: the CLI's
+# local blob store has NO eviction — nothing ever deletes an entry. A key
+# derived from Cargo.lock would strand a multi-GB orphan on the mini's disk
+# after every lockfile bump, and would hand a fully cold build to exactly the
+# MRs that touch Cargo.lock. A constant key gives exactly ONE blob per entry,
+# rewritten in place each run (`reupload_on_changes: true` — it defaults to
+# false whenever a fingerprint is set, so it has to be explicit), and a hit on
+# every run: cargo, not the cache key, decides what to recompile. Bump the
+# trailing -vN of a key to force a cold rebuild and drop the old blob.
+#
+# Restoring `target/` reintroduces the mtime-skew hazard that
+# scripts/ci-cargo-cache-freshness.mjs exists for (see its header, and
+# .setup-rust in .gitlab-ci.yml): the cache lands AFTER the sources, so a
+# restored rlib can carry an mtime newer than the source it was built from and
+# cargo — which decides freshness by mtime, never by content — calls it fresh
+# and skips the rebuild. Pipeline 33129 / job 211040 died that way on Linux.
+# Every task below therefore runs that same shared guard before its first cargo
+# invocation. CI_PROJECT_DIR has to be re-pointed for it: .cienv carries the
+# GitLab runner's value, which is a host path that does not exist in the VM.
+#
+# Cache scope is per task family, keyed by which target/ subdirs the task fills
+# (host debug vs. the three release-ffi iOS triples vs. universal-apple-darwin
+# release). One shared blob would make every task upload the union of all of
+# them.
+
 test_rust_macos_task:
   name: testRustMacOS
   macos_instance:
     image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
+  env:
+    # Incremental artifacts are per-machine scratch that a fresh VM can never
+    # reuse, and they are ~0.6 GB of pure churn in every target/ cache upload.
+    CARGO_INCREMENTAL: "0"
+  cargo_registry_cache:
+    folder: $HOME/.cargo/registry
+    fingerprint_key: futo-notes-cargo-registry-$CIRRUS_OS-v1
+    reupload_on_changes: true
+  cargo_git_cache:
+    # Empty today (Cargo.lock has no git dependencies) — the agent then just
+    # logs "All cache folders are empty! Skipping uploading". Declared anyway so
+    # a future git dependency does not silently re-clone in every task.
+    folder: $HOME/.cargo/git
+    fingerprint_key: futo-notes-cargo-git-$CIRRUS_OS-v1
+    reupload_on_changes: true
+  cargo_target_cache:
+    # Own blob: this task fills target/debug (cargo test --workspace) and
+    # target/aarch64-apple-ios/debug (the cargo check), which is a different set
+    # from the release-ffi libs the iOS tasks build.
+    folder: target
+    fingerprint_key: futo-notes-target-test-rust-macos-$CIRRUS_OS-v1
+    reupload_on_changes: true
   testRustMacOS_script:
     - brew install fnm
     - eval "$(fnm env --shell bash)"
@@ -12,6 +72,10 @@ test_rust_macos_task:
     - corepack prepare pnpm@10.29.2 --activate
     - pnpm install --frozen-lockfile
     - mkdir -p dist
+    # target/ came back from the cache AFTER the sources were synced, so its
+    # mtimes can lie about which crates are current. Repair them before cargo
+    # looks at them (see the file header).
+    - CI_PROJECT_DIR="${CIRRUS_WORKING_DIR:-$PWD}" node scripts/ci-cargo-cache-freshness.mjs
     # Whole workspace so the new core crates (model/index/sync) are covered on
     # macOS too; ignored server tests stay skipped (no FUTO_TEST_SERVER).
     # Main pushes and tags only: on MR pipelines the same command is already
@@ -36,6 +100,27 @@ test_desktop_smoke_macos_task:
   name: testDesktopSmokeMacOS
   macos_instance:
     image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
+  env:
+    # Incremental artifacts are per-machine scratch that a fresh VM can never
+    # reuse, and they are ~0.6 GB of pure churn in every target/ cache upload.
+    CARGO_INCREMENTAL: "0"
+  cargo_registry_cache:
+    folder: $HOME/.cargo/registry
+    fingerprint_key: futo-notes-cargo-registry-$CIRRUS_OS-v1
+    reupload_on_changes: true
+  cargo_git_cache:
+    # Empty today (Cargo.lock has no git dependencies) — the agent then just
+    # logs "All cache folders are empty! Skipping uploading". Declared anyway so
+    # a future git dependency does not silently re-clone in every task.
+    folder: $HOME/.cargo/git
+    fingerprint_key: futo-notes-cargo-git-$CIRRUS_OS-v1
+    reupload_on_changes: true
+  cargo_target_cache:
+    # Own blob: host debug build of the tauri crate (cargo tauri build
+    # --debug), which no other task produces.
+    folder: target
+    fingerprint_key: futo-notes-target-desktop-smoke-$CIRRUS_OS-v1
+    reupload_on_changes: true
   testDesktopSmokeMacOS_script:
     - brew install fnm
     - eval "$(fnm env --shell bash)"
@@ -45,6 +130,10 @@ test_desktop_smoke_macos_task:
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
     - pnpm install --frozen-lockfile
+    # target/ came back from the cache AFTER the sources were synced, so its
+    # mtimes can lie about which crates are current. Repair them before cargo
+    # looks at them (see the file header).
+    - CI_PROJECT_DIR="${CIRRUS_WORKING_DIR:-$PWD}" node scripts/ci-cargo-cache-freshness.mjs
     - cargo install tauri-cli --locked
     # Build frontend + debug binary
     - pnpm run build
@@ -71,6 +160,29 @@ test_ios_native_task:
   name: testFutoNotesIOSNative
   macos_instance:
     image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
+  env:
+    # Incremental artifacts are per-machine scratch that a fresh VM can never
+    # reuse, and they are ~0.6 GB of pure churn in every target/ cache upload.
+    CARGO_INCREMENTAL: "0"
+  cargo_registry_cache:
+    folder: $HOME/.cargo/registry
+    fingerprint_key: futo-notes-cargo-registry-$CIRRUS_OS-v1
+    reupload_on_changes: true
+  cargo_git_cache:
+    # Empty today (Cargo.lock has no git dependencies) — the agent then just
+    # logs "All cache folders are empty! Skipping uploading". Declared anyway so
+    # a future git dependency does not silently re-clone in every task.
+    folder: $HOME/.cargo/git
+    fingerprint_key: futo-notes-cargo-git-$CIRRUS_OS-v1
+    reupload_on_changes: true
+  cargo_target_cache:
+    # Shared with buildFutoNotesIOSNative on purpose: both run the identical
+    # scripts/build-rust-ios.sh (three release-ffi iOS triples + the host debug
+    # lib used for binding generation), so one blob serves both and the two
+    # never run concurrently — the macscript runner drives one VM at a time.
+    folder: target
+    fingerprint_key: futo-notes-target-ios-$CIRRUS_OS-v1
+    reupload_on_changes: true
   testFutoNotesIOSNative_script:
     - brew install fnm xcodegen
     - eval "$(fnm env --shell bash)"
@@ -81,6 +193,10 @@ test_ios_native_task:
     - export PATH="$HOME/.cargo/bin:$PATH"
     - rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
     - pnpm install --frozen-lockfile
+    # target/ came back from the cache AFTER the sources were synced, so its
+    # mtimes can lie about which crates are current. Repair them before cargo
+    # looks at them (see the file header).
+    - CI_PROJECT_DIR="${CIRRUS_WORKING_DIR:-$PWD}" node scripts/ci-cargo-cache-freshness.mjs
     # Shared Rust FFI -> FutoNotesFfi.xcframework + Swift bindings.
     - bash scripts/build-rust-ios.sh
     # Embedded editor bundle used by the native bridge tests.
@@ -186,6 +302,27 @@ build_macos_task:
   name: buildFutoNotesMacOS
   macos_instance:
     image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
+  env:
+    # Incremental artifacts are per-machine scratch that a fresh VM can never
+    # reuse, and they are ~0.6 GB of pure churn in every target/ cache upload.
+    CARGO_INCREMENTAL: "0"
+  cargo_registry_cache:
+    folder: $HOME/.cargo/registry
+    fingerprint_key: futo-notes-cargo-registry-$CIRRUS_OS-v1
+    reupload_on_changes: true
+  cargo_git_cache:
+    # Empty today (Cargo.lock has no git dependencies) — the agent then just
+    # logs "All cache folders are empty! Skipping uploading". Declared anyway so
+    # a future git dependency does not silently re-clone in every task.
+    folder: $HOME/.cargo/git
+    fingerprint_key: futo-notes-cargo-git-$CIRRUS_OS-v1
+    reupload_on_changes: true
+  cargo_target_cache:
+    # Own blob: target/universal-apple-darwin release artifacts, produced by
+    # no other task. Tag-only job, so this entry is only refreshed at releases.
+    folder: target
+    fingerprint_key: futo-notes-target-macos-desktop-$CIRRUS_OS-v1
+    reupload_on_changes: true
   buildFutoNotesMacOS_script:
     # Fetch secure files (certificates, API keys)
     - curl --silent "https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/download-secure-files/-/raw/main/installer" | bash
@@ -244,6 +381,10 @@ build_macos_task:
     # no separate re-sign needed. TAURI_SIGNING_PRIVATE_KEY arrives via .cienv;
     # the key has no password and --ci supplies the empty passphrase non-interactively.
     - test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo "TAURI_SIGNING_PRIVATE_KEY is not set"; exit 1; }
+    # target/ came back from the cache AFTER the sources were synced, so its
+    # mtimes can lie about which crates are current. Repair them before cargo
+    # looks at them (see the file header).
+    - CI_PROJECT_DIR="${CIRRUS_WORKING_DIR:-$PWD}" node scripts/ci-cargo-cache-freshness.mjs
     - cd apps/tauri
     - cargo tauri build --target universal-apple-darwin --config src-tauri/tauri.updater-release.conf.json --ci
     - cd ../..
@@ -320,6 +461,27 @@ build_ios_native_task:
   name: buildFutoNotesIOSNative
   macos_instance:
     image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
+  env:
+    # Incremental artifacts are per-machine scratch that a fresh VM can never
+    # reuse, and they are ~0.6 GB of pure churn in every target/ cache upload.
+    CARGO_INCREMENTAL: "0"
+  cargo_registry_cache:
+    folder: $HOME/.cargo/registry
+    fingerprint_key: futo-notes-cargo-registry-$CIRRUS_OS-v1
+    reupload_on_changes: true
+  cargo_git_cache:
+    # Empty today (Cargo.lock has no git dependencies) — the agent then just
+    # logs "All cache folders are empty! Skipping uploading". Declared anyway so
+    # a future git dependency does not silently re-clone in every task.
+    folder: $HOME/.cargo/git
+    fingerprint_key: futo-notes-cargo-git-$CIRRUS_OS-v1
+    reupload_on_changes: true
+  cargo_target_cache:
+    # Same blob as testFutoNotesIOSNative — identical build-rust-ios.sh
+    # output. See that task for the reasoning.
+    folder: target
+    fingerprint_key: futo-notes-target-ios-$CIRRUS_OS-v1
+    reupload_on_changes: true
   build_ios_native_script:
     - brew install fnm xcodegen
     - eval "$(fnm env --shell bash)"
@@ -341,6 +503,10 @@ build_ios_native_task:
         export FUTO_HOSTED_SERVER_BAKED=https://staging-notes-sync.futo.org
         echo "Default-branch build — internal dogfood, baked hosted server: $FUTO_HOSTED_SERVER_BAKED"
       fi
+    # target/ came back from the cache AFTER the sources were synced, so its
+    # mtimes can lie about which crates are current. Repair them before cargo
+    # looks at them (see the file header).
+    - CI_PROJECT_DIR="${CIRRUS_WORKING_DIR:-$PWD}" node scripts/ci-cargo-cache-freshness.mjs
     # Shared Rust FFI -> FutoNotesFfi.xcframework + Swift bindings (uses
     # xcodebuild -create-xcframework).
     - bash scripts/build-rust-ios.sh
