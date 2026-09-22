@@ -125,7 +125,43 @@ ci_emulator_start() {
     echo "ERROR: the emulator's package manager never came up (3 minutes after boot)" >&2
     return 1
   fi
-  echo "Android emulator $ANDROID_SERIAL booted ($userdata_mode), package manager ready"
+
+  # `service check package` + `pm list packages` above only prove the package
+  # manager's BINDER SERVICE is registered — not that system_server has finished
+  # wiring every system service class an install actually touches. An install
+  # issued in that gap dies with:
+  #   java.lang.NullPointerException: Attempt to invoke virtual method
+  #   'java.util.List android.os.storage.StorageManager.getVolumes()' on a null
+  #   object reference
+  #     at com.android.internal.content.InstallLocationUtils.resolveInstallVolume
+  #     at com.android.server.pm.PackageInstallerService.createSessionInternal
+  # (main pipeline 36733 job 257114, and 36730 job 257078 before its retry) —
+  # `service check mount` alone doesn't catch this: both `package` and `mount`
+  # already reported "found" when the NPE fired. `pm install-create` walks the
+  # SAME createSessionInternal → resolveInstallVolume → StorageManager.getVolumes()
+  # path a real install would (confirmed against a live emulator), without
+  # writing anything, so it is the actual condition to wait on rather than a
+  # proxy for it (M15). Abandon the probe session so nothing lingers.
+  local storage_ready=false session_output session_id
+  for attempt in $(seq 1 60); do
+    if session_output="$("$ADB" -s "$ANDROID_SERIAL" shell pm install-create 2>&1)" \
+      && [[ "$session_output" == *Success* ]]; then
+      session_id="$(printf '%s' "$session_output" | grep -o '\[[0-9]*\]' | tr -d '[]')"
+      if [[ -n "$session_id" ]]; then
+        "$ADB" -s "$ANDROID_SERIAL" shell pm install-abandon "$session_id" >/dev/null 2>&1 || true
+      fi
+      storage_ready=true
+      break
+    fi
+    sleep 2
+  done
+
+  if [[ "$storage_ready" != true ]]; then
+    echo "ERROR: the emulator's storage manager never came up (2 minutes after the package manager did)" >&2
+    echo "  Last pm install-create output: ${session_output:-<none>}" >&2
+    return 1
+  fi
+  echo "Android emulator $ANDROID_SERIAL booted ($userdata_mode), package manager + storage ready"
 }
 
 # Print the emulator log so a red job carries its own diagnosis.
