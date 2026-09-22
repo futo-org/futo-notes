@@ -9,13 +9,13 @@
   import SearchPopup from '$features/search/SearchPopup.svelte';
   import SettingsScreen from '$features/settings/SettingsScreen.svelte';
   import DrawerSidebar from '$features/sidebar/DrawerSidebar.svelte';
+  import { license } from '$features/license/license.svelte';
   import type { SidebarView } from '$features/sidebar/components/SidebarViewSelector.svelte';
   import { clampSidebarWidth } from '$features/sidebar/sidebarWidth';
   import { createSyncManager } from '$features/sync/syncManager.svelte';
   import SyncStatusBar from '$features/sync/SyncStatusBar.svelte';
   import { tabsStore, type OpenMode } from '$features/tabs/tabsStore.svelte';
   import { keyboard } from '$features/editor/keyboard.svelte';
-  import { EXTERNAL_CONTENT_OPTS } from '$features/editor/editorContentSync';
   import { showGlobalToast, currentToastMessage } from '$shared/notifications/toastBus.svelte';
   import { localizedText } from '$shared/localization';
 
@@ -47,7 +47,12 @@
   let sidebarResizing = $state(false);
   let sidebarView = $state<SidebarView>(readSidebarView());
   let settingsOpen = $state(false);
+  // Which section Settings should reveal on open; the ambient license label is
+  // the only caller that asks for one.
+  let settingsSection = $state<'license' | null>(null);
   let searchOpen = $state(false);
+  /** The editor instance the session's open note was last handed to. */
+  let attachedEditor: EditorApi | undefined;
   let lastWikilinkEditor: EditorApi | undefined;
   let lastWikilinkNoteIds = '';
 
@@ -67,9 +72,8 @@
 
   const session = createNoteSession({
     getEditorContent: () => editor?.getContent(),
-    setEditorContent: (content) => editor?.setContent(content, EXTERNAL_CONTENT_OPTS),
-    openEditorNote: (noteId, content) => editor?.openNote(noteId, content),
-    forgetEditorNote: (noteId) => editor?.forgetNoteHistory([noteId]),
+    setEditorContent: (content) => editor?.setContent(content),
+    openEditorNote: (content) => editor?.openNote(content),
     focusEditor: () => editor?.focus(),
     isEditorFocused: () => testEditorFocused ?? editor?.hasFocus() ?? false,
     isComposing: () => editor?.isComposing() ?? false,
@@ -83,7 +87,6 @@
     onNoteRenamed: (fromId, toId) => {
       if (fromId) tabsStore.applyRename(fromId, toId);
       else tabsStore.replaceTabNoteId(tabsStore.activeTabId, toId);
-      editor?.retargetOpenNote(fromId, toId);
       // A rename landing mid-switch would otherwise stamp a note the transition
       // never loaded, and the next click on that row no-ops.
       if (tabsStore.activeNoteId === toId) tabTransition.setLoadedNoteId(toId);
@@ -97,12 +100,10 @@
     showToast: showGlobalToast,
     onRename: (fromId, toId) => {
       tabsStore.applyRename(fromId, toId);
-      editor?.retargetOpenNote(fromId, toId);
       if (session.originalId === fromId) tabTransition.setLoadedNoteId(toId);
     },
     pruneTabsForDeletedIds: (goneIds) => {
       const gone = new Set(goneIds);
-      editor?.forgetNoteHistory(goneIds);
       tabsStore.pruneMissingNoteIds((id) => !gone.has(id));
     },
   });
@@ -115,8 +116,6 @@
 
   function retargetActiveNote(fromId: string, toId: string, title: string): void {
     tabsStore.applyRename(fromId, toId);
-    // The stash follows the file whether or not the session still holds it.
-    editor?.retargetOpenNote(fromId, toId);
     // The session follows only a note it still holds; it may have moved on.
     if (session.originalId !== fromId) return;
     session.applyRemoteRename(toId, title);
@@ -126,13 +125,11 @@
   function applyLocalRenames(renames: Array<{ from: string; to: string }>): void {
     for (const rename of renames) {
       tabsStore.applyRename(rename.from, rename.to);
-      editor?.retargetOpenNote(rename.from, rename.to);
     }
   }
 
   function pruneLocalDeletes(ids: string[]): void {
     const deleted = new Set(ids);
-    editor?.forgetNoteHistory(ids);
     tabsStore.pruneMissingNoteIds((id) => !deleted.has(id));
   }
 
@@ -260,15 +257,25 @@
     },
   });
   const stopSync = sync.start();
+  // Read once, un-awaited: the license must never delay the first paint (M1).
+  const stopLicense = license.start();
   const stopShortcuts = registerNotesShellShortcuts({
     openSearch: () => {
       searchOpen = true;
     },
     createNote: () => createNewNote(),
     openSettings: () => {
+      settingsSection = null;
       settingsOpen = true;
     },
     toggleSidebar,
+    // Find in note was a CodeMirror feature (src/features/editor/find/) and the
+    // Milkdown editor has no replacement yet, so nothing claims Ctrl/Cmd+F or
+    // Ctrl/Cmd+G on desktop. docs/spec/editor.md's "Find in note" section
+    // carries the gap; the bridge calls stay declared for the native bars.
+    /* Find is the OPEN NOTE's surface, and the cross-note search popup claims
+     * the same chord while it is up (searchPopupShortcuts.ts). A Home tab has
+     * no document, so both accelerators are no-ops there. */
     findEnabled: () => !searchOpen && Boolean(activeNoteId),
     openFind: () => {
       editor?.openFind();
@@ -290,11 +297,11 @@
     handleFileChange: sync.handleFileChange,
     seedOpenNote: session.seedOpenNote,
     flushSave: session.flushSave,
-    getEditorView: () => editor?.getView() ?? null,
+    getEditor: () => editor ?? null,
     focusEditor: () => editor?.focus(),
     // A SYNTHETIC focus signal, and the only one two simultaneous desktop
-    // windows can have: CM6's `hasFocus` consults `document.hasFocus()`, so at
-    // most one of a harness's clients could ever report a focused editor. It
+    // windows can have: the editor's `hasFocus` consults `document.hasFocus()`,
+    // so at most one of a harness's clients could ever report a focused editor. It
     // overrides what `session.editorFocused` reads and drives the real
     // `handleEditorFocusChange`, which is why installing this hook is gated.
     setEditorFocused: async (focused) => {
@@ -329,6 +336,19 @@
     writeHash(tabsStore.activeNoteId);
   });
 
+  /* A REPLACED editor component mounts empty, under a session that still holds
+   * the open note — a blank page over a file with content. The editor refuses
+   * to report that empty document as the note (MilkdownEditor `getContent`), so
+   * it can no longer be saved over the file; this hands the note back so the
+   * user sees it again. A dev hot reload is what does this today. */
+  $effect(() => {
+    const currentEditor = editor;
+    if (!currentEditor) return;
+    const previousEditor = attachedEditor;
+    attachedEditor = currentEditor;
+    if (previousEditor !== undefined && previousEditor !== currentEditor) session.reattachEditor();
+  });
+
   $effect(() => {
     const currentEditor = editor;
     const noteIds = notes
@@ -349,6 +369,7 @@
       stopNativeShell();
       stopShortcuts();
       stopSync();
+      stopLicense();
       stopTabsPersistence();
     };
   });
@@ -383,6 +404,11 @@
       onnewnoteinfolder={createNewNote}
       onhome={() => tabsStore.openNote(null, 'current')}
       onsettings={() => {
+        settingsSection = null;
+        settingsOpen = true;
+      }}
+      onopenlicense={() => {
+        settingsSection = 'license';
         settingsOpen = true;
       }}
       oncollapse={toggleSidebar}
@@ -460,6 +486,7 @@
 
 {#if settingsOpen}
   <SettingsScreen
+    initialSection={settingsSection}
     onclose={() => {
       settingsOpen = false;
     }}

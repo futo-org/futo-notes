@@ -42,13 +42,13 @@ Use `touch -t <absolute stamp> /tmp/ref` plus `find … -newer /tmp/ref`.
 ## Web (CSS/markdown-only fast path)
 
 Only for changes that work identically with platform stubs: pure CSS/Tailwind,
-CodeMirror decorations, markdown rendering. Anything touching `invoke()`,
+editor decorations, markdown rendering. Anything touching `invoke()`,
 `@tauri-apps/*`, `rustCore`, file I/O, dialogs, clipboard, or window
 management needs the Tauri app instead.
 
 Uses `agent-browser` (Rust CLI) — faster than Playwright MCP, types into
-CodeMirror natively, and annotates screenshots. Run `agent-browser` with no
-args for the full command reference.
+contenteditable natively, and annotates screenshots. Run `agent-browser` with
+no args for the full command reference.
 
 ```bash
 pnpm run dev -- --port $WEB_VITE_PORT --strictPort &   # use Bash run_in_background
@@ -58,7 +58,7 @@ agent-browser open http://localhost:$WEB_VITE_PORT
 agent-browser snapshot -i -c          # interactive elements, one line each, with @refs
 agent-browser click @e7
 agent-browser fill @e10 "text"        # inputs
-agent-browser type @e11 "text"        # contenteditable (works with CM6)
+agent-browser type @e11 "text"        # contenteditable (the editor is `.ProseMirror`)
 agent-browser screenshot --annotate ./test-screenshots/web-<description>.png
 agent-browser eval 'document.querySelector("[data-wikilink]").click()'
 
@@ -98,6 +98,11 @@ if [ "$ALREADY_RUNNING" = false ]; then
   # The `s` prefix on the slot is required: D-Bus well-known names cannot have
   # segments starting with a digit; tauri-plugin-single-instance panics on
   # `.47`, accepts `.s47`.
+  # The trailing `.dev` is NOT decoration: `Environment::for_bundle_id` picks
+  # staging vs production off that literal suffix (M3), so an id ending in the
+  # slot puts the QA instance on the PRODUCTION license key and the production
+  # buy destination — a staging-signed fixture then fails as "invalid" while
+  # every test stays green (pc_a028e420f16d).
   # NOTE: use Bash run_in_background instead of shell `&` — `$!` does not
   # expand correctly inside the Bash tool.
   # FUTO_NOTES_DATA_DIR isolates notes/app data per worktree — the debug
@@ -108,7 +113,7 @@ if [ "$ALREADY_RUNNING" = false ]; then
     FUTO_NOTES_DATA_DIR="$WORKTREE_ROOT/.tauri-data" \
     cargo tauri dev \
       --config src-tauri/tauri.dev.conf.json \
-      --config '{"identifier":"com.futo.notes.verify.s'"$SLOT"'","build":{"beforeDevCommand":"npm run dev --prefix ../.. -- --host 127.0.0.1 --port '"$VITE_PORT"' --strictPort","devUrl":"http://127.0.0.1:'"$VITE_PORT"'"}}' \
+      --config '{"identifier":"com.futo.notes.verify.s'"$SLOT"'.dev","build":{"beforeDevCommand":"npm run dev --prefix ../.. -- --host 127.0.0.1 --port '"$VITE_PORT"' --strictPort","devUrl":"http://127.0.0.1:'"$VITE_PORT"'"}}' \
     > "$TAURI_LOG" 2>&1 &
   echo $! > "$PID_FILE"
   # First build ~60s; rebuilds ~20s.
@@ -151,9 +156,10 @@ Connect `driver_session` with action `start` and **`port` = the discovered
 
 - `webview_dom_snapshot` (type: accessibility) — UI state with `[ref=eN]` ids
 - `webview_interact` — click/scroll/swipe by ref, CSS selector, or text
-- `webview_keyboard` — type/press keys. For CodeMirror, use
+- `webview_keyboard` — type/press keys. For the editor, use
   `webview_execute_js` with `document.execCommand('insertText', false, 'text')`
-  — CM6 in WebKit ignores synthetic key events.
+  — a contenteditable surface in WebKit ignores synthetic key events, so the
+  keystrokes land nowhere. Better still, drive `window.__notesShellTest` (below).
 - `webview_screenshot` — save to `./test-screenshots/desktop-<description>.png`
 - `webview_execute_js` — full app context, `window.__TAURI__` available
 - `read_logs` (source: console) — webview JS console
@@ -194,25 +200,41 @@ the debug binary, which keeps its bridge port and pushes the next launch to the
 next port — `node scripts/qa-target.mjs kill` (this worktree's instances only)
 and re-check with `node scripts/qa-target.mjs list`.
 
-### Reaching the app's real editor module state
+### Reaching the app's real editor state
 
-Some checks need the app's own CodeMirror instance — `undoDepth`, `undo()`,
-`EditorState` internals — not a fresh copy. This is the alternative to OS
-keystrokes, and it is strictly better: no input, no focus, no cross-app risk.
-
-Module identity is keyed by URL, so import the **already-loaded** dep chunk:
+The editor is Milkdown (ProseMirror) and renders WYSIWYG, so `.ProseMirror`'s
+`innerText` is what the reader sees — not the markdown that gets saved. Almost
+every check means the second one. Read it through the dev-gated shell hook
+(`src/app/installNotesShellTestHook.ts`), which is also the alternative to OS
+keystrokes and strictly better: no input, no focus, no cross-app risk.
 
 ```js
-const url = performance
-  .getEntriesByType('resource')
-  .map((entry) => entry.name)
-  .find((name) => /@codemirror_commands/.test(name));
-const commands = await import(url); // the app's live instance
-commands.undoDepth(window.__editorView.state);
+const hook = window.__notesShellTest; // dev/opted-in builds only
+hook.getState().editorContent; // the note's markdown, as a save would see it
+hook.typeInEditor('## Heading'); // parsed as markdown at the caret; returns the new content
+hook.replaceEditorContent('# All new'); // whole note, one undo step
+await hook.flushSave();
 ```
 
-A plain `import('@codemirror/commands')` resolves to a _different_ module
-instance whose `historyField` is not the app's, which is why depth reads come
+The mount is `.futo-milkdown` and the editable element is `.ProseMirror`; wait
+for both plus `window.__notesShellTest` before driving anything.
+
+If you genuinely need one of the app's own module instances (a ProseMirror
+plugin's state, say), remember module identity is keyed by URL: import the
+**already-loaded** chunk, not the bare specifier. List what the page actually
+loaded first — the app reaches ProseMirror through `@milkdown/*`, so the chunk
+name is not always the package you expect:
+
+```js
+performance
+  .getEntriesByType('resource')
+  .map((entry) => entry.name)
+  .filter((name) => /prosemirror|milkdown/.test(name)); // pick the one you want
+const live = await import(url); // the app's live instance
+```
+
+A plain `import('prosemirror-history')` resolves to a _different_ module
+instance whose plugin state is not the app's, which is why depth reads come
 back 0 and undo appears to do nothing. Same trick for any dep the app loaded.
 
 ### Screenshots without stealing focus

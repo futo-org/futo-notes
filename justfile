@@ -125,11 +125,13 @@ build-rust-android:
 build-rust-ios:
   bash scripts/build-rust-ios.sh
 
+# Requires Android SDK + NDK + cargo-ndk + a device/emulator. Builds the
+# `direct` distribution flavor; `FUTO_ANDROID_FLAVOR=play just android-native`
+# installs the Google Play flavor instead (same applicationId, so it replaces
+# whichever is installed). FUTO_HOSTED_SERVER, if set, switches the FFI build to
+# the `dev` profile (the only one that honours the override) and launches
+# already pointed at that address — see docs/qa/hosted-sync-android.md.
 # Build + run the native Android Compose app (Rust core + WebView editor).
-# Requires Android SDK + NDK + cargo-ndk + a device/emulator. FUTO_HOSTED_SERVER,
-# if set, switches the FFI build to the `dev` profile (the only one that
-# honours the override) and launches already pointed at that address —
-# see docs/qa/hosted-sync-android.md.
 android-native:
   apps/android/run.sh
 
@@ -151,19 +153,34 @@ build-ios-native: build-rust-ios
   xcodegen generate
   # The generic simulator destination links both arm64 and x86_64;
   # build-rust-ios.sh lipos a universal simulator slice so both resolve.
-  xcodebuild -project FutoNotesNative.xcodeproj \
+  # Full output goes to a log file: quiet (last 3 lines) on success, the whole
+  # thing on failure — `build | tail -3` used to throw away the actual error
+  # (e.g. a codesign failure) and leave only "** BUILD FAILED **" + a file path.
+  BUILD_LOG="$(mktemp)"
+  trap 'rm -f "$BUILD_LOG"' EXIT
+  if xcodebuild -project FutoNotesNative.xcodeproj \
     -scheme FutoNotesNative -configuration Debug \
     -destination 'generic/platform=iOS Simulator' \
     -derivedDataPath .build \
-    CODE_SIGNING_ALLOWED=NO build | tail -3
+    CODE_SIGNING_ALLOWED=NO build > "$BUILD_LOG" 2>&1; then
+    tail -3 "$BUILD_LOG"
+  else
+    echo "==> xcodebuild failed:" >&2
+    cat "$BUILD_LOG" >&2
+    exit 1
+  fi
 
-# Compile-only sanity for the native Android app (assembleDebug, no install).
+# Assembles BOTH distribution flavors' debug variants (direct =
+# GitLab/Obtainium/F-Droid, play = Google Play) so a flavor-specific source set
+# or buildConfigField that only breaks one of them fails here rather than at
+# release time.
+# Compile-only sanity for the native Android app (both flavors, no install).
 build-android-native: build-rust-android
   #!/usr/bin/env bash
   set -euo pipefail
   node_modules/.bin/vite build --config vite.editor.config.ts
   cd apps/android
-  ./gradlew :app:assembleDebug
+  ./gradlew :app:assembleDirectDebug :app:assemblePlayDebug
 
 # ── Native unit tests ──
 
@@ -192,15 +209,62 @@ test-ios-native: build-rust-ios
     -derivedDataPath .build \
     CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-"
 
-# JVM unit tests for the native Android app (e.g. SyncManagerDefaultsTest).
 # Depends on build-rust-android so the UniFFI Kotlin bindings (gitignored)
-# exist — compiling the app module needs them.
+# exist — compiling the app module needs them. Runs under BOTH distribution
+# flavors: DistributionFlavorTest asserts a per-flavor constant, so one run
+# would only ever see half of it.
+# JVM unit tests for the native Android app, under both flavors.
 test-android-native: build-rust-android
-  cd apps/android && ./gradlew testDebugUnitTest
+  cd apps/android && ./gradlew :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest
 
+# `direct` only: the flavors compile the same androidTest sources against the
+# same applicationId, so running both would install one over the other for no
+# extra signal.
 # Runs Compose instrumentation tests on $ANDROID_SERIAL.
 test-android-native-ui: build-rust-android
-  cd apps/android && ./gradlew connectedDebugAndroidTest
+  cd apps/android && ./gradlew :app:connectedDirectDebugAndroidTest
+
+# Editor performance stories against the REAL native Android app on an
+# explicitly claimed device — written for the low-end reference phone, where
+# the budgets are hardest (issue #106, docs/plan/milkdown-transition.md §5):
+# interactive-first-viewport <1s and keystroke p95 <16ms at real-note sizes,
+# open that scales linearly with no cliff, and the first focus after an open
+# under 1s (the tap that starts typing). The
+# build/install is deliberately mandatory so the run always exercises the code
+# being pushed (same rule as test-ios-stories). The maintainer's largest real
+# note joins the fixtures as a LOCAL, UNCOMMITTED file: $FUTO_PERF_NOTE=<path>,
+# or drop it at tests/editor-gauntlet/local/device-perf-note.md (gitignored).
+# Requires $ANDROID_SERIAL (a physical phone, or `just qa-claim android`).
+# Deliberately not in `check`/CI — runners have no device.
+#   just test-android-perf              # ~10 min on the reference phone
+#   just test-android-perf --stress     # adds the 50k rung; 30 min+, see the runner
+test-android-perf *args:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  [ -n "${ANDROID_SERIAL:-}" ] || {
+    echo 'Set ANDROID_SERIAL to the claimed device (the low-end reference phone; adb devices -l).' >&2
+    echo 'Pool emulators: just qa-claim android' >&2
+    exit 1
+  }
+  just android-native
+  node tests/android-editor-perf.mjs {{args}}
+
+# The FAST loop for the numbers above: the freshly built editor.html in the
+# phone's own Chrome (same Chromium build as its System WebView), measured with
+# the SAME in-page snippet the gate uses — no APK build, no install. Seconds per
+# run instead of ~10 minutes, so it is what you iterate on; `test-android-perf`
+# is what you confirm on. Also profiles: --profile (a keystroke) and
+# --profile-open (the open) print where the CPU time went.
+#   just test-android-perf-quick                                  # 1000-lines-blocks
+#   just test-android-perf-quick --fixture 10000-lines-blocks --profile
+test-android-perf-quick *args:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  [ -n "${ANDROID_SERIAL:-}" ] || {
+    echo 'Set ANDROID_SERIAL to the phone (adb devices -l).' >&2
+    exit 1
+  }
+  node tests/android-editor-perf-quick.mjs {{args}}
 
 # User-level storage-location stories against the REAL native Android app: the
 # first-run picker, both migration directions, and opening an already-populated
@@ -422,7 +486,7 @@ emu-screenshot name="emu":
 # `adb logcat -c` first for a clean slate; crashes land under AndroidRuntime.
 # Tag-scoped logcat for the native Android app's stable log tags.
 emu-logs:
-  adb logcat -s FutoStartup FutoSearch NotesStore FutoTestHook FutoToolbarDBG FutoBridgeDBG AndroidRuntime
+  adb logcat -s FutoStartup FutoSearch NotesStore FutoLicense FutoTestHook FutoToolbarDBG FutoBridgeDBG AndroidRuntime
 
 # Debug builds only; re-run after every app restart (the WebView pid changes).
 # adb forward host ports are machine-global, so the port is per-worktree
@@ -525,6 +589,26 @@ test-sync-integration *args:
 test-markdown-spec:
   pnpm run test:markdown-spec
 
+# Prove progressive open's one load-bearing claim: parsing a note in top-level
+# chunks and appending them produces the SAME document as parsing it whole
+# (docs/plan/milkdown-transition.md §5, issue #105). Drives the REAL editor.html
+# over a corpus of real notes at the finest cut granularity the planner allows,
+# and exits non-zero on a single divergence. NOT in `check`/CI: the corpus is
+# real user notes and lives outside this repo. Committed result:
+# docs/evidence/milkdown-chunk-census.md.
+#   just chunk-census                        # full corpus, ~2 min
+#   just chunk-census --limit 2000           # a quick pass
+#   just chunk-census --corpus <path.jsonl>  # somewhere else
+# `--dump-divergences <path>` writes the offending notes for triage; that file
+# carries note TEXT, so keep it out of the repo.
+# `--serialize` runs the OTHER equivalence claim over the same corpus/harness:
+# blockSerializer.ts's per-block cache (the fix for the whole-document
+# getMarkdown() cost on a settled edit) must match Milkdown's own serializer
+# called directly. Report defaults to build/serialize-census/report.md.
+# Prove a chunked parse equals a whole-document parse, over a real note corpus.
+chunk-census *args:
+  node scripts/milkdown-chunk-census.mjs {{args}}
+
 test-headed:
   pnpm run test:headed
 
@@ -536,6 +620,7 @@ test-desktop-smoke:
 
 test-rust:
   cargo test -p futo-notes-model --test conformance
+  cargo test -p futo-notes-license
   node --experimental-strip-types tests/conformance/title-rules-differential.mjs
 
 test-rust-full:
@@ -605,10 +690,85 @@ remote-sync *flags:
 
 # Device/instrumentation legs still need an emulator booted ON the box; KVM
 # there makes those far faster than the Mac's emulation once wired up.
-# Android Rust .so + Kotlin bindings + assembleDebug, then the JVM unit tests.
+# Android Rust .so + Kotlin bindings + both flavors' debug APKs + JVM unit tests.
 remote-android *flags:
   node scripts/remote-test.mjs {{flags}} build-android-native
   node scripts/remote-test.mjs {{flags}} test-android-native
+
+# ── Editor gauntlet (the permanent editor regression suite) ──
+# The matrix and oracles live behind EditorGauntletAdapter, with one adapter
+# per editor. `gauntlet-milkdown*` drives the SAME single-file editor.html the
+# native shells ship (it builds the bundle first).
+# Reports land in tests/editor-gauntlet/local/ (gitignored). Full details,
+# including corpus sharding: tests/editor-gauntlet/README.md.
+
+# The 56-case split-torture matrix against Milkdown, scored against the ledger.
+gauntlet-milkdown:
+  pnpm run test:editor-gauntlet:milkdown
+
+# Milkdown performance floor: hard budgets at real-note sizes, no cliff above.
+gauntlet-milkdown-perf:
+  pnpm run test:editor-gauntlet:milkdown:perf
+
+# Read ~/Developer/futo-notes-ml/NOTICE.md first, then point it at a corpus:
+#   EDITOR_GAUNTLET_CORPUS=~/Developer/futo-notes-ml/dataset/sample.jsonl \
+#     EDITOR_GAUNTLET_CORPUS_LIMIT=100 just gauntlet-milkdown-foreign
+# Milkdown foreign-corpus sweep (never-refuse/never-warn/never-lose).
+gauntlet-milkdown-foreign *args:
+  pnpm run test:editor-gauntlet:milkdown:foreign {{args}}
+
+# ── Milkdown round-trip census ──
+# Run a corpus of real notes through the real Milkdown editor and report what
+# the round trip changed. This is the measurement behind the compat plugin set
+# in packages/editor/src/milkdown-compat/ (docs/plan/milkdown-transition.md §3),
+# and the way to prove a change to it costs nothing:
+#
+#   just milkdown-census --variant baseline          # the UNPATCHED upstream preset
+#   just milkdown-census --diff build/milkdown-census/baseline
+#   just milkdown-census --vault ~/Documents/futo-notes   # your own notes, locally
+#   just milkdown-census --limit 200                 # quick smoke, ~4s
+#
+# ~30k notes in about 3 minutes on 12 pages. Output lands in
+# build/milkdown-census/<variant>/ (gitignored) — results.jsonl carries the
+# round-tripped text of FLAGGED notes, so a vault run's output is your notes:
+# read it locally, never commit it. `--diff` exits non-zero on any newly raised
+# flag. Corpus default: ~/Developer/futo-notes-ml/dataset/notes_corpus.jsonl.gz.
+# Findings write-up: docs/editor/milkdown-roundtrip-census.md.
+milkdown-census *args:
+  node tests/milkdown-census/run.mjs {{args}}
+
+# ── The FUTO supporter coin (Blender -> all three shells) ──
+# The coin is ONE object, modelled in assets/coin/build-coin.py and exported to
+# three files: futo-coin.glb (desktop three.js + Android Filament), futo-coin.usdz
+# (iOS RealityKit) and studio-env.hdr, the small studio every shell reflects off
+# it. Gold is a metal; a metal with nothing to reflect renders black, which is
+# why the environment is an asset and not a nicety.
+# Rebuild the coin from its Blender source (needs Blender 5.x on PATH).
+coin:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  command -v blender >/dev/null || { echo "blender is not on PATH - install it (dnf install blender) or see assets/coin/build-coin.py" >&2; exit 1; }
+  blender --background --factory-startup --python assets/coin/build-coin.py -- "$PWD/assets/coin"
+  # Android's Filament needs the studio prefiltered into a cubemap; the other
+  # two shells do that themselves at load time. Downloads a pinned cmgen once.
+  node scripts/build-coin-ibl.mjs
+  node scripts/check-coin-assets.mjs
+
+# Fail if the exports no longer match build-coin.py, or were hand-edited (M8),
+# and if scripts/lib/studio-env.mjs no longer rebuilds the shipped studio.
+# Needs no Blender, which is why it can run in CI and in `just check`.
+coin-check:
+  node scripts/check-coin-assets.mjs
+
+# Per-shell exposure (no regeneration), material roughness and colour, the room,
+# and each of the five lamps. It reads out what percentage of the coin is blown
+# out and will sweep 360 degrees to find the worst angle, so "too bright at some
+# angles" becomes a number. Nothing is written to the repo: the page prints the
+# constants and names the files to paste them into. Static server on a
+# slot-derived port, Ctrl-C to stop.
+# Play with every dial that decides how bright the supporter coin is.
+coin-tuner:
+  @node scripts/coin-tuner.mjs
 
 # Regenerate the native shells' toolbar specs
 # (apps/ios/Sources/Editor/GeneratedContracts/ToolbarSpec.swift)
@@ -782,7 +942,7 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-check: toolbar-spec-check title-spec-check arch-gate test-rust rust-format-check
+check: toolbar-spec-check title-spec-check coin-check arch-gate test-rust rust-format-check
   #!/usr/bin/env bash
   # See `build:`'s comment: pipefail is required so the `| head`/`| tail`
   # truncation on the last two lines can't mask a failing tsc/vite build.
@@ -921,10 +1081,19 @@ deploy-rpm:
 # without it Gradle produces an UNSIGNED release APK that cannot be installed, so
 # this refuses up front and says what is missing rather than failing at adb.
 # Honors $ANDROID_SERIAL.
-# Build a RELEASE-signed Android build and install it (com.futo.notes).
-deploy-android:
+# Defaults to the `direct` flavor — what GitLab/Obtainium/F-Droid users get.
+# `just deploy-android play` installs the Google Play flavor's release build
+# instead, which is the only way to put the exact bytes Play will review on a
+# device (Play itself is fed the AAB from CI, and an AAB cannot be adb-installed).
+# Build a RELEASE-signed Android build of one flavor and install it (com.futo.notes).
+deploy-android flavor="direct":
   #!/usr/bin/env bash
   set -euo pipefail
+  case '{{flavor}}' in
+    direct) VARIANT=Direct ;;
+    play) VARIANT=Play ;;
+    *) echo "flavor must be 'direct' or 'play' (got '{{flavor}}')" >&2; exit 1 ;;
+  esac
   if [ ! -f apps/android/keystore.properties ]; then
     echo "No apps/android/keystore.properties — release builds cannot be signed." >&2
     echo "  A release APK without it is unsigned and will not install." >&2
@@ -933,8 +1102,8 @@ deploy-android:
   fi
   just build-rust-android
   node_modules/.bin/vite build --config vite.editor.config.ts
-  cd apps/android && ./gradlew :app:assembleRelease
-  APK=$(ls -t app/build/outputs/apk/release/*.apk | head -1)
+  cd apps/android && ./gradlew ":app:assemble${VARIANT}Release"
+  APK=$(ls -t "app/build/outputs/apk/{{flavor}}/release"/*.apk | head -1)
   echo "Installing ${APK} (com.futo.notes)…"
   adb install -r "$APK"
   # Assert the PRODUCTION package is what landed — an unsigned or misconfigured

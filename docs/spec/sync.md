@@ -1465,13 +1465,22 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   including when retry finds an uncertain prior `mkdir` already present; only
   then may object-map/cursor checkpoints advance.
   Other platforms reject symlinks observed while resolving the path, but do not
-  yet provide the same descriptor-relative race guarantee. The same fallible
+  yet provide the same descriptor-relative race guarantee. On every platform, a
+  vault-relative path whose parent folder is missing is ABSENT rather than a
+  fault: existence checks answer no, removes and renames report nothing moved,
+  and the write paths create the folders they need — so a note arriving for a
+  folder this client has never had is written, not failed (github#48). Only a
+  genuine obstacle — a symlink, a plain file where a folder belongs, no
+  permission — is an apply failure. The same fallible
   scanner is used by conflict/tombstone copy naming; no sync call site receives
   a best-effort file list. → futo-notes-sync `sync/vault.rs`,
-  `sync/vault_fs.rs`, and `sync/push/`; regression tests `scan_reports_*`,
+  `sync/vault_fs.rs`, and `sync/push/`, over futo-notes-core
+  `files/vault_fs/{unix,fallback}.rs`; regression tests `scan_reports_*`,
   `scan_never_follows_*`, `content_*_never_follow_*`,
-  `collision_placement_never_renames_*`, and
-  `incomplete_root_scan_stops_before_remote_deletion`
+  `collision_placement_never_renames_*`,
+  `incomplete_root_scan_stops_before_remote_deletion`,
+  `files::vault_fs::contract_tests::*` (stamped over both implementations), and
+  `a_note_in_a_folder_this_client_does_not_have_yet_is_written`
 - **The persisted pull cursor never advances past changes we have actually
   pulled — even across a crash mid-push.** State carries TWO watermarks:
   `max_version` (the highest `change_seq` seen; push folds its uploads in and
@@ -1615,15 +1624,15 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   `recover_restores_a_note_stranded_in_a_parked_backup` and
   `recover_returns_a_divergent_backup_as_terminal`
 
-- A save may only persist content read from a **live** editor view. The
-  desktop editor's `getContent()` returns `undefined` (never `''`) when the
-  CM6 view is destroyed or not yet mounted, and every save path treats
-  `undefined` as "no editor — skip". An empty string from a dead view is
-  indistinguishable from "the user deleted everything": a stale flush firing
-  against a torn-down editor saved `''` over the open note and sync
-  propagated the truncation to every connected device (observed 2026-06-04
-  via a dev HMR swap; the same teardown race exists on note-switch/quit).
-  → editorContentSync `readDocContent`, MarkdownEditor `getContent`
+- A save may only persist content read from a **live** editor view. The desktop
+  shell's editor read returns `undefined` (never `''`) when no editor component
+  is mounted, and every save path treats `undefined` as "no editor — skip". An
+  empty string from a dead view is indistinguishable from "the user deleted
+  everything": a stale flush firing against a torn-down editor saved `''` over
+  the open note and sync propagated the truncation to every connected device
+  (observed 2026-06-04 via a dev HMR swap; the same teardown race exists on
+  note-switch/quit). → NotesShell.svelte `getEditorContent`,
+  NoteWorkspace.svelte `EditorApi.getContent`, MilkdownEditor `getContent`
 
 - A note's modified time is **server-authoritative** so note-list ordering is
   identical on every device: a real push restamps the local file to the
@@ -1692,7 +1701,7 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   > `futo-notes-ffi`, so a native shell's runs are not recorded and `just
 journal --dir` has nothing to read from a phone.
   > **Gap:** The desktop scheduler's own triggers are not distinguishable in the
-  > record. Launch, poll, resume and local-save all reach Rust through the one
+  > record. Launch, poll, and resume all reach Rust through the one
   > `e2ee_sync_run` command and are journaled as `manual`, so a cycle cannot be
   > told apart from a user pressing "Sync now"; only the live loop's four
   > triggers are recorded faithfully.
@@ -1812,16 +1821,28 @@ journal --dir` has nothing to read from a phone.
 
 - The native unfocused clean-adopt **preserves the caret/selection and scroll**:
   the shells push remote content through the embed's `applyExternalContent`
-  (bridge v2), which applies a minimal diff with history suppressed — the
-  same editorContentSync path as the desktop's `applyExternalContent` —
-  instead of the full-replacement `setContent`. Works for consecutive remote
-  edits. Verified cross-device (simulator ↔ emulator) 2026-06-09: with the
-  caret parked mid-document, a peer edit appeared in the open editor and the
-  selection/caret held on both platforms. Neither shell invokes that bridge
+  (bridge v2) rather than through the host `setContent` that also clears undo.
+  Works for consecutive remote edits. Verified cross-device (simulator ↔
+  emulator) 2026-06-09 on the CodeMirror editor: with the caret parked
+  mid-document, a peer edit appeared in the open editor and the selection/caret
+  held on both platforms.
+
+  > **Gap:** the WYSIWYG editor does NOT apply an adopt as a minimal diff. Both
+  > `applyExternalContent` and `setContent` go through one whole-document
+  > `replaceAll`, so the caret and scroll are only whatever ProseMirror's
+  > position mapping happens to preserve across a full replacement, and the
+  > replacement is itself undoable (see the undo Gaps in
+  > [editor.md](editor.md) "Interactive elements"). The CodeMirror editor
+  > diffed and suppressed history (`editorContentSync.ts`, deleted with it).
+  > Re-verify on device before treating the 2026-06-09 result as current. →
+  > src/features/editor/milkdown/MilkdownEditor.svelte `applyExternal`,
+  > src/editor-embed/createFutoEditorApi.ts `applyExternalContent`
+
+  Neither shell invokes that bridge
   while the editor is focused: each remembers `DeferAdopt`, then re-reads and
   classifies current disk content on blur. The blur edge every host settles on
-  is ONE reported fact — the embed's `focus` bridge message, from
-  `editorHasDomFocus` — and it means "CodeMirror holds the caret", not merely
+  is ONE reported fact — the embed's `focus` bridge message, from the editor's
+  own `hasFocus()` — and it means "the editor holds the caret", not merely
   "some node inside the editor is still `document.activeElement`". The lenient
   reading was iOS-only from the start (WKWebView reports a blurred document
   while its contenteditable really is focused); on Android that same shape IS
@@ -1830,8 +1851,9 @@ journal --dir` has nothing to read from a phone.
   meant the shell never saw a blur edge and the deferral was stranded
   indefinitely on superseded peer content (device-verified on
   emulator 2026-08-10). A deferral therefore always has an edge to settle on.
-  → packages/editor bridge v2; `editorDomFocus.ts` (guarded by
-  editorDomFocus.test.ts); iOS `EditorWebView` / `OpenNoteReconciler`; Android
+  → packages/editor bridge v2; MilkdownEditor.svelte `hasFocus` (guarded by
+  tests/editor-focus-signal.spec.ts); iOS `EditorWebView` /
+  `OpenNoteReconciler`; Android
   `EditorSession.settleDeferredAdoption` / `NoteEditorScreen.kt`
 - A **dirty draft against a real remote change** is never replaced. Each
   executor renders the engine's `KeepDraft`: it cancels/drains the pending

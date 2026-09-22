@@ -25,6 +25,7 @@ The desktop adapter is split by responsibility:
 - **`app_menu.rs`**: the macOS application menu; frontend-performed items are forwarded as `app-menu` events whose ids the frontend shortcut registry dispatches on.
 - **`window_reveal.rs`**: shows the initially hidden window once the shell paints, with a timeout fallback so a frontend that never paints cannot hide the app.
 - **`instance_journal.rs`**: installs the instance journal (`futo_notes_core::journal`) under the app data dir.
+- **`license.rs`**: the desktop projection of `futo-notes-license` — where the key/activation pair is stored, the single activation request, and `futonotes://` deep-link delivery. Owns no license rule; the crate owns every one.
 - **`system_trash.rs`**: recoverable desktop delete policy plus the headless hard-delete fallback.
 - **`platform_integration.rs`**: Linux log/theme/decorations, single-instance setup, and Unix file-descriptor preparation.
 - **`updater_commands.rs`**, **`panic_reporter.rs`**: updater capability and Rust crash persistence.

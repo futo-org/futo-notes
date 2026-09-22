@@ -10,8 +10,9 @@ user data or shipped behavior; never weaken one to make a test, build, or pipeli
 Engineering defaults: the simplest implementation that fully meets the current requirement, and an
 established, well-maintained library over a custom one.
 
-**Read the nearest nested `AGENTS.md` before editing a layer.** This includes `src/`,
-`packages/editor/`, `crates/futo-notes-{core,sync}/`, each app, and `docs/spec/`.
+**Read the nearest nested `AGENTS.md` before editing a layer.** Every crate has one
+(`crates/futo-notes-{core,model,store,search,sync,ffi}/`), as does `src/`, `packages/editor/`,
+each app in `apps/`, `scripts/`, `tests/`, and `docs/spec/`.
 
 For structural work, read `docs/architecture/codebase-organization.md`: use the narrowest real
 owner, make shared code earn its scope, keep entry points as orchestration, co-locate tests, and
@@ -37,12 +38,13 @@ Their nested manuals own build, device, release, and test variants. Missing
 - `packages/editor/`: hot-path TS rules, bridge contract, toolbar manifest.
 - `crates/`: `-model` (pure note rules, no fs) · `-core` (hashing, E2EE crypto, 3-way merge, path
   safety + atomic files) · `-store` (THE local note engine) · `-sync` (push-first `run_sync`, SSE) ·
+  `-license` (the paid-client-license rule: v2 FUTOpay activation, offline verification) ·
   `-search` (Tantivy BM25) · `-ffi` (UniFFI projection; bindings gitignored).
 - `apps/`: Tauri desktop plus native iOS and Android shells.
 - `docs/spec/`: behavioral truth; `docs/qa/`: story documents for what only a real
   device can show (a camera, an OS auth sheet, a keychain), each carrying the result of
-  the last run and what that run could not prove; `tests/` and `markdown-spec/`:
-  fixture/oracle systems.
+  the last run and what that run could not prove; `tests/` (unit, Playwright, and the
+  editor gauntlet) and `markdown-spec/`: fixture/oracle systems.
 
 Generated and gitignored: native bindings/JNI libraries and `editor.html`. The external sync server
 (its own Go repo) receives only client-encrypted opaque blobs; sync tests download the release
@@ -165,7 +167,9 @@ These are observed failures, not generic advice.
   success while doing nothing. Suspect the tool before the app, and **never record a spec gap from
   one tool's silence**; mechanics live in `/verify`'s `references/ios.md` + `references/android.md`.
 - **M22 — Wrong browser.** Playwright cannot prove WebView2 or real iOS keyboard behavior. Use the
-  Windows VM/device; after dependency changes, blank CM6 often means duplicate `@codemirror/*`.
+  Windows VM/device; after dependency changes, a blank editor usually means the bundle carries two
+  copies of an editor library — duplicated `prosemirror-*` (or `@milkdown/*`) instances silently
+  break the mounted view.
 - **M23 — Updater signing order.** The detached `.sig` must be the LAST touch on artifact bytes —
   after patching/notarization/Authenticode. Read `docs/release/updater.md` and `keys/README.md`, and
   rehearse locally with `just updater-localdev`; localdev signatures must never verify in production.
@@ -178,6 +182,14 @@ These are observed failures, not generic advice.
   serves its bridge but never rebuilds, or a screenshot of a dead dev server instead of a test
   failure. Terminate by identity only — `just qa-target kill`, the PID/process group you started, or
   a port from `just ports` — never by process name. `just check-qa-input-safety` enforces it.
+- **M26 — Untested platform branch.** A cfg-gated implementation whose tests are gated to
+  the OTHER cfg ships to the only platform that runs it with nothing having executed it, and a
+  green `just check` says nothing about it. github#48: the `cfg(not(unix))` vault filesystem
+  answered "parent folder missing" with an I/O error instead of absence for three releases, so
+  every note synced into a folder a Windows client did not have yet failed forever. A branch that
+  needs no platform APIs to RUN (plain `std::fs`) gets compiled under `cfg(test)` everywhere and
+  held to the shipped branch's rules — `crates/futo-notes-core/src/files/vault_fs/contract_tests.rs`
+  stamps one rule set over both implementations.
 
 ## 7. Quality bar per deliverable
 
@@ -186,7 +198,7 @@ Every logic change gets a test; a bug regression fails before the fix. Report co
 | ID | Change | Required chain |
 |---|---|---|
 | **7.1** | UI/Svelte | `src/AGENTS.md` |
-| **7.2** | CM6 editor | `src/AGENTS.md` |
+| **7.2** | Milkdown editor | `src/AGENTS.md` |
 | **7.3** | Note/editor rule | `packages/editor/AGENTS.md` + both Rust/TS consumers + `just test-rust` (goldens + TS↔Rust differential) |
 | **7.4** | Rust core/Tauri | nearest crate or `apps/tauri/AGENTS.md` |
 | **7.5** | Sync | `crates/futo-notes-sync/AGENTS.md`; preserve push-first |

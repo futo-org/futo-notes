@@ -209,6 +209,31 @@ final class Localization {
             : localizedText("time.relative.future.minute", arguments: ["count": count])
     }
 
+    /// An absolute calendar date — "Valid until {date}", "License expired
+    /// {date}". Distinct from `localizedRelativeTime`, which answers "how long
+    /// ago" (localization.md).
+    ///
+    /// `.medium` names the month instead of numbering it, which is what keeps a
+    /// date from being read day-first by one locale and month-first by another.
+    func localizedAbsoluteDate(_ timestampMillis: Double) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: formatLanguageTag)
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: Date(timeIntervalSince1970: timestampMillis / 1_000))
+    }
+
+    /// The year alone.
+    ///
+    /// **A year is a date field, not a number**: a number formatter would group
+    /// it as "2,026", so this goes through the date formatter too.
+    func localizedYear(_ timestampMillis: Double) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: formatLanguageTag)
+        formatter.setLocalizedDateFormatFromTemplate("y")
+        return formatter.string(from: Date(timeIntervalSince1970: timestampMillis / 1_000))
+    }
+
     private func renderTemplate(
         _ template: [TemplateToken],
         arguments: [String: Any],

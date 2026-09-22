@@ -39,6 +39,9 @@ export default tseslint.config(
         fetch: 'readonly',
         process: 'readonly',
         setTimeout: 'readonly',
+        // The body of a `page.evaluate(...)` is serialized and run in the
+        // browser, so a Node harness legitimately mentions `window`.
+        window: 'readonly',
       },
     },
     rules: {

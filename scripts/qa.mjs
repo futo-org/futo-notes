@@ -372,6 +372,26 @@ async function ensureAvd(name) {
       await sleep(2000);
       if (i === 89) die(`emulator ${name} (${serial}) did not finish booting`);
     }
+    // The package service being registered doesn't mean system_server has
+    // finished wiring every system service class an install touches. An
+    // install issued in that gap dies instead with a NullPointerException
+    // from `StorageManager.getVolumes()` inside
+    // `PackageInstallerService.createSessionInternal` (same race hit CI:
+    // main pipeline 36733/36730, scripts/ci-android-emulator.sh). `pm
+    // install-create` exercises that exact path without writing anything, so
+    // wait on it rather than assuming package-service readiness covers it.
+    let storageReady = false;
+    for (let i = 0; i < 60; i++) {
+      const created = tryRun('adb', ['-s', serial, 'shell', 'pm', 'install-create']) || '';
+      const match = created.match(/\[(\d+)\]/);
+      if (created.includes('Success') && match) {
+        tryRun('adb', ['-s', serial, 'shell', 'pm', 'install-abandon', match[1]]);
+        storageReady = true;
+        break;
+      }
+      await sleep(2000);
+    }
+    if (!storageReady) die(`emulator ${name} (${serial}): storage manager never came up`);
   }
   return serial;
 }

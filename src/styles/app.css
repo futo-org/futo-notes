@@ -18,7 +18,6 @@
    surface above it (and, via `!important`, over the unlayered component
    stylesheets too). See the file header. */
 @import './desktop-native.css' layer(components);
-@import './editor-ux.css';
 @import './fonts.css';
 @import './theme.css';
 @import './stacking.css';

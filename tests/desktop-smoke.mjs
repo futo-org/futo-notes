@@ -90,11 +90,17 @@ async function main() {
     });
     await sleep(1_000);
 
+    // `.ProseMirror` is the contenteditable Milkdown mounts inside the
+    // `.futo-milkdown` wrapper (src/features/editor/milkdown/MilkdownEditor.svelte;
+    // same selector tests/lib/desktopEditor.ts's EDITOR constant uses for the
+    // Playwright specs). CodeMirror's `.cm-editor`/`.cm-content` are gone —
+    // the editor swapped to Milkdown/ProseMirror (main pipeline 36733, job
+    // 257108: ".cm-editor not found in DOM after 30s").
     let editorFound = false;
     for (let attempt = 0; attempt < 15; attempt++) {
       const editorCheck = await send(ws, 'execute_js', {
         script: `(() => {
-          const el = document.querySelector('.cm-editor');
+          const el = document.querySelector('.ProseMirror');
           return el ? 'found' : 'missing';
         })()`,
       });
@@ -106,27 +112,29 @@ async function main() {
       await sleep(2_000);
     }
     if (!editorFound) {
-      throw new Error('.cm-editor not found in DOM after 30s');
+      throw new Error('.ProseMirror not found in DOM after 30s');
     }
 
-    // Focus and type
+    // Focus and type. `.ProseMirror` is itself the contenteditable root —
+    // there is no separate content sub-element the way `.cm-content` sat
+    // inside `.cm-editor`.
     await send(ws, 'execute_js', {
       script: `(() => {
-        const content = document.querySelector('.cm-content');
-        if (!content) return 'no .cm-content';
+        const content = document.querySelector('.ProseMirror');
+        if (!content) return 'no .ProseMirror';
         content.focus();
         document.execCommand('insertText', false, 'smoke-test-check');
         return 'typed';
       })()`,
     });
 
-    // Brief pause for CM6 to process
+    // Brief pause for ProseMirror to process
     await sleep(500);
 
     // Read back content
     const readBack = await send(ws, 'execute_js', {
       script: `(() => {
-        const content = document.querySelector('.cm-content');
+        const content = document.querySelector('.ProseMirror');
         return content ? content.textContent : '';
       })()`,
     });
@@ -166,7 +174,7 @@ async function main() {
           ctx.fillStyle = '#000';
           ctx.fillText('Smoke test screenshot (JS fallback) - ' + document.title, 10, 30);
           ctx.fillText('URL: ' + location.href, 10, 55);
-          ctx.fillText('.cm-editor: ' + (document.querySelector('.cm-editor') ? 'present' : 'missing'), 10, 80);
+          ctx.fillText('.ProseMirror: ' + (document.querySelector('.ProseMirror') ? 'present' : 'missing'), 10, 80);
           ctx.fillText('Time: ' + new Date().toISOString(), 10, 105);
           return canvas.toDataURL('image/png').replace('data:image/png;base64,', '');
         })()`,

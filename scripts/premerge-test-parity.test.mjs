@@ -15,6 +15,8 @@ const androidInstrumentationScript = readFileSync(
 );
 const androidEmulatorScript = readFileSync(join(ROOT, 'scripts/ci-android-emulator.sh'), 'utf8');
 const androidSyncLegScript = readFileSync(join(ROOT, 'scripts/ci-android-sync-leg.sh'), 'utf8');
+const androidRunScript = readFileSync(join(ROOT, 'apps/android/run.sh'), 'utf8');
+const fdroidIndexScript = readFileSync(join(ROOT, 'scripts/update-fdroid-index.py'), 'utf8');
 const prePushHook = readFileSync(join(ROOT, '.githooks/pre-push'), 'utf8');
 const iosStoryAvailabilityGate = readFileSync(
   join(ROOT, 'scripts/run-ios-stories-if-available.sh'),
@@ -62,13 +64,6 @@ describe('pre-merge CI routing contracts', () => {
   it('uses bounded Playwright concurrency without multiplying CI jobs', () => {
     const restJob = topLevelBlock(gitlabPipeline, /^test:e2e:rest:$/m);
 
-    // The markdown-spec corpus runs inside test:e2e:rest (its former
-    // standalone job was merged in to stop paying a third dev-server +
-    // browser-install setup); the rest suite must not filter it back out
-    // and must re-run when the corpus changes.
-    expect(gitlabPipeline).not.toMatch(/^test:e2e:markdown-spec:$/m);
-    expect(packageScripts['test:e2e:rest']).not.toContain('Markdown Spec');
-    expect(restJob).toContain('- markdown-spec/**/*');
     expect(restJob).toContain('pnpm run test:e2e:rest');
     expect(packageScripts['test:e2e:rest']).toContain('--workers=2');
     expect(restJob).not.toContain('parallel: 2');
@@ -104,7 +99,7 @@ describe('pre-merge CI routing contracts', () => {
 
     expect(androidJob).toContain('bash "$CI_PROJECT_DIR/scripts/ci-android-instrumentation.sh"');
     expect(androidJob).toContain(
-      'apps/android/app/build/outputs/androidTest-results/connected/debug/TEST-*.xml',
+      'apps/android/app/build/outputs/androidTest-results/connected/**/TEST-*.xml',
     );
     expect(androidJob).toContain('- scripts/ci-android-instrumentation.sh');
     expect(androidJob).not.toContain('- docs/**/*');
@@ -115,7 +110,7 @@ describe('pre-merge CI routing contracts', () => {
     expect(androidInstrumentationScript).toContain('scripts/ci-android-emulator.sh');
     expect(androidInstrumentationScript).toContain('ci_emulator_start --wipe');
     expect(androidEmulatorScript).toContain('sys.boot_completed');
-    expect(androidInstrumentationScript).toContain(':app:connectedDebugAndroidTest');
+    expect(androidInstrumentationScript).toContain(':app:connectedDirectDebugAndroidTest');
     expect(androidInstrumentationScript).toContain(
       'Android instrumentation results contain no testcases',
     );
@@ -138,6 +133,60 @@ describe('pre-merge CI routing contracts', () => {
     // A run that finds no usable device must fail, not report green (M11).
     expect(androidSyncLegScript).toContain('--android-only');
     expect(androidEmulatorScript).toContain('service check package');
+  });
+
+  it('builds both Android distribution flavors and routes each to its own consumer', () => {
+    // Product flavors renamed every Gradle variant task AND every output path
+    // under app/build/outputs (`apk/debug` → `apk/direct/debug`, `bundle/release`
+    // → `bundle/playRelease`). A missed caller does not fail loudly — it finds
+    // nothing and the artifact silently stops existing, which is exactly the
+    // artifact-path-drift class the release gate exists to catch. These are the
+    // consumers, each pinned to the flavor it is allowed to ship.
+    const androidJob = topLevelBlock(gitlabPipeline, /^build:android-native:$/m);
+    const releaseGate = topLevelBlock(gitlabPipeline, /^release:gate:$/m);
+    const publishAndroidJob = topLevelBlock(gitlabPipeline, /^publish:android:$/m);
+    const releaseJob = topLevelBlock(gitlabPipeline, /^release:$/m);
+    const deployRecipe = topLevelBlock(justfile, /^deploy-android[^\n]*:[^\n]*$/m);
+    const buildRecipe = topLevelBlock(justfile, /^build-android-native:[^\n]*$/m);
+    const unitTestRecipe = topLevelBlock(justfile, /^test-android-native:[^\n]*$/m);
+    const uiTestRecipe = topLevelBlock(justfile, /^test-android-native-ui:[^\n]*$/m);
+
+    // Compile coverage: a flavor-specific source set that fails to build must
+    // fail the pipeline, so both flavors are assembled on every path.
+    expect(androidJob).toContain(':app:assembleDirectDebug :app:assemblePlayDebug');
+    expect(androidJob).toContain(':app:assembleDirectRelease :app:bundlePlayRelease');
+    // Both flavors' unit tests run: DistributionFlavorTest is only a lock if
+    // it is evaluated once with IS_PLAY_BUILD false and once with it true.
+    expect(androidJob).toContain(':app:testDirectDebugUnitTest :app:testPlayDebugUnitTest');
+    expect(androidJob).toContain(
+      'apps/android/app/build/test-results/testDirectDebugUnitTest/**/TEST-*.xml',
+    );
+    expect(androidJob).toContain(
+      'apps/android/app/build/test-results/testPlayDebugUnitTest/**/TEST-*.xml',
+    );
+
+    // direct = GitLab release / Obtainium / F-Droid. play = Google Play only.
+    expect(releaseGate).toContain('apps/android/app/build/outputs/apk/direct/release');
+    expect(releaseGate).toContain('apps/android/app/build/outputs/bundle/playRelease');
+    expect(publishAndroidJob).toContain('apps/android/app/build/outputs/bundle/playRelease');
+    expect(publishAndroidJob).not.toContain('outputs/bundle/release');
+    expect(releaseJob).toContain('apps/android/app/build/outputs/apk/direct/release');
+    expect(fdroidIndexScript).toContain('apps/android/app/build/outputs/apk/direct/release/*.apk');
+    expect(androidSyncLegScript).toContain(
+      'apps/android/app/build/outputs/apk/direct/debug/app-direct-debug.apk',
+    );
+
+    // Local recipes follow the same split, and the dev loop stays on direct.
+    expect(buildRecipe).toContain(':app:assembleDirectDebug :app:assemblePlayDebug');
+    expect(unitTestRecipe).toContain(':app:testDirectDebugUnitTest :app:testPlayDebugUnitTest');
+    expect(uiTestRecipe).toContain(':app:connectedDirectDebugAndroidTest');
+    // deploy-android takes the flavor as an argument and DEFAULTS to direct, so
+    // a bare `just deploy-android` still installs the sideload build.
+    expect(justfile).toContain('deploy-android flavor="direct":');
+    expect(deployRecipe).toContain(':app:assemble${VARIANT}Release');
+    expect(deployRecipe).toContain('app/build/outputs/apk/{{flavor}}/release');
+    expect(androidRunScript).toContain('FUTO_ANDROID_FLAVOR');
+    expect(androidRunScript).toMatch(/FUTO_ANDROID_FLAVOR:-direct/);
   });
 
   it('keeps mobile-target Rust compile coverage on every crate change', () => {

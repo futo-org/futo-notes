@@ -1,6 +1,7 @@
 package com.futo.notes.ui
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -83,6 +84,7 @@ class EditorSessionTest {
         val bodyCommits: Boolean = true,
         val titleCommits: Boolean = true,
         val performs: suspend () -> Boolean = { true },
+        val awaitWork: suspend () -> Unit = {},
     ) : EditorExitEffects {
         var failure: EditorExitFailure? = null
         var succeeded = false
@@ -97,6 +99,12 @@ class EditorSessionTest {
 
         override fun prepare() {
             log += "$name:prepare"
+        }
+
+        override suspend fun awaitPendingWork() {
+            log += "$name:awaitPendingWork:start"
+            awaitWork()
+            log += "$name:awaitPendingWork:end"
         }
 
         override suspend fun cancelPendingSave() {
@@ -526,6 +534,8 @@ class EditorSessionTest {
         assertEquals(
             listOf(
                 "delete:prepare",
+                "delete:awaitPendingWork:start",
+                "delete:awaitPendingWork:end",
                 "delete:cancelPendingSave",
                 "delete:captureBody",
                 "delete:commitBody",
@@ -606,6 +616,8 @@ class EditorSessionTest {
         assertEquals(
             listOf(
                 "nav:prepare",
+                "nav:awaitPendingWork:start",
+                "nav:awaitPendingWork:end",
                 "nav:cancelPendingSave",
                 "nav:captureBody",
                 "nav:commitBody",
@@ -642,6 +654,62 @@ class EditorSessionTest {
         assertTrue(log.indexOf("image inserted") < log.indexOf("nav:captureBody"))
     }
 
+    /**
+     * The bug this closes: the picker round trip for "Choose from library" /
+     * camera runs OUTSIDE [EditorSession] entirely while the system picker
+     * Activity has focus, and only calls [EditorSession.runWork] once it
+     * returns. [runWork]'s mutex only orders work that has already reached
+     * it (see the test above) — it cannot order against a producer that has
+     * not been scheduled yet. Triage on a real device found the exit reaching
+     * [EditorSession.end] and draining an empty, untouched body to
+     * completion BEFORE the picker's callback ever ran, which let
+     * `NoteEditorScreen`'s onDispose delete the just-created note as
+     * "untouched" — and the picker's insert then aborted silently against
+     * the now-detached attachment, losing the image too. This models that
+     * gap directly: the "picker" here is a bare suspend function the effects
+     * object awaits, never touching the session lock until it resolves — the
+     * exit must not drain until it does.
+     */
+    @Test
+    fun `navigation waits for a picker round trip that has not yet reached the session lock`() =
+        runBlocking {
+            val scope = scope()
+            val session = EditorSession(scope)
+            val log = mutableListOf<String>()
+            val pickerReturned = CompletableDeferred<Unit>()
+
+            val effects = RecordingEffects(
+                log,
+                name = "nav",
+                awaitWork = { pickerReturned.await() },
+            )
+
+            session.end(EditorExit.NAVIGATE, effects)
+
+            // Still waiting on the picker: nothing has been captured, let alone
+            // committed or navigated — the note must not be deletable yet.
+            assertTrue(log.none { it.startsWith("nav:captureBody") })
+            assertFalse(effects.succeeded)
+
+            pickerReturned.complete(Unit)
+            scope.settle()
+
+            assertEquals(
+                listOf(
+                    "nav:prepare",
+                    "nav:awaitPendingWork:start",
+                    "nav:awaitPendingWork:end",
+                    "nav:cancelPendingSave",
+                    "nav:captureBody",
+                    "nav:commitBody",
+                    "nav:commitTitle",
+                    "nav:perform",
+                    "nav:onSucceeded",
+                ),
+                log,
+            )
+        }
+
     @Test
     fun `navigation refuses a second exit until the first one fails`() = runBlocking {
         val scope = scope()
@@ -674,6 +742,76 @@ class EditorSessionTest {
         session.end(EditorExit.NAVIGATE, retry)
         scope.settle()
         assertTrue(retry.succeeded)
+    }
+
+    /**
+     * F3: `end()`'s unlatch used to live only in the ordinary "the exit
+     * returned false" branch. `captureBody`/`commitBody`/`perform` are
+     * arbitrary suspend calls into the shell, and none of them are
+     * guaranteed to fail by RETURNING false — a genuinely unexpected error
+     * throws instead. Without a `finally`, that exception unwound straight
+     * out of the launched coroutine and skipped the unlatch entirely,
+     * leaving [EditorSession.isInteractionLocked] true forever: Back, the
+     * toolbar, and every text field stayed dead until process death, because
+     * nothing ever ran to flip it back.
+     *
+     * The test scope needs its own [CoroutineExceptionHandler] for a reason
+     * worth being explicit about: `rememberCoroutineScope()` — what
+     * `NoteEditorScreen` actually passes to [EditorSession] — hands `end()`'s
+     * `scope.launch` a plain (non-supervisor) `Job`, the same shape used
+     * here. A handler is what stops an uncaught exception there from
+     * crashing the whole app instead of merely failing this one exit; this
+     * test is asserting the unlatch behavior for whichever of those two
+     * outcomes is in effect, not asserting that the app survives. A second
+     * `end()` call on the SAME scope after the throw is deliberately not
+     * asserted here: a plain `Job`'s failure semantics cancel the scope
+     * itself (structured concurrency, independent of anything in this
+     * class), so whether a retry can still run depends on that scope
+     * choice, not on this fix.
+     */
+    @Test
+    fun `an effect that throws still releases the interaction lock`() = runBlocking {
+        val scope = CoroutineScope(
+            Dispatchers.Unconfined + Job() + CoroutineExceptionHandler { _, _ -> },
+        )
+        val locks = mutableListOf<Boolean>()
+        val session = EditorSession(scope) { locks += it }
+        val log = mutableListOf<String>()
+        val boom = IllegalStateException("renderer wedged")
+        val effects = RecordingEffects(log, name = "nav", body = { throw boom })
+
+        session.end(EditorExit.NAVIGATE, effects)
+        scope.settle()
+
+        assertFalse(session.isInteractionLocked)
+        assertEquals(listOf(true, false), locks)
+    }
+
+    /**
+     * Delete deliberately does NOT wait: it latches [EditorSession.isClosing]
+     * synchronously before its own drain runs, which is what already makes a
+     * picker round trip queued behind it a clean no-op the moment it reaches
+     * [EditorSession.runWork] (see `EditorExitEffects.awaitPendingWork`'s
+     * doc). This models the REAL `NoteEditorScreen` DELETE effects object,
+     * which — unlike NAVIGATE's and MOVE's — never overrides
+     * `awaitPendingWork`, so the interface default applies. If it ever needed
+     * to wait for something, this test would hang instead of completing.
+     */
+    @Test
+    fun `delete never waits — it relies on the closed latch instead`() = runBlocking {
+        val scope = scope()
+        val session = EditorSession(scope)
+        val log = mutableListOf<String>()
+        val effects = RecordingEffects(log, name = "delete")
+
+        session.end(EditorExit.DELETE, effects)
+        scope.settle()
+
+        assertTrue(effects.succeeded)
+        assertEquals(
+            listOf("delete:awaitPendingWork:start", "delete:awaitPendingWork:end"),
+            log.filter { it.startsWith("delete:awaitPendingWork") },
+        )
     }
 
     @Test
@@ -743,6 +881,8 @@ class EditorSessionTest {
         assertEquals(
             listOf(
                 "nav:prepare",
+                "nav:awaitPendingWork:start",
+                "nav:awaitPendingWork:end",
                 "nav:cancelPendingSave",
                 "nav:captureBody",
                 "nav:commitBody",
@@ -824,6 +964,51 @@ class EditorSessionTest {
         assertEquals(EditorExitFailure.REJECTED, move.failure)
         assertFalse(log.contains("move:commitBody"))
     }
+
+    /**
+     * Move keeps the same attachment open afterward (it never disposes the
+     * screen), so it does not lose an image the way navigation could — but it
+     * still commits the pre-image body if it beats a picker round trip that
+     * has not yet reached the session lock, leaving the moved file briefly
+     * without the image until the next autosave. Waiting closes that window
+     * the same way NAVIGATE does.
+     */
+    @Test
+    fun `move waits for a picker round trip that has not yet reached the session lock`() =
+        runBlocking {
+            val scope = scope()
+            val session = EditorSession(scope)
+            val log = mutableListOf<String>()
+            val pickerReturned = CompletableDeferred<Unit>()
+
+            val effects = RecordingEffects(
+                log,
+                name = "move",
+                awaitWork = { pickerReturned.await() },
+            )
+
+            session.end(EditorExit.MOVE, effects)
+
+            assertTrue(log.none { it.startsWith("move:captureBody") })
+            assertFalse(effects.succeeded)
+
+            pickerReturned.complete(Unit)
+            scope.settle()
+
+            assertEquals(
+                listOf(
+                    "move:prepare",
+                    "move:awaitPendingWork:start",
+                    "move:awaitPendingWork:end",
+                    "move:cancelPendingSave",
+                    "move:captureBody",
+                    "move:commitBody",
+                    "move:perform",
+                    "move:onSucceeded",
+                ),
+                log,
+            )
+        }
 
     @Test
     fun `editor changes are fenced before load, while closing, and during a storage migration`() {

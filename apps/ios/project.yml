@@ -31,6 +31,15 @@ targets:
         buildPhase: resources
       - path: Assets.xcassets
         buildPhase: resources
+      # The supporter coin, modelled once in Blender and shared with the desktop
+      # and Android shells. Referenced in place rather than copied into
+      # Resources/ so assets/coin/ stays the only place the coin exists; the
+      # .glb and the Filament cubemap next to them are the other shells' forms of
+      # the same two files and are deliberately not bundled here.
+      - path: ../../assets/coin/futo-coin.usdz
+        buildPhase: resources
+      - path: ../../assets/coin/studio-env.hdr
+        buildPhase: resources
     dependencies:
       # Rust note-domain + sync/auth/E2EE facade (UniFFI). Static lib
       # xcframework — don't embed. Exposes NoteStore + rules + SyncClient.
@@ -104,7 +113,7 @@ targets:
       # ── Dev/prod separation (mirrors the Tauri debug guard) ──
       # Debug builds get a SEPARATE bundle id + data root + keychain service so a
       # dev/debug install can never overwrite the production app or touch the
-      # user's real notes (see CLAUDE.md "Dev/debug builds MUST NOT overwrite").
+      # user's real notes (see AGENTS.md M3, "Dev touches prod data").
       # The two markers below are read at runtime:
       #   - PRODUCT_BUNDLE_IDENTIFIER drives the install identity.
       #   - FUTO_DEBUG_BUILD=1 (Debug only) selects the dev data root +
@@ -121,6 +130,10 @@ targets:
           # DEBUG already defined by Xcode's default Swift flags; FUTO_DEBUG_BUILD
           # is our own compile-time marker so the dev/prod split is explicit and
           # testable independent of the DEBUG macro.
+          # Append LICENSE_LINK_OUT_DISABLED here (and to the Release config)
+          # for a build that must not link out to the storefront —
+          # docs/spec/license.md § Store posture. It hides Buy, Renew and
+          # Lost-your-key and keeps the key field and the deep link.
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG FUTO_DEBUG_BUILD FUTO_HOSTED_SYNC"
         Release:
           PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes
@@ -175,6 +188,12 @@ targets:
     deploymentTarget: "18.0"
     sources:
       - path: UITests
+      # The staging license pair, compiled in rather than copied: the UI test
+      # drives the plate through a real `futonotes://` link, and a fourth copy
+      # of that pair is exactly the drift `gen-license-fixture.mjs` enumerates
+      # its consumers to prevent. The file carries no app import for this
+      # reason; `InMemoryLicenseDefaults.swift` next to it does, and stays out.
+      - path: Tests/License/LicenseFixture.swift
     dependencies:
       - target: FutoNotesNative
     settings:

@@ -9,9 +9,9 @@
 //   apps/ios/Sources/Editor/GeneratedContracts/ToolbarSpec.swift    (consumed by EditorToolbar.swift)
 //   apps/android/app/src/main/java/com/futo/notes/ui/ToolbarSpec.kt (consumed by EditorToolbar.kt)
 
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { updateGeneratedFiles, type GeneratedTarget } from './lib/generated-files';
 import {
   TOOLBAR_GROUPS,
   TOOLBAR_DISMISS,
@@ -41,8 +41,9 @@ function swiftItem(item: ToolbarItem, indent: string): string {
     `${indent}ToolbarItemSpec(\n` +
     `${indent}    id: ${swiftString(item.id)},\n` +
     `${indent}    localizationPath: ${swiftString(item.localizationPath)},\n` +
+    `${indent}    text: ${item.text ? swiftString(item.text) : 'nil'},\n` +
     `${indent}    sfSymbol: ${swiftString(item.sfSymbol)},\n` +
-    `${indent}    onlyOnListLine: ${item.when === 'onListLine'},\n` +
+    `${indent}    onlyInContainer: ${item.when === 'inContainer'},\n` +
     `${indent}    action: ${swiftAction(item)}\n` +
     `${indent})`
   );
@@ -67,7 +68,7 @@ function renderSwiftFile(): string {
     '',
     '/// What tapping a toolbar item does. `exec` dispatches',
     '/// `FutoEditor.exec(item.id)` over the bridge into the SHARED',
-    '/// markdownToolbar.ts command (TOOLBAR_EXEC) — the native toolbar never',
+    '/// toolbarExec.ts command — the native toolbar never',
     '/// reimplements editing semantics, so behavior is identical to the web',
     '/// toolbar by construction.',
     'enum ToolbarItemAction: Equatable {',
@@ -80,9 +81,10 @@ function renderSwiftFile(): string {
     '    let id: String',
     "    /// Accessibility label — same text as the web toolbar's aria-label.",
     '    let localizationPath: String',
+    '    let text: String?',
     '    let sfSymbol: String',
-    '    /// Only visible while the cursor is on a list line (bridge cursorContext).',
-    '    let onlyOnListLine: Bool',
+    '    /// Only visible in a list or quote (cursorContext and formatState).',
+    '    let onlyInContainer: Bool',
     '    let action: ToolbarItemAction',
     '}',
     '',
@@ -121,8 +123,9 @@ function kotlinItem(item: ToolbarItem, indent: string): string {
     `${indent}ToolbarItemSpec(\n` +
     `${indent}    id = ${kotlinString(item.id)},\n` +
     `${indent}    localizationPath = ${kotlinString(item.localizationPath)},\n` +
+    `${indent}    text = ${item.text ? kotlinString(item.text) : 'null'},\n` +
     `${indent}    material = ${kotlinString(item.material)},\n` +
-    `${indent}    onlyOnListLine = ${item.when === 'onListLine'},\n` +
+    `${indent}    onlyInContainer = ${item.when === 'inContainer'},\n` +
     `${indent}    action = ${kotlinAction(item)},\n` +
     `${indent})`
   );
@@ -145,7 +148,7 @@ function renderKotlinFile(): string {
     '/**',
     ' * What tapping a toolbar item does. `Exec` dispatches',
     ' * `FutoEditor.exec(item.id)` over the bridge into the SHARED',
-    ' * markdownToolbar.ts command (TOOLBAR_EXEC) — the native toolbar never',
+    ' * toolbarExec.ts command — the native toolbar never',
     ' * reimplements editing semantics, so behavior is identical to the web',
     ' * toolbar by construction.',
     ' */',
@@ -159,10 +162,11 @@ function renderKotlinFile(): string {
     '    val id: String,',
     "    /** Accessibility label — same text as the web toolbar's aria-label. */",
     '    val localizationPath: String,',
+    '    val text: String?,',
     '    /** Material Symbols name; EditorToolbar.kt maps it to an ImageVector. */',
     '    val material: String,',
-    '    /** Only visible while the cursor is on a list line (bridge cursorContext). */',
-    '    val onlyOnListLine: Boolean,',
+    '    /** Only visible in a list or quote (cursorContext and formatState). */',
+    '    val onlyInContainer: Boolean,',
     '    val action: ToolbarItemAction,',
     ')',
     '',
@@ -179,7 +183,7 @@ function renderKotlinFile(): string {
   ].join('\n');
 }
 
-const TARGETS: Array<{ rel: string; render: () => string }> = [
+const TARGETS: GeneratedTarget[] = [
   {
     rel: 'apps/ios/Sources/Editor/GeneratedContracts/ToolbarSpec.swift',
     render: renderSwiftFile,
@@ -190,27 +194,4 @@ const TARGETS: Array<{ rel: string; render: () => string }> = [
   },
 ];
 
-const mode = process.argv.includes('--check') ? 'check' : 'write';
-let stale = false;
-
-for (const target of TARGETS) {
-  const abs = path.join(ROOT, target.rel);
-  const next = target.render();
-  const current = fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : null;
-  if (current === next) {
-    console.log(`${target.rel}: up to date`);
-    continue;
-  }
-  if (mode === 'check') {
-    console.error(
-      `${target.rel} is STALE vs packages/editor/src/toolbar.ts — run \`just toolbar-spec\` and commit.`,
-    );
-    stale = true;
-  } else {
-    fs.mkdirSync(path.dirname(abs), { recursive: true });
-    fs.writeFileSync(abs, next);
-    console.log(`${target.rel}: written`);
-  }
-}
-
-if (stale) process.exit(1);
+updateGeneratedFiles(ROOT, TARGETS, 'packages/editor/src/toolbar.ts', 'toolbar-spec');

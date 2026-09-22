@@ -1,6 +1,4 @@
-import { EditorView } from '@codemirror/view';
-import { getFS, isTauri } from '$lib/platform';
-import { registerLocalImageUrl } from './liveMarkdownTransform';
+import { getFS, type PickedImage } from '$lib/platform';
 
 const IMAGE_TYPES = [
   'image/png',
@@ -13,7 +11,7 @@ const IMAGE_TYPES = [
   'image/heic',
 ];
 
-export function getImageFile(clipboardData: DataTransfer): File | null {
+function getImageFile(clipboardData: DataTransfer): File | null {
   for (let i = 0; i < clipboardData.items.length; i++) {
     const item = clipboardData.items[i];
     if (item.kind === 'file' && IMAGE_TYPES.includes(item.type)) {
@@ -37,12 +35,57 @@ export function extFromMime(mime: string): string {
   return map[mime] ?? 'png';
 }
 
-type ImagePasteFS = {
+/**
+ * The subset of `PlatformFS` the editor's image entry points need.
+ *
+ * All four of them — clipboard paste, the `/image` picker, an OS file drop that
+ * arrives as bytes, and one that arrives as a path — end at the same two
+ * questions: write these bytes into the vault, and what URL renders the file
+ * that came back. They resolve that FS through one function so a new entry
+ * point cannot quietly grow a second, differently-gated copy of it.
+ */
+export type VaultImageFs = {
   saveImageBytes: (data: ArrayBuffer, ext: string) => Promise<string>;
   getImageUrl: (filename: string) => Promise<string>;
+  pasteClipboardImage?: () => Promise<string>;
+  /**
+   * Copy a file the user already has on disk into the vault. Absent where the
+   * host cannot read an arbitrary OS path — only a Linux WebKitGTK drop and
+   * Tauri's own drag-drop event produce that shape.
+   */
+  saveImagePath?: (sourcePath: string) => Promise<string>;
+  /** Opens the host's file picker. Absent where there is no picker. */
+  pickImages?: (options: { limit?: number; filterName: string }) => Promise<PickedImage[]>;
 };
 
-export function looksLikeImagePaste(
+/**
+ * The vault-writing FS for this host, with its methods bound, or null where
+ * images cannot be written at all (a plain browser: `pnpm run dev`, Playwright,
+ * the factory judge — `web.ts` has no `saveImageBytes` and its `getImageUrl`
+ * throws). Every image entry point resolves it through here.
+ *
+ * `saveImageBytes` is the gate: it is declared optional on `PlatformFS` and is
+ * absent on the web fallback, so its presence is what says this host has a
+ * vault to write image bytes into at all.
+ */
+export function resolveVaultImageFs(): VaultImageFs | null {
+  let fs: ReturnType<typeof getFS>;
+  try {
+    fs = getFS();
+  } catch {
+    return null;
+  }
+  if (!fs.saveImageBytes) return null;
+  return {
+    saveImageBytes: fs.saveImageBytes.bind(fs),
+    getImageUrl: fs.getImageUrl.bind(fs),
+    pasteClipboardImage: fs.pasteClipboardImage?.bind(fs),
+    saveImagePath: fs.saveImagePath?.bind(fs),
+    pickImages: fs.pickImages?.bind(fs),
+  };
+}
+
+function looksLikeImagePaste(
   clipboardData: Pick<DataTransfer, 'types' | 'items' | 'getData'>,
 ): boolean {
   const types = Array.from(clipboardData.types);
@@ -53,88 +96,62 @@ export function looksLikeImagePaste(
   return false;
 }
 
-async function saveAndInsert(
-  view: Pick<EditorView, 'state' | 'dispatch' | 'focus'>,
-  buffer: ArrayBuffer,
-  ext: string,
-  fs: ImagePasteFS,
-): Promise<void> {
-  const filename = await fs.saveImageBytes(buffer, ext);
-  const webUrl = await fs.getImageUrl(filename);
-  registerLocalImageUrl(filename, webUrl);
+/**
+ * Whether `clipboardData`'s plain-text payload is itself a `content://` URI —
+ * how Android's Chromium WebView clipboard carries "copy image" out of
+ * Photos/Files/Gallery/Drive (QA #006). Android's `ClipData` grants read
+ * permission on that URI to the process that holds it, not to arbitrary web
+ * content, so the WebView cannot turn it into a `File` the way it can a raw
+ * bitmap: it falls back to exposing the URI as `text/plain`, the SAME MIME
+ * `looksLikeImagePaste` above treats as "definitely real prose, leave it
+ * alone". Matching the `content:` scheme is the only image-vs-text signal
+ * available at that point — nobody types or copies a `content://…` string as
+ * prose — so this narrows that guard's blind spot instead of lifting it. A
+ * true content-URI paste is classified as a hidden bitmap: the bytes still
+ * are not reachable from here (no `fetch`/`Image` can load a `content://` URL
+ * either), so the native host has to resolve it, over the SAME
+ * `pasteClipboardImage` round trip an iOS hidden-pasteboard paste already
+ * uses.
+ */
+function looksLikeContentUriImage(
+  clipboardData: Pick<DataTransfer, 'types' | 'items' | 'getData'>,
+): boolean {
+  if (!Array.from(clipboardData.types).includes('text/plain')) return false;
+  return /^content:\/\//i.test(clipboardData.getData('text/plain').trim());
+}
 
-  const pos = view.state.selection.main.head;
-  const insert = `![](${filename})\n`;
-  view.dispatch({
-    changes: { from: pos, insert },
-    selection: { anchor: pos + insert.length },
+/**
+ * What a clipboard paste carries, image-wise. Both editor engines classify a
+ * paste through this one function so the two paste handlers cannot drift on
+ * WHICH pastes count as an image (`installNativeImagePaste.ts` for CodeMirror,
+ * `milkdown/imagePasteSink.ts` for Milkdown) — only on how they capture it.
+ */
+export type ImagePasteAction =
+  { kind: 'file'; file: File } | { kind: 'hiddenBitmap' } | { kind: 'none' };
+
+export function classifyImagePaste(
+  clipboardData: Pick<DataTransfer, 'types' | 'items' | 'getData'>,
+): ImagePasteAction {
+  const file = getImageFile(clipboardData as DataTransfer);
+  if (file) return { kind: 'file', file };
+  if (looksLikeContentUriImage(clipboardData)) return { kind: 'hiddenBitmap' };
+  if (looksLikeImagePaste(clipboardData)) return { kind: 'hiddenBitmap' };
+  return { kind: 'none' };
+}
+
+/** Base64 of a file's bytes, as the `saveImageData` bridge message carries it. */
+export function readFileAsBase64(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error('image read failed'));
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        reject(new Error('image read produced no data URL'));
+        return;
+      }
+      const comma = reader.result.indexOf(',');
+      resolve(comma >= 0 ? reader.result.slice(comma + 1) : reader.result);
+    };
+    reader.readAsDataURL(file);
   });
-  view.focus();
 }
-
-export async function pasteImageIntoView(
-  view: Pick<EditorView, 'state' | 'dispatch' | 'focus'>,
-  imageFile: Pick<File, 'type' | 'arrayBuffer'>,
-  fs: ImagePasteFS,
-  reportError: (message: string, error: unknown) => void = console.error,
-): Promise<boolean> {
-  try {
-    const buffer = await imageFile.arrayBuffer();
-    await saveAndInsert(view, buffer, extFromMime(imageFile.type), fs);
-    return true;
-  } catch (err) {
-    reportError('Image paste failed:', err);
-    return false;
-  }
-}
-
-async function pasteFromNativeClipboard(view: EditorView, fs: ImagePasteFS): Promise<void> {
-  const { invoke } = await import('@tauri-apps/api/core');
-  const filename = await invoke<string>('fs_paste_clipboard_image');
-  const webUrl = await fs.getImageUrl(filename);
-  registerLocalImageUrl(filename, webUrl);
-
-  const pos = view.state.selection.main.head;
-  const insert = `![](${filename})\n`;
-  view.dispatch({
-    changes: { from: pos, insert },
-    selection: { anchor: pos + insert.length },
-  });
-  view.focus();
-}
-
-export function handlePasteEvent(event: ClipboardEvent, view: EditorView): boolean {
-  const clipboardData = event.clipboardData;
-  if (!clipboardData) return false;
-
-  let fs: ReturnType<typeof getFS>;
-  try {
-    fs = getFS();
-  } catch {
-    return false;
-  }
-
-  if (!fs.saveImageBytes) return false;
-
-  const saveImageBytes = fs.saveImageBytes.bind(fs);
-  const getImageUrl = fs.getImageUrl.bind(fs);
-
-  const imageFile = getImageFile(clipboardData);
-  if (imageFile) {
-    event.preventDefault();
-    void pasteImageIntoView(view, imageFile, { saveImageBytes, getImageUrl });
-    return true;
-  }
-
-  if (isTauri && looksLikeImagePaste(clipboardData)) {
-    event.preventDefault();
-    void pasteFromNativeClipboard(view, { saveImageBytes, getImageUrl }).catch((err) => {
-      console.error('Native clipboard image paste failed:', err);
-    });
-    return true;
-  }
-
-  return false;
-}
-
-export const imagePasteHandler = EditorView.domEventHandlers({ paste: handlePasteEvent });

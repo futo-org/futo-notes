@@ -1,5 +1,3 @@
-import type { EditorView } from '@codemirror/view';
-
 import type { SyncSummary } from '$features/sync/syncServiceE2ee';
 import {
   clearNoteSwitchTimelines,
@@ -8,6 +6,18 @@ import {
 } from '$shared/perf/noteSwitchTimeline';
 
 import { testHooksEnabled } from './testHooksEnabled';
+
+/**
+ * The slice of the editor the harnesses drive. Deliberately narrower than
+ * `EditorApi`: a hook that could reach the whole editor would grow assertions
+ * about the engine rather than about the product.
+ */
+interface TestEditorTarget {
+  focus: () => void;
+  insertMarkdown: (text: string) => void;
+  applyEdit: (markdown: string) => void;
+  getContent: () => string | undefined;
+}
 
 interface NotesShellTestState {
   originalId: string | null;
@@ -27,7 +37,7 @@ interface NotesShellTestHookOptions {
   }) => Promise<void>;
   seedOpenNote: (id: string, body: string) => void;
   flushSave: () => Promise<void>;
-  getEditorView: () => EditorView | null;
+  getEditor: () => TestEditorTarget | null;
   focusEditor: () => void;
   setEditorFocused: (focused: boolean) => Promise<void>;
   isEditorFocused: () => boolean;
@@ -70,10 +80,10 @@ export function installNotesShellTestHook(options: NotesShellTestHookOptions): (
       queueMicrotask(options.focusEditor);
     },
     flushSave: options.flushSave,
-    typeInEditor: (text) => typeInEditor(options.getEditorView(), text),
+    typeInEditor: (text) => typeInEditor(options.getEditor(), text),
     setEditorFocused: options.setEditorFocused,
     isEditorFocused: options.isEditorFocused,
-    replaceEditorContent: (content) => replaceEditorContent(options.getEditorView(), content),
+    replaceEditorContent: (content) => replaceEditorContent(options.getEditor(), content),
     getState: options.getState,
     noteSwitchTimelines: getNoteSwitchTimelines,
     clearNoteSwitchTimelines,
@@ -83,25 +93,24 @@ export function installNotesShellTestHook(options: NotesShellTestHookOptions): (
   };
 }
 
-function typeInEditor(view: EditorView | null, text: string): string {
-  if (!view) throw new Error('editor view not ready');
-  view.focus();
-  const { main } = view.state.selection;
-  view.dispatch({
-    changes: { from: main.from, to: main.to, insert: text },
-    selection: { anchor: main.from + text.length },
-    scrollIntoView: true,
-    userEvent: 'input.type',
-  });
-  return view.state.doc.toString();
+/**
+ * Insert markdown at the caret, replacing the selection, and report the note
+ * as it now stands.
+ *
+ * `text` is parsed as markdown rather than dropped in as literal characters:
+ * the editor is a WYSIWYG surface, so a harness that "typed" `# Heading` into
+ * it as text would produce an escaped `\# Heading` in the file and assert on a
+ * document no user could ever have made.
+ */
+function typeInEditor(editor: TestEditorTarget | null, text: string): string {
+  if (!editor) throw new Error('editor not ready');
+  editor.focus();
+  editor.insertMarkdown(text);
+  return editor.getContent() ?? '';
 }
 
-function replaceEditorContent(view: EditorView | null, content: string): string {
-  if (!view) throw new Error('editor view not ready');
-  view.dispatch({
-    changes: { from: 0, to: view.state.doc.length, insert: content },
-    selection: { anchor: content.length },
-    userEvent: 'input',
-  });
-  return view.state.doc.toString();
+function replaceEditorContent(editor: TestEditorTarget | null, content: string): string {
+  if (!editor) throw new Error('editor not ready');
+  editor.applyEdit(content);
+  return editor.getContent() ?? '';
 }

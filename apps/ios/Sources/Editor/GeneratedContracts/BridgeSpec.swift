@@ -20,4 +20,8 @@ enum BridgeMessageType: String {
     case cursorContext
     case saveImageData
     case pasteClipboardImage
+    case formatState
+    case haptic
+    case blockDrag
+    case blockPress
 }

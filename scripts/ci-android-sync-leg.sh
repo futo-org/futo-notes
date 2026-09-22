@@ -21,7 +21,10 @@ export PATH="$ANDROID_HOME/platform-tools:$PATH"
 # shellcheck source=scripts/ci-android-emulator.sh
 source "$CI_PROJECT_DIR/scripts/ci-android-emulator.sh"
 
-APK="$CI_PROJECT_DIR/apps/android/app/build/outputs/apk/debug/app-debug.apk"
+# The `direct` flavor's debug APK — the dev-loop/sideload build. Both flavors
+# carry the same applicationId, so either would drive these scenarios; direct
+# is pinned because it is what build:android-native ships to real users.
+APK="$CI_PROJECT_DIR/apps/android/app/build/outputs/apk/direct/debug/app-direct-debug.apk"
 PACKAGE="com.futo.notes.dev"
 
 # The APK arrives as a build:android-native artifact. Absent means that job did

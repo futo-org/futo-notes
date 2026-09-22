@@ -1,8 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 import { webPort } from './scripts/lib/slot.mjs';
+import { gauntletArtifactCapture } from './tests/editor-gauntlet/artifactCapture';
 
 const isCI = !!process.env.CI;
 const baseURL = `http://localhost:${webPort()}`;
+const artifactCapture = gauntletArtifactCapture();
 
 // Sanitised: this becomes a path segment, so anything that could escape
 // test-results/ is stripped rather than trusted.
@@ -13,7 +15,15 @@ export default defineConfig({
   // Runner-specific tests stay out of the default Playwright suite: the
   // editor-embed harness has its own config, and Vitest unit files install a
   // matcher runtime that conflicts with Playwright's.
-  testIgnore: ['**/editor-embed-bridge.spec.ts', '**/*.test.mjs'],
+  testIgnore: [
+    '**/editor-embed-*.spec.ts',
+    '**/*.test.mjs',
+    'editor-gauntlet/**/*.test.ts',
+    // The gauntlet adapter drives the built editor.html bundle over file://,
+    // so it runs under playwright.editor-gauntlet.config.ts (which builds that
+    // bundle) rather than against this config's dev server.
+    'editor-gauntlet/milkdown-*.spec.ts',
+  ],
   timeout: isCI ? 90000 : 30000,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
@@ -38,32 +48,22 @@ export default defineConfig({
     baseURL,
     // retries: 0 means 'on-first-retry' never fires — retain evidence for
     // every failure instead so a red CI run leaves a trace/video behind.
-    trace: 'retain-on-failure',
-    video: 'retain-on-failure',
-    screenshot: 'only-on-failure',
+    trace: artifactCapture === 'off-retry-on-failure' ? 'off' : 'retain-on-failure',
+    video: artifactCapture === 'off-retry-on-failure' ? 'off' : 'retain-on-failure',
+    screenshot: artifactCapture === 'off-retry-on-failure' ? 'off' : 'only-on-failure',
   },
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
-    // Desktop ships on WebKit, whose native selection-drag chromium cannot
-    // reproduce. Local-only: CI installs chromium alone (.setup-playwright).
-    ...(isCI
-      ? []
-      : [
-          {
-            name: 'webkit-pointer',
-            use: { ...devices['Desktop Safari'] },
-            testMatch: [
-              '**/editor-ux.spec.ts',
-              '**/editor-height-map.spec.ts',
-              '**/table-controls-position.spec.ts',
-            ],
-            // A tag, not a title: a rename must not silently empty the project.
-            grep: /@webkit-pointer/,
-          },
-        ]),
+    // The `webkit-pointer` project is gone with the CodeMirror engine. It
+    // existed for `editor-ux.spec.ts`, `editor-height-map.spec.ts` and
+    // `table-controls-position.spec.ts`, all three of which asserted pointer
+    // hit-testing that CodeMirror did itself (`interactions/**`, deleted in
+    // ea65cf5a). A WYSIWYG editor leaves caret placement to the browser, so
+    // there is no longer app code whose WebKit behaviour chromium cannot
+    // reproduce. Re-add a project here the moment there is.
   ],
   webServer: {
     command: 'pnpm run dev',

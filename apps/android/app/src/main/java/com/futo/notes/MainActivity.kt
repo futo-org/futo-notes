@@ -74,6 +74,8 @@ import com.futo.notes.ui.ThemeMode
 import com.futo.notes.ui.navigation.AppNavigation
 import com.futo.notes.ui.navigation.Screen
 import com.futo.notes.ui.theme.FutoNotesTheme
+import com.futo.notes.license.LicenseModel
+import com.futo.notes.license.LicenseStorage
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.Localization
 import com.futo.notes.localization.AppLanguageController
@@ -130,6 +132,18 @@ class MainActivity : ComponentActivity() {
     // setContent shows the shell only once initVault has run. Resolved early in
     // onCreate (no disk on the main thread — see initVault).
     private lateinit var prefs: android.content.SharedPreferences
+    private lateinit var license: LicenseModel
+
+    /**
+     * A delivered `futonotes://license/{key}/{activation}` link, waiting for the
+     * first composition (docs/spec/license.md § Deep link).
+     *
+     * Compose state rather than a direct call so BOTH deliveries take one path:
+     * a cold start writes it in onCreate and the LaunchedEffect below applies it
+     * once the shell has painted (M1), while a link arriving at the running app
+     * writes it from onNewIntent and recomposition applies it the same way.
+     */
+    private val pendingLicenseLink = mutableStateOf<String?>(null)
     private lateinit var storageMigrationJournal: StorageMigrationJournal
     private lateinit var notesRoot: File
     private val store = mutableStateOf<NotesStore?>(null)
@@ -205,6 +219,27 @@ class MainActivity : ComponentActivity() {
         // before the first composition. Theme and storage recovery load on IO
         // after setContent, preserving the never-gate-render invariant.
         prefs = getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE)
+        // Touches neither disk nor FFI: the stored pair is read on IO by
+        // `license.load()` below and lands reactively (M1). BuildConfig
+        // .APPLICATION_ID carries the `.dev` suffix on debug builds, and that
+        // id is what selects the staging keys and endpoint — never a compile
+        // profile, since both dev builds ship the optimized release-ffi Rust
+        // (M3).
+        license = LicenseModel(LicenseStorage(prefs), BuildConfig.APPLICATION_ID)
+        license.showMessage = { message ->
+            Toast.makeText(
+                this,
+                localization.localizedText(message.path, message.arguments),
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+        // Only on a genuinely NEW launch. A recreation — process death, a
+        // configuration change outside the list above — re-delivers the SAME
+        // launch intent, and re-applying it would announce a license the user
+        // already has for a second time. `savedInstanceState != null` is what
+        // distinguishes the two; nothing is lost if a link was still pending
+        // when the process died, because nothing had been stored yet.
+        if (savedInstanceState == null) pendingLicenseLink.value = licenseLinkOf(intent)
         appLanguage = AppLanguageController(this, prefs)
         CrashlogEndpoint.attach(prefs)
 
@@ -243,6 +278,17 @@ class MainActivity : ComponentActivity() {
                     LaunchedEffect(Unit) {
                         android.util.Log.i("FutoStartup", "first composition reached")
                     }
+                }
+                // A link is applied only once the shell is interactive, so a
+                // cold-start link lands — and toasts — on a painted screen
+                // (docs/spec/license.md § Deep link, M1). What the URL MEANS is
+                // Rust's verdict: anything the crate does not define is ignored
+                // silently, right down to no toast.
+                val licenseLink = pendingLicenseLink.value
+                LaunchedEffect(licenseLink) {
+                    if (licenseLink == null) return@LaunchedEffect
+                    pendingLicenseLink.value = null
+                    license.handle(licenseLink)
                 }
                 LaunchedEffect(currentLocalization.effectiveLanguage.tag) {
                     EditorHost.prewarm(this@MainActivity)
@@ -337,6 +383,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
+        // Un-awaited, like every other startup read: the stored license is two
+        // preference strings plus an offline signature check, and the License
+        // row fills itself in when they land. Nothing about the shell waits for
+        // it (M1).
+        lifecycleScope.launch { license.load() }
 
         lifecycleScope.launch {
             val recovered = withContext(Dispatchers.IO) {
@@ -440,6 +492,7 @@ class MainActivity : ComponentActivity() {
                 is Screen.Settings -> SettingsScreen(
                     store = s,
                     sync = sync,
+                    license = license,
                     themeMode = themeMode,
                     onThemeMode = onThemeMode,
                     selectedLanguageTag = appLanguage.selectedLanguageTag,
@@ -619,6 +672,10 @@ class MainActivity : ComponentActivity() {
                 "movingNotes" to storageSwitching.value,
                 "awaitingStorageConfirmation" to (pendingStorageAdoption.value != null),
                 "shellVisible" to (store.value != null && !storageSwitching.value),
+                // The License row's state, read from the app rather than from
+                // an accessibility dump (M21): "LOADING" until the stored pair
+                // has been read off IO, then Rust's verdict.
+                "license" to (license.view?.status?.name ?: "LOADING"),
             )
         },
         "storage-mode" to { intent ->
@@ -656,6 +713,22 @@ class MainActivity : ComponentActivity() {
             null
         },
     )
+
+    /**
+     * A `futonotes://` link delivered while the app is already running. The
+     * activity is `singleTop`, so the OS hands it here instead of stacking a
+     * second MainActivity; `setIntent` keeps `getIntent()` honest for anything
+     * that reads it later.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        licenseLinkOf(intent)?.let { pendingLicenseLink.value = it }
+    }
+
+    /** The URL of a VIEW intent, or null for the launcher's MAIN intent. */
+    private fun licenseLinkOf(intent: Intent?): String? =
+        intent?.takeIf { it.action == Intent.ACTION_VIEW }?.data?.toString()
 
     override fun onDestroy() {
         TestHooks.uninstall(this)

@@ -1,9 +1,10 @@
 # Editor — Spec
 
-The editor is a shared CodeMirror 6 WebView — the **same `editor.html` /
-`packages/editor` bytes on all platforms**. It renders Obsidian-style live
-preview. Fine-grained decoration/cursor cases live in `markdown-spec/cases/`;
-this file states the behaviors a human cares about.
+The editor is a shared WYSIWYG WebView — Milkdown on ProseMirror, the **same
+`editor.html` / `packages/editor` bytes on all platforms**. A note is parsed
+into a document when it opens and serialized back to Markdown when it saves; its
+source markers are never on screen. This file states the behaviors a human cares
+about.
 
 ## Native host boot _(iOS/Android)_
 
@@ -19,24 +20,37 @@ this file states the behaviors a human cares about.
   the note text last), then posts `initialized`. _(iOS/Android)_ →
   packages/editor/src/hostBoot.ts, bridge.ts v7, EditorWebView.swift
   `sendHostConfig`, EditorWebView.kt `sendHostConfig`,
-  tests/editor-embed-bridge.spec.ts
+  tests/editor-embed-milkdown.spec.ts
 - A shell treats `initialized` — not `ready` — as "this page is showing my
   note": it is where the shell fires its per-note ready callback and its
   auto-focus keyboard shim, and where it re-pushes anything the user or a sync
   changed while the config was in flight. _(iOS/Android)_ → EditorWebView.swift,
   EditorWebView.kt
 - The note body's left inset is a per-shell VALUE the shell declares
-  (iOS 14px, Android 16px — each aligning with its own native title field, on
-  top of the embed's own 6px `.cm-line` inset), not per-shell knowledge: only
-  the bundle knows which CSS variable carries it. _(iOS/Android)_ →
-  hostBoot.ts `contentPaddingInlinePx`, editor-native-layout.css
+  (iOS 14px, Android 16px — each aligning with its own native title field), not
+  per-shell knowledge: only the bundle knows which CSS variable carries it.
+  _(iOS/Android)_ → hostBoot.ts `contentPaddingInlinePx`,
+  editor-embed/createFutoEditorApi.ts `--futo-cm-pad-inline`
+
+  > **Gap:** nothing renders that inset any more. The shells still send it and
+  > the embed still sets `--futo-cm-pad-inline` on `<html>`, but NOTHING reads
+  > it: its only reader was `.futo-native .cm-content` in the deleted
+  > editor-native-layout.css, a CodeMirror selector no longer in the DOM. So
+  > the note body sits at the editor's own fixed gutter (54px, or 18px under
+  > the long-press drag path) instead of lining up with the native title field,
+  > and that stylesheet's 46rem centred reading column for tablets is gone with
+  > it. Closing this means giving `.ProseMirror` a padding that reads the
+  > variable. _(native shells)_ →
+  > src/editor-embed/createFutoEditorApi.ts `--futo-cm-pad-inline`,
+  > src/features/editor/milkdown/MilkdownEditor.svelte `.ProseMirror` padding
+
 - When the shell and the bundle were built against different bridge versions,
   the editor **still boots** and the bundle posts `bridgeVersionMismatch`; each
   shell logs it (Android also toasts in a debug build). A shipped app carries
   both halves in one artifact, so a mismatch only ever means a stale developer
   build — and refusing to boot would turn that into a permanently blank editor,
   the app's core surface. _(iOS/Android)_ → bridge.ts
-  `BridgeVersionMismatchMessage`, hostBoot.ts, tests/editor-embed-bridge.spec.ts
+  `BridgeVersionMismatchMessage`, hostBoot.ts, tests/editor-embed-milkdown.spec.ts
 - When a WebView renderer dies (OOM / jetsam), the shell reloads the bundle and
   answers the fresh `ready` with the same config, restoring the open note with
   no more than a brief flash. The shell resets only its readiness flag: the
@@ -56,27 +70,53 @@ this file states the behaviors a human cares about.
   so the native app background (iOS `Theme.background`, Android Compose
   surface) shows through and the editor pane matches the surrounding UI in
   both light and dark. → editor.html, EditorWebView.swift, EditorWebView.kt,
-  tests/editor-embed-bridge.spec.ts
+  tests/editor-embed-webview-floor.spec.ts
 - Editor text stays legible on legacy Android system WebViews (Chromium < 99,
   no `@layer` support — they drop every Tailwind-layered rule, including the
-  light theme tokens and the `body`/`.cm-editor` colors): editor.html carries
+  light theme tokens and the `body` text color): editor.html carries
   an unlayered inherited text-color fallback on `html`, resolving the dark
   token via the unlayered `[data-theme='dark']` variables and falling back to
   the literal light token. _(Android)_ → editor.html,
-  tests/editor-embed-bridge.spec.ts (legacy WebView tests)
+  tests/editor-embed-webview-floor.spec.ts (legacy WebView tests)
 - The editor needs a System WebView engine of **Chromium 80 or newer**: the
   bundle targets ES2020, an `editor.html` `String.prototype.replaceAll` shim
-  covers Chromium 80–84 (Svelte 5's runtime would otherwise throw), and the
-  editor uses `textContent = ''` rather than `Element.replaceChildren` (Chromium 86) in its own DOM code so tables and the slash menu work down to the floor
-  too. _(Android)_ → editor.html, slashMenuRenderer.ts, tableEditorWidget.ts,
+  covers Chromium 80–84 (Svelte 5's runtime would otherwise throw), an
+  `editor.html` `Array.prototype.at` shim covers Chromium 80–91
+  (`@milkdown/transformer` calls it on every parse and every serialize), and the
+  editor uses `textContent = ''` rather than `Element.replaceChildren`
+  (Chromium 86) in its own DOM code so the `[[` autocomplete popup works down to
+  the floor too. _(Android)_ → editor.html, wikilink/autocomplete.ts,
   vite.editor.config.ts
+- The floor is a property of the **built bundle**, not of the syntax target: a
+  dependency reaching for a newer built-in method parses fine and throws at
+  runtime, which is how `Element.replaceChildren` (Chromium 86) once shipped
+  inside a bundle declaring Chromium 80. Every post-floor built-in the bundle
+  uses is either shimmed in `editor.html` — proved by deleting it and running the
+  editor without it — or fails the bundle audit. _(Android)_ → editor.html,
+  tests/editor-embed-webview-floor.spec.ts
 - Whether an engine is supported is decided by **capability, never by a version
   number**: the page reports what it couldn't parse and whether the editor
   mounted, and the shell reads that. A WebView `versionName` is never consulted —
   a vendor provider numbers itself (Huawei WebView 12.x/15.x on a modern
   Chromium), so a version floor rejects working engines. _(Android)_ →
   editor.html, EditorEngineSupport.kt, EditorWebView.kt,
-  tests/editor-embed-bridge.spec.ts (engine preflight tests)
+  tests/editor-embed-webview-floor.spec.ts (engine preflight tests)
+- "The editor mounted" means the EDITOR ENGINE came up, reported by the bundle on
+  `window.__futoEditorMounted` — not that the host API exists and not that the
+  bridge `initialize` round-trip returned. Milkdown creates its editor
+  asynchronously, so both of those are true while the engine is failing behind
+  them: on a Chromium 83 WebView that showed a blank editor pane and no notice.
+  _(Android)_ → src/editor-embed/main.ts, EditorEngineSupport.kt `ENGINE_PROBE_JS`,
+  EditorWebView.kt, tests/editor-embed-webview-floor.spec.ts
+
+  > **Gap:** the engine gate answers "can this WebView run the editor", and
+  > reports the mount before the first document is parsed — deliberately, so a
+  > large note on a slow phone can't be mistaken for an unsupported WebView. An
+  > engine that mounts and then throws inside a later parse or serialize
+  > therefore still shows a blank editor pane with no notice. The break this
+  > work found (`@milkdown/transformer`'s `Array.prototype.at`) happens to fail
+  > at mount as well, so it is caught; a parse-only failure would not be.
+
 - A note whose editor can't run shows the native "update Android System WebView"
   notice in place of a blank editor pane — when the engine reported a missing
   capability, never produced a mounted editor, or there is no WebView provider at
@@ -96,11 +136,53 @@ this file states the behaviors a human cares about.
   supported Android 9/10 device can still fall below the Chromium floor above and
   get the update-WebView notice. _(Android)_ → apps/android/app/build.gradle.kts
 
+## WYSIWYG rendering
+
+- The editor shows RENDERED Markdown, never its source. Markers (`*`, `#`,
+  ` ``` `, `[[`, `]]`, …) are parsed into document structure on open and written
+  back on save, so no caret movement reveals them: there is nothing to reveal.
+  → src/features/editor/milkdown/MilkdownEditor.svelte,
+  packages/editor/src/milkdown-compat/
+- Opening a note and leaving it again leaves the file byte-identical. While the
+  document is still exactly what loaded, the editor hands the host back the
+  bytes it was given rather than its own serialization; the FIRST real edit is
+  what re-spells the note, and it re-spells the whole note (ADR-0002,
+  normalize-once). → MilkdownEditor.svelte `getContent`,
+  docs/adr/0002-roundtrip-normalization-accepted.md,
+  tests/editor-embed-milkdown.spec.ts
+- A block with no text of its own — a thematic break, a wikilink chip, the front
+  matter panel — is reached by SELECTING it, which is how it can be deleted or
+  replaced at all in an editor that shows no source. →
+  src/features/editor/milkdown/wikilink/node.ts,
+  packages/editor/src/milkdown-compat/frontmatter.ts
+- An empty paragraph — Enter pressed twice — is spelled in the file as an EXTRA
+  blank line, never as HTML: `N` empty paragraphs between two blocks save as
+  `N + 1` blank lines, and `N` blank lines between two blocks load as `N - 1`
+  empty paragraphs, so the gap survives a reload and the second save is a fixed
+  point. Blank lines before the first block are kept the same way; blank lines
+  at the very end of a note are not (a trailing empty paragraph is dropped on
+  save). Milkdown's own spelling, a literal `<br />` on a line of its own, is
+  never written; one an older build wrote loads as the single empty paragraph it
+  stood for and is re-spelled as blank lines on the note's first real edit
+  (ADR-0002). An author's inline `<br>` beside text is untouched. Two lists with
+  an empty paragraph between them keep different markers (`*` then `-`, `1.`
+  then `1)`) so the blank line does not merge them into one list; the empty
+  paragraph the schema itself puts in front of a list item whose content is a
+  block (`* > quote`) is never written. →
+  packages/editor/src/milkdown-compat/emptyLine.ts,
+  packages/editor/src/milkdown-compat/listItemFiller.ts,
+  tests/editor-embed-milkdown-compat.spec.ts
+- Progressive open preserves those gaps across chunk seams: the blank run a cut
+  leaves at the end of one chunk is counted by the loader and re-inserted as
+  empty paragraphs in front of the next, so a note opened in chunks is the same
+  document as the note opened whole. →
+  src/features/editor/milkdown/progressiveLoad.ts `seamEmptyParagraphs`
+
 ## Localization
 
 - The editor receives the host's effective language during initialization and
-  whenever it changes. It reconfigures FUTO-authored labels, accessibility text,
-  and CodeMirror phrases without reloading the note or changing its content. →
+  whenever it changes. It reconfigures FUTO-authored labels and accessibility
+  text without reloading the note or changing its content. →
   [localization.md](localization.md)
 - Editor UI text resolves through the shared language catalog. The toolbar
   manifest carries semantic localization paths instead of English labels, and
@@ -109,140 +191,383 @@ this file states the behaviors a human cares about.
   [localization.md](localization.md), packages/editor/src/toolbar.ts,
   scripts/gen-toolbar-spec.ts
 
-## Live preview
-
-- Markdown markers (`*`, `#`, ` ``` `, `[[`, `]]`, …) are hidden on lines that
-  don't contain the cursor, and revealed when the cursor enters that line. →
-  markdown-spec/cases/10-cursor-reveal
-- A blurred editor reveals nothing — all markers stay hidden.
-- Reveal is per-line: moving the cursor onto a line reveals its markers; moving
-  off re-hides them.
-- **Markers whose hidden span would cover a line break stay visible instead.**
-  Malformed-but-parsed inline markdown can straddle a newline — `[](\n)` is one
-  link node, `![](\n)` one image node — and CodeMirror forbids a view plugin
-  from replacing a line break, so hiding those markers threw
-  `RangeError: Decorations that replace line breaks may not be specified via
-plugins` mid-render and the editor kept showing the previously opened note.
-  Opening such a note threw, and so did typing or pasting the same text and then
-  moving the caret off it. Both paths now render the syntax rather than hiding
-  it; a link whose _text_ wraps across lines (`[a\nb](c)`) still hides normally.
-  → live-preview/decorationSet.ts `replacementCrossesLineBreak`,
-  live-preview/inlineDecorations.ts `decorateLink`,
-  liveMarkdownTransform.decorations.test.ts,
-  markdown-spec/cases/13-adversarial/broken-syntax.yaml
-- Reveal survives opening a note. Opening one swaps the editor's whole state, and
-  state that is seeded from focus EVENTS (the interactive-table field: `create()`
-  cannot see the view, so a fresh state believes it is unfocused) is re-synced from
-  the live view as part of the swap. A focused editor whose restored caret lands
-  inside a table therefore shows the table's markdown source, not the unfocused
-  table widget. → swapEditorState.ts, table/interactiveTableEditor.ts,
-  tests/table-focus-after-note-switch.spec.ts
-- Reveal state belongs to one editor: pressing or dragging in one open editor
-  never freezes or suppresses markdown reveal in another. →
-  interactions/editorPointerInteractions.ts, live-preview/selectionReveal.ts
 
 ## Cursor
 
 ### Placement
 
-- Tapping text places the caret at the tapped character. → MarkdownEditor.svelte
-- Tapping past a visual row's rendered text lands at that row's end; at a wrap
-  boundary the caret stays on the tapped row. → interactions/pointerHitTest.ts
-  `rowEndSelectionAt` `cursorOnTappedRow`, interactions/pointerHitTest.test.ts,
-  tests/editor-ux.spec.ts
-- When hidden trailing syntax such as a wikilink's `]]` or a closing code fence
-  extends past the rendered row, off-text placement uses the logical line end
-  rather than entering the hidden markup. → interactions/pointerHitTest.ts
-  `lineHitBesidePoint`, tests/editor-ux.spec.ts, tests/wikilinks.spec.ts
-- Arrow up/down moves by visual row on wrapped lines and skips block widgets. →
-  markdown-spec/cases/10-cursor-reveal
+- Tapping text places the caret at the tapped character. →
+  src/features/editor/milkdown/MilkdownEditor.svelte
+- Caret placement, arrow motion, word/paragraph selection on multi-tap, and
+  drag-selection are the PLATFORM's own: the editor runs no pointer hit-testing
+  or cursor-motion code of its own. (The CodeMirror editor did, because a
+  live-preview document has hidden source a native hit test would place a caret
+  inside; there is no hidden source here.)
+
+  > **Gap:** arrowing onto a block with no text of its own SELECTS it (a
+  > ProseMirror `NodeSelection`) rather than stepping over it, and the next
+  > character typed REPLACES it. Measured against the built bundle: arrowing
+  > down from `above` into `above\n\n---\n\nbelow` selects the `hr` node, and
+  > typing `X` yields `above\n\nX\n\nbelow`. Selecting an atom block is the
+  > standard WYSIWYG idiom for reaching one, so this is recorded for the
+  > destructive half rather than as a defect with an obvious fix. →
+  > docs/evidence/milkdown-bucket1-parity-audit.md
+
 - Pressing Enter in a continued list item scrolls the new item into view. →
   docs/learnings/ios-keyboard-editor-jump.md _(iOS)_
 
 ### Blank editor surface
 
-- Blank space beside lines and below the final line is part of the editor;
-  desktop press, drag, double-click, modified-click, and right-click beside a
-  line behave as they do on its text. → src/styles/app-shell.css
-  `.editor-container .cm-line`, tests/editor-ux.spec.ts
-- A tap beside a line lands at its nearest end: left space selects the line
-  start and right space selects the line end.
-- A tap less than two line-heights below the text uses the pointer's column on
-  the final visual row; a tap two or more line-heights below lands at the end of
-  the note. → interactions/pointerHitTest.ts `positionBelowText`
-  `ROWS_BELOW_TEXT`, tests/editor-ux.spec.ts, tests/editor-embed-bridge.spec.ts
-- Modified presses (Shift/Alt/Cmd/Ctrl) retain the platform's selection
-  behavior. → interactions/editorPointerInteractions.test.ts
-- An off-text double-tap selects the word at the resolved position: the word
-  under the pointer's column near the text or the final word two or more rows
-  below it. On iOS, a third tap selects that logical paragraph; Android leaves
-  triple-tap selection to Blink. → interactions/editorPointerInteractions.ts,
-  interactions/editorPointerInteractions.test.ts,
-  tests/editor-embed-bridge.spec.ts _(native shells)_
-- The tag bar's blank space reaches the first visible editor line at the
-  pointer's column, never a hidden header tag block; tag controls and the title
-  keep their own interactions. → NoteWorkspace.svelte `reachFromTagBar`
+- Blank space beside lines and below the final line is part of the editor: the
+  editable element IS the scroller, and its gutters and its tail belong to it,
+  so a press there places a caret rather than falling through to the shell. →
+  src/features/editor/milkdown/MilkdownEditor.svelte `.ProseMirror`
+- The editable element fills the whole note area in BOTH axes, however little
+  the note holds: it is never sized to its own content. A box sized to its
+  content leaves the space it fails to reach owned by no one — the desktop
+  shell's deselect zone ignores presses on a descendant — so that space would
+  place no caret, take no focus, and swallow the press entirely. → src/features/
+  editor/milkdown/MilkdownEditor.svelte `.milkdown` / `.ProseMirror` _(desktop)_
+- The body's first character sits under the title's first character: the
+  860px editor column is 60px wider than the 740px title column on each side,
+  and the body's left padding is that 60px plus the title's 20px. The ⠿ handle
+  floats inside that padding. _(desktop)_ → src/features/editor/milkdown/
+  MilkdownEditor.svelte `.desktop-layout .ProseMirror`, tests/p2-regressions.spec.ts
+- An empty note is therefore fully typeable: it holds one empty paragraph, and
+  a press ANYWHERE in the note area places the caret in it. This is the state
+  every new note starts in. → tests/p0-regressions.spec.ts "Empty-note caret",
+  tests/editor-embed-milkdown.spec.ts
+- The tag bar's blank space reaches the first line of the editor at the
+  pointer's column: pressing it focuses the editor and places the caret at that
+  x on the first line. Tag controls and the title keep their own interactions.
+  → NoteWorkspace.svelte `reachFromTagBar`, MilkdownEditor.svelte
+  `placeCaretAtCoords`
 - A primary press outside the desktop editor surface deselects the note without
   moving its caret and commits a pending title rename; movement during that
   press does not turn it into a text-selection drag. → NoteWorkspace.svelte
-  `handleNoteBodyMouseDown`, tests/editor-ux.spec.ts _(desktop)_
-- A desktop press in a note containing only hidden tag markup is refused rather
-  than entering the markup. Native shells keep a platform caret so the note
-  remains typeable, but it never lands inside a tag. →
-  interactions/editorPointerInteractions.ts `guardHiddenOnlyNote`,
-  tests/editor-embed-bridge.spec.ts _(desktop; native diverges)_
+  `handleNoteBodyMouseDown` _(desktop)_
   > **Gap:** the native shells have no deselect zone. Their editor interaction
   > surface is the whole WebView below the title, so a tap outside the text
   > column reaches into the note at any distance instead of dropping focus.
   > _(native shells)_
 
+### A note the editor cannot hold
+
+- A note whose markdown makes the parser throw is shown READ-ONLY with a visible
+  "This note could not be displayed" message, never as a blank editable page. →
+  src/features/editor/milkdown/MilkdownEditor.svelte `loadFailed`,
+  src/features/editor/milkdown/MilkdownEditor.test.ts
+- For such a note the editor reports the HOST's original bytes as its content —
+  the same load-echo contract as an unedited note (ADR-0002), extended to the
+  case where the document is not the note at all — emits no change, and refuses
+  chrome edits (tag bar, toolbar insertions). The file is never rewritten. →
+  MilkdownEditor.svelte `getContent`, `applyEdit`, `insertMarkdown`
+- The next note that parses clears the state completely: editable again, no
+  message, its own content reported.
+- An editor instance that has never been handed a note reports "no content at
+  all" (`undefined`), not an empty note. A replaced component — a dev hot
+  reload today, any `{#key}`/`{#if}` around the editor tomorrow — mounts empty
+  under a session that still holds the note, and `''` there is what truncated
+  three real notes on 2026-09-03. The desktop shell also re-hands the open note
+  to a new instance, so the reader gets it back. → MilkdownEditor.svelte
+  `getContent`, NotesShell.svelte, noteSession.svelte.ts `reattachEditor`
+
 ### Native touch and focus
 
 - Tapping an unfocused editor places the caret at the tap and raises the
-  keyboard; wrapped-line taps remain on the tapped visual row. →
-  interactions/editorPointerInteractions.ts, MarkdownEditor.svelte
-- Off-text placement has one owner and never visibly jumps: desktop and Android
-  resolve it on `mousedown`; iOS resolves it only after a single-touch gesture
-  qualifies as a tap on `touchend`. → interactions/editorPointerInteractions.ts
-  `desktopOffTextSelection` `handleMouseDown` `handleTouchEnd`
-- Android preserves the native tap and keyboard path. It uses the compatibility
-  mouse event for off-text placement because CodeMirror suppresses mouse-selection
-  hooks immediately after touch, then corrects on-text single taps that Blink
-  places incorrectly. → interactions/editorPointerInteractions.ts
-  `handleMouseDown` `handleClick` _(Android)_
-- The iOS blank tail is scrollable and outside `contenteditable`, preventing
-  WebKit from replacing the resolved caret. Moved, cancelled, and multitouch
-  gestures remain scrolling; the tail works after short and long notes so the
-  final line can clear the keyboard. → editor.html
-  `[data-ios-off-text-surface]`, tests/editor-embed-bridge.spec.ts _(iOS)_
-- The tail begins where the text ends, so it never buys scrollable space a note
-  did not earn: a note shorter than the editor does not scroll at all, and no
-  note can be scrolled until its last line leaves the screen. → editor.html
-  `[data-ios-off-text-surface] .cm-scroller::after`,
-  tests/editor-embed-bridge.spec.ts
-- The first iOS tap focuses with `preventScroll` before setting the caret,
-  including in the blank tail, so keyboard presentation does not scroll-jump
-  the editor. → docs/learnings/ios-keyboard-editor-jump.md,
-  interactions/editorPointerInteractions.ts `handleTouchEnd` _(iOS)_
-- Native-shell policy comes from the host-provided `nativeShell` mode; iOS
-  platform detection selects the iOS versus non-iOS pointer profile. →
-  createMarkdownEditorRuntime.ts
-- Focused on-text placement remains native on iOS. Android corrects every
-  on-text single tap, including empty or widget lines that Blink maps to
-  position zero. → interactions/editorPointerInteractions.ts `handleClick`
+  keyboard; wrapped-line taps remain on the tapped visual row. On-text and
+  off-text placement alike are the platform's own contenteditable behavior.
   _(native shells)_
-- On-text double/triple-tap selection remains native on both shells; off-text
-  multi-taps use the resolved word/paragraph rules above. _(native shells)_
+- The editor reserves a tail below the last line — `max(40vh, 280px)` of bottom
+  padding on the editable — so the final line can be scrolled clear of the
+  keyboard. The tail scales with the viewport, so a note that does not fill the
+  screen still has nothing to scroll. →
+  src/features/editor/milkdown/MilkdownEditor.svelte `.ProseMirror` padding
+
+  > **Gap:** the tail is now INSIDE `contenteditable` (it is the editable's own
+  > padding), where the CodeMirror editor deliberately put it outside so WebKit
+  > could not re-place a resolved caret in it, and the guard that focused iOS
+  > with `preventScroll` before setting the caret went with
+  > `editorPointerInteractions`. Whether the keyboard-presentation scroll jump
+  > that guard existed to stop (docs/learnings/ios-keyboard-editor-jump.md) has
+  > returned is UNVERIFIED — nothing has been measured on a device since the
+  > swap. _(iOS)_ → docs/learnings/ios-keyboard-editor-jump.md
+
+- Native-shell policy comes from the host-provided `nativeShell` mode: it is
+  what selects the long-press block drag over the ⠿ gutter handle, and what
+  turns on the native-toolbar layout. → packages/editor/src/hostBoot.ts,
+  src/features/editor/milkdown/blockDragMode.ts `resolveBlockDragMode`
+- On-text double/triple-tap selection, selection handles, the loupe and the
+  platform callout are all native on both shells; the editor adds nothing to
+  them and takes nothing away, except while a block-drag press is live (see
+  "Selection"). _(native shells)_
+
+### Typing and IME
+
+- The editable asks the on-screen keyboard for autocorrect and sentence
+  capitalisation, and turns off red spellcheck squiggles and Apple's inline
+  writing suggestions (`autocorrect="on"`, `autocapitalize="sentences"`,
+  `spellcheck="false"`, `writingsuggestions="false"`). A keyboard is not an
+  implementation detail of the engine: the editor first shipped with autocorrect
+  off alongside the squiggle fix, and every note typed in the native shells lost
+  autocorrect and predictive text until 2026-09-01. →
+  src/features/editor/milkdown/MilkdownEditor.svelte,
+  tests/editor-embed-ime.spec.ts
+
+  > **Gap:** on BOTH native shells the keyboard still rewrites text inside
+  > CODE, where its help is corruption. The code surfaces DECLARE the inverse
+  > set (`autocorrect="off"`, `autocapitalize="off"` on `<pre>`, `<code>` and
+  > inline `<code>`), and the engine does not read it from the element the caret
+  > is in: WKWebView and Blink alike take the input traits from the editing HOST
+  > and latch them when the input session begins. Typing `teh dont` through the
+  > software keyboard into a fenced code block lands `The don't` on disk on iOS;
+  > on Android (moto g play 2023, System WebView 151, FUTO Keyboard, measured
+  > 2026-09-01 with `FutoEditor.getContent()` as the oracle) `teh ` typed inside
+  > a fence lands `the ` exactly as it does in prose. Android has a SECOND
+  > layer to the same failure: Chromium does honour the ROOT's attribute — with
+  > `autocorrect="off"` on the editable the keyboard's `EditorInfo.inputType`
+  > drops `TYPE_TEXT_FLAG_AUTO_CORRECT` (`0x2c0a1` → `0x240a1`) — and the FUTO
+  > Keyboard autocorrects anyway, so on that keyboard even a per-caret root flip
+  > would change nothing. Four mechanisms were built and measured on the iOS 26
+  > simulator on 2026-09-01 with the vault bytes as the oracle, and ALL FOUR
+  > still wrote `The don't`: (1) the per-element attributes above; (2) the same
+  > attributes on the contenteditable ROOT, flipped with the caret, plus
+  > `reloadInputViews()` — and the latch is symmetrical, so a note whose caret
+  > opens inside a fence then loses autocorrect in PROSE for the whole session,
+  > which is why the declarations are per-element and static; (3) overriding
+  > `autocorrectionType` / `autocapitalizationType` on the private
+  > `WKContentView` runtime subclass the shell already uses for the accessory
+  > bar — instrumented, and UIKit never calls the getter; (4) a page-side
+  > blur+refocus to start a new input session, which only appears to work
+  > because it DISMISSES the keyboard (typing then bypasses the input session
+  > entirely; with the shell's force-keyboard gate armed so the keyboard stays
+  > up, autocorrect fires again). The remaining avenue is making a fence its own
+  > editing host — a code-block node view with its own `contenteditable` — which
+  > WebKit computes fresh focus information for, and which on Android would
+  > also need a keyboard that honours the flag. _(native shells)_
 
 ### Selection
 
-- Native shells keep platform selection, handles, loupe, and callout except for
-  seeding the off-text double-tap range and the iOS paragraph range above.
-  Verified on Android and iOS devices 2026-07-10. →
-  interactions/editorPointerInteractions.ts _(native shells)_
-- Desktop drag-selection across a rendered Markdown element expands through its
-  hidden source markers so copy/delete preserve valid Markdown. →
-  interactions/selectionSnap.ts _(desktop)_
+- Both native shells drag a block by LONG-PRESSING THE BLOCK ITSELF — there is
+  no ⠿ handle anywhere in the editor on a phone, and the left gutter that would
+  hold one is not reserved. Touch and hold a block for ~340ms and it lifts as a
+  card-like ghost under the finger, dragging floats it with a drop-indicator
+  line at the resolved top-level boundary, and release commits the move. The ⠿
+  gutter handle is the DESKTOP gesture only. Verified on an Android
+  device 2026-09-01 (moto g play 2023, System WebView 151) and on the iOS
+  simulator. → src/features/editor/milkdown/blockDragMode.ts
+  `resolveBlockDragMode`, src/features/editor/milkdown/mobileBlockDnd.ts,
+  src/features/editor/milkdown/blockDragMode.test.ts
+  _(native shells)_
+- Editor focus arbitrates block drag against text selection on both native
+  shells: a press that starts with the editor already focused (soft keyboard
+  up) is left completely alone — text selection and caret placement, exactly
+  as if this plugin did not exist — and a press that starts with the editor
+  unfocused (keyboard down) arms and may lift a block, as above. Before this,
+  every press suppressed selection rendering and armed the lift timer
+  regardless of focus, so a phone's long-press-to-select-a-word was always
+  read as "lift this block" instead — reported by QA on the 1.7.2-4 builds.
+  Checked once, at touch-down; a press already in flight does not re-arbitrate
+  mid-gesture. → src/features/editor/milkdown/mobileBlockDnd.ts
+  `onPointerDown`, src/features/editor/milkdown/mobileBlockDnd.test.ts,
+  tests/editor-embed-milkdown.spec.ts _(native shells)_
+- The lifted ghost shows the WHOLE block from its very first frame, sits over
+  the block it was lifted from (padded by the card's own breathing room, so it
+  reads against the drop-indicator line, which is drawn in viewport space), and
+  is capped at 40% of the screen height — only a block that genuinely exceeds
+  the cap is cropped, and that crop fades out rather than cutting off. The
+  card must never carry a `vh` height cap: both native hosts' web view
+  resolves viewport units against a zero-height containing block, so `40vh`
+  came out as `0px` and the card collapsed to its own padding. The cap is
+  therefore computed in pixels from `window.innerHeight`. Verified on the pool
+  emulator 2026-09-03 (Android 16, Chromium 133 WebView). (Until 2026-09-05 the
+  card also had to shed the editor's offscreen-block containment rule, which
+  cropped it to one unrendered line on Android; that rule is gone — see
+  Performance.) →
+  src/features/editor/milkdown/mobileBlockDnd.ts `createGhost`
+  `GHOST_MAX_HEIGHT_FRACTION`, tests/editor-embed-milkdown.spec.ts
+  _(native shells)_
+- On desktop a ⠿ handle appears in the left gutter beside the block under the
+  pointer — in the GUTTER, 8px left of the text column, at every nesting depth:
+  a list item's own box starts at its text, so an offset from that box would
+  put the handle over the bullet, and over the parent's text for a nested item
+  — and dragging it with a mouse reorders blocks. Where there is no
+  hover, the handle is still surfaced for the block that was just tapped or
+  that the caret moved into, but dragging it needs a mouse: the handle's drag
+  is @milkdown/plugin-block's HTML5 drag, which no touch or pen gesture
+  starts. → MilkdownEditor.svelte,
+  src/features/editor/milkdown/blockMove.ts _(desktop)_
+  > **Gap:** a touch or pen drag of the ⠿ handle does nothing on a touchscreen
+  > desktop build. The 253-line touch/pen fallback that implemented it was
+  > removed on 2026-09-02 as dead weight once both native shells moved to the
+  > long press; desktop touch reorder is unimplemented, not broken. Reorder by
+  > mouse, or use a native shell's long press.
+- A dragged block lands among its own kind. A top-level block sees only the
+  gaps between top-level blocks: just below a blockquote is NOT "inside the
+  blockquote", however the schema would read that position. A list item sees
+  the gaps between the items of its list, the items of any other list of the
+  same type at any depth, and the top-level gaps — where it is wrapped in a
+  fresh list of the type (and attributes) it came out of, and a list it was the
+  only item of goes with it rather than staying behind empty. A top-level gap
+  directly beside a list of the item's own type IS that list's end (or start):
+  two adjacent lists of one type are one list in markdown, so dragging a bullet
+  just below its list makes it the last bullet, and dragging it past the next
+  block takes it out. → src/features/editor/milkdown/blockDragGeometry.ts
+  `resolveDropTarget`, src/features/editor/milkdown/blockMove.ts `moveBlock`,
+  src/features/editor/milkdown/blockDragGeometry.test.ts,
+  src/features/editor/milkdown/blockMove.test.ts, tests/editor-embed-milkdown.spec.ts
+  > **Gap:** the native shells' long press grabs the TOP-LEVEL block under the
+  > finger — for a bullet, the whole list — so bullets cannot be reordered by
+  > touch; the resolver and the move already accept an item, only the press
+  > target (`topLevelBlockAt`) still stops at the top level. _(iOS, Android)_
+- On desktop the ⠿ handle beside a list's FIRST item drags that item, like the
+  handle beside every other item. @milkdown/plugin-block resolves a first child
+  to its parent, so the handle it draws for a first bullet stands for the whole
+  list; the drag is re-targeted at `dragstart` to the item whose box the pointer
+  is in. → src/features/editor/milkdown/listItemHandleDrag.ts,
+  src/features/editor/milkdown/listItemHandleDrag.test.ts,
+  tests/editor-embed-milkdown.spec.ts _(desktop)_
+- The desktop ⠿ handle's native drag ghost is corrected for the display's
+  `devicePixelRatio`: at 1x it is the browser/webview's own drag image,
+  unchanged; at any other ratio a detached, counter-scaled clone is dragged
+  instead of the live block, so the ghost matches the block's CSS size
+  regardless of scale factor. QA on a scaled Linux/Hyprland desktop reported
+  the ghost at roughly 200% size.
+  > **Gap:** the counter-scaling is unit-tested and code-reviewed only, not
+  > confirmed against a real scaled display — reproducing a native HTML5 drag
+  > image needs a genuine OS-driven drag, which this pass's tooling (no
+  > desktop OS-level input automation, and a synthetic DOM `dragstart` opens
+  > no real drag session) could not safely exercise. Needs a human on a
+  > scaled Linux box. →
+  > src/features/editor/milkdown/blockDragGeometry.ts `setDprCorrectedDragImage`
+  > `dragImageScale`, src/features/editor/milkdown/listItemHandleDrag.ts,
+  > MilkdownEditor.svelte, src/features/editor/milkdown/blockDragGeometry.test.ts
+  > _(desktop)_
+- There is ONE drop slot per boundary, on both drag gestures — between
+  top-level blocks, and between the items of a list for a list item. Below
+  block A and above the block directly under it are the same
+  place, so they are one target: one indicator line, drawn IN the gap midway
+  between A's bottom edge and B's top edge (on the outer edge at the document's
+  first and last boundary), and one haptic tick for reaching it however the
+  pointer got there. A block's OWN two boundaries stay distinct, because those
+  are different positions. Both gestures resolve that one slot with the same
+  code and commit through the same move, so neither the line's position nor the
+  set of places a block may land can differ between them — which is why the
+  desktop ⠿ handle draws OUR indicator rather than the one
+  @milkdown/kit/plugin/cursor ships (it draws a line on every block's top edge
+  AND every block's bottom edge, so each gap had two). →
+  src/features/editor/milkdown/blockDragGeometry.ts `resolveDropTarget`,
+  src/features/editor/milkdown/blockDropIndicator.ts,
+  src/features/editor/milkdown/blockDragGeometry.test.ts,
+  tests/editor-embed-milkdown.spec.ts
+- The dragged block's own two boundaries draw no line and tick no haptic on
+  either gesture, because a drop there is a no-op: the finger holding a block
+  over the gap it already sits against would otherwise show the indicator
+  running through the lifted card. On the native long-press the lifted card
+  is drawn OVER the indicator line, with a translucent background, so the
+  line — and the dimmed source block underneath at lift — stay visible
+  through the card wherever it overlaps a boundary. → src/features/editor/milkdown/blockMove.ts
+  `isNoOpDrop`, src/features/editor/milkdown/mobileBlockDnd.ts,
+  src/features/editor/milkdown/blockDropIndicator.ts,
+  src/features/editor/milkdown/blockMove.test.ts, tests/editor-embed-milkdown.spec.ts
+- A block drag is haptic three ways on both native shells: one firmer impact
+  when the block lifts, a light tick each time the drop indicator lands on a
+  DIFFERENT top-level boundary, and one light impact when a release commits a
+  reorder. A finger travelling inside one gap ticks nothing, a hold ticks
+  nothing, edge auto-scroll ticks nothing (an auto-scroll is a hold, and a tick
+  per boundary swept past would be a continuous buzz), and a release back at the
+  source is silent (it commits nothing). Same gesture, same three moments, same
+  feel on both. →
+  src/features/editor/milkdown/mobileBlockDnd.ts,
+  apps/ios/Sources/Editor/EditorWebView.swift `moveHapticFeedback`,
+  apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt
+  `performBlockDragHaptic`,
+  tests/editor-embed-milkdown.spec.ts _(native shells)_
+- On Android, a finger landing on a block silences the WebView's OWN long-press
+  haptic for the length of the press, so the lift is felt once rather than as
+  two impacts an eighth of a second apart. Chromium's long-press recogniser
+  trips around touch-down + 480ms, 128-141ms after the editor's 340ms lift. A
+  long press anywhere the editor does NOT claim as a block press still gets the
+  platform's normal buzz, and the editor's own three haptics are exempted rather
+  than silenced with it. Measured on a device 2026-09-01. →
+  apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt
+  `setBlockPressActive`, packages/editor/src/bridge.ts `BlockPressMessage`
+  _(native shells, Android)_
+- On Android that is ALL the shell does for the drag: Chromium's visible text
+  interaction never appears over a lifted block. A stationary hold, editable
+  focused and unfocused, draws no word highlight, no selection handles, no
+  floating Cut/Copy action mode and no magnifier — the page's own suppression
+  holds, which is the difference from WebKit. So the shell ignores `blockDrag`
+  entirely FOR THOSE SELECTION VISUALS. Measured on a device 2026-09-01. Focus
+  is a separate story — see the next two lines. →
+  src/features/editor/milkdown/mobileBlockDnd.ts,
+  packages/editor/src/bridge.ts `BlockDragMessage`
+  _(native shells, Android)_
+- An empty paragraph cannot be lifted: a hold on it lifts nothing and buzzes
+  nothing, though the press still stands the platform's own hold gestures
+  down like any block press. A tester's report — holding an empty line lifted
+  a blank "phantom" card while, by the next line's mechanism, the keyboard
+  rose underneath it — made the two visibly collide. →
+  src/features/editor/milkdown/mobileBlockDnd.ts, tests/editor-embed-milkdown.spec.ts
+  _(native shells)_
+- A block press that begins with the editor unfocused never focuses it or
+  raises the keyboard, however long it lasts and whether or not it lifts; a
+  press that begins focused leaves focus alone (a drag while typing must not
+  drop the keyboard). Measured on the pool emulator 2026-09-08 (Android 16,
+  System WebView 133), touch stationary with the editor unfocused: Chromium's
+  OWN long-press fires at touch-down + ~500ms and dispatches, in the same
+  millisecond, `selectstart` on the block, `focus` on the editable, `focusin`,
+  then `contextmenu` — and the `focus` lands regardless of the page cancelling
+  `selectstart`/`contextmenu`/`touchend`; none of those three levers stop it,
+  on text blocks as well as empty ones. A capture-phase `focus` listener on
+  the document undoes it for a press that began unfocused. →
+  src/features/editor/milkdown/mobileBlockDnd.ts, packages/editor/src/bridge.ts
+  `FocusMessage`, tests/editor-embed-milkdown.spec.ts _(native shells, Android)_
+- A block drag holding the pointer within 64px of the editor scroller's top or
+  bottom edge scrolls the note continuously — 200px/s at the zone's inner lip
+  ramping to 1400px/s at the edge — so a block can be dropped at a boundary that
+  was off screen when it was lifted. It runs while the pointer holds still, stops
+  at the document's ends, and stops on every exit (commit, no-op release, cancel,
+  editor destroy). The drop indicator is recomputed each frame from the boundary
+  now under the stationary pointer. Both drag paths share it: the native shells'
+  long-press drag and the desktop ⠿ gutter handle's touch drag. Verified on an
+  Android device 2026-09-01 — a hold within the zone scrolls continuously and
+  stops on release; a hold mid-viewport does not scroll. →
+  src/features/editor/milkdown/blockDragGeometry.ts `createDragAutoScroller`,
+  src/features/editor/milkdown/blockDragGeometry.test.ts,
+  tests/editor-embed-milkdown.spec.ts _(native shells)_
+- A finger landing on a block in the long-press block drag suspends the
+  platform's DELAYED text interaction from touch-down — the magnifier loupe and
+  tap-and-a-half select — for as long as the press lasts, and restores it the
+  moment the press resolves, however it resolves (lift, tap, scroll, cancel). It
+  is requested at touch-down and not at the lift because the platform gesture
+  fires at ~655ms with the editable focused and ~700ms unfocused, against the
+  340ms lift: a press that produced no lift for any reason used to hand the user
+  the magnifier and a word selection with nothing suspended at all. Measured on
+  the simulator 2026-09-01. →
+  src/features/editor/milkdown/mobileBlockDnd.ts,
+  apps/ios/Sources/Editor/EditorWebView.swift `delayedTextInteractionGestures`,
+  packages/editor/src/bridge.ts `BlockPressMessage`,
+  tests/editor-embed-milkdown.spec.ts _(native shells, iOS)_
+- A tap still places the caret and raises the keyboard, and a double-tap still
+  selects a word and shows the platform Cut/Copy/Paste callout, during and after
+  that press-level suspension: only the hold-triggered recognisers stand down,
+  never the tap ones. An ordinary swipe scrolls and never lifts a block.
+  Verified on the simulator 2026-09-01 and on an Android device 2026-09-01. →
+  apps/ios/Sources/Editor/EditorWebView.swift `delayedTextInteractionGestures`,
+  apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt
+  `setBlockPressActive` _(native shells)_
+- While a block is airborne in that drag, the suspension escalates to the WHOLE
+  platform text interaction — no magnifier over the block being moved, no
+  callout, no caret dragged along behind it, and the selection preference off —
+  and steps back down the moment the gesture resolves, however it resolves.
+  Nothing on the page can suppress it, so the editor reports both the press and
+  the drag over the bridge and the shell decides what each means. Verified on the
+  simulator 2026-09-01. →
+  src/features/editor/milkdown/mobileBlockDnd.ts,
+  apps/ios/Sources/Editor/EditorWebView.swift `applyTextInteractionLevel`,
+  packages/editor/src/bridge.ts `BlockDragMessage`
+  _(native shells, iOS)_
 
 ## Markdown elements (rendered / decorated)
 
@@ -255,179 +580,147 @@ plugins` mid-render and the editor kept showing the previously opened note.
   renders as a code block, just uncoloured.
   → src/features/editor/codeFenceLanguages.ts
 - Links: `[text](url)`, autolinks `<url>`, and bare GFM URLs.
-- Blockquotes including nested; the `>` marker is dimmed when the cursor is on
-  the line.
-  > **Gap:** a blockquote's lazy-continuation line — one CommonMark keeps
-  > inside the quote even though it carries no `>` of its own — gets no quote
-  > decoration at all, because `decorateBlockQuote` skips every line whose own
-  > text has nest level 0. It renders flush left with neither indent nor
-  > stripe nor the quote's muted italic styling, ~29px left of the depth-1
-  > quoted line above it (15px indent + one 14.4px gutter).
-  > → src/features/editor/live-preview/blockDecorations.ts `decorateBlockQuote`
-- Every `>` marker occupies a constant-width gutter, whatever characters it was
-  written with and at whatever nesting depth: `> text` and `>text` put their
-  content at the same x, and revealing the marker under the caret never shifts
-  the line's content sideways. → src/styles/markdown-blocks.css
-  `--md-quote-marker-gutter`, tests/blockquote-gutter.spec.ts
-- Nested one, two, or three deep, a quote line is indented 15px per level and
-  paints one 2px stripe at the left edge of each of those steps — at 0px, 15px
-  and 30px from the line's left edge, so the innermost stripe sits one step
-  left of the content rather than against it. The marker gutters follow the
-  whole indent, so each extra level moves content right by the same constant
-  amount. → src/styles/markdown-blocks.css `.cm-md-quote-level-2`/`-3`,
-  tests/blockquote-gutter.spec.ts
-  > **Gap:** blockquotes nested four or more deep have no per-level rule, so
-  > they fall back to the depth-1 15px indent and a single stripe — a depth-4
-  > line's content renders ~15.6px LEFT of a depth-3 line's (45px + 3 gutters
-  > against 15px + 4 gutters; measured in chromium at the default 18px editor
-  > font, where the 0.8em gutter is 14.4px). Only the indent is affected:
-  > gutter width and reveal stability hold at every depth. Closing it takes a
-  > rule in BOTH src/styles/markdown-blocks.css and src/styles/app-shell.css —
-  > the `.editor-container`-scoped padding there outranks a bare
-  > `.cm-md-quote-level-N` rule.
+- Blockquotes, including nested: each level renders as an indented block with a
+  muted left rule, whatever `>` characters and lazy continuations CommonMark
+  read it from. No `>` marker is on screen at any depth, so no indent shifts
+  when the caret enters a quote. → src/features/editor/milkdown/
+  MilkdownEditor.svelte `.ProseMirror blockquote`,
+  tests/blockquote-continuation.spec.ts
 - Lists: ordered, unordered, nested, and task checkboxes (checked / unchecked /
   uppercase `X`).
-- A list item's leading indent never suppresses its marker: a whole list
-  indented by one to three spaces still renders bullets, not raw `*`. Depth
-  comes from the parse tree, not from counting spaces — `*  Parent.` (two
-  spaces after the marker) puts its content at column 3, so a two-space child
-  is too shallow to nest and CommonMark renders it level with its parent as a
-  sibling. → live-preview/listDecorations.ts `listIndentLevel` /
-  `parseListMarker`, markdown-spec/cases/06-lists/unordered.yaml
-- Tapping/clicking a bullet or number marker places the caret at the marker
-  (revealing the dimmed `-`/`N.` source — the same state as arrowing onto
-  it); a marker tap must never be a no-op. The markers are
-  contenteditable=false widget spans, so the browser can't place a caret in
-  them and CM's default `ignoreEvent() === true` would swallow the tap —
-  both marker widgets return `false` (same contract as the HR widget).
-  Checkbox and image widgets intentionally keep `true` + their own handlers
-  (toggle / place-at-line-end). → live-preview/listDecorations.ts
-  BulletWidget/NumberWidget, liveMarkdownTransform.decorations.test.ts
+- List depth comes from CommonMark's parse, not from counting spaces — a whole
+  list indented by one to three spaces still renders as a list, and `*  Parent.`
+  (two spaces after the marker) puts its content at column 3, so a two-space
+  child is too shallow to nest and renders level with its parent as a sibling.
+  → packages/editor/src/milkdown-compat/, tests/editor-embed-milkdown.spec.ts
+- Ambiguous list syntax follows CommonMark. A bullet followed by an ordered-list
+  marker on the same line (such as `* 0. text`) is a nested ordered list; authors
+  can escape the period to keep literal numbering. This does not change the
+  preservation of extra blank lines or the rule that opening alone never saves.
+  → packages/editor/src/milkdown-compat/index.ts,
+  tests/editor-embed-milkdown-compat.spec.ts
+- Nesting indentation is BOUNDED, so a deeply nested list stays readable at
+  phone width: levels one to four indent 1.4em each, five to eight 0.7em, and
+  from level nine the indent stops growing — at most 8.4em (143px) in total,
+  which leaves ~187px of column at ANY depth on a 402px screen. Before this, a
+  590-byte note holding one bullet nested 20 levels deep opened to a completely
+  blank body: a `padding-left` larger than its container shrinks the content box
+  instead of overflowing it, so levels 13+ computed to ZERO width, 14+ started
+  past the right edge, `scrollWidth === clientWidth` left nothing to scroll to,
+  and the load-time viewport parked in the empty region. Ordinary one-to-three
+  level lists are unchanged; past level eight the levels stop being told apart
+  by their left edge, which is the deliberate half of the trade. Measured at
+  402x874. → src/features/editor/milkdown/MilkdownEditor.svelte,
+  tests/editor-embed-milkdown-deep-nesting.spec.ts
+
+  > **Gap:** a nested TASK list is not bounded. Each level also pays the 28px
+  > checkbox slot, and that slot is a minimum tap target, so unlike indentation
+  > it cannot taper: the content column still runs out, at level 8 rather than
+  > the level 6 it collapsed at before the cap (measured, 402px). Closing
+  > this is a checkbox-layout decision (deep levels
+  > sharing one checkbox column, or a slot that overlaps the text) rather than
+  > an indentation one.
+
 - A list item that wraps **hanging-indents** its continuation lines: wrapped
   rows start under the item's text, never back under its marker, while the
   first visual row still starts at the nesting indent. Applies to bullets,
   ordered items, and task items at every nesting depth, on every platform
   (spec decision 2026-08-14, reversing the 2026-06-10 decision that put
-  wrapped rows at the left margin). The indent rides on `margin-left` plus a
-  negative first-line-only `text-indent`, never on `padding-left` — `.cm-line`
-  padding is owned per context (desktop, native embed, blockquotes). →
-  live-preview/listDecorations.ts `cm-md-list-line` decorations,
-  tests/markdown-rendering.spec.ts
-- A list item's marker column is exactly as wide as its rendered marker, so
-  the hang lands on the item's text: the bullet and number widgets are pinned
-  to that width, the marker replacement covers the marker AND its trailing
-  space, and a nested item's leading source indentation is hidden along with
-  the marker (visual depth comes from the line's margin). A caret anywhere in
-  that hidden run reveals the raw source, the same as a caret on the marker.
-  Leading indentation is only hidden when it reaches the line start, so a list
-  inside a blockquote leaves the `> ` alone. →
-  live-preview/listDecorations.ts `markerGutter` / `hiddenMarkerStart`
-- Tables (GFM), horizontal rules, and images — rendered as block widgets.
-  Each replace widget's `estimatedHeight` must equal its real rendered
-  footprint, and the widget's rendered height must be settled rather than
-  open-ended — otherwise CM6 re-sizes the off-screen gap when the element scrolls
-  back into view and jerks the scroll position on iOS momentum scrolling.
-  Reserving that footprint as a `min-height` floor satisfies this as long as the
-  content itself has a definite height and any later change re-measures (see the
-  image-widget rules below); a pinned `height` is not required, and for
-  width-constrained content it is actively wrong. → docs/learnings/hr-scroll-jank.md
-- A block widget spaces itself with **padding, never margin**. CM6 measures a
-  block with `getBoundingClientRect().height`, which excludes margins, so a
-  margin makes the height map short by that much for every line below the widget
-  — cumulatively, once per widget. `posAtCoords` picks its block from the height
-  map before refining inside it against the DOM, so that shortfall breaks click
-  placement, arrow motion, Cmd-Backspace/Cmd-arrow line boundaries, drag-select
-  and wrapped-line selection rectangles for the rest of the note. `.sf-table`'s
-  `margin: 8px 0` cost 16px per table: one ArrowUp from a line below a table put
-  the caret on the first line *above* it. Absolute offsets on widget overlays are
-  measured from that same padding box, so they move with the padding. Because that
-  spacing is now inside the widget, the widget places the caret for a click in it:
-  on the neighbouring line, extending an existing selection when shift is held,
-  and declining the click entirely when there is no neighbouring line, since a
-  caret inside the widget's own range would reveal its source. →
-  editor-table.css, table/tableControls.ts, tests/editor-height-map.spec.ts
-- A widget's hover overlays are positioned from `getBoundingClientRect`, when they
-  become visible — never from `offsetTop`/`offsetLeft` while building. A widget is
-  still detached inside `toDOM`, where every offset reads 0, and those offsets are
-  layout-relative so they ignore a scroll container's `scrollLeft`. Both bit the
-  table: every row tab stacked at the top-left corner instead of beside its row,
-  and column tabs stayed put when a wide table scrolled sideways. →
-  table/tableControls.ts `positionTableControls`,
-  tests/table-controls-position.spec.ts
-- A block widget's `toDOM` builds a complete element every time it is called,
-  from the widget's model alone — never from element references cached by an
-  earlier call. CM6 discards a block widget's DOM once it scrolls out of the
-  rendered viewport and asks the *same* widget instance for a fresh one when it
-  scrolls back, so in a note long enough to scroll a table off-screen the table
-  came back as an empty `<table>` (a hairline, with its source text still hidden
-  under the replace decoration) until the caret entered it (github#41). →
-  table/tableEditorWidget.ts `toDOM`, table/tableEditorWidget.test.ts
-- What CM6 sizes is the **line block**, not the widget element. CM6 brackets an
-  inline replace widget with two `cm-widgetBuffer` elements, so a block-level
-  widget between them splits the line into anonymous blocks and costs two extra
-  line boxes: the rule's `display: flex` made its line 111px around a 50px widget,
-  and the widget's own height agreed with `estimatedHeight` while the line CM6
-  recorded did not. A fixed-height widget on a shared line therefore owns the
-  whole line: the rule's line is a flex container, so it has no line boxes at all
-  — no strut to grow it, nothing for a hidden blockquote marker or CommonMark's
-  up-to-3 leading spaces to wrap, no baseline for a large font's descender space,
-  and no percentage width to overflow the text column sideways. The line is
-  deliberately *not* given a fixed height: that clamps its rect to the expected
-  number while the content inside overflows, hiding the very mismatch the rule
-  exists to prevent. The `!important` on that display is required because CM6
-  declares `.cm-line { display: block }` unlayered, which beats a layered rule of
-  any specificity. The decoration is only emitted in the rendered state, so a
-  caret on the line still reveals `---` at normal text height. →
-  markdown-blocks.css `.cm-md-hr-widget` / `.cm-md-hr-line`,
-  live-preview/blockDecorations.ts `decorateHorizontalRule`,
-  tests/editor-height-map.spec.ts
-- Image widgets re-measure on load. On the native shells an embedded image's
-  bytes arrive asynchronously (fetched through the native scheme handler after
-  the widget's first paint), so its real height is unknown when CM6 first
-  measures it. The widget calls `view.requestMeasure()` from the `<img>`
-  `onload` handler so CM6 recomputes its height map once the image resolves —
-  otherwise the image renders cut off at the placeholder height on first load
-  until an unrelated transaction (e.g. tapping it) forces a re-layout.
-  _(iOS/Android native)_ → live-preview/images.ts
-- Image widgets also re-measure on every width change, and reserve their
-  footprint as a `min-height` floor rather than a pinned `height`. An image is
-  width-constrained (`max-width: 100%`), so a wider editor makes it taller, and
-  the wrapper is `overflow: hidden` — a height pinned at load time silently
-  clipped the bottom of the image with no recovery path (reproduced on iOS 26.5
-  by rotating to landscape, 2026-07-24; the zero-size WebView prewarm reaches the
-  same state). A `ResizeObserver` on the `<img>` re-commits the floor, refreshes
-  the shared size cache, and calls `view.requestMeasure()`; a zero-height
-  measurement taken before the host has laid out is ignored so it cannot poison
-  the cache. → live-preview/images.ts `ImageWidget`
+  wrapped rows at the left margin). The list is a real `<ul>`/`<ol>`, so the
+  hang is the browser's own list layout and the marker column is exactly as
+  wide as the rendered marker. →
+  src/features/editor/milkdown/MilkdownEditor.svelte,
+  tests/bullet-glyphs.spec.ts
+- Tables (GFM), horizontal rules, and images render as themselves. A table
+  scrolls sideways inside its own box rather than widening the note; an image is
+  capped at the column width and 300px tall. →
+  src/features/editor/milkdown/MilkdownEditor.svelte
 - On the native shells the embed page pins `body` to the web view with
   `position: fixed` plus the four offset longhands, and `#editor` fills that body
   the same way. Both rules live unlayered in `editor.html`, never as `inset` and
   never behind `@layer`: a Chromium 80–98 Android System WebView discards every
   layered rule (so `base.css`'s identical `body` rule never arrives) and one
   below 87 also drops the `inset` shorthand, and that engine sizes the initial
-  containing block to zero — so without both rules `.cm-scroller` never becomes a
-  scroll container and CodeMirror scrolls the ROOT document to reveal the cursor,
-  sliding the note up under the shell's native title bar as the user types
+  containing block to zero — so without both rules the editable never becomes a
+  scroll container, and the browser scrolls the ROOT document to reveal the
+  caret, sliding the note up under the shell's native title bar as the user types
   (github#33, reported on 1.7.0 / Android 10; reproduced and fixed on a
-  Chromium-83 WebView 2026-08-21). → editor.html, tests/editor-embed-bridge.spec.ts
+  Chromium-83 WebView 2026-08-21). → editor.html, tests/editor-embed-webview-floor.spec.ts
   "pre-inset WebView"
-- On the native shells (iOS **and** Android — CM6 owns its own scroller), the
-  editor warms CM6's height map on note load (and after font load / width change)
-  by measuring every line's real height up front. Off-screen wrapped lines are
-  otherwise estimated too short; the first scroll past them triggers a `scrollTop`
-  anchor correction that cancels native touch momentum — the note "jumps forward
-  and stops, no bounce" (measured up to 1436px on Android). Native overscroll
-  affordance (`overscroll-behavior: contain` — iOS bounce / Android stretch) must
-  be preserved. → src/features/editor/heightMapWarm.ts, docs/learnings/hr-scroll-jank.md
+- The editable element is the editor's own scroll container, and it keeps the
+  platform's overscroll affordance (`overscroll-behavior: contain` — iOS bounce /
+  Android stretch) rather than chaining scroll out to the host web view. →
+  src/features/editor/milkdown/MilkdownEditor.svelte `.ProseMirror`
 - Wikilinks `[[Title]]`.
+
+### YAML front matter
+
+- A note that OPENS with a `---` fence, closed by a later `---` fence, carries
+  YAML front matter: the two fences and everything between them are metadata,
+  not markdown. The bytes survive every edit made elsewhere in the note
+  byte-for-byte — brackets, hashes, asterisks, quotes, indentation, trailing
+  spaces and interior blank lines included. Front matter is the one construct
+  ADR-0002's normalize-once does NOT get to re-spell: it is not markdown, so
+  there is no re-spelling of it that preserves its meaning to the tools that
+  read it. → packages/editor/src/milkdown-compat/frontmatter.ts,
+  tests/editor-embed-milkdown-compat.spec.ts,
+  tests/editor-embed-milkdown.spec.ts
+- Both fences must be exactly three dashes at column 0 with nothing after them
+  but whitespace. `----`, ` ---`, and a `---` with no closing fence are a
+  thematic break (and, with a line above it, a setext heading) exactly as
+  CommonMark says — and a `---` anywhere but the first line of the note is
+  always a thematic break, which the editor still normalizes to `***`.
+  (`+++` TOML front matter is not recognised and round-trips as the paragraph
+  CommonMark reads it as.)
+- The block is RENDERED, as one inert metadata panel above the body: muted, monospace, with a left rule, and no
+  caret. It cannot be typed into, clicked into, dragged, or reordered — the
+  editor has no YAML model, so it shows the bytes and refuses to edit them.
+  Deleting the whole note still deletes it. →
+  src/features/editor/milkdown/MilkdownEditor.svelte `.futo-frontmatter`
+  > **Gap:** the front matter block cannot be edited or deleted on its own in
+  > any client. Changing a metadata value means editing the file in another
+  > tool. Closing this needs an affordance that edits YAML as fields — the one
+  > thing the current design deliberately refuses, because an editor with no
+  > YAML model that offers a caret is how a value gets silently rewritten
+  > (`tags: [a, b]` → `tags: \[a, b]`, the bug this block exists to fix).
+  > → packages/editor/src/milkdown-compat/frontmatter.ts
+- A note whose ONLY content is front matter gains one trailing blank line the
+  first time it is really edited: the document's content is
+  `frontmatter? block+`, so it gets the empty body paragraph the schema
+  requires. That paragraph is what gives the caret somewhere to go that is not
+  a selection ON the metadata. Opening such a note still changes nothing.
+  → packages/editor/src/milkdown-compat/frontmatter.ts `FRONTMATTER_DOC_CONTENT`
+- Progressive open never cuts a chunk boundary at a `---` fence, or anywhere
+  inside the note's own front matter: each chunk is parsed as its own document,
+  so a chunk that BEGAN with `---` would read a mid-note thematic break as
+  front matter. → src/features/editor/milkdown/markdownChunks.ts,
+  src/features/editor/milkdown/markdownChunks.test.ts
 
 ## Tags
 
 - A `#tag` is extracted and decorated only when it is at a word boundary, does
   not start with a digit, is within the max length, and is NOT inside inline
-  code or a fenced block. → markdown-spec/cases/09-tags, 13-adversarial
+  code or a fenced block. A tag stays PLAIN TEXT in the document — it is neither
+  a node nor a mark — and is decorated with colour only, so typing inside one
+  never shifts the line. → packages/editor/src/tags.ts,
+  src/features/editor/milkdown/tagDecorations.ts,
+  src/features/editor/milkdown/tagDecorations.test.ts
 - Tags dedup case-insensitively (`#Project` + `#project` → one `#project`).
-- A leading header tag block is recognized and hidden when the cursor is away.
+- A leading header tag block is recognized as the note's tag block — it is what
+  the desktop tag bar reads and writes — and it renders as ordinary text with its
+  tags decorated. It is NOT hidden: a node rendered `display: none` cannot be
+  reached by caret or click, so hiding it would leave the note's tags uneditable
+  on the native shells, which have no tag bar, and a Backspace at the start of
+  the following paragraph would silently join an unseen block. →
+  src/features/editor/milkdown/tagDecorations.ts,
+  docs/plan/milkdown-transition.md "T5 outcome"
+
+  > **Gap:** _(desktop)_ because the block is no longer hidden, a note's tags
+  > show TWICE on desktop — as chips in the tag bar above the editor and as the
+  > literal `#tag #tag` first line of the body. The CodeMirror editor hid the
+  > block, so the tag bar was the only place they appeared. Closing this needs a
+  > way to elide the block that still leaves the tags reachable where there is no
+  > tag bar. → src/features/editor/milkdown/tagDecorations.ts, NoteTagBar.svelte
 
 ## Tag bar _(desktop)_
 
@@ -444,8 +737,32 @@ native shells edit tags as text in the body, which is not a gap.
 - Removing a chip removes the tag; removing the last tag removes the entire
   header block.
 
+- An underscore INSIDE a word survives a save unescaped: `#dog_problems`,
+  `snake_case_word` and `file_name.txt` are written back exactly, on every
+  platform, whether the edit came from the keyboard or from the desktop tag bar
+  (which commits through a full re-serialization). Only a `_` that CommonMark
+  could read as an emphasis delimiter — one not flanked by a word character on
+  the relevant side — is escaped, so `_em_` still round-trips as emphasis and a
+  lone `_` still gets its backslash. →
+  packages/editor/src/milkdown-compat/underscoreEscape.ts,
+  tests/editor-embed-milkdown-parity.spec.ts, tests/tags.spec.ts
+
 ## Wikilinks — navigation & integrity
 
+- `[[`…`]]` is a wikilink when it holds at least one character that is neither a
+  line ending nor the start of `]]`; the whole inner text is the target. A `!`
+  immediately in front of one (`![[Note]]`, Obsidian's embed syntax) is **plain
+  text followed by a wikilink** — the `!` is claimed as text so micromark's
+  image label cannot swallow the `![` and leave the link escaped. **Everywhere
+  else a `!` is ordinary text and begins nothing**: at the end of a line, at the
+  end of the file with no trailing newline, inside a table cell (`| a | no!! |`),
+  before a space, or before another `!`. The tokenizer decides this BEFORE it
+  opens its token, so no path can strand one open — a stranded `wikilink` token
+  stops the enclosing paragraph or table cell from closing, which threw on parse
+  and opened the WHOLE note blank on every shell (issue #112, fixed
+  2026-09-03). → src/features/editor/milkdown/wikilink/syntax.ts,
+  src/features/editor/milkdown/wikilink/syntax.test.ts,
+  tests/editor-embed-milkdown-wikilinks.spec.ts
 - Clicking/tapping a wikilink navigates to the target note (desktop:
   Cmd/Ctrl+click opens it in a new tab). → NotesShell.svelte onopenlink
 - A wikilink displays the **shortest unique path suffix** (`[[Projects/Roadmap]]`
@@ -457,9 +774,12 @@ native shells edit tags as text in the body, which is not a gap.
 - Typing `[[` opens autocomplete over all note ids; selecting inserts the full
   path, **closes the `]]`, and drops the caret AFTER the link** (`[[Title]]|`)
   so typing continues past the link, not inside it (a bare change dispatch left
-  the caret stranded after `[[`). Works on Tauri and both native shells (same
+  the caret stranded after `[[`). Works on desktop and both native shells (same
   embed; verified on emulator + simulator 2026-06-09; caret-after-`]]` verified
-  emulator + simulator 2026-07-08). → wikilinkAutocomplete.ts `makeApply`
+  emulator + simulator 2026-07-08). The completion inserts the wikilink NODE and
+  puts the selection just past it. →
+  src/features/editor/milkdown/wikilink/autocomplete.ts,
+  src/features/editor/wikilinkSuggestions.ts
 - A wikilink whose target does not resolve is still decorated, styled **broken**
   (`cm-md-link cm-md-wikilink cm-md-wikilink-broken`) — not undecorated, and
   **visually distinct from a resolved link** (muted/dimmed styling so a dead
@@ -473,8 +793,8 @@ native shells edit tags as text in the body, which is not a gap.
   shipped desktop: `read_note` returns `""` for a missing file (never throws), so
   the create-on-missing catch in `loadNote` was dead and the empty note simply
   opened via the normal read path; the file appeared only once the user edited.
-  → liveMarkdownTransform.ts, wikilinks.ts `resolveWikilink`,
-  createNoteLoader.ts, editor-embed/main.ts
+  → src/features/editor/milkdown/wikilink/display.ts, wikilinks.ts
+  `resolveWikilink`, createNoteLoader.ts, editor-embed/main.ts
   > **Gap:** the **native** shells (iOS/Android) no-op a broken wikilink tap —
   > the editor embed posts `openNote` only for a _resolved_ link, so a broken
   > tap neither opens nor (on first edit) creates the target note the way
@@ -489,11 +809,12 @@ native shells edit tags as text in the body, which is not a gap.
   handler's prevented `mousedown`, so a click-only handler dead-ends on iOS
   while Chromium double-fires; the touchend path covers both. A tap on a
   navigable link follows it on the **first** tap even when the editor is
-  unfocused: on iOS `editorPointerInteractions` yields taps that
-  land on a resolved wikilink or external link so the link handler acts on them,
-  instead of consuming the tap to place the caret (a _broken_ wikilink still
-  focuses, so it can be edited). Android has no such interceptor, so it already
-  follows on the first tap (verified emulator 2026-07-08). Each pushed iOS
+  unfocused: a `touchend` that lands on a resolved wikilink or external link is
+  handled by the link path rather than left to place the caret (a _broken_
+  wikilink still
+  focuses, so it can be edited). The editor consumes a tap on a NAVIGABLE link
+  (`consumesTap`) and deliberately leaves a broken one to ProseMirror.
+  Android already follows on the first tap (verified emulator 2026-07-08). Each pushed iOS
   editor needs an explicit `.id(noteId)` identity or SwiftUI would share one
   view's @State across the chain. Because the editor WebView is a single shared
   instance, iOS re-adopts it into whichever editor is visible on push/Back
@@ -502,18 +823,25 @@ native shells edit tags as text in the body, which is not a gap.
   a time by construction. Verified emulator + simulator 2026-07-08 (A → wikilink
   → B → Back returns to A with A's content intact and the editor still
   interactive; Back again returns to the list). →
-  interactions/editorPointerInteractions.ts, MarkdownEditor.svelte,
-  AppNavigation.kt `AppNavigator.openNote` (push),
+  src/features/editor/milkdown/MilkdownEditor.svelte `handleTouchEnd`
+  `activateLink`, AppNavigation.kt `AppNavigator.openNote` (push),
   NoteEditorView.swift `openLinkedNote` + EditorWebView.swift `Coordinator.adopt`,
-  tests/editor-embed-bridge.spec.ts
+  tests/editor-embed-milkdown-wikilinks.spec.ts
+  > **Gap:** a broken wikilink cannot be edited in place on any platform, so "a
+  > broken wikilink still focuses, so it can be edited" above is CodeMirror-shaped.
+  > The link is one atom node; its tap is deliberately left unconsumed so the chip
+  > can be SELECTED and replaced or deleted, which is the WYSIWYG answer to
+  > repairing a dead link. →
+  > src/features/editor/milkdown/wikilink/node.ts, MilkdownEditor.svelte
+  > `consumesTap`, tests/editor-embed-milkdown-wikilinks.spec.ts
 - Native Back and resolved-wikilink navigation wait for every admitted editor
-  mutation, capture the latest live CM6 body, and persist-or-park a dirty
+  mutation, capture the latest live editor body, and persist-or-park a dirty
   snapshot through the Rust draft workflow before changing the navigation
   stack. A concurrent peer edit therefore keeps both versions instead of being
   overwritten. A failed commit keeps the same editor visible and dirty and
   surfaces the save failure. This includes a valid pending title whose Rust
   rename fails and, on iOS, an admitted image insertion: navigation waits for
-  the insertion's CodeMirror transaction and deferred bridge callback before
+  the insertion's editor transaction and deferred bridge callback before
   capturing. Android applies this to toolbar Back, system Back, and wikilinks;
   iOS uses its custom navigation Back and wikilinks. →
   `EditorNavigationCommit.kt`, `NoteEditorScreen.kt`,
@@ -542,8 +870,8 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
 
 - Tapping/clicking an external link (`http(s)://`, autolinks, bare URLs) opens
   it in the system browser, never inside the editor. On the native shells a tap
-  is detected via a dedicated `touchend` path in `editorPointerInteractions` (mirroring
-  wikilinks — a click-only handler dead-ends on iOS WebKit) and the resolved URL
+  is detected via a dedicated `touchend` path (mirroring wikilinks — a
+  click-only handler dead-ends on iOS WebKit) and the resolved URL
   is posted to the host via the `openUrl` bridge message (bridge v6); the host
   opens it in the system browser (iOS `UIApplication.open`, Android
   `ACTION_VIEW`), scheme-guarded to `http/https/mailto/tel`. `window.open` is a
@@ -563,158 +891,366 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   `EditorNavigationDecisionTests.swift`. Verified emulator + simulator
   2026-07-08 (tapping a rendered link opens Safari / Chrome to the target; iOS
   `openUrl` case and Android `ACTION_VIEW` intent both fire).
-  → platform/openExternalUrl.ts, interactions/editorPointerInteractions.ts (`activateLink`),
+  → platform/openExternalUrl.ts,
+  src/features/editor/milkdown/MilkdownEditor.svelte `linkAt` / `activateLink`,
   editor-embed/main.ts, packages/editor bridge v6 `openUrl`,
   EditorWebView.swift `openUrl` case, EditorWebView.kt `openExternalUrl` /
   `shouldOverrideUrlLoading` / `isInAppEditorNavigation`,
-  tests/editor-embed-bridge.spec.ts
-- Only the link's own glyphs open it: the hit test runs per visual-line fragment
-  (`getClientRects()`), so clicking the blank space past the end of a link —
-  including a link that wraps onto several visual lines, whose union bounding box
-  spans that blank space — places the caret instead of opening the URL.
-  → interactions/pointerHitTest.ts `findExternalLinkElementAtPoint`,
-  tests/p1-regressions.spec.ts
+  tests/editor-embed-milkdown.spec.ts
+
+- Only the link's own glyphs open it: the hit is the anchor element under the
+  pointer, so clicking the blank space past the end of a link — including a link
+  that wraps onto several visual lines — places the caret instead of opening the
+  URL. → src/features/editor/milkdown/MilkdownEditor.svelte `linkAt`
+
+  > **Gap:** typing a bare URL does not turn it into a link. GFM autolink
+  > literals are recognised when a note is PARSED, so a URL already in the file
+  > renders as a link and a URL you just typed becomes one only after the note is
+  > saved and reopened. The CodeMirror editor linkified it as you typed
+  > (`links/autolinks.ts`, deleted with it); the WYSIWYG editor has no
+  > equivalent input rule. → `@milkdown/preset-gfm` (remark-gfm),
+  > src/features/editor/milkdown/MilkdownEditor.svelte
 
 ## Interactive elements
 
-- Tapping a task checkbox toggles `[ ]`/`[x]` in the source and autosaves —
-  no cursor placement needed.
+- Tapping a task checkbox toggles it and autosaves — no cursor placement
+  needed. The box is a real `<input type="checkbox">` in a 28px tap target, and
+  the tap does not disturb focus, so the keyboard stays up on a phone. →
+  src/features/editor/milkdown/taskCheckbox.ts,
+  tests/editor-embed-milkdown-interactive.spec.ts
+- In a bullet list the checkbox takes the hidden bullet's marker column, so a
+  task item's text starts where a bullet item's text does (within the few
+  pixels the 28px tap target is wider than a 1.4em marker column), and the
+  checkbox stays inside the list's own box, clear of the editor gutter and the
+  20pt iOS back-swipe strip. An ordered task item
+  keeps its number and carries the checkbox after it. →
+  src/features/editor/milkdown/MilkdownEditor.svelte `li[data-checked]`,
+  tests/editor-embed-milkdown-parity.spec.ts
 - Table cells are individually editable in place; Tab/Shift+Tab move between
-  cells; Enter inserts a new row below the current one (so on the last row it
-  appends); structure is revalidated on each edit. A cell context menu (desktop right-click) inserts/deletes rows/columns.
-  → table/interactiveTableEditor.ts, table/tableEditorWidget.ts,
-  table/tableOperations.ts
+  cells (Tab in the last cell appends a row); Enter moves the caret down to
+  the same column of the row below, selecting that cell's whole content
+  (matching Tab's own "typing replaces" convention) — only on the LAST row,
+  where there is no row below, does Enter append a new one and move into it.
+  Mod+Enter exits the table into a new paragraph after it (the gfm preset's
+  own `exitTable` binding). → src/features/editor/milkdown/keyboardParity.ts
+  `insertTableRowBelow` / `appendTableRowFromLastCell`,
+  tests/editor-embed-milkdown-interactive.spec.ts
+- Shift+Enter with the caret in a table cell inserts a line break in that
+  cell, rather than a no-op — the preset's own hardbreak handling silently
+  rejects any break inside a table, which used to fuse whatever was typed next
+  straight onto the preceding text with no separator at all (`r1a`,
+  Shift+Enter, `second` saved as `r1asecond`). The break saves as a literal
+  `<br>` inside the cell (GFM's own way to write a multi-line cell — a real
+  newline would corrupt the row) and parses back into the same break on
+  reopen. → src/features/editor/milkdown/keyboardParity.ts
+  `insertLineBreakInTableCell`,
+  src/features/editor/milkdown/table/tableLineBreak.ts (markdown round trip),
+  src/features/editor/milkdown/keyboardParity.test.ts
 
-  > **Gap:** select-all inside a table cell is not scoped to the cell, and can
-  > cost the whole note. With a cell genuinely focused (`document.activeElement`
-  > is the cell), Cmd/Ctrl+A selects out of the cell and through unrelated
-  > document text, so typing next replaces the note body (Cmd+Z recovers it).
-  > The DOM boundary looks right — `.sf-table` is `contentEditable="false"`
-  > between the CM6 root and the `contentEditable="true"` cell — and
-  > `TableEditorWidget.ignoreEvent()` returns true for events inside the table,
-  > so CM6 never intercepts the real keystroke and the browser's native
-  > select-all is what runs. Measured on desktop (macOS/WKWebKit) and
-  > pre-existing: the contenteditable structure is unchanged since v1.7.1.
-  > → table/tableEditorWidget.ts
+  > **Gap:** a cell holding ONLY a manual break and no other text collapses to
+  > a genuinely empty cell on reload — that shape is indistinguishable on disk
+  > from the empty-paragraph filler an older build wrote, which
+  > `packages/editor`'s `emptyLine.ts` already owns turning into an empty
+  > cell. → src/features/editor/milkdown/table/tableLineBreak.ts
+
+- Hovering a column shows a small grip above it; hovering a row shows one at
+  its left edge. Clicking a grip selects that row/column (visibly, as a cell
+  selection) and opens a 3-item menu: Insert before, Insert after, Delete.
+  Deleting the header row, or deleting a table's last remaining row or
+  column, is DISABLED in the menu (with a reason) rather than a silent no-op
+  or a whole-table delete — the table can never become malformed and never
+  disappears out from under the user. Every insert/delete keeps column
+  alignment correct for the columns that survive. Tapping a grip on touch
+  does the same as clicking it. → src/features/editor/milkdown/table/tableGrips.ts,
+  src/features/editor/milkdown/table/tableCommands.ts,
+  src/features/editor/milkdown/table/tableCommands.test.ts,
+  src/features/editor/milkdown/table/tableCommands.roundtrip.test.ts
+
+  > **Gap:** the grips are a fixed ~18px square, well under a comfortable
+  > touch target — usable but small for fingers; not redesigned for mobile in
+  > this pass. → src/features/editor/milkdown/table/tableGrips.ts
+
+  > **Gap:** there is no column-alignment picker (left/center/right) and no
+  > "delete the whole table" affordance — deleting a table today means
+  > deleting every row down to the guard above, or selecting it as a block and
+  > deleting that. Full Obsidian Advanced Tables parity (reordering rows/
+  > columns, cell merge, CSV import/export, formulas) is a deliberate product
+  > scoping decision (Justin, 2026-09), not an oversight, and is not planned
+  > as a direct follow-on to this gap. → src/features/editor/milkdown/table/tableCommands.ts
+
 - Pressing Enter in a list item continues the list (inherits nesting, auto
-  numbers ordered items, renumbers on edit); Backspace at item start dedents;
-  Backspace in an empty item deletes it. → listContinuation.ts
+  numbers ordered items, renumbers on edit); Tab/Shift+Tab nest and un-nest an
+  item; Backspace at the start of the first item lifts it out of its list. →
+  `@milkdown/preset-commonmark` list-item keymap,
+  tests/editor-embed-milkdown-interactive.spec.ts
+- Splitting a task item always starts the new item UNCHECKED: pressing Enter at the end of
+  `- [x] done` gives `- [ ]`, never a second `- [x]`. The item you are leaving keeps its own
+  state. → src/features/editor/milkdown/keyboardParity.ts `splitCheckedTaskItem`,
+  tests/editor-embed-milkdown-interactive.spec.ts
 - Undoing an edit that renumbered a list reverses the edit and the renumbering
-  together, as one step. → orderedListRenumber.ts, listContinuation.test.ts
-- Renumbering follows an edit, so merely opening a note leaves its numbering exactly as
-  written — a hand-numbered `1. / 1. / 1.` list stays that way until you type in it.
-  → orderedListRenumber.ts
+  together, as one step: the renumber rides in as an `appendTransaction` that is
+  not itself recorded in history. → `@milkdown/preset-commonmark`
+  `syncListOrderPlugin`
+- Renumbering follows an edit, so the FILE's numbering is left exactly as
+  written until you type in it — a hand-numbered `1. / 1. / 1.` list stays that
+  way on disk. → MilkdownEditor.svelte `getContent`
 
-  > **Gap:** on the **native** shells (iOS/Android) opening a note delivers its text as an
-  > edit — a load, not an adopt — so a lazily-numbered note renumbers on screen straight
-  > away. Nothing is posted back to the host, so the file on disk keeps its own numbering
-  > until the next real keystroke, when the renumbered text is saved. _(native shells)_ →
-  > editor-embed/createFutoEditorApi.ts `applyContent`
+  > **Gap:** on screen it renumbers immediately. Parsing a note builds the
+  > document, and the renumber plugin runs against it, so a lazily-numbered
+  > note shows `1. / 2. / 3.` the moment it opens, on every platform. Nothing is
+  > written: the editor still hands the host its original bytes until the first
+  > real edit, and it is that edit which saves the renumbered text. →
+  > `@milkdown/preset-commonmark` `syncListOrderPlugin`, MilkdownEditor.svelte
+  > `getContent`
 
-- Text that reaches the open note from outside it — a sync pull landing while you read,
-  a host push of the note on screen — is adopted exactly as sent: renumbering and every
-  other editing rule that rewrites what you type are skipped, so a peer's `1. / 1. / 1.`
-  list is neither rewritten on screen nor saved and pushed back over theirs.
-  → editorContentSync.ts `EXTERNAL_CONTENT_OPTS`, editorContentSync.test.ts
-- Undo only ever reverses edits made in the note on screen — never text from another
-  note — and opening a note is not itself something undo can reverse.
-  → noteHistory.ts, tests/undo-history.spec.ts
-- Each note keeps its own undo and redo while the app is running: leave a note, come
-  back, and its undo still works, however quickly you switch. Only the notes visited
-  most recently keep theirs; older ones, and every note after a restart, start empty.
-  → noteHistory.ts, tests/undo-history.spec.ts
+- Text that reaches the open note from outside it — a sync pull landing while
+  you read, a host push of the note on screen — replaces the document and is not
+  reported back to the host as a change of yours, so a peer's version is not
+  echoed straight back over theirs. → MilkdownEditor.svelte `setContent` /
+  `applyExternal`, editor-embed/createFutoEditorApi.ts `applyExternalContent`
 
-  > **Gap:** on the **native** shells (iOS/Android), leaving a note and returning to it
-  > starts its undo empty, because the shells do not tell the editor which note they
-  > are handing it. On **Android** only, opening a note that holds exactly the text
-  > already on screen sends the editor nothing at all, so the previous note's undo
-  > survives into it — one undo there can paste the other note's text in, and it is
-  > then saved. Two empty notes in a row is the case users hit; iOS re-pushes on every
-  > open, so it is unaffected. _(native shells)_ →
-  > editor-embed/createFutoEditorApi.ts `setContent`, EditorWebView.kt
-  > `lastPushedContent`
+  > **Gap:** an adopted peer version is re-parsed and re-rendered like any other
+  > document, so editing rules that rewrite structure — list renumbering above
+  > being the one that shows — apply to it on screen, where the CodeMirror
+  > editor adopted external text verbatim (`EXTERNAL_CONTENT_OPTS`). The peer's
+  > bytes are still what sits on disk until your next keystroke.
+  > → MilkdownEditor.svelte `applyExternal`
 
-- A note that was edited elsewhere while you were away comes back without its undo
-  history rather than with one that would restore text from before the change.
-  → noteHistory.ts
-- A change that arrives from outside the editor — a sync adopt, a host content push —
-  is not something undo can reverse. Undo takes back your own keystrokes and stops at
-  the incoming text, so it can never revive the version the change superseded and hand
-  it to the autosave. → editorContentSync.ts `EXTERNAL_CONTENT_OPTS`,
-  editorContentSync.test.ts
-- Deleting a note discards its undo history. Renaming or moving a note keeps it, and
-  renaming any other note leaves the open note's undo alone. → noteHistory.ts
-- A desktop single-line selection raises a floating Bold, Italic, Strikethrough, Code, and Link
-  toolbar; Link wraps the selection into a `[text](url)` scaffold with the caret in the URL slot
-  and opens no dialog (shared `toggleLink` behavior, the same as the native toolbar). It hides for
-  empty/multi-line selections and inside tables/code. Settings, search, and folder-dialog overlays
-  always cover it. → selectionToolbar.ts, editorUX/linkCommand.ts,
-  editor-selection-toolbar.css, tests/editor-ux.spec.ts
-- Typing `/` at the start of an empty block opens a block-command menu
-  (headings, lists, tasks, quote, code, table, HR). Arrow keys move the
-  highlight; a menu item activates on BOTH mouse click and Enter — the item
-  must commit on the press (`mousedown`), because WebKit cancels the `click`
-  that follows the menu's focus-guard `preventDefault`ed mousedown (same
-  dead-end as the wikilink `touchend` note above). → editorUX/slashMenu.ts
-  _(desktop)_
+- Undo only ever reverses edits made in the note on screen — never text from
+  another note — and opening a note is not itself something undo can reverse:
+  the host clears the stack on every open, and a progressively streamed note's
+  chunk appends are not undoable. → MilkdownEditor.svelte `resetHistory`,
+  src/features/editor/milkdown/progressiveLoad.ts,
+  tests/editor-embed-milkdown.spec.ts "Undo history"
+- Opening a note starts its undo empty. Leaving a note and coming back does not
+  restore what you could undo before.
+
+  > **Gap:** per-note undo history is GONE on every platform. The CodeMirror
+  > editor stashed a serialized editor state per note id (`noteHistory.ts`), so
+  > leaving a note and returning kept its undo and redo; `prosemirror-history`
+  > has no equivalent stash/restore and the editor clears the stack instead.
+  > Closing this needs a per-note history snapshot the ProseMirror history
+  > plugin will accept back. → MilkdownEditor.svelte `resetHistory` / `openNote`
+
+- A change that arrives from OUTSIDE the editor — a note open, a sync adopt, a
+  host content push — is applied outside the undo history, so no Ctrl-Z can
+  revive the version it superseded and hand that to autosave. The user's own
+  earlier edits stay on the stack, rebased over the adopted document. →
+  MilkdownEditor.svelte `loadParsedDocument`,
+  editor-embed/createFutoEditorApi.ts `applyExternalContent`,
+  tests/editor-embed-milkdown.spec.ts
+
+- Formatting is reachable by typing Markdown: `# `…`###### `, `- `/`+ `/`* `,
+  `1. `, `> `, ` ```lang `, `---`, `**bold**`, `*em*`/`_em_`, `` `code` ``,
+  `~~strike~~`, `![alt](file)`, and `[[target]]` all convert as you type. So are
+  the keyboard shortcuts in [tabs.md](tabs.md) "Keyboard shortcuts". →
+  `@milkdown/preset-commonmark`, `@milkdown/preset-gfm`,
+  src/features/editor/milkdown/wikilink/inputRule.ts
+
+- _(desktop)_ Selecting text raises a floating toolbar just above the
+  selection — Text/H1/H2/H3, Quote, Bold, Italic, Strikethrough, Code, Link,
+  plus Indent/Outdent inside lists and quotes — placed by the same
+  floating-ui positioning the `/` menu and the ⠿ handle use. It shows for a
+  non-empty TEXT selection that holds something to format, and not for a caret,
+  a node selection (an image, a wikilink chip, a block picked up by the ⠿
+  handle), a whitespace-only selection, or any selection inside a fenced code
+  block, where nothing is markup. A button keeps the selection and the bar, so a
+  format can be toggled straight back off; the buttons light up for the formats
+  active on the selection. The bar hides when the note loses focus (a click into
+  the sidebar or the title) and during an IME composition. The formatting
+  buttons run the same shared commands the native toolbars dispatch. Indent/
+  Outdent are no exception: a bare caret (no selection) raises no bar even
+  inside a list item or blockquote — a caret-only popup showing just those two
+  buttons was tried and pulled (user, 2026-09-15: it was intrusive, popping up
+  next to the caret while typing — a deliberate product decision, not a gap to
+  reopen). `Mod+]`/`Mod+[` indent/outdent the enclosing list or quote by
+  keyboard from a bare caret instead, independent of the Tab decision above
+  (Tab is still not an indent key outside a code block). →
+  src/features/editor/milkdown/selectionToolbar/, milkdown/toolbarExec.ts,
+  milkdown/keyboardParity.ts `handleIndentShortcut`,
+  tests/selection-toolbar.spec.ts
+- _(desktop)_ Link opens a URL field inside the bar. Enter (or Add) applies the
+  link over the selection and returns focus to the note; Escape leaves the note
+  as it was. On a selection inside an existing link the field is prefilled with
+  its address, Enter updates the WHOLE link (never splitting it at the selection
+  edges), and emptying the field unlinks it — the selection and the bar stay
+  put, so an unlink can follow a URL change. → selectionToolbar/index.ts
+  `applyLink`, selectionToolbar/target.ts `linkRunAt`
+- _(desktop)_ Typing `/` as the first character of a block opens a filterable
+  menu: Text, Heading 1-3, Bullet list, Numbered list, Task list, Quote, Code
+  block, Divider, Table, Link, Image. Typing narrows it (label prefix beats a
+  keyword match); an unmatched query hides the menu rather than showing it
+  empty; arrow keys move the highlight and Enter/Tab or a click picks the
+  highlighted row; Escape closes it and leaves the typed text alone for as
+  long as that same `/` run is being typed. A `/` that is not the first
+  character on the line, or one inside a fenced code block, is just a
+  character. → milkdown/slash/
+- _(desktop)_ Picking any `/` menu item deletes the typed `/query` and applies
+  the item as ONE step: no picked item — a plain format (Heading, Quote, a
+  list) or one that restructures the block (Code block, Divider, Table) alike
+  — ever leaves the typed characters inside or beside the block it built, and
+  one Undo takes the whole pick back. → milkdown/commandRunner.ts
+  `combineDeleteAndCommand`, milkdown/slash/index.ts `commit`
+- Inserting a divider — the `/` menu's Divider item, or typing
+  `---`/`___ `/`*** ` on its own line — always ends the SAME way: the rule,
+  followed immediately by one empty paragraph, with the caret in it, ready to
+  keep typing. No leading or trailing blank line beyond that one paragraph,
+  and no NodeSelection left sitting on the rule itself — a NodeSelection on a
+  block atom is what a browser's native "scroll selection into view" reacts
+  to, and it used to visibly nudge the viewport for `---` typed mid-note. Both
+  entry points are normalized by the same plugin, not two code paths. →
+  milkdown/dividerCaret.ts
+- _(desktop)_ The `/` menu's Link item opens the SAME URL prompt the
+  selection toolbar's Link button does (`linkPrompt/`). It always fires on a
+  plain caret (the typed `/link` run is gone before the prompt opens), so
+  submitting a URL inserts it as a new run of text using the URL itself as the
+  label, and leaves that text SELECTED so a real label can be typed straight
+  over it. An empty URL, Escape, or a click outside the prompt cancels it and
+  leaves the document exactly as the `/link` deletion left it. →
+  milkdown/linkPrompt/, milkdown/slash/exec.ts
 
 ## Markdown toolbar _(native shells / editor-embed fallback)_
 
 The shipping toolbar surface belongs to the native shells. The Tauri desktop
-shell never switches to a mobile layout or renders a mobile toolbar based on
-viewport width. The standalone editor embed retains a web toolbar as a bridge
+shell uses the floating selection toolbar described above. The standalone editor
+embed retains a web toolbar as a bridge
 fallback, but iOS and Android call `setNativeToolbar(true)` and render native
 toolbar chrome instead. → src/editor-embed/EmbedToolbar.svelte,
 EditorWebView.swift, EditorWebView.kt
 
 - When the editor body is focused, a formatting toolbar docks above the soft
-  keyboard: Bold, Italic, Strikethrough, Link, Heading, Quote, Bullet/Ordered/Task
-  list, Indent/Outdent (shown when the cursor is on a list line), Camera,
-  Image — horizontally scrollable, with a collapse chevron that blurs the
-  editor (dropping both the keyboard and the toolbar). Link wraps the selection
-  as `[selected](url)` (or inserts an empty `[]()` scaffold) with the caret in
-  the URL slot — it does NOT prompt, since `window.prompt` is a no-op in the
-  native WebViews. Verified emulator + simulator 2026-07-08 (Link sits after
-  Strikethrough; no-selection inserts `[]()`, a selection wraps to `[sel]()`
-  with the caret in the URL slot; no dialog appears). → EmbedToolbar.svelte,
-  markdownToolbar.ts `TOOLBAR_EXEC` `link`, editorUX/linkCommand.ts `toggleLink`,
-  tests/editor-embed-bridge.spec.ts
+  keyboard: Undo/Redo, Bold, Italic, Strikethrough, Link, Text/H1/H2/H3, Quote,
+  Code block, Bullet/Ordered/Task list, Indent/Outdent (shown inside a list or
+  quote), Camera, Image — horizontally scrollable, with a collapse chevron
+  that blurs the editor (dropping both the keyboard and the toolbar). Verified
+  emulator + simulator 2026-07-08 for the original controls (Link sat after
+  Strikethrough; no dialog appears — `window.prompt` is a no-op in the native
+  WebViews). → EmbedToolbar.svelte, packages/editor/src/toolbar.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts
+- Undo and Redo are the FIRST two items, ahead of every formatting control,
+  and run prosemirror-history's own commands — never a hand-rolled stack.
+  Each greys out and stops accepting taps exactly when its stack is empty (no
+  visual-only disable): the editor reports this in `formatState`'s `disabled`
+  field, on the same triggers and with the same dedupe as the active-format
+  set, and all three toolbar surfaces (iOS, Android, the embed fallback) grey
+  the button AND refuse the tap. Verified emulator 2026-09-11 (`enabled=false`
+  on the platform semantics node, not just a dimmed icon). →
+  packages/editor/src/bridge.ts `FormatStateMessage.disabled`,
+  src/features/editor/milkdown/formatState.ts `computeDisabledFormats`,
+  EditorToolbar.swift, EditorToolbar.kt, EmbedToolbar.svelte,
+  tests/editor-embed-milkdown-toolbar.spec.ts
+- Code block converts the current paragraph(s) into a fenced code block —
+  the same command the `/` menu's Code block item runs. One-way (there is no
+  toolbar command back OUT of a code block; the block-conversion model
+  already refuses both a `code` source and a `code` target for every other
+  button, docs/spec/editor.md "A block-format command never touches a CODE
+  BLOCK" below). Was missing from the manifest entirely — every mobile shell,
+  not only Android — until QA-009. Verified emulator 2026-09-11. →
+  packages/editor/src/toolbar.ts, src/features/editor/milkdown/toolbarExec.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts
+- Link opens the SAME shared URL prompt the desktop selection toolbar and the
+  `/` menu's Link item do (`linkPrompt/`), floated over the caret/selection
+  inside the WebView — never a native SwiftUI/Compose dialog. With a
+  selection (or a bare caret already sitting inside an existing link — reachable
+  on mobile via a selection-handle drag that resolves back to a collapsed
+  caret) the field is prefilled with that link's href and updates it in place;
+  emptying the field unlinks it. With a plain caret and no adjacent link,
+  submitting inserts the URL as its own label and leaves it SELECTED, ready to
+  be typed over — the WYSIWYG equivalent of CodeMirror's `[]()` scaffold. An
+  empty URL on a plain caret, Escape, or a tap outside the prompt cancels and
+  leaves the note untouched. Verified emulator 2026-09-11. →
+  src/features/editor/milkdown/linkPrompt/, toolbarExec.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts
+- **An open Link URL prompt belongs to the note it opened on.** It holds that
+  note's document positions, and the editor is reused across notes, so opening
+  a different note (or tearing the editor down) cancels it and leaves both
+  notes untouched. A click outside already cancelled it; a KEYBOARD note switch
+  moves no focus and fires no pointer event, so without this the next submit
+  wrote a link — or rewrote link marks over an unrelated range — in a note the
+  user never opened the prompt on. The desktop selection toolbar's own inline
+  URL field closes on the same event, for the same reason. →
+  src/features/editor/milkdown/linkPrompt/ `dismissLinkPrompt`,
+  milkdown/linkPrompt/noteSwitch.test.ts, milkdown/selectionToolbar/
+  noteSwitch.test.ts
+- Indent nests a list item under its PRECEDING SIBLING item, so it has no
+  effect on the first item of a list — there is nothing to nest under, and the
+  note's bytes are left untouched. →
+  src/features/editor/milkdown/toolbarExec.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts
 - The toolbar SURFACE — items, order, grouping, accessibility labels,
   per-platform icons, visibility rules — is defined once in the
-  `@futo-notes/editor` manifest, and the editing BEHAVIOR behind every
-  button is defined once in markdownToolbar.ts (`TOOLBAR_EXEC`). Toolbars
-  are dumb dispatchers: no platform restates the item list or reimplements
-  a command. → packages/editor/src/toolbar.ts, src/features/editor/markdownToolbar.ts,
-  tests/editor-embed-bridge.spec.ts
-- A block-format command classifies each selected line as plain, bullet,
-  ordered, task, heading, or quote, then emits exactly one block prefix after
-  the line's existing indentation. Tapping Bullet, Ordered, Task, or Quote on
-  the same kind removes it; tapping a different kind converts the whole prefix
-  while preserving the line's text. Converting a checked task drops its
-  checkbox state along with the task prefix. →
-  src/features/editor/toolbar/blockFormatting.ts,
-  src/features/editor/toolbar/blockFormatting.test.ts,
-  tests/editor-embed-bridge.spec.ts
-- Heading follows its own per-line cycle: a non-heading becomes h1, then h1 →
-  h2 → h3 → plain. A multi-line selection applies that transition separately
-  to each line, like the other block-format commands. →
-  src/features/editor/toolbar/blockFormatting.ts,
-  src/features/editor/toolbar/blockFormatting.test.ts
+  `@futo-notes/editor` manifest, and the editing BEHAVIOR behind every button is
+  defined once in `milkdown/toolbarExec.ts`. Toolbars are dumb dispatchers: no
+  platform restates the item list or reimplements a command. →
+  packages/editor/src/toolbar.ts, src/features/editor/milkdown/toolbarExec.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts
+- Every toolbar highlights the commands ACTIVE at the caret: the editor posts
+  the covering manifest ids as `formatState` on every selection move and
+  immediately after a toolbar tap (plus on the debounced content change), and
+  each toolbar tints those buttons —
+  an accent-tinted icon on a rounded accent wash inset inside the button, the
+  same treatment on iOS, Android and the embed fallback. A task item reports
+  Task and never also Bullet, so the two never light up together.
+  → packages/editor/src/bridge.ts `FormatStateMessage`,
+  src/features/editor/milkdown/formatState.ts, EditorToolbar.swift,
+  EditorToolbar.kt, EmbedToolbar.svelte,
+  tests/editor-embed-milkdown-toolbar.spec.ts
+- Heading controls offer Text, H1, H2 and H3 explicitly. Choosing a level applies
+  that same level to every selected prose block; choosing it again does not cycle.
+  Text returns headings to paragraphs. Enclosing quotes keep their nesting.
+  Verified in the desktop WebView and Android emulator 2026-09-08. →
+  packages/editor/src/toolbar.ts, src/features/editor/milkdown/blockCommands.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts, tests/selection-toolbar.spec.ts
+- Quote applies quote formatting; pressing it inside a quote does not change its
+  depth. Indent and Outdent change the nearest list or quote container one level
+  at a time; outdenting a top-level quote returns its selected content to the
+  surrounding document. Verified in the desktop WebView and Android emulator
+  2026-09-08. → src/features/editor/milkdown/blockCommands.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts
+- Bullet, Ordered and Task retain their list toggles and conversions. Converting
+  between list kinds preserves nesting; Bullet/Ordered change the enclosing list,
+  while Task changes the selected items. Converting a checked task to another
+  list kind drops its checkbox state. → src/features/editor/milkdown/blockCommands.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts
+- A block-format command never touches a CODE BLOCK. Its content is literal
+  text, so a `>` or `#` written there would BE code rather than a prefix:
+  Heading, Quote, Bullet, Ordered and Task with the caret anywhere inside a
+  fenced or indented code block leave the note's bytes exactly as they are, and
+  the toolbar lights nothing up — the editor reads the fence as its own `code`
+  kind, which no command has a transition for. A selection that spans a fence
+  formats the prose either side of it and steps over the fence rather than
+  swallowing it. → src/features/editor/milkdown/blockCommands.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts
+- The same holds inside a TABLE CELL: a GFM cell carries one line of inline
+  content, which no block prefix can apply to, so a block command leaves the
+  table untouched. → src/features/editor/milkdown/blockCommands.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts
+- Indent/Outdent are no-ops inside a code block too, including a fence indented
+  under a list item — the caret is on a code line, not a list line, so the
+  enclosing list is not restructured. →
+  src/features/editor/milkdown/toolbarExec.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts
+- Bullet and task markers are written as `-`, never `*` — the toolbar and the
+  editor's serializer agree on one marker so an edit never churns a note's list
+  markers. → src/features/editor/milkdown/MilkdownEditor.svelte
+  `remarkStringifyOptionsCtx`, tests/editor-embed-milkdown-toolbar.spec.ts
 - Native shells, toolbar chrome is NATIVE, commands are shared (bridge v3):
   the host renders its own toolbar from a GENERATED copy of the manifest and
   drives the editor over the bridge — `exec(id)` runs the shared command,
-  the `cursorContext` message drives Indent/Outdent visibility, `blur()`
+  the `cursorContext` and `formatState` messages drive Indent/Outdent visibility,
+  `blur()`
   backs the dismiss chevron, and `setNativeToolbar(true)` suppresses the
   embed's web toolbar so two never show. `just toolbar-spec` regenerates the
   native specs; `just toolbar-spec-check` (part of `just check`) fails when
   one drifts from the manifest. → packages/editor/src/bridge.ts,
-  scripts/gen-toolbar-spec.ts, tests/editor-embed-bridge.spec.ts
+  scripts/gen-toolbar-spec.ts, tests/editor-embed-milkdown-toolbar.spec.ts
 - iOS native: the toolbar is the keyboard's `inputAccessoryView` (generated
   ToolbarSpec.swift rendered by EditorToolbar.swift), replacing the stripped
   prev/next/Done bar — the system owns docking/animation with the keyboard.
-  All buttons verified end-to-end on the iOS simulator 2026-06-10 (exec
-  commands mutate the doc and autosave; Indent/Outdent appear only on list
-  lines; pickers open natively; chevron blurs). → EditorToolbar.swift,
+  Original controls verified end-to-end on the iOS simulator 2026-06-10 (exec
+  commands mutate the doc and autosave; Indent/Outdent appear inside a list or
+  quote; pickers open natively; chevron blurs). → EditorToolbar.swift,
   EditorWebView.swift `futo_overrideInputAccessoryView`
 - iOS native: the accessory takes its BACKDROP from the system, never from the
   app palette — the container is a `UIInputView` with `inputViewStyle`
@@ -731,11 +1267,19 @@ EditorWebView.swift, EditorWebView.kt
 - Android native: the toolbar is a Compose bar (generated ToolbarSpec.kt
   rendered by EditorToolbar.kt) docked above the soft keyboard via the editor
   screen's `imePadding`, shown only while the editor is focused (bridge
-  `focus` message). All buttons verified end-to-end on the emulator
+  `focus` message). Original controls verified end-to-end on the emulator
   2026-06-10 (exec commands mutate the doc and autosave; Indent/Outdent
-  appear only on list lines; pickers open natively; chevron blurs, dropping
-  keyboard + toolbar). → EditorToolbar.kt, NoteEditorScreen.kt,
+  appear inside a list or quote; pickers open natively; chevron blurs,
+  dropping keyboard + toolbar). → EditorToolbar.kt, NoteEditorScreen.kt,
   EditorWebView.kt `EditorHost`
+- Native shells: the `cursorContext` bridge message carries `inContainer` —
+  the caret is in a list item OR a blockquote — alongside the list-only
+  `onListLine`, so Indent/Outdent show on BOTH native toolbars for a caret
+  sitting in an existing blockquote, not only a list line. A host that has
+  never seen the field (an older bundle) falls back to `onListLine`, the
+  pre-fix behavior. → packages/editor/src/bridge.ts `CursorContextMessage`,
+  MilkdownEditor.svelte `emitCursorContext`, EditorToolbar.swift,
+  EditorToolbar.kt
 - Android native: dismissing the soft keyboard by the system back
   gesture/button (not just the chevron) also blurs the editor — the caret
   and selection handle must not linger on screen with no keyboard (#24).
@@ -797,16 +1341,19 @@ editor's own selection or the previous query, and cross-note search is
 unchanged by it.
 
 - **One engine, thin platform bars.** All find behavior — matching, highlight
-  decorations, current-match tracking, next/previous stepping with wrap, count
-  arithmetic and count wording, and hidden-source reveal — lives in the shared
-  editor bundle. Desktop renders that engine's full-width CM6 bottom panel.
+  decorations, current-match tracking, next/previous stepping with wrap, and
+  count arithmetic and count wording — lives in the shared
+  editor bundle. Desktop renders that engine's full-width bottom panel.
   iOS and Android render native SwiftUI/Compose bars because the web panel is
   not native-quality mobile chrome; those bars only forward
   query/open/step/close actions and render the bundle's
   `{query, current, total, label}` report verbatim. They never scan text,
-  compute a count, or decide a wrap. The matching machinery uses
-  `@codemirror/search` `SearchCursor` — an established library over a custom
-  scanner — while the visual bars are ours.
+  compute a count, or decide a wrap. Matching is a run scan over the ProseMirror
+  document: every maximal run of ADJACENT text, so a query spanning a mark
+  boundary (`**bo**ld`) matches while one spanning a paragraph boundary cannot.
+  Highlighting is a ProseMirror `DecorationSet` covering the whole document — it
+  maps through a transaction instead of being rebuilt, so a keystroke costs a map
+  and never a scan. → src/features/editor/milkdown/find/
 - Native chrome drives the engine through the bridge-v8 `openFind`,
   `setFindQuery`, `stepFind`, and `closeFind` methods and receives `findMatches`
   reports. Find is NOT an `exec` command or a button in the scrollable formatting
@@ -830,7 +1377,8 @@ unchanged by it.
   query field, a live match count ("3 of 17"; "0" at zero), next and previous
   buttons, and a completion control. Android uses a single flat, divided bar in
   the platform browser style: query, count, previous, next, then close; its count
-  turns red and its step buttons disable at zero matches. iOS uses a leading
+  turns red and its step buttons disable at zero matches; the desktop bar does
+  the same. iOS uses a leading
   checkmark to close, a search capsule with its count inline, and a separate
   previous/next capsule; desktop keeps its compact full-width panel.
 - Matching is **case-insensitive literal substring** — no case toggle, no
@@ -839,19 +1387,21 @@ unchanged by it.
   has none of cross-note search's retrieval semantics: no fuzzy, no
   prefix/mid-typing rule, no all-words preference — `cat` finds `concatenate`,
   and `Aug ` (trailing space) finds only `Aug` followed by a space.
-- **Matching runs over the source markdown** — the CM6 document — never over
-  the rendered live-preview text. A match inside syntax the live preview
-  currently hides (emphasis markers, a `[label](url)` URL, wikilink brackets,
-  a heading's `#`) counts and is reachable: stepping to it moves the selection
-  there, and the per-line reveal rule (## Live preview) exposes the hidden
-  syntax, so the CURRENT match is always visible on screen. A non-current
-  match inside a hidden span contributes to the count but paints no highlight
-  until its line reveals. Matching rendered text instead would make results
-  depend on cursor position and reveal state; the document is the single
-  truth, and it is what the selection (and any future replace) operates on.
-- The same visibility requirement holds where live preview swaps in a widget:
-  stepping to a match inside a widget-replaced region (an interactive table's
-  source) must reveal the source the same way placing the caret there does.
+- **Matching runs over the editor's document text.** Results never depend on
+  cursor position or on what is scrolled into view, and every match is a real
+  range the selection (and any future replace) operates on.
+
+  > **Gap:** the CodeMirror editor held the note's SOURCE markdown, so find
+  > reached the syntax characters too — `**`, a `[label](url)` URL, wikilink
+  > brackets, a heading's `#` — and the per-line reveal rule exposed hidden
+  > syntax around the current match. The Milkdown editor is WYSIWYG: its
+  > document holds rendered text and no syntax characters at all, so those are
+  > not findable and there is no hidden syntax to reveal. Searching `bold`
+  > finds the word inside `**bold**`; searching `**` finds nothing, and a
+  > link's address cannot be searched. Closing this would mean searching a
+  > serialization of the document and mapping markdown offsets back to
+  > positions, which is a different feature from the one #26 asked for.
+  > _(all platforms)_ → src/features/editor/milkdown/find/findMatches.ts
 - Find searches the note **body** only. The title is the filename — a native
   field on the native shells, not part of the document text — and titles are
   cross-note search's job (search.md indexes them).
@@ -865,16 +1415,18 @@ unchanged by it.
   of the editor's own scrolling pane, so the engine measures that panel itself
   and the shell declares nothing; _(Android)_ the bar is a layout sibling above
   the WebView, so the viewport is never covered and no inset is declared.
-  → setFindOverlayInset, findScrollMargin, NoteEditorView.swift, NoteEditorScreen.kt
+  → setFindOverlayInset, findPlugin.ts `revealMatch`, NoteEditorView.swift,
+  NoteEditorScreen.kt
 - Revealing a match inside hidden markdown moves it after the scroll: the
   source appears, the line reflows, and the match can land back under the bar.
   The engine re-measures the current match once that relayout settles and
   re-reveals it, so a match ends up visible wherever the reflow put it.
-  → checkFindReveal
+  → find/findPlugin.ts `revealMatch`
 - _(desktop)_ the selection toolbar does not show for find's own selections:
   it stays down while the bar is open, and for the selection find leaves
   behind after Escape; the next selection the user makes shows it normally.
-  → selectionToolbar.ts
+  → find/findPlugin.ts `findSuppressesSelectionToolbar`,
+  selectionToolbar/target.ts
 - **Stepping to the next occurrence** is the core interaction, and it is
   reachable three ways while the bar is open: the next/previous buttons in the
   bar (the mobile path — they work with the keyboard down), Enter / Shift+Enter
@@ -894,9 +1446,10 @@ unchanged by it.
   accelerators above, find claims no keys in the note body — Enter,
   Shift+Enter and Escape belong to find only while the query field is focused,
   so typing in the body behaves exactly as it does without find.
-  Recomputation never adds to keystroke latency (M5): match
-  scanning is plain text scanning off the input path, and the count may lag an
-  edit by a frame.
+  Recomputation never adds to keystroke latency (M5): a keystroke only MAPS the
+  matches and decorations it already has through its own transaction, the rescan
+  runs one animation frame later, and the count may therefore lag an edit by a
+  frame.
 - Find state is per open note view: the query and current match survive while
   the note stays on screen — including device rotation on the native shells
   (Android saves the bar's query/visibility and the retained WebView keeps the
@@ -975,7 +1528,7 @@ unchanged by it.
   2026-06-22. → imagePaste.ts `handlePasteEvent` / `looksLikeImagePaste` /
   `pasteFromNativeClipboard`;
   `apps/tauri/src-tauri/src/image_commands.rs` `fs_paste_clipboard_image`
-- Images render inline in live preview via the Tauri asset protocol, with a
+- Images render inline via the Tauri asset protocol, with a
   `readFile`→blob-URL fallback when the asset protocol can't actually decode an
   `<img>` (macOS WKWebView / Linux WebKitGTK answer the request but paint a
   blank white box; the gate is a real image-decode probe, not a HEAD probe).
@@ -988,7 +1541,8 @@ unchanged by it.
   the toolbar Camera/Image flow above; picked images save into the vault and
   render inline (verified end-to-end on emulator + simulator 2026-06-09).
   → EditorImages.swift `FutoAssetSchemeHandler`, ImagePicker.kt,
-  live-preview/images.ts `setLocalImageBaseUrl`, tests/editor-embed-bridge.spec.ts
+  packages/editor/src/hostBoot.ts `setImageBaseUrl`,
+  src/features/images/vaultImageSrc.ts, tests/editor-embed-milkdown.spec.ts
 - Inline image rendering depends on the referenced file existing in the vault.
   That file is delivered across devices by sync — the image binary syncs
   alongside its note, so `![](image-…)` resolves on every device, not just the
@@ -1004,12 +1558,196 @@ unchanged by it.
   end-to-end on the Android emulator 2026-06-22. When the WebView hides the
   bitmap from the JS paste event (no File — WKWebView/WebKitGTK), the embed
   instead posts the payload-less `pasteClipboardImage` message (bridge contract
-  v5) and the host reads the image off the native clipboard. → editor-embed/main.ts
-  `handleNativeImagePaste`, bridge.ts `SaveImageDataMessage` /
+  v5) and the host reads the image off the native clipboard. Android ALSO takes
+  this fallback for a THIRD clipboard shape (QA #006, 2026-09-11): copying an
+  image out of Photos/Files/Gallery/Drive (or a browser's "Copy image") puts a
+  `content://` URI on Android's clipboard as `text/plain`, not a `File` —
+  `classifyImagePaste` recognizes that scheme and claims it as a hidden bitmap,
+  and `EditorWebView.kt` reads the URI off the real `ClipboardManager` and
+  copies it into the vault through the SAME `saveImageIntoVault` the picker
+  uses. Verified end-to-end on a real Android emulator (API 36, 2026-09-11):
+  copied a PNG via Chrome's "Copy image", pasted into a note, and the vault
+  gained a byte-identical `image-…png` with `![](…)` inserted at the caret. →
+  src/features/editor/imagePasteSink.ts, bridge.ts `SaveImageDataMessage` /
   `PasteClipboardImageMessage` (contract v5), EditorWebView.kt + ImagePicker.kt
-  `saveImageDataIntoVault` (Android), EditorWebView.swift `saveImageData` +
+  `saveImageDataIntoVault` / `clipboardImageUri` / `saveImageIntoVault`
+  (Android), EditorWebView.swift `saveImageData` +
   `clipboardImageData` + EditorImages.swift `VaultImages.save` (iOS),
-  fs_paste_clipboard_image (Tauri), tests/editor-embed-bridge.spec.ts
+  fs_paste_clipboard_image (Tauri), tests/editor-embed-milkdown.spec.ts
+- A vault image is a ProseMirror node whose rendered
+  `<img src>` is resolved for display only; the node's own `src` — what gets
+  serialized — stays the bare vault reference the note holds. Opening a note
+  with an image therefore leaves the file byte-identical, and an edit elsewhere
+  in the note still writes `![](image-…ext)`, never the shell's `futo-asset://`
+  or `asset://` URL. → milkdown/vaultImageView.ts, features/images/
+  vaultImageSrc.ts, tests/editor-embed-milkdown.spec.ts
+- A vault image whose URL cannot be resolved yet renders as nothing rather than
+  a broken-image glyph, and resolves itself as soon as the URL arrives — the
+  host may call `setImageBaseUrl` after `setContent`, and a per-file resolution
+  is asynchronous, neither of which is accompanied by a document change.
+  → milkdown/vaultImageView.ts, features/images/vaultImageSrc.ts
+  `onVaultImageSrcChange`
+- The two hosts resolve a vault image two different ways, and the editor
+  asks per image RENDERED rather than scanning the document, so a large note
+  only pays for the images someone looks at (M5). The native shells serve the
+  whole vault off one host-registered base URL and need nothing per file
+  _(native shells)_; Tauri desktop has no base URL and resolves each file
+  through `PlatformFS.getImageUrl`, which the editor installs at mount as the
+  per-file resolver _(desktop)_. A file that will not resolve — it has not
+  synced in yet — is retried by a later render rather than remembered as
+  failed. → features/images/vaultImageUrlResolver.ts, features/images/
+  vaultImageSrc.ts `requestVaultImageUrl`
+- **Desktop has three ways to add an image, and all three end in the same
+  place**: the bytes land in the vault root under a generated space-free name
+  and `![](image-…ext)` goes into the note at the caret. _(desktop)_
+  1. **Paste** — the clipboard path above.
+  2. **`/image`** — the `/` block menu's Image item opens the OS file picker
+     (`PlatformFS.pickImage`), copies the chosen file into the vault
+     (`saveImage` → `fs_save_image`) and inserts the reference. The pick is
+     asynchronous while the menu's exec map is not, so the typed `/image` run is
+     deleted immediately and the reference lands whenever the file is chosen.
+     The item is offered on every host the menu is (desktop only); where there
+     is no picker it is inert rather than hidden, and inserts nothing.
+  3. **Drag and drop** — dropping image files from the OS onto the editor
+     inserts them at the drop point, or at the caret when the point resolves to
+     no text position. Several images at once are inserted in the order dropped,
+     and one that fails to save does not abort the rest.
+     → src/features/editor/imageInsert.ts, milkdown/slash/items.ts + exec.ts,
+     src/lib/platform/tauri/images.ts `pickImage`, tests/image-drop.spec.ts,
+     tests/slash-menu.spec.ts
+- **A file drop reaches the app as an ordinary HTML5 `drop`, but the SHAPE it
+  carries is engine-dependent.** All three desktop build configs (macOS,
+  Windows, and Linux since QA #017, 2026-09-11) set `dragDropEnabled: false`,
+  which stops wry installing a native drop target, so the drop arrives in the
+  page and ProseMirror's `handleDrop` prop reads it directly. Linux used to
+  leave the flag at its default, reasoning that the same native layer was
+  needed to leave the sidebar's internal drags alone; that GTK relay's own
+  external file-URI handling turned out to never fire the `drag-drop` signal
+  at all on a native-Wayland compositor (confirmed Hyprland/wlroots — matches
+  upstream tauri-apps/tauri#11282, tauri-apps/wry#1256), so a file dragged in
+  from a file manager silently did nothing in a packaged build — invisible
+  from `just tauri-dev`, which has always forced the flag off. Chromium
+  (macOS/Windows) populates `dataTransfer.files` with the bytes already read.
+  WebKitGTK (Linux) does NOT populate `files` for an OS file drop at all, and
+  a real capture off a packaged Fedora/Hyprland build (2026-09-15) showed its
+  payload is NOT where RFC 2483 says it should be either: WebKitGTK
+  ADVERTISES `text/uri-list` in `dataTransfer.types`, but `getData` on it
+  always returns an empty string — the dropped path lives only in the
+  sibling `text/html` flavour, as an `<a>` element whose TEXT CONTENT is the
+  `file://` URI, with no `href` attribute at all. Internal sidebar/tab
+  dragging is untouched either way (pure in-page HTML5 DnD that wry's signal
+  handlers never intercepted, and never advertises `text/uri-list`). Tauri's
+  own drag-drop event (`PlatformFS.onFileDrop`, paths only, no bytes) stays
+  wired as a defensive fallback for a distro/compositor combination that
+  still runs wry's native layer, but nothing is currently expected to deliver
+  that shape.
+  _(desktop)_ → apps/tauri/src-tauri/tauri.linux.conf.json,
+  src/lib/platform/tauri/fileDrop.ts,
+  src/lib/platform/dragDropConfig.test.ts,
+  src/features/editor/imageInsert.ts `filePathsFromDrop`,
+  milkdown/MilkdownEditor.svelte `dropHandler`
+
+  > **Gap:** a real user drag on a packaged Linux/Wayland build (Fedora,
+  > Hyprland, 2026-09-15) confirmed the HTML5 drop DOES reach the page — that
+  > half of the earlier reasoning holds. It also surfaced two bugs in
+  > sequence: a first fix claimed on `text/uri-list` CONTENT, which
+  > WebKitGTK never actually populates (only advertises), so the drop still
+  > fell through to ProseMirror's default handling and the dropped
+  > `file:///…` URI was inserted as literal text; a follow-up capture with an
+  > instrumented listener measured the real payload above (advertised-but-
+  > empty `text/uri-list`, the path in an href-less `<a>` inside
+  > `text/html`) and this pass claims that shape instead. The new fix itself
+  > is still unverified end-to-end by a real drag — this pass's tooling
+  > forbids synthesizing OS-level pointer input, and the packaged binary is
+  > outside the debug-build QA target gate. X11 remains untested either way.
+  > → apps/tauri/src-tauri/tauri.linux.conf.json,
+  > src/features/editor/imageInsert.ts `filePathsFromDrop`
+
+- **A drop carrying files, or one advertising `text/uri-list` with none, is
+  always claimed, image or not.** The browser's default for an unclaimed file
+  drop is to navigate the webview to that file, which would tear the running
+  app down mid-edit — so a dropped `.md`, PDF or archive is swallowed and
+  ignored rather than inserted, and never becomes an `![](…)`. A drop
+  carrying neither shape is left entirely alone, which is what the editor's
+  own block drag rides on: it sets `text/html` + `text/plain`, never
+  `text/uri-list`. _(desktop)_
+  → src/features/editor/imageInsert.ts `dropCarriesFiles` / `imageFilesIn` /
+  `filePathsFromDrop` / `imagePathsIn`, tests/image-drop.spec.ts
+- Which dropped or picked files count as images is `isImageFilename` — the same
+  `IMAGE_EXTENSIONS` list paste uses, conformance-locked to the canonical Rust
+  vault rule, never a second list. A file's own extension decides the name it is
+  stored under, falling back to its MIME type when it carries no image
+  extension. → packages/editor/src/images.ts,
+  src/features/editor/imageInsert.ts `imageExtensionFor`
+
+  Verified on the real Linux desktop app (Fedora 44, WebKitGTK, dev build,
+  2026-09-03): a pasted PNG landed in the vault as a valid 1×1 PNG with
+  `![](image-…png)` in the note; the `/` menu offered 12 items and `/image`
+  filtered to Image; `fs_save_image` copied a real path in and refused a `.md`
+  at the Rust layer; and a `tauri://drag-drop` carrying an image path inserted
+  it at the drop point, while the same event carrying a `.md`, or carrying an
+  image dropped outside the editor's box, left the note untouched. Not yet
+  exercised by a genuine human OS drag on any platform, nor the native file
+  chooser opening (`dialog:allow-open` is granted and the command reaches
+  argument parsing, so the permission half is proven).
+
+- Clipboard image paste claims the paste through
+  ProseMirror's `handlePaste` and captures it through the sink for the host it
+  is running in: the `saveImageData` / `pasteClipboardImage` bridge messages on
+  the native shells (the host writes the file and calls `insertImage` back), or
+  `PlatformFS` on Tauri desktop. `classifyImagePaste` decides which pastes count
+  as an image, and a claimed image paste never also lands as pasted content. A
+  paste carrying plain text is left to the editor. →
+  src/features/editor/imagePasteSink.ts, imagePaste.ts `classifyImagePaste`,
+  tests/editor-embed-milkdown.spec.ts
+- An image destination containing a space needs its CommonMark spelling
+  (`![](<my photo.png>)`); the bare `![](my photo.png)`
+  is not an image in CommonMark and renders as text. Every filename the app
+  itself generates is space-free, so this only reaches notes written elsewhere.
+  → shared/media/imageFiles.ts `createImageFilename`,
+  tests/editor-embed-milkdown.spec.ts
+
+  > **Gap:** an image destination that is ALREADY percent-encoded in the file
+  > (`![](my%20photo.png)`, as some other editors write it) does not render.
+  > _(native shells)_ the base-URL branch encodes it a second time
+  > (`my%2520photo.png`). _(desktop)_ it fails differently — per-file
+  > resolution looks for a file literally named `my%20photo.png`. Fixing it has
+  > to agree with the iOS `futo-asset://` scheme handler and the Android asset
+  > loader on who decodes, so it is tracked rather than patched in the resolver.
+  > → features/images/vaultImageSrc.ts `resolveVaultImageSrc`
+
+  Verified on a real Android device (moto g play 2023, WebView 140) and the iOS
+  26.5 simulator, 2026-08-28: a vault-relative image renders and decodes, and
+  opening the note leaves it byte-identical on disk. Android also verified
+  end-to-end for paste — the host wrote the file and `insertImage` put
+  `![](image-…png)` in the note.
+
+- iOS clipboard image paste is covered at the bundle seam and, for the shared
+  decision and bridge sink, end-to-end against the real Android host.
+
+  > **Gap:** iOS clipboard image paste is unverified on a simulator — nothing in
+  > `simctl` or `axe` can put an image UTI on the simulator pasteboard
+  > (`simctl pbcopy` writes stdin as text), so ⌘V cannot reach the image path
+  > there. The shared decision and the bridge sink are covered at the bundle
+  > seam and end-to-end against the real Android host; what is unproven is
+  > specifically whether WKWebView exposes the bitmap on the paste event, which
+  > is what the `pasteClipboardImage` fallback exists for. Needs a physical
+  > device or a host-pasteboard sync.
+  > → tests/editor-embed-milkdown.spec.ts, EditorWebView.swift `clipboardImageData`
+
+- **A delayed image completion belongs to the note it was started on** — the
+  same rule as the native attachment generation below, stated once for the
+  shared editor, which is a SINGLE component reused across every note. Drop,
+  `/image` pick and clipboard paste each claim the live document BEFORE their
+  first `await`; one claim covers a whole multi-image batch. When the editor
+  has adopted another note (or been torn down) by the time the bytes land,
+  nothing is inserted anywhere — never into the note now on screen — and the
+  image file that insertion just created is deleted from the vault, so an
+  abandoned drop leaves no blob nothing points at. Silent: there is no
+  message, because the note the user is looking at is correct and untouched.
+  _(desktop)_ → src/features/editor/imageInsertTarget.ts, imageInsert.ts,
+  imagePasteSink.ts, milkdown/MilkdownEditor.svelte `documentGeneration`,
+  milkdown/imageInsertIdentity.test.ts
 - A delayed native picker/clipboard completion belongs to the editor attachment
   generation that started it. Detaching, deleting, or adopting another note
   invalidates the completion, so it cannot insert Markdown into a different
@@ -1040,104 +1778,159 @@ unchanged by it.
 ## Code / fence isolation
 
 - Wikilinks and tags inside inline code or fenced blocks are NOT decorated and
-  NOT extracted. → markdown-spec/cases/03-code, 08-wikilinks, 09-tags
+  NOT extracted. → src/features/editor/milkdown/tagDecorations.ts,
+  src/features/editor/milkdown/wikilink/inputRule.ts,
+  tests/editor-embed-milkdown.spec.ts
 
 ## Performance
 
-- Per-keystroke editor work is bounded by the viewport plus a small margin,
-  never by document size: live-preview decorations scan only
-  `view.visibleRanges` and markdown parsing is forced only to
-  `viewport.to + 5000` chars. Typing dispatch stays within one 60fps frame
-  (median ≤ 16.7 ms, measured in the desktop app, 2026-07) in
-  multi-thousand-line notes. `tests/typing-perf.spec.ts` (E2E suite) guards
-  the regression class, not that number: it asserts the median hook-driven
-  keystroke in a ~32k-block note stays ≤ 60 ms — a bound sized to fail an
-  O(document) decoration scan (~700 ms measured), with the measurement
-  including the test hook's full-document read-back. Reaching a
-  not-yet-parsed region (e.g. jumping straight to the end of a large note)
-  parses the intervening document incrementally in ≤ 200 ms slices — amortized
-  once per region, decorations may arrive a beat late; steady-state scrolling
-  through parsed text stays viewport-bounded. → LiveMarkdownPlugin.ts,
-  buildLiveMarkdownDecorations.ts, viewportScanRanges.ts,
-  tests/typing-perf.spec.ts
+- Typing is sacred (M5): per-keystroke editor work must not scale with document
+  size. The budget is a **16 ms p95 synchronous keystroke at every note size**,
+  and it is enforced two ways — the desktop performance floor in the editor
+  gauntlet, and the same stories against the real native Android app on the
+  low-end reference phone. → tests/editor-gauntlet/performanceFloor.ts
+  `PERFORMANCE_BUDGET`, tests/editor-gauntlet/milkdown-performance-floor.spec.ts,
+  tests/android-editor-perf.mjs, `just gauntlet-milkdown-perf`,
+  `just test-android-perf`
+- Opening a note is budgeted at **under 1 s at the sizes real notes reach**, and
+  above them cost must scale LINEARLY — no cliff. The floor holds a fixture's
+  per-unit open cost to within 2.5x of its smaller reference, which catches a
+  scaling wall rather than policing constant factors. →
+  tests/editor-gauntlet/performanceFloor.ts
+- The debounced `change` notification and `getContent()` serialize the note per
+  top-level block, cached on ProseMirror node identity, so a settled edit costs
+  the blocks it touched rather than the whole note; the bytes are identical to
+  Milkdown's whole-document serializer (`just chunk-census --serialize`,
+  docs/evidence/milkdown-serialize-census.md). A document whose cache is still
+  cold primes it in idle slices and reports the change once primed, instead of
+  serializing the whole note on the main thread. → milkdown/blockSerializer.ts,
+  MilkdownEditor.svelte `readSerialized`
+- A note of 400 lines or more is opened PROGRESSIVELY: the first ~80 lines are
+  parsed and mounted synchronously so the first viewport is interactive, and the
+  rest stream in idle slices. Chunk boundaries are only ever taken where a chunk
+  parses to the same document the whole note would (never inside front matter,
+  never at a `---`), and a chunk that parses to nothing aborts the whole thing
+  back to a single whole-document parse. → milkdown/markdownChunks.ts,
+  milkdown/progressiveLoad.ts, `just chunk-census`,
+  docs/evidence/milkdown-chunk-census.md
+- A chunk may also begin without a preceding blank line, at a column-0 ATX
+  heading, fence opener, blockquote start, or list item CommonMark lets
+  interrupt a paragraph — so a note with no blank line anywhere can still
+  open progressively. → milkdown/markdownChunks.ts
+
+  > **Gap:** a note that is ONE giant paragraph — no blank line and none of
+  > the interrupting boundaries above anywhere in it — cannot be chunked at
+  > all: `planMarkdownChunks` declines `no-boundary` in ~41 ms and the whole
+  > document goes through a single parse/dispatch of one `<p>` with tens of
+  > thousands of inline children, with correct content once it lands. The
+  > cost is entirely engine-specific (M22). Same fixture, 50,000 lines / one
+  > paragraph / 2,543,891 chars (~2.5 MB): measured live in the shipped Linux
+  > Tauri debug app (WebKitGTK, normal window, GPU compositor) via its own
+  > `futo:editor-open-complete` mark, **desktop opens it in about 41 s**
+  > (41,014 / 41,221 / 41,321 ms across three runs); the identical bundle in
+  > desktop Chromium opens it in **0.93–1.06 s**, which is why the embed
+  > spec's 20,000-line budget stays green — Playwright never runs this suite
+  > on WebKitGTK (M22). CodeMirror on `main` opens the same file instantly at
+  > any size (virtualized DOM). _(desktop, Linux/WebKitGTK)_ →
+  > milkdown/markdownChunks.ts `planMarkdownChunks`,
+  > milkdown/progressiveLoad.ts, tests/editor-embed-milkdown.spec.ts
+  > `oneParagraphNote`
+
+  > **Gap (Android):** the same giant-paragraph parse cost blocks LEAVING such
+  > a note too: `EditorWebView.kt`'s navigation-exit capture holds
+  > `isInteractionLocked` (Back, the toolbar and the text fields disabled) for
+  > up to its 6 s `CAPTURE_DEADLINE_MS`, and gives up rather than waiting
+  > longer if the renderer's JS thread is still inside the parse — with no
+  > progress indicator shown for however long that wait runs. The next note
+  > opened right after can show the PREVIOUS note's body under the new title
+  > until the queued `setContent` for the new note finishes parsing, since the
+  > title updates from local state immediately but the shared WebView's DOM
+  > does not swap until its synchronous parse completes. →
+  > EditorWebView.kt `captureContentAndWait`, `CAPTURE_DEADLINE_MS`,
+  > EditorSession.kt `isInteractionLocked`
+
+- While the tail is still streaming, content cannot leave the editor as a
+  PREFIX: `change` is suppressed, and `getContent()` either returns the host's
+  original bytes (nothing was edited) or forces the rest of the parse. A pinned
+  `role="status"` bar reads "Loading the rest of this note…" while it runs, and
+  the streamed appends are not undoable. → MilkdownEditor.svelte `getContent`,
+  milkdown/progressiveLoad.ts, tests/editor-embed-milkdown.spec.ts
+- Every top-level block is rendered eagerly; the editor applies no
+  `content-visibility` containment. A Chromium-only containment rule ran from
+  #106 until 2026-09-05 and was retired after measuring it against eager
+  rendering on the low-end Android reference phone: with off-screen blocks
+  skipped, the FIRST focus of a note stalled quadratically (3 s at 500 blocks,
+  12 s at 1,000, 48 s at 2,000 — a real tap into a 4,000-line note froze the
+  app), focused typing was no faster, and open time was the same. Eager first
+  focus is 176 / 202 / 379 / 810 ms at 500 / 1,000 / 2,000 / 5,000 blocks. The
+  rule also painted holes on Apple WebKit, so all three engines now render
+  alike. → MilkdownEditor.svelte (the comment where the rule was),
+  docs/plan/milkdown-transition.md §5 "Containment retired",
+  tests/editor-embed-milkdown.spec.ts
+- The FIRST focus of an opened note — the tap that starts typing — is budgeted
+  at **under 1 s at real-note sizes** on the reference phone and measured for
+  every fixture, blurred again before the keystroke loop so the keystroke unit
+  stays the desktop gauntlet's. → tests/lib/editorDevicePerf.mjs
+  `DEVICE_BUDGET.firstFocusMs`, tests/lib/editorDevicePerfSnippets.mjs,
+  tests/android-editor-perf.mjs
+- Decoration repaints are bounded to the textblocks a transaction changed, never
+  the document: tag decorations and fenced-code highlighting both re-derive only
+  the blocks that moved. A fence over 20,000 characters is left uncoloured
+  rather than paying for it. → milkdown/blockDecorations.ts,
+  milkdown/tagDecorations.ts, milkdown/codeHighlight.ts
 - Per-keystroke work does not scale with the number of links on screen times the
   vault. Rendering a wikilink needs the whole note-id list twice — once to resolve
   the target, once for the shortest unique display suffix — so both go through one
-  index (`getWikilinkIndex`), never per link; `[[` completion shares it. In the
-  desktop app a 300-line note with a wikilink per line types at 2.5 ms/keystroke
-  against an 8,000-note vault, against 41 ms when each link scanned the list
-  itself. The index is rebuilt whole whenever the note list changes, which a save
+  index (`getWikilinkIndex`), never per link; `[[` completion shares it. The
+  index is rebuilt whole whenever the note list changes, which a save
   mid-typing does, so the keystroke after an autosave pays one pass over the whole
   vault — tens of ms at 8,000 ids and over 100 ms at 50,000 in a Node
   microbenchmark of the build alone, never measured in a shipped engine, so treat
   those as a floor: a very large vault pays a real hitch there, and profiling it
-  against these numbers will mislead. → wikilinks.ts, notes.svelte.ts,
-  live-preview/wikilinkDecorations.test.ts
-- One large insertion (a paste) costs time proportional to the pasted size, not its
-  square — in FUTO Notes' own paste work; a paste landing in one giant markdown leaf
-  is still quadratic upstream, per the Gap below. The worst shape for our own work
-  is a pasted numbered list whose numbers are all wrong (a list of `1.` items),
-  because renumbering it is one edit per item; three paths
-  scaled with that count and are all bounded now — block-start resolution walks in
-  ascending line order and stops where the previous walk landed; table block
-  expansion skips a change already inside the last expanded block, testing that
-  against the parse ceiling it clamps to rather than raw offsets, because the ceiling
-  is the tree's length and CM6 parses on a time budget — past an unfinished parse
-  every change expands to the one block ending at the ceiling, so raw offsets place
-  them all outside it and restore the per-change walk on exactly the slow machines
-  that can least afford it; and the renumber
-  dispatches one change per list block rather than per item, which is ~1.7x faster
-  on desktop at 5,000 items (79 ms → 46 ms; the caret is mapped explicitly so
-  merging cannot collapse it to a span edge). In the desktop app a
-  16,000-item list paste measures ~150 ms, 8,000 items went from 4,466 ms to
-  ~100 ms, and cost no longer varies with how many numbers are wrong. Chromium —
-  the only engine the Playwright suite runs — is flat to 16,000 items (2026-08-05).
-  `tests/paste-perf.spec.ts` compares the same paste at 1,250 and 5,000 items and
-  bounds the RATIO (~1.1x after, 14.6x before) rather than a duration, because a
-  busy machine inflates both sizes alike but only a quadratic inflates the ratio;
-  the sharp guards are bounds on line reads and on change-range count in
-  `listContinuation.test.ts` and `table/interactiveTableEditor.test.ts`. A read-count
-  bound is only machine-independent if the tree it runs against is pinned: the
-  table guard pins a deliberately short tree, because measuring the fully-parsed
-  path alone passes on a fast machine whether the ceiling is handled or not.
-  Measure a paste with a real paste event: CDP `Input.insertText`
-  (`page.keyboard.insertText`) splits a multi-line insertion into quadratically many
-  browser editing operations and is quadratic even against a bare `contenteditable`
-  carrying no application code, so it measures the harness, not the editor (M21).
-  → orderedListRenumber.ts, table/interactiveTableEditor.ts, tests/paste-perf.spec.ts
-- Interactive table decoration updates are incremental: syntax discovery scans
-  only changed/affected parsed blocks, while offset refresh work is bounded by
-  the number of known tables. → table/interactiveTableEditor.ts,
-  table/interactiveTableEditor.test.ts
-  > **Gap:** a note whose text forms one giant markdown _leaf_ — tens of KB
-  > with no blank line, e.g. a 3000-line contiguous blockquote, one huge
-  > paragraph, or a single ~500 KB line — still types at ~30–50 ms/keystroke
-  > (grows with leaf size; ~240 ms at 1.2 MB). Root cause is upstream:
-  > `@lezer/markdown` re-runs inline parsing (`parseInline`/`LinkEnd`) over
-  > the entire leaf on each edit, as one uninterruptible step CM6's parse
-  > budget cannot preempt (CPU-profile attributed, 2026-07-29). This is an
-  > ecosystem-wide CM6/lezer characteristic — Obsidian exhibits the same
-  > class of large-note typing lag — not FUTO Notes code. Candidate future
-  > fix: a lezer block-parser extension splitting leaves every ~32 KB
-  > (VS Code-style bounded tokenization). Repro: open a note that is one giant
-  > contiguous block (e.g. a 3000-line blockquote with no blank lines) in
-  > `just tauri-dev` and type. The same upstream stack is also quadratic on a
-  > single large **paste** into one block, because `cx.parts` — the inline
-  > delimiter stack `LinkEnd` and `resolveMarkers` rescan per delimiter — is
-  > reset per block and so grows with the paste. It scales with delimiters, not
-  > lines, so quote the density: 16,000 lines with no blank line between them,
-  > pasted into Chromium, cost ~1.3 s at **two** wikilinks per line
-  > (`see [[a i]] and [[b i]]`) but only ~357 ms at one, against ~37 ms for the
-  > identical text with a blank line after each line — so 37x at two links,
-  > 9x at one. `[`-dense text is worse still (~2.1 s for three bracket pairs a
-  > line); inline links ~262 ms, `**`/`~~` emphasis ~84 ms, plain prose ~55 ms.
-  > A CPU profile attributes 628 ms of 790 ms self time to `LinkEnd`. Footnotes
-  > and reference links share the cause; lists, tasks, tables, images, fenced
-  > code, blockquotes, and one 857 KB newline-free line are all flat.
-  > FUTO Notes' own paste work is proportional (see the paste bullet above).
+  against these numbers will mislead. → wikilinks.ts, notes.svelte.ts
+- One large insertion (a paste) costs time proportional to the pasted size, not
+  its square. `tests/paste-perf.spec.ts` compares the same paste at 1,250 and
+  5,000 items and bounds the RATIO rather than a duration, because a busy machine
+  inflates both sizes alike but only a quadratic inflates the ratio. Measure a
+  paste with a real paste event: CDP `Input.insertText`
+  (`page.keyboard.insertText`) splits a multi-line insertion into quadratically
+  many browser editing operations and is quadratic even against a bare
+  `contenteditable` carrying no application code, so it measures the harness, not
+  the editor (M21). → tests/paste-perf.spec.ts
 
 ## Saving & rename
 
+- Every edit the user makes reaches the host once the document settles (~200 ms
+  debounce), and clearing the whole note is one of them: select-all-delete is
+  reported as a change to the empty document, however soon after the note was
+  opened. The editor knows an edit happened because it saw the TRANSACTION,
+  never by comparing the settled document against a remembered one — a cleared
+  note is byte-identical to the pristine empty document every editor starts
+  from, so any such comparison reads the user's deletion as "nothing changed"
+  and drops it. → src/features/editor/milkdown/documentChanges.ts,
+  MilkdownEditor.svelte `reportDocumentChange`,
+  src/features/editor/milkdown/MilkdownEditor.test.ts,
+  tests/note-never-emptied.spec.ts
+- A note that has content is never written back empty on the strength of an
+  editor's word alone (CRITICAL). An empty document is only saved as a deletion
+  when the editor REPORTED the emptying as a change; an editor that went blank
+  on its own — a parse that threw, a replaced component — has notified nobody,
+  and its `''` is refused. A rename typed alongside such a blank editor still
+  lands, carrying the body the session last knew. → src/features/notes/
+  noteSessionChanges.ts `editorLostTheNote`, createNotePersistence.ts,
+  src/features/notes/noteSession.test.ts, tests/note-never-emptied.spec.ts
+  > **Gap:** a select-all-delete is still dropped rather than written when the
+  > save is FLUSHED before that change notification lands — quitting or
+  > switching notes inside the ~200 ms window. It is the deliberate cost of the
+  > rule above, which cannot tell an unannounced empty editor apart from one
+  > that lost the note. Losing a deletion is one keystroke to redo; losing the
+  > note is not. _(all platforms)_
+- Opening a note never adopts an EMPTY editor serialization as the save
+  baseline for a note that read non-empty from disk. The editor's own
+  serialization is otherwise the baseline, because Milkdown normalizes syntax
+  on parse — but an empty one is a failed load, not a normalization, and
+  adopting it declares the note empty for every later save. → src/features/
+  notes/createNoteLoader.ts
 - A failed desktop disk save blocks switching notes, going Home, and closing the
   outgoing tab. The outgoing draft stays open and dirty, its tab is restored,
   and a visible save-failure message permits retry. A converged or durably
@@ -1170,9 +1963,9 @@ unchanged by it.
   flush from the old generation therefore cannot resurrect a deleted note or
   create an old-id ghost after rename/move. Android keeps the editor Back handler
   installed while a navigation commit is pending, consuming repeated Back presses
-  instead of letting the parent route pop early; after its final CM6 capture it
+  instead of letting the parent route pop early; after its final editor capture it
   also commits a valid visible title immediately rather than waiting for the
-  rename debounce. The iOS move captures the final live CM6 document
+  rename debounce. The iOS move captures the final live editor document
   after destination selection, persists or parks it through the draft workflow,
   and moves the parked conflict identity when that is where the local draft was
   committed. _(iOS, Android)_ → `NotesStore.write`,
@@ -1369,6 +2162,41 @@ EditorSessionTest.kt, EditorSessionTests.swift
   every latch that exit set, and reports which step failed so the shell can word
   the message. A failed delete un-latches so the editor stays usable, and a
   failed draft write never deletes. _(iOS/Android)_
+- "The editor did not answer" is only a failed capture when the answer would have
+  been for **another note**. An editor holding NO live document — the bundle has
+  not reported `initialized`, its renderer process died, it answered with no
+  `window.FutoEditor` at all, or its JS thread is wedged and answers nothing —
+  cannot be holding an edit the shell has not seen,
+  so the exit proceeds against the shell's own body (read from disk, then kept in
+  step with every editor `change`) instead of refusing. When the note never
+  loaded, that body still equals disk and the commit is a no-op: leaving
+  **abandons the load** rather than saving a prefix. _(iOS/Android)_
+  → EditorWebView.swift `editorExitBody`, `captureCurrentContent`,
+  EditorExitBodyTests, EditorNavigationCommit.kt `editorExitBody`,
+  EditorWebView.kt `captureContentAndWait`, EditorExitBodyTest
+- A capture that runs out of its **deadline** means one of two opposite things,
+  and the exit tells them apart before deciding. A renderer that is still
+  answering other work is alive and merely busy, so it may be holding an edit the
+  shell has never seen and the exit REFUSES rather than committing the shell's
+  copy; a renderer that answers nothing at all is wedged and never presented an
+  editable document, so the exit proceeds on the shell's copy as above and the
+  user can always leave. The difference is read by dispatching a trivial round
+  trip ahead of the capture: a streamed load yields between chunks and answers
+  it, a JS thread stuck inside one synchronous parse does not. _(iOS/Android)_
+  → EditorWebView.swift `captureWithinDeadline`, `startRendererLivenessProbe`,
+  EditorCaptureDeadlineTests, EditorNavigationCommit.kt `captureWithinDeadline`,
+  EditorWebView.kt `startRendererLivenessProbe`, EditorCaptureDeadlineTest
+- A large note is editable from its first chunk while the rest streams, and the
+  editor withholds its `change` notification for that whole window (a streaming
+  document is a prefix), so the shell's copy does not carry an edit made there —
+  which is why a busy editor's silence cannot be read as "nothing to lose". A
+  refused exit is retried by leaving again, and by then the work is done: the
+  capture is what makes the editor finish the streamed tail, it finishes whether
+  or not the exit is still waiting, and finishing RELEASES the withheld `change`
+  — so the shell's own copy catches up on its own and the retry serializes
+  nothing it has not already cached. _(iOS/Android)_
+  → MilkdownEditor.svelte `getContent`, `finishProgressiveLoad`,
+  EditorCaptureDeadlineTests, EditorCaptureDeadlineTest
 - A **committed** delete's latch is one-way for that session: no pending
   workflow, queued bridge callback, title debounce, or in-flight adoption can
   touch the note afterwards. _(iOS/Android)_
@@ -1406,6 +2234,18 @@ invariant above is what both must satisfy:
   committing exit; Android round-trips the WebView for navigation and uses the
   live content buffer for move and delete. Coupled to the quarantine gap below —
   revisit the capture source when Android gains one. _(iOS/Android)_
+  > **Gap:** on delete specifically, iOS always captures the live body through
+  > the WebView and is bound by `EditorHost`'s 6 s capture deadline — a
+  > renderer that is busy rather than dead REFUSES the delete rather than
+  > falling back (`NoteEditorView.swift:925` `captureBodyForExit`,
+  > `EditorWebView.swift` `captureDeadlineSeconds`/`captureWithinDeadline`).
+  > Android's delete exit never touches the WebView at all: `captureBody`
+  > returns `content`, the shell's own live buffer kept in step with the
+  > editor's `change` messages (`NoteEditorScreen.kt` DELETE exit). A wedged
+  > renderer can therefore block and refuse a delete on iOS for up to 6
+  > seconds; the identical wedge is invisible to Android's delete, which
+  > always succeeds on whatever the shell last saw. Not tracked as an issue
+  > yet.
 - Move-picker timing: iOS drains before presenting the destination picker (its
   own `prepareMove` exit); Android presents immediately and drains in `onPick`.
   Both complete the drain before the move commits. _(iOS/Android)_
@@ -1453,43 +2293,32 @@ left open because closing it is a behavior change, not a refactor:
   > Unreproduced after two passes on Android 11 / Chromium 83 with FUTO Keyboard
   > 0.1.29.1. Exercised there and correct: tapped-key composition, fast-burst
   > typing, real glide typing, typing 9k characters into a virtualized document,
-  > a composition interrupted mid-flight, and the selection toolbar's Select all
-  > (whole document deleted, no leftovers). The third symptom reported alongside
+  > a composition interrupted mid-flight, and the platform text-selection
+  > menu's Select all (whole document deleted, no leftovers). The third symptom reported alongside
   > these — content scrolling out of view while typing — WAS reproduced and is
   > fixed (the collapsed height chain above); rerunning every input path with that
   > layout deliberately reinjected still typed correctly, so it is not upstream of
   > these two.
   >
-  > **The offsets Chromium reports to the IME are relative to the start of
-  > CodeMirror's contiguous rendered block, not the document — never read one as a
-  > note position.** A caret at document offset 2,748 was reported as 503, its
-  > distance from the first rendered line exactly. So the base moves as the note
-  > scrolls: caret pinned at line-148, changing only `scrollTop`, the reported
-  > cursor went 1,175 → 0 once line-148 became the first rendered line. From the
-  > IME's side that IS "the caret jumped to the start". It re-bases mid-composition
-  > too, not only between words — and it still misplaces nothing (160 keystrokes,
-  > four arms, zero split edits), because Blink maps back and ships a matching text
-  > window. A precondition, demonstrated; the corruption, not.
-  >
-  > What produces the exact signature is a whole-document `setContent` landing
-  > mid-typing: it replaces the document with `preserveSelection: false`,
-  > CodeMirror maps the caret to 0, and the next word lands at the HEAD of the
-  > note, capitalized and unspaced, because the IME now sees start-of-field.
-  > Engine-independent. Locked by tests in editorContentSync.test.ts rather than
-  > by a device run. **But the code trace says no user can reach it**:
-  > `preserveSelection: false` has exactly ONE call site in the repo — the bridge's
-  > own `FutoEditor.setContent` — so desktop cannot reach it at all, and on Android
-  > all three `host.setContent` sites are guarded (the `lastPushedContent` dedupe,
-  > page boot, and a renderer rebuild that lands in a fresh page with no live
-  > caret). A sync adopt is exempt by construction: it goes through
-  > `applyExternalContent`, which preserves the selection. It was provoked from a
-  > debugger, which bypasses those gates. Weakest remaining point, unproven: while
-  > a storage migration is latched, `acceptsEditorChange` drops editor changes, so
-  > Compose `content` and `lastPushedContent` freeze at the pre-migration text
-  > while the live document diverges — the invariant the dedupe rests on is
-  > deliberately broken there, and any write to `content` inside that window would
-  > push a caret-destroying `setContent` into a document being edited. No such
-  > write was found.
+  > The 2026-08 forensic analysis of this Gap was done against the CodeMirror
+  > editor and does NOT carry over: it turned on how Chromium bases the offsets
+  > it reports to the IME against CodeMirror's contiguous rendered block, and on
+  > a `setContent` that dropped the caret to 0 through
+  > `preserveSelection: false` — a call site, an engine and a regression test
+  > (`editorContentSync.test.ts`) that were all deleted with CodeMirror. What
+  > survives it engine-independently is the SHAPE: a whole-document replacement
+  > landing mid-typing leaves the IME looking at a field whose caret it no longer
+  > agrees with, and the next word lands capitalized and unspaced at the head of
+  > the note. That shape is still reachable in the current editor — `setContent`
+  > and `applyExternalContent` both replace the whole document — and is
+  > unmeasured there. The Android guards that made it unreachable in practice are
+  > still in place (the `lastPushedContent` dedupe, page boot, and a renderer
+  > rebuild that lands in a fresh page with no live caret), and the weakest point
+  > is unchanged: while a storage migration is latched, `acceptsEditorChange`
+  > drops editor changes, so Compose `content` and `lastPushedContent` freeze at
+  > the pre-migration text while the live document diverges, and any write to
+  > `content` inside that window would push a whole-document replacement into a
+  > document being edited. No such write was found.
   >
   > Two traps for a re-test. The broken build only oscillates when the caret is FAR
   > from the scroll position; near it, or at the document end, the same build on

@@ -4,6 +4,7 @@ import SwiftUI
 struct FutoNotesApp: App {
     @StateObject private var store = NotesStore()
     @StateObject private var sync = SyncManager()
+    @StateObject private var license = LicenseModel()
     @ObservedObject private var crash = CrashReporter.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var localization = Localization.system()
@@ -28,6 +29,7 @@ struct FutoNotesApp: App {
             NoteListView()
                 .environmentObject(store)
                 .environmentObject(sync)
+                .environmentObject(license)
                 .environment(\.localization, localization)
                 .tint(Theme.primary)
                 .appearanceOverride(ThemeMode.resolve(themeMode))
@@ -41,11 +43,23 @@ struct FutoNotesApp: App {
                 ) {
                     CrashReportSheet(reporter: crash)
                 }
+                // A delivered `futonotes://license/{key}/{activation}` link.
+                // SwiftUI hands a cold-start URL to this view once it exists,
+                // so the shell has already rendered before a link is applied
+                // (M1) and the toast lands on a screen that is on-screen.
+                // Anything at another host or path is ignored silently — that
+                // verdict is Rust's (`licenseHandleDeepLink`).
+                .onOpenURL { url in
+                    license.handle(url)
+                }
                 // Refresh the note list when a live pull brings in remote
                 // changes (sync + note store are separate objects), then
                 // cold-launch auto-reconnect from the stored password so live
                 // sync resumes after a force-quit without re-entering it.
                 .task {
+                    // Preferences plus RSA verification stay off the main actor;
+                    // this child task fills the row without gating the shell.
+                    Task { await license.load() }
                     // Project exactly the ids a completed cycle changed, then
                     // hand the same lossless summary to the open editor.
                     sync.onLocalTreeChanged = { summary in
@@ -55,6 +69,11 @@ struct FutoNotesApp: App {
                     // the live loop, which debounces and pushes to peers (no-op
                     // when not connected). Mirrors Android's MainActivity wiring.
                     store.onLocalChange = { sync.noteChanged() }
+                    // The license module names a catalog entry; the app decides
+                    // where a message appears. The transient banner is already
+                    // mounted on both the note list and Settings, so a link
+                    // handled at cold start is toasted wherever the user is.
+                    license.showMessage = { message in store.showTransient(message) }
                     // Pre-warm the shared editor WebView once at app start so the
                     // first note-open doesn't pay the WebKit-boot + bundle-parse
                     // cost on the navigation critical path (F11). Mirrors

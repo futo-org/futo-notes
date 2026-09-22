@@ -4,9 +4,10 @@
 //! previews, images, IDs, and wikilinks. Durable vault behavior belongs to
 //! `futo-notes-store`; this crate never reads or writes a user's note tree.
 //!
-//! Three runtimes consume this crate: Tauri desktop (via `#[tauri::command]`
-//! wrappers), native iOS, and native Android (both via the UniFFI facade in
-//! `futo-notes-ffi`). UI code is presentation only.
+//! Consumers: `futo-notes-store`, which is how Tauri desktop reaches these
+//! rules — the desktop crate does not depend on this one directly — and native
+//! iOS and Android via the UniFFI facade in `futo-notes-ffi`. UI code is
+//! presentation only.
 //!
 //! Low-level primitives (`sanitize_title`, `validate_title`, path safety,
 //! atomic writes, hashing) live in `futo-notes-core` and are reused here, not

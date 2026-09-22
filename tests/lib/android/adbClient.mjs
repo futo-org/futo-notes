@@ -124,8 +124,24 @@ export function createAdbClient({ pkg, serial = process.env.ANDROID_SERIAL ?? nu
 
   /** `input text` needs %s for spaces; it cannot reach the editor WebView. The
    *  text is shell-quoted like a path — an apostrophe in it would otherwise end
-   *  the quoting and hand the rest to the device shell as commands. */
-  const typeText = (text) => shell(`input text ${quote(text.replaceAll(' ', '%s'))}`);
+   *  the quoting and hand the rest to the device shell as commands.
+   *
+   *  Chunked, because the device silently TRUNCATES a single `input text` at
+   *  ~243 characters: nothing fails, the field just ends up holding a prefix.
+   *  That reads as an app bug rather than a tool limit — a QA leg entering the
+   *  385-char license `key/activation` pair got "This license key isn't valid"
+   *  and had to rule the app out first. uiautomator's dump caps node text at
+   *  250 chars too, so the a11y tree cannot confirm a long field either
+   *  (pc_0235e3301770). 200 leaves room for the %s expansion of spaces. */
+  const TYPE_TEXT_CHUNK = 200;
+  const typeText = (text) => {
+    let last;
+    for (let i = 0; i < text.length; i += TYPE_TEXT_CHUNK) {
+      const chunk = text.slice(i, i + TYPE_TEXT_CHUNK);
+      last = shell(`input text ${quote(chunk.replaceAll(' ', '%s'))}`);
+    }
+    return last;
+  };
 
   /**
    * The accessibility tree as XML. This is the expensive call in the whole client

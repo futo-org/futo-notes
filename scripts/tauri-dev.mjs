@@ -18,7 +18,7 @@ import { execSync, spawn } from 'child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import { portsFor, slotOf } from './lib/slot.mjs';
+import { devBundleId, portsFor, slotOf } from './lib/slot.mjs';
 
 const repoRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim();
 
@@ -96,7 +96,7 @@ if (fakeUpdate)
   } else {
     const slot = slotOf(repoRoot);
     const vitePort = portsFor(repoRoot).tauriVite;
-    const identifier = `com.futo.notes.dev.wt${slot}`;
+    const identifier = devBundleId(repoRoot);
     const dataDir = join(repoRoot, '.tauri-data');
     const notesDir = join(dataDir, 'notes');
 

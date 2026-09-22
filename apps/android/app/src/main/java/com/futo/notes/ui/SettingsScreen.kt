@@ -60,6 +60,7 @@ import com.futo.notes.NotesStore
 import com.futo.notes.Prefs
 import com.futo.notes.storage.StorageMode
 import com.futo.notes.SyncManager
+import com.futo.notes.license.LicenseModel
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.Localization
 import com.futo.notes.ui.components.ConfirmDialog
@@ -87,6 +88,7 @@ private fun storageModeLabel(mode: StorageMode, localization: Localization): Str
 fun SettingsScreen(
     store: NotesStore,
     sync: SyncManager,
+    license: LicenseModel,
     themeMode: ThemeMode,
     onThemeMode: (ThemeMode) -> Unit,
     selectedLanguageTag: String?,
@@ -138,6 +140,11 @@ fun SettingsScreen(
         ) {
             Spacer(Modifier.height(8.dp))
 
+            // FIRST, at the top: mobile has no ambient "Unlicensed" label
+            // outside Settings, so this row's status text IS the label
+            // (docs/spec/license.md § States and copy).
+            LicenseSettingsSection(license)
+
             // The whole Sync surface is one "Sync" row: cloud icon,
             // connected-vs-local status, SYNCED/LOCAL badge. No separate account
             // header, no separate "Server" row (settings.md). Routes to SyncScreen.
@@ -151,7 +158,14 @@ fun SettingsScreen(
             }
 
             SettingsGroup(localization.localizedText("settings.sections.appearance")) {
-                SettingsRow(title = localization.localizedText("settings.appearance.theme")) {
+                // Label ABOVE the control, not beside it. A three-option
+                // segmented control wants ~250dp, and `SettingsRow` measures
+                // its trailing slot first — so at 360dp, the commonest Android
+                // width, the label was left less room than the word "Theme"
+                // and Compose broke it mid-word as "Them / e". Stacking is the
+                // same answer the License plate gives its own rows, and it
+                // cannot wrap at any width.
+                SettingsStackedRow(localization.localizedText("settings.appearance.theme")) {
                     Segmented(
                         options = listOf(
                             localization.localizedText("settings.appearance.light"),
@@ -311,6 +325,13 @@ fun SettingsScreen(
                     try {
                         withContext(NonCancellable) {
                             store.deleteAll { sync.disconnectForReset() }
+                            // The license is a preference, and Full reset wipes
+                            // preferences (docs/spec/license.md § Storage).
+                            // Last, because it touches nothing the step above
+                            // needs — and silently, since the user is already
+                            // looking at the result of a reset. A throwing
+                            // deleteAll skips it: nothing was wiped.
+                            license.clearForFullReset()
                         }
                     } catch (e: Exception) {
                         android.widget.Toast.makeText(
@@ -418,8 +439,11 @@ private fun SyncBadge(connected: Boolean) {
     }
 }
 
+/** The label + bordered card every Settings section is built from. Internal
+ *  rather than private so the License row (`LicenseSettingsSection.kt`) is the
+ *  same physical row as the ones below it. */
 @Composable
-private fun SettingsGroup(label: String, content: @Composable () -> Unit) {
+internal fun SettingsGroup(label: String, content: @Composable () -> Unit) {
     val c = FutoTheme.colors
     MicroLabel(label, Modifier.padding(start = 4.dp, top = 12.dp, bottom = 8.dp))
     Surface(
@@ -433,7 +457,7 @@ private fun SettingsGroup(label: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun SettingsRow(
+internal fun SettingsRow(
     title: String,
     subtitle: String? = null,
     onClick: (() -> Unit)? = null,
@@ -464,8 +488,31 @@ private fun SettingsRow(
     }
 }
 
+/**
+ * A settings row whose control is too wide to sit beside its label: the label
+ * goes above, and the control gets the row's full width.
+ *
+ * [SettingsRow] lays its trailing slot out first and gives the label whatever
+ * is left, which is right for a badge or a short value and wrong for anything
+ * that wants most of the row. At 360dp — the commonest Android width, and what
+ * the QA emulators run — that left the theme picker's label narrower than the
+ * word "Theme".
+ */
 @Composable
-private fun Divider() {
+internal fun SettingsStackedRow(title: String, content: @Composable () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    ) {
+        Text(title, style = FutoType.body, color = FutoTheme.colors.textPrimary)
+        Spacer(Modifier.height(10.dp))
+        content()
+    }
+}
+
+@Composable
+internal fun Divider() {
     HorizontalDivider(color = FutoTheme.colors.border, modifier = Modifier.padding(horizontal = 16.dp))
 }
 
@@ -473,11 +520,12 @@ private fun Divider() {
 @Composable
 private fun Segmented(options: List<String>, selectedIndex: Int, onSelect: (Int) -> Unit) {
     val c = FutoTheme.colors
-    SingleChoiceSegmentedButtonRow {
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
         options.forEachIndexed { i, label ->
             SegmentedButton(
                 selected = selectedIndex == i,
                 onClick = { onSelect(i) },
+                modifier = Modifier.weight(1f),
                 shape = SegmentedButtonDefaults.itemShape(index = i, count = options.size),
                 colors = SegmentedButtonDefaults.colors(
                     activeContainerColor = c.surfaceSelected,

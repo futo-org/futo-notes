@@ -98,6 +98,35 @@ Invoke-Step "Cloning repo (branch: $Branch)" {
 
 Set-Location C:\build\futo-notes
 
+# The only place a Rust suite runs on Windows, and the only build that compiles
+# the `#[cfg(not(unix))]` vault layer at all. A defect there reaches users
+# without failing anything first: github#48 shipped one for three releases —
+# the Windows implementation reported a missing parent FOLDER as an I/O error
+# instead of absence, so every note a peer put in a folder this client did not
+# have yet failed on every sync cycle, forever. The portable implementation is
+# now compiled under test on Unix too (futo-notes-core's vault_fs contract
+# tests), which is the fast guard; this step is the one that runs the shipped
+# Windows build's own code against real Win32 error codes. It sits before the
+# frontend build so it fails early, and needs no `dist/` because this crate
+# does not embed the frontend.
+#
+# futo-notes-core ONLY, and the scope is load-bearing rather than a trim.
+# This job deletes C:\build\futo-notes on entry, so nothing is cached: the
+# release build below compiles the world from scratch, and a debug-profile test
+# build shares none of it. Adding futo-notes-sync and futo-notes-store drags in
+# ring, zstd, rusqlite and Tantivy for a second time — measured at 4.6x this
+# crate's cold compile (13.3s -> 60.6s on a 32-core Linux box; 426M -> 2.5G of
+# target/). On this VM that is ~20 extra minutes on a job whose baseline is 20
+# and whose ceiling is 60, and pipeline 36527 duly died at exactly 3600s with
+# server_timeout_running and an empty log. futo-notes-core is where the cfg
+# branch lives and is the one crate free of C dependencies, which is also why
+# the Linux-side `cargo check --target x86_64-pc-windows-msvc` in
+# .gitlab-ci.yml covers exactly this crate. Widening either needs a measurement
+# and a bigger budget, not a longer timeout (M15).
+Invoke-Step "Rust tests (Windows)" {
+    cargo test -p futo-notes-core
+}
+
 # .nvmrc only exists now that the repo is cloned; that is why win-install-deps
 # installs fnm but no version. One native command per step: PowerShell 5.1
 # ignores $ErrorActionPreference for native exit codes, so a failed `fnm use`

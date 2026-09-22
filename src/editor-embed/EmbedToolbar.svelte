@@ -1,16 +1,18 @@
 <script lang="ts">
   import { TOOLBAR_GROUPS, TOOLBAR_DISMISS, type ToolbarItem } from '@futo-notes/editor';
-  import { TOOLBAR_EXEC } from '$features/editor/markdownToolbar';
   import { localizedText } from '$shared/localization';
-  import type { EditorView } from '@codemirror/view';
   import type { Component } from 'svelte';
   import {
     Bold,
     Italic,
     Strikethrough,
     Link,
-    Heading,
+    Heading1,
+    Heading2,
+    Heading3,
+    Type,
     TextQuote,
+    Code,
     List,
     ListOrdered,
     ListChecks,
@@ -19,6 +21,8 @@
     ChevronDown,
     ListIndentDecrease,
     ListIndentIncrease,
+    Undo2,
+    Redo2,
   } from '@lucide/svelte';
 
   const ICONS: Record<string, Component> = {
@@ -26,8 +30,12 @@
     Italic,
     Strikethrough,
     Link,
-    Heading,
+    Heading1,
+    Heading2,
+    Heading3,
+    Type,
     TextQuote,
+    Code,
     List,
     ListOrdered,
     ListChecks,
@@ -36,15 +44,18 @@
     ChevronDown,
     ListIndentDecrease,
     ListIndentIncrease,
+    Undo2,
+    Redo2,
   };
 
   interface Props {
-    getView: () => EditorView | null;
+    /** Runs the manifest command; false when the editor does not support it. */
+    onexec: (commandId: string) => boolean;
     onpickimage: (source: 'camera' | 'library') => void;
     ondismiss: () => void;
   }
 
-  let { getView, onpickimage, ondismiss }: Props = $props();
+  let { onexec, onpickimage, ondismiss }: Props = $props();
 
   function icon(item: ToolbarItem): Component {
     const c = ICONS[item.lucide];
@@ -55,26 +66,44 @@
   const DismissIcon = icon(TOOLBAR_DISMISS);
 
   function activate(item: ToolbarItem): void {
+    // Disabled (Undo/Redo with an empty stack — bridge `formatState.disabled`)
+    // is enforced here too, not just via the `disabled` DOM attribute below:
+    // this is the same guard `onclick` would be blocked by natively, kept
+    // explicit so the two can never drift apart.
+    if (disabledFormats.includes(item.id)) return;
     const action = item.action;
     if (action.kind === 'dismiss') {
       ondismiss();
     } else if (action.kind === 'pickImage') {
       onpickimage(action.source);
     } else {
-      const view = getView();
-      if (view) TOOLBAR_EXEC[item.id]?.(view);
+      onexec(item.id);
     }
   }
 
   let editorFocused = $state(false);
-  let cursorOnListLine = $state(false);
+  /* Caret in a list item OR a blockquote (bridge `cursorContext.inContainer`)
+   * — the honest name for the `when: 'inContainer'` gate below. Superseded
+   * the earlier `activeFormats.includes('quote')` guess at the same thing. */
+  let cursorInContainer = $state(false);
+  /* Manifest ids covering the caret — the bridge `formatState.active` set,
+   * fed by the embed host. */
+  let activeFormats = $state<string[]>([]);
+  /* Manifest ids INERT at the caret (Undo/Redo with an empty stack) — the
+   * bridge `formatState.disabled` set, same host, same message. */
+  let disabledFormats = $state<string[]>([]);
 
   export function setFocused(focused: boolean): void {
     editorFocused = focused;
   }
 
-  export function setCursorContext(onListLine: boolean): void {
-    cursorOnListLine = onListLine;
+  export function setCursorContext(inContainer: boolean): void {
+    cursorInContainer = inContainer;
+  }
+
+  export function setActiveFormats(active: string[], disabled: string[]): void {
+    activeFormats = active;
+    disabledFormats = disabled;
   }
 
   let bottomOffset = $state(0);
@@ -135,15 +164,22 @@
           <span class="toolbar-separator"></span>
         {/if}
         {#each group as item (item.id)}
-          {#if item.when !== 'onListLine' || cursorOnListLine}
+          {#if item.when !== 'inContainer' || cursorInContainer}
             {@const Icon = icon(item)}
+            {@const isDisabled = disabledFormats.includes(item.id)}
             <button
               class="toolbar-btn"
+              class:is-active={activeFormats.includes(item.id)}
+              class:is-disabled={isDisabled}
+              disabled={isDisabled}
               onmousedown={preventFocus}
               ontouchstart={preventFocus}
               onclick={() => activate(item)}
               aria-label={localizedText(item.localizationPath)}
-              ><Icon size={18} strokeWidth={item.action.kind === 'pickImage' ? 2 : 2.5} /></button
+              >{#if item.text}{item.text}{:else}<Icon
+                  size={18}
+                  strokeWidth={item.action.kind === 'pickImage' ? 2 : 2.5}
+                />{/if}</button
             >
           {/if}
         {/each}

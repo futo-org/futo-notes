@@ -6,7 +6,7 @@ Behaviors and constraints that hold across every surface and platform.
 
 - The UI shell renders immediately. **Never gate first render on filesystem
   I/O.** Theme, prefs, notes, and the search index load in the background and
-  apply reactively. → CLAUDE.md "Key Constraints"; `App.svelte` flips
+  apply reactively. → AGENTS.md M1 (gated render); `App.svelte` flips
   `initialized` synchronously. Native Android likewise reaches its first
   composition before reading theme/storage preferences or the migration
   journal; startup recovery then runs on `Dispatchers.IO` and applies
@@ -93,7 +93,7 @@ Behaviors and constraints that hold across every surface and platform.
     > QA; the window is short, and nobody has measured how reachable it is in
     > practice. → EditorSession.kt `acceptsEditorChange`, NoteEditorScreen.kt That same synchronous latch makes an
     Activity `onStop` unable to abort live sync before the migration's graceful
-    sync stop completes. Editor navigation captures the latest live CodeMirror
+    sync stop completes. Editor navigation captures the latest live editor
     body and persists-or-parks it before leaving the editor; Settings is reached
     only after that navigation commit. A dirty draft retained by an unexpected
     editor disposal is additionally flushed by the store under the migration
@@ -170,15 +170,19 @@ Behaviors and constraints that hold across every surface and platform.
   URL policy, and capability state; clipboard access is part of `PlatformFS`;
   the remaining capability files own config/root policies; and
   `src/lib/platform/tauri.ts` is only the stable public composition facade.
+- License parsing, verification, expiry, and activation are one Rust crate
+  (`futo-notes-license`) projected to every shell; see
+  [license.md](license.md).
 
 ## Performance
 
 - Book-length notes must stay responsive. On the open path an unbounded
-  synchronous full-document parse (`ensureSyntaxTree(..., doc.length, 5000)`) is
-  banned; instead the `LiveMarkdownPlugin` constructor seeds decorations with a
-  tightly time-boxed (≤200 ms) `ensureSyntaxTree(..., doc.length, 200)` parse,
-  then grows decorations incrementally as parsing continues
-  (`scheduleParseRefresh`). → src/features/editor/live-preview/LiveMarkdownPlugin.ts
+  synchronous full-document parse is banned: a note of 400 lines or more is
+  parsed in top-level chunks, the first of which mounts synchronously so the
+  first viewport is interactive, with the rest streamed in idle slices. Budgets
+  and the streaming rules live in [editor.md](editor.md) "Performance". →
+  src/features/editor/milkdown/progressiveLoad.ts,
+  src/features/editor/milkdown/markdownChunks.ts
 
 ## Appearance
 
@@ -211,7 +215,7 @@ Behaviors and constraints that hold across every surface and platform.
 
 - Dev/debug builds must never overwrite the production app or notes: a distinct
   bundle id (`com.futo.notes.dev`) and a distinct notes root
-  (`~/Documents/fake-notes` on desktop). → CLAUDE.md,
+  (`~/Documents/fake-notes` on desktop). → AGENTS.md M3,
   `apps/tauri/src-tauri/src/vault_location.rs`
 - Production native mobile builds use the production package/bundle id
   `com.futo.notes`; native debug builds use `com.futo.notes.dev` so local
@@ -298,7 +302,7 @@ Behaviors and constraints that hold across every surface and platform.
   button stuck in its hover state. → shared/dialogs/modal.css,
   crashReportDialog.css, settingsBlockingOverlay.css
 - `window.confirm()` / `window.alert()` don't block in Tauri's webview — use
-  `ask()` / `message()` from `@tauri-apps/plugin-dialog`. → CLAUDE.md
+  `ask()` / `message()` from `@tauri-apps/plugin-dialog`. → apps/tauri/AGENTS.md
 - Confirmation prompts go through `confirmDialog()` (`src/shared/dialogs/confirmDialog.ts`):
   `ask()` under Tauri, `window.confirm()` in the plain web shell (dev server,
   Playwright) where plugin-dialog has no backend and would reject. → confirmDialog.ts

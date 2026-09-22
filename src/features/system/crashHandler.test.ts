@@ -170,4 +170,74 @@ describe('installGlobalHandlers', () => {
     expect(queued).toHaveLength(1);
     expect(queued[0].error).toBe('Crash');
   });
+
+  // #007 — a ResizeObserver notification the browser couldn't deliver within
+  // a frame is not an app error; it must never reach the crash reporter.
+  it('drops "ResizeObserver loop completed with undelivered notifications" from onerror', async () => {
+    vi.resetModules();
+    const { installGlobalHandlers } = await import('./crashHandler');
+    installGlobalHandlers();
+
+    window.onerror!(
+      'ResizeObserver loop completed with undelivered notifications.',
+      'test.js',
+      1,
+      1,
+      new Error('ResizeObserver loop completed with undelivered notifications.'),
+    );
+
+    expect(window.localStorage.getItem(LS_QUEUE_KEY)).toBeNull();
+    expect(mockWriteAppData).not.toHaveBeenCalled();
+  });
+
+  it('drops "ResizeObserver loop limit exceeded" from onerror', async () => {
+    vi.resetModules();
+    const { installGlobalHandlers } = await import('./crashHandler');
+    installGlobalHandlers();
+
+    window.onerror!(
+      'ResizeObserver loop limit exceeded',
+      'test.js',
+      1,
+      1,
+      new Error('ResizeObserver loop limit exceeded'),
+    );
+
+    expect(window.localStorage.getItem(LS_QUEUE_KEY)).toBeNull();
+    expect(mockWriteAppData).not.toHaveBeenCalled();
+  });
+
+  it('drops a ResizeObserver rejection from onunhandledrejection', async () => {
+    vi.resetModules();
+    const { installGlobalHandlers } = await import('./crashHandler');
+    installGlobalHandlers();
+
+    const event = new Event('unhandledrejection') as PromiseRejectionEvent;
+    Object.defineProperty(event, 'reason', {
+      value: new Error('ResizeObserver loop completed with undelivered notifications.'),
+    });
+    window.onunhandledrejection!(event);
+
+    expect(window.localStorage.getItem(LS_QUEUE_KEY)).toBeNull();
+    expect(mockWriteAppData).not.toHaveBeenCalled();
+  });
+
+  it('still reports a real error whose message merely contains other text', async () => {
+    vi.resetModules();
+    const { installGlobalHandlers } = await import('./crashHandler');
+    installGlobalHandlers();
+
+    window.onerror!(
+      'TypeError: cannot read properties of undefined',
+      'test.js',
+      1,
+      1,
+      new Error('TypeError: cannot read properties of undefined'),
+    );
+
+    const queued = JSON.parse(window.localStorage.getItem(LS_QUEUE_KEY)!);
+    expect(queued).toHaveLength(1);
+    expect(queued[0].error).toBe('TypeError: cannot read properties of undefined');
+    expect(mockWriteAppData).toHaveBeenCalledTimes(1);
+  });
 });

@@ -61,6 +61,66 @@
  *      narrower v8 exists. Optional even within v8 — a host that never calls
  *      it gets overlay 0, correct for non-overlaying bars (Android's sibling
  *      layout).
+ *
+ * `formatState` (Notion-style toolbar active-state — see
+ * {@link FormatStateMessage}) is additive and ships WITHOUT a version bump: it
+ * is emitted only by the Milkdown editor, which reaches users only when the
+ * transition lands (docs/plan/milkdown-transition.md), and a host that doesn't
+ * handle it just drops the message (no highlighting, exactly today's
+ * behavior). Bumping BRIDGE_VERSION needs explicit sign-off (root AGENTS.md
+ * §11) — the transition does not do it.
+ *
+ * `formatState`'s `disabled` field (QA-003, Undo/Redo greyed out when their
+ * stacks are empty) shipped the SAME way, added to the message after it
+ * already existed: a host that reads `active` and ignores `disabled` just
+ * never greys anything out — exactly today's behavior for that host — so this
+ * is additive too and needed no version bump either.
+ *
+ * `haptic` (Notion-style block-drag feedback — see {@link HapticMessage})
+ * ships the SAME way: additive, no version bump, emitted only by the Milkdown
+ * editor's long-press block-drag path (`mobileBlockDnd.ts`), which BOTH native
+ * shells mount (`blockDragMode.ts`). A host without a case for it just drops the
+ * message (no haptic, exactly today's behavior).
+ *
+ * `blockDrag` ({@link BlockDragMessage}) is the third of that family, and on
+ * iOS the one the page cannot do without: WKWebView's own long-press text
+ * interaction — the magnifier loupe and the caret it drags — is a UIKit gesture
+ * the page has no way to cancel (measured: neither `pointer-events`,
+ * `touch-action`, `user-select`, cancelling `selectstart`/`selectionchange`,
+ * nor `preventDefault()` on the touch stream stops it, because WebKit commits
+ * to the gesture at touch-down). Only the shell that owns the WebView can
+ * suspend it, so the editor reports when a block is airborne and the shell
+ * decides what that means — which on Android is nothing at all (see
+ * {@link BlockDragMessage}). Additive, no version bump: a host without a case
+ * for it just drops the message and keeps exactly today's behavior — including
+ * today's loupe.
+ *
+ * `blockPress` ({@link BlockPressMessage}) is `blockDrag`'s earlier half, and
+ * ships the same way. `blockDrag` can only be posted once the editor's own
+ * long-press timer has fired, which leaves the whole touch-down-to-lift window
+ * unprotected: measured on iOS 26.5, WKWebView's text interaction fires at
+ * ~655ms with the editable focused (loupe + caret) and ~700ms unfocused (word
+ * selection), against the editor's 340ms lift — so nothing but the editor's own
+ * timer firing on time stands between a press and the OS magnifier. `blockPress`
+ * is posted at TOUCH-DOWN instead, so the shell can stand the OS gesture down
+ * before it can win. Android needs the same window for a much smaller job — the
+ * WebView's own long-press BUZZ, which lands 128-141ms after the editor's lift
+ * (measured) — and gets it from the same message. Additive, no version bump, and
+ * a host without a case for it keeps exactly the pre-`blockPress` behavior.
+ *
+ * `cursorContext`'s `inContainer` field ships the same way: additive, no
+ * version bump. `onListLine` already told a host whether the caret sat in a
+ * LIST item, which is what the native toolbars' `when: 'inContainer'`
+ * visibility rule (Indent/Outdent) keyed on — so a caret sitting in a
+ * blockquote instead never lit those buttons on either native shell, even
+ * though the desktop selection toolbar's `changeBlockIndent`
+ * (blockCommands.ts) already nests/un-nests a quote just fine (docs/spec/
+ * editor.md "Indent/Outdent showing only on list lines"). `inContainer`
+ * reports the manifest rule's actual condition — a list item OR a blockquote
+ * — and `onListLine` is unchanged, for anything that genuinely needs
+ * list-only semantics. A host that reads only `onListLine` keeps exactly
+ * today's behavior, and both native hosts fall back to `onListLine` when
+ * `inContainer` is absent — an older bundle meeting a newer host.
  */
 export const BRIDGE_VERSION = 8 as const;
 
@@ -263,14 +323,21 @@ export interface PickImageMessage {
 }
 
 /**
- * Emitted when the cursor's line context changes (deduped — only on actual
+ * Emitted when the cursor's context changes (deduped — only on actual
  * change). Drives the visibility of context-dependent NATIVE toolbar items
- * (Indent/Outdent show only on list lines). Hosts without a native toolbar
- * can ignore it.
+ * (Indent/Outdent). Hosts without a native toolbar can ignore it.
  */
 export interface CursorContextMessage {
   type: 'cursorContext';
+  /** The caret is in a LIST item specifically. Kept for hosts that only ever needed that. */
   onListLine: boolean;
+  /**
+   * The caret is in a list item OR a blockquote — the honest name for the
+   * toolbar manifest's `when: 'inContainer'` visibility rule (see the
+   * BRIDGE_VERSION doc comment above). Optional/additive: absent from an
+   * older bundle, in which case a host falls back to {@link onListLine}.
+   */
+  inContainer?: boolean;
 }
 
 /**
@@ -317,6 +384,132 @@ export interface OpenUrlMessage {
 }
 
 /**
+ * Emitted deduped (only when the set actually changes) on every selection
+ * change and content change, and again right after a native toolbar tap runs
+ * its command (so a tap reflects immediately rather than waiting for the next
+ * selection event). Drives Notion-style active-state highlighting on the
+ * keyboard toolbar — each host tints the matching button. `active`
+ * is the subset of toolbar-manifest exec ids (`TOOLBAR_EXEC_IDS` in
+ * toolbar.ts, e.g. `'bold'`, `'heading-2'`, `'task-list'`) that cover the
+ * current cursor/selection; a task-list item never reports `'bullet-list'`
+ * even though it is schema-nested inside one, so the two buttons don't both
+ * light up.
+ *
+ * Milkdown only (`MilkdownEditor.svelte`): the shipping CodeMirror editor
+ * (`?cm`) never emits it, so a host that mounts that engine simply never sees
+ * one and no button lights up. All three toolbar surfaces consume it —
+ * `EditorToolbarState` on iOS, `EditorHost.activeFormats` on Android, and the
+ * embed fallback's own `EmbedToolbar`. See {@link BRIDGE_VERSION}'s doc comment
+ * for why this ships without a version bump.
+ *
+ * `disabled` is the subset of manifest ids that are currently INERT — today
+ * only `'undo'`/`'redo'`, greyed and non-tappable while prosemirror-history's
+ * `undoDepth`/`redoDepth` reports nothing to undo/redo. Deduped and emitted on
+ * the exact same triggers as `active`, in the same message, so a host reads
+ * both off one event rather than reconciling two.
+ */
+export interface FormatStateMessage {
+  type: 'formatState';
+  active: string[];
+  disabled: string[];
+}
+
+/**
+ * Emitted by the iOS long-press mobile block-drag path (`mobileBlockDnd.ts`)
+ * at the moments the interaction wants tactile feedback:
+ *
+ * - `'lift'` when a ~330-350ms hold picks the block up (the moment it visibly
+ *   scales/shadows).
+ * - `'move'` each time the drop indicator lands on a DIFFERENT top-level
+ *   boundary while the finger travels — the tick that tells a thumb the block
+ *   would land somewhere new without looking. Consecutive resolutions to the
+ *   same boundary are silent, so the rate is "once per place", not once per
+ *   pointermove.
+ * - `'drop'` when a release COMMITS an actual reorder as one transaction. A
+ *   release back at the source position is a true no-op (no transaction, no
+ *   history entry) and posts no `'drop'` — see the module doc comment there.
+ *
+ * Emitted by BOTH native shells, which mount the same long-press block drag
+ * (`blockDragMode.ts`); the desktop browser mounts the ⠿ gutter-handle drag
+ * instead and never constructs this plugin, so there is no third consumer to
+ * add. A host without a case for a kind just drops it, which is why `'move'`
+ * needed no version bump: a host that only knows lift/drop keeps exactly its
+ * old feel.
+ */
+export interface HapticMessage {
+  type: 'haptic';
+  kind: 'lift' | 'move' | 'drop';
+}
+
+/**
+ * Emitted by the same long-press block-drag path (`mobileBlockDnd.ts`) when
+ * a block LEAVES the page (`active: true`, at the lift) and again the moment
+ * the gesture resolves in any way at all — committed reorder, drop back at the
+ * source, or a cancel the system forced (`active: false`). Every exit posts it,
+ * unlike `haptic`, which is silent on a no-op drop: a host that suspends
+ * something for the duration of a drag must be told when the drag is over even
+ * if nothing happened.
+ *
+ * What the iOS shell does with it: suspends the WebView's text-interaction
+ * gestures, so the OS magnifier does not appear on top of the block being
+ * dragged (see {@link BRIDGE_VERSION}'s doc comment).
+ *
+ * What the Android shell does with it: NOTHING, and that is a measurement, not
+ * an oversight. On a moto g play 2023 (Android 13, System WebView 151), holding
+ * a block still for 1.2-1.6s — editable focused and unfocused, five runs — drew
+ * no word highlight, no selection handles, no floating Cut/Copy action mode and
+ * no magnifier over the ghost. Chromium, unlike WebKit, lets the page keep the
+ * defences `mobileBlockDnd.ts` already mounts (cancelled
+ * `selectstart`/`contextmenu`, a re-collapsed selection, `preventDefault()` on
+ * the drag's touch stream), so there is nothing left for the shell to stand
+ * down. The one thing that DID leak is a haptic, and it arrives before any
+ * lift, so the shell handles it from {@link BlockPressMessage} instead.
+ */
+export interface BlockDragMessage {
+  type: 'blockDrag';
+  /** True while a block is airborne. */
+  active: boolean;
+}
+
+/**
+ * Emitted by the same long-press block-drag path (`mobileBlockDnd.ts`) the
+ * instant a finger lands on a block (`pressed: true`) and again the instant that
+ * press resolves in ANY way (`pressed: false`) — it lifted, it was an ordinary
+ * tap, it turned into a scroll, or the system took the touch away. Strictly
+ * wider than {@link BlockDragMessage}: every `blockDrag true` is inside a
+ * `blockPress true`, and a press that never lifts posts no `blockDrag` at all.
+ *
+ * What the iOS shell does with it: stands down WKWebView's DELAYED text
+ * interaction (the loupe long press, the tap-and-a-half select) for the
+ * duration of the press, while leaving the tap recognisers — the ones that place
+ * a caret and select a word — alone. That is the difference from `blockDrag`,
+ * which suspends the whole text-interaction stack and the
+ * `isTextInteractionEnabled` preference with it; that is safe only once the
+ * gesture is known to be a drag, and it arrives 340ms too late to be the only
+ * defence (see {@link BRIDGE_VERSION}'s doc comment for the measured numbers).
+ *
+ * What the Android shell does with it: silences the WebView's OWN long-press
+ * haptic for the duration of the press, and nothing else. Chromium's
+ * long-press recogniser trips around touch-down + 480ms — 128-141ms after the
+ * editor's 340ms lift, measured over five holds on a moto g play 2023 (Android
+ * 13, System WebView 151) — so without this the user feels two impacts a
+ * seventh of a second apart instead of one pickup. Its VISIBLE half needs no
+ * suspension at all (see {@link BlockDragMessage}), which is why Android acts
+ * on this message and not on that one.
+ *
+ * Every `true` is matched by exactly one `false` from the plugin's single
+ * disarm path: a host that suspends anything on `true` and is never told the
+ * press ended would leave the editor unselectable — or, on Android, mute — for
+ * the rest of the session. Both shells therefore also reset on page load, for
+ * the press that a dying page never resolves.
+ */
+export interface BlockPressMessage {
+  type: 'blockPress';
+  /** True while a finger is down on a block and the press may still lift it. */
+  pressed: boolean;
+}
+
+/**
  * Emitted after each active find recomputation or step. `current` is one-based
  * (zero only when there are no matches); `label` is the canonical display text
  * native bars render verbatim so count wording cannot drift across shells.
@@ -346,7 +539,11 @@ export type FutoEditorOutboundMessage =
   | PickImageMessage
   | CursorContextMessage
   | SaveImageDataMessage
-  | PasteClipboardImageMessage;
+  | PasteClipboardImageMessage
+  | FormatStateMessage
+  | HapticMessage
+  | BlockDragMessage
+  | BlockPressMessage;
 
 /**
  * Every `type` value {@link FutoEditorOutboundMessage} can carry. Consumed by
@@ -370,6 +567,10 @@ export const OUTBOUND_MESSAGE_TYPES = [
   'cursorContext',
   'saveImageData',
   'pasteClipboardImage',
+  'formatState',
+  'haptic',
+  'blockDrag',
+  'blockPress',
 ] as const;
 
 // Distributive-conditional mutual-extends trick for exact type equality —
@@ -406,16 +607,37 @@ export interface AndroidFutoBridgeHost {
  * native shells receive the SAME message shapes.
  */
 export function postToHost(message: FutoEditorOutboundMessage): void {
-  const w = globalThis as unknown as {
-    webkit?: { messageHandlers?: { futoBridge?: IosFutoBridgeHost } };
-    futoBridge?: AndroidFutoBridgeHost;
-  };
-  const ios = w.webkit?.messageHandlers?.futoBridge;
+  const { ios, android } = bridgeHosts();
   if (ios) {
     ios.postMessage(message);
     return;
   }
-  if (w.futoBridge && typeof w.futoBridge.postMessage === 'function') {
-    w.futoBridge.postMessage(JSON.stringify(message));
-  }
+  if (android) android.postMessage(JSON.stringify(message));
+}
+
+/**
+ * Whether a native host is listening at all — i.e. whether {@link postToHost}
+ * reaches anyone. The bundle also runs with no host (Playwright,
+ * `pnpm run dev` in a browser), and behavior that only makes
+ * sense with a host to answer it — image paste hands the bytes to the shell and
+ * waits for `insertImage` back — must not be armed there.
+ */
+export function hasNativeBridgeHost(): boolean {
+  const { ios, android } = bridgeHosts();
+  return Boolean(ios ?? android);
+}
+
+function bridgeHosts(): {
+  ios: IosFutoBridgeHost | undefined;
+  android: AndroidFutoBridgeHost | undefined;
+} {
+  const w = globalThis as unknown as {
+    webkit?: { messageHandlers?: { futoBridge?: IosFutoBridgeHost } };
+    futoBridge?: AndroidFutoBridgeHost;
+  };
+  const android = w.futoBridge;
+  return {
+    ios: w.webkit?.messageHandlers?.futoBridge,
+    android: android && typeof android.postMessage === 'function' ? android : undefined,
+  };
 }

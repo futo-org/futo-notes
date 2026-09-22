@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Search, X } from '@lucide/svelte';
   import type { NotePreview } from '$shared/types/note';
   import { search } from '$features/notes/notes.svelte';
   import { dismissable } from '$shared/dialogs/dismissable';
@@ -102,20 +103,7 @@
   <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
   <div class="search-panel" onclick={(e) => e.stopPropagation()} onkeydown={handleKeydown}>
     <div class="search-input-row">
-      <svg
-        class="search-icon"
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <circle cx="11" cy="11" r="8" />
-        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-      </svg>
+      <Search class="search-icon" size={20} />
       <input
         bind:this={inputEl}
         type="text"
@@ -132,19 +120,7 @@
             inputEl?.focus();
           }}
         >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
+          <X size={18} />
         </button>
       {/if}
     </div>
@@ -220,7 +196,7 @@
     flex-shrink: 0;
   }
 
-  .search-icon {
+  :global(.search-icon) {
     color: var(--color-muted);
     flex-shrink: 0;
   }

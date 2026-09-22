@@ -66,6 +66,12 @@ internal interface OpenNoteEffects {
  * [runWork], so taking the same lock IS waiting for the in-flight one. A
  * destructive drain additionally latches [isClosing] first, which makes every
  * workflow queued behind it return `null` instead of touching the note.
+ *
+ * The lock only orders work that has already reached [runWork]. A picker round
+ * trip (image insert) can return and queue its own [runWork] call on a later
+ * dispatch than an exit's, so [EditorExitEffects.awaitPendingWork] runs before
+ * every drain to close that gap — an exit that reached the lock first used to
+ * drain a stale, empty body and delete the note out from under the insert.
  */
 internal enum class EditorExit {
     /** Back, the system back gesture, or a resolved wikilink. */
@@ -123,6 +129,35 @@ internal interface EditorExitEffects {
      * already fenced.
      */
     fun prepare() {}
+
+    /**
+     * Suspend until an async producer that has not yet reached [EditorSession.runWork]
+     * settles, so the drain below captures its result instead of racing it.
+     * [runWork] only serializes work that is ALREADY inside the lock; a picker
+     * round trip (image insert) can return and queue its own [EditorSession.runWork]
+     * call on a later dispatch than this exit's, so the lock alone does not
+     * order them — an exit that reached the lock first would drain the stale
+     * body and, seeing it empty and the note untouched, delete it out from
+     * under the insert still in flight. Called once, right after [prepare],
+     * before the drain.
+     *
+     * [EditorExit.NAVIGATE] and [EditorExit.MOVE] both override this: neither
+     * exit disposes the editor as part of its OWN [perform] the way navigation
+     * used to be assumed to, but navigation's `perform` does leave (see
+     * `navigateAfterSaving`), so a body it drains stale is gone for good. Move
+     * keeps the same attachment open afterward, so racing it costs only a
+     * window where the on-disk copy briefly lags the live one — waiting here
+     * removes that window instead of leaving it to the ordinary autosave to
+     * close.
+     *
+     * [EditorExit.DELETE] deliberately does NOT override this. It already
+     * latches [isClosing] before its own drain runs, which makes ANY
+     * [EditorSession.runWork] queued behind it — including a pending image
+     * insert — return null without running: the insert's own file write never
+     * happens, so nothing is orphaned, and delete is not held up finishing
+     * work whose only destination is a note the user just chose to discard.
+     */
+    suspend fun awaitPendingWork() {}
 
     /**
      * Stop the debounced body save. Called as the FIRST step inside the drain,
@@ -358,49 +393,69 @@ internal class EditorSession(
         effects.prepare()
 
         scope.launch {
-            var failure: EditorExitFailure? = null
-            val outcome = drain(destructive = plan.closes) {
-                if (!effects.isAttached()) return@drain false
-                effects.cancelPendingSave()
-                val body = effects.captureBody()
-                if (body == null) {
-                    failure = EditorExitFailure.CAPTURE
-                    return@drain false
+            // `succeeded` gates the unlatch in `finally` below: a completed
+            // NAVIGATE/MOVE/DELETE leaves its latches set on purpose (the
+            // screen is going away), so only an exit that did NOT leave
+            // resets them. The `finally` — not just the old refusal branch —
+            // is what makes that reset run when an effect THROWS instead of
+            // returning false: `perform()`/`captureBody()`/`commitBody()` are
+            // arbitrary suspend calls into the shell, and an uncaught
+            // exception from any of them used to skip straight past the
+            // unlatch code, leaving `isInteractionLocked` true forever — Back,
+            // the toolbar, and every text field stayed dead until process
+            // death (F3).
+            var succeeded = false
+            try {
+                effects.awaitPendingWork()
+                var failure: EditorExitFailure? = null
+                val outcome = drain(destructive = plan.closes) {
+                    if (!effects.isAttached()) return@drain false
+                    effects.cancelPendingSave()
+                    val body = effects.captureBody()
+                    if (body == null) {
+                        failure = EditorExitFailure.CAPTURE
+                        return@drain false
+                    }
+                    if (!effects.commitBody(body)) {
+                        failure = EditorExitFailure.BODY
+                        return@drain false
+                    }
+                    if (plan.commitsTitle && !effects.commitTitle()) {
+                        failure = EditorExitFailure.TITLE
+                        return@drain false
+                    }
+                    if (!effects.isAttached()) return@drain false
+                    if (!plan.performsInsideDrain) return@drain true
+                    effects.perform().also { if (!it) failure = EditorExitFailure.ACTION }
                 }
-                if (!effects.commitBody(body)) {
-                    failure = EditorExitFailure.BODY
-                    return@drain false
-                }
-                if (plan.commitsTitle && !effects.commitTitle()) {
-                    failure = EditorExitFailure.TITLE
-                    return@drain false
-                }
-                if (!effects.isAttached()) return@drain false
-                if (!plan.performsInsideDrain) return@drain true
-                effects.perform().also { if (!it) failure = EditorExitFailure.ACTION }
-            }
-            if (outcome == null) failure = EditorExitFailure.REJECTED
+                if (outcome == null) failure = EditorExitFailure.REJECTED
 
-            val left = when {
-                outcome != true -> false
-                plan.performsInsideDrain -> true
-                else -> effects.perform().also {
-                    if (!it) failure = EditorExitFailure.ACTION
+                val left = when {
+                    outcome != true -> false
+                    plan.performsInsideDrain -> true
+                    else -> effects.perform().also {
+                        if (!it) failure = EditorExitFailure.ACTION
+                    }
+                }
+
+                if (left) {
+                    succeeded = true
+                    effects.onSucceeded()
+                    return@launch
+                }
+                failure?.let(effects::onFailed)
+            } finally {
+                // A refused exit — including one an effect ended by throwing —
+                // must leave the editor usable and retryable: unlatch
+                // everything this call latched.
+                if (!succeeded) {
+                    if (plan.locksInteraction) {
+                        exiting = false
+                        setInteractionLocked(false)
+                    }
+                    if (plan.closes) closed = false
                 }
             }
-
-            if (left) {
-                effects.onSucceeded()
-                return@launch
-            }
-            // A refused exit must leave the editor usable and retryable: unlatch
-            // everything this call latched, then report why.
-            if (plan.locksInteraction) {
-                exiting = false
-                setInteractionLocked(false)
-            }
-            if (plan.closes) closed = false
-            failure?.let(effects::onFailed)
         }
     }
 

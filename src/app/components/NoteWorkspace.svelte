@@ -1,35 +1,37 @@
 <script lang="ts">
-  import { EditorSelection, type SelectionRange } from '@codemirror/state';
-  import type { EditorView } from '@codemirror/view';
-  import type { SetEditorContentOptions } from '$features/editor/editorContentSync';
-  import type { EditorLinkGesture } from '$features/editor/interactions/editorPointerInteractions';
+  import type { EditorLinkGesture } from '$features/editor/editorLinkGesture';
 
-  import MarkdownEditor from '$features/editor/MarkdownEditor.svelte';
+  import MilkdownEditor from '$features/editor/milkdown/MilkdownEditor.svelte';
+  import { FindPanel, type FindBarState } from '$features/editor/milkdown/find';
   import NoteTagBar from '$features/editor/NoteTagBar.svelte';
   import type { NoteSession } from '$features/notes/noteSession.svelte';
   import type { NotePreview } from '$shared/types/note';
   import FolderPickerModal from '$features/folders/FolderPickerModal.svelte';
+  import { openExternalUrl } from '$lib/platform/openExternalUrl';
   import { localizedText } from '$shared/localization';
 
   import type { createCurrentNoteActions } from '../createCurrentNoteActions.svelte';
   import NoteActionsMenu from './NoteActionsMenu.svelte';
 
-  // The subset of the (frozen) editor's imperative API the shell drives.
+  // The subset of the editor's imperative API the shell drives.
   export interface EditorApi {
-    setContent: (text: string, options?: SetEditorContentOptions) => void;
-    openNote: (noteId: string | null, text: string) => void;
-    retargetOpenNote: (fromId: string | null, toId: string) => void;
-    forgetNoteHistory: (noteIds: readonly string[]) => void;
+    setContent: (text: string) => void;
+    openNote: (text: string) => void;
+    applyEdit: (markdown: string) => void;
+    insertMarkdown: (text: string) => void;
     focus: () => void;
     blur: () => void;
-    openFind: () => void;
-    stepFind: (direction: 1 | -1) => void;
     getContent: () => string | undefined;
     hasFocus: () => boolean;
     isComposing: () => boolean;
-    getView: () => EditorView | null;
     refreshDecorations: () => void;
-    setCaret: (at: SelectionRange) => void;
+    openFind: () => void;
+    stepFind: (direction: 1 | -1) => void;
+    setFindQuery: (query: string) => void;
+    setFindOverlayInset: (bottomOverlayPx: number) => void;
+    dismissFind: () => void;
+    contentElement: () => HTMLElement | null;
+    placeCaretAtCoords: (x: number, y: number) => boolean;
   }
 
   interface Props {
@@ -60,7 +62,17 @@
 
   let editorFocused = $state(false);
   let tagBarEl: HTMLElement | undefined = $state(undefined);
-  let findPanelHost: HTMLDivElement | undefined = $state(undefined);
+  /* The find bar's contents, reported by the editor's find engine. The bar is
+   * SHELL chrome rather than editor chrome because it spans the whole note
+   * pane, and because the native shells — which never mount this component —
+   * draw their own. → docs/spec/editor.md "Find in note" */
+  let find: FindBarState = $state({
+    open: false,
+    query: '',
+    label: '',
+    hasMatches: false,
+    focusToken: 0,
+  });
 
   function handleFocusChange(focused: boolean): void {
     editorFocused = focused;
@@ -70,11 +82,6 @@
   function isPlainPress(event: MouseEvent): boolean {
     if (event.button !== 0) return false;
     return !(event.shiftKey || event.altKey || event.metaKey || event.ctrlKey);
-  }
-
-  // No coords means a note that is nothing but its hidden tag block.
-  function canPlaceCaretAt(view: EditorView, at: number): boolean {
-    return view.coordsAtPos(at) !== null;
   }
 
   // The side chrome is outside the editor surface and owns deselection. → docs/spec/editor.md
@@ -92,16 +99,13 @@
 
   // The bar sits above the editor, so its slack reaches down into the first line.
   function reachFromTagBar(event: MouseEvent): boolean {
-    const view = editorApi?.getView();
-    if (!view) return false;
-    const top = view.contentDOM.getBoundingClientRect().top;
-    const at = view.posAtCoords({ x: event.clientX, y: top + 1 }, false);
-    if (!canPlaceCaretAt(view, at)) return false;
+    const contentEl = editorApi?.contentElement();
+    if (!contentEl) return false;
+    const top = contentEl.getBoundingClientRect().top;
 
     event.preventDefault();
     editorApi?.focus();
-    editorApi?.setCaret(EditorSelection.cursor(at));
-    return true;
+    return editorApi?.placeCaretAtCoords(event.clientX, top + 1) ?? false;
   }
 </script>
 
@@ -135,26 +139,35 @@
   <NoteTagBar
     bind:element={tagBarEl}
     content={session.content}
-    getEditorView={() => editorApi?.getView() ?? null}
+    readMarkdown={() => editorApi?.getContent()}
+    writeMarkdown={(markdown) => editorApi?.applyEdit(markdown)}
     {notes}
   />
 
-  <!-- Created before MarkdownEditor mounts so CodeMirror can target it, then
-       flex-ordered after the editor as the pane's bottom-docked panel host. -->
-  <div class="editor-find-panel-host" bind:this={findPanelHost}></div>
-
   <div class="editor-container">
-    <MarkdownEditor
+    <MilkdownEditor
       bind:this={editorApi}
-      bottomPanelContainer={findPanelHost}
-      content={session.content}
-      scrollParent={noteBodyEl ?? null}
       onchange={(content) => session.debouncedSave(content)}
       onfocuschange={handleFocusChange}
       {oncompositionend}
       {onopenlink}
+      onopenurl={openExternalUrl}
+      onfindstate={(state) => (find = state)}
     />
   </div>
+
+  {#if find.open}
+    <FindPanel
+      query={find.query}
+      label={find.label}
+      hasMatches={find.hasMatches}
+      focusToken={find.focusToken}
+      onquery={(value) => editorApi?.setFindQuery(value)}
+      onstep={(direction) => editorApi?.stepFind(direction)}
+      onheight={(px) => editorApi?.setFindOverlayInset(px)}
+      onclose={() => editorApi?.dismissFind()}
+    />
+  {/if}
 </div>
 
 {#if active}
@@ -162,7 +175,6 @@
     open={actions.menuOpen}
     ontoggle={actions.toggleMenu}
     onclose={actions.closeMenu}
-    ongraphview={actions.graphView}
     oncopypath={actions.copyFilePath}
     onmove={actions.openMovePicker}
     ondelete={actions.deleteCurrentNote}

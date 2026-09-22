@@ -64,14 +64,45 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Material3.DayNight.NoActionBar"
         android:usesCleartextTraffic="true">
+        <!-- singleTop so a `futonotes://` link delivered while the app is
+             already running arrives at the LIVE activity via onNewIntent,
+             instead of stacking a second MainActivity that would re-run the
+             whole startup (a second NotesStore over the same vault). This is
+             the only activity, so it is always the top of the task. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|locale|layoutDirection"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- The `futonotes` URL scheme (docs/spec/license.md § Deep link).
+                 FUTOpay's activate-redirect page opens
+                 futonotes://license/{key}/{activation}; BROWSABLE is what lets
+                 a browser hand it over.
+
+                 Scheme only, deliberately: no android:host="license". Which
+                 links this app defines is the CRATE's verdict
+                 (`licenseHandleDeepLink` → parse_deep_link), on all three
+                 platforms — a host filter here would move half of that rule
+                 into the manifest, where no test of the Rust rules can see it,
+                 and the two halves would then have to be kept in step by hand.
+                 Everything the crate does not define is ignored silently, which
+                 is exactly what the spec asks for. iOS registers the same way
+                 (CFBundleURLSchemes carries the scheme, nothing else).
+
+                 LicenseSurfaceTest asserts this filter answers the crate's
+                 licenseDeepLinkScheme(), so a manifest that lost it fails
+                 rather than silently never receiving a link. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="futonotes" />
             </intent-filter>
         </activity>
 

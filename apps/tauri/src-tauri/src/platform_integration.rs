@@ -20,7 +20,11 @@ pub(crate) fn configure_app(app: &tauri::AppHandle) -> Result<(), Box<dyn std::e
     #[cfg(desktop)]
     if std::env::var("FUTO_NOTES_MULTI_INSTANCE").is_err() {
         app.plugin(tauri_plugin_single_instance::init(
-            |app, _arguments, _cwd| {
+            |app, arguments, _cwd| {
+                // On Linux and Windows a `futonotes://` link launches a second
+                // process whose only argument is the URL; single-instance hands
+                // that argv here, and it is the only place the link appears.
+                crate::license::handle_single_instance_arguments(app, &arguments);
                 if let Some(window) = app.get_webview_window("main") {
                     // The window starts hidden (window_reveal): a second launch
                     // during that gap must reveal it, not just focus a window

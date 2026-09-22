@@ -1,4 +1,4 @@
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { readFile, writeFile } from '@tauri-apps/plugin-fs';
 import { IMAGE_EXTENSIONS } from '@futo-notes/editor';
 
@@ -10,7 +10,10 @@ import {
 
 import type { PickedImage, PlatformFS } from '../types';
 
-type TauriImages = Pick<PlatformFS, 'saveImageBytes' | 'getImageUrl' | 'pickImages'>;
+type TauriImages = Pick<
+  PlatformFS,
+  'saveImageBytes' | 'saveImagePath' | 'getImageUrl' | 'pickImages' | 'pasteClipboardImage'
+>;
 
 interface TauriImageDependencies {
   getNotesRoot: () => Promise<string>;
@@ -70,12 +73,14 @@ export function createTauriImages({ getNotesRoot }: TauriImageDependencies): Tau
     return assetProtocolCapability;
   }
 
+  async function saveImageBytes(data: ArrayBuffer, extension: string): Promise<string> {
+    const filename = createImageFilename(extension);
+    await writeFile(`${await getNotesRoot()}/${filename}`, new Uint8Array(data));
+    return filename;
+  }
+
   return {
-    async saveImageBytes(data, extension) {
-      const filename = createImageFilename(extension);
-      await writeFile(`${await getNotesRoot()}/${filename}`, new Uint8Array(data));
-      return filename;
-    },
+    saveImageBytes,
 
     async getImageUrl(filename) {
       validateImageFilename(filename);
@@ -88,6 +93,19 @@ export function createTauriImages({ getNotesRoot }: TauriImageDependencies): Tau
       return URL.createObjectURL(
         new Blob([new Uint8Array(bytes)], { type: imageMimeForExtension(extension) }),
       );
+    },
+
+    async saveImagePath(sourcePath) {
+      const extension = validateImageExtension(extensionOf(sourcePath));
+      const bytes = await readFile(sourcePath);
+      return saveImageBytes(
+        bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        extension,
+      );
+    },
+
+    pasteClipboardImage() {
+      return invoke<string>('fs_paste_clipboard_image');
     },
 
     async pickImages(options) {

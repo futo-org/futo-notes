@@ -204,7 +204,6 @@
       },
       "actions": {
         "optionsAccessibilityLabel": "笔记选项",
-        "graphView": "关系图",
         "copyFilePath": "复制文件路径",
         "moveToFolder": "移至文件夹",
         "moveToFolderEllipsis": "移至文件夹…",
@@ -213,7 +212,6 @@
         "moreAccessibilityLabel": "更多"
       },
       "shareChooserTitle": "共享笔记",
-      "graphComingSoon": "关系图功能即将推出。",
       "pathCopied": "已复制路径",
       "unavailable": "该笔记已不可用。",
       "movedTo": "已移至{destination}",
@@ -397,10 +395,11 @@
         "addTagShort": "+ 标签"
       },
       "toolbar": {
+        "undo": "撤销",
+        "redo": "重做",
         "bold": "粗体",
         "italic": "斜体",
         "strikethrough": "删除线",
-        "heading": "标题",
         "bulletList": "项目符号列表",
         "orderedList": "有序列表",
         "taskList": "任务列表",
@@ -410,7 +409,12 @@
         "indent": "增加缩进",
         "takePhoto": "拍照",
         "chooseFromLibrary": "从图库中选择",
-        "dismissKeyboard": "收起键盘"
+        "dismissKeyboard": "收起键盘",
+        "paragraph": "正文",
+        "headingOne": "标题 1",
+        "headingTwo": "标题 2",
+        "headingThree": "标题 3",
+        "codeBlock": "代码块"
       },
       "selectionToolbar": {
         "accessibilityLabel": "文本格式",

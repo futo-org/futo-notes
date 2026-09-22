@@ -27,6 +27,9 @@ export const STATE_FIELDS = [
   'movingNotes',
   'awaitingStorageConfirmation',
   'shellVisible',
+  // The License row's state: LOADING until the stored pair has been read off
+  // IO, then UNLICENSED / LICENSED / EXPIRED as Rust judged it.
+  'license',
 ];
 
 const ACK_PATTERN = /testhook (ok|unknown|failed|missing) (\S+)(?: (.*))?$/;

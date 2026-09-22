@@ -21,9 +21,9 @@ and native Android. A requirement exists in one place even when a platform doesn
 - Intended divergence is stated as such ("intentional platform difference, not a gap"), so it
   never reads as an accident.
 - Verified behavior may carry a dated note ("Verified on the emulator 2026-06-09").
-- **Layering:** the spec sits above `tests/conformance/*.json` (TS↔Rust rule parity) and
-  `markdown-spec/cases/*.yaml` (editor decoration/cursor fixtures). Reference those corpora,
-  never duplicate their cases as prose.
+- **Layering:** the spec sits above `tests/conformance/*.json` (TS↔Rust rule parity) and the
+  editor's own suites (`tests/editor-embed-milkdown*.spec.ts`, `tests/editor-gauntlet/`).
+  Reference those corpora, never duplicate their cases as prose.
 - The `> **Gap:**` notes in the area files ARE the gap inventory — nothing generates an index from
   them. List every open gap with `rg '> \*\*Gap' docs/spec/`.
 

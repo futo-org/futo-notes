@@ -12,6 +12,15 @@
   --color-text-inverse: #fcfcfc;
   --color-active-line: #efefef;
   --color-selection: #ffe4d1;
+  /* #016: inline code's own fill — `--color-surface` sits only ~3.5 L*
+     units off `--color-bg` (barely visible), so inline code gets a token
+     tuned for a clearly visible step instead of reusing that one. */
+  --color-code-bg: #e2e2e2;
+  /* Find in note (docs/spec/editor.md): every match, and the current one.
+     Both sit UNDER the text rather than replacing its colour, so a match
+     inside a heading, a link or a fence keeps its own styling. */
+  --color-find-match: #ffd8a8;
+  --color-find-match-current: #ff9f45;
 
   --ink-rgb: 15, 15, 15;
   --paper-rgb: 252, 252, 252;
@@ -42,6 +51,9 @@
   --color-text-inverse: #0a0a0a;
   --color-active-line: #1f1f1f;
   --color-selection: #6b3f1d;
+  --color-code-bg: #2a2a2a;
+  --color-find-match: #4a3117;
+  --color-find-match-current: #8a4f16;
 
   --ink-rgb: 250, 250, 250;
   --paper-rgb: 10, 10, 10;

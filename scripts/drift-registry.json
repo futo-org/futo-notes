@@ -1,9 +1,9 @@
 {
-  "_comment": "AGENTS.md 'Drift watchlist' as enforced code \u2014 architecture-hardening.md R1. Every PERMITTED same-logic-in->=2-places duplicate in this repo is enumerated here with its copies (file + a regex that must still match there) and its lock (the fixture/generated-file/test that catches drift, or 'unlocked' when none exists yet). scripts/drift-check.mjs (just check-drift / just check) enforces: (a) every copy exists where claimed, (b) every declared lock file exists and lockStatus is consistent with whether locks are registered, (c) for entries with a 'scan' block, no NEW file outside the registered copies matches the concept's detection pattern. Registration friction is the feature \u2014 do not add entries for concepts that haven't actually drifted or burned us; do not delete an entry because its pattern is inconvenient, tighten the pattern instead.",
+  "_comment": "AGENTS.md 'Drift watchlist' as enforced code — architecture-hardening.md R1. Every PERMITTED same-logic-in->=2-places duplicate in this repo is enumerated here with its copies (file + a regex that must still match there) and its lock (the fixture/generated-file/test that catches drift, or 'unlocked' when none exists yet). scripts/drift-check.mjs (just check-drift / just check) enforces: (a) every copy exists where claimed, (b) every declared lock file exists and lockStatus is consistent with whether locks are registered, (c) for entries with a 'scan' block, no NEW file outside the registered copies matches the concept's detection pattern. Registration friction is the feature — do not add entries for concepts that haven't actually drifted or burned us; do not delete an entry because its pattern is inconvenient, tighten the pattern instead.",
   "entries": [
     {
       "concept": "note-rules-ts-rust",
-      "description": "Per-keystroke note rules (title/tag/preview/wikilink/image) \u2014 the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md 'Where logic lives', M6/M7). Both sides satisfy hand-reviewed tests/conformance/*.json; every family also crosses a broad deterministic TS/Rust differential (tests/conformance/README.md).",
+      "description": "Per-keystroke note rules (title/tag/preview/wikilink/image) — the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md 'Where logic lives', M6/M7). Both sides satisfy hand-reviewed tests/conformance/*.json; every family also crosses a broad deterministic TS/Rust differential (tests/conformance/README.md).",
       "lockStatus": "locked",
       "copies": [
         {
@@ -159,15 +159,19 @@
         {
           "path": "apps/ios/Tests/Localization/LocalizationTests.swift",
           "kind": "test"
+        },
+        {
+          "path": "src/shared/localization/localization.test.ts",
+          "kind": "test"
         }
       ],
-      "note": "Partial, not locked: tests/localization/cases.json is a happy-path fixture. It does NOT cover missing messages, missing or invalid plural arguments, =N exact selectors, {{ }} escaping, unmatched braces, alias matching, or the generic-catalog fallback hop, so the three interpreters can diverge on any of those without the fixture noticing. A real divergence already existed on this axis: localization.ts falls back regionalLanguageTag ?? requestedLanguageTag when no regional tag is supplied, while both shells pass the regional tag straight through \u2014 every fixture message case supplies regionalLanguageTag, so the fixture is structurally unable to see it. Extend cases.json to those error paths before claiming locked."
+      "note": "Partial, not locked: tests/localization/cases.json is a happy-path fixture. It does NOT cover missing messages, missing or invalid plural arguments, =N exact selectors, {{ }} escaping, unmatched braces, alias matching, or the generic-catalog fallback hop, so the three interpreters can diverge on any of those without the fixture noticing. A real divergence already existed on this axis: localization.ts falls back regionalLanguageTag ?? requestedLanguageTag when no regional tag is supplied, while both shells pass the regional tag straight through — every fixture message case supplies regionalLanguageTag, so the fixture is structurally unable to see it. Extend cases.json to those error paths before claiming locked. localizedAbsoluteDate/localizedYear (the License row's dates, localization.md) are NOT in cases.json either — the platforms' date formatters differ in separators — so each adapter locks them with the same two assertions of its own: src/shared/localization/localization.test.ts, apps/ios/Tests/Localization/LocalizationTests.swift and apps/android/app/src/androidTest/java/com/futo/notes/localization/AndroidLocalizationTest.kt (Android's went in with its caller, the License row)."
     },
     {
       "concept": "notes-root-triplet",
-      "description": "Dev/prod notes-root split (M3 CRITICAL): 3 independent copies by design. AGENTS.md 'Named mistakes' explicitly accepts this as a non-goal for unification \u2014 registered so it's visible, not to be locked or collapsed.",
+      "description": "Dev/prod notes-root split (M3 CRITICAL): 3 independent copies by design. AGENTS.md 'Named mistakes' explicitly accepts this as a non-goal for unification — registered so it's visible, not to be locked or collapsed.",
       "lockStatus": "unlocked",
-      "note": "Deliberately accepted duplication (M3 CRITICAL guard) per AGENTS.md 'Named mistakes' non-goals \u2014 do not attempt to unify or lock this; it is registered so the drift registry documents ALL permitted duplicates, including the ones that stay prose-only. The Android guard lives in storage/NotesStorage.kt's `deviceFolderName`, and its split works differently: DEVICE mode uses 'FUTO Notes Dev' vs 'FUTO Notes', while APP/INTERNAL modes already isolate through the `.dev` applicationId on package-scoped paths.",
+      "note": "Deliberately accepted duplication (M3 CRITICAL guard) per AGENTS.md 'Named mistakes' non-goals — do not attempt to unify or lock this; it is registered so the drift registry documents ALL permitted duplicates, including the ones that stay prose-only. The Android guard lives in storage/NotesStorage.kt's `deviceFolderName`, and its split works differently: DEVICE mode uses 'FUTO Notes Dev' vs 'FUTO Notes', while APP/INTERNAL modes already isolate through the `.dev` applicationId on package-scoped paths.",
       "copies": [
         {
           "location": "apps/tauri/src-tauri/src/vault_location.rs",
@@ -290,7 +294,7 @@
     },
     {
       "concept": "editor-exit-ordering",
-      "description": "The order an open note's exit runs in (admission -> latch -> cancel -> drain -> commit -> effect) so no async completion lands against a stale note identity. One EditorSession per native shell. This duplicate is permitted because every step being ordered is a host-runtime handle the engine cannot hold (a Compose coroutine, a Swift Task, a WebView round-trip, a vetoable navigation) \u2014 the engine still owns what a save MEANS via flush_draft/persist-or-park (ADR-0001), reached only through injected effects. The shells also legitimately differ: navigation commit order, where the committed body comes from, and move-picker drain timing. Partial: each shell is pinned by its OWN ordering tests, and the shared invariant is stated in prose in docs/spec/editor.md \"Editor exits\" \u2014 nothing mechanically holds the two implementations together. Changing one shell's exit ordering updates that spec section and checks the sibling in the same MR, or records the divergence there. The escalation threshold was reached in iOS v1.7.0: a cancelled Swift autosave resumed after a durable flush but skipped its baseline record, while Android's NonCancellable span already held the invariant; the resulting conflict-copy storm shipped as a device bug. The next architectural step is therefore the deferred Rust editor engine (crates/futo-notes-editor), not a bigger fixture; starting that engine remains a separate scope decision.",
+      "description": "The order an open note's exit runs in (admission -> latch -> cancel -> drain -> commit -> effect) so no async completion lands against a stale note identity. One EditorSession per native shell. This duplicate is permitted because every step being ordered is a host-runtime handle the engine cannot hold (a Compose coroutine, a Swift Task, a WebView round-trip, a vetoable navigation) — the engine still owns what a save MEANS via flush_draft/persist-or-park (ADR-0001), reached only through injected effects. The shells also legitimately differ: navigation commit order, where the committed body comes from, and move-picker drain timing. Partial: each shell is pinned by its OWN ordering tests, and the shared invariant is stated in prose in docs/spec/editor.md \"Editor exits\" — nothing mechanically holds the two implementations together. Changing one shell's exit ordering updates that spec section and checks the sibling in the same MR, or records the divergence there. The escalation threshold was reached in iOS v1.7.0: a cancelled Swift autosave resumed after a durable flush but skipped its baseline record, while Android's NonCancellable span already held the invariant; the resulting conflict-copy storm shipped as a device bug. The next architectural step is therefore the deferred Rust editor engine (crates/futo-notes-editor), not a bigger fixture; starting that engine remains a separate scope decision.",
       "lockStatus": "partial",
       "copies": [
         {
@@ -344,6 +348,27 @@
       ]
     },
     {
+      "concept": "editor-mounted-global",
+      "description": "The name of the global the editor bundle sets once the EDITOR ENGINE is up (window.__futoEditorMounted, src/editor-embed/main.ts) and the Android host's probe program that reads it (EditorEngineSupport.kt ENGINE_PROBE_JS). Separate from editor-engine-unsupported-global because the two answer different questions from different files: the preflight verdict has to survive a bundle that failed to parse, so it lives in editor.html's ES5 script, while 'the engine came up' is only knowable inside the bundle. It exists at all because Milkdown creates its editor asynchronously: window.FutoEditor, which the probe used to read, is published by the module's top level whether or not the engine came up behind it, so a Chromium 83 WebView showed a blank pane the gate called healthy. Same M10 carve-out as its sibling: NOT a futoBridge message, because a message would bump BRIDGE_VERSION and oblige both native hosts for a signal only Android reads. A source-scan unit test holds the two spellings together.",
+      "lockStatus": "locked",
+      "copies": [
+        {
+          "location": "src/editor-embed/main.ts",
+          "pattern": "window\\.__futoEditorMounted ="
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/ui/EditorEngineSupport.kt",
+          "pattern": "__futoEditorMounted"
+        }
+      ],
+      "locks": [
+        {
+          "path": "apps/android/app/src/test/java/com/futo/notes/ui/EditorEngineSupportTest.kt",
+          "kind": "test"
+        }
+      ]
+    },
+    {
       "concept": "worktree-slot-derivation",
       "description": "Per-worktree slot (md5 of the repo root, mod 50) and the port map derived from it. ONE definition in scripts/lib/slot.mjs; every other consumer imports it or shells out to its CLI. Registered for the scan block, not to permit a duplicate: a slot addresses already-claimed pool devices and already-running sync servers, so a divergent copy repoints a live worktree at another's resources. scripts/lib/slot.test.mjs is listed as BOTH a copy and a lock on purpose: it holds a deliberate second implementation (legacySlot) whose only job is to assert parity.",
       "lockStatus": "locked",
@@ -371,8 +396,55 @@
       }
     },
     {
+      "concept": "wikilink-grammar",
+      "description": "What counts as a `[[wikilink]]`, stated twice in TypeScript: the scanner the rename rewriter mirrors (WIKILINK_RE / findWikilinks, itself a registered note-rules-ts-rust copy) and the micromark tokenizer the Milkdown editor parses with. They exist separately because a regex over raw text cannot be a micromark text construct; a disagreement is a data bug — the editor shows a chip the rewriter will not rewrite (a rename silently breaks the link), or the rewriter rewrites text the editor showed as prose. Why the tokenizer is hand-written rather than an adopted library: docs/plan/milkdown-transition.md §3.8 (the #101 survey).",
+      "lockStatus": "locked",
+      "note": "LOCKED: syntax.test.ts asks both implementations the same corpus — 34 hand-picked inline edges plus a 10×8 target×frame cross-product — through a REAL Milkdown editor, and fails on any divergence. The one deliberate difference, wikilinks inside code spans and fences, is asserted separately: the editor is right there per docs/spec/editor.md, and the raw-text scanner has no notion of code.",
+      "copies": [
+        {
+          "location": "src/shared/note/wikilinks.ts",
+          "pattern": "export const WIKILINK_RE"
+        },
+        {
+          "location": "src/features/editor/milkdown/wikilink/syntax.ts",
+          "pattern": "const tokenizeWikilink"
+        }
+      ],
+      "locks": [
+        {
+          "path": "src/features/editor/milkdown/wikilink/syntax.test.ts",
+          "kind": "differential test"
+        },
+        {
+          "path": "tests/conformance/wikilinks.json",
+          "kind": "fixture"
+        }
+      ]
+    },
+    {
+      "concept": "editor-perf-floor-fixture",
+      "description": "The editor performance floor's line-fixture generator and p95 rank rule, in the desktop Playwright harness (TypeScript) and in the device runner (plain node .mjs, imported by tests/android-editor-perf.mjs over CDP). The copy exists because the device leg cannot import the harness's TS; it matters because device and desktop numbers are only comparable if both open the SAME document and rank samples the same way. Locked by a differential assertion in tests/lib/editorDevicePerf.test.mjs.",
+      "lockStatus": "locked",
+      "copies": [
+        {
+          "location": "tests/editor-gauntlet/performanceFloor.ts",
+          "pattern": "export function lineFixture"
+        },
+        {
+          "location": "tests/lib/editorDevicePerf.mjs",
+          "pattern": "export function lineFixture"
+        }
+      ],
+      "locks": [
+        {
+          "path": "tests/lib/editorDevicePerf.test.mjs",
+          "kind": "test"
+        }
+      ]
+    },
+    {
       "concept": "embed-body-pin",
-      "description": "The rule that gives the editor page a real height: body pinned to the web view with position:fixed and all four offsets. src/styles/base.css owns it for the app; editor.html repeats it UNLAYERED because a Chromium 80-98 Android System WebView discards every @layer'd rule and would otherwise leave body static and zero-height, collapsing the whole #editor -> .cm-editor -> .cm-scroller height chain (github#33). Same declarations on purpose - change one, change the other.",
+      "description": "The rule that gives the editor page a real height: body pinned to the web view with position:fixed and all four offsets. src/styles/base.css owns it for the app; editor.html repeats it UNLAYERED because a Chromium 80-98 Android System WebView discards every @layer'd rule and would otherwise leave body static and zero-height, collapsing the whole #editor -> .futo-milkdown -> .ProseMirror height chain (github#33). Same declarations on purpose - change one, change the other.",
       "lockStatus": "unlocked",
       "copies": [
         {
@@ -407,7 +479,7 @@
     },
     {
       "concept": "kitchensink-image-digest",
-      "description": "The futocore/ci/kitchensink digest. `.gitlab-ci.yml` runs jobs on it directly and both CI image Dockerfiles build FROM it, so a bump that moves one copy silently leaves jobs and images on different bases. Nothing enforces agreement but this entry \u2014 bump all three together.",
+      "description": "The futocore/ci/kitchensink digest. `.gitlab-ci.yml` runs jobs on it directly and both CI image Dockerfiles build FROM it, so a bump that moves one copy silently leaves jobs and images on different bases. Nothing enforces agreement but this entry — bump all three together.",
       "lockStatus": "unlocked",
       "copies": [
         {
@@ -485,9 +557,9 @@
     },
     {
       "concept": "hosted-sync-pairing-countdown",
-      "description": "How long a pairing code has left, rendered for a person: whole seconds until the relay's own expires_at, and m:ss. Presentation, per shell, because the deadline itself is Rust's \u2014 await_pairing rebuilds its poll schedule from the same timestamp and is the only thing that ends a wait.",
+      "description": "How long a pairing code has left, rendered for a person: whole seconds until the relay's own expires_at, and m:ss. Presentation, per shell, because the deadline itself is Rust's — await_pairing rebuilds its poll schedule from the same timestamp and is the only thing that ends a wait.",
       "lockStatus": "unlocked",
-      "note": "UNLOCKED: nothing but you keeps these in step. All three read an unparseable timestamp as no time left, deliberately \u2014 a code shown as spent is the safe way to be wrong. Each has its own suite (pairingCountdown.test.ts / PairingCodeTests.swift / PairingCountdownTest.kt); no fixture is shared between them.",
+      "note": "UNLOCKED: nothing but you keeps these in step. All three read an unparseable timestamp as no time left, deliberately — a code shown as spent is the safe way to be wrong. Each has its own suite (pairingCountdown.test.ts / PairingCodeTests.swift / PairingCountdownTest.kt); no fixture is shared between them.",
       "copies": [
         {
           "location": "src/features/sync/pairingCountdown.ts",
@@ -505,7 +577,7 @@
     },
     {
       "concept": "hosted-sync-shell-presentation",
-      "description": "Turning the hosted engine's answers into what a person reads: which catalog message each HostedError variant gets, which sentence each subscription state gets, and the vault-password strength estimate. Hand-written per shell because this is presentation \u2014 Rust owns the rules underneath (the 12-character minimum, the error variants themselves). Android is the third copy (futo-notes#179).",
+      "description": "Turning the hosted engine's answers into what a person reads: which catalog message each HostedError variant gets, which sentence each subscription state gets, and the vault-password strength estimate. Hand-written per shell because this is presentation — Rust owns the rules underneath (the 12-character minimum, the error variants themselves). Android is the third copy (futo-notes#179).",
       "lockStatus": "unlocked",
       "note": "UNLOCKED: nothing but you keeps these in step. A new HostedError variant, a new subscription state, or a change to the strength thresholds must land in every copy in one commit. Each side has its own tests (hostedSyncErrors.test.ts / HostedSyncErrorsTests.swift / HostedSyncErrorsTest.kt and siblings), and the three strength suites deliberately assert the same inputs; no fixture is shared between them yet.",
       "copies": [
@@ -549,9 +621,9 @@
     },
     {
       "concept": "hosted-sync-banner-rule",
-      "description": "Which refused-write banner an account earns from its billing status and from the last cycle's own write refusal: none, Sync paused, or Vault is full. One rule, three copies, because each shell reads its own BillingStatus and renders its own banner enum. Sync paused wins over a full vault, and a quota of zero is 'unknown' rather than 'full' \u2014 the second of those is why the stand-in server's filled quota shows no banner on an account that has stored nothing (futo-notes#178/#179 recorded it as unprovable on a device for that reason).",
+      "description": "Which refused-write banner an account earns from its billing status and from the last cycle's own write refusal: none, Sync paused, or Vault is full. One rule, three copies, because each shell reads its own BillingStatus and renders its own banner enum. Sync paused wins over a full vault, and a quota of zero is 'unknown' rather than 'full' — the second of those is why the stand-in server's filled quota shows no banner on an account that has stored nothing (futo-notes#178/#179 recorded it as unprovable on a device for that reason).",
       "lockStatus": "unlocked",
-      "note": "UNLOCKED: nothing but you keeps these in step. The TS copy was extracted out of createHostedSyncSettings.svelte.ts into its own file (futo-notes#186) so the `__testSync` hosted hook could assert on the same rule the sync screen renders \u2014 a second TS copy would have made the tests prove something that does not ship. A change to the precedence, to the zero-quota reading, or to how the last cycle's `SyncSummary.writeRefusal` feeds in (futo-notes C4) must land in all three in one commit. Each has its own tests (hostedBanner.test.ts / HostedSetupModelTests.swift / HostedSetupModelTest.kt), and tests/cross-platform-sync.mjs drives the TS one against a real stand-in server.",
+      "note": "UNLOCKED: nothing but you keeps these in step. The TS copy was extracted out of createHostedSyncSettings.svelte.ts into its own file (futo-notes#186) so the `__testSync` hosted hook could assert on the same rule the sync screen renders — a second TS copy would have made the tests prove something that does not ship. A change to the precedence, to the zero-quota reading, or to how the last cycle's `SyncSummary.writeRefusal` feeds in (futo-notes C4) must land in all three in one commit. Each has its own tests (hostedBanner.test.ts / HostedSetupModelTests.swift / HostedSetupModelTest.kt), and tests/cross-platform-sync.mjs drives the TS one against a real stand-in server.",
       "copies": [
         {
           "location": "src/features/sync/hostedBanner.ts",
@@ -569,9 +641,9 @@
     },
     {
       "concept": "sync-session-mode-precedence",
-      "description": "Which sync session wins, hand-written x2 (native shells only). `hostedConnectEntry` says what a hosted connect does about a session already in hand \u2014 skip the wizard's idempotent re-entry, replace a live self-hosted one, or proceed (D8). `restoreBranch` says which credential a cold launch reaches for, including the one stranded device that holds both (D9). Justin's calls of 2026-09-16, specified once in docs/spec/sync.md.",
+      "description": "Which sync session wins, hand-written x2 (native shells only). `hostedConnectEntry` says what a hosted connect does about a session already in hand — skip the wizard's idempotent re-entry, replace a live self-hosted one, or proceed (D8). `restoreBranch` says which credential a cold launch reaches for, including the one stranded device that holds both (D9). Justin's calls of 2026-09-16, specified once in docs/spec/sync.md.",
       "lockStatus": "locked",
-      "note": "LOCKED: both consumers read the full shared fixture \u2014 Swift's SyncSessionModeConformanceTests.swift and Kotlin's SyncSessionModeConformanceTest.kt each assert all 8 hostedConnectEntry and all 4 restoreBranch cases, and both assert the case counts first so a truncated fixture fails rather than passing vacuously. Desktop has NO copy on purpose: it holds ONE engine session and `SyncSession::connect_hosted` stops the previous live loop itself, so there is no teardown to sequence and `ensureConnected` already prefers hosted \u2014 a Swift/Kotlin-shaped copy there would be drift, not parity.",
+      "note": "LOCKED: both consumers read the full shared fixture — Swift's SyncSessionModeConformanceTests.swift and Kotlin's SyncSessionModeConformanceTest.kt each assert all 8 hostedConnectEntry and all 4 restoreBranch cases, and both assert the case counts first so a truncated fixture fails rather than passing vacuously. Desktop has NO copy on purpose: it holds ONE engine session and `SyncSession::connect_hosted` stops the previous live loop itself, so there is no teardown to sequence and `ensureConnected` already prefers hosted — a Swift/Kotlin-shaped copy there would be drift, not parity.",
       "copies": [
         {
           "location": "apps/ios/Sources/Sync/SyncManager.swift",
@@ -601,6 +673,149 @@
         "extensions": [".ts", ".swift", ".kt"],
         "pattern": "(func hostedConnectEntry|fun hostedConnectEntry|func restoreBranch|fun restoreBranch)\\b"
       }
+    },
+    {
+      "concept": "license-card-copy",
+      "description": "How a license state reads on the License card: the badge, the `Licensed since` date, the term and the masked key each shell renders — which `license.*` catalog entry a state selects, formatting issued_at and expires_at as absolute dates, and masking the stored key to its last group — a mask that is the key's own length, with its hyphens left in place, so a monospace reveal swaps glyph for glyph without moving anything. The license RULES are Rust's alone (futo-notes-license, projected through Tauri and UniFFI) and are NOT duplicated; this is the per-shell view-model on top of the already-judged state, which each shell must write in its own UI language.",
+      "lockStatus": "partial",
+      "note": "Partial: all three copies build the same five-field card model from the same `license.*` catalog entries for the same states, including the identical Expired-without-dates fallback and the identical key mask, and each has its own test doing so — but there is no shared fixture pinning them to identical OUTPUT, because the platforms' date formatters legitimately differ in spacing and separators and each renders the date with its own locale engine. Android's lock is an instrumented test rather than a unit test, because its dates go through android.icu, which a JVM test does not have.",
+      "copies": [
+        {
+          "location": "src/features/license/licenseCopy.ts",
+          "pattern": "export function licenseCardModel"
+        },
+        {
+          "location": "apps/ios/Sources/License/LicenseCopy.swift",
+          "pattern": "func licenseCardModel"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/license/LicenseCopy.kt",
+          "pattern": "fun licenseCardModel"
+        }
+      ],
+      "locks": [
+        {
+          "path": "src/features/license/licenseCopy.test.ts",
+          "kind": "test"
+        },
+        {
+          "path": "apps/ios/Tests/License/LicenseCopyTests.swift",
+          "kind": "test"
+        },
+        {
+          "path": "apps/android/app/src/androidTest/java/com/futo/notes/license/LicenseCopyTest.kt",
+          "kind": "test"
+        }
+      ],
+      "scan": {
+        "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
+        "extensions": [".ts", ".swift", ".kt"],
+        "pattern": "(function licenseCardModel|func licenseCardModel|fun licenseCardModel)\\b"
+      }
+    },
+    {
+      "concept": "supporter-coin-glyph",
+      "description": "The FUTO supporter coin glyph: a gold-gradient disc with the diamond punched through it (evenOdd), viewBox 0 0 48 48, stops #ffd24d / #ffbb00 / #b8860b at 0 / 55% / 100%. One path, three renderings — desktop as inline SVG, iOS as a vector imageset, Android as a vector drawable. Since 2026-09-16 all three are FALLBACKS ONLY: every shell renders the Blender model (assets/coin/) and falls back to this flat glyph when the 3D renderer cannot start. It is artwork, not logic: the shells cannot share a file because each platform needs the glyph in its own asset format.",
+      "lockStatus": "locked",
+      "note": "LOCKED by scripts/check-supporter-coin-glyph.mjs, which DERIVES the glyph from the coin's own constants (disc radius 22 in a 48 box; diamond half-diagonal 0.45 of it, corners 0.16) and asserts all three copies carry that exact path. This entry previously claimed no gate could compare an inline SVG path, an .xcassets .svg and an Android <vector> pathData -- true for visual equivalence in general, false here, because the three carry the byte-identical string and the shape is computable. The cost of believing it: all three shipped a hand-drawn pinched figure-eight instead of the FUTO diamond. Those same constants are now ALSO the Blender model's (assets/coin/build-coin.py OUTER_RADIUS / DIAMOND_HALF / CORNER_RADIUS), so changing the coin's shape means changing the script, the gate and all three glyph copies in one commit -- paste `node scripts/check-supporter-coin-glyph.mjs --print` into the three files and run `just coin`. The glyph is reached less often than it used to be, which makes it EASIER to ship a wrong one unnoticed, not harder.",
+      "copies": [
+        {
+          "location": "src/features/license/SupporterCoin.svelte",
+          "pattern": "supporter-coin-face"
+        },
+        {
+          "location": "apps/ios/Assets.xcassets/SupporterCoin.imageset/supporter-coin.svg",
+          "pattern": "supporter-coin-face"
+        },
+        {
+          "location": "apps/android/app/src/main/res/drawable/ic_supporter_coin.xml",
+          "pattern": "ic_supporter_coin|FFFFD24D"
+        }
+      ],
+      "locks": [
+        {
+          "path": "scripts/check-supporter-coin-glyph.mjs",
+          "kind": "gate"
+        }
+      ]
+    },
+    {
+      "concept": "license-row-actions",
+      "description": "Which controls the License row offers in each state (docs/spec/license.md § States and copy). The native shells do NOT decide this: they render `license_row_actions`, which also owns what LICENSE_LINK_OUT hides. Desktop, which landed first and has no LICENSE_LINK_OUT, still derives its two buttons inline in Svelte.",
+      "lockStatus": "partial",
+      "note": "Partial: the Rust side is a golden (`the_row_actions_are_the_specified_table`, `link_out_false_hides_every_way_out_of_the_app_and_nothing_else`) and both native shells read it — iOS through `licenseRowActions(status:linkOut:)`, Android through `LicenseModel.actions()` — so they cannot drift from each other. The desktop Svelte copy is covered only by the spec table it was written from.",
+      "copies": [
+        {
+          "location": "crates/futo-notes-ffi/src/license/contract.rs",
+          "pattern": "pub fn license_row_actions"
+        },
+        {
+          "location": "src/features/license/LicenseSettingsSection.svelte",
+          "pattern": "license\\.renew"
+        }
+      ],
+      "locks": [
+        {
+          "path": "crates/futo-notes-ffi/src/license/contract.rs",
+          "kind": "test"
+        }
+      ]
+    },
+    {
+      "concept": "supporter-coin-motion",
+      "description": "How the supporter coin is framed and turned, once per shell. The MODEL is shared (assets/coin/futo-coin.glb / .usdz) and so is the studio that lights it, but each renderer is handed the numbers separately: resting spin 1.25 rad/s, spin decay 2.6, 0.018 radians per pixel/dp/point of drag, flick clamped to 0.6..24 rad/s, tilt 0.24 rad, a 30 degree vertical field of view at distance 1.55, and a frame-delta clamp of 1/20 s. Since 2026-09-18 also the TAP QUEUE: one full turn owed per tap, paid back at 3 rad/s per radian owed, clamped to 2..26 rad/s, settled below 0.01 rad, and a tap recognised as a press that moved 5px/dp/pt or less and lasted 400ms or less. Also the orientation LAW: tilt about X first, then spin about Y, so the coin turns on a fixed tilted spindle rather than wobbling.",
+      "lockStatus": "partial",
+      "note": "Partial: the orientation law is locked on Android by SupporterCoinTest (`the spindle does not move as the coin turns`) and on iOS by SupporterCoinTests, which is the one way to get this wrong that still looks plausible on a still screenshot -- composing tilt and spin in the other order swings the spindle and the coin wobbles like a dropped hubcap. TypeScript writes the same law as pivot.rotation.x/y, untested, so it can still drift from the two native shells. The TAP QUEUE is locked on all three: `supporterCoin.test.ts`, `SupporterCoinTest` and `SupporterCoinTests` each run the debt frame by frame and insist ten taps deliver ten turns; all three were red-proved against the restart-per-tap model they replaced. The motion constants themselves are unlocked everywhere: nothing but you keeps the three in step, so touch all three in one commit and say so. Note that the per-shell LIGHT LEVEL is deliberately NOT shared -- Filament measures indirect light in different units than three.js and RealityKit -- but all three are calibrated against the SAME reference, the desktop renderer at exposure 1.0 (@justin 2026-09-18: 'desktop is just right'). Desktop TONE_MAPPING_EXPOSURE 1.0, Android IBL_INTENSITY 1.25, iOS coinLightExponent -0.75. The previous Android 4.5 came from a false premise -- its comment claimed cmgen normalises the cubemap, and it does not: studio-env-ibl.ktx carries absolute radiance (mean 3.41 vs the .hdr's 3.15, peak 47.0 vs 46.75). Re-measure all three together, never one alone; the method is in each constant's comment and the desktop half is `just coin-tuner`.",
+      "copies": [
+        {
+          "location": "src/features/license/supporterCoin.ts",
+          "pattern": "const BASE_SPIN"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/ui/SupporterCoin.kt",
+          "pattern": "BASE_SPIN"
+        },
+        {
+          "location": "apps/ios/Sources/License/SupporterCoin.swift",
+          "pattern": "let baseSpin"
+        }
+      ],
+      "locks": [
+        {
+          "path": "apps/android/app/src/test/java/com/futo/notes/ui/SupporterCoinTest.kt",
+          "kind": "test"
+        },
+        {
+          "path": "apps/ios/Tests/License/SupporterCoinTests.swift",
+          "kind": "test"
+        },
+        {
+          "path": "src/features/license/supporterCoin.test.ts",
+          "kind": "test"
+        }
+      ]
+    },
+    {
+      "concept": "coin-studio-environment",
+      "description": "The studio the supporter coin's gold reflects: a dark floor, a soft bright ceiling, and five lamps (front box, key, right box, fill, kicker) given as direction, cone tightness, intensity and colour. assets/coin/build-coin.py generates studio-env.hdr from it in numpy; scripts/lib/studio-env.mjs runs the same arithmetic so `just coin-tuner` can rebuild the room live while a slider moves, and so the room can be checked at all in CI, which has no Blender. The .hdr is the only thing the three shells ever see — desktop and iOS read it directly, Android reads the cubemap cmgen prefilters from it.",
+      "lockStatus": "locked",
+      "note": "LOCKED by scripts/check-coin-assets.mjs (just coin-check / just check), which rebuilds the studio with the JS copy's SHIPPED numbers, decodes the .hdr on disk, and fails if any pixel disagrees by a full RGBE quantisation step. The format truncates to a per-pixel step, so a faithful port lands at 0.99998 steps and the gate's threshold of 1 sits immediately above it; red-proved by moving one lamp's intensity 46.0 -> 45.0, which reports 5.122 steps. This is the one duplicate here that CI can fully verify without Blender, because the environment half of the coin is pure arithmetic while the mesh half is not. Change the Python and the JS in one commit, then run `just coin` (and scripts/build-coin-ibl.mjs, which the manifest's ibl block gates).",
+      "copies": [
+        {
+          "location": "assets/coin/build-coin.py",
+          "pattern": "def build_environment"
+        },
+        {
+          "location": "scripts/lib/studio-env.mjs",
+          "pattern": "export function buildStudioEnvironment"
+        }
+      ],
+      "locks": [
+        {
+          "path": "scripts/check-coin-assets.mjs",
+          "kind": "gate"
+        }
+      ]
     }
   ]
 }

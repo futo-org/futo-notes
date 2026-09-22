@@ -41,6 +41,36 @@ object FutoPalette {
 
     // Text on an ink/inverse surface (warm off-white).
     val OnInk = Color(0xFFF3F1EC)
+
+    // ── The License plate's gold ────────────────────────────────────────────
+    // All that is left of the Steel Ledger palette. The plate carried its own
+    // gunmetal gradient, ink, dim ink and hairline until 2026-09-18, when it
+    // moved onto the ordinary Settings card surface and the app's own text
+    // colours — a slab of its own material read as a foreign object in the
+    // sheet. Gold stays because the app has no token for it, and it is the same
+    // value the desktop plate defines as --plate-accent in
+    // src/features/license/LicenseSettingsSection.svelte and iOS as
+    // Theme.Plate.accent: change one, change all three shells.
+    val PlateGoldLight   = Color(0xFFB8860B)
+    val PlateGoldDark    = Color(0xFFFFBB00)
+}
+
+/**
+ * The well's inset shadow — the only thing that says the 184dp circle is sunk
+ * into the plate, since it carries no fill and no ring (D1).
+ *
+ * Identical in both themes on purpose: a depression is geometry, not colour,
+ * and the CSS the desktop plate uses
+ * (`inset 0 2px 6px rgba(0,0,0,.28), inset 0 -1px 0 rgba(255,255,255,.35)`)
+ * is likewise one declaration for both. Kept out of [FutoColors] for exactly
+ * that reason — there is nothing for the dark variant to override.
+ */
+object FutoPlateWell {
+    /** rgba(0, 0, 0, .28) — the cast shadow under the top edge and around the rim. */
+    val Shadow = Color(0x47000000)
+
+    /** rgba(255, 255, 255, .35) — the light line along the bottom inside edge. */
+    val Highlight = Color(0x59FFFFFF)
 }
 
 /**
@@ -68,6 +98,10 @@ data class FutoColors(
 
     val success: Color = FutoPalette.Success,
     val danger: Color = FutoPalette.Danger,
+
+    /** The License plate's gold: the eyebrow, the badge border and the plate's
+     *  own links — never a fill. The one colour that card still owns. */
+    val plateAccent: Color = FutoPalette.PlateGoldLight,
 )
 
 val darkFutoColors = FutoColors(
@@ -89,4 +123,6 @@ val darkFutoColors = FutoColors(
 
     success = FutoPalette.Success,
     danger = FutoPalette.Danger,
+
+    plateAccent = FutoPalette.PlateGoldDark,
 )

@@ -1,0 +1,29 @@
+[package]
+name = "futo-notes-license"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "futo_notes_license"
+
+# The single owner of every paid-client-license rule: input-shape recognition,
+# v2 FUTOpay activation parsing and RSA verification, the licensed/expired/
+# invalid predicate, deep-link parsing, and the one activation request. No
+# storage, no clock, no HTTP client — all three are injected by the shell.
+[dependencies]
+serde_json = "1"
+# Base64url (no padding) for the activation's payload and signature segments,
+# and standard base64 for the baked-in SPKI public keys.
+base64 = "0.22"
+# RFC 3339 timestamps in the activation payload. `parsing` only: nothing in
+# this crate formats a date — that is the shell's localized job.
+time = { version = "0.3", features = ["parsing"] }
+# RSA-SHA256 PKCS#1 v1.5 verification. Already in the tree via rustls, so this
+# adds no new build-graph risk on any of the five shipping targets, and it has
+# no private-key surface for an implementation to misuse.
+ring = "0.17"
+# Unwrapping SubjectPublicKeyInfo (what every tool emits as "-----BEGIN PUBLIC
+# KEY-----") down to the PKCS#1 RSAPublicKey DER that ring wants. Hand-rolling
+# a DER reader for a security boundary is exactly the custom-over-library trade
+# AGENTS.md tells us not to make.
+spki = "0.7"

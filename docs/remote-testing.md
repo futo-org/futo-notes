@@ -9,7 +9,7 @@ just remote-doctor        # is the box ready? what needs a human with sudo?
 just remote-check         # the pre-merge umbrella (== a Mac `just check`)
 just remote-rust          # cargo test --workspace
 just remote-sync          # cross-platform E2EE sync
-just remote-android       # Rust .so + bindings + assembleDebug + JVM unit tests
+just remote-android       # Rust .so + bindings + both flavors' debug APKs + JVM unit tests
 just remote test-full     # any other portable recipe
 just remote --rsync test-unit   # ...against your dirty working tree
 ```
@@ -95,7 +95,7 @@ prove Windows WebView2): a passing run on the wrong engine is not evidence about
    `qa-release`, `qa-clone-target` — the last is APFS `cp -Rc`). Refusal resolves the justfile's
    aliases first, so `just remote in` is refused as `ios-native`.
 2. **Caveated** — allowed, but a `CAVEAT:` line names what a green run leaves uncovered, and the
-   footer repeats it. `test-e2e*` and `test-markdown-spec` (Linux Chromium/WebKit builds),
+   footer repeats it. `test-e2e*` (Linux Chromium/WebKit builds),
    `test-cross-platform` (WebKitGTK Tauri app), and `prepush`.
 3. **Clean** — everything else, including `check`. `just check` is tsc, eslint, prettier,
    svelte-check, vitest under jsdom, the arch gates, the Rust conformance tests and a vite build.

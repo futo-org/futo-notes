@@ -233,6 +233,21 @@ editor resolve from the catalogs on desktop, Android, and iOS.
 - Stored timestamps, filenames, protocols, and crash dates remain
   language-independent. Version 1 adds no currency, percentage, or general
   absolute-date formatter without a real caller.
+- `localizedAbsoluteDate(timestamp)` and `localizedYear(timestamp)` are that
+  formatter, added with their caller: the License card's "Valid until {date}"
+  and "Expired {date}", and its `since` field (license.md — the card stopped
+  rendering a since row on 2026-09-18 and the ambient label stopped naming a
+  date on 2026-09-21, but `licenseCardModel` still formats it). The date
+  uses `Intl.DateTimeFormat` `dateStyle: 'medium'`, which names the month rather
+  than numbering it, so a date is not read day-first by one locale and
+  month-first by another. **A year is a date field, not a number** — through the
+  number formatter it would render grouped ("2,026"), so it has its own
+  year-only formatter. → `src/shared/localization/localization.ts`,
+  `localization.test.ts` "formats a year as a year, never as a grouped number"
+- `localizedYear` has had **no caller on any platform since 2026-09-16**, when
+  the License card replaced its bare purchase year with a full date (license.md).
+  It is kept rather than deleted as part of a copy change: it is a three-platform
+  API with its own lock on each, so removing it is its own change on all three.
 
 - The device's regional preferences are the only source of regional formatting. A
   selected interface language never supplies a region of its own: with no regional

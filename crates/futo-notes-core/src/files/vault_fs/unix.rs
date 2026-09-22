@@ -12,24 +12,11 @@ use rustix::fs::{
     OFlags, Timespec, Timestamps, UTIME_OMIT,
 };
 
-use super::relative_components;
+use super::{context, relative_components, OpenParentError};
 
 struct Parent {
     directory: OwnedFd,
     leaf: OsString,
-}
-
-enum OpenParentError {
-    NotFound(String),
-    Other(String),
-}
-
-impl OpenParentError {
-    fn message(self) -> String {
-        match self {
-            Self::NotFound(message) | Self::Other(message) => message,
-        }
-    }
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -51,10 +38,6 @@ pub(super) fn force_copy() {
 pub(super) fn force_backup(interrupt: bool) {
     FORCE_BACKUP.with(|v| v.set(true));
     INTERRUPT_AFTER_PARK.with(|v| v.set(interrupt));
-}
-
-fn context(operation: &str, relative: &str, error: impl std::fmt::Display) -> String {
-    format!("{operation} vault path {relative}: {error}")
 }
 
 fn sync_directory(directory: &OwnedFd, operation: &str, relative: &str) -> Result<(), String> {

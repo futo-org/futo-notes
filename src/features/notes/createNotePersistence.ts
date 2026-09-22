@@ -3,17 +3,35 @@ import { hasFileSystem } from '$lib/platform';
 import { sanitizeFilename, validateTitle } from '$lib/rules';
 import type { LocalizedMessage } from '$shared/localization';
 
-import { normalizeTitleForPersistence, shouldWriteNoteToDisk } from './noteSessionChanges';
+import {
+  editorLostTheNote,
+  normalizeTitleForPersistence,
+  shouldWriteNoteToDisk,
+} from './noteSessionChanges';
 import type { ParkedDraftSnapshot } from './noteSession.svelte';
 import { _applyLocalMutation, recordSaveIdentityChange, updateNote } from './notes.svelte';
 import { titleValidationMessage } from './titleValidationMessage';
 
 interface NotePersistenceState {
+  /** The session's live buffer — the last body any change notification reported. */
+  content: string;
   originalId: string | null;
   savedContent: string;
   savedTitle: string;
   title: string;
 }
+
+/**
+ * True while the session is mid-switch to another note: `originalId` may
+ * already point at the note being opened while `title`/`savedContent` still
+ * hold the outgoing note's data (createNoteLoader.load() flips loading
+ * before reassigning originalId, then awaits the read). A save that runs in
+ * this window would write the outgoing note's stale content under the
+ * incoming note's id — refuse rather than straddle. The save queue's flush()
+ * closes this window under normal operation; this is the belt-and-suspenders
+ * backstop for any caller that reaches saveNote() while it is still open.
+ */
+type IsLoading = () => boolean;
 
 interface SavedNoteState {
   content: string;
@@ -30,6 +48,7 @@ interface CreateNotePersistenceOptions {
   getPendingFolder: () => string | null;
   getState: () => NotePersistenceState;
   hasDuplicateTitle: (title: string) => boolean;
+  isLoading: IsLoading;
   onSaved: (state: SavedNoteState) => void;
   reconcileOpenNote: (id: string, parkedDraft: ParkedDraftSnapshot) => Promise<unknown>;
   showTitleWarning: (message: LocalizedMessage) => void;
@@ -40,9 +59,23 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
     const noteId = options.getNoteId();
     const editorContent = options.getEditorContent();
     if (!hasFileSystem || editorContent === undefined) return false;
+    // The session is between notes: title/savedContent may still be the
+    // outgoing note's while originalId already points at the incoming one.
+    // Never write in this window (see IsLoading above).
+    if (options.isLoading()) return false;
 
     try {
       const state = options.getState();
+      /* CRITICAL — an editor that lost the note never empties it (2026-09-03,
+       * noteSessionChanges.ts). A rename typed over a blank editor still lands;
+       * it carries the body the session last knew, not the editor's nothing. */
+      const newContent = editorLostTheNote({
+        editorContent,
+        savedContent: state.savedContent,
+        content: state.content,
+      })
+        ? state.savedContent
+        : editorContent;
       // Navigating Home clears the tab's note id before this queued save runs.
       if (noteId === null && state.originalId === null && !state.title) return false;
       const newTitle = normalizeTitleForPersistence(state.title);
@@ -66,7 +99,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
           savedTitle: state.savedTitle,
           newTitle,
           content: state.savedContent,
-          newContent: editorContent,
+          newContent,
         })
       ) {
         return false;
@@ -76,13 +109,13 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
         return false;
       }
 
-      const result = await updateNote(newId, editorContent, {
+      const result = await updateNote(newId, newContent, {
         originalId: state.originalId ?? undefined,
         base: state.savedContent,
       });
       if (result.unappliedMutation) _applyLocalMutation(result.unappliedMutation);
       if (result.disposition === 'parked') {
-        await options.reconcileOpenNote(result.id, { content: editorContent, title: state.title });
+        await options.reconcileOpenNote(result.id, { content: newContent, title: state.title });
         return false;
       }
 
@@ -95,7 +128,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
         id: result.id,
         title: savedNote?.title ?? newTitle,
         requestedTitle: state.title,
-        content: editorContent,
+        content: newContent,
         savedOriginalId: state.originalId,
       });
       return result.disposition !== 'converged';

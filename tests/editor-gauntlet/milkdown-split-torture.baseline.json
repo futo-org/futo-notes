@@ -1,0 +1,25 @@
+{
+  "//": "Cases Milkdown is known to fail, with why. See scoreBaseline.ts: a case that starts failing is a regression, and a case that starts passing while still listed is a stale entry — both are red. Recorded 2026-08-28 at 36/56, against the editor with wikilinks/tags/checkboxes (#101, #102).",
+  "expectedFailures": {
+    "bold/paste-across-closing-boundary": "pasted text inherits the mark of the range it replaced",
+    "bold/type-at-opening-marker-edge": "a caret on a mark boundary types OUTSIDE the mark: ProseMirror mark inclusivity, not a source-mode marker edge",
+    "italic/paste-across-closing-boundary": "pasted text inherits the mark of the range it replaced",
+    "italic/type-at-opening-marker-edge": "a caret on a mark boundary types OUTSIDE the mark: ProseMirror mark inclusivity, not a source-mode marker edge",
+    "strike/paste-across-closing-boundary": "pasted text inherits the mark of the range it replaced",
+    "strike/type-at-opening-marker-edge": "a caret on a mark boundary types OUTSIDE the mark: ProseMirror mark inclusivity, not a source-mode marker edge",
+    "inline-code/type-at-opening-marker-edge": "a caret on a mark boundary types OUTSIDE the mark: ProseMirror mark inclusivity, not a source-mode marker edge",
+    "inline-code/type-at-closing-marker-edge": "a caret on a mark boundary types OUTSIDE the mark: ProseMirror mark inclusivity, not a source-mode marker edge",
+    "double-backtick-code/type-at-opening-marker-edge": "a caret on a mark boundary types OUTSIDE the mark: ProseMirror mark inclusivity, not a source-mode marker edge",
+    "double-backtick-code/type-at-closing-marker-edge": "a caret on a mark boundary types OUTSIDE the mark: ProseMirror mark inclusivity, not a source-mode marker edge",
+    "wikilink/enter-mid-span-early": "the wikilink is an ATOM node (#101): a caret cannot be placed inside it, so a case that splits the construct mid-span has no answer here — the caret resolves to an edge and the link itself survives every case intact",
+    "wikilink/enter-mid-span-late": "the wikilink is an ATOM node (#101): a caret cannot be placed inside it, so a case that splits the construct mid-span has no answer here — the caret resolves to an edge and the link itself survives every case intact",
+    "wikilink/backspace-join-blocks": "the wikilink is an ATOM node (#101): a caret cannot be placed inside it, so a case that splits the construct mid-span has no answer here — the caret resolves to an edge and the link itself survives every case intact",
+    "wikilink/backspace-join-lines": "the wikilink is an ATOM node (#101): a caret cannot be placed inside it, so a case that splits the construct mid-span has no answer here — the caret resolves to an edge and the link itself survives every case intact",
+    "wikilink/paste-across-opening-boundary": "the wikilink is an ATOM node (#101): a caret cannot be placed inside it, so a case that splits the construct mid-span has no answer here — the caret resolves to an edge and the link itself survives every case intact",
+    "wikilink/paste-across-closing-boundary": "the wikilink is an ATOM node (#101): a caret cannot be placed inside it, so a case that splits the construct mid-span has no answer here — the caret resolves to an edge and the link itself survives every case intact",
+    "wikilink/type-at-opening-marker-edge": "the wikilink is an ATOM node (#101): a caret cannot be placed inside it, so a case that splits the construct mid-span has no answer here — the caret resolves to an edge and the link itself survives every case intact",
+    "wikilink/type-at-closing-marker-edge": "the wikilink is an ATOM node (#101): a caret cannot be placed inside it, so a case that splits the construct mid-span has no answer here — the caret resolves to an edge and the link itself survives every case intact",
+    "markdown-link/paste-across-closing-boundary": "pasted text inherits the mark of the range it replaced",
+    "markdown-link/type-at-opening-marker-edge": "a caret on a mark boundary types OUTSIDE the mark: ProseMirror mark inclusivity, not a source-mode marker edge"
+  }
+}

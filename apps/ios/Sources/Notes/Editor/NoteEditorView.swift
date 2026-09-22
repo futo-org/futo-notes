@@ -754,6 +754,23 @@ struct NoteEditorView: View {
         )
     }
 
+    /// The freshest body for an exit — or nil, which REFUSES the exit.
+    ///
+    /// One helper for all three exits, because "what does it mean that the
+    /// editor did not answer?" is one question and not three. The answer that
+    /// matters is that an editor which never presented a document holds nothing:
+    /// this view's own `content` (read from disk, then kept in step with every
+    /// `change` the editor reported) is then the freshest body there is, so
+    /// leaving proceeds — and `commitBody`'s `!= savedContent` guard makes it a
+    /// no-op when the note was never edited, which ABANDONS the load rather
+    /// than saving a prefix.
+    ///
+    /// Refusing is reserved for the one case where reading is genuinely
+    /// ambiguous: another note owns the shared WebView.
+    private func captureBodyForExit() async -> String? {
+        editorExitBody(await EditorHost.shared.captureCurrentContent(), shellCopy: content)
+    }
+
     /// Push the note universe ([{id,title,modifiedMs,tags}] JSON) into the
     /// embed for suffix resolution, autocomplete, and wikilink decoration. The
     /// built JSON doubles as the dedupe signature — EditorHost skips the
@@ -795,7 +812,7 @@ struct NoteEditorView: View {
         session.end(
             .navigate,
             effects: EditorExitEffects(
-                captureBody: { await EditorHost.shared.captureCurrentContent() },
+                captureBody: { await captureBodyForExit() },
                 commitBody: { flushed in
                     content = flushed
                     // Only a loaded, dirty editor has anything to persist.
@@ -852,7 +869,7 @@ struct NoteEditorView: View {
         session.end(
             .move,
             effects: EditorExitEffects(
-                captureBody: { await EditorHost.shared.captureCurrentContent() },
+                captureBody: { await captureBodyForExit() },
                 commitBody: { flushed in
                     content = flushed
                     return true
@@ -905,7 +922,7 @@ struct NoteEditorView: View {
                 // closed, so a bridge change arriving from here on is
                 // quarantined rather than applied.
                 prepare: { EditorHost.shared.blur() },
-                captureBody: { await EditorHost.shared.captureCurrentContent() },
+                captureBody: { await captureBodyForExit() },
                 commitBody: { body in
                     let hasPendingChanges = body != savedContent
                     let writeOutcome =

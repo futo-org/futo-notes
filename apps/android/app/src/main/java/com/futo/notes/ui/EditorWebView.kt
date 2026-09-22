@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.HapticFeedbackConstants
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
@@ -27,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.futo.notes.BuildConfig
 import com.futo.notes.localization.Localization
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONArray
 import org.json.JSONObject
@@ -106,7 +108,8 @@ internal fun isCurrentFindReportOwner(
  *     (the injected `@JavascriptInterface`) — `ready` / `change` / `focus` /
  *     `openNote` / `pickImage` (bridge v2) / `cursorContext` (bridge v3) /
  *     `openUrl` (bridge v6) / `initialized` + `bridgeVersionMismatch`
- *     (bridge v7).
+ *     (bridge v7) / `formatState` (unversioned, Milkdown engine only — see
+ *     bridge.ts's BRIDGE_VERSION doc comment).
  *   - host → editor: `window.FutoEditor.initialize` (bridge v7 — the whole boot
  *     config in one call) plus `setContent/getContent/focus/setTheme/setNotes/
  *     applyExternalContent/insertImage/setImageBaseUrl` and the bridge-v3
@@ -140,6 +143,7 @@ internal fun EditorWebView(
     onOpenNote: (String) -> Unit = {},
     onPickImage: (String) -> Unit = {},
     onSaveImageData: (String, String) -> Unit = { _, _ -> },
+    onPasteClipboardImage: () -> Unit = {},
     onFindMatches: (FindMatchesReport) -> Unit = {},
     onReady: () -> Unit = {},
 ) {
@@ -171,6 +175,7 @@ internal fun EditorWebView(
             onOpenNote,
             onPickImage,
             onSaveImageData,
+            onPasteClipboardImage,
             onFindMatches,
         )
         attachment = token
@@ -229,6 +234,7 @@ class EditorHost private constructor(appContext: Context) {
     private var onOpenNote: (String) -> Unit = {}
     private var onPickImage: (String) -> Unit = {}
     private var onSaveImageData: (String, String) -> Unit = { _, _ -> }
+    private var onPasteClipboardImage: () -> Unit = {}
     private var onFindMatches: (FindMatchesReport) -> Unit = {}
     private var autoFocus = false
 
@@ -237,8 +243,40 @@ class EditorHost private constructor(appContext: Context) {
     /** Editor has focus (soft keyboard up) — the toolbar shows only then. */
     var editorFocused by mutableStateOf(false)
         private set
-    /** Cursor is on a list line — shows the Indent/Outdent items. */
+    /**
+     * Cursor is on a list line specifically. [inContainer] is what actually
+     * gates the Indent/Outdent items now; this stays only as the fallback for
+     * a bundle old enough to have never sent `inContainer` at all.
+     */
     var onListLine by mutableStateOf(false)
+        private set
+    /**
+     * Cursor is in a list item OR a blockquote (bridge `cursorContext.
+     * inContainer`) — shows the Indent/Outdent items. `null` means the
+     * message hasn't carried this field at all (an older bundle); the
+     * toolbar then falls back to [onListLine], exactly today's behavior for
+     * that bundle.
+     */
+    var inContainer by mutableStateOf<Boolean?>(null)
+        private set
+    /**
+     * Toolbar-manifest ids active at the cursor/selection (bridge
+     * `formatState`) — drives the Notion-style highlighted button state in
+     * EditorToolbar.kt, the counterpart of iOS's EditorToolbarState. Empty on
+     * editors that never send `formatState` (the CodeMirror engine), so no
+     * button lights up there.
+     */
+    var activeFormats by mutableStateOf<Set<String>>(emptySet())
+        private set
+
+    /**
+     * Toolbar-manifest ids that are currently INERT (bridge
+     * `formatState.disabled`) — today only `undo`/`redo` with an empty
+     * prosemirror-history stack. Same message, same dedupe as
+     * [activeFormats]; the counterpart is iOS's
+     * `EditorToolbarState.disabledFormats` (EditorToolbar.swift).
+     */
+    var disabledFormats by mutableStateOf<Set<String>>(emptySet())
         private set
 
     /** The bundle has applied this shell's host config and the note is on
@@ -303,8 +341,10 @@ class EditorHost private constructor(appContext: Context) {
         private set
 
     /**
-     * The bundle has parsed and mounted (`window.FutoEditor` exists) — the only
+     * The editor engine has come up (`window.__futoEditorMounted`) — the only
      * thing this gate decides, so once it is true there is nothing left to probe.
+     * Deliberately NOT `window.FutoEditor`, which the module's top level
+     * publishes before Milkdown's async editor creation has run or failed.
      *
      * Deliberately NOT [isReady], which on bridge v7 means the whole
      * `initialize(config)` round-trip came back (the `initialized` message) — a
@@ -379,6 +419,9 @@ class EditorHost private constructor(appContext: Context) {
             // (EditorEngineSupport.kt), and once more after the boot grace
             // period in case the bundle is still mounting.
             override fun onPageFinished(view: WebView?, url: String?) {
+                // A page that died mid-gesture never posted its `blockPress`
+                // false — see setBlockPressActive.
+                view?.isHapticFeedbackEnabled = true
                 probeEngine(isFinal = false)
                 main.removeCallbacks(graceProbe)
                 main.postDelayed(graceProbe, ENGINE_BOOT_GRACE_MS)
@@ -405,6 +448,29 @@ class EditorHost private constructor(appContext: Context) {
             val failure = editorEngineFailure(probe, isFinal) ?: return@evaluateJavascript
             engineFailure = failure
             Log.e("FutoEditor", "Editor engine can't run the bundle: $failure")
+        }
+    }
+
+    /**
+     * A message arrived, so something in the page is running. If the grace
+     * period has already latched a failure, ask the gate once more.
+     *
+     * Without this a working engine that mounted LATER than
+     * [ENGINE_BOOT_GRACE_MS] would sit behind the notice for the rest of the
+     * session, because [probeEngine] stops asking once a failure is recorded
+     * and nothing else re-opens the question. Reopening the note re-focuses the
+     * editor, which posts, which lands here — the recovery the notice's own
+     * "then reopen the note" promises.
+     *
+     * It can only ever CLEAR a failure: the probe stays the authority, so a
+     * message from something other than a mounted editor changes nothing.
+     */
+    private fun rescueEngineVerdict() {
+        if (engineBooted || engineFailure == null) return
+        val probed = webView
+        probed.evaluateJavascript(ENGINE_PROBE_JS) { raw ->
+            if (probed !== webView) return@evaluateJavascript
+            if (editorEngineBooted(decodeJavascriptString(raw))) markEngineBooted()
         }
     }
 
@@ -442,6 +508,7 @@ class EditorHost private constructor(appContext: Context) {
     }
 
     private fun handle(msg: JSONObject, postedAttachmentGeneration: Long) {
+        rescueEngineVerdict()
         when (msg.optString("type")) {
             // The page is alive but shows nothing until it is configured. Hand
             // it this shell's whole intent in one call; the bundle owns the
@@ -452,10 +519,15 @@ class EditorHost private constructor(appContext: Context) {
             // this shell's per-note follow-up is meaningful.
             "initialized" -> {
                 isReady = true
-                // Only the bundle can send this, so it proves the engine ran it.
-                // A shortcut, never the gate: the gate is the probe (see
-                // [engineBooted]), which does not wait for the config round-trip.
-                markEngineBooted()
+                // NOT a shortcut to [markEngineBooted]. It used to be one, on
+                // the reasoning that only the bundle can send this — true, and
+                // beside the point: `initialize(config)` is answered by the host
+                // API, which exists whether or not the EDITOR came up behind it.
+                // Measured on futo-api30 (Chromium 83): Milkdown's async
+                // `create()` threw, `initialized` still arrived, the engine was
+                // marked booted, and the note showed a blank pane with no
+                // update-WebView notice. The probe is the only gate; the rescue
+                // it lost is [rescueEngineVerdict], above.
                 // The desired state can have moved (a sync adopt, a theme flip)
                 // between sending the config and this reply; each of these is
                 // deduped and so a no-op when it hasn't.
@@ -502,9 +574,34 @@ class EditorHost private constructor(appContext: Context) {
             // Keyboard show/hide is handled natively by adjustResize; focus
             // gates the native toolbar's visibility (bridge v3).
             "focus" -> editorFocused = msg.optBoolean("focused")
-            // Cursor moved on/off a list line — drives Indent/Outdent
-            // visibility in the native toolbar (deduped editor-side).
-            "cursorContext" -> onListLine = msg.optBoolean("onListLine")
+            // Cursor moved on/off a list line (and, additively, a blockquote)
+            // — drives Indent/Outdent visibility in the native toolbar
+            // (deduped editor-side). `inContainer` may be absent from an
+            // older bundle, which `has()` distinguishes from an explicit
+            // `false` — `optBoolean` alone can't tell those apart.
+            "cursorContext" -> {
+                onListLine = msg.optBoolean("onListLine")
+                inContainer = if (msg.has("inContainer")) msg.optBoolean("inContainer") else null
+            }
+            // Which toolbar-manifest commands cover the caret (deduped
+            // editor-side) — the native toolbar tints those buttons. Milkdown
+            // only; the CodeMirror engine never sends it.
+            "formatState" -> {
+                val ids = msg.optJSONArray("active")
+                activeFormats = buildSet {
+                    for (i in 0 until (ids?.length() ?: 0)) {
+                        ids?.optString(i)?.takeIf { it.isNotEmpty() }?.let { add(it) }
+                    }
+                }
+                // QA-003: Undo/Redo greyed out with an empty prosemirror-history
+                // stack. Same message, additive field (bridge.ts).
+                val disabledIds = msg.optJSONArray("disabled")
+                disabledFormats = buildSet {
+                    for (i in 0 until (disabledIds?.length() ?: 0)) {
+                        disabledIds?.optString(i)?.takeIf { it.isNotEmpty() }?.let { add(it) }
+                    }
+                }
+            }
             "findMatches" -> decodeFindMatches(msg)?.let { report ->
                 if (
                     isCurrentFindReportOwner(
@@ -535,7 +632,100 @@ class EditorHost private constructor(appContext: Context) {
                 val ext = msg.optString("ext")
                 if (data.isNotEmpty() && ext.isNotEmpty()) onSaveImageData(data, ext)
             }
+            // The embed classified the paste as an image it cannot read bytes
+            // for itself (QA #006): Android's Chromium WebView exposes a
+            // clipboard image copied from Photos/Files/Gallery/Drive as a
+            // content:// URI riding on text/plain, not as a File, so
+            // saveImageData never fires. Read the OS clipboard natively
+            // instead — the same `pasteClipboardImage` round trip iOS's
+            // hidden-pasteboard paste already uses.
+            "pasteClipboardImage" -> onPasteClipboardImage()
+            // Block-drag haptics. Both native shells mount the SAME
+            // long-press block drag (blockDragMode.ts), so the three moments
+            // and their feel are shared (bridge.ts HapticMessage).
+            "haptic" -> performBlockDragHaptic(msg.optString("kind"))
+            "blockPress" -> setBlockPressActive(msg.optBoolean("pressed"))
         }
+    }
+
+    /**
+     * The Android half of the block-drag haptics iOS does with
+     * `UIImpactFeedbackGenerator` / `UISelectionFeedbackGenerator`, mapped to
+     * the closest platform constants so the two feel alike:
+     *
+     * - `lift`  — iOS medium impact; here [HapticFeedbackConstants.LONG_PRESS],
+     *   the platform's own "you have picked this up".
+     * - `move`  — iOS `selectionChanged()`; here
+     *   [HapticFeedbackConstants.CLOCK_TICK], Android's picker/scrubber tick,
+     *   which is the same "the bar is somewhere new" signal.
+     * - `drop`  — iOS light impact; here
+     *   [HapticFeedbackConstants.CONTEXT_CLICK], a lighter click than the lift.
+     *
+     * All three exist well below `minSdk` 28, so there is no API branching.
+     * [android.view.View.performHapticFeedback] — NOT [android.os.Vibrator] —
+     * because it needs no `VIBRATE` permission and honors the user's system
+     * touch-feedback setting, the same way iOS's feedback generators honor
+     * theirs. An unknown kind is dropped, matching iOS's `default: break`: a
+     * future kind must not buzz the wrong way on an old host.
+     *
+     * [HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING] because
+     * [setBlockPressActive] turns the WebView's own view-level haptics OFF for
+     * the duration of a block press — see there. The flag skips the VIEW's
+     * setting only; the user's SYSTEM touch-feedback setting is still honored,
+     * because `FLAG_IGNORE_GLOBAL_SETTING` is deliberately not passed.
+     */
+    private fun performBlockDragHaptic(kind: String) {
+        val constant = when (kind) {
+            "lift" -> HapticFeedbackConstants.LONG_PRESS
+            "move" -> HapticFeedbackConstants.CLOCK_TICK
+            "drop" -> HapticFeedbackConstants.CONTEXT_CLICK
+            else -> null
+        }
+        // Emulators and haptics-less hardware feel nothing; this log is the
+        // proof of receipt there, matching the iOS shell's.
+        Log.d("FutoBridgeDBG", "haptic received: $kind")
+        if (constant != null) {
+            webView.performHapticFeedback(
+                constant,
+                HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING,
+            )
+        }
+    }
+
+    /**
+     * The Android half of the press-level suspension iOS does by standing
+     * WKWebView's delayed text-interaction recognisers down (bridge.ts
+     * `BlockPressMessage`) — and it is a MUCH smaller job here, because
+     * Chromium is not WebKit.
+     *
+     * Measured on a moto g play 2023 (Android 13, System WebView 151), a
+     * stationary hold on a block, focused and unfocused, five runs: no word
+     * highlight, no selection handles, no floating Cut/Copy action mode, no
+     * magnifier — the page's own defences in `mobileBlockDnd.ts` (cancelled
+     * `selectstart`/`contextmenu`, re-collapsed selection, `preventDefault()`
+     * on the drag's touch stream) are enough for Chromium, which — unlike
+     * WebKit — lets the page have them. So none of iOS's
+     * `isTextInteractionEnabled`/gesture-disabling machinery is needed here,
+     * and `blockDrag` needs no host at all.
+     *
+     * ONE thing does leak through, and it is the whole reason this exists: the
+     * WebView fires its OWN [HapticFeedbackConstants.LONG_PRESS] buzz when its
+     * long-press gesture recogniser trips, 128-141 ms after the editor's `lift`
+     * (measured across five holds; the recogniser fires around touch-down +
+     * 480 ms against the editor's 340 ms lift). Two impacts a seventh of a
+     * second apart read as a stutter, not as one pickup. The view-level flag is
+     * the narrowest lever that silences it: it kills the WebView's own
+     * feedback, [performBlockDragHaptic] opts past it, and a long press
+     * anywhere the editor does NOT claim as a block press keeps its normal
+     * buzz.
+     *
+     * Restored in `onPageFinished` as well as here, because a page that dies
+     * mid-gesture never posts the matching `pressed: false` and the WebView
+     * would stay mute for the rest of the session (the iOS shell resets in
+     * `loadEditor()` for the same reason).
+     */
+    private fun setBlockPressActive(pressed: Boolean) {
+        webView.isHapticFeedbackEnabled = !pressed
     }
 
     /**
@@ -589,6 +779,7 @@ class EditorHost private constructor(appContext: Context) {
         onOpenNote: (String) -> Unit = {},
         onPickImage: (String) -> Unit = {},
         onSaveImageData: (String, String) -> Unit = { _, _ -> },
+        onPasteClipboardImage: () -> Unit = {},
         onFindMatches: (FindMatchesReport) -> Unit = {},
     ): EditorAttachmentToken {
         this.onChange = onChange
@@ -596,6 +787,7 @@ class EditorHost private constructor(appContext: Context) {
         this.onOpenNote = onOpenNote
         this.onPickImage = onPickImage
         this.onSaveImageData = onSaveImageData
+        this.onPasteClipboardImage = onPasteClipboardImage
         this.onFindMatches = onFindMatches
         this.autoFocus = autoFocus
         val token = attachments.attach()
@@ -617,6 +809,7 @@ class EditorHost private constructor(appContext: Context) {
         onOpenNote = {}
         onPickImage = {}
         onSaveImageData = { _, _ -> }
+        onPasteClipboardImage = {}
         onFindMatches = {}
         autoFocus = false
         // Leaving the editor screen detaches the WebView without a blur event;
@@ -676,11 +869,20 @@ class EditorHost private constructor(appContext: Context) {
      * transaction. Storage migration keeps its vault gate until this returns,
      * so migration cannot start in the post-save callback gap.
      * Callers enter on Main.immediate: dispatching another runnable here would
-     * let cancellation unwind while a stale insertion remained queued. */
+     * let cancellation unwind while a stale insertion remained queued.
+     *
+     * Bounded by [CAPTURE_DEADLINE_MS] — the same ceiling [captureContentAndWait]
+     * holds a navigation exit to. This runs inside [EditorSession.runWork],
+     * the mutex a NAVIGATE exit's `awaitPendingWork()` waits on, so an
+     * unbounded wait here used to leave Back dead for as long as the renderer
+     * stayed wedged — or forever, if it never answered at all (F3). A timeout
+     * resumes `false`, the same answer a live `window.FutoEditor` returning
+     * false already produces, so the caller's existing cleanup and failure
+     * toast (`NotesStore.saveImageIntoVault`) apply unchanged. */
     internal suspend fun insertImageAndWait(
         filename: String,
         attachment: EditorAttachmentToken,
-    ): Boolean =
+    ): Boolean = insertImageWithinDeadline(deadlineMs = CAPTURE_DEADLINE_MS) {
         suspendCancellableCoroutine { continuation ->
             val permit = EditorAttachmentOperationPermit(attachments, attachment)
             continuation.invokeOnCancellation { permit.cancel() }
@@ -707,19 +909,73 @@ class EditorHost private constructor(appContext: Context) {
             }
             insert.run()
         }
+    }
 
-    /** Blur and read the live CodeMirror document for save-before-navigation.
+    /**
+     * Blur and read the live document for save-before-navigation.
+     *
      * The attachment check prevents a delayed callback from supplying bytes
-     * from whichever note adopts the shared WebView next. */
+     * from whichever note adopts the shared WebView next — that, and only that,
+     * is [EditorCaptureOutcome.NotOurs], the answer that refuses the exit. A
+     * page with no document to read answers [EditorCaptureOutcome.NoLiveDocument]
+     * instead, which lets the exit leave on the shell's own buffer; see
+     * [editorExitBody] for why those are not the same answer.
+     *
+     * A renderer that is alive but too busy to answer inside the deadline is the
+     * third refusing case, [EditorCaptureOutcome.TimedOut]; [captureWithinDeadline]
+     * owns how it is told apart from a wedge.
+     */
     internal suspend fun captureContentAndWait(
         attachment: EditorAttachmentToken,
-    ): String? =
+    ): EditorCaptureOutcome {
+        // No `initialized` yet: the bundle is still applying this shell's
+        // config — for a big enough note, for a long time — so nothing is on
+        // screen and there is nothing of the user's to lose. Answer without
+        // touching the renderer at all.
+        if (!isReady) return EditorCaptureOutcome.NoLiveDocument
+        var rendererAnswered = { false }
+        return captureWithinDeadline(
+            deadlineMs = CAPTURE_DEADLINE_MS,
+            startLivenessProbe = { rendererAnswered = startRendererLivenessProbe() },
+            rendererAnswered = { rendererAnswered() },
+        ) { awaitCapture(attachment) }
+    }
+
+    /**
+     * Ask the renderer for nothing at all, and hand back a reader for whether it
+     * got round to answering.
+     *
+     * Dispatched immediately before the capture so it sits AHEAD of it in the
+     * renderer's task queue: an editor streaming a note's tail in idle slices
+     * runs this between two of them and answers in milliseconds, while a JS
+     * thread wedged inside one long synchronous parse runs neither. That is the
+     * whole difference between [EditorCaptureOutcome.TimedOut] and
+     * [EditorCaptureOutcome.NoLiveDocument] — see [captureWithinDeadline].
+     *
+     * Deliberately does NOT touch `window.FutoEditor`: this asks whether the JS
+     * thread is turning over, not whether the bundle booted. A page that is
+     * alive without an editor answers the capture itself, promptly, with
+     * [EditorCaptureOutcome.NoLiveDocument].
+     */
+    private fun startRendererLivenessProbe(): () -> Boolean {
+        // `evaluateJavascript` is main-thread-only, and an off-main capture is
+        // already answered NotOurs by [awaitCapture]; probing there would crash
+        // instead. Reporting "no answer" costs nothing — that path never reads it.
+        if (Looper.myLooper() != Looper.getMainLooper()) return { false }
+        val answered = AtomicBoolean(false)
+        webView.evaluateJavascript("1") { answered.set(true) }
+        return { answered.get() }
+    }
+
+    private suspend fun awaitCapture(
+        attachment: EditorAttachmentToken,
+    ): EditorCaptureOutcome =
         suspendCancellableCoroutine { continuation ->
             val permit = EditorAttachmentOperationPermit(attachments, attachment)
             continuation.invokeOnCancellation { permit.cancel() }
             val capture = Runnable {
                 if (!permit.mayRun()) {
-                    if (continuation.isActive) continuation.resume(null)
+                    if (continuation.isActive) continuation.resume(EditorCaptureOutcome.NotOurs)
                     return@Runnable
                 }
                 webView.evaluateJavascript(
@@ -731,18 +987,27 @@ class EditorHost private constructor(appContext: Context) {
                     })()
                     """.trimIndent(),
                 ) { result ->
+                    // The deadline may already have answered for us. Returning
+                    // here is what makes a late callback harmless: the stale
+                    // bytes never reach [lastPushedContent].
                     if (!continuation.isActive) return@evaluateJavascript
                     if (!attachments.permits(attachment)) {
-                        continuation.resume(null)
+                        continuation.resume(EditorCaptureOutcome.NotOurs)
                         return@evaluateJavascript
                     }
                     val captured = decodeJavascriptString(result)
-                    if (captured != null) lastPushedContent = captured
-                    continuation.resume(captured)
+                    if (captured == null) {
+                        // The page answered but has no `window.FutoEditor` —
+                        // the legacy-WebView notice, or a boot that failed.
+                        continuation.resume(EditorCaptureOutcome.NoLiveDocument)
+                        return@evaluateJavascript
+                    }
+                    lastPushedContent = captured
+                    continuation.resume(EditorCaptureOutcome.Captured(captured))
                 }
             }
             if (Looper.myLooper() != Looper.getMainLooper()) {
-                if (continuation.isActive) continuation.resume(null)
+                if (continuation.isActive) continuation.resume(EditorCaptureOutcome.NotOurs)
                 return@suspendCancellableCoroutine
             }
             capture.run()
@@ -877,6 +1142,21 @@ class EditorHost private constructor(appContext: Context) {
         /** Left/right inset of the note body, sent to the bundle in the host
          *  config so it lines up with this shell's native title field. */
         private const val CONTENT_PADDING_INLINE_PX = 16
+
+        /**
+         * How long an exit waits for the renderer to answer before giving up on
+         * it — what keeps an exit FINITE.
+         *
+         * `evaluateJavascript` runs in the renderer process, so a JS thread
+         * stuck inside a parse never calls the callback at all. The navigation
+         * exit holds the interaction lock while it waits, which with no
+         * deadline leaves Back simply dead — a worse trap than the toast. Six
+         * seconds is far longer than any real capture (milliseconds; low
+         * seconds on a low-end phone for a multi-megabyte note, whose
+         * serialization is the cost) and far shorter than a wedge, which does
+         * not end.
+         */
+        private const val CAPTURE_DEADLINE_MS = 6_000L
 
         @Volatile
         private var instance: EditorHost? = null

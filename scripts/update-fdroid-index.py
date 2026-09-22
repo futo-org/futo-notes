@@ -36,7 +36,10 @@ from typing import Optional
 
 FDROID_REPO_SSH = "git@gitlab.futo.org:fdroid/repo-v2.git"
 FDROID_INDEX_PATH = "apps/Notes/index.yml"
-APK_GLOB = "apps/android/app/build/outputs/apk/release/*.apk"
+# F-Droid indexes the DIRECT distribution flavor — the same universal APK the
+# `release` job uploads to the generic package registry. The `play` flavor
+# exists only as an AAB and never reaches this repo.
+APK_GLOB = "apps/android/app/build/outputs/apk/direct/release/*.apk"
 
 GIT_USER_NAME = os.environ.get("FDROID_GIT_NAME", "FUTO Notes CI")
 GIT_USER_EMAIL = os.environ.get("FDROID_GIT_EMAIL", "futo-notes-ci@futo.org")

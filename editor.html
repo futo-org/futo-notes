@@ -5,12 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#ffffff" />
   <title>FUTO Notes Editor</title>
-  <!-- Legacy Android System WebView runtime shim (github#8). The editor bundle
-       targets ES2020 (syntax floor: Chromium 80), but Svelte 5's client runtime
-       calls String.prototype.replaceAll (Chromium 85), so without this the whole
-       app throws on Chromium 80-84 and the editor never mounts. A classic (non-
-       module) script runs before the deferred module bundle. Engines below the
-       ES2020 syntax floor are caught natively (see Android EditorWebView). -->
+  <!-- Legacy Android System WebView runtime shims (github#8, Milkdown T10).
+       The editor bundle targets ES2020, so its SYNTAX floor is Chromium 80 — but
+       parsing is only half the floor. Dependencies reach for built-in methods
+       that landed later, and those load clean and then throw:
+         - Svelte 5's client runtime calls String.prototype.replaceAll (85) while
+           mounting, so without it the whole app dies before first paint.
+         - @milkdown/transformer calls Array.prototype.at (92) in its serializer
+           stack and its mark-merge pass — every parse and every save.
+       A classic (non-module) script runs before the deferred module bundle, so
+       both are in place by the time anything uses them. Engines below the ES2020
+       syntax floor are caught natively (see Android EditorEngineSupport.kt), and
+       tests/editor-embed-webview-floor.spec.ts holds the whole floor: it deletes
+       each built-in, proves the editor still runs, and audits the built bundle
+       for post-floor built-ins no shim covers. -->
   <script>
     if (!String.prototype.replaceAll) {
       String.prototype.replaceAll = function (search, replacement) {
@@ -24,6 +32,36 @@
         return String.prototype.replace.call(this, new RegExp(escaped, 'g'), replacement);
       };
     }
+    // Array.prototype.at / String.prototype.at, in an IIFE so the helpers do not
+    // become page globals. Covers Array and String only — a TypedArray `.at`
+    // would need its own line here, and the bundle uses none.
+    //
+    // defineProperty, not assignment: a plain `Array.prototype.at = ...` is an
+    // ENUMERABLE own property, so every `for (const k in someArray)` in the page
+    // — ours and every dependency's — would start yielding 'at'. Deleting the
+    // shim is safer than shipping that.
+    (function () {
+      // ToIntegerOrInfinity, near enough: Math.trunc gives NaN for undefined
+      // and non-numeric strings, and `|| 0` folds NaN and -0 to +0. Reads
+      // `this.length` raw rather than through ToLength, so it is exact for
+      // arrays and strings and approximate for a hand-rolled array-like.
+      var at = function (index) {
+        var length = this.length;
+        var i = Math.trunc(index) || 0;
+        if (i < 0) i += length;
+        return i < 0 || i >= length ? undefined : this[i];
+      };
+      var define = function (target) {
+        Object.defineProperty(target, 'at', {
+          value: at,
+          writable: true,
+          enumerable: false,
+          configurable: true,
+        });
+      };
+      if (!Array.prototype.at) define(Array.prototype);
+      if (!String.prototype.at) define(String.prototype);
+    })();
   </script>
   <!-- Engine capability preflight (github#8). The bundle is built with vite
        `target: 'ES2020'`, so an engine that can't parse it throws on the module
@@ -51,37 +89,29 @@
   </script>
   <style>
     /* ------------------------------------------------------------------ *
-     * Embedded editor layout for the native-iOS WKWebView host.
+     * Embedded editor layout for the native iOS/Android WebView hosts.
      *
-     * Goals (all observed on a real iPhone):
-     *  1. Comfortable horizontal margins (+ safe-area insets for notch /
-     *     landscape).
-     *  2. SCROLLING that actually works. We use CodeMirror 6's NATIVE
-     *     fixed-height mode: give .cm-editor a definite (viewport) height and
-     *     let its .cm-scroller scroll internally. (The earlier "let the page
-     *     scroll" approach with height:auto + overflow:visible did NOT scroll
-     *     — CM is built to scroll inside .cm-scroller when the editor has a
-     *     fixed height.)
-     *  3. An empty note must still be tappable: the scroller fills the editor
-     *     and iOS resolves taps from its non-editable blank tail.
+     * Only the layout SCAFFOLD is here: html, body, #editor, and carrying a
+     * definite height down through the one wrapper the editor mounts. The
+     * editor's INSIDE — which element scrolls, its momentum and overscroll
+     * behaviour, its gutters and safe-area insets, and the keyboard tail —
+     * belongs to MilkdownEditor.svelte's own <style> on `.futo-milkdown` /
+     * `.milkdown` / `.ProseMirror`. Svelte component CSS is emitted
+     * UNLAYERED into this bundle, so it survives on the same pre-@layer
+     * engines the comments below are about; nothing needs to be duplicated
+     * here for them.
      *
-     * NOTE ON SPECIFICITY: MarkdownEditor.svelte installs an inline
-     * EditorView.theme with `&{height:auto}` and `.cm-content{padding:0}`.
-     * That CSS is unlayered and injected by CodeMirror. The rules below are
-     * also unlayered (plain <style>); we use !important to beat CM's theme.
+     * Keep every declaration in this file inside the Chromium 80 floor. The
+     * app's own @layer'd CSS is discarded wholesale by those engines
+     * (@layer is Chromium 99), so this stylesheet is the whole page layout
+     * on them.
      * ------------------------------------------------------------------ */
-
-    :root {
-      --futo-edit-pad-x: 18px;
-      /* Trailing space so the last lines can scroll clear of the keyboard. */
-      --futo-edit-pad-bottom: max(40vh, 280px);
-    }
 
     html, body {
       height: 100%;
       margin: 0;
       padding: 0;
-      overflow: hidden;          /* the page never scrolls; .cm-scroller does */
+      overflow: hidden;          /* the page never scrolls; .ProseMirror does */
       overscroll-behavior: none;
       /* Both native hosts render this page in a TRANSPARENT web view
        * (iOS: isOpaque=false + .clear, Android: setBackgroundColor(TRANSPARENT))
@@ -104,9 +134,9 @@
      * that makes it resolve 100vh/100dvh to 0 — measured on an Android 11 /
      * Chromium 83 WebView: `position: absolute; top: 0; bottom: 0` gives 0px
      * there, while an explicit pixel height or a fixed-position box gives the
-     * correct 555px). The whole height chain below then collapses, .cm-scroller
-     * never becomes a scroll container, and CodeMirror scrolls the ROOT document
-     * to reveal the cursor instead — which slides the note up under the shell's
+     * correct 555px). The whole height chain below then collapses, `.ProseMirror`
+     * never becomes a scroll container, and the editor scrolls the ROOT document
+     * to reveal the caret instead — which slides the note up under the shell's
      * native title bar as you type (github#33, reported on 1.7.0 / Android 10).
      *
      * Identical declarations to base.css's, so engines that DO apply that layer
@@ -122,14 +152,14 @@
 
     /* Legacy-WebView text-color fallback (github#8). Non-updated Android 8-10
      * system WebViews predate @layer (Chromium 99) and drop EVERY rule inside
-     * Tailwind's layers — including the @theme light tokens and the
-     * body/.cm-editor color rules — leaving UA-black text over the hosts'
-     * surface (invisible in dark mode). The [data-theme='dark'] variable
-     * overrides in theme.css stay unlayered, so var() still resolves there;
-     * the literal fallback covers light mode, where the @layer'd token is
-     * lost. Inherited from html, so it never outranks the layered rules that
-     * modern engines apply on body/.cm-editor. The hex must equal theme.css's
-     * light --color-text (locked by the legacy-WebView tests in
+     * Tailwind's layers — including the @theme light tokens — leaving UA-black
+     * text over the hosts' surface (invisible in dark mode). The
+     * [data-theme='dark'] variable overrides in theme.css stay unlayered, so
+     * var() still resolves there; the literal fallback covers light mode, where
+     * the @layer'd token is lost. Inherited from html, so it never outranks the
+     * layered rules that modern engines apply on body, nor MilkdownEditor's own
+     * unlayered `.ProseMirror` color. The hex must equal theme.css's light
+     * --color-text (locked by the legacy-WebView tests in
      * tests/editor-embed-bridge.spec.ts). */
     html {
       color: var(--color-text, #0f0f0f);
@@ -141,10 +171,10 @@
      * Chromium 87; the editor's engine floor is 80, so a WebView in the 80–86
      * band drops that one declaration and leaves `position: absolute` with all
      * four offsets `auto`. #editor then shrink-wraps its text at the static
-     * position instead of filling the pane: `.cm-editor`'s `height: 100%`
-     * resolves against an auto-height parent, `.cm-scroller` never becomes a
-     * scroll container, and the note grows past the bottom of the pane with
-     * nothing to scroll — so CodeMirror's scroll-cursor-into-view moves the
+     * position instead of filling the pane: the wrapper's and `.ProseMirror`'s
+     * `height: 100%` resolve against an auto-height parent, `.ProseMirror`
+     * never becomes a scroll container, and the note grows past the bottom of
+     * the pane with nothing to scroll — so scroll-caret-into-view moves the
      * ROOT document and the note slides up under the shell's native title bar.
      * Reported on 1.7.0 / Android 10. Locked by the "pre-inset WebView" tests
      * in tests/editor-embed-bridge.spec.ts. The same goes for any other
@@ -159,85 +189,16 @@
       left: 0;
     }
 
-    /* MarkdownEditor.svelte mounts a single wrapper <div> inside #editor;
-     * carry #editor's definite height down through it so .cm-editor can
-     * resolve a percentage height. */
+    /* MilkdownEditor.svelte mounts a single wrapper <div class="futo-milkdown">
+     * inside #editor; carry #editor's definite height down through it so the
+     * `.milkdown` / `.ProseMirror` percentage heights inside it resolve, and
+     * `.ProseMirror` becomes the scroll container. The component declares
+     * `.futo-milkdown { height: 100% }` itself — this is the unconditional,
+     * structural copy, kept because it does not depend on the component's
+     * scoping class surviving, and because a definite height here is the one
+     * thing the legacy engines above cannot recover from if it is missing. */
     #editor > :first-child {
       height: 100% !important;
-    }
-
-    /* Fixed height enables CM's internal scroller. We anchor to a definite
-     * height CHAIN (#editor is absolutely positioned to all four edges) rather
-     * than viewport units:
-     * Android System WebView resolves 100dvh/100vh to 0 here (while
-     * innerHeight/clientHeight are correct), collapsing the editor to 0px and
-     * painting blank. 100% off the definite chain works on both WKWebView and
-     * Android WebView. */
-    .cm-editor {
-      height: 100% !important;
-    }
-
-    /* CM's own scroller is the scroll container (vertical), with momentum.
-     * overscroll-behavior:contain keeps the native rubber-band BOUNCE at the
-     * top/bottom (iOS users expect it; its absence reads as "stuck") while still
-     * preventing scroll from chaining out to the host web view. (We previously
-     * used `none` to suppress bounce for a scroll-jump guard that wrote scrollTop
-     * mid-scroll; that guard is gone — the height map is warmed up front instead,
-     * see $lib/heightMapWarm.ts — so bounce is back.) */
-    .cm-scroller {
-      overflow-y: auto !important;
-      -webkit-overflow-scrolling: touch !important;
-      overscroll-behavior: contain !important;
-    }
-
-    /* Text gutters and the default keyboard tail. iOS moves the tail to the
-     * scroller below so WebKit cannot apply a second editable selection. */
-    .cm-content {
-      padding-left: calc(var(--futo-edit-pad-x) + env(safe-area-inset-left)) !important;
-      padding-right: calc(var(--futo-edit-pad-x) + env(safe-area-inset-right)) !important;
-      padding-top: 14px !important;
-      padding-bottom: var(--futo-edit-pad-bottom) !important;
-      box-sizing: border-box !important;
-      /* Fill the scroller so an EMPTY note is fully tappable. The definite
-       * height chain above (#editor → wrapper → .cm-editor → .cm-scroller)
-       * gives the scroller a resolvable height, so 100% no longer collapses —
-       * and unlike 100dvh it isn't zeroed by Android WebView. */
-      min-height: 100% !important;
-    }
-
-    /* The tail must begin where the CONTENT ends, not at the bottom of the
-     * viewport. An absolutely positioned tail at `top: 100%` resolves against
-     * the scroller's PADDING BOX — i.e. its visible height — so it appended the
-     * full tail below the fold no matter how short the note was, and a note
-     * that did not fill the screen could be scrolled entirely out of view
-     * (measured: 216px of content in a 780px viewport, 312px of scroll).
-     * A wrapped flex line is in normal flow, so it starts at the content's end
-     * and a short note gets no scrollable overshoot at all. `.cm-scroller` is
-     * `display:flex; flex-direction:row`, so the tail needs `flex: 0 0 100%` to
-     * claim a line of its own below `.cm-content`, and `align-content` must be
-     * pinned or the two lines get stretched apart. → docs/spec/editor.md */
-    .cm-editor[data-ios-off-text-surface] .cm-scroller {
-      position: relative !important;
-      padding-bottom: 0 !important;
-      flex-wrap: wrap !important;
-      align-content: flex-start !important;
-    }
-
-    .cm-editor[data-ios-off-text-surface] .cm-scroller::after {
-      content: '';
-      flex: 0 0 100%;
-      height: var(--futo-edit-pad-bottom);
-      pointer-events: none;
-    }
-
-    /* No `margin-bottom` tail here: WebKit leaves a last child's bottom margin
-     * out of the scrollable overflow, which is why the tail was a pseudo-element
-     * to begin with — and once the pseudo is in flow the margin only stacks a
-     * second tail on top of it. */
-    .cm-editor[data-ios-off-text-surface] .cm-content {
-      min-height: 0 !important;
-      padding-bottom: 0 !important;
-      margin-bottom: 0 !important;
     }
   </style>
 </head>

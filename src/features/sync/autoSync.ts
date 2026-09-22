@@ -53,10 +53,8 @@ let backgroundRetryTimer: number | null = null;
 let pollTimer: number | null = null;
 let liveConnected = false;
 let liveStateUnlisten: UnlistenFn | null = null;
-let pendingLocalSave = false;
-let pendingLocalSaveTimer: number | null = null;
 
-export type SyncTrigger = 'local-save' | 'manual' | 'poll' | 'resume' | 'initial';
+export type SyncTrigger = 'manual' | 'poll' | 'resume' | 'initial';
 
 const reportedSyncErrors = new WeakSet<Error>();
 
@@ -95,9 +93,6 @@ async function performSync(
     ) {
       scheduleBackgroundRetry(trigger);
     }
-    if (syncing && trigger === 'local-save') {
-      pendingLocalSave = true;
-    }
     if (options.requireExecution) {
       if (syncing) throw new Error('Sync already in progress');
       if (!callbacks) throw new Error('Sync system not initialized');
@@ -112,7 +107,7 @@ async function performSync(
   syncing = true;
   callbacks.onSyncStateChange?.(true);
   try {
-    if (trigger === 'local-save' || trigger === 'manual') {
+    if (trigger === 'manual') {
       await callbacks.flushPendingSave();
     }
     const summary = await syncE2eeAuto();
@@ -131,14 +126,6 @@ async function performSync(
   } finally {
     syncing = false;
     callbacks.onSyncStateChange?.(false);
-    if (pendingLocalSave) {
-      pendingLocalSave = false;
-      cancelPendingLocalSaveRetry();
-      pendingLocalSaveTimer = window.setTimeout(() => {
-        pendingLocalSaveTimer = null;
-        void performSync('local-save');
-      }, 2_000);
-    }
   }
 }
 
@@ -228,13 +215,6 @@ function stopPolling(): void {
   if (pollTimer !== null) {
     clearTimeout(pollTimer);
     pollTimer = null;
-  }
-}
-
-function cancelPendingLocalSaveRetry(): void {
-  if (pendingLocalSaveTimer !== null) {
-    clearTimeout(pendingLocalSaveTimer);
-    pendingLocalSaveTimer = null;
   }
 }
 
@@ -343,8 +323,6 @@ export function stopAutoSync(): void {
   liveStateUnlisten = null;
   liveConnected = false;
   lastSyncTime = 0;
-  pendingLocalSave = false;
-  cancelPendingLocalSaveRetry();
   cancelInitialSyncTrigger();
   initialSyncFired = false;
   cancelInitialRetry();

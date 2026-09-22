@@ -12,11 +12,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.FormatIndentDecrease
 import androidx.compose.material.icons.automirrored.filled.FormatIndentIncrease
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListNumbered
@@ -29,6 +33,9 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Title
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
@@ -41,6 +48,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -77,14 +86,27 @@ private val FADE_WIDTH = 10.dp
  *
  * This composable owns NO editing behavior: every tap is handed to [perform],
  * which the editor screen routes over the bridge (`FutoEditor.exec`) into the
- * same markdownToolbar.ts commands the web toolbar runs.
+ * shared TOOLBAR_EXEC commands the web toolbar runs.
+ *
+ * [activeFormats] is the bridge `formatState` set — the manifest ids that cover
+ * the caret — and tints those buttons, the Android half of the Notion-style
+ * active highlight iOS's EditorToolbarView draws.
+ *
+ * [inContainer] (bridge `cursorContext.inContainer`) gates the `onlyInContainer`
+ * items (Indent/Outdent) — a caret in a list item OR a blockquote. `null` means
+ * an older bundle never sent the field, so [onListLine] is the fallback.
  */
 @Composable
 fun EditorToolbar(
     onListLine: Boolean,
     perform: (ToolbarItemSpec) -> Unit,
     modifier: Modifier = Modifier,
+    inContainer: Boolean? = null,
+    activeFormats: Set<String> = emptySet(),
+    /** Bridge `formatState.disabled` — dims the button and blocks the tap. */
+    disabledFormats: Set<String> = emptySet(),
 ) {
+    val containerVisible = inContainer ?: onListLine
     val c = FutoTheme.colors
     val density = LocalDensity.current
     val scrollState = rememberScrollState()
@@ -104,7 +126,7 @@ fun EditorToolbar(
     // Recompute the snap only while the bar is at rest (scroll == 0), where the
     // measured positions equal content positions. The snap is a fixed layout
     // inset, so it must not jitter as the user scrolls.
-    LaunchedEffect(slotPx, measureTick, onListLine, scrollState.value) {
+    LaunchedEffect(slotPx, measureTick, containerVisible, activeFormats, scrollState.value) {
         if (scrollState.value == 0 && slotPx > 0f && buttonLefts.size > 1) {
             val lefts = buttonLefts.values.sorted()
             val insetPx = computeToolbarSnapPx(
@@ -159,10 +181,12 @@ fun EditorToolbar(
                             )
                         }
                         group.forEach { item ->
-                            if (!item.onlyOnListLine || onListLine) {
+                            if (!item.onlyInContainer || containerVisible) {
                                 ToolbarButton(
                                     item,
                                     tint = c.textPrimary,
+                                    active = item.id in activeFormats,
+                                    enabled = item.id !in disabledFormats,
                                     perform = perform,
                                     modifier = Modifier.onGloballyPositioned {
                                         buttonLefts[item.id] = it.positionInWindow().x - boxWindowX
@@ -237,21 +261,61 @@ private fun computeToolbarSnapPx(
     return inset.coerceAtLeast(0f)
 }
 
+/**
+ * One toolbar button. [active] paints the Notion-style highlight: an
+ * accent-tinted icon on a rounded accent wash INSET inside the 44 dp tap
+ * target, so the tap area is unchanged and the pill reads as a state, not a
+ * second button. Matches the iOS `button(for:)` treatment (8 pt radius, 15%
+ * accent fill, accent icon). Only `.Exec` items can be active — their id is a
+ * manifest command id, and `formatState` only ever names those — so the
+ * dismiss and picker buttons are unaffected by construction.
+ *
+ * [enabled] is bridge `formatState.disabled` (Undo/Redo with an empty
+ * prosemirror-history stack): dims the icon/text AND passes through to
+ * [IconButton]'s own `enabled`, so the tap is blocked outright, matching
+ * iOS's `.disabled(isDisabled)` treatment (EditorToolbar.swift).
+ */
 @Composable
 private fun ToolbarButton(
     item: ToolbarItemSpec,
     tint: Color,
     perform: (ToolbarItemSpec) -> Unit,
     modifier: Modifier = Modifier,
+    active: Boolean = false,
+    enabled: Boolean = true,
 ) {
+    val accent = FutoTheme.colors.accent
+    val dim = if (enabled) 1f else 0.35f
     val localization = LocalLocalization.current
-    IconButton(onClick = { perform(item) }, modifier = modifier.size(BUTTON_SIZE)) {
-        Icon(
-            imageVector = materialIcon(item.material),
-            contentDescription = localization.localizedText(item.localizationPath),
-            tint = tint,
-            modifier = Modifier.size(22.dp),
-        )
+    val label = localization.localizedText(item.localizationPath)
+    IconButton(
+        onClick = { perform(item) },
+        enabled = enabled,
+        modifier = modifier.size(BUTTON_SIZE),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (active) accent.copy(alpha = 0.15f) else Color.Transparent)
+                .alpha(dim),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (item.text != null) {
+                Text(
+                    text = item.text,
+                    color = if (active) accent else tint,
+                    modifier = Modifier.semantics { contentDescription = label },
+                )
+            } else {
+                Icon(
+                    imageVector = materialIcon(item.material),
+                    contentDescription = label,
+                    tint = if (active) accent else tint,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        }
     }
 }
 
@@ -276,5 +340,8 @@ private fun materialIcon(name: String): ImageVector = when (name) {
     "photo_camera" -> Icons.Filled.PhotoCamera
     "image" -> Icons.Filled.Image
     "keyboard_hide" -> Icons.Filled.KeyboardHide
+    "undo" -> Icons.AutoMirrored.Filled.Undo
+    "redo" -> Icons.AutoMirrored.Filled.Redo
+    "code" -> Icons.Filled.Code
     else -> Icons.Filled.Title
 }

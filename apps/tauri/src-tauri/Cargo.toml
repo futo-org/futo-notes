@@ -42,6 +42,9 @@ hex = "0.4"
 # Linux); a direct edge just makes it available on every desktop OS.
 gethostname = "1.1"
 tauri-plugin-mcp-bridge = "0.10.0"
+tauri-plugin-deep-link = "2"
+futo-notes-license = { version = "0.1.0", path = "../../../crates/futo-notes-license" }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 
 # OS secret store for the E2EE vault password (F6) lives in the per-OS target
 # tables below. Desktop-only, and deliberately NOT in the portable crates —

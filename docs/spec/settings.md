@@ -17,6 +17,18 @@
 
 
 - The app version is shown.
+- **License**: the License card (Unlicensed / Licensed / Expired, Buy, Enter
+  license key, Remove) follows [license.md](license.md). On the native shells it
+  is the first thing at the top of Settings; on desktop the ambient label lives in
+  the list view and opens Settings here. *(desktop)* The License section sits
+  after Updates and before the Danger zone, and **Full reset** clears the stored
+  license along with every other preference. →
+  `src/features/license/LicenseSettingsSection.svelte`, SettingsScreen.svelte
+  (`initialSection`), `deleteAllNotes` in `src/features/notes/notes.svelte.ts`
+  *(android)* The License group is the first group of `SettingsScreen`, and the
+  Danger-zone confirm clears the stored license with the vault. →
+  `apps/android/app/src/main/java/com/futo/notes/ui/LicenseSettingsSection.kt`,
+  `SettingsScreen.kt`, `license/LicenseModel.clearForFullReset`
 
 ## Native shells
 
@@ -143,10 +155,8 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
 - Settings is a sheet/modal (mobile: bottom sheet over the current screen)
   with sections: Storage, Appearance, Sync, Issue reporting, Updates, then
   Danger zone last, and a version footer. The sheet fully covers and blocks
-  floating editor UI, including the selection toolbar. → SettingsScreen.svelte,
-  src/styles/editor-selection-toolbar.css, tests/editor-ux.spec.ts "Selection
-  toolbar > stacks below blocking overlays" (see settings-visual.md for the
-  platform-split and shared content model)
+  floating editor UI. → SettingsScreen.svelte, src/styles/stacking.css (see
+  settings-visual.md for the platform-split and shared content model)
 - **Storage:** the section is described by `vault_status`, which answers for a
   vault that has gone missing as well as a healthy one, so it never depends on
   reading the vault it is there to fix. Both changing and resetting the root

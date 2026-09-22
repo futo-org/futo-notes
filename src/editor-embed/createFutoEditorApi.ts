@@ -1,6 +1,6 @@
-import type { EditorView } from '@codemirror/view';
 import {
   createEditorHostBoot,
+  imageReferenceMarkdown,
   postToHost,
   type BridgeNote,
   type EditorHostEffects,
@@ -8,12 +8,7 @@ import {
   type FutoEditorApi,
 } from '@futo-notes/editor';
 
-import { preloadImages, setLocalImageBaseUrl } from '$features/editor/liveMarkdownTransform';
-import { TOOLBAR_EXEC } from '$features/editor/markdownToolbar';
-import {
-  EXTERNAL_CONTENT_OPTS,
-  type SetEditorContentOptions,
-} from '$features/editor/editorContentSync';
+import { setVaultImageBaseUrl } from '$features/images/vaultImageSrc';
 import { setNotesUniverse } from '$features/notes/notes.svelte';
 import type { NotePreview } from '$shared/types/note';
 import { desktopLocalization } from '$shared/localization';
@@ -23,25 +18,27 @@ export interface EmbeddedEditorHandle {
   closeFind: () => void;
   focus: () => void;
   getContent: () => string;
-  getView: () => EditorView | null;
+  insertMarkdown: (text: string) => void;
   refreshDecorations: () => void;
   resetHistory: () => void;
   openFind: () => void;
+  setContent: (text: string) => void;
   setFindOverlayInset: (bottomOverlayPx: number) => void;
   setFindQuery: (query: string) => void;
   stepFind: (direction: 1 | -1) => void;
-  setContent: (text: string, options?: SetEditorContentOptions) => void;
-  warmScroll: () => { grew: number; steps: number } | null;
+  exec: (commandId: string) => boolean;
+  /* The harness probe main.ts exposes for the editor gauntlet. */
+  getProseMirrorView?: () => unknown;
 }
 
 export interface EmbeddedToolbarHandle {
-  setCursorContext: (onListLine: boolean) => void;
+  setCursorContext: (inContainer: boolean) => void;
   setFocused: (focused: boolean) => void;
+  setActiveFormats: (active: string[], disabled: string[]) => void;
 }
 
 interface CreateFutoEditorApiOptions {
   editor: EmbeddedEditorHandle;
-  markExternalChange: () => void;
   setNativeToolbar: (enabled: boolean) => void;
 }
 
@@ -77,7 +74,10 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
       desktopLocalization.setSelectedLanguageTag(languageTag);
     },
     applyContentPadding(px: number): void {
-      // editor-native-layout.css reads this; the shells only supply the value.
+      // The shells only supply the value; nothing renders it today — no
+      // stylesheet reads this variable since the CodeMirror editor was
+      // removed. Recorded as a Gap in docs/spec/editor.md, so the variable
+      // stays set and the bridge input keeps working.
       document.documentElement.style.setProperty('--futo-cm-pad-inline', `${px}px`);
     },
     applyNativeToolbar(enabled: boolean): void {
@@ -90,9 +90,10 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
         ?.setAttribute('content', theme === 'dark' ? '#000000' : '#ffffff');
     },
     applyImageBaseUrl(base: string): void {
-      setLocalImageBaseUrl(base);
-      preloadImages(editor.getContent(), undefined, () => editor.getView());
-      editor.refreshDecorations();
+      /* The image node views re-resolve themselves off this
+       * (vaultImageView.ts subscribes to the same store), so there is nothing
+       * for the editor to redraw here. */
+      setVaultImageBaseUrl(base);
     },
     applyNotes(notesJson: string): void {
       const notes = parseBridgeNotes(notesJson);
@@ -101,11 +102,13 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
       editor.refreshDecorations();
     },
     applyContent(markdown: string): void {
-      if (markdown !== editor.getContent()) options.markExternalChange();
-      editor.setContent(markdown, { preserveSelection: false });
+      editor.setContent(markdown);
     },
     readContent(): string {
-      return editor.getContent();
+      /* `undefined` means the component has never been handed a note (a fresh
+       * mount). Its document really is empty, and the only consumer is
+       * hostBoot's "is this already on screen?" dedupe, which must not match. */
+      return editor.getContent() ?? '';
     },
     post: postToHost,
   };
@@ -124,7 +127,12 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
       editor.resetHistory();
     },
     getContent(): string {
-      return editor.getContent();
+      /* The bridge contract types this `string` (bridge.ts). The component
+       * answers `undefined` only before any note has ever reached it, where an
+       * empty document is the truthful answer anyway — every native host calls
+       * `initialize`/`setContent` before it reads. A note whose parse FAILED
+       * comes back as the host's own bytes, not as ''. */
+      return editor.getContent() ?? '';
     },
     focus(): void {
       editor.focus();
@@ -139,20 +147,10 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
       boot.setNotes(notesJson);
     },
     applyExternalContent(markdown: string): void {
-      if (markdown !== editor.getContent()) options.markExternalChange();
-      editor.setContent(markdown, EXTERNAL_CONTENT_OPTS);
+      editor.setContent(markdown);
     },
     insertImage(filename: string): void {
-      const view = editor.getView();
-      if (!view) return;
-      const position = view.state.selection.main.head;
-      const insert = `![](${filename})\n`;
-      view.dispatch({
-        changes: { from: position, insert },
-        selection: { anchor: position + insert.length },
-      });
-      view.focus();
-      preloadImages(insert, undefined, () => editor.getView());
+      editor.insertMarkdown(imageReferenceMarkdown(filename));
     },
     setImageBaseUrl(base: string): void {
       boot.setImageBaseUrl(base);
@@ -183,13 +181,7 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
       editor.closeFind();
     },
     exec(commandId: string): void {
-      const run = TOOLBAR_EXEC[commandId];
-      if (!run) {
-        console.warn(`FutoEditor.exec: unknown command id '${commandId}', ignoring`);
-        return;
-      }
-      const view = editor.getView();
-      if (view) run(view);
+      editor.exec(commandId);
     },
     blur(): void {
       editor.blur();

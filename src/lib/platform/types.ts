@@ -11,6 +11,15 @@ export interface DirFileEntry {
   mtime: number;
 }
 
+/** A file dropped onto the window from outside the app. */
+export interface FileDropEvent {
+  /** Absolute paths of the dropped files. The OS gives no bytes, only paths. */
+  paths: string[];
+  /** Drop point in CSS pixels, relative to the webview viewport. */
+  x: number;
+  y: number;
+}
+
 /** Platform-owned app-data, image, and shell services. Note/folder behavior
  * deliberately lives on the separate LocalNoteStore port. */
 export interface PlatformStorage {
@@ -32,6 +41,21 @@ export interface PickedImage {
 
 export interface NativeCapabilities {
   pickImages?(options: { limit?: number; filterName: string }): Promise<PickedImage[]>;
+  /**
+   * Copy an image the OS handed us as a PATH, with no bytes, into the vault and
+   * return its vault filename. That shape is a Linux WebKitGTK drop and Tauri's
+   * own drag-drop event (src/features/editor/imageInsert.ts) — every other drop
+   * arrives as `File` bytes and goes through `saveImageBytes` instead. Present
+   * only where the host can read an arbitrary OS path.
+   */
+  saveImagePath?(sourcePath: string): Promise<string>;
+  /**
+   * Reads an image off the OS clipboard into the vault and returns its
+   * filename. Present only where the OS clipboard is reachable at all (Tauri
+   * desktop): the JS paste event hides a screenshot on Linux/WebKitGTK, so
+   * this is the only way to recover one. Absent everywhere else.
+   */
+  pasteClipboardImage?(): Promise<string>;
 }
 
 export interface PlatformFS extends PlatformStorage, NativeCapabilities {

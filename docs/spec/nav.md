@@ -80,14 +80,23 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   — an interactive pop cannot be refused once the finger starts it — and the
   alternative is tracked in issue #69. *(iOS)*
   → docs/learnings/ios-swipe-back-over-webview.md
+- Leaving the editor waits for the editor's own answer. When that wait runs out
+  on an editor that is still responding — a note editable from its first chunk
+  while the rest streams — the screen stays where it is rather than leaving on
+  the shell's copy, which can be missing the edit; the usual pending-changes
+  message is shown and pressing Back again is the way out. An editor that
+  responds to nothing at all is not holding anything, and leaving it always
+  works. *(iOS/Android)*
+  → docs/spec/editor.md "Editor exits — every way an open note ends"
 - Creating a note pushes the editor focused for immediate typing (Android
   focuses the native title field; desktop and iOS focus the editor body/heading);
   opening an existing note pushes it without autofocus. → AppNavigation.kt /
   NoteEditorScreen.kt, noteSession.svelte.ts `loadNote('new')`, NoteListView.swift
-  The shared editor's mount-time auto-focus is gated off the native embeds
-  (`if (!nativeShell)`, 2026-07-09) — the pre-warmed native WebView no longer
-  focuses itself; it stays unfocused until the host asks (bridge `focus`, the
-  new-note autofocus path). → MarkdownEditor.svelte mount auto-focus
+  The shared editor never focuses itself on mount, on any surface — the
+  pre-warmed native WebView stays unfocused until the host asks (bridge
+  `focus`), and desktop focus comes from the shell's own new-note path. →
+  src/features/editor/milkdown/MilkdownEditor.svelte `focus`,
+  noteSession.svelte.ts `focusEditor`
   iOS autofocus is confirmed on the simulator in both directions: opening an
   EXISTING note stays keyboard-less (2026-07-13 — no editor accessory toolbar
   appears on open; it only appears after tapping the body), and creating a NEW
@@ -210,6 +219,12 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   a text field, or on a live selection still opens the native menu — Cut/Copy/
   Paste, Look Up, Share and spellcheck suggestions. The app's own note and
   folder context menus are unaffected. → installDesktopContextMenuGuard.ts
+- _(macOS)_ Opening a context menu never also activates what is under it: a
+  control-click, which WebKit reports as a `click` (and a second one as a
+  `dblclick`) alongside the `contextmenu`, leaves the note unopened, the
+  folder's expansion unchanged, and no inline rename open. Off macOS the
+  secondary button produces no `click` at all and Ctrl+click stays the
+  open-in-background-tab modifier. → installDesktopContextMenuGuard.ts
 - Settings opens with ⌘, and the sidebar toggles with ⌘\ (Ctrl elsewhere). →
   registerNotesShellShortcuts.ts
 - The system "Reduce Motion" setting removes the shell's transitions and

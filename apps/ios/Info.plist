@@ -23,6 +23,29 @@
 	<!-- Expose the vault (Documents/futo-notes) in the Files app [app.md]; both
 	     keys are required to surface the app's Documents directory under
 	     "On My iPhone > FUTO Notes", editable in place. -->
+	<!-- The `futonotes` URL scheme (docs/spec/license.md § Deep link). The
+	     FUTOpay activate-redirect page opens
+	     futonotes://license/{key}/{activation}; every other host and path is
+	     ignored silently, which is decided in Rust (licenseHandleDeepLink),
+	     not here. Declared in the SHARED plist, so the dev build
+	     (com.futo.notes.dev) registers the same scheme: whichever build the OS
+	     routes to verifies against its own org key, so a production link
+	     opened by a dev build fails cleanly as invalid rather than silently
+	     doing nothing. LicenseSurfaceTests asserts this array
+	     still matches the crate's scheme constant. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>org.futo.notes.license</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>futonotes</string>
+			</array>
+		</dict>
+	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
