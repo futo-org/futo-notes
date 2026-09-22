@@ -138,6 +138,9 @@ futo-notes-data
 # enumerates untracked files — `git ls-files --others` — must not see them.
 .pnpm-store/
 .cargo-home/
+# Cirrus restores the cached cargo-tauri binary here inside the Tart VM
+# (.cirrus.yml, cargo_tauri_cli_cache) — never on a developer machine.
+.cirrus-cargo-bin/
 .cache-ms-playwright/
 .gradle-native/
 .futo-notes-server/

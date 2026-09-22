@@ -121,6 +121,20 @@ test_desktop_smoke_macos_task:
     folder: target
     fingerprint_key: futo-notes-target-desktop-smoke-$CIRRUS_OS-v1
     reupload_on_changes: true
+  cargo_tauri_cli_cache:
+    # `cargo install tauri-cli` is a multi-minute compile all of its own that
+    # the target/ cache above does NOT cover — cargo install builds in a
+    # throwaway temp dir. So cache the installed binary instead, under a
+    # working-dir root rather than $HOME/.cargo/bin, which the sh.rustup.rs
+    # bootstrap rewrites on every run. Same trade .setup-rust already makes on
+    # the Linux jobs (it caches .cargo-home/, bin included): once the binary is
+    # cached its version is pinned, so bump -vN to pick up a newer tauri-cli.
+    # Deliberately NOT applied to buildFutoNotesMacOS: that task is tag-only, so
+    # no MR pipeline can exercise it, and a silently pinned tauri-cli there
+    # would first show up in a release DMG.
+    folder: .cirrus-cargo-bin
+    fingerprint_key: futo-notes-cargo-tauri-cli-$CIRRUS_OS-v1
+    reupload_on_changes: true
   testDesktopSmokeMacOS_script:
     - brew install fnm
     - eval "$(fnm env --shell bash)"
@@ -134,7 +148,15 @@ test_desktop_smoke_macos_task:
     # mtimes can lie about which crates are current. Repair them before cargo
     # looks at them (see the file header).
     - CI_PROJECT_DIR="${CIRRUS_WORKING_DIR:-$PWD}" node scripts/ci-cargo-cache-freshness.mjs
-    - cargo install tauri-cli --locked
+    - |
+      TAURI_CLI_ROOT="$PWD/.cirrus-cargo-bin"
+      if [ -x "$TAURI_CLI_ROOT/bin/cargo-tauri" ]; then
+        echo "cargo-tauri restored from cache: $("$TAURI_CLI_ROOT/bin/cargo-tauri" --version)"
+      else
+        cargo install tauri-cli --locked --root "$TAURI_CLI_ROOT"
+      fi
+      export PATH="$TAURI_CLI_ROOT/bin:$PATH"
+      command -v cargo-tauri
     # Build frontend + debug binary
     - pnpm run build
     - (cd apps/tauri && cargo tauri build --debug --no-bundle)
