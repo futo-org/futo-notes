@@ -95,6 +95,18 @@ test_rust_macos_task:
     # Android sibling (which also links) is test:rust:ffi-android in GitLab.
     - rustup target add aarch64-apple-ios
     - cargo check -p futo-notes-ffi --target aarch64-apple-ios --locked
+  # A cache's auto-generated upload inherits the cache instruction's ON_SUCCESS
+  # behaviour, so a task that dies mid-compile (or hits the wall) uploads
+  # nothing and dooms every retry to another cold start — the exact hazard
+  # .gitlab-ci.yml's cache templates carry `when: always` for. Moving the
+  # uploads into `always:` via `upload_caches` fixes that; cargo handles a
+  # partial target/ fine. NOTE: naming ANY cache here disables the automatic
+  # upload for ALL of them, so this list must stay exhaustive.
+  always:
+    upload_caches:
+      - cargo_registry
+      - cargo_git
+      - cargo_target
 
 test_desktop_smoke_macos_task:
   name: testDesktopSmokeMacOS
@@ -175,6 +187,13 @@ test_desktop_smoke_macos_task:
     - node tests/desktop-smoke.mjs --log-file test-screenshots/tauri-smoke.log
     - kill $(pgrep -f futo-notes-tauri) 2>/dev/null || true
   always:
+    # See the note on testRustMacOS's upload_caches: naming any cache disables
+    # the automatic upload for all of them, so this list stays exhaustive.
+    upload_caches:
+      - cargo_registry
+      - cargo_git
+      - cargo_target
+      - cargo_tauri_cli
     desktop_smoke_artifacts:
       path: "test-screenshots/**"
 
@@ -291,6 +310,12 @@ test_ios_native_task:
       fi
       echo "iOS tests passed (arbiter: TEST SUCCEEDED + >=1 executed test + no failure markers)"
   always:
+    # See the note on testRustMacOS's upload_caches: naming any cache disables
+    # the automatic upload for all of them, so this list stays exhaustive.
+    upload_caches:
+      - cargo_registry
+      - cargo_git
+      - cargo_target
     ios_test_results_artifacts:
       path: "apps/ios/.build/TestResults.xcresult/**"
 
@@ -415,6 +440,18 @@ build_macos_task:
     # artifact locations. macOS updater downloads the .app.tar.gz, NOT the .dmg.
     - cp target/universal-apple-darwin/release/bundle/dmg/*.dmg ./
     - mkdir -p updater && cp target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz updater/ && cp target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig updater/
+  # A cache's auto-generated upload inherits the cache instruction's ON_SUCCESS
+  # behaviour, so a task that dies mid-compile (or hits the wall) uploads
+  # nothing and dooms every retry to another cold start — the exact hazard
+  # .gitlab-ci.yml's cache templates carry `when: always` for. Moving the
+  # uploads into `always:` via `upload_caches` fixes that; cargo handles a
+  # partial target/ fine. NOTE: naming ANY cache here disables the automatic
+  # upload for ALL of them, so this list must stay exhaustive.
+  always:
+    upload_caches:
+      - cargo_registry
+      - cargo_git
+      - cargo_target
   binary_artifacts:
     path: "*.dmg"
   updater_artifacts:
@@ -643,5 +680,17 @@ build_ios_native_task:
           ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO \
           build | tail -5
       fi
+  # A cache's auto-generated upload inherits the cache instruction's ON_SUCCESS
+  # behaviour, so a task that dies mid-compile (or hits the wall) uploads
+  # nothing and dooms every retry to another cold start — the exact hazard
+  # .gitlab-ci.yml's cache templates carry `when: always` for. Moving the
+  # uploads into `always:` via `upload_caches` fixes that; cargo handles a
+  # partial target/ fine. NOTE: naming ANY cache here disables the automatic
+  # upload for ALL of them, so this list must stay exhaustive.
+  always:
+    upload_caches:
+      - cargo_registry
+      - cargo_git
+      - cargo_target
   binary_artifacts:
     path: "*.ipa"
