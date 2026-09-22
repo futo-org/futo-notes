@@ -39,6 +39,14 @@ Running `just android-native` once in a new worktree gets you past both; after
 that, direct gradle invocations work. (Cost two dead-end builds before it was
 written down.)
 
+The JDK is **not** one of these traps any more, and must not become one again.
+`apps/android/gradle/gradle-daemon-jvm.properties` pins the Gradle daemon to 21,
+so gradle runs correctly whatever `java` your PATH resolves to — do not "fix" a
+gradle failure by exporting `JAVA_HOME` in a script, a recipe, or your shell.
+Gradle 8.14.3 cannot run on 25 and says so only as the bare text `25.0.2`; if you
+see that, the pin was bypassed. `scripts/gradle-jdk-pin.test.mjs` fails if an
+entry point re-adds a JAVA_HOME export.
+
 After changing `futo-notes-ffi` or a crate it re-exports, rebuild the bindings
 first (`just build-rust-android`) or you are testing yesterday's Rust (M9) — the
 symptom is "my change did nothing" or a Kotlin compile error on a missing symbol.
