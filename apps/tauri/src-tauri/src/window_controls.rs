@@ -107,8 +107,13 @@ pub(crate) async fn window_controls_layout() -> Result<WindowControlsLayout, Str
         return crate::background_tasks::blocking(|| Ok(read_layout())).await;
     }
 
+    // macOS and Windows draw their own window buttons; an empty layout keeps
+    // any caller from painting Linux controls over them.
     #[cfg(not(target_os = "linux"))]
-    Ok(default_layout())
+    Ok(WindowControlsLayout {
+        left: Vec::new(),
+        right: Vec::new(),
+    })
 }
 
 #[cfg(test)]
@@ -156,6 +161,15 @@ mod tests {
             parse_button_layout("minimize,maximize:appmenu"),
             default_layout()
         );
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn non_linux_command_reports_no_custom_controls() {
+        let layout = tauri::async_runtime::block_on(window_controls_layout()).unwrap();
+
+        assert!(layout.left.is_empty());
+        assert!(layout.right.is_empty());
     }
 
     #[test]
