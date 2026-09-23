@@ -123,6 +123,16 @@ private val UNTITLED_PLACEHOLDER = Regex("""^Untitled(-\d+)?$""")
 
 internal fun isPlaceholderTitle(title: String): Boolean = UNTITLED_PLACEHOLDER.matches(title)
 
+/**
+ * The title field once a debounced rename has committed [committed]. The rename
+ * lands mid-typing whenever the user pauses for 500 ms, so a title it left as
+ * typed keeps the field exactly as it is: caret, selection and the keyboard's
+ * composing region. A title the rename changed (sanitized, say) puts the caret
+ * at its end.
+ */
+internal fun titleFieldAfterRename(field: TextFieldValue, committed: String): TextFieldValue =
+    if (field.text == committed) field else TextFieldValue(committed, TextRange(committed.length))
+
 private fun titleValidationMessage(kind: String): LocalizedMessage? = when (kind) {
     "empty" -> LocalizedMessage("notes.title.empty")
     "forbidden_chars" -> LocalizedMessage("notes.title.forbiddenCharacter")
@@ -696,7 +706,7 @@ fun NoteEditorScreen(
                 )
                 noteId = titleCommit.id
                 if (titleCommit.isCommitted && titleValue.text == next) {
-                    titleValue = TextFieldValue(splitId(noteId).title)
+                    titleValue = titleFieldAfterRename(titleValue, splitId(noteId).title)
                 }
                 if (!titleCommit.isCommitted) {
                     Toast.makeText(

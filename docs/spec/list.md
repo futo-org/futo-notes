@@ -348,6 +348,11 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   the tapped character. iOS also keeps a ⋯ → Rename alert as a secondary path. →
   NoteEditorView.swift `TitleTextField` / `isPlaceholderTitle`,
   NoteEditorScreen.kt `isPlaceholderTitle`
+- Android: a rename that lands while the title is still being typed (a pause
+  past the 500 ms debounce) leaves the caret where it was. It used to rebuild
+  the field with the caret at the start, so "abc", a pause, then "def" came out
+  "defabc". Fixed and verified on the emulator 2026-09-23. _(Android)_ →
+  NoteEditorScreen.kt `titleFieldAfterRename`, TitleFieldAfterRenameTest.kt
 - **A title longer than the screen never widens the editor** on any of the
   three apps. The title field takes the width of the editor column and no more,
   so an over-long title is cut off at the column edge rather than pushing
