@@ -103,6 +103,10 @@ playwright-report/
 # Local data (SQLite DB + notes)
 data/
 .tauri-data/
+# just detached runs, test-rust-realdisk TMPDIR, per-worktree ledgers
+.futo/
+# papercut-sweep agent data dir
+.sweep-notes-data/
 .triage-agent-home/
 .triage-notes-data/
 
@@ -118,6 +122,7 @@ scratch/
 
 # Verification
 test-screenshots
+verification-runs/
 
 # Perf harness output (regenerable); already excluded from remote runs
 # (RSYNC_EXCLUDES in scripts/remote-test.mjs).

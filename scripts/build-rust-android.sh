@@ -66,6 +66,9 @@ TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 
 echo "==> Generating Kotlin bindings"
 # Host dylib extension differs by OS: macOS .dylib, Linux .so.
+# Honour a relocated cargo target dir: with CARGO_TARGET_DIR set, the build
+# above lands there and a hardcoded target/ path finds nothing (pc_b0e9c9e5f9f8).
+TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 case "$(uname -s)" in
   Darwin) HOST_LIB="$TARGET_DIR/debug/libfuto_notes_ffi.dylib" ;;
   *)      HOST_LIB="$TARGET_DIR/debug/libfuto_notes_ffi.so" ;;

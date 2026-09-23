@@ -514,6 +514,7 @@ test:
   cache:
     - !reference [.cache-pnpm, cache]
   script:
+    - sh "$CI_PROJECT_DIR/ci/install-just.sh"
     - pnpm install --frozen-lockfile --prefer-offline
     - pnpm exec tsx scripts/gen-toolbar-spec.ts --check
     - pnpm exec tsx "$CI_PROJECT_DIR/scripts/gen-title-spec.ts" --check
@@ -1047,6 +1048,7 @@ test:cross-platform-sync:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-sync, cache]
   script:
+    - sh "$CI_PROJECT_DIR/ci/install-just.sh"
     - pnpm install --frozen-lockfile
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
@@ -1195,6 +1197,7 @@ test:cross-platform-sync:android:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-sync, cache]
   script:
+    - sh "$CI_PROJECT_DIR/ci/install-just.sh"
     - pnpm install --frozen-lockfile
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]

@@ -82,6 +82,37 @@ reported more than once.
   `glab issue list -F json`). Note the overload: on `glab api`, `-F` means
   *field*; on `issue`/`mr` subcommands it means *output format*.
 
+- **Reads work unauthenticated; writes need a token the shell can see.** The
+  project is public, so `glab issue list` and `glab api` GETs answer fine with
+  no credentials — the CLI looks authenticated right up to the first write,
+  which fails with `Unauthenticated.`. `glab mr create` does not even show that:
+  it prints a generic "ensure you are authenticated / MRs are enabled / your
+  role allows it" guess-list and writes a recover file. Two things make it
+  concrete:
+
+  ```bash
+  glab auth status                                   # is there a host entry at all?
+  [ -n "$GITLAB_TOKEN" ] || echo 'no token in this shell'
+  ```
+
+  A token exported only from an interactive `~/.zshrc` or `~/.bashrc` does not
+  exist in a non-interactive agent shell, which is why the same command works
+  in a terminal and fails under an agent. Repair it once with `glab auth login`
+  (per machine, stored in the glab config), or drive the API directly:
+
+  ```bash
+  curl -sS --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+    --header 'Content-Type: application/json' --request POST \
+    --data '{"source_branch":"my-branch","target_branch":"main","title":"Draft: ..."}' \
+    "https://gitlab.futo.org/api/v4/projects/futo-notes%2Ffuto-notes/merge_requests"
+  ```
+
+  Git push options are the other route, and need no token at all because they
+  ride the SSH push: `git push -u origin <branch> -o merge_request.create -o
+  merge_request.target=main -o merge_request.title='...'`. GitLab only reads
+  them when the push actually updates a ref, so a branch that is already
+  pushed needs a new commit before they take effect.
+
 ## Merge requests as a triage surface
 
 **MRs as a request surface: no.** _(Set to `yes` if this repo treats external merge requests as feature requests; `/triage` reads this flag.)_

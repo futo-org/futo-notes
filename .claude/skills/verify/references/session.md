@@ -61,7 +61,9 @@ whose worktrees were deleted. Personal (non-pool) simulators/AVDs are never
 touched. Driving a device you didn't claim is how two sessions end up
 install-thrashing one emulator — don't.
 
-> When setting up multiple worktrees, run `pnpm install` in all of them
+> `just wt new <name>` does worktree + `pnpm install` + a reflinked warm
+> `target/` in one step, and `just wt gc` reaps stale worktrees afterwards.
+> When setting up several by hand, run `pnpm install` in all of them
 > concurrently — separate `node_modules`, no conflicts, ~12s saved each.
 > Then seed each with a warm cargo build via `just qa-clone-target
 > <worktree>` (APFS copy-on-write clone of `target/` — seconds, near-zero

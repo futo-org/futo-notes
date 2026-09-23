@@ -12,7 +12,7 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, appendFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
@@ -56,7 +56,9 @@ export async function startServer(port, options = {}) {
   await assertPortAvailable(serverPort, 'sync server');
   if (serverPort !== port) await assertPortAvailable(port, 'sync delay proxy');
 
-  const dataDir = mkdtempSync(join(tmpdir(), 'sf-test-server-'));
+  const dataDir = mkdtempSync(
+    join(process.env.FUTO_VERIFICATION_DIR || tmpdir(), 'sf-test-server-'),
+  );
   const { path: binary, expectedVersion, source } = await syncServerBinary();
 
   // cwd is the server's own data directory: the binary reads a `.env` from
@@ -76,9 +78,11 @@ export async function startServer(port, options = {}) {
   let stderr = '';
   proc.stdout.on('data', (chunk) => {
     stdout += chunk.toString();
+    if (process.env.FUTO_VERIFICATION_DIR) appendFileSync(join(dataDir, 'server.log'), chunk);
   });
   proc.stderr.on('data', (chunk) => {
     stderr += chunk.toString();
+    if (process.env.FUTO_VERIFICATION_DIR) appendFileSync(join(dataDir, 'server.log'), chunk);
   });
 
   // Wait for OUR server to be healthy: waitForHealth aborts if the child dies,

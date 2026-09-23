@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  captureTree,
   filterRows,
   formatSummaryLines,
   parseArgs,
@@ -420,5 +421,29 @@ describe('filterRows', () => {
 
     const tappable = filterRows(rows, { onScreenOnly: true, type: 'Button' });
     expect(tappable.map((row) => row.id)).toEqual(['bold']);
+  });
+});
+
+describe('capturing a tree when AXe is not installed', () => {
+  // pc_d6d02599daa0: the raw failure is `spawnSync axe ENOENT`, which a session
+  // read as "this simulator's UI cannot be read" and worked around instead of
+  // installing the one missing binary.
+  it('names the binary, the override, and where the install lives', () => {
+    const previous = process.env.AXE_BIN;
+    process.env.AXE_BIN = '/nonexistent/axe';
+    try {
+      expect(() => captureTree({ udid: 'ABCD-1234' })).toThrowError(
+        /'\/nonexistent\/axe' not found/,
+      );
+      expect(() => captureTree({ udid: 'ABCD-1234' })).toThrowError(/AXE_BIN/);
+      expect(() => captureTree({ udid: 'ABCD-1234' })).toThrowError(/references\/ios\.md/);
+    } finally {
+      if (previous === undefined) delete process.env.AXE_BIN;
+      else process.env.AXE_BIN = previous;
+    }
+  });
+
+  it('still refuses a capture with no simulator at all', () => {
+    expect(() => captureTree({})).toThrowError(/pass --udid or export SIM/);
   });
 });

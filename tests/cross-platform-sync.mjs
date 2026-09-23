@@ -3073,16 +3073,12 @@ const HARNESS_BUILD_SIGNATURE = Object.entries(HARNESS_BUILD_ENV)
   .join(' ');
 
 function rebuildDesktopBinary() {
-  // cargo clean -p so the tauri build script re-runs and re-embeds dist/ with
-  // the test hooks: a futo-notes-tauri crate cached from a build without
-  // VITE_INCLUDE_TEST_HOOKS can otherwise re-link a hooks-free binary. This
-  // guard lived in the CI job script; it belongs here so every rebuild —
-  // local or CI — gets it, and CI doesn't pay for a second identical build.
-  runOrThrow('cargo', ['clean', '-p', 'futo-notes-tauri'], {
-    cwd: join(REPO_ROOT, 'apps', 'tauri'),
-  });
-  runOrThrow('cargo', ['tauri', 'build', '--debug', '--no-bundle'], {
-    cwd: join(REPO_ROOT, 'apps', 'tauri'),
+  // `just build-desktop-test` runs its own cargo-clean staleness guard (see
+  // the justfile recipe) before building with these flags baked in, so every
+  // rebuild — local or CI — gets it, and CI doesn't pay for a second
+  // identical build.
+  runOrThrow('just', ['build-desktop-test'], {
+    cwd: REPO_ROOT,
     env: { ...process.env, ...HARNESS_BUILD_ENV },
   });
   const binPath = join(REPO_ROOT, 'target', 'debug', 'futo-notes-tauri');
@@ -3130,35 +3126,6 @@ function runOrThrow(cmd, argv, opts) {
   const res = spawnSync(cmd, argv, { stdio: 'inherit', ...opts });
   if (res.status !== 0) {
     throw new Error(`${cmd} ${argv.join(' ')} failed with exit ${res.status}`);
-  }
-}
-
-function killStaleClients() {
-  // A leftover debug binary from an interrupted run holds an MCP port; clear it
-  // so the harness boots cleanly every time. It used to also SIGTERM whatever
-  // held port 5181 (a vite preview this harness no longer starts) — a
-  // machine-wide kill of an unidentified stranger, which is another worktree's
-  // process as easily as our own.
-  // Only kill debug binaries spawned with the multi-instance flag — that's
-  // how the harness launches them, so this won't touch a user's open app.
-  const ps = spawnSync('pgrep', ['-af', 'futo-notes-tauri'], { encoding: 'utf8' });
-  const lines = (ps.stdout || '')
-    .split('\n')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  for (const line of lines) {
-    const match = line.match(/^(\d+)\s+(.*)$/);
-    if (!match) continue;
-    const [_, pidStr, cmdline] = match;
-    // Only kill binaries from this repo's target/debug — a conservative check
-    // that excludes the user's installed FUTO Notes.
-    if (cmdline.includes(`${REPO_ROOT}/target/debug/futo-notes-tauri`)) {
-      try {
-        process.kill(Number(pidStr), 'SIGTERM');
-      } catch {
-        /* ignore */
-      }
-    }
   }
 }
 
@@ -3316,9 +3283,9 @@ async function main() {
   }
   console.log(`Matrix: ${matrix.label}\n`);
 
-  // Bootstrap artifacts and clean up stale state from a prior run.
+  // Build artifacts. Existing processes belong to their launching runs; the
+  // launcher discovers a free bridge port and teardown stops only our children.
   const bootstrapStartedAt = Date.now();
-  killStaleClients();
   ensureDesktopDebugBinary();
   timings.bootstrapMs = Date.now() - bootstrapStartedAt;
 
@@ -3422,7 +3389,7 @@ async function main() {
   );
 
   // Write JSON report
-  const reportDir = 'test-screenshots';
+  const reportDir = process.env.FUTO_VERIFICATION_DIR || 'test-screenshots';
   mkdirSync(reportDir, { recursive: true });
   writeFileSync(
     join(reportDir, 'sync-results.json'),
