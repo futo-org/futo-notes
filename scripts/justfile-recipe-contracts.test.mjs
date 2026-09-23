@@ -6,7 +6,9 @@
 // image has no `just` at all (see .gitlab-ci.yml), and this file runs inside
 // `pnpm run test:full`.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -61,7 +63,7 @@ describe('argument passing', () => {
   // '/tmp/a b'` read `/tmp/a`, and `just test-one -t 'two words'` ran the whole
   // suite instead of one test.
   it('passes recipe arguments through as positional arguments', () => {
-    expect(justfile).toMatch(/^set positional-arguments := true$/m);
+    expect(justfile).toMatch(/^set positional-arguments(?: := true)?$/m);
   });
 
   it.each(['journal', 'android-drive', 'qa-shot', 'test-one'])(
@@ -73,3 +75,40 @@ describe('argument passing', () => {
     },
   );
 });
+
+// Exercise the public recipe body with recording commands, never a real device.
+it.skipIf(process.platform === 'win32')(
+  'accepts an explicit AXe binary before building the iOS stories',
+  () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'ios-story-preflight-'));
+    try {
+      const log = join(scratch, 'commands.log');
+      for (const command of ['just', 'node']) {
+        writeFileSync(
+          join(scratch, command),
+          '#!/bin/sh\nprintf "%s\\n" "$*" >> "$PREFLIGHT_LOG"\n',
+          { mode: 0o755 },
+        );
+      }
+      // `/bin/true` does not exist on macOS (only `/usr/bin/true`); this path
+      // must resolve on both macOS and Linux CI.
+      const result = spawnSync('/bin/bash', ['-c', body('test-ios-stories')], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: scratch,
+          SIM: 'preflight-only',
+          AXE_BIN: '/usr/bin/true',
+          PREFLIGHT_LOG: log,
+        },
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual([
+        'ios-native',
+        'tests/ios-editor-stories.mjs',
+      ]);
+    } finally {
+      rmSync(scratch, { recursive: true });
+    }
+  },
+);
