@@ -23,9 +23,3 @@ export async function toggleMaximizeAppWindow(): Promise<void> {
 export async function closeAppWindow(): Promise<void> {
   await getCurrentWindow().close();
 }
-
-export async function applyAppWindowTitle(noteTitle?: string): Promise<void> {
-  const appName = import.meta.env.DEV ? 'FUTO Notes (Dev)' : 'FUTO Notes';
-  const title = noteTitle ? `${noteTitle} — ${appName}` : appName;
-  await getCurrentWindow().setTitle(title);
-}

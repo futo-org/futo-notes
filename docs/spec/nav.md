@@ -151,10 +151,12 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   take clicks. → DesktopTopBand.svelte, TabsStrip.svelte,
   WindowControls.svelte
 - The native window title is the active note title followed by "— FUTO Notes";
-  Home falls back to the app name. Debug builds retain the `FUTO Notes (Dev)`
-  identity in both forms, so tab changes cannot erase the dev/prod distinction.
-  This is the title shown by the compositor in Alt+Tab and overview surfaces. →
-  TabsStrip.svelte, windowControls.ts, tauri.dev.conf.json
+  Home falls back to the app name. The app name follows the selected language,
+  and changing the language keeps the active note in the title. Debug builds
+  retain the `FUTO Notes (Dev)` identity in both forms, so tab changes cannot
+  erase the dev/prod distinction. This is the title shown by the compositor in
+  Alt+Tab and overview surfaces. → TabsStrip.svelte, App.svelte,
+  windowTitle.ts, tauri.dev.conf.json
 - Debian and RPM packages install a hidden `futo-notes-tauri.desktop` identity
   alias matching the native Wayland app ID, so compositors resolve the FUTO
   Notes icon in Alt+Tab. The visible `FUTO Notes.desktop` launcher remains in

@@ -61,7 +61,7 @@ export function getWindowControlsLayout(): Promise<
 
 export function setAppWindowTitle(noteTitle?: string): void {
   if (!isTauri) return;
-  void import('./tauri/windowControls')
+  void import('./tauri/windowTitle')
     .then(({ applyAppWindowTitle }) => applyAppWindowTitle(noteTitle))
     .catch((error) => console.warn('Failed to update the app window title:', error));
 }
