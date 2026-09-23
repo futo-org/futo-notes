@@ -134,6 +134,7 @@ final class EditorToolbarLocalization: ObservableObject {
 /// which EditorHost routes over the bridge (`FutoEditor.exec`) into the same
 /// toolbarExec.ts commands the web toolbar runs.
 struct EditorToolbarView: View {
+    @Environment(\.displayScale) private var displayScale
     @ObservedObject var state: EditorToolbarState
     @ObservedObject var toolbarLocalization: EditorToolbarLocalization
     /// Dispatch the tapped item — exec over the bridge, native image picker,
@@ -163,7 +164,11 @@ struct EditorToolbarView: View {
     // gets the same numbers nearly for free from `LazyListState.layoutInfo`.)
     @State private var buttonMinXs: [CGFloat] = []
     @State private var slotWidth: CGFloat = 0
-    @State private var snapInset: CGFloat = 0
+
+    private var snapInset: CGFloat {
+        let inset = Self.computeSnap(xs: buttonMinXs, slot: slotWidth)
+        return (inset * displayScale).rounded() / displayScale
+    }
 
     /// Two floating capsules on a transparent band, matching how iOS 26 builds a
     /// keyboard accessory (verified against Safari's, simulator iOS 26.5).
@@ -203,24 +208,15 @@ struct EditorToolbarView: View {
             .padding(.horizontal, ToolbarMetrics.contentPad)
             .coordinateSpace(name: Self.contentSpace)
         }
-        // iOS 18+ live scroll geometry — reliable overflow detection for the
-        // fades AND the source of the natural slot width. `containerSize.width`
-        // is the (snapped) viewport = slot − snapInset, so `+ snapInset` recovers
-        // the constant natural slot with no feedback loop. (Measuring the slot
-        // via a `.background` preference does NOT work — background preferences
-        // don't reach the parent's onPreferenceChange.)
-        .onScrollGeometryChange(for: ToolbarScrollState.self) { geo in
-            let offset = geo.contentOffset.x
-            let maxOffset = max(0, geo.contentSize.width - geo.containerSize.width)
+        .onScrollGeometryChange(for: ToolbarScrollState.self) { geometry in
+            let offset = geometry.contentOffset.x
+            let maximumOffset = max(0, geometry.contentSize.width - geometry.containerSize.width)
             return ToolbarScrollState(
                 leading: offset > 0.5,
-                trailing: offset < maxOffset - 0.5,
-                containerWidth: geo.containerSize.width)
-        } action: { _, s in
-            canScrollLeading = s.leading
-            canScrollTrailing = s.trailing
-            slotWidth = s.containerWidth + snapInset
-            snapInset = Self.computeSnap(xs: buttonMinXs, slot: slotWidth)
+                trailing: offset < maximumOffset - 0.5)
+        } action: { _, scrollState in
+            canScrollLeading = scrollState.leading
+            canScrollTrailing = scrollState.trailing
         }
         // A MASK, not a colored overlay: a gradient of the bar's own color only
         // works when the bar HAS one, and over glass it would paint a smear.
@@ -231,14 +227,16 @@ struct EditorToolbarView: View {
                 edgeMask(leading: false, active: canScrollTrailing)
             }
         }
-        .animation(.easeInOut(duration: 0.15), value: canScrollLeading)
-        .animation(.easeInOut(duration: 0.15), value: canScrollTrailing)
         // Narrows the visible scroll area so the cut lands mid-icon. Applied
         // AFTER the mask so the trailing fade rides the snapped edge.
         .padding(.trailing, snapInset)
-        .onPreferenceChange(ToolbarButtonMinXKey.self) { xs in
-            buttonMinXs = xs
-            snapInset = Self.computeSnap(xs: xs, slot: slotWidth)
+        .onGeometryChange(for: CGFloat.self) { geometry in
+            geometry.size.width
+        } action: { width in
+            slotWidth = width
+        }
+        .onPreferenceChange(ToolbarButtonMinXKey.self) { buttonPositions in
+            buttonMinXs = buttonPositions
         }
     }
 
@@ -301,6 +299,7 @@ struct EditorToolbarView: View {
             endPoint: leading ? .trailing : .leading
         )
         .frame(width: fadeWidth)
+        .animation(.easeInOut(duration: 0.15), value: active)
     }
 
     private var separator: some View {
@@ -453,13 +452,9 @@ final class EditorToolbarAccessory: FutoKeyboardAccessory<EditorToolbarView> {
 
 // ── Scroll-affordance plumbing ────────────────────────────────────────────
 
-/// Live scroll geometry the toolbar reacts to: which edges still have off-screen
-/// content (drives the fades) and the current viewport width (drives the snap).
-/// Equatable so `onScrollGeometryChange` only fires the action on real changes.
 private struct ToolbarScrollState: Equatable {
     var leading: Bool
     var trailing: Bool
-    var containerWidth: CGFloat
 }
 
 /// Collects each scrollable button's resting leading-x (content space) into one
