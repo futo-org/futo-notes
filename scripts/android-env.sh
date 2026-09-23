@@ -84,9 +84,9 @@ android_env_resolve_jdk21() {
 # satisfy the pin — so the fix is still visible up front — but takes no action.
 ANDROID_ENV_JAVA_MAJOR="$(android_env_java_major)"
 if [[ -z "$ANDROID_ENV_JAVA_MAJOR" || "$ANDROID_ENV_JAVA_MAJOR" -gt 24 ]]; then
-  ANDROID_ENV_JAVA_HOME="$(android_env_resolve_jdk21)"
-  if [[ -n "$ANDROID_ENV_JAVA_HOME" ]]; then
-    echo "==> this shell's default java (JDK ${ANDROID_ENV_JAVA_MAJOR:-missing}) cannot run Gradle directly; a JDK 21 is installed at $ANDROID_ENV_JAVA_HOME and Gradle's daemon-JVM pin (apps/android/gradle/gradle-daemon-jvm.properties) will use it automatically — not exporting JAVA_HOME."
+  ANDROID_ENV_RESOLVED_JDK21_HOME="$(android_env_resolve_jdk21)"
+  if [[ -n "$ANDROID_ENV_RESOLVED_JDK21_HOME" ]]; then
+    echo "==> this shell's default java (JDK ${ANDROID_ENV_JAVA_MAJOR:-missing}) cannot run Gradle directly; a JDK 21 is installed at $ANDROID_ENV_RESOLVED_JDK21_HOME and Gradle's daemon-JVM pin (apps/android/gradle/gradle-daemon-jvm.properties) will use it automatically — not exporting JAVA_HOME."
   else
     echo "ERROR: no JDK 21 found for Gradle's pinned daemon JVM (this shell's java: ${ANDROID_ENV_JAVA_MAJOR:-none})." >&2
     echo "  Gradle 8.14.3's Kotlin DSL cannot parse a two-digit JDK feature" >&2

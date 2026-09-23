@@ -42,6 +42,7 @@ describe('Android Gradle JDK pin', () => {
       'apps/android/run.sh',
       'scripts/build-rust-android.sh',
       'scripts/ci-android-instrumentation.sh',
+      'scripts/android-env.sh',
       'justfile',
     ]) {
       expect(read(entryPoint), `${entryPoint} exports JAVA_HOME`).not.toMatch(/JAVA_HOME=/);
