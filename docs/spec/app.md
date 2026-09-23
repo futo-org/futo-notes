@@ -314,19 +314,11 @@ Behaviors and constraints that hold across every surface and platform.
   `@media (hover: hover) and (pointer: fine)` so a touch shell never leaves a
   button stuck in its hover state. → shared/dialogs/modal.css,
   crashReportDialog.css, settingsBlockingOverlay.css
-- `window.confirm()` / `window.alert()` don't block in Tauri's webview — use
-  `ask()` / `message()` from `@tauri-apps/plugin-dialog`. → apps/tauri/AGENTS.md
-- Confirmation prompts go through `confirmDialog()` (`src/shared/dialogs/confirmDialog.ts`):
-  `ask()` under Tauri, `window.confirm()` in the plain web shell (dev server,
-  Playwright) where plugin-dialog has no backend and would reject. → confirmDialog.ts
-- **CONTRADICTS the above (flagged for review):** `linux-native-feel` (!277)
-  replaces `confirmDialog()`'s native-`ask()` implementation with a shared
-  in-app modal host used on every shell — `window.confirm()` / `window.alert()`
-  are not application UI and do not block reliably in Tauri's webview;
-  concurrent requests queue so prompts cannot overlap. → confirmDialog.ts,
-  confirmDialogState.svelte.ts, ConfirmDialogHost.svelte. This is what the
-  rebased code actually does (`confirmDialog.ts` no longer imports
-  `@tauri-apps/plugin-dialog`); the paragraph above is stale post-rebase.
+- Confirmation prompts go through `confirmDialog()` (`src/shared/dialogs/confirmDialog.ts`),
+  a shared in-app modal host used on every shell — `window.confirm()` /
+  `window.alert()` are not application UI and do not block reliably in Tauri's
+  webview; concurrent requests queue so prompts cannot overlap. → confirmDialog.ts,
+  confirmDialogState.svelte.ts, ConfirmDialogHost.svelte
 
 ## Updates _(desktop self-update)_
 
