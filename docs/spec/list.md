@@ -366,9 +366,15 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   the window (a new note attaches while its screen is still being built), and
   the "force keyboard" gate stays open until the focus script has actually run
   rather than for a fixed 0.6 s. Verified on the iOS 27.0 and 26.5 simulators
-  and on an iPhone (iOS 27.0) 2026-09-23. → EditorWebView.swift
-  `EditorHost.startAutoFocus` /
-  `runPendingAutoFocus`, EditorWebView.kt `EditorHost.focusEditor`
+  and on an iPhone (iOS 27.0) 2026-09-23. On Android it holds warm and on a cold
+  launch whose FAB tap attached the note before the editor had initialized, so
+  focus came through the `initialized` reply rather than `attach`; verified on
+  the emulator (API 36, System WebView 133.0.6943.137) 2026-09-23. Desktop has
+  no keyboard to raise; its New note puts the caret in the body, not the title,
+  so typing goes straight into the note (verified on macOS 2026-09-23). →
+  EditorWebView.swift `EditorHost.startAutoFocus` /
+  `runPendingAutoFocus`, EditorWebView.kt `EditorHost.focusEditor`,
+  src/features/notes/createNoteLoader.ts `finishNewNote`
 - **Both native shells have an inline, tappable title field** above the editor
   body (iOS via a `UITextField`-backed `TitleTextField`, Android via a
   `BasicTextField`); tapping it edits the title in place and renames the file,
@@ -382,16 +388,17 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   goes to the note body, and on a phone the keyboard stays up, so typing
   continues straight into the note. The title never takes a newline. On iOS,
   Return resigns the title field and runs the same native-then-page focus a new
-  note uses; on desktop, Enter focuses the editor. Verified on the iOS 27.0 and
-  26.5 simulators and on an iPhone (iOS 27.0) 2026-09-23. → NoteEditorView.swift
+  note uses; on desktop, Enter focuses the editor. On Android the keyboard's
+  action key reads "next", and it and a hardware Enter both run
+  `EditorHost.focusEditor`, the new-note focus; the keyboard never hides on
+  the way into the body. The pending rename still commits on its own debounce.
+  Verified on the iOS 27.0 and 26.5 simulators and on an iPhone (iOS 27.0)
+  2026-09-23, on desktop (macOS) 2026-09-23, and on the Android emulator (API
+  36, System WebView 133.0.6943.137) 2026-09-23. → NoteEditorView.swift
   `TitleTextField`
   `textFieldShouldReturn`, EditorWebView.swift `EditorHost.focusBody`,
-  src/features/notes/createNoteTitleController.svelte.ts
-
-  > **Gap (parity):** Android's title `BasicTextField` is `singleLine` with no
-  > `keyboardOptions`/`keyboardActions`, so the IME action most likely just
-  > drops the keyboard instead of focusing the body (`EditorHost.focusEditor`).
-  > This is from reading the code on 2026-09-23 and has not been run. _(Android)_
+  src/features/notes/createNoteTitleController.svelte.ts, NoteTitleField.kt,
+  NoteTitleFieldTest.kt
 - **A title longer than the screen never widens the editor** on any of the
   three apps. The title field takes the width of the editor column and no more,
   so an over-long title is cut off at the column edge rather than pushing

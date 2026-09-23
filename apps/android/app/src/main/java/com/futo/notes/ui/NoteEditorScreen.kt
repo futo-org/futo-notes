@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
@@ -63,14 +62,12 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -936,9 +933,13 @@ fun NoteEditorScreen(
                 .fillMaxSize()
                 .imePadding(),
         ) {
-            BasicTextField(
+            NoteTitleField(
                 enabled = !interactionLocked,
                 value = titleValue,
+                placeholder = localization.localizedText("notes.untitledPlaceholder"),
+                // The same native-then-page focus a new note opens with, so the
+                // keyboard stays up and typing carries on into the body. [list.md]
+                onReturn = { host.focusEditor() },
                 onValueChange = { v ->
                     // Strip forbidden filesystem chars in-place (desktop parity —
                     // the illegal char never persists) + cap at the length limit.
@@ -968,21 +969,8 @@ fun NoteEditorScreen(
                             ?: if (dup) LocalizedMessage("notes.title.duplicate") else null
                     }
                 },
-                singleLine = true,
-                textStyle = FutoType.h3.copy(fontWeight = FontWeight.SemiBold, color = c.textPrimary),
-                cursorBrush = SolidColor(c.accent),
                 modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 4.dp)
                     .onFocusChanged { titleFocused = it.isFocused },
-                decorationBox = { inner ->
-                    if (titleValue.text.isEmpty()) {
-                        Text(
-                            localization.localizedText("notes.untitledPlaceholder"),
-                            style = FutoType.h3.copy(fontWeight = FontWeight.SemiBold),
-                            color = c.textMuted,
-                        )
-                    }
-                    inner()
-                },
             )
             titleWarning?.let { warning ->
                 Text(
