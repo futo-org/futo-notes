@@ -1,5 +1,13 @@
 # Editor refinements: Android and desktop parity
 
+**Status:** done 2026-09-23 (MR !334). Every behavior below was run on the
+Android emulator (API 36, System WebView 133) and the desktop app. Only B2
+needed Android code (`NoteTitleField.kt`). The rest already held. B4 was a
+non-issue: the editor page is transparent over the same `c.surface` the bar
+paints. The results, with dates, are on the spec lines each entry names, and
+the B5 and B7 tests are in the embed suite. Not run: B7 on Linux WebKitGTK and
+Windows WebView2.
+
 Handoff for an agent with no prior context. On 2026-09-23 Justin reported a
 batch of editor bugs on his iPhone, and they were fixed on the iOS side on the
 `editor-refinements` branch. This doc lists each resulting behavior, says which
