@@ -34,8 +34,8 @@ unrelated to what you changed:
 - `IllegalArgumentException: 25.0.2` — the calling shell's `java` (often Android
   Studio's bundled JBR after a Studio update) is JDK 25+, which Gradle 8.14.3's
   Kotlin DSL cannot parse; the whole error is the version string. Gradle's own
-  daemon JVM is pinned to JDK 21 by `apps/android/gradle/gradle-daemon-jvm.properties`
-  — that pin is the fix, and Gradle auto-provisions/auto-detects JDK 21 for the
+  daemon JVM is pinned to JDK 21 by the gradle-daemon-jvm.properties file under
+  apps/android/gradle/ — that pin is the fix, and Gradle auto-provisions/auto-detects JDK 21 for the
   daemon from it regardless of the calling shell's `java`. **Never fix this by
   exporting `JAVA_HOME`** — that fights the pin and leaks a stale JDK 21 into
   every other tool the shell later runs. Every Gradle entry point (`just

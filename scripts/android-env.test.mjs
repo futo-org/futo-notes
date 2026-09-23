@@ -34,7 +34,12 @@ describe('android environment guard wiring', () => {
     const findDeclaration = (recipeName) => {
       // (?=\s|:) rather than \b: 'test-android-native' is itself a prefix of
       // 'test-android-native-ui', and \b alone matches at that '-' too.
-      const re = new RegExp(`^${recipeName}(?=\\s|:)[^\\n]*:`, 'm');
+      // Captures the WHOLE declaration line (params + deps) — a just recipe
+      // header has exactly one bare ':' before its dependency list, so
+      // requiring a trailing ':' to anchor the match (as an earlier version
+      // of this regex did) collapses to just the recipe name whenever that's
+      // the line's only colon.
+      const re = new RegExp(`^${recipeName}(?=\\s|:)[^\\n]*`, 'm');
       const match = re.exec(justfile);
       expect(match, `recipe '${recipeName}' not found in justfile`).not.toBeNull();
       return { at: match.index, declaration: match[0] };
@@ -54,7 +59,11 @@ describe('android environment guard wiring', () => {
 
     // Dependent recipes list the guard BEFORE build-rust-android: just runs
     // dependencies in the order listed.
-    for (const recipeName of ['build-android-native', 'test-android-native', 'test-android-native-ui']) {
+    for (const recipeName of [
+      'build-android-native',
+      'test-android-native',
+      'test-android-native-ui',
+    ]) {
       const { declaration } = findDeclaration(recipeName);
       expect(declaration.indexOf('android-env-check')).toBeLessThan(
         declaration.indexOf('build-rust-android'),
