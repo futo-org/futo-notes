@@ -2,7 +2,9 @@ use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use futo_notes_core::files::{file_mtime_ms, note_id_from_relative_path, safe_note_path, vault_fs};
+use futo_notes_core::files::{
+    collision_key, file_mtime_ms, note_id_from_relative_path, safe_note_path, vault_fs,
+};
 use futo_notes_model::{make_preview, make_rich_preview, note_tags, split_id};
 use rayon::prelude::*;
 use walkdir::{DirEntry, WalkDir};
@@ -78,6 +80,70 @@ pub(crate) fn note_order_and_folders(root: &Path) -> (Vec<String>, Vec<String>) 
 
 pub(crate) fn note_paths(root: &Path) -> Vec<(String, PathBuf)> {
     walk(root).0
+}
+
+/// Every note id that can collide with `wanted` under `collision_key` — the
+/// case- and NFC-folded equality every cross-platform collision check uses.
+///
+/// A colliding id has the same number of `/` components as `wanted`, and each
+/// leading path prefix folds to the same key (`collision_key` never composes
+/// or case-folds across a `/`). So only directories whose folded relative path
+/// matches the corresponding prefix of `wanted` can hold one, and the walk
+/// prunes every other subtree at the directory level. Same traversal rules as
+/// [`walk`] (hidden entries skipped, depth-capped, symlinks not followed, the
+/// same `.md`/safe-id filter), so the returned set is exactly the subset of
+/// [`note_paths`] a full-vault filter would have kept.
+///
+/// This is on the autosave path (`write_raw` refuses a folded collision before
+/// every write, `install_new` allocates a unique id), where the full walk it
+/// replaces cost more than reading the entire vault: 30 directory reads plus
+/// one folded key per note, per save, against one or two directory reads here.
+pub(crate) fn collision_candidates(root: &Path, wanted: &str) -> Vec<String> {
+    if !root.exists() {
+        return Vec::new();
+    }
+    let components: Vec<&str> = wanted.split('/').collect();
+    let note_depth = components.len();
+    // prefix_keys[d] is the folded key a directory at depth d must match.
+    let prefix_keys: Vec<String> = (1..note_depth)
+        .map(|depth| collision_key(&components[..depth].join("/")))
+        .collect();
+    let relative_of = |entry: &DirEntry| -> Option<String> {
+        let relative = entry.path().strip_prefix(root).ok()?;
+        Some(relative.to_string_lossy().replace('\\', "/"))
+    };
+    let mut ids = Vec::new();
+    let entries = WalkDir::new(root)
+        .follow_links(false)
+        .max_depth(note_depth)
+        .into_iter()
+        .filter_entry(|entry| {
+            if !visible(entry) {
+                return false;
+            }
+            let depth = entry.depth();
+            if depth == 0 {
+                return true;
+            }
+            if entry.file_type().is_dir() {
+                return depth < note_depth
+                    && relative_of(entry).is_some_and(|relative| {
+                        collision_key(&relative) == prefix_keys[depth - 1]
+                    });
+            }
+            depth == note_depth
+        });
+    for entry in entries.filter_map(Result::ok) {
+        if entry.depth() != note_depth || !entry.file_type().is_file() {
+            continue;
+        }
+        if let Some(id) =
+            relative_of(&entry).and_then(|relative| note_id_from_relative_path(&relative))
+        {
+            ids.push(id);
+        }
+    }
+    ids
 }
 
 pub(crate) fn bodies(root: &Path) -> HashMap<String, String> {

@@ -178,7 +178,18 @@ pub(crate) fn save(root: &Path, state: &ConnectedState) -> Result<(), String> {
         collection_id: Some(state.collection_id.clone()),
     };
     let json = serde_json::to_string_pretty(&disk).map_err(|e| e.to_string())?;
-    write_atomic_text(&state_path(root), &json)
+    let path = state_path(root);
+    // Every cycle ends with a save, and a push and a pull each save once, so a
+    // no-op cycle (the ~95% case: safety poll, echo of a remote change already
+    // applied) rewrote this ~1 MB file twice — serialize, temp file, fsync,
+    // rename, directory fsync — to land bytes identical to the ones already
+    // there. Comparing against the file on disk (not against the previous
+    // in-memory state) keeps every durability property: a missing, stale, or
+    // torn file never matches and is rewritten as before.
+    if std::fs::read(&path).is_ok_and(|current| current == json.as_bytes()) {
+        return Ok(());
+    }
+    write_atomic_text(&path, &json)
 }
 
 pub(crate) fn load_ancestry(root: &Path) -> HashMap<String, Ancestry> {
@@ -285,6 +296,55 @@ mod tests {
             pull_cursor: 8,
             oversize_skip: HashMap::new(),
         }
+    }
+
+    fn file_identity(path: &Path) -> (std::time::SystemTime, u64) {
+        let meta = std::fs::metadata(path).unwrap();
+        (meta.modified().unwrap(), meta.len())
+    }
+
+    // Every push and every pull ends in a save, so an idle cycle used to rewrite
+    // a ~1 MB file twice to land bytes already on disk. A save whose bytes match
+    // the file leaves it untouched; anything else — a changed state, a missing
+    // file, a stale or torn file — is written exactly as before.
+    #[test]
+    fn save_leaves_an_identical_checkpoint_untouched_and_rewrites_any_difference() {
+        let root = TempRoot::new();
+        let path = state_path(root.path());
+        let current = state("collection-a");
+        save(root.path(), &current).unwrap();
+        let written = file_identity(&path);
+        let bytes = std::fs::read(&path).unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        save(root.path(), &current).unwrap();
+        assert_eq!(
+            file_identity(&path),
+            written,
+            "an identical save must not rewrite the checkpoint"
+        );
+
+        let mut advanced = current.clone();
+        advanced.pull_cursor += 1;
+        save(root.path(), &advanced).unwrap();
+        assert_ne!(
+            std::fs::read(&path).unwrap(),
+            bytes,
+            "a changed state is written"
+        );
+        assert_eq!(load(root.path(), "collection-a").pull_cursor, 9);
+
+        std::fs::write(&path, b"{ torn").unwrap();
+        save(root.path(), &advanced).unwrap();
+        assert_eq!(
+            load(root.path(), "collection-a").pull_cursor,
+            9,
+            "a torn file is repaired"
+        );
+
+        std::fs::remove_file(&path).unwrap();
+        save(root.path(), &advanced).unwrap();
+        assert!(path.exists(), "a missing checkpoint is recreated");
     }
 
     #[test]

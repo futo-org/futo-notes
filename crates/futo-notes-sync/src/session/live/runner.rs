@@ -4,6 +4,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 
 use crate::checkpoint::ConnectedState;
+use crate::server::HttpClients;
 
 use super::super::{connect, SyncSessionListener};
 use super::connected_stream::{run_connected_stream, LiveCycle, LiveSchedule, StreamOutcome};
@@ -36,23 +37,25 @@ pub(super) async fn run_live_task(
         listener,
         pre_write,
         journal,
+        clients,
     } = context;
     let mut schedule = LiveSchedule::start().await;
     let mut reconnect_backoff = RECONNECT_BACKOFF_MIN;
 
     loop {
-        let response = match connect_event_stream(&state, listener.as_ref(), &mut cancel).await {
-            ConnectionOutcome::Connected(response) => response,
-            ConnectionOutcome::Reconnect => {
-                if wait_for_reconnect(&mut reconnect_backoff, &mut cancel).await
-                    == ReconnectOutcome::Stop
-                {
-                    break;
+        let response =
+            match connect_event_stream(&state, &clients, listener.as_ref(), &mut cancel).await {
+                ConnectionOutcome::Connected(response) => response,
+                ConnectionOutcome::Reconnect => {
+                    if wait_for_reconnect(&mut reconnect_backoff, &mut cancel).await
+                        == ReconnectOutcome::Stop
+                    {
+                        break;
+                    }
+                    continue;
                 }
-                continue;
-            }
-            ConnectionOutcome::Stop => break,
-        };
+                ConnectionOutcome::Stop => break,
+            };
 
         reconnect_backoff = RECONNECT_BACKOFF_MIN;
         listener.on_connected();
@@ -63,6 +66,7 @@ pub(super) async fn run_live_task(
             listener.as_ref(),
             pre_write.as_ref(),
             &journal,
+            &clients,
         );
         if matches!(
             run_connected_stream(
@@ -88,13 +92,14 @@ pub(super) async fn run_live_task(
 
 async fn connect_event_stream(
     state: &Arc<Mutex<Option<ConnectedState>>>,
+    clients: &HttpClients,
     listener: &dyn SyncSessionListener,
     cancel: &mut mpsc::Receiver<()>,
 ) -> ConnectionOutcome {
     let Some(snapshot) = state.lock().await.clone() else {
         return ConnectionOutcome::Stop;
     };
-    let http = match connect::client(&snapshot) {
+    let http = match connect::client(clients, &snapshot) {
         Ok(http) => http,
         Err(error) => {
             listener.on_error(error.message());

@@ -100,18 +100,33 @@ pub(crate) async fn push_with_checkpoint(
     pre_write: &PreWrite,
     save_checkpoint: &SaveCheckpoint,
 ) -> Result<(SyncSummary, ConnectedState), CycleFailure> {
+    let clients = crate::server::HttpClients::new().map_err(|error| CycleFailure {
+        kind: crate::session::connect::http_error(error),
+        state: state.clone(),
+    })?;
+    let http = client(&clients, state).map_err(|kind| CycleFailure {
+        kind,
+        state: state.clone(),
+    })?;
+    push_with_checkpoint_client(&http, state, root, progress, pre_write, save_checkpoint).await
+}
+
+pub(super) async fn push_with_checkpoint_client(
+    http: &Http,
+    state: &ConnectedState,
+    root: &Path,
+    progress: &Progress,
+    pre_write: &PreWrite,
+    save_checkpoint: &SaveCheckpoint,
+) -> Result<(SyncSummary, ConnectedState), CycleFailure> {
     recover_stale_claims(root, pre_write);
     let mut files = local_files(root).map_err(|error| CycleFailure {
         kind: SyncErrorKind::Io(error),
         state: state.clone(),
     })?;
-    let http = client(state).map_err(|kind| CycleFailure {
-        kind,
-        state: state.clone(),
-    })?;
     let mut next = state.clone();
     let mut summary = SyncSummary::default();
-    let blocked_pending = recover_pending_creates(&http, &mut next, root, &files, &mut summary)
+    let blocked_pending = recover_pending_creates(http, &mut next, root, &files, &mut summary)
         .await
         .map_err(|kind| CycleFailure {
             kind,
@@ -142,7 +157,7 @@ pub(crate) async fn push_with_checkpoint(
     });
     upload_local_files(UploadFiles {
         context: PushContext {
-            http: &http,
+            http,
             state: &mut next,
             root,
             summary: &mut summary,
@@ -162,7 +177,7 @@ pub(crate) async fn push_with_checkpoint(
     })?;
     if let Err(kind) = delete_missing_objects(
         PushContext {
-            http: &http,
+            http,
             state: &mut next,
             root,
             summary: &mut summary,
