@@ -26,7 +26,6 @@ alias pp := prepush
 alias dd := deploy-deb
 alias dr := deploy-rpm
 alias di := deploy-ios
-alias wt := worktree
 
 install:
   pnpm install
