@@ -99,10 +99,15 @@ infrastructure owner.
 - Repo-tooling friction (dead-end tool call, stale doc, broken recipe, missing helper) is a
   **papercut**: file it without stopping the task, `papercuts add "<what you hit>" --tag <area>`.
   Product bugs and spec gaps are never papercuts. Full procedure: `docs/agents/papercuts.md`.
-- Runtime guards are Claude Code hooks in `.claude/settings.json` (`scripts/hooks/`): they deny
-  process-name kills, `git stash` in a linked worktree, and OS-level input, and every denial names
-  the sanctioned alternative — do not work around one. Sessions open with `just orient`; agent
-  worktrees come from `just wt new <name>` and go via `just wt gc`.
+- `.claude/settings.json` wires `scripts/hooks/session-orient.mjs` (SessionStart) and
+  `scripts/hooks/subagent-scratch.mjs` (SubagentStart). A prior PreToolUse hook that denied
+  process-name kills, `git stash` in a linked worktree (refs/stash is shared by every worktree of
+  this repo, so a pop here can restore a parallel lane's work-in-progress over yours), and
+  OS-level input on every Bash call was removed (too broad — it also denied unrelated,
+  non-FUTO-Notes commands with FUTO-Notes-specific reasoning); those remain prose-only rules (M24,
+  M25 below) with no runtime enforcement, so follow them by hand and never `git stash` outside the
+  primary checkout. Sessions open with `just orient`; agent worktrees come from `just wt new
+  <name>` and go via `just wt gc`.
 
 ## 6. Named mistakes — and the rule that prevents each
 

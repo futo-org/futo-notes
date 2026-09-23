@@ -17,7 +17,8 @@
  * Unlike tier-2 triage, its input is our own agents' papercut text, not public
  * issue text, so it runs with the operator's normal Claude login (like the
  * other timers on this machine) instead of an isolated HOME. The repo's own
- * PreToolUse hooks (scripts/hooks/guard-bash.mjs) apply inside the worktree.
+ * SessionStart/SubagentStart hooks (scripts/hooks/session-orient.mjs,
+ * scripts/hooks/subagent-scratch.mjs) apply inside the worktree.
  *
  *   node scripts/papercut-sweep/sweep.mjs             # a real run
  *   node scripts/papercut-sweep/sweep.mjs --dry-run   # worktree + prompt, no agent
