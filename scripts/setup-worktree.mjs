@@ -6,13 +6,25 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { ndkVersionFromGradle } from './remote-test.mjs';
 
-const { values, positionals } = parseArgs({
-  options: { check: { type: 'boolean' } },
-  allowPositionals: true,
-});
+const USAGE = 'Usage: just setup [portable|desktop|ios|android] [--check]';
+if (process.argv.slice(2).some((arg) => arg === '--help' || arg === '-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+let values, positionals;
+try {
+  ({ values, positionals } = parseArgs({
+    options: { check: { type: 'boolean' } },
+    allowPositionals: true,
+  }));
+} catch (error) {
+  console.error(USAGE);
+  console.error(error.message);
+  process.exit(2);
+}
 const target = positionals[0] ?? 'portable';
 if (positionals.length > 1 || !['portable', 'desktop', 'ios', 'android'].includes(target)) {
-  console.error('Usage: just setup [portable|desktop|ios|android] [--check]');
+  console.error(USAGE);
   process.exit(2);
 }
 const root = process.cwd();
@@ -36,6 +48,20 @@ const requiredFile = (file) => {
   if (!fs.existsSync(file)) throw new Error(file);
   return file;
 };
+// Invoked from inside `pnpm run …` (e.g. `pnpm run test:cross-platform` →
+// `just build-desktop-test` → scripts/dev-env.sh → this script), a nested
+// `pnpm --version` can resolve a DIFFERENT pnpm than the one running the
+// outer command — a self-managing pnpm newer than the pin, ahead of (or
+// instead of) the Corepack shim on PATH — and falsely report MISSING pnpm
+// pin even though the outer pnpm matches. When already running under pnpm,
+// read the version pnpm itself put in the user agent instead of spawning.
+const pnpmVersion = () => {
+  const userAgent = process.env.npm_config_user_agent ?? '';
+  const underPnpm = userAgent.startsWith('pnpm/') || /pnpm/i.test(process.env.npm_execpath ?? '');
+  const fromUserAgent = /^pnpm\/(\S+)/.exec(userAgent)?.[1];
+  if (underPnpm && fromUserAgent) return fromUserAgent;
+  return output('pnpm', ['--version']);
+};
 
 console.log(`Setup: ${root} (${process.platform}, ${target})`);
 check('Node pin', () => {
@@ -48,7 +74,7 @@ for (const command of ['git', 'just', 'cargo', 'rustc'])
   check(command, () => output(command, ['--version']));
 check('pnpm pin', () => {
   const expected = JSON.parse(fs.readFileSync('package.json', 'utf8')).packageManager.split('@')[1];
-  const actual = output('pnpm', ['--version']);
+  const actual = pnpmVersion();
   if (actual !== expected)
     throw new Error(`expected ${expected}, got ${actual}; activate the packageManager version`);
   return actual;
