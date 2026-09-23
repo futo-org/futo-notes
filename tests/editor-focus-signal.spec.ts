@@ -40,7 +40,7 @@ function appReportedFocus(page: Page): Promise<boolean> {
 test.describe('Editor focus signal', () => {
   test('a real click focuses the editor and the shell hears about it', async ({ page }) => {
     await openNewNote(page);
-    // Start blurred: a fresh note focuses the title, not the body.
+    // Start blurred: a fresh note focuses the body, so move focus to the title.
     await page.locator('.title-input').click();
     await expect(page.locator('.note-body')).not.toHaveAttribute('data-editor-focused', '');
     expect(await appReportedFocus(page)).toBe(false);

@@ -283,13 +283,14 @@ about.
   above the keyboard and its toolbar straight away, not on the first keystroke.
   ProseMirror only scrolls on its own transactions and a tap is not one, so the
   embed re-reveals the selection whenever the shell resizes the web view under a
-  focused editor. _(native shells)_ → src/editor-embed/main.ts `resize` listener,
+  focused editor. On Android the editor column's `imePadding` really does resize
+  the web view (a window `resize` for each frame of the keyboard animation), and
+  the System WebView also scrolls the focused caret into view by itself: with the
+  embed's reveal suppressed the tapped line still ended up above the toolbar.
+  The embed's reveal is what iOS needs and is harmless there. Verified on the
+  emulator (API 36, System WebView 133.0.6943.137) 2026-09-23. _(native
+  shells)_ → src/editor-embed/main.ts `resize` listener,
   src/features/editor/milkdown/MilkdownEditor.svelte `revealSelection`
-
-  > **Gap (parity):** not yet run on Android. The listener ships in the shared
-  > bundle, but whether the Android WebView gets a window `resize` when
-  > `imePadding` shrinks it, and whether Chromium had already been revealing the
-  > caret on its own, is unmeasured. _(Android)_
 
 - The editor reserves a tail below the last line — `max(40vh, 280px)` of bottom
   padding on the editable — so the final line can be scrolled clear of the
@@ -588,14 +589,16 @@ about.
   page never heard the touch end, which left the block stuck in its lifted state
   with no finger on it. The airborne suspension therefore also disables the
   interactive pop recognisers (the leading-edge swipe and the full-width content
-  swipe) and restores them when the gesture resolves. → apps/ios/Sources/Editor/EditorWebView.swift
-  `navigationPopGestures` _(native shells)_
-
-  > **Gap (parity):** not yet run on Android, where the system back gesture only
-  > starts at the screen edge, so it should not catch a drag that began
-  > mid-screen. Still unmeasured: a lifted block dragged to the edge and held,
-  > and a press whose touch the platform cancels, must both drop the block rather
-  > than leave it lifted. _(Android)_
+  swipe) and restores them when the gesture resolves. Android needs nothing
+  extra: its back gesture only starts at the screen edge, so a drag that began
+  mid-screen is never taken for one, even when the lifted block is carried to
+  either edge and held there. A touch the platform cancels (an injected
+  `ACTION_CANCEL`, or the notification shade pulled down mid-drag) drops the
+  block too. Verified on the emulator with gesture navigation (API 36, System
+  WebView 133.0.6943.137) 2026-09-23, on a fresh one-block note and a
+  five-block one. → apps/ios/Sources/Editor/EditorWebView.swift
+  `navigationPopGestures`, src/features/editor/milkdown/mobileBlockDnd.ts
+  `onPointerCancel` _(native shells)_
 
 ## Markdown elements (rendered / decorated)
 
@@ -664,8 +667,15 @@ about.
   keystroke. iOS WebKit draws no marker for an item whose only line is
   ProseMirror's trailing `<br>`, though desktop WebKit does, so that line gets a
   zero-width `::before` box to hang the marker on. It is CSS only, so nothing
-  reaches the saved Markdown. → src/features/editor/milkdown/MilkdownEditor.svelte
-  `li > p:first-child:has(> br.ProseMirror-trailingBreak:only-child)::before`
+  reaches the saved Markdown. Verified 2026-09-23 on desktop (macOS WKWebView,
+  typing `- ` / `1. `) and on the Android emulator (API 36, System WebView
+  133.0.6943.137, from the toolbar): the marker shows before any typing, the
+  first character lands at the item's text edge with no gap, and the file reads
+  `- X` / `1. y` with no zero-width character in it. Not yet checked on Linux
+  WebKitGTK or Windows WebView2. → src/features/editor/milkdown/MilkdownEditor.svelte
+  `li > p:first-child:has(> br.ProseMirror-trailingBreak:only-child)::before`,
+  tests/editor-embed-milkdown-toolbar.spec.ts "gives the empty item a
+  zero-width marker anchor"
 - Tables (GFM), horizontal rules, and images render as themselves. A table
   scrolls sideways inside its own box rather than widening the note; an image is
   capped at the column width and 300px tall. →
@@ -1303,11 +1313,14 @@ EditorWebView.swift, EditorWebView.kt
   2026-08-26), not the keyboard slab (223,224,230). → EditorToolbar.swift
   `FutoKeyboardAccessory`, `ToolbarMetrics`, `futoToolbarGlass`
 
-  > **Gap (parity):** the Android bar paints `c.surface`
-  > (`EditorToolbar.kt`, the root `Column` and both edge-fade gradients), not the
-  > editor's background, so it likely shows the same colour step iOS just
-  > closed. This is from reading the code on 2026-09-23 and has not been compared
-  > on screen. _(Android)_
+- Android native: the bar and both of its edge fades paint `c.surface`, and so
+  does the editor screen's `Scaffold`, which is what shows through the
+  transparent editor page. The note and the band are therefore one colour by
+  construction: #FFFFFF in light and #1F1C19 in dark, sampled on the pixels
+  either side of the bar's top edge. A 1 dp `c.border` hairline marks that edge,
+  where iOS deliberately draws none. Verified on the emulator (API 36)
+  2026-09-23. → EditorToolbar.kt, NoteEditorScreen.kt `Scaffold`
+  `containerColor`
 - Android native: the toolbar is a Compose bar (generated ToolbarSpec.kt
   rendered by EditorToolbar.kt) docked above the soft keyboard via the editor
   screen's `imePadding`, shown only while the editor is focused (bridge
@@ -1342,13 +1355,17 @@ EditorWebView.swift, EditorWebView.kt
   bridge `blur()` collapses the selection to its head, hides the grips, then
   blurs and clears the DOM selection. Every native dismissal goes through it:
   the chevron on both shells and Android's back-gesture dismissal. Desktop never
-  calls it. _(native shells)_ → src/features/editor/milkdown/MilkdownEditor.svelte
-  `blur`, src/features/editor/milkdown/table/tableGrips.ts `hideTableGrips`
-
-  > **Gap (parity):** not yet run on Android. The change is in the shared
-  > bundle, so it should hold there once the bundle is rebuilt, but a range
-  > selection, a cell selection and the grips have not been checked after
-  > either Android dismissal path. _(Android)_
+  calls it. On Android both dismissal paths clear a double-tapped word range
+  (handles and callout included), the grips a tap showed, and the cell selection
+  a grip menu leaves behind; tapping back in edits normally and brings the grips
+  back. A touch drag across cells makes no cell selection on Android (Chromium
+  sends a touch drag no mouse drag), so the grip menu is the touch route to one.
+  Verified on the emulator (API 36, System WebView 133.0.6943.137) 2026-09-23.
+  _(native shells)_ → src/features/editor/milkdown/MilkdownEditor.svelte
+  `blur`, src/features/editor/milkdown/table/tableGrips.ts `hideTableGrips`,
+  tests/editor-embed-milkdown.spec.ts "blur() drops a highlighted range",
+  tests/editor-embed-milkdown-table-grips.spec.ts "the bridge blur ends the
+  table editing session"
 - **Toolbar docking + height (both native shells).** The bar is exactly
   **44 pt** tall on iOS / **44 dp** on Android, its 36 pt/dp icons centered
   with ~4 pt top/bottom, and it sits **FLUSH against the top of the on-screen
