@@ -320,6 +320,17 @@ and `~/.cache/futo-notes` is cold, record sync happy-path stories as
   Simulator.app launches, so an already-running instance ignores it. The repair
   is a full device cycle: `just qa-claim ios --reboot`. Suspect this before the
   app whenever screenshots work but UI queries return nothing (M21).
+- **Keyboard keys listed OFF-SCREEN below the screen, no software keyboard
+  visible** → the simulator's boot-attached hardware keyboard is connected.
+  Every boot re-attaches it and Xcode 27 has no Simulator.app to detach it;
+  `just qa-claim ios` and the stories detach it after each boot
+  (`scripts/lib/simulator-keyboard.mjs`). A device you rebooted yourself needs
+  a re-claim.
+- **Taps report success but nothing happens, on every simulator** → check
+  whether Xcode 27's DeviceHub is running. While it runs it takes the
+  touchscreen of every booted simulator, and the device log shows
+  `already have a main display digitizer` for each scripted tap. Quit it and
+  reboot the simulator.
 - **Locked physical iPhone** → `FBSOpenApplicationErrorDomain error 7` on
   launch; unlock and relaunch (device installs: `just ios-native-device`).
 - **Theme**: the app pushes theme changes into the editor live

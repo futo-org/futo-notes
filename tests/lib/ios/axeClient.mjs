@@ -2,6 +2,8 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
+import { disconnectHardwareKeyboard } from '../../../scripts/lib/simulator-keyboard.mjs';
+
 const DEFAULT_BUNDLE_ID = 'com.futo.notes.dev';
 
 function outputOf(command, args, options = {}) {
@@ -48,10 +50,12 @@ export function createAxeClient({ udid, bundleId = DEFAULT_BUNDLE_ID } = {}) {
 
   const launch = () => simctl('launch', udid, bundleId);
 
+  // Every boot re-attaches the hardware keyboard that hides the software one.
   const restartSimulator = () => {
     simctl('shutdown', udid);
     simctl('boot', udid);
     simctl('bootstatus', udid, '-b');
+    disconnectHardwareKeyboard(udid);
   };
 
   // A stopped process is already in the required state. `simctl terminate`
