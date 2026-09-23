@@ -2162,6 +2162,22 @@ EditorSessionTest.kt, EditorSessionTests.swift
   every latch that exit set, and reports which step failed so the shell can word
   the message. A failed delete un-latches so the editor stays usable, and a
   failed draft write never deletes. _(iOS/Android)_
+- The one exception is iOS's system Back button and edge swipe. They are the
+  native interactive pop, which cannot be refused once it starts (hiding the
+  system button to keep a veto also disables the finger-tracked gesture). So that
+  exit runs the same drain and title-then-body commit **after** the editor has
+  left. A pending debounced rename commits immediately, a timed-out capture is
+  retried (the first attempt makes a streaming editor finish its load), and any
+  capture that still cannot answer commits the shell's copy. The capture reads
+  the shared WebView only while it still shows the popped note. On a wikilink pop
+  the parent re-attaches first, and reading then would write the parent's body
+  over the linked note. A rename that cannot commit is reported and the body
+  still commits under the id the note kept. The typed title is not kept, which is
+  the cost of an exit that cannot stay. Whatever else fails to commit goes to the
+  retained-draft flush, so it stays eligible for lifecycle retry. _(iOS)_
+  → NoteEditorView.swift `finishLeave`, EditorWebView.swift
+  `captureContent(leftBy:)` / `editorLeaveBody`, EditorExitBodyTests,
+  EditorBackAffordanceTests, EditorSwipeBackTests (UI)
 - "The editor did not answer" is only a failed capture when the answer would have
   been for **another note**. An editor holding NO live document — the bundle has
   not reported `initialized`, its renderer process died, it answered with no
