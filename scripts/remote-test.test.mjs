@@ -100,7 +100,6 @@ describe('macOS-only deny-list', () => {
     expect(verdict.reason).toMatch(/WKWebView/);
   });
 
-
   it('refuses recipes that need root or manage the local machine', () => {
     expect(classify('deploy-rpm').reason).toMatch(/sudo/);
     expect(classify('qa-claim').reason).toMatch(/device pool/);

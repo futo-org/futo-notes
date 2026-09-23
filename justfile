@@ -201,8 +201,7 @@ test-ios-native: _preflight-ios build-rust-ios
     -derivedDataPath .build \
     CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-"
 
-# JVM unit tests for the native Android app, under BOTH distribution flavors
-# (DistributionFlavorTest asserts a per-flavor constant); see justfile-notes.md.
+# JVM unit tests for the native Android app, under BOTH flavors; see justfile-notes.md.
 test-android-native: _preflight-android android-env-check build-rust-android
   cd apps/android && ./gradlew :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest
 
@@ -302,8 +301,7 @@ qa-clone-target dest:
   cp -Rc target '{{dest}}/target'
   echo "Cloned target/ → {{dest}}/target (APFS copy-on-write)"
 
-# Start this worktree's isolated sync server (own port + own SQLite DB);
-# --standin for hosted stand-in test mode — see docs/agents/justfile-notes.md.
+# Start this worktree's isolated sync server; --standin for hosted test mode — see justfile-notes.md.
 qa-server *flags:
   @node scripts/qa.mjs server-start {{flags}}
 
@@ -460,8 +458,7 @@ test-e2e-rest:
 test-cross-platform *args:
   pnpm run test:cross-platform "$@"
 
-# The Rust server-backed sync suites against REAL servers (two server modes,
-# both started on slot-derived ports, stopped by PID); see justfile-notes.md.
+# The Rust server-backed sync suites against REAL servers (two server modes); see justfile-notes.md.
 [positional-arguments]
 test-sync-integration *args:
   node tests/sync-integration.mjs "$@"
@@ -470,8 +467,7 @@ test-sync-integration *args:
 test-markdown-spec:
   pnpm run test:markdown-spec
 
-# Prove a chunked parse equals a whole-document parse, over a real note corpus;
-# `--serialize` checks the other chunking equivalence claim. See justfile-notes.md.
+# Prove a chunked parse equals a whole-document parse over a real corpus; see justfile-notes.md.
 chunk-census *args:
   node scripts/milkdown-chunk-census.mjs {{args}}
 
@@ -731,8 +727,7 @@ clean:
   rm -rf apps/android/app/build apps/android/build
 
 # Three independent fail-fast guards for the same "no node_modules" papercut,
-# landed on parallel MR stacks; kept all rather than dropping any. Rationale:
-# docs/agents/justfile-notes.md.
+# Three independent fail-fast guards for the same papercut; see docs/agents/justfile-notes.md.
 check-node-modules:
   @node scripts/check-node-modules.mjs
 

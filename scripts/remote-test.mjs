@@ -94,6 +94,10 @@ export const EXIT_MOVED = 76;
 
 const REASONS = {
   macos: 'needs Xcode, the iOS simulator, or swift-format — macOS-only tooling. Run it on the Mac.',
+  wkwebview:
+    'drives the real desktop app, whose web engine is WKWebView on macOS and WebKitGTK on Linux. ' +
+    'A green Linux run can neither confirm nor refute a paint/compositing/timing regression in the ' +
+    'engine we ship on macOS (the same reasoning as M22 for WebView2). Run it on the Mac.',
   interactive: 'is an interactive dev/QA command, not a suite — it needs a display and a human.',
   sudo: 'installs a system package; jfedora has no passwordless sudo, so it would hang or fail.',
   localMachine:
