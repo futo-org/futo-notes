@@ -366,7 +366,8 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   the window (a new note attaches while its screen is still being built), and
   the "force keyboard" gate stays open until the focus script has actually run
   rather than for a fixed 0.6 s. Verified on the iOS 27.0 and 26.5 simulators
-  2026-09-23. → EditorWebView.swift `EditorHost.startAutoFocus` /
+  and on an iPhone (iOS 27.0) 2026-09-23. → EditorWebView.swift
+  `EditorHost.startAutoFocus` /
   `runPendingAutoFocus`, EditorWebView.kt `EditorHost.focusEditor`
 - **Both native shells have an inline, tappable title field** above the editor
   body (iOS via a `UITextField`-backed `TitleTextField`, Android via a
@@ -382,7 +383,8 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   continues straight into the note. The title never takes a newline. On iOS,
   Return resigns the title field and runs the same native-then-page focus a new
   note uses; on desktop, Enter focuses the editor. Verified on the iOS 27.0 and
-  26.5 simulators 2026-09-23. → NoteEditorView.swift `TitleTextField`
+  26.5 simulators and on an iPhone (iOS 27.0) 2026-09-23. → NoteEditorView.swift
+  `TitleTextField`
   `textFieldShouldReturn`, EditorWebView.swift `EditorHost.focusBody`,
   src/features/notes/createNoteTitleController.svelte.ts
 
