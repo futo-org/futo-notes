@@ -33,7 +33,8 @@ struct FeedbackImagesTests {
     @Test("transcodes an accepted format that is over the cap, but not one at it")
     func transcodesOnSize() {
         #expect(FeedbackImages.needsTranscode(ext: "png", byteCount: FeedbackImages.maxBytes + 1))
-        #expect(FeedbackImages.needsTranscode(ext: "png", byteCount: FeedbackImages.maxBytes) == false)
+        #expect(
+            FeedbackImages.needsTranscode(ext: "png", byteCount: FeedbackImages.maxBytes) == false)
     }
 
     @Test("returns the original bytes untouched when no transcode is needed")

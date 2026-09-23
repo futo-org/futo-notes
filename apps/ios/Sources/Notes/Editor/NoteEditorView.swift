@@ -233,7 +233,8 @@ struct NoteEditorView: View {
                     findQuery = report.query
                     findLabel = report.label
                 },
-                onAttachmentChange: { editorAttachment = $0
+                onAttachmentChange: {
+                    editorAttachment = $0
                 }
             )
             // Measured INSIDE ignoresSafeArea: that is the WebView's RENDERED
@@ -338,7 +339,9 @@ struct NoteEditorView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
-                .accessibilityLabel(localization.localizedText("notes.actions.moreAccessibilityLabel"))
+                .accessibilityLabel(
+                    localization.localizedText("notes.actions.moreAccessibilityLabel")
+                )
                 .tint(Theme.primary)
                 .disabled(interactionLocked)
             }
@@ -1120,7 +1123,9 @@ private struct FindInNoteBar: View {
                     .fixedSize()
 
                 if !query.isEmpty {
-                    Button { query = "" } label: {
+                    Button {
+                        query = ""
+                    } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(.tertiary)
                     }
@@ -1133,13 +1138,17 @@ private struct FindInNoteBar: View {
             .background(Theme.surface, in: Capsule())
 
             HStack(spacing: 0) {
-                Button { onStep(-1) } label: {
+                Button {
+                    onStep(-1)
+                } label: {
                     Image(systemName: "chevron.up")
                         .frame(width: 42, height: 46)
                 }
                 .accessibilityLabel(localization.localizedText("editor.find.previousMatch"))
 
-                Button { onStep(1) } label: {
+                Button {
+                    onStep(1)
+                } label: {
                     Image(systemName: "chevron.down")
                         .frame(width: 42, height: 46)
                 }

@@ -12,6 +12,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
+# Refuse in ~2s — before the 10-25 minute Rust build — when this machine
+# cannot run Gradle (no JDK 21 discoverable for Gradle's daemon-JVM pin, or a
+# missing SDK location). Shared with the justfile recipes that call gradlew:
+# scripts/android-env.sh.
+source scripts/android-env.sh
+
 # Distribution flavor (apps/android/app/build.gradle.kts). `direct` — what
 # GitLab/Obtainium/F-Droid users install — is the dev-loop default; `play`
 # builds the Google Play flavor from the same sources. Both carry the same
@@ -27,7 +33,9 @@ case "$FLAVOR" in
 esac
 
 echo "==> JS deps"
-[ -d node_modules ] || pnpm install
+# Presence-only check replaced by the shared guard (stale installs die before
+# the Rust build): scripts/editor-deps.sh.
+bash scripts/editor-deps.sh
 
 # hosted_server() only honours FUTO_HOSTED_SERVER in a build with
 # debug_assertions on, and the default release-ffi profile inherits release,

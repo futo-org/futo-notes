@@ -49,7 +49,19 @@ rust-format-check:
 # Lint the hand-written Swift production and test sources (read-only) with swift-format, which
 # ships with Xcode 16+ (`xcrun swift-format`). The generated UniFFI bindings
 # (Sources/Generated) are excluded — they are not ours to style.
+#
+# Skipped, loudly, where swift-format cannot exist (Linux remote runs, Xcode
+# before 16). Nothing ran this recipe automatically, so the Swift sources
+# drifted and the recipe was red on a pristine origin/main — unusable for
+# saying anything about the file you actually changed (pc_481659b55e11,
+# pc_4b221d1f5e28). It is now a `check` dependency.
 lint-swift:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if [ "$(uname -s)" != "Darwin" ] || ! xcrun --find swift-format >/dev/null 2>&1; then
+    echo "==> swift-format is unavailable on this host ($(uname -s)) — skipping Swift lint"
+    exit 0
+  fi
   find apps/ios/Sources apps/ios/Tests apps/ios/UITests \
     -name '*.swift' \
     -not -path '*/Generated/*' \
@@ -62,8 +74,9 @@ lint-swift:
 
 # Desktop dev. `--fake-update[=X.Y.Z]` shows a simulated update (banner/Settings
 # iteration without a server or signed build); install is simulated.
+[positional-arguments]
 tauri-dev *args:
-  node scripts/tauri-dev.mjs {{args}}
+  node scripts/tauri-dev.mjs "$@"
 
 tauri-prod:
   pnpm run build
@@ -83,8 +96,9 @@ tauri-build:
 # and baked pubkey (localdev) differ. Builds OLD + NEW signed AppImages, serves
 # the update on :8787, prints the command to run the OLD app. See keys/README.md
 # + scripts/release-build.mjs. Linux/AppImage only; Ctrl-C to stop.
+[positional-arguments]
 updater-localdev *args:
-  node scripts/release-build.mjs e2e {{args}}
+  node scripts/release-build.mjs e2e "$@"
 
 # ── Instance journal (desktop) ──
 # Read what a running instance actually DID: the app writes a JSONL event
@@ -109,8 +123,9 @@ updater-localdev *args:
 # `just tauri-dev` sets, per worktree), then <app data>/<bundle id>/journal.
 # `--json` prints raw lines, so `just journal type sync_run --json | jq` works.
 # Native shells do not journal yet (see docs/spec/sync.md).
+[positional-arguments]
 journal *args:
-  @node scripts/journal.mjs {{args}}
+  @node scripts/journal.mjs "$@"
 
 # ── Native mobile shells (SwiftUI / Compose — the SHIPPING mobile apps) ──
 # These reuse the shared Rust core (futo-notes-ffi) + the embedded web editor.
@@ -145,7 +160,7 @@ ios-native-device:
   apps/ios/run-device.sh
 
 # Compile-only sanity for the native iOS app (no install); `just ios-native` runs it.
-build-ios-native: build-rust-ios
+build-ios-native: editor-deps build-rust-ios
   #!/usr/bin/env bash
   set -euo pipefail
   node_modules/.bin/vite build --config vite.editor.config.ts
@@ -170,12 +185,34 @@ build-ios-native: build-rust-ios
     exit 1
   fi
 
+# Fail fast (or self-install) when the JS deps a recipe needs are absent or
+# stale — BEFORE the 10-25 minute Rust build, not after it. A fresh worktree's
+# `just check` used to die on 'Command "tsx" not found' naming tsx, and
+# `just test-ios-native` lost ~10 minutes of cold Rust builds to a missing
+# node_modules/.bin/vite (pc_40406aa84bc1, pc_7aaa5ba6c080).
+editor-deps:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  bash scripts/editor-deps.sh
+
+# Refuse in ~2s — BEFORE the 10-25 minute Rust/FFI build — when this machine
+# cannot run Gradle: no JDK 21 discoverable for Gradle's daemon-JVM pin
+# (apps/android/gradle/gradle-daemon-jvm.properties — never fix this by
+# exporting JAVA_HOME, see apps/android/AGENTS.md) or no Android SDK ("SDK
+# location not found", the gitignored apps/android/local.properties is absent
+# in a fresh worktree). Also writes local.properties from ANDROID_HOME/detected
+# SDK. apps/android/run.sh sources the same script.
+android-env-check:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  source scripts/android-env.sh
+
 # Assembles BOTH distribution flavors' debug variants (direct =
 # GitLab/Obtainium/F-Droid, play = Google Play) so a flavor-specific source set
 # or buildConfigField that only breaks one of them fails here rather than at
 # release time.
 # Compile-only sanity for the native Android app (both flavors, no install).
-build-android-native: build-rust-android
+build-android-native: editor-deps android-env-check build-rust-android
   #!/usr/bin/env bash
   set -euo pipefail
   node_modules/.bin/vite build --config vite.editor.config.ts
@@ -188,7 +225,7 @@ build-android-native: build-rust-android
 # on a CONCRETE simulator — `xcodebuild test` cannot run against a generic
 # destination. Honors $SIM (from `just qa-claim ios`); otherwise the single
 # booted simulator. Fails red on any test failure.
-test-ios-native: build-rust-ios
+test-ios-native: editor-deps build-rust-ios
   #!/usr/bin/env bash
   set -euo pipefail
   node_modules/.bin/vite build --config vite.editor.config.ts
@@ -214,14 +251,14 @@ test-ios-native: build-rust-ios
 # flavors: DistributionFlavorTest asserts a per-flavor constant, so one run
 # would only ever see half of it.
 # JVM unit tests for the native Android app, under both flavors.
-test-android-native: build-rust-android
+test-android-native: editor-deps android-env-check build-rust-android
   cd apps/android && ./gradlew :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest
 
 # `direct` only: the flavors compile the same androidTest sources against the
 # same applicationId, so running both would install one over the other for no
 # extra signal.
 # Runs Compose instrumentation tests on $ANDROID_SERIAL.
-test-android-native-ui: build-rust-android
+test-android-native-ui: editor-deps android-env-check build-rust-android
   cd apps/android && ./gradlew :app:connectedDirectDebugAndroidTest
 
 # Editor performance stories against the REAL native Android app on an
@@ -302,8 +339,9 @@ test-ios-stories:
 # full shutdown/boot cycle is the only fix (simctl screenshot keeps working the
 # whole time, which is why it looks like an app bug).
 # Claim (create + boot if needed) this worktree's pooled simulator/emulator.
+[positional-arguments]
 qa-claim target="all" *flags:
-  @node scripts/qa.mjs claim {{target}} {{flags}}
+  @node scripts/qa.mjs claim "$@"
 
 # Show pool devices + per-slot sync servers, and which worktree owns each.
 qa-status:
@@ -316,8 +354,9 @@ ports:
 
 # Release this worktree's devices (add --shutdown to also power them off).
 # Also stops this worktree's qa-server so nothing is left orphaned.
+[positional-arguments]
 qa-release *flags:
-  @node scripts/qa.mjs release {{flags}}
+  @node scripts/qa.mjs release "$@"
 
 # Reap pool devices/servers owned by worktrees that no longer exist.
 qa-gc:
@@ -398,8 +437,9 @@ qa-server *flags:
   @node scripts/qa.mjs server-start {{flags}}
 
 # Stop it (add --drop to also delete its database and blobs).
+[positional-arguments]
 qa-server-stop *flags:
-  @node scripts/qa.mjs server-stop {{flags}}
+  @node scripts/qa.mjs server-stop "$@"
 
 # ── Simulator / emulator QA helpers ──
 # Mechanics for driving the native apps under QA. The judgment layer (how to
@@ -546,11 +586,12 @@ test-full:
 #   just test-one src/features/notes/noteSession.test.ts
 #   just test-one -t 'renames a note'
 # Run ONE test file or -t pattern (installs deps if the worktree is fresh).
+[positional-arguments]
 test-one *args:
   #!/usr/bin/env bash
   set -euo pipefail
   [ -d node_modules ] || { echo "==> node_modules missing — pnpm install"; pnpm install; }
-  node_modules/.bin/vitest run {{args}}
+  node_modules/.bin/vitest run "$@"
 
 test-unit:
   pnpm run test:unit
@@ -670,25 +711,29 @@ bench-search *args:
 # Prints the exact commands a human with sudo must run; start here when adding
 # a second Linux box.
 # Report what is present/missing on the remote (node, cargo, NDK, KVM…).
+[positional-arguments]
 remote-doctor *flags:
-  node scripts/remote-test.mjs --doctor {{flags}}
+  node scripts/remote-test.mjs --doctor "$@"
 
 # Run any portable recipe remotely: `just remote test-full`, `just remote --rsync test-unit`.
+[positional-arguments]
 remote *args:
-  node scripts/remote-test.mjs {{args}}
+  node scripts/remote-test.mjs "$@"
 
 # Equivalent to a Mac `just check` — tsc, eslint, prettier, svelte-check,
 # vitest (jsdom), vite build, arch gates, Rust conformance — none of which
 # touch a real web engine, so this carries no WebKit caveat.
 # The pre-merge umbrella, remotely.
+[positional-arguments]
 remote-check *flags:
-  node scripts/remote-test.mjs {{flags}} check
+  node scripts/remote-test.mjs "$@" check
 
 # The box's 32 cores also make futo-notes-search's CI-only "keyword index never
 # became ready" contention flake vanish.
 # The full Rust workspace, remotely.
+[positional-arguments]
 remote-rust *flags:
-  node scripts/remote-test.mjs {{flags}} test-rust-full
+  node scripts/remote-test.mjs "$@" test-rust-full
 
 # Sync state and files are engine-independent; rendering is not (see the doc).
 # Ports are slot-derived and every server gets its own SQLite database, so
@@ -696,15 +741,17 @@ remote-rust *flags:
 # slot, which the worktree lock prevents (and the harness refuses loudly instead
 # of adopting).
 # Cross-platform E2EE sync against the pinned sync-server release.
+[positional-arguments]
 remote-sync *flags:
-  node scripts/remote-test.mjs {{flags}} test-cross-platform
+  node scripts/remote-test.mjs "$@" test-cross-platform
 
 # Device/instrumentation legs still need an emulator booted ON the box; KVM
 # there makes those far faster than the Mac's emulation once wired up.
 # Android Rust .so + Kotlin bindings + both flavors' debug APKs + JVM unit tests.
+[positional-arguments]
 remote-android *flags:
-  node scripts/remote-test.mjs {{flags}} build-android-native
-  node scripts/remote-test.mjs {{flags}} test-android-native
+  node scripts/remote-test.mjs "$@" build-android-native
+  node scripts/remote-test.mjs "$@" test-android-native
 
 # ── Editor gauntlet (the permanent editor regression suite) ──
 # The matrix and oracles live behind EditorGauntletAdapter, with one adapter
@@ -850,8 +897,9 @@ check-drift:
 # need a genuinely VISIBLE window, which no capture tool can substitute for.
 #   just qa-shot list | pid <pid> | port <port> [--out <path>]
 # Screenshot this worktree's desktop QA window WITHOUT activating it.
+[positional-arguments]
 qa-shot *args:
-  @node scripts/qa-shot.mjs {{args}}
+  @node scripts/qa-shot.mjs "$@"
 
 # Fail if any instruction surface (README/AGENTS.md/docs/**/skills/agents, plus
 # this justfile) teaches OS-level input into this app (AppleScript UI scripting,
@@ -876,9 +924,10 @@ check-theme-single-pace:
 # PID into something you may drive. Verifies the executable is a debug build
 # inside THIS worktree (plus its data dir and vault) and exits 3 on anything
 # else — emphatically an installed application bundle.
-#   just qa-target list | pid <pid> | port <port> | kill
+#   just qa-target list | status | pid <pid> | port <port> | kill
+[positional-arguments]
 qa-target *args:
-  @node scripts/qa-target.mjs {{args}}
+  @node scripts/qa-target.mjs "$@"
 
 # Fail on a broken `just <recipe>`/`pnpm run <script>`/repo-path reference inside
 # an instruction surface (README/AGENTS.md/skill SKILL.md+references/workflows) —
@@ -890,8 +939,9 @@ check-agent-docs:
 # Prove architecture gates fail for the violations they claim to catch. This is
 # intentionally NOT part of `just check` or `prepush`: run it when adding or
 # changing a gate, so unchanged gates do not get re-proved on every commit.
+[positional-arguments]
 gate-redproofs *args:
-  node scripts/gate-redproofs.mjs --include-cargo {{args}}
+  node scripts/gate-redproofs.mjs --include-cargo "$@"
 
 # Run the same focused architecture checks embedded in GitLab's mandatory test job.
 # package.json owns the membership because the pinned CI image does not include just.
@@ -943,8 +993,9 @@ skills-swift:
 # ignore entries whose advisory is gone. CI runs this same script, non-blocking
 # (docs/architecture-gates.md).
 # Report known vulnerabilities across the project (Rust + npm).
+[positional-arguments]
 audit *args:
-  node scripts/audit.mjs {{args}}
+  node scripts/audit.mjs "$@"
 
 # ── Code-quality ratchet (big-code-analysis) ──
 # Needs network on first run (downloads a pinned bca release into .bca-cache/);
@@ -975,10 +1026,17 @@ check-node-modules:
 # NOTE: overlaps with `check-node-modules` above (same underlying papercut,
 # two independent fixes that landed on parallel MR stacks). Kept both rather
 # than dropping either — see .rebase-log.md for mr-318.
+#
+# `check` deliberately does NOT depend on `editor-deps` (below), even though
+# every OTHER recipe editor-deps guards does: editor-deps self-installs
+# (`pnpm install`) on a missing/stale node_modules, which is exactly the
+# behind-your-back mutation this recipe's own comment forbids for a gate.
+# check-node-modules/_require-install only refuse and tell you the command;
+# they never run it for you. See .rebase-log.md for mr-320.
 _require-install:
   @[ -d node_modules ] || { echo 'node_modules is missing in this worktree — run: just install' >&2; exit 1; }
 
-check: check-node-modules _require-install toolbar-spec-check title-spec-check coin-check arch-gate test-rust rust-format-check
+check: check-node-modules _require-install toolbar-spec-check title-spec-check coin-check arch-gate lint-swift test-rust rust-format-check
   #!/usr/bin/env bash
   # See `build:`'s comment: pipefail is required so the `| head`/`| tail`
   # truncation on the last two lines can't mask a failing tsc/vite build.
@@ -1122,7 +1180,7 @@ deploy-rpm:
 # instead, which is the only way to put the exact bytes Play will review on a
 # device (Play itself is fed the AAB from CI, and an AAB cannot be adb-installed).
 # Build a RELEASE-signed Android build of one flavor and install it (com.futo.notes).
-deploy-android flavor="direct":
+deploy-android flavor="direct": editor-deps android-env-check
   #!/usr/bin/env bash
   set -euo pipefail
   case '{{flavor}}' in

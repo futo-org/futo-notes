@@ -129,8 +129,8 @@ func editorNavigationDecision(
     switch scheme {
     case "file":
         guard let permittedFileURL,
-              permittedFileURL.isFileURL,
-              url.standardizedFileURL.path == permittedFileURL.standardizedFileURL.path
+            permittedFileURL.isFileURL,
+            url.standardizedFileURL.path == permittedFileURL.standardizedFileURL.path
         else { return .deny }
         return .allow
     case "about" where url.absoluteString.caseInsensitiveCompare("about:blank") == .orderedSame:
@@ -1209,7 +1209,8 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // window.open is a no-op inside a WKWebView, and the reused editor
             // WebView must never load a non-editor URL, so it leaves the app.
             if let urlString = body["url"] as? String,
-               let url = URL(string: urlString) {
+                let url = URL(string: urlString)
+            {
                 openEditorURLExternally(url)
             }
         case .pickImage:
@@ -1328,11 +1329,13 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     }
 
     private func openEditorURLExternally(_ url: URL) {
-        guard case .openExternally(let safeURL) = editorNavigationDecision(
-            for: url,
-            isMainFrame: true,
-            permittedFileURL: editorFileURL
-        ) else { return }
+        guard
+            case .openExternally(let safeURL) = editorNavigationDecision(
+                for: url,
+                isMainFrame: true,
+                permittedFileURL: editorFileURL
+            )
+        else { return }
         UIApplication.shared.open(safeURL)
     }
 
