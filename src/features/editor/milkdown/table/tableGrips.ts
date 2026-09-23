@@ -39,7 +39,7 @@
  * why Shift+Enter in a table cell needed its own fix at all.
  */
 import { $prose } from '@milkdown/kit/utils';
-import { Plugin, PluginKey, type Command } from '@milkdown/kit/prose/state';
+import { Plugin, PluginKey, type Command, type Transaction } from '@milkdown/kit/prose/state';
 import { CellSelection } from '@milkdown/kit/prose/tables';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
@@ -68,7 +68,14 @@ import {
 } from './tableGripsGeometry';
 import { tableCellLineBreakRemark, tableCellLineBreakSerializer } from './tableLineBreak';
 
-export const tableGripsKey = new PluginKey('FUTO_TABLE_GRIPS');
+export const tableGripsKey = new PluginKey<number>('FUTO_TABLE_GRIPS');
+
+/** Hides the grips with `tr`. A touch places them through the emulated mouse
+ * events a tap sends, and never sends the `mouseleave` that hides them again,
+ * so the mobile shells' keyboard dismiss clears them explicitly. */
+export function hideTableGrips(tr: Transaction): Transaction {
+  return tr.setMeta(tableGripsKey, 'hide');
+}
 
 const GRIP_CLASS = 'futo-table-grip';
 const GRIP_COL_CLASS = 'futo-table-grip-col';
@@ -232,7 +239,9 @@ class TableGripsView {
    * undo/redo) while a grip happens to be showing.
    */
   update(_view: ProseView, prevState: ProseView['state']): void {
-    if (this.view.state.doc === prevState.doc) return;
+    const hideRequested =
+      tableGripsKey.getState(this.view.state) !== tableGripsKey.getState(prevState);
+    if (this.view.state.doc === prevState.doc && !hideRequested) return;
     this.closeMenu();
     this.hideGrips();
   }
@@ -478,6 +487,12 @@ const tableGripsView = $prose(
   () =>
     new Plugin({
       key: tableGripsKey,
+      // Counts `hideTableGrips` requests; the view hides on any change.
+      state: {
+        init: () => 0,
+        apply: (tr, requests: number) =>
+          tr.getMeta(tableGripsKey) === 'hide' ? requests + 1 : requests,
+      },
       view: (view) => new TableGripsView(view),
     }),
 );

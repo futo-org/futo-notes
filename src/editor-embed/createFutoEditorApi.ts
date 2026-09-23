@@ -20,6 +20,7 @@ export interface EmbeddedEditorHandle {
   getContent: () => string;
   insertMarkdown: (text: string) => void;
   refreshDecorations: () => void;
+  revealSelection: () => void;
   resetHistory: () => void;
   openFind: () => void;
   setContent: (text: string) => void;
