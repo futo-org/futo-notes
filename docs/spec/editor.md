@@ -278,6 +278,19 @@ about.
   keyboard; wrapped-line taps remain on the tapped visual row. On-text and
   off-text placement alike are the platform's own contenteditable behavior.
   _(native shells)_
+- A caret the keyboard rises over is scrolled back into view as the keyboard
+  lands: tap the last word of a note that fills the screen and that word ends up
+  above the keyboard and its toolbar straight away, not on the first keystroke.
+  ProseMirror only scrolls on its own transactions and a tap is not one, so the
+  embed re-reveals the selection whenever the shell resizes the web view under a
+  focused editor. _(native shells)_ → src/editor-embed/main.ts `resize` listener,
+  src/features/editor/milkdown/MilkdownEditor.svelte `revealSelection`
+
+  > **Gap (parity):** not yet run on Android. The listener ships in the shared
+  > bundle, but whether the Android WebView gets a window `resize` when
+  > `imePadding` shrinks it, and whether Chromium had already been revealing the
+  > caret on its own, is unmeasured. _(Android)_
+
 - The editor reserves a tail below the last line — `max(40vh, 280px)` of bottom
   padding on the editable — so the final line can be scrolled clear of the
   keyboard. The tail scales with the viewport, so a note that does not fill the
@@ -568,6 +581,21 @@ about.
   apps/ios/Sources/Editor/EditorWebView.swift `applyTextInteractionLevel`,
   packages/editor/src/bridge.ts `BlockDragMessage`
   _(native shells, iOS)_
+- Moving an airborne block sideways never starts a back-swipe, and a block is
+  never left lifted once the finger is up. On iOS 26+ the navigation
+  controller's content pop takes a horizontal drag from anywhere on screen, so
+  it used to win a sideways block move: the editor started sliding away, and the
+  page never heard the touch end, which left the block stuck in its lifted state
+  with no finger on it. The airborne suspension therefore also disables the
+  interactive pop recognisers (the leading-edge swipe and the full-width content
+  swipe) and restores them when the gesture resolves. → apps/ios/Sources/Editor/EditorWebView.swift
+  `navigationPopGestures` _(native shells)_
+
+  > **Gap (parity):** not yet run on Android, where the system back gesture only
+  > starts at the screen edge, so it should not catch a drag that began
+  > mid-screen. Still unmeasured: a lifted block dragged to the edge and held,
+  > and a press whose touch the platform cancels, must both drop the block rather
+  > than leave it lifted. _(Android)_
 
 ## Markdown elements (rendered / decorated)
 
@@ -631,6 +659,13 @@ about.
   wide as the rendered marker. →
   src/features/editor/milkdown/MilkdownEditor.svelte,
   tests/bullet-glyphs.spec.ts
+- An empty list item shows its marker. A bullet or number started from the
+  toolbar appears the moment the button is tapped, not after the first
+  keystroke. iOS WebKit draws no marker for an item whose only line is
+  ProseMirror's trailing `<br>`, though desktop WebKit does, so that line gets a
+  zero-width `::before` box to hang the marker on. It is CSS only, so nothing
+  reaches the saved Markdown. → src/features/editor/milkdown/MilkdownEditor.svelte
+  `li > p:first-child:has(> br.ProseMirror-trailingBreak:only-child)::before`
 - Tables (GFM), horizontal rules, and images render as themselves. A table
   scrolls sideways inside its own box rather than widening the note; an image is
   capped at the column width and 300px tall. →
@@ -1252,18 +1287,27 @@ EditorWebView.swift, EditorWebView.kt
   commands mutate the doc and autosave; Indent/Outdent appear inside a list or
   quote; pickers open natively; chevron blurs). → EditorToolbar.swift,
   EditorWebView.swift `futo_overrideInputAccessoryView`
-- iOS native: the accessory takes its BACKDROP from the system, never from the
-  app palette — the container is a `UIInputView` with `inputViewStyle`
-  `.keyboard` and every subview is transparent, so the strip renders the OS's
-  own accessory backdrop and follows light/dark, Increase Contrast, and
-  `keyboardAppearance` without app code. The buttons float on it in Liquid
-  Glass capsules (`glassEffect` on iOS 26+, `.regularMaterial` below), one for
-  the scrolling formatting items and one for the dismiss chevron, with no fill
-  or hairline behind the band. Verified against Safari's own accessory on the
-  iOS 26.5 simulator 2026-08-26: Apple's band background matches the PAGE
-  behind it (242,242,247) rather than the keyboard slab (223,224,230), which
-  is why a bar painted an app color reads as pasted onto the keyboard.
-  → EditorToolbar.swift `ToolbarMetrics`, `futoToolbarGlass`
+- The toolbar band behind the buttons is the EDITOR's own background colour, so
+  the bar reads as the bottom edge of the note rather than a strip pasted onto
+  the keyboard. Nothing between the note and the band shows a colour step, in
+  light or dark. _(native shells)_
+- iOS native: the accessory is a `UIInputView` (`inputViewStyle` `.default`)
+  painted `Theme.background`, and the buttons float on it in Liquid Glass
+  capsules (`glassEffect` on iOS 26+, `.regularMaterial` below), one for the
+  scrolling formatting items and one for the dismiss chevron, with no hairline
+  behind the band. The system's `.keyboard` backdrop, used until 2026-09-23, is a
+  translucent material that came out a near miss of the editor colour right
+  where the two meet, a difference a user saw on a device. `Theme.surface`
+  (#F2F2F2/#171717) before that was a visible slab. Apple's own accessory in
+  Safari matches the PAGE behind it (242,242,247 on the iOS 26.5 simulator,
+  2026-08-26), not the keyboard slab (223,224,230). → EditorToolbar.swift
+  `FutoKeyboardAccessory`, `ToolbarMetrics`, `futoToolbarGlass`
+
+  > **Gap (parity):** the Android bar paints `c.surface`
+  > (`EditorToolbar.kt`, the root `Column` and both edge-fade gradients), not the
+  > editor's background, so it likely shows the same colour step iOS just
+  > closed. This is from reading the code on 2026-09-23 and has not been compared
+  > on screen. _(Android)_
 - Android native: the toolbar is a Compose bar (generated ToolbarSpec.kt
   rendered by EditorToolbar.kt) docked above the soft keyboard via the editor
   screen's `imePadding`, shown only while the editor is focused (bridge
@@ -1289,6 +1333,22 @@ EditorWebView.swift, EditorWebView.kt
   caret survives a view-level clearFocus. (iOS can't hit this: keyboard and
   first-responder caret are coupled.) → MainActivity.kt,
   ui/components/ImeDismiss.kt, EditorImeDismissBlurTest.kt
+- Dismissing the keyboard ends the editing session on the page, not only the
+  keyboard: no caret, no highlighted text range, no cell selection, no
+  selection handles, and no table row/column grips left where a tap put them.
+  A bare DOM blur kept all of those. A selection survives a blur, and so do its
+  decorations and handles. The grips come from the emulated mouse events a tap
+  sends, and a tap never sends the `mouseleave` that would hide them. So the
+  bridge `blur()` collapses the selection to its head, hides the grips, then
+  blurs and clears the DOM selection. Every native dismissal goes through it:
+  the chevron on both shells and Android's back-gesture dismissal. Desktop never
+  calls it. _(native shells)_ → src/features/editor/milkdown/MilkdownEditor.svelte
+  `blur`, src/features/editor/milkdown/table/tableGrips.ts `hideTableGrips`
+
+  > **Gap (parity):** not yet run on Android. The change is in the shared
+  > bundle, so it should hold there once the bundle is rebuilt, but a range
+  > selection, a cell selection and the grips have not been checked after
+  > either Android dismissal path. _(Android)_
 - **Toolbar docking + height (both native shells).** The bar is exactly
   **44 pt** tall on iOS / **44 dp** on Android, its 36 pt/dp icons centered
   with ~4 pt top/bottom, and it sits **FLUSH against the top of the on-screen
