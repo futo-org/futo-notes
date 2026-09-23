@@ -112,3 +112,11 @@ describe('language preference', () => {
     }
   });
 });
+
+describe('appearance preferences', () => {
+  it('exposes the theme as the only appearance preference', async () => {
+    const { getCachedPreferences } = await fresh();
+
+    expect(getCachedPreferences().appearance).toEqual({ theme: 'auto' });
+  });
+});

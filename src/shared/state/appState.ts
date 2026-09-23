@@ -411,7 +411,9 @@ export interface AppPreferences {
 function stateToPrefs(): AppPreferences {
   const s = getAppState();
   return {
-    appearance: { theme: s.preferences.theme },
+    appearance: {
+      theme: s.preferences.theme,
+    },
     language: { selectedLanguageTag: s.preferences.selectedLanguageTag },
     crashReporting: { ...s.crashReporting },
     updates: { ...s.updates },

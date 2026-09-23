@@ -1,4 +1,9 @@
-import { isLinux, readDesktopColorScheme, setNativeWindowAppearance } from '$lib/platform';
+import {
+  isLinux,
+  readDesktopColorScheme,
+  readLinuxDesktopSettings,
+  setNativeWindowAppearance,
+} from '$lib/platform';
 
 export type ThemePreference = 'auto' | 'dark' | 'light';
 export type ResolvedTheme = 'dark' | 'light';
@@ -151,6 +156,16 @@ export function watchSystemThemeTauri(onChange: (theme?: ResolvedTheme) => void)
               return;
             }
             portalUnlisten = unlisten;
+
+            if (isLinux) {
+              void readLinuxDesktopSettings()
+                .then((snapshot) => {
+                  if (!disposed && snapshot) onChange(snapshot.theme);
+                })
+                .catch((error) =>
+                  console.warn('Failed to read the current Linux desktop theme:', error),
+                );
+            }
           });
         })
         .catch(() => {});

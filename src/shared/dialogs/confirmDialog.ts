@@ -1,12 +1,8 @@
-import { isTauri } from '$lib/platform';
+import { requestConfirmation, type ConfirmDialogOptions } from './confirmDialogState.svelte';
 
 export async function confirmDialog(
   message: string,
-  options: { title: string; kind?: 'info' | 'warning' | 'error' },
+  options: ConfirmDialogOptions,
 ): Promise<boolean> {
-  if (isTauri) {
-    const { ask } = await import('@tauri-apps/plugin-dialog');
-    return ask(message, options);
-  }
-  return window.confirm(message);
+  return requestConfirmation(message, options);
 }

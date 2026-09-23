@@ -1,4 +1,4 @@
-import { onAppMenuCommand } from '$lib/platform';
+import { closeAppWindow, onAppMenuCommand } from '$lib/platform';
 import { tabsStore } from '$features/tabs/tabsStore.svelte';
 
 export interface NotesShellShortcutDeps {
@@ -21,7 +21,14 @@ function isMacAgent(): boolean {
 // depending on how it was invoked. The Rust menu's command ids are locked
 // against this file by `frontend_commands_match_the_shell`.
 export type ShellCommand =
-  'new-note' | 'new-tab' | 'reopen-tab' | 'close-tab' | 'search' | 'settings' | 'toggle-sidebar';
+  | 'new-note'
+  | 'new-tab'
+  | 'reopen-tab'
+  | 'close-tab'
+  | 'search'
+  | 'settings'
+  | 'toggle-sidebar'
+  | 'quit-app';
 
 function runCommand(command: ShellCommand, deps: NotesShellShortcutDeps): void {
   switch (command) {
@@ -45,6 +52,9 @@ function runCommand(command: ShellCommand, deps: NotesShellShortcutDeps): void {
       return;
     case 'toggle-sidebar':
       deps.toggleSidebar();
+      return;
+    case 'quit-app':
+      closeAppWindow();
       return;
   }
 }
@@ -122,6 +132,9 @@ export function registerNotesShellShortcuts(deps: NotesShellShortcutDeps): () =>
     } else if (key === 'w') {
       event.preventDefault();
       runCommand('close-tab', deps);
+    } else if (key === 'q' && !isMacAgent()) {
+      event.preventDefault();
+      runCommand('quit-app', deps);
     } else if (/^[1-9]$/.test(event.key)) {
       event.preventDefault();
       const position = Number(event.key);

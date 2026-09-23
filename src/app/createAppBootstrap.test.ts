@@ -86,6 +86,7 @@ describe('createAppBootstrap (M1 render gate)', () => {
   });
 
   it('forwards the OS-reported theme so auto follows the desktop theme on Linux', () => {
+    // getCachedPreferences() is mocked to an Auto appearance preference.
     themeMocks.applyThemePreference.mockClear();
     const bootstrap = createAppBootstrap({
       initializeCrashReporting: vi.fn(never),

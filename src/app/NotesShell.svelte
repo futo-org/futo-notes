@@ -3,7 +3,12 @@
 
   import { isTauri } from '$lib/platform';
   import { saveConfig } from '$lib/platform/tauri';
-  import { getAllNotes } from '$features/notes/notes.svelte';
+  import {
+    applyExternalImportMutation,
+    getAllNotes,
+    whenNotesReady,
+  } from '$features/notes/notes.svelte';
+  import { startExternalFileOpen } from '$features/notes/externalFileOpen';
   import { createNoteSession, type ParkedDraftSnapshot } from '$features/notes/noteSession.svelte';
   import ForYouPage from '$features/notes/ForYouPage.svelte';
   import SearchPopup from '$features/search/SearchPopup.svelte';
@@ -288,6 +293,14 @@
     enqueueFileChange: sync.enqueueFileChange,
     flushSave: session.flushSave,
   });
+  const stopExternalFileOpen = startExternalFileOpen({
+    whenReady: whenNotesReady,
+    applyMutation: applyExternalImportMutation,
+    openNote: (id) => {
+      if (!tabsStore.hydrated) writeHash(id);
+      else openNote(id);
+    },
+  });
 
   window.addEventListener('hashchange', handleHashChange);
 
@@ -367,6 +380,7 @@
       window.removeEventListener('hashchange', handleHashChange);
       removeTestHook();
       stopNativeShell();
+      stopExternalFileOpen();
       stopShortcuts();
       stopSync();
       stopLicense();

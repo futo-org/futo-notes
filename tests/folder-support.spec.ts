@@ -16,6 +16,11 @@ async function openSidebar(page: Page): Promise<void> {
   await page.waitForSelector('.notes-drawer', { timeout: 10_000 });
 }
 
+// Deletes confirm through the app-owned ConfirmDialogHost modal, not a native dialog.
+async function confirmModal(page: Page, title: string): Promise<void> {
+  await page.getByRole('dialog', { name: title }).getByRole('button', { name: 'Confirm' }).click();
+}
+
 // Pin the folder tree to MIN_SIDEBAR_WIDTH (200px) so the 50% indent cap
 // resolves against the worst supported sidebar width.
 async function pinSidebarToMinWidth(page: Page): Promise<void> {
@@ -318,7 +323,6 @@ test.describe('Folder support', () => {
 
   test('deleting a folder keeps contained notes and moves the open note', async ({ page }) => {
     await openSidebar(page);
-    page.on('dialog', (dialog) => dialog.accept());
     await page.evaluate(async () => {
       const win = window as unknown as {
         __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
@@ -332,6 +336,7 @@ test.describe('Folder support', () => {
 
     await page.locator('[data-folder-path="Work"]').first().click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Delete' }).click();
+    await confirmModal(page, 'Delete folder');
     await expect(page.locator('.toast')).toContainText('Folder deleted; moved 1 note');
     await expect(page).toHaveURL(/#\/note\/open-note/);
     await expect(page.locator('[data-note-id="Work/open-note"]')).toHaveCount(0);
@@ -776,13 +781,13 @@ test.describe('Folder support', () => {
       page,
     }) => {
       await seedActionNotes(page);
-      page.on('dialog', (dialog) => void dialog.accept());
       await page.locator('.title-input').click();
       await page.locator('.title-input').fill('Mover Renamed');
 
       await page.locator('.note-row[data-note-id="Mover"]').click({ button: 'right' });
       await settle(page);
       await page.locator('.menu-item').filter({ hasText: 'Delete' }).click();
+      await confirmModal(page, 'Delete note');
 
       await expect.poll(() => vaultIds(page)).toEqual(['Bystander', 'Work/placeholder']);
     });
@@ -792,7 +797,6 @@ test.describe('Folder support', () => {
     page,
   }) => {
     await seedActionNotes(page);
-    page.on('dialog', (dialog) => void dialog.accept());
     await page.locator('.note-row[data-note-id="Mover"]').click({ button: 'right' });
 
     await page.evaluate(() => {
@@ -801,6 +805,7 @@ test.describe('Folder support', () => {
       fire([...document.querySelectorAll('.menu-item')].find((m) => m.textContent === 'Delete')!);
       fire(document.querySelector('.note-row[data-note-id="Bystander"]')!);
     });
+    await confirmModal(page, 'Delete note');
 
     await expect.poll(() => vaultIds(page)).toEqual(['Bystander', 'Work/placeholder']);
   });

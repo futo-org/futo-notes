@@ -211,6 +211,16 @@ pub async fn local_notes_exists(
 }
 
 #[tauri::command]
+pub async fn local_notes_import_external(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<MutationResult, String> {
+    let store = store(&app, &state)?;
+    blocking(move || store.import_markdown(std::path::Path::new(&path))).await
+}
+
+#[tauri::command]
 pub async fn local_notes_save(
     app: AppHandle,
     state: State<'_, AppState>,

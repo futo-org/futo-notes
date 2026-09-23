@@ -89,7 +89,6 @@ test.describe('undo cannot cross a note boundary', () => {
   test('a recreated note does not inherit the deleted note undo history', async ({ page }) => {
     await waitForApp(page);
     await page.waitForSelector('.notes-drawer', { timeout: 10000 });
-    page.on('dialog', (dialog) => dialog.accept());
     await createTestNote(page, 'Recycled', 'SECRET-BODY');
 
     await openNote(page, 'Recycled', 'SECRET-BODY');
@@ -98,6 +97,10 @@ test.describe('undo cannot cross a note boundary', () => {
 
     await page.locator('[data-note-id="Recycled"]').click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Delete' }).click();
+    await page
+      .getByRole('dialog', { name: 'Delete note' })
+      .getByRole('button', { name: 'Confirm' })
+      .click();
     await expect(page.locator('[data-note-id="Recycled"]')).toHaveCount(0);
 
     // Same id, same text — the only thing that can keep them apart is the delete.
