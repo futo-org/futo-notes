@@ -417,7 +417,13 @@ sim-boot name="iPhone 17 Pro":
   #!/usr/bin/env bash
   set -euo pipefail
   xcrun simctl boot '{{name}}' 2>/dev/null || true  # "already booted" is fine
-  if [ -n "${SHOW:-}" ]; then open -a Simulator; fi
+  # Xcode 27 ships no Simulator.app. Its replacement, DeviceHub, is not a
+  # substitute: while it runs it takes the touchscreen of EVERY booted simulator
+  # and every scripted tap is silently dropped, so refuse instead of opening it.
+  if [ -n "${SHOW:-}" ] && ! open -a Simulator; then
+    echo "SHOW=1: no Simulator.app (Xcode 27+). Not opening DeviceHub, which breaks scripted taps on every booted simulator; watch with: just sim-screenshot" >&2
+    exit 1
+  fi
   for i in $(seq 1 30); do
     xcrun simctl list devices booted | grep -q Booted && break; sleep 1
   done

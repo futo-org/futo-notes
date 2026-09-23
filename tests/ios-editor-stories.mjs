@@ -106,9 +106,9 @@ async function sustainedTyping() {
 
 async function main() {
   device.requireReady();
-  // XCTest can leave CoreSimulator's accessibility translation with keyboard
-  // frames below the reported screen. Reboot only this explicitly claimed
-  // simulator so the story begins with valid, deterministic geometry.
+  // Reboot only this explicitly claimed simulator so the story begins from a
+  // known device state, with the boot-attached hardware keyboard disconnected
+  // (while it is attached the software keyboard's keys park below the screen).
   device.restartSimulator();
   device.requireReady();
   console.log(`iOS editor stories on ${device.client.udid}:\n`);

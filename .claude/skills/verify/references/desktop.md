@@ -261,7 +261,8 @@ build: a capture reads pixels, and the release app's window shows the user's
 real vault (M24).
 
 `just sim-boot` no longer foregrounds Simulator.app. Pass `SHOW=1` when a human
-wants to watch, or for the frame-dependent case below.
+wants to watch, or for the frame-dependent case below. On Xcode 27, which ships
+no Simulator.app, `SHOW=1` refuses rather than opening DeviceHub.
 
 ### Frame-dependent measurements need a VISIBLE window
 
