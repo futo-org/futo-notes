@@ -750,7 +750,7 @@ fun NoteEditorScreen(
                 )
                 noteId = titleCommit.id
                 if (titleCommit.isCommitted && titleValue.text == next) {
-                    titleValue = TextFieldValue(splitId(noteId).title)
+                    titleValue = titleFieldAfterRename(titleValue, splitId(noteId).title)
                 }
                 if (!titleCommit.isCommitted) {
                     Toast.makeText(

@@ -12,11 +12,22 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
+
+/**
+ * The title field once a debounced rename has committed [committed]. The rename
+ * lands mid-typing whenever the user pauses for 500 ms, so a title it left as
+ * typed keeps the field exactly as it is: caret, selection and the keyboard's
+ * composing region. A title the rename changed (sanitized, say) puts the caret
+ * at its end.
+ */
+internal fun titleFieldAfterRename(field: TextFieldValue, committed: String): TextFieldValue =
+    if (field.text == committed) field else TextFieldValue(committed, TextRange(committed.length))
 
 /**
  * The note's inline title field [list.md]. Return moves on into the body: the
