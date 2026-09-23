@@ -948,7 +948,12 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-check: toolbar-spec-check title-spec-check coin-check arch-gate test-rust rust-format-check
+# Fail fast in a fresh worktree, where node_modules does not exist yet and every
+# recipe below dies inside pnpm naming tsx or vitest instead of the install.
+check-node-modules:
+  @node scripts/check-node-modules.mjs
+
+check: check-node-modules toolbar-spec-check title-spec-check coin-check arch-gate test-rust rust-format-check
   #!/usr/bin/env bash
   # See `build:`'s comment: pipefail is required so the `| head`/`| tail`
   # truncation on the last two lines can't mask a failing tsc/vite build.

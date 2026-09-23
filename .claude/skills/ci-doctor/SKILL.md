@@ -10,8 +10,9 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, AskUserQuestion
 time cost. This skill turns the historical failure classes into a triage procedure so a red
 pipeline costs minutes, not an afternoon of push-and-watch.
 
-Project: `futo-notes/futo-notes` on `gitlab.futo.org`. `$GITLAB_TOKEN` is in the shell; `glab` is
-also available and authenticated.
+Project: `futo-notes/futo-notes` on `gitlab.futo.org`. The curl calls below use `$GITLAB_TOKEN`,
+which always works. `glab` is usually also present, but whether it can authenticate is per-machine
+and per-shell — see the auth gotcha in `docs/agents/issue-tracker.md` before blaming a read.
 
 ## Step 1 — Get the facts (never guess from the commit diff alone)
 
