@@ -84,8 +84,8 @@ glib = "0.18"
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 zbus = "5"
 
-[lints.clippy]
-too_many_lines = "warn"
+[lints]
+workspace = true
 
 [dev-dependencies]
 specta = { version = "=2.0.0-rc.23", features = ["derive"] }

@@ -872,6 +872,9 @@ test:rust:workspace:
     - rustup target add x86_64-pc-windows-msvc
     - cargo check --target x86_64-pc-windows-msvc --tests -p futo-notes-core
     - mkdir -p dist
+    # Same command as `just rust-lint`: [workspace.lints] denies the print
+    # macros that panic (and abort the release app) once stderr is gone.
+    - cargo clippy --workspace
     - cargo test --workspace
     - node --experimental-strip-types "$CI_PROJECT_DIR/tests/conformance/title-rules-differential.mjs"
   # Job 189242 exhausted the default 60m on a completely cold cache while
