@@ -421,11 +421,21 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   (A `$state`-proxy identity bug here used to throw
   `effect_update_depth_exceeded` on render and brick all UI interactivity —
   fixed 2026-06-09, regression-locked by SidebarTagView.test.ts.)
-- The images tab shows the vault's images as a thumbnail grid (live
-  previews); tapping a thumbnail opens a full-size detail view with a Back
-  control, the image's name, size, and relative-time date, and an overflow
-  (⋮) menu hosting **Delete**. Deleting does NOT rewrite notes that reference
-  the image. → SidebarImageView.svelte
+- The images tab shows the vault's images as a thumbnail grid (live previews),
+  newest first. → SidebarImageView.svelte
+- That grid covers the whole vault, folders included, and labels each image by
+  its vault-relative path (`trip/photo.png`); dot-directories hold app data and
+  are skipped. Listing only the top level is why a vault with several pictures
+  showed one (reported 2026-09-16). → features/images/imageFiles.ts,
+  lib/platform/tauri/storage.ts, features/images/imageFiles.test.ts
+- The grid fills whether or not the images tab is the one the app reopens on:
+  it waits for the platform layer instead of reporting an empty vault when it
+  mounts first. → features/images/imageFiles.ts,
+  features/images/imageFilesStartup.test.ts
+- Tapping a thumbnail opens a full-size detail view with a Back control, the
+  image's name, size, and relative-time date, and an overflow (⋮) menu hosting
+  **Delete**. Deleting does NOT rewrite notes that reference the image.
+  → SidebarImageView.svelte
 - The sidebar files tree stays responsive on large vaults (target: 10,000
   notes) — scrolling, expanding/collapsing, and drag & drop remain usable.
   The implementation is not required to virtualize rows. → FolderTreeView.svelte

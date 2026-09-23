@@ -62,16 +62,25 @@ export function idLeaf(id: string): string {
   return slash === -1 ? id : id.slice(slash + 1);
 }
 
-export function safeAppdataPath(base: string, relPath: string): string {
-  if (relPath.startsWith('/')) {
+/**
+ * Reject anything that could escape the vault: an absolute path, a Windows
+ * separator, or a `.`/`..`/empty component. Vault-relative file paths (the form
+ * `listVaultFiles` returns, e.g. `trip/photo.png`) and app-data paths share
+ * this rule; unlike `ensureSafeNoteId` it says nothing about the extension.
+ */
+export function ensureSafeRelativePath(relPath: string): void {
+  if (relPath.startsWith('/') || relPath.includes('\\')) {
     throw new Error('path traversal blocked');
   }
-  const components = relPath.split('/');
-  for (const c of components) {
-    if (c === '..' || c === '.' || c === '') {
+  for (const component of relPath.split('/')) {
+    if (component === '..' || component === '.' || component === '') {
       throw new Error('path traversal blocked');
     }
   }
+}
+
+export function safeAppdataPath(base: string, relPath: string): string {
+  ensureSafeRelativePath(relPath);
   return `${base}/${relPath}`;
 }
 

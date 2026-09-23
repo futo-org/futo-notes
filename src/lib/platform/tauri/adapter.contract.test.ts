@@ -115,30 +115,41 @@ describe('Tauri adapter public contract', () => {
     );
   });
 
-  it('lists only readable root files with normalized metadata', async () => {
+  it('lists every readable vault file, folders included, with normalized metadata', async () => {
     const { tauriFS } = await import('../tauri');
     const modified = new Date('2026-07-15T12:00:00Z');
-    native.readDir.mockResolvedValueOnce([
-      { name: 'kept.png', isFile: true },
-      { name: 'folder', isFile: false },
-      { name: 'unreadable.png', isFile: true },
-    ]);
+    native.readDir.mockImplementation(async (directory: string) => {
+      if (directory === DEFAULT_ROOT) {
+        return [
+          { name: 'kept.png', isFile: true },
+          { name: 'trip', isDirectory: true },
+          { name: '.crashlogs', isDirectory: true },
+          { name: 'elsewhere', isDirectory: true, isSymlink: true },
+          { name: 'unreadable.png', isFile: true },
+        ];
+      }
+      if (directory === `${DEFAULT_ROOT}/trip`) return [{ name: 'nested.png', isFile: true }];
+      throw new Error(`unexpected readDir: ${directory}`);
+    });
     native.stat.mockImplementation(async (path: string) => {
       if (path.endsWith('unreadable.png')) throw new Error('broken symlink');
       return { size: 9, mtime: modified };
     });
 
-    expect(await tauriFS.listDirFiles()).toEqual([
+    expect(await tauriFS.listVaultFiles((path) => path.endsWith('.png'))).toEqual([
       { name: 'kept.png', size: 9, mtime: modified.getTime() },
+      { name: 'trip/nested.png', size: 9, mtime: modified.getTime() },
     ]);
   });
 
-  it('rejects unsafe flat image operations before plugin I/O', async () => {
+  it('rejects image and delete paths that leave the vault, before plugin I/O', async () => {
     const { tauriFS } = await import('../tauri');
 
-    await expect(tauriFS.deleteFile('../secret.png')).rejects.toThrow('invalid filename');
+    await expect(tauriFS.deleteFile('../secret.png')).rejects.toThrow('path traversal blocked');
     await expect(tauriFS.getImageUrl('notes.txt')).rejects.toThrow('not an image filename');
-    await expect(tauriFS.getImageUrl('nested/image.png')).rejects.toThrow('invalid filename');
+    await expect(tauriFS.getImageUrl('../outside/image.png')).rejects.toThrow(
+      'path traversal blocked',
+    );
     expect(native.invoke).not.toHaveBeenCalled();
     expect(native.mkdir).not.toHaveBeenCalled();
     expect(native.remove).not.toHaveBeenCalled();
