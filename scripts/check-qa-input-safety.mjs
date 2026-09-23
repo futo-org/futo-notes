@@ -48,11 +48,11 @@
 // definitions) plus the root `justfile`, not source code: a comparison harness
 // may legitimately script a DIFFERENT application (the removed factory/ judge
 // drove Obsidian that way), and banning the mechanism in TypeScript would be a
-// different rule with different trade-offs. The justfile is in because AGENTS.md imports it by reference
-// (`@justfile`), so it is loaded into every agent's context as instruction, and
-// because it is the one file in this repo that demonstrates a pattern kill —
-// `deploy-deb`/`deploy-rpm` legitimately stop every instance right before
-// overwriting /usr/bin. Those two lines are pinned; a THIRD one is a violation.
+// different rule with different trade-offs. The justfile is in on its own
+// terms — every agent runs recipes from it literally, and it is the one file
+// in this repo that demonstrates a pattern kill: `deploy-deb`/`deploy-rpm`
+// legitimately stop every instance right before overwriting /usr/bin. Those
+// two lines are pinned; a THIRD one is a violation.
 //
 // It cannot see gitignored working files (QA ledgers under test-screenshots/) or
 // an agent's own memory outside the repo, and — unlike scripts/qa-target.mjs,
@@ -199,9 +199,9 @@ function findFiles(dir, matches, out = []) {
 export function collectInstructionFiles(root) {
   const files = [];
 
-  // `justfile` is an instruction surface, not just tooling: AGENTS.md imports it
-  // by reference (`@justfile`), so every agent has it in context, and it is
-  // where the pattern-kill idiom is demonstrated (see the header).
+  // `justfile` is an instruction surface, not just tooling: every agent runs
+  // recipes from it literally, and it is where the pattern-kill idiom is
+  // demonstrated (see the header).
   for (const name of ['README.md', 'CONTRIBUTING.md', 'justfile']) {
     const full = path.join(root, name);
     if (fs.existsSync(full)) files.push(full);

@@ -4,7 +4,7 @@ Tauri v2 **desktop** shell. This is the **Tauri adapter**: a Rust backend that e
 
 **Stack**: Rust + Tauri v2 + serde. Plugins: dialog, process, clipboard-manager, opener, fs, single-instance (desktop), mcp-bridge (debug).
 
-From the monorepo root, prefer the `just` wrappers: `just tauri-dev`, `just tauri-prod`, `just tauri-build`, and `just test-rust`. (Mobile is native: `just ios-native` / `just android-native` / `just deploy-ios`.)
+From the monorepo root, prefer the `just` wrappers: `just tauri-dev`, `just tauri-build`, and `just test-rust`. (Mobile is native: `just ios-native` / `just android-native` / `just deploy-ios`.) Desktop dev pointed at production endpoints has no `just` wrapper any more — the command is preserved in `docs/agents/justfile-notes.md`'s "Removed recipes" section.
 
 ## Architecture
 
@@ -90,10 +90,12 @@ Notes:
 
 ```bash
 just tauri-dev       # Desktop dev (Wayland-first)
-just tauri-prod      # Production-config desktop dev
 just tauri-build     # Production desktop build
 just test-rust-full  # Full Rust workspace, this crate included (creates dist/ first)
 ```
+
+Desktop dev pointed at production endpoints has no `just` wrapper any more — the command is
+preserved in `docs/agents/justfile-notes.md`'s "Removed recipes" section.
 
 (Mobile builds are native: `just ios-native` / `just android-native` / `just deploy-ios` — see root AGENTS.md.)
 

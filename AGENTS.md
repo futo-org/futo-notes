@@ -1,6 +1,7 @@
 # AGENTS.md — FUTO Notes Operating Manual
 
-@README.md for project overview. @justfile for all commands.
+@README.md for project overview. `just --list` shows every command with its doc line; the
+justfile is the command authority (longer rationale: `docs/agents/justfile-notes.md`).
 
 FUTO Notes is an offline-first markdown app with a Svelte 5 editor, shared Rust core, Tauri
 desktop, native SwiftUI/Compose mobile shells, and optional E2EE sync.
@@ -189,7 +190,8 @@ These are observed failures, not generic advice.
   break the mounted view.
 - **M23 — Updater signing order.** The detached `.sig` must be the LAST touch on artifact bytes —
   after patching/notarization/Authenticode. Read `docs/release/updater.md` and `keys/README.md`, and
-  rehearse locally with `just updater-localdev`; localdev signatures must never verify in production.
+  rehearse locally with `node scripts/release-build.mjs e2e`; localdev signatures must never verify
+  in production.
 - **M24 — QA input hit the production app.** OS-level input (AppleScript UI scripting, `cliclick`)
   goes to the FOCUSED window, and every build shares the binary name — so a name/PID lookup sent
   real keystrokes into the user's live vault. Resolve any desktop QA target ONLY through

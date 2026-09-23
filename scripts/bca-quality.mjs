@@ -1,6 +1,6 @@
 // Code-quality ratchet behind `just quality` and CI's test:quality-report
 // (docs/architecture-gates.md). Both run this script; the pinned CI image has
-// no `just`, the same reason `just audit` and test:audit share audit.mjs.
+// no `just`, the same reason `node scripts/audit.mjs` and test:audit share audit.mjs.
 //
 // One pinned `bca` (big-code-analysis) release does three things:
 //

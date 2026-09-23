@@ -131,7 +131,8 @@ worktree on both machines.
 - **Need:** after an action, read what actually happened: which bridge message arrived, which FFI
   call ran, what the watcher suppressed, how long a keystroke took.
 - **Have:** `just journal` for desktop sync runs (stream 1 of the agentic-first plan); `just emu-logs`
-  and `just sim-logs` tag greps; `window.__testSync`.
+  tag greps on Android and `xcrun simctl spawn "$SIM" log stream --predicate 'process ==
+  "FutoNotesNative"'` on iOS; `window.__testSync`.
 - **Gap:** journal streams 2–4 (editor latency, watcher, bridge/FFI) are unbuilt; native shells do
   not journal; desktop has no log tail (#41). M21 ("suspect the tool before the app") stays a
   heuristic because there is no bridge trace to look up.

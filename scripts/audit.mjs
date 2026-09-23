@@ -1,5 +1,5 @@
-// The dependency vulnerability scan behind `just audit` and CI's test:audit
-// (docs/architecture-gates.md). Every step runs even after an earlier one fails.
+// The dependency vulnerability scan run by hand (`node scripts/audit.mjs`) and by CI's
+// test:audit (docs/architecture-gates.md). Every step runs even after an earlier one fails.
 //
 // Staleness means "listed but not reported", so anything that makes a tool report less than
 // reality condemns live acknowledgements. Hence: every result is validated as a report before
@@ -292,7 +292,7 @@ if (stale.length) {
     for (const group of checked) prune(group);
     console.log('\nRemoved. Commit alongside the bump that fixed them.');
   } else {
-    console.log('\nRun `just audit --fix` to remove them.');
+    console.log('\nRun `node scripts/audit.mjs --fix` to remove them.');
     status = 1;
   }
 }

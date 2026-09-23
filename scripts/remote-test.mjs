@@ -7,8 +7,9 @@
  *   node scripts/remote-test.mjs --rsync test-rust-full
  *   node scripts/remote-test.mjs --doctor           # remote readiness report
  *
- * The `just remote-*` recipes are the intended entry points; this file is the
- * mechanism. Three properties matter more than convenience:
+ * Run it directly with `node scripts/remote-test.mjs`; `just remote-sync` is the
+ * one wrapper kept as a `just` recipe (cross-platform sync is run often enough
+ * to earn one). Three properties matter more than convenience:
  *
  *   1. A macOS-only recipe is REFUSED BY NAME (see POLICY below), including
  *      through its justfile alias — not merely documented as a bad idea. A
@@ -63,7 +64,7 @@ export const DEFAULT_SOURCE_REPO = '$HOME/Developer/futo-notes';
 //   2. scripts/ci-cargo-cache-freshness.mjs reads $CARGO_TARGET_DIR, so its
 //      unit tests inherited ours, inspected a directory that did not exist,
 //      concluded "no restored cache", and exited 0 where they assert 1 — five
-//      failures in `just remote-check` that do not reproduce on the Mac.
+//      failures running `check` remotely that do not reproduce on the Mac.
 // Anything in this repo may reasonably assume the repo-local target/; honouring
 // that is cheaper than auditing every consumer.
 export const REMOTE_CARGO_TARGET_DIR = null;
@@ -105,7 +106,7 @@ const REASONS = {
 };
 
 // Matched against the recipe name AFTER justfile alias resolution, so
-// `just remote in` (alias for ios-native) is refused too.
+// `node scripts/remote-test.mjs in` (alias for ios-native) is refused too.
 export const REFUSED = [
   // Xcode / iOS simulator / Swift toolchain.
   ['build-rust-ios', 'macos'],
@@ -123,11 +124,6 @@ export const REFUSED = [
   ['test-desktop-smoke', 'wkwebview'],
   // Interactive.
   ['tauri-dev', 'interactive'],
-  ['tauri-prod', 'interactive'],
-  ['preview', 'interactive'],
-  ['test-headed', 'interactive'],
-  ['test-ui', 'interactive'],
-  ['updater-localdev', 'interactive'],
   ['android-drive', 'localMachine'],
   ['journal', 'localMachine'],
   // Needs root.
@@ -147,7 +143,7 @@ export const REFUSED = [
 // cross-platform sync (both of which boot a browser engine) on top of `check`.
 export const CAVEATED = [
   [
-    /^(test-e2e|test-e2e-full)$/,
+    /^(test-e2e|test-e2e-rest)$/,
     'Playwright here runs Linux Chromium/WebKit builds. Behavior and state are equivalent; ' +
       'paint, compositing and IME/timing are not (M22).',
   ],
@@ -507,7 +503,7 @@ set +e
 # (pkill -f chrome-headless-shell), which on a box several agents share would
 # also kill a SIBLING's browsers -- the lock stops two runs colliding but gave
 # no way to reap just this run's processes (pc_6b79075ff9ba). setsid puts the
-# whole recipe in one group, so 'just remote --kill' signals exactly this run.
+# whole recipe in one group, so 'node scripts/remote-test.mjs --kill' signals exactly this run.
 #
 # 'set -m' (job control), NOT setsid: setsid is not installed everywhere --
 # macOS has no such binary -- and a missing one here would break EVERY remote
@@ -884,9 +880,8 @@ checkout moved mid-run, so the result is void rather than a real failure.
 The remote worktree is the runner's OWN working area. Do not cd into it and run
 suites by hand: that bypasses the lock and produces phantom failures.
 
-The justfile wrappers (\`just remote-check\`, \`just remote-rust\`, \`just remote-sync\`,
-\`just remote-android\`, \`just remote-doctor\`, \`just remote <recipe>\`) are the
-intended entry points. Boundaries and caveats: docs/remote-testing.md.
+Run it directly: \`node scripts/remote-test.mjs <recipe>\` (or \`--doctor\`). \`just remote-sync\`
+is the one wrapper kept as a \`just\` recipe. Boundaries and caveats: docs/remote-testing.md.
 `;
 
 function runDoctor(target, opts, ndkVersion) {

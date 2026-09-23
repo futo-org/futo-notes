@@ -37,7 +37,7 @@ to writing a script in this directory.
 
 - **A gate that can be green while a violation exists is worse than no gate.** The gates themselves
   have been the culprit five separate times — the history is in `gate-redproofs.mjs`'s header.
-  Adding or changing one means adding a red-proof there and running `just gate-redproofs`. It
+  Adding or changing one means adding a red-proof there and running `node scripts/gate-redproofs.mjs --include-cargo`. It
   proves both directions: green on a pristine checkout, and red on one seeded violation *with the
   violation named in the output*, because an exit code alone also fires when the gate crashes on a
   missing module.
@@ -61,6 +61,6 @@ so `just check` (via `pnpm run test:full`) runs all of them; the minimal set in
 ```bash
 just test-unit            # includes the script tests in the minimal set
 just test-one scripts/qa-target.test.mjs
-just gate-redproofs       # only when you changed a gate
+node scripts/gate-redproofs.mjs --include-cargo   # only when you changed a gate
 just arch-gate            # the focused checks CI's mandatory job runs
 ```

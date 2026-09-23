@@ -80,8 +80,8 @@ requires the pristine gate to pass and self-tests the harness against fixture ga
 Run it when adding or changing a gate:
 
 ```bash
-just gate-redproofs            # all proofs, including the cargo-dependent one
-pnpm run check:gate-redproofs  # portable proofs only
+node scripts/gate-redproofs.mjs --include-cargo  # all proofs, including the cargo-dependent one
+pnpm run check:gate-redproofs                     # portable proofs only
 ```
 
 Add or update the corresponding proof in the same change. This preserves the red evidence at the
@@ -105,7 +105,7 @@ just check-drift
 just check-agent-docs
 just check-qa-input-safety
 just check-theme-single-pace
-just gate-redproofs
+node scripts/gate-redproofs.mjs --include-cargo
 ```
 
 The `check:arch-gate` script in `package.json` owns the check list because the pinned GitLab CI
@@ -115,9 +115,9 @@ either caller.
 
 ## Not here: the dependency vulnerability scan
 
-`just audit` runs `cargo audit` and `pnpm audit --prod`. It stays out of `arch-gate` because it needs
-the network — the RUSTSEC database and the npm registry — while every gate above is an offline source
-scan.
+`node scripts/audit.mjs` runs `cargo audit` and `pnpm audit --prod`. It stays out of `arch-gate`
+because it needs the network — the RUSTSEC database and the npm registry — while every gate above is
+an offline source scan.
 
 **CI runs it as a reporter, not a blocker.** `test:audit` is `allow_failure: true` and is deliberately
 *absent* from `release:gate.needs` — a documented exception to M14. This app is an offline-first local
@@ -137,12 +137,13 @@ the job only reports, a real finding is allowed to sit there unacknowledged and 
 advisory is a choice someone makes and signs, not a step in going green. Add the id with a comment
 recording whether it ships, how it goes away, and who owns it.
 
-`just audit` also names ignore entries the audits no longer report, and `just audit --fix` removes
-them with the comment explaining them — the only thing keeping the lists from growing forever. It is
-not automatic: a wrong "no longer detected" would delete hand-written analysis, and a self-healing
-`just audit` means a self-healing CI job. How that is detected without trusting a tool that
-under-reports is documented in `scripts/audit.mjs`, which `just audit` and `test:audit` both run —
-the pinned CI image has no `just`, the same reason arch-gate's command list lives in `package.json`.
+`node scripts/audit.mjs` also names ignore entries the audits no longer report, and
+`node scripts/audit.mjs --fix` removes them with the comment explaining them — the only thing
+keeping the lists from growing forever. It is not automatic: a wrong "no longer detected" would
+delete hand-written analysis, and a self-healing `audit.mjs` means a self-healing CI job. How that
+is detected without trusting a tool that under-reports is documented in `scripts/audit.mjs` itself,
+which both a local run and CI's `test:audit` call directly — the pinned CI image has no `just`, the
+same reason arch-gate's command list lives in `package.json`.
 
 ## Not here: the localization completeness audit
 
