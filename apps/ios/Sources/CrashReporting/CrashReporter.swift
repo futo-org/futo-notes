@@ -21,11 +21,15 @@ private nonisolated(unsafe) var futoCrashVersion = "0.0.0"
 private nonisolated(unsafe) var futoCrashDeviceInfo = ""
 private nonisolated(unsafe) var futoPreviousExceptionHandler:
     (@convention(c) (NSException) -> Void)?
+/// Set once the NSException handler has written its report: the runtime then
+/// calls abort(), and the SIGABRT that follows must not file a second report
+/// for the same crash. A plain Bool read is async-signal-safe.
+private nonisolated(unsafe) var futoExceptionReported = false
 
 /// Fatal-signal handler: open + write + close of a pre-rendered payload, then
 /// re-raise with the default disposition so the process still dies normally.
 private func futoHandleSignal(_ sig: Int32) {
-    for entry in futoSignalEntries where entry.sig == sig {
+    for entry in futoSignalEntries where entry.sig == sig && !futoExceptionReported {
         entry.path.withUnsafeBufferPointer { path in
             guard let base = path.baseAddress else { return }
             let fd = open(base, O_CREAT | O_WRONLY | O_TRUNC, 0o644)
@@ -44,6 +48,7 @@ private func futoHandleSignal(_ sig: Int32) {
 /// Uncaught-NSException handler: full report with callStackSymbols.
 private func futoHandleException(_ exception: NSException) {
     CrashReporter.writeExceptionReport(exception)
+    futoExceptionReported = true
     futoPreviousExceptionHandler?(exception)
 }
 

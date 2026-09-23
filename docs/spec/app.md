@@ -356,6 +356,10 @@ Behaviors and constraints that hold across every surface and platform.
   the dialog. Rust-side panics persist the same schema under `.crashlogs`
   before the next-launch scan. → CrashReportDialog.svelte, crashHandler.ts,
   `apps/tauri/src-tauri/src/panic_reporter.rs` _(Tauri)_
+- A fault that repeats within a session (same type, message, and stack) is
+  reported once, not once per occurrence. An uncaught NSException does not
+  also file the SIGABRT that follows it _(iOS)_. → crashHandler.ts,
+  CrashReporter.swift
 - The native shells run the same pipeline: an uncaught-exception handler
   (Android `Thread.setDefaultUncaughtExceptionHandler`; iOS
   `NSSetUncaughtExceptionHandler` plus fatal-signal handlers with
