@@ -108,14 +108,62 @@ describe('ci-cirrus-cache-mtimes', () => {
     expect(lstatSync(outside).mtimeMs).toBe(1_700_000_000_000);
   });
 
-  // Red-proofing: the helper is worthless if a task restores a cache and never
-  // calls it, so pin the wiring to the config that owns it.
-  it('runs in every .cirrus.yml task that restores a cargo cache', () => {
+  // Red-proofing: pin the wiring to the config that owns it. Selecting tasks by
+  // "runs cargo" rather than "declares a cache" is the point: a new
+  // Rust-compiling task added without caching (buildFutoNotesMacOSInternal
+  // landed on main that way while this was in review) must fail here, not
+  // silently build cold.
+  describe('.cirrus.yml wiring', () => {
     const cirrus = readFileSync(join(ROOT, '.cirrus.yml'), 'utf8');
-    const tasks = cirrus.split(/^(?=\S.*_task:)/m).filter((t) => t.includes('cargo_target_cache:'));
-    expect(tasks.length).toBeGreaterThanOrEqual(5);
-    for (const task of tasks) {
-      expect(task).toContain('scripts/ci-cirrus-cache-mtimes.mjs');
-    }
+    const tasks = cirrus
+      .split(/^(?=\S.*_task:)/m)
+      .filter((t) => /_task:/.test(t.split('\n')[0]))
+      .map((body) => ({ name: body.match(/^\s+name:\s*(\S+)/m)?.[1] ?? body.split(':')[0], body }));
+    // A direct cargo call, or the shared iOS FFI build that wraps one.
+    const RUNS_CARGO =
+      /^\s+-.*(\bcargo (build|test|check|tauri|install)\b|scripts\/build-rust-ios\.sh)/m;
+    const cargoTasks = tasks.filter((t) => RUNS_CARGO.test(t.body));
+
+    it('finds the Rust-compiling tasks at all', () => {
+      expect(cargoTasks.map((t) => t.name)).toEqual(
+        expect.arrayContaining([
+          'testRustMacOS',
+          'testFutoNotesIOSNative',
+          'buildFutoNotesMacOS',
+          'buildFutoNotesMacOSInternal',
+        ]),
+      );
+    });
+
+    it.each(cargoTasks.map((t) => [t.name, t.body]))(
+      '%s caches cargo and repairs mtimes before its first cargo call',
+      (_name, body) => {
+        expect(body).toContain('cargo_registry_cache:');
+        expect(body).toContain('cargo_target_cache:');
+        expect(body).toMatch(/CARGO_INCREMENTAL: "0"/);
+
+        const stamp = body.indexOf(
+          'scripts/ci-cirrus-cache-mtimes.mjs "$HOME/.cargo/registry" target',
+        );
+        const fresh = body.indexOf('node scripts/ci-cargo-cache-freshness.mjs');
+        const firstCargo = body.search(RUNS_CARGO);
+        expect(stamp).toBeGreaterThan(-1);
+        expect(fresh).toBeGreaterThan(stamp);
+        expect(firstCargo).toBeGreaterThan(fresh);
+      },
+    );
+
+    // Naming ANY cache under upload_caches disables the automatic upload for
+    // all of them, so a cache missing from the list is silently never saved.
+    it.each(cargoTasks.map((t) => [t.name, t.body]))(
+      '%s uploads every cache it declares',
+      (_name, body) => {
+        const declared = [...body.matchAll(/^ {2}(\w+)_cache:/gm)].map((m) => m[1]).sort();
+        const listed = body.match(/upload_caches:\n((?:\s+- \w+\n?)+)/);
+        expect(listed).not.toBeNull();
+        const uploaded = [...listed[1].matchAll(/- (\w+)/g)].map((m) => m[1]).sort();
+        expect(uploaded).toEqual(declared);
+      },
+    );
   });
 });
