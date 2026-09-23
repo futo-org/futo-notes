@@ -64,29 +64,25 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   folder route whose folder stops existing is dropped, popping to the nearest
   surviving ancestor. → AppNavigation.kt `rebaseFolderRoutes` /
   `pruneFolderRoutes`, AppNavStackTest.kt *(Android)*
-- A swipe from the editor's leading edge goes back, running the SAME gated exit as
-  the Back button (`requestNavigation`): it drains in-flight rename/move/adopt work
-  and will not leave while a rename cannot commit. Because the editor hides the
-  system back button to force every exit through that verb, UIKit's interactive pop
-  gesture is disabled, so this swipe — not the system gesture — IS back-by-swipe on
-  the editor screen. Verified on the iOS 26.5 simulator and a physical iPhone 17
-  Pro, 2026-07-27. *(iOS)* → EditorEdgeSwipeBack.swift, NoteEditorView.swift
-  `requestNavigation`
-- The editor's back-swipe is owned by a 20pt strip on the leading edge, which
-  consumes every touch in that column: a drag started there does not scroll the
-  note, and a tap there does not place the caret. The strip is sized to the
-  editor's own text inset so it covers margin rather than tappable text. The pop is
-  animated, not finger-tracked. Both are consequences of keeping the exit vetoable
-  — an interactive pop cannot be refused once the finger starts it — and the
-  alternative is tracked in issue #69. *(iOS)*
-  → docs/learnings/ios-swipe-back-over-webview.md
+- The editor keeps the system back button, so the leading-edge swipe is the
+  native, finger-tracked interactive pop, over the full-bleed editor WebView.
+  Hiding that button (as the editor once did, to force every exit through the
+  vetoable `requestNavigation`) also disables the gesture. A system pop cannot be
+  refused, so the exit commits after the fact instead: in-flight rename/move/adopt
+  work drains, a pending title rename commits immediately rather than after its
+  debounce, and the freshest body commits, falling back to the shell's copy when
+  the editor cannot answer. A commit that fails leaves the draft retained for
+  lifecycle retry. Leaving is never blocked. *(iOS)* → NoteEditorView.swift
+  `finishLeave`, docs/learnings/ios-swipe-back-over-webview.md
 - Leaving the editor waits for the editor's own answer. When that wait runs out
   on an editor that is still responding — a note editable from its first chunk
   while the rest streams — the screen stays where it is rather than leaving on
   the shell's copy, which can be missing the edit; the usual pending-changes
   message is shown and pressing Back again is the way out. An editor that
   responds to nothing at all is not holding anything, and leaving it always
-  works. *(iOS/Android)*
+  works. *(iOS/Android)* On iOS this applies to the in-editor exits (a resolved
+  wikilink). System Back and the edge swipe cannot stay, so they retry the capture
+  and then commit the shell's copy. *(iOS)*
   → docs/spec/editor.md "Editor exits — every way an open note ends"
 - Creating a note pushes the editor focused for immediate typing (Android
   focuses the native title field; desktop and iOS focus the editor body/heading);

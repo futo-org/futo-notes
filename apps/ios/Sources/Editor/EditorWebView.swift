@@ -90,6 +90,15 @@ func editorExitBody(_ outcome: EditorCaptureOutcome, shellCopy: String) -> Strin
     }
 }
 
+/// The body to commit when the editor has ALREADY left — popped by the system
+/// Back button or the edge swipe, which cannot be refused. The cases where
+/// ``editorExitBody(_:shellCopy:)`` refuses fall back to `shellCopy`: it is the
+/// freshest body this shell can still commit, and it has been kept in step
+/// with every `change` the editor reported.
+func editorLeaveBody(_ outcome: EditorCaptureOutcome, shellCopy: String) -> String {
+    editorExitBody(outcome, shellCopy: shellCopy) ?? shellCopy
+}
+
 struct FindMatchesReport: Equatable {
     let query: String
     let label: String
@@ -478,8 +487,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     nonisolated static let logger = Logger(subsystem: "com.futo.notes", category: "editor-webview")
 
     /// Left/right inset of the note body, sent to the bundle in the host
-    /// config. `EditorEdgeSwipeBack.stripWidth` is this plus the embed's
-    /// `.cm-line` 6px, so the swipe strip covers margin rather than text.
+    /// config.
     nonisolated static let contentPaddingInlinePx = 14
 
     private var onChange: (String) -> Void = { _ in }
@@ -514,6 +522,10 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     /// Incremented per attach; detach only clears if its token is still current.
     private var generation = 0
+    /// The attachment whose note the WebView is showing. Unlike `generation`, a
+    /// detach leaves it alone: the WebView keeps the detached note's document
+    /// until the next attach pushes another one.
+    private var documentOwner = 0
     private let completionQueue = EditorCompletionQueue()
 
     /// Reactive inputs for the NATIVE markdown toolbar (bridge v3
@@ -800,6 +812,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             if autoFocus { startAutoFocus() }
         }
         generation += 1
+        documentOwner = generation
         return generation
     }
 
@@ -820,6 +833,17 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     func isCurrentAttachment(_ token: Int) -> Bool {
         token == generation
+    }
+
+    /// Capture for an editor that has ALREADY left the screen (a system pop).
+    /// Its view is detached by then, so the generation check alone cannot tell
+    /// "the WebView still holds my note" from "the editor revealed underneath
+    /// re-attached and pushed ITS note". A wikilink pop is the second case, and
+    /// capturing there would commit the parent's body under the popped note.
+    func captureContent(leftBy token: Int) async -> EditorCaptureOutcome {
+        guard documentOwner == token else { return .notOurs }
+        let outcome = await captureCurrentContent()
+        return documentOwner == token ? outcome : .notOurs
     }
 
     func updateDesired(content: String, theme: String, localization: Localization) {

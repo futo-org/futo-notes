@@ -107,6 +107,9 @@ struct NoteEditorView: View {
     /// WebView (an off-screen editor's live-sync adopt would clobber the visible
     /// note's text). Tracked via onAppear/onDisappear.
     @State private var isVisible = false
+    /// `navPath.count` while this editor is the visible top. Fewer entries at
+    /// disappear means it was popped; more means something was pushed over it.
+    @State private var stackDepth = 0
 
     /// This editor's entry in the store's unsaved-draft register (F8 jetsam
     /// guard). Claimed on appear, released on disappear; the editor publishes its
@@ -269,34 +272,14 @@ struct NoteEditorView: View {
                 }
             }
         }
-        // Swipe-back. Sits INSIDE the allowsHitTesting gate below, so an
-        // in-flight mutation disables the swipe exactly as it disables the Back
-        // button. Routed through requestNavigation, so the swipe and the button
-        // share one exit path. See EditorEdgeSwipeBack.
-        .overlay(alignment: .leading) {
-            EditorEdgeSwipeBack {
-                requestNavigation {
-                    if !navPath.isEmpty { navPath.removeLast() }
-                }
-            }
-            .frame(width: EditorEdgeSwipeBack.stripWidth)
-            .ignoresSafeArea(.container, edges: .bottom)
-        }
         .allowsHitTesting(!interactionLocked)
         .background(Theme.background)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(true)
+        // The SYSTEM back button, deliberately: hiding it also disables UIKit's
+        // finger-tracked interactive pop. Back and the edge swipe therefore pop
+        // before this view hears about it, and `finishLeave` commits after the
+        // fact. See docs/learnings/ios-swipe-back-over-webview.md.
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    requestNavigation {
-                        if !navPath.isEmpty { navPath.removeLast() }
-                    }
-                } label: {
-                    Image(systemName: "chevron.left")
-                }
-                .disabled(interactionLocked)
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button {
@@ -418,6 +401,7 @@ struct NoteEditorView: View {
         }
         .onAppear {
             isVisible = true
+            stackDepth = navPath.count
             // Mirror the session's interaction lock into view state. Assigned
             // here rather than at construction because `@State`'s initializer
             // cannot reach `self`.
@@ -446,20 +430,21 @@ struct NoteEditorView: View {
             // Covered (a wikilink pushed a new editor) or popped: no longer the
             // visible editor, so it must stop driving the shared WebView.
             isVisible = false
+            // Popped by the system Back button or the edge swipe, which never
+            // asked `requestNavigation`. A covered editor already ran that exit
+            // before the push; a deleted or externally closed one latched closed.
+            if navPath.count <= stackDepth, !session.isClosing, !isUntouchedCapture {
+                finishLeave()
+                return
+            }
             session.cancel(.save)
             // Drop any pending debounced rename on leave (Android parity — its
             // rename coroutine is cancelled the same way).
             session.cancel(.rename)
-            // Discard an untouched quick-capture note: opened brand-new
-            // (autoFocus), never renamed (id unchanged AND title still the
-            // created placeholder), body still empty and never persisted.
-            // Backing out leaves nothing behind (list.md).
-            let untouched =
-                autoFocus && noteId == originalId
-                && titleField == splitId(id: originalId).title
-                && content.isEmpty && savedContent.isEmpty
+            // Discard an untouched quick-capture note: backing out leaves
+            // nothing behind (list.md).
             var shouldReleaseDraft = true
-            if !session.isClosing && untouched {
+            if !session.isClosing && isUntouchedCapture {
                 store.deleteAsync(noteId, ownerToken: draftToken)
             } else if session.shouldFlushOnLeave(
                 loaded: loaded,
@@ -481,6 +466,80 @@ struct NoteEditorView: View {
             // a failed leave save remains eligible for a later lifecycle retry.
             if shouldReleaseDraft { store.releaseDraftOwnership(token: draftToken) }
             draftToken = 0
+        }
+    }
+
+    /// A brand-new quick-capture note that was never touched: opened with
+    /// autofocus, never renamed (id unchanged AND title still the created
+    /// placeholder), body still empty and never persisted.
+    private var isUntouchedCapture: Bool {
+        autoFocus && noteId == originalId
+            && titleField == splitId(id: originalId).title
+            && content.isEmpty && savedContent.isEmpty
+    }
+
+    /// The editor was popped by the system Back button or the edge swipe.
+    ///
+    /// A native interactive pop cannot be refused once the finger starts it, so
+    /// this is `requestNavigation` run after the fact: the same drain of
+    /// in-flight rename/move/adopt work, the same title-then-body commit —
+    /// with nothing left to veto. The pending debounced rename is cancelled
+    /// first so the drain reports it uncommitted and the title commits NOW
+    /// rather than after its delay. The body falls back to the shell's copy
+    /// when the editor cannot answer: refusing is no longer possible, and that
+    /// copy is kept in step with every `change` the editor reported.
+    ///
+    /// The draft token stays claimed until the exit settles, so the jetsam
+    /// register covers the draft throughout. Anything that did not commit
+    /// takes the retained-draft flush, which stays eligible for lifecycle retry.
+    private func finishLeave() {
+        let token = draftToken
+        let attachment = editorAttachment
+        session.cancel(.rename)
+        let exit = session.end(
+            .navigate,
+            effects: EditorExitEffects(
+                captureBody: {
+                    // A busy editor may be holding an edit it has not reported
+                    // (a streamed load withholds `change`). The first capture
+                    // makes it finish that load, so a retry answers with the
+                    // real document instead of falling back to the shell's copy.
+                    guard let attachment else { return content }
+                    var outcome = await EditorHost.shared.captureContent(leftBy: attachment)
+                    for _ in 0..<2 where outcome == .timedOut {
+                        outcome = await EditorHost.shared.captureContent(leftBy: attachment)
+                    }
+                    return editorLeaveBody(outcome, shellCopy: content)
+                },
+                commitBody: { flushed in
+                    content = flushed
+                    guard loaded, flushed != savedContent else { return true }
+                    let disposition = await store.flushDraft(
+                        PendingDraft(id: noteId, base: savedContent, content: flushed),
+                        ownerToken: token)
+                    guard disposition != nil else { return false }
+                    savedContent = flushed
+                    return true
+                },
+                // The editor is gone, so a rename that cannot commit is
+                // reported (applyRename's toast) and the body still commits
+                // under the id the note kept. Refusing would skip the body.
+                commitTitle: {
+                    _ = await applyRename(titleField)
+                    return true
+                }
+            )
+        )
+        Task { @MainActor in
+            let left = await exit?.value ?? false
+            if !left, loaded, content != savedContent {
+                let draft = PendingDraft(id: noteId, base: savedContent, content: content)
+                store.publishDraft(token: token, draft)
+                store.retainDraftUntilFlushed(token: token)
+                store.flushAsync(draft, ownerToken: token)
+            } else {
+                store.releaseDraftOwnership(token: token)
+            }
         }
     }
 
@@ -800,6 +859,9 @@ struct NoteEditorView: View {
     private func openLinkedNote(_ id: String) {
         guard id != noteId else { return }
         requestNavigation {
+            // The user may have swiped back while the exit drained; pushing
+            // now would open the link on top of the list they returned to.
+            guard isVisible else { return }
             navPath.append(.note(id))
         }
     }

@@ -99,5 +99,17 @@ Two costs, both inherent to the approach rather than incidental:
   nor reaches WebKit, and a tap there no longer places the caret. Keeping the
   strip at the editor's text inset (20pt) is what bounds the damage to margin.
 
-Whether to trade the veto for the native gesture — which would also retire the
-strip and both costs — is tracked in FUTO Notes issue #69.
+## Superseded 2026-09-22: the native gesture, with commit-after-pop
+
+The strip was retired. The editor shows the system back button again, so Back and
+the edge swipe are UIKit's finger-tracked interactive pop, which works over the
+full-bleed web view (see "The WebView is NOT the cause"). The price is the veto:
+the pop happens first, and `NoteEditorView.finishLeave` runs the same `.navigate`
+exit from `onDisappear` afterwards, with nothing left to refuse. It drains
+rename/move/adopt work, commits a pending title immediately, retries a timed-out
+capture, and falls back to the shell's copy. Anything that fails to commit goes to
+the retained-draft flush.
+
+`onDisappear` tells a pop from a push by comparing `navPath.count` with the depth
+recorded on appear. A push over the editor (a wikilink) has already run
+`requestNavigation`, so it keeps the old disappear path.
