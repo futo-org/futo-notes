@@ -21,6 +21,11 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 ## Key Constraints
 
 - **Editor styling lives with the editor.** `MilkdownEditor.svelte`'s own `<style>` block owns the `.ProseMirror` surface and every element rendered inside it. What is left under `src/styles/` is only what is genuinely shared beyond that surface: `code-tokens.css` (the `tok-*` fence palette, also read by the highlighter) and `markdown-links.css` (the link and wikilink chips, whose `cm-md-*` class names are a legacy name from the CodeMirror engine, not a CodeMirror selector). `markdown.css` is the facade over those two.
+- **IMPORTANT**: Styles in `@layer(components)` lose to *any* unlayered CSS — on cascade origin, not
+  specificity. Every `.css` a Svelte component imports directly (`folderTree.css`, `tabsStrip.css`,
+  `settings.css`, `modal.css`, `feedback.css`, `crashReportDialog.css`, …) is unlayered; none of
+  them declare `@layer`. A layered rule can look applied on an ancestor's computed style and still
+  lose on those elements.
 - **Svelte 5 reactivity**: Use `$state()` runes, not stores. Read `onchange` lazily inside callbacks (not in `$effect` body) to avoid tracking it as a dependency — prevents editor destruction/recreation.
 - **Editor responsiveness is sacred.** Never let background operations (sync, search indexing, save) block or delay typing.
 - **Images**: the editor's image node views resolve a vault filename to a URL through `vaultImageSrc.ts` and re-render themselves when it lands. Images are served via the Tauri asset protocol (`asset://`).

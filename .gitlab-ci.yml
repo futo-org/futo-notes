@@ -614,6 +614,56 @@ test:localization-audit:
         - pnpm-lock.yaml
         - .gitlab-ci.yml
 
+# Code-quality ratchet (big-code-analysis): a new or WORSENED complexity
+# offender fails `bca check` (exit 2) against the committed .bca-baseline.toml;
+# existing debt is invisible until its baseline row is deleted, so the MR Code
+# Quality widget (gl-code-quality-report.json) annotates only what a diff
+# introduced. scripts/bca-quality.mjs owns the pin and the commands; `just
+# quality` runs the same script locally.
+#
+# Non-blocking by design, deliberately absent from release:gate.needs (a
+# documented M14 exception, docs/architecture-gates.md): phase 1 of the
+# adoption plan, so thresholds and the artifact/cache behave can be observed
+# on real pipelines first. Promotion is two same-commit edits: drop
+# allow_failure and enter release:gate.needs. Exit 1 + BCA-DID-NOT-RUN means
+# the tool never ran (M11); exit 2 means findings.
+test:quality-report:
+  stage: test
+  needs: []
+  allow_failure: true
+  cache:
+    # Keyed on version AND sha256: rotating the published checksum without a
+    # version bump must not serve a stale binary that then skips the script's
+    # own sha256 verification (which only runs on a fresh download).
+    key: bca-bin-2.2.0-870a0c43
+    paths:
+      - .bca-cache/
+    when: always
+  script:
+    - node "$CI_PROJECT_DIR/scripts/bca-quality.mjs"
+  artifacts:
+    when: always
+    paths:
+      - bca-report.md
+      - gl-code-quality-report.json
+    expire_in: 1 week
+    reports:
+      codequality: gl-code-quality-report.json
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes: &quality-report-changes
+        - src/**/*
+        - packages/**/*
+        - crates/**/*
+        - apps/**/*
+        - scripts/bca-quality.mjs
+        - bca.toml
+        - .bca-baseline.toml
+        - .gitlab-ci.yml
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *quality-report-changes
+
 test:e2e:smoke:
   stage: test
   cache:

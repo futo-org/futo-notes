@@ -1,0 +1,34 @@
+# big-code-analysis manifest — auto-discovered by `bca check` / `bca report`
+# (run by `just quality` and CI's test:quality-report).
+#
+# The gate is a ratchet: every function that already exceeds a threshold today
+# is pinned in .bca-baseline.toml, so only NEW or WORSENED offenders fail
+# (`bca check` exit 2). Paying debt down = deleting baseline rows
+# (`bca check --write-baseline` regenerates after a refactor; a shrinking
+# baseline is the goal).
+#
+# Scope notes:
+# - Tests and fixtures are exempt from the gate via [check] exclude; they are
+#   still walked and shown by `bca report`.
+# - .svelte files have no supported bca language and are skipped by the tool
+#   itself — the measured TypeScript surface is .ts only.
+# - .gitignore'd trees (uniffi bindings, node_modules, target/) are excluded
+#   automatically by the walk.
+
+paths = ["src", "packages", "crates", "apps", "scripts"]
+
+[check]
+baseline = ".bca-baseline.toml"
+exclude = [
+  "**/*.test.ts",
+  "**/*.test.mjs",
+  "**/*.spec.ts",
+  "**/tests/**",
+  "**/src/test/**",
+  "**/src/androidTest/**",
+]
+
+[thresholds]
+cyclomatic = 15
+cognitive = 20
+"loc.lloc" = 200

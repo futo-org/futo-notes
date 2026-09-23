@@ -133,12 +133,19 @@ futo-notes-data
 /docker-compose.yml
 /.futo-notes-cli.json
 
+# bca quality-gate artifacts, written by scripts/bca-quality.mjs (M16: never
+# land a locally generated report).
+/bca-report.md
+/bca-report.html
+/gl-code-quality-report.json
+
 # CI caches/checkouts that GitLab restores INTO $CI_PROJECT_DIR. Untracked and
 # enormous (a pnpm store is ~185k files / ~25MB of path text), so any tool that
 # enumerates untracked files — `git ls-files --others` — must not see them.
 .pnpm-store/
 .cargo-home/
 .cache-ms-playwright/
+.bca-cache/
 .gradle-native/
 .futo-notes-server/
 .cienv

@@ -515,8 +515,13 @@ cdp-forward:
 # (~2s), and reports what the a11y tree can't — which vault is live, whether a
 # migration is in flight. Run with no arguments for the command list. Debug
 # builds only; honors $ANDROID_SERIAL.
+# `{{args}}` interpolates raw, so a label containing shell metacharacters — the
+# Settings screen's `Connect & Sync` — is split by the shell and the tap
+# silently never happens. `[positional-arguments]` + `"$@"` passes each
+# argument through intact (pc_9b7fd5dba746).
+[positional-arguments]
 android-drive *args:
-  @node scripts/android-drive.mjs {{args}}
+  @node scripts/android-drive.mjs "$@"
 
 build:
   #!/usr/bin/env bash
@@ -941,6 +946,14 @@ skills-swift:
 audit *args:
   node scripts/audit.mjs {{args}}
 
+# ── Code-quality ratchet (big-code-analysis) ──
+# Needs network on first run (downloads a pinned bca release into .bca-cache/);
+# set BCA_BIN=/path/to/bca to use a prebuilt binary. Gates new/worsened
+# complexity offenders against the committed .bca-baseline.toml. CI runs
+# this same script non-blocking (docs/architecture-gates.md).
+quality *args:
+  node scripts/bca-quality.mjs {{args}}
+
 # Remove native build artifacts (Xcode DerivedData + Gradle output + web dist)
 # to reclaim disk. Leaves cargo `target/` alone (expensive to rebuild + shared).
 clean:
@@ -953,7 +966,19 @@ clean:
 check-node-modules:
   @node scripts/check-node-modules.mjs
 
-check: check-node-modules toolbar-spec-check title-spec-check coin-check arch-gate test-rust rust-format-check
+# A fresh worktree has no node_modules, and the first JS recipe `check` reaches
+# dies with `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL Command "tsx" not found` — an
+# error that names a binary, not the missing install (pc_40406aa84bc1). Not an
+# auto-install: `check` is a gate, and installing behind your back changes what
+# it just verified.
+#
+# NOTE: overlaps with `check-node-modules` above (same underlying papercut,
+# two independent fixes that landed on parallel MR stacks). Kept both rather
+# than dropping either — see .rebase-log.md for mr-318.
+_require-install:
+  @[ -d node_modules ] || { echo 'node_modules is missing in this worktree — run: just install' >&2; exit 1; }
+
+check: check-node-modules _require-install toolbar-spec-check title-spec-check coin-check arch-gate test-rust rust-format-check
   #!/usr/bin/env bash
   # See `build:`'s comment: pipefail is required so the `| head`/`| tail`
   # truncation on the last two lines can't mask a failing tsc/vite build.
