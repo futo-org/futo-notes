@@ -69,22 +69,39 @@ function queueToLocalStorage(report: CrashReport): void {
   }
 }
 
+// One fault thrown from a loop (an effect, a timer, a retry) fires the global
+// handlers every time; reporting each occurrence turned one bug into hundreds
+// of identical reports.
+const reportedThisSession = new Set<string>();
+
+function captureError(
+  errorStr: string,
+  stack: string | undefined,
+  type: CrashReport['type'],
+): void {
+  if (isIgnoredError(errorStr)) return;
+  const fingerprint = `${type}\n${errorStr}\n${stack ?? ''}`;
+  if (reportedThisSession.has(fingerprint)) return;
+  reportedThisSession.add(fingerprint);
+  const report = buildReport(errorStr, stack, type);
+  queueToLocalStorage(report);
+  if (hasFileSystem) {
+    try {
+      writeCrashReport(report).catch(() => {});
+    } catch {
+      /* FS not ready */
+    }
+  }
+}
+
 export function installGlobalHandlers(): void {
   const existingErrorHandler = window.onerror;
   window.onerror = (message, source, lineno, colno, error) => {
-    const errorStr = error?.message || String(message);
-    if (!isIgnoredError(errorStr)) {
-      const stack = error?.stack || `${source}:${lineno}:${colno}`;
-      const report = buildReport(errorStr, stack, 'js_error');
-      queueToLocalStorage(report);
-      if (hasFileSystem) {
-        try {
-          writeCrashReport(report).catch(() => {});
-        } catch {
-          /* FS not ready */
-        }
-      }
-    }
+    captureError(
+      error?.message || String(message),
+      error?.stack || `${source}:${lineno}:${colno}`,
+      'js_error',
+    );
     if (existingErrorHandler) {
       existingErrorHandler.call(window, message, source, lineno, colno, error);
     }
@@ -93,19 +110,11 @@ export function installGlobalHandlers(): void {
   const existingRejectionHandler = window.onunhandledrejection;
   window.onunhandledrejection = (event: PromiseRejectionEvent) => {
     const reason = event.reason;
-    const errorStr = reason instanceof Error ? reason.message : String(reason);
-    if (!isIgnoredError(errorStr)) {
-      const stack = reason instanceof Error ? reason.stack : undefined;
-      const report = buildReport(errorStr, stack, 'unhandled_rejection');
-      queueToLocalStorage(report);
-      if (hasFileSystem) {
-        try {
-          writeCrashReport(report).catch(() => {});
-        } catch {
-          /* FS not ready */
-        }
-      }
-    }
+    captureError(
+      reason instanceof Error ? reason.message : String(reason),
+      reason instanceof Error ? reason.stack : undefined,
+      'unhandled_rejection',
+    );
     if (existingRejectionHandler) {
       existingRejectionHandler.call(window, event);
     }
