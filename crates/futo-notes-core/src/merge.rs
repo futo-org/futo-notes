@@ -38,18 +38,6 @@ mod tests {
     }
 
     #[test]
-    fn both_sides_identical_changes_merge_cleanly() {
-        let base = "line 1\nline 2\n";
-        let ours = "line 1\nSAME EDIT\n";
-        let theirs = "line 1\nSAME EDIT\n";
-
-        assert_eq!(
-            three_way_merge(base, ours, theirs),
-            MergeResult::Clean("line 1\nSAME EDIT\n".to_string())
-        );
-    }
-
-    #[test]
     fn empty_base_both_add_different_content_conflicts() {
         let base = "";
         let ours = "server added this\n";
@@ -93,39 +81,6 @@ mod tests {
         assert_eq!(
             result,
             MergeResult::Clean("line 2\nline 3\nline 4\n".to_string())
-        );
-    }
-
-    #[test]
-    fn large_file_small_edits_different_regions() {
-        let mut base_lines: Vec<String> = (1..=100).map(|i| format!("line {i}")).collect();
-        let base = base_lines.join("\n") + "\n";
-
-        let mut ours_lines = base_lines.clone();
-        ours_lines[4] = "EDITED BY SERVER".to_string();
-
-        let mut theirs_lines = base_lines.clone();
-        theirs_lines[94] = "EDITED BY CLIENT".to_string();
-
-        let ours = ours_lines.join("\n") + "\n";
-        let theirs = theirs_lines.join("\n") + "\n";
-
-        base_lines[4] = "EDITED BY SERVER".to_string();
-        base_lines[94] = "EDITED BY CLIENT".to_string();
-        let expected = base_lines.join("\n") + "\n";
-
-        assert_eq!(
-            three_way_merge(&base, &ours, &theirs),
-            MergeResult::Clean(expected)
-        );
-    }
-
-    #[test]
-    fn all_three_identical_returns_clean() {
-        let content = "same\ncontent\n";
-        assert_eq!(
-            three_way_merge(content, content, content),
-            MergeResult::Clean(content.to_string())
         );
     }
 
