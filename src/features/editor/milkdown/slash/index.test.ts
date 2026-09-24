@@ -6,15 +6,14 @@
  * `/query` text sitting inside — or beside — the new node, because the old
  * `commit()` ran the command first and only then tried to find the run to
  * delete, against a document the command had already reshaped. This asserts
- * across every restructuring item AND the plain format items (a format item
- * never had the bug, but the fix changed how ALL items commit, so all of them
- * are covered here) that no typed `/…` text survives, and that undo takes the
- * whole pick back in one step.
+ * across the restructuring items AND the plain format items (a format item
+ * never had the bug, but the fix changed how ALL items commit) that no typed
+ * `/…` text survives, and that undo takes the whole pick back in one step.
+ * Code block and divider are proven in the browser by tests/slash-menu.spec.ts.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { mount } from 'svelte';
 import { undo } from '@milkdown/kit/prose/history';
-import { TextSelection } from '@milkdown/kit/prose/state';
 import type { EditorView } from '@milkdown/kit/prose/view';
 import { withoutLeakedCtxTimers } from '../__fixtures__/noLeakedCtxTimers';
 
@@ -87,42 +86,6 @@ function wholeText(view: EditorView): string {
 }
 
 describe('the `/` menu commits every item as one step (QA-010)', () => {
-  it('code block: no stray "/code" text inside the fence', async () => {
-    const view = await mountEditor();
-    type(view, '/code');
-    pressEnter(view);
-
-    let codeBlock: { textContent: string } | null = null;
-    view.state.doc.descendants((node) => {
-      if (node.type.name === 'code_block') codeBlock = node;
-    });
-    expect(codeBlock).not.toBeNull();
-    expect((codeBlock as unknown as { textContent: string }).textContent).toBe('');
-    expect(wholeText(view)).not.toContain('/code');
-  });
-
-  it('divider: no stray "/divider" text, and the shared end state applies', async () => {
-    const view = await mountEditor();
-    type(view, '/divider');
-    pressEnter(view);
-
-    expect(wholeText(view)).not.toContain('/divider');
-    expect(wholeText(view)).not.toContain('divider');
-
-    const { doc, selection } = view.state;
-    expect(selection instanceof TextSelection).toBe(true);
-    let hrPos = -1;
-    doc.descendants((node, pos) => {
-      if (hrPos === -1 && node.type.name === 'hr') hrPos = pos;
-      return hrPos === -1;
-    });
-    expect(hrPos).toBeGreaterThanOrEqual(0);
-    const $hr = doc.resolve(hrPos);
-    const next = $hr.parent.maybeChild($hr.index() + 1);
-    expect(next?.type.name).toBe('paragraph');
-    expect(next?.content.size).toBe(0);
-  });
-
   it('table: no stray "/table" text in any cell', async () => {
     const view = await mountEditor();
     type(view, '/table');

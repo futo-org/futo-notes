@@ -990,7 +990,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   reopen. → src/features/editor/milkdown/keyboardParity.ts
   `insertLineBreakInTableCell`,
   src/features/editor/milkdown/table/tableLineBreak.ts (markdown round trip),
-  src/features/editor/milkdown/keyboardParity.test.ts
+  src/features/editor/milkdown/table/tableLineBreak.test.ts
 
   > **Gap:** a cell holding ONLY a manual break and no other text collapses to
   > a genuinely empty cell on reload — that shape is indistinguishable on disk

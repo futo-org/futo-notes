@@ -32,28 +32,21 @@ function classOf(decoration: Decoration): string | undefined {
 }
 
 describe('matchFenceLanguage', () => {
-  it('matches a language by name', () => {
-    expect(matchFenceLanguage('python')?.name).toBe('Python');
-  });
-
-  it('matches by alias, which is what the curated list is for', () => {
-    expect(matchFenceLanguage('rs')?.name).toBe('Rust');
-    expect(matchFenceLanguage('zsh')?.name).toBe('Shell');
-  });
-
-  it('ignores case and surrounding whitespace', () => {
-    expect(matchFenceLanguage('  TypeScript ')?.name).toBe('TypeScript');
-  });
-
-  it('is null for a language outside the curated set', () => {
-    expect(matchFenceLanguage('mermaid')).toBeNull();
-    expect(matchFenceLanguage('brainfuck')).toBeNull();
-  });
-
-  it('is null for a fence with no info string', () => {
-    expect(matchFenceLanguage('')).toBeNull();
-    expect(matchFenceLanguage(undefined)).toBeNull();
-    expect(matchFenceLanguage(null)).toBeNull();
+  // Aliases are what the curated list is for; case and surrounding whitespace
+  // never matter; outside the curated set, or with no info string, it is null.
+  it.each([
+    ['python', 'Python'],
+    ['rs', 'Rust'],
+    ['zsh', 'Shell'],
+    ['  TypeScript ', 'TypeScript'],
+    ['mermaid', null],
+    ['brainfuck', null],
+    ['', null],
+    [undefined, null],
+    [null, null],
+  ])('matches %j to %s', (info, name) => {
+    const match = matchFenceLanguage(info);
+    expect(match === null ? null : match.name).toBe(name);
   });
 });
 

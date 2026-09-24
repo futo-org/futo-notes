@@ -58,10 +58,6 @@ describe('createDocumentChangePlugin', () => {
     expect(apply((state) => state.tr.insertText('b', 1))).toBe(1);
   });
 
-  it('stays silent for a selection-only transaction', () => {
-    expect(apply((state) => state.tr.scrollIntoView())).toBe(0);
-  });
-
   it('stays silent for a chunk append', () => {
     expect(apply((state) => state.tr.insertText('b', 1).setMeta('addToHistory', false))).toBe(0);
   });

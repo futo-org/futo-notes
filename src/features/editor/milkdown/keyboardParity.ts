@@ -144,7 +144,7 @@ function moveCaretToCell(
  * requires at least one body row), so Enter there always lands in the first
  * body row rather than inserting a second header.
  */
-export const insertTableRowBelow: Command = (state, dispatch) => {
+const insertTableRowBelow: Command = (state, dispatch) => {
   const rect = cursorCellRect(state);
   if (!rect) return false;
   if (rect.top >= rect.map.height - 1) {
@@ -170,7 +170,7 @@ export const insertTableRowBelow: Command = (state, dispatch) => {
  * newline, so the break has to serialize as `<br>` and parse back the same
  * way).
  */
-export const insertLineBreakInTableCell: Command = (state, dispatch) => {
+const insertLineBreakInTableCell: Command = (state, dispatch) => {
   const rect = cursorCellRect(state);
   if (!rect) return false;
   const hardbreak = state.schema.nodes.hardbreak;
@@ -185,7 +185,7 @@ export const insertLineBreakInTableCell: Command = (state, dispatch) => {
  * cell — the wrap-around the preset's `goToNextCell` has nowhere to go for.
  * Anywhere else it declines, leaving Tab to the preset's cell navigation.
  */
-export const appendTableRowFromLastCell: Command = (state, dispatch) => {
+const appendTableRowFromLastCell: Command = (state, dispatch) => {
   const rect = cursorCellRect(state);
   if (!rect) return false;
   const { map } = rect;
@@ -198,7 +198,7 @@ export const appendTableRowFromLastCell: Command = (state, dispatch) => {
  * unchecked or non-task item declines — the default split already clones
  * `checked: false` / `null` correctly.
  */
-export const splitCheckedTaskItem: Command = (state, dispatch) => {
+const splitCheckedTaskItem: Command = (state, dispatch) => {
   const item = enclosingListItem(state.selection);
   if (!item || item.node.attrs.checked !== true) return false;
   return splitListItem(item.node.type, { ...item.node.attrs, checked: false })(state, dispatch);
@@ -280,10 +280,9 @@ function tabInCodeBlock(
   return true;
 }
 
-/** Command wrappers for direct unit-testing and the `handleKeyDown` wiring below. */
-export const indentCodeBlockOnTab: Command = (state, dispatch) =>
-  tabInCodeBlock(state, dispatch, false);
-export const outdentCodeBlockOnShiftTab: Command = (state, dispatch) =>
+/** Command wrappers for the `handleKeyDown` wiring below. */
+const indentCodeBlockOnTab: Command = (state, dispatch) => tabInCodeBlock(state, dispatch, false);
+const outdentCodeBlockOnShiftTab: Command = (state, dispatch) =>
   tabInCodeBlock(state, dispatch, true);
 
 /**

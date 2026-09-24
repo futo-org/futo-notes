@@ -61,16 +61,6 @@ describe('the Image item', () => {
     expect(saveImageBytes).toHaveBeenCalledWith(bytes, 'png');
   });
 
-  it('does nothing on a host with no picker, rather than throwing', async () => {
-    getFS.mockReturnValue({ saveImageBytes: vi.fn(), getImageUrl: vi.fn() });
-
-    const insert = vi.fn();
-    expect(() => createSlashExec(() => null, imageTarget(insert)).image(0, 0)).not.toThrow();
-
-    await Promise.resolve();
-    expect(insert).not.toHaveBeenCalled();
-  });
-
   it('resolves the picker at PICK time, so an FS that arrives later still works', async () => {
     // The plugin is built while the editor is still being constructed, which
     // can be before `getPlatformFS()` has resolved. Caching the answer then

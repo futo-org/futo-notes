@@ -226,7 +226,7 @@ describe('startProgressiveLoad', () => {
     expect(idleQueue).toHaveLength(0);
   });
 
-  it('finishNow applies every remaining chunk synchronously', () => {
+  it('finishNow applies every remaining chunk synchronously, and no chunk lands twice', () => {
     const applied: string[] = [];
     const onComplete = vi.fn();
 
@@ -242,22 +242,11 @@ describe('startProgressiveLoad', () => {
     expect(applied).toEqual(['one', 'two', 'three']);
     expect(load.loading).toBe(false);
     expect(onComplete).toHaveBeenCalledTimes(1);
-  });
 
-  it('finishNow cancels the pending idle slice so no chunk lands twice', () => {
-    const applied: string[] = [];
-
-    const load = startProgressiveLoad({
-      chunks: ['one', 'two', 'three'],
-      applyChunk: (md) => applied.push(md),
-      scheduleIdle,
-      onComplete: () => {},
-    });
-
-    load.finishNow();
+    // The idle slice that was pending is cancelled, not run as well.
     drainIdle();
-
     expect(applied).toEqual(['one', 'two', 'three']);
+    expect(onComplete).toHaveBeenCalledTimes(1);
   });
 
   it('finishNow on an already-finished load is a no-op', () => {
