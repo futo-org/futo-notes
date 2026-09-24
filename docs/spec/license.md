@@ -331,12 +331,13 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   _(ios)_ The URL comes from the same crate constants through
   `licenseLinks(platform: .ios, bundleId:)` and opens with SwiftUI's `openURL`, which hands
   an `https` URL to the system browser. →
-  `apps/ios/Sources/License/LicenseSettingsSection.swift`, `LicenseSurfaceTests`
+  `apps/ios/Sources/License/LicenseSettingsSection.swift`, `LicenseModelTests`
+  "the model's links carry iOS and follow the build's environment"
   _(android)_ The same crate call, `licenseLinks(LicensePlatform.ANDROID, bundleId)`,
   opened with an `ACTION_VIEW` intent, which the OS routes to the browser — never
   a WebView. →
   `apps/android/app/src/main/java/com/futo/notes/ui/LicenseSettingsSection.kt`,
-  `LicenseSurfaceTest` "theBuyLinkIsThisPlatforms"
+  `license::contract` "the_buy_url_carries_the_platform"
 - After checkout, FUTOpay's activate-redirect page opens
   `futonotes://license/{key}/{activation}`; the app handles it per
   [Deep link](#deep-link). The page also shows the key and activation as text,

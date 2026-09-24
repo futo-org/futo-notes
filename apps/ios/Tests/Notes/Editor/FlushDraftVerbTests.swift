@@ -8,6 +8,10 @@ import Testing
 /// this guards the FFI wiring `NotesStore.flushDraft` / `flushAsync` and the
 /// live-pull conflict path now depend on, after the Swift-side
 /// writeIfUnchanged → createIfAbsent → park state machine was deleted.
+/// One disposition is enough to prove the actor reaches a real store and
+/// decodes the result; every disposition is walked through the same exported
+/// `NoteStore` by `flush_draft_projects_every_disposition`
+/// (crates/futo-notes-ffi/tests/note_contract.rs).
 @Suite("NoteVault flush_draft wiring")
 struct FlushDraftVerbTests {
     private func makeVaultRoot() throws -> URL {
@@ -46,63 +50,5 @@ struct FlushDraftVerbTests {
         #expect(result.disposition == .wrote)
         #expect(result.mutation?.finalId == "note")
         #expect(await vault.read("note") == "draft text")
-    }
-
-    @Test("a draft the disk already holds converges without a mutation")
-    func convergesWithoutMutation() async throws {
-        let root = try makeVaultRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let vault = NoteVault(notesRoot: root.path)
-        _ = try await vault.write("note", content: "same text", epoch: 0)
-
-        let result = try await vault.flushDraft(
-            "note", base: "stale base", content: "same text", epoch: 0)
-
-        #expect(result.disposition == .converged)
-        #expect(result.mutation == nil)
-    }
-
-    @Test("a peer-deleted note is recreated at the original id with a positioned mutation")
-    func recreatesAtOriginalId() async throws {
-        let root = try makeVaultRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let vault = NoteVault(notesRoot: root.path)
-
-        let result = try await vault.flushDraft(
-            "Gone", base: "old base", content: "surviving draft", epoch: 0)
-
-        #expect(result.disposition == .recreated)
-        let mutation = try #require(result.mutation)
-        #expect(mutation.finalId == "Gone")
-        #expect(mutation.upserted.first?.position == 0)
-        #expect(await vault.read("Gone") == "surviving draft")
-    }
-
-    @Test("a diverged draft is parked once — an identical re-park mints nothing")
-    func parksDivergedDraftIdempotently() async throws {
-        let root = try makeVaultRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let vault = NoteVault(notesRoot: root.path)
-        _ = try await vault.write("note", content: "peer version", epoch: 0)
-
-        let first = try await vault.flushDraft(
-            "note", base: "original", content: "my draft", epoch: 0)
-
-        guard case .parkedConflict(let parkedId) = first.disposition else {
-            Issue.record("expected the diverged draft to be parked, got \(first.disposition)")
-            return
-        }
-        #expect(parkedId.hasPrefix("note (conflict "))
-        #expect(first.mutation != nil, "a fresh park projects a mutation")
-        #expect(await vault.read("note") == "peer version", "diverged note untouched")
-        #expect(await vault.read(parkedId) == "my draft")
-
-        // The crash-window double-park (scenePhase flush firing at both .inactive
-        // and .background): the identical draft reports the same copy, mints none.
-        let again = try await vault.flushDraft(
-            "note", base: "original", content: "my draft", epoch: 0)
-        #expect(again.disposition == .parkedConflict(parkedId: parkedId))
-        #expect(again.mutation == nil)
-        #expect(await vault.scan().notes.count == 2, "original + exactly one copy")
     }
 }

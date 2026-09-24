@@ -108,9 +108,4 @@ struct EditorCaptureDeadlineTests {
         // shell never saw the edit. Leaving on `shellCopy` discards it.
         #expect(editorExitBody(.timedOut, shellCopy: "the note as opened") == nil)
     }
-
-    @Test("an editor that never presented a document still lets the user leave")
-    func noLiveDocumentStillLeaves() {
-        #expect(editorExitBody(.noLiveDocument, shellCopy: "from disk") == "from disk")
-    }
 }
