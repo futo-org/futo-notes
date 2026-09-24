@@ -189,7 +189,12 @@ pub(super) fn path_exists(root: &Path, name: &str) -> Result<bool, String> {
 
 pub(super) fn rename_local(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
     let _vault_mutation = vault_mutation_guard()?;
-    vault_fs::rename(root, source, destination)
+    if vault_fs::exists(root, destination)? {
+        return Err(format!(
+            "collision destination already exists: {destination}"
+        ));
+    }
+    vault_fs::move_no_replace_strict(root, source, destination)
 }
 
 pub(super) fn conflict_date() -> String {

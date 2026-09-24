@@ -860,14 +860,14 @@ impl LocalNoteStore {
 
     pub fn delete_folder(&self, folder: &str) -> Result<MutationResult, String> {
         self.delete_folder_with(folder, |path| {
-            let relative = path.strip_prefix(&self.root).map_err(|e| e.to_string())?;
-            vault_fs::remove_dir(&self.root, &relative.to_string_lossy(), true)
+            move_remaining_folder_files_up(&self.root, path)?;
+            remove_empty_folder_tree(&self.root, path)
         })
     }
 
     /// Move every note out first, with rollback on a failed move. Only after
     /// all notes are safe does the supplied platform removal policy receive
-    /// the remaining tree (desktop trash or native recursive delete).
+    /// the remaining tree (desktop trash or native file-preserving move-up).
     pub fn delete_folder_with<F>(
         &self,
         folder: &str,
@@ -1382,6 +1382,94 @@ fn is_dated_conflict_variant(stem: &str, candidate: &str) -> bool {
         .is_some_and(|counter| {
             !counter.is_empty() && counter.bytes().all(|byte| byte.is_ascii_digit())
         })
+}
+
+/// Native folder deletion keeps attachments in the vault. Notes have already
+/// moved through the normal collision/relink workflow; move every remaining
+/// regular file to the same relative location under the parent. A collision
+/// gets a numbered name and never replaces existing bytes. If an unusual
+/// entry cannot move, leave the source tree in place for manual recovery.
+fn move_remaining_folder_files_up(root: &Path, folder: &Path) -> Result<(), String> {
+    let parent = folder.parent().ok_or("folder has no parent")?;
+    let mut files = Vec::new();
+    for entry in walkdir::WalkDir::new(folder) {
+        let entry = entry.map_err(|error| error.to_string())?;
+        if entry.file_type().is_symlink() {
+            return Err(format!(
+                "folder contains a symlink: {}",
+                entry.path().display()
+            ));
+        }
+        if entry.file_type().is_file() {
+            files.push(entry.path().to_owned());
+        }
+    }
+    files.sort();
+    for source in files {
+        let tail = source
+            .strip_prefix(folder)
+            .map_err(|error| error.to_string())?;
+        let wanted = parent.join(tail);
+        let name = wanted
+            .file_name()
+            .ok_or("attachment has no filename")?
+            .to_string_lossy();
+        let (stem, extension) = match name.rsplit_once('.') {
+            Some((stem, extension)) if !stem.is_empty() => (stem, format!(".{extension}")),
+            _ => (name.as_ref(), String::new()),
+        };
+        let source_relative = source
+            .strip_prefix(root)
+            .map_err(|error| error.to_string())?;
+        let source_relative = source_relative.to_string_lossy();
+        for attempt in 1.. {
+            let destination = if attempt == 1 {
+                wanted.clone()
+            } else {
+                let suffix = format!("-{attempt}{extension}");
+                let mut end = stem.len().min(255usize.saturating_sub(suffix.len()));
+                while !stem.is_char_boundary(end) {
+                    end -= 1;
+                }
+                wanted.with_file_name(format!("{}{suffix}", &stem[..end]))
+            };
+            let relative = destination
+                .strip_prefix(root)
+                .map_err(|error| error.to_string())?;
+            let relative = relative.to_string_lossy();
+            if vault_fs::exists(root, &relative)? {
+                continue;
+            }
+            if vault_fs::move_no_replace(root, &source_relative, &relative)? {
+                break;
+            }
+            if !vault_fs::exists(root, &source_relative)? {
+                return Err(format!(
+                    "attachment disappeared during folder deletion: {source_relative}"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn remove_empty_folder_tree(root: &Path, folder: &Path) -> Result<(), String> {
+    let mut directories = walkdir::WalkDir::new(folder)
+        .into_iter()
+        .map(|entry| {
+            entry
+                .map(|entry| entry.path().to_owned())
+                .map_err(|error| error.to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    directories.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
+    for directory in directories {
+        let relative = directory
+            .strip_prefix(root)
+            .map_err(|error| error.to_string())?;
+        vault_fs::remove_dir(root, &relative.to_string_lossy(), false)?;
+    }
+    Ok(())
 }
 
 fn prepare_relinks(root: &Path, mappings: &[(String, String)]) -> HashMap<String, String> {

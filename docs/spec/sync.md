@@ -1301,7 +1301,7 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   When a peer's tombstone arrives and the local file has diverged from the
   deleted version (the body autosave landed after this cycle's push phase, so
   push-first had nothing to send), the pull parks the local content in a
-  `name (conflict <oid8>)` copy and reports the move in `SyncSummary.renamed`
+  `name (conflict <oid32>)` copy and reports the move in `SyncSummary.renamed`
   alongside the deletion — which ghost-stripping then removes from
   `deletedIds`/`peerDeletedIds`, because the note moved rather than vanished.
   Reporting only the deletion stranded the shell: a draft that had just reached
@@ -1320,7 +1320,7 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   src/features/sync/syncManager.test.ts
 - Pull-side filename collisions between byte-identical objects adopt silently
   (smallest object id stays canonical; the identical loser mints NO
-  `(conflict <oid8>)` copy and its map entry is dropped without tombstoning
+  `(conflict <oid32>)` copy and its map entry is dropped without tombstoning
   the live server object) — only genuinely divergent content is parked. →
   futo-notes-sync sync module
 - Renames are paired — a rename is not seen as delete + create. → migration plan
@@ -1328,7 +1328,7 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
 - **Sync reports rename intent; shells never infer renames from id patterns.**
   Every relocation the sync engine performs — paired local moves, mapping
   relocations, merge-target moves, and collision placements that relocate a
-  locally-mapped note (the loser's move to `name (conflict <oid8>)`) — is
+  locally-mapped note (the loser's move to `name (conflict <oid32>)`) — is
   reported in the locally-computed `SyncSummary.renamed` (no sync payload or
   protocol change; a byte-identical collision loser adopts silently and
   reports no rename). The desktop follows the open tab/editor through a
@@ -1545,22 +1545,24 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   over the UNION of this pull's downloads, the persisted object_map, and on-disk
   files sharing the collision key (`nfc(name).to_lowercase()`). The object with the
   lexicographically smallest `object_id` keeps the canonical name; every other
-  colliding object is materialized as `name (conflict <oid8>).md`, where
-  `<oid8>` is the first 8 chars of the loser's globally-unique object_id. The
+  colliding object is materialized as `name (conflict <oid32>).md`, where
+  `<oid32>` is the full 32 hexadecimal digits of the loser's UUID object_id. The
   winner key (`object_id`) and the loser name are pure functions of immutable,
   globally-unique inputs that every union member carries — so resolution is
   idempotent (editing the winner can't flip it), convergent (every client mints
   the identical loser name and the fleet lands on `{canonical, name (conflict
-<oid8>)}`), and safe even when the rival is already on disk / in the map and
+<oid32>)}`), and safe even when the rival is already on disk / in the map and
   is NOT in the current incremental batch (F4 same-name; F5 NFC-vs-NFD). →
   futo-notes-sync sync module, futo-notes-core
   `files::collision_key` and
   `conflict_names::collision_conflict_filename`; regression tests
+  `three_uuid_v7_name_rivals_keep_all_three_bodies`,
+  `collision_destination_already_on_disk_is_never_replaced`,
   `f4_same_filename_two_clients_no_note_lost`,
   `f5_nfc_nfd_collision_no_note_lost`, the `collision_*` unit tests
 - Conflict-copy naming remains a fixed point for defensive non-server object-id
   shapes too: a short token that would not be recognizable as the normal
-  `<oid8>` form is namespaced as `object-<short>`, and stripping a generated
+  `<oid32>` form is namespaced as `object-<short>`, and stripping a generated
   suffix that leaves an empty stem substitutes `Untitled`. Re-parking therefore
   replaces one generated suffix rather than stacking suffixes or returning the
   input name unchanged. → futo-notes-core
@@ -1570,7 +1572,7 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   unseen remote.** When a local file diverges from a server object on a fresh
   empty map (no common ancestor ⇒ no safe 3-way merge), the remote is adopted on
   the canonical name and the local edits are parked in a deterministic `name
-(conflict <remote-oid8>).md` copy that the next push uploads as its own new
+(conflict <remote-oid32>).md` copy that the next push uploads as its own new
   object — instead of recording a divergence entry that the next push pushed
   over the never-reconciled remote (F6). → futo-notes-sync `sync/mod.rs`
   (`pull::pull_with_checkpoint(state, root, 0, ...)`) +
@@ -1594,7 +1596,7 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   ancestry (fresh install, notes copied in without dotfiles) ⇒ the conservative
   F6 park above. This closes the July 2026 incident where a
   password re-login on a device that had been disconnected for days parked a
-  stale `(conflict <oid8>)` copy of every note edited elsewhere in the
+  stale `(conflict <oid32>)` copy of every note edited elsewhere in the
   meantime and synced the copies to the whole fleet. → futo-notes-sync store +
   sync modules; reconnect scenarios in the server integration suite
 - **A reconnect honors peer deletes made while this device was disconnected —
@@ -1603,7 +1605,7 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   matches the ancestry (object_id → last-synced filename + hash): if the local
   file is unchanged since the last sync it is deleted (the peer's delete wins);
   if it diverged (edited while disconnected) the local edit is preserved in a
-  deterministic `name (conflict <oid8>).md` copy that push re-uploads as its own
+  deterministic `name (conflict <oid32>).md` copy that push re-uploads as its own
   new object, and the tombstoned name is removed; a tombstone with no ancestry
   entry is left alone. Before the fix the `live`-only filter dropped every
   tombstone, so the local file survived and the next push re-POSTed it as a
@@ -1652,7 +1654,7 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   **both** objects, deleting the note from every client) is replaced by the
   deterministic conflict-copy policy above: winner = smallest `object_id` keeps
   the canonical name, every other colliding object is materialized at `name
-(conflict <oid8>).md`. The collision detector ranks the union of the current
+(conflict <oid32>).md`. The collision detector ranks the union of the current
   pull batch, the persisted object_map, and on-disk files, so the rival being
   already-present (not in the incremental batch) is handled — the exact
   double-tombstone path is gone. → futo-notes-sync sync module; F4/F5
