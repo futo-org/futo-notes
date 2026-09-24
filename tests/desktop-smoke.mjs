@@ -144,45 +144,14 @@ async function main() {
     }
   });
 
-  // 4. Screenshot (try native, fall back to JS canvas capture)
+  // 4. Screenshot of the real window, kept as a CI artifact
   await check('screenshot', async () => {
-    let b64 = null;
-
-    // Try native screenshot first
-    try {
-      const data = await send(ws, 'capture_native_screenshot', {
-        format: 'png',
-        maxWidth: 1280,
-      });
-      b64 = data?.image || data?.base64 || (typeof data === 'string' ? data : null);
-    } catch {
-      // Native not available on all platforms — fall back to JS canvas
-    }
-
-    // JS fallback: capture via html2canvas-style approach
-    if (!b64) {
-      const jsResult = await send(ws, 'execute_js', {
-        script: `(async () => {
-          const canvas = document.createElement('canvas');
-          const rect = document.documentElement.getBoundingClientRect();
-          canvas.width = Math.min(rect.width, 1280);
-          canvas.height = Math.min(rect.height, 800);
-          const ctx = canvas.getContext('2d');
-          ctx.fillStyle = '#fff';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.font = '16px monospace';
-          ctx.fillStyle = '#000';
-          ctx.fillText('Smoke test screenshot (JS fallback) - ' + document.title, 10, 30);
-          ctx.fillText('URL: ' + location.href, 10, 55);
-          ctx.fillText('.ProseMirror: ' + (document.querySelector('.ProseMirror') ? 'present' : 'missing'), 10, 80);
-          ctx.fillText('Time: ' + new Date().toISOString(), 10, 105);
-          return canvas.toDataURL('image/png').replace('data:image/png;base64,', '');
-        })()`,
-      });
-      b64 = jsResult?.result ?? jsResult?.data ?? jsResult;
-    }
-
-    if (!b64 || typeof b64 !== 'string' || b64.length < 100) {
+    const data = await send(ws, 'capture_native_screenshot', {
+      format: 'png',
+      maxWidth: 1280,
+    });
+    const b64 = data?.image || data?.base64 || (typeof data === 'string' ? data : null);
+    if (!b64 || b64.length < 100) {
       throw new Error('No screenshot data captured');
     }
 

@@ -149,37 +149,22 @@ function createNewNotePage() {
 }
 
 describe('waitForTestHooks', () => {
-  it('retries transient execute_js failures while the webview starts', async () => {
-    const ws = new FakeWs([
-      new Error('Script execution timeout'),
-      JSON.stringify({ testSync: 'object', connectHosted: 'function', notesShell: 'object' }),
-    ]);
+  // The webview can answer execute_js before it has a main window or before a
+  // script can run; both are start-up noise, not a missing hook.
+  it.each(['Script execution timeout', "Window 'main' not found"])(
+    'retries a transient "%s" while the webview starts',
+    async (message) => {
+      const ws = new FakeWs([
+        new Error(message),
+        JSON.stringify({ testSync: 'object', connectHosted: 'function', notesShell: 'object' }),
+      ]);
 
-    await expect(
-      waitForTestHooks(ws, 'client-a', {
-        initialDelayMs: 0,
-        attempts: 2,
-        intervalMs: 0,
-      }),
-    ).resolves.toBeUndefined();
-    expect(ws.sent).toHaveLength(2);
-  });
-
-  it('retries while the bridge is available before the main window', async () => {
-    const ws = new FakeWs([
-      new Error("Window 'main' not found"),
-      JSON.stringify({ testSync: 'object', connectHosted: 'function', notesShell: 'object' }),
-    ]);
-
-    await expect(
-      waitForTestHooks(ws, 'client-a', {
-        initialDelayMs: 0,
-        attempts: 2,
-        intervalMs: 0,
-      }),
-    ).resolves.toBeUndefined();
-    expect(ws.sent).toHaveLength(2);
-  });
+      await expect(
+        waitForTestHooks(ws, 'client-a', { initialDelayMs: 0, attempts: 2, intervalMs: 0 }),
+      ).resolves.toBeUndefined();
+      expect(ws.sent).toHaveLength(2);
+    },
+  );
 
   // A bundle built before the hosted hook answers every probe the same way
   // forever, so this has to be reported as "built without test hooks" rather
