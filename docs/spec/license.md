@@ -644,8 +644,8 @@ one catalog entry, `license.enterKey`, so all three shells moved together
     the button's word differs. The app still never calls itself free to use; it
     asks to be paid and declines to force the issue. →
     `tests/license-card.spec.ts` "unlicensed: the ask, no card chrome, Buy as
-    the only filled button"; _(ios)_ `LicenseSurfaceTests` "the well, the
-    letterhead and the ledger all belong to a stored license"; _(android)_
+    the only filled button"; _(ios)_ `LicensePlateTests`
+    `testUnlicensedIsAnAskAndActivatingItMakesACard`; _(android)_
     `LicenseSurfaceTest` "unlicensedLeadsWithTheAskAndCarriesNoCardChrome",
     which reads the two elements' geometry rather than trusting source order
   - Licensed (`license.explanationLicensed`), verbatim after FUTO Keyboard's
