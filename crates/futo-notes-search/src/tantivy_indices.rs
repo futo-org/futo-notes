@@ -407,42 +407,17 @@ fn read_stored_i64(doc: &TantivyDocument, field: Field) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    struct ScopedTempDir(PathBuf);
-    impl ScopedTempDir {
-        fn new() -> Self {
-            static COUNTER: AtomicU32 = AtomicU32::new(0);
-            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-            let ms = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            let dir = std::env::temp_dir().join(format!("futo-search-test-{ms}-{n}"));
-            std::fs::create_dir_all(&dir).expect("create temp dir");
-            Self(dir)
-        }
-        fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-    impl Drop for ScopedTempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
+    use crate::test_support::ScopedTempDir;
 
     fn open_indices_in_tempdir() -> (ScopedTempDir, TantivyIndices) {
-        let dir = ScopedTempDir::new();
+        let dir = ScopedTempDir::new("indices");
         let idx = TantivyIndices::open(dir.path()).expect("open");
         (dir, idx)
     }
 
     #[test]
     fn open_removes_old_splade_sidecars() {
-        let dir = ScopedTempDir::new();
+        let dir = ScopedTempDir::new("indices");
         std::fs::create_dir_all(dir.path().join("splade")).unwrap();
         std::fs::write(dir.path().join("splade-progress.json"), b"{}").unwrap();
         std::fs::write(dir.path().join("splade.version"), b"v2").unwrap();
@@ -568,16 +543,9 @@ mod tests {
             vec!["august"],
             "a mid-typing word must match titles it prefixes"
         );
-    }
-
-    #[test]
-    fn trailing_space_ends_the_word_so_no_prefix_expansion() {
-        let (_dir, mut idx) = open_indices_in_tempdir();
-        idx.upsert_note_bm25("august", "August 10, 2026", "daily entry", "", "", now_ms());
-        idx.commit_bm25().unwrap();
         assert!(
             idx.search_bm25("Aug ", 10).unwrap().is_empty(),
-            "a completed word matches as typed, not as a prefix"
+            "a trailing space completes the word, which then matches as typed, not as a prefix"
         );
     }
 

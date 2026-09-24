@@ -810,8 +810,11 @@ mod tests {
     /// the only way to the relay is through the confirmation sheet.
     #[test]
     fn a_scanned_code_carries_what_the_confirmation_sheet_shows() {
-        let client = HostedSetupClient::at("https://pairing.example".into(), Box::new(NoSecrets))
-            .expect("client");
+        let client = HostedSetupClient::at(
+            "https://pairing.example".into(),
+            Box::new(StubSecrets(None)),
+        )
+        .expect("client");
         // A payload in the engine's own format: 32 bytes of key as unpadded
         // base64url, the version tag, and the two self-reported strings.
         let code = concat!(
@@ -830,12 +833,12 @@ mod tests {
         ));
     }
 
-    /// A secret store that keeps nothing, for the projections that never reach
-    /// one.
-    struct NoSecrets;
-    impl VaultSecretStore for NoSecrets {
+    /// A secret store holding only a fixed vault key (or none), for the
+    /// projections that never write one.
+    struct StubSecrets(Option<Vec<u8>>);
+    impl VaultSecretStore for StubSecrets {
         fn vault_key(&self) -> Result<Option<Vec<u8>>, SecretStoreError> {
-            Ok(None)
+            Ok(self.0.clone())
         }
         fn set_vault_key(&self, _key: Vec<u8>) -> Result<(), SecretStoreError> {
             Ok(())
@@ -878,32 +881,7 @@ mod tests {
     /// rather than becoming a key that encrypts notes nothing can read.
     #[test]
     fn a_stored_key_of_the_wrong_length_is_refused() {
-        struct ShortKey;
-        impl VaultSecretStore for ShortKey {
-            fn vault_key(&self) -> Result<Option<Vec<u8>>, SecretStoreError> {
-                Ok(Some(vec![1, 2, 3]))
-            }
-            fn set_vault_key(&self, _key: Vec<u8>) -> Result<(), SecretStoreError> {
-                Ok(())
-            }
-            fn delete_vault_key(&self) -> Result<(), SecretStoreError> {
-                Ok(())
-            }
-            fn session_token(&self) -> Result<Option<String>, SecretStoreError> {
-                Ok(None)
-            }
-            fn set_session_token(&self, _token: String) -> Result<(), SecretStoreError> {
-                Ok(())
-            }
-            fn delete_session_token(&self) -> Result<(), SecretStoreError> {
-                Ok(())
-            }
-            fn delete_sync_password(&self) -> Result<(), SecretStoreError> {
-                Ok(())
-            }
-        }
-
-        let secrets = ShellSecrets(Arc::new(ShortKey));
+        let secrets = ShellSecrets(Arc::new(StubSecrets(Some(vec![1, 2, 3]))));
         assert!(VaultSecrets::vault_key(&secrets)
             .unwrap_err()
             .contains("expected 32"));
