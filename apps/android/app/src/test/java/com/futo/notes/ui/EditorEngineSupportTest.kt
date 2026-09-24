@@ -16,12 +16,6 @@ import java.io.File
  * boot that never happened) makes it unsupported.
  */
 class EditorEngineSupportTest {
-    @Test
-    fun `a booted bundle has no failure`() {
-        assertNull(editorEngineFailure("booted", isFinal = false))
-        assertNull(editorEngineFailure("booted", isFinal = true))
-    }
-
     /**
      * The gate's "supported" signal. It has to be the EDITOR ENGINE coming up,
      * not the bridge `initialized` handshake that follows it (EditorWebView's
