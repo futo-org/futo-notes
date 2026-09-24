@@ -1257,6 +1257,13 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   page reload.
   → Keychain.swift _(iOS)_, SecureStore.kt _(Android)_,
   sync/password_store.rs + syncServiceE2ee.ts _(desktop)_
+- **Desktop self-hosted bearer tokens are kept in the per-vault OS keyring.**
+  `.app-state.json` keeps the non-secret server URL and connection identity but
+  never writes `e2eeAuthToken` for a new connection. A legacy token in that
+  field is moved to the keyring and the field scrubbed on launch; when the
+  keyring is unavailable, the app removes the plaintext token and can obtain
+  a fresh one from its securely saved password. → appState.ts,
+  syncServiceE2ee.ts, sync/password_store.rs (`syncPassword.test.ts`)
 - **An expired server bearer session reauthenticates transparently from the
   securely saved password without resetting sync state — in password mode.**
   This whole paragraph is about password mode, where the login password is also
@@ -1601,6 +1608,12 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   fleet-wide tombstones (missing local files are re-downloaded, as before).
   → futo-notes-sync `checkpoint.rs`, ffi `SyncClient::disconnect`, desktop
   `e2ee_disconnect`
+- **Disconnect attempts to revoke the current bearer session before forgetting
+  it.** All three shells reach `SyncSession::disconnect`, which sends
+  `POST /api/auth/logout` with the bearer token. A failed or offline request
+  cannot prevent local disconnect; in that case the server token may remain
+  valid until its seven-day expiry or a password change. → futo-notes-sync
+  `session/mod.rs` (`disconnect_revokes_the_bearer_session_before_forgetting_it`)
 - **A reconnect after fleet drift does not mint conflict copies for notes the
   device never edited.** The bootstrap pull from cursor 0 consults the ancestry
   file: for the same objectId, local hash == last-synced hash ⇒ only the remote

@@ -15,9 +15,11 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import {
   clearLegacyE2eePassword,
+  clearLegacyE2eeAuthToken,
   commitLegacySyncStateScrub,
   getAppState,
   getLegacyE2eePassword,
+  getLegacyE2eeAuthToken,
   getLegacySyncState,
   loadAppState,
   saveAppState,
@@ -68,6 +70,7 @@ export function classifyOpenNote(facts: OpenNoteRequestInput): Promise<OpenNoteD
 // password" (fresh install, forgotten, or keyring unavailable).
 
 let cachedPassword: string | null = null;
+let cachedAuthToken: string | null = null;
 
 // The one real precondition for the first auto-sync cycle. `isE2eeConfigured()`
 // reads persisted connection metadata AND the in-memory password, and BOTH are
@@ -110,11 +113,12 @@ function withCredentialLock<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-/** Delete the keyring entry; on failure surface it and mark a retry (K3). */
-async function deleteStoredPassword(): Promise<void> {
+/** Delete both self-hosted keyring entries; on failure mark a retry (K3). */
+async function deleteStoredCredentials(): Promise<void> {
   if (!isTauri) return;
   try {
     await invoke('e2ee_password_delete');
+    await invoke('e2ee_session_token_delete');
     if (getAppState().pendingKeyringDeletion) {
       // Clear the marker (undefined → dropped by JSON.stringify, not persisted).
       await saveAppState({ ...getAppState(), pendingKeyringDeletion: undefined });
@@ -157,7 +161,14 @@ async function loadCredentialsOnBoot(): Promise<void> {
   // Finish a delete that a prior disconnect/forget couldn't complete.
   if (getAppState().pendingKeyringDeletion) {
     await withCredentialLock(async () => {
-      if (getAppState().pendingKeyringDeletion) await deleteStoredPassword();
+      if (getAppState().pendingKeyringDeletion) {
+        // A crash after the delete marker but before the state scrub must not
+        // re-import a legacy plaintext credential on the same boot.
+        clearLegacyE2eeAuthToken();
+        clearLegacyE2eePassword();
+        await deleteStoredCredentials();
+        await saveAppState(getAppState());
+      }
     });
     // If the delete still hasn't succeeded, do NOT load the credential the
     // user asked us to forget — leaving it unloaded keeps sync from resuming
@@ -177,7 +188,28 @@ async function loadCredentialsOnBoot(): Promise<void> {
         clearLegacyE2eePassword();
         await saveAppState(getAppState());
       }
+      if (getLegacyE2eeAuthToken() !== undefined) {
+        clearLegacyE2eeAuthToken();
+        await saveAppState(getAppState());
+      }
       return;
+    }
+    const legacyToken = getLegacyE2eeAuthToken();
+    try {
+      cachedAuthToken = (await invoke<string | null>('e2ee_session_token_get')) ?? null;
+      if (!cachedAuthToken && legacyToken != null) {
+        await invoke('e2ee_session_token_set', { token: legacyToken });
+        cachedAuthToken = legacyToken;
+      }
+    } catch (e) {
+      console.warn('[e2ee] session token keyring unavailable; will reauthenticate:', e);
+      // The securely saved password can obtain a fresh token. An unavailable
+      // keyring must not keep the legacy bearer in the vault backup.
+      cachedAuthToken = legacyToken ?? null;
+    }
+    if (legacyToken != null) {
+      clearLegacyE2eeAuthToken();
+      await saveAppState(getAppState());
     }
     const legacy = getLegacyE2eePassword();
     try {
@@ -189,7 +221,7 @@ async function loadCredentialsOnBoot(): Promise<void> {
         // getAppState() is sanitized (no e2eePassword) and the holdover is now
         // cleared, so this save rewrites the file without the plaintext field.
         await saveAppState(getAppState());
-        return;
+        // Continue loading the token and hosted state after password migration.
       }
       cachedPassword = (await invoke<string | null>('e2ee_password_get')) ?? null;
     } catch (e) {
@@ -211,7 +243,9 @@ export async function forgetStoredSyncPassword(): Promise<void> {
   await withCredentialLock(async () => {
     credentialGeneration++;
     cachedPassword = null;
-    await deleteStoredPassword();
+    cachedAuthToken = null;
+    clearLegacyE2eeAuthToken();
+    await deleteStoredCredentials();
   });
 }
 
@@ -255,6 +289,7 @@ export async function connectHostedE2ee(): Promise<void> {
   hostedConnected = true;
   hostedSavedVault = true;
   cachedPassword = null;
+  cachedAuthToken = null;
   // Rust stops whatever live loop the previous session had before it swaps the
   // session out (`SyncSession::connect_hosted` calls `stop_live` first), so
   // this process's "the stream is already running" flag is now stale. Left
@@ -307,9 +342,7 @@ export function isE2eeConfigured(): boolean {
   // rides the ladder auto-sync already has instead of needing one of its own.
   if (hostedConnected || hostedSavedVault) return true;
   const s = getAppState();
-  return Boolean(
-    s.e2eeServerUrl && s.e2eeAuthToken && s.e2eeUserId && s.e2eeCollectionId && cachedPassword,
-  );
+  return Boolean(s.e2eeServerUrl && s.e2eeUserId && s.e2eeCollectionId && cachedPassword);
 }
 
 /**
@@ -376,13 +409,17 @@ async function ensureConnected(passwordOverride?: string): Promise<void> {
 
   const s = getAppState();
   const password = passwordOverride ?? cachedPassword ?? undefined;
-  if (!s.e2eeServerUrl || !s.e2eeAuthToken || !s.e2eeUserId || !s.e2eeCollectionId || !password) {
+  if (!s.e2eeServerUrl || !s.e2eeUserId || !s.e2eeCollectionId || !password) {
     throw new Error('E2EE sync not configured');
+  }
+  if (!cachedAuthToken) {
+    await reauthenticateE2ee(password);
+    return;
   }
   try {
     const input: E2eeResumeInput = {
       serverUrl: s.e2eeServerUrl,
-      token: s.e2eeAuthToken,
+      token: cachedAuthToken,
       userId: s.e2eeUserId,
       collectionId: s.e2eeCollectionId,
       password,
@@ -477,6 +514,10 @@ export async function connectE2ee(serverUrl: string, password: string): Promise<
     credentialGeneration++;
     // Session works from memory immediately (like the native shells).
     cachedPassword = password;
+    cachedAuthToken = out.token;
+    // A new login supersedes any legacy token captured before boot migration.
+    // Stop re-injecting that bearer on every app-state write.
+    clearLegacyE2eeAuthToken();
     // Persist the connection metadata FIRST, so we can never end up with a
     // keyring password that has no matching metadata on disk (P2). If this
     // write fails, the on-disk state stays consistently OLD and the keyring is
@@ -486,7 +527,6 @@ export async function connectE2ee(serverUrl: string, password: string): Promise<
     await saveAppState({
       ...getAppState(),
       e2eeServerUrl: normalizedUrl,
-      e2eeAuthToken: out.token,
       e2eeUserId: out.userId,
       e2eeCollectionId: out.collectionId,
     });
@@ -498,6 +538,7 @@ export async function connectE2ee(serverUrl: string, password: string): Promise<
     let persisted = false;
     try {
       await invoke('e2ee_password_set', { password });
+      await invoke('e2ee_session_token_set', { token: out.token });
       persisted = true;
     } catch (e) {
       console.warn('[e2ee] could not persist vault password to keyring:', e);
@@ -546,12 +587,13 @@ export async function disconnectE2ee(): Promise<void> {
     // migration so it can't resurrect the credential we're clearing (K2).
     credentialGeneration++;
     cachedPassword = null;
-    // deleteStoredPassword handles a failed delete (toast + retry marker, K3).
-    await deleteStoredPassword();
+    cachedAuthToken = null;
+    clearLegacyE2eeAuthToken();
+    // deleteStoredCredentials handles a failed delete (toast + retry marker, K3).
+    await deleteStoredCredentials();
     await saveAppState({
       ...getAppState(),
       e2eeServerUrl: undefined,
-      e2eeAuthToken: undefined,
       e2eeUserId: undefined,
       e2eeCollectionId: undefined,
       e2eeSalt: undefined,
