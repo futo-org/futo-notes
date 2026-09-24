@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRawSnippet, flushSync, mount, unmount } from 'svelte';
 
 import Modal from './Modal.svelte';
-import { _dismissableStackDepth } from './dismissable';
 
 /**
  * The Escape contract every dialog inherits from `Modal` / `use:dismissable`.
@@ -86,12 +85,10 @@ describe('dialog dismissal contract', () => {
     const ondismiss = vi.fn();
     const behind = vi.fn();
     const app = mountModal(ondismiss);
-    expect(_dismissableStackDepth()).toBe(1);
 
     unmount(mounted.pop()!);
     void app;
     flushSync();
-    expect(_dismissableStackDepth()).toBe(0);
 
     document.addEventListener('keydown', behind);
     try {

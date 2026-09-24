@@ -124,7 +124,7 @@ pub fn find_wikilinks(text: &str) -> Vec<WikilinkOccurrence> {
     out
 }
 
-/// Return the leaf (last component) of a note ID. Mirrors `noteIdLeaf`.
+/// Return the leaf (last component) of a note ID.
 pub fn note_id_leaf(id: &str) -> &str {
     id.rsplit('/').next().unwrap_or(id)
 }

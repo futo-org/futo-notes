@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { resolveLocalizedMessage } from '$shared/localization';
 
-import { hostedErrorMessage, hostedErrorVariant, needsSignInAgain } from './hostedSyncErrors';
+import { hostedErrorMessage, hostedErrorVariant } from './hostedSyncErrors';
 import type { HostedErrorOutput } from './syncContract.generated';
 
 /** Every variant the Rust contract can reject with. */
@@ -55,8 +55,6 @@ describe('hostedErrorMessage', () => {
     const text = resolveLocalizedMessage(hostedErrorMessage({ kind: 'signInAgain' }));
     expect(text).toContain('Log in with FUTO again');
     expect(text).toMatch(/untouched/);
-    expect(needsSignInAgain({ kind: 'signInAgain' })).toBe(true);
-    expect(needsSignInAgain({ kind: 'wrongVaultPassword' })).toBe(false);
   });
 
   it('names a mistyped recovery key as a typo, not as the wrong key', () => {

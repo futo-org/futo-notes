@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { ensureSafeNoteId, safeNotePath, safeAppdataPath, noteIdFromFilename } from './pathSafety';
+import { ensureSafeNoteId, safeNotePath, safeAppdataPath } from './pathSafety';
 
 interface PathSafetyFixture {
   cases: Array<{ id: string; valid: boolean }>;
@@ -136,53 +136,5 @@ describe('safeAppdataPath', () => {
     expect(() => safeAppdataPath(base, '.')).toThrow('path traversal blocked');
     expect(() => safeAppdataPath(base, './file.json')).toThrow('path traversal blocked');
     expect(() => safeAppdataPath(base, 'sub/./file.json')).toThrow('path traversal blocked');
-  });
-});
-
-describe('noteIdFromFilename', () => {
-  it('strips .md suffix', () => {
-    expect(noteIdFromFilename('hello.md')).toBe('hello');
-    expect(noteIdFromFilename('my note.md')).toBe('my note');
-  });
-
-  it('handles nested path filenames', () => {
-    expect(noteIdFromFilename('Specs/folder.md')).toBe('Specs/folder');
-    expect(noteIdFromFilename('a/b/c.md')).toBe('a/b/c');
-    expect(noteIdFromFilename('Specs\\folder.md')).toBe('Specs/folder');
-  });
-
-  it('throws for non-.md files', () => {
-    expect(() => noteIdFromFilename('hello.txt')).toThrow();
-    expect(() => noteIdFromFilename('hello')).toThrow();
-    expect(() => noteIdFromFilename('shopping')).toThrow();
-  });
-
-  it('throws for .md alone (empty ID)', () => {
-    expect(() => noteIdFromFilename('.md')).toThrow('note id cannot be empty');
-  });
-
-  it('is case-sensitive (.MD does not match)', () => {
-    expect(() => noteIdFromFilename('note.MD')).toThrow();
-    expect(() => noteIdFromFilename('note.Md')).toThrow();
-    expect(() => noteIdFromFilename('note.mD')).toThrow();
-  });
-
-  it('strips only one trailing .md', () => {
-    expect(noteIdFromFilename('note.md.md')).toBe('note.md');
-    expect(noteIdFromFilename('note.md.md.md')).toBe('note.md.md');
-  });
-
-  it('handles unicode and emoji filenames', () => {
-    expect(noteIdFromFilename('cafe\u0301 \u2615.md')).toBe('cafe\u0301 \u2615');
-    expect(noteIdFromFilename('\u{1F4DD} notes.md')).toBe('\u{1F4DD} notes');
-  });
-
-  it('handles dots in titles', () => {
-    expect(noteIdFromFilename('v2.0 release.md')).toBe('v2.0 release');
-    expect(noteIdFromFilename('Dr. Smith.md')).toBe('Dr. Smith');
-  });
-
-  it('handles .md embedded but not at suffix', () => {
-    expect(() => noteIdFromFilename('file.md.txt')).toThrow();
   });
 });

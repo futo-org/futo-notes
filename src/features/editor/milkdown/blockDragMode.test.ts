@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 function withSearch<T>(search: string, run: () => T): T {
   const original = window.location;
@@ -13,10 +13,6 @@ function withSearch<T>(search: string, run: () => T): T {
     Object.defineProperty(window, 'location', { configurable: true, value: original });
   }
 }
-
-afterEach(() => {
-  delete (window as unknown as { __futoBlockDragMode?: string }).__futoBlockDragMode;
-});
 
 describe('resolveBlockDragMode', () => {
   it('long-presses in a native shell, whatever the user agent says', async () => {
@@ -41,19 +37,13 @@ describe('resolveBlockDragMode', () => {
     );
   });
 
-  it('lets a test force either mode from the window flag', async () => {
-    const { resolveBlockDragMode } = await import('./blockDragMode');
-    const w = window as unknown as { __futoBlockDragMode?: string };
-    w.__futoBlockDragMode = 'gutter-handle';
-    expect(resolveBlockDragMode(true)).toBe('gutter-handle');
-    w.__futoBlockDragMode = 'long-press';
-    expect(resolveBlockDragMode(false)).toBe('long-press');
-  });
-
   it('ignores an unrecognised forced value rather than obeying it', async () => {
     const { resolveBlockDragMode } = await import('./blockDragMode');
-    (window as unknown as { __futoBlockDragMode?: string }).__futoBlockDragMode = 'nonsense';
-    expect(resolveBlockDragMode(true)).toBe('long-press');
-    expect(resolveBlockDragMode(false)).toBe('gutter-handle');
+    expect(withSearch('?blockDragMode=nonsense', () => resolveBlockDragMode(true))).toBe(
+      'long-press',
+    );
+    expect(withSearch('?blockDragMode=nonsense', () => resolveBlockDragMode(false))).toBe(
+      'gutter-handle',
+    );
   });
 });
