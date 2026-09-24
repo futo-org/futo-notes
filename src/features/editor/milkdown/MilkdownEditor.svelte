@@ -2538,6 +2538,19 @@
     border-radius: 6px;
   }
 
+  /* ProseMirror's own stylesheet rule, which this editor never loads. The
+   * separator is the invisible `<img>` ProseMirror puts between a widget and
+   * a trailing `<br>` — an empty task item is exactly that: checkbox widget,
+   * separator, break. The global `img { display: block }` reset made it a
+   * block, splitting the empty line into anonymous boxes, and the caret was
+   * drawn in the zero-height one above the real line: "cursor is too high
+   * when no text is entered". → tests/editor-embed-milkdown-parity.spec.ts */
+  :global(.futo-milkdown .ProseMirror img.ProseMirror-separator) {
+    display: inline !important;
+    border: none !important;
+    margin: 0 !important;
+  }
+
   :global(.futo-milkdown .ProseMirror table) {
     border-collapse: collapse;
     display: block;

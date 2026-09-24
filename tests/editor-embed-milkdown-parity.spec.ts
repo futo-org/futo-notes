@@ -326,6 +326,33 @@ test('the checkbox stays clear of the screen edge iOS reserves', async ({ page }
   expect(box.x).toBeGreaterThanOrEqual(20);
 });
 
+/* An empty task item is checkbox widget + ProseMirror's separator <img> +
+ * trailing <br>. The global `img { display: block }` reset made the separator a
+ * block, which split the line and drew the caret ABOVE it — "cursor is too high
+ * when no text is entered". Headless engines do not paint a caret, so this
+ * holds the thing the caret is drawn against: the separator sits on the line,
+ * not at its top edge. */
+test('the caret in an empty task item sits on the line, not above it', async ({ page }) => {
+  await open(page, '- [ ] tasks\n');
+  // Enter at the end of a task item makes the empty one, as a user would.
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+  await page.keyboard.press('Control+End');
+  await page.keyboard.press('Enter');
+  await flushFrames(page);
+  const geometry = await page.evaluate(() => {
+    const item = document.querySelectorAll('.ProseMirror li')[1];
+    const separator = item.querySelector('img.ProseMirror-separator');
+    const line = item.getBoundingClientRect();
+    return {
+      display: separator ? getComputedStyle(separator).display : null,
+      offset: separator ? separator.getBoundingClientRect().top - line.top : null,
+      height: line.height,
+    };
+  });
+  expect(geometry.display).toBe('inline');
+  expect(geometry.offset).toBeGreaterThan(geometry.height * 0.3);
+});
+
 test('clicking the item text places the caret instead of toggling', async ({ page }) => {
   await open(page, '- [ ] todo\n');
   const { x, y } = await centerOf(page, '.ProseMirror li p');
@@ -479,3 +506,4 @@ test('tags and checkboxes and fences all survive one round trip together', async
   expect(saved).toContain('[x] done');
   expect(saved).toContain('```js\nconst a = 1;\n```');
 });
+
