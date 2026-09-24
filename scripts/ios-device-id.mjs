@@ -8,7 +8,7 @@
 // Consumed by `just deploy-ios` and apps/ios/run-device.sh.
 //
 // Every device in a live `devicectl list devices --json-output` dump
-// (scripts/__fixtures__/ios-devicectl-list-devices.json) carries this once:
+// carries this once:
 //
 //   "_deprecationNotice": {
 //     "deprecatedFields": ["hardwareProperties", "deviceProperties", "connectionProperties"],
