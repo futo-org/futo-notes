@@ -605,6 +605,7 @@ class MainActivity : ComponentActivity() {
         // Auto-push local edits: every NotesStore mutation signals the live loop,
         // which debounces and pushes to peers (no-op when not connected).
         s.onLocalChange = { sync.noteChanged() }
+        s.onSortOrderChanged = { order -> NoteSortPreference.write(prefs, order) }
 
         // Silent sync-session restore [sync.md:91] — off-main, fire-and-forget,
         // never gates render. No-op when no password is stored.

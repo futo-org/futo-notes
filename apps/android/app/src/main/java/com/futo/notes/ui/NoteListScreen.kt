@@ -1,6 +1,5 @@
 package com.futo.notes.ui
 
-import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -65,9 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.futo.notes.NoteMutationOutcome
-import com.futo.notes.NoteSortPreference
 import com.futo.notes.NotesStore
-import com.futo.notes.Prefs
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.LocalizedMessage
 import com.futo.notes.shouldCompleteNoteAction
@@ -108,7 +105,6 @@ internal fun NoteListScreen(
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE) }
     val scope = rememberCoroutineScope()
     val listState = state.scrollStateFor(folder)
     val isRoot = folder.isEmpty()
@@ -160,12 +156,7 @@ internal fun NoteListScreen(
                             tint = c.textSecondary,
                         )
                     }
-                    NoteSortMenu(sortOrder = store.sortOrder) { order ->
-                        scope.launch {
-                            store.setSortOrder(order)
-                            NoteSortPreference.write(prefs, order)
-                        }
-                    }
+                    NoteSortMenu(sortOrder = store.sortOrder, onPick = store::selectSortOrder)
                     IconButton(onClick = onOpenSearch) {
                         Icon(
                             Icons.Filled.Search,

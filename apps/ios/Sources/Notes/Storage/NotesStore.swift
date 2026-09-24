@@ -397,6 +397,8 @@ final class NotesStore: ObservableObject {
     private let editorDraftCoordinator = EditorDraftCoordinator()
     private var editorDraftTail: Task<Void, Never>?
     private var folderMutationTail: Task<Void, Never>?
+    // Serialized so Rust and the shell always end on the same pick.
+    private var sortOrderTail: Task<Void, Never>?
     private var localTreeChangeTail: Task<Void, Never>?
 
     /// Flush every live editor's pending draft to disk (scenePhase inactive/
@@ -469,9 +471,11 @@ final class NotesStore: ObservableObject {
     }
 
     func setSortOrder(_ order: NoteSortOrder) {
-        guard order != sortOrder else { return }
-        let epoch = resetEpoch
-        Task {
+        let previous = sortOrderTail
+        sortOrderTail = Task {
+            await previous?.value
+            let epoch = resetEpoch
+            guard order != sortOrder, !resetting else { return }
             do {
                 let snapshot = try await vault.setSortOrder(order)
                 sortOrder = order

@@ -300,6 +300,9 @@ class NotesStore(
      *  auto-pushes the edit to peers. Mirrors the iOS `NotesStore.onLocalChange`. */
     var onLocalChange: (() -> Unit)? = null
 
+    /** Persists a sort order once Rust and the list have both taken it. */
+    var onSortOrderChanged: ((NoteSortOrder) -> Unit)? = null
+
     /** When true, mutations do NOT signal [onLocalChange] — set by the full-
      *  reset flow so the bulk wipe can't trigger an auto-push mid-delete
      *  [settings.md:43]. Mirrors desktop `resetAllNotes` pausing auto-sync. */
@@ -363,12 +366,27 @@ class NotesStore(
         }
     }
 
-    suspend fun setSortOrder(order: NoteSortOrder) {
-        if (order == sortOrder) return
-        val epoch = vaultEpoch
-        val snapshot = withCore { core.setSortOrder(order) }
-        sortOrder = order
-        applySnapshot(snapshot.notes, snapshot.folders, epoch)
+    // Fair lock on the store's own scope: picks reach Rust, the shell and the
+    // preference in tap order, and leaving the list can't cancel one mid-flight.
+    private val sortOrderMutex = Mutex()
+
+    fun selectSortOrder(order: NoteSortOrder) {
+        scope.launch {
+            sortOrderMutex.withLock {
+                if (order == sortOrder) return@withLock
+                val epoch = vaultEpoch
+                try {
+                    val snapshot = withCore { core.setSortOrder(order) }
+                    sortOrder = order
+                    onSortOrderChanged?.invoke(order)
+                    applySnapshot(snapshot.notes, snapshot.folders, epoch)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    android.util.Log.w("NotesStore", "sort order change failed", e)
+                }
+            }
+        }
     }
 
     suspend fun read(id: String): String = withCore { core.read(id) }
