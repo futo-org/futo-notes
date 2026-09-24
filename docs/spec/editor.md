@@ -1960,8 +1960,9 @@ unchanged by it.
   `DEVICE_BUDGET.firstFocusMs`, tests/lib/editorDevicePerfSnippets.mjs,
   tests/android-editor-perf.mjs
 - Decoration repaints are bounded to the textblocks a transaction changed, never
-  the document: tag decorations and fenced-code highlighting both re-derive only
-  the blocks that moved. A fence over 20,000 characters is left uncoloured
+  the document: tag decorations and fenced-code highlighting re-derive only
+  the blocks that moved, and a task checkbox edit rebuilds only the affected
+  item even inside a long nested list. A fence over 20,000 characters is left uncoloured
   rather than paying for it. → milkdown/blockDecorations.ts,
   milkdown/tagDecorations.ts, milkdown/codeHighlight.ts
 - Per-keystroke work does not scale with the number of links on screen times the

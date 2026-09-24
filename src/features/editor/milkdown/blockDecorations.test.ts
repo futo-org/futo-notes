@@ -6,6 +6,7 @@ import { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
 
 import { changedRanges, repaintBlocks, type PositionedBlock } from './blockDecorations';
 import { testSchema as s } from './__fixtures__/schema';
+import { taskItemsIn } from './taskCheckbox';
 
 function para(text: string): ProseNode {
   return s.nodes.paragraph.create(null, s.text(text));
@@ -92,6 +93,22 @@ describe('repaintBlocks', () => {
 
     expect(rebuilt).toHaveLength(1);
     expect(rebuilt[0]).toContain('!');
+  });
+
+  it('rebuilds only the edited task item in a large top-level list', () => {
+    const items = Array.from({ length: 1000 }, (_, i) =>
+      s.nodes.list_item.create({ checked: false }, para(`task ${i}`)),
+    );
+    const doc = s.nodes.doc.create(null, s.nodes.bullet_list.create(null, items));
+    const state = EditorState.create({ doc });
+    const target = taskItemsIn(doc, 0, doc.content.size)[500];
+    const tr = state.tr.insertText('!', target.pos + 4);
+    const rebuilt: number[] = [];
+    repaintBlocks(DecorationSet.empty, tr.doc, changedRanges(tr), taskItemsIn, (_node, pos) => {
+      rebuilt.push(pos);
+      return [];
+    });
+    expect(rebuilt).toEqual([target.pos]);
   });
 
   it('leaves the untouched blocks with their existing decorations', () => {

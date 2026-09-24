@@ -26,7 +26,7 @@ import { $prose } from '@milkdown/kit/utils';
 import {
   changedRanges,
   decorateAllBlocks,
-  repaintBlocks,
+  expandToBlocks,
   type PositionedBlock,
 } from './blockDecorations';
 import { isTaskItem } from './caretContext';
@@ -109,12 +109,9 @@ function renderCheckbox(checked: boolean, view: ProseView, getPos: () => number 
  * The OUTERMOST task items in `[from, to]`, with their positions — never one
  * inside another.
  *
- * That "never one inside another" is the point, and it is what `repaintBlocks`
- * requires: it clears a block's entire range before rebuilding it, so if one
- * block's range could contain another's, editing the parent would clear the
- * child's checkbox and re-add only the parent's. Task items are the one nesting
- * case among this editor's decorators — textblocks and fences cannot contain
- * each other. `decorateTaskItem` covers the whole subtree in exchange.
+ * Used for the initial decoration build. The incremental path below rebuilds
+ * individual widgets, since rebuilding an outer item would walk every nested
+ * task on a keystroke.
  */
 export function taskItemsIn(doc: ProseNode, from: number, to: number): PositionedBlock[] {
   const out: PositionedBlock[] = [];
@@ -148,8 +145,8 @@ function checkboxFor(node: ProseNode, pos: number): Decoration {
 
 /**
  * Checkbox widgets for a task item AND every task item nested inside it — the
- * counterpart to `taskItemsIn` returning only outermost items. Bounded by the
- * item being rebuilt, never by the document.
+ * counterpart to `taskItemsIn` returning only outermost items in the initial
+ * whole-document build.
  */
 function decorateTaskItem(node: ProseNode, pos: number): Decoration[] {
   const out = [checkboxFor(node, pos)];
@@ -166,26 +163,53 @@ export function taskCheckboxDecorations(doc: ProseNode): DecorationSet {
   return decorateAllBlocks(doc, taskItemsIn, decorateTaskItem);
 }
 
+function repaintTaskCheckboxes(
+  set: DecorationSet,
+  doc: ProseNode,
+  ranges: Array<[number, number]>,
+): DecorationSet {
+  let next = set;
+  const rebuild = new Map<number, ProseNode>();
+  for (const [from, to] of ranges) {
+    const [start, end] = expandToBlocks(doc, from, to);
+    // Clear widgets left at a former item position after a lift or deletion.
+    next = next.remove(
+      next.find(start, end).filter((widget) => widget.from >= start && widget.to <= end),
+    );
+    doc.nodesBetween(start, end, (node, pos) => {
+      if (node.type.name !== 'list_item') return true;
+      const checkbox = checkboxPos(node, pos);
+      const openingChanged = from <= pos + 1 && to >= pos;
+      const closingChanged = from <= pos + node.nodeSize && to >= pos + node.nodeSize - 1;
+      if ((checkbox >= start && checkbox <= end) || openingChanged || closingChanged) {
+        rebuild.set(pos, node);
+      }
+      return true;
+    });
+  }
+  for (const [pos, node] of rebuild) {
+    const checkbox = checkboxPos(node, pos);
+    next = next.remove(
+      next
+        .find(checkbox, checkbox)
+        .filter((widget) => widget.from === checkbox && widget.to === checkbox),
+    );
+    if (isTaskItem(node)) next = next.add(doc, [checkboxFor(node, pos)]);
+  }
+  return next;
+}
+
 export function createTaskCheckboxPlugin(): Plugin<DecorationSet> {
   return new Plugin<DecorationSet>({
     key: taskCheckboxKey,
     state: {
       init: (_config, state) => taskCheckboxDecorations(state.doc),
-      // Rebuilt, not mapped: a widget's rendered state is its item's `checked`
-      // attribute, and `setNodeMarkup` changes that WITHOUT moving a single
-      // position, so a mapped set would keep showing the old tick. Rebuilt only
-      // for the items the transaction's own steps touched, though — the toggle
-      // step's range covers the item it retyped, so nothing needs a walk of the
-      // whole document (AGENTS.md M5).
+      // Map existing widgets, then rebuild only the changed item's widget.
+      // `setNodeMarkup` can change checked state without moving a position,
+      // so mapping alone would leave the old tick visible (AGENTS.md M5).
       apply: (tr, set) =>
         tr.docChanged
-          ? repaintBlocks(
-              set.map(tr.mapping, tr.doc),
-              tr.doc,
-              changedRanges(tr),
-              taskItemsIn,
-              decorateTaskItem,
-            )
+          ? repaintTaskCheckboxes(set.map(tr.mapping, tr.doc), tr.doc, changedRanges(tr))
           : set,
     },
     props: {
