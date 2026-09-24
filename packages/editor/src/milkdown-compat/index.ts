@@ -74,6 +74,7 @@ import { scopedListOrderPlugin } from './listOrder';
 import { scopedKeepTableAlignPlugin, scopedTableEditingPlugin } from './tablePasses';
 
 export * from './atxEscape';
+export * from './bareUrl';
 export * from './stringifyHandlers';
 export * from './underscoreEscape';
 export { expandEmptyLinks } from './emptyLink';

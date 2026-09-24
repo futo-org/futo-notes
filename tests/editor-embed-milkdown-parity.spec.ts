@@ -507,3 +507,90 @@ test('tags and checkboxes and fences all survive one round trip together', async
   expect(saved).toContain('```js\nconst a = 1;\n```');
 });
 
+// ============================================================
+// Bare URLs — linked as they are typed, and saved as typed
+// ============================================================
+
+/* GFM autolink literals were recognised only when a note was PARSED: a typed
+ * URL stayed plain text until the note was reopened (reported: "it should
+ * become a hyperlink once i hit space or enter"). autolink.ts. */
+
+/** The links in the document, as [text, href]. */
+function links(page: Page): Promise<string[][]> {
+  return page.evaluate(() =>
+    [...document.querySelectorAll('.ProseMirror a')].map((a) => [
+      a.textContent ?? '',
+      a.getAttribute('href') ?? '',
+    ]),
+  );
+}
+
+async function typeIntoEmptyNote(page: Page, text: string): Promise<void> {
+  await open(page, '');
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+  await page.keyboard.type(text);
+}
+
+test('a typed URL becomes a link when Space ends it', async ({ page }) => {
+  await typeIntoEmptyNote(page, 'see https://youtube.com');
+  expect(await links(page)).toEqual([]);
+  await page.keyboard.type(' ok');
+  expect(await links(page)).toEqual([['https://youtube.com', 'https://youtube.com']]);
+  await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
+  // Saved as typed: bare, not `<https://youtube.com>`, and the text typed
+  // after it is not part of the link.
+  expect(await getContent(page)).toBe('see https://youtube.com ok\n');
+});
+
+test('a typed URL becomes a link when Enter ends it', async ({ page }) => {
+  await typeIntoEmptyNote(page, 'https://youtube.com');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('next');
+  expect(await links(page)).toEqual([['https://youtube.com', 'https://youtube.com']]);
+  await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
+  expect(await getContent(page)).toBe('https://youtube.com\n\nnext\n');
+});
+
+test('a typed link is exactly what reopening the note would link', async ({ page }) => {
+  // The trailing period is GFM's to trim, `www.` gains its `http://`, and a
+  // word that merely mentions a scheme is not a link.
+  await typeIntoEmptyNote(page, 'go to www.example.com. or https://a.com/x_y, not https:// ');
+  expect(await links(page)).toEqual([
+    ['www.example.com', 'http://www.example.com'],
+    ['https://a.com/x_y', 'https://a.com/x_y'],
+  ]);
+  await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
+  expect(await getContent(page)).toBe(
+    'go to www.example.com. or https://a.com/x_y, not https:// \n',
+  );
+});
+
+test('a URL typed inside inline code stays code', async ({ page }) => {
+  await open(page, '`https://youtube.com`\n');
+  await page.locator('.ProseMirror code').click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.type(' ');
+  expect(await links(page)).toEqual([]);
+});
+
+/* The serializer half. mdast-util-to-markdown writes a link whose text is its
+ * URL as `<url>` and a `www.` literal as `[text](http://…)`, so ANY edit used to
+ * rewrite every bare URL in the note. bareUrl.ts. */
+test('editing a note leaves its bare URLs bare', async ({ page }) => {
+  const note = 'see https://youtube.com ok\n\nand www.example.com, or (https://a.com/b).\n';
+  await open(page, note);
+  await typeAtEnd(page, ' X');
+  expect(await getContent(page)).toBe(note.replace(/\n$/, ' X\n'));
+});
+
+test('a URL that bare would not read back as the same link keeps its brackets', async ({
+  page,
+}) => {
+  // Bare, `https://a.com` followed straight by `x` would read back as the
+  // longer link `https://a.comx`.
+  const note = '<https://a.com>x\n';
+  await open(page, note);
+  await typeAtEnd(page, ' X');
+  expect(await getContent(page)).toBe('<https://a.com>x X\n');
+});

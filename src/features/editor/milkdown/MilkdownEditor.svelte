@@ -30,6 +30,7 @@
     defaultValueCtx,
     editorViewCtx,
     editorViewOptionsCtx,
+    remarkCtx,
     remarkStringifyOptionsCtx,
     rootCtx,
     schemaCtx,
@@ -62,7 +63,11 @@
     type Schema as ProseSchema,
   } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
-  import { imageReferenceMarkdown, withNarrowedEscapes } from '@futo-notes/editor';
+  import {
+    bareUrlLinkHandler,
+    imageReferenceMarkdown,
+    withNarrowedEscapes,
+  } from '@futo-notes/editor';
   import { FRONTMATTER_NODE } from '@futo-notes/editor/milkdown-compat';
   import {
     installVaultImageUrlResolver,
@@ -83,6 +88,7 @@
   import { createImagePasteHandler, resolveImagePasteSink } from '../imagePasteSink';
   import type { EditorLinkGesture } from '../editorLinkGesture';
   import { resolveBlockDragMode } from './blockDragMode';
+  import { autolink } from './autolink';
   import { blockDropIndicator } from './blockDropIndicator';
   import {
     rememberSelectionBeforeHandlePress,
@@ -619,6 +625,18 @@
             };
           });
 
+          /* Write a bare URL back bare instead of as `<url>` (or, for `www.`,
+           * a full `[text](url)`) — see packages/editor/src/milkdown-compat/
+           * bareUrl.ts. The processor is read at serialize time: it only has
+           * the gfm preset's plugins once the editor has been created. */
+          ctx.update(remarkStringifyOptionsCtx, (options) => ({
+            ...options,
+            handlers: {
+              ...options.handlers,
+              link: bareUrlLinkHandler((markdown) => ctx.get(remarkCtx).parse(markdown)),
+            },
+          }));
+
           /* `-` for bullet markers, not remark-stringify's default `*`.
            * The manifest's Bullet/Task buttons emit `- `, and so does the
            * overwhelming majority of the corpus, so `*` would make every
@@ -740,6 +758,7 @@
         .use(commonmarkWithCompat())
         .use(gfmWithCompat())
         .use(wikilink)
+        .use(autolink)
         .use(vaultImageView)
         .use(history)
         .use(listener)
