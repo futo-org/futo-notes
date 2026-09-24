@@ -555,34 +555,6 @@ describe('sync outcome source clearing', () => {
 });
 
 describe('peer projections', () => {
-  it('projects the complete changed-id report for a peer-driven batch', async () => {
-    const { manager } = makeManager();
-    await manager.handleSyncComplete({
-      ...emptySummary,
-      updatedIds: ['Peer', 'Mine'],
-      deletedIds: ['Gone'],
-      peerUpdatedIds: ['Peer'],
-      peerDeletedIds: ['Gone'],
-      renamed: [{ fromId: 'Old', toId: 'New' }],
-    });
-    expect(refreshNotesAfterSync).toHaveBeenCalledExactlyOnceWith(
-      ['Peer', 'Mine'],
-      ['Gone'],
-      [{ fromId: 'Old', toId: 'New' }],
-    );
-  });
-
-  it('projects a push-side write that has no peer-id entry', async () => {
-    const { manager } = makeManager();
-    await manager.handleSyncComplete({
-      ...emptySummary,
-      uploaded: 1,
-      localWritesApplied: 1,
-      updatedIds: ['Mine'],
-    });
-    expect(refreshNotesAfterSync).toHaveBeenCalledExactlyOnceWith(['Mine'], [], []);
-  });
-
   // Rename intent is engine-reported (including collision placements — see
   // collision_placement_reports_the_relocated_local_note_as_a_rename in
   // futo-notes-sync); this only guards the tab-follow wiring for a

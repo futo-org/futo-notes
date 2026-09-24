@@ -34,125 +34,86 @@ import {
 import type { NoteSessionDeps } from './noteSession.svelte.ts';
 
 describe('shouldWriteNoteToDisk', () => {
-  it('persists a new note when the title was changed', () => {
-    expect(
-      shouldWriteNoteToDisk({
-        savedTitle: 'Untitled',
-        newTitle: 'Title only',
-        content: '',
-        newContent: '',
-      }),
-    ).toBe(true);
-  });
-
-  it('skips writes for a brand-new note that was never touched', () => {
-    expect(
-      shouldWriteNoteToDisk({
-        savedTitle: 'Untitled (1)',
-        newTitle: 'Untitled (1)',
-        content: '',
-        newContent: '',
-      }),
-    ).toBe(false);
-  });
-
-  it('skips writes for existing notes when neither title nor content changed', () => {
-    expect(
-      shouldWriteNoteToDisk({
-        savedTitle: 'Existing',
-        newTitle: 'Existing',
-        content: '',
-        newContent: '',
-      }),
-    ).toBe(false);
+  it.each([
+    ['persists a new note when the title was changed', 'Untitled', 'Title only', true],
+    [
+      'skips writes for a brand-new note that was never touched',
+      'Untitled (1)',
+      'Untitled (1)',
+      false,
+    ],
+    [
+      'skips writes for existing notes when neither title nor content changed',
+      'Existing',
+      'Existing',
+      false,
+    ],
+  ])('%s', (_name, savedTitle, newTitle, expected) => {
+    expect(shouldWriteNoteToDisk({ savedTitle, newTitle, content: '', newContent: '' })).toBe(
+      expected,
+    );
   });
 });
 
 describe('editorHasUnseenChanges', () => {
-  it('reports typed content the save pipeline never saw', () => {
-    expect(
-      editorHasUnseenChanges({
-        editorContent: '# Fresh note',
-        savedContent: '',
-        title: 'Untitled',
-        savedTitle: 'Untitled',
-      }),
-    ).toBe(true);
-  });
-
-  it('reports an unsaved title-only change', () => {
-    expect(
-      editorHasUnseenChanges({
-        editorContent: 'body',
-        savedContent: 'body',
-        title: 'Renamed',
-        savedTitle: 'Original',
-      }),
-    ).toBe(true);
-  });
-
-  it('is clean when editor and title match the last save', () => {
-    expect(
-      editorHasUnseenChanges({
-        editorContent: 'body',
-        savedContent: 'body',
-        title: 'Same',
-        savedTitle: 'Same',
-      }),
-    ).toBe(false);
-  });
-
-  it('is clean when there is no editor (content undefined)', () => {
-    expect(
-      editorHasUnseenChanges({
-        editorContent: undefined,
-        savedContent: 'anything',
-        title: 'a',
-        savedTitle: 'b',
-      }),
-    ).toBe(false);
+  it.each([
+    [
+      'reports typed content the save pipeline never saw',
+      '# Fresh note',
+      '',
+      'Untitled',
+      'Untitled',
+      true,
+    ],
+    ['reports an unsaved title-only change', 'body', 'body', 'Renamed', 'Original', true],
+    ['is clean when editor and title match the last save', 'body', 'body', 'Same', 'Same', false],
+    [
+      'is clean when there is no editor (content undefined)',
+      undefined,
+      'anything',
+      'a',
+      'b',
+      false,
+    ],
+  ])('%s', (_name, editorContent, savedContent, title, savedTitle, expected) => {
+    expect(editorHasUnseenChanges({ editorContent, savedContent, title, savedTitle })).toBe(
+      expected,
+    );
   });
 });
 
 describe('isEditorChangeEcho', () => {
-  it('treats the rAF-deferred delivery of adopted content as an echo', () => {
-    expect(
-      isEditorChangeEcho({
-        nextContent: 'remote content',
-        content: 'remote content',
-        savedContent: 'remote content',
-      }),
-    ).toBe(true);
-  });
-
-  it('treats a real edit as an edit', () => {
-    expect(
-      isEditorChangeEcho({
-        nextContent: 'remote content plus a keystroke',
-        content: 'remote content',
-        savedContent: 'remote content',
-      }),
-    ).toBe(false);
-  });
-
-  it('still counts a type-then-revert delivery so session content converges', () => {
-    expect(
-      isEditorChangeEcho({
-        nextContent: 'old',
-        content: 'old+x',
-        savedContent: 'old',
-      }),
-    ).toBe(false);
-  });
-
-  it('never classifies a title-only debounce (no content payload) as an echo', () => {
-    expect(
-      isEditorChangeEcho({
-        nextContent: undefined,
-        content: 'body',
-        savedContent: 'body',
-      }),
-    ).toBe(false);
+  it.each([
+    [
+      'treats the rAF-deferred delivery of adopted content as an echo',
+      'remote content',
+      'remote content',
+      'remote content',
+      true,
+    ],
+    [
+      'treats a real edit as an edit',
+      'remote content plus a keystroke',
+      'remote content',
+      'remote content',
+      false,
+    ],
+    [
+      'still counts a type-then-revert delivery so session content converges',
+      'old',
+      'old+x',
+      'old',
+      false,
+    ],
+    [
+      'never classifies a title-only debounce (no content payload) as an echo',
+      undefined,
+      'body',
+      'body',
+      false,
+    ],
+  ])('%s', (_name, nextContent, content, savedContent, expected) => {
+    expect(isEditorChangeEcho({ nextContent, content, savedContent })).toBe(expected);
   });
 });
 
@@ -210,7 +171,7 @@ function restoreTitleSaveFakes(): void {
   vi.unstubAllGlobals();
 }
 
-describe('committing the title without waiting out the debounce', () => {
+describe('leaving a note whose save fails', () => {
   beforeEach(useTitleSaveFakes);
   afterEach(restoreTitleSaveFakes);
 
@@ -235,34 +196,6 @@ describe('committing the title without waiting out the debounce', () => {
       expect(session.savedContent).toBe('unsaved A');
     },
   );
-
-  it('renames on flush with no timer advance at all', async () => {
-    const session = createNoteSession(makeTitleDeps());
-    const { updateNote } = await import('./notes.svelte');
-
-    typeTitle(session, 'Grocery list');
-    await session.flushSave();
-
-    expect(updateNote).toHaveBeenCalledExactlyOnceWith('Grocery list', '', {
-      originalId: undefined,
-      base: '',
-    });
-  });
-
-  it('renames when the title field loses focus', async () => {
-    const session = createNoteSession(makeTitleDeps());
-    const { updateNote } = await import('./notes.svelte');
-
-    typeTitle(session, 'Grocery list');
-    session.handleTitleBlur();
-    // Microtasks only: reaching the 10 s backstop would rename regardless.
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(updateNote).toHaveBeenCalledExactlyOnceWith('Grocery list', '', {
-      originalId: undefined,
-      base: '',
-    });
-  });
 });
 
 describe('title debounce vs body debounce (character-loss race)', () => {

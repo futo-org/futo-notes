@@ -173,35 +173,15 @@ describe('installGlobalHandlers', () => {
 
   // #007 — a ResizeObserver notification the browser couldn't deliver within
   // a frame is not an app error; it must never reach the crash reporter.
-  it('drops "ResizeObserver loop completed with undelivered notifications" from onerror', async () => {
+  it.each([
+    'ResizeObserver loop completed with undelivered notifications.',
+    'ResizeObserver loop limit exceeded',
+  ])('drops "%s" from onerror', async (message) => {
     vi.resetModules();
     const { installGlobalHandlers } = await import('./crashHandler');
     installGlobalHandlers();
 
-    window.onerror!(
-      'ResizeObserver loop completed with undelivered notifications.',
-      'test.js',
-      1,
-      1,
-      new Error('ResizeObserver loop completed with undelivered notifications.'),
-    );
-
-    expect(window.localStorage.getItem(LS_QUEUE_KEY)).toBeNull();
-    expect(mockWriteAppData).not.toHaveBeenCalled();
-  });
-
-  it('drops "ResizeObserver loop limit exceeded" from onerror', async () => {
-    vi.resetModules();
-    const { installGlobalHandlers } = await import('./crashHandler');
-    installGlobalHandlers();
-
-    window.onerror!(
-      'ResizeObserver loop limit exceeded',
-      'test.js',
-      1,
-      1,
-      new Error('ResizeObserver loop limit exceeded'),
-    );
+    window.onerror!(message, 'test.js', 1, 1, new Error(message));
 
     expect(window.localStorage.getItem(LS_QUEUE_KEY)).toBeNull();
     expect(mockWriteAppData).not.toHaveBeenCalled();

@@ -603,10 +603,10 @@ one catalog entry, `license.enterKey`, so all three shells moved together
   fetched or stored, the reveal lasts only while the card is mounted, and
   leaving Settings re-masks it. The key reaches every shell already normalized,
   on the license view itself, so no shell reads it back out of its own storage
-  to display it. → `licenseCopy.test.ts` "masks every group of the key but the
-  last", `tests/license-card.spec.ts` "the masked key reveals the full key, with
-  no copy button"; _(ios)_ `LicenseSurfaceTests` "the card shows the masked key and
-  reveals on tap"; _(android)_ `LicenseSurfaceTest`
+  to display it. → `licenseCopy.test.ts` "masks every group but the last, to
+  the key's own length, hyphens included", `tests/license-card.spec.ts` "the
+  masked key reveals the full key, with no copy button"; _(ios)_
+  `LicenseSurfaceTests` "the card shows the masked key and reveals on tap"; _(android)_ `LicenseSurfaceTest`
   "theCardMasksTheStoredKeyAndRevealsItOnTap" +
   "revealingTheKeyMovesNothingOnThePlate", `LicenseKeyFontTest`
   "everyCharacterTheKeyCanContainIsTheSameWidth"

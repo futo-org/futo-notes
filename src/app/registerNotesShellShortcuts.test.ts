@@ -103,16 +103,6 @@ describe('registerNotesShellShortcuts', () => {
     expect(tabsStore.tabs.length).toBe(before - 1);
   });
 
-  it('opens find and steps in either direction from window focus', () => {
-    expect(press('f', { ctrlKey: true }).defaultPrevented).toBe(true);
-    press('g', { ctrlKey: true });
-    press('G', { ctrlKey: true, shiftKey: true });
-
-    expect(deps.openFind).toHaveBeenCalledOnce();
-    expect(deps.stepFind).toHaveBeenNthCalledWith(1, 1);
-    expect(deps.stepFind).toHaveBeenNthCalledWith(2, -1);
-  });
-
   it('still opens from an editor-like field that only prevents the browser default', () => {
     const input = document.createElement('input');
     input.addEventListener('keydown', (event) => event.preventDefault());

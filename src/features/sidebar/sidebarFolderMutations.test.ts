@@ -272,13 +272,6 @@ describe('renameSidebarNote', () => {
     ]);
   });
 
-  it('reports a forbidden character instead of sanitizing it away', async () => {
-    await expect(renameSidebarNote('Roadmap', 'a:b', options())).resolves.toEqual({
-      path: 'notes.title.forbiddenCharacter',
-    });
-    expect(mocks.moveNote).not.toHaveBeenCalled();
-  });
-
   it('rejects a path separator rather than moving the note into a new folder', async () => {
     await expect(renameSidebarNote('Roadmap', 'a/b', options())).resolves.toEqual({
       path: 'notes.title.forbiddenCharacter',

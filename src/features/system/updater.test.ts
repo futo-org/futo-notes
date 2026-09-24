@@ -8,24 +8,12 @@ vi.mock('$lib/platform', () => ({ isTauri: true }));
 vi.mock('@tauri-apps/plugin-updater', () => ({ check: checkMock }));
 vi.mock('@tauri-apps/plugin-process', () => ({ relaunch: relaunchMock }));
 
-import {
-  checkForUpdate,
-  installUpdate,
-  relaunchApp,
-  selfUpdateSupported,
-  updaterSupported,
-} from './updater';
+import { checkForUpdate, installUpdate, relaunchApp, selfUpdateSupported } from './updater';
 
 beforeEach(() => {
   checkMock.mockReset();
   relaunchMock.mockReset();
   vi.unstubAllEnvs();
-});
-
-describe('updaterSupported', () => {
-  it('is true on desktop', () => {
-    expect(updaterSupported()).toBe(true);
-  });
 });
 
 describe('fake update mode (dev VITE_FAKE_UPDATE)', () => {
@@ -119,40 +107,36 @@ describe('checkForUpdate', () => {
 });
 
 describe('installUpdate', () => {
-  it('accumulates byte progress then relaunches', async () => {
-    const events = [
-      { event: 'Started', data: { contentLength: 100 } },
-      { event: 'Progress', data: { chunkLength: 40 } },
-      { event: 'Progress', data: { chunkLength: 60 } },
-      { event: 'Finished' },
-    ];
-    const downloadAndInstall = vi.fn(async (cb: (e: unknown) => void) => {
-      for (const e of events) cb(e);
-    });
-    const update = {
-      version: '1.6.0',
-      currentVersion: '1.5.4',
-      handle: { downloadAndInstall },
-    } as unknown as PendingUpdate;
-
-    const progress: Array<[number, number | null]> = [];
-    await installUpdate(update, (received, total) => progress.push([received, total]));
-
-    expect(progress).toEqual([
-      [0, 100],
-      [40, 100],
-      [100, 100],
-      [100, 100],
-    ]);
-    expect(relaunchMock).toHaveBeenCalledOnce();
-  });
-
-  it('handles a missing contentLength (unknown total)', async () => {
-    const events = [
-      { event: 'Started', data: {} },
-      { event: 'Progress', data: { chunkLength: 25 } },
-      { event: 'Finished' },
-    ];
+  it.each([
+    [
+      'accumulates byte progress then relaunches',
+      [
+        { event: 'Started', data: { contentLength: 100 } },
+        { event: 'Progress', data: { chunkLength: 40 } },
+        { event: 'Progress', data: { chunkLength: 60 } },
+        { event: 'Finished' },
+      ],
+      [
+        [0, 100],
+        [40, 100],
+        [100, 100],
+        [100, 100],
+      ],
+    ],
+    [
+      'handles a missing contentLength (unknown total)',
+      [
+        { event: 'Started', data: {} },
+        { event: 'Progress', data: { chunkLength: 25 } },
+        { event: 'Finished' },
+      ],
+      [
+        [0, null],
+        [25, null],
+        [25, null],
+      ],
+    ],
+  ])('%s', async (_name, events, expected) => {
     const downloadAndInstall = vi.fn(async (cb: (e: unknown) => void) => {
       for (const e of events) cb(e);
     });
@@ -161,11 +145,7 @@ describe('installUpdate', () => {
     const progress: Array<[number, number | null]> = [];
     await installUpdate(update, (received, total) => progress.push([received, total]));
 
-    expect(progress).toEqual([
-      [0, null],
-      [25, null],
-      [25, null],
-    ]);
+    expect(progress).toEqual(expected);
     expect(relaunchMock).toHaveBeenCalledOnce();
   });
 

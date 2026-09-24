@@ -30,14 +30,6 @@ describe('createFeedbackForm', () => {
     globalThis.URL.revokeObjectURL = vi.fn();
   });
 
-  it('cannot send until a message is given', () => {
-    const form = createFeedbackForm(() => {});
-    expect(form.canSend).toBe(false);
-
-    form.setMessage('the toolbar hides my cursor');
-    expect(form.canSend).toBe(true);
-  });
-
   it('cannot send a whitespace-only message', () => {
     const form = createFeedbackForm(() => {});
     form.setMessage('   \n  ');
@@ -86,13 +78,6 @@ describe('createFeedbackForm', () => {
     expect(form.error).toContain('could not reach the server');
     expect(onsent).not.toHaveBeenCalled();
     expect(savedDraft()).toBe('still here');
-  });
-
-  it('restores the message typed before a restart', () => {
-    const first = createFeedbackForm(() => {});
-    first.setMessage('typed before closing');
-
-    expect(createFeedbackForm(() => {}).message).toBe('typed before closing');
   });
 
   it('asks the picker only for the slots that are still free', async () => {

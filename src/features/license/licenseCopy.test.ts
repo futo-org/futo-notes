@@ -163,21 +163,12 @@ describe('the license card', () => {
 
   // The whole point of the mask: the real last group and nothing else, so a
   // support conversation can name a key without the screen showing it.
-  it('masks every group of the key but the last', () => {
-    const masked = licenseCardModel(licensed).maskedKey ?? '';
-
-    expect(masked).toBe(MASKED);
-    expect(masked.endsWith('6UJV')).toBe(true);
-    expect(masked).not.toContain('AB12');
-    expect(masked).not.toContain('RS3T');
-  });
-
   // What makes revealing the key an IN-PLACE swap rather than a jump: the mask
   // is the key's own length and keeps its hyphens in the same columns, so in a
   // monospace face every dot is replaced by the character that was under it.
   // The mask this replaced was a fixed 39 characters joined by spaces, so an
   // org-prefixed 42-character key slid three cells right as it appeared.
-  it('masks a key to its own length, hyphens included', () => {
+  it("masks every group but the last, to the key's own length, hyphens included", () => {
     for (const key of [
       'AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV',
       'FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78',
