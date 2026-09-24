@@ -39,6 +39,7 @@ import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
 import { dragSourceAt, targetAtPointerY, type DropTarget } from './blockDragGeometry';
 import { isNoOpDrop, moveBlock } from './blockMove';
+import { carryPressSelectionThroughMove } from './handlePressSelection';
 
 /** Kept from `@milkdown/plugin-cursor`'s own contract so the component's
  * existing `:global(.milkdown-drop-indicator)` paint still applies. */
@@ -209,7 +210,10 @@ export const blockDropIndicator = $prose(
           const target = targetFor(view, selection, (event as DragEvent).clientY);
           if (!target) return false;
           event.preventDefault();
-          moveBlock(view, { from: selection.from, to: selection.to }, target.pos);
+          const { from, to } = selection;
+          moveBlock(view, { from, to }, target.pos, (tr, movedTo) =>
+            carryPressSelectionThroughMove(view, tr, { from, to, movedTo }),
+          );
           return true;
         },
       },
