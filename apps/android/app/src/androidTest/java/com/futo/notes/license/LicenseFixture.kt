@@ -27,23 +27,8 @@ object LicenseFixture {
             "OoQar46Q0hoGR-TKP03TgZs18dVZIeJOZ_k9eQTHaE2vkNXvG59lTDvKyZSKouOJ2rgiyoZV0a65BujEN-rNOyat" +
             "iauydFjCb2FSw"
 
-    /**
-     * The same license key in the **v1** format — a bare base64url signature
-     * over the key, with no envelope and no payload. It is what
-     * `staging-pay2.futo.org` issues today, and it is Licensed with no purchase
-     * time and no expiry to show (issue #161).
-     */
-    const val V1_ACTIVATION =
-        "bCGCpEu8pHvonpu0PS70awp-0mrKwow7FPDy583H8nAeqLc5_t7VjzyQzpKumfOX5sYQf9l2qjaGw5_LBdrBVjTYGi3s" +
-            "QhzHcIY2_s8SNZ5yGsFmWlDZjLrrp7yBY3l8GtV-kIoEpp9qfn3M5BNRcLtXzifP4Vqhn39H4czjimEpV_8yAeTVSOKo" +
-            "ZC7icSTsucZ_0JdQuTCNVHJ6rkKd8UDnKsJiPreAymEFcXTSjKtGpLpMIf1TZELV_GkjRlg7cJF9uoneudD9rgPQM5j0" +
-            "9kYmKSDnE8TarePm5JyCIM5HCXrBwOJGNh3qOhuediQb8yYu6u3cr06q6ZTqqeAIvw"
-
     /** What the FUTOpay activate-redirect page opens. */
     val deepLink: String get() = "futonotes://license/$KEY/$ACTIVATION"
-
-    /** The same link carrying the v1 activation. */
-    val v1DeepLink: String get() = "futonotes://license/$KEY/$V1_ACTIVATION"
 
     /** 2026-01-15T10:30:00Z, the fixture license's purchase instant. */
     const val ISSUED_AT_MILLIS = 1_768_473_000_000L

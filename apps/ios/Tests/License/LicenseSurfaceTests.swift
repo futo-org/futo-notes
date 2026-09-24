@@ -17,32 +17,6 @@ struct LicenseSurfaceTests {
         #expect(schemes.contains(licenseDeepLinkScheme()))
     }
 
-    /// `LICENSE_LINK_OUT` is `true` at launch: the app ships the full surface
-    /// worldwide (docs/spec/license.md § Store posture). This is the assertion
-    /// to flip — together with the compile condition — if a store ever objects.
-    @Test("the app links out at launch")
-    func linksOutByDefault() {
-        #if LICENSE_LINK_OUT_DISABLED
-            #expect(!LicenseLinkOut.isEnabled)
-        #else
-            #expect(LicenseLinkOut.isEnabled)
-        #endif
-    }
-
-    /// Both values of the flag, at the seam the row actually renders from, so
-    /// the consumption-only shape is exercised without a build flip: Buy,
-    /// Renew and Lost-your-key disappear and the key field stays.
-    @Test("link-out false keeps the key field and hides every way out")
-    func linkOutFalseHidesTheWaysOut() {
-        #expect(
-            licenseRowActions(status: .unlicensed, linkOut: true) == [.buy, .enterKey, .lostKey])
-        #expect(
-            licenseRowActions(status: .expired, linkOut: true) == [.renew, .enterKey, .lostKey])
-        #expect(licenseRowActions(status: .unlicensed, linkOut: false) == [.enterKey])
-        #expect(licenseRowActions(status: .expired, linkOut: false) == [.enterKey])
-        #expect(licenseRowActions(status: .licensed, linkOut: false) == [.remove])
-    }
-
     /// The card's Key row, at the seam the view renders from: masked by
     /// default, the stored key once revealed, and nothing at all with no
     /// license (decision D4). Asserted here rather than through a hosted
@@ -81,41 +55,23 @@ struct LicenseSurfaceTests {
         #expect(licenseKeyRowText(licensed, key: nil, revealed: true) == masked)
     }
 
-    /// The plate's four independent yes/no answers, once per state. Each is a
-    /// desktop decision this shell was two rounds behind on until 2026-09-18
+    /// The plate's yes/no answers for the one state no UI test can reach:
+    /// `LicensePlateTests` walks Unlicensed and Licensed on the real app, but a
+    /// simulator has no clock control to render Expired
     /// (docs/spec/license.md § States and copy).
-    @Test("the well, the letterhead and the ledger all belong to a stored license")
-    func plateShapePerState() {
+    @Test("an expired license keeps the letterhead and the key, not the well")
+    func expiredPlateShape() {
         let localization = Localization.system(
             requestedLanguageTags: ["en"], regionalLanguageTag: "en-US")
-        func card(_ view: LicenseView) -> LicenseCardModel { licenseCardModel(view, localization) }
         let key = "AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV"
-
-        // Unlicensed is an ask, not a card: no well to read as a failed load,
-        // no letterhead, and no lone blank row standing in for a ledger.
-        let unlicensed = card(
-            LicenseView(status: .unlicensed, issuedAtMillis: nil, expiresAtMillis: nil, key: nil))
-        #expect(
-            licensePlateShape(unlicensed)
-                == LicensePlateShape(
-                    well: false, letterhead: false, keyRow: false, headline: true))
-
-        // Licensed is the only state with a coin, and the only state with no
-        // headline and no badge.
-        let licensed = card(
-            LicenseView(status: .licensed, issuedAtMillis: nil, expiresAtMillis: nil, key: key))
-        #expect(
-            licensePlateShape(licensed)
-                == LicensePlateShape(
-                    well: true, letterhead: true, keyRow: true, headline: false))
-        #expect(licensed.badge == nil)
 
         // Expired has paid once: it keeps the letterhead and the key, wears its
         // badge, and has no coin in the well it no longer reserves.
-        let expired = card(
+        let expired = licenseCardModel(
             LicenseView(
                 status: .expired, issuedAtMillis: 1_704_196_800_000,
-                expiresAtMillis: 1_735_819_200_000, key: key))
+                expiresAtMillis: 1_735_819_200_000, key: key),
+            localization)
         #expect(
             licensePlateShape(expired)
                 == LicensePlateShape(

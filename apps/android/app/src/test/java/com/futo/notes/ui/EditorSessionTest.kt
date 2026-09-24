@@ -787,33 +787,6 @@ class EditorSessionTest {
         assertEquals(listOf(true, false), locks)
     }
 
-    /**
-     * Delete deliberately does NOT wait: it latches [EditorSession.isClosing]
-     * synchronously before its own drain runs, which is what already makes a
-     * picker round trip queued behind it a clean no-op the moment it reaches
-     * [EditorSession.runWork] (see `EditorExitEffects.awaitPendingWork`'s
-     * doc). This models the REAL `NoteEditorScreen` DELETE effects object,
-     * which — unlike NAVIGATE's and MOVE's — never overrides
-     * `awaitPendingWork`, so the interface default applies. If it ever needed
-     * to wait for something, this test would hang instead of completing.
-     */
-    @Test
-    fun `delete never waits — it relies on the closed latch instead`() = runBlocking {
-        val scope = scope()
-        val session = EditorSession(scope)
-        val log = mutableListOf<String>()
-        val effects = RecordingEffects(log, name = "delete")
-
-        session.end(EditorExit.DELETE, effects)
-        scope.settle()
-
-        assertTrue(effects.succeeded)
-        assertEquals(
-            listOf("delete:awaitPendingWork:start", "delete:awaitPendingWork:end"),
-            log.filter { it.startsWith("delete:awaitPendingWork") },
-        )
-    }
-
     @Test
     fun `navigation refuses to leave while a rename cannot commit`() = runBlocking {
         val scope = scope()

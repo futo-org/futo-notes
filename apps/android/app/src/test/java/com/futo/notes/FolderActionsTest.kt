@@ -34,47 +34,27 @@ class FolderActionsTest {
     }
 
     @Test
-    fun `the root folder screen lists only top-level folders`() {
-        assertEquals(
-            listOf("Archive", "Inbox", "Projects"),
-            immediateSubfolders(
-                folders = listOf("Archive", "Inbox", "Projects", "Projects/Plans", "Projects/Plans/Q3"),
-                of = "",
+    fun `immediateSubfolders lists only direct children, in the engine's order`() {
+        listOf(
+            // The root folder screen lists only top-level folders.
+            Triple(
+                "",
+                listOf("Archive", "Inbox", "Projects", "Projects/Plans", "Projects/Plans/Q3"),
+                listOf("Archive", "Inbox", "Projects"),
             ),
-        )
-    }
-
-    @Test
-    fun `a folder screen lists its immediate children, not its whole subtree`() {
-        assertEquals(
-            listOf("Projects/Plans", "Projects/Specs"),
-            immediateSubfolders(
-                folders = listOf(
-                    "Projects",
-                    "Projects/Plans",
-                    "Projects/Plans/Q3",
-                    "Projects/Specs",
-                    "ProjectsArchive",
-                ),
-                of = "Projects",
+            // A folder screen lists its immediate children, not its whole
+            // subtree, and a sibling sharing its prefix is not a child.
+            Triple(
+                "Projects",
+                listOf("Projects", "Projects/Plans", "Projects/Plans/Q3", "Projects/Specs", "ProjectsArchive"),
+                listOf("Projects/Plans", "Projects/Specs"),
             ),
-        )
-    }
-
-    @Test
-    fun `a leaf folder has no subfolders and never lists itself`() {
-        assertEquals(
-            emptyList<String>(),
-            immediateSubfolders(folders = listOf("Projects", "Projects/Plans"), of = "Projects/Plans"),
-        )
-    }
-
-    @Test
-    fun `derivation preserves the engine's alphabetical folder order`() {
-        // `folders` comes from a Rust BTreeSet; the shell adds no comparator.
-        assertEquals(
-            listOf("a", "B", "c"),
-            immediateSubfolders(folders = listOf("a", "B", "c"), of = ""),
-        )
+            // A leaf folder has no subfolders and never lists itself.
+            Triple("Projects/Plans", listOf("Projects", "Projects/Plans"), emptyList()),
+            // `folders` comes from a Rust BTreeSet; the shell adds no comparator.
+            Triple("", listOf("a", "B", "c"), listOf("a", "B", "c")),
+        ).forEach { (of, folders, expected) ->
+            assertEquals("subfolders of '$of'", expected, immediateSubfolders(folders = folders, of = of))
+        }
     }
 }
