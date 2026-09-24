@@ -499,6 +499,21 @@ describe('sync error escalation policy', () => {
     expect(manager.syncErrorMessage).toContain('deep/note.md');
   });
 
+  it('toasts again when a different file hits the same HTTP 413', async () => {
+    const { manager, toasts } = makeManager();
+    const rejected = (filename: string): SyncSummary => ({
+      ...emptySummary,
+      failures: [{ filename, kind: 'upload', statusCode: 413 }],
+      failureMessage: "1 change couldn't reach the server (HTTP 413)",
+    });
+    await manager.handleSyncComplete(rejected('first.png'), 'poll');
+    await manager.handleSyncComplete(rejected('second.png'), 'poll');
+    expect(toasts).toEqual([
+      { path: 'sync.errors.uploadsTooLarge', arguments: { filenames: 'first.png' } },
+      { path: 'sync.errors.uploadsTooLarge', arguments: { filenames: 'second.png' } },
+    ]);
+  });
+
   it('normalizes stream and cycle transport wording before toast dedupe', () => {
     const { manager, toasts } = makeManager();
     manager.start();

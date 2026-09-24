@@ -141,7 +141,9 @@ function createSyncFailureState(showToast: (message: ToastMessage) => void) {
     writeRefusal: WriteRefusalOutput | null = null,
     specificMessage: LocalizedMessage | null = null,
   ): void {
-    const changed = message !== syncErrorDiagnostic;
+    const changed =
+      message !== syncErrorDiagnostic ||
+      JSON.stringify(specificMessage) !== JSON.stringify(syncSpecificMessages[source] ?? null);
     syncError = true;
     syncErrorMessage = writeRefusal
       ? syncErrorForSource(source, writeRefusal)
