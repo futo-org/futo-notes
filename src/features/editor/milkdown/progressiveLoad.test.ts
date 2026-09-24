@@ -60,16 +60,9 @@ describe('appendChunkContent', () => {
     expect(topLevelText(dispatched[0].doc)).toEqual(['a', 'b']);
   });
 
-  it('keeps the append out of history — which also hides it from the host', () => {
-    // documentChanges.ts skips `addToHistory: false` transactions, so this one
-    // flag is both "Ctrl-Z cannot un-load a chunk" and "a chunk append never
-    // reaches the change notification".
-    const { view, dispatched } = stubView(doc(paragraph('a')));
-
-    appendChunkContent(view, doc(paragraph('b')));
-
-    expect(dispatched[0].getMeta('addToHistory')).toBe(false);
-  });
+  // The `addToHistory: false` flag itself — "Ctrl-Z cannot un-load a chunk" —
+  // is proven end to end by tests/editor-embed-milkdown.spec.ts's "streamed
+  // appends are not undoable — Ctrl-Z after an open keeps the note".
 
   it('dispatches nothing for an empty chunk', () => {
     const { view, dispatched } = stubView(doc(paragraph('a')));
