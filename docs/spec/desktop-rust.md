@@ -128,11 +128,20 @@ compatibility requirements and must not be reintroduced.
   touching the vault, which is what keeps the recovery UI reachable.
 - A default root that cannot be created (Windows Controlled Folder Access refuses
   `Documents\futo-notes` while `Documents` stays readable) is unavailable in the
-  same way: `vault_status` tries the same creation every command does and reports
-  `available: false`, so the recovery UI appears instead of an empty app. The
-  frontend never creates any root: an app-data write into a missing root fails
-  instead of `mkdir -p`-ing it. →
-  `vault_location::tests::a_default_root_that_cannot_be_created_is_reported_unavailable`
+  same way: the setup hook creates the default root before the webview loads, so
+  `vault_status` stays read-only and reports a default that is not a directory as
+  `available: false`; the recovery UI appears instead of an empty app. Nothing
+  else creates a root on demand: the frontend's app-data writes fail on a missing
+  root instead of `mkdir -p`-ing it, and a Rust panic report is dropped rather
+  than recreating a vanished vault for its `.crashlogs`. →
+  `vault_location::tests::a_default_root_that_cannot_be_created_is_reported_unavailable`,
+  `panic_reporter::tests::a_crash_never_recreates_a_missing_vault`
+
+  > **Gap:** _(Desktop)_ **Allowing the app through Controlled Folder Access while
+  > it runs leaves external edits unseen until a restart.** The next note command
+  > creates the default root and notes work, but the watcher failed to bind at
+  > launch and is only started once, so edits made outside the app do not appear
+  > until the app is restarted.
 - Note IDs and folder paths are validated beneath the root; traversal and root
   deletion are refused.
 - Destination collisions are folded by case and Unicode normalization, then
