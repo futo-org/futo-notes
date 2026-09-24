@@ -46,7 +46,10 @@ The home screen: the vault root's folders and notes, folder browsing, and search
   rows by id. A file is a note only when its id names that exact file: a Unix
   filename holding `\` or a filename that is not UTF-8 is not a note, since it
   would alias another note's id. A directory read that returns a name twice
-  still yields one note. → futo-notes-store `vault::note_id_of` / `walk`
+  still yields one note. Folders are named the same way: a Unix folder named
+  `x\y` is not listed, and never becomes the folders `x` and `x/y`. →
+  futo-notes-core `files::vault_fs::relative_name`; futo-notes-store
+  `vault::note_id_of` / `walk`
 - On the native shells the editor is a full-screen push (the list isn't
   visible while editing), so the splice that re-ranks an edited row happens
   while the list is off-screen; the list re-appears already in engine order —

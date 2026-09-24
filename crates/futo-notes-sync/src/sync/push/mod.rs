@@ -11,7 +11,7 @@ use crate::session::connect::client;
 use super::outcome::decision;
 use super::outcome::{append_derived_renames, record_checkpoint_failure};
 use super::tombstones::recover_stale_claims;
-use super::vault::{local_files, LocalFile};
+use super::vault::{local_scan, LocalFile};
 use super::{
     CycleFailure, PreWrite, Progress, SaveCheckpoint, SyncErrorKind, SyncPhase, SyncProgress,
     SyncSummary,
@@ -29,6 +29,7 @@ use local_changes::{detect_local_renames, missing_local_files};
 pub(in crate::sync) mod reason {
     pub(in crate::sync) const NOT_ON_SERVER: &str = "not_on_server";
     pub(in crate::sync) const UNPORTABLE_NAME: &str = "unportable_local_name";
+    pub(in crate::sync) const NAME_NOT_UTF8: &str = "local_name_not_utf8";
     pub(in crate::sync) const REMOTE_OBJECT_DELETED: &str = "remote_object_was_deleted";
     pub(in crate::sync) const LOCAL_CONTENT_CHANGED: &str = "local_content_changed";
     pub(in crate::sync) const SERVER_REJECTED_413: &str = "server_rejected_413";
@@ -47,15 +48,31 @@ pub(in crate::sync) mod reason {
 /// disk untouched and simply does not take part in sync.
 ///
 /// The portability question is asked with the same classifier the pull side
-/// uses, so one rule answers it for both directions.
-fn uploadable_files(files: Vec<LocalFile>, summary: &mut SyncSummary) -> Vec<LocalFile> {
+/// uses, plus one push-only rule: a name holding `\` (see the filter below).
+/// Files the scan could not name at all (`unnamed`) are journaled here too.
+fn uploadable_files(
+    files: Vec<LocalFile>,
+    unnamed: &[String],
+    summary: &mut SyncSummary,
+) -> Vec<LocalFile> {
+    for name in unnamed {
+        summary.decide(
+            SyncPhase::Push,
+            name,
+            decision::IGNORED,
+            reason::NAME_NOT_UTF8,
+        );
+    }
     files
         .into_iter()
         .filter(|file| {
-            let unportable = matches!(
-                classify_incoming_sync_path(&file.name),
-                IncomingSyncPath::Ignore(why) if why == IGNORE_UNPORTABLE_NAME
-            );
+            // A `\` inside a Unix name reads as a folder separator on Windows,
+            // so a peer there would hold the note under another name.
+            let unportable = file.name.contains('\\')
+                || matches!(
+                    classify_incoming_sync_path(&file.name),
+                    IncomingSyncPath::Ignore(why) if why == IGNORE_UNPORTABLE_NAME
+                );
             if unportable {
                 summary.decide(
                     SyncPhase::Push,
@@ -120,10 +137,11 @@ pub(super) async fn push_with_checkpoint_client(
     save_checkpoint: &SaveCheckpoint,
 ) -> Result<(SyncSummary, ConnectedState), CycleFailure> {
     recover_stale_claims(root, pre_write);
-    let mut files = local_files(root).map_err(|error| CycleFailure {
+    let scan = local_scan(root).map_err(|error| CycleFailure {
         kind: SyncErrorKind::Io(error),
         state: state.clone(),
     })?;
+    let mut files = scan.files;
     let mut next = state.clone();
     let mut summary = SyncSummary::default();
     let blocked_pending = recover_pending_creates(http, &mut next, root, &files, &mut summary)
@@ -148,7 +166,7 @@ pub(super) async fn push_with_checkpoint_client(
     // scan would tombstone the note on the server and every peer. So the skip
     // happens here, on the upload list alone, after missing- and rename-
     // detection have already seen the file.
-    let uploadable = uploadable_files(files, &mut summary);
+    let uploadable = uploadable_files(files, &scan.unnamed, &mut summary);
 
     progress(SyncProgress {
         phase: "pushing",

@@ -1916,3 +1916,16 @@ fn non_utf8_filenames_are_not_notes() {
         (only_the_utf8_note.clone(), only_the_utf8_note)
     );
 }
+
+// A Unix folder named `x\y` is not listed: it is not the folders `x` and `x/y`
+// (which do not exist), and no folder path can hold a `\`. Other empty
+// folders, even ones the app would not create (`Misc.`, `Aux`), still list.
+#[cfg(unix)]
+#[test]
+fn a_backslash_folder_name_is_not_listed_or_split() {
+    let root = TestRoot::new();
+    for folder in ["x\\y", "Misc.", "Aux"] {
+        fs::create_dir_all(root.0.join(folder)).unwrap();
+    }
+    assert_eq!(store(&root).snapshot().folders, ["Aux", "Misc."]);
+}

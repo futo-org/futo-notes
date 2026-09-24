@@ -860,8 +860,9 @@ impl LocalNoteStore {
 
     pub fn delete_folder(&self, folder: &str) -> Result<MutationResult, String> {
         self.delete_folder_with(folder, |path| {
-            let relative = path.strip_prefix(&self.root).map_err(|e| e.to_string())?;
-            vault_fs::remove_dir(&self.root, &relative.to_string_lossy(), true)
+            let relative = vault_fs::relative_name(&self.root, path)
+                .ok_or_else(|| format!("no vault name for {}", path.display()))?;
+            vault_fs::remove_dir(&self.root, &relative, true)
         })
     }
 
@@ -1154,8 +1155,7 @@ impl LocalNoteStore {
         let folder = recovered
             .backup
             .parent()
-            .and_then(|parent| parent.strip_prefix(&self.root).ok())
-            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+            .and_then(|parent| vault_fs::relative_name(&self.root, parent))
             .unwrap_or_default();
         let title = futo_notes_core::files::note_id_from_filename(&recovered.leaf)
             .unwrap_or_else(|| recovered.leaf.clone());
@@ -1169,12 +1169,8 @@ impl LocalNoteStore {
         // landed; just finish the interrupted cleanup. (Content identity, not
         // inode nlink, so it holds on Windows too; mirrors the Swift
         // parkConflictCopyIfAbsent guard.)
-        let backup_relative = recovered
-            .backup
-            .strip_prefix(&self.root)
-            .map_err(|e| e.to_string())?
-            .to_string_lossy()
-            .into_owned();
+        let backup_relative = vault_fs::relative_name(&self.root, &recovered.backup)
+            .ok_or_else(|| format!("no vault name for {}", recovered.backup.display()))?;
         let backup_content = String::from_utf8(vault_fs::read(&self.root, &backup_relative)?)
             .map_err(|e| e.to_string())?;
         let already_parked = vault::note_paths(&self.root).into_iter().any(|(id, _)| {
@@ -1478,14 +1474,10 @@ fn prune_empty_parents(root: &Path, note_path: &Path) {
             .ok()
             .and_then(|mut entries| entries.next())
             .is_none();
-        if !empty
-            || vault_fs::remove_dir(
-                root,
-                &directory.strip_prefix(root).unwrap().to_string_lossy(),
-                false,
-            )
-            .is_err()
-        {
+        let removed = empty
+            && vault_fs::relative_name(root, &directory)
+                .is_some_and(|relative| vault_fs::remove_dir(root, &relative, false).is_ok());
+        if !removed {
             return;
         }
         let Some(parent) = directory.parent() else {
