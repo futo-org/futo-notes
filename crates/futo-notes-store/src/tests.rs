@@ -1868,3 +1868,51 @@ fn a_parent_swapped_after_validation_cannot_redirect_a_write() {
         "base"
     );
 }
+
+fn listed_ids(store: &LocalNoteStore) -> (Vec<String>, Vec<String>) {
+    let listing = store
+        .startup_listing()
+        .notes
+        .into_iter()
+        .map(|note| note.id)
+        .collect();
+    (listing, ids_in_order(store))
+}
+
+// Linux and macOS allow `\` inside a filename; it must not read as a folder
+// separator, or `a\b.md` becomes a second `a/b` beside the real `a/b.md`.
+#[cfg(unix)]
+#[test]
+fn a_backslash_filename_does_not_alias_a_folder_note() {
+    let root = TestRoot::new();
+    fs::create_dir_all(root.0.join("a")).unwrap();
+    fs::write(root.0.join("a/b.md"), "real").unwrap();
+    fs::write(root.0.join("a\\b.md"), "alias").unwrap();
+    let only_the_real_note = vec!["a/b".to_owned()];
+    assert_eq!(
+        listed_ids(&store(&root)),
+        (only_the_real_note.clone(), only_the_real_note)
+    );
+}
+
+// Linux filenames are bytes. A name that is not UTF-8 has no note id: a lossy
+// decode would turn every invalid byte into U+FFFD, so two names shared one.
+#[cfg(target_os = "linux")]
+#[test]
+fn non_utf8_filenames_are_not_notes() {
+    use std::os::unix::ffi::OsStrExt;
+    let root = TestRoot::new();
+    for name in [b"caf\xe9.md".as_slice(), b"caf\xe8.md".as_slice()] {
+        fs::write(
+            root.0.join(std::ffi::OsStr::from_bytes(name)),
+            "latin-1 name",
+        )
+        .unwrap();
+    }
+    fs::write(root.0.join("plain.md"), "utf-8 name").unwrap();
+    let only_the_utf8_note = vec!["plain".to_owned()];
+    assert_eq!(
+        listed_ids(&store(&root)),
+        (only_the_utf8_note.clone(), only_the_utf8_note)
+    );
+}
