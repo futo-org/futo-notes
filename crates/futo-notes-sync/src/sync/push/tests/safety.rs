@@ -1,4 +1,36 @@
 use super::*;
+use wiremock::matchers::method;
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+#[tokio::test]
+async fn server_413_reports_the_file_and_remains_visible_on_the_next_cycle() {
+    let root = TempRoot::new();
+    std::fs::write(root.path().join("large.md"), "large body").unwrap();
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(413))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mut state = connected();
+    state.base_url = server.uri();
+
+    let (first, next) = push(&state, root.path(), &no_progress, &no_pre_write)
+        .await
+        .unwrap();
+    assert_eq!(first.failures.len(), 1);
+    assert_eq!(first.failures[0].filename, "large.md");
+    assert_eq!(first.failures[0].status_code, Some(413));
+    assert_eq!(first.conflicts, 1);
+
+    let (second, _) = push(&next, root.path(), &no_progress, &no_pre_write)
+        .await
+        .unwrap();
+    assert_eq!(second.failures.len(), 1);
+    assert_eq!(second.failures[0].status_code, Some(413));
+    assert_eq!(second.uploaded, 0);
+    server.verify().await;
+}
 
 #[tokio::test]
 async fn incomplete_root_scan_stops_before_remote_deletion() {
@@ -66,7 +98,10 @@ async fn push_skips_an_oversize_flagged_file_without_uploading_or_deleting_it() 
 
     assert_eq!(summary.uploaded, 0);
     assert_eq!(summary.conflicts, 1);
-    assert!(summary.failures.is_empty());
+    assert_eq!(summary.failures.len(), 1);
+    assert_eq!(summary.failures[0].filename, "big.md");
+    assert_eq!(summary.failures[0].status_code, Some(413));
+    assert!(summary.failure_message().unwrap().contains("HTTP 413"));
     assert!(root.path().join("big.md").exists());
     assert!(!next.object_map.contains_key(&file.name));
 }

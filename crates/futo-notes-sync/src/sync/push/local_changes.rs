@@ -120,6 +120,12 @@ pub(in crate::sync) fn prepare_upload(
 ) -> Option<UploadCandidate> {
     if context.state.oversize_skip.get(&file.name) == Some(&file.mtime) {
         context.summary.conflicts += 1;
+        context.summary.failures.push(SyncFailure {
+            filename: file.name.clone(),
+            kind: FailureKind::Upload,
+            status_code: Some(413),
+            detail: Some("unchanged since server rejected upload as too large".into()),
+        });
         context.summary.decide(
             SyncPhase::Push,
             &file.name,

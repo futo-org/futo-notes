@@ -9,7 +9,7 @@ use crate::server::Http;
 use crate::session::connect::client;
 
 use super::outcome::decision;
-use super::outcome::{append_derived_renames, record_checkpoint_failure};
+use super::outcome::{append_derived_renames, record_checkpoint_failure, FailureKind, SyncFailure};
 use super::tombstones::recover_stale_claims;
 use super::vault::{local_files, LocalFile};
 use super::{
@@ -29,6 +29,7 @@ use local_changes::{detect_local_renames, missing_local_files};
 pub(in crate::sync) mod reason {
     pub(in crate::sync) const NOT_ON_SERVER: &str = "not_on_server";
     pub(in crate::sync) const UNPORTABLE_NAME: &str = "unportable_local_name";
+    pub(in crate::sync) const REJECTED_LOCAL_PATH: &str = "rejected_local_path";
     pub(in crate::sync) const REMOTE_OBJECT_DELETED: &str = "remote_object_was_deleted";
     pub(in crate::sync) const LOCAL_CONTENT_CHANGED: &str = "local_content_changed";
     pub(in crate::sync) const SERVER_REJECTED_413: &str = "server_rejected_413";
@@ -51,20 +52,32 @@ pub(in crate::sync) mod reason {
 fn uploadable_files(files: Vec<LocalFile>, summary: &mut SyncSummary) -> Vec<LocalFile> {
     files
         .into_iter()
-        .filter(|file| {
-            let unportable = matches!(
-                classify_incoming_sync_path(&file.name),
-                IncomingSyncPath::Ignore(why) if why == IGNORE_UNPORTABLE_NAME
-            );
-            if unportable {
+        .filter(|file| match classify_incoming_sync_path(&file.name) {
+            IncomingSyncPath::Ignore(why) if why == IGNORE_UNPORTABLE_NAME => {
                 summary.decide(
                     SyncPhase::Push,
                     &file.name,
                     decision::IGNORED,
                     reason::UNPORTABLE_NAME,
                 );
+                false
             }
-            !unportable
+            IncomingSyncPath::Reject(why) => {
+                summary.failures.push(SyncFailure {
+                    filename: file.name.clone(),
+                    kind: FailureKind::Rejected,
+                    status_code: None,
+                    detail: Some(why.into()),
+                });
+                summary.decide(
+                    SyncPhase::Push,
+                    &file.name,
+                    decision::FAILED,
+                    reason::REJECTED_LOCAL_PATH,
+                );
+                false
+            }
+            _ => true,
         })
         .collect()
 }

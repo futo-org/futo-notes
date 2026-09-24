@@ -1796,6 +1796,32 @@ async function unportableNameNeverSyncsAndIsLeftAlone(a, b, server) {
   );
 }
 
+async function overdeepLocalPathIsReportedBeforeUpload(a, b, server) {
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+
+  const overdeep = `${'folder/'.repeat(11)}note`;
+  mkdirSync(join(a.notesDir, 'folder/'.repeat(11)), { recursive: true });
+  await a.externalWriteNote(overdeep, '# Too deep');
+  await a.writeNote('portable control', '# Control note');
+
+  const pushed = await a.syncNow();
+  const failures = pushed?.summary?.failures ?? [];
+  assert(
+    failures.some(
+      (failure) => failure.filename === `${overdeep}.md` && failure.kind === 'rejected',
+    ),
+    `sender must report the path peers reject: ${JSON.stringify(failures)}`,
+  );
+  const received = await b.syncNow();
+  assert(await b.noteExists('portable control'), 'a valid neighbour must still sync');
+  assert(!(await b.noteExists(overdeep)), 'the rejected path must never reach a peer');
+  assert(
+    !received?.summary?.failures?.length,
+    'the receiver should have no rejected-path failure because it was never uploaded',
+  );
+}
+
 // A real (tiny) PNG. Non-UTF-8 bytes — exactly the kind of content that the
 // old `.md`-only, read_to_string sync pipeline could never carry. We assert
 // the bytes survive byte-for-byte across the E2EE round-trip.
@@ -2815,6 +2841,11 @@ const scenarios = [
   {
     name: 'unportable name never syncs and is left alone',
     fn: unportableNameNeverSyncsAndIsLeftAlone,
+    matrices: ['desktop-desktop'],
+  },
+  {
+    name: 'overdeep local path is reported before upload',
+    fn: overdeepLocalPathIsReportedBeforeUpload,
     matrices: ['desktop-desktop'],
   },
   // TODO(justin): both external-watcher scenarios race under Docker/xvfb.

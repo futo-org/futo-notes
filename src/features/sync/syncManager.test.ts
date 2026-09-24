@@ -454,6 +454,51 @@ describe('sync error escalation policy', () => {
     expect(toasts).toEqual([{ path: 'sync.errors.completedWithErrors' }]);
   });
 
+  it('names the files rejected as too large or unsupported', async () => {
+    const { manager, toasts } = makeManager();
+    await manager.handleSyncComplete(
+      {
+        ...emptySummary,
+        failures: [{ filename: 'photos/large.png', kind: 'upload', statusCode: 413 }],
+        failureMessage: "1 change couldn't reach the server (HTTP 413)",
+      },
+      'poll',
+    );
+    expect(manager.syncErrorMessage).toContain('photos/large.png');
+    expect(toasts.at(-1)).toEqual({
+      path: 'sync.errors.uploadsTooLarge',
+      arguments: { filenames: 'photos/large.png' },
+    });
+
+    await manager.handleSyncComplete(
+      {
+        ...emptySummary,
+        failures: [{ filename: 'a/b/c.md', kind: 'rejected', statusCode: null }],
+        failureMessage: '1 note had an unsupported name and was skipped',
+      },
+      'poll',
+    );
+    expect(manager.syncErrorMessage).toContain('a/b/c.md');
+    expect(toasts.at(-1)).toEqual({
+      path: 'sync.errors.unsupportedPaths',
+      arguments: { filenames: 'a/b/c.md' },
+    });
+
+    await manager.handleSyncComplete(
+      {
+        ...emptySummary,
+        failures: [
+          { filename: 'large.png', kind: 'upload', statusCode: 413 },
+          { filename: 'deep/note.md', kind: 'rejected', statusCode: null },
+        ],
+        failureMessage: 'two failures',
+      },
+      'poll',
+    );
+    expect(manager.syncErrorMessage).toContain('large.png');
+    expect(manager.syncErrorMessage).toContain('deep/note.md');
+  });
+
   it('normalizes stream and cycle transport wording before toast dedupe', () => {
     const { manager, toasts } = makeManager();
     manager.start();
