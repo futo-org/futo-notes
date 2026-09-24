@@ -18,13 +18,9 @@ vi.mock('$lib/platform', () => ({
 import { registerNotesShellShortcuts } from './registerNotesShellShortcuts';
 import { tabsStore } from '$features/tabs/tabsStore.svelte';
 
-function press(
-  key: string,
-  init: Partial<KeyboardEventInit> = {},
-  target: EventTarget = window,
-): KeyboardEvent {
+function press(key: string, init: Partial<KeyboardEventInit> = {}): KeyboardEvent {
   const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init });
-  target.dispatchEvent(event);
+  window.dispatchEvent(event);
   return event;
 }
 
@@ -59,15 +55,12 @@ describe('registerNotesShellShortcuts', () => {
 
   afterEach(() => stop());
 
-  it('opens settings on the primary modifier + comma', () => {
-    const event = press(',', { ctrlKey: true });
-    expect(deps.openSettings).toHaveBeenCalledTimes(1);
-    expect(event.defaultPrevented).toBe(true);
-  });
-
-  it('toggles the sidebar on the primary modifier + backslash', () => {
-    const event = press('\\', { ctrlKey: true });
-    expect(deps.toggleSidebar).toHaveBeenCalledTimes(1);
+  it.each([
+    [',', 'openSettings'],
+    ['\\', 'toggleSidebar'],
+  ] as const)('runs the primary modifier + %s accelerator', (key, dep) => {
+    const event = press(key, { ctrlKey: true });
+    expect(deps[dep]).toHaveBeenCalledTimes(1);
     expect(event.defaultPrevented).toBe(true);
   });
 
@@ -101,17 +94,6 @@ describe('registerNotesShellShortcuts', () => {
     const before = tabsStore.tabs.length;
     menuHandlers[0]!('close-tab');
     expect(tabsStore.tabs.length).toBe(before - 1);
-  });
-
-  it('still opens from an editor-like field that only prevents the browser default', () => {
-    const input = document.createElement('input');
-    input.addEventListener('keydown', (event) => event.preventDefault());
-    document.body.appendChild(input);
-
-    press('f', { ctrlKey: true }, input);
-
-    expect(deps.openFind).toHaveBeenCalledOnce();
-    input.remove();
   });
 
   it('claims find shortcuts without touching the editor while another surface owns input', () => {

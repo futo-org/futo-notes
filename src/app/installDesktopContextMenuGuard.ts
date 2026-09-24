@@ -15,7 +15,7 @@ import { isMac, isTauri } from '$lib/platform';
 const EDITABLE_SELECTOR =
   'input, textarea, select, [contenteditable="true"], [contenteditable=""], .ProseMirror';
 
-export function shouldSuppressContextMenu(
+function shouldSuppressContextMenu(
   target: EventTarget | null,
   selection: Selection | null,
 ): boolean {

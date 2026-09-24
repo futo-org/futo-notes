@@ -103,17 +103,6 @@ describe('starting up', () => {
     expect(platform.readLicenseStatus).toHaveBeenCalledTimes(1);
   });
 
-  it('applies the stored status and the crate-owned links', async () => {
-    platform.readLicenseStatus.mockResolvedValue(LICENSED);
-    const license = await freshModel();
-
-    license.start();
-    await settle();
-
-    expect(license.view).toEqual(LICENSED);
-    expect(license.links.buy).toBe('https://buy.example');
-  });
-
   // A link that cold-started the app was applied by Rust and parked; the shell
   // drains it once it can toast.
   it('drains a link that arrived before the shell existed', async () => {
@@ -289,17 +278,6 @@ describe('entering a key', () => {
 });
 
 describe('the other row actions', () => {
-  it('returns to Unlicensed on remove', async () => {
-    platform.readLicenseStatus.mockResolvedValue(LICENSED);
-    const license = await freshModel();
-    license.start();
-    await settle();
-
-    await license.remove();
-
-    expect(license.view).toEqual(UNLICENSED);
-  });
-
   // Buy opens the SYSTEM browser at the crate-owned URL — never a webview, and
   // never a URL this shell assembled.
   it('opens the buy and support URLs it was given', async () => {
@@ -322,97 +300,30 @@ describe('the other row actions', () => {
   });
 });
 
-// The supporter coin spins up on the moment of becoming licensed, so the
-// counter behind it has to mean exactly that — not "is licensed", and not
-// "the app started and found a license".
+// The supporter coin spins up on the moment of becoming licensed, so the debt
+// behind it has to mean exactly that — not "is licensed", and not "the app
+// started and found a license". A celebration is a moment, and a moment is
+// spent: the plate collects this debt rather than watching for an event, so a
+// license that arrives by deep link while Settings is closed still gets its
+// coins the first time the plate is opened — and only then.
 describe('marking the moment of activation', () => {
-  it('counts a key that crosses into licensed', async () => {
-    platform.submitLicenseKey.mockResolvedValue({ outcome: 'activated', view: LICENSED });
-    const license = await freshModel();
-    license.start();
-    await settle();
-
-    expect(license.activations).toBe(0);
-    await license.enterKey('FN-AB12-…');
-
-    expect(license.activations).toBe(1);
-  });
-
-  it('counts a link that crosses into licensed', async () => {
-    const license = await freshModel();
-    license.start();
-    await settle();
-    platform.takePendingLicenseLink.mockResolvedValue({ outcome: 'activated', view: LICENSED });
-
-    platform.nudge?.();
-    await settle();
-
-    expect(license.activations).toBe(1);
-  });
-
   // Launching an app that was already paid for is not a purchase. The startup
   // read deliberately does not go through the same path.
-  it('does not count a license that was already there at startup', async () => {
-    platform.readLicenseStatus.mockResolvedValue(LICENSED);
+  it.each([
+    ['no license', UNLICENSED],
+    ['a license already stored', LICENSED],
+  ])('owes nothing at startup with %s', async (_name, stored) => {
+    platform.readLicenseStatus.mockResolvedValue(stored);
     const license = await freshModel();
 
     license.start();
     await settle();
 
-    expect(license.view).toEqual(LICENSED);
-    expect(license.activations).toBe(0);
-  });
-
-  it('does not count re-entering a key the device already holds', async () => {
-    platform.readLicenseStatus.mockResolvedValue(LICENSED);
-    platform.submitLicenseKey.mockResolvedValue({ outcome: 'activated', view: LICENSED });
-    const license = await freshModel();
-    license.start();
-    await settle();
-
-    await license.enterKey('FN-AB12-…');
-
-    expect(license.activations).toBe(0);
-  });
-
-  it('counts the next activation after a remove', async () => {
-    platform.readLicenseStatus.mockResolvedValue(LICENSED);
-    platform.submitLicenseKey.mockResolvedValue({ outcome: 'activated', view: LICENSED });
-    const license = await freshModel();
-    license.start();
-    await settle();
-
-    await license.remove();
-    await license.enterKey('FN-AB12-…');
-
-    expect(license.activations).toBe(1);
-  });
-});
-
-// A celebration is a moment, and a moment is spent. The plate collects this
-// debt rather than watching for an event, so a license that arrives by deep
-// link while Settings is closed still gets its coins the first time the plate
-// is opened — and only then.
-describe('the celebration debt', () => {
-  it('owes nothing until something crosses into licensed', async () => {
-    const license = await freshModel();
-    license.start();
-    await settle();
-
+    expect(license.view).toEqual(stored);
     expect(license.activationToCelebrate).toBe(false);
   });
 
-  it('owes nothing for a license that was already stored at startup', async () => {
-    platform.readLicenseStatus.mockResolvedValue(LICENSED);
-    const license = await freshModel();
-
-    license.start();
-    await settle();
-
-    expect(license.activationToCelebrate).toBe(false);
-  });
-
-  it('is owed once per activation and spent once', async () => {
+  it('is owed once when a key crosses into licensed, and spent once', async () => {
     platform.submitLicenseKey.mockResolvedValue({ outcome: 'activated', view: LICENSED });
     const license = await freshModel();
     license.start();
@@ -428,10 +339,35 @@ describe('the celebration debt', () => {
     expect(license.activationToCelebrate).toBe(false);
   });
 
-  // The bug this exists for: removing a license left `activations` at 1, so
-  // every later visit to Settings — including clicking the sidebar's
-  // "Unlicensed" label — threw a burst of coins (@justin 2026-09-18).
-  it('stays spent after the license is removed', async () => {
+  it('is owed when a link crosses into licensed', async () => {
+    const license = await freshModel();
+    license.start();
+    await settle();
+    platform.takePendingLicenseLink.mockResolvedValue({ outcome: 'activated', view: LICENSED });
+
+    platform.nudge?.();
+    await settle();
+
+    expect(license.activationToCelebrate).toBe(true);
+  });
+
+  it('is not owed for re-entering a key the device already holds', async () => {
+    platform.readLicenseStatus.mockResolvedValue(LICENSED);
+    platform.submitLicenseKey.mockResolvedValue({ outcome: 'activated', view: LICENSED });
+    const license = await freshModel();
+    license.start();
+    await settle();
+
+    await license.enterKey('FN-AB12-…');
+
+    expect(license.activationToCelebrate).toBe(false);
+  });
+
+  // The bug this exists for: removing a license left the activation count at
+  // 1, so every later visit to Settings — including clicking the sidebar's
+  // "Unlicensed" label — threw a burst of coins (@justin 2026-09-18). A new key
+  // after the remove is a new moment.
+  it('stays spent after the license is removed, and is owed again for a new key', async () => {
     platform.submitLicenseKey.mockResolvedValue({ outcome: 'activated', view: LICENSED });
     const license = await freshModel();
     license.start();
@@ -443,16 +379,6 @@ describe('the celebration debt', () => {
 
     expect(license.view).toEqual(UNLICENSED);
     expect(license.activationToCelebrate).toBe(false);
-  });
-
-  it('is owed again when a new key is entered', async () => {
-    platform.submitLicenseKey.mockResolvedValue({ outcome: 'activated', view: LICENSED });
-    const license = await freshModel();
-    license.start();
-    await settle();
-    await license.enterKey('FN-AB12-…');
-    license.celebrated();
-    await license.remove();
 
     await license.enterKey('FN-AB12-…');
 

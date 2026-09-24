@@ -1,9 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import {
-  installDesktopContextMenuGuard,
-  shouldSuppressContextMenu,
-} from './installDesktopContextMenuGuard';
+import { installDesktopContextMenuGuard } from './installDesktopContextMenuGuard';
 
 const platformState = vi.hoisted(() => ({ isMac: true, isTauri: true }));
 vi.mock('$lib/platform', async (importOriginal) => {
@@ -19,57 +16,58 @@ vi.mock('$lib/platform', async (importOriginal) => {
   };
 });
 
-function element(html: string): Element {
-  const host = document.createElement('div');
-  host.innerHTML = html;
-  return host.firstElementChild!;
+let stop: (() => void) | null = null;
+
+afterEach(() => {
+  stop?.();
+  stop = null;
+  window.getSelection()?.removeAllRanges();
+  document.body.innerHTML = '';
+  platformState.isMac = true;
+});
+
+function mount(html: string, selector: string): Element {
+  document.body.innerHTML = html;
+  return document.querySelector(selector)!;
 }
 
-const NO_SELECTION = { isCollapsed: true, toString: () => '' } as unknown as Selection;
-const TEXT_SELECTED = { isCollapsed: false, toString: () => 'some text' } as unknown as Selection;
+function contextMenu(target: EventTarget): boolean {
+  const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+  target.dispatchEvent(event);
+  return event.defaultPrevented;
+}
 
-describe('shouldSuppressContextMenu', () => {
-  it('suppresses the browser menu on plain chrome', () => {
-    expect(shouldSuppressContextMenu(element('<button>New</button>'), NO_SELECTION)).toBe(true);
-  });
-
+describe('the WebKit context menu', () => {
   // The editor is sacred: spellcheck suggestions, Look Up and Cut/Copy/Paste
   // all live in the native menu the editor must keep.
-  it('keeps the native menu inside the editor', () => {
-    const editor = element(
+  it.each([
+    ['plain chrome', true, '<button>New</button>', 'button'],
+    [
+      'the editor',
+      false,
       '<div class="ProseMirror" contenteditable="true"><p><span>hi</span></p></div>',
-    );
-    const inner = editor.querySelector('span')!;
-    expect(shouldSuppressContextMenu(inner, NO_SELECTION)).toBe(false);
+      'span',
+    ],
+    ['a textarea', false, '<textarea></textarea>', 'textarea'],
+    ['a text input', false, '<input type="text" />', 'input'],
+    ['a contenteditable', false, '<div contenteditable="true"></div>', 'div'],
+  ])('on %s is suppressed: %s', (_where, suppressed, html, selector) => {
+    stop = installDesktopContextMenuGuard();
+    expect(contextMenu(mount(html, selector))).toBe(suppressed);
   });
 
-  it('keeps the native menu in text fields', () => {
-    expect(shouldSuppressContextMenu(element('<textarea></textarea>'), NO_SELECTION)).toBe(false);
-    expect(shouldSuppressContextMenu(element('<input type="text" />'), NO_SELECTION)).toBe(false);
-    expect(
-      shouldSuppressContextMenu(element('<div contenteditable="true"></div>'), NO_SELECTION),
-    ).toBe(false);
-  });
+  it('is kept when there is a live selection to act on', () => {
+    stop = installDesktopContextMenuGuard();
+    const preview = mount('<p>note preview</p>', 'p');
+    const range = document.createRange();
+    range.selectNodeContents(preview);
+    window.getSelection()!.addRange(range);
 
-  it('keeps the native menu when there is a live selection to act on', () => {
-    expect(shouldSuppressContextMenu(element('<p>note preview</p>'), TEXT_SELECTED)).toBe(false);
-  });
-
-  it('ignores non-element targets', () => {
-    expect(shouldSuppressContextMenu(null, NO_SELECTION)).toBe(false);
+    expect(contextMenu(preview)).toBe(false);
   });
 });
 
 describe('macOS control-click never reaches the app as a click', () => {
-  let stop: (() => void) | null = null;
-
-  afterEach(() => {
-    stop?.();
-    stop = null;
-    document.body.innerHTML = '';
-    platformState.isMac = true;
-  });
-
   function row(): { el: HTMLElement; clicks: ReturnType<typeof vi.fn> } {
     const el = document.createElement('button');
     const clicks = vi.fn();
@@ -83,37 +81,20 @@ describe('macOS control-click never reaches the app as a click', () => {
     el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, ctrlKey }));
   }
 
-  it('swallows the click a control-click produces', () => {
+  // Two control-clicks arrive as a dblclick, which would open inline rename;
+  // off macOS Ctrl+click opens a background tab and must reach the app.
+  it.each([
+    ['swallows a control-click on macOS', true, 'click', true, 0],
+    ['swallows a control-dblclick on macOS', true, 'dblclick', true, 0],
+    ['leaves a plain click alone', true, 'click', false, 1],
+    ['leaves Ctrl+click alone off macOS', false, 'click', true, 1],
+  ] as const)('%s', (_title, isMac, type, ctrlKey, delivered) => {
+    platformState.isMac = isMac;
     stop = installDesktopContextMenuGuard();
     const { el, clicks } = row();
 
-    dispatch(el, 'click', true);
-    expect(clicks).not.toHaveBeenCalled();
-  });
-
-  it('swallows the dblclick two control-clicks produce, which opens inline rename', () => {
-    stop = installDesktopContextMenuGuard();
-    const { el, clicks } = row();
-
-    dispatch(el, 'dblclick', true);
-    expect(clicks).not.toHaveBeenCalled();
-  });
-
-  it('leaves a plain click alone', () => {
-    stop = installDesktopContextMenuGuard();
-    const { el, clicks } = row();
-
-    dispatch(el, 'click', false);
-    expect(clicks).toHaveBeenCalledTimes(1);
-  });
-
-  it('leaves Ctrl+click alone off macOS, where it opens a background tab', () => {
-    platformState.isMac = false;
-    stop = installDesktopContextMenuGuard();
-    const { el, clicks } = row();
-
-    dispatch(el, 'click', true);
-    expect(clicks).toHaveBeenCalledTimes(1);
+    dispatch(el, type, ctrlKey);
+    expect(clicks).toHaveBeenCalledTimes(delivered);
   });
 
   it('stops swallowing once uninstalled', () => {

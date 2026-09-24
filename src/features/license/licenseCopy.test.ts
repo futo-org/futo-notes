@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { LicenseView } from '$lib/platform/license';
 
-import { licenseAmbientLabel, licenseCardModel } from './licenseCopy';
+import { licenseCardModel } from './licenseCopy';
 
 // Mid-year, midday UTC: the *year* these render is the same in every time zone,
 // so the assertions below cannot flake on the runner's TZ. Assertions that would
@@ -37,61 +37,7 @@ const licensedV1: LicenseView = {
   key: KEY,
 };
 
-describe('the ambient label', () => {
-  it('reads Unlicensed with no license', () => {
-    expect(licenseAmbientLabel(unlicensed)).toBe('Unlicensed');
-  });
-
-  // A paid license says nothing outside Settings (@justin 2026-09-21). This
-  // corner used to read "Licensed since {date}", which made the reward for
-  // paying a permanent line of chrome about having paid — and only for a v2
-  // license, so the v1 that production mints already showed nothing.
-  it('has nothing to show once licensed', () => {
-    expect(licenseAmbientLabel(licensed)).toBeNull();
-  });
-
-  // The regression that matters is a date leaking back in, not the null: a
-  // reintroduced "Licensed since" line would pass a bare `toBeNull` written
-  // against the wrong fixture, so assert on the licensed view that HAS a date.
-  it('never shows the purchase date it holds', () => {
-    expect(licensed.issuedAt).not.toBeNull();
-
-    // `?? ''` so this stays an assertion about the TEXT: if the line is ever
-    // reintroduced the label becomes a string and these fail, rather than the
-    // matcher throwing on null and passing for the wrong reason.
-    const label = licenseAmbientLabel(licensed) ?? '';
-
-    expect(label).not.toContain('Licensed since');
-    expect(label).not.toContain('2026');
-  });
-
-  // The ambient label is the thing a purchase removes — and an expired license
-  // no longer removes it. Showing "Licensed since" here would mean an expired
-  // license looks exactly like a current one everywhere outside Settings.
-  it('goes back to Unlicensed when the license has expired', () => {
-    expect(licenseAmbientLabel(expired)).toBe('Unlicensed');
-  });
-
-  // A v1 license has no date, and there is no dateless "Licensed since"
-  // variant to fall back to. `null` means the footer renders nothing at all —
-  // dropping "Unlicensed" is the whole visible reward, and that still happens.
-  it('has nothing to show when a license carries no purchase date', () => {
-    expect(licenseAmbientLabel(licensedV1)).toBeNull();
-    expect(licenseAmbientLabel(licensedV1)).not.toBe('Unlicensed');
-  });
-});
-
 describe('the license card', () => {
-  it('shows the Unlicensed badge and no license of any kind with no license', () => {
-    const card = licenseCardModel(unlicensed);
-
-    expect(card.status).toBe('unlicensed');
-    expect(card.badge).toBe('Unlicensed');
-    expect(card.since).toBeNull();
-    expect(card.term).toBe('');
-    expect(card.maskedKey).toBeNull();
-  });
-
   it('names the purchase date and the expiry when licensed', () => {
     const card = licenseCardModel(licensed);
 
@@ -143,22 +89,22 @@ describe('the license card', () => {
     expect(card.maskedKey).toBe(MASKED);
   });
 
+  // No license shows the Unlicensed badge and no license of any kind.
   // Defensive: an Expired state can only come from a v2 activation whose
   // expiry passed, so it always has both dates. One arriving without them must
   // fall back to the whole Unlicensed card rather than render "since NaN".
-  it('falls back to Unlicensed when an expired state arrives without its dates', () => {
-    for (const view of [
-      { ...expired, expiresAt: null },
-      { ...expired, issuedAt: null },
-    ]) {
-      const card = licenseCardModel(view);
-
-      expect(card.status).toBe('unlicensed');
-      expect(card.badge).toBe('Unlicensed');
-      expect(card.since).toBeNull();
-      expect(card.term).toBe('');
-      expect(card.maskedKey).toBeNull();
-    }
+  it.each([
+    ['no license', unlicensed],
+    ['an expired state without its expiry', { ...expired, expiresAt: null }],
+    ['an expired state without its issue date', { ...expired, issuedAt: null }],
+  ])('renders the Unlicensed card for %s', (_name, view) => {
+    expect(licenseCardModel(view)).toEqual({
+      status: 'unlicensed',
+      badge: 'Unlicensed',
+      since: null,
+      term: '',
+      maskedKey: null,
+    });
   });
 
   // The whole point of the mask: the real last group and nothing else, so a

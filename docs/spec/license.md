@@ -821,7 +821,8 @@ one catalog entry, `license.enterKey`, so all three shells moved together
     three platforms in the same place. →
     `src/features/license/SidebarLicenseFooter.svelte`,
     `DrawerSidebar.svelte`, `SettingsScreen.svelte` (`initialSection`),
-    `licenseCopy.ts` (`licenseAmbientLabel`) + `licenseCopy.test.ts`
+    `licenseCopy.ts` (`licenseAmbientLabel`) + `tests/license-card.spec.ts`
+    "Sidebar ambient license label"
   - _(native shells)_ Mobile has no ambient label outside Settings; the License
     card is the **first thing at the top of Settings**, and in the Licensed
     state nothing on screen names the state at all — the coin in the well says
