@@ -359,13 +359,8 @@ impl HostedSetup {
     /// is signed out of this device either way; the session ages out on its
     /// own.
     pub async fn sign_out(&self, sync: &SyncSession, root: &Path) -> Result<(), HostedError> {
-        // The connected engine revokes its own token in `disconnect`. A
-        // hosted attempt can also hold a saved token before the engine has
-        // connected, in which case revoke that one here.
-        if !sync.is_connected().await {
-            if let Ok(http) = self.authorized().await {
-                let _ = http.logout().await;
-            }
+        if let Ok(http) = self.authorized().await {
+            let _ = http.logout().await;
         }
         *self.session.lock().expect("hosted session lock") = None;
         *self.collection_id.lock().expect("hosted collection lock") = None;
