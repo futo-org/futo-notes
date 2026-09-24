@@ -808,7 +808,9 @@ native shells edit tags as text in the body, which is not a gap.
   src/features/editor/milkdown/wikilink/syntax.test.ts,
   tests/editor-embed-milkdown-wikilinks.spec.ts
 - Clicking/tapping a wikilink navigates to the target note (desktop:
-  Cmd/Ctrl+click opens it in a new tab). → NotesShell.svelte onopenlink
+  Cmd/Ctrl+click opens it in a new tab; middle-click opens it in a background
+  tab). Rapid clicks on separate links each navigate. → NotesShell.svelte
+  onopenlink, MilkdownEditor.svelte `handleLinkClick`
 - A wikilink displays the **shortest unique path suffix** (`[[Projects/Roadmap]]`
   renders as "Roadmap" while unambiguous). The native shells feed the vault
   note list into the shared editor WebView over the bridge (`setNotes`), so
@@ -858,6 +860,9 @@ native shells edit tags as text in the body, which is not a gap.
   wikilink still
   focuses, so it can be edited). The editor consumes a tap on a NAVIGABLE link
   (`consumesTap`) and deliberately leaves a broken one to ProseMirror.
+  Scrolling, dragging, cancelling, or holding through the block long-press
+  threshold does not follow the touched link; a completed short tap follows it
+  once, even if the WebView also emits a synthetic click.
   Android already follows on the first tap (verified emulator 2026-07-08). Each pushed iOS
   editor needs an explicit `.id(noteId)` identity or SwiftUI would share one
   view's @State across the chain. Because the editor WebView is a single shared
@@ -935,6 +940,8 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   `EditorNavigationDecisionTests.swift`. Verified emulator + simulator
   2026-07-08 (tapping a rendered link opens Safari / Chrome to the target; iOS
   `openUrl` case and Android `ACTION_VIEW` intent both fire).
+  Scrolling from a link or holding it for a block drag does not open it;
+  separate rapid mouse clicks on links each open their URL.
   → platform/openExternalUrl.ts,
   src/features/editor/milkdown/MilkdownEditor.svelte `linkAt` / `activateLink`,
   editor-embed/main.ts, packages/editor bridge v6 `openUrl`,

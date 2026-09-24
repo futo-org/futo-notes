@@ -101,7 +101,11 @@
   import { dividerCaretFix } from './dividerCaret';
   import { computeActiveFormats, computeDisabledFormats } from './formatState';
   import { handleIndentShortcut, handleParityKeyDown } from './keyboardParity';
-  import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
+  import {
+    createMobileBlockDndPlugin,
+    DEFAULT_LONG_PRESS_MS,
+    type MobileDndHapticKind,
+  } from './mobileBlockDnd';
   import { codeHighlight } from './codeHighlight';
   import { createSelectionToolbarPlugin, resolveSelectionToolbar } from './selectionToolbar';
   import { createSlashMenuPlugin, resolveSlashMenu } from './slash';
@@ -596,7 +600,12 @@
       liveMarkdown = content;
     }
     container.addEventListener('click', handleClick);
+    container.addEventListener('auxclick', handleAuxClick);
+    container.addEventListener('pointerdown', handlePointerDown);
     // Not passive: the handler must be able to preventDefault a link tap.
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchmove', handleTouchMove, { passive: true });
+    container.addEventListener('touchcancel', handleTouchCancel);
     container.addEventListener('touchend', handleTouchEnd, { passive: false });
 
     (async () => {
@@ -1013,6 +1022,11 @@
         ownsImageUrlResolver = false;
       }
       container.removeEventListener('click', handleClick);
+      container.removeEventListener('auxclick', handleAuxClick);
+      container.removeEventListener('pointerdown', handlePointerDown);
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchcancel', handleTouchCancel);
       container.removeEventListener('touchend', handleTouchEnd);
       document.removeEventListener('scroll', handleBlockScroll, { capture: true });
       window.removeEventListener('mouseup', endHandleClick);
@@ -1590,14 +1604,21 @@
     shiftKey: false,
   };
 
-  /* A touchend that activated a link suppresses its own synthetic click, but
-   * belt-and-braces: a WebView that emits one anyway must not open the note
-   * twice. */
-  let lastLinkActivationMs = 0;
+  /* A WebView can emit a click after touchend despite preventDefault. Remember
+   * only that touch's anchor; independent mouse clicks must still open links. */
+  let pendingTouchClick: { anchor: HTMLAnchorElement; at: number } | null = null;
+  let linkTouch: {
+    identifier: number;
+    x: number;
+    y: number;
+    at: number;
+    anchor: HTMLAnchorElement;
+    moved: boolean;
+  } | null = null;
   const SYNTHETIC_CLICK_WINDOW_MS = 700;
+  const TAP_MOVE_PX = 10;
 
   function activateLink(link: EditorLink, gesture: EditorLinkGesture): void {
-    lastLinkActivationMs = Date.now();
     /* Broken links are posted too: what happens next is the HOST's call —
      * desktop opens an empty editor bound to the target text, the native embed
      * drops it (a recorded spec Gap). The editor does not resolve here. */
@@ -1605,8 +1626,63 @@
     else onopenurl?.(link.url);
   }
 
+  function handleTouchStart(event: TouchEvent): void {
+    linkTouch = null;
+    if (event.touches.length !== 1) return;
+    const anchor = (event.target as HTMLElement | null)?.closest('a');
+    const touch = event.changedTouches[0];
+    if (!anchor || !touch || !linkAt(anchor)) return;
+    linkTouch = {
+      identifier: touch.identifier,
+      x: touch.clientX,
+      y: touch.clientY,
+      at: Date.now(),
+      anchor,
+      moved: false,
+    };
+  }
+
+  function handleTouchMove(event: TouchEvent): void {
+    if (!linkTouch) return;
+    const touch = Array.from(event.touches).find(
+      (candidate) => candidate.identifier === linkTouch?.identifier,
+    );
+    if (
+      !touch ||
+      event.touches.length !== 1 ||
+      Math.hypot(touch.clientX - linkTouch.x, touch.clientY - linkTouch.y) > TAP_MOVE_PX
+    ) {
+      linkTouch.moved = true;
+    }
+  }
+
+  function handleTouchCancel(): void {
+    linkTouch = null;
+  }
+
+  function handlePointerDown(event: PointerEvent): void {
+    if (event.pointerType === 'mouse') pendingTouchClick = null;
+  }
+
   function handleTouchEnd(event: TouchEvent): void {
-    const link = linkAt(event.target as HTMLElement | null);
+    const started = linkTouch;
+    linkTouch = null;
+    const touch = Array.from(event.changedTouches).find(
+      (candidate) => candidate.identifier === started?.identifier,
+    );
+    // A rejected hold can still produce a compatibility click on release.
+    if (started && touch) pendingTouchClick = { anchor: started.anchor, at: Date.now() };
+    if (
+      !started ||
+      !touch ||
+      event.touches.length !== 0 ||
+      started.moved ||
+      Date.now() - started.at >= DEFAULT_LONG_PRESS_MS ||
+      Math.hypot(touch.clientX - started.x, touch.clientY - started.y) > TAP_MOVE_PX ||
+      !(event.target as HTMLElement | null)?.closest('a')?.isSameNode(started.anchor)
+    )
+      return;
+    const link = linkAt(started.anchor);
     if (!link) return;
     // Also stops WebKit turning the tap into a caret placement inside the chip.
     if (consumesTap(link)) event.preventDefault();
@@ -1617,6 +1693,15 @@
    * both draws the box and toggles it. This handler is only links and the
    * tap-to-surface-the-drag-handle behavior. */
   function handleClick(event: MouseEvent): void {
+    if (event.button !== 0) return;
+    handleLinkClick(event);
+  }
+
+  function handleAuxClick(event: MouseEvent): void {
+    if (event.button === 1) handleLinkClick(event);
+  }
+
+  function handleLinkClick(event: MouseEvent): void {
     const target = event.target as HTMLElement | null;
     if (!target) return;
 
@@ -1626,15 +1711,29 @@
     const link = linkAt(target);
     if (link) {
       if (consumesTap(link)) event.preventDefault();
-      if (Date.now() - lastLinkActivationMs > SYNTHETIC_CLICK_WINDOW_MS) {
-        activateLink(link, {
-          button: event.button === 1 ? 1 : 0,
-          altKey: event.altKey,
-          ctrlKey: event.ctrlKey,
-          metaKey: event.metaKey,
-          shiftKey: event.shiftKey,
-        });
-      }
+      const anchor = target.closest('a');
+      const touchClick = pendingTouchClick;
+      pendingTouchClick = null;
+      if (
+        event.button === 0 &&
+        event.detail !== 0 &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        touchClick?.anchor === anchor &&
+        Date.now() - touchClick.at <= SYNTHETIC_CLICK_WINDOW_MS &&
+        (event as MouseEvent & { sourceCapabilities?: { firesTouchEvents: boolean } })
+          .sourceCapabilities?.firesTouchEvents !== false
+      )
+        return;
+      activateLink(link, {
+        button: event.button === 1 ? 1 : 0,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+      });
       return;
     }
 
