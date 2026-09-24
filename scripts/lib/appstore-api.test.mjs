@@ -216,26 +216,19 @@ describe('versionState', () => {
 });
 
 describe('EDITABLE_VERSION_STATES', () => {
-  it('allows a version still being prepared or sent back by review', () => {
-    for (const state of [
-      'PREPARE_FOR_SUBMISSION',
-      'DEVELOPER_REJECTED',
-      'REJECTED',
-      'METADATA_REJECTED',
-    ]) {
-      expect(EDITABLE_VERSION_STATES.has(state)).toBe(true);
-    }
-  });
-
-  it('refuses a version that is already live or in review', () => {
-    for (const state of [
-      'READY_FOR_SALE',
-      'IN_REVIEW',
-      'WAITING_FOR_REVIEW',
-      'PENDING_DEVELOPER_RELEASE',
-    ]) {
-      expect(EDITABLE_VERSION_STATES.has(state)).toBe(false);
-    }
+  it.each([
+    // Still being prepared, or sent back by review.
+    ['PREPARE_FOR_SUBMISSION', true],
+    ['DEVELOPER_REJECTED', true],
+    ['REJECTED', true],
+    ['METADATA_REJECTED', true],
+    // Already live or in review.
+    ['READY_FOR_SALE', false],
+    ['IN_REVIEW', false],
+    ['WAITING_FOR_REVIEW', false],
+    ['PENDING_DEVELOPER_RELEASE', false],
+  ])('%s editable: %s', (state, editable) => {
+    expect(EDITABLE_VERSION_STATES.has(state)).toBe(editable);
   });
 });
 

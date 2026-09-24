@@ -47,20 +47,12 @@ describe('fetchIssuesSince', () => {
   // The public mirror needs no credential, and sending none is what makes "the
   // bot never writes to GitHub" independent of a token's scope — and unable to
   // expire, which is how 11 days of 401s happened.
-  it('sends no Authorization header', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse([RAW_ISSUE]));
-    await fetchIssuesSince({ repo: 'a/b', since: 'x', fetchImpl });
-
-    const [, init] = fetchImpl.mock.calls[0];
-    expect(init.headers).not.toHaveProperty('Authorization');
-    expect(Object.keys(init.headers).map((k) => k.toLowerCase())).not.toContain('authorization');
-  });
-
-  it('does not send a token even when one is passed in', async () => {
+  it('sends no credential, even when a token is passed in', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse([RAW_ISSUE]));
     await fetchIssuesSince({ repo: 'a/b', since: 'x', token: 'leftover', fetchImpl });
 
     const [, init] = fetchImpl.mock.calls[0];
+    expect(Object.keys(init.headers).map((k) => k.toLowerCase())).not.toContain('authorization');
     expect(JSON.stringify(init)).not.toContain('leftover');
   });
 

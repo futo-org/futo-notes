@@ -85,13 +85,10 @@ describe('nextWatermark', () => {
     expect(result).toBe('2026-07-23T04:36:27Z');
   });
 
-  it('keeps the current watermark when no issue is newer', () => {
-    expect(nextWatermark('2026-08-01T00:00:00Z', [{ updatedAt: '2026-07-05T00:00:00Z' }])).toBe(
-      '2026-08-01T00:00:00Z',
-    );
-  });
-
-  it('keeps the current watermark for an empty batch', () => {
-    expect(nextWatermark('2026-07-01T00:00:00Z', [])).toBe('2026-07-01T00:00:00Z');
+  it.each([
+    ['no issue is newer', [{ updatedAt: '2026-07-05T00:00:00Z' }]],
+    ['the batch is empty', []],
+  ])('keeps the current watermark when %s', (_label, issues) => {
+    expect(nextWatermark('2026-08-01T00:00:00Z', issues)).toBe('2026-08-01T00:00:00Z');
   });
 });
