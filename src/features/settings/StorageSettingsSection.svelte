@@ -4,7 +4,7 @@
   interface Props {
     notesDirectory: string;
     isCustomDirectory: boolean;
-    /** False once the vault folder has gone; both actions below are the way out. */
+    /** False once the vault folder has gone or the default cannot be created; the actions below are the way out. */
     vaultAvailable: boolean;
     onchange: () => void;
     onreset: () => void;
@@ -19,7 +19,11 @@
     <p class="settings-btn-desc">{notesDirectory}</p>
     {#if !vaultAvailable}
       <p class="settings-warning">
-        {localizedText('settings.storage.unreachableCurrentWarning')}
+        {localizedText(
+          isCustomDirectory
+            ? 'settings.storage.unreachableCurrentWarning'
+            : 'settings.storage.uncreatableDefaultWarning',
+        )}
       </p>
     {/if}
     <div class="settings-actions" style="margin-top: 10px">

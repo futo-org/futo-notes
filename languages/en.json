@@ -100,6 +100,7 @@
         "appFolderDescription": "App folder · private",
         "legacyInternalDescription": "Internal · private (legacy)",
         "unreachableCurrentWarning": "This folder is no longer reachable. Choose it again, or reset to the default location.",
+        "uncreatableDefaultWarning": "FUTO Notes can't create its notes folder here. Choose another folder, or allow FUTO Notes to write to this location.",
         "loading": "Loading…",
         "memoryVault": "In-memory test vault",
         "unableToRead": "Unable to read notes directory",

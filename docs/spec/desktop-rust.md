@@ -126,6 +126,13 @@ compatibility requirements and must not be reintroduced.
   rather than being recreated, so notes are never written into an empty directory
   standing where the vault used to be. `vault_status` reports that state without
   touching the vault, which is what keeps the recovery UI reachable.
+- A default root that cannot be created (Windows Controlled Folder Access refuses
+  `Documents\futo-notes` while `Documents` stays readable) is unavailable in the
+  same way: `vault_status` tries the same creation every command does and reports
+  `available: false`, so the recovery UI appears instead of an empty app. The
+  frontend never creates any root: an app-data write into a missing root fails
+  instead of `mkdir -p`-ing it. →
+  `vault_location::tests::a_default_root_that_cannot_be_created_is_reported_unavailable`
 - Note IDs and folder paths are validated beneath the root; traversal and root
   deletion are refused.
 - Destination collisions are folded by case and Unicode normalization, then

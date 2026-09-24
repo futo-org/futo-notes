@@ -104,16 +104,17 @@ describe('resolveNotesRoot', () => {
     expect(mockMkdir).not.toHaveBeenCalled();
   });
 
-  it('returns Rust-resolved default dir when no override and creates it', async () => {
+  it('returns the Rust-resolved default dir without creating it', async () => {
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'notes_dir_override_load') return null;
       if (cmd === 'resolve_default_notes_root') return '/home/user/Documents/futo-notes';
       throw new Error(`unexpected invoke: ${cmd}`);
     });
-    mockMkdir.mockResolvedValueOnce(undefined);
     const result = await resolveNotesRoot();
     expect(result).toBe('/home/user/Documents/futo-notes');
-    expect(mockMkdir).toHaveBeenCalledWith('/home/user/Documents/futo-notes', { recursive: true });
+    // Crash 1739: Windows refused this mkdir and the rejection escaped the
+    // recovery path. Rust creates the default root; `vault_status` reports failure.
+    expect(mockMkdir).not.toHaveBeenCalled();
   });
 
   it('honors env-derived root from Rust (e.g. FUTO_NOTES_DATA_DIR for dev/test isolation)', async () => {
@@ -122,7 +123,6 @@ describe('resolveNotesRoot', () => {
       if (cmd === 'resolve_default_notes_root') return '/tmp/wt-abc/data/notes';
       throw new Error(`unexpected invoke: ${cmd}`);
     });
-    mockMkdir.mockResolvedValueOnce(undefined);
     const result = await resolveNotesRoot();
     expect(result).toBe('/tmp/wt-abc/data/notes');
   });

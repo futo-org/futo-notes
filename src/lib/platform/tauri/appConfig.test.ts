@@ -25,7 +25,8 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
   remove: vi.fn(() => Promise.resolve()),
   mkdir: vi.fn(() => Promise.resolve()),
   rename: vi.fn(() => Promise.resolve()),
-  exists: vi.fn(() => Promise.resolve(false)),
+  // The notes root exists (Rust creates it); app-data files do not unless a test says so.
+  exists: vi.fn((path: string) => Promise.resolve(path === '/home/user/Documents/futo-notes')),
   stat: vi.fn(() => Promise.resolve({ mtime: new Date() })),
 }));
 
@@ -79,11 +80,13 @@ describe('getConfig', () => {
     expect(mkdir).not.toHaveBeenCalled();
   });
 
-  it('creates the default root on first use', async () => {
+  // Crash 1739: a default root Windows refuses to create rejected here, outside
+  // the recovery path. Rust creates it and `vault_status` reports the failure.
+  it('never creates the default root itself', async () => {
     setupInvokeMock();
     const { mkdir } = await import('@tauri-apps/plugin-fs');
     await getConfig();
-    expect(mkdir).toHaveBeenCalledWith('/home/user/Documents/futo-notes', { recursive: true });
+    expect(mkdir).not.toHaveBeenCalled();
   });
 
   it('reads the sidebar width from the config file', async () => {

@@ -91,15 +91,22 @@ pub(crate) const VAULT_UNAVAILABLE: &str = "Can't find your vault folder at";
 
 pub(crate) fn root(app: &AppHandle) -> Result<PathBuf, String> {
     resolve_root(load_override(app), || {
-        let root = default_root(app)?;
-        fs::create_dir_all(&root).map_err(io_error)?;
-        Ok(root)
+        create_default_root(default_root(app)?)
     })
 }
 
+/// The default root is the only one created on demand. Creating it is also how
+/// its availability is known: Windows Controlled Folder Access leaves `Documents`
+/// readable but refuses the new folder (crash 1739), so nothing short of trying
+/// tells an uncreatable default from a fresh install.
+fn create_default_root(root: PathBuf) -> Result<PathBuf, String> {
+    fs::create_dir_all(&root).map_err(io_error)?;
+    Ok(root)
+}
+
 /// THE availability rule — every consumer (commands via [`root`], the frontend via
-/// `vault_status`) asks this one function, with creation of the default root left
-/// to the caller's closure so asking never has to write anything.
+/// `vault_status`) asks this one function, with the default root supplied by the
+/// caller's closure.
 ///
 /// A custom root is never created on demand: for a vanished one — an unmounted
 /// drive, a revoked document-portal grant — `create_dir_all` either fails on every
@@ -157,19 +164,21 @@ pub struct VaultStatus {
 }
 
 fn status(app: &AppHandle) -> VaultStatus {
-    let custom = load_override(app);
+    status_of(load_override(app), default_root(app))
+}
+
+fn status_of(custom: Option<PathBuf>, default: Result<PathBuf, String>) -> VaultStatus {
     // Where the vault is supposed to be — named even when unreachable, so Settings
     // can say which folder went missing.
-    let located = custom.clone().or_else(|| default_root(app).ok());
+    let located = custom.clone().or_else(|| default.clone().ok());
     VaultStatus {
         display_path: located.as_deref().map_or_else(
             || "No notes folder is available".to_owned(),
             crate::portal_vault::display_path,
         ),
         is_custom: custom.is_some(),
-        // The rule every command applies, with a read-only default closure so
-        // asking creates nothing.
-        available: resolve_root(custom, || default_root(app)).is_ok(),
+        // The rule every command applies, creation of the default root included.
+        available: resolve_root(custom, || create_default_root(default?)).is_ok(),
         deletes_are_permanent: located
             .as_deref()
             .is_some_and(crate::system_trash::deletes_are_permanent),
@@ -281,9 +290,8 @@ mod tests {
         fs::remove_dir_all(existing).unwrap();
     }
 
-    /// With no custom root the default closure answers — and `resolve_root` itself
-    /// creates nothing, which is what lets `vault_status` ask the same question
-    /// read-only while `root()` supplies a creating closure.
+    /// With no custom root the default closure answers — `resolve_root` itself
+    /// creates nothing; creating the default is the closure's job.
     #[test]
     fn resolve_root_defers_to_the_default_closure_without_creating_anything() {
         let fresh = scratch("default");
@@ -293,6 +301,40 @@ mod tests {
             "resolve_root must not create the default root itself"
         );
         assert!(resolve_root(None, || Err("no documents dir".to_owned())).is_err());
+    }
+
+    /// Crash 1739: Windows Controlled Folder Access refuses to create
+    /// `Documents\futo-notes`, so every command failed while `vault_status` still
+    /// reported the default root available — no toast, no Storage warning, just an
+    /// empty app. A default root that cannot be created is unavailable.
+    #[test]
+    fn a_default_root_that_cannot_be_created_is_reported_unavailable() {
+        let parent = scratch("uncreatable-default");
+        fs::create_dir_all(&parent).unwrap();
+        // A file where the root should go makes creation fail on every OS.
+        let blocked = parent.join("notes");
+        fs::write(&blocked, "").unwrap();
+
+        let status = status_of(None, Ok(blocked.clone()));
+        assert!(
+            !status.available,
+            "an uncreatable default root must be unavailable"
+        );
+        assert!(!status.is_custom);
+        assert_eq!(status.display_path, blocked.display().to_string());
+
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn a_creatable_default_root_is_available_and_created() {
+        let parent = scratch("creatable-default");
+        let fresh = parent.join("notes");
+
+        assert!(status_of(None, Ok(fresh.clone())).available);
+        assert!(fresh.is_dir(), "the default root is created on first use");
+
+        fs::remove_dir_all(parent).unwrap();
     }
 
     /// A document-portal path must reach the override file byte-for-byte. An earlier

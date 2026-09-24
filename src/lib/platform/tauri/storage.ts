@@ -63,8 +63,13 @@ export function createTauriStorage({ getNotesRoot }: TauriStorageDependencies): 
     },
 
     async writeAppData(path, content) {
-      const fullPath = safeAppdataPath(await getNotesRoot(), path);
-      await writeAtomicText(fullPath, content, pluginFS);
+      const root = await getNotesRoot();
+      // The atomic write `mkdir -p`s its parent, which for a root-level file is
+      // the vault root. Roots are created only by Rust `vault_location`: this
+      // recreated a vanished custom root, and Windows refused it for the
+      // default (crash 1739).
+      if (!(await exists(root))) throw new Error(`Notes folder is missing: ${root}`);
+      await writeAtomicText(safeAppdataPath(root, path), content, pluginFS);
     },
 
     async deleteAppData(path) {

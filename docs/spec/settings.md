@@ -220,6 +220,11 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   never from a successful vault read, so **Reset to default** cannot be hidden by
   the failure it is there to undo. → `vault_location::VAULT_UNAVAILABLE`,
   StorageSettingsSection.svelte
+- A **default** folder the app cannot create (e.g. blocked by Windows Controlled
+  Folder Access) gets the same toast, and the Storage section says "FUTO Notes can't
+  create its notes folder here. Choose another folder, or allow FUTO Notes to write
+  to this location." with **Change directory** usable. → `vault_location::status_of`,
+  StorageSettingsSection.svelte
 - A vault whose external changes are found by polling rather than by inotify says
   nothing about it in the UI; the only user-visible consequence is that an external
   edit can take a few seconds to appear (see desktop-rust.md). If the watcher fails

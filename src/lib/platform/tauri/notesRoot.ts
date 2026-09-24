@@ -48,14 +48,9 @@ export async function ensureDirectory(path: string): Promise<void> {
   await mkdir(path, { recursive: true });
 }
 
-// Only the DEFAULT root is created on demand, matching Rust `vault_location`:
-// `mkdir -p` on a custom root succeeds under any writable ancestor, silently
-// replacing a vanished vault with an empty directory that `vault_status` then
-// reports available.
+// Creates nothing: Rust `vault_location` is the only owner of that rule — it
+// creates the default root at startup, and a root that cannot be created is
+// reported through `vaultStatus`, not thrown from here (crash 1739).
 export async function resolveNotesRoot(): Promise<string> {
-  const override = await loadNotesDirOverride();
-  if (override !== null) return override;
-  const root = await resolveDefaultNotesRoot();
-  await ensureDirectory(root);
-  return root;
+  return (await loadNotesDirOverride()) ?? resolveDefaultNotesRoot();
 }

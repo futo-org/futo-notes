@@ -101,6 +101,7 @@ describe('Tauri adapter public contract', () => {
 
   it('writes text app data atomically beneath the active root', async () => {
     const { tauriFS } = await import('../tauri');
+    native.exists.mockImplementation(async (path: string) => path === DEFAULT_ROOT);
 
     await tauriFS.writeAppData('.state/app.json', 'durable');
 
@@ -207,7 +208,7 @@ describe('Tauri adapter public contract', () => {
 
   it('preserves the shipped open-tab persistence shape in .app-config.json', async () => {
     const { saveConfig } = await import('../tauri');
-    native.exists.mockResolvedValueOnce(true);
+    native.exists.mockResolvedValue(true);
     native.readTextFile.mockResolvedValueOnce(JSON.stringify({ sidebarWidth: 280 }));
     const openTabs = {
       tabs: [
@@ -314,5 +315,19 @@ describe('Tauri adapter listener lifecycle', () => {
     finishRegistration(cleanup);
 
     await vi.waitFor(() => expect(cleanup).toHaveBeenCalledOnce());
+  });
+});
+
+describe('Tauri adapter app-data writes', () => {
+  // Crash 1739: `mkdir -p` of a root-level file's parent is `mkdir -p` of the vault
+  // root, which Windows refused for the default and which would silently recreate a
+  // vanished custom root. Rust `vault_location` alone creates roots.
+  it('never creates the notes root to write app data', async () => {
+    const { tauriFS } = await import('../tauri');
+
+    await expect(tauriFS.writeAppData('.app-state.json', '{}')).rejects.toThrow(DEFAULT_ROOT);
+    await expect(tauriFS.writeAppData('.crashlogs/crash.json', '{}')).rejects.toThrow(DEFAULT_ROOT);
+    expect(native.mkdir).not.toHaveBeenCalled();
+    expect(native.writeTextFile).not.toHaveBeenCalled();
   });
 });
