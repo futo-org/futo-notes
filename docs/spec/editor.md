@@ -1008,7 +1008,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   alignment correct for the columns that survive. Tapping a grip on touch
   does the same as clicking it. → src/features/editor/milkdown/table/tableGrips.ts,
   src/features/editor/milkdown/table/tableCommands.ts,
-  src/features/editor/milkdown/table/tableCommands.test.ts,
+  tests/editor-embed-milkdown-table-grips.spec.ts,
   src/features/editor/milkdown/table/tableCommands.roundtrip.test.ts
 
   > **Gap:** the grips are a fixed ~18px square, well under a comfortable
