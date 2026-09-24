@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const appStateMock = {
   e2eeServerUrl: '',
-  e2eeAuthToken: '',
+  e2eeCollectionId: '',
 };
 const preferencesMock = {
   sync: { lastError: '', lastSyncedAt: null as number | null },
@@ -47,7 +47,7 @@ import { createSyncSettings } from './createSyncSettings.svelte';
 
 beforeEach(() => {
   appStateMock.e2eeServerUrl = '';
-  appStateMock.e2eeAuthToken = '';
+  appStateMock.e2eeCollectionId = '';
   preferencesMock.sync = { lastError: '', lastSyncedAt: null };
   requestSync.mockReset().mockResolvedValue({});
   wasSyncErrorReported.mockReset().mockReturnValue(false);
@@ -130,7 +130,8 @@ describe('createSyncSettings', () => {
   });
 
   it('reset connection is gated on the confirm dialog', async () => {
-    appStateMock.e2eeAuthToken = 'token';
+    appStateMock.e2eeServerUrl = 'https://notes.example.com';
+    appStateMock.e2eeCollectionId = 'collection';
     const sync = createSyncSettings();
 
     confirmDialog.mockResolvedValue(false);
@@ -146,7 +147,8 @@ describe('createSyncSettings', () => {
   });
 
   it('clicking the locked server URL opens the reset-connection confirm (hidden affordance)', async () => {
-    appStateMock.e2eeAuthToken = 'token';
+    appStateMock.e2eeServerUrl = 'https://notes.example.com';
+    appStateMock.e2eeCollectionId = 'collection';
     confirmDialog.mockResolvedValue(false);
     const sync = createSyncSettings();
 
@@ -160,7 +162,8 @@ describe('createSyncSettings', () => {
   });
 
   it('forget password drops only the stored keyring entry after confirmation', async () => {
-    appStateMock.e2eeAuthToken = 'token';
+    appStateMock.e2eeServerUrl = 'https://notes.example.com';
+    appStateMock.e2eeCollectionId = 'collection';
     hasStoredSyncPassword.mockReturnValue(true);
     confirmDialog.mockResolvedValue(true);
     const sync = createSyncSettings();
@@ -182,7 +185,8 @@ describe('createSyncSettings', () => {
 
   it('syncNow updates lastSyncedAt and clears status on success', async () => {
     preferencesMock.sync.lastSyncedAt = 1234;
-    appStateMock.e2eeAuthToken = 'token';
+    appStateMock.e2eeServerUrl = 'https://notes.example.com';
+    appStateMock.e2eeCollectionId = 'collection';
     const sync = createSyncSettings();
 
     await sync.syncNow();
@@ -194,7 +198,7 @@ describe('createSyncSettings', () => {
 
   it('reauthenticates with an entered password before syncing and clears it only after', async () => {
     appStateMock.e2eeServerUrl = 'https://notes.example.com';
-    appStateMock.e2eeAuthToken = 'expired-token';
+    appStateMock.e2eeCollectionId = 'collection';
     hasStoredSyncPassword.mockReturnValue(true);
     const sync = createSyncSettings();
     sync.password = 'saved-password';

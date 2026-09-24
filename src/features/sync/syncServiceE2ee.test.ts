@@ -11,9 +11,11 @@ vi.mock('@tauri-apps/api/event', () => ({
 }));
 vi.mock('$shared/state/appState', () => ({
   clearLegacyE2eePassword: vi.fn(),
+  clearLegacyE2eeAuthToken: vi.fn(),
   commitLegacySyncStateScrub: vi.fn(() => Promise.resolve(true)),
   getAppState: vi.fn(() => appStateMock.state),
   getLegacyE2eePassword: vi.fn(() => undefined),
+  getLegacyE2eeAuthToken: vi.fn(() => undefined),
   getLegacySyncState: vi.fn(() => undefined),
   loadAppState: vi.fn(() => Promise.resolve()),
   saveAppState: vi.fn((state: Record<string, unknown>) => {
@@ -106,7 +108,6 @@ describe('connectE2ee normalizes the server URL (sync.md)', () => {
 describe('expired-session recovery', () => {
   const configured = {
     e2eeServerUrl: 'https://notes.example.com',
-    e2eeAuthToken: 'expired-token',
     e2eeUserId: 'user-1',
     e2eeCollectionId: 'collection-1',
   } as ReturnType<typeof getAppState>;
@@ -139,14 +140,15 @@ describe('expired-session recovery', () => {
       'e2ee_stop_live',
       'e2ee_connect',
       'e2ee_password_set',
+      'e2ee_session_token_set',
     ]);
     expect(mockInvoke).not.toHaveBeenCalledWith('e2ee_disconnect');
     expect(mockSaveAppState).toHaveBeenCalledWith(
       expect.objectContaining({
-        e2eeAuthToken: 'fresh-token',
         e2eeCollectionId: 'collection-1',
       }),
     );
+    expect(JSON.stringify(mockSaveAppState.mock.calls)).not.toContain('fresh-token');
     expect(JSON.stringify(mockSaveAppState.mock.calls)).not.toContain('saved-password');
   });
 
@@ -195,6 +197,7 @@ describe('expired-session recovery', () => {
       'e2ee_stop_live',
       'e2ee_connect',
       'e2ee_password_set',
+      'e2ee_session_token_set',
       'e2ee_sync_run',
     ]);
   });
