@@ -9,9 +9,12 @@ import org.junit.Test
  * narrow: reward length and variety, and refuse to call a long repeated
  * character strong. Rust owns the 12-character rule; this is advice on top.
  *
- * The cases mirror `vaultPasswordStrength.test.ts` and
- * `VaultPasswordStrengthTests.swift` — the three copies are an unlocked drift
- * entry, so they have to agree on the same inputs.
+ * This is the surviving suite for the `hosted-sync-shell-presentation` drift
+ * entry (test-reduction lever C, 2026-09-24): the TS and Swift copies of this
+ * test were dropped as per-shell replays of the same inputs, so this is the
+ * one place the strength estimate's cases are asserted. The TS
+ * (`vaultPasswordStrength.ts`) and Swift (`VaultPasswordStrength.swift`)
+ * production copies still exist and must still agree on the same inputs.
  */
 class VaultPasswordStrengthTest {
     @Test
