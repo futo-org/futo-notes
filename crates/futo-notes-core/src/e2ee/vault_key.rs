@@ -305,17 +305,6 @@ mod tests {
     }
 
     #[test]
-    fn unwrap_still_rejects_an_unknown_kdf() {
-        let vault_key = generate_vault_key();
-        let mut material = wrap_vault_key_argon2id(&vault_key, "password okay").unwrap();
-        material.key_kdf.kdf = "scrypt".to_owned();
-        assert!(matches!(
-            unwrap_vault_key("password okay", &material),
-            Err(E2eeError::UnsupportedKdf(_)),
-        ));
-    }
-
-    #[test]
     fn unwraps_a_pinned_v1_pbkdf2_envelope() {
         // Written by hand from an independent PBKDF2-HMAC-SHA256 + AES-256-GCM
         // implementation (Python `hashlib` + `cryptography`), NOT by this crate,

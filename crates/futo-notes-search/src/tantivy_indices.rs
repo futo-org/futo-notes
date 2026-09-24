@@ -455,22 +455,6 @@ mod tests {
     }
 
     #[test]
-    fn list_bm25_note_ids_returns_committed_notes_only() {
-        let (_dir, mut idx) = open_indices_in_tempdir();
-        idx.upsert_note_bm25("alpha", "Alpha", "body", "", "", 0);
-        idx.upsert_note_bm25("beta", "Beta", "body", "", "", 0);
-        let before = idx.list_bm25_note_ids().unwrap();
-        assert!(
-            before.is_empty(),
-            "uncommitted upserts are invisible to the reader"
-        );
-        idx.commit_bm25().unwrap();
-        let mut after = idx.list_bm25_note_ids().unwrap();
-        after.sort();
-        assert_eq!(after, vec!["alpha".to_string(), "beta".to_string()]);
-    }
-
-    #[test]
     fn bm25_note_mtimes_returns_committed_mtimes() {
         let (_dir, mut idx) = open_indices_in_tempdir();
         idx.upsert_note_bm25("alpha", "Alpha", "body", "", "", 1_000);

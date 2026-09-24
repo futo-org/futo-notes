@@ -11,14 +11,6 @@ use futo_notes_sync::{self as sync, HostedSetup, VaultSecrets};
 
 use super::SyncClient;
 
-/// Where hosted sync lives. Compiled in, so nobody types a server address; a
-/// debug build can point elsewhere. Shells read it rather than holding their
-/// own copy.
-#[uniffi::export]
-pub fn hosted_server_url() -> String {
-    sync::hosted_server()
-}
-
 /// What a hosted step can fail with. Each variant is a different thing for a
 /// person to do about it, which is why they cross as variants and not as one
 /// string.
@@ -729,12 +721,6 @@ mod tests {
         assert_eq!(projected.storage_quota_bytes, storage_quota_bytes);
         assert_eq!(projected.blob_max_bytes, blob_max_bytes);
         assert_eq!(projected.bytes_used, bytes_used);
-    }
-
-    /// A release build's shells get the baked address, never a developer's.
-    #[test]
-    fn the_hosted_address_is_the_one_the_engine_bakes_in() {
-        assert_eq!(hosted_server_url(), sync::hosted_server());
     }
 
     /// The failures a person acts on differently must not be folded together

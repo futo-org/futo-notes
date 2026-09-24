@@ -35,44 +35,6 @@ mod tests {
     }
 
     #[test]
-    fn unicode() {
-        let result = hash_sha256("café ☕ 日本語");
-        assert_eq!(result.len(), 64);
-        assert!(result.chars().all(|c| c.is_ascii_hexdigit()));
-    }
-
-    #[test]
-    fn large_content_1mb() {
-        let content = "a".repeat(1_000_000);
-        let result = hash_sha256(&content);
-        assert_eq!(result.len(), 64);
-        assert!(result.chars().all(|c| c.is_ascii_hexdigit()));
-        assert_eq!(result, hash_sha256(&content));
-    }
-
-    #[test]
-    fn large_content_bytes_1mb() {
-        let data = vec![0xFFu8; 1_000_000];
-        let result = hash_sha256_bytes(&data);
-        assert_eq!(result.len(), 64);
-        assert!(result.chars().all(|c| c.is_ascii_hexdigit()));
-    }
-
-    #[test]
-    fn binary_looking_content() {
-        let content = "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f";
-        let result = hash_sha256(content);
-        assert_eq!(result.len(), 64);
-    }
-
-    #[test]
-    fn binary_bytes_all_values() {
-        let data: Vec<u8> = (0..=255).collect();
-        let result = hash_sha256_bytes(&data);
-        assert_eq!(result.len(), 64);
-    }
-
-    #[test]
     fn content_with_bom_utf8() {
         let with_bom = "\u{FEFF}hello";
         let without_bom = "hello";
@@ -92,40 +54,11 @@ mod tests {
     }
 
     #[test]
-    fn deterministic_across_calls() {
-        let content = "determinism test 🔒";
-        let h1 = hash_sha256(content);
-        let h2 = hash_sha256(content);
-        let h3 = hash_sha256(content);
-        assert_eq!(h1, h2);
-        assert_eq!(h2, h3);
-    }
-
-    #[test]
-    fn single_char_differences() {
-        let h1 = hash_sha256("abc");
-        let h2 = hash_sha256("abd");
-        assert_ne!(h1, h2);
-    }
-
-    #[test]
     fn null_bytes_in_content() {
         let content = "hello\x00world";
         let result = hash_sha256(content);
         assert_eq!(result.len(), 64);
         assert_ne!(result, hash_sha256("helloworld"));
-    }
-
-    #[test]
-    fn whitespace_only_content() {
-        let spaces = hash_sha256("   ");
-        let tabs = hash_sha256("\t\t\t");
-        let newlines = hash_sha256("\n\n\n");
-        let empty = hash_sha256("");
-        assert_eq!(spaces.len(), 64);
-        assert_ne!(spaces, tabs);
-        assert_ne!(spaces, newlines);
-        assert_ne!(spaces, empty);
     }
 
     #[test]

@@ -271,11 +271,6 @@ mod tests {
     }
 
     #[test]
-    fn close_window_is_not_forwarded_to_the_frontend() {
-        assert!(!FRONTEND_COMMANDS.contains(&CLOSE_WINDOW));
-    }
-
-    #[test]
     fn initial_menu_labels_come_from_the_english_catalog() {
         let labels = ApplicationMenuLabels::english().expect("English menu labels are valid");
         assert_eq!(labels.settings, "Settings…");

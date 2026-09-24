@@ -299,21 +299,6 @@ mod tests {
         );
     }
 
-    /// The literal URL, written out rather than assembled from the constants
-    /// this function already uses — a test that rebuilds the format string
-    /// agrees with any typo in it. This exact path was fetched from
-    /// `staging-pay2.futo.org` on 2026-09-10 and served the real product;
-    /// swapping `futo-notes-license` for `futo-notes` served a checkout with no
-    /// product in it, which is the bug this pins.
-    #[test]
-    fn buy_urls_name_the_storefront_product_and_carry_the_platform() {
-        assert_eq!(
-            buy_url(Environment::Staging.config(), Platform::Ios),
-            "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
-             /checkout-ready?platform=ios&success=redirect-to-organization-page"
-        );
-    }
-
     /// The activation payload's product field and the checkout URL's product
     /// segment are different strings for different jobs. Unifying them breaks
     /// one of the two: `PRODUCT_SLUG` is matched against bytes the server

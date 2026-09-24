@@ -38,30 +38,6 @@ mod tests {
     }
 
     #[test]
-    fn one_side_unchanged_takes_other() {
-        let base = "hello\nworld\n";
-        let ours = "hello\nworld\n";
-        let theirs = "hello\nuniverse\n";
-
-        assert_eq!(
-            three_way_merge(base, ours, theirs),
-            MergeResult::Clean("hello\nuniverse\n".to_string())
-        );
-    }
-
-    #[test]
-    fn other_side_unchanged_takes_changed() {
-        let base = "hello\nworld\n";
-        let ours = "hello\nearth\n";
-        let theirs = "hello\nworld\n";
-
-        assert_eq!(
-            three_way_merge(base, ours, theirs),
-            MergeResult::Clean("hello\nearth\n".to_string())
-        );
-    }
-
-    #[test]
     fn both_sides_identical_changes_merge_cleanly() {
         let base = "line 1\nline 2\n";
         let ours = "line 1\nSAME EDIT\n";

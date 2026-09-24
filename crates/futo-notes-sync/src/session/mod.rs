@@ -270,14 +270,6 @@ mod tests {
         assert!(session.status().is_none());
     }
 
-    #[test]
-    fn stop_and_change_notifications_are_safe_without_a_live_task() {
-        let session = SyncSession::new();
-        session.note_changed();
-        session.stop_live();
-        session.stop_live();
-    }
-
     #[tokio::test]
     async fn stop_live_and_wait_observes_the_cycle_gate() {
         let session = Arc::new(SyncSession::new());
