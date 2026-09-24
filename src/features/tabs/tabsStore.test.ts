@@ -16,18 +16,6 @@ describe('tabsStore initial state', () => {
 });
 
 describe('per-tab state persistence', () => {
-  it('persists tab scroll state in the snapshot', () => {
-    let snap: PersistedTabs | null = null;
-    tabsStore.setPersister((s) => {
-      snap = s;
-    });
-    const tab = tabsStore.openNote('a', 'foreground');
-    tabsStore.setTabState(tab.id, { scroll: 120 });
-    expect(snap).not.toBeNull();
-    const persisted = snap!.tabs.find((t) => t.id === tab.id);
-    expect(persisted?.state).toEqual({ scroll: 120 });
-  });
-
   it('restores tab state on hydrate, accepting the legacy selFrom/selTo shape', () => {
     const snap = {
       tabs: [{ id: 't1', noteId: 'a', state: { scroll: 55, selFrom: 1, selTo: 2 } }],

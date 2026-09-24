@@ -17,7 +17,6 @@ import {
   EXIT_REFUSED,
   GRADLE_JDK_CANDIDATES,
   REFUSED,
-  REMOTE_CARGO_TARGET_DIR,
   RSYNC_EXCLUDES,
   buildDoctorScript,
   buildRunScript,
@@ -208,7 +207,6 @@ describe('remote environment', () => {
     const preamble = remoteEnvPreamble({ ndkVersion: '28.2.13676358' });
     expect(preamble).toContain('unset CARGO_TARGET_DIR');
     expect(preamble).not.toMatch(/export CARGO_TARGET_DIR/);
-    expect(REMOTE_CARGO_TARGET_DIR).toBeNull();
     for (const recipe of ['test-cross-platform', 'prepush', 'test-rust-full', 'check']) {
       expect(runScript({ recipe })).not.toMatch(/export CARGO_TARGET_DIR/);
     }

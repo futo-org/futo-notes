@@ -52,22 +52,6 @@ export const DEFAULT_USER = 'justin';
 // out from under them otherwise.
 export const DEFAULT_REMOTE_DIR = '$HOME/ci/futo-main';
 export const DEFAULT_SOURCE_REPO = '$HOME/Developer/futo-notes';
-// CARGO_TARGET_DIR is deliberately NOT exported. The remote worktree's own
-// `target/` is already a persistent warm cache (git mode never touches it and
-// --rsync excludes it), so relocating it buys nothing — and cost real breakage
-// twice:
-//   1. tests/lib/tauri-instance.mjs resolves the built binary as
-//      <repoRoot>/target/debug/futo-notes-tauri, and cross-platform-sync.mjs's
-//      pgrep cleanup only kills binaries under it (a deliberate guard). A
-//      relocated target dir made `just remote-sync` die with ENOENT AFTER an
-//      84-second build.
-//   2. scripts/ci-cargo-cache-freshness.mjs reads $CARGO_TARGET_DIR, so its
-//      unit tests inherited ours, inspected a directory that did not exist,
-//      concluded "no restored cache", and exited 0 where they assert 1 — five
-//      failures running `check` remotely that do not reproduce on the Mac.
-// Anything in this repo may reasonably assume the repo-local target/; honouring
-// that is cheaper than auditing every consumer.
-export const REMOTE_CARGO_TARGET_DIR = null;
 
 // Gradle 8.14.3 (apps/android/gradle/wrapper) cannot run on Java 25, and
 // Fedora's default JDK is 25 — gradle fails with a bare "What went wrong:
@@ -260,7 +244,21 @@ export function remoteEnvPreamble({ ndkVersion }) {
     '    break',
     '  fi',
     'done',
-    // See REMOTE_CARGO_TARGET_DIR: an inherited one must not leak in either.
+    // CARGO_TARGET_DIR is deliberately NOT exported, and an inherited one is
+    // cleared. The remote worktree's own `target/` is already a persistent warm
+    // cache (git mode never touches it and --rsync excludes it), so relocating
+    // it buys nothing — and cost real breakage twice:
+    //   1. tests/lib/tauri-instance.mjs resolves the built binary as
+    //      <repoRoot>/target/debug/futo-notes-tauri, and cross-platform-sync.mjs's
+    //      pgrep cleanup only kills binaries under it (a deliberate guard). A
+    //      relocated target dir made `just remote-sync` die with ENOENT AFTER an
+    //      84-second build.
+    //   2. scripts/ci-cargo-cache-freshness.mjs reads $CARGO_TARGET_DIR, so its
+    //      unit tests inherited ours, inspected a directory that did not exist,
+    //      concluded "no restored cache", and exited 0 where they assert 1 — five
+    //      failures running `check` remotely that do not reproduce on the Mac.
+    // Anything in this repo may reasonably assume the repo-local target/; honouring
+    // that is cheaper than auditing every consumer.
     'unset CARGO_TARGET_DIR',
     // Deliberately NOT setting CI: `cargo tauri build` maps its `--ci` flag to
     // $CI, and an EMPTY CI makes clap reject the run ("a value is required for

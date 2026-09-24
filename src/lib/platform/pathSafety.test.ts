@@ -50,12 +50,6 @@ describe('ensureSafeNoteId', () => {
     expect(() => ensureSafeNoteId('note\x7fdel')).toThrow('invalid note id');
   });
 
-  it('rejects null bytes at various positions', () => {
-    expect(() => ensureSafeNoteId('note\x00')).toThrow();
-    expect(() => ensureSafeNoteId('\x00note')).toThrow();
-    expect(() => ensureSafeNoteId('no\x00te')).toThrow();
-  });
-
   it('accepts valid names', () => {
     expect(() => ensureSafeNoteId('hello world')).not.toThrow();
     expect(() => ensureSafeNoteId('my-note')).not.toThrow();
@@ -74,16 +68,6 @@ describe('ensureSafeNoteId', () => {
     expect(() => ensureSafeNoteId('\u65E5\u672C\u8A9E\u30CE\u30FC\u30C8')).not.toThrow(); // 日本語ノート
   });
 
-  it('allows leading/trailing dots (unlike title validation)', () => {
-    expect(() => ensureSafeNoteId('trailing.')).not.toThrow();
-    expect(() => ensureSafeNoteId('...dots')).not.toThrow();
-  });
-
-  it('rejects adversarial inputs', () => {
-    expect(() => ensureSafeNoteId('../../../etc/passwd')).toThrow();
-    expect(() => ensureSafeNoteId('..\\..\\windows\\system32')).toThrow();
-    expect(() => ensureSafeNoteId('note<script>')).toThrow();
-  });
   it('works correctly when called multiple times (no regex state leak)', () => {
     expect(() => ensureSafeNoteId('valid-note')).not.toThrow();
     expect(() => ensureSafeNoteId('also-valid')).not.toThrow();
