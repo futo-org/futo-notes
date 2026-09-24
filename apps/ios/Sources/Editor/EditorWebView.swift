@@ -348,7 +348,10 @@ struct EditorWebView: UIViewRepresentable {
         // Re-adopt the shared WebView whenever this editor (re)enters the window
         // — e.g. Back after a wikilink push, where the shared WebView is
         // currently hosted by the note we navigated away from.
-        container.onEnterWindow = { [weak coord] in coord?.adoptIfNeeded() }
+        container.onEnterWindow = { [weak coord] in
+            coord?.adoptIfNeeded()
+            EditorHost.shared.runPendingAutoFocus()
+        }
         coord.adopt()
         return container
     }
@@ -679,7 +682,12 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         case .press:
             suspendedTextGestures = delayedTextInteractionGestures().filter(\.isEnabled)
         case .full:
-            suspendedTextGestures = textInteractionGestures().filter(\.isEnabled)
+            // The navigation pop gestures too: iOS 26's content pop takes a
+            // horizontal drag from ANYWHERE, so an airborne block moved sideways
+            // started swiping the editor back — and the page, which never heard
+            // the touch end, left the block stuck in its lifted state.
+            suspendedTextGestures =
+                (textInteractionGestures() + navigationPopGestures()).filter(\.isEnabled)
         }
         for gesture in suspendedTextGestures { gesture.isEnabled = false }
 
@@ -744,6 +752,24 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         return (content.gestureRecognizers ?? []).filter { gesture in
             !String(describing: type(of: gesture)).hasPrefix("WK")
         }
+    }
+
+    /// The enclosing navigation controller's interactive pop recognisers — the
+    /// leading-edge swipe, plus the full-width content swipe on iOS 26.
+    private func navigationPopGestures() -> [UIGestureRecognizer] {
+        var responder: UIResponder? = webView
+        while let current = responder, !(current is UIViewController) { responder = current.next }
+        guard let navigation = (responder as? UIViewController)?.navigationController else {
+            return []
+        }
+        var gestures: [UIGestureRecognizer] = []
+        if let edge = navigation.interactivePopGestureRecognizer { gestures.append(edge) }
+        if #available(iOS 26.0, *),
+            let content = navigation.interactiveContentPopGestureRecognizer
+        {
+            gestures.append(content)
+        }
+        return gestures
     }
 
     /// Load the bundled editor into the WebView. Used at init and again to
@@ -829,6 +855,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         onOpenNote = nil
         onFindMatches = nil
         autoFocus = false
+        pendingAutoFocus = false
     }
 
     func isCurrentAttachment(_ token: Int) -> Bool {
@@ -1387,15 +1414,54 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     // MARK: JS bridge
 
+    /// An autofocus that arrived before the web view had a window.
+    private var pendingAutoFocus = false
+
+    /// Called when an editor screen enters the window.
+    func runPendingAutoFocus() {
+        if pendingAutoFocus { startAutoFocus() }
+    }
+
+    /// Return in the title field: carry the typing on into the body.
+    func focusBody() {
+        startAutoFocus()
+    }
+
     /// Brand-new note: focus the editor and raise the keyboard. Flip the global
     /// "force keyboard" gate ON only for this programmatic focus, then back OFF,
     /// so opening an EXISTING note never pops the keyboard.
     private func startAutoFocus() {
+        // A brand-new note attaches while its screen is still being built, so
+        // the web view is not in a window yet and cannot take first responder:
+        // the focus lands in the page with no keyboard. Wait for the window.
+        guard webView.window != nil else {
+            pendingAutoFocus = true
+            return
+        }
+        pendingAutoFocus = false
         futoForceKeyboardOnFocus = true
+        // Take first responder natively before the script focuses. From iOS 27
+        // WebKit does not report a script focus to the app at all while the
+        // web view is not first responder (the page is unfocused), so the
+        // focus swizzle below never ran and no keyboard came up — on a new note
+        // and on Return in the title, which has just resigned first responder.
+        webView.becomeFirstResponder()
+        // Blur first: a page that still holds DOM focus from an earlier note
+        // makes `focus()` a no-op, and WebKit only raises the keyboard on a
+        // focus CHANGE. The gate closes once the script has run, not on a
+        // timer — a web process busy loading the note ran the focus after a
+        // fixed 0.6s window had shut, leaving a focused page with no keyboard.
         webView.evaluateJavaScript(
-            "window.FutoEditor && window.FutoEditor.focus();", completionHandler: nil)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            futoForceKeyboardOnFocus = false
+            """
+            if (window.FutoEditor) {
+              if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+              window.FutoEditor.focus();
+            }
+            """
+        ) { _, _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                futoForceKeyboardOnFocus = false
+            }
         }
     }
 
@@ -1563,8 +1629,10 @@ extension WKWebView {
 /// inside a WKWebView is focused — including the EMPTY-contenteditable case
 /// (a brand-new note) that iOS otherwise suppresses. No public API exists; we
 /// swizzle the private WKContentView focus method to force its
-/// `userIsInteracting` argument to true. Selector verified stable iOS 13–26:
+/// `userIsInteracting` argument to true. Selector verified stable iOS 13–27:
 ///   _elementDidFocus:userIsInteracting:blurPreviousNode:activityStateChanges:userObject:
+/// From iOS 27 WebKit only calls it while the web view is first responder, so a
+/// programmatic focus must take first responder first (`startAutoFocus`).
 extension WKWebView {
     private static let keyboardLog =
         Logger(subsystem: "com.futo.notes", category: "wkwebview-keyboard")

@@ -300,6 +300,18 @@ test('an external link still leaves through openUrl, not openNote', async ({ pag
 // `[[` autocomplete
 // ============================================================
 
+/**
+ * Wait until the markdown the editor last REPORTED is `expected`. The
+ * listener's 200 ms trailing debounce posts the half-typed `[[road` on its own
+ * whenever the waits between keystrokes outlast it, as they do on a busy CI
+ * runner, so the first `change` message is not necessarily the final one.
+ */
+async function expectReported(page: Page, expected: string): Promise<void> {
+  await expect
+    .poll(async () => (await messagesOfType(page, 'change')).at(-1)?.content)
+    .toBe(expected);
+}
+
 const popup = (page: Page) => page.locator('.futo-wikilink-suggest');
 const rows = (page: Page) => popup(page).locator('li');
 
@@ -328,8 +340,7 @@ test('Enter inserts the FULL path and leaves the caret AFTER the link', async ({
 
   // Typing continues past the link, not inside it — the spec's caret rule.
   await page.keyboard.type(' next');
-  const [change] = await waitForMessages(page, 'change');
-  expect(change.content).toBe('[[work/notes/ideas]] next\n');
+  await expectReported(page, '[[work/notes/ideas]] next\n');
   // What the reader sees is still the short form.
   await expect(chip(page)).toHaveText('ideas');
 });
@@ -342,8 +353,7 @@ test('arrow keys move the highlighted row and Enter takes it', async ({ page }) 
   await page.keyboard.press('ArrowDown');
   await expect(rows(page).nth(1)).toHaveAttribute('aria-selected', 'true');
   await page.keyboard.press('Enter');
-  const [change] = await waitForMessages(page, 'change');
-  expect(change.content).toBe('[[Archive/2024/Roadmap]]\n');
+  await expectReported(page, '[[Archive/2024/Roadmap]]\n');
 });
 
 test('tapping a row inserts that note', async ({ page }) => {
@@ -435,8 +445,7 @@ test('typing a wikilink out in full turns into a link on the closing brackets', 
   await page.keyboard.press('Escape');
   await page.keyboard.type(']]');
   await expect(chip(page)).toHaveText('grocery list');
-  const [change] = await waitForMessages(page, 'change');
-  expect(change.content).toBe('[[grocery list]]\n');
+  await expectReported(page, '[[grocery list]]\n');
 });
 
 // ============================================================

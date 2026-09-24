@@ -125,7 +125,7 @@
   import { createBlockSerializer, type BlockSerializer } from './blockSerializer';
   import { WHOLE as CENSUS_WHOLE } from './chunkCensusHook';
   import { CHECKBOX_SIZE_PX, taskCheckbox } from './taskCheckbox';
-  import { tableGrips } from './table/tableGrips';
+  import { hideTableGrips, tableGrips } from './table/tableGrips';
   import { createToolbarExec } from './toolbarExec';
   import { vaultImageView } from './vaultImageView';
   import { refreshWikilinkViews, wikilink, WIKILINK_TARGET_ATTR } from './wikilink';
@@ -1608,8 +1608,32 @@
     pmView()?.focus();
   }
 
+  /*
+   * The mobile shells' keyboard dismiss. It ends the editing session on the
+   * page as well as the keyboard: no caret, no highlighted range or cell
+   * selection, and no table grips left where a tap put them. A selection
+   * survives a bare DOM blur, and so do its decorations and selection handles.
+   */
   export function blur(): void {
-    pmView()?.dom.blur();
+    const view = pmView();
+    if (!view) return;
+    const { state } = view;
+    const collapsed = TextSelection.near(state.doc.resolve(state.selection.head));
+    view.dispatch(hideTableGrips(state.tr.setSelection(collapsed)));
+    view.dom.blur();
+    view.dom.ownerDocument.getSelection()?.removeAllRanges();
+  }
+
+  /*
+   * Scroll the caret into view without editing anything — for a viewport that
+   * shrank under it. A tap near the bottom places the caret and THEN the
+   * keyboard rises over it; ProseMirror only scrolls on its own transactions,
+   * so until now the first keystroke was what revealed it.
+   */
+  export function revealSelection(): void {
+    const view = pmView();
+    if (!view?.hasFocus()) return;
+    view.dispatch(view.state.tr.scrollIntoView());
   }
 
   /*
@@ -2311,6 +2335,19 @@
 
   :global(.futo-milkdown .ProseMirror li) {
     margin: 0.15em 0;
+  }
+
+  /* iOS WebKit paints no marker for an item whose first line is only
+   * ProseMirror's trailing `<br>` — a bullet started from the toolbar stayed
+   * invisible until the first keystroke (desktop WebKit paints it). A
+   * zero-width inline box gives that line something to hang the marker on. */
+  :global(
+    .futo-milkdown
+      .ProseMirror
+      li
+      > p:first-child:has(> br.ProseMirror-trailingBreak:only-child)::before
+  ) {
+    content: '\200b';
   }
 
   /* A task item gives its marker column to the checkbox, exactly as the

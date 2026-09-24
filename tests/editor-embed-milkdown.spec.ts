@@ -548,6 +548,27 @@ test('focus() posts focus:true and blur() posts focus:false', async ({ page }) =
   expect(focusMessages.map((m) => m.focused)).toEqual([true, false]);
 });
 
+// docs/spec/editor.md "Markdown toolbar": dismissing the keyboard ends the
+// editing session. A bare DOM blur kept the highlighted range (and, on a phone,
+// its selection handles), and refocusing brought the whole range back.
+test('blur() drops a highlighted range, and refocusing does not bring it back', async ({
+  page,
+}) => {
+  await hostSetContent(page, 'alpha bravo charlie');
+  const line = page.getByText('alpha bravo charlie');
+  const box = await line.boundingBox();
+  await line.dblclick({ position: { x: 4, y: box!.height / 2 } });
+  expect(await page.evaluate(() => document.getSelection()?.toString())).toBe('alpha');
+
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.blur());
+  await flushFrames(page);
+  expect(await page.evaluate(() => document.getSelection()?.rangeCount)).toBe(0);
+
+  await focusEditor(page);
+  await flushFrames(page);
+  expect(await page.evaluate(() => document.getSelection()?.isCollapsed)).toBe(true);
+});
+
 test('tapping an external link posts openUrl and never calls window.open', async ({ page }) => {
   await hostSetContent(page, '[docs](https://example.com/docs)');
   await clearMessages(page);

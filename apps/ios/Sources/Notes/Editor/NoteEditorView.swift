@@ -1295,6 +1295,7 @@ struct TitleTextField: UIViewRepresentable {
 
         func textFieldShouldReturn(_ tf: UITextField) -> Bool {
             tf.resignFirstResponder()
+            EditorHost.shared.focusBody()
             return false
         }
     }

@@ -179,6 +179,47 @@ test('the header row grip cannot delete the header and cannot insert before it',
   ]);
 });
 
+// docs/spec/editor.md "Markdown toolbar": the mobile shells' keyboard dismiss
+// (the bridge blur) ends the editing session. A tap shows the grips through the
+// emulated mouse events and never sends the `mouseleave` that hides them, so
+// they stayed on screen after the keyboard went away.
+test.describe('the bridge blur ends the table editing session', () => {
+  const visibleGrips = (page: Page) => page.locator('.futo-table-grip:not([hidden])');
+
+  async function blur(page: Page): Promise<void> {
+    await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.blur());
+    await flushFrames(page);
+  }
+
+  test('hides the grips a touch left showing', async ({ page }) => {
+    await open(page, TABLE);
+    await page.getByText('r1a', { exact: true }).click();
+    await expect(visibleGrips(page)).toHaveCount(2);
+
+    await blur(page);
+    await expect(visibleGrips(page)).toHaveCount(0);
+
+    // Touching the table again brings them straight back.
+    await hoverCell(page, 'r2b');
+    await expect(visibleGrips(page)).toHaveCount(2);
+  });
+
+  test('clears a cell selection', async ({ page }) => {
+    await open(page, TABLE);
+    const from = await page.getByText('r1a', { exact: true }).boundingBox();
+    const to = await page.getByText('r2b', { exact: true }).boundingBox();
+    await page.mouse.move(from!.x + 4, from!.y + from!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to!.x + 4, to!.y + to!.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expect(page.locator('.selectedCell')).toHaveCount(4);
+
+    await blur(page);
+    await expect(page.locator('.selectedCell')).toHaveCount(0);
+    expect(await page.evaluate(() => document.getSelection()?.rangeCount)).toBe(0);
+  });
+});
+
 test('deleting a table down to its last row/column disables further deletes', async ({ page }) => {
   await open(page, '| only |\n| --- |\n| r1 |\n');
   await hoverCell(page, 'r1');

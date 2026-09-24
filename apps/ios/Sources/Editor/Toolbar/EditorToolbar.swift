@@ -374,14 +374,11 @@ struct EditorToolbarView: View {
 /// rotation, interactive dismiss — which is exactly what the embed's
 /// visualViewport-docked web toolbar had to approximate by hand.
 ///
-/// CRITICAL — the base class is `UIInputView`, not `UIView`, and every subview
-/// stays transparent. `UIInputView(inputViewStyle: .keyboard)` supplies the
-/// system's own accessory backdrop for whichever OS you are on, tracking
-/// light/dark, Increase Contrast and `keyboardAppearance` for free. A fixed app
-/// color cannot: the real backdrop is a translucent material whose rendered
-/// color depends on what is behind it, so any hex is a near-miss and the bar
-/// reads as a slab pasted onto the keyboard — which is what `Theme.surface`
-/// (#F2F2F2/#171717) did here. Spec: docs/spec/editor.md → "Markdown toolbar".
+/// The backdrop is the editor's own `Theme.background`, so the bar reads as the
+/// bottom edge of the note with the glass capsules floating over it. The
+/// system's `.keyboard` material was a near-miss of the editor colour right
+/// where the two meet, and `Theme.surface` (#F2F2F2/#171717) was a visible slab.
+/// Spec: docs/spec/editor.md → "Markdown toolbar".
 class FutoKeyboardAccessory<Content: View>: UIInputView {
     private let hosting: UIHostingController<Content>
 
@@ -397,9 +394,9 @@ class FutoKeyboardAccessory<Content: View>: UIInputView {
         hosting.safeAreaRegions = []
         super.init(
             frame: CGRect(x: 0, y: 0, width: 0, height: ToolbarMetrics.barHeight),
-            inputViewStyle: .keyboard)
+            inputViewStyle: .default)
         autoresizingMask = [.flexibleWidth]
-        // Transparent so the UIInputView backdrop is what you see.
+        backgroundColor = UIColor(Theme.background)
         hosting.view.backgroundColor = .clear
         hosting.view.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hosting.view)

@@ -355,6 +355,26 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   **discarded on back-out** so nothing is left behind, matching desktop. →
   NoteListView.swift / NoteEditorView.swift `onDisappear`, NoteListScreen.kt /
   NoteEditorScreen.kt `onDispose`
+- **A new note opens with the caret in the body and the keyboard up**, both on a
+  warm editor and on the first note after a cold launch. The focus is
+  native first, then the page: the web view takes first responder (iOS) or
+  view focus (Android), and only then does the script focus the editor.
+  Chromium holds back a script focus while the document is unfocused, and from
+  iOS 27 WebKit does not report one to the app at all, which is where the
+  keyboard-forcing swizzle hooks in. So the page half alone gives a focused page
+  with no keyboard. Also on iOS: the focus waits until the editor screen is in
+  the window (a new note attaches while its screen is still being built), and
+  the "force keyboard" gate stays open until the focus script has actually run
+  rather than for a fixed 0.6 s. Verified on the iOS 27.0 and 26.5 simulators
+  and on an iPhone (iOS 27.0) 2026-09-23. On Android it holds warm and on a cold
+  launch whose FAB tap attached the note before the editor had initialized, so
+  focus came through the `initialized` reply rather than `attach`; verified on
+  the emulator (API 36, System WebView 133.0.6943.137) 2026-09-23. Desktop has
+  no keyboard to raise; its New note puts the caret in the body, not the title,
+  so typing goes straight into the note (verified on macOS 2026-09-23). →
+  EditorWebView.swift `EditorHost.startAutoFocus` /
+  `runPendingAutoFocus`, EditorWebView.kt `EditorHost.focusEditor`,
+  src/features/notes/createNoteLoader.ts `finishNewNote`
 - **Both native shells have an inline, tappable title field** above the editor
   body (iOS via a `UITextField`-backed `TitleTextField`, Android via a
   `BasicTextField`); tapping it edits the title in place and renames the file,
@@ -364,6 +384,26 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   the tapped character. iOS also keeps a ⋯ → Rename alert as a secondary path. →
   NoteEditorView.swift `TitleTextField` / `isPlaceholderTitle`,
   NoteEditorScreen.kt `isPlaceholderTitle`
+- **Return in the title moves on into the body**: the title commits, the caret
+  goes to the note body, and on a phone the keyboard stays up, so typing
+  continues straight into the note. The title never takes a newline. On iOS,
+  Return resigns the title field and runs the same native-then-page focus a new
+  note uses; on desktop, Enter focuses the editor. On Android the keyboard's
+  action key reads "next", and it and a hardware Enter both run
+  `EditorHost.focusEditor`, the new-note focus; the keyboard never hides on
+  the way into the body. The pending rename still commits on its own debounce.
+  Verified on the iOS 27.0 and 26.5 simulators and on an iPhone (iOS 27.0)
+  2026-09-23, on desktop (macOS) 2026-09-23, and on the Android emulator (API
+  36, System WebView 133.0.6943.137) 2026-09-23. → NoteEditorView.swift
+  `TitleTextField`
+  `textFieldShouldReturn`, EditorWebView.swift `EditorHost.focusBody`,
+  src/features/notes/createNoteTitleController.svelte.ts, NoteTitleField.kt,
+  NoteTitleFieldTest.kt
+- Android: a rename that lands while the title is still being typed (a pause
+  past the 500 ms debounce) leaves the caret where it was. It used to rebuild
+  the field with the caret at the start, so "abc", a pause, then "def" came out
+  "defabc". Fixed and verified on the emulator 2026-09-23. _(Android)_ →
+  NoteTitleField.kt `titleFieldAfterRename`, TitleFieldAfterRenameTest.kt
 - **A title longer than the screen never widens the editor** on any of the
   three apps. The title field takes the width of the editor column and no more,
   so an over-long title is cut off at the column edge rather than pushing

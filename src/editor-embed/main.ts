@@ -185,6 +185,13 @@ window.FutoEditor = futoEditor;
 
 warmEditorFonts();
 
+/* The shells resize the web view to sit above the keyboard. When that happens
+ * under a focused editor, keep the caret on screen — ProseMirror would only
+ * scroll it into view on the next keystroke. */
+window.addEventListener('resize', () => {
+  requestAnimationFrame(() => editor.revealSelection());
+});
+
 /* Chunk-equivalence census (chunkCensusHook.ts). `?census` is not a URL any
  * shell loads — the native hosts open the bundle with no query string at all. */
 if (query.has('census')) installChunkCensusHook(editor as unknown as ChunkCensusEditor);

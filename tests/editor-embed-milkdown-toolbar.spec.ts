@@ -428,6 +428,36 @@ for (const [id, source] of REMOVED) {
   });
 }
 
+// docs/spec/editor.md: an empty list item shows its marker straight away. iOS
+// WebKit paints no marker for a line that is only ProseMirror's trailing <br>,
+// so the editor gives that line a zero-width ::before. Chromium paints the
+// marker without it, so a screenshot here proves nothing; this pins that the
+// rule applies to exactly that line, and that nothing reaches the file.
+for (const [id, marker] of [
+  ['bullet-list', '-'],
+  ['ordered-list', '1.'],
+] as const) {
+  test(`${id} on an empty line gives the empty item a zero-width marker anchor`, async ({
+    page,
+  }) => {
+    const anchor = () =>
+      page.evaluate(() => {
+        const line = document.querySelector('.ProseMirror li > p');
+        return line ? getComputedStyle(line, '::before').content : null;
+      });
+
+    expect(await afterExec(page, '', id)).toBe(marker);
+    expect(await anchor()).toBe('"​"');
+
+    await page.keyboard.type('x');
+    await settle(page);
+    expect(await anchor()).toBe('none');
+    const saved = await getContent(page);
+    expect(saved.trimEnd()).toBe(`${marker} x`);
+    expect(saved).not.toContain('​');
+  });
+}
+
 // A conversion between two kinds is two ProseMirror primitives underneath
 // (lift out of the blockquote, then wrap in a list). One tap has to be one undo.
 test('a conversion between two kinds is a single undo step', async ({ page }) => {

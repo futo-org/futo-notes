@@ -66,6 +66,9 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   `pruneFolderRoutes`, AppNavStackTest.kt *(Android)*
 - The editor keeps the system back button, so the leading-edge swipe is the
   native, finger-tracked interactive pop, over the full-bleed editor WebView.
+  The one exception is while a block is airborne in the long-press drag: both
+  pop recognisers stand down then, so moving the block sideways can't swipe the
+  note away (see editor.md, "Selection").
   Hiding that button (as the editor once did, to force every exit through the
   vetoable `requestNavigation`) also disables the gesture. A system pop cannot be
   refused, so the exit commits after the fact instead: in-flight rename/move/adopt
