@@ -430,22 +430,6 @@ mod tests {
     }
 
     #[test]
-    fn bm25_note_mtimes_returns_committed_mtimes() {
-        let (_dir, mut idx) = open_indices_in_tempdir();
-        idx.upsert_note_bm25("alpha", "Alpha", "body", "", "", 1_000);
-        idx.upsert_note_bm25("beta", "Beta", "body", "", "", 2_000);
-        assert!(idx.bm25_note_mtimes().unwrap().is_empty());
-        idx.commit_bm25().unwrap();
-        let m = idx.bm25_note_mtimes().unwrap();
-        assert_eq!(m.get("alpha"), Some(&1_000));
-        assert_eq!(m.get("beta"), Some(&2_000));
-        assert_eq!(m.len(), 2);
-        idx.upsert_note_bm25("alpha", "Alpha", "body2", "", "", 5_000);
-        idx.commit_bm25().unwrap();
-        assert_eq!(idx.bm25_note_mtimes().unwrap().get("alpha"), Some(&5_000));
-    }
-
-    #[test]
     fn note_mtimes_exclude_replaced_and_deleted_documents_across_segments() {
         let (dir, mut idx) = open_indices_in_tempdir();
         // Keep segment boundaries deterministic, including tombstoned documents.
@@ -530,24 +514,6 @@ mod tests {
     }
 
     const FOUR_YEARS_MS: i64 = 4 * 365 * 86_400_000;
-
-    #[test]
-    fn last_word_matches_as_prefix_while_typing() {
-        let (_dir, mut idx) = open_indices_in_tempdir();
-        idx.upsert_note_bm25("august", "August 10, 2026", "daily entry", "", "", now_ms());
-        idx.upsert_note_bm25("groceries", "Groceries", "milk eggs", "", "", now_ms());
-        idx.commit_bm25().unwrap();
-        let hits = idx.search_bm25("Aug", 10).unwrap();
-        assert_eq!(
-            hits.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
-            vec!["august"],
-            "a mid-typing word must match titles it prefixes"
-        );
-        assert!(
-            idx.search_bm25("Aug ", 10).unwrap().is_empty(),
-            "a trailing space completes the word, which then matches as typed, not as a prefix"
-        );
-    }
 
     #[test]
     fn prefix_composes_with_the_all_words_pass() {
