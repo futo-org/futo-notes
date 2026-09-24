@@ -132,6 +132,22 @@ fn local_paths_rejected_by_receivers_are_skipped_and_reported() {
             size: 4,
         },
     ];
+    let mut previous = connected();
+    previous.object_map.insert(
+        deep.clone(),
+        ObjectState {
+            object_id: "older-upload".into(),
+            version: 1,
+            blob_key: "older-blob".into(),
+            hash: None,
+            mtime_ms: None,
+            size_bytes: None,
+        },
+    );
+    assert!(
+        missing_local_files(&previous, &files).is_empty(),
+        "a skipped local path must never become a remote tombstone"
+    );
     let mut summary = SyncSummary::default();
 
     let uploadable = uploadable_files(files, &mut summary);
