@@ -686,7 +686,7 @@ check-agent-docs:
 arch-gate:
   pnpm run check:arch-gate
 
-# Link installed third-party skills from .agents/skills/ into .claude/skills/ (idempotent).
+# Link installed third-party skills into .claude/skills/, including lock-matched sibling worktrees.
 skills-link:
   @node scripts/skills-link.mjs
 
@@ -776,7 +776,6 @@ prepush: check test-rust-full
 deploy-deb:
   #!/usr/bin/env bash
   set -euo pipefail
-  CONF="apps/tauri/src-tauri/tauri.conf.json"
   BUNDLE_DIR="target/release/bundle/deb"
   # Version = latest git tag + commit distance.
   LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
@@ -788,25 +787,25 @@ deploy-deb:
     VERSION="${BASE_VER}"
   fi
   echo "Version: ${VERSION}"
-  node -e "const fs=require('fs'),f='${CONF}',c=JSON.parse(fs.readFileSync(f));c.version='${VERSION}';fs.writeFileSync(f,JSON.stringify(c,null,2)+'\n')"
+  VERSION_CONFIG_DIR=$(mktemp -d)
+  VERSION_CONFIG="$VERSION_CONFIG_DIR/version.json"
+  printf '{"version":"%s"}\n' "$VERSION" > "$VERSION_CONFIG"
+  trap 'rm -f "$VERSION_CONFIG"; rmdir "$VERSION_CONFIG_DIR" 2>/dev/null || true' EXIT
   rm -rf "$BUNDLE_DIR"
   echo "Building .deb package..."
-  cd apps/tauri && cargo tauri build --bundles deb
-  cd ../..
+  (cd apps/tauri && cargo tauri build --bundles deb --config "$VERSION_CONFIG")
   DEB=$(ls -t "${BUNDLE_DIR}"/*.deb | head -1)
   # Single-checkout install: stops every FUTO Notes on the machine before
   # overwriting /usr/bin. NOT a QA-cleanup template — see justfile-notes.md.
   pkill -f futo-notes-tauri 2>/dev/null && echo "Stopped running instance." && sleep 1 || true
   echo "Installing ${DEB}..."
   sudo dpkg -i "$DEB"
-  git checkout -- "$CONF"
   echo "Done. Installed FUTO Notes ${VERSION}."
 
 # Build .rpm from current repo state and install it.
 deploy-rpm:
   #!/usr/bin/env bash
   set -euo pipefail
-  CONF="apps/tauri/src-tauri/tauri.conf.json"
   BUNDLE_DIR="target/release/bundle/rpm"
   # Version = latest git tag + commit distance.
   LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
@@ -818,15 +817,13 @@ deploy-rpm:
     VERSION="${BASE_VER}"
   fi
   echo "Version: ${VERSION}"
-  ROOT="$PWD"
-  node -e "const fs=require('fs'),f='${CONF}',c=JSON.parse(fs.readFileSync(f));c.version='${VERSION}';fs.writeFileSync(f,JSON.stringify(c,null,2)+'\n')"
-  # Restore even on a red exit from the install assertion below; $ROOT because
-  # the build step leaves us inside apps/tauri.
-  trap 'git -C "$ROOT" checkout -- "$CONF"' EXIT
+  VERSION_CONFIG_DIR=$(mktemp -d)
+  VERSION_CONFIG="$VERSION_CONFIG_DIR/version.json"
+  printf '{"version":"%s"}\n' "$VERSION" > "$VERSION_CONFIG"
+  trap 'rm -f "$VERSION_CONFIG"; rmdir "$VERSION_CONFIG_DIR" 2>/dev/null || true' EXIT
   rm -rf "$BUNDLE_DIR"
   echo "Building .rpm package..."
-  cd apps/tauri && cargo tauri build --bundles rpm
-  cd ../..
+  (cd apps/tauri && cargo tauri build --bundles rpm --config "$VERSION_CONFIG")
   RPM=$(ls -t "${BUNDLE_DIR}"/*.rpm | head -1)
   # Single-checkout install: stops every FUTO Notes on the machine before
   # overwriting /usr/bin. NOT a QA-cleanup template — see justfile-notes.md.

@@ -11,12 +11,12 @@
 // not repo content.
 //
 // Nothing in this repo fetches `.agents/skills/` — an external installer does
-// (the lockfile records source + hash for each skill). So this script links only
-// what is already on disk and NAMES what is missing rather than leaving a broken
-// link behind; a dangling link is worse than an absent skill, because the slash
-// command appears and then fails to load.
+// (the lockfile records source + hash for each skill). A worktree can link an
+// installed skill from a sibling checkout only when both lockfiles match, so
+// every checkout sees the same pinned skill versions.
 
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -24,6 +24,51 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LOCKFILE = path.join(ROOT, 'skills-lock.json');
 const SOURCE_DIR = path.join(ROOT, '.agents', 'skills');
 const TARGET_DIR = path.join(ROOT, '.claude', 'skills');
+
+export function skillSourceFor(name, { root = ROOT, lockText, worktreeRoots = [] } = {}) {
+  const currentLock = lockText ?? fs.readFileSync(path.join(root, 'skills-lock.json'), 'utf8');
+  for (const checkout of [root, ...worktreeRoots]) {
+    if (path.resolve(checkout) !== path.resolve(root)) {
+      try {
+        if (fs.readFileSync(path.join(checkout, 'skills-lock.json'), 'utf8') !== currentLock)
+          continue;
+      } catch {
+        continue;
+      }
+    }
+    const source = path.join(checkout, '.agents', 'skills', name);
+    if (fs.existsSync(source)) return source;
+  }
+  return null;
+}
+
+export function linkSkill(name, { root = ROOT, lockText, worktreeRoots = [] } = {}) {
+  let source = skillSourceFor(name, { root, lockText, worktreeRoots });
+  if (!source) return 'missing';
+
+  const localSource = path.join(root, '.agents', 'skills', name);
+  if (path.resolve(source) !== path.resolve(localSource)) {
+    fs.mkdirSync(path.dirname(localSource), { recursive: true });
+    try {
+      fs.cpSync(source, localSource, { recursive: true, errorOnExist: true });
+    } catch (error) {
+      // A concurrent skills-link may have populated the same local cache.
+      if (!fs.existsSync(localSource)) throw error;
+    }
+  }
+
+  const target = path.join(root, '.claude', 'skills', name);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const existing = fs.lstatSync(target, { throwIfNoEntry: false });
+  if (existing && !existing.isSymbolicLink()) return 'occupied';
+  if (existing) {
+    const destination = path.resolve(path.dirname(target), fs.readlinkSync(target));
+    if (destination === path.resolve(localSource)) return 'already';
+    fs.unlinkSync(target);
+  }
+  fs.symlinkSync(path.relative(path.dirname(target), localSource), target);
+  return 'linked';
+}
 
 export function lockedSkillNames(lockfileText) {
   const lock = JSON.parse(lockfileText);
@@ -37,35 +82,28 @@ function main() {
   }
 
   const names = lockedSkillNames(fs.readFileSync(LOCKFILE, 'utf8'));
+  const lockText = fs.readFileSync(LOCKFILE, 'utf8');
+  const worktreeRoots = execFileSync('git', ['worktree', 'list', '--porcelain'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  })
+    .split('\n')
+    .flatMap((line) => (line.startsWith('worktree ') ? [line.slice('worktree '.length)] : []));
   const linked = [];
   const already = [];
   const missing = [];
   const occupied = [];
 
   for (const name of names) {
-    const source = path.join(SOURCE_DIR, name);
-    const target = path.join(TARGET_DIR, name);
-
-    if (!fs.existsSync(source)) {
-      missing.push(name);
-      continue;
-    }
-    // A real (non-symlink) directory here is a first-party skill that happens to
-    // share a name — never clobber it.
-    const existing = fs.lstatSync(target, { throwIfNoEntry: false });
-    if (existing && !existing.isSymbolicLink()) {
-      occupied.push(name);
-      continue;
-    }
-    if (existing) {
-      if (fs.realpathSync(target) === fs.realpathSync(source)) {
-        already.push(name);
-        continue;
-      }
-      fs.unlinkSync(target);
-    }
-    fs.symlinkSync(path.relative(TARGET_DIR, source), target);
-    linked.push(name);
+    const result = linkSkill(name, {
+      root: ROOT,
+      lockText,
+      worktreeRoots,
+    });
+    if (result === 'missing') missing.push(name);
+    else if (result === 'occupied') occupied.push(name);
+    else if (result === 'already') already.push(name);
+    else linked.push(name);
   }
 
   console.log(
