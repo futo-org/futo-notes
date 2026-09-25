@@ -37,7 +37,7 @@ export function skillSourceFor(name, { root = ROOT, lockText, worktreeRoots = []
       }
     }
     const source = path.join(checkout, '.agents', 'skills', name);
-    if (fs.existsSync(source)) return source;
+    if (fs.existsSync(path.join(source, 'SKILL.md'))) return source;
   }
   return null;
 }
@@ -48,12 +48,23 @@ export function linkSkill(name, { root = ROOT, lockText, worktreeRoots = [] } = 
 
   const localSource = path.join(root, '.agents', 'skills', name);
   if (path.resolve(source) !== path.resolve(localSource)) {
-    fs.mkdirSync(path.dirname(localSource), { recursive: true });
+    if (fs.existsSync(localSource)) {
+      throw new Error(
+        `incomplete local skill cache at ${localSource} (missing SKILL.md); remove that directory and retry`,
+      );
+    }
+    const localSkillsDir = path.dirname(localSource);
+    fs.mkdirSync(localSkillsDir, { recursive: true });
+    const stagingDir = fs.mkdtempSync(path.join(localSkillsDir, '.skills-link-'));
     try {
-      fs.cpSync(source, localSource, { recursive: true, errorOnExist: true });
-    } catch (error) {
-      // A concurrent skills-link may have populated the same local cache.
-      if (!fs.existsSync(localSource)) throw error;
+      const stagedSkill = path.join(stagingDir, name);
+      fs.cpSync(source, stagedSkill, { recursive: true, errorOnExist: true });
+      if (!fs.existsSync(path.join(stagedSkill, 'SKILL.md'))) {
+        throw new Error(`installed source skill is incomplete at ${source} (missing SKILL.md)`);
+      }
+      fs.renameSync(stagedSkill, localSource);
+    } finally {
+      fs.rmSync(stagingDir, { recursive: true, force: true });
     }
   }
 

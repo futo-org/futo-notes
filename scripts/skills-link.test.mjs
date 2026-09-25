@@ -71,7 +71,28 @@ describe('skills-link worktree fallback', () => {
     fs.writeFileSync(path.join(sibling, 'skills-lock.json'), lockText);
     const local = path.join(root, '.agents', 'skills', 'code-review');
     fs.mkdirSync(local, { recursive: true });
+    fs.writeFileSync(path.join(local, 'SKILL.md'), 'local skill');
 
     expect(skillSourceFor('code-review', { root, lockText, worktreeRoots: [sibling] })).toBe(local);
+  });
+
+  it('does not accept or report success for an incomplete local skill cache', () => {
+    const root = tempDir();
+    const sibling = tempDir();
+    const lockText = '{"skills":{"code-review":{"computedHash":"abc"}}}';
+    fs.writeFileSync(path.join(sibling, 'skills-lock.json'), lockText);
+    const localSkill = path.join(root, '.agents', 'skills', 'code-review');
+    const siblingSkill = path.join(sibling, '.agents', 'skills', 'code-review');
+    fs.mkdirSync(localSkill, { recursive: true }); // interrupted copy, no SKILL.md
+    fs.mkdirSync(siblingSkill, { recursive: true });
+    fs.writeFileSync(path.join(siblingSkill, 'SKILL.md'), 'complete sibling skill');
+
+    expect(skillSourceFor('code-review', { root, lockText, worktreeRoots: [sibling] })).toBe(
+      siblingSkill,
+    );
+    expect(() => linkSkill('code-review', { root, lockText, worktreeRoots: [sibling] })).toThrow(
+      /incomplete local skill cache.*missing SKILL\.md/,
+    );
+    expect(fs.readdirSync(localSkill)).toEqual([]);
   });
 });
