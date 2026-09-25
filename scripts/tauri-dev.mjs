@@ -19,8 +19,28 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { homedir } from 'os';
 import { join } from 'path';
 import { devBundleId, portsFor, slotOf } from './lib/slot.mjs';
+import { claimTauriSlot } from './tauri/slot-lease.mjs';
 
 const repoRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim();
+const releaseSlot = claimTauriSlot(repoRoot);
+process.on('exit', releaseSlot);
+let tauriChild;
+function supervise(child) {
+  tauriChild = child;
+  child.once('error', (error) => {
+    console.error(`[tauri-dev] failed to start cargo: ${error.message}`);
+    process.exit(1);
+  });
+  child.once('exit', (code, signal) => {
+    process.exit(signal ? 1 : (code ?? 1));
+  });
+}
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    if (tauriChild) tauriChild.kill(signal);
+    else process.exit(1);
+  });
+}
 
 // Worktrees have .git as a file; the main repo has it as a directory.
 const isWorktree = statSync(join(repoRoot, '.git')).isFile();
@@ -85,13 +105,12 @@ if (fakeUpdate)
         ...WAYLAND_ENV,
         ...FAKE_ENV,
         FUTO_NOTES_DATA_DIR: dataDir,
-        // Per-checkout base port for the debug MCP/QA bridge, so parallel
-        // checkouts never contend for one 9223 (see application.rs).
+        // Disjoint per-slot band for the debug MCP/QA bridge (see application.rs).
         FUTO_MCP_BASE_PORT: String(portsFor(repoRoot).mcp),
       },
       stdio: 'inherit',
     });
-    child.on('exit', (code) => process.exit(code ?? 0));
+    supervise(child);
   } else {
     const slot = slotOf(repoRoot);
     const vitePort = portsFor(repoRoot).tauriVite;
@@ -128,9 +147,6 @@ if (fakeUpdate)
       );
     }
 
-    process.on('SIGINT', () => process.exit(0));
-    process.on('SIGTERM', () => process.exit(0));
-
     const configOverride = JSON.stringify({
       identifier,
       build: {
@@ -160,7 +176,7 @@ if (fakeUpdate)
         stdio: 'inherit',
       },
     );
-    tauri.on('exit', (code) => process.exit(code ?? 0));
+    supervise(tauri);
   }
 })().catch((err) => {
   console.error(err);

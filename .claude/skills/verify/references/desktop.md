@@ -73,8 +73,12 @@ Debug builds include `tauri-plugin-mcp-bridge`, exposing the Tauri MCP tools
 (`driver_session`, `webview_*`). The bridge binds **loopback only** and scans
 upward from a per-worktree base port (`scripts/lib/slot.mjs` -> `mcp`, passed as
 `FUTO_MCP_BASE_PORT` by `just tauri-dev`), so worktree instances coexist without
-contending for one port. Bases land in 9223–9272 and the scan runs 100 ports up,
-so 9223–9322 is still the range to sweep.
+contending for one port. Each slot has a disjoint 100-port band beginning at
+`9223 + slot * 100`, so the full scan range is 9223–14222. A slot hash can
+collide, so `just tauri-dev` also takes a machine-wide slot lease and refuses a
+second simultaneous desktop launch for the same slot.
+After a hard kill, a stale lease error prints the exact file and prior PID;
+verify that PID is gone before removing that one lease file and retrying.
 
 Print this worktree's base with `just ports`. Loopback-only matters: the plugin
 used to bind `0.0.0.0`, which succeeds even while another process holds
@@ -137,7 +141,7 @@ done
 # Fallback — scan the bridge port range and let the resolver vet the owner.
 # NEVER find the process by name: every build shares it, release included.
 if [ -z "$MCP_PORT" ]; then
-  for CANDIDATE in $(seq 9223 9322); do
+  for CANDIDATE in $(seq 9223 14222); do
     if node scripts/qa-target.mjs port "$CANDIDATE" >/dev/null 2>&1; then
       MCP_PORT=$CANDIDATE; break
     fi

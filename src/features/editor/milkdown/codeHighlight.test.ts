@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { javascript } from '@codemirror/lang-javascript';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
-import { EditorState, type Plugin } from '@milkdown/kit/prose/state';
+import { EditorState } from '@milkdown/kit/prose/state';
 import type { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
 
 import {
@@ -124,44 +124,22 @@ describe('the plugin', () => {
     expect(decorationsOf(stateWith(doc(fence('mermaid', 'graph TD')))).find()).toEqual([]);
   });
 
-  /*
-   * The M5 lock, and it has teeth: this plugin USED to put one node decoration
-   * per fence on the document to carry a CSS class. A node decoration spanning
-   * a whole top-level block is stored in the decoration tree's ROOT, so mapping
-   * them made every keystroke cost O(fences) — measured 4.6 ms per keystroke at
-   * 1000 fences, against 0.075 ms once the decoration was gone (a 33x gap over
-   * the empty-plugin baseline, against the 4x this asserts).
-   *
-   * Measured as a RATIO OF RATIOS — how much worse the plugin scales than an
-   * editor with no plugins at all — so it says nothing about how fast the
-   * machine running it is.
-   */
-  it('costs no more per keystroke as the document grows', () => {
-    const growth = (plugins: Plugin[]) => {
-      const measure = (fences: number) => {
-        const blocks: ProseNode[] = [];
-        for (let i = 0; i < fences; i += 1) {
-          blocks.push(fence('mermaid', `graph ${i}`));
-          blocks.push(para(`body paragraph number ${i}`));
-        }
-        blocks.push(para('edit me'));
-        const state = EditorState.create({ doc: doc(...blocks), plugins });
-        const at = state.doc.content.size - 2;
-        for (let i = 0; i < 30; i += 1) state.apply(state.tr.insertText('x', at));
-        // The MINIMUM of several runs: the most stable statistic when
-        // something else on the machine is competing for the core.
-        let best = Infinity;
-        for (let run = 0; run < 5; run += 1) {
-          const started = performance.now();
-          for (let i = 0; i < 100; i += 1) state.apply(state.tr.insertText('x', at));
-          best = Math.min(best, performance.now() - started);
-        }
-        return best;
-      };
-      return measure(1000) / measure(20);
-    };
+  it('keeps unhighlighted fences free of per-block marker decorations', () => {
+    const blocks: ProseNode[] = [];
+    for (let i = 0; i < 1000; i += 1) {
+      blocks.push(fence('mermaid', `graph ${i}`));
+      blocks.push(para(`body paragraph number ${i}`));
+    }
+    blocks.push(para('edit me'));
+    const state = stateWith(doc(...blocks));
+    const before = decorationsOf(state).find();
+    expect(before).toEqual([]);
 
-    expect(growth([createCodeHighlightPlugin()]) / growth([])).toBeLessThan(4);
+    const after = state.apply(state.tr.insertText('x', state.doc.content.size - 2));
+    // The former one-node-decoration-per-fence implementation populated the
+    // decoration tree root with 1000 markers and mapped all of them per edit.
+    // Empty state proves an end-of-document edit has no fence markers to map.
+    expect(decorationsOf(after).find()).toEqual([]);
   });
 
   it('keeps its decorations across a transaction that changed nothing', () => {

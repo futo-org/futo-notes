@@ -59,7 +59,7 @@ and an `adb install` issued in that window fails with `cmd: Can't find service: 
 ## cdp-forward
 
 Debug builds only; re-run after every app restart (the WebView pid changes). `adb forward`
-host ports are machine-global, so the port is per-worktree (9330 + slot; override with
+host ports are machine-global, so the port is per-worktree (15000 + slot; override with
 `$CDP_PORT`). `scripts/cdp-invoke.mjs` honors `$CDP_PORT`.
 
 ## prepush (--retries=1)

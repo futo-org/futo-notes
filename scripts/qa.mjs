@@ -16,7 +16,7 @@
 //
 //   node scripts/qa.mjs claim [ios|android|all] [--reboot]   # ensure+boot devices, print exports
 //   node scripts/qa.mjs status                    # pool devices + servers, owners, state
-//   node scripts/qa.mjs release [--shutdown]      # release this worktree's claims
+//   node scripts/qa.mjs release [ios|android] [--shutdown] # release selected device claims
 //   node scripts/qa.mjs gc                        # reap devices/servers of deleted worktrees
 //   node scripts/qa.mjs server-start              # per-slot sync server (own SQLite DB + blobs)
 //   node scripts/qa.mjs server-stop [--drop]      # stop it; --drop also deletes its DB + blobs
@@ -30,6 +30,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { disconnectHardwareKeyboard } from './lib/simulator-keyboard.mjs';
 import { portsFor, slotOf } from './lib/slot.mjs';
+import { devicesForRelease, parseReleaseArgs } from './qa/qa-release.mjs';
+import {
+  acquireServerStartLock,
+  assertServerOwner,
+  claimServerOwner,
+  releaseServerOwner,
+  serverOwner,
+} from './qa/qa-server-owner.mjs';
 import {
   REPORTED_AUTH_MODE,
   SERVER_PASSWORD,
@@ -446,13 +454,22 @@ function shutdownDevice(platform, name) {
 }
 
 function cmdRelease(flags) {
-  const root = worktreeRoot();
-  for (const { platform, name } of myDevices(root)) {
-    if (flags.includes('--shutdown')) shutdownDevice(platform, name);
-    fs.rmSync(ownerPath(platform, name), { force: true });
-    info(`released ${platform} ${name}`);
+  let options;
+  try {
+    options = parseReleaseArgs(flags);
+  } catch (error) {
+    die(error.message);
   }
-  serverStop(root, false); // never leave an orphaned server running
+  const root = worktreeRoot();
+  for (const { platform: claimedPlatform, name } of devicesForRelease(
+    myDevices(root),
+    options.platform,
+  )) {
+    if (options.shutdown) shutdownDevice(claimedPlatform, name);
+    fs.rmSync(ownerPath(claimedPlatform, name), { force: true });
+    info(`released ${claimedPlatform} ${name}`);
+  }
+  if (!options.platform) serverStop(root, false); // preserve server lifecycle for platform-scoped releases
 }
 
 function cmdGc() {
@@ -570,8 +587,32 @@ async function cmdServerStart(args) {
   const dir = path.join(SRV_DIR, `s${slot}`);
   const pidFile = path.join(dir, 'server.pid');
 
+  // The stable slot hash can collide. Never adopt a live server merely because
+  // it occupies the same slot: the metadata records the owning worktree.
+  const meta = readJson(path.join(dir, 'meta.json'));
+  if (meta?.worktree && meta.worktree !== root) {
+    die(
+      `slot ${slot} sync server belongs to another worktree (${meta.worktree}); stop using this slot until its owner releases it`,
+    );
+  }
+  try {
+    assertServerOwner(dir, root);
+  } catch (error) {
+    die(error.message);
+  }
+
   const existing = readPid(pidFile);
   if (existing && pidAlive(existing)) {
+    if (!meta?.worktree) {
+      die(
+        `a live sync server occupies slot ${slot} but ownership metadata is missing; refusing to adopt or overwrite it`,
+      );
+    }
+    try {
+      claimServerOwner(dir, root);
+    } catch (error) {
+      die(error.message);
+    }
     const running = readJson(path.join(dir, 'meta.json'))?.mode ?? 'password';
     if (running !== mode) {
       die(
@@ -583,33 +624,61 @@ async function cmdServerStart(args) {
     return;
   }
   fs.mkdirSync(dir, { recursive: true });
+  let createdOwner;
+  try {
+    createdOwner = claimServerOwner(dir, root);
+  } catch (error) {
+    die(error.message);
+  }
+  let releaseStartLock;
+  try {
+    releaseStartLock = acquireServerStartLock(dir, root);
+  } catch (error) {
+    die(error.message);
+  }
 
   // Each slot's server owns a SQLite database inside its own directory, so
   // parallel worktrees share nothing: no database server to reach, and nothing
   // one session can wipe out from under another.
-  const { path: binary, source } = await syncServerBinary();
-  const log = fs.openSync(path.join(dir, 'server.log'), 'a');
-  const child = spawn(binary, [], {
-    // cwd is the slot's own directory: the server reads a `.env` from wherever
-    // it starts, and no checkout of ours should supply one by accident.
-    cwd: dir,
-    detached: true,
-    stdio: ['ignore', log, log],
-    // serverProcessEnv, not a spread: stand-in mode REFUSES TO BOOT next to an
-    // inherited AUTH_MODE or OIDC_*, so those keys have to be deleted from the
-    // child's environment rather than merged over.
-    env: serverProcessEnv(syncServerEnv({ port, dataDir: dir, mode })),
-  });
-  child.unref();
-  fs.writeFileSync(pidFile, String(child.pid));
-  fs.writeFileSync(
-    path.join(dir, 'meta.json'),
-    JSON.stringify(
-      { worktree: root, port, mode, server: source, startedAt: new Date().toISOString() },
-      null,
-      2,
-    ),
-  );
+  let serverEstablished = false;
+  try {
+    const { path: binary, source } = await syncServerBinary();
+    const log = fs.openSync(path.join(dir, 'server.log'), 'a');
+    const child = spawn(binary, [], {
+      // cwd is the slot's own directory: the server reads a `.env` from wherever
+      // it starts, and no checkout of ours should supply one by accident.
+      cwd: dir,
+      detached: true,
+      stdio: ['ignore', log, log],
+      // serverProcessEnv, not a spread: stand-in mode REFUSES TO BOOT next to an
+      // inherited AUTH_MODE or OIDC_*, so those keys have to be deleted from the
+      // child's environment rather than merged over.
+      env: serverProcessEnv(syncServerEnv({ port, dataDir: dir, mode })),
+    });
+    child.unref();
+    fs.writeFileSync(pidFile, String(child.pid));
+    fs.writeFileSync(
+      path.join(dir, 'meta.json'),
+      JSON.stringify(
+        { worktree: root, port, mode, server: source, startedAt: new Date().toISOString() },
+        null,
+        2,
+      ),
+    );
+    serverEstablished = true;
+    releaseStartLock();
+  } catch (error) {
+    if (!serverEstablished) {
+      const startedPid = readPid(pidFile);
+      if (!startedPid || !pidAlive(startedPid)) {
+        // No child survived the failed setup, so remove the temporary claim
+        // and allow a clean retry.
+        releaseStartLock();
+        if (createdOwner) releaseServerOwner(dir, root);
+      }
+    }
+    throw error;
+  }
 
   for (let i = 0; i < 30; i++) {
     try {
@@ -641,6 +710,21 @@ async function cmdServerStart(args) {
 }
 
 function stopServerDir(dir, meta, drop) {
+  if (fs.existsSync(path.join(dir, 'starting.lock'))) {
+    die(`sync server start is in progress at ${dir}; refusing to stop or drop it`);
+  }
+  const owner = serverOwner(dir);
+  const expectedOwner = owner?.worktree ?? meta?.worktree;
+  if (!expectedOwner)
+    die(`sync server ownership is unknown at ${dir}; refusing to stop or drop it`);
+  if (owner && meta?.worktree && owner.worktree !== meta.worktree) {
+    die(`sync server owner record and metadata disagree at ${dir}; refusing to stop or drop it`);
+  }
+  try {
+    assertServerOwner(dir, expectedOwner);
+  } catch (error) {
+    die(error.message);
+  }
   const pid = readPid(path.join(dir, 'server.pid'));
   if (pid && pidAlive(pid)) {
     try {
@@ -649,6 +733,7 @@ function stopServerDir(dir, meta, drop) {
     info(`stopped server pid ${pid}`);
   }
   fs.rmSync(path.join(dir, 'server.pid'), { force: true });
+  releaseServerOwner(dir, expectedOwner);
   if (drop && meta) {
     // The database is a file in this directory, so one delete takes the whole
     // slot: SQLite database, blobs, log. `dir` is always <state>/server/s<slot>,
@@ -661,6 +746,21 @@ function stopServerDir(dir, meta, drop) {
 function serverStop(root, drop) {
   const dir = path.join(SRV_DIR, `s${slotOf(root)}`);
   const meta = readJson(path.join(dir, 'meta.json'));
+  const owner = serverOwner(dir);
+  const pid = readPid(path.join(dir, 'server.pid'));
+  if (!meta && !owner && !pid) return;
+  if (fs.existsSync(path.join(dir, 'starting.lock'))) {
+    die(`sync server start is in progress at ${dir}; refusing to stop or drop it`);
+  }
+  if (owner && owner.worktree !== root) {
+    die(
+      `slot ${slotOf(root)} sync server belongs to another worktree (${owner.worktree}); refusing to stop or drop it`,
+    );
+  }
+  if (!owner && (!meta?.worktree || meta.worktree !== root)) {
+    die(`slot ${slotOf(root)} sync server ownership is unknown; refusing to stop or drop it`);
+  }
+  if (!owner && meta?.worktree === root) claimServerOwner(dir, root); // safely adopt a legacy owned server
   if (meta || readPid(path.join(dir, 'server.pid'))) stopServerDir(dir, meta, drop);
 }
 

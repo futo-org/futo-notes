@@ -96,7 +96,6 @@ struct LicenseSettingsSection: View {
     @State private var revealed = false
     @FocusState private var fieldFocused: Bool
 
-
     /// The well and the coin, in points. Named because two of the three
     /// platforms quote the same numbers.
     private static let wellDiameter: CGFloat = 184

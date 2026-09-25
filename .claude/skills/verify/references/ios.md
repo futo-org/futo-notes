@@ -208,7 +208,7 @@ iPhone simulators.
 ## 4. Screenshots, appearance, logs
 
 ```bash
-just sim-screenshot ios-dark-list    # → ./test-screenshots/ios-dark-list.png
+just sim-screenshot ios-dark-list    # → ./test-screenshots/ios/s<SLOT>/<SIM>/ios-dark-list.png
 just sim-appearance dark             # system dark mode (app + editor follow live)
 just sim-appearance light
 ```

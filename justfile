@@ -377,19 +377,29 @@ sim-udid:
   [ "$COUNT" -eq 1 ] || { echo "Multiple booted simulators — set SIM=<udid> (just qa-claim ios prints it):" >&2; echo "$UDIDS" >&2; exit 1; }
   echo "$UDIDS"
 
-# Screenshot the target simulator ($SIM, else booted) → test-screenshots/<name>.png
+# Screenshot the target simulator ($SIM, else booted), isolated by worktree and device.
 sim-screenshot name="sim":
-  @mkdir -p test-screenshots
-  xcrun simctl io "${SIM:-booted}" screenshot 'test-screenshots/{{name}}.png'
+  #!/usr/bin/env bash
+  set -euo pipefail
+  SLOT=$(node scripts/lib/slot.mjs slot)
+  DEVICE="${SIM:-booted}"
+  OUT="test-screenshots/ios/s${SLOT}/${DEVICE}/{{name}}.png"
+  mkdir -p "$(dirname "$OUT")"
+  xcrun simctl io "$DEVICE" screenshot "$OUT"
 
 # Flip the target simulator's system appearance (dark|light).
 sim-appearance mode="dark":
   xcrun simctl ui "${SIM:-booted}" appearance {{mode}}
 
-# Screenshot the connected Android device/emulator → test-screenshots/<name>.png
+# Screenshot the connected Android device/emulator, isolated by worktree and device.
 emu-screenshot name="emu":
-  @mkdir -p test-screenshots
-  adb exec-out screencap -p > 'test-screenshots/{{name}}.png'
+  #!/usr/bin/env bash
+  set -euo pipefail
+  SLOT=$(node scripts/lib/slot.mjs slot)
+  DEVICE="${ANDROID_SERIAL:-$(adb get-serialno)}"
+  OUT="test-screenshots/android/s${SLOT}/${DEVICE}/{{name}}.png"
+  mkdir -p "$(dirname "$OUT")"
+  adb -s "$DEVICE" exec-out screencap -p > "$OUT"
 
 # Tag-scoped logcat for the native Android app's stable log tags.
 emu-logs:
@@ -420,7 +430,7 @@ _require-node-modules:
   @[ -d node_modules ] || { echo "No node_modules in this worktree — run: just install" >&2; exit 1; }
 
 # Type-check + build the web app (pipefail so a failing tsc/vite can't hide behind `| tail`).
-build: _require-node-modules
+build: check-node-version _require-node-modules
   #!/usr/bin/env bash
   set -euo pipefail
   pnpm exec tsc --noEmit | head -30
@@ -731,11 +741,15 @@ clean:
 check-node-modules:
   @node scripts/check-node-modules.mjs
 
+# Fail before tests/builds when the active Node differs from the pinned .nvmrc.
+check-node-version:
+  @node scripts/check-node-version.mjs
+
 _require-install:
   @[ -d node_modules ] || { echo 'node_modules is missing in this worktree — run: just install' >&2; exit 1; }
 
 # The normal pre-merge umbrella: specs, arch gates, Rust conformance, lint, tests, build.
-check: check-node-modules _require-install _require-node-modules toolbar-spec-check title-spec-check coin-check arch-gate lint-swift test-rust rust-format-check
+check: check-node-version check-node-modules _require-install _require-node-modules toolbar-spec-check title-spec-check coin-check arch-gate lint-swift test-rust rust-format-check
   #!/usr/bin/env bash
   # pipefail: see `build:` above — a failing tsc/vite build must not hide behind `| tail`.
   set -euo pipefail
