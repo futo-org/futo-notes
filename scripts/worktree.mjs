@@ -17,15 +17,15 @@
 //       worktree you are standing in, or anything with uncommitted changes —
 //       `git worktree remove` without --force is the second lock on that door.
 //       On macOS it also sweeps the ~/Library/{WebKit,Caches} folders of
-//       `just tauri-dev` branches no worktree has checked out (staleDevAppNames).
+//       `just tauri-dev` branches no worktree has checked out (lib/dev-app-storage.mjs).
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { envLines, staleDevAppNames } from './lib/slot.mjs';
-import { allCandidatePids, candidateFor } from './qa-target.mjs';
+import { sweepDevAppStorage } from './lib/dev-app-storage.mjs';
+import { envLines } from './lib/slot.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -314,36 +314,6 @@ function cmdGc(flags) {
   info(`removed ${removed} of ${candidates.length}; devices they owned: just qa-gc`);
   const remaining = parseWorktrees(git(['worktree', 'list', '--porcelain'], primary));
   sweepDevAppStorage(remaining.map((wt) => wt.branch).filter(Boolean), { apply: true });
-}
-
-// An unbundled `just tauri-dev` process has no bundle id, so WebKit names its
-// storage after the branch-named executable (apps/tauri/src-tauri/src/dev_app_name.rs).
-const DEV_APP_STORAGE_ROOTS = ['WebKit', 'Caches'].map((name) =>
-  path.join(os.homedir(), 'Library', name),
-);
-
-function sweepDevAppStorage(liveBranches, { apply }) {
-  if (process.platform !== 'darwin') return;
-  // ~/Library is per user, not per repo: a running instance from another clone,
-  // or one whose worktree has since switched branch, still owns its folders.
-  const running = new Set(
-    allCandidatePids()
-      .map((pid) => candidateFor(pid).execPath)
-      .filter(Boolean)
-      .map((execPath) => path.basename(execPath)),
-  );
-  const stale = DEV_APP_STORAGE_ROOTS.flatMap((root) => {
-    const names = fs.existsSync(root) ? fs.readdirSync(root) : [];
-    return staleDevAppNames(names, liveBranches)
-      .filter((name) => !running.has(name))
-      .map((name) => path.join(root, name));
-  });
-  if (stale.length === 0) return;
-  info(`dev-app storage of branches no worktree has checked out (${stale.length}):`);
-  for (const folder of stale) {
-    if (apply) fs.rmSync(folder, { recursive: true, force: true });
-    info(`  ${apply ? 'removed' : 'would remove'} ${folder}`);
-  }
 }
 
 function duHuman(p) {
