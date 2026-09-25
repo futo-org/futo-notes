@@ -751,7 +751,7 @@ _require-install:
   @[ -d node_modules ] || { echo 'node_modules is missing in this worktree — run: just install' >&2; exit 1; }
 
 # The normal pre-merge umbrella: specs, arch gates, Rust conformance, lint, tests, build.
-check: check-node-version check-node-modules _require-install _require-node-modules toolbar-spec-check title-spec-check coin-check arch-gate lint-swift test-rust rust-format-check
+check: check-node-modules check-node-version _require-install _require-node-modules toolbar-spec-check title-spec-check coin-check arch-gate lint-swift test-rust rust-format-check
   #!/usr/bin/env bash
   # pipefail: see `build:` above — a failing tsc/vite build must not hide behind `| tail`.
   set -euo pipefail
