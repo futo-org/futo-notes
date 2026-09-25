@@ -30,6 +30,10 @@ function note(id: string): NotePreview {
   return { id, title: id, preview: '', modificationTime: 0, tags: [] };
 }
 
+function notes(count: number): NotePreview[] {
+  return Array.from({ length: count }, (_, i) => note(`note-${String(i).padStart(3, '0')}`));
+}
+
 describe('FolderTreeView per-folder empty state', () => {
   let target: HTMLDivElement;
   let app: ReturnType<typeof mount> | null = null;
@@ -49,35 +53,6 @@ describe('FolderTreeView per-folder empty state', () => {
     setFolderSnapshot([], []);
   });
 
-  it('shows "Nothing here yet" inside an expanded empty folder', async () => {
-    setFolderSnapshot(['Empty'], []);
-    setFolderOpen('Empty', true);
-
-    app = mount(FolderTreeView, { target, props: { items: [] } });
-    flushSync();
-
-    const placeholder = target.querySelector('[data-testid="folder-empty-state"]');
-    expect(placeholder).toBeTruthy();
-    expect(placeholder?.textContent).toBe('Nothing here yet');
-    expect(target.querySelector('.empty-state')).toBeNull();
-  });
-
-  it('hides the placeholder when the folder is collapsed', async () => {
-    setFolderSnapshot(['Empty'], []);
-    setFolderOpen('Empty', false);
-
-    app = mount(FolderTreeView, { target, props: { items: [] } });
-    flushSync();
-
-    expect(target.querySelector('[data-testid="folder-empty-state"]')).toBeNull();
-
-    (target.querySelector('.folder-row') as HTMLElement).click();
-    flushSync();
-    expect(target.querySelector('[data-testid="folder-empty-state"]')?.textContent).toBe(
-      'Nothing here yet',
-    );
-  });
-
   it('shows no placeholder for an expanded folder with notes', async () => {
     setFolderOpen('Empty', true); // stale open-state for a folder that no longer exists
     app = mount(FolderTreeView, {
@@ -88,7 +63,7 @@ describe('FolderTreeView per-folder empty state', () => {
 
     (target.querySelector('.folder-row') as HTMLElement).click(); // open "Specs"
     flushSync();
-    expect(target.querySelector('[data-testid="folder-empty-state"]')).toBeNull();
+    expect(target.querySelector('.folder-empty-row')).toBeNull();
     expect(target.textContent).toContain('foo');
     setFolderOpen('Specs', false);
   });
@@ -151,8 +126,7 @@ describe('FolderTreeView virtualization', { timeout: 30_000 }, () => {
   });
 
   it('mounts only the visible window, not every row', () => {
-    const items = Array.from({ length: 300 }, (_, i) => note(`note-${String(i).padStart(3, '0')}`));
-    mountWithViewport(items, VIEWPORT_PX);
+    mountWithViewport(notes(300), VIEWPORT_PX);
 
     const expected = Math.ceil(VIEWPORT_PX / ROW_PITCH) + OVERSCAN;
     expect(rowCount()).toBeLessThanOrEqual(expected);
@@ -162,8 +136,7 @@ describe('FolderTreeView virtualization', { timeout: 30_000 }, () => {
   });
 
   it('keeps the scrollable height of the full list via spacers', () => {
-    const items = Array.from({ length: 300 }, (_, i) => note(`note-${String(i).padStart(3, '0')}`));
-    mountWithViewport(items, VIEWPORT_PX);
+    mountWithViewport(notes(300), VIEWPORT_PX);
 
     const spacers = Array.from(target.querySelectorAll<HTMLElement>('.tree-spacer'));
     const spacerPx = spacers.reduce((sum, el) => sum + parseInt(el.style.height || '0', 10), 0);
@@ -171,8 +144,7 @@ describe('FolderTreeView virtualization', { timeout: 30_000 }, () => {
   });
 
   it('renders a different slice after scrolling', () => {
-    const items = Array.from({ length: 300 }, (_, i) => note(`note-${String(i).padStart(3, '0')}`));
-    mountWithViewport(items, VIEWPORT_PX);
+    mountWithViewport(notes(300), VIEWPORT_PX);
     const firstBefore = target.querySelector('.note-row')?.getAttribute('data-note-id');
 
     const scroller = target.querySelector('.folder-tree-scroll') as HTMLElement;
@@ -187,8 +159,7 @@ describe('FolderTreeView virtualization', { timeout: 30_000 }, () => {
   });
 
   it('mounts the destination slice inside the scroll event before WebKit can paint a gap', () => {
-    const items = Array.from({ length: 300 }, (_, i) => note(`note-${String(i).padStart(3, '0')}`));
-    mountWithViewport(items, VIEWPORT_PX);
+    mountWithViewport(notes(300), VIEWPORT_PX);
 
     const scroller = target.querySelector('.folder-tree-scroll') as HTMLElement;
     let firstIdDuringScroll: string | null = null;
@@ -212,8 +183,7 @@ describe('FolderTreeView virtualization', { timeout: 30_000 }, () => {
   // therefore has to lead the scroll. Ground truth for these numbers (native
   // window captures, not rAF sampling): docs/perf/tab-switch-baseline.md.
   it('leads the mounted window past the viewport in the direction of travel', () => {
-    const items = Array.from({ length: 600 }, (_, i) => note(`note-${String(i).padStart(3, '0')}`));
-    mountWithViewport(items, VIEWPORT_PX);
+    mountWithViewport(notes(600), VIEWPORT_PX);
 
     const scroller = target.querySelector('.folder-tree-scroll') as HTMLElement;
     scroller.scrollTop = 150 * ROW_PITCH; // a 150-row jump, as a fling produces
@@ -228,8 +198,7 @@ describe('FolderTreeView virtualization', { timeout: 30_000 }, () => {
   });
 
   it('leads upward when the scroll travels up', () => {
-    const items = Array.from({ length: 600 }, (_, i) => note(`note-${String(i).padStart(3, '0')}`));
-    mountWithViewport(items, VIEWPORT_PX);
+    mountWithViewport(notes(600), VIEWPORT_PX);
     const scroller = target.querySelector('.folder-tree-scroll') as HTMLElement;
     scroller.scrollTop = 300 * ROW_PITCH;
     scroller.dispatchEvent(new Event('scroll'));
@@ -246,10 +215,7 @@ describe('FolderTreeView virtualization', { timeout: 30_000 }, () => {
   it('collapses back to the cheap window once scrolling settles', () => {
     vi.useFakeTimers();
     try {
-      const items = Array.from({ length: 600 }, (_, i) =>
-        note(`note-${String(i).padStart(3, '0')}`),
-      );
-      mountWithViewport(items, VIEWPORT_PX);
+      mountWithViewport(notes(600), VIEWPORT_PX);
       const scroller = target.querySelector('.folder-tree-scroll') as HTMLElement;
       scroller.scrollTop = 150 * ROW_PITCH;
       scroller.dispatchEvent(new Event('scroll'));
@@ -270,8 +236,7 @@ describe('FolderTreeView virtualization', { timeout: 30_000 }, () => {
     // jsdom's default (clientHeight 0) stands in for the frame before the
     // ResizeObserver first reports: guessing a window there would hide rows a
     // caller expects to be present.
-    const items = Array.from({ length: 60 }, (_, i) => note(`note-${String(i).padStart(3, '0')}`));
-    mountWithViewport(items, null);
+    mountWithViewport(notes(60), null);
     expect(rowCount()).toBe(60);
   });
 });

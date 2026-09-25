@@ -1339,9 +1339,8 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   `collision_placement_reports_the_relocated_local_note_as_a_rename` and
   `identical_content_collision_dedup_reports_no_rename` in
   `sync/behavior_tests.rs`); desktop `reconcileSyncCompletion.ts` (guarded by
-  "follows a reported collision-placement rename before pruning deletions" in
-  src/features/sync/syncManager.test.ts and the cross-platform scenario
-  "collision placement follows open note" in tests/cross-platform-sync.mjs)
+  the cross-platform scenario "collision placement follows open note" in
+  tests/cross-platform-sync.mjs)
 - **Following a reported rename is one atomic retarget of route AND editor**
   _(desktop)_. A single helper moves the tab/route and — while the session is
   still bound to the old id — the open editor's id and title, whether the
@@ -1353,8 +1352,8 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   verdict cannot disagree with the engine: a reported rename outranks every
   other fact and always yields `FollowRename`. →
   src/features/sync/syncManager.svelte.ts `applyReportedRename` (guarded by
-  "moves route and title together when the open note cannot be classified" in
-  src/features/sync/syncManager.test.ts + tests/remote-rename.spec.ts; the
+  tests/remote-rename.spec.ts "open note stays open when sync reports a
+  rename", which runs on the browser lane that has no classifier; the
   engine side by "a reported rename outranks …" in
   `every_reachable_fact_combination_has_one_verdict`)
 - **Every shell family is handed the same cycle report.** The desktop IPC
