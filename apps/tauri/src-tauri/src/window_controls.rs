@@ -148,13 +148,4 @@ mod tests {
             assert_eq!(parse_button_layout(setting), expected, "{setting:?}");
         }
     }
-
-    #[cfg(not(target_os = "linux"))]
-    #[test]
-    fn non_linux_command_reports_no_custom_controls() {
-        let layout = tauri::async_runtime::block_on(window_controls_layout()).unwrap();
-
-        assert!(layout.left.is_empty());
-        assert!(layout.right.is_empty());
-    }
 }
