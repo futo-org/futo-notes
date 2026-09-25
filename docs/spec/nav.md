@@ -160,6 +160,12 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   erase the dev/prod distinction. This is the title shown by the compositor in
   Alt+Tab and overview surfaces. → TabsStrip.svelte, App.svelte,
   windowTitle.ts, tauri.dev.conf.json
+- A `just tauri-dev` instance names itself after its git branch, verbatim, so
+  parallel dev instances are distinguishable: the window title's dev identity
+  becomes `FUTO Notes (Dev) · <branch>`, the branch shows under the sidebar's
+  DEV badge, and the macOS Dock and Cmd-Tab entry reads
+  `FUTO Notes (Dev) · <branch>`. A detached HEAD keeps the plain dev identity.
+  → tauri-dev.mjs, App.svelte, SidebarHeader.svelte, dev_app_name.rs
 - Debian and RPM packages install a hidden `futo-notes-tauri.desktop` identity
   alias matching the native Wayland app ID, so compositors resolve the FUTO
   Notes icon in Alt+Tab. The visible `FUTO Notes.desktop` launcher remains in
