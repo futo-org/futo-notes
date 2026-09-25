@@ -483,6 +483,9 @@ describe('pre-merge CI routing contracts', () => {
     // The abort keyword, not its message: turning `throw` into `Write-Warning`
     // keeps the sentence and drops the guarantee.
     expect(winBuild).toMatch(/throw "Node \$expectedNode is pinned/);
+    // Windows artifacts are NSIS only; MSI rejects non-numeric prerelease
+    // identifiers even though the pipeline collects and signs only NSIS.
+    expect(winBuild).toMatch(/cargo tauri build --bundles nsis/);
 
     // windows:sign is the ONE sanctioned exception: Node there only runs the
     // pinned @tauri-apps/cli, which is what actually determines the updater

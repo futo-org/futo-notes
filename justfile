@@ -378,12 +378,13 @@ sim-udid:
   echo "$UDIDS"
 
 # Screenshot the target simulator ($SIM, else booted), isolated by worktree and device.
+[positional-arguments]
 sim-screenshot name="sim":
   #!/usr/bin/env bash
   set -euo pipefail
   SLOT=$(node scripts/lib/slot.mjs slot)
   DEVICE="${SIM:-booted}"
-  OUT="test-screenshots/ios/s${SLOT}/${DEVICE}/{{name}}.png"
+  OUT="test-screenshots/ios/s${SLOT}/${DEVICE}/$1.png"
   mkdir -p "$(dirname "$OUT")"
   xcrun simctl io "$DEVICE" screenshot "$OUT"
 
@@ -392,12 +393,13 @@ sim-appearance mode="dark":
   xcrun simctl ui "${SIM:-booted}" appearance {{mode}}
 
 # Screenshot the connected Android device/emulator, isolated by worktree and device.
+[positional-arguments]
 emu-screenshot name="emu":
   #!/usr/bin/env bash
   set -euo pipefail
   SLOT=$(node scripts/lib/slot.mjs slot)
   DEVICE="${ANDROID_SERIAL:-$(adb get-serialno)}"
-  OUT="test-screenshots/android/s${SLOT}/${DEVICE}/{{name}}.png"
+  OUT="test-screenshots/android/s${SLOT}/${DEVICE}/$1.png"
   mkdir -p "$(dirname "$OUT")"
   adb -s "$DEVICE" exec-out screencap -p > "$OUT"
 

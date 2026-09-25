@@ -101,26 +101,15 @@ fi
 if [ "$ALREADY_RUNNING" = false ]; then
   rm -f "$PID_FILE"
   # The env vars are Linux/Wayland-specific and harmless on macOS.
-  # The `s` prefix on the slot is required: D-Bus well-known names cannot have
-  # segments starting with a digit; tauri-plugin-single-instance panics on
-  # `.47`, accepts `.s47`.
-  # The trailing `.dev` is NOT decoration: `Environment::for_bundle_id` picks
-  # staging vs production off that literal suffix (M3), so an id ending in the
-  # slot puts the QA instance on the PRODUCTION license key and the production
-  # buy destination — a staging-signed fixture then fails as "invalid" while
-  # every test stays green (pc_a028e420f16d).
+  # The launcher holds the machine-wide slot lease for the full app lifetime.
+  # The launcher derives its unique identifier from the worktree slot and keeps
+  # the required trailing `.dev` so license verification stays on staging (M3).
   # NOTE: use Bash run_in_background instead of shell `&` — `$!` does not
   # expand correctly inside the Bash tool.
   # FUTO_NOTES_DATA_DIR isolates notes/app data per worktree — the debug
   # default (~/Documents/fake-notes) is machine-global and would be shared
   # by parallel sessions.
-  cd "$WORKTREE_ROOT/apps/tauri" && \
-    WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=1 \
-    FUTO_NOTES_DATA_DIR="$WORKTREE_ROOT/.tauri-data" \
-    cargo tauri dev \
-      --config src-tauri/tauri.dev.conf.json \
-      --config '{"identifier":"com.futo.notes.verify.s'"$SLOT"'.dev","build":{"beforeDevCommand":"npm run dev --prefix ../.. -- --host 127.0.0.1 --port '"$VITE_PORT"' --strictPort","devUrl":"http://127.0.0.1:'"$VITE_PORT"'"}}' \
-    > "$TAURI_LOG" 2>&1 &
+  (cd "$WORKTREE_ROOT" && just tauri-dev) > "$TAURI_LOG" 2>&1 &
   echo $! > "$PID_FILE"
   # First build ~60s; rebuilds ~20s.
 fi
