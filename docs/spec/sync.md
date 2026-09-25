@@ -653,8 +653,9 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   when there is no vault — whether the account may write. Quitting halfway and
   reopening therefore lands on the right screen by construction; no shell keeps
   a wizard position, and none may start. → `hosted/vault.rs` `current_step`,
-  `createHostedSyncSettings.svelte.ts`; guarded by "the wizard position is
-  Rust's, not the shell's" in `createHostedSyncSettings.svelte.test.ts`
+  `createHostedSyncSettings.svelte.ts`; guarded by "the step is read from the
+  state machine, never remembered here" in `HostedSetupModelTest.kt` (Android),
+  the surviving reference shell suite for the hosted wizard
 - **Two shapes.** No vault yet: sign in → subscribe → choose a vault password →
   save the recovery key → sync. Vault exists: sign in → unlock → sync. Subscribe
   cannot be skipped in the first shape because writing the vault key is
