@@ -474,9 +474,12 @@ describe('pre-merge CI routing contracts', () => {
 
     // The version is resolved after the clone, and asserted after activation —
     // this VM produces the binary that gets Authenticode signed.
-    const clonedAt = winBuild.indexOf('Set-Location C:\\build\\futo-notes');
-    const activatedAt = winBuild.indexOf('fnm use --install-if-missing');
-    const usesNodeAt = winBuild.indexOf('node scripts\\desktop-version.mjs');
+    const commandIndex = (pattern) => winBuild.search(pattern);
+    const clonedAt = commandIndex(/^\s*Set-Location C:\\build\\futo-notes\s*$/m);
+    const activatedAt = commandIndex(
+      /^\s*Invoke-Step "Activating Node from \.nvmrc" \{ fnm use --install-if-missing \}\s*$/m,
+    );
+    const usesNodeAt = commandIndex(/^\s*node scripts\\desktop-version\.mjs \$Version\s*$/m);
     expect(clonedAt).toBeGreaterThan(-1);
     expect(activatedAt).toBeGreaterThan(clonedAt);
     expect(usesNodeAt).toBeGreaterThan(activatedAt);

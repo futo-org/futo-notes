@@ -87,9 +87,6 @@ used to bind `0.0.0.0`, which succeeds even while another process holds
 
 ### Launch (or reuse a running instance)
 
-<!-- The config path below is relative to the cd into apps/tauri a few lines into this same script, not repo-root — the checker can't see that shell context. -->
-<!-- check-agent-docs: ignore-next-block -->
-
 ```bash
 # Re-compute instance variables (see SKILL.md Instance Setup)
 ALREADY_RUNNING=false
