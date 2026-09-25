@@ -83,7 +83,11 @@ func licensePlateShape(_ card: LicenseCardModel?) -> LicensePlateShape {
 struct LicenseSettingsSection: View {
     @ObservedObject var license: LicenseModel
     /// The build-time store-posture flag. A parameter rather than a direct
-    /// read of the constant so both of its values are exercised by tests.
+    /// read of the constant so callers can inject either value. The
+    /// linkOut=false row-action table is owned by the Rust contract test
+    /// (`link_out_false_hides_every_way_out_of_the_app_and_nothing_else` in
+    /// `crates/futo-notes-ffi/src/license/contract.rs`) and by Android's
+    /// LicenseSurfaceTest; iOS no longer has a test for that value.
     var linkOut: Bool = LicenseLinkOut.isEnabled
 
     @Environment(\.localization) private var localization
