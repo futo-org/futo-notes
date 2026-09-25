@@ -132,6 +132,19 @@ axe batch --udid $SIM --wait-timeout 8 \
   --step "type 'hello'"                               # one HID session, one round trip
 ```
 
+`axe type` sends HID keyboard events; its success does not prove every character
+arrived or that the software keyboard remains visible. On iOS 26.x HID input can
+hide the software keys even when the text arrives. When keyboard visibility,
+virtual-key hit-testing, or the editor accessory is part of the assertion, tap
+the currently visible keyboard keys with `axe tap` and re-read the tree after
+each state change. If HID input hides the keys, tap the focused field again and
+confirm the key frames returned before continuing. On a claimed iOS 26.5 sim, a
+body edit moved `q` to y=959; tapping the editor brought it back to y=590 while
+`AutomaticMinimizationEnabled` remained `1`. Do not type directly into a
+frontmost Simulator window: host typing can connect the simulator's hardware
+keyboard. That preference is not a reliable health check by itself; use actual
+on-screen key frames and read the saved note from disk to verify text.
+
 `--element-type` is effectively mandatory: every nav item appears twice, as a
 `Group` and as the concrete control, and a bare `--id` refuses to act
 (`Multiple (2) accessibility elements matched`). Prefer `--wait-timeout` over
@@ -212,6 +225,9 @@ just sim-screenshot ios-dark-list    # → ./test-screenshots/ios/s<SLOT>/<SIM>/
 just sim-appearance dark             # system dark mode (app + editor follow live)
 just sim-appearance light
 ```
+
+Editor-story warmup and failure screenshots use the same worktree-slot and
+simulator namespace: `test-screenshots/ios/s<SLOT>/<SIM>/`.
 
 The app logs mostly via `print()`, which only reaches a console-attached
 launch — `log stream` alone misses it:
@@ -325,7 +341,9 @@ and `~/.cache/futo-notes` is cold, record sync happy-path stories as
   Every boot re-attaches it and Xcode 27 has no Simulator.app to detach it;
   `just qa-claim ios` and the stories detach it after each boot
   (`scripts/lib/simulator-keyboard.mjs`). A device you rebooted yourself needs
-  a re-claim.
+  a re-claim. If a script injects HID text and keyboard visibility matters,
+  re-read the keyboard key frames before continuing; `axe type` can hide the
+  software keyboard on some simulator states even when it reports success.
 - **Taps report success but nothing happens, on every simulator** → check
   whether Xcode 27's DeviceHub is running. While it runs it takes the
   touchscreen of every booted simulator, and the device log shows

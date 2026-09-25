@@ -13,8 +13,7 @@
  *   just test-ios-stories
  */
 
-import { join } from 'node:path';
-
+import { iosStoryScreenshotPath } from './lib/ios/axeClient.mjs';
 import { createIosDevice } from './lib/ios/device.mjs';
 import { describeVaultViolations, vaultInvariant } from './lib/vaultInvariant.mjs';
 
@@ -46,7 +45,9 @@ async function check(name, fn) {
   } catch (error) {
     let screenshot = null;
     try {
-      screenshot = device.screenshot(join('test-screenshots', 'ios-editor-story-failure.png'));
+      screenshot = device.screenshot(
+        iosStoryScreenshotPath(device.client.udid, 'ios-editor-story-failure.png'),
+      );
     } catch {
       // A failed screenshot must not mask the original story failure.
     }
