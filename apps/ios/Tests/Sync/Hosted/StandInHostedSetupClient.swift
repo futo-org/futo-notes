@@ -211,4 +211,3 @@ final class StandInHostedSetupClient: HostedSetupClientProtocol {
         }
     }
 }
-
