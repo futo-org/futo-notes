@@ -24,6 +24,27 @@ function resolveLocal(requireFromRoot, nodeModules, moduleName) {
   }
 }
 
+function hasCompatibleWs(requireFromRoot, nodeModules, packagePath) {
+  const entry = resolveLocal(requireFromRoot, nodeModules, 'ws');
+  const metadataPath = resolveLocal(requireFromRoot, nodeModules, 'ws/package.json');
+  if (!entry || !metadataPath) return false;
+  try {
+    const installed = JSON.parse(fs.readFileSync(metadataPath, 'utf8')).version;
+    const workspace = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+    const declared = workspace.devDependencies?.ws ?? workspace.dependencies?.ws ?? '';
+    const wantedMajor = /(?:^|\D)(\d+)(?:\.|$)/.exec(declared)?.[1];
+    const actualMajor = /^\d+/.exec(installed)?.[0];
+    delete requireFromRoot.cache[entry];
+    return (
+      Boolean(wantedMajor) &&
+      wantedMajor === actualMajor &&
+      typeof requireFromRoot(entry) === 'function'
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function missingWorkspaceDependencies(root = SCRIPT_ROOT) {
   const packagePath = path.join(root, 'package.json');
   const nodeModules = path.join(root, 'node_modules');
@@ -39,26 +60,7 @@ export function missingWorkspaceDependencies(root = SCRIPT_ROOT) {
     missing.push('ajv/dist/2020.js');
   }
 
-  let wsVersion = null;
-  const wsEntry = resolveLocal(requireFromRoot, nodeModules, 'ws');
-  const wsPackage = resolveLocal(requireFromRoot, nodeModules, 'ws/package.json');
-  if (wsEntry && wsPackage) {
-    try {
-      const wsMetadata = JSON.parse(fs.readFileSync(wsPackage, 'utf8'));
-      wsVersion = wsMetadata.version;
-      const rootPackage = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-      const declared = rootPackage.devDependencies?.ws ?? rootPackage.dependencies?.ws ?? '';
-      const wantedMajor = /(?:^|\D)(\d+)(?:\.|$)/.exec(declared)?.[1];
-      const actualMajor = /^\d+/.exec(wsVersion)?.[0];
-      delete requireFromRoot.cache[wsEntry];
-      const ws = requireFromRoot(wsEntry);
-      if (!wantedMajor || actualMajor !== wantedMajor || typeof ws !== 'function') {
-        missing.push('the workspace-compatible ws package');
-      }
-    } catch {
-      missing.push('the workspace-compatible ws package');
-    }
-  } else {
+  if (!hasCompatibleWs(requireFromRoot, nodeModules, packagePath)) {
     missing.push('the workspace-compatible ws package');
   }
 
