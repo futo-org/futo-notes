@@ -2411,6 +2411,7 @@ windows:provision:internal:
     - if: $CI_MERGE_REQUEST_IID
       changes:
         - .gitlab-ci.yml
+        - ci/win-build.ps1
       when: manual
       allow_failure: true
 
@@ -2536,6 +2537,7 @@ windows:cleanup:internal:
     - if: $CI_MERGE_REQUEST_IID
       changes:
         - .gitlab-ci.yml
+        - ci/win-build.ps1
       when: manual
       allow_failure: true
 

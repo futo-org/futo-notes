@@ -37,6 +37,21 @@ function topLevelBlock(contents, startPattern) {
 }
 
 describe('pre-merge CI routing contracts', () => {
+  it('keeps the internal Windows VM chain together when its build script changes', () => {
+    // A ci/win-build.ps1-only MR previously included the build without its
+    // provision job, so GitLab rejected the entire pipeline before any job ran.
+    for (const name of [
+      'windows:provision:internal',
+      'build:desktop-internal:windows',
+      'windows:cleanup:internal',
+    ]) {
+      const block = topLevelBlock(gitlabPipeline, new RegExp(`^${name}:$`, 'm'));
+      const mrRule = block.slice(block.lastIndexOf('    - if: $CI_MERGE_REQUEST_IID'));
+      expect(mrRule).toContain('      changes:');
+      expect(mrRule).toContain('        - ci/win-build.ps1');
+    }
+  });
+
   it('builds iOS stories from the pushed source and routes them through both local gates', () => {
     const storyRecipe = topLevelBlock(justfile, /^test-ios-stories:[^\n]*$/m);
     const prepushRecipe = topLevelBlock(justfile, /^prepush:[^\n]*$/m);
