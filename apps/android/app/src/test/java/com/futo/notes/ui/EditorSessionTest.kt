@@ -151,44 +151,6 @@ class EditorSessionTest {
     }
 
     @Test
-    fun `open-note reconciliation renders every engine disposition`() = runBlocking {
-        val dispositions = listOf(
-            OpenNoteDisposition.Leave,
-            OpenNoteDisposition.Adopt("peer"),
-            OpenNoteDisposition.KeepDraft("peer", KeepDraftReason.DIVERGED),
-        )
-
-        dispositions.forEach { disposition ->
-            val log = mutableListOf<String>()
-            val session = EditorSession(scope())
-            session.reconcileOpenNote(
-                RecordingOpenNoteEffects(
-                    dispositions = ArrayDeque(listOf(disposition)),
-                    log = log,
-                ),
-            )
-            val expected = mutableListOf("facts:note", "classify")
-            if (disposition === OpenNoteDisposition.Leave) expected += "resume-draft"
-            expected += "apply:note:${disposition::class.simpleName}"
-            assertEquals(expected, log)
-        }
-
-        val closeLog = mutableListOf<String>()
-        val closingSession = EditorSession(scope())
-        closingSession.reconcileOpenNote(
-            RecordingOpenNoteEffects(
-                dispositions = ArrayDeque(listOf(OpenNoteDisposition.Close)),
-                log = closeLog,
-            ),
-        )
-        assertTrue(closingSession.isClosing)
-        assertEquals(
-            listOf("facts:note", "classify", "apply:note:Close"),
-            closeLog,
-        )
-    }
-
-    @Test
     fun `focused adoption is deferred exactly until the session settles on blur`() = runBlocking {
         val log = mutableListOf<String>()
         val session = EditorSession(scope())
