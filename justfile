@@ -467,7 +467,7 @@ test-e2e-rest:
   pnpm run test:e2e:rest
 
 # Cross-platform E2EE sync against the pinned sync-server release.
-test-cross-platform *args:
+test-cross-platform *args: editor-deps
   pnpm run test:cross-platform "$@"
 
 # The Rust server-backed sync suites against REAL servers (two server modes); see justfile-notes.md.

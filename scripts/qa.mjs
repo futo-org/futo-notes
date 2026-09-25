@@ -32,11 +32,12 @@ import { disconnectHardwareKeyboard } from './lib/simulator-keyboard.mjs';
 import { portsFor, slotOf } from './lib/slot.mjs';
 import { devicesForRelease, parseReleaseArgs } from './qa/qa-release.mjs';
 import {
-  acquireServerStartLock,
+  acquireOwnedServerStart,
   assertServerOwner,
   claimServerOwner,
   releaseServerOwner,
   serverOwner,
+  shouldCleanServerDir,
 } from './qa/qa-server-owner.mjs';
 import {
   REPORTED_AUTH_MODE,
@@ -625,14 +626,9 @@ async function cmdServerStart(args) {
   }
   fs.mkdirSync(dir, { recursive: true });
   let createdOwner;
-  try {
-    createdOwner = claimServerOwner(dir, root);
-  } catch (error) {
-    die(error.message);
-  }
   let releaseStartLock;
   try {
-    releaseStartLock = acquireServerStartLock(dir, root);
+    ({ createdOwner, release: releaseStartLock } = acquireOwnedServerStart(dir, root));
   } catch (error) {
     die(error.message);
   }
@@ -761,7 +757,7 @@ function serverStop(root, drop) {
     die(`slot ${slotOf(root)} sync server ownership is unknown; refusing to stop or drop it`);
   }
   if (!owner && meta?.worktree === root) claimServerOwner(dir, root); // safely adopt a legacy owned server
-  if (meta || readPid(path.join(dir, 'server.pid'))) stopServerDir(dir, meta, drop);
+  if (shouldCleanServerDir({ meta, owner, pid })) stopServerDir(dir, meta, drop);
 }
 
 // ── main ───────────────────────────────────────────────────────────────────

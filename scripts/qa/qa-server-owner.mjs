@@ -43,6 +43,23 @@ export function acquireServerStartLock(dir, root) {
   return () => fs.rmSync(file, { force: true });
 }
 
+// Lock first, then claim ownership. If a concurrent starter holds the lock,
+// this call cannot leave a claim behind that blocks the actual lock owner.
+export function acquireOwnedServerStart(dir, root) {
+  const release = acquireServerStartLock(dir, root);
+  try {
+    const createdOwner = claimServerOwner(dir, root);
+    return { createdOwner, release };
+  } catch (error) {
+    release();
+    throw new Error(error.message, { cause: error });
+  }
+}
+
+export function shouldCleanServerDir({ meta, owner, pid }) {
+  return Boolean(meta || owner || pid);
+}
+
 export function claimServerOwner(dir, root) {
   const file = path.join(dir, OWNER_FILE);
   fs.mkdirSync(dir, { recursive: true });

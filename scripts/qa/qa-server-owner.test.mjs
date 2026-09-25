@@ -3,10 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  acquireOwnedServerStart,
   acquireServerStartLock,
   assertServerOwner,
   claimServerOwner,
   releaseServerOwner,
+  shouldCleanServerDir,
+  serverOwner,
 } from './qa-server-owner.mjs';
 
 const dirs = [];
@@ -39,6 +42,23 @@ describe('QA sync server ownership', () => {
     );
     release();
     expect(() => acquireServerStartLock(dir, '/worktrees/one')).not.toThrow();
+  });
+
+  it('does not leave an owner claim behind when another starter holds the slot lock', () => {
+    const dir = tempDir();
+    const release = acquireServerStartLock(dir, '/worktrees/one');
+    expect(() => acquireOwnedServerStart(dir, '/worktrees/one')).toThrow(
+      /another sync server start/,
+    );
+    expect(serverOwner(dir)).toBeNull();
+    release();
+  });
+
+  it('cleans an owner-only slot when metadata and pid files are absent', () => {
+    expect(
+      shouldCleanServerDir({ meta: null, owner: { worktree: '/worktrees/one' }, pid: null }),
+    ).toBe(true);
+    expect(shouldCleanServerDir({ meta: null, owner: null, pid: null })).toBe(false);
   });
 
   it('removes the owner record only for its recorded worktree', () => {
