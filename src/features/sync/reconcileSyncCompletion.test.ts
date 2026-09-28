@@ -17,6 +17,8 @@ vi.mock('$lib/localNoteStore', () => ({
 vi.mock('$shared/state/appState', () => ({
   updateAppState: async () => undefined,
 }));
+const recheckVaultAvailability = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock('$features/storage/vaultAvailability.svelte', () => ({ recheckVaultAvailability }));
 
 const { createSyncCompletionReconciler } = await import('./reconcileSyncCompletion');
 
@@ -119,5 +121,18 @@ describe('sync completion projection', () => {
     await run(emptySummary());
 
     expect(noteMocks.refreshNotesAfterSync).not.toHaveBeenCalled();
+  });
+
+  // A note write the vault refused marks it unusable (vault_fs::access_refused);
+  // the banner should not wait for the next failed note command.
+  it('re-checks whether the vault is still usable after a cycle that failed', async () => {
+    recheckVaultAvailability.mockClear();
+    const { run } = makeReconciler();
+
+    await run({ ...emptySummary(), failureMessage: 'Some notes failed to sync' });
+    expect(recheckVaultAvailability).toHaveBeenCalledOnce();
+
+    await run(emptySummary());
+    expect(recheckVaultAvailability).toHaveBeenCalledOnce();
   });
 });

@@ -1786,8 +1786,7 @@ unchanged by it.
   (`![](<my photo.png>)`); the bare `![](my photo.png)`
   is not an image in CommonMark and renders as text. Every filename the app
   itself generates is space-free, so this only reaches notes written elsewhere.
-  → shared/media/imageFiles.ts `createImageFilename`,
-  tests/editor-embed-milkdown.spec.ts
+  → `image_commands::write_image`, tests/editor-embed-milkdown.spec.ts
 
   > **Gap:** an image destination that is ALREADY percent-encoded in the file
   > (`![](my%20photo.png)`, as some other editors write it) does not render.
@@ -2016,8 +2015,11 @@ unchanged by it.
 - A failed desktop disk save blocks switching notes, going Home, and closing the
   outgoing tab. The outgoing draft stays open and dirty, its tab is restored,
   and a visible save-failure message permits retry. A converged or durably
-  parked draft permits navigation. _(desktop)_ → `noteSaveQueue.ts`,
-  `createNotePersistence.ts`, `createTabNoteTransition.ts`
+  parked draft permits navigation. While the vault is locked (settings.md) no
+  save is tried and none blocks: the unsaved text stays in memory for the rest
+  of the launch and comes back when the note is opened again. _(desktop)_ →
+  `noteSaveQueue.ts`, `createNotePersistence.ts`, `createTabNoteTransition.ts`,
+  `noteSession.svelte.ts` `flushBeforeLeaving`
 - Editor rename and move send the body, saved baseline, and destination through
   one Rust workflow. A peer-changed source remains untouched; the local draft
   becomes a conflict copy at the requested destination, and the editor follows

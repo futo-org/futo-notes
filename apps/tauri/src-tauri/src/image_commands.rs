@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use futo_notes_core::files::vault_fs;
+use tauri::ipc::InvokeBody;
 use tauri::AppHandle;
 
 use crate::background_tasks::blocking;
@@ -27,43 +28,50 @@ fn validate_extension(extension: &str) -> Result<String, String> {
 }
 
 /// Saved by the vault engine like a note, so a folder that refuses the write marks
-/// the vault unusable (`vault_fs::access_refused`). `create_new` never replaces a
-/// file: a second image in the same millisecond takes the next number, the way
-/// the native shells name theirs.
+/// the vault unusable (`vault_fs::access_refused`). The random part keeps two
+/// devices that add an image in the same millisecond from syncing one name, and
+/// `create_new` never replaces a file.
 fn write_image(root: &Path, bytes: &[u8], extension: &str, now_ms: i64) -> Result<String, String> {
     let extension = validate_extension(extension)?;
-    let mut filename = format!("image-{now_ms}.{extension}");
-    for number in 2..100 {
-        if vault_fs::create_new(root, &filename, bytes)? {
-            return Ok(filename);
-        }
-        filename = format!("image-{now_ms}-{number}.{extension}");
+    let suffix = hex::encode(rand::random::<[u8; 6]>());
+    let filename = format!("image-{now_ms}-{suffix}.{extension}");
+    if vault_fs::create_new(root, &filename, bytes)? {
+        Ok(filename)
+    } else {
+        Err(format!("image name already taken: {filename}"))
     }
-    Err("no free image filename".to_owned())
 }
 
-/// Image bytes the webview holds — a drop, a pick, a pasted file. They arrive as
-/// the raw IPC body with the extension in a header, as plugin-fs `writeFile` sends
+/// Image bytes arrive as the raw IPC body, the way plugin-fs `writeFile` sends
 /// them; the postMessage fallback delivers the same bytes as a JSON array.
+fn image_bytes(body: &InvokeBody) -> Result<Vec<u8>, String> {
+    match body {
+        InvokeBody::Raw(bytes) => Ok(bytes.clone()),
+        InvokeBody::Json(serde_json::Value::Array(values)) => values
+            .iter()
+            .map(|value| value.as_u64().and_then(|byte| u8::try_from(byte).ok()))
+            .collect::<Option<Vec<u8>>>()
+            .ok_or_else(|| "image bytes must each be 0-255".to_owned()),
+        InvokeBody::Json(_) => Err("expected image bytes".to_owned()),
+    }
+}
+
+fn image_extension(headers: &tauri::http::HeaderMap) -> Result<String, String> {
+    headers
+        .get("image-extension")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+        .ok_or_else(|| "missing image extension".to_owned())
+}
+
+/// Image bytes the webview holds — a drop, a pick, a pasted file.
 #[tauri::command]
 pub async fn fs_save_image(
     app: AppHandle,
     request: tauri::ipc::Request<'_>,
 ) -> Result<String, String> {
-    let extension = request
-        .headers()
-        .get("image-extension")
-        .and_then(|value| value.to_str().ok())
-        .ok_or("missing image extension")?
-        .to_owned();
-    let bytes = match request.body() {
-        tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
-        tauri::ipc::InvokeBody::Json(serde_json::Value::Array(values)) => values
-            .iter()
-            .filter_map(|value| value.as_u64().map(|byte| byte as u8))
-            .collect(),
-        tauri::ipc::InvokeBody::Json(_) => return Err("expected image bytes".to_owned()),
-    };
+    let extension = image_extension(request.headers())?;
+    let bytes = image_bytes(request.body())?;
     blocking(move || {
         write_image(
             &crate::vault_location::root(&app)?,
@@ -145,19 +153,37 @@ mod tests {
     fn image_write_returns_a_vault_relative_filename() {
         let root = temp_dir();
         let filename = write_image(&root, b"image", "PNG", 42).unwrap();
-        assert_eq!(filename, "image-42.png");
+        assert!(filename.starts_with("image-42-") && filename.ends_with(".png"));
         assert_eq!(fs::read(root.join(filename)).unwrap(), b"image");
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn images_saved_in_the_same_millisecond_are_both_kept() {
+    fn images_saved_in_the_same_millisecond_get_different_names() {
         let root = temp_dir();
         let first = write_image(&root, b"first", "png", 42).unwrap();
         let second = write_image(&root, b"second", "png", 42).unwrap();
-        assert_eq!(second, "image-42-2.png");
+        assert_ne!(first, second);
         assert_eq!(fs::read(root.join(first)).unwrap(), b"first");
         assert_eq!(fs::read(root.join(second)).unwrap(), b"second");
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn image_bytes_arrive_raw_or_as_a_json_array_of_bytes() {
+        assert_eq!(image_bytes(&InvokeBody::Raw(vec![1, 2])).unwrap(), [1, 2]);
+        let array = InvokeBody::Json(serde_json::json!([0, 255]));
+        assert_eq!(image_bytes(&array).unwrap(), [0, 255]);
+        assert!(image_bytes(&InvokeBody::Json(serde_json::json!([256]))).is_err());
+        assert!(image_bytes(&InvokeBody::Json(serde_json::json!(["1"]))).is_err());
+        assert!(image_bytes(&InvokeBody::Json(serde_json::json!({ "bytes": [1] }))).is_err());
+    }
+
+    #[test]
+    fn the_image_extension_comes_from_its_header() {
+        let mut headers = tauri::http::HeaderMap::new();
+        assert!(image_extension(&headers).is_err());
+        headers.insert("image-extension", "png".parse().unwrap());
+        assert_eq!(image_extension(&headers).unwrap(), "png");
     }
 }

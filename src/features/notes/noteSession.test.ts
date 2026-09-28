@@ -236,6 +236,31 @@ describe('committing the title without waiting out the debounce', () => {
     },
   );
 
+  // A locked vault (VaultUnavailableBanner) refuses every save for the rest of the
+  // launch, so waiting on one would trap the user on this note.
+  it('leaves a note while the vault is locked and keeps its unsaved text for its return', async () => {
+    let activeNoteId = 'A';
+    const session = createNoteSession({
+      ...makeTitleDeps(),
+      getNoteId: () => activeNoteId,
+      isVaultLocked: () => true,
+    });
+    const { updateNote, readNote } = await import('./notes.svelte');
+    session.seedOpenNote('A', 'original A');
+    titleEditorContent = 'unsaved A';
+    vi.mocked(readNote).mockResolvedValueOnce('disk B').mockResolvedValueOnce('original A');
+
+    activeNoteId = 'B';
+    await session.loadNote('B');
+    expect(titleEditorContent).toBe('disk B');
+
+    activeNoteId = 'A';
+    await session.loadNote('A');
+    expect(titleEditorContent).toBe('unsaved A');
+    expect(session.content).toBe('unsaved A');
+    expect(updateNote).not.toHaveBeenCalled();
+  });
+
   it('renames on flush with no timer advance at all', async () => {
     const session = createNoteSession(makeTitleDeps());
     const { updateNote } = await import('./notes.svelte');

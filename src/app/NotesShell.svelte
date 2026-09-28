@@ -16,6 +16,7 @@
   import SettingsScreen from '$features/settings/SettingsScreen.svelte';
   import DrawerSidebar from '$features/sidebar/DrawerSidebar.svelte';
   import VaultUnavailableBanner from '$features/storage/VaultUnavailableBanner.svelte';
+  import { vaultAvailability } from '$features/storage/vaultAvailability.svelte';
   import { license } from '$features/license/license.svelte';
   import type { SidebarView } from '$features/sidebar/components/SidebarViewSelector.svelte';
   import { clampSidebarWidth } from '$features/sidebar/sidebarWidth';
@@ -101,6 +102,7 @@
     },
     reconcileOpenNote: (id, parkedDraft) => reconcileOpenNote(id, parkedDraft),
     navigate,
+    isVaultLocked: () => vaultAvailability.unavailable,
   });
 
   const sync = createSyncManager({

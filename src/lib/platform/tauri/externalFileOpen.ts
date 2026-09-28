@@ -3,6 +3,8 @@ import { listen } from '@tauri-apps/api/event';
 
 import type { LocalNoteMutation } from '$lib/localNoteStore';
 
+import { invokeVaultCommand } from './vaultCommands';
+
 export type ExternalFileOpenRequest =
   { kind: 'insideVault'; id: string } | { kind: 'outsideVault'; path: string; name: string };
 
@@ -27,5 +29,5 @@ export async function subscribeToExternalFileOpen(
 }
 
 export function importExternalNoteFile(path: string): Promise<LocalNoteMutation> {
-  return invoke<LocalNoteMutation>('local_notes_import_external', { path });
+  return invokeVaultCommand<LocalNoteMutation>('local_notes_import_external', { path });
 }

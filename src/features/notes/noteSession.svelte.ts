@@ -31,6 +31,8 @@ export interface NoteSessionDeps {
   onNoteRenamed: (savedOriginalId: string | null, realId: string) => void;
   reconcileOpenNote: (id: string, parkedDraft: ParkedDraftSnapshot) => Promise<unknown>;
   navigate: (path: string) => void;
+  /** The desktop vault refuses writes: nothing can be saved for the rest of the launch. */
+  isVaultLocked?: () => boolean;
 }
 
 /** The exact body and title a save parked as a conflict copy. */
@@ -268,7 +270,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     notifySaved,
   });
   const noteLoader = createNoteLoader({
-    flushSave: saveQueue.flush,
+    flushSave: flushBeforeLeaving,
     getNotes: deps.getNotes,
     getEditorContent: deps.getEditorContent,
     isSavePending: saveQueue.isPending,
@@ -299,6 +301,36 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     if (loading || !hasFileSystem || deps.getNoteId() === null) return;
     if (nextContent === undefined) saveQueue.schedule(TITLE_SAVE_DEBOUNCE_MS);
     else saveQueue.schedule(BODY_SAVE_DEBOUNCE_MS, BODY_SAVE_MAX_WAIT_MS);
+  }
+
+  // While the vault is locked no save can succeed, so leaving a note must not
+  // wait on one: its unsaved text stays here for the rest of the launch and comes
+  // back when the note is opened again, so it can still be copied out.
+  const keptWhileLocked = new Map<string, ParkedDraftSnapshot>();
+
+  async function flushBeforeLeaving(): Promise<void> {
+    if (!deps.isVaultLocked?.()) return saveQueue.flush();
+    saveQueue.cancelPending();
+    if (hasUnseenEditorChanges()) {
+      keptWhileLocked.set(originalId ?? 'new', {
+        title,
+        content: deps.getEditorContent() ?? content,
+      });
+    }
+  }
+
+  async function loadNote(id: string | null): Promise<void> {
+    await noteLoader.load(id);
+    const kept = id === null ? undefined : keptWhileLocked.get(id);
+    if (!kept || loading || deps.getNoteId() !== id) return;
+    title = kept.title;
+    content = kept.content;
+    suppressSaveOnChange = true;
+    try {
+      deps.setEditorContent(kept.content);
+    } finally {
+      suppressSaveOnChange = false;
+    }
   }
 
   function hasUnseenEditorChanges(): boolean {
@@ -436,7 +468,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     resumeDraftPersistence: saveQueue.resume,
     flushSave: saveQueue.flush,
     runWithSaveLock,
-    loadNote: noteLoader.load,
+    loadNote,
     handleTitleInput: titleController.handleInput,
     handleTitleKeydown: titleController.handleKeydown,
     handleTitleBlur: titleController.handleBlur,

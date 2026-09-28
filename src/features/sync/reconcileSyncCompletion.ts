@@ -1,5 +1,6 @@
 import { getNoteById, noteExists, refreshNotesAfterSync } from '$features/notes/notes.svelte';
 import type { NoteSession } from '$features/notes/noteSession.svelte';
+import { recheckVaultAvailability } from '$features/storage/vaultAvailability.svelte';
 import { updateAppState } from '$shared/state/appState';
 
 import type { SyncTrigger } from './autoSync';
@@ -132,6 +133,11 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
   ): Promise<void> {
     if (summary.failureMessage) {
       options.raiseSyncError(summary.failureMessage, summary.writeRefusal);
+      // A note write the vault refused marks it unusable; ask now rather than
+      // waiting for the next failed command.
+      void recheckVaultAvailability().catch((error) =>
+        console.warn('Failed to re-read vault status:', error),
+      );
     } else {
       options.clearSyncError();
       if (trigger === 'manual') dependencies.showToast({ path: 'sync.status.complete' });
