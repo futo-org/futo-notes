@@ -42,8 +42,9 @@ pub(crate) fn take_next_temp() {
     TAKE_NEXT_TEMP.with(|v| v.set(true));
 }
 
-/// Told about a failure to create the temp file or its parent folders; the vault
-/// uses it to learn that the OS refuses writes there (`vault_fs::access_refused`).
+/// Told about a failure to create the temp file; the vault uses it to learn that
+/// the OS refuses writes there (`vault_fs::access_refused`). Its parent folders
+/// were already made, and reported, by the vault.
 type CreateFailure<'a> = &'a dyn Fn(&std::io::Error);
 
 fn create_temp(
@@ -52,7 +53,16 @@ fn create_temp(
 ) -> Result<(std::path::PathBuf, File), String> {
     for _ in 0..32 {
         let path = hidden_path(parent, "tmp");
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
+        let open = || OpenOptions::new().write(true).create_new(true).open(&path);
+        #[cfg(test)]
+        let open = || {
+            if crate::files::vault_fs::take_refused_create() {
+                Err(std::io::ErrorKind::PermissionDenied.into())
+            } else {
+                open()
+            }
+        };
+        match open() {
             Ok(file) => return Ok((path, file)),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => {
@@ -109,10 +119,7 @@ pub(crate) fn write_atomic_bytes_reporting(
     let parent = path
         .parent()
         .ok_or_else(|| "invalid file path".to_owned())?;
-    fs::create_dir_all(parent).map_err(|error| {
-        on_create_failure(&error);
-        error.to_string()
-    })?;
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -145,10 +152,7 @@ pub(crate) fn create_new_atomic_reporting(
     let parent = path
         .parent()
         .ok_or_else(|| "invalid file path".to_owned())?;
-    fs::create_dir_all(parent).map_err(|error| {
-        on_create_failure(&error);
-        error.to_string()
-    })?;
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     let name = path
         .file_name()
         .and_then(|name| name.to_str())

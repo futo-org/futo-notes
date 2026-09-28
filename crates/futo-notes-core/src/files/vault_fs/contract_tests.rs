@@ -88,58 +88,44 @@ macro_rules! vault_fs_contract {
             use crate::files::vault_fs::$implementation as vault_fs;
 
             /// Controlled Folder Access over an existing vault, or a read-only
-            /// mount: the folder still reads, so the refused create is the only
-            /// sign it is unusable. Directory permissions are how a Unix host
-            /// can produce that refusal; root ignores them.
-            #[cfg(unix)]
+            /// mount: the folder still reads, so a refused create directly in it
+            /// is the only sign it is unusable — a file, a folder, or a folder
+            /// made on the way to a file.
             #[test]
-            fn a_refused_create_marks_the_vault_access_refused() {
-                use std::os::unix::fs::PermissionsExt;
+            fn a_refused_create_in_the_root_marks_the_vault_access_refused() {
+                use crate::files::vault_fs::{refusal_count, refuse_next_create};
                 let root = TempRoot::new();
-                let set_mode = |mode| {
-                    std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(mode))
-                        .unwrap()
-                };
-                let before = crate::files::vault_fs::refusal_count();
+                let before = refusal_count();
 
-                set_mode(0o555);
-                let write = vault_fs::write_atomic(root.path(), "note.md", b"body");
-                let folder = vault_fs::create_dir(root.path(), "Work");
-                set_mode(0o755);
+                refuse_next_create();
+                assert!(vault_fs::write_atomic(root.path(), "note.md", b"body").is_err());
+                refuse_next_create();
+                assert!(vault_fs::create_dir(root.path(), "Work").is_err());
+                refuse_next_create();
+                assert!(vault_fs::write_atomic(root.path(), "New/note.md", b"body").is_err());
 
-                if write.is_ok() {
-                    return; // root: permissions refuse nothing to prove
-                }
-                assert!(folder.is_err());
-                assert!(crate::files::vault_fs::refusal_count() >= before + 2);
+                assert_eq!(refusal_count(), before + 3);
             }
 
             /// One read-only subfolder (a root-owned `.crashlogs`, a shared
             /// `Archive/`) fails only its own writes; the vault stays usable.
-            #[cfg(unix)]
             #[test]
             fn a_refused_create_in_a_subfolder_leaves_the_vault_usable() {
-                use std::os::unix::fs::PermissionsExt;
+                use crate::files::vault_fs::{refusal_count, refuse_next_create};
                 let root = TempRoot::new();
-                let archive = root.path().join("Archive");
-                std::fs::create_dir(&archive).unwrap();
-                let set_mode = |mode| {
-                    std::fs::set_permissions(&archive, std::fs::Permissions::from_mode(mode))
-                        .unwrap()
-                };
-                let before = crate::files::vault_fs::refusal_count();
+                std::fs::create_dir(root.path().join("Archive")).unwrap();
+                let before = refusal_count();
 
-                set_mode(0o555);
-                let write = vault_fs::write_atomic(root.path(), "Archive/old.md", b"body");
-                let folder = vault_fs::create_dir(root.path(), "Archive/Deeper");
-                let parent = vault_fs::write_atomic(root.path(), "Archive/New/note.md", b"body");
-                set_mode(0o755);
+                refuse_next_create();
+                assert!(vault_fs::write_atomic(root.path(), "Archive/old.md", b"body").is_err());
+                refuse_next_create();
+                assert!(vault_fs::create_dir(root.path(), "Archive/Deeper").is_err());
+                refuse_next_create();
+                assert!(
+                    vault_fs::write_atomic(root.path(), "Archive/New/note.md", b"body").is_err()
+                );
 
-                if write.is_ok() {
-                    return; // root: permissions refuse nothing to prove
-                }
-                assert!(folder.is_err() && parent.is_err());
-                assert_eq!(crate::files::vault_fs::refusal_count(), before);
+                assert_eq!(refusal_count(), before);
             }
 
             /// 57a96b55: a file-provider agent (iCloud Drive, Dropbox) can take

@@ -9,6 +9,14 @@ pub(super) fn take_next_temp() {
     crate::files::atomic_write::take_next_temp();
 }
 
+fn make_dir(path: &Path) -> std::io::Result<()> {
+    #[cfg(test)]
+    if super::take_refused_create() {
+        return Err(std::io::ErrorKind::PermissionDenied.into());
+    }
+    std::fs::create_dir(path)
+}
+
 /// A parent directory must be a real directory, not a link and not a file.
 fn accept_parent(path: &Path, metadata: &std::fs::Metadata) -> Result<(), OpenParentError> {
     if super::is_link(metadata) {
@@ -47,7 +55,7 @@ fn checked_path(root: &Path, relative: &str, create: bool) -> Result<PathBuf, Op
         match std::fs::symlink_metadata(&path) {
             Ok(metadata) => accept_parent(&path, &metadata)?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound && create => {
-                match std::fs::create_dir(&path) {
+                match make_dir(&path) {
                     Ok(()) => {}
                     // A peer writer creating the same folder inside this window
                     // is a race, not a failure — `mkdirat` EEXIST is tolerated
@@ -216,7 +224,7 @@ pub(super) fn write_atomic_local(root: &Path, relative: &str, bytes: &[u8]) -> R
 }
 pub(super) fn create_dir(root: &Path, relative: &str) -> Result<(), String> {
     let path = checked_path(root, relative, false).map_err(OpenParentError::message)?;
-    std::fs::create_dir(path).map_err(|error| {
+    make_dir(&path).map_err(|error| {
         super::note_create_failure(&error, super::in_root(relative));
         context("create directory", relative, error)
     })

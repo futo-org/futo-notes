@@ -82,10 +82,12 @@ compatibility requirements and must not be reintroduced.
   `FileChange` set through `BeforeWrite`; desktop registers those paths in the
   one-shot watcher suppressor.
 - Atomic Markdown writes use a flushed, short-named temporary file in the same
-  directory followed by rename. A temp that vanishes before it is installed (a
-  file-provider agent such as iCloud Drive or Dropbox can take it) is written once
-  more. → `vault_fs::contract_tests::*::a_temp_file_taken_before_install_is_written_again` Case/normalization-only renames use a hidden
+  directory followed by rename. Case/normalization-only renames use a hidden
   temp hop and restore the source if the second hop fails.
+- A temp that vanishes before it is installed (a file-provider agent such as
+  iCloud Drive or Dropbox can take it) is written once more, for notes, app data
+  and images alike. →
+  `vault_fs::contract_tests::*::a_temp_file_taken_before_install_is_written_again`
 - A watcher echo consumes one suppression entry. A later external edit inside
   the expiry window is therefore still delivered.
 - External changes are projected back into the store and trigger one index
@@ -133,11 +135,11 @@ compatibility requirements and must not be reintroduced.
   `Documents\futo-notes` while `Documents` stays readable) is unavailable in the
   same way: the setup hook creates the default root before the webview loads, so
   `vault_status` stays read-only and reports a default that is not a directory as
-  `available: false`; the recovery UI appears instead of an empty app. Only
-  `vault_location` creates a root: app-data writes and image saves resolve theirs
-  through it like a note command (so they too recreate a missing default root and
-  never a custom one), and a Rust panic report is dropped rather than recreating a
-  vanished vault for its `.crashlogs`. →
+  `available: false`; the recovery UI appears instead of an empty app. App-data
+  writes and image saves resolve their root through `vault_location` like a note
+  command, so they too recreate a missing default root and never a custom one, and
+  a Rust panic report is dropped rather than recreating a vanished vault for its
+  `.crashlogs`. →
   `vault_location::tests::a_default_root_that_cannot_be_created_is_reported_unavailable`,
   `panic_reporter::tests::a_crash_never_recreates_a_missing_vault`
 - A root that is a directory but refused to let a file or folder be created
@@ -151,7 +153,7 @@ compatibility requirements and must not be reintroduced.
   data, an image — process-wide and `vault_status` reports it as `accessRefused`;
   nothing writes to the vault to find out. →
   `vault_fs::contract_tests::only_a_permission_refusal_directly_in_the_root_counts`,
-  `*::a_refused_create_marks_the_vault_access_refused`,
+  `*::a_refused_create_in_the_root_marks_the_vault_access_refused`,
   `*::a_refused_create_in_a_subfolder_leaves_the_vault_usable`,
   `vault_location::tests::a_root_that_refused_a_write_is_unavailable`
 

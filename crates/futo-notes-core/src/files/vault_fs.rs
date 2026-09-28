@@ -53,6 +53,20 @@ thread_local! {
     /// This thread's refusals: the flag is process-wide, and the two contract
     /// suites run in parallel, so only a per-thread count shows a test its own.
     static TEST_REFUSALS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static REFUSE_NEXT_CREATE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Makes this thread's next create in the vault fail as the OS refusing it, so
+/// the refusal wiring runs as root (Linux CI) and on Windows, where no
+/// permission bit a test can set refuses anything.
+#[cfg(test)]
+fn refuse_next_create() {
+    REFUSE_NEXT_CREATE.with(|refuse| refuse.set(true));
+}
+
+#[cfg(test)]
+pub(crate) fn take_refused_create() -> bool {
+    REFUSE_NEXT_CREATE.with(|refuse| refuse.replace(false))
 }
 
 pub fn access_refused() -> bool {

@@ -119,17 +119,28 @@ fn open_parent_with_policy(
         let next = match open_directory(&directory, component) {
             Ok(next) => next,
             Err(rustix::io::Errno::NOENT) if create => {
-                match mkdirat(
-                    &directory,
-                    *component,
-                    Mode::RUSR
-                        | Mode::WUSR
-                        | Mode::XUSR
-                        | Mode::RGRP
-                        | Mode::XGRP
-                        | Mode::ROTH
-                        | Mode::XOTH,
-                ) {
+                let make = || {
+                    mkdirat(
+                        &directory,
+                        *component,
+                        Mode::RUSR
+                            | Mode::WUSR
+                            | Mode::XUSR
+                            | Mode::RGRP
+                            | Mode::XGRP
+                            | Mode::ROTH
+                            | Mode::XOTH,
+                    )
+                };
+                #[cfg(test)]
+                let make = || {
+                    if super::take_refused_create() {
+                        Err(rustix::io::Errno::ACCESS)
+                    } else {
+                        make()
+                    }
+                };
+                match make() {
                     Ok(()) | Err(rustix::io::Errno::EXIST) => {}
                     Err(error) => {
                         super::note_create_failure(&error.into(), depth == 0);
@@ -209,12 +220,23 @@ fn hidden_name(kind: &str) -> OsString {
 fn create_temp(parent: &Parent, relative: &str) -> Result<(OsString, File), String> {
     for _ in 0..32 {
         let name = hidden_name("tmp");
-        match openat(
-            &parent.directory,
-            &name,
-            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP | Mode::ROTH | Mode::WOTH,
-        ) {
+        let open = || {
+            openat(
+                &parent.directory,
+                &name,
+                OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP | Mode::ROTH | Mode::WOTH,
+            )
+        };
+        #[cfg(test)]
+        let open = || {
+            if super::take_refused_create() {
+                Err(rustix::io::Errno::ACCESS)
+            } else {
+                open()
+            }
+        };
+        match open() {
             Ok(file) => return Ok((name, File::from(file))),
             Err(rustix::io::Errno::EXIST) => continue,
             Err(error) => {
@@ -742,7 +764,16 @@ pub(super) fn sync_parent(root: &Path, relative: &str) -> Result<(), String> {
 
 pub(super) fn create_dir(root: &Path, relative: &str) -> Result<(), String> {
     let parent = open_parent(root, relative, false).map_err(OpenParentError::message)?;
-    mkdirat(&parent.directory, &parent.leaf, Mode::from_raw_mode(0o755)).map_err(|e| {
+    let make = || mkdirat(&parent.directory, &parent.leaf, Mode::from_raw_mode(0o755));
+    #[cfg(test)]
+    let make = || {
+        if super::take_refused_create() {
+            Err(rustix::io::Errno::ACCESS)
+        } else {
+            make()
+        }
+    };
+    make().map_err(|e| {
         super::note_create_failure(&e.into(), super::in_root(relative));
         context("create directory", relative, e)
     })?;
