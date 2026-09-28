@@ -179,9 +179,18 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       savedContent = newContent;
       savedTitle = newTitle;
       if (title === requestedTitle) title = newTitle;
-      // A null source retargets only the open tab: after a park the original
-      // note still exists, so tabs holding it must keep it.
-      if (savedOriginalId !== id) deps.onNoteRenamed(keepsOriginal ? null : savedOriginalId, id);
+      if (savedOriginalId === id) return;
+      if (!keepsOriginal) {
+        deps.onNoteRenamed(savedOriginalId, id);
+        return;
+      }
+      // After a park the original still exists, so only the tab showing it
+      // moves to the copy (a null source retargets the active tab). A park
+      // inside a note switch's own flush lands after the tabs moved to the
+      // destination: the user is leaving, so no tab follows. The session above
+      // still does, so a save queued behind the park lands in the copy rather
+      // than parking a second one.
+      if (deps.getNoteId() === savedOriginalId) deps.onNoteRenamed(null, id);
     },
   });
   let persistenceTail: Promise<void> = Promise.resolve();
