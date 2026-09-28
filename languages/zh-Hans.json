@@ -665,8 +665,7 @@
       "disabled": "崩溃报告已关闭。可在“设置”中重新开启。"
     },
     "system": {
-      "watcherUnavailable": "重新启动之前，将无法检测外部文件更改。",
-      "notesFolderUnavailable": "找不到你的保管库文件夹 {folderPath}。请在“设置”中重新配置。"
+      "watcherUnavailable": "重新启动之前，将无法检测外部文件更改。"
     },
     "permissions": {
       "ios": {

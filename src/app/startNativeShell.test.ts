@@ -6,14 +6,14 @@ const mocks = vi.hoisted(() => ({
   fileCleanup: vi.fn(),
   onCloseRequested: vi.fn(),
   onFileChange: vi.fn(),
-  vaultStatus: vi.fn(),
+  loadVaultAvailability: vi.fn(),
   showGlobalToast: vi.fn(),
 }));
 
 vi.mock('$lib/platform', () => ({ isTauri: true }));
-vi.mock('$lib/platform/tauri', () => ({
-  onFileChange: mocks.onFileChange,
-  vaultStatus: mocks.vaultStatus,
+vi.mock('$lib/platform/tauri', () => ({ onFileChange: mocks.onFileChange }));
+vi.mock('$features/storage/vaultAvailability.svelte', () => ({
+  loadVaultAvailability: mocks.loadVaultAvailability,
 }));
 vi.mock('$shared/notifications/toastBus.svelte', () => ({
   showGlobalToast: mocks.showGlobalToast,
@@ -26,7 +26,6 @@ vi.mock('@tauri-apps/api/window', () => ({
 }));
 vi.mock('@tauri-apps/plugin-process', () => ({ exit: vi.fn() }));
 
-import enCatalog from '../../languages/en.json';
 import { startNativeShell } from './startNativeShell';
 
 const vaultStatus = (overrides: { available?: boolean } = {}) => ({
@@ -42,7 +41,7 @@ describe('startNativeShell', () => {
     vi.clearAllMocks();
     mocks.onFileChange.mockReturnValue(mocks.fileCleanup);
     mocks.onCloseRequested.mockResolvedValue(mocks.closeCleanup);
-    mocks.vaultStatus.mockResolvedValue(vaultStatus());
+    mocks.loadVaultAvailability.mockResolvedValue(vaultStatus());
   });
 
   it('closes the window even when the save drain hangs', async () => {
@@ -120,54 +119,18 @@ describe('startNativeShell', () => {
     );
   });
 
-  it('lets the vault message win when the vault is why the watcher failed', async () => {
-    mocks.vaultStatus.mockResolvedValue(vaultStatus({ available: false }));
+  it('leaves the watcher failure to the vault banner when the vault is why it failed', async () => {
+    mocks.loadVaultAvailability.mockResolvedValue(vaultStatus({ available: false }));
     startNativeShell({ enqueueFileChange: vi.fn(), flushSave: vi.fn(async () => undefined) });
     await vi.waitFor(() => expect(mocks.onFileChange).toHaveBeenCalledOnce());
 
     // The decision is the typed vault status, not the failure message's prose —
-    // Rust is free to reword its errors without changing which toast wins.
+    // Rust is free to reword its errors without changing what the user sees.
     const onStartFailed = mocks.onFileChange.mock.calls[0][1] as (message: string) => void;
     onStartFailed('anything the backend said');
 
-    // One toast slot: the watcher failure is a symptom, and overwriting the message
-    // that names the way out would leave the user with nothing actionable.
-    await vi.waitFor(() =>
-      expect(mocks.showGlobalToast).toHaveBeenCalledWith({
-        path: 'system.notesFolderUnavailable',
-        arguments: { folderPath: '/vault' },
-      }),
-    );
-    expect(mocks.showGlobalToast).not.toHaveBeenCalledWith({
-      path: 'system.watcherUnavailable',
-    });
-  });
-
-  // The folder has to be NAMED: github#44's reporter read an unnamed failure as
-  // a server fault and audited a healthy server before looking at his disk.
-  it('names the unreachable notes folder and points at Settings', async () => {
-    mocks.vaultStatus.mockResolvedValue(vaultStatus({ available: false }));
-    startNativeShell({ enqueueFileChange: vi.fn(), flushSave: vi.fn(async () => undefined) });
-
-    await vi.waitFor(() =>
-      expect(mocks.showGlobalToast).toHaveBeenCalledWith({
-        path: 'system.notesFolderUnavailable',
-        arguments: { folderPath: '/vault' },
-      }),
-    );
-
-    // The descriptor only carries the folder; the sentence has to spend it. Pin
-    // the English catalog wording so a translation pass cannot quietly drop the
-    // placeholder and take github#44's fix back out.
-    expect(enCatalog.messages.system.notesFolderUnavailable).toBe(
-      "Can't find your vault folder at {folderPath}. Please reconfigure in settings.",
-    );
-  });
-
-  it('stays quiet about a reachable notes folder', async () => {
-    startNativeShell({ enqueueFileChange: vi.fn(), flushSave: vi.fn(async () => undefined) });
-    await vi.waitFor(() => expect(mocks.vaultStatus).toHaveBeenCalledOnce());
-
+    await vi.waitFor(() => expect(mocks.loadVaultAvailability).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mocks.showGlobalToast).not.toHaveBeenCalled();
   });
 });

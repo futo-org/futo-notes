@@ -121,9 +121,8 @@ compatibility requirements and must not be reintroduced.
   in `src/lib/platform/tauri/notesRoot.ts`; it never reconstructs either path.
 - The default root is created on first use; a **custom** root is not. A custom
   root that has gone missing fails every command with the vault-unavailable
-  error (`vault_location::VAULT_UNAVAILABLE`, surfaced as the localized
-  "Can't find your vault folder at {folderPath}. Please reconfigure in settings.")
-  rather than being recreated, so notes are never written into an empty directory
+  error (`vault_location::VAULT_UNAVAILABLE`; the shell shows the unusable-vault
+  banner, see settings.md) rather than being recreated, so notes are never written into an empty directory
   standing where the vault used to be. `vault_status` reports that state without
   touching the vault, which is what keeps the recovery UI reachable.
 - A default root that cannot be created (Windows Controlled Folder Access refuses
@@ -136,12 +135,6 @@ compatibility requirements and must not be reintroduced.
   than recreating a vanished vault for its `.crashlogs`. →
   `vault_location::tests::a_default_root_that_cannot_be_created_is_reported_unavailable`,
   `panic_reporter::tests::a_crash_never_recreates_a_missing_vault`
-
-  > **Gap:** _(Desktop)_ **Allowing the app through Controlled Folder Access while
-  > it runs leaves external edits unseen until a restart.** The next note command
-  > creates the default root and notes work, but the watcher failed to bind at
-  > launch and is only started once, so edits made outside the app do not appear
-  > until the app is restarted.
 - Note IDs and folder paths are validated beneath the root; traversal and root
   deletion are refused.
 - Destination collisions are folded by case and Unicode normalization, then

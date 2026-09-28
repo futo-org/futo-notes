@@ -175,8 +175,8 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   watcher binds the vault root once at startup, so only a restart rebinds it to
   the new vault (a webview reload leaves external-change detection pointed at the
   old root). →
-  `src/lib/platform/tauri/appConfig.ts`, `notesRoot.ts`, SettingsScreen.svelte,
-  `apps/tauri/src-tauri/src/vault_location.rs`
+  `src/lib/platform/tauri/appConfig.ts`, `notesRoot.ts`,
+  `src/features/storage/notesDirectory.ts`, `apps/tauri/src-tauri/src/vault_location.rs`
 - **Storage chooser:** **Change directory** uses the XDG FileChooser portal on
   Linux, so GNOME and Plasma show their own desktop chooser; macOS and Windows
   keep their native dialog backends. It works in sandboxed (Flatpak) builds too,
@@ -208,12 +208,10 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   asset-protocol scope includes `/run/user/*/doc/**`. → tauri.conf.json
 - A picked directory the app cannot use — a folder it cannot create, a refused
   relaunch — toasts "Could not use that folder: …" rather than leaving the pick to do
-  nothing. → SettingsScreen.svelte
+  nothing. → `src/features/storage/notesDirectory.ts`
 - **A vault that has gone missing** — an unmounted drive, a revoked sandbox grant
   — is a recoverable state, not a wedged app: the root is never recreated in
-  place, every note command fails with the vault-unavailable error, the shell
-  toasts the localized `notesFolderUnavailable` message ("Can't find your vault
-  folder at {folderPath}. Please reconfigure in settings."), and the
+  place, every note command fails with the vault-unavailable error, and the
   Storage section explains it ("This folder is no longer reachable. Choose it
   again, or reset to the default location.") and keeps both **Change directory**
   and **Reset to default** usable. `isCustom` is read from the vault's _location_,
@@ -221,10 +219,26 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   the failure it is there to undo. → `vault_location::VAULT_UNAVAILABLE`,
   StorageSettingsSection.svelte
 - A **default** folder the app cannot create (e.g. blocked by Windows Controlled
-  Folder Access) gets the same toast, and the Storage section says "FUTO Notes can't
-  create its notes folder here. Choose another folder, or allow FUTO Notes to write
-  to this location." with **Change directory** usable. → `vault_location::status_of`,
-  StorageSettingsSection.svelte
+  Folder Access) is unusable in the same way, and the Storage section says "FUTO
+  Notes isn't allowed to create this folder, so nothing can be saved. Choose another
+  folder. On Windows, this is usually Controlled folder access: you can instead allow
+  FUTO Notes in Windows Security, then restart FUTO Notes." with **Change directory**
+  usable. Allowing it while the app runs takes effect on that restart: the vault
+  status, note list and watcher are all read once at launch. →
+  `vault_location::status_of`, StorageSettingsSection.svelte
+- _(Desktop)_ While the vault is unusable (either case above), a banner stays at the
+  top of the window for the whole launch — "FUTO Notes can't save anything." then
+  "It isn't allowed to create its notes folder at {folderPath}." (default) or "It
+  can't find your notes folder at {folderPath}." (custom) — with **Choose another
+  folder**, the same flow as **Change directory**. It is never a toast: every save
+  and folder creation fails while it is up, and those errors only make sense next
+  to it. The folder is always named (github#44). → VaultUnavailableBanner.svelte,
+  `src/features/storage/vaultAvailability.svelte.ts`
+- _(Desktop)_ While the vault is unusable, nothing can start a note or a folder:
+  **New note** and **New folder** are disabled, and Cmd/Ctrl+N, the app menu's
+  **New Note** and a folder's **New note** / **New folder** do nothing — a note is
+  written on its first save, so its text could only be lost. →
+  `src/app/createNewNote.ts`, `createSidebarFolderWorkflows.openCreateFolder`
 - A vault whose external changes are found by polling rather than by inotify says
   nothing about it in the UI; the only user-visible consequence is that an external
   edit can take a few seconds to appear (see desktop-rust.md). If the watcher fails

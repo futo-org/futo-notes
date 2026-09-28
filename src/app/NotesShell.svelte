@@ -15,6 +15,7 @@
   import SearchPopup from '$features/search/SearchPopup.svelte';
   import SettingsScreen from '$features/settings/SettingsScreen.svelte';
   import DrawerSidebar from '$features/sidebar/DrawerSidebar.svelte';
+  import VaultUnavailableBanner from '$features/storage/VaultUnavailableBanner.svelte';
   import { license } from '$features/license/license.svelte';
   import type { SidebarView } from '$features/sidebar/components/SidebarViewSelector.svelte';
   import { clampSidebarWidth } from '$features/sidebar/sidebarWidth';
@@ -28,6 +29,7 @@
   import DesktopTopBand from './components/DesktopTopBand.svelte';
   import NoteWorkspace, { type EditorApi } from './components/NoteWorkspace.svelte';
   import { createCurrentNoteActions } from './createCurrentNoteActions.svelte';
+  import { createNewNote } from './createNewNote';
   import { createTabNoteTransition } from './createTabNoteTransition';
   import { installNotesShellTestHook } from './installNotesShellTestHook';
   import { registerNotesShellShortcuts } from './registerNotesShellShortcuts';
@@ -219,11 +221,6 @@
     if (mode !== 'background') searchOpen = false;
   }
 
-  function createNewNote(folder = ''): void {
-    const tab = tabsStore.openNote('new', 'current');
-    tabsStore.setPendingFolder(tab.id, folder || null);
-  }
-
   function openWikilink(
     title: string,
     gesture: Pick<MouseEvent, 'metaKey' | 'ctrlKey' | 'shiftKey' | 'button'>,
@@ -402,6 +399,8 @@
   {#if isTauri}
     <DesktopTopBand {sidebarCollapsed} ontoggle={toggleSidebar} {notes} />
   {/if}
+
+  <VaultUnavailableBanner />
 
   <div class="desktop-body">
     <DrawerSidebar

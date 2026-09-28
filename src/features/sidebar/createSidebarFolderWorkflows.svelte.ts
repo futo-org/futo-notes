@@ -1,4 +1,5 @@
 import { createFolder, validateNewFolderName } from '$features/folders/folderOperations';
+import { vaultAvailability } from '$features/storage/vaultAvailability.svelte';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import type { LocalizedMessage } from '$shared/localization';
 import {
@@ -78,6 +79,8 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
   } | null>(null);
 
   function openCreateFolder(parent: string): void {
+    // Without a usable vault the dialog can only fail, however often it is retried.
+    if (vaultAvailability.unavailable) return;
     createFolderParent = parent;
     isCreateFolderOpen = true;
   }
