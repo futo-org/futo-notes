@@ -653,6 +653,11 @@ test:localization-audit:
 # introduced. scripts/bca-quality.mjs owns the pin and the commands; `just
 # quality` runs the same script locally.
 #
+# Every main pipeline runs it, whatever changed: the MR widget diffs an MR's
+# report against its base commit's, and a main commit with no report (a
+# docs-only push) made every MR list the whole backlog as new. The gate itself
+# is scoped to the MR's changed files (scripts/bca-quality.mjs gateArgs).
+#
 # Non-blocking by design, deliberately absent from release:gate.needs (a
 # documented M14 exception, docs/architecture-gates.md): phase 1 of the
 # adoption plan, so thresholds and the artifact/cache behave can be observed
@@ -678,13 +683,14 @@ test:quality-report:
     paths:
       - bca-report.md
       - gl-code-quality-report.json
-    expire_in: 1 week
+    # An MR's base report must outlive the MR, not just a week of it.
+    expire_in: 30 days
     reports:
       codequality: gl-code-quality-report.json
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
-      changes: &quality-report-changes
+      changes:
         - src/**/*
         - packages/**/*
         - crates/**/*
@@ -694,7 +700,6 @@ test:quality-report:
         - .bca-baseline.toml
         - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: *quality-report-changes
 
 test:e2e:smoke:
   stage: test
