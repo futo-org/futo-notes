@@ -1,11 +1,11 @@
 //! Tauri commands for image import and clipboard paste.
 
-use std::fs;
 use std::path::Path;
 
+use futo_notes_core::files::vault_fs;
 use tauri::AppHandle;
 
-use crate::background_tasks::{blocking, io_error};
+use crate::background_tasks::blocking;
 
 // Canonical set lives in `futo_notes_core::image` (shared with the sync layer,
 // the note domain, and the conformance-locked `@futo-notes/editor` hot path);
@@ -26,17 +26,53 @@ fn validate_extension(extension: &str) -> Result<String, String> {
     Ok(extension)
 }
 
-fn unique_filename(extension: &str) -> String {
-    let now = futo_notes_core::files::now_ms();
-    let suffix = now.unsigned_abs() % 10_000;
-    format!("{now}-{suffix:04}.{extension}")
+/// Saved by the vault engine like a note, so a folder that refuses the write marks
+/// the vault unusable (`vault_fs::access_refused`). `create_new` never replaces a
+/// file: a second image in the same millisecond takes the next number, the way
+/// the native shells name theirs.
+fn write_image(root: &Path, bytes: &[u8], extension: &str, now_ms: i64) -> Result<String, String> {
+    let extension = validate_extension(extension)?;
+    let mut filename = format!("image-{now_ms}.{extension}");
+    for number in 2..100 {
+        if vault_fs::create_new(root, &filename, bytes)? {
+            return Ok(filename);
+        }
+        filename = format!("image-{now_ms}-{number}.{extension}");
+    }
+    Err("no free image filename".to_owned())
 }
 
-fn write_image(root: &Path, bytes: &[u8], extension: &str) -> Result<String, String> {
-    let extension = validate_extension(extension)?;
-    let filename = unique_filename(&extension);
-    fs::write(root.join(&filename), bytes).map_err(io_error)?;
-    Ok(filename)
+/// Image bytes the webview holds — a drop, a pick, a pasted file. They arrive as
+/// the raw IPC body with the extension in a header, as plugin-fs `writeFile` sends
+/// them; the postMessage fallback delivers the same bytes as a JSON array.
+#[tauri::command]
+pub async fn fs_save_image(
+    app: AppHandle,
+    request: tauri::ipc::Request<'_>,
+) -> Result<String, String> {
+    let extension = request
+        .headers()
+        .get("image-extension")
+        .and_then(|value| value.to_str().ok())
+        .ok_or("missing image extension")?
+        .to_owned();
+    let bytes = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
+        tauri::ipc::InvokeBody::Json(serde_json::Value::Array(values)) => values
+            .iter()
+            .filter_map(|value| value.as_u64().map(|byte| byte as u8))
+            .collect(),
+        tauri::ipc::InvokeBody::Json(_) => return Err("expected image bytes".to_owned()),
+    };
+    blocking(move || {
+        write_image(
+            &crate::vault_location::root(&app)?,
+            &bytes,
+            &extension,
+            futo_notes_core::files::now_ms(),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
@@ -66,7 +102,12 @@ pub async fn fs_paste_clipboard_image(app: AppHandle) -> Result<String, String> 
                 .map_err(|error| format!("PNG write error: {error}"))?;
         }
 
-        write_image(&crate::vault_location::root(&app)?, &bytes, "png")
+        write_image(
+            &crate::vault_location::root(&app)?,
+            &bytes,
+            "png",
+            futo_notes_core::files::now_ms(),
+        )
     })
     .await
 }
@@ -75,6 +116,7 @@ pub async fn fs_paste_clipboard_image(app: AppHandle) -> Result<String, String> 
 mod tests {
     //! Tests for image import and validation commands.
     use super::*;
+    use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -102,9 +144,20 @@ mod tests {
     #[test]
     fn image_write_returns_a_vault_relative_filename() {
         let root = temp_dir();
-        let filename = write_image(&root, b"image", "png").unwrap();
-        assert!(filename.ends_with(".png"));
+        let filename = write_image(&root, b"image", "PNG", 42).unwrap();
+        assert_eq!(filename, "image-42.png");
         assert_eq!(fs::read(root.join(filename)).unwrap(), b"image");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn images_saved_in_the_same_millisecond_are_both_kept() {
+        let root = temp_dir();
+        let first = write_image(&root, b"first", "png", 42).unwrap();
+        let second = write_image(&root, b"second", "png", 42).unwrap();
+        assert_eq!(second, "image-42-2.png");
+        assert_eq!(fs::read(root.join(first)).unwrap(), b"first");
+        assert_eq!(fs::read(root.join(second)).unwrap(), b"second");
         fs::remove_dir_all(root).unwrap();
     }
 }

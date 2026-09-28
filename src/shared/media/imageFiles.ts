@@ -24,11 +24,3 @@ export function validateImageExtension(extension: string): string {
   }
   return normalized;
 }
-
-export function createImageFilename(extension: string): string {
-  const normalized = validateImageExtension(extension);
-  const bytes = new Uint8Array(6);
-  crypto.getRandomValues(bytes);
-  const suffix = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-  return `image-${Date.now()}-${suffix}.${normalized}`;
-}

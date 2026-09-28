@@ -116,16 +116,15 @@
 
   async function persistPreferences(): Promise<void> {
     preferences.language.selectedLanguageTag = desktopLocalization.selectedLanguageTag;
-    await savePreferences(copyPreferences(preferences));
+    if (!(await savePreferences(copyPreferences(preferences)))) {
+      showGlobalToast({ path: 'settings.saveFailed' });
+    }
   }
 
   async function changeLanguage(selectedLanguageTag: string | null): Promise<void> {
     const acceptedLanguageTag = desktopLocalization.setSelectedLanguageTag(selectedLanguageTag);
     preferences.language.selectedLanguageTag = acceptedLanguageTag;
-    try {
-      await saveSelectedLanguageTag(acceptedLanguageTag);
-    } catch (cause) {
-      console.warn('Failed to save the selected language', cause);
+    if (!(await saveSelectedLanguageTag(acceptedLanguageTag))) {
       showGlobalToast({ path: 'settings.language.saveFailed' });
     }
   }

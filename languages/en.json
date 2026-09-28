@@ -61,6 +61,7 @@
       "heading": "Settings",
       "openAccessibilityLabel": "Open settings",
       "closeAccessibilityLabel": "Close settings",
+      "saveFailed": "Setting changed, but it couldn't be saved.",
       "sections": {
         "sync": "Sync",
         "appearance": "Appearance",

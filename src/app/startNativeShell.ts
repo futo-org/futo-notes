@@ -1,7 +1,7 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import { isTauri } from '$lib/platform';
-import { onFileChange, onNoteCommandFailed } from '$lib/platform/tauri';
+import { onFileChange, onVaultCommandFailed } from '$lib/platform/tauri';
 import type { FileChangeEvent } from '$lib/platform/types';
 import {
   loadVaultAvailability,
@@ -50,7 +50,7 @@ export function startNativeShell(deps: NativeShellDeps): () => void {
   void loadVaultAvailability().catch((error) =>
     console.warn('Failed to read vault status:', error),
   );
-  onNoteCommandFailed(() => {
+  onVaultCommandFailed(() => {
     void recheckVaultAvailability().catch((error) =>
       console.warn('Failed to re-read vault status:', error),
     );

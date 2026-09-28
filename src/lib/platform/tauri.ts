@@ -4,7 +4,7 @@ import { createAppConfigStore } from './tauri/appConfig';
 export type { AppConfig, AppConfigUpdates, PersistedTab, PersistedTabs } from './tauri/appConfig';
 export type { VaultStatus } from './tauri/notesRoot';
 export { vaultDisplayPath, vaultStatus } from './tauri/notesRoot';
-export { onNoteCommandFailed } from './localNoteStore';
+export { onVaultCommandFailed } from './tauri/vaultCommands';
 export type { SaveTextFileRequest } from './tauri/saveTextFile';
 export { saveTextFile } from './tauri/saveTextFile';
 export * from './tauri/hostedSync';

@@ -99,23 +99,6 @@ describe('Tauri adapter public contract', () => {
     await expect(tauriFS.readAppData('.private.json')).rejects.toThrow('Operation not permitted');
   });
 
-  it('writes text app data atomically beneath the active root', async () => {
-    const { tauriFS } = await import('../tauri');
-    native.exists.mockImplementation(async (path: string) => path === DEFAULT_ROOT);
-
-    await tauriFS.writeAppData('.state/app.json', 'durable');
-
-    expect(native.mkdir).toHaveBeenCalledWith(`${DEFAULT_ROOT}/.state`, { recursive: true });
-    expect(native.writeTextFile).toHaveBeenCalledWith(
-      expect.stringMatching(`${DEFAULT_ROOT}/.state/.sf-tmp-`),
-      'durable',
-    );
-    expect(native.rename).toHaveBeenCalledWith(
-      expect.stringMatching(`${DEFAULT_ROOT}/.state/.sf-tmp-`),
-      `${DEFAULT_ROOT}/.state/app.json`,
-    );
-  });
-
   it('lists every readable vault file, folders included, with normalized metadata', async () => {
     const { tauriFS } = await import('../tauri');
     const modified = new Date('2026-07-15T12:00:00Z');
@@ -207,6 +190,12 @@ describe('Tauri adapter public contract', () => {
   });
 
   it('preserves the shipped open-tab persistence shape in .app-config.json', async () => {
+    native.invoke.mockImplementation(async (command: string) => {
+      if (command === 'app_data_write') return undefined;
+      if (command === 'notes_dir_override_load') return null;
+      if (command === 'resolve_default_notes_root') return DEFAULT_ROOT;
+      throw new Error(`unexpected invoke: ${command}`);
+    });
     const { saveConfig } = await import('../tauri');
     native.exists.mockResolvedValue(true);
     native.readTextFile.mockResolvedValueOnce(JSON.stringify({ sidebarWidth: 280 }));
@@ -224,8 +213,11 @@ describe('Tauri adapter public contract', () => {
 
     await saveConfig({ openTabs });
 
-    const payload = JSON.parse(native.writeTextFile.mock.calls[0][1] as string);
-    expect(payload).toEqual({ sidebarWidth: 280, openTabs });
+    const [, write] = native.invoke.mock.calls.find(([command]) => command === 'app_data_write')!;
+    expect(JSON.parse((write as { content: string }).content)).toEqual({
+      sidebarWidth: 280,
+      openTabs,
+    });
   });
 
   it('caches the active root until changing the override invalidates it', async () => {
@@ -319,15 +311,35 @@ describe('Tauri adapter listener lifecycle', () => {
 });
 
 describe('Tauri adapter app-data writes', () => {
-  // Crash 1739: `mkdir -p` of a root-level file's parent is `mkdir -p` of the vault
-  // root, which Windows refused for the default and which would silently recreate a
-  // vanished custom root. Rust `vault_location` alone creates roots.
-  it('never creates the notes root to write app data', async () => {
+  // Written by the Rust vault engine, like a note: atomically, never recreating
+  // a vanished custom root (crash 1739), and a refused write marks the vault
+  // unusable (crash #1788).
+  it('writes app data through the vault engine', async () => {
+    native.invoke.mockImplementation(async (command: string) =>
+      command === 'app_data_write' ? undefined : Promise.reject(new Error(command)),
+    );
     const { tauriFS } = await import('../tauri');
 
-    await expect(tauriFS.writeAppData('.app-state.json', '{}')).rejects.toThrow(DEFAULT_ROOT);
-    await expect(tauriFS.writeAppData('.crashlogs/crash.json', '{}')).rejects.toThrow(DEFAULT_ROOT);
-    expect(native.mkdir).not.toHaveBeenCalled();
+    await tauriFS.writeAppData('.crashlogs/crash.json', 'durable');
+
+    expect(native.invoke).toHaveBeenCalledWith(
+      'app_data_write',
+      { path: '.crashlogs/crash.json', content: 'durable' },
+      undefined,
+    );
     expect(native.writeTextFile).not.toHaveBeenCalled();
+    expect(native.mkdir).not.toHaveBeenCalled();
+  });
+
+  it('reports a refused app-data write as a failed vault command', async () => {
+    native.invoke.mockRejectedValue('create temporary file for vault path .app-state.json');
+    const { tauriFS, onVaultCommandFailed } = await import('../tauri');
+    const failed = vi.fn();
+    onVaultCommandFailed(failed);
+
+    await expect(tauriFS.writeAppData('.app-state.json', '{}')).rejects.toBe(
+      'create temporary file for vault path .app-state.json',
+    );
+    expect(failed).toHaveBeenCalledOnce();
   });
 });

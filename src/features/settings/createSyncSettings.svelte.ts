@@ -1,6 +1,7 @@
 import { getAppState, getCachedPreferences } from '$shared/state/appState';
 import { requestSync, wasSyncErrorReported } from '$features/sync/autoSync';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
+import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import {
   localizedText,
   resolveLocalizedMessage,
@@ -25,6 +26,13 @@ function syncProgressMessage(progress: SyncProgress): LocalizedMessage {
     return { path: 'sync.progress.uploading', arguments: argumentsMap };
   }
   return { path: 'sync.progress.downloading', arguments: argumentsMap };
+}
+
+// Reset and forget are fired un-awaited from the UI and end in an app-state
+// write, so a vault the app cannot write to (crash #1788) must not reject.
+function reportSaveFailed(error: unknown): void {
+  console.warn('[e2ee] could not save the sync change:', error);
+  showGlobalToast({ path: 'settings.saveFailed' });
 }
 
 export function createSyncSettings() {
@@ -92,7 +100,7 @@ export function createSyncSettings() {
     connected = false;
     password = '';
     status = null;
-    await disconnectE2ee();
+    await disconnectE2ee().catch(reportSaveFailed);
     passwordSaved = false;
   }
 
@@ -103,7 +111,7 @@ export function createSyncSettings() {
     });
     if (!confirmed) return;
 
-    await forgetStoredSyncPassword();
+    await forgetStoredSyncPassword().catch(reportSaveFailed);
     passwordSaved = false;
   }
 

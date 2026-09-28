@@ -47,7 +47,52 @@ fn read_override_file(path: &std::path::Path) -> Option<PathBuf> {
 }
 
 fn save_override(app: &AppHandle, directory: Option<&str>) -> Result<(), String> {
+    if let Some(directory) = directory {
+        ensure_can_create_files_in(std::path::Path::new(directory))?;
+    }
     write_override_file(&override_path(app)?, directory)
+}
+
+/// Refuses a picked folder this process may not create files in (crash #1788: a
+/// vault owned by another user). The OS answers from permissions alone, so
+/// nothing is written, and only a pick asks: a vault that refuses a write later
+/// is caught by that write (`vault_fs::access_refused`).
+fn ensure_can_create_files_in(directory: &std::path::Path) -> Result<(), String> {
+    can_create_files_in(directory).map_err(|error| {
+        format!(
+            "FUTO Notes can't create files in {}: {error}",
+            crate::portal_vault::display_path(directory)
+        )
+    })
+}
+
+/// The kernel's access check: ownership, mode bits, ACLs, read-only mounts. Plain
+/// `access`, not `faccessat(AT_EACCESS)`: glibc sends that as `faccessat2`, which
+/// an old container's seccomp filter refuses for every folder.
+#[cfg(unix)]
+fn can_create_files_in(directory: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(directory.as_os_str().as_bytes())?;
+    // SAFETY: `path` is a valid NUL-terminated string that outlives the call.
+    if unsafe { libc::access(path.as_ptr(), libc::W_OK | libc::X_OK) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+/// Opening the directory asking only for the right to add a file makes Windows
+/// run its full access check at open time; the handle is closed immediately.
+#[cfg(windows)]
+fn can_create_files_in(directory: &std::path::Path) -> std::io::Result<()> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_ADD_FILE: u32 = 0x0002;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    fs::OpenOptions::new()
+        .access_mode(FILE_ADD_FILE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(directory)
+        .map(drop)
 }
 
 /// Stores the picked directory verbatim, document-portal paths included: the
@@ -314,6 +359,32 @@ mod tests {
             "resolve_root must not create the default root itself"
         );
         assert!(resolve_root(None, || Err("no documents dir".to_owned())).is_err());
+    }
+
+    /// Crash #1788: a folder the app cannot create files in is refused when
+    /// picked, and asking leaves nothing behind in one that is accepted.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_the_process_cannot_create_files_in_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let writable = scratch("writable");
+        fs::create_dir_all(&writable).unwrap();
+        assert!(ensure_can_create_files_in(&writable).is_ok());
+        assert_eq!(fs::read_dir(&writable).unwrap().count(), 0);
+
+        let locked = scratch("locked");
+        fs::create_dir_all(&locked).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+        // Root ignores mode bits, so there is nothing to refuse.
+        let permissions_enforced = fs::write(locked.join(".probe"), b"x").is_err();
+        let result = ensure_can_create_files_in(&locked);
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::remove_dir_all(&locked).unwrap();
+        fs::remove_dir_all(&writable).unwrap();
+        if permissions_enforced {
+            let error = result.unwrap_err();
+            assert!(error.contains("can't create files in"), "got {error}");
+        }
     }
 
     /// Crash 1739: Windows Controlled Folder Access refuses to create

@@ -206,9 +206,12 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   read-only and grants nothing. → `vault_display_path`, `portal_vault::display_path`
 - Images in a sandboxed vault render through `asset://` like any other vault: the
   asset-protocol scope includes `/run/user/*/doc/**`. → tauri.conf.json
-- A picked directory the app cannot use — a folder it cannot create, a refused
-  relaunch — toasts "Could not use that folder: …" rather than leaving the pick to do
-  nothing. → `src/features/storage/notesDirectory.ts`
+- A picked directory the app cannot use — a folder it cannot create, a folder it
+  may not create files in, a refused relaunch — toasts "Could not use that folder."
+  rather than leaving the pick to do nothing. Whether files may be created is asked
+  of the OS (`access` on Unix, a directory open for `FILE_ADD_FILE` on Windows);
+  nothing is written to find out. → `src/features/storage/notesDirectory.ts`,
+  `vault_location::ensure_can_create_files_in`
 - **A vault that has gone missing** — an unmounted drive, a revoked sandbox grant
   — is a recoverable state, not a wedged app: the root is never recreated in
   place, every note command fails with the vault-unavailable error, and the
@@ -229,19 +232,21 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
 - A folder that **exists but refuses writes** (Controlled Folder Access over an
   existing folder, a read-only mount) still lists and reads, so it loads normally.
   It becomes unusable the first time it refuses to let a file or folder be created
-  — nothing probes the vault, and a refused rename or delete (another process
-  holding the file) or an unreadable file does not count —
+  — a note, a folder, a setting, a crash log or an image; nothing probes the vault,
+  and a refused rename or delete (another process holding the file) or an
+  unreadable file does not count —
   and the Storage section then says "FUTO Notes isn't allowed to change this
   folder, so nothing can be saved. Choose another folder. On Windows, this is
   usually Controlled folder access: you can instead allow FUTO Notes in Windows
   Security, then restart FUTO Notes." → `vault_fs::access_refused`,
   StorageSettingsSection.svelte
-- _(Desktop)_ The vault status is read at launch and again whenever a note command
-  fails, so a vault that refuses a write or goes missing mid-session is caught at
-  that failure. An image or sync write it refuses marks the vault too, but the
-  banner waits for the next failed note command. It only ever turns unusable within a launch; every way back is a
+- _(Desktop)_ The vault status is read at launch and again whenever a vault command
+  fails — a note command, a settings or crash-log write, an image save — so a vault
+  that refuses a write or goes missing mid-session is caught at that failure. A sync
+  write it refuses marks the vault too, but the banner waits for the next failed
+  vault command. It only ever turns unusable within a launch; every way back is a
   restart. → `src/features/storage/vaultAvailability.svelte.ts`,
-  `onNoteCommandFailed` in `src/lib/platform/localNoteStore.ts`
+  `onVaultCommandFailed` in `src/lib/platform/tauri/vaultCommands.ts`
 - _(Desktop)_ While the vault is unusable (any case above), a banner stays at the
   top of the window for the rest of the launch — "FUTO Notes can't save anything."
   then "It isn't allowed to create its notes folder at {folderPath}." (default
@@ -261,6 +266,14 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   stays. → NoteWorkspace.svelte, `src/app/createNewNote.ts`,
   `createSidebarFolderWorkflows.svelte.ts`, FolderTreeFolderRow.svelte,
   FolderTreeNoteRow.svelte
+- A setting that cannot be saved — the Settings toggles, Sync's **Reset
+  connection** and **Forget password**, the crash dialog's **Don't Send** — still
+  applies for the session and toasts "Setting changed, but it couldn't be saved."
+  (a language: "Language changed, but the preference could not be saved.") instead
+  of surfacing as a crash. The crash dialog still sends the reports the user chose
+  to send; an unsaved "Send crashes automatically" only means the dialog asks again
+  next time. → `savePreferences` in `src/shared/state/appState.ts`,
+  SettingsScreen.svelte, `createSyncSettings.svelte.ts`, `createCrashReporting.svelte.ts`
 - A vault whose external changes are found by polling rather than by inotify says
   nothing about it in the UI; the only user-visible consequence is that an external
   edit can take a few seconds to appear (see desktop-rust.md). If the watcher fails

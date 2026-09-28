@@ -1,18 +1,9 @@
-import {
-  exists,
-  mkdir,
-  readDir,
-  readTextFile,
-  remove,
-  rename,
-  stat,
-  writeTextFile,
-} from '@tauri-apps/plugin-fs';
+import { exists, readDir, readTextFile, remove, stat } from '@tauri-apps/plugin-fs';
 
-import { writeAtomicText, type AtomicWriteFS } from '../atomicWrite';
 import { isNotFound } from '../fsErrors';
 import { ensureSafeRelativePath, safeAppdataPath } from '../pathSafety';
 import type { DirFileEntry, PlatformFS } from '../types';
+import { invokeVaultCommand } from './vaultCommands';
 
 type TauriStorage = Pick<
   PlatformFS,
@@ -24,7 +15,6 @@ interface TauriStorageDependencies {
 }
 
 const FS_READ_TIMEOUT_MS = 8_000;
-const pluginFS: AtomicWriteFS = { writeTextFile, rename, mkdir, remove };
 
 function withTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -63,13 +53,7 @@ export function createTauriStorage({ getNotesRoot }: TauriStorageDependencies): 
     },
 
     async writeAppData(path, content) {
-      const root = await getNotesRoot();
-      // The atomic write `mkdir -p`s its parent, which for a root-level file is
-      // the vault root. Roots are created only by Rust `vault_location`: this
-      // recreated a vanished custom root, and Windows refused it for the
-      // default (crash 1739).
-      if (!(await exists(root))) throw new Error(`Notes folder is missing: ${root}`);
-      await writeAtomicText(safeAppdataPath(root, path), content, pluginFS);
+      await invokeVaultCommand('app_data_write', { path, content });
     },
 
     async deleteAppData(path) {

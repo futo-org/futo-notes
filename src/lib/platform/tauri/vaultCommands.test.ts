@@ -3,14 +3,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 
-import { onNoteCommandFailed, tauriLocalNoteStore } from './localNoteStore';
+import { tauriLocalNoteStore } from '../localNoteStore';
+import { onVaultCommandFailed } from './vaultCommands';
 
-describe('note command failures', () => {
+describe('vault command failures', () => {
   const failed = vi.fn();
   beforeEach(() => {
     invoke.mockReset();
     failed.mockReset();
-    onNoteCommandFailed(failed);
+    onVaultCommandFailed(failed);
   });
 
   // A vault that still reads can refuse writes: the failed save is the only sign.

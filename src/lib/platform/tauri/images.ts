@@ -1,15 +1,12 @@
-import { convertFileSrc, invoke } from '@tauri-apps/api/core';
-import { readFile, writeFile } from '@tauri-apps/plugin-fs';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { readFile } from '@tauri-apps/plugin-fs';
 import { IMAGE_EXTENSIONS } from '@futo-notes/editor';
 
-import {
-  createImageFilename,
-  isImageFilename,
-  validateImageExtension,
-} from '$shared/media/imageFiles';
+import { isImageFilename, validateImageExtension } from '$shared/media/imageFiles';
 
 import { ensureSafeRelativePath } from '../pathSafety';
 import type { PickedImage, PlatformFS } from '../types';
+import { invokeVaultCommand } from './vaultCommands';
 
 type TauriImages = Pick<
   PlatformFS,
@@ -74,10 +71,12 @@ export function createTauriImages({ getNotesRoot }: TauriImageDependencies): Tau
     return assetProtocolCapability;
   }
 
-  async function saveImageBytes(data: ArrayBuffer, extension: string): Promise<string> {
-    const filename = createImageFilename(extension);
-    await writeFile(`${await getNotesRoot()}/${filename}`, new Uint8Array(data));
-    return filename;
+  // Rust names and writes it, as it does a note, so a vault that refuses the
+  // write is marked unusable. The bytes travel as the raw IPC body.
+  function saveImageBytes(data: ArrayBuffer, extension: string): Promise<string> {
+    return invokeVaultCommand<string>('fs_save_image', data, {
+      headers: { 'image-extension': extension },
+    });
   }
 
   return {
@@ -106,7 +105,7 @@ export function createTauriImages({ getNotesRoot }: TauriImageDependencies): Tau
     },
 
     pasteClipboardImage() {
-      return invoke<string>('fs_paste_clipboard_image');
+      return invokeVaultCommand<string>('fs_paste_clipboard_image');
     },
 
     async pickImages(options) {

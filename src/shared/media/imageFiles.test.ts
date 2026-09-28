@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createImageFilename, validateImageExtension } from './imageFiles';
+import { validateImageExtension } from './imageFiles';
 
 describe('validateImageExtension', () => {
   it('accepts valid extensions without dot', () => {
@@ -34,29 +34,5 @@ describe('validateImageExtension', () => {
 
   it('rejects overlong extensions', () => {
     expect(() => validateImageExtension('abcdefghijk')).toThrow();
-  });
-});
-
-describe('createImageFilename', () => {
-  it('returns a valid filename', () => {
-    const name = createImageFilename('png');
-    expect(name).toMatch(/^image-\d+-[0-9a-f]{12}\.png$/);
-  });
-
-  it('handles extension with dot prefix', () => {
-    const name = createImageFilename('.jpg');
-    expect(name).toMatch(/\.jpg$/);
-  });
-
-  it('generates unique filenames in a batch', () => {
-    const names = new Set<string>();
-    for (let i = 0; i < 20; i++) {
-      names.add(createImageFilename('png'));
-    }
-    expect(names.size).toBe(20);
-  });
-
-  it('rejects invalid extensions', () => {
-    expect(() => createImageFilename('exe')).toThrow();
   });
 });

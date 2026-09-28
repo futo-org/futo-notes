@@ -60,6 +60,7 @@
       "heading": "设置",
       "openAccessibilityLabel": "打开设置",
       "closeAccessibilityLabel": "关闭设置",
+      "saveFailed": "设置已更改，但无法保存。",
       "sections": {
         "sync": "同步",
         "appearance": "外观",

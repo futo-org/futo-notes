@@ -28,7 +28,8 @@ owners.
 | `local_notes.rs`                           | `local_notes_*` projection, including desktop note/folder trash policy.               |
 | `filesystem_watcher.rs`                    | Recursive watcher, normalized events, rename pairing, and typed one-shot suppression. |
 | `vault_location.rs`                        | Custom-root persistence, vault availability reporting, and the debug/release default-root safety split. |
-| `image_commands.rs`                        | Clipboard bitmap → PNG persistence (`fs_paste_clipboard_image`).                     |
+| `image_commands.rs`                        | Image saves through the vault boundary: webview bytes (`fs_save_image`) and the clipboard bitmap (`fs_paste_clipboard_image`). |
+| `app_data.rs`                              | App-data writes (`.app-state.json`, `.app-config.json`, `.crashlogs/`) through the vault boundary (`app_data_write`). |
 | `app_menu.rs`                              | macOS application menu; frontend items forwarded as `app-menu` events.               |
 | `window_reveal.rs`                         | Reveals the hidden window once the shell paints, with a timeout fallback.            |
 | `instance_journal.rs`                      | Installs the instance journal under the app data dir.                                |
@@ -70,7 +71,8 @@ compatibility requirements and must not be reintroduced.
 
 - Every store mutation is serialized.
 - Note reads, writes, creates, and moves use the core's shared vault-relative
-  filesystem boundary. Symlinked parent components and note leaves are refused.
+  filesystem boundary, and so do the app data and images the desktop writes beside
+  them. Symlinked parent components and note leaves are refused.
   Unix operations pin no-follow directory handles through the final syscall;
   path-based OS trash and the Windows fallback preflight every component.
   Local operations preserve best-effort directory fsync; sync's journal-facing
@@ -130,16 +132,17 @@ compatibility requirements and must not be reintroduced.
   same way: the setup hook creates the default root before the webview loads, so
   `vault_status` stays read-only and reports a default that is not a directory as
   `available: false`; the recovery UI appears instead of an empty app. Nothing
-  else creates a root on demand: the frontend's app-data writes fail on a missing
-  root instead of `mkdir -p`-ing it, and a Rust panic report is dropped rather
-  than recreating a vanished vault for its `.crashlogs`. →
+  else creates a root on demand: app-data writes and image saves resolve the root
+  through `vault_location` like a note command, and a Rust panic report is dropped
+  rather than recreating a vanished vault for its `.crashlogs`. →
   `vault_location::tests::a_default_root_that_cannot_be_created_is_reported_unavailable`,
   `panic_reporter::tests::a_crash_never_recreates_a_missing_vault`
 - A root that is a directory but refused to let a file or folder be created in it
   for want of permission (Controlled Folder Access over an existing folder, a
   read-only mount) is also unavailable. Only creation counts: a refused rename or
   delete is usually another process holding the file. `vault_fs` records the first
-  such refusal process-wide and
+  such refusal of any write through it — a note, a folder, app data, an image —
+  process-wide and
   `vault_status` reports it as `accessRefused`; nothing writes to the vault to find
   out. → `vault_fs::contract_tests::*::a_refused_create_marks_the_vault_access_refused`,
   `vault_location::tests::a_root_that_refused_a_write_is_unavailable`

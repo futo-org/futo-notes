@@ -1598,8 +1598,8 @@ unchanged by it.
   generated UniFFI bindings. Both clipboard shapes work: a raw
   bitmap (OS screenshot-to-clipboard) and a browser **Copy Image** (which the
   source app puts on the clipboard as an `<img>` `text/html` fragment plus a
-  bitmap). When the paste event exposes an image file it is saved directly;
-  otherwise the bitmap is read from the OS clipboard via the
+  bitmap). When the paste event exposes an image file its bytes are saved by
+  `fs_save_image`; otherwise the bitmap is read from the OS clipboard via the
   `fs_paste_clipboard_image` Tauri command. This native fallback is required on
   Linux/Wayland, where WebKitGTK hides the clipboard image from the JS paste
   event — a screenshot arrives with empty `items`, and a Copy Image arrives as
@@ -1608,7 +1608,8 @@ unchanged by it.
   Verified on Linux (WebKitGTK) and Windows (WebView2), both image types,
   2026-06-22. → imagePaste.ts `handlePasteEvent` / `looksLikeImagePaste` /
   `pasteFromNativeClipboard`;
-  `apps/tauri/src-tauri/src/image_commands.rs` `fs_paste_clipboard_image`
+  `apps/tauri/src-tauri/src/image_commands.rs` `fs_save_image` /
+  `fs_paste_clipboard_image`
 - Images render inline via the Tauri asset protocol, with a
   `readFile`→blob-URL fallback when the asset protocol can't actually decode an
   `<img>` (macOS WKWebView / Linux WebKitGTK answer the request but paint a
