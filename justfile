@@ -282,7 +282,7 @@ qa-status:
 ports:
   @node scripts/lib/slot.mjs
 
-# Release this worktree's devices (add --shutdown to also power them off).
+# Release this worktree's devices; `ios`/`android` limits it to one (--shutdown powers them off).
 [positional-arguments]
 qa-release *flags:
   @node scripts/qa.mjs release "$@"

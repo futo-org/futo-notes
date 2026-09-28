@@ -47,7 +47,8 @@ just sim-udid                      # $SIM if set, else the single booted UDID
 
 All `sim-*` recipes and `apps/ios/run.sh` honor `$SIM`. With more than one
 booted simulator, bare `booted` targeting is ambiguous — always pin `SIM`.
-Release the claim with `just qa-release` when the session is done.
+Release the claim with `just qa-release ios` when the session is done — a bare
+`just qa-release` also frees any Android emulator this worktree claimed.
 
 ## 2. Build, install, launch
 
