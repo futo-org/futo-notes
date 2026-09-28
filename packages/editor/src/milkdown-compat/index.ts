@@ -40,6 +40,11 @@
  * serializer-side members of the same set, from the tag work (#102): remark
  * escapes every line-leading `#`, which destroys a `#tag`, and every `_` in
  * prose, which rewrites `snake_case` and destroys `#dog_problems`.
+ * `./stringifyHandlers` also closes two upstream escaping holes the 2026-09
+ * hardening campaign found: Milkdown's `text` handler writes a run that ends in
+ * whitespace with no escaping at all, and an autolink's backslash doubled on
+ * every save. `./inlineHtmlIndent` gives a multi-line inline HTML tag back the
+ * continuation indent the parser strips, which otherwise shrank every save.
  *
  * `./frontmatter` is the one member that is an ADDITION rather than a fork: the
  * preset has no front matter construct at all, so `---\ntags: [a, b]\n---`
@@ -67,6 +72,7 @@ import { gfm, keepTableAlignPlugin, tableEditingPlugin } from '@milkdown/kit/pre
 import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 
 import { remarkExpandEmptyLinksPlugin } from './emptyLink';
+import { remarkInlineHtmlIndentPlugin } from './inlineHtmlIndent';
 import { blankLineJoinPlugin, remarkBlankLineParagraphsPlugin } from './emptyLine';
 import { frontmatterPlugins } from './frontmatter';
 import { paragraphFillerGuard, paragraphWithoutFillerSchema } from './listItemFiller';
@@ -203,6 +209,7 @@ export function commonmarkWithCompat(): MilkdownPlugin[] {
     paragraphWithoutFillerSchema,
     paragraphFillerGuard,
     ...remarkExpandEmptyLinksPlugin,
+    ...remarkInlineHtmlIndentPlugin,
     /* The preset's list numbering over the touched blocks only (see
      * UPSTREAM_LIST_ORDER_ENTRIES). */
     scopedListOrderPlugin,

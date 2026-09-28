@@ -460,3 +460,127 @@ test('Escape then Tab releases the code-block claim for the next Tab only', asyn
   await settled(page);
   expect(await getContent(page)).toContain('  xcode');
 });
+
+// ============================================================
+// Typed text saves with the escapes it needs (hardening L6e-1/13/14). Each
+// case types, saves, re-opens what was saved, and checks the note still MEANS
+// what was typed — the serializer's escaping is only visible on the reopen.
+// ============================================================
+
+/** Open `markdown` as a different note, the way the host re-opens a saved one. */
+async function reopen(page: Page, markdown: string): Promise<void> {
+  // Through another note first, so a same-bytes reopen is never deduped away.
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.setContent('-'));
+  await page.evaluate(
+    (m) => (window as unknown as FakeHostWindow).FutoEditor.setContent(m),
+    markdown,
+  );
+  await flushFrames(page);
+}
+
+/** The cell texts of table row `index` (0 = header) in the rendered document. */
+function renderedRow(page: Page, index: number): Promise<string[]> {
+  return page.locator('.ProseMirror tr').nth(index).locator('td, th').allTextContents();
+}
+
+const SMALL_TABLE = '| a | b |\n| - | - |\n| c | d |\n';
+
+test('a pipe typed in a table cell before bold stays in its cell', async ({ page }) => {
+  // Milkdown writes a text run that ends in whitespace raw, so the run before
+  // a mark lost its `\|` and the next open split the row.
+  await open(page, SMALL_TABLE);
+  await caretAtEndOf(page, 'c');
+  await page.keyboard.type(' x | y ');
+  await page.keyboard.press('ControlOrMeta+b');
+  await page.keyboard.type('bold');
+  await settled(page);
+  const saved = await getContent(page);
+  await reopen(page, saved);
+  expect(await renderedRow(page, 1), saved).toEqual(['c x | y bold', 'd']);
+});
+
+test('a pipe typed in a table cell survives a pause after a trailing space', async ({ page }) => {
+  // No mark at all: the cell's last run ends in a space, which is what the
+  // autosave sees whenever the user pauses after one.
+  await open(page, SMALL_TABLE);
+  await caretAtEndOf(page, 'c');
+  await page.keyboard.type(' x | y ');
+  await settled(page);
+  const saved = await getContent(page);
+  await reopen(page, saved);
+  expect(
+    (await renderedRow(page, 1)).map((cell) => cell.trim()),
+    saved,
+  ).toEqual(['c x | y', 'd']);
+});
+
+test('a line typed after Shift+Enter that starts with "# " stays in the paragraph', async ({
+  page,
+}) => {
+  await open(page, 'Notes');
+  await caretAtEndOf(page, 'Notes');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('# not a heading ');
+  await page.keyboard.press('ControlOrMeta+b');
+  await page.keyboard.type('bold');
+  await settled(page);
+  const saved = await getContent(page);
+  await reopen(page, saved);
+  expect(await page.locator('.ProseMirror h1').count(), saved).toBe(0);
+  expect(await page.locator('.ProseMirror p').first().textContent(), saved).toBe(
+    'Notes# not a heading bold',
+  );
+});
+
+test('"&amp;" typed before bold is still "&amp;" after a reopen', async ({ page }) => {
+  await open(page, 'Notes');
+  await caretAtEndOf(page, 'Notes');
+  await page.keyboard.type(' write &amp; for & ');
+  await page.keyboard.press('ControlOrMeta+b');
+  await page.keyboard.type('bold');
+  await settled(page);
+  const saved = await getContent(page);
+  await reopen(page, saved);
+  expect(await page.locator('.ProseMirror p').first().textContent(), saved).toBe(
+    'Notes write &amp; for & bold',
+  );
+});
+
+test('Shift+Enter in an H4 never adds a backslash to the heading', async ({ page }) => {
+  // An ATX heading is one line. The break handler wrote `\` + newline there,
+  // which ended the heading: it reopened as `Plan\` plus a paragraph.
+  await open(page, '#### Plan');
+  await caretAtEndOf(page, 'Plan');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('next');
+  await settled(page);
+  const saved = await getContent(page);
+  expect(saved).not.toContain('\\');
+  await reopen(page, saved);
+  expect(await page.locator('.ProseMirror h4').allTextContents(), saved).toEqual(['Plan next']);
+  expect(await page.locator('.ProseMirror p').count(), saved).toBe(0);
+});
+
+test('Shift+Enter directly before inline HTML keeps the break and adds no backslash', async ({
+  page,
+}) => {
+  await open(page, 'Press <kbd>Ctrl</kbd> now');
+  // Only the caret is placed through the DOM (directly before the `<kbd>`
+  // atom, which no click can target); the break itself is a real Shift+Enter.
+  await withCaretObserved(page, () =>
+    page.evaluate(() => {
+      const text = document.querySelector('.ProseMirror p')?.firstChild;
+      if (!text) throw new Error('no text node');
+      const range = document.createRange();
+      range.setStart(text, 'Press '.length);
+      range.collapse(true);
+      getSelection()?.removeAllRanges();
+      getSelection()?.addRange(range);
+    }),
+  );
+  await page.keyboard.press('Shift+Enter');
+  await settled(page);
+  const saved = await getContent(page);
+  // `\` + space is a literal backslash on one line; `<br>` is the break.
+  expect(saved).toBe('Press <br><kbd>Ctrl</kbd> now\n');
+});

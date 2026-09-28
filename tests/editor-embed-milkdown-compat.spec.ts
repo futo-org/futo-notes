@@ -331,3 +331,155 @@ test.describe('YAML front matter survives the round trip', () => {
     expect(out).toContain('body');
   });
 });
+
+/** Two loads: what the first save writes, and whether the second agrees. */
+async function twoSaves(page: Page, variant: 'compat' | 'baseline', markdown: string) {
+  const once = await roundTrip(page, variant, markdown);
+  return { once, twice: await roundTrip(page, variant, once) };
+}
+
+test.describe('a text run that ends in whitespace keeps its escapes', () => {
+  // `@milkdown/core`'s `text` handler returns any run matching
+  // /^[^*_\\]*\s+$/ RAW, before `safe()` (it exists to keep a trailing space
+  // from being written as `&#x20;`). A run ends in whitespace whenever the
+  // next inline sibling is not text — a mark, a link, an image, inline HTML —
+  // so every escape CommonMark needs in that run was dropped: `\#` at a line
+  // start reopened as a heading, `\|` in a cell split the row, `\&amp;`
+  // decoded to `&`.
+  const SHAPES: Record<string, string> = {
+    'an escaped # before bold': 'x\n\n\\# a **b**\n',
+    'an escaped > before bold': 'x\n\n\\> a **b**\n',
+    'an escaped - before a link': 'x\n\n\\- a [b](https://e.example/u)\n',
+    'an escaped 1. before code': 'x\n\n1\\. a `b`\n',
+    'an escaped - on a soft-wrapped line': 'a\n\\- b **c**\n',
+    'an escaped &amp; before bold': 'Tom \\&amp; Jerry **x**\n',
+    'escaped [[ before bold': '\\[\\[x]] **b**\n',
+    'an escaped <div> before bold': '\\<div> **b**\n',
+  };
+
+  test('canary: upstream still writes the run unescaped', async ({ page }) => {
+    expect(await roundTrip(page, 'baseline', SHAPES['an escaped # before bold'])).toBe(
+      'x\n\n# a **b**\n',
+    );
+    expect(await roundTrip(page, 'baseline', SHAPES['an escaped &amp; before bold'])).toBe(
+      'Tom &amp; Jerry **x**\n',
+    );
+    expect(await roundTrip(page, 'baseline', SHAPES['an escaped - on a soft-wrapped line'])).toBe(
+      'a\n- b **c**\n',
+    );
+  });
+
+  for (const [name, markdown] of Object.entries(SHAPES)) {
+    test(`compat keeps ${name} byte-for-byte`, async ({ page }) => {
+      const { once, twice } = await twoSaves(page, 'compat', markdown);
+      expect(once).toBe(markdown);
+      expect(twice).toBe(once);
+    });
+  }
+
+  test('compat keeps an escaped marker after a hard break a paragraph', async ({ page }) => {
+    // The hard break re-spells (two spaces -> backslash); the marker must not
+    // reopen as a list, and no literal backslash may be invented.
+    const { once, twice } = await twoSaves(page, 'compat', 'a  \n\\- b **c**\n');
+    expect(once).toBe('a\\\n\\- b **c**\n');
+    expect(twice).toBe(once);
+  });
+
+  test('compat keeps an escaped pipe before bold inside its table cell', async ({ page }) => {
+    const { once, twice } = await twoSaves(
+      page,
+      'compat',
+      '| a | b |\n| - | - |\n| x \\| y **b** | d |\n',
+    );
+    expect(once).toMatch(/^\| x \\\| y \*\*b\*\* \| d +\|$/m);
+    expect(twice).toBe(once);
+  });
+});
+
+test.describe('an autolink with a backslash is written verbatim', () => {
+  // CommonMark processes no backslash escapes inside `<...>`, so the `\` is
+  // part of the URL. Upstream `safe()` still escapes a backslash that precedes
+  // punctuation, the next open reads both as literal, and the count doubles on
+  // every save (2^n churn, census `unstable_persistent`).
+  test('canary: upstream still doubles the backslash every save', async ({ page }) => {
+    const { once, twice } = await twoSaves(
+      page,
+      'baseline',
+      'see <https://example.com/a\\.b> here\n',
+    );
+    expect(once).toBe('see <https://example.com/a\\\\.b> here\n');
+    expect(twice).toBe('see <https://example.com/a\\\\\\\\.b> here\n');
+  });
+
+  for (const markdown of [
+    'see <https://example.com/a\\.b> here\n',
+    'see <file:\\\\srv\\s> here\n',
+    'see <https://example.com/a\\> here\n',
+  ]) {
+    test(`compat round-trips ${JSON.stringify(markdown)} byte-for-byte`, async ({ page }) => {
+      const { once, twice } = await twoSaves(page, 'compat', markdown);
+      expect(once).toBe(markdown);
+      expect(twice).toBe(once);
+    });
+  }
+
+  test('compat writes a bare URL with a backslash once, then holds', async ({ page }) => {
+    // The bare (GFM literal) form is re-spelled as `<...>` — accepted
+    // normalization — but keeps exactly the one backslash it had.
+    const { once, twice } = await twoSaves(page, 'compat', 'see https://example.com/a\\_b now\n');
+    expect(once).toBe('see <https://example.com/a\\_b> now\n');
+    expect(twice).toBe(once);
+  });
+});
+
+test.describe('a multi-line inline HTML tag keeps its continuation indent', () => {
+  // micromark drops up to three columns of each continuation line's indent
+  // from an inline HTML node's value (the line prefix), and the serializer
+  // writes the value back verbatim, so the indent shrank by three on every
+  // save until it reached column 0.
+  const TAG = "<span\n    class='a'\n       data-img = 'b'\n    data-end='1'>\n";
+  const MID = "text <span\n       a='1'>t</span> end\n";
+
+  test('canary: upstream still strips three columns per save', async ({ page }) => {
+    const { once, twice } = await twoSaves(page, 'baseline', MID);
+    expect(once).toBe("text <span\n    a='1'>t</span> end\n");
+    expect(twice).toBe("text <span\n a='1'>t</span> end\n");
+  });
+
+  for (const [name, markdown] of [
+    ['a tag that starts the paragraph', TAG],
+    ['a tag in mid-paragraph', MID],
+    // A document that ends in a container gains the trailing plugin's
+    // paragraph (pre-existing, see the blank-line cases above).
+    ['a tag inside a blockquote', "> text <span\n>     a='1'>t</span> end\n\n"],
+    ['a tag inside a list item', "* text <span\n      a='1'>t</span> end\n\n"],
+  ] as const) {
+    test(`compat keeps ${name} byte-for-byte`, async ({ page }) => {
+      const { once, twice } = await twoSaves(page, 'compat', markdown);
+      expect(once).toBe(markdown);
+      expect(twice).toBe(once);
+    });
+  }
+
+  test('compat leaves an indented block of HTML alone', async ({ page }) => {
+    // Flow HTML keeps its lines verbatim on parse; nothing may be added.
+    expect(await roundTrip(page, 'compat', '<div>\n    x\n</div>\n')).toBe(
+      '<div>\n    x\n</div>\n',
+    );
+  });
+});
+
+test.describe('a hard break directly before inline HTML', () => {
+  // mdast-util-to-markdown cannot write an eol directly before inline HTML (it
+  // could open an HTML block), so it replaces it with a space — which strands
+  // a hard break's backslash mid-line as a literal `\`. The app's `break`
+  // handler (src/features/editor/milkdown/table/tableLineBreak.ts) spells such
+  // a break `<br>` instead; that half is asserted on the shipped bundle in
+  // editor-embed-milkdown-interactive.spec.ts, because the census page does not
+  // mount the app's table feature.
+  test('canary: upstream still writes a literal backslash and joins the lines', async ({
+    page,
+  }) => {
+    expect(await roundTrip(page, 'baseline', 'a  \n<span>b</span>\n')).toBe('a\\ <span>b</span>\n');
+  });
+});

@@ -11,6 +11,7 @@ import {
   installFakeAndroidHost,
   messagesOfType,
   waitForMessages,
+  withCaretObserved,
   type FakeHostWindow,
 } from './lib/editorEmbedHost';
 
@@ -446,6 +447,30 @@ test('typing a wikilink out in full turns into a link on the closing brackets', 
   await page.keyboard.type(']]');
   await expect(chip(page)).toHaveText('grocery list');
   await expectReported(page, '[[grocery list]]\n');
+});
+
+test('a wikilink typed with a `|` in a table cell keeps its row and its link', async ({ page }) => {
+  // A GFM row is split on every unescaped `|` before inline parsing, so the
+  // handler has to write `[[note\\|alias]]` in a cell. Written raw, the next
+  // open split the cell, and the next edit widened the table and escaped the
+  // link into `\\[\\[note` text (hardening L6e-15).
+  await open(page, '| a | b |\n| - | - |\n| c | d |\n');
+  await withCaretObserved(page, () => page.getByText('c', { exact: true }).click());
+  await page.keyboard.press('End');
+  await page.keyboard.type(' [[note|alias');
+  await page.keyboard.press('Escape');
+  await page.keyboard.type(']]');
+  await expect(chip(page)).toHaveCount(1);
+  await settleChangeDebounce(page);
+  const saved = await getContent(page);
+  expect(saved).toContain('| c [[note\\|alias]] | d |');
+
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.setContent('-'));
+  await page.evaluate((m) => (window as unknown as FakeHostWindow).FutoEditor.setContent(m), saved);
+  await flushFrames(page);
+  const cells = page.locator('.ProseMirror tr').nth(1).locator('td, th');
+  await expect(cells, saved).toHaveCount(2);
+  await expect(chip(page)).toHaveCount(1);
 });
 
 // ============================================================

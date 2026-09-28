@@ -62,7 +62,7 @@
 import { $remark } from '@milkdown/kit/utils';
 import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 import { remarkStringifyOptionsCtx } from '@milkdown/kit/core';
-import type { MdastNode } from '@futo-notes/editor/milkdown-compat';
+import { appliesIn, type MdastNode, type UnsafePattern } from '@futo-notes/editor/milkdown-compat';
 
 /** Depth-first walk over the slice of mdast this module reads/writes — a
  * five-line local copy of `packages/editor/src/milkdown-compat/mdast.ts`'s
@@ -124,19 +124,41 @@ export const tableCellLineBreakRemark = $remark(
  * which is not exposed anywhere this module could import — that package is
  * only a devDependency of `@futo-notes/editor` (types for tests), and
  * importing its runtime code here would be exactly the phantom-dependency
- * problem `stringifyHandlers.ts` documents avoiding. So the non-table branch
- * below reproduces upstream's own fallback line (`'\\\n'`) directly — the one
- * unsafe-`\n` registration in this app's whole remark pipeline is
- * `mdast-util-gfm-table`'s `tableCell` entry, so this is not a partial
- * reimplementation of a general rule, it is upstream's ONE other case.
+ * problem `stringifyHandlers.ts` documents avoiding. So the non-table branches
+ * below restate upstream's `hardBreak` (`lib/handle/break.js`) directly, and
+ * all of it: `mdast-util-gfm-table`'s `tableCell` is NOT the only construct
+ * that registers `\n` as unsafe — `mdast-util-to-markdown` itself does for an
+ * ATX heading (and for fence info/meta and a `<…>` destination), and there
+ * upstream writes a space. Writing `\` + newline inside `### Title` ended the
+ * heading: the note reopened as heading `Title\` plus a paragraph, a stray
+ * backslash the user never typed.
+ *
+ * The one case upstream gets wrong is a break directly before inline HTML:
+ * `containerPhrasing` refuses an eol in front of an `html` node (it could open
+ * an HTML block, syntax-tree/mdast-util-to-markdown#15) and swaps it for a
+ * space, which strands the `\` mid-line — `Press \ <kbd>` on one line, the
+ * break gone and a backslash added. `<br>` is the spelling that needs no eol,
+ * the same one a table cell uses.
  */
 export const tableCellLineBreakSerializer: MilkdownPlugin = (ctx) => {
   ctx.update(remarkStringifyOptionsCtx, (options) => ({
     ...options,
     handlers: {
       ...options.handlers,
-      break: (_node, _parent, state) => (state.stack.includes('tableCell') ? '<br>' : '\\\n'),
+      break: (_node, parent, state, info) => {
+        if (state.stack.includes('tableCell')) return '<br>';
+        if (state.unsafe.some((pattern) => isUnsafeNewlineHere(pattern, state.stack))) {
+          return /[ \t]/.test(info.before) ? '' : ' ';
+        }
+        const next = parent?.children[(state.indexStack[state.indexStack.length - 1] ?? -1) + 1];
+        return next?.type === 'html' ? '<br>' : '\\\n';
+      },
     },
   }));
   return () => {};
 };
+
+/** Whether `pattern` forbids a line ending in the construct being written. */
+function isUnsafeNewlineHere(pattern: UnsafePattern, stack: readonly string[]): boolean {
+  return pattern.character === '\n' && appliesIn(pattern, stack);
+}
