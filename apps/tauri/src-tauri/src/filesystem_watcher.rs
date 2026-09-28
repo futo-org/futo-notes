@@ -107,6 +107,13 @@ struct PendingRename {
     inserted_at: i64,
 }
 
+/// Old names of cookieless renames, oldest first, waiting for their new half.
+#[derive(Default)]
+struct UnpairedRenames {
+    old_names: std::collections::VecDeque<PendingRename>,
+    flusher_running: bool,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum ChangeKind {
     Add,
@@ -114,6 +121,8 @@ enum ChangeKind {
     Unlink,
     RenameFrom,
     RenameTo,
+    /// One half of a rename that does not say which (macOS FSEvents).
+    RenameEither,
 }
 
 fn classify(event: &Event, mode: WatchMode) -> Option<ChangeKind> {
@@ -136,10 +145,18 @@ fn classify(event: &Event, mode: WatchMode) -> Option<ChangeKind> {
         EventKind::Modify(ModifyKind::Name(RenameMode::To | RenameMode::Both)) => {
             Some(ChangeKind::RenameTo)
         }
+        // FSEvents has no rename cookie and does not say which half a path is:
+        // notify reports both as `Name(Any)`, one event per path.
+        EventKind::Modify(ModifyKind::Name(RenameMode::Any)) => Some(ChangeKind::RenameEither),
         EventKind::Modify(_) => Some(ChangeKind::Change),
         EventKind::Remove(_) => Some(ChangeKind::Unlink),
         _ => None,
     }
+}
+
+/// Whether anything is at `path` now, without following a symlink.
+fn path_exists(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok()
 }
 
 fn relative_note_path(base: &Path, path: &Path) -> Option<String> {
@@ -164,13 +181,20 @@ fn relative_note_path_stripped(path: &Path) -> Option<String> {
     Some(path.replace('\\', "/"))
 }
 
+/// Where the processor reports normalized vault changes: the app's
+/// [`EventSink`], or a recorder in tests.
+trait ChangeSink: Clone + Send + Sync + 'static {
+    fn change(&self, kind: &str, relative_path: &str);
+    fn rename(&self, from: &str, to: &str);
+}
+
 #[derive(Clone)]
 struct EventSink {
     app: AppHandle,
     suppression: WatcherSuppression,
 }
 
-impl EventSink {
+impl ChangeSink for EventSink {
     fn change(&self, kind: &str, relative_path: &str) {
         if self.suppression.consume(relative_path) {
             return;
@@ -204,14 +228,31 @@ impl EventSink {
     }
 }
 
-struct EventProcessor {
+#[derive(Clone)]
+struct EventProcessor<S: ChangeSink> {
     bases: Vec<PathBuf>,
     pending_renames: Arc<Mutex<HashMap<u128, PendingRename>>>,
-    sink: EventSink,
+    unpaired_renames: Arc<Mutex<UnpairedRenames>>,
+    sink: S,
     mode: WatchMode,
 }
 
-impl EventProcessor {
+impl<S: ChangeSink> EventProcessor<S> {
+    fn new(
+        bases: Vec<PathBuf>,
+        pending_renames: Arc<Mutex<HashMap<u128, PendingRename>>>,
+        sink: S,
+        mode: WatchMode,
+    ) -> Self {
+        Self {
+            bases,
+            pending_renames,
+            unpaired_renames: Arc::default(),
+            sink,
+            mode,
+        }
+    }
+
     fn process(&self, event: Event) {
         let Some(kind) = classify(&event, self.mode) else {
             return;
@@ -220,8 +261,14 @@ impl EventProcessor {
         match kind {
             ChangeKind::RenameFrom => self.rename_from(event),
             ChangeKind::RenameTo => self.rename_to(event),
-            ChangeKind::Add => self.emit_paths("add", event.paths),
-            ChangeKind::Change => self.emit_paths("change", event.paths),
+            ChangeKind::RenameEither => self.rename_either(event),
+            // FSEvents coalesces flags per path, so a rename's old name can also
+            // carry its earlier create/write after the file is gone. A path that
+            // no longer exists was not added or edited: the rename or removal
+            // half reports it. Reporting it as an edit made the shell flush the
+            // open note's pending save to that id and recreate it there.
+            ChangeKind::Add => self.emit_existing_paths("add", event.paths),
+            ChangeKind::Change => self.emit_existing_paths("change", event.paths),
             ChangeKind::Unlink => self.emit_paths("unlink", event.paths),
         }
     }
@@ -242,6 +289,86 @@ impl EventProcessor {
                 self.emit_path("unlink", &rename.from_path);
             }
         }
+        drop(pending);
+
+        let stale = {
+            let Ok(mut unpaired) = self.unpaired_renames.lock() else {
+                return;
+            };
+            let fresh = unpaired
+                .old_names
+                .iter()
+                .position(|rename| now - rename.inserted_at <= RENAME_PAIR_TIMEOUT_MS)
+                .unwrap_or(unpaired.old_names.len());
+            unpaired.old_names.drain(..fresh).collect::<Vec<_>>()
+        };
+        for rename in stale {
+            self.emit_path("unlink", &rename.from_path);
+        }
+    }
+
+    /// A rename half with no cookie. Its old name no longer exists and its new
+    /// one does, and the backend delivers the old name first (FSEvents orders
+    /// by event id), so the halves pair in arrival order.
+    fn rename_either(&self, event: Event) {
+        for path in event.paths {
+            if path_exists(&path) {
+                self.pair_new_name(path, "change");
+            } else {
+                self.queue_old_name(path);
+            }
+        }
+    }
+
+    /// Hold a cookieless old name for its new half. If the pair window closes
+    /// first (the file left the vault, e.g. for the Trash), it is reported as
+    /// removed — by a timer, since no later event may come to flush it.
+    fn queue_old_name(&self, path: PathBuf) {
+        if relative_note_path_any(&self.bases, &path).is_none() {
+            return;
+        }
+        let Ok(mut unpaired) = self.unpaired_renames.lock() else {
+            return;
+        };
+        unpaired.old_names.push_back(PendingRename {
+            from_path: path,
+            inserted_at: futo_notes_core::files::now_ms(),
+        });
+        if unpaired.flusher_running {
+            return;
+        }
+        let processor = self.clone();
+        let started = crate::background_tasks::spawn("watcher-rename-pairing", move || loop {
+            std::thread::sleep(std::time::Duration::from_millis(
+                RENAME_PAIR_TIMEOUT_MS as u64 + 50,
+            ));
+            processor.flush_stale_renames();
+            let Ok(mut unpaired) = processor.unpaired_renames.lock() else {
+                return;
+            };
+            if unpaired.old_names.is_empty() {
+                unpaired.flusher_running = false;
+                return;
+            }
+        });
+        unpaired.flusher_running = started.is_ok();
+    }
+
+    /// Pair a cookieless new name with the oldest waiting old name. Without
+    /// one it keeps its unpaired meaning (`unpaired_kind`).
+    fn pair_new_name(&self, path: PathBuf, unpaired_kind: &str) {
+        let old_name = if relative_note_path_any(&self.bases, &path).is_some() {
+            self.unpaired_renames
+                .lock()
+                .ok()
+                .and_then(|mut unpaired| unpaired.old_names.pop_front())
+        } else {
+            None
+        };
+        match old_name {
+            Some(old_name) => self.emit_rename_pair(&old_name.from_path, &path),
+            None => self.emit_path(unpaired_kind, &path),
+        }
     }
 
     fn rename_from(&self, event: Event) {
@@ -259,10 +386,11 @@ impl EventProcessor {
             }
             return;
         }
-        if let Some(path) = first {
-            self.emit_path("unlink", &path);
+        // No cookie (Windows): wait for the new half instead of reporting a
+        // removal and an add.
+        for path in first.into_iter().chain(paths) {
+            self.queue_old_name(path);
         }
-        self.emit_paths("unlink", paths);
     }
 
     fn rename_to(&self, event: Event) {
@@ -279,11 +407,12 @@ impl EventProcessor {
                 self.emit_rename_pair(&from, &to);
                 return;
             }
+        } else if let Some(to) = first {
+            self.pair_new_name(to, "add");
+            self.emit_existing_paths("add", paths);
+            return;
         }
-        if let Some(path) = first {
-            self.emit_path("add", &path);
-        }
-        self.emit_paths("add", paths);
+        self.emit_existing_paths("add", first.into_iter().chain(paths));
     }
 
     fn emit_rename_pair(&self, from: &Path, to: &Path) {
@@ -301,6 +430,10 @@ impl EventProcessor {
         if let Some(relative) = relative_note_path_any(&self.bases, path) {
             self.sink.change(kind, &relative);
         }
+    }
+
+    fn emit_existing_paths(&self, kind: &str, paths: impl IntoIterator<Item = PathBuf>) {
+        self.emit_paths(kind, paths.into_iter().filter(|path| path_exists(path)));
     }
 
     fn emit_paths(&self, kind: &str, paths: impl IntoIterator<Item = PathBuf>) {
@@ -336,12 +469,12 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, AppState>) -> Res
 
         let root = crate::vault_location::root(&app)?;
         let mode = watch_mode(&root);
-        let processor = EventProcessor {
-            bases: watch_bases(&root),
+        let processor = EventProcessor::new(
+            watch_bases(&root),
             pending_renames,
-            sink: EventSink { app, suppression },
+            EventSink { app, suppression },
             mode,
-        };
+        );
         let handler = move |result: Result<Event, notify::Error>| {
             if let Ok(event) = result {
                 processor.process(event);
@@ -587,6 +720,203 @@ mod tests {
         assert!(
             observed.iter().any(|path| path.ends_with("note.md")),
             "the poll watcher never reported the edit; saw {observed:?}"
+        );
+    }
+
+    #[derive(Clone, Default)]
+    struct Recorder(Arc<Mutex<Vec<String>>>);
+
+    impl ChangeSink for Recorder {
+        fn change(&self, kind: &str, relative_path: &str) {
+            self.0
+                .lock()
+                .unwrap()
+                .push(format!("{kind} {relative_path}"));
+        }
+
+        fn rename(&self, from: &str, to: &str) {
+            self.0
+                .lock()
+                .unwrap()
+                .push(format!("rename {from} -> {to}"));
+        }
+    }
+
+    impl Recorder {
+        fn take(&self) -> Vec<String> {
+            std::mem::take(&mut *self.0.lock().unwrap())
+        }
+
+        fn wait_for(&self, wanted: &str, timeout: std::time::Duration) -> bool {
+            let deadline = std::time::Instant::now() + timeout;
+            while std::time::Instant::now() < deadline {
+                if self.0.lock().unwrap().iter().any(|seen| seen == wanted) {
+                    return true;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            false
+        }
+    }
+
+    static VAULT_COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+    fn temp_vault(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "futo-watch-{label}-{}-{}",
+            std::process::id(),
+            VAULT_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn recording_processor(root: &Path) -> (EventProcessor<Recorder>, Recorder) {
+        let recorder = Recorder::default();
+        let processor = EventProcessor::new(
+            watch_bases(root),
+            Arc::default(),
+            recorder.clone(),
+            WatchMode::Inotify,
+        );
+        (processor, recorder)
+    }
+
+    fn rename_half(mode: RenameMode, path: PathBuf) -> Event {
+        Event::new(EventKind::Modify(ModifyKind::Name(mode))).add_path(path)
+    }
+
+    /// macOS FSEvents carries no rename cookie: notify reports BOTH halves of a
+    /// rename as `Modify(Name(Any))`, one event per path (notify's fsevent.rs).
+    /// Reported as two edits, the shell flushed the open note's pending save to
+    /// the id it had just left, and the store recreated it there — a ghost that
+    /// synced everywhere, holding the typing the renamed note never got. The
+    /// half whose path is gone is the old name; the half that exists is the new.
+    #[test]
+    fn a_cookieless_rename_is_paired_by_which_path_still_exists() {
+        let root = temp_vault("pair");
+        std::fs::write(root.join("Draft renamed.md"), "draft").unwrap();
+        std::fs::write(root.join("Saved.md"), "saved").unwrap();
+        let (processor, recorder) = recording_processor(&root);
+
+        processor.process(rename_half(RenameMode::Any, root.join("Draft.md")));
+        // FSEvents coalesces flags per path, so an earlier write to the old name
+        // can arrive after it is gone. A file that no longer exists has no edit.
+        processor.process(
+            Event::new(EventKind::Modify(ModifyKind::Data(
+                notify::event::DataChange::Content,
+            )))
+            .add_path(root.join("Draft.md")),
+        );
+        processor.process(rename_half(RenameMode::Any, root.join("Draft renamed.md")));
+        // A new name with no old half — the destination of an atomic save's
+        // hidden temp file — stays what it was: an edit of that note.
+        processor.process(rename_half(RenameMode::Any, root.join("Saved.md")));
+
+        let seen = recorder.take();
+        std::fs::remove_dir_all(&root).unwrap();
+        assert_eq!(
+            seen,
+            vec!["rename Draft.md -> Draft renamed.md", "change Saved.md"]
+        );
+    }
+
+    /// Windows (ReadDirectoryChangesW) reports the old then the new name, also
+    /// without a cookie; the same arrival-order pairing makes it one rename
+    /// instead of a removal and an add.
+    #[test]
+    fn a_cookieless_old_then_new_name_is_one_rename() {
+        let root = temp_vault("from-to");
+        std::fs::write(root.join("Moved.md"), "moved").unwrap();
+        let (processor, recorder) = recording_processor(&root);
+
+        processor.process(rename_half(RenameMode::From, root.join("Note.md")));
+        processor.process(rename_half(RenameMode::To, root.join("Moved.md")));
+
+        let seen = recorder.take();
+        std::fs::remove_dir_all(&root).unwrap();
+        assert_eq!(seen, vec!["rename Note.md -> Moved.md"]);
+    }
+
+    /// An old name whose new half never comes (moved out of the vault — the
+    /// Trash is outside it) is a removal, reported once the pair window closes
+    /// even when no later event arrives to flush it.
+    #[test]
+    fn an_unpaired_old_name_is_reported_as_removed_after_the_pair_window() {
+        let root = temp_vault("unpaired");
+        let (processor, recorder) = recording_processor(&root);
+
+        processor.process(rename_half(RenameMode::Any, root.join("Gone.md")));
+        let before_window = recorder.take();
+        let removed = recorder.wait_for("unlink Gone.md", std::time::Duration::from_secs(3));
+
+        let seen = recorder.take();
+        std::fs::remove_dir_all(&root).unwrap();
+        assert!(
+            before_window.is_empty(),
+            "reported before its pair window closed: {before_window:?}"
+        );
+        assert!(removed, "never reported as removed; saw {seen:?}");
+        assert_eq!(seen, vec!["unlink Gone.md"]);
+    }
+
+    /// The platform's own backend — FSEvents on macOS, inotify on Linux,
+    /// ReadDirectoryChangesW on Windows — reports a rename inside the vault as
+    /// one rename, never as an edit or a removal of either name (M26: this runs
+    /// on each desktop platform's real backend, not only on a synthetic shape).
+    #[test]
+    fn the_native_backend_reports_a_rename_as_one_rename() {
+        let root = temp_vault("native");
+        std::fs::write(root.join("Draft.md"), "draft").unwrap();
+        // Let the creation age out of the backend's coalescing window.
+        std::thread::sleep(std::time::Duration::from_millis(1_000));
+
+        let (processor, recorder) = recording_processor(&root);
+        let raw = Arc::new(Mutex::new(Vec::<String>::new()));
+        let raw_log = raw.clone();
+        let mut watcher = RecommendedWatcher::new(
+            move |result: Result<Event, notify::Error>| {
+                if let Ok(event) = result {
+                    raw_log.lock().unwrap().push(format!(
+                        "{:?} {:?} {:?}",
+                        event.kind,
+                        event.paths,
+                        event.attrs.tracker()
+                    ));
+                    processor.process(event);
+                }
+            },
+            Config::default(),
+        )
+        .unwrap();
+        watcher.watch(&root, RecursiveMode::Recursive).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        recorder.take();
+        raw.lock().unwrap().clear();
+
+        std::fs::rename(root.join("Draft.md"), root.join("Draft renamed.md")).unwrap();
+        let renamed = recorder.wait_for(
+            "rename Draft.md -> Draft renamed.md",
+            std::time::Duration::from_secs(5),
+        );
+        // Anything the pair window would still turn into a removal lands here.
+        std::thread::sleep(std::time::Duration::from_millis(
+            RENAME_PAIR_TIMEOUT_MS as u64 + 500,
+        ));
+        drop(watcher);
+        let seen = recorder.take();
+        let raw = raw.lock().unwrap().clone();
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert!(
+            renamed,
+            "no rename reported; sink saw {seen:?}, backend sent {raw:?}"
+        );
+        assert!(
+            !seen
+                .iter()
+                .any(|entry| entry.starts_with("change ") || entry.starts_with("unlink ")),
+            "a rename must not read as an edit or removal; sink saw {seen:?}, backend sent {raw:?}"
         );
     }
 }
