@@ -29,8 +29,9 @@ What it returns for a blocked create decides whether FUTO Notes notices:
 - Clone the repo **outside** Documents, Desktop, Pictures and the other protected
   folders (for example `C:\src\futo-notes`): with the feature on, the build itself
   would be blocked from writing there.
-- Build tools per CONTRIBUTING.md (Rust from `rust-toolchain.toml`, the MSVC C++
-  build tools, Node from `.nvmrc`, pnpm through corepack, the Tauri CLI).
+- Build tools per CONTRIBUTING.md: Rust from `rust-toolchain.toml`, the MSVC C++
+  build tools, Node from `.nvmrc`, pnpm through corepack, and the Tauri CLI
+  (`cargo install tauri-cli --locked`; CI does the same in `ci/win-install-deps.ps1`).
 - If the release FUTO Notes is installed, don't use it during the run: Controlled
   Folder Access blocks it too. Put the setting back the way you found it afterwards.
 
@@ -42,40 +43,39 @@ corepack enable
 pnpm install
 ```
 
-Launch the dev app with `node scripts/tauri-dev.mjs` (what `just tauri-dev` runs). In
-a normal clone it uses `%USERPROFILE%\Documents\fake-notes` as the notes folder and
-never touches the real `Documents\futo-notes`. The first build takes a while.
+**Launching.** Cases A, C and D use the dev script, `node scripts/tauri-dev.mjs` from
+the repo root (what `just tauri-dev` runs). In a normal clone it uses
+`%USERPROFILE%\Documents\fake-notes` as the notes folder, keeps its settings in the
+repo's `.tauri-data`, rewrites them on every launch, and never touches the real
+`Documents\futo-notes`. Case B needs a different launch, given there. Quit the app
+by closing its window. The first build takes a while.
 
 **Driving the app.** Debug builds carry a WebSocket bridge. The launch log prints
 `MCP Bridge plugin initialized for ... on 127.0.0.1:<port>`; send it
 `{"id":"r1","command":"execute_js","args":{"script":"<js>"}}` and read `data` from the
 reply (`.claude/skills/verify/references/desktop.md`, "Raw WebSocket fallback"; Node
-22 has `WebSocket` built in, so a five-line `.mjs` file does it). The checks below
-are JavaScript to run that way. Don't send OS-level keystrokes to the window.
+22 has `WebSocket` built in, so a five-line `.mjs` file does it). Send each check
+below exactly as written, one line: the bridge returns the value of a single
+expression, so a script with statements or a comment line in front returns nothing.
+Don't send OS-level keystrokes to the window.
 
-Checks used in the steps:
+| Check | Send |
+|---|---|
+| **banner** | `document.querySelector('.vault-unavailable-banner')?.innerText ?? 'no banner'` |
+| **status** | `await window.__TAURI_INTERNALS__.invoke('vault_status')` |
+| **probe** | `await window.__TAURI_INTERNALS__.invoke('app_data_write', { path: '.cfa-probe.json', content: '{}' }).then(() => 'WROTE', String)` |
+| **toast** | `(async () => { document.querySelector('[aria-label="Open settings"]').click(); await new Promise((r) => setTimeout(r, 400)); [...document.querySelectorAll('.settings-segment')].find((b) => b.textContent.trim() === 'Dark').click(); await new Promise((r) => setTimeout(r, 800)); const toast = document.querySelector('.toast')?.innerText ?? 'no toast'; document.querySelector('[aria-label="Close settings"]').click(); return toast; })()` |
+| **type** | `(async () => { const editor = document.querySelector('.ProseMirror'); editor.focus(); document.execCommand('insertText', false, 'QA'); return 'editable ' + editor.contentEditable + ', took typing ' + editor.textContent.includes('QA'); })()` |
 
-```js
-// banner — the red bar across the top, or "no banner"
-document.querySelector('.vault-unavailable-banner')?.innerText ?? 'no banner'
-// status — what Rust reports
-await window.__TAURI_INTERNALS__.invoke('vault_status')
-// probe — one real create in the notes folder; returns "WROTE" or the error verbatim
-await window.__TAURI_INTERNALS__.invoke('app_data_write', { path: '.cfa-probe.json', content: '{}' }).then(() => 'WROTE', String)
-// toast — Settings → Appearance → Dark, then read the toast
-document.querySelector('[aria-label="Open settings"]').click();
-await new Promise((r) => setTimeout(r, 400));
-[...document.querySelectorAll('.settings-segment')].find((b) => b.textContent.trim() === 'Dark').click();
-await new Promise((r) => setTimeout(r, 800));
-document.querySelector('.toast')?.innerText ?? 'no toast'
-```
+**probe** makes one real create in the notes folder (a hidden `.cfa-probe.json`) and
+returns `WROTE` or the error word for word.
 
 ## The story
 
 ### A. An existing notes folder the app may not change (the case this branch is for)
 
-1. Controlled Folder Access **off**. Launch once so `Documents\fake-notes` exists and
-   holds the three seeded notes. Run **probe**: expect `WROTE`. Quit the app.
+1. Controlled Folder Access **off**. Launch so `Documents\fake-notes` exists and holds
+   the three seeded notes. Run **probe**: expect `WROTE`. Quit.
 2. Turn it **on**. Under **Protected folders**, check that `Documents` is listed; if
    your Documents is redirected (OneDrive), add `%USERPROFILE%\Documents\fake-notes`
    itself.
@@ -83,19 +83,35 @@ document.querySelector('.toast')?.innerText ?? 'no toast'
    if the app wrote something at launch; that is a pass too, so carry on.
 4. Run **toast**. Expect "Setting changed, but it couldn't be saved.", a Windows
    "Unauthorized changes blocked" notification naming `futo-notes-tauri.exe`, and
-   within about a second the banner: "FUTO Notes can't save anything. It isn't
+   within about a second the **banner**: "FUTO Notes can't save anything. It isn't
    allowed to change your notes folder at C:\Users\...\Documents\fake-notes."
-5. Run **status** (expect `available: false, accessRefused: true`) and **probe**
+5. Run **status** (expect `available: false`, `accessRefused: true`) and **probe**
    (record the error exactly, including `(os error N)`).
-6. Open a note and try to type. Expect the editor to take nothing.
+6. Click a note in the sidebar, then run **type**. Expect `editable false, took typing
+   false`. Quit.
 
 **If there is no banner after step 4,** the refusal was not recognised. The probe's
 error in step 5 is then the key result: its os error number is what the rule needs to
 count.
 
-### B. A default notes folder that cannot be created (crashes 1739 and 952)
+### C. Choosing a folder
 
-Needs the default location, so run the app without the dev script's data folder:
+In a dev-script launch; an accepted choice lands in `.tauri-data` and the next launch
+resets it. Send each as one line.
+
+1. A writable folder outside the protected ones. Create `C:\FutoPickTest`, then send
+   `await window.__TAURI_INTERNALS__.invoke('notes_dir_override_save', { dir: 'C:\\FutoPickTest' }).then(() => 'ACCEPTED', String)`.
+   Expect `ACCEPTED`. **A refusal here is a serious bug**: it would break Change
+   directory for everyone on Windows.
+2. A folder a normal user cannot write: the same with `C:\\Windows`. Expect a refusal
+   starting "FUTO Notes can't create files in C:\Windows".
+3. With Controlled Folder Access **on**, a protected folder: create
+   `%USERPROFILE%\Documents\FutoPickTest` with the feature off first, then send the
+   same with that path written out in full, backslashes doubled. Record whether it is
+   accepted or refused.
+4. Quit.
+
+### B. A default notes folder that cannot be created (crashes 1739 and 952)
 
 1. With Controlled Folder Access **off**, rename `Documents\fake-notes` to
    `fake-notes-kept`, and delete `%APPDATA%\com.futo.notes.dev\notes-dir-override.json`
@@ -109,31 +125,19 @@ Needs the default location, so run the app without the dev script's data folder:
    cd apps\tauri
    cargo tauri dev --config src-tauri/tauri.dev.conf.json
    ```
-3. Expect the banner "FUTO Notes can't save anything. It isn't allowed to create its
-   notes folder at C:\Users\...\Documents\fake-notes." Run **status**.
+3. Expect the **banner** "FUTO Notes can't save anything. It isn't allowed to create
+   its notes folder at C:\Users\...\Documents\fake-notes." Run **status**.
 4. Quit, turn it off, and rename `fake-notes-kept` back.
-
-### C. Choosing a folder
-
-Run each through the bridge; the saved choice lives in the repo's `.tauri-data`, and
-the dev script resets it on the next launch.
-
-1. A writable folder outside the protected ones: create `C:\FutoPickTest`, then
-   `await window.__TAURI_INTERNALS__.invoke('notes_dir_override_save', { dir: 'C:\\FutoPickTest' }).then(() => 'ACCEPTED', String)`.
-   Expect `ACCEPTED`. **A refusal here is a serious bug**: it would break Change
-   directory for everyone on Windows.
-2. A folder a normal user cannot write, `C:\Windows`: expect a refusal starting
-   "FUTO Notes can't create files in C:\Windows".
-3. With Controlled Folder Access **on**, a protected folder,
-   `%USERPROFILE%\Documents\FutoPickTest` (create it with the feature off first):
-   record whether it is accepted or refused.
 
 ### D. Letting the app in
 
-1. With Controlled Folder Access on, go to **Allow an app through Controlled folder
-   access** → **Add an allowed app** → browse to `target\debug\futo-notes-tauri.exe` in
-   the repo.
-2. Relaunch. Expect no banner, and **toast** to show no save failure.
+1. Turn Controlled Folder Access **on**, then **Allow an app through Controlled folder
+   access** → **Add an allowed app** → browse to `target\debug\futo-notes-tauri.exe`
+   in the repo.
+2. Launch with the dev script. Expect no **banner**, and **toast** to return
+   `no toast`.
+3. Quit, and put Controlled Folder Access and its allowed apps back the way you found
+   them.
 
 ## What to report
 
@@ -143,18 +147,18 @@ Return this block, filled in, as the result of the run:
 Windows version (winver):
 Commit (git rev-parse --short HEAD):
 A3 notes listed; banner already up:  yes / no ; yes / no
-A4 toast text:
+A4 toast:
 A4 Windows notification:             yes / no
-A4 banner text (or "no banner"):
+A4 banner (or "no banner"):
 A5 status:
 A5 probe error, verbatim:
-A6 editor took typing:               yes / no
-B3 banner text:
-B3 status:
+A6 type:
 C1 C:\FutoPickTest:                  ACCEPTED / refusal text
 C2 C:\Windows:                       ACCEPTED / refusal text
 C3 Documents\FutoPickTest (on):      ACCEPTED / refusal text
-D2 banner after allowing the app:    yes / no
+B3 banner:
+B3 status:
+D2 banner; toast:
 Anything else unexpected:
 ```
 

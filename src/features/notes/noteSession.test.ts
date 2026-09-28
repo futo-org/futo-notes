@@ -237,28 +237,71 @@ describe('committing the title without waiting out the debounce', () => {
   );
 
   // A locked vault (VaultUnavailableBanner) refuses every save for the rest of the
-  // launch, so waiting on one would trap the user on this note.
-  it('leaves a note while the vault is locked and keeps its unsaved text for its return', async () => {
+  // launch, so a failed save holding the user on the note would last until quit.
+  function lockedSession() {
     let activeNoteId = 'A';
     const session = createNoteSession({
       ...makeTitleDeps(),
       getNoteId: () => activeNoteId,
       isVaultLocked: () => true,
     });
+    const open = (id: string) => {
+      activeNoteId = id;
+      return session.loadNote(id);
+    };
+    return { session, open };
+  }
+
+  it('leaves a note while the vault is locked and keeps its unsaved text for its return', async () => {
+    const { session, open } = lockedSession();
     const { updateNote, readNote } = await import('./notes.svelte');
     session.seedOpenNote('A', 'original A');
     titleEditorContent = 'unsaved A';
-    vi.mocked(readNote).mockResolvedValueOnce('disk B').mockResolvedValueOnce('original A');
+    vi.mocked(updateNote).mockRejectedValue(new Error('Permission denied (os error 13)'));
+    vi.mocked(readNote)
+      .mockResolvedValueOnce('disk B')
+      .mockResolvedValueOnce('A changed elsewhere');
 
-    activeNoteId = 'B';
-    await session.loadNote('B');
+    await open('B');
     expect(titleEditorContent).toBe('disk B');
 
-    activeNoteId = 'A';
-    await session.loadNote('A');
+    await open('A');
     expect(titleEditorContent).toBe('unsaved A');
     expect(session.content).toBe('unsaved A');
-    expect(updateNote).not.toHaveBeenCalled();
+    // Its own baseline: a save that gets through later parks it, never overwrites.
+    expect(session.savedContent).toBe('original A');
+  });
+
+  it('gives the kept text back once, not over what the note became after', async () => {
+    const { session, open } = lockedSession();
+    const { updateNote, readNote } = await import('./notes.svelte');
+    session.seedOpenNote('A', 'original A');
+    titleEditorContent = 'unsaved A';
+    vi.mocked(updateNote).mockRejectedValue(new Error('Permission denied (os error 13)'));
+    vi.mocked(readNote)
+      .mockResolvedValueOnce('disk B')
+      .mockResolvedValueOnce('original A')
+      .mockResolvedValueOnce('disk B')
+      .mockResolvedValueOnce('v3');
+
+    await open('B');
+    await open('A');
+    session.applyExternalContent('v3');
+    await open('B');
+    await open('A');
+
+    expect(titleEditorContent).toBe('v3');
+  });
+
+  it('still holds the user on a never-saved note while the vault is locked', async () => {
+    const { session, open } = lockedSession();
+    const { updateNote } = await import('./notes.svelte');
+    await open('new');
+    titleEditorContent = 'draft nobody can reopen';
+    vi.mocked(updateNote).mockRejectedValue(new Error('Permission denied (os error 13)'));
+
+    await expect(open('B')).rejects.toThrow('Permission denied');
+    expect(titleEditorContent).toBe('draft nobody can reopen');
   });
 
   it('renames on flush with no timer advance at all', async () => {

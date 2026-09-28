@@ -236,17 +236,17 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   nothing probes the vault. A refused create inside a subfolder (one read-only
   folder, a root-owned `.crashlogs`) fails only that write, and a refused rename
   or delete (another process holding the file) or an unreadable file does not
-  count. Windows Controlled Folder Access answers a blocked create with "file not
-  found" rather than "access denied", and that counts as a refusal there —
-  and the Storage section then says "FUTO Notes isn't allowed to change this
-  folder, so nothing can be saved. Choose another folder. On Windows, this is
-  usually Controlled folder access: you can instead allow FUTO Notes in Windows
-  Security, then restart FUTO Notes." → `vault_fs::access_refused`,
-  StorageSettingsSection.svelte
+  count. On Windows, "file not found" on such a create counts too: that is how
+  Controlled Folder Access answered blocked folder creates (a Gap in
+  desktop-rust.md until a blocked file create is seen). The Storage section then
+  says "FUTO Notes isn't allowed to change this folder, so nothing can be saved.
+  Choose another folder. On Windows, this is usually Controlled folder access: you
+  can instead allow FUTO Notes in Windows Security, then restart FUTO Notes." →
+  `vault_fs::access_refused`, StorageSettingsSection.svelte
 - _(Desktop)_ The vault status is read at launch and again whenever a vault command
-  fails — a note command or external-file import, a settings or crash-log write, an
-  image save — and after a sync cycle that reports failures, so a vault that refuses
-  a write or goes missing mid-session is caught at that failure. It only ever turns
+  fails — a note command or external-file import, a settings, open-tabs or
+  crash-log write (a sync cycle ends with one), an image save — so a vault that
+  refuses a write or goes missing mid-session is caught at that failure. It only ever turns
   unusable within a launch; every way back is a restart. → `src/features/storage/vaultAvailability.svelte.ts`,
   `onVaultCommandFailed` in `src/lib/platform/tauri/vaultCommands.ts`
 - _(Desktop)_ While the vault is unusable (any case above), a banner stays at the
@@ -261,7 +261,8 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
 - _(Desktop)_ While the vault is unusable, it is read-only in the UI: notes open
   and read, but the editor body, title and tags take no edits (text typed before
   the lock stays visible so it can be copied out, and leaving the note keeps it in
-  memory for the rest of the launch: opening the note again shows it); **New note** and **New folder**
+  memory for the rest of the launch: opening the note again shows it; a note never
+  saved has nothing to reopen, so its text keeps the user on it); **New note** and **New folder**
   are disabled and Cmd/Ctrl+N and the app menu's **New Note** do nothing; every
   folder and note row action (New note, New folder, Rename, Move, Delete) is
   disabled, inline rename and drag-to-move do not start; the note menu's **Move**

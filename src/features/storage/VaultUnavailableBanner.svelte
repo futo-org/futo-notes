@@ -38,9 +38,7 @@
     align-items: center;
     gap: 16px;
     padding: 10px 16px;
-    /* Not --color-danger: its dark-theme red is tuned for red text and leaves
-       white text on it at 3.8:1. This red keeps 6.5:1 in both themes. */
-    background: #b91c1c;
+    background: var(--color-danger-fill);
     color: #fff;
     font-size: 14px;
     line-height: 1.35;

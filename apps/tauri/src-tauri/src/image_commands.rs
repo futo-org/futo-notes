@@ -56,21 +56,18 @@ fn image_bytes(body: &InvokeBody) -> Result<Vec<u8>, String> {
     }
 }
 
-fn image_extension(headers: &tauri::http::HeaderMap) -> Result<String, String> {
-    headers
-        .get("image-extension")
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_owned)
-        .ok_or_else(|| "missing image extension".to_owned())
-}
-
 /// Image bytes the webview holds — a drop, a pick, a pasted file.
 #[tauri::command]
 pub async fn fs_save_image(
     app: AppHandle,
     request: tauri::ipc::Request<'_>,
 ) -> Result<String, String> {
-    let extension = image_extension(request.headers())?;
+    let extension = request
+        .headers()
+        .get("image-extension")
+        .and_then(|value| value.to_str().ok())
+        .ok_or("missing image extension")?
+        .to_owned();
     let bytes = image_bytes(request.body())?;
     blocking(move || {
         write_image(
@@ -177,13 +174,5 @@ mod tests {
         assert!(image_bytes(&InvokeBody::Json(serde_json::json!([256]))).is_err());
         assert!(image_bytes(&InvokeBody::Json(serde_json::json!(["1"]))).is_err());
         assert!(image_bytes(&InvokeBody::Json(serde_json::json!({ "bytes": [1] }))).is_err());
-    }
-
-    #[test]
-    fn the_image_extension_comes_from_its_header() {
-        let mut headers = tauri::http::HeaderMap::new();
-        assert!(image_extension(&headers).is_err());
-        headers.insert("image-extension", "png".parse().unwrap());
-        assert_eq!(image_extension(&headers).unwrap(), "png");
     }
 }
