@@ -362,7 +362,9 @@ mod tests {
     }
 
     /// Crash #1788: a folder the app cannot create files in is refused when
-    /// picked, and asking leaves nothing behind in one that is accepted.
+    /// picked, and asking leaves nothing behind in one that is accepted. Root
+    /// ignores mode bits (Linux CI), so the check is held to what a real create
+    /// does rather than to the mode.
     #[cfg(unix)]
     #[test]
     fn a_folder_the_process_cannot_create_files_in_is_refused() {
@@ -375,14 +377,17 @@ mod tests {
         let locked = scratch("locked");
         fs::create_dir_all(&locked).unwrap();
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
-        // Root ignores mode bits, so there is nothing to refuse.
-        let permissions_enforced = fs::write(locked.join(".probe"), b"x").is_err();
         let result = ensure_can_create_files_in(&locked);
+        let can_create = fs::write(locked.join(".probe"), b"x").is_ok();
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
         fs::remove_dir_all(&locked).unwrap();
         fs::remove_dir_all(&writable).unwrap();
-        if permissions_enforced {
-            let error = result.unwrap_err();
+        assert_eq!(
+            result.is_ok(),
+            can_create,
+            "the check must match a real create: {result:?}"
+        );
+        if let Err(error) = result {
             assert!(error.contains("can't create files in"), "got {error}");
         }
     }
