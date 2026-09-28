@@ -38,13 +38,14 @@ impl OpenParentError {
     }
 }
 
-/// Set once the OS refuses to create a file or folder in the vault for want of
-/// permission — Windows Controlled Folder Access over an existing folder, a
-/// read-only mount. Such a folder still lists and reads, so the refusal is the
-/// only sign; the desktop reports the vault unusable from then on instead of
-/// probing it. Only CREATION counts: a rename or delete refused because another
-/// process holds the file (antivirus, a sync client, the indexer) is transient,
-/// and a single unreadable file says nothing about the vault.
+/// Set once the OS refuses to create a file or folder directly in the vault root
+/// for want of permission — Windows Controlled Folder Access over an existing
+/// folder, a read-only mount, a folder owned by another user (crash #1788). Such a
+/// folder still lists and reads, so the refusal is the only sign; the desktop
+/// reports the vault unusable from then on instead of probing it. Only CREATION
+/// counts: a rename or delete refused because another process holds the file
+/// (antivirus, a sync client, the indexer) is transient, and a single unreadable
+/// file says nothing about the vault.
 static ACCESS_REFUSED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(test)]
@@ -63,32 +64,29 @@ fn refusal_count() -> usize {
     TEST_REFUSALS.with(std::cell::Cell::get)
 }
 
-pub(crate) trait CreateError {
-    fn is_refusal(&self) -> bool;
+/// Whether a create failed because the OS will not let this process write there.
+/// Controlled Folder Access answers a create it blocks with ERROR_FILE_NOT_FOUND
+/// rather than access denied (crashes 1739 and 952), and a create directly in a
+/// root that exists has no other reason to fail that way.
+fn is_refusal(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem
+    ) || cfg!(windows) && error.raw_os_error() == Some(2)
 }
 
-impl CreateError for std::io::Error {
-    fn is_refusal(&self) -> bool {
-        matches!(
-            self.kind(),
-            std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem
-        )
-    }
+/// Whether a vault-relative path names an entry directly in the root.
+fn in_root(relative: &str) -> bool {
+    Path::new(relative).components().nth(1).is_none()
 }
 
-#[cfg(unix)]
-impl CreateError for rustix::io::Errno {
-    fn is_refusal(&self) -> bool {
-        matches!(
-            *self,
-            rustix::io::Errno::ACCESS | rustix::io::Errno::PERM | rustix::io::Errno::ROFS
-        )
-    }
-}
-
-/// Every place that creates a file or folder in the vault reports its failure here.
-pub(crate) fn note_create_failure(error: &impl CreateError) {
-    if error.is_refusal() {
+/// Every place that creates a file or folder in the vault reports its failure
+/// here. Only a create directly in the root counts: settings, open tabs, images
+/// and top-level notes all land there, so a folder that refuses writes is caught
+/// on its first such write, while one read-only subfolder (a root-owned
+/// `.crashlogs`, a shared `Archive/`) fails only its own writes.
+pub(crate) fn note_create_failure(error: &std::io::Error, in_root: bool) {
+    if in_root && is_refusal(error) {
         ACCESS_REFUSED.store(true, Ordering::Relaxed);
         #[cfg(test)]
         TEST_REFUSALS.with(|count| count.set(count.get() + 1));

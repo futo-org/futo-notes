@@ -2,11 +2,13 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 
+#[cfg(test)]
+use std::cell::Cell;
 #[cfg(all(
     test,
     any(target_os = "linux", target_os = "android", target_vendor = "apple")
 ))]
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 
 use super::parked_backup::{hidden_path, install_temp};
 use super::paths::NAME_MAX;
@@ -26,6 +28,18 @@ thread_local! {
     /// Simulates a filesystem that rejects `RENAME_NOREPLACE`, so the fallback
     /// below can be exercised on a host filesystem that supports the flag.
     static RENAME_FLAGS_REJECTED: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(test)]
+thread_local! {
+    static TAKE_NEXT_TEMP: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Makes the next temp file vanish before it is installed, as a file-provider
+/// agent can take it.
+#[cfg(test)]
+pub(crate) fn take_next_temp() {
+    TAKE_NEXT_TEMP.with(|v| v.set(true));
 }
 
 /// Told about a failure to create the temp file or its parent folders; the vault
@@ -48,6 +62,39 @@ fn create_temp(
         }
     }
     Err("could not allocate an atomic-write temp file".to_owned())
+}
+
+/// Writes `bytes` to a fresh temp in `parent` and hands it to `install`. A
+/// file-provider agent (iCloud Drive, Dropbox) can take a new temp before it is
+/// installed (57a96b55), so a temp that vanished is written once more.
+fn write_temp_and_install<T>(
+    parent: &Path,
+    bytes: &[u8],
+    on_create_failure: CreateFailure,
+    install: impl Fn(&Path) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut retried = false;
+    loop {
+        let (temp, mut file) = create_temp(parent, on_create_failure)?;
+        let written = file.write_all(bytes).and_then(|_| file.sync_all());
+        drop(file);
+        #[cfg(test)]
+        if TAKE_NEXT_TEMP.with(|v| v.replace(false)) {
+            let _ = fs::remove_file(&temp);
+        }
+        let result = written
+            .map_err(|error| format!("{error} (writing temp {})", temp.display()))
+            .and_then(|()| install(&temp));
+        let taken = result.is_err()
+            && fs::symlink_metadata(&temp)
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound);
+        // A created result consumed the temp; a collision or error may leave it.
+        let _ = fs::remove_file(&temp);
+        if !taken || retried {
+            return result;
+        }
+        retried = true;
+    }
 }
 
 pub fn write_atomic_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -74,21 +121,9 @@ pub(crate) fn write_atomic_bytes_reporting(
         return Err("file name exceeds filesystem name limit".to_owned());
     }
 
-    let (temp, mut file) = create_temp(parent, on_create_failure)?;
-    let write_result = file
-        .write_all(bytes)
-        .and_then(|_| file.sync_all())
-        .map_err(|error| format!("{error} (writing temp {})", temp.display()));
-    drop(file);
-    if let Err(error) = write_result {
-        let _ = fs::remove_file(&temp);
-        return Err(error);
-    }
-
-    if let Err(error) = install_temp(&temp, path) {
-        let _ = fs::remove_file(&temp);
-        return Err(error);
-    }
+    write_temp_and_install(parent, bytes, on_create_failure, |temp| {
+        install_temp(temp, path)
+    })?;
     // Directory fsync makes the rename durable on platforms that support directory handles.
     let _ = File::open(parent).and_then(|directory| directory.sync_all());
     Ok(())
@@ -122,22 +157,9 @@ pub(crate) fn create_new_atomic_reporting(
         return Err("file name exceeds filesystem name limit".to_owned());
     }
 
-    let (temp, mut file) = create_temp(parent, on_create_failure)?;
-    let write_result = file
-        .write_all(bytes)
-        .and_then(|_| file.sync_all())
-        .map_err(|error| format!("{error} (writing temp {})", temp.display()));
-    drop(file);
-    if let Err(error) = write_result {
-        let _ = fs::remove_file(&temp);
-        return Err(error);
-    }
-
-    let result = move_no_replace(&temp, path);
-    // On a created (true) result the temp was consumed by the install; on a
-    // collision (false) or error it may remain, so always sweep it.
-    let _ = fs::remove_file(&temp);
-    result
+    write_temp_and_install(parent, bytes, on_create_failure, |temp| {
+        move_no_replace(temp, path)
+    })
 }
 
 /// Installs `source`'s content at `destination` without replacing an existing

@@ -29,6 +29,13 @@ thread_local! {
     static FORCE_COPY: Cell<bool> = const { Cell::new(false) };
     static FORCE_BACKUP: Cell<bool> = const { Cell::new(false) };
     static INTERRUPT_AFTER_PARK: Cell<bool> = const { Cell::new(false) };
+    static TAKE_NEXT_TEMP: Cell<bool> = const { Cell::new(false) };
+}
+/// Makes the next temp file vanish before it is installed, as a file-provider
+/// agent can take it.
+#[cfg(test)]
+pub(super) fn take_next_temp() {
+    TAKE_NEXT_TEMP.with(|v| v.set(true));
 }
 #[cfg(test)]
 pub(super) fn force_copy() {
@@ -108,7 +115,7 @@ fn open_parent_with_policy(
         .split_last()
         .expect("relative_components rejects empty paths");
     let mut directory = open_root(root)?;
-    for component in parents {
+    for (depth, component) in parents.iter().enumerate() {
         let next = match open_directory(&directory, component) {
             Ok(next) => next,
             Err(rustix::io::Errno::NOENT) if create => {
@@ -125,7 +132,7 @@ fn open_parent_with_policy(
                 ) {
                     Ok(()) | Err(rustix::io::Errno::EXIST) => {}
                     Err(error) => {
-                        super::note_create_failure(&error);
+                        super::note_create_failure(&error.into(), depth == 0);
                         return Err(OpenParentError::Other(context(
                             "create parent for",
                             relative,
@@ -211,7 +218,7 @@ fn create_temp(parent: &Parent, relative: &str) -> Result<(OsString, File), Stri
             Ok(file) => return Ok((name, File::from(file))),
             Err(rustix::io::Errno::EXIST) => continue,
             Err(error) => {
-                super::note_create_failure(&error);
+                super::note_create_failure(&error.into(), super::in_root(relative));
                 return Err(context("create temporary file for", relative, error));
             }
         }
@@ -219,6 +226,40 @@ fn create_temp(parent: &Parent, relative: &str) -> Result<(OsString, File), Stri
     Err(format!(
         "create temporary file for vault path {relative}: name allocation exhausted"
     ))
+}
+
+/// Writes `bytes` to a fresh temp beside the destination and hands it to
+/// `install`. A file-provider agent (iCloud Drive, Dropbox) can take a new temp
+/// before it is installed (57a96b55), so a temp that vanished is written once more.
+fn write_temp_and_install<T>(
+    parent: &Parent,
+    relative: &str,
+    bytes: &[u8],
+    install: impl Fn(&OsStr) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut retried = false;
+    loop {
+        let (temp, mut file) = create_temp(parent, relative)?;
+        let written = file.write_all(bytes).and_then(|_| file.sync_all());
+        drop(file);
+        #[cfg(test)]
+        if TAKE_NEXT_TEMP.with(|v| v.replace(false)) {
+            let _ = unlinkat(&parent.directory, &temp, AtFlags::empty());
+        }
+        let result = written
+            .map_err(|error| context("write temporary file for", relative, error))
+            .and_then(|()| install(&temp));
+        let taken = result.is_err()
+            && matches!(
+                statat(&parent.directory, &temp, AtFlags::SYMLINK_NOFOLLOW),
+                Err(rustix::io::Errno::NOENT)
+            );
+        let _ = unlinkat(&parent.directory, &temp, AtFlags::empty());
+        if !taken || retried {
+            return result;
+        }
+        retried = true;
+    }
 }
 
 fn install_temp(parent: &Parent, temp: &OsStr, relative: &str, strict: bool) -> Result<(), String> {
@@ -327,14 +368,9 @@ pub(super) fn create_new(root: &Path, relative: &str, bytes: &[u8]) -> Result<bo
     let parent =
         open_parent_with_policy(root, relative, true, false).map_err(OpenParentError::message)?;
     reject_symlink(&parent, "create", relative)?;
-    let (temp, mut file) = create_temp(&parent, relative)?;
-    let result = (|| {
-        file.write_all(bytes)
-            .and_then(|_| file.sync_all())
-            .map_err(|e| e.to_string())?;
-        install_no_replace(&parent.directory, &temp, &parent.directory, &parent.leaf)
-    })();
-    let _ = unlinkat(&parent.directory, &temp, AtFlags::empty());
+    let result = write_temp_and_install(&parent, relative, bytes, |temp| {
+        install_no_replace(&parent.directory, temp, &parent.directory, &parent.leaf)
+    });
     if matches!(result, Ok(true)) {
         report_local_sync(sync_directory(&parent.directory, "sync create", relative));
     }
@@ -507,19 +543,9 @@ fn write_with_policy(
     let parent =
         open_parent_with_policy(root, relative, true, strict).map_err(OpenParentError::message)?;
     reject_symlink(&parent, "write", relative)?;
-    let (temp, mut file) = create_temp(&parent, relative)?;
-    let write_result = file
-        .write_all(bytes)
-        .and_then(|_| file.sync_all())
-        .map_err(|error| context("write temporary file for", relative, error));
-    drop(file);
-    if let Err(error) = write_result {
-        let _ = unlinkat(&parent.directory, &temp, AtFlags::empty());
-        return Err(error);
-    }
-    let result = install_temp(&parent, &temp, relative, strict);
-    let _ = unlinkat(&parent.directory, &temp, AtFlags::empty());
-    result?;
+    write_temp_and_install(&parent, relative, bytes, |temp| {
+        install_temp(&parent, temp, relative, strict)
+    })?;
     let result = sync_directory(&parent.directory, "sync directory after write", relative);
     if strict {
         result
@@ -717,7 +743,7 @@ pub(super) fn sync_parent(root: &Path, relative: &str) -> Result<(), String> {
 pub(super) fn create_dir(root: &Path, relative: &str) -> Result<(), String> {
     let parent = open_parent(root, relative, false).map_err(OpenParentError::message)?;
     mkdirat(&parent.directory, &parent.leaf, Mode::from_raw_mode(0o755)).map_err(|e| {
-        super::note_create_failure(&e);
+        super::note_create_failure(&e.into(), super::in_root(relative));
         context("create directory", relative, e)
     })?;
     report_local_sync(sync_directory(
