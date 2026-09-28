@@ -8,6 +8,9 @@
  * its own earlier write as a peer edit and parked the draft into conflict copy
  * after conflict copy.
  *
+ * The wikilink-pop story guards RC-04: the linking note overwritten with the
+ * body of the large note popped off it, whose own edit was lost.
+ *
  * Usage:
  *   eval "$(just qa-claim ios)"
  *   just test-ios-stories
@@ -104,6 +107,96 @@ async function sustainedTyping() {
   }
 }
 
+// RC-04 / RC-09 (2026-09-28): a system pop from a note opened through a
+// wikilink re-attaches the linking note's editor BEFORE the popped note's exit
+// runs. A `change` names no note, so the popped note's edit — the whole body of
+// a large note edited while its tail streamed — was saved over the linking
+// note, and the popped note kept nothing. docs/qa/wikilink-pop-large-edited-note.md.
+const LINKING_NOTE = 'Parent.md';
+const LINKING_BODY = 'Parent note body line\n\n[[Child]]\n';
+const LINKED_NOTE = 'Child.md';
+const LINKED_SECTIONS = 40_000;
+const LINKED_BODY =
+  Array.from(
+    { length: LINKED_SECTIONS },
+    (_, i) => `## Section ${i}\n\nBody line ${i} with some **bold** text.`,
+  ).join('\n\n') + '\n';
+const POP_MARKER = 'POPMARKER';
+// The chip has no AX node. It renders on the third body line of the linking
+// note, at this point on the pool's iPhone 17 Pro (402 pt wide).
+const LINK_CHIP_POINT = { x: 40, y: 221 };
+// The linked note's first body line, on the same device.
+const LINKED_BODY_POINT = { x: 120, y: 181 };
+
+/** Whether the native title field shows `title` (the open note's name). */
+function titleFieldReads(title) {
+  const visit = (node) =>
+    Array.isArray(node)
+      ? node.some(visit)
+      : (node?.type === 'TextField' && node.AXValue === title) ||
+        (node?.children ?? []).some(visit);
+  return visit(device.client.describeUiTree());
+}
+
+async function wikilinkPopOfALargeEditedNote() {
+  device.resetVault();
+  device.seedNote(LINKING_NOTE, LINKING_BODY);
+  device.seedNote(LINKED_NOTE, LINKED_BODY);
+  device.launch();
+
+  await device.tapLabel('Parent');
+  // The chip is page content with no AX node, so nothing on the AX tree says
+  // it has rendered; the linked note's own open is the terminal condition.
+  await new Promise((resolveWait) => setTimeout(resolveWait, 2_500));
+  device.client.tapPoint(LINK_CHIP_POINT.x, LINK_CHIP_POINT.y);
+  await device.waitFor('the linked note to open', () => titleFieldReads('Child'), {
+    timeoutMs: 10_000,
+  });
+  // Straight into the first body paragraph: the title-first dance of
+  // focusEditorBody outlasts a large note's stream. The native accessory's
+  // Bold button exists only while the body owns focus.
+  let lastTapAt = 0;
+  await device.waitFor(
+    'the linked note body to take focus',
+    () => {
+      if (JSON.stringify(device.client.describeUiTree()).includes('"Bold"')) return true;
+      if (Date.now() - lastTapAt >= 1_000) {
+        device.client.tapPoint(LINKED_BODY_POINT.x, LINKED_BODY_POINT.y);
+        lastTapAt = Date.now();
+      }
+      return false;
+    },
+    { timeoutMs: 10_000 },
+  );
+  await device.typeText(POP_MARKER, { keySettleMs: 60 });
+  await device.tapLabel('BackButton');
+
+  await device.waitFor(
+    'the popped note to save its edit, or the linking note to be overwritten',
+    () =>
+      device.readNote(LINKED_NOTE).includes(POP_MARKER) ||
+      device.readNote(LINKING_NOTE) !== LINKING_BODY,
+    { timeoutMs: 120_000 },
+  );
+  // A cross-note write lands after the popped note's save; give it the time
+  // the original failure took to show.
+  await new Promise((resolveWait) => setTimeout(resolveWait, 5_000));
+
+  const linking = device.readNote(LINKING_NOTE);
+  const linked = device.readNote(LINKED_NOTE);
+  const problems = [];
+  if (linking !== LINKING_BODY) {
+    problems.push(
+      `the linking note was overwritten (${linking.length} bytes, holds the linked body: ${linking.includes('## Section 0')})`,
+    );
+  }
+  if (!linked.includes(POP_MARKER)) problems.push('the linked note lost the typed marker');
+  if (!linked.includes(`## Section ${LINKED_SECTIONS - 1}`)) {
+    problems.push('the linked note lost its tail');
+  }
+  if (problems.length > 0) throw new Error(problems.join('; '));
+}
+
 async function main() {
   device.requireReady();
   // Reboot only this explicitly claimed simulator so the story begins from a
@@ -114,6 +207,10 @@ async function main() {
   console.log(`iOS editor stories on ${device.client.udid}:\n`);
 
   await check('sustained typing keeps one note and every keystroke', sustainedTyping);
+  await check(
+    'a wikilink pop of a large, edited note saves the edit into that note only',
+    wikilinkPopOfALargeEditedNote,
+  );
 
   const failed = results.filter((result) => !result.pass);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);

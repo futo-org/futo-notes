@@ -258,7 +258,7 @@ test-android-perf-quick *args:
 test-android-storage:
   node tests/android-storage-migration.mjs
 
-# Sustained-typing story against the REAL native iOS app (needs a claimed $SIM).
+# Editor stories (sustained typing, wikilink pop) against the REAL native iOS app (needs a claimed $SIM).
 test-ios-stories:
   #!/usr/bin/env bash
   set -euo pipefail

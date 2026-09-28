@@ -535,6 +535,187 @@ test('a version adopted from outside the editor is not something undo can revive
 });
 
 // ============================================================
+// Note switch — the outgoing note's edit belongs to the outgoing note
+// ============================================================
+//
+// Both shells share ONE WebView between notes, and a `change` carries no note
+// identity: whichever note the shell has bound when it ARRIVES is the note it
+// is saved into. So the shell reads the outgoing note (`blur(); getContent()`)
+// before the next note's push — Android in its exit before it navigates, iOS
+// also inside the attach that rebinds its callbacks (EditorWebView.swift
+// `attach`, which then holds back any `change` until that read answers).
+// Everything below is the bundle's half of that contract: the read is the
+// outgoing note's last word — whatever it still had to report goes out inside
+// the read, nothing after it — and the switch itself posts nothing.
+// `__switch` in the message log marks the point from which the shell is
+// listening for the NEXT note.
+// → docs/qa/wikilink-pop-large-edited-note.md
+
+const LINKING_NOTE = 'Parent note body\n\n[[Child]]\n';
+const LINKED_NOTE = 'Child note body\n';
+
+/** Every `change` posted after the `__switch` marker. */
+async function changesAfterSwitch(page: Page): Promise<string[]> {
+  const log = await messages(page);
+  const at = log.findIndex((m) => m.type === '__switch');
+  expect(at, 'the test never marked the switch').toBeGreaterThanOrEqual(0);
+  return log
+    .slice(at + 1)
+    .filter((m) => m.type === 'change')
+    .map((m) => m.content as string);
+}
+
+/** The shell's exit read of the outgoing note, after which it listens for the next one. */
+async function captureOutgoingNote(page: Page): Promise<{ body: string; streaming: boolean }> {
+  return page.evaluate(() => {
+    const w = window as unknown as FakeHostWindow;
+    const streaming = document.querySelector('.milkdown-stream-tail') !== null;
+    w.FutoEditor.blur();
+    const body = w.FutoEditor.getContent();
+    w.__msgs.push({ type: '__switch' });
+    return { body, streaming };
+  });
+}
+
+/**
+ * Follow a link from the linking note to `linked` (a host push) and type into
+ * it. A large note is typed into at the caret `focus()` leaves, straight away,
+ * so the keystrokes land while its tail is still streaming.
+ */
+async function openLinkedNoteAndType(page: Page, linked: string, typed: string): Promise<void> {
+  await initialize(page, hostConfig({ content: LINKING_NOTE }));
+  await page.evaluate((md) => {
+    const w = window as unknown as FakeHostWindow;
+    w.FutoEditor.setContent(md);
+    w.__msgs.length = 0;
+    w.FutoEditor.focus();
+  }, linked);
+  if (linked === LINKED_NOTE) await page.keyboard.press('End');
+  await page.keyboard.type(typed);
+}
+
+const STILL_STREAMING = 'the linked note must still be streaming for this case to mean anything';
+
+test('switching notes posts nothing for the outgoing note, even one edited while it streams', async ({
+  page,
+}) => {
+  // RC-04: the switch's own "is this already on screen?" read used to settle
+  // the stream and post the linked note's whole body INSIDE the push of the
+  // linking note, which iOS had already rebound its callbacks to — the parent
+  // file was overwritten with the child's body.
+  await openLinkedNoteAndType(page, largeNote(4000), 'EDITED ');
+
+  const streaming = await page.evaluate((md) => {
+    const w = window as unknown as FakeHostWindow;
+    const tail = document.querySelector('.milkdown-stream-tail') !== null;
+    w.__msgs.push({ type: '__switch' });
+    w.FutoEditor.setContent(md);
+    return tail;
+  }, LINKING_NOTE);
+  await settleChangeDebounce(page);
+
+  expect(streaming, STILL_STREAMING).toBe(true);
+  expect(await changesAfterSwitch(page), 'this would be saved into the linking note').toEqual([]);
+  expect(await getContent(page)).toBe(LINKING_NOTE);
+});
+
+test('the exit read of a streaming, edited note is its last word', async ({ page }) => {
+  await openLinkedNoteAndType(page, largeNote(4000), 'EDITED ');
+
+  const captured = await captureOutgoingNote(page);
+  await hostSetContent(page, LINKING_NOTE);
+
+  expect(captured.streaming, STILL_STREAMING).toBe(true);
+  expect(captured.body).toContain('EDITED ');
+  expect(captured.body).toContain('Section 3999');
+  // A `change` for the edit now would reach the next note's binding.
+  expect(await changesAfterSwitch(page)).toEqual([]);
+  expect(await getContent(page)).toBe(LINKING_NOTE);
+});
+
+test('the exit read reports the pending change itself, so none arrives after the switch', async ({
+  page,
+}) => {
+  // RC-09 / L6c-3: typing, then leaving inside the change debounce. The read
+  // carries the typed words, and so does a report posted INSIDE it, to the
+  // binding that is still the outgoing note's. The debounce armed by the last
+  // keystroke must not fire afterwards, however late the next note's push.
+  await openLinkedNoteAndType(page, LINKED_NOTE, ' plus typed words');
+
+  const captured = await captureOutgoingNote(page);
+  await settleChangeDebounce(page);
+  await hostSetContent(page, LINKING_NOTE);
+
+  expect(captured.body).toContain('plus typed words');
+  const log = await messages(page);
+  const beforeSwitch = log
+    .slice(
+      0,
+      log.findIndex((m) => m.type === '__switch'),
+    )
+    .filter((m) => m.type === 'change')
+    .map((m) => m.content);
+  expect(beforeSwitch).toEqual([captured.body]);
+  expect(await changesAfterSwitch(page)).toEqual([]);
+  expect(await getContent(page)).toBe(LINKING_NOTE);
+});
+
+test('a switch inside the change debounce shows the next note, even with the same bytes', async ({
+  page,
+}) => {
+  // L6a-1: two new, empty notes. The switch used to be compared against what
+  // the host last loaded ('') instead of the live document, so it was
+  // swallowed: the first note's text stayed on screen and was then posted as
+  // the second note's change.
+  await initialize(page, hostConfig({ content: '' }));
+  await focusEditor(page);
+  await page.keyboard.type('typed into the first note');
+
+  const changesBeforeSwitch = await page.evaluate(() => {
+    const w = window as unknown as FakeHostWindow;
+    const before = w.__msgs.filter((m) => m.type === 'change').length;
+    w.__msgs.push({ type: '__switch' });
+    w.FutoEditor.setContent('');
+    return before;
+  });
+  expect(changesBeforeSwitch, 'the switch must land inside the debounce').toBe(0);
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe('');
+  expect(await changesAfterSwitch(page)).toEqual([]);
+});
+
+test('a host re-sending the note on screen leaves the caret where it was', async ({ page }) => {
+  await hostSetContent(page, 'abcdef');
+  await focusEditor(page);
+  await clickCaretInto(page, 3);
+
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.setContent('abcdef'));
+  await flushFrames(page);
+  await page.keyboard.type('Z');
+
+  await waitForMessages(page, 'change');
+  expect(await getContent(page)).toBe('abcZdef\n');
+});
+
+test('a push equal to an out-of-date serialization still replaces the document', async ({
+  page,
+}) => {
+  // L6a-1, second shape: the last REPORTED text is not the live document once
+  // the user has typed past it.
+  await hostSetContent(page, 'seed');
+  await focusEditor(page);
+  await page.keyboard.press('End');
+  await page.keyboard.type(' one');
+  await waitForMessages(page, 'change');
+  await page.keyboard.type(' two');
+
+  await hostSetContent(page, 'seed one\n');
+
+  expect(await getContent(page)).toBe('seed one\n');
+});
+
+// ============================================================
 // Focus and link routing
 // ============================================================
 

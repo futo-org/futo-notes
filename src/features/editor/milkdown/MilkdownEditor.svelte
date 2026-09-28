@@ -297,6 +297,10 @@
   let historyBaselineDepth = 0;
   /* The pending debounced change notification (documentChanges.ts). */
   let changeTimer: number | null = null;
+  /* A change notification the debounce already handed to the idle priming
+   * loop (`reportDocumentChange`, still-cold document): as unreported as one
+   * still sitting in `changeTimer`. */
+  let reportAwaitsPriming = false;
   /* Whether the last load gave up on chunking mid-flight and reloaded the note
    * whole. Reported by `censusLoad` so the equivalence census cannot score a
    * fallback as proof that a chunked parse matched a whole one — it would be
@@ -999,6 +1003,7 @@
   function stopPriming(): void {
     primeCancelIdle?.();
     primeCancelIdle = null;
+    reportAwaitsPriming = false;
   }
 
   function scheduleChangeNotification(): void {
@@ -1052,7 +1057,11 @@
         // mid-typing-burst). Any keystrokes that arrive meanwhile are one or
         // two more cache misses, absorbed by the sync budget on that next
         // pass.
-        startPriming(scheduleChangeNotification);
+        startPriming(() => {
+          reportAwaitsPriming = false;
+          scheduleChangeNotification();
+        });
+        reportAwaitsPriming = true;
         return;
       }
     }
@@ -1551,8 +1560,59 @@
       hostMarkdown = text;
       return;
     }
-    if (text === hostMarkdown || text === liveMarkdown) return;
+    if (holdsExactly(text)) return;
     applyExternal(text);
+  }
+
+  /**
+   * Is `text` what the document holds RIGHT NOW — so that loading it would
+   * change nothing but the caret?
+   *
+   * Asked of the live document, never of what this component last loaded or
+   * last reported. Both of those lag the user: `hostMarkdown` keeps the load
+   * bytes for the whole change debounce after a keystroke, and `liveMarkdown`
+   * describes whatever document was serialized last. A host that switches the
+   * shared WebView to another note with the same bytes (two new, empty notes)
+   * used to be swallowed by that bookkeeping, leaving the previous note's text
+   * on screen to be reported as the next note's (L6a-1).
+   *
+   * Side-effect free, which is the other half of the point: a note switch asks
+   * this of the OUTGOING document, so it must not settle a streaming load or
+   * post anything — a `change` posted from here would be saved into the note
+   * being switched TO (RC-04). A streaming document is compared without
+   * finishing it: untouched, it is the host's bytes; edited, it is not them,
+   * and nothing a host could send equals an edit it has never been told of.
+   */
+  function holdsExactly(text: string): boolean {
+    if (loadFailed || progressive?.loading) {
+      return text === hostMarkdown && (loadFailed || !editedSinceLoadStart());
+    }
+    if (hostMarkdown !== null && unchangedSinceLoad()) return text === hostMarkdown;
+    return text === readSerialized();
+  }
+
+  /**
+   * The host's exit read of this note (`FutoEditor.getContent`): the answer
+   * `getContent()` gives, and the LAST word on this document.
+   *
+   * A `change` carries no note identity, so the shell saves each one into
+   * whichever note it has bound when the message arrives. Once a shell has
+   * read the document it is leaving, it moves on, and a report from the old
+   * document arriving after that lands in the next note (L6c-3). So the
+   * report the debounce is still holding goes out NOW, inside the read, rather
+   * than 200 ms later into a binding it was never meant for: a shell that
+   * reads before it rebinds (both do on a vetoable exit) hears it as the
+   * outgoing note's, and the bytes are exactly the ones this returns.
+   */
+  export function captureContent(): string | undefined {
+    const text = getContent();
+    if (changeTimer !== null || reportAwaitsPriming) {
+      if (changeTimer !== null) window.clearTimeout(changeTimer);
+      changeTimer = null;
+      if (reportAwaitsPriming) startPriming();
+      reportDocumentChange();
+    }
+    return text;
   }
 
   export function getContent(): string | undefined {
