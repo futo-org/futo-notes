@@ -483,3 +483,43 @@ test.describe('a hard break directly before inline HTML', () => {
     expect(await roundTrip(page, 'baseline', 'a  \n<span>b</span>\n')).toBe('a\\ <span>b</span>\n');
   });
 });
+
+test.describe('bold or italic whose edge is punctuation next to a letter', () => {
+  // A `**` run next to punctuation on its inner side and a letter on its outer
+  // side is not left-/right-flanking (CommonMark §6.2), so it does not open or
+  // close. Upstream mdast-util-to-markdown writes the outer letter as a
+  // character reference there (`encodeInfo`); `@milkdown/core` replaces its
+  // strong and emphasis handlers with ones that do not, so the formatting
+  // reopened as literal `**` and the next save escaped it for good.
+  const SHAPES: Record<string, string> = {
+    'bold ending in a colon before a letter': '**Note:**&#x62;ar\n',
+    'italic ending in a colon before a letter': '*Note:*&#x62;ar\n',
+    'italic parentheses inside a word': '&#x61;*(b)*&#x63;\n',
+    // CJK: bold ending in a full-width colon before the next ideograph.
+    'CJK bold ending in a full-width colon': '**重要：**&#x8FD9;是\n',
+  };
+
+  test('canary: upstream Milkdown still writes the run unencoded', async ({ page }) => {
+    const { once, twice } = await twoSaves(
+      page,
+      'baseline',
+      SHAPES['bold ending in a colon before a letter'],
+    );
+    expect(once).toBe('**Note:**bar\n');
+    expect(twice).toBe('\\*\\*Note:\\*\\*bar\n');
+  });
+
+  for (const [name, markdown] of Object.entries(SHAPES)) {
+    test(`compat keeps ${name} byte-for-byte`, async ({ page }) => {
+      const { once, twice } = await twoSaves(page, 'compat', markdown);
+      expect(once).toBe(markdown);
+      expect(twice).toBe(once);
+    });
+  }
+
+  test('compat leaves a run that already opens and closes alone', async ({ page }) => {
+    for (const markdown of ['**Note:** bar\n', 'a **b** c\n', '__a__ b\n', '*x*y\n']) {
+      expect(await roundTrip(page, 'compat', markdown)).toBe(markdown);
+    }
+  });
+});

@@ -45,6 +45,8 @@
  * whitespace with no escaping at all, and an autolink's backslash doubled on
  * every save. `./inlineHtmlIndent` gives a multi-line inline HTML tag back the
  * continuation indent the parser strips, which otherwise shrank every save.
+ * `./attentionEncoding` puts back the flanking encoding Milkdown's own `strong`
+ * and `emphasis` handlers drop, so `**Note:**bar` stays bold.
  *
  * `./frontmatter` is the one member that is an ADDITION rather than a fork: the
  * preset has no front matter construct at all, so `---\ntags: [a, b]\n---`
@@ -71,6 +73,7 @@ import {
 import { gfm, keepTableAlignPlugin, tableEditingPlugin } from '@milkdown/kit/preset/gfm';
 import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 
+import { attentionEncodingPlugin } from './attentionEncoding';
 import { remarkExpandEmptyLinksPlugin } from './emptyLink';
 import { remarkInlineHtmlIndentPlugin } from './inlineHtmlIndent';
 import { blankLineJoinPlugin, remarkBlankLineParagraphsPlugin } from './emptyLine';
@@ -203,6 +206,7 @@ export function commonmarkWithCompat(): MilkdownPlugin[] {
     ...upstreamPresetWithoutForkedPlugins(),
     ...remarkBlankLineParagraphsPlugin,
     blankLineJoinPlugin,
+    attentionEncodingPlugin,
     /* After the preset (it upserts the preset's `paragraph` by id), and part of
      * the same rule as the two above: without it, the empty paragraph the
      * schema puts in front of `* > quote` would save as a bare `*` line. */

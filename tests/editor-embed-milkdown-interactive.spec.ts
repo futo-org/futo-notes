@@ -584,3 +584,38 @@ test('Shift+Enter directly before inline HTML keeps the break and adds no backsl
   // `\` + space is a literal backslash on one line; `<br>` is the break.
   expect(saved).toBe('Press <br><kbd>Ctrl</kbd> now\n');
 });
+
+/** Select the first `length` characters of the first paragraph, as a mouse drag would. */
+async function selectParagraphStart(page: Page, length: number): Promise<void> {
+  await page.locator('.ProseMirror p').first().click();
+  await withCaretObserved(page, () =>
+    page.evaluate((selected) => {
+      const text = document.querySelector('.ProseMirror p')?.firstChild;
+      if (!text) throw new Error('no text node');
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.setEnd(text, selected);
+      getSelection()?.removeAllRanges();
+      getSelection()?.addRange(range);
+    }, length),
+  );
+}
+
+for (const [name, text, length, key, tag] of [
+  ['Mod+B on "Note:" before a letter', 'Note:bar', 5, 'b', 'strong'],
+  ['Mod+I on "Note:" before a letter', 'Note:bar', 5, 'i', 'em'],
+  // CJK: bold on a phrase ending in a full-width colon, before the next ideograph.
+  ['Mod+B on a CJK phrase ending in a full-width colon', '重要：这是', 3, 'b', 'strong'],
+] as const) {
+  test(`${name} is still formatted after a reopen`, async ({ page }) => {
+    await open(page, text);
+    await selectParagraphStart(page, length);
+    await page.keyboard.press(`ControlOrMeta+${key}`);
+    await settled(page);
+    const saved = await getContent(page);
+    await reopen(page, saved);
+    expect(await page.locator(`.ProseMirror p ${tag}`).allTextContents(), saved).toEqual([
+      text.slice(0, length),
+    ]);
+  });
+}
