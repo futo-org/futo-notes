@@ -161,8 +161,10 @@ stays outside `arch-gate` because it needs the network on first run (the binary 
 every gate above is an offline source scan.
 
 **The gate is a ratchet, not a verdict.** `bca.toml` pins thresholds (cyclomatic 15, cognitive 20,
-lloc 200) and `.bca-baseline.toml` pins today's 138 offenders; only a NEW or WORSENED function
-fails. Paying debt down means deleting baseline rows — `bca check --write-baseline` regenerates, and
+lloc 200) and `.bca-baseline.toml` pins the current offenders; only a NEW or WORSENED function
+fails. `scripts/`, tests and test harnesses are measured but exempt from the gate. On an MR the gate
+judges only the files the MR changed, and every main pipeline publishes a report so the MR Code
+Quality widget has a base to diff against — without one it lists the whole backlog as new. Paying debt down means deleting baseline rows — `bca check --write-baseline` regenerates, and
 a shrinking baseline is the goal. In-source `bca: suppress` markers are the tool for debt nobody
 intends to pay down; both can coexist.
 
