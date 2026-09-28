@@ -159,7 +159,14 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     isLoading: () => loading,
     showTitleWarning: (message) => titleController.showWarning(message, null),
     reconcileOpenNote: deps.reconcileOpenNote,
-    onSaved: ({ id, title: newTitle, content: newContent, savedOriginalId, requestedTitle }) => {
+    onSaved: ({
+      id,
+      title: newTitle,
+      content: newContent,
+      savedOriginalId,
+      requestedTitle,
+      keepsOriginal,
+    }) => {
       // A first save has no original id, so the route must still identify the
       // new-note session; existing-note saves remain bound by original id.
       const isCurrentSave =
@@ -172,7 +179,9 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       savedContent = newContent;
       savedTitle = newTitle;
       if (title === requestedTitle) title = newTitle;
-      if (savedOriginalId !== id) deps.onNoteRenamed(savedOriginalId, id);
+      // A null source retargets only the open tab: after a park the original
+      // note still exists, so tabs holding it must keep it.
+      if (savedOriginalId !== id) deps.onNoteRenamed(keepsOriginal ? null : savedOriginalId, id);
     },
   });
   let persistenceTail: Promise<void> = Promise.resolve();
