@@ -304,40 +304,12 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   }
 
   // A failed save holds the user on the note (editor.md), but while the vault is
-  // locked no save can succeed, so that would last the whole launch. Then the
-  // unsaved text stays here and comes back once when the note is opened again. A
-  // note never saved has nothing to reopen, so it still holds the user, and its
-  // text stays in the editor.
-  const keptWhileLocked = new Map<
-    string,
-    { title: string; content: string; savedTitle: string; savedContent: string }
-  >();
-
+  // locked no save can succeed, so leaving discards the unsaved text instead.
   async function flushBeforeLeaving(): Promise<void> {
     try {
       await saveQueue.flush();
     } catch (error) {
-      const id = originalId;
-      if (!deps.isVaultLocked?.() || id === null) throw error;
-      const kept = { title, content: deps.getEditorContent() ?? content, savedTitle, savedContent };
-      keptWhileLocked.set(id, kept);
-    }
-  }
-
-  async function loadNote(id: string | null): Promise<void> {
-    await noteLoader.load(id);
-    if (id === null) return;
-    const kept = keptWhileLocked.get(id);
-    if (!kept || loading || deps.getNoteId() !== id) return;
-    keptWhileLocked.delete(id);
-    // The draft's own baseline, so a save that does get through later sees a note
-    // that changed meanwhile and parks the draft instead of overwriting it.
-    ({ title, content, savedTitle, savedContent } = kept);
-    suppressSaveOnChange = true;
-    try {
-      deps.setEditorContent(kept.content);
-    } finally {
-      suppressSaveOnChange = false;
+      if (!deps.isVaultLocked?.()) throw error;
     }
   }
 
@@ -476,7 +448,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     resumeDraftPersistence: saveQueue.resume,
     flushSave: saveQueue.flush,
     runWithSaveLock,
-    loadNote,
+    loadNote: noteLoader.load,
     handleTitleInput: titleController.handleInput,
     handleTitleKeydown: titleController.handleKeydown,
     handleTitleBlur: titleController.handleBlur,

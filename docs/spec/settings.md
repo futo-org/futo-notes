@@ -261,10 +261,8 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   VaultUnavailableBanner.svelte
 - _(Desktop)_ While the vault is unusable, it is read-only in the UI: notes open
   and read, but the editor body, title and tags take no edits (text typed before
-  the lock stays visible so it can be copied out, and leaving the note keeps it in
-  memory for the rest of the launch: opening the note again shows it; a note never
-  saved has nothing to reopen, so its text keeps the user on it until the app quits,
-  which discards it; the first refused save can hold the user once, before the lock
+  the lock stays visible in the editor so it can be copied out; leaving the note
+  discards it, and the first refused save can hold the user once, before the lock
   lands); **New note** and **New folder**
   are disabled and Cmd/Ctrl+N and the app menu's **New Note** do nothing; every
   folder and note row action (New note, New folder, Rename, Move, Delete) is

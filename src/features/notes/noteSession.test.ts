@@ -252,56 +252,26 @@ describe('committing the title without waiting out the debounce', () => {
     return { session, open };
   }
 
-  it('leaves a note while the vault is locked and keeps its unsaved text for its return', async () => {
+  it.each([
+    ['a saved note', 'A'],
+    ['a never-saved note', 'new'],
+  ])('leaves %s while the vault is locked, discarding its unsaved text', async (_, id) => {
     const { session, open } = lockedSession();
-    const { updateNote, readNote } = await import('./notes.svelte');
-    session.seedOpenNote('A', 'original A');
-    titleEditorContent = 'unsaved A';
-    vi.mocked(updateNote).mockRejectedValue(new Error('Permission denied (os error 13)'));
-    vi.mocked(readNote)
-      .mockResolvedValueOnce('disk B')
-      .mockResolvedValueOnce('A changed elsewhere');
+    const { updateNote, createNote, readNote } = await import('./notes.svelte');
+    if (id === 'A') session.seedOpenNote('A', 'original A');
+    else await open('new');
+    titleEditorContent = 'unsaved text';
+    const refused = new Error('Permission denied (os error 13)');
+    vi.mocked(updateNote).mockRejectedValue(refused);
+    vi.mocked(createNote).mockRejectedValue(refused);
+    vi.mocked(readNote).mockResolvedValueOnce('disk B').mockResolvedValueOnce('original A');
 
     await open('B');
     expect(titleEditorContent).toBe('disk B');
-
-    await open('A');
-    expect(titleEditorContent).toBe('unsaved A');
-    expect(session.content).toBe('unsaved A');
-    // Its own baseline: a save that gets through later parks it, never overwrites.
-    expect(session.savedContent).toBe('original A');
-  });
-
-  it('gives the kept text back once, not over what the note became after', async () => {
-    const { session, open } = lockedSession();
-    const { updateNote, readNote } = await import('./notes.svelte');
-    session.seedOpenNote('A', 'original A');
-    titleEditorContent = 'unsaved A';
-    vi.mocked(updateNote).mockRejectedValue(new Error('Permission denied (os error 13)'));
-    vi.mocked(readNote)
-      .mockResolvedValueOnce('disk B')
-      .mockResolvedValueOnce('original A')
-      .mockResolvedValueOnce('disk B')
-      .mockResolvedValueOnce('v3');
-
-    await open('B');
-    await open('A');
-    session.applyExternalContent('v3');
-    await open('B');
-    await open('A');
-
-    expect(titleEditorContent).toBe('v3');
-  });
-
-  it('still holds the user on a never-saved note while the vault is locked', async () => {
-    const { session, open } = lockedSession();
-    const { updateNote } = await import('./notes.svelte');
-    await open('new');
-    titleEditorContent = 'draft nobody can reopen';
-    vi.mocked(updateNote).mockRejectedValue(new Error('Permission denied (os error 13)'));
-
-    await expect(open('B')).rejects.toThrow('Permission denied');
-    expect(titleEditorContent).toBe('draft nobody can reopen');
+    if (id === 'A') {
+      await open('A');
+      expect(titleEditorContent).toBe('original A');
+    }
   });
 
   it('renames on flush with no timer advance at all', async () => {

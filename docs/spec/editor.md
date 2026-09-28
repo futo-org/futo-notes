@@ -2016,11 +2016,8 @@ unchanged by it.
   outgoing tab. The outgoing draft stays open and dirty, its tab is restored,
   and a visible save-failure message permits retry. A converged or durably
   parked draft permits navigation. While the vault is locked (settings.md) no
-  save can succeed, so a failed save no longer holds the user on a note that
-  exists: its unsaved text stays in memory and comes back, once, when the note is
-  opened again, on its own baseline, so a save that does get through later parks
-  it rather than overwriting. A note never saved still holds the user until the
-  app quits, which discards it; there is nothing to reopen it from. _(desktop)_ → `noteSaveQueue.ts`,
+  save can succeed, so a failed save does not hold the user: leaving the note
+  discards its unsaved text. _(desktop)_ → `noteSaveQueue.ts`,
   `createNotePersistence.ts`, `createTabNoteTransition.ts`,
   `noteSession.svelte.ts` `flushBeforeLeaving`
 - Editor rename and move send the body, saved baseline, and destination through
