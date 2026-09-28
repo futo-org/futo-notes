@@ -14,9 +14,9 @@ the review-notes copy. This reflects FUTO Notes' actual data behavior:
 - Notes live locally in the app's Documents container. No ads, no analytics, no
   tracking, no third-party data-collection SDKs.
 - **An optional paid client license** (docs/spec/license.md) gates **nothing**:
-  it removes an "Unlicensed" label and shows a coin and a "Licensed since
-  {date}" row on a card in Settings.
-  It is bought on the web, never in-app — there is no IAP and no Play Billing.
+  it removes an "Unlicensed" label and shows a coin and the masked key on a card in Settings.
+  iOS offers web checkout only for the US App Store storefront; Android `direct`
+  offers it worldwide, while Android `play` accepts keys and deep links only.
   The only network call it can make is **one** activation request to
   `pay2.futo.org`, and only when the user explicitly enters a bare key.
 
@@ -91,31 +91,21 @@ To review sync (optional): we can provide a temporary test server URL +
 credentials on request. Otherwise the app is fully functional offline without
 signing in.
 
-FUTO Notes is fully functional with no account and no purchase. Every
-feature behaves identically whether or not a license is bought. A user may
-optionally buy a LICENSE on the web at pay2.futo.org; it unlocks NO
-functionality, removing only an "Unlicensed" label and showing a coin and a
-"Licensed since <date>" row on a card in Settings. There is no paywall, no
-trial, and no feature, theme, or capacity behind it. Settings shows a link that opens the system browser to that
-page, plus a field where a user who already bought a license pastes their key.
-Verification is an offline signature check against a key compiled into the app;
-a user who pastes only a bare key causes exactly one HTTPS request to
-pay2.futo.org to fetch the matching signed activation, and no other licensing
-request is ever made.
+The FUTO Notes license unlocks no features or content; every function of the
+app is available without it. The License card records that the user supports
+FUTO. Outside the US App Store storefront, the app offers no purchase or link;
+users may enter a key bought elsewhere. On the US storefront, "Buy a license"
+opens the default browser to our website under guideline 3.1.1(a). The app
+verifies a pasted key/activation pair offline. Entering a bare key makes one
+HTTPS request to retrieve its signed activation.
 ```
 
-> ⚠️ **This is the review risk on iOS, and it is deliberate** (docs/spec/license.md,
-> "Store posture"). Guideline **3.1.1** names license keys as a forbidden unlock
-> mechanism, and **3.1.3(b)** permits honoring a web-bought license only where an
-> IAP twin also exists. FUTO ships the full surface — key field, deep link, and
-> the Buy link — **worldwide with no IAP twin**, and accepts the risk. If Apple
-> objects, the response is a flag flip, not a redesign: set
-> `LICENSE_LINK_OUT_DISABLED` (apps/ios/project.yml) to hide Buy, Renew and
-> Lost-your-key while keeping the key field and deep link — the consumption-only
-> shape. Do not quietly add an IAP or remove the feature without re-reading that
-> spec section first.
+The remaining iOS review risk is the key field outside the US under guideline
+3.1.1. If Apple rejects it, ADR-0005 selects a non-consumable IAP at the same
+price as the fallback; do not silently change the license behavior.
 
 ### Other listing requirements
+- No buying, price, or website copy in any listing locale; listing text is not storefront-specific.
 - Privacy policy URL (required) — see "Privacy policy" below.
 - Screenshots per required device sizes; app icon already in the asset catalog
   (alpha removed).
@@ -145,20 +135,12 @@ request is ever made.
 
 ### Paid client license (Play)
 
-A `play` build that merely accepts a pasted key is explicitly permitted
-(consumption-only, 0%, no enrollment). This build ships more than that: it also
-shows a **Buy link out to pay2.futo.org**, which needs the External Content
-Links / billing-choice programs, and Google enforces **after** publication.
-`LICENSE_LINK_OUT` is a `buildConfigField` on the `play` flavor
-(apps/android/app/build.gradle.kts); flipping it to `false` for `play` alone
-hides Buy, Renew and Lost-your-key and leaves the compliant consumption-only
-shape, with the key field and deep link intact. That is the response to a
-takedown — see docs/spec/license.md, "Store posture".
+The `play` flavor accepts keys and deep links only. It has no checkout,
+Buy/Renew, or Lost-your-key link and requires no External Content Links
+enrollment. The `direct` flavor offers checkout in a Custom Tab.
 
-- Do **not** describe the license as a donation in the listing (Play treats
-  donations differently, and FUTO is not a nonprofit).
-- Do **not** put a price in the listing's app description as if it were an
-  in-app product; the price lives only on the web storefront.
+- Do not describe the license as a donation, buying, pricing, or the website in
+  any Play listing locale. Listing text is shown across storefronts.
 - *(F-Droid, `direct` flavor)* Offline verification adds no anti-feature, but
   the single activation request to pay2.futo.org may earn a
   **Tethered/NonFreeNet** label. Accepted.

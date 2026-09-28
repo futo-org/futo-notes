@@ -29,3 +29,4 @@ divergence records it as a `> **Gap:**` note in the owning spec file, not here.
 |---|---|
 | [hosted-sync-android.md](hosted-sync-android.md) | Log in with FUTO on Android: both wizard shapes, both pairing sides, the account card |
 | [hosted-sync-ios.md](hosted-sync-ios.md) | Log in with FUTO on iOS: both wizard shapes, both pairing sides, the account card |
+| [license-store-ios.md](license-store-ios.md) | TestFlight license checkout in the US and the key-only plate outside the US |
