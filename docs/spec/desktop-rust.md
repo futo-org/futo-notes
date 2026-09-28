@@ -147,20 +147,17 @@ compatibility requirements and must not be reintroduced.
   folder, a read-only mount, a folder owned by another user) is also unavailable.
   Only a create directly in the root counts — one read-only subfolder fails only
   its own writes — and only creation: a refused rename or delete is usually another
-  process holding the file. Controlled Folder Access answers a blocked create with
-  ERROR_FILE_NOT_FOUND (os error 2, crash 1739), which counts on Windows. `vault_fs`
+  process holding the file. Controlled Folder Access answers a blocked create, of a
+  folder (crash 1739) or of a file in an existing folder, with ERROR_FILE_NOT_FOUND
+  (os error 2), which counts on Windows. `vault_fs`
   records the first such refusal of any write through it — a note, a folder, app
   data, an image — process-wide and `vault_status` reports it as `accessRefused`;
   nothing writes to the vault to find out. →
   `vault_fs::contract_tests::only_a_permission_refusal_directly_in_the_root_counts`,
   `*::a_refused_create_in_the_root_marks_the_vault_access_refused`,
   `*::a_refused_create_in_a_subfolder_leaves_the_vault_usable`,
-  `vault_location::tests::a_root_that_refused_a_write_is_unavailable`
-
-  > **Gap:** _(Windows)_ that Controlled Folder Access refuses a file create with
-  > os error 2 is inferred from the folder creates in crashes 1739 and 952; no run
-  > has yet shown what a blocked file create returns. Story:
-  > docs/qa/windows-controlled-folder-access.md
+  `vault_location::tests::a_root_that_refused_a_write_is_unavailable`,
+  docs/qa/windows-controlled-folder-access.md
 - Note IDs and folder paths are validated beneath the root; traversal and root
   deletion are refused.
 - Destination collisions are folded by case and Unicode normalization, then

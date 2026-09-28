@@ -2019,8 +2019,8 @@ unchanged by it.
   save can succeed, so a failed save no longer holds the user on a note that
   exists: its unsaved text stays in memory and comes back, once, when the note is
   opened again, on its own baseline, so a save that does get through later parks
-  it rather than overwriting. A note never saved still holds the user; there is
-  nothing to reopen it from. _(desktop)_ → `noteSaveQueue.ts`,
+  it rather than overwriting. A note never saved still holds the user until the
+  app quits, which discards it; there is nothing to reopen it from. _(desktop)_ → `noteSaveQueue.ts`,
   `createNotePersistence.ts`, `createTabNoteTransition.ts`,
   `noteSession.svelte.ts` `flushBeforeLeaving`
 - Editor rename and move send the body, saved baseline, and destination through

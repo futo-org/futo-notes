@@ -210,8 +210,10 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   may not create files in, a refused relaunch — toasts "Could not use that folder."
   rather than leaving the pick to do nothing. Whether files may be created is asked
   of the OS (`access` on Unix, a directory open for `FILE_ADD_FILE` on Windows);
-  nothing is written to find out. → `src/features/storage/notesDirectory.ts`,
-  `vault_location::ensure_can_create_files_in`
+  nothing is written to find out, so Windows Controlled Folder Access, which only
+  blocks real writes, passes the pick and locks the vault at its first write
+  (docs/qa/windows-controlled-folder-access.md). →
+  `src/features/storage/notesDirectory.ts`, `vault_location::ensure_can_create_files_in`
 - **A vault that has gone missing** — an unmounted drive, a revoked sandbox grant
   — is a recoverable state, not a wedged app: the root is never recreated in
   place, every note command fails with the vault-unavailable error, and the
@@ -237,8 +239,7 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   folder, a root-owned `.crashlogs`) fails only that write, and a refused rename
   or delete (another process holding the file) or an unreadable file does not
   count. On Windows, "file not found" on such a create counts too: that is how
-  Controlled Folder Access answered blocked folder creates (a Gap in
-  desktop-rust.md until a blocked file create is seen). The Storage section then
+  Controlled Folder Access answers a blocked create. The Storage section then
   says "FUTO Notes isn't allowed to change this folder, so nothing can be saved.
   Choose another folder. On Windows, this is usually Controlled folder access: you
   can instead allow FUTO Notes in Windows Security, then restart FUTO Notes." →
@@ -262,7 +263,9 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   and read, but the editor body, title and tags take no edits (text typed before
   the lock stays visible so it can be copied out, and leaving the note keeps it in
   memory for the rest of the launch: opening the note again shows it; a note never
-  saved has nothing to reopen, so its text keeps the user on it); **New note** and **New folder**
+  saved has nothing to reopen, so its text keeps the user on it until the app quits,
+  which discards it; the first refused save can hold the user once, before the lock
+  lands); **New note** and **New folder**
   are disabled and Cmd/Ctrl+N and the app menu's **New Note** do nothing; every
   folder and note row action (New note, New folder, Rename, Move, Delete) is
   disabled, inline rename and drag-to-move do not start; the note menu's **Move**

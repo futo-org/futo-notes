@@ -104,8 +104,8 @@
 }
 
 .modal-btn-warning {
-  background: var(--color-danger-fill, #dc2626);
-  border-color: var(--color-danger-fill, #dc2626);
+  background: var(--color-danger-fill);
+  border-color: var(--color-danger-fill);
 }
 
 .confirm-dialog-message {
