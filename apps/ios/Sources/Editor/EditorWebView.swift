@@ -165,6 +165,61 @@ private final class EditorCaptureResumer {
     }
 }
 
+/// The read of the note an attach is taking the shared WebView AWAY from.
+///
+/// A system pop (Back button, edge swipe) re-inserts the revealed editor's view
+/// before the popped editor's exit runs, so its adopt rebinds the callbacks and
+/// pushes the revealed note first. By the time the popped editor asks for its
+/// document, the WebView holds another one. So the adopt reads the outgoing
+/// document itself (``EditorHost/captureDepartingDocument()``), dispatched
+/// ahead of the push that replaces it — the page runs scripts in the order they
+/// were sent — and the popped editor's exit answers with this read instead of
+/// falling back to a copy that lacks its last edit (RC-04, RC-09).
+///
+/// Ordering assumption: WebKit delivers script messages and
+/// `evaluateJavaScript` replies to this process in the order the page produced
+/// them (one IPC connection).
+///
+/// It is also the fence for `change`. A `change` carries no note identity, and
+/// the bundle posts nothing about a document after that document's read has
+/// answered (MilkdownEditor `captureContent`). A `change` handled while this
+/// read is pending was therefore posted by the OUTGOING document, and handing
+/// it to the callbacks just bound would save the popped note's body into the
+/// revealed one. The read's own answer supersedes it: it reads that same
+/// document, later.
+@MainActor
+final class EditorDepartureCapture {
+    /// The attachment whose document this reads.
+    let owner: Int
+    private(set) var outcome: EditorCaptureOutcome?
+    private var waiters: [(EditorCaptureOutcome) -> Void] = []
+
+    init(owner: Int) {
+        self.owner = owner
+    }
+
+    /// Whether a `change` handled now still belongs to the outgoing document.
+    var holdsChanges: Bool { outcome == nil }
+
+    /// The page's answer (or the reason there will be none). Only the first counts.
+    func resolve(_ outcome: EditorCaptureOutcome) {
+        guard self.outcome == nil else { return }
+        self.outcome = outcome
+        let pending = waiters
+        waiters = []
+        for waiter in pending { waiter(outcome) }
+    }
+
+    /// Hands `answer` the outcome, now if it is known, otherwise when it is.
+    func whenResolved(_ answer: @escaping (EditorCaptureOutcome) -> Void) {
+        if let outcome {
+            answer(outcome)
+        } else {
+            waiters.append(answer)
+        }
+    }
+}
+
 /// One `Bool` the renderer liveness probe sets and the deadline reads.
 ///
 /// Unsynchronized on purpose, exactly like ``EditorCaptureResumer`` above: both
@@ -447,6 +502,10 @@ struct EditorWebView: UIViewRepresentable {
             host.webView.frame = container.bounds
             host.webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             container.addSubview(host.webView)
+            // Before anything below replaces the note the WebView is showing:
+            // its own editor may only ask for it after this adopt (a system
+            // pop reveals this editor first).
+            host.captureDepartingDocument()
             // Point the host at THIS note before (re)binding so attach's re-push
             // shows this note's text, not whatever note last drove the host.
             host.updateDesired(content: content, theme: theme, localization: localization)
@@ -529,6 +588,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// detach leaves it alone: the WebView keeps the detached note's document
     /// until the next attach pushes another one.
     private var documentOwner = 0
+    /// The read the latest attach made of the note it replaced — see
+    /// ``EditorDepartureCapture``.
+    private var departure: EditorDepartureCapture?
     private let completionQueue = EditorCompletionQueue()
 
     /// Reactive inputs for the NATIVE markdown toolbar (bridge v3
@@ -866,11 +928,47 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// Its view is detached by then, so the generation check alone cannot tell
     /// "the WebView still holds my note" from "the editor revealed underneath
     /// re-attached and pushed ITS note". A wikilink pop is the second case, and
-    /// capturing there would commit the parent's body under the popped note.
+    /// reading the page there would commit the parent's body under the popped
+    /// note — so it answers with the read the revealed editor's adopt made of
+    /// this note on its way out (``EditorDepartureCapture``), and `.notOurs`
+    /// only when there is none.
     func captureContent(leftBy token: Int) async -> EditorCaptureOutcome {
-        guard documentOwner == token else { return .notOurs }
+        guard documentOwner == token else {
+            guard let departure, departure.owner == token else { return .notOurs }
+            // The read is already queued in the page, so a liveness probe sent
+            // now would only queue behind it. The page had answered
+            // `initialized` when the read was sent: a blown deadline is a busy
+            // renderer (a large edited note finishing its load), and
+            // `.timedOut` lets the exit ask again.
+            return await captureWithinDeadline(
+                deadlineSeconds: EditorHost.captureDeadlineSeconds,
+                startLivenessProbe: {},
+                rendererAnswered: { true },
+                start: { answer in departure.whenResolved(answer) }
+            )
+        }
         let outcome = await captureCurrentContent()
         return documentOwner == token ? outcome : .notOurs
+    }
+
+    /// Read the note the WebView is showing on behalf of the attachment that
+    /// owns it, ahead of the next note's push. Call it before `updateDesired`
+    /// and `attach`, both of which can push. See ``EditorDepartureCapture``.
+    func captureDepartingDocument() {
+        guard isReady, documentOwner != 0 else { return }
+        let departure = EditorDepartureCapture(owner: documentOwner)
+        webView.evaluateJavaScript(EditorHost.captureScript) { result, error in
+            guard error == nil else {
+                departure.resolve(.notOurs)
+                return
+            }
+            guard let text = result as? String else {
+                departure.resolve(.noLiveDocument)
+                return
+            }
+            departure.resolve(.captured(text))
+        }
+        self.departure = departure
     }
 
     func updateDesired(content: String, theme: String, localization: Localization) {
@@ -1021,6 +1119,16 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// than a wedge, which does not end.
     private static let captureDeadlineSeconds: TimeInterval = 6
 
+    /// An exit's read of the open document: end the editing session, then take
+    /// the text. `null` is a page with no editor at all.
+    private static let captureScript = """
+        (() => {
+          if (!window.FutoEditor) return null;
+          window.FutoEditor.blur();
+          return window.FutoEditor.getContent();
+        })()
+        """
+
     /// Ask the page for nothing at all, and hand back a reader for whether it
     /// got round to answering.
     ///
@@ -1071,15 +1179,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             startLivenessProbe: { rendererAnswered = self.startRendererLivenessProbe() },
             rendererAnswered: { rendererAnswered() },
             start: { answer in
-                webView.evaluateJavaScript(
-                    """
-                    (() => {
-                      if (!window.FutoEditor) return null;
-                      window.FutoEditor.blur();
-                      return window.FutoEditor.getContent();
-                    })()
-                    """
-                ) { [weak self] result, error in
+                webView.evaluateJavaScript(EditorHost.captureScript) { [weak self] result, error in
                     guard let self,
                         error == nil,
                         shouldDeliverEditorCompletion(
@@ -1146,6 +1246,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 "bridge version mismatch (\(versions, privacy: .public)) — rebuild the bundle"
             )
         case .change:
+            // Posted by the note an attach just replaced — see
+            // EditorDepartureCapture. Its pending read answers for it.
+            if departure?.holdsChanges == true { return }
             if let content = body["content"] as? String {
                 lastPushedContent = content
                 onChange(content)
@@ -1409,6 +1512,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         EditorHost.logger.error("WebContent process terminated; reloading editor")
         isReady = false
+        // A read the dead page never answered never will, and it must not go on
+        // holding back the reloaded page's changes.
+        departure?.resolve(.noLiveDocument)
         loadEditor()
     }
 
