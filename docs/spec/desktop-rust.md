@@ -135,6 +135,14 @@ compatibility requirements and must not be reintroduced.
   than recreating a vanished vault for its `.crashlogs`. →
   `vault_location::tests::a_default_root_that_cannot_be_created_is_reported_unavailable`,
   `panic_reporter::tests::a_crash_never_recreates_a_missing_vault`
+- A root that is a directory but refused to let a file or folder be created in it
+  for want of permission (Controlled Folder Access over an existing folder, a
+  read-only mount) is also unavailable. Only creation counts: a refused rename or
+  delete is usually another process holding the file. `vault_fs` records the first
+  such refusal process-wide and
+  `vault_status` reports it as `accessRefused`; nothing writes to the vault to find
+  out. → `vault_fs::contract_tests::*::a_refused_create_marks_the_vault_access_refused`,
+  `vault_location::tests::a_root_that_refused_a_write_is_unavailable`
 - Note IDs and folder paths are validated beneath the root; traversal and root
   deletion are refused.
 - Destination collisions are folded by case and Unicode normalization, then

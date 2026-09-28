@@ -69,6 +69,7 @@
     uninstallVaultImageUrlResolver,
   } from '$features/images/vaultImageUrlResolver';
   import { deleteImage } from '$features/images/imageFiles';
+  import { readOnlyGuard } from './readOnlyGuard';
   import { onFileDrop } from '$lib/platform';
   import { localizedText } from '$shared/localization';
   import { createImageInsertTarget } from '../imageInsertTarget';
@@ -169,6 +170,8 @@
     /* Everything a find bar renders, deduped. The desktop shell draws its bar
      * from this; the native shells ignore it and read `onfindmatches`. */
     onfindstate?: (state: FindBarState) => void;
+    /** The note stays readable but takes no edits: its vault refuses writes. */
+    readonly?: boolean;
     /* The editor engine is up and holding a document. Milkdown's
      * `Editor.make().create()` is ASYNC, so Svelte's `mount()` returns long
      * before this — and the Android WebView gate used to read the host API that
@@ -194,6 +197,7 @@
     onblockpress,
     onfindmatches,
     onfindstate,
+    readonly = false,
     onenginemounted,
   }: Props = $props();
 
@@ -634,7 +638,7 @@
              * empty editable page. Typing into a document that is not the note
              * is the one gesture that could make the failure destructive.
              * `refreshEditable()` is what re-asks this. */
-            editable: () => !loadFailed,
+            editable: () => !loadFailed && !readonly,
           }));
 
           /* ...but not in code, as far as the engine will allow. Autocorrect
@@ -705,6 +709,7 @@
         .use(history)
         .use(listener)
         .use(documentChanges(documentEdited))
+        .use(readOnlyGuard(() => readonly))
         .use(clipboard)
         .use(gapCursorPlugin)
         .use(trailing)
@@ -943,7 +948,7 @@
   });
 
   /**
-   * Re-asks the view for its `editable` prop after `loadFailed` moved.
+   * Re-asks the view for its `editable` prop after `loadFailed` or `readonly` moved.
    *
    * ProseMirror reads `editable` during `updateStateInner`, which nothing here
    * would otherwise trigger — a plain assignment to `loadFailed` leaves the
@@ -953,6 +958,11 @@
   function refreshEditable(): void {
     pmView()?.setProps({});
   }
+
+  $effect(() => {
+    void readonly;
+    refreshEditable();
+  });
 
   /**
    * A transaction changed the document — report it once it settles.

@@ -150,6 +150,10 @@ pub struct VaultStatus {
     display_path: String,
     is_custom: bool,
     available: bool,
+    /// The folder is there but the OS refused a write to it — Windows Controlled
+    /// Folder Access over an existing folder, a read-only mount. Learned from the
+    /// first refused operation, never by probing the vault.
+    access_refused: bool,
     /// True when the OS trash cannot accept deletions from this vault, so the
     /// delete confirmations must stop implying they are recoverable.
     deletes_are_permanent: bool,
@@ -160,10 +164,18 @@ pub struct VaultStatus {
 }
 
 fn status(app: &AppHandle) -> VaultStatus {
-    status_of(load_override(app), default_root(app))
+    status_of(
+        load_override(app),
+        default_root(app),
+        futo_notes_core::files::vault_fs::access_refused(),
+    )
 }
 
-fn status_of(custom: Option<PathBuf>, default: Result<PathBuf, String>) -> VaultStatus {
+fn status_of(
+    custom: Option<PathBuf>,
+    default: Result<PathBuf, String>,
+    access_refused: bool,
+) -> VaultStatus {
     // Where the vault is supposed to be — named even when unreachable, so Settings
     // can say which folder went missing.
     let located = custom.clone().or_else(|| default.clone().ok());
@@ -176,7 +188,9 @@ fn status_of(custom: Option<PathBuf>, default: Result<PathBuf, String>) -> Vault
         // The rule every command applies, read-only: the setup hook already tried
         // to create the default root, so one that is not a directory could not be
         // created (Windows Controlled Folder Access, crash 1739) or has since gone.
-        available: resolve_root(custom, || default).is_ok_and(|root| root.is_dir()),
+        available: !access_refused
+            && resolve_root(custom, || default).is_ok_and(|root| root.is_dir()),
+        access_refused,
         deletes_are_permanent: located
             .as_deref()
             .is_some_and(crate::system_trash::deletes_are_permanent),
@@ -315,7 +329,7 @@ mod tests {
         let blocked = parent.join("notes");
         fs::write(&blocked, "").unwrap();
 
-        let status = status_of(None, Ok(blocked.clone()));
+        let status = status_of(None, Ok(blocked.clone()), false);
         assert!(
             !status.available,
             "an uncreatable default root must be unavailable"
@@ -332,7 +346,7 @@ mod tests {
     fn a_missing_default_root_is_unavailable_and_not_created() {
         let missing = scratch("missing-default").join("notes");
 
-        assert!(!status_of(None, Ok(missing.clone())).available);
+        assert!(!status_of(None, Ok(missing.clone()), false).available);
         assert!(!missing.exists(), "vault_status must not create anything");
     }
 
@@ -341,7 +355,21 @@ mod tests {
         let existing = scratch("existing-default");
         fs::create_dir_all(&existing).unwrap();
 
-        assert!(status_of(None, Ok(existing.clone())).available);
+        assert!(status_of(None, Ok(existing.clone()), false).available);
+
+        fs::remove_dir_all(existing).unwrap();
+    }
+
+    /// Controlled Folder Access over a folder that already holds notes: it lists
+    /// and reads, so only the refused write says it cannot be used.
+    #[test]
+    fn a_root_that_refused_a_write_is_unavailable() {
+        let existing = scratch("refused-default");
+        fs::create_dir_all(&existing).unwrap();
+
+        let status = status_of(None, Ok(existing.clone()), true);
+        assert!(!status.available);
+        assert!(status.access_refused);
 
         fs::remove_dir_all(existing).unwrap();
     }

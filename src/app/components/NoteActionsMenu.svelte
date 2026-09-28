@@ -8,9 +8,11 @@
     oncopypath: () => void;
     onmove: () => void;
     ondelete: () => void;
+    /** Move and Delete write to the vault; an unusable one disables them. */
+    locked?: boolean;
   }
 
-  let { open, ontoggle, onclose, oncopypath, onmove, ondelete }: Props = $props();
+  let { open, ontoggle, onclose, oncopypath, onmove, ondelete, locked = false }: Props = $props();
 </script>
 
 <div class="note-menu-anchor">
@@ -41,10 +43,10 @@
       <button role="menuitem" onclick={oncopypath}
         >{localizedText('notes.actions.copyFilePath')}</button
       >
-      <button role="menuitem" data-testid="note-menu-move" onclick={onmove}
+      <button role="menuitem" data-testid="note-menu-move" disabled={locked} onclick={onmove}
         >{localizedText('notes.actions.moveToFolder')}</button
       >
-      <button role="menuitem" class="danger" onclick={ondelete}
+      <button role="menuitem" class="danger" disabled={locked} onclick={ondelete}
         >{localizedText('notes.actions.deleteNote')}</button
       >
     </div>

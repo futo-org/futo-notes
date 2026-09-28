@@ -17,8 +17,10 @@ export interface VaultStatus {
   /** The same location in terms a user recognises. */
   displayPath: string;
   isCustom: boolean;
-  /** False once the folder has gone: an unmounted drive, a revoked sandbox grant. */
+  /** False once the folder has gone (an unmounted drive, a revoked sandbox grant) or refused a write. */
   available: boolean;
+  /** The folder is there but refused a write: Controlled Folder Access, a read-only mount. */
+  accessRefused: boolean;
   /** True when the OS trash cannot accept deletions from this vault. */
   deletesArePermanent: boolean;
   /**

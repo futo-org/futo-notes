@@ -7,6 +7,7 @@
   import type { NoteSession } from '$features/notes/noteSession.svelte';
   import type { NotePreview } from '$shared/types/note';
   import FolderPickerModal from '$features/folders/FolderPickerModal.svelte';
+  import { vaultAvailability } from '$features/storage/vaultAvailability.svelte';
   import { openExternalUrl } from '$lib/platform/openExternalUrl';
   import { localizedText } from '$shared/localization';
 
@@ -126,6 +127,7 @@
       rows="1"
       spellcheck="false"
       placeholder={localizedText('notes.untitledPlaceholder')}
+      readonly={vaultAvailability.unavailable}
       oninput={session.handleTitleInput}
       onkeydown={session.handleTitleKeydown}
       onblur={session.handleTitleBlur}
@@ -142,6 +144,7 @@
     readMarkdown={() => editorApi?.getContent()}
     writeMarkdown={(markdown) => editorApi?.applyEdit(markdown)}
     {notes}
+    readonly={vaultAvailability.unavailable}
   />
 
   <div class="editor-container">
@@ -153,6 +156,7 @@
       {onopenlink}
       onopenurl={openExternalUrl}
       onfindstate={(state) => (find = state)}
+      readonly={vaultAvailability.unavailable}
     />
   </div>
 
@@ -178,6 +182,7 @@
     oncopypath={actions.copyFilePath}
     onmove={actions.openMovePicker}
     ondelete={actions.deleteCurrentNote}
+    locked={vaultAvailability.unavailable}
   />
 {/if}
 

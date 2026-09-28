@@ -18,11 +18,13 @@ vi.mock('./notesDirectory', () => ({ chooseNotesDirectory }));
 
 import VaultUnavailableBanner from './VaultUnavailableBanner.svelte';
 import SidebarCreateActions from '$features/sidebar/components/SidebarCreateActions.svelte';
+import NoteTagBar from '$features/editor/NoteTagBar.svelte';
 
 const status = (overrides: Partial<VaultStatus>): VaultStatus => ({
   displayPath: 'C:\\Users\\Admin\\Documents\\futo-notes',
   isCustom: false,
   available: true,
+  accessRefused: false,
   deletesArePermanent: false,
   folderDeletesArePermanent: false,
   ...overrides,
@@ -83,6 +85,13 @@ describe('unusable vault UI', () => {
     );
   });
 
+  it('names the folder that refuses changes', () => {
+    availability.status = status({ available: false, accessRefused: true });
+    expect(render(VaultUnavailableBanner).textContent).toMatch(
+      "FUTO Notes can't save anything. It isn't allowed to change your notes folder at C:\\Users\\Admin\\Documents\\futo-notes.",
+    );
+  });
+
   it('offers the folder picker as the way out', () => {
     availability.status = status({ available: false });
     render(VaultUnavailableBanner).querySelector('button')!.click();
@@ -101,5 +110,18 @@ describe('unusable vault UI', () => {
     availability.status = status({ available: true });
     const buttons = [...render(SidebarCreateActions, props).querySelectorAll('button')];
     expect(buttons.map((button) => button.disabled)).toEqual([false, false]);
+  });
+
+  it('shows tags without add or remove controls while read-only', () => {
+    const props = {
+      content: '#work #home\n\nBody',
+      readMarkdown: () => undefined,
+      writeMarkdown: vi.fn(),
+      notes: [],
+      readonly: true,
+    };
+    const bar = render(NoteTagBar, props);
+    expect(bar.querySelectorAll('.tag-pill')).toHaveLength(2);
+    expect(bar.querySelector('button')).toBeNull();
   });
 });

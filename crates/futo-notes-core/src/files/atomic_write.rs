@@ -28,23 +28,44 @@ thread_local! {
     static RENAME_FLAGS_REJECTED: Cell<bool> = const { Cell::new(false) };
 }
 
-fn create_temp(parent: &Path) -> Result<(std::path::PathBuf, File), String> {
+/// Told about a failure to create the temp file or its parent folders; the vault
+/// uses it to learn that the OS refuses writes there (`vault_fs::access_refused`).
+type CreateFailure<'a> = &'a dyn Fn(&std::io::Error);
+
+fn create_temp(
+    parent: &Path,
+    on_create_failure: CreateFailure,
+) -> Result<(std::path::PathBuf, File), String> {
     for _ in 0..32 {
         let path = hidden_path(parent, "tmp");
         match OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(file) => return Ok((path, file)),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(format!("{error} (creating temp {})", path.display())),
+            Err(error) => {
+                on_create_failure(&error);
+                return Err(format!("{error} (creating temp {})", path.display()));
+            }
         }
     }
     Err("could not allocate an atomic-write temp file".to_owned())
 }
 
 pub fn write_atomic_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    write_atomic_bytes_reporting(path, bytes, &|_| {})
+}
+
+pub(crate) fn write_atomic_bytes_reporting(
+    path: &Path,
+    bytes: &[u8],
+    on_create_failure: CreateFailure,
+) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| "invalid file path".to_owned())?;
-    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    fs::create_dir_all(parent).map_err(|error| {
+        on_create_failure(&error);
+        error.to_string()
+    })?;
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -53,7 +74,7 @@ pub fn write_atomic_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {
         return Err("file name exceeds filesystem name limit".to_owned());
     }
 
-    let (temp, mut file) = create_temp(parent)?;
+    let (temp, mut file) = create_temp(parent, on_create_failure)?;
     let write_result = file
         .write_all(bytes)
         .and_then(|_| file.sync_all())
@@ -78,10 +99,21 @@ pub fn write_atomic_text(path: &Path, content: &str) -> Result<(), String> {
 }
 
 pub fn create_new_atomic(path: &Path, bytes: &[u8]) -> Result<bool, String> {
+    create_new_atomic_reporting(path, bytes, &|_| {})
+}
+
+pub(crate) fn create_new_atomic_reporting(
+    path: &Path,
+    bytes: &[u8],
+    on_create_failure: CreateFailure,
+) -> Result<bool, String> {
     let parent = path
         .parent()
         .ok_or_else(|| "invalid file path".to_owned())?;
-    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    fs::create_dir_all(parent).map_err(|error| {
+        on_create_failure(&error);
+        error.to_string()
+    })?;
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -90,7 +122,7 @@ pub fn create_new_atomic(path: &Path, bytes: &[u8]) -> Result<bool, String> {
         return Err("file name exceeds filesystem name limit".to_owned());
     }
 
-    let (temp, mut file) = create_temp(parent)?;
+    let (temp, mut file) = create_temp(parent, on_create_failure)?;
     let write_result = file
         .write_all(bytes)
         .and_then(|_| file.sync_all())

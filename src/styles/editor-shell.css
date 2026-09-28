@@ -197,7 +197,12 @@
   color: var(--color-danger);
 }
 
-.note-menu-dropdown button:active {
+.note-menu-dropdown button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.note-menu-dropdown button:active:not(:disabled) {
   background: rgba(var(--ink-rgb), 0.04);
 }
 

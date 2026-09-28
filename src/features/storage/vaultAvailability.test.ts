@@ -3,10 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const vaultStatus = vi.hoisted(() => vi.fn());
 vi.mock('$lib/platform/tauri', () => ({ vaultStatus }));
 
-const status = (available: boolean) => ({
+const status = (available: boolean, accessRefused = false) => ({
   displayPath: 'C:\\Users\\Admin\\Documents\\futo-notes',
   isCustom: false,
   available,
+  accessRefused,
   deletesArePermanent: false,
   folderDeletesArePermanent: false,
 });
@@ -39,5 +40,27 @@ describe('vaultAvailability', () => {
     await Promise.all([loadVaultAvailability(), loadVaultAvailability()]);
     expect(vaultStatus).toHaveBeenCalledOnce();
     expect(vaultAvailability.unavailable).toBe(false);
+  });
+
+  // Controlled Folder Access over a folder with notes: it loaded fine, then a
+  // save was refused.
+  it('locks once a failed command finds the vault refusing writes', async () => {
+    vaultStatus.mockResolvedValueOnce(status(true)).mockResolvedValueOnce(status(false, true));
+    const { loadVaultAvailability, recheckVaultAvailability, vaultAvailability } =
+      await freshModule();
+    await loadVaultAvailability();
+    expect(vaultAvailability.unavailable).toBe(false);
+
+    await recheckVaultAvailability();
+    expect(vaultAvailability.unavailable).toBe(true);
+    expect(vaultAvailability.status?.accessRefused).toBe(true);
+  });
+
+  it('stays locked once locked, without asking again', async () => {
+    vaultStatus.mockResolvedValue(status(false));
+    const { loadVaultAvailability, recheckVaultAvailability } = await freshModule();
+    await loadVaultAvailability();
+    await recheckVaultAvailability();
+    expect(vaultStatus).toHaveBeenCalledOnce();
   });
 });

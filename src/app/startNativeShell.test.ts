@@ -7,13 +7,19 @@ const mocks = vi.hoisted(() => ({
   onCloseRequested: vi.fn(),
   onFileChange: vi.fn(),
   loadVaultAvailability: vi.fn(),
+  onNoteCommandFailed: vi.fn(),
+  recheckVaultAvailability: vi.fn(async () => undefined),
   showGlobalToast: vi.fn(),
 }));
 
 vi.mock('$lib/platform', () => ({ isTauri: true }));
-vi.mock('$lib/platform/tauri', () => ({ onFileChange: mocks.onFileChange }));
+vi.mock('$lib/platform/tauri', () => ({
+  onFileChange: mocks.onFileChange,
+  onNoteCommandFailed: mocks.onNoteCommandFailed,
+}));
 vi.mock('$features/storage/vaultAvailability.svelte', () => ({
   loadVaultAvailability: mocks.loadVaultAvailability,
+  recheckVaultAvailability: mocks.recheckVaultAvailability,
 }));
 vi.mock('$shared/notifications/toastBus.svelte', () => ({
   showGlobalToast: mocks.showGlobalToast,
@@ -132,5 +138,12 @@ describe('startNativeShell', () => {
     await vi.waitFor(() => expect(mocks.loadVaultAvailability).toHaveBeenCalledTimes(2));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mocks.showGlobalToast).not.toHaveBeenCalled();
+  });
+
+  it('re-checks the vault whenever a note command fails', () => {
+    startNativeShell({ enqueueFileChange: vi.fn(), flushSave: vi.fn(async () => undefined) });
+    const onFailed = mocks.onNoteCommandFailed.mock.calls[0][0] as () => void;
+    onFailed();
+    expect(mocks.recheckVaultAvailability).toHaveBeenCalledOnce();
   });
 });

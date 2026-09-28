@@ -34,3 +34,21 @@ describe('openCreateFolder', () => {
     expect(folder.isCreateFolderOpen).toBe(false);
   });
 });
+
+describe('row context menus', () => {
+  it('disables every row action while the vault is unusable', () => {
+    availability.unavailable = true;
+    const folder = workflows();
+    folder.showFolderContextMenu('projects', 0, 0);
+    expect(folder.contextMenu?.items.every((item) => item.disabled)).toBe(true);
+    folder.showNoteContextMenu('projects/a', 0, 0);
+    expect(folder.contextMenu?.items.every((item) => item.disabled)).toBe(true);
+  });
+
+  it('enables them for a usable vault', () => {
+    availability.unavailable = false;
+    const folder = workflows();
+    folder.showNoteContextMenu('projects/a', 0, 0);
+    expect(folder.contextMenu?.items.some((item) => item.disabled)).toBe(false);
+  });
+});

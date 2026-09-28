@@ -1,5 +1,6 @@
 //! Vault-relative I/O shared by sync and the local note engine.
 use std::path::{Component, Path};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 fn relative_components(relative: &str) -> Result<Vec<&std::ffi::OsStr>, String> {
     let components = Path::new(relative)
@@ -34,6 +35,63 @@ impl OpenParentError {
         match self {
             Self::NotFound(message) | Self::Other(message) => message,
         }
+    }
+}
+
+/// Set once the OS refuses to create a file or folder in the vault for want of
+/// permission — Windows Controlled Folder Access over an existing folder, a
+/// read-only mount. Such a folder still lists and reads, so the refusal is the
+/// only sign; the desktop reports the vault unusable from then on instead of
+/// probing it. Only CREATION counts: a rename or delete refused because another
+/// process holds the file (antivirus, a sync client, the indexer) is transient,
+/// and a single unreadable file says nothing about the vault.
+static ACCESS_REFUSED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(test)]
+thread_local! {
+    /// This thread's refusals: the flag is process-wide, and the two contract
+    /// suites run in parallel, so only a per-thread count shows a test its own.
+    static TEST_REFUSALS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+pub fn access_refused() -> bool {
+    ACCESS_REFUSED.load(Ordering::Relaxed)
+}
+
+#[cfg(test)]
+fn refusal_count() -> usize {
+    TEST_REFUSALS.with(std::cell::Cell::get)
+}
+
+pub(crate) trait CreateError {
+    fn is_refusal(&self) -> bool;
+}
+
+impl CreateError for std::io::Error {
+    fn is_refusal(&self) -> bool {
+        matches!(
+            self.kind(),
+            std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem
+        )
+    }
+}
+
+#[cfg(unix)]
+impl CreateError for rustix::io::Errno {
+    fn is_refusal(&self) -> bool {
+        matches!(
+            *self,
+            rustix::io::Errno::ACCESS | rustix::io::Errno::PERM | rustix::io::Errno::ROFS
+        )
+    }
+}
+
+/// Every place that creates a file or folder in the vault reports its failure here.
+pub(crate) fn note_create_failure(error: &impl CreateError) {
+    if error.is_refusal() {
+        ACCESS_REFUSED.store(true, Ordering::Relaxed);
+        #[cfg(test)]
+        TEST_REFUSALS.with(|count| count.set(count.get() + 1));
     }
 }
 

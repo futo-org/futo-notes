@@ -1,9 +1,12 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import { isTauri } from '$lib/platform';
-import { onFileChange } from '$lib/platform/tauri';
+import { onFileChange, onNoteCommandFailed } from '$lib/platform/tauri';
 import type { FileChangeEvent } from '$lib/platform/types';
-import { loadVaultAvailability } from '$features/storage/vaultAvailability.svelte';
+import {
+  loadVaultAvailability,
+  recheckVaultAvailability,
+} from '$features/storage/vaultAvailability.svelte';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 
 export interface NativeShellDeps {
@@ -43,10 +46,15 @@ export function startNativeShell(deps: NativeShellDeps): () => void {
     ),
   );
 
-  // Feeds VaultUnavailableBanner and the note/folder creation guards.
+  // Feeds VaultUnavailableBanner and the edit lock.
   void loadVaultAvailability().catch((error) =>
     console.warn('Failed to read vault status:', error),
   );
+  onNoteCommandFailed(() => {
+    void recheckVaultAvailability().catch((error) =>
+      console.warn('Failed to re-read vault status:', error),
+    );
+  });
 
   const appWindow = getCurrentWindow();
   void appWindow

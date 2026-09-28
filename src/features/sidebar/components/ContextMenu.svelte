@@ -7,6 +7,7 @@
     label: LocalizedMessage;
     onclick: () => void;
     destructive?: boolean;
+    disabled?: boolean;
   }
 
   interface Props {
@@ -37,6 +38,7 @@
       role="menuitem"
       class="menu-item"
       class:destructive={item.destructive}
+      disabled={item.disabled}
       onclick={() => handleItemClick(item)}>{resolveLocalizedMessage(item.label)}</button
     >
   {/each}
@@ -65,7 +67,11 @@
     font-size: 0.9rem;
     color: inherit;
   }
-  .menu-item:hover {
+  .menu-item:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .menu-item:hover:not(:disabled) {
     background: var(--color-surface, rgba(0, 0, 0, 0.06));
   }
   .menu-item.destructive {

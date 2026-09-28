@@ -125,6 +125,7 @@ fn open_parent_with_policy(
                 ) {
                     Ok(()) | Err(rustix::io::Errno::EXIST) => {}
                     Err(error) => {
+                        super::note_create_failure(&error);
                         return Err(OpenParentError::Other(context(
                             "create parent for",
                             relative,
@@ -209,7 +210,10 @@ fn create_temp(parent: &Parent, relative: &str) -> Result<(OsString, File), Stri
         ) {
             Ok(file) => return Ok((name, File::from(file))),
             Err(rustix::io::Errno::EXIST) => continue,
-            Err(error) => return Err(context("create temporary file for", relative, error)),
+            Err(error) => {
+                super::note_create_failure(&error);
+                return Err(context("create temporary file for", relative, error));
+            }
         }
     }
     Err(format!(
@@ -712,8 +716,10 @@ pub(super) fn sync_parent(root: &Path, relative: &str) -> Result<(), String> {
 
 pub(super) fn create_dir(root: &Path, relative: &str) -> Result<(), String> {
     let parent = open_parent(root, relative, false).map_err(OpenParentError::message)?;
-    mkdirat(&parent.directory, &parent.leaf, Mode::from_raw_mode(0o755))
-        .map_err(|e| context("create directory", relative, e))?;
+    mkdirat(&parent.directory, &parent.leaf, Mode::from_raw_mode(0o755)).map_err(|e| {
+        super::note_create_failure(&e);
+        context("create directory", relative, e)
+    })?;
     report_local_sync(sync_directory(
         &parent.directory,
         "sync created directory",

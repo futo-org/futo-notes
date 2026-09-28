@@ -63,6 +63,7 @@
   );
   let isCustomDirectory = $state(false);
   let vaultAvailable = $state(true);
+  let accessRefused = $state(false);
   let resetting = $state(false);
   let resetFailed = $state(false);
   let updateSupported = $state(false);
@@ -187,6 +188,7 @@
         notesDirectoryState = 'path';
         isCustomDirectory = status.isCustom;
         vaultAvailable = status.available;
+        accessRefused = status.accessRefused;
       })
       .catch((error) => {
         notesDirectoryState = 'error';
@@ -237,6 +239,7 @@
           {notesDirectory}
           {isCustomDirectory}
           {vaultAvailable}
+          {accessRefused}
           onchange={() => void chooseNotesDirectory()}
           onreset={() => void resetNotesDirectory()}
         />

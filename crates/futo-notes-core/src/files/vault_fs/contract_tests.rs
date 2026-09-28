@@ -62,6 +62,33 @@ macro_rules! vault_fs_contract {
             /// an error makes the sync engine record a permanent per-note
             /// failure and pin its pull cursor, while the write that follows
             /// would have created the folder on its own.
+            /// Controlled Folder Access over an existing vault, or a read-only
+            /// mount: the folder still reads, so the refused create is the only
+            /// sign it is unusable. Directory permissions are how a Unix host
+            /// can produce that refusal; root ignores them.
+            #[cfg(unix)]
+            #[test]
+            fn a_refused_create_marks_the_vault_access_refused() {
+                use std::os::unix::fs::PermissionsExt;
+                let root = TempRoot::new();
+                let set_mode = |mode| {
+                    std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(mode))
+                        .unwrap()
+                };
+                let before = crate::files::vault_fs::refusal_count();
+
+                set_mode(0o555);
+                let write = vault_fs::write_atomic(root.path(), "note.md", b"body");
+                let folder = vault_fs::create_dir(root.path(), "Work");
+                set_mode(0o755);
+
+                if write.is_ok() {
+                    return; // root: permissions refuse nothing to prove
+                }
+                assert!(folder.is_err());
+                assert!(crate::files::vault_fs::refusal_count() >= before + 2);
+            }
+
             #[test]
             fn exists_is_false_when_the_parent_folder_is_missing() {
                 let root = TempRoot::new();

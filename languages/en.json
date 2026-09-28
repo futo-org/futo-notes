@@ -100,6 +100,7 @@
         "appFolderDescription": "App folder · private",
         "legacyInternalDescription": "Internal · private (legacy)",
         "unreachableCurrentWarning": "This folder is no longer reachable. Choose it again, or reset to the default location.",
+        "accessRefusedWarning": "FUTO Notes isn't allowed to change this folder, so nothing can be saved. Choose another folder. On Windows, this is usually Controlled folder access: you can instead allow FUTO Notes in Windows Security, then restart FUTO Notes.",
         "uncreatableDefaultWarning": "FUTO Notes isn't allowed to create this folder, so nothing can be saved. Choose another folder. On Windows, this is usually Controlled folder access: you can instead allow FUTO Notes in Windows Security, then restart FUTO Notes.",
         "loading": "Loading…",
         "memoryVault": "In-memory test vault",
@@ -844,6 +845,7 @@
         "title": "FUTO Notes can't save anything.",
         "uncreatableDefault": "It isn't allowed to create its notes folder at {folderPath}.",
         "missingCustom": "It can't find your notes folder at {folderPath}.",
+        "accessRefused": "It isn't allowed to change your notes folder at {folderPath}.",
         "chooseFolder": "Choose another folder"
       },
       "onboarding": {

@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke as tauriInvoke, type InvokeArgs } from '@tauri-apps/api/core';
 import type {
   LocalFlushDraftResult,
   LocalNoteBootstrap,
@@ -9,6 +9,21 @@ import type {
   LocalNoteStore,
   LocalSearchHit,
 } from '../localNoteStore';
+
+let noteCommandFailed: () => void = () => {};
+
+/** Every note command that fails reports here — the only sign that a vault which
+ *  still reads refuses writes, or that one went missing mid-session. */
+export function onNoteCommandFailed(listener: () => void): void {
+  noteCommandFailed = listener;
+}
+
+function invoke<T>(command: string, args?: InvokeArgs): Promise<T> {
+  return tauriInvoke<T>(command, args).catch((error: unknown) => {
+    noteCommandFailed();
+    throw error;
+  });
+}
 
 class TauriLocalNoteStore implements LocalNoteStore {
   private startupListingPromise: Promise<LocalNoteListingSnapshot> | null = null;

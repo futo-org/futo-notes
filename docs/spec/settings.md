@@ -223,22 +223,44 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   Notes isn't allowed to create this folder, so nothing can be saved. Choose another
   folder. On Windows, this is usually Controlled folder access: you can instead allow
   FUTO Notes in Windows Security, then restart FUTO Notes." with **Change directory**
-  usable. Allowing it while the app runs takes effect on that restart: the vault
-  status, note list and watcher are all read once at launch. →
+  usable. Allowing it while the app runs takes effect on that restart: the note
+  list and watcher bind the vault only at launch. →
   `vault_location::status_of`, StorageSettingsSection.svelte
-- _(Desktop)_ While the vault is unusable (either case above), a banner stays at the
-  top of the window for the whole launch — "FUTO Notes can't save anything." then
-  "It isn't allowed to create its notes folder at {folderPath}." (default) or "It
-  can't find your notes folder at {folderPath}." (custom) — with **Choose another
-  folder**, the same flow as **Change directory**. It is never a toast: every save
-  and folder creation fails while it is up, and those errors only make sense next
-  to it. The folder is always named (github#44). → VaultUnavailableBanner.svelte,
-  `src/features/storage/vaultAvailability.svelte.ts`
-- _(Desktop)_ While the vault is unusable, nothing can start a note or a folder:
-  **New note** and **New folder** are disabled, and Cmd/Ctrl+N, the app menu's
-  **New Note** and a folder's **New note** / **New folder** do nothing — a note is
-  written on its first save, so its text could only be lost. →
-  `src/app/createNewNote.ts`, `createSidebarFolderWorkflows.openCreateFolder`
+- A folder that **exists but refuses writes** (Controlled Folder Access over an
+  existing folder, a read-only mount) still lists and reads, so it loads normally.
+  It becomes unusable the first time it refuses to let a file or folder be created
+  — nothing probes the vault, and a refused rename or delete (another process
+  holding the file) or an unreadable file does not count —
+  and the Storage section then says "FUTO Notes isn't allowed to change this
+  folder, so nothing can be saved. Choose another folder. On Windows, this is
+  usually Controlled folder access: you can instead allow FUTO Notes in Windows
+  Security, then restart FUTO Notes." → `vault_fs::access_refused`,
+  StorageSettingsSection.svelte
+- _(Desktop)_ The vault status is read at launch and again whenever a note command
+  fails, so a vault that refuses a write or goes missing mid-session is caught at
+  that failure. An image or sync write it refuses marks the vault too, but the
+  banner waits for the next failed note command. It only ever turns unusable within a launch; every way back is a
+  restart. → `src/features/storage/vaultAvailability.svelte.ts`,
+  `onNoteCommandFailed` in `src/lib/platform/localNoteStore.ts`
+- _(Desktop)_ While the vault is unusable (any case above), a banner stays at the
+  top of the window for the rest of the launch — "FUTO Notes can't save anything."
+  then "It isn't allowed to create its notes folder at {folderPath}." (default
+  cannot be created), "It can't find your notes folder at {folderPath}." (custom
+  missing) or "It isn't allowed to change your notes folder at {folderPath}."
+  (refused a write) — with **Choose another folder**, the same flow as **Change
+  directory**. It is never a toast: every edit is locked while it is up, and the
+  lock only makes sense next to it. The folder is always named (github#44). →
+  VaultUnavailableBanner.svelte
+- _(Desktop)_ While the vault is unusable, it is read-only in the UI: notes open
+  and read, but the editor body, title and tags take no edits (text typed before
+  the lock stays visible so it can be copied out); **New note** and **New folder**
+  are disabled and Cmd/Ctrl+N and the app menu's **New Note** do nothing; every
+  folder and note row action (New note, New folder, Rename, Move, Delete) is
+  disabled, inline rename and drag-to-move do not start; the note menu's **Move**
+  and **Delete** and the Images view's **Delete** are disabled. **Copy file path**
+  stays. → NoteWorkspace.svelte, `src/app/createNewNote.ts`,
+  `createSidebarFolderWorkflows.svelte.ts`, FolderTreeFolderRow.svelte,
+  FolderTreeNoteRow.svelte
 - A vault whose external changes are found by polling rather than by inotify says
   nothing about it in the UI; the only user-visible consequence is that an external
   edit can take a few seconds to appear (see desktop-rust.md). If the watcher fails

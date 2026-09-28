@@ -1,5 +1,6 @@
 <script lang="ts">
   import { idLeaf } from '$lib/platform/pathSafety';
+  import { vaultAvailability } from '$features/storage/vaultAvailability.svelte';
   import { localizedText, type LocalizedMessage } from '$shared/localization';
 
   import type { NoteNode } from './folderTree';
@@ -50,14 +51,15 @@
       return;
     }
     lastRenameNonce = renameRequest.nonce;
-    isEditing = true;
+    // Renaming is a write; a locked vault never starts one.
+    isEditing = !vaultAvailability.unavailable;
   });
 
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key !== 'F2') return;
     event.preventDefault();
     event.stopPropagation();
-    isEditing = true;
+    isEditing = !vaultAvailability.unavailable;
   }
 </script>
 
@@ -92,7 +94,7 @@
     ondblclick={(event) => {
       event.preventDefault();
       event.stopPropagation();
-      isEditing = true;
+      isEditing = !vaultAvailability.unavailable;
     }}
     onkeydown={handleKeydown}
     onauxclick={(event) => {
@@ -101,7 +103,7 @@
       onselect(event);
     }}
     {oncontextmenu}
-    draggable={true}
+    draggable={!vaultAvailability.unavailable}
     {ondragstart}
     {ondragend}
     {ondragover}
