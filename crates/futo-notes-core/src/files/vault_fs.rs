@@ -64,9 +64,15 @@ fn refuse_next_create() {
     REFUSE_NEXT_CREATE.with(|refuse| refuse.set(true));
 }
 
-#[cfg(test)]
-pub(crate) fn take_refused_create() -> bool {
-    REFUSE_NEXT_CREATE.with(|refuse| refuse.replace(false))
+/// Fails with `refusal` when `refuse_next_create` armed this create, checked just
+/// before the real one so both reach the same error path. Always `Ok` outside tests.
+#[cfg_attr(not(test), allow(unused_variables))]
+pub(crate) fn refused_create<E>(refusal: E) -> Result<(), E> {
+    #[cfg(test)]
+    if REFUSE_NEXT_CREATE.with(|refuse| refuse.replace(false)) {
+        return Err(refusal);
+    }
+    Ok(())
 }
 
 pub fn access_refused() -> bool {

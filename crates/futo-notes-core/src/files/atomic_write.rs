@@ -53,16 +53,9 @@ fn create_temp(
 ) -> Result<(std::path::PathBuf, File), String> {
     for _ in 0..32 {
         let path = hidden_path(parent, "tmp");
-        let open = || OpenOptions::new().write(true).create_new(true).open(&path);
-        #[cfg(test)]
-        let open = || {
-            if crate::files::vault_fs::take_refused_create() {
-                Err(std::io::ErrorKind::PermissionDenied.into())
-            } else {
-                open()
-            }
-        };
-        match open() {
+        let refused =
+            crate::files::vault_fs::refused_create(std::io::ErrorKind::PermissionDenied.into());
+        match refused.and_then(|()| OpenOptions::new().write(true).create_new(true).open(&path)) {
             Ok(file) => return Ok((path, file)),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => {

@@ -10,11 +10,8 @@ pub(super) fn take_next_temp() {
 }
 
 fn make_dir(path: &Path) -> std::io::Result<()> {
-    #[cfg(test)]
-    if super::take_refused_create() {
-        return Err(std::io::ErrorKind::PermissionDenied.into());
-    }
-    std::fs::create_dir(path)
+    super::refused_create(std::io::ErrorKind::PermissionDenied.into())
+        .and_then(|()| std::fs::create_dir(path))
 }
 
 /// A parent directory must be a real directory, not a link and not a file.
