@@ -34,6 +34,7 @@ interface NotesHookWindow extends Window {
   __notesShellTest: {
     flushSave: () => Promise<void>;
     getState: () => { savePending: boolean };
+    typeInEditor: (text: string) => string;
   };
 }
 
@@ -185,5 +186,147 @@ test.describe('a note with content is never written back empty', () => {
     await page.evaluate(() => (window as unknown as NotesHookWindow).__notesShellTest.flushSave());
 
     expect((await storedBody(page, 'retyped')).trim()).toBe('x');
+  });
+});
+
+/**
+ * The save queue never drops an edit the editor still holds (FB-6).
+ *
+ * The web vault behind the dev server is `webLocalNoteStore.ts`, and a dynamic
+ * import of the same path resolves to the module instance the app itself
+ * imported. Replacing one of its methods here is how these cases hold a save or
+ * a read open for as long as they need, which on the desktop app is a slow
+ * `flush_draft` (sync holding the store, a parked reconcile queued ahead) or a
+ * slow `read_note`.
+ */
+const WEB_VAULT_MODULE = '/src/lib/platform/webLocalNoteStore.ts';
+
+interface VaultGateWindow extends Window {
+  __vaultGate: { held: boolean; release: () => void };
+  __flushDraftTimes: number[];
+  __keydownTimes: number[];
+}
+
+/** Hold the vault's next `method` call for note `id` until `releaseVaultCall`. */
+async function holdNextVaultCall(
+  page: import('@playwright/test').Page,
+  method: 'flushDraft' | 'read',
+  id: string,
+): Promise<void> {
+  await page.evaluate(
+    async ([modulePath, name, noteId]) => {
+      const { webLocalNoteStore } = await import(/* @vite-ignore */ modulePath);
+      const store = webLocalNoteStore as Record<string, (...args: unknown[]) => Promise<unknown>>;
+      const original = store[name].bind(store);
+      const w = window as unknown as VaultGateWindow;
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      w.__vaultGate = { held: false, release };
+      store[name] = async (...args: unknown[]) => {
+        if (args[0] === noteId && !w.__vaultGate.held) {
+          w.__vaultGate.held = true;
+          store[name] = original;
+          await gate;
+        }
+        return original(...args);
+      };
+    },
+    [WEB_VAULT_MODULE, method, id] as const,
+  );
+}
+
+async function waitUntilVaultCallHeld(page: import('@playwright/test').Page): Promise<void> {
+  await page.waitForFunction(() => (window as unknown as VaultGateWindow).__vaultGate.held);
+}
+
+async function openStoredNote(
+  page: import('@playwright/test').Page,
+  id: string,
+  visibleText: string,
+): Promise<void> {
+  await page.evaluate((noteId) => {
+    window.location.hash = `#/note/${encodeURIComponent(noteId)}`;
+  }, id);
+  await waitForEditor(page);
+  await expect(page.locator(EDITOR)).toContainText(visibleText);
+}
+
+async function writeNotes(
+  page: import('@playwright/test').Page,
+  notes: Record<string, string>,
+): Promise<void> {
+  await page.evaluate(async (entries) => {
+    const w = window as unknown as NotesHookWindow;
+    for (const [id, body] of entries) await w.__testNotes.writeNote(id, body);
+  }, Object.entries(notes));
+}
+
+test.describe('an edit the editor still holds is never dropped by the save queue', () => {
+  /* RC-10 (L6a-3). A save already in flight read the editor when it STARTED.
+   * An edit made after that is still inside the editor's own 200 ms change
+   * debounce, so nothing has told the session about it. `flush()` used to await
+   * the in-flight save and return, and the switch then replaced the document
+   * the edit lived in. */
+  test('a note switch during an in-flight save keeps the last edit', async ({ page }) => {
+    await openNewNote(page);
+    await writeNotes(page, { 'switch a': 'first body\n', 'switch b': 'the other note\n' });
+    await openStoredNote(page, 'switch a', 'first body');
+
+    await holdNextVaultCall(page, 'flushDraft', 'switch a');
+    await page.evaluate(() => {
+      (window as unknown as NotesHookWindow).__notesShellTest.typeInEditor('alpha');
+    });
+    await waitUntilVaultCallHeld(page);
+
+    // One more word, and the switch, inside that word's change debounce: the
+    // editor has not reported it by the time the switch flushes.
+    const reportedBeforeSwitch = await page.evaluate(async () => {
+      const w = window as unknown as NotesHookWindow & VaultGateWindow;
+      w.__notesShellTest.typeInEditor('omega');
+      window.location.hash = '#/note/switch%20b';
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      const pending = w.__notesShellTest.getState().savePending;
+      w.__vaultGate.release();
+      return pending;
+    });
+    expect(reportedBeforeSwitch, 'the first save must still be in flight at the switch').toBe(true);
+
+    await expect(page.locator(EDITOR)).toContainText('the other note');
+    await page.evaluate(() => (window as unknown as NotesHookWindow).__notesShellTest.flushSave());
+
+    const stored = await storedBody(page, 'switch a');
+    expect(stored).toContain('alpha');
+    expect(stored).toContain('omega');
+  });
+
+  /* RC-10 (L6a-3, second shape). The outgoing note stays mounted, visible and
+   * focused while the incoming note is read. A keystroke typed then is the
+   * outgoing note's; it used to be refused (the session was already "loading")
+   * and then replaced by the incoming note. */
+  test('a word typed into the outgoing note while the next one is read is kept', async ({
+    page,
+  }) => {
+    await openNewNote(page);
+    await writeNotes(page, { 'slow a': 'outgoing body\n', 'slow b': 'incoming body\n' });
+    await openStoredNote(page, 'slow a', 'outgoing body');
+    await page.locator(EDITOR).click();
+
+    await holdNextVaultCall(page, 'read', 'slow b');
+    await page.evaluate(() => {
+      window.location.hash = '#/note/slow%20b';
+    });
+    await waitUntilVaultCallHeld(page);
+
+    await page.keyboard.type('zqtypedq', { delay: 20 });
+    await expect(page.locator(EDITOR)).toContainText('zqtypedq');
+    await page.evaluate(() => (window as unknown as VaultGateWindow).__vaultGate.release());
+
+    await expect(page.locator(EDITOR)).toContainText('incoming body');
+    await page.evaluate(() => (window as unknown as NotesHookWindow).__notesShellTest.flushSave());
+
+    expect(await storedBody(page, 'slow a')).toContain('zqtypedq');
+    expect(await storedBody(page, 'slow b')).toBe('incoming body\n');
   });
 });

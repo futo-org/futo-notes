@@ -1,6 +1,8 @@
 interface NoteSaveQueueOptions {
   save: () => Promise<boolean>;
   hasUnseenChanges: () => boolean;
+  /** The editor now holds something other than what the last save read. */
+  editedSinceSaveRead: () => boolean;
   notifySaved: () => void;
 }
 
@@ -43,6 +45,14 @@ export function createNoteSaveQueue(options: NoteSaveQueueOptions) {
   // note's content under another note's id. Re-check for exactly that after
   // each await — a timer armed while we were awaiting — and flush it too
   // before returning.
+  //
+  // A save already in flight read the editor when it STARTED. An edit made
+  // since then may still be inside the editor's own change debounce, so no
+  // timer says it exists: after awaiting that save, look again rather than
+  // returning (RC-10 — a note switch then replaced the document the edit
+  // lived in). Only an edit that save did not read counts: a first save of a
+  // new note that lands after the user moved on is deliberately not rebound
+  // (noteSession `onSaved`), and saving that note again would make a second.
   async function flush(): Promise<void> {
     for (;;) {
       const hadPendingTimer = saveTimer !== null;
@@ -50,8 +60,10 @@ export function createNoteSaveQueue(options: NoteSaveQueueOptions) {
       saveTimer = null;
 
       if (hadPendingTimer) await runQueuedSave();
-      else if (saveInFlight) await saveInFlight;
-      else if (options.hasUnseenChanges()) await runQueuedSave();
+      else if (saveInFlight) {
+        await saveInFlight;
+        if (options.editedSinceSaveRead()) continue;
+      } else if (options.hasUnseenChanges()) await runQueuedSave();
       else return;
 
       if (saveTimer === null) return;

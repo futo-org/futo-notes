@@ -148,8 +148,10 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     focusEditor: deps.focusEditor,
     getTextarea: deps.getTitleTextarea,
   });
+  /* What the last save read from the editor (see `editedSinceSaveRead`). */
+  let editorReadBySave: string | undefined;
   const saveNote = createNotePersistence({
-    getEditorContent: deps.getEditorContent,
+    getEditorContent: () => (editorReadBySave = deps.getEditorContent()),
     getNoteId: deps.getNoteId,
     getPendingFolder: () => pendingNewFolder ?? deps.getPendingFolder?.() ?? null,
     clearPendingFolder: () => {
@@ -258,12 +260,14 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   const saveQueue = createNoteSaveQueue({
     save: () => serializePersistence(saveNote),
     hasUnseenChanges: hasUnseenEditorChanges,
+    editedSinceSaveRead: () => deps.getEditorContent() !== editorReadBySave,
     notifySaved,
   });
   const noteLoader = createNoteLoader({
     flushSave: saveQueue.flush,
     getNotes: deps.getNotes,
     getEditorContent: deps.getEditorContent,
+    isSavePending: saveQueue.isPending,
     /* `noteId` is the loader's own signal, not the editor's: this branch's
      * `deps.openEditorNote` takes only the body. A null id opening over the
      * `new` route is the one case that must remember the folder the note was
