@@ -31,6 +31,30 @@ census harness, so both write the same bytes), and scopes the presets' three
 whole-document passes to the touched blocks (`listOrder.ts`, `tablePasses.ts`,
 `touchedRange.ts`; `gfmWithCompat()` pairs with `commonmarkWithCompat()`).
 **CommonMark decides ambiguous list syntax; there is no pre-parse bullet-number rewriting.**
+
+Four more escaping repairs, from the 2026-09 release-hardening campaign (FB-4a):
+
+- `withNarrowedEscapes` also writes an autolink's text (`<https://…>`)
+  VERBATIM — CommonMark reads no escapes inside `<…>`, and `safe()` doubled
+  its backslashes every save — and sends every run Milkdown's `text` handler
+  would return raw (`/^[^*_\\]*\s+$/`: any run ending in whitespace, which is
+  every run before a mark, link, wikilink or inline HTML) through `safe()`
+  minus its trailing whitespace. Never delegate such a run back to Milkdown's
+  handler: that shortcut is what saved `\# a **b**` as a heading and split a
+  cell on a typed `|`.
+- `attentionEncoding.ts` wraps Milkdown's `strong`/`emphasis` handlers (and
+  a restated GFM `delete`) with upstream's `encodeInfo`, so bold, italic or
+  strikethrough whose edge is punctuation next to a letter still flanks
+  (`**Note:**&#x62;ar`). An `_`/`__` run that could only flank encoded is
+  written with `*`/`**` instead; references stay only where no marker flanks.
+  Installed by `attentionEncodingPlugin` in `commonmarkWithCompat()`.
+- `inlineHtmlIndent.ts` puts back the up-to-three continuation-line columns
+  micromark strips from INLINE HTML. It hooks the `htmlText` token on purpose:
+  by the time a tree transform runs, the preset has wrapped block HTML in a
+  paragraph and the two are indistinguishable.
+- The app's own `break` handler (`src/features/editor/milkdown/table/tableLineBreak.ts`)
+  writes a space where `\n` is unsafe (an ATX heading) and `<br>` before inline
+  HTML; the wikilink handler writes `|` as `\|` in a table cell.
 **These carry no Rust mirror.** They
 are adapters to one editor library's implementation — which mdast node a plugin
 deletes, how a link mark finds text to attach to — not note rules, so M6 does
