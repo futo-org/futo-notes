@@ -315,6 +315,74 @@ test('Tab at the very last cell appends a row instead of dropping focus', async 
   ]);
 });
 
+/**
+ * A paste carrying an HTML `<table>` (a spreadsheet or web-table copy) while
+ * the caret sits in a table cell. Nothing in Playwright or CDP can put HTML on
+ * the OS clipboard, so this is a dispatched `ClipboardEvent` with a real
+ * `DataTransfer` — it still goes through ProseMirror's own paste handling.
+ */
+async function pasteHtml(page: Page, html: string, text: string): Promise<void> {
+  await page.evaluate(
+    ([h, t]) => {
+      const transfer = new DataTransfer();
+      transfer.setData('text/html', h);
+      transfer.setData('text/plain', t);
+      document
+        .querySelector('.ProseMirror')!
+        .dispatchEvent(
+          new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }),
+        );
+    },
+    [html, text],
+  );
+  await flushFrames(page);
+}
+
+test('pasting an HTML table into a table cell throws nothing and pastes the cells', async ({
+  page,
+}) => {
+  // prosemirror-tables' paste path built a row with an extra header cell and
+  // died in `TableMap.positionAt` (RC-53): the paste was dropped with a pageerror.
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r1a');
+  await pasteHtml(page, '<table><tr><td>X</td><td>Y</td></tr></table>', 'X\tY');
+  await settled(page);
+  expect(errors).toEqual([]);
+  expect(tableRows(await getContent(page))).toEqual([
+    ['a', 'b'],
+    ['X', 'Y'],
+    ['r2a', 'r2b'],
+  ]);
+});
+
+test('pasting an HTML table into the header row, and a <th> table into a body row, both land', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'a');
+  await pasteHtml(page, '<table><tr><td>X</td><td>Y</td></tr></table>', 'X\tY');
+  await settled(page);
+  await caretAtEndOf(page, 'r2a');
+  await pasteHtml(
+    page,
+    '<table><tr><th>H1</th><th>H2</th></tr><tr><td>v1</td></tr></table>',
+    'H1\tH2\nv1',
+  );
+  await settled(page);
+  expect(errors).toEqual([]);
+  // Cells take the type of the row they land in; a ragged pasted row is squared up.
+  expect(tableRows(await getContent(page))).toEqual([
+    ['X', 'Y'],
+    ['r1a', 'r1b'],
+    ['H1', 'H2'],
+    ['v1', ''],
+  ]);
+});
+
 // ============================================================
 // External links — hit area (spec: "Only the link's own glyphs open it")
 // ============================================================
