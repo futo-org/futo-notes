@@ -91,6 +91,7 @@ import { frontmatterPlugins } from './frontmatter';
 import { paragraphFillerGuard, paragraphWithoutFillerSchema } from './listItemFiller';
 import { scopedListOrderPlugin } from './listOrder';
 import { scopedKeepTableAlignPlugin, scopedTableEditingPlugin } from './tablePasses';
+import { remarkPadTableRowsPlugin } from './tableWidth';
 
 export * from './atxEscape';
 export * from './stringifyHandlers';
@@ -203,6 +204,9 @@ export function gfmWithCompat(): MilkdownPlugin[] {
     ),
     scopedKeepTableAlignPlugin,
     scopedTableEditingPlugin,
+    /* Ragged rows squared up at the end, before `fixTables` can pad them at
+     * the start (see `./tableWidth`). */
+    ...remarkPadTableRowsPlugin,
   ];
   return cachedGfm;
 }

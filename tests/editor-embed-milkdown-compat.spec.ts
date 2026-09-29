@@ -213,6 +213,44 @@ test.describe('a link reference definition nothing uses survives', () => {
   }
 });
 
+test.describe('a table row wider than the header keeps every value in its column', () => {
+  // prosemirror-tables' fixTables squares a ragged table up by inserting the
+  // missing cells at the START of each short row above the wide one, so their
+  // values saved one column right, under the wrong header (RC-42). Padding
+  // happens at the END instead, header included (Q13 option 13A).
+  const WIDE_LAST = 'Prices\n\n| item | price |\n| - | - |\n| apple | 3 |\n| pear | 4 | |\n\nend\n';
+
+  test('canary: upstream still shifts the rows above the wide one', async ({ page }) => {
+    expect(await roundTrip(page, 'baseline', WIDE_LAST)).toMatch(/^\| <br \/> \| apple +\|/m);
+  });
+
+  const CASES: Record<string, [string, string]> = {
+    'a trailing empty cell on the last row': [
+      WIDE_LAST,
+      'Prices\n\n| item  | price |   |\n| ----- | ----- | - |\n| apple | 3     |   |\n| pear  | 4     |   |\n\nend\n',
+    ],
+    'a wide middle row, alignment kept': [
+      '| a | b |\n| :-: | -: |\n| 1 | 2 | 3 | 4 |\n| 5 | 6 |\n\nend\n',
+      '|  a  |  b |   |   |\n| :-: | -: | - | - |\n|  1  |  2 | 3 | 4 |\n|  5  |  6 |   |   |\n\nend\n',
+    ],
+    'a row shorter than the header': [
+      '| a | b | c |\n| - | - | - |\n| 1 |\n| 2 | 3 |\n\nend\n',
+      '| a | b | c |\n| - | - | - |\n| 1 |   |   |\n| 2 | 3 |   |\n\nend\n',
+    ],
+    'a wide row in a blockquote': [
+      '> | a | b |\n> | - | - |\n> | 1 | 2 | x |\n\nend\n',
+      '> | a | b |   |\n> | - | - | - |\n> | 1 | 2 | x |\n\nend\n',
+    ],
+  };
+  for (const [name, [markdown, expected]] of Object.entries(CASES)) {
+    test(`compat pads ${name} at the end`, async ({ page }) => {
+      const { once, twice } = await twoSaves(page, 'compat', markdown);
+      expect(once).toBe(expected);
+      expect(twice).toBe(once);
+    });
+  }
+});
+
 test.describe('empty-label links keep their href', () => {
   const LINK = '## h\n\n[](api-plan.md)\n';
 

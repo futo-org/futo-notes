@@ -497,6 +497,26 @@ test('an edit keeps a link definition nothing references', async ({ page }) => {
   expect(changes[0].content).toBe(note.replace('here.', 'here.!'));
 });
 
+test('an edit beside a table with a wide row keeps every value in its column', async ({ page }) => {
+  // One trailing `| |` made fixTables pad every row above it at the START, and
+  // the edit elsewhere saved `apple` under no header at all (RC-42).
+  await hostSetContent(
+    page,
+    'Prices\n\n| item | price |\n| - | - |\n| apple | 3 |\n| pear | 4 | |\n\nend\n',
+  );
+  await clearMessages(page);
+
+  await page.locator('.ProseMirror p').first().click();
+  await page.keyboard.press('End');
+  await page.keyboard.type('!');
+
+  const changes = await waitForMessages(page, 'change');
+  expect(changes).toHaveLength(1);
+  expect(changes[0].content).toBe(
+    'Prices!\n\n| item  | price |   |\n| ----- | ----- | - |\n| apple | 3     |   |\n| pear  | 4     |   |\n\nend\n',
+  );
+});
+
 test('applyExternalContent adopts differing content without a change echo', async ({ page }) => {
   await hostSetContent(page, 'original');
   await clearMessages(page);
