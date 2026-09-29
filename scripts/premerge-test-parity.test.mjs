@@ -151,6 +151,15 @@ describe('pre-merge CI routing contracts', () => {
     const unitTestRecipe = topLevelBlock(justfile, /^test-android-native:[^\n]*$/m);
     const uiTestRecipe = topLevelBlock(justfile, /^test-android-native-ui:[^\n]*$/m);
 
+    // L1-008: the Android test recipes must test the editor.html of the checkout,
+    // not whatever gitignored copy an earlier build left in the assets.
+    for (const recipe of [unitTestRecipe, uiTestRecipe]) {
+      expect(recipe).toContain('vite build --config vite.editor.config.ts');
+      expect(recipe.indexOf('vite build --config vite.editor.config.ts')).toBeLessThan(
+        recipe.indexOf('./gradlew'),
+      );
+    }
+
     // Compile coverage: a flavor-specific source set that fails to build must
     // fail the pipeline, so both flavors are assembled on every path.
     expect(androidJob).toContain(':app:assembleDirectDebug :app:assemblePlayDebug');

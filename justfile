@@ -203,6 +203,9 @@ test-ios-native: _preflight-ios build-rust-ios
 
 # JVM unit tests for the native Android app, under BOTH flavors; see justfile-notes.md.
 test-android-native: _preflight-android android-env-check build-rust-android
+  # Stages the CURRENT editor.html into the assets, like every other native
+  # recipe: a stale gitignored copy would otherwise be what gets tested (L1-008).
+  node_modules/.bin/vite build --config vite.editor.config.ts
   cd apps/android && ./gradlew :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest
 
 # `direct` only: the flavors compile the same androidTest sources against the
@@ -210,6 +213,8 @@ test-android-native: _preflight-android android-env-check build-rust-android
 # extra signal.
 # Runs Compose instrumentation tests on $ANDROID_SERIAL.
 test-android-native-ui: _preflight-android android-env-check build-rust-android
+  # The Compose tests drive the bundled editor.html: rebuild it first (L1-008).
+  node_modules/.bin/vite build --config vite.editor.config.ts
   cd apps/android && ./gradlew :app:connectedDirectDebugAndroidTest
 
 # Editor performance stories against the REAL native Android app on an
