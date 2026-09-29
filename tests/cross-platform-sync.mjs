@@ -870,6 +870,43 @@ async function externalWatcherReloadsCleanNote(a, _b, _server) {
   );
 }
 
+async function externalAtomicSaveOntoTheOpenNoteIsAdopted(a, _b, _server) {
+  // An external editor's atomic save writes a temp file and renames it onto
+  // the note. Through a temp with a note's name (mkstemp with a `.md` suffix)
+  // the watcher reports a rename ONTO the open note; through a hidden temp,
+  // Linux inotify reports an add of it. Either one replaced the open note's
+  // bytes, so the clean editor adopts them like an in-place write.
+  await a.openNewNote();
+  await a.setTitle('watch atomic');
+  await a.typeInEditor('# Before the save');
+  await a.flushSave();
+  await a.waitForOpenNote('watch atomic');
+  await a.openNote('watch atomic');
+  await waitForEditorContent(a, '# Before the save\n');
+  await waitForToastClear(a);
+  await sleep(1200);
+
+  for (const [temp, content] of [
+    ['tmpk3j2v9.md', '# Saved through a note-named temp'],
+    ['.watch atomic.md.tmp123', '# Saved through a hidden temp'],
+  ]) {
+    await a.externalAtomicSaveNote('watch atomic', content, temp);
+    const state = await waitForEditorContent(a, content, 30_000);
+    assertEqual(
+      state.originalId,
+      'watch atomic',
+      `the save through ${temp} should keep the same note open`,
+    );
+    await sleep(1200);
+  }
+  const files = (await a.listNotes()).map((f) => f.filename || f.name || f);
+  assert(
+    !files.some((name) => name.includes('tmpk3j2v9') || name.includes('conflict')),
+    `an atomic save must leave only the note, got: ${files.join(', ')}`,
+  );
+  assertEqual(await a.readNote('watch atomic'), '# Saved through a hidden temp');
+}
+
 async function externalWatcherProtectsDirtyDraftThenSettles(a, _b, _server) {
   // A blocked dirty draft is protected from the external change; restoring a
   // valid title settles it — the draft parks as a conflict copy against the
@@ -3306,6 +3343,12 @@ const scenarios = [
   {
     name: 'external watcher protects dirty draft then settles',
     fn: externalWatcherProtectsDirtyDraftThenSettles,
+    matrices: ['desktop-desktop'],
+    skipOnCi: true,
+  },
+  {
+    name: 'an external atomic save onto the open note is adopted',
+    fn: externalAtomicSaveOntoTheOpenNoteIsAdopted,
     matrices: ['desktop-desktop'],
     skipOnCi: true,
   },

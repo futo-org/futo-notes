@@ -347,6 +347,12 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
       const fromId = event.from.replace(/\.md$/, '');
       const toId = filename.replace(/\.md$/, '');
       if (suppressor.getRecentRemoteRename(fromId)) return;
+      // A rename onto the open note (an atomic save through a temp file with
+      // a note's name) replaced its bytes: re-read it like an edit.
+      if (toId === session.originalId) {
+        await handleFileChange({ type: 'change', filename }, shouldNotifySaved);
+        return;
+      }
       if (fromId === session.originalId) {
         await reconcileOpenNote(fromId, { renamedTo: toId });
       }
@@ -358,7 +364,9 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     if (!filename.endsWith('.md')) return;
 
     const id = filename.replace(/\.md$/, '');
-    const isActiveNoteChange = type === 'change' && id === session.originalId;
+    // An add of the open note is an atomic save through a hidden temp file
+    // (Linux inotify reports the temp's rename that way): new bytes, too.
+    const isActiveNoteChange = (type === 'change' || type === 'add') && id === session.originalId;
     if (!isActiveNoteChange && suppressor.isRecentSyncWrite(filename)) {
       return;
     }

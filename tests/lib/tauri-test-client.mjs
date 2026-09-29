@@ -2,7 +2,7 @@
  * Shared Tauri test client used by desktop and Android-backed harnesses.
  */
 
-import { writeFileSync } from 'node:fs';
+import { renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { URL } from 'node:url';
 import { executeJs, sleep } from './mcp-client.mjs';
@@ -136,6 +136,18 @@ export class TauriTestClient {
       );
     }
     writeFileSync(join(this.notesDir, `${id}.md`), content);
+  }
+
+  /** An external editor's atomic save: write `tempName`, rename it onto the note. */
+  async externalAtomicSaveNote(id, content, tempName) {
+    if (!this.capabilities.supportsHostExternalMutation || !this.notesDir) {
+      throw new Error(
+        `${this.name}: external host note mutation is not supported on ${this.platform}`,
+      );
+    }
+    const temp = join(this.notesDir, tempName);
+    writeFileSync(temp, content);
+    renameSync(temp, join(this.notesDir, `${id}.md`));
   }
 
   async writeNote(id, content) {
