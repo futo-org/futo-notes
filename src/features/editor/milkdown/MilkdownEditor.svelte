@@ -301,6 +301,10 @@
   let editedDuringLoad = false;
   /* The pending debounced change notification (documentChanges.ts). */
   let changeTimer: number | null = null;
+  /* The loaded document a host READ handed an edit of out, before any `change`
+   * said so (`getContent` inside the debounce — RC-28). An Undo back to that
+   * document is then a change the host has to hear, not the load's echo. */
+  let editReadOutOf: ProseNode | null = null;
   /* A change notification the debounce already handed to the idle priming
    * loop (`reportDocumentChange`, still-cold document): as unreported as one
    * still sitting in `changeTimer`. */
@@ -1040,8 +1044,15 @@
     if (loadFailed) return;
 
     // The debounced echo of host content we just loaded — not an edit, and
-    // decided without serializing anything.
-    if (unchangedSinceLoad()) return;
+    // decided without serializing anything. Unless a host read already took
+    // an edit of this document away (RC-28): then coming back to it is news.
+    if (unchangedSinceLoad()) {
+      if (editReadOutOf === null || editReadOutOf !== loadedDoc) return;
+      editReadOutOf = null;
+      const loaded = hostMarkdown ?? readSerialized();
+      if (loaded !== null) onchange?.(loaded);
+      return;
+    }
 
     // Most notes are already fully primed here (noteLoaded/finishProgressiveLoad
     // warm the cache in the background), so this budget almost never does real
@@ -1083,6 +1094,7 @@
     // A genuine user edit: the host's copy is no longer authoritative.
     loadedDoc = null;
     hostMarkdown = null;
+    editReadOutOf = null;
     onchange?.(markdown);
   }
 
@@ -1673,6 +1685,8 @@
      * and `''` here was indistinguishable from the user clearing the note. No
      * answer is the honest one: every caller treats `undefined` as unsaveable. */
     if (live === null) return hostMarkdown ?? liveMarkdown ?? undefined;
+    // Handed out before any `change` said so: the host may persist it.
+    if (loadedDoc !== null && !unchangedSinceLoad()) editReadOutOf = loadedDoc;
     return live;
   }
 

@@ -329,6 +329,39 @@ test.describe('an edit the editor still holds is never dropped by the save queue
     expect(await storedBody(page, 'slow a')).toContain('zqtypedq');
     expect(await storedBody(page, 'slow b')).toBe('incoming body\n');
   });
+
+  /* RC-28 (L6a-6). A save driven by a READ — a title blur, a sync completion,
+   * a window close — takes an edit the editor has not reported yet. An Undo
+   * back to the document as it was loaded then looked like the load's own
+   * echo and was never reported, so the undone edit stayed on disk. */
+  test('an Undo after a read-driven save of an unreported edit is saved too', async ({ page }) => {
+    await openNewNote(page);
+    await writeNotes(page, { 'undo after read': 'loaded body\n' });
+    await openStoredNote(page, 'undo after read', 'loaded body');
+    await page.locator(EDITOR).click();
+    await page.evaluate(() => {
+      const w = window as unknown as VaultGateWindow;
+      w.__keydownTimes = [];
+      document.addEventListener('keydown', () => w.__keydownTimes.push(performance.now()), true);
+    });
+
+    await page.keyboard.type('q');
+    await page.evaluate(() => (window as unknown as NotesHookWindow).__notesShellTest.flushSave());
+    expect(await storedBody(page, 'undo after read')).toContain('q');
+    await page.keyboard.press('ControlOrMeta+z');
+    const keyGap = await page.evaluate(() => {
+      const keys = (window as unknown as VaultGateWindow).__keydownTimes;
+      return keys[keys.length - 1] - keys[0];
+    });
+    expect(keyGap, 'the Undo must land inside the change debounce of the edit').toBeLessThan(200);
+    await expect(page.locator(EDITOR)).not.toContainText('q');
+
+    // Past the editor's 200 ms change debounce and the 500 ms save debounce,
+    // with nothing flushing on the test's behalf.
+    await expect
+      .poll(() => storedBody(page, 'undo after read'), { timeout: 3000 })
+      .toBe('loaded body\n');
+  });
 });
 
 /**
