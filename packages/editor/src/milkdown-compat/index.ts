@@ -54,6 +54,13 @@
  * `./attentionEncoding` puts back the flanking encoding Milkdown's own `strong`
  * and `emphasis` handlers drop, so `**Note:**bar` stays bold.
  *
+ * Structure, from the same campaign: `./linkDefinitions` keeps a link
+ * reference definition nothing uses (upstream deleted every one), `./tableWidth`
+ * pads a ragged table at the end rather than letting `fixTables` shift its rows,
+ * `./tableAlignment` keeps a cell's missing alignment through a paste, and
+ * `./trailingParagraph` stops the `trailing` plugin's parked paragraph from
+ * being written as a second trailing newline.
+ *
  * `./frontmatter` is the one member that is an ADDITION rather than a fork: the
  * preset has no front matter construct at all, so `---\ntags: [a, b]\n---`
  * parsed as a thematic break plus a setext heading and the first edit anywhere
