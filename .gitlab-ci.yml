@@ -229,7 +229,9 @@ collect-secrets-from-op:
         export PATH="$CARGO_HOME/bin:$PATH"
       fi
     - |
-      if rustup toolchain list | grep -q '^1.89.0'; then
+      # No `grep -q`: under pipefail its early exit can SIGPIPE `rustup` (which
+      # writes a line at a time) and read as "toolchain missing" (RC-65 shape).
+      if rustup toolchain list | grep '^1.89.0' >/dev/null; then
         echo "Rust 1.89.0 already present in the image"
       else
         rustup toolchain install 1.89.0 --profile minimal --component rustfmt --component clippy
@@ -803,6 +805,22 @@ test:e2e:editor-embed:
         - packages/editor/**/*
         - editor.html
         - vite.editor.config.ts
+        # The rest of editor.html's import graph (vite build of
+        # vite.editor.config.ts, listed via rollup getModuleIds; RC-21 / L1-005).
+        # An MR touching only these still changes the shipped bundle, and used
+        # to fall through to manual+allow_failure here (M11). Directory globs,
+        # not the per-file graph, so a new import in these dirs stays covered.
+        # Kept in sync with test:ios-native's `changes:` (premerge-test-parity
+        # test asserts both carry these).
+        - src/lib/platform/**/*
+        - src/lib/localNoteStore.ts
+        - src/lib/rules.ts
+        - src/shared/**/*
+        - src/features/sync/**/*
+        - src/features/notes/**/*
+        - src/features/folders/**/*
+        - languages/**/*
+        - svelte.config.js
         # One glob, not a per-file list: the list missed the T10/T11 additions
         # (webview-floor, milkdown-interactive), silently dropping this job to
         # manual+allow_failure on MRs touching only them (M11). The playwright
@@ -1773,7 +1791,11 @@ build:android-native:
     - |
       for UNIT_TASK in testDirectDebugUnitTest testPlayDebugUnitTest; do
         RESULTS_DIR="$CI_PROJECT_DIR/apps/android/app/build/test-results/$UNIT_TASK"
-        if ! find "$RESULTS_DIR" -name 'TEST-*.xml' -type f 2>/dev/null | grep -q .; then
+        # Pipe-free on purpose (RC-65): GitLab runs with pipefail, and
+        # `find | grep -q .` lets grep exit on the first path, SIGPIPE-ing find
+        # (141) once it has more than one buffer of results — the guard then
+        # fired falsely (MR !359, 59 files). -quit stops find itself.
+        if [ -z "$(find "$RESULTS_DIR" -name 'TEST-*.xml' -type f -print -quit 2>/dev/null)" ]; then
           echo "ERROR: no JVM unit-test result XML under $RESULTS_DIR — $UNIT_TASK did not execute" >&2
           exit 1
         fi
@@ -1919,6 +1941,25 @@ test:ios-native:
         - scripts/generate-native-language-resources.mjs
         - tests/conformance/**/*
         - packages/editor/src/bridge.ts
+        # .cirrus.yml builds editor.html (vite.editor.config.ts) and the Swift
+        # bridge tests run against it, so every input of that bundle counts —
+        # not just bridge.ts (RC-21 / L1-005). Same set as
+        # test:e2e:editor-embed's MR `changes:` (parity-tested).
+        - src/editor-embed/**/*
+        - src/features/editor/**/*
+        - src/styles/**/*
+        - src/features/images/**/*
+        - packages/editor/**/*
+        - editor.html
+        - vite.editor.config.ts
+        - src/lib/platform/**/*
+        - src/lib/localNoteStore.ts
+        - src/lib/rules.ts
+        - src/shared/**/*
+        - src/features/sync/**/*
+        - src/features/notes/**/*
+        - src/features/folders/**/*
+        - svelte.config.js
         - scripts/build-rust-ios.sh
         - .cirrus.yml
         - .gitlab-ci.yml

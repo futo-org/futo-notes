@@ -151,6 +151,15 @@ describe('pre-merge CI routing contracts', () => {
     const unitTestRecipe = topLevelBlock(justfile, /^test-android-native:[^\n]*$/m);
     const uiTestRecipe = topLevelBlock(justfile, /^test-android-native-ui:[^\n]*$/m);
 
+    // L1-008: the Android test recipes must test the editor.html of the checkout,
+    // not whatever gitignored copy an earlier build left in the assets.
+    for (const recipe of [unitTestRecipe, uiTestRecipe]) {
+      expect(recipe).toContain('vite build --config vite.editor.config.ts');
+      expect(recipe.indexOf('vite build --config vite.editor.config.ts')).toBeLessThan(
+        recipe.indexOf('./gradlew'),
+      );
+    }
+
     // Compile coverage: a flavor-specific source set that fails to build must
     // fail the pipeline, so both flavors are assembled on every path.
     expect(androidJob).toContain(':app:assembleDirectDebug :app:assemblePlayDebug');
@@ -258,6 +267,73 @@ describe('pre-merge CI routing contracts', () => {
     );
     expect(iosTestJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
     expect(iosTestJob).toContain('$CI_COMMIT_TAG');
+  });
+
+  // RC-21 / L1-005: editor.html is built from vite.editor.config.ts and shipped
+  // to both native shells, and the bridge specs / Swift bridge tests run against
+  // it. An MR touching only a file in that import graph used to drop these jobs
+  // to manual+allow_failure. The graph was derived from a real build (rollup
+  // getModuleIds over vite.editor.config.ts); the globs below are its directories.
+  it('runs the editor-bundle MR jobs for every directory in the bundle import graph', () => {
+    const bundleInputs = [
+      'src/editor-embed/**/*',
+      'src/features/editor/**/*',
+      'src/styles/**/*',
+      'src/features/images/**/*',
+      'packages/editor/**/*',
+      'editor.html',
+      'vite.editor.config.ts',
+      'src/lib/platform/**/*',
+      'src/lib/localNoteStore.ts',
+      'src/lib/rules.ts',
+      'src/shared/**/*',
+      'src/features/sync/**/*',
+      'src/features/notes/**/*',
+      'src/features/folders/**/*',
+      'svelte.config.js',
+    ];
+    for (const jobName of [/^test:e2e:editor-embed:$/m, /^test:ios-native:$/m]) {
+      const job = topLevelBlock(gitlabPipeline, jobName);
+      const mrRule = job.slice(job.indexOf('$CI_MERGE_REQUEST_IID'));
+      const changes = mrRule.slice(mrRule.indexOf('changes:'), mrRule.indexOf('- if:'));
+      for (const glob of bundleInputs) {
+        expect(changes, `${jobName} MR changes: is missing ${glob}`).toContain(`- ${glob}\n`);
+      }
+    }
+  });
+
+  // RC-65: GitLab and the CI scripts run with pipefail. `producer | grep -q`
+  // exits on the first match and SIGPIPEs a producer that still has output to
+  // write (141), so the pipeline reads as failed on a true condition. It made
+  // the Android JVM-unit-test guard fire falsely on MR !359 (59 result files).
+  // Only a producer that emits one small buffer (echo/printf of a short value)
+  // is safe; anything else must be pipe-free or consume all input.
+  it('has no early-exit `| grep -q` consumer of a multi-buffer producer under pipefail', () => {
+    const sources = {
+      '.gitlab-ci.yml': gitlabPipeline,
+      justfile,
+      'scripts/ci-android-sync-leg.sh': androidSyncLegScript,
+      'scripts/ci-android-instrumentation.sh': androidInstrumentationScript,
+      'scripts/ci-android-emulator.sh': androidEmulatorScript,
+    };
+    const earlyExitGrep =
+      /\|\s*(?:grep|egrep|fgrep|rg)\b[^|\n]*?(?:\s-[a-zA-Z]*q|--quiet|--silent)/;
+    /\|\s*(?:grep|egrep|fgrep|rg)\s[^|\n]*?(?:\s-[a-zA-Z]*q|--quiet|--silent)/;
+    const smallProducer = /(?:\becho|\bprintf|simctl list devices booted)\b[^|\n]*\|/;
+    const offenders = [];
+    for (const [file, text] of Object.entries(sources)) {
+      text.split('\n').forEach((line, i) => {
+        if (!line.trim().startsWith('#') && earlyExitGrep.test(line) && !smallProducer.test(line)) {
+          offenders.push(`${file}:${i + 1}: ${line.trim()}`);
+        }
+      });
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('checks the Android JVM unit-test XML without a find | grep pipe', () => {
+    const androidJob = topLevelBlock(gitlabPipeline, /^build:android-native:$/m);
+    expect(androidJob).toContain("-name 'TEST-*.xml' -type f -print -quit");
   });
 
   it('skips slow sync scenarios only on MR pipelines, never on main or tags', () => {
