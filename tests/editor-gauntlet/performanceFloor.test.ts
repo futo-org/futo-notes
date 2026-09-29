@@ -6,7 +6,9 @@ import {
   PERFORMANCE_BUDGET,
   evaluatePerformanceFloor,
   type PerformanceResult,
+  runPerformanceFloor,
 } from './performanceFloor';
+import type { EditorGauntletAdapter } from './types';
 
 function result(overrides: Partial<PerformanceResult>): PerformanceResult {
   return {
@@ -133,5 +135,49 @@ describe('evaluatePerformanceFloor', () => {
     expect(violations.filter((v) => v.kind === 'missing-measurement')).toHaveLength(
       MILKDOWN_FLOOR_FIXTURES.length,
     );
+  });
+});
+
+describe('runPerformanceFloor', () => {
+  it('opens every fixture on a fresh page and reports the replace cost apart from the open', async () => {
+    const calls: string[] = [];
+    const adapter = {
+      name: 'fake',
+      freshPage: async () => void calls.push('fresh'),
+      open: async () => void calls.push('open'),
+      measureOpen: async (source: string) => {
+        calls.push(source === '' ? 'replace-away' : 'measure-open');
+        return {
+          bytes: source.length,
+          lines: 1,
+          synchronousMs: 1,
+          settledMs: source === '' ? 3_000 : 90,
+        };
+      },
+      measureKeystrokes: async () => {
+        calls.push('keys');
+        return { synchronousSamplesMs: [1], settledToPaintSamplesMs: [2] };
+      },
+    } as unknown as EditorGauntletAdapter;
+
+    const fixtures = only('10k-char-js-fence', '2000-item-task-list');
+    const results = await runPerformanceFloor(adapter, fixtures);
+
+    // No open is measured on a page that still holds an earlier fixture.
+    expect(calls).toEqual([
+      ...['fresh', 'open', 'measure-open', 'keys', 'replace-away'],
+      ...['fresh', 'open', 'measure-open', 'keys', 'replace-away'],
+    ]);
+    expect(results.map((r) => [r.openMs, r.replaceAwayMs])).toEqual([
+      [90, 3_000],
+      [90, 3_000],
+    ]);
+    // The replace cost is reported, not judged.
+    expect(evaluatePerformanceFloor(fixtures, results)).toEqual([]);
+  });
+
+  it('refuses an adapter that cannot give each fixture a fresh page', async () => {
+    const adapter = { name: 'stale' } as unknown as EditorGauntletAdapter;
+    await expect(runPerformanceFloor(adapter, only('1000-lines'))).rejects.toThrow(/freshPage/);
   });
 });

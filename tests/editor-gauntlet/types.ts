@@ -71,6 +71,13 @@ export interface EditorGauntletAdapter {
   undo(): Promise<EditorSnapshot>;
   walkCaret(positions: number[]): Promise<void>;
   measureOpen(source: string): Promise<OpenMeasurement>;
+  /**
+   * Discard the live page (and everything it still holds) so the next `open`
+   * starts a new one. The performance floor calls this between fixtures so no
+   * fixture's open measurement includes the teardown of the previous document.
+   * Optional: only an adapter that is measured needs it.
+   */
+  freshPage?(): Promise<void>;
   measureKeystrokes(count: number, target?: KeystrokeTarget): Promise<KeystrokeMeasurement>;
   captureFeelState(): Promise<DriverState>;
 }

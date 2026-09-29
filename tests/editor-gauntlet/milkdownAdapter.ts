@@ -124,6 +124,11 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
     this.livePage = null;
   }
 
+  /** Close the live page so the next `open` builds a new one (see the interface). */
+  async freshPage(): Promise<void> {
+    await this.dispose();
+  }
+
   async open(source: string, _caseId: string): Promise<void> {
     const page = await this.ensurePage();
     this.pageErrors = [];

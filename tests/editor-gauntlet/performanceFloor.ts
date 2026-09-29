@@ -58,6 +58,15 @@ export interface PerformanceResult {
   openSynchronousMs: number;
   keystrokeSynchronousP95Ms: number;
   keystrokeSettledToPaintP95Ms: number;
+  /**
+   * Measured only, never gated: how long replacing THIS fixture's document with
+   * an empty one took, on the page that opened it. It is the cost the previous
+   * fixture used to leak into the next one's open time (FB-10 refute: replacing
+   * the 50,000-line document cost 2.7-3.8 s), and it is reported so that cost
+   * stays visible now that each fixture opens on a fresh page. No budget reads
+   * it (M15).
+   */
+  replaceAwayMs?: number;
 }
 
 export type FloorViolationKind =
@@ -302,15 +311,28 @@ export function evaluatePerformanceFloor(
   return violations;
 }
 
+/**
+ * Every fixture opens on a page of its own. Sharing one page made a fixture's
+ * open time include the teardown of the fixture before it (the two measured
+ * fixtures that follow the 50,000-line document read 2.7-3.8 s where a fresh
+ * page reads ~90 ms), so a measurement that gated nothing real. The replace
+ * cost of the document is measured before the page is thrown away instead, as
+ * `replaceAwayMs`.
+ */
 export async function runPerformanceFloor(
   adapter: EditorGauntletAdapter,
   fixtures: FloorFixture[],
 ): Promise<PerformanceResult[]> {
+  if (!adapter.freshPage) {
+    throw new Error(`${adapter.name}: the performance floor needs an adapter with freshPage()`);
+  }
   const results: PerformanceResult[] = [];
-  await adapter.open('', 'performance-floor');
   for (const fixture of fixtures) {
+    await adapter.freshPage();
+    await adapter.open('', 'performance-floor');
     const opened = await adapter.measureOpen(fixture.build());
     const typed = await adapter.measureKeystrokes(25, fixture.typeInto);
+    const replaced = await adapter.measureOpen('');
     results.push({
       fixture: fixture.name,
       lines: opened.lines,
@@ -319,6 +341,7 @@ export async function runPerformanceFloor(
       openSynchronousMs: opened.synchronousMs,
       keystrokeSynchronousP95Ms: percentile95(typed.synchronousSamplesMs),
       keystrokeSettledToPaintP95Ms: percentile95(typed.settledToPaintSamplesMs),
+      replaceAwayMs: replaced.settledMs,
     });
   }
   return results;
