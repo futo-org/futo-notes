@@ -256,6 +256,16 @@ const TABLE_DELIMITER_ROW = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*
 const HTML_BLOCK_START = /^ {0,3}<[A-Za-z/!?]/;
 
 /**
+ * An HTML block opened INSIDE a container: `- <pre>`, `> <!--`, `1. <script>`.
+ * `HTML_BLOCK_START` only sees column 0..3, so without this the scanner reads
+ * the block's blank lines and `# h` lines as ordinary structure. Needs at least
+ * one container marker; a URL autolink (`<https://x>`) is not a tag and is let
+ * through, since a scheme's `:` cannot appear in a tag name.
+ */
+const CONTAINED_HTML_START =
+  /^(?:[ \t]|>|(?:[-*+]|\d{1,9}[.)])(?=[ \t]))+<(?![A-Za-z][A-Za-z0-9+.-]{1,31}:)[A-Za-z/!?]/;
+
+/**
  * A fence marker run that follows only whitespace and container markers
  * (`- `, `1. `, `> `), with something in front of it. At column 0 the scanner
  * tracks a fence exactly; anywhere else its closing rule belongs to the
@@ -353,7 +363,11 @@ interface ScanState {
  * applies those there too); a tag or `]:` inside a column-0 fence is code, not
  * HTML or a definition.
  */
-function lineOffense(state: ScanState, raw: string): ChunkDeclineReason | null {
+function lineOffense(
+  state: ScanState,
+  raw: string,
+  inFrontMatter = false,
+): ChunkDeclineReason | null {
   const bare = raw.replace(/\r?\n$/, '');
   /* U+FEFF: micromark strips one at the start of any parse, so a chunk may
    * never start at one, and remark's marker lookup is offset by it. */
@@ -365,8 +379,10 @@ function lineOffense(state: ScanState, raw: string): ChunkDeclineReason | null {
   }
   /* `trim()`-blank but not space/tab-blank: NBSP, U+3000, \f, \v, ... */
   if (bare.trim() === '') return isBlank(bare) ? null : 'unicode-blank';
-  if (state.fence) return null;
-  if (HTML_BLOCK_START.test(bare)) return 'html-block';
+  /* The note's own front matter is YAML, not markdown: a fence-looking or tag-
+   * looking line in it is not one (and must not open a phantom fence). */
+  if (state.fence || inFrontMatter) return null;
+  if (HTML_BLOCK_START.test(bare) || CONTAINED_HTML_START.test(bare)) return 'html-block';
   /* A fence indented 1–3 closes by a rule the enclosing block decides (a
    * column-0 line closes it implicitly, and a column-0 run then opens a NEW
    * fence): the scanner was a whole code block out of step with micromark. */
@@ -493,11 +509,11 @@ export function planMarkdownChunks(
   const lines = splitKeepingLineEndings(markdown);
   if (lines.length < minLines) return whole('too-short');
 
-  /* Scan a copy without a LEADING U+FEFF; the parser strips exactly that one
+  /* Scan a copy without LEADING U+FEFFs; the parser strips exactly that one
    * (`parseNote.ts`), so line 0's front-matter fence and block structure are
    * what the scanner should see. `lines` keeps the byte for the join. */
   const scan = lines.slice();
-  if (scan[0]?.charCodeAt(0) === 0xfeff) scan[0] = scan[0].slice(1);
+  if (scan[0]) scan[0] = scan[0].replace(/^\ufeff+/, '');
 
   let stoppedBy: ChunkDeclineReason | null = null;
   let stoppedAt = scan.length;
@@ -520,7 +536,8 @@ export function planMarkdownChunks(
   const frontMatterEnd = frontMatterEndLine(scan);
 
   for (let i = 0; i < scan.length; i += 1) {
-    const offense = lineOffense(state, scan[i]);
+    const inFrontMatter = i < frontMatterEnd;
+    const offense = lineOffense(state, scan[i], inFrontMatter);
     if (offense === 'reference-definition') return whole(offense);
     if (offense) {
       stoppedBy = offense;
@@ -570,13 +587,18 @@ export function planMarkdownChunks(
       boundaries.push(i);
     }
 
-    advance(state, scan[i]);
+    if (inFrontMatter) {
+      /* Not scanned as markdown; the line after it may still open a block. */
+      if (i === frontMatterEnd - 1) state.prevLineBlank = false;
+    } else {
+      advance(state, scan[i]);
+    }
   }
 
   if (stoppedBy) {
     /* Definitions resolve document-wide, so the tail still gets a check for
      * one — context-free, since the scanner no longer knows what is a fence. */
-    let labelOpen = false;
+    let labelOpen = state.labelOpen;
     for (let i = stoppedAt; i < scan.length; i += 1) {
       const bare = scan[i].replace(/\r?\n$/, '');
       if (isBlank(bare)) {

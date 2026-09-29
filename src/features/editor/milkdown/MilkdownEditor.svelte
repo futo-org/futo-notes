@@ -96,7 +96,7 @@
   import { createSelectionToolbarPlugin, resolveSelectionToolbar } from './selectionToolbar';
   import { createSlashMenuPlugin, resolveSlashMenu } from './slash';
   import { planMarkdownChunks, type MarkdownChunkOptions } from './markdownChunks';
-  import { parseNote } from './parseNote';
+  import { parseNote, stripLeadingBoms } from './parseNote';
   import {
     OPEN_COMPLETE_MEASURE,
     OPEN_INTERACTIVE_MEASURE,
@@ -543,7 +543,7 @@
       let builder = Editor.make()
         .config((ctx) => {
           ctx.set(rootCtx, container);
-          ctx.set(defaultValueCtx, pendingContent ?? '');
+          ctx.set(defaultValueCtx, stripLeadingBoms(pendingContent ?? ''));
           /* Stop remark-stringify turning a note's leading `#tag` into `\#tag`
            * on save, which silently un-tags it, and `snake_case` into
            * `snake\_case` (which also un-tags `#dog_problems`). See
@@ -1723,7 +1723,7 @@
   export function insertMarkdown(text: string): void {
     // Chrome must not write into a document that is not the note (`loadFailed`).
     if (!editor || loadFailed) return;
-    editor.action(insert(text));
+    editor.action(insert(stripLeadingBoms(text)));
     pmView()?.focus();
   }
 
@@ -1777,7 +1777,7 @@
      * discarded: this replace is one undoable step, so the document it leaves
      * behind for Ctrl-Z has to be the complete note (`endPendingLoad`). */
     endPendingLoad('settle');
-    editor.action(replaceAll(text));
+    editor.action(replaceAll(stripLeadingBoms(text)));
     // The document is no longer the host's bytes — and this replace's own
     // debounced change notification is an echo of the report made right here,
     // not a second edit: `loadedDoc` is what says so.

@@ -361,3 +361,34 @@ describe('the focus signal the external-change coordinator reads', () => {
     expect(handle.hasFocus()).toBe(false);
   });
 });
+
+/**
+ * RC-38: micromark strips a leading U+FEFF, so Milkdown's remarkMarker read the
+ * character BEFORE each `*`/`_` run and re-spelled every emphasis in the note.
+ * `openNote` goes through parseNote, but the desktop tag bar's `applyEdit`
+ * called Milkdown's own `replaceAll`, which did not — and reports the result
+ * to the host synchronously, so the corruption was saved.
+ */
+describe('a note that starts with a byte order mark', () => {
+  const BODY = 'Intro **b** and _it_ x**y**z\n';
+
+  it('keeps its emphasis when the tag bar rewrites the document', () => {
+    handle.openNote(`\ufeff${BODY}`);
+    expect(handle.getContent()).toBe(`\ufeff${BODY}`);
+
+    handle.applyEdit(`${handle.getContent()}\n#tag\n`);
+
+    expect(changes.at(-1)).toBe(`${BODY}\n#tag\n`);
+    expect(handle.getContent()).toBe(`${BODY}\n#tag\n`);
+  });
+
+  it('keeps its emphasis when the BOM is doubled, and echoes the host bytes on open', () => {
+    const note = `\ufeff\ufeff${BODY}`;
+    handle.openNote(note);
+    expect(handle.getContent()).toBe(note);
+
+    handle.applyEdit(`${note}\n#tag\n`);
+
+    expect(changes.at(-1)).toBe(`${BODY}\n#tag\n`);
+  });
+});

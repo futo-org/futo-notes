@@ -2898,6 +2898,12 @@ const CHUNK_AGREEMENT_CASES: Array<{ name: string; note: string }> = [
     note: `Intro para.\n\n<div>\n<!DOCTYPE x\n\n<pre>\n${Array.from({ length: 85 }, (_, i) => `pre line ${i}`).join('\n')}\n\n# not a heading\n* not a list\n</pre>\n\n${CHUNK_TAIL}\n`,
   },
   {
+    // A ``` line inside the note's own YAML opened a phantom fence in the
+    // scanner, which swallowed the real structure after it.
+    name: 'a fence-looking line inside the front matter',
+    note: `---\n\`\`\`\n---\n\nIntro [x].\n${CHUNK_INTRO_REST}\n\n[x]: /u\n\n\`\`\`\n\n${CHUNK_TAIL}\n`,
+  },
+  {
     name: 'a reference definition with an escaped bracket in its label',
     note: `Intro [si\\]te].\n${CHUNK_INTRO_REST}\n\n[si\\]te]: https://example.com/x\nmore text\n\n${CHUNK_TAIL}\n`,
   },
@@ -3028,6 +3034,19 @@ for (const where of ['in another block', 'in the same block'] as const) {
     expect(written).toBe(body.replace('Intro', 'ZIntro'));
   });
 }
+
+test('a note with a DOUBLED leading BOM keeps its emphasis and echoes the host bytes', async ({
+  page,
+}) => {
+  const body = 'Intro **b** and _it_ x**y**z\n';
+  const note = `\ufeff\ufeff${body}`;
+  await initialize(page, hostConfig({ content: note }));
+  expect(await getContent(page)).toBe(note);
+  expect(await messagesOfType(page, 'change')).toHaveLength(0);
+
+  const written = await typeInFrontOfAndReadChange(page, 'Intro');
+  expect(written).toBe(body.replace('Intro', 'ZIntro'));
+});
 
 test('a BOM-leading note that IS large still opens progressively and keeps its emphasis', async ({
   page,

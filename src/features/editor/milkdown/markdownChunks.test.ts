@@ -475,6 +475,11 @@ describe('planMarkdownChunks — stops at what it cannot prove', () => {
     ['an ideographic-space-only line', 'para\n\n\u3000\n2. not a list\n\nafter\n'],
     ['a form-feed-only line', 'para\n\n\f\n2. not a list\n\nafter\n'],
     ['U+2028 in a line', 'para\u2028```\n\nafter\n'],
+    ['an HTML comment opened in a list item', '- <!--\n\ntext\n\n- b\n'],
+    ['a <pre> opened in a list item', '- <pre>\n\n  foo\n\n# h\n</pre>\n\nafter\n'],
+    ['a <pre> opened in a blockquote', '> <pre>\n\nfoo\n\n# h\n</pre>\n\nafter\n'],
+    ['a <pre> opened in an ordered item', '1. <pre>\n\n# h\n\nafter\n'],
+    ['a <script> opened in a nested item', '  * <script>\n\n# h\n\nafter\n'],
     ['a U+FEFF in the middle of the note', 'para\n\n\ufeff# not a heading\n\nafter\n'],
   ];
 
@@ -514,6 +519,24 @@ describe('planMarkdownChunks — stops at what it cannot prove', () => {
       expect(plan.chunks).toEqual([md]);
     });
   }
+
+  it('sees a two-line label whose second line is the line it stopped at', () => {
+    const md = '[a <span>]\n\n# h\n\n[a\n<span>]: /u\n\ntext\n';
+    expect(planMarkdownChunks(md, opts).declined).toBe('reference-definition');
+  });
+
+  it('does not stop at a URL autolink in a list item', () => {
+    const md = `${pad}- <https://example.com/x>\n\nafter\n${pad}`;
+    expect(planMarkdownChunks(md, opts).stoppedBy).toBeUndefined();
+  });
+
+  it('does not let a fence-looking line in the front matter open a fence', () => {
+    const md = `---\n\`\`\`\ntitle: x\n---\n\nintro\n\n# one\n\n# two\n\ntext\n`;
+    const plan = planMarkdownChunks(md, opts);
+    expect(plan.chunks.join('')).toBe(md);
+    expect(plan.chunked).toBe(true);
+    expect(plan.chunks.some((c) => c.startsWith('# two'))).toBe(true);
+  });
 
   it('declines for a definition that comes AFTER the point it stopped trusting the scan', () => {
     const md = `${pad}<div>\n\n${pad}- [a]: https://e.com/x\n`;

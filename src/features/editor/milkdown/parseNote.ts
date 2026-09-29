@@ -15,16 +15,24 @@ import type { Node as ProseNode } from '@milkdown/kit/prose/model';
  * is one code unit short of `file.value` — and Milkdown's `remarkMarker`
  * reads `file.value.charAt(node.position.start.offset)` to learn whether a
  * mark was `*` or `_`. With the BOM still on the string that reads the
- * character BEFORE the mark, and every emphasis in the note is re-spelled with
- * it (`x**y**z` became `xxxyxxz`). So the BOM is removed HERE, once, before
- * the parser sees the string. The first edit therefore writes the note
- * without it, which is what the editor did to a BOM note before (RC-38).
+ * character BEFORE each mark, and every emphasis in the note is re-spelled
+ * with it (`x**y**z` became `xxxyxxz`). So every leading BOM is removed HERE,
+ * before the parser sees the string (a doubled BOM, from a concatenated file,
+ * strips one in micromark and would put the offsets off again). The first edit
+ * therefore writes the note without them (RC-38); the load echo is unaffected,
+ * because the host's bytes are kept by the caller and never round-trip through
+ * this function.
  *
- * Only ever one: `planMarkdownChunks` never starts a chunk at a U+FEFF in the
- * MIDDLE of a note (it declines), so no later chunk can lose one here.
+ * EVERY route from a string to a document must go through this: `parseNote`
+ * for loads, and `stripLeadingBoms` for the two Milkdown actions that parse for
+ * themselves (`replaceAll` in `applyEdit`, `insert`) and the initial value.
+ * `planMarkdownChunks` never starts a chunk at a U+FEFF in the MIDDLE of a
+ * note (it stops), so no later chunk can lose one here.
  */
-function withoutLeadingBom(markdown: string): string {
-  return markdown.charCodeAt(0) === 0xfeff ? markdown.slice(1) : markdown;
+export function stripLeadingBoms(markdown: string): string {
+  let start = 0;
+  while (markdown.charCodeAt(start) === 0xfeff) start += 1;
+  return start === 0 ? markdown : markdown.slice(start);
 }
 
 /**
@@ -34,5 +42,5 @@ function withoutLeadingBom(markdown: string): string {
  * could not close was one), and answers null when the parser produced nothing.
  */
 export function parseNote(editor: Editor, markdown: string): ProseNode | null {
-  return editor.ctx.get(parserCtx)(withoutLeadingBom(markdown)) ?? null;
+  return editor.ctx.get(parserCtx)(stripLeadingBoms(markdown)) ?? null;
 }
