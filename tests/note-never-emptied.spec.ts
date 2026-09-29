@@ -362,6 +362,54 @@ test.describe('an edit the editor still holds is never dropped by the save queue
       .poll(() => storedBody(page, 'undo after read'), { timeout: 3000 })
       .toBe('loaded body\n');
   });
+
+  /* RC-26 (L7-linux-02, maintainer decision 5A). The body save was a pure
+   * trailing debounce behind the editor's own trailing debounce, so a steady
+   * typist was saved only when they paused, and a crash mid-burst lost the
+   * whole burst. A save now lands every ~2 s while typing continues. */
+  test('continuous typing is saved within about two seconds, without a pause', async ({ page }) => {
+    await openNewNote(page);
+    await writeNotes(page, { 'steady typist': 'start\n' });
+    await openStoredNote(page, 'steady typist', 'start');
+    await page.locator(EDITOR).click();
+
+    await page.evaluate(async (modulePath) => {
+      const { webLocalNoteStore } = await import(/* @vite-ignore */ modulePath);
+      const store = webLocalNoteStore as Record<string, (...args: unknown[]) => Promise<unknown>>;
+      const original = store.flushDraft.bind(store);
+      const w = window as unknown as VaultGateWindow;
+      w.__flushDraftTimes = [];
+      w.__keydownTimes = [];
+      store.flushDraft = (...args: unknown[]) => {
+        w.__flushDraftTimes.push(performance.now());
+        return original(...args);
+      };
+      document.addEventListener('keydown', () => w.__keydownTimes.push(performance.now()), true);
+    }, WEB_VAULT_MODULE);
+
+    // ~4 s of typing with no gap the editor's 200 ms change debounce could fire in.
+    await page.keyboard.type('zq steady words typed without a pause qz', { delay: 100 });
+
+    const timing = await page.evaluate(() => {
+      const w = window as unknown as VaultGateWindow;
+      const keys = w.__keydownTimes;
+      let longestGap = 0;
+      for (let i = 1; i < keys.length; i += 1)
+        longestGap = Math.max(longestGap, keys[i] - keys[i - 1]);
+      return {
+        longestGap,
+        typedFor: keys[keys.length - 1] - keys[0],
+        firstSaveAfter: w.__flushDraftTimes.length ? w.__flushDraftTimes[0] - keys[0] : null,
+      };
+    });
+    expect(
+      timing.longestGap,
+      'the typing must be continuous for this case to mean anything',
+    ).toBeLessThan(200);
+    expect(timing.typedFor).toBeGreaterThan(3000);
+    expect(timing.firstSaveAfter, 'no save landed while the typist kept typing').not.toBeNull();
+    expect(timing.firstSaveAfter!).toBeLessThan(2600);
+  });
 });
 
 /**

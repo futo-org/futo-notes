@@ -103,6 +103,10 @@ function hasDuplicateNoteTitle(
 }
 
 const BODY_SAVE_DEBOUNCE_MS = 500;
+/* Typing that never pauses is still saved this often (RC-26, maintainer
+ * decision 5A). The editor reports a change at least every 1.5 s of continuous
+ * editing (documentChanges.ts), so a steady typist is on disk within ~2 s. */
+const BODY_SAVE_MAX_WAIT_MS = 2_000;
 const TITLE_SAVE_DEBOUNCE_MS = 10_000;
 
 // eslint-disable-next-line max-lines-per-function -- One Svelte rune factory owns the draft baseline and serialized save lifecycle.
@@ -293,8 +297,8 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       content = nextContent;
     }
     if (loading || !hasFileSystem || deps.getNoteId() === null) return;
-    const debounceMs = nextContent === undefined ? TITLE_SAVE_DEBOUNCE_MS : BODY_SAVE_DEBOUNCE_MS;
-    saveQueue.schedule(debounceMs);
+    if (nextContent === undefined) saveQueue.schedule(TITLE_SAVE_DEBOUNCE_MS);
+    else saveQueue.schedule(BODY_SAVE_DEBOUNCE_MS, BODY_SAVE_MAX_WAIT_MS);
   }
 
   function hasUnseenEditorChanges(): boolean {

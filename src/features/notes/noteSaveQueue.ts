@@ -12,15 +12,32 @@ export function createNoteSaveQueue(options: NoteSaveQueueOptions) {
   let saveQueued = false;
   let lastEditTime = 0;
   let editVersion = 0;
+  /* When the armed timer's run of edits began: the max-wait's anchor. */
+  let pendingSince: number | null = null;
 
-  function schedule(delayMilliseconds: number): void {
-    lastEditTime = Date.now();
+  /**
+   * Arms the save `delayMilliseconds` after this edit — a trailing debounce,
+   * so a burst costs one save. With `maxWaitMilliseconds`, a burst that never
+   * pauses is still saved that long after it began (RC-26: a steady typist was
+   * saved only when they stopped, and a crash lost the whole burst). Nothing
+   * extra runs per edit: the one timer is simply armed no later than the
+   * deadline, and the save it fires is the ordinary one.
+   */
+  function schedule(delayMilliseconds: number, maxWaitMilliseconds = Infinity): void {
+    const now = Date.now();
+    lastEditTime = now;
     editVersion++;
     if (saveTimer !== null) window.clearTimeout(saveTimer);
+    pendingSince ??= now;
+    const delay = Math.max(
+      0,
+      Math.min(delayMilliseconds, pendingSince + maxWaitMilliseconds - now),
+    );
     saveTimer = window.setTimeout(() => {
       saveTimer = null;
+      pendingSince = null;
       void runQueuedSave().catch(() => {});
-    }, delayMilliseconds);
+    }, delay);
   }
 
   function resume(): void {
@@ -58,6 +75,7 @@ export function createNoteSaveQueue(options: NoteSaveQueueOptions) {
       const hadPendingTimer = saveTimer !== null;
       if (saveTimer !== null) window.clearTimeout(saveTimer);
       saveTimer = null;
+      pendingSince = null;
 
       if (hadPendingTimer) await runQueuedSave();
       else if (saveInFlight) {
@@ -94,6 +112,7 @@ export function createNoteSaveQueue(options: NoteSaveQueueOptions) {
   function cancelPending(): void {
     if (saveTimer !== null) window.clearTimeout(saveTimer);
     saveTimer = null;
+    pendingSince = null;
   }
 
   return {

@@ -35,6 +35,14 @@ import { $prose } from '@milkdown/kit/utils';
  */
 export const DOCUMENT_CHANGE_DEBOUNCE_MS = 200;
 
+/**
+ * The longest an edit waits to be reported while the document never sits
+ * still. Typing faster than the debounce used to be reported only when it
+ * paused, and a crash mid-burst lost the whole burst (RC-26). One report per
+ * this interval is one serialization of what changed, not of the note.
+ */
+export const DOCUMENT_CHANGE_MAX_WAIT_MS = 1_500;
+
 function isHousekeeping(transaction: Transaction): boolean {
   return transaction.getMeta('addToHistory') === false;
 }

@@ -121,7 +121,11 @@
     type FindMatchReport,
   } from './find';
   import { tagDecorations } from './tagDecorations';
-  import { DOCUMENT_CHANGE_DEBOUNCE_MS, documentChanges } from './documentChanges';
+  import {
+    DOCUMENT_CHANGE_DEBOUNCE_MS,
+    DOCUMENT_CHANGE_MAX_WAIT_MS,
+    documentChanges,
+  } from './documentChanges';
   import { createBlockSerializer, type BlockSerializer } from './blockSerializer';
   import { WHOLE as CENSUS_WHOLE } from './chunkCensusHook';
   import { CHECKBOX_SIZE_PX, taskCheckbox } from './taskCheckbox';
@@ -301,6 +305,9 @@
   let editedDuringLoad = false;
   /* The pending debounced change notification (documentChanges.ts). */
   let changeTimer: number | null = null;
+  /* When the first edit the pending notification holds was made: the anchor
+   * for `DOCUMENT_CHANGE_MAX_WAIT_MS`. */
+  let changePendingSince: number | null = null;
   /* The loaded document a host READ handed an edit of out, before any `change`
    * said so (`getContent` inside the debounce — RC-28). An Undo back to that
    * document is then a change the host has to hear, not the load's echo. */
@@ -914,8 +921,7 @@
       endPendingLoad('discard');
       // A change notification that lands after the component is gone would
       // serialize a destroyed editor and report it as the note.
-      if (changeTimer !== null) window.clearTimeout(changeTimer);
-      changeTimer = null;
+      cancelChangeNotification();
       stopPriming();
       blockSerializer = null;
       stopFileDrop?.();
@@ -1020,12 +1026,29 @@
     scheduleChangeNotification();
   }
 
+  /* A trailing debounce, capped: an edit is reported once the document has sat
+   * still for DOCUMENT_CHANGE_DEBOUNCE_MS, or DOCUMENT_CHANGE_MAX_WAIT_MS after
+   * it was made, whichever is first (RC-26 — typing that never paused was never
+   * reported, so never saved). The same one timer either way. */
   function scheduleChangeNotification(): void {
     if (changeTimer !== null) window.clearTimeout(changeTimer);
+    const now = performance.now();
+    changePendingSince ??= now;
+    const delay = Math.min(
+      DOCUMENT_CHANGE_DEBOUNCE_MS,
+      Math.max(0, changePendingSince + DOCUMENT_CHANGE_MAX_WAIT_MS - now),
+    );
     changeTimer = window.setTimeout(() => {
       changeTimer = null;
+      changePendingSince = null;
       reportDocumentChange();
-    }, DOCUMENT_CHANGE_DEBOUNCE_MS);
+    }, delay);
+  }
+
+  function cancelChangeNotification(): void {
+    if (changeTimer !== null) window.clearTimeout(changeTimer);
+    changeTimer = null;
+    changePendingSince = null;
   }
 
   /** Hands the settled document to the host, unless it is not the host's to hear. */
@@ -1292,8 +1315,7 @@
 
     /* Whatever the debounce is holding described a prefix, or is about to be
      * reported right here; either way a second report would be a duplicate. */
-    if (changeTimer !== null) window.clearTimeout(changeTimer);
-    changeTimer = null;
+    cancelChangeNotification();
     // Any cached serialization described a prefix of the note.
     liveDoc = null;
     liveMarkdown = null;
@@ -1627,8 +1649,7 @@
   export function captureContent(): string | undefined {
     const text = getContent();
     if (changeTimer !== null || reportAwaitsPriming) {
-      if (changeTimer !== null) window.clearTimeout(changeTimer);
-      changeTimer = null;
+      cancelChangeNotification();
       if (reportAwaitsPriming) startPriming();
       reportDocumentChange();
     }
