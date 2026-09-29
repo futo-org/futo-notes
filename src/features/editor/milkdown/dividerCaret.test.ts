@@ -27,6 +27,10 @@ import { TextSelection } from '@milkdown/kit/prose/state';
 import type { EditorView } from '@milkdown/kit/prose/view';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
+import { guardEditorTimers } from './__fixtures__/editorTimerGuard';
+
+// RC-66: no native timer may outlive a test (see the guard's header).
+guardEditorTimers();
 
 vi.mock('$lib/platform', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),

@@ -19,6 +19,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, tick, unmount } from 'svelte';
 import { undo } from '@milkdown/kit/prose/history';
 import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
+import { guardEditorTimers } from './__fixtures__/editorTimerGuard';
+
+// RC-66: no native timer may outlive a test (see the guard's header).
+guardEditorTimers();
 
 vi.mock('$lib/platform', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
