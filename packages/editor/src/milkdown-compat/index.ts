@@ -116,7 +116,10 @@ export {
   FRONTMATTER_NODE,
 } from './frontmatter';
 export type { MdastNode } from './mdast';
-export { withoutTrailingEmptyParagraphs } from './trailingParagraph';
+export {
+  hasSurplusTrailingEmptyParagraphs,
+  withoutTrailingEmptyParagraphs,
+} from './trailingParagraph';
 
 /** The two entries `remarkPreserveEmptyLinePlugin` contributes to the preset. */
 const UPSTREAM_EMPTY_LINE_ENTRIES: readonly unknown[] = [

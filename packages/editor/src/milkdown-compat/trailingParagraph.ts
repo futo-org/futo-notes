@@ -29,6 +29,32 @@ export function withoutTrailingEmptyParagraphs(nodes: readonly ProseNode[]): Pro
   return end === nodes.length ? [...nodes] : nodes.slice(0, end);
 }
 
+/**
+ * Does `doc` end in more empty paragraphs than a fresh parse of its own
+ * serialization would leave?
+ *
+ * A load parks exactly one empty paragraph after a document whose last block is
+ * not a paragraph or heading (the `trailing` plugin) — or, for a document with
+ * no such block at all, keeps the single one `block+` requires — and none after
+ * a document ending in a paragraph or heading. Enter at the end stacks more, and
+ * {@link withoutTrailingEmptyParagraphs} makes those serialize to the same bytes
+ * as the document without them. So "same bytes" no longer means "same document":
+ * a host `setContent` whose text equals the serialization must still be applied
+ * when this is true, or the previous note's blank paragraphs stay on screen
+ * under the next note's text (RC-22 regression, F-2).
+ */
+export function hasSurplusTrailingEmptyParagraphs(doc: ProseNode): boolean {
+  const children: ProseNode[] = [];
+  doc.forEach((child) => children.push(child));
+  const kept = withoutTrailingEmptyParagraphs(children);
+  const trailing = children.length - kept.length;
+  const last = kept[kept.length - 1];
+  // Mirrors @milkdown/plugin-trailing's default `shouldAppend`.
+  const parked =
+    last === undefined || (last.type.name !== 'paragraph' && last.type.name !== 'heading');
+  return trailing > (parked ? 1 : 0);
+}
+
 function isEmptyParagraph(node: ProseNode): boolean {
   return node.type.name === 'paragraph' && node.content.size === 0;
 }

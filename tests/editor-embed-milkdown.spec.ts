@@ -847,6 +847,40 @@ test('a host re-sending the note on screen leaves the caret where it was', async
   expect(await getContent(page)).toBe('abcZdef\n');
 });
 
+test('a switch to an empty note drops the blank paragraphs the last note was left with', async ({
+  page,
+}) => {
+  // RC-22 regression: trailing empty paragraphs are not written, so a note the
+  // user pressed Enter in serializes like a note without them, and the switch
+  // was skipped as "already on screen" with the blanks still there.
+  await initialize(page, hostConfig({ content: '' }));
+  await focusEditor(page);
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await settleChangeDebounce(page);
+
+  await hostSetContent(page, '');
+  await focusEditor(page);
+  await page.keyboard.type('shopping');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe('shopping\n');
+});
+
+test('a switch to the same text drops the blank paragraphs stacked under it', async ({ page }) => {
+  await hostSetContent(page, 'hello\n');
+  await focusEditor(page);
+  await page.keyboard.press('ControlOrMeta+End');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Enter');
+  await settleChangeDebounce(page);
+  expect(await page.locator('.ProseMirror > p').count()).toBe(4);
+
+  await hostSetContent(page, 'hello\n');
+
+  expect(await page.locator('.ProseMirror > p').count()).toBe(1);
+  expect(await getContent(page)).toBe('hello\n');
+});
+
 test('a push equal to an out-of-date serialization still replaces the document', async ({
   page,
 }) => {
