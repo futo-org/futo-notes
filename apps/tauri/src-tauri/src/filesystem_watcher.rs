@@ -1194,6 +1194,7 @@ mod tests {
     fn a_note_moved_out_of_the_vault_is_removed_and_never_paired_with_an_unrelated_save() {
         let root = temp_vault("out");
         let outside = temp_vault("out-trash");
+        let mut runs = Vec::new();
         for delay_ms in [0u64, 30, 150] {
             let gone = format!("Gone {delay_ms}.md");
             let saved = format!("other {delay_ms}.md");
@@ -1206,15 +1207,18 @@ mod tests {
             let temp = root.join(format!(".{saved}.tmp123"));
             std::fs::write(&temp, "v1").unwrap();
             std::fs::rename(&temp, root.join(&saved)).unwrap();
-            let (seen, raw) = watch.settle();
+            runs.push((delay_ms, gone, saved, watch.settle()));
+        }
+        std::fs::remove_dir_all(&root).unwrap();
+        std::fs::remove_dir_all(&outside).unwrap();
 
-            let unlink = format!("unlink {gone}");
+        for (delay_ms, gone, saved, (seen, raw)) in runs {
             assert!(
                 !seen.iter().any(|entry| entry.starts_with("rename ")),
                 "delay {delay_ms} ms: an unrelated save was paired as a rename; sink saw {seen:?}, backend sent {raw:?}"
             );
             assert!(
-                seen.contains(&unlink),
+                seen.contains(&format!("unlink {gone}")),
                 "delay {delay_ms} ms: the moved-out note was never reported removed; sink saw {seen:?}, backend sent {raw:?}"
             );
             assert!(
@@ -1223,8 +1227,6 @@ mod tests {
                 "delay {delay_ms} ms: the save was never reported; sink saw {seen:?}, backend sent {raw:?}"
             );
         }
-        std::fs::remove_dir_all(&root).unwrap();
-        std::fs::remove_dir_all(&outside).unwrap();
     }
 
     /// A note moved out of the vault is reported removed once the pair window
