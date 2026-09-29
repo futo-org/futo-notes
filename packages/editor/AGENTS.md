@@ -49,8 +49,9 @@ Four more escaping repairs, from the 2026-09 release-hardening campaign (FB-4a):
 - `attentionEncoding.ts` wraps Milkdown's `strong`/`emphasis` handlers (and
   a restated GFM `delete`) with upstream's `encodeInfo`, so bold, italic or
   strikethrough whose edge is punctuation next to a letter still flanks
-  (`**Note:**&#x62;ar`). An `_`/`__` run that could only flank encoded is
-  written with `*`/`**` instead; references stay only where no marker flanks.
+  (`**Note:**&#x62;ar`). When such an edge can only flank encoded, the
+  adjacent character is written as a character reference (`&#x62;`); the marker
+  is never switched (`_` to `*`), because that broke flanking next to `*` runs.
   Installed by `attentionEncodingPlugin` in `commonmarkWithCompat()`.
 - `inlineHtmlIndent.ts` puts back the up-to-three continuation-line columns
   micromark strips from INLINE HTML. It hooks the `htmlText` token on purpose:
