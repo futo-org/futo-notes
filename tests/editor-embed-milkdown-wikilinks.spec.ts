@@ -112,6 +112,22 @@ test('styles an AMBIGUOUS target broken, exactly like an absent one', async ({ p
   await expect(chip(page)).toHaveClass(/cm-md-wikilink-broken/);
 });
 
+test('a broken wikilink is PAINTED differently from a resolved one', async ({ page }) => {
+  // The class alone proved nothing: the distinct-paint rules used to sit in an
+  // `@layer components` sheet that the editor's unlayered `a` rule beat, so both
+  // chips computed identically (RC-58).
+  await open(page, '[[Projects/Roadmap]] [[no such note]]\n');
+  const paint = (selector: string) =>
+    page.locator(selector).evaluate((el) => {
+      const style = getComputedStyle(el);
+      return { color: style.color, decorationStyle: style.textDecorationStyle };
+    });
+  const resolved = await paint('.ProseMirror a[data-wikilink="Projects/Roadmap"]');
+  const broken = await paint('.ProseMirror a[data-wikilink="no such note"]');
+  expect(resolved.decorationStyle).toBe('dashed');
+  expect(broken.color).not.toBe(resolved.color);
+});
+
 test('a wikilink inside inline code is not a link', async ({ page }) => {
   await open(page, 'literal `[[Projects/Roadmap]]` text\n');
   await expect(chip(page)).toHaveCount(0);

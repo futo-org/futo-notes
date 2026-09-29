@@ -2259,6 +2259,21 @@
     text-decoration: underline;
   }
 
+  /* Wikilinks: a dashed underline tells them from web links, and a broken or
+     ambiguous one (wikilink/display.ts stamps `cm-md-wikilink-broken`) is muted
+     so a dead link is identifiable before it is tapped (editor.md "Wikilinks").
+     Here, unlayered and at the same specificity as the rule above, because the
+     `@layer components` copies these used to live in (markdown-links.css) lose to
+     it on cascade origin and never applied. */
+  :global(.futo-milkdown .ProseMirror a.cm-md-wikilink) {
+    text-decoration-style: dashed;
+  }
+
+  :global(.futo-milkdown .ProseMirror a.cm-md-wikilink.cm-md-wikilink-broken) {
+    color: var(--color-muted, #737373);
+    text-decoration-color: currentColor;
+  }
+
   :global(.futo-milkdown .ProseMirror blockquote) {
     border-left: 3px solid var(--color-border, #e5e5e5);
     padding-left: 0.9em;
