@@ -41,12 +41,35 @@ struct FeedbackMessageField: UIViewRepresentable {
             toolbarLocalization = EditorToolbarLocalization(localization)
         }
 
+        /// Cap the length BEFORE UIKit applies an edit, so undo never replays a
+        /// range past the end of a rewritten text (crash 1747's mechanism).
+        func textView(
+            _ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText: String
+        ) -> Bool {
+            // IME composition edits marked text; textViewDidChange caps it on commit.
+            guard textView.markedTextRange == nil else { return true }
+            let current = textView.text as NSString
+            // Refuse rather than throw on a range past the end.
+            guard NSMaxRange(range) <= current.length else { return false }
+            let untouched = current.replacingCharacters(in: range, with: "")
+            let room = max(0, FeedbackSubmission.maxMessageLength - untouched.count)
+            guard replacementText.count > room else { return true }
+            let allowed = String(replacementText.prefix(room))
+            if !(allowed.isEmpty && range.length == 0) {
+                textView.replaceAfterCurrentEdit(range, with: allowed)
+            }
+            return false
+        }
+
         func textViewDidChange(_ textView: UITextView) {
-            if textView.text.count > FeedbackSubmission.maxMessageLength {
-                let caret = textView.selectedRange.location
+            // Backstop for input that skipped the delegate, such as an IME
+            // composition. A programmatic `text` write invalidates UIKit's undo
+            // stack, so clear it rather than let undo crash.
+            if textView.markedTextRange == nil,
+                textView.text.count > FeedbackSubmission.maxMessageLength
+            {
                 textView.text = String(textView.text.prefix(FeedbackSubmission.maxMessageLength))
-                textView.selectedRange = NSRange(
-                    location: min(caret, textView.text.utf16.count), length: 0)
+                textView.undoManager?.removeAllActions()
             }
             text.wrappedValue = textView.text
         }
