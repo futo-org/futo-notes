@@ -620,3 +620,28 @@ for (const [name, text, length, key, tag] of [
     ]);
   });
 }
+
+test('a letter typed before an underscore emphasis followed by a `*` run keeps both italic', async ({
+  page,
+}) => {
+  // FB-4a round 2: the dropped `_` to `*` re-spelling saved `a Z*b**c*`, which
+  // reopens with two literal `**` in the text.
+  await open(page, 'a _b_*c*');
+  await withCaretObserved(page, () =>
+    page.evaluate(() => {
+      const text = document.querySelector('.ProseMirror p')?.firstChild;
+      if (!text) throw new Error('no text node');
+      const range = document.createRange();
+      range.setStart(text, 'a '.length);
+      range.collapse(true);
+      getSelection()?.removeAllRanges();
+      getSelection()?.addRange(range);
+    }),
+  );
+  await page.keyboard.type('Z');
+  await settled(page);
+  const saved = await getContent(page);
+  expect(saved).not.toContain('**');
+  await reopen(page, saved);
+  expect(await page.locator('.ProseMirror p em').allTextContents(), saved).toEqual(['b', 'c']);
+});

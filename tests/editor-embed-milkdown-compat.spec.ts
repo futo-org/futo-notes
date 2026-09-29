@@ -547,3 +547,27 @@ test.describe('strikethrough whose edge is punctuation next to a letter', () => 
     expect(await roundTrip(page, 'compat', 'a ~~b~~ c\n')).toBe('a ~~b~~ c\n');
   });
 });
+
+test.describe('an underscore emphasis next to a `*` run is never re-spelled', () => {
+  // Guard for a dropped approach (FB-4a round 2): writing `*` in place of an
+  // `_` run that could only flank encoded ignores a neighbouring or enclosing
+  // `*` run, so `Z*b**c*` reopened with two literal `**` in the text. The
+  // references are ugly but correct; the bytes must hold and no `*` may appear
+  // that the document did not have.
+  const SHAPES: Record<string, string> = {
+    'an italic then a `*` italic': 'a &#x5A;_&#x62;_*c*\n',
+    'a bold then a `*` italic': 'a &#x5A;__&#x62;__*c*\n',
+    'a letter, an italic, a `*` italic': '&#x62;_c_*d*\n',
+    'a `*` italic, an italic, a letter': '*d*_c_&#x62;\n',
+    'an italic ending a `*` italic': 'x*a &#x62;_c_*y\n',
+  };
+
+  for (const [name, markdown] of Object.entries(SHAPES)) {
+    test(`compat holds ${name} and reopens to the same document`, async ({ page }) => {
+      const { once, twice } = await twoSaves(page, 'compat', markdown);
+      expect(twice).toBe(once);
+      // A switched marker would leave `**` behind; no shape here should.
+      expect(once).not.toContain('**');
+    });
+  }
+});
