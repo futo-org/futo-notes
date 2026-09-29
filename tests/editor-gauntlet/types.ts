@@ -42,6 +42,17 @@ export interface OpenMeasurement {
   settledMs: number;
 }
 
+/**
+ * Where a keystroke run types: straight after the first rendered occurrence of
+ * `text`, once `ready` (a CSS selector inside the editor) matches something —
+ * a fence is only coloured after its grammar's dynamic import lands. Without a
+ * target the run types wherever the open left the caret.
+ */
+export interface KeystrokeTarget {
+  text: string;
+  ready?: string;
+}
+
 export interface KeystrokeMeasurement {
   synchronousSamplesMs: number[];
   settledToPaintSamplesMs: number[];
@@ -60,7 +71,7 @@ export interface EditorGauntletAdapter {
   undo(): Promise<EditorSnapshot>;
   walkCaret(positions: number[]): Promise<void>;
   measureOpen(source: string): Promise<OpenMeasurement>;
-  measureKeystrokes(count: number): Promise<KeystrokeMeasurement>;
+  measureKeystrokes(count: number, target?: KeystrokeTarget): Promise<KeystrokeMeasurement>;
   captureFeelState(): Promise<DriverState>;
 }
 

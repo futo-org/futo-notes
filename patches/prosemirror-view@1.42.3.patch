@@ -1,5 +1,5 @@
 diff --git a/dist/index.cjs b/dist/index.cjs
-index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..5f5ae009b6c8a25aab04d7f4e67df319b1bb5d68 100644
+index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..4037249400ba33423920686dd17e368d7060cd02 100644
 --- a/dist/index.cjs
 +++ b/dist/index.cjs
 @@ -663,6 +663,8 @@ var ViewDesc = function () {
@@ -52,7 +52,145 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..5f5ae009b6c8a25aab04d7f4e67df319
    }, {
      key: "updateOuterDeco",
      value: function updateOuterDeco(outerDeco) {
-@@ -5165,7 +5187,7 @@ var EditorView = function () {
+@@ -3921,11 +3943,12 @@ var DecorationSet = function () {
+     value: function addInner(doc, decorations, offset) {
+       var _this11 = this;
+       var children,
+-        childIndex = 0;
++        childIndex = 0,
++        takeSpansForNode = spanTaker(decorations);
+       doc.forEach(function (childNode, childOffset) {
+         var baseOffset = childOffset + offset,
+           found;
+-        if (!(found = takeSpansForNode(decorations, childNode, baseOffset))) return;
++        if (!(found = takeSpansForNode(childNode, baseOffset))) return;
+         if (!children) children = _this11.children.slice();
+         while (childIndex < children.length && children[childIndex] < childOffset) childIndex += 3;
+         if (children[childIndex] == childOffset) children[childIndex + 2] = children[childIndex + 2].addInner(childNode, found, baseOffset + 1);else children.splice(childIndex, 0, childOffset, childOffset + childNode.nodeSize, buildTree(found, childNode, baseOffset + 1, noSpec));
+@@ -3946,30 +3969,50 @@ var DecorationSet = function () {
+     value: function removeInner(decorations, offset) {
+       var children = this.children,
+         local = this.local;
+-      for (var i = 0; i < children.length; i += 3) {
+-        var found = void 0;
+-        var from = children[i] + offset,
+-          to = children[i + 1] + offset;
+-        for (var j = 0, span; j < decorations.length; j++) if (span = decorations[j]) {
+-          if (span.from > from && span.to < to) {
+-            decorations[j] = null;
+-            (found || (found = [])).push(span);
+-          }
++      var found = null;
++      if (children.length) for (var j = 0, span; j < decorations.length; j++) if (span = decorations[j]) {
++        var lo = 0,
++          hi = children.length / 3;
++        while (lo < hi) {
++          var mid = lo + hi >> 1;
++          if (children[mid * 3 + 1] + offset <= span.from) lo = mid + 1;else hi = mid;
+         }
+-        if (!found) continue;
+-        if (children == this.children) children = this.children.slice();
+-        var removed = children[i + 2].removeInner(found, from + 1);
+-        if (removed != empty) {
+-          children[i + 2] = removed;
+-        } else {
+-          children.splice(i, 3);
+-          i -= 3;
++        var i = lo * 3,
++          spans = void 0;
++        if (i < children.length && span.from > children[i] + offset && span.to < children[i + 1] + offset) {
++          decorations[j] = null;
++          if (!found) found = new Map();
++          if (spans = found.get(i)) spans.push(span);else found.set(i, [span]);
++        }
++      }
++      if (found) {
++        children = this.children.slice();
++        var touched = Array.from(found.keys()).sort(function (a, b) {
++          return b - a;
++        });
++        for (var t = 0; t < touched.length; t++) {
++          var ti = touched[t];
++          var removed = children[ti + 2].removeInner(found.get(ti), children[ti] + offset + 1);
++          if (removed != empty) children[ti + 2] = removed;else children.splice(ti, 3);
+         }
+       }
+-      if (local.length) for (var _i8 = 0, _span; _i8 < decorations.length; _i8++) if (_span = decorations[_i8]) {
+-        for (var _j2 = 0; _j2 < local.length; _j2++) if (local[_j2].eq(_span, offset)) {
+-          if (local == this.local) local = this.local.slice();
+-          local.splice(_j2--, 1);
++      if (local.length) {
++        var byFrom = null;
++        for (var _i8 = 0, _span; _i8 < decorations.length; _i8++) if (_span = decorations[_i8]) {
++          var key = _span.from - offset, same;
++          if (!byFrom) byFrom = new Map();
++          if (same = byFrom.get(key)) same.push(_span);else byFrom.set(key, [_span]);
++        }
++        if (byFrom) {
++          var kept = [];
++          for (var _j2 = 0; _j2 < local.length; _j2++) {
++            var cur = local[_j2],
++              candidates = byFrom.get(cur.from),
++              hit = false;
++            if (candidates) for (var _k = 0; _k < candidates.length && !hit; _k++) hit = cur.eq(candidates[_k], offset);
++            if (!hit) kept.push(cur);
++          }
++          if (kept.length < local.length) local = kept;
+         }
+       }
+       if (children == this.children && local == this.local) return this;
+@@ -4212,17 +4255,27 @@ function mapAndGatherRemainingDecorations(children, oldChildren, decorations, ma
+   for (var i = 0; i < children.length; i += 3) if (children[i + 1] == -1) gather(children[i + 2], oldChildren[i] + oldOffset + 1);
+   return decorations;
+ }
+-function takeSpansForNode(spans, node, offset) {
+-  if (node.isLeaf) return null;
+-  var end = offset + node.nodeSize,
+-    found = null;
+-  for (var i = 0, span; i < spans.length; i++) {
+-    if ((span = spans[i]) && span.from > offset && span.to < end) {
+-      (found || (found = [])).push(span);
+-      spans[i] = null;
++function spanTaker(spans) {
++  var order = [],
++    cursor = 0;
++  for (var i = 0; i < spans.length; i++) if (spans[i]) order.push(i);
++  order.sort(function (a, b) {
++    return spans[a].from - spans[b].from || a - b;
++  });
++  return function (node, offset) {
++    var end = offset + node.nodeSize,
++      found = null;
++    for (; cursor < order.length; cursor++) {
++      var _i = order[cursor],
++        span = spans[_i];
++      if (span.from >= end) break;
++      if (!node.isLeaf && span.from > offset && span.to < end) {
++        (found || (found = [])).push(span);
++        spans[_i] = null;
++      }
+     }
+-  }
+-  return found;
++    return found;
++  };
+ }
+ function withoutNulls(array) {
+   var result = [];
+@@ -4231,9 +4284,10 @@ function withoutNulls(array) {
+ }
+ function buildTree(spans, node, offset, options) {
+   var children = [],
+-    hasNulls = false;
++    hasNulls = false,
++    takeSpansForNode = spanTaker(spans);
+   node.forEach(function (childNode, localStart) {
+-    var found = takeSpansForNode(spans, childNode, localStart + offset);
++    var found = takeSpansForNode(childNode, localStart + offset);
+     if (found) {
+       hasNulls = true;
+       var subtree = buildTree(found, childNode, offset + localStart + 1, options);
+@@ -5165,7 +5219,7 @@ var EditorView = function () {
          this.domObserver.stop();
          var forceSelUpdate = updateDoc && (ie || chrome) && !this.composing && !prev.selection.empty && !state.selection.empty && selectionContextChanged(prev.selection, state.selection);
          if (updateDoc) {
@@ -62,7 +200,7 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..5f5ae009b6c8a25aab04d7f4e67df319
            if (redraw || !this.docView.update(state.doc, outerDeco, innerDeco, this)) {
              this.docView.updateOuterDeco(outerDeco);
 diff --git a/dist/index.js b/dist/index.js
-index 012237dd813a21d86d6d527263b49c5af0a0e2f0..ef4d027c3bb46abe3c822132fe07318efd8a8a00 100644
+index 012237dd813a21d86d6d527263b49c5af0a0e2f0..e64274614b5d218ac6fcbe2567af16bf69053b54 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -751,6 +751,10 @@ class ViewDesc {
@@ -125,7 +263,172 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..ef4d027c3bb46abe3c822132fe07318e
      updateOuterDeco(outerDeco) {
          if (sameOuterDeco(outerDeco, this.outerDeco))
              return;
-@@ -5583,7 +5614,8 @@ class EditorView {
+@@ -4204,10 +4235,10 @@ class DecorationSet {
+         return this.addInner(doc, decorations, 0);
+     }
+     addInner(doc, decorations, offset) {
+-        let children, childIndex = 0;
++        let children, childIndex = 0, takeSpansForNode = spanTaker(decorations);
+         doc.forEach((childNode, childOffset) => {
+             let baseOffset = childOffset + offset, found;
+-            if (!(found = takeSpansForNode(decorations, childNode, baseOffset)))
++            if (!(found = takeSpansForNode(childNode, baseOffset)))
+                 return;
+             if (!children)
+                 children = this.children.slice();
+@@ -4236,39 +4267,76 @@ class DecorationSet {
+     }
+     removeInner(decorations, offset) {
+         let children = this.children, local = this.local;
+-        for (let i = 0; i < children.length; i += 3) {
+-            let found;
+-            let from = children[i] + offset, to = children[i + 1] + offset;
++        // Route each removed span to the one child that can hold it by binary
++        // search — children are sibling ranges, sorted and disjoint — rather
++        // than scanning every removed span once per child: removing a block's
++        // k decorations from a note with C decorated blocks cost k*C.
++        let found = null;
++        if (children.length)
+             for (let j = 0, span; j < decorations.length; j++)
+                 if (span = decorations[j]) {
+-                    if (span.from > from && span.to < to) {
++                    let lo = 0, hi = children.length / 3;
++                    while (lo < hi) {
++                        let mid = (lo + hi) >> 1;
++                        if (children[mid * 3 + 1] + offset <= span.from)
++                            lo = mid + 1;
++                        else
++                            hi = mid;
++                    }
++                    let i = lo * 3, spans;
++                    if (i < children.length && span.from > children[i] + offset && span.to < children[i + 1] + offset) {
+                         decorations[j] = null;
+-                        (found || (found = [])).push(span);
++                        if (!found)
++                            found = new Map;
++                        if (spans = found.get(i))
++                            spans.push(span);
++                        else
++                            found.set(i, [span]);
+                     }
+                 }
+-            if (!found)
+-                continue;
+-            if (children == this.children)
+-                children = this.children.slice();
+-            let removed = children[i + 2].removeInner(found, from + 1);
+-            if (removed != empty) {
+-                children[i + 2] = removed;
+-            }
+-            else {
+-                children.splice(i, 3);
+-                i -= 3;
++        if (found) {
++            children = this.children.slice();
++            // Last child first, so a splice never moves one still to visit.
++            for (let i of Array.from(found.keys()).sort((a, b) => b - a)) {
++                let removed = children[i + 2].removeInner(found.get(i), children[i] + offset + 1);
++                if (removed != empty)
++                    children[i + 2] = removed;
++                else
++                    children.splice(i, 3);
+             }
+         }
+-        if (local.length)
++        if (local.length) {
++            // One pass over `local` against the removed spans keyed by start,
++            // rather than every removed span against every local decoration:
++            // a block rebuilt on each keystroke removes all k of its
++            // decorations, which cost k(k+1)/2 comparisons and k splices.
++            // Drops exactly what the nested loop did — every local decoration
++            // equal to some removed span.
++            let byFrom = null;
+             for (let i = 0, span; i < decorations.length; i++)
+                 if (span = decorations[i]) {
+-                    for (let j = 0; j < local.length; j++)
+-                        if (local[j].eq(span, offset)) {
+-                            if (local == this.local)
+-                                local = this.local.slice();
+-                            local.splice(j--, 1);
+-                        }
++                    let key = span.from - offset, same;
++                    if (!byFrom)
++                        byFrom = new Map;
++                    if (same = byFrom.get(key))
++                        same.push(span);
++                    else
++                        byFrom.set(key, [span]);
++                }
++            if (byFrom) {
++                let kept = [];
++                for (let j = 0; j < local.length; j++) {
++                    let cur = local[j], same = byFrom.get(cur.from), hit = false;
++                    if (same)
++                        for (let i = 0; i < same.length && !hit; i++)
++                            hit = cur.eq(same[i], offset);
++                    if (!hit)
++                        kept.push(cur);
+                 }
++                if (kept.length < local.length)
++                    local = kept;
++            }
++        }
+         if (children == this.children && local == this.local)
+             return this;
+         return local.length || children.length ? new DecorationSet(local, children) : empty;
+@@ -4530,17 +4598,29 @@ function mapAndGatherRemainingDecorations(children, oldChildren, decorations, ma
+             gather(children[i + 2], oldChildren[i] + oldOffset + 1);
+     return decorations;
+ }
+-function takeSpansForNode(spans, node, offset) {
+-    if (node.isLeaf)
+-        return null;
+-    let end = offset + node.nodeSize, found = null;
+-    for (let i = 0, span; i < spans.length; i++) {
+-        if ((span = spans[i]) && span.from > offset && span.to < end) {
+-            (found || (found = [])).push(span);
+-            spans[i] = null;
++// Takes, for each child of a node in document order, the spans that lie
++// strictly inside it — nulling them in `spans` — in one pass over the spans
++// sorted by start. Scanning every span once per child instead cost
++// spans x children: adding a task list's checkboxes was k x items.
++function spanTaker(spans) {
++    let order = [], cursor = 0;
++    for (let i = 0; i < spans.length; i++)
++        if (spans[i])
++            order.push(i);
++    order.sort((a, b) => spans[a].from - spans[b].from || a - b);
++    return (node, offset) => {
++        let end = offset + node.nodeSize, found = null;
++        for (; cursor < order.length; cursor++) {
++            let i = order[cursor], span = spans[i];
++            if (span.from >= end)
++                break;
++            if (!node.isLeaf && span.from > offset && span.to < end) {
++                (found || (found = [])).push(span);
++                spans[i] = null;
++            }
+         }
+-    }
+-    return found;
++        return found;
++    };
+ }
+ function withoutNulls(array) {
+     let result = [];
+@@ -4554,9 +4634,9 @@ function withoutNulls(array) {
+ // positions in the spans (so that we don't have to allocate new spans
+ // for recursive calls).
+ function buildTree(spans, node, offset, options) {
+-    let children = [], hasNulls = false;
++    let children = [], hasNulls = false, takeSpansForNode = spanTaker(spans);
+     node.forEach((childNode, localStart) => {
+-        let found = takeSpansForNode(spans, childNode, localStart + offset);
++        let found = takeSpansForNode(childNode, localStart + offset);
+         if (found) {
+             hasNulls = true;
+             let subtree = buildTree(found, childNode, offset + localStart + 1, options);
+@@ -5583,7 +5663,8 @@ class EditorView {
                  // Chrome sometimes starts misreporting the selection, so this
                  // tracks that and forces a selection reset when our update
                  // did write to the node.

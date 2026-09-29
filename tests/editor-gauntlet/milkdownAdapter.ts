@@ -9,6 +9,7 @@ import type {
   EditorIntentAction,
   EditorSnapshot,
   KeystrokeMeasurement,
+  KeystrokeTarget,
   OpenMeasurement,
   RichTextPoint,
   SourceSelection,
@@ -373,22 +374,47 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
    * unit the 16 ms budget was written against. Real key presses would fold in
    * Playwright's round trip and the browser's own input handling.
    */
-  async measureKeystrokes(count: number): Promise<KeystrokeMeasurement> {
-    return this.requirePage().evaluate(async (sampleCount) => {
-      const testWindow = window as unknown as MilkdownWindow;
-      const view = testWindow.__futoProseMirrorView?.();
-      if (!view) throw new Error('milkdown gauntlet: no ProseMirror view');
-      const synchronousSamplesMs: number[] = [];
-      const settledToPaintSamplesMs: number[] = [];
-      for (let index = 0; index < sampleCount; index += 1) {
-        const startedAt = performance.now();
-        view.dispatch(view.state.tr.insertText('x'));
-        synchronousSamplesMs.push(performance.now() - startedAt);
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        settledToPaintSamplesMs.push(performance.now() - startedAt);
-      }
-      return { synchronousSamplesMs, settledToPaintSamplesMs };
-    }, count);
+  async measureKeystrokes(count: number, target?: KeystrokeTarget): Promise<KeystrokeMeasurement> {
+    if (target?.ready) {
+      await this.requirePage().waitForSelector(`.ProseMirror ${target.ready}`, {
+        state: 'attached',
+      });
+    }
+    return this.requirePage().evaluate(
+      async ({ sampleCount, text }) => {
+        const testWindow = window as unknown as MilkdownWindow;
+        const view = testWindow.__futoProseMirrorView?.();
+        if (!view) throw new Error('milkdown gauntlet: no ProseMirror view');
+        let at: number | undefined;
+        if (text !== undefined) {
+          const walker = document.createTreeWalker(view.dom, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const index = node.textContent?.indexOf(text) ?? -1;
+            if (index >= 0) {
+              at = view.posAtDOM(node, index + text.length);
+              break;
+            }
+          }
+          if (at === undefined)
+            throw new Error(`milkdown gauntlet: no rendered "${text}" to type after`);
+        }
+        const synchronousSamplesMs: number[] = [];
+        const settledToPaintSamplesMs: number[] = [];
+        for (let index = 0; index < sampleCount; index += 1) {
+          const startedAt = performance.now();
+          view.dispatch(
+            at === undefined
+              ? view.state.tr.insertText('x')
+              : view.state.tr.insertText('x', at + index),
+          );
+          synchronousSamplesMs.push(performance.now() - startedAt);
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          settledToPaintSamplesMs.push(performance.now() - startedAt);
+        }
+        return { synchronousSamplesMs, settledToPaintSamplesMs };
+      },
+      { sampleCount: count, text: target?.text },
+    );
   }
 
   async captureFeelState(): Promise<DriverState> {

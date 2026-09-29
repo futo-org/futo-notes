@@ -1,4 +1,4 @@
-import type { EditorGauntletAdapter } from './types';
+import type { EditorGauntletAdapter, KeystrokeTarget } from './types';
 
 const MIB = 1024 * 1024;
 
@@ -34,7 +34,8 @@ export const PERFORMANCE_BUDGET = {
  * - `measured` — reported only. The keystroke budget still applies; nothing
  *              gates the open time. This exists for the adversarial generator,
  *              whose documents are not shaped like real notes, so the plan's
- *              note-size budgets have nothing to say about them.
+ *              note-size budgets have nothing to say about them, and for the
+ *              fixtures that are here for their keystroke alone.
  */
 export type OpenPolicy =
   { kind: 'hard' } | { kind: 'linear'; reference: string } | { kind: 'measured' };
@@ -44,6 +45,8 @@ export interface FloorFixture {
   /** What the per-unit cost is measured against for a linearity comparison. */
   unit: 'lines' | 'bytes';
   openPolicy: OpenPolicy;
+  /** Where the keystrokes land. Default: wherever the open left the caret. */
+  typeInto?: KeystrokeTarget;
   build(): string;
 }
 
@@ -127,6 +130,41 @@ function adversarialFixture(targetBytes: number): string {
 }
 
 /**
+ * One highlighted fence of `chars` characters, with a `MIDDLE` comment halfway
+ * down for the keystrokes to land after.
+ *
+ * RC-46: every token of a fence is a decoration on the same textblock, and a
+ * keystroke inside it rebuilds all of them. Removing the old ones used to cost
+ * k(k+1)/2 comparisons, so a 10k-character fence spent 64 ms a key. 93 notes
+ * in the 31k-note corpus hold a fence of 5k characters or more in a highlighted
+ * language, and 28 hold one of 10k.
+ */
+function highlightedFenceFixture(chars: number): string {
+  const lines: string[] = [];
+  for (let index = 0, length = 0; length < chars; index += 1) {
+    const line = `const value${index} = compute(${index}, "label ${index}", [true, null]); // ${index}`;
+    lines.push(line);
+    length += line.length + 1;
+  }
+  lines.splice(lines.length >> 1, 0, '// MIDDLE');
+  return ['A note with one long fence.', '', '```js', ...lines, '```', '', 'After the fence.'].join(
+    '\n',
+  );
+}
+
+/**
+ * A flat task list: every checkbox is a widget in the same node of the
+ * decoration tree, and a keystroke in any item rebuilds the whole list's
+ * (RC-46; 2,000 items cost 35 ms a key).
+ */
+function taskListFixture(items: number): string {
+  return Array.from(
+    { length: items },
+    (_, index) => `- [${index % 3 === 0 ? 'x' : ' '}] task ${index + 1}`,
+  ).join('\n');
+}
+
+/**
  * The performance ladder, per docs/plan/milkdown-transition.md §5: hard budgets at
  * sizes real notes actually reach, and "scales linearly, no cliff" above them.
  *
@@ -160,6 +198,20 @@ export const MILKDOWN_FLOOR_FIXTURES: FloorFixture[] = [
     unit: 'lines',
     openPolicy: { kind: 'linear', reference: '10000-lines' },
     build: () => lineFixture(50_000),
+  },
+  {
+    name: '10k-char-js-fence',
+    unit: 'bytes',
+    openPolicy: { kind: 'measured' },
+    typeInto: { text: '// MIDDLE', ready: 'pre .tok-keyword' },
+    build: () => highlightedFenceFixture(10_000),
+  },
+  {
+    name: '2000-item-task-list',
+    unit: 'lines',
+    openPolicy: { kind: 'measured' },
+    typeInto: { text: 'task 1000' },
+    build: () => taskListFixture(2_000),
   },
   {
     name: '1mb-adversarial',
@@ -258,7 +310,7 @@ export async function runPerformanceFloor(
   await adapter.open('', 'performance-floor');
   for (const fixture of fixtures) {
     const opened = await adapter.measureOpen(fixture.build());
-    const typed = await adapter.measureKeystrokes(25);
+    const typed = await adapter.measureKeystrokes(25, fixture.typeInto);
     results.push({
       fixture: fixture.name,
       lines: opened.lines,

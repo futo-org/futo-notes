@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { EditorState } from '@milkdown/kit/prose/state';
@@ -26,6 +26,42 @@ function wholeBlock(node: ProseNode, pos: number): Decoration[] {
   return [
     Decoration.inline(pos + 1, pos + node.nodeSize - 1, { class: 'x' }, { text: node.textContent }),
   ];
+}
+
+type Decorate = (node: ProseNode, pos: number) => Decoration[];
+
+function decorateAll(doc: ProseNode, blocksIn: typeof paragraphsIn, decorate: Decorate) {
+  return DecorationSet.create(
+    doc,
+    blocksIn(doc, 0, doc.content.size).flatMap(({ node, pos }) => decorate(node, pos)),
+  );
+}
+
+/**
+ * Runs `run` counting reads of `Decoration#from`, by shadowing the field with a
+ * prototype accessor. Only decorations constructed inside `run` are counted,
+ * which is every one a repaint creates, maps or copies; `run` must finish with
+ * them, since they lose the field when the accessor goes.
+ */
+function countingFromReads<T>(run: (reads: () => number) => T): T {
+  const proto = Decoration.prototype as unknown as Record<string, unknown>;
+  const value = Symbol('from');
+  let reads = 0;
+  Object.defineProperty(proto, 'from', {
+    configurable: true,
+    get(this: Record<symbol, number>) {
+      reads += 1;
+      return this[value];
+    },
+    set(this: Record<symbol, number>, from: number) {
+      this[value] = from;
+    },
+  });
+  try {
+    return run(() => reads);
+  } finally {
+    delete proto.from;
+  }
 }
 
 function docOf(...texts: string[]): ProseNode {
@@ -172,4 +208,105 @@ describe('repaintBlocks', () => {
       ),
     ).not.toThrow();
   });
+});
+
+describe('repaintBlocks cost', () => {
+  /*
+   * RC-46: the cost of rebuilding a block must not grow faster than the block.
+   * Every token of a fence (every tag of a paragraph) sits in ONE node of the
+   * decoration tree, and a flat task list's checkboxes sit in one node per
+   * item under a single list. `DecorationSet.remove` used to compare each
+   * removed decoration with every decoration left in its node — k(k+1)/2
+   * `Decoration.eq` calls, 64 ms a key in a 10k-character fence — and both
+   * `remove` and `add` scanned every decoration once per child node, which is
+   * k x items for a task list (40 ms a key at 2,000 items).
+   *
+   * Counted rather than timed, so a loaded machine cannot move it: `eq` calls,
+   * and reads of a decoration's `from`, which is how the tree routes one to a
+   * child. Both per decoration, at 250 and 4,000.
+   */
+  const shapes: Array<
+    [string, (k: number) => ProseNode, (doc: ProseNode) => number, typeof paragraphsIn, Decorate]
+  > = [
+    [
+      'inline decorations in one textblock',
+      (k) => docOf('ab'.repeat(k)),
+      (doc) => doc.child(0).nodeSize >> 1,
+      paragraphsIn,
+      (node, pos) =>
+        Array.from({ length: node.textContent.length >> 1 }, (_, i) =>
+          Decoration.inline(pos + 1 + 2 * i, pos + 2 + 2 * i, { class: 't' }),
+        ),
+    ],
+    [
+      'widgets in one node',
+      (k) => docOf('ab'.repeat(k)),
+      (doc) => doc.child(0).nodeSize >> 1,
+      paragraphsIn,
+      (node, pos) =>
+        Array.from({ length: node.textContent.length >> 1 }, (_, i) =>
+          Decoration.widget(pos + 1 + 2 * i, () => document.createElement('i')),
+        ),
+    ],
+    [
+      'widgets across the items of one list',
+      (k) =>
+        s.nodes.doc.create(null, [
+          s.nodes.bullet_list.create(
+            null,
+            Array.from({ length: k }, (_, i) =>
+              s.nodes.list_item.create(null, [para(`task ${i}`)]),
+            ),
+          ),
+        ]),
+      (doc) => {
+        const list = doc.child(0);
+        let pos = 1; // inside the list
+        for (let i = 0; i < list.childCount >> 1; i += 1) pos += list.child(i).nodeSize;
+        return pos + 3; // item, paragraph, then one character into the text
+      },
+      (doc, from, to) => {
+        const out: PositionedBlock[] = [];
+        doc.nodesBetween(from, to, (node, pos) => {
+          if (node.type.name === 'list_item') out.push({ node, pos });
+          return node.type.name !== 'list_item';
+        });
+        return out;
+      },
+      (_node, pos) => [Decoration.widget(pos + 2, () => document.createElement('i'))],
+    ],
+  ];
+
+  it.each(shapes)(
+    'does bounded work per decoration for %s',
+    (_shape, build, editAt, blocksIn, decorate) => {
+      const perDecoration = (k: number) => {
+        const state = EditorState.create({ doc: build(k) });
+        const set = decorateAll(state.doc, blocksIn, decorate);
+        const tr = state.tr.insertText('x', editAt(state.doc));
+        const eq = vi.spyOn(Decoration.prototype, 'eq');
+        const work = countingFromReads((reads) => {
+          const next = repaintBlocks(
+            set.map(tr.mapping, tr.doc),
+            tr.doc,
+            changedRanges(tr),
+            blocksIn,
+            decorate,
+          );
+          const counted = { eq: eq.mock.calls.length / k, from: reads() / k };
+          expect(next.find()).toHaveLength(k);
+          return counted;
+        });
+        eq.mockRestore();
+        return work;
+      };
+      const small = perDecoration(250);
+      const large = perDecoration(4_000);
+      const detail = JSON.stringify({ small, large });
+      // Quadratic, `eq` alone was (k + 1) / 2 per decoration: 125.5 and 2,000.5.
+      expect(large.eq, detail).toBeLessThanOrEqual(2);
+      // Sorting by start costs log k reads each; scanning per child cost k.
+      expect(large.from, detail).toBeLessThanOrEqual(2 * small.from);
+    },
+  );
 });

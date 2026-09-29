@@ -70,6 +70,8 @@ describe('evaluatePerformanceFloor', () => {
       result({ fixture: '1000-lines', lines: 1_000, bytes: 50_000, openMs: 60 }),
       result({ fixture: '10000-lines', openMs: 500 }),
       result({ fixture: '50000-lines', lines: 50_000, bytes: 2_500_000, openMs: 2_600 }),
+      result({ fixture: '10k-char-js-fence', lines: 180, bytes: 10_100, openMs: 2_700 }),
+      result({ fixture: '2000-item-task-list', lines: 2_000, bytes: 30_000, openMs: 150 }),
       result({ fixture: '1mb-adversarial', lines: 5_000, bytes: 1_048_576, openMs: 700 }),
       result({ fixture: '10mb-adversarial', lines: 50_000, bytes: 10_485_760, openMs: 7_500 }),
     ]);
