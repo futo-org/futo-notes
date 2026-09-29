@@ -498,6 +498,46 @@ describe('watcher rename semantics', () => {
     bundle.coordinator.stop();
   });
 
+  // An atomic save through a temp file with a note's name (mkstemp with a
+  // `.md` suffix, TextEdit's "(A Document Being Saved By …)" folder) is a
+  // rename ONTO the open note: its bytes changed, so it is re-read like an
+  // edit, pending save first. It must not be followed anywhere.
+  it('re-reads the open note when a rename lands on it', async () => {
+    syncMocks.classifyOpenNote.mockResolvedValueOnce({ kind: 'adopt', content: 'saved elsewhere' });
+    const bundle = makeCoordinator(makeSession({ savePending: true }));
+
+    await bundle.coordinator.handleFileChange({
+      type: 'rename',
+      filename: 'active.md',
+      from: 'tmpk3j2v9.md',
+    });
+
+    expect(bundle.session.flushSave).toHaveBeenCalled();
+    expect(syncMocks.classifyOpenNote).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: 'active', renamedTo: null }),
+    );
+    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('saved elsewhere');
+    expect(bundle.followRename).not.toHaveBeenCalled();
+    expect(noteMocks.handleExternalFileChange).toHaveBeenCalledExactlyOnceWith('active.md');
+    expect(bundle.notifySaved).toHaveBeenCalledOnce();
+    bundle.coordinator.stop();
+  });
+
+  // Linux inotify reports an atomic save through a hidden temp as an add of
+  // the note it replaced.
+  it('re-reads the open note when it is reported added', async () => {
+    syncMocks.classifyOpenNote.mockResolvedValueOnce({ kind: 'adopt', content: 'saved elsewhere' });
+    const bundle = makeCoordinator();
+
+    await bundle.coordinator.handleFileChange({ type: 'add', filename: 'active.md' });
+
+    expect(syncMocks.classifyOpenNote).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ id: 'active', renamedTo: null }),
+    );
+    expect(bundle.applyExternalContent).toHaveBeenCalledExactlyOnceWith('saved elsewhere');
+    bundle.coordinator.stop();
+  });
+
   it('ignores a rename between non-markdown files', async () => {
     const bundle = makeCoordinator();
 
