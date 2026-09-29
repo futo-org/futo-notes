@@ -420,6 +420,67 @@ test('a note that opens with an unclosed --- rule keeps its lists and quotes', a
   expect(changes[0].content).toBe('***\n\nShopping\n\n- milk\n  - skim\n\n> quoted\n\nendX\n');
 });
 
+// A paste reaches the document through the DOM: our own copy writes the block
+// as `<pre data-frontmatter>`, and a plain-text paste is parsed as markdown and
+// then serialized to DOM and parsed back (Milkdown's clipboard plugin). The
+// preset's code block claims every `<pre>`, so either way the metadata used to
+// land as a fenced code block.
+test('cutting a whole note and pasting it back keeps its front matter', async ({
+  browser,
+  browserName,
+}) => {
+  test.skip(browserName !== 'chromium', 'clipboard permissions are Chromium-only in Playwright');
+  const context = await browser.newContext({
+    hasTouch: true,
+    permissions: ['clipboard-read', 'clipboard-write'],
+  });
+  await context.addInitScript(installFakeAndroidHost);
+  const page = await context.newPage();
+  await page.goto(EDITOR_URL);
+  await page.waitForFunction(() =>
+    (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
+  );
+  await hostSetContent(page, FRONT_MATTER_NOTE);
+  await focusEditor(page);
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('ControlOrMeta+x');
+  await page.keyboard.press('ControlOrMeta+v');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(FRONT_MATTER_NOTE);
+  await expect(page.locator('.futo-frontmatter')).toHaveCount(1);
+  await context.close();
+});
+
+test('pasting a note with front matter as plain text keeps the front matter', async ({ page }) => {
+  await hostSetContent(page, '');
+  await focusEditor(page);
+  await pasteClipboard(page, { 'text/plain': FRONT_MATTER_NOTE });
+  await settleChangeDebounce(page);
+
+  await expect(page.locator('.futo-frontmatter')).toHaveCount(1);
+  expect(await getContent(page)).toBe(FRONT_MATTER_NOTE);
+});
+
+test('front matter pasted where it cannot live keeps its text', async ({ page }) => {
+  // Front matter can only open a note, and a paste drops a block that fits
+  // nowhere — so once the block's parse rule won, mid-note front matter would
+  // have vanished. It lands as a code block of the same text instead.
+  await hostSetContent(page, 'one\n\ntwo\n');
+  await focusEditor(page);
+  await page.keyboard.press('Control+End');
+  await pasteClipboard(page, { 'text/plain': '---\na: 1\n---\n\nbody\n' });
+  await pasteClipboard(page, {
+    'text/html': '<pre data-frontmatter="">b: 2</pre><p>more</p>',
+    'text/plain': 'b: 2',
+  });
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(
+    'one\n\ntwo\n\n```\na: 1\n```\n\nbody\n\n```\nb: 2\n```\n\nmore\n',
+  );
+});
+
 test('applyExternalContent adopts differing content without a change echo', async ({ page }) => {
   await hostSetContent(page, 'original');
   await clearMessages(page);
@@ -3501,11 +3562,13 @@ test('insertImage puts the vault reference in the note and renders it resolved',
  */
 async function pasteClipboard(
   page: Page,
-  build: 'imageFile' | 'hiddenBitmap' | 'plainText',
+  build: 'imageFile' | 'hiddenBitmap' | 'plainText' | Record<string, string>,
 ): Promise<void> {
   await page.evaluate((kind) => {
     const dt = new DataTransfer();
-    if (kind === 'imageFile') {
+    if (typeof kind === 'object') {
+      for (const [format, data] of Object.entries(kind)) dt.setData(format, data);
+    } else if (kind === 'imageFile') {
       const bytes = Uint8Array.from(atob('iVBORw0KGgo='), (c) => c.charCodeAt(0));
       dt.items.add(new File([bytes], 'shot.png', { type: 'image/png' }));
     } else if (kind === 'plainText') {
