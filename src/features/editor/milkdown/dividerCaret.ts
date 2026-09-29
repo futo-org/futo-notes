@@ -47,6 +47,7 @@
  * browser's native scroll is to stop producing a NodeSelection at all, not to
  * add a second explicit scroll on top of it.
  */
+import { history } from '@milkdown/kit/prose/history';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import {
   Plugin,
@@ -83,6 +84,26 @@ function isLoadTransaction(tr: Transaction): boolean {
   return tr.getMeta('addToHistory') === false;
 }
 
+/**
+ * prosemirror-history keeps its PluginKey module-private, so take it off a
+ * throwaway instance of the very same plugin factory Milkdown's history plugin
+ * uses — exact identity, no name matching (MilkdownEditor.svelte does the same).
+ */
+const HISTORY_KEY = history().spec.key as PluginKey<unknown>;
+
+/**
+ * Whether `tr` is prosemirror-history replaying an undo or a redo.
+ *
+ * Those restore a document the user already had, `hr` included. Reading the
+ * restored divider as one just created inserted an empty paragraph after it
+ * (RC-60 / L3-5): "type over a selected divider, then undo" left the note one
+ * blank line longer than it was loaded. The history plugin tags exactly these
+ * transactions with its own meta, and no other transaction carries it.
+ */
+function isHistoryReplay(tr: Transaction): boolean {
+  return tr.getMeta(HISTORY_KEY) !== undefined;
+}
+
 /** Every `hr` node's position in `doc` (the position right before the node). */
 function hrPositions(doc: ProseNode): number[] {
   const positions: number[] = [];
@@ -109,6 +130,7 @@ function newlyCreatedDivider(
 ): number | null {
   if (!transactions.some((tr) => tr.docChanged)) return null;
   if (transactions.some(isLoadTransaction)) return null;
+  if (transactions.some(isHistoryReplay)) return null;
 
   const mapping = new Mapping();
   for (const tr of transactions) mapping.appendMapping(tr.mapping);

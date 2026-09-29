@@ -653,6 +653,58 @@ test('undo inside one note still works', async ({ page }) => {
 });
 
 /*
+ * RC-60 (L3-5): an undo that brings a divider back is not the user creating a
+ * divider. `dividerCaret` used to read the restored `hr` as new and append an
+ * empty paragraph after it, so undoing "type over a selected divider" left the
+ * note one blank line longer than it was opened. Real input only: a mouse click
+ * on the rule is how a user selects a divider (a click on a block atom is a
+ * NodeSelection; ArrowDown steps natively PAST the rule), then typed letters
+ * replace it.
+ */
+test('undoing a keystroke typed over a selected divider restores the note exactly', async ({
+  page,
+}) => {
+  const note = 'first\n\n***\n\nlast\n';
+  await hostSetContent(page, note);
+  await page.locator('.ProseMirror hr').click();
+  await page.keyboard.type('hello');
+  await waitForMessages(page, 'change');
+  expect(await getContent(page)).toContain('hello');
+  expect(await getContent(page)).not.toContain('***');
+
+  for (let i = 0; i < 20; i++) await page.keyboard.press('ControlOrMeta+z');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(note);
+
+  // Redo puts the edit back, and undoing it again is exact once more.
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toContain('h');
+  expect(await getContent(page)).not.toContain('***');
+  for (let i = 0; i < 20; i++) await page.keyboard.press('ControlOrMeta+z');
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toBe(note);
+});
+
+test('undo and redo of a typed `---` leave the divider note byte-stable', async ({ page }) => {
+  await hostSetContent(page, 'above\n\n');
+  await focusEditor(page);
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('---');
+  await settleChangeDebounce(page);
+  const made = await getContent(page);
+  expect(made).toContain('***');
+
+  await page.keyboard.press('ControlOrMeta+z');
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(made);
+});
+
+/*
  * Data safety: a version that arrives from OUTSIDE the editor is not an edit,
  * so it cannot be undone. `applyExternalContent` is the sync-adopt path, and it
  * deliberately does NOT reset the undo stack (the user's own edits stay

@@ -23,7 +23,8 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { mount } from 'svelte';
-import { TextSelection } from '@milkdown/kit/prose/state';
+import { redo, undo } from '@milkdown/kit/prose/history';
+import { NodeSelection, TextSelection } from '@milkdown/kit/prose/state';
 import type { EditorView } from '@milkdown/kit/prose/view';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
@@ -250,5 +251,79 @@ describe('opening a note must never move a divider or its caret (regression)', (
     expect(result.chunked).toBe(true);
     expect(result.aborted).toBe(false);
     expect(result.markdown).toBe(NOTE_WITH_MID_DOCUMENT_DIVIDERS);
+  });
+});
+
+/*
+ * RC-60 (L3-5): an UNDO that brings a divider back is not the user creating one.
+ * `newlyCreatedDivider` saw the restored `hr` as new and appended an empty
+ * paragraph after it, so a full undo of "type over a selected divider" left the
+ * note one blank line longer than it was loaded. History transactions carry
+ * prosemirror-history's own meta, and that is the signal to leave alone.
+ */
+describe('undo and redo must not treat a restored divider as a new one (RC-60)', () => {
+  const NOTE = 'first\n\n***\n\nlast\n';
+
+  function selectDivider(view: EditorView): void {
+    let hrPos = -1;
+    view.state.doc.descendants((node, pos) => {
+      if (hrPos === -1 && node.type.name === 'hr') hrPos = pos;
+      return hrPos === -1;
+    });
+    expect(hrPos).toBeGreaterThanOrEqual(0);
+    view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, hrPos)));
+  }
+
+  const blockTypes = (view: EditorView): string[] => {
+    const types: string[] = [];
+    view.state.doc.forEach((node) => types.push(node.type.name));
+    return types;
+  };
+
+  it('undoing the replacement of a selected divider restores exactly the loaded note', async () => {
+    const handle = await mountEditorHandle('');
+    handle.openNote(NOTE);
+    const view = handle.getProseMirrorView()!;
+    expect(handle.getContent()).toBe(NOTE);
+    const before = blockTypes(view);
+
+    selectDivider(view);
+    typeChar(view, 'h'); // a real keystroke over the selected divider
+    expect(blockTypes(view)).not.toContain('hr');
+
+    expect(undo(view.state, view.dispatch)).toBe(true);
+
+    expect(blockTypes(view)).toEqual(before);
+    expect(handle.getContent()).toBe(NOTE);
+  });
+
+  it('redoing over the divider and undoing again is byte-stable, both ways', async () => {
+    const handle = await mountEditorHandle('');
+    handle.openNote(NOTE);
+    const view = handle.getProseMirrorView()!;
+    selectDivider(view);
+    typeChar(view, 'h');
+    const edited = handle.getContent();
+
+    undo(view.state, view.dispatch);
+    expect(handle.getContent()).toBe(NOTE);
+    redo(view.state, view.dispatch);
+    expect(handle.getContent()).toBe(edited);
+    undo(view.state, view.dispatch);
+    expect(handle.getContent()).toBe(NOTE);
+  });
+
+  it('undo and redo of a typed `---` neither add nor drop a paragraph', async () => {
+    const handle = await mountEditorHandle('');
+    const view = handle.getProseMirrorView()!;
+    typeDivider(view);
+    expectDividerEndState(view);
+    const created = handle.getContent();
+
+    undo(view.state, view.dispatch);
+    redo(view.state, view.dispatch);
+
+    expect(handle.getContent()).toBe(created);
+    expectDividerEndState(view);
   });
 });
