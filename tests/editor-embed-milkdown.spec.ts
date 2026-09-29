@@ -517,6 +517,25 @@ test('an edit beside a table with a wide row keeps every value in its column', a
   );
 });
 
+test('an edit to a note that ends in a list adds no trailing blank line', async ({ page }) => {
+  // The `trailing` plugin parks an empty paragraph below a last list, quote,
+  // table, fence or rule, and the first edit used to write it as `\n\n` at the
+  // end of the file (RC-22). The spec drops a trailing empty paragraph on save.
+  for (const [note, edited] of [
+    ['- a\n- b\n', '- aX\n- b\n'],
+    ['> a\n', '> aX\n'],
+    ['| a | b |\n| - | - |\n| 1 | 2 |\n', '| aX | b |\n| -- | - |\n| 1  | 2 |\n'],
+  ] as const) {
+    await hostSetContent(page, note);
+    await clearMessages(page);
+    await page.locator('.ProseMirror :is(li, blockquote, th) p').first().click();
+    await page.keyboard.press('End');
+    await page.keyboard.type('X');
+    const changes = await waitForMessages(page, 'change');
+    expect(changes[changes.length - 1].content).toBe(edited);
+  }
+});
+
 test('applyExternalContent adopts differing content without a change echo', async ({ page }) => {
   await hostSetContent(page, 'original');
   await clearMessages(page);

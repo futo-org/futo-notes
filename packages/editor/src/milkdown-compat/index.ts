@@ -92,6 +92,7 @@ import { paragraphFillerGuard, paragraphWithoutFillerSchema } from './listItemFi
 import { scopedListOrderPlugin } from './listOrder';
 import { scopedKeepTableAlignPlugin, scopedTableEditingPlugin } from './tablePasses';
 import { remarkPadTableRowsPlugin } from './tableWidth';
+import { trailingParagraphDocSchema } from './trailingParagraph';
 
 export * from './atxEscape';
 export * from './stringifyHandlers';
@@ -107,6 +108,7 @@ export {
   FRONTMATTER_NODE,
 } from './frontmatter';
 export type { MdastNode } from './mdast';
+export { withoutTrailingEmptyParagraphs } from './trailingParagraph';
 
 /** The two entries `remarkPreserveEmptyLinePlugin` contributes to the preset. */
 const UPSTREAM_EMPTY_LINE_ENTRIES: readonly unknown[] = [
@@ -249,11 +251,14 @@ export function commonmarkWithCompat(): MilkdownPlugin[] {
     /* The preset's list numbering over the touched blocks only (see
      * UPSTREAM_LIST_ORDER_ENTRIES). */
     scopedListOrderPlugin,
-    /* LAST, and it has to be: the front matter set overrides the preset's own
+    /* Last but one, and it has to be: the front matter set overrides the preset's own
      * `doc` node by re-registering that id, which `$node` resolves by upsert —
      * so it must be registered after the preset, and it reads the registered
      * entry back to inherit everything but the content expression. */
     ...frontmatterPlugins,
+    /* After the front matter set, whose `doc` it reads back and wraps: the
+     * document's trailing empty paragraphs are not written (`./trailingParagraph`). */
+    trailingParagraphDocSchema,
   ];
   return cached;
 }

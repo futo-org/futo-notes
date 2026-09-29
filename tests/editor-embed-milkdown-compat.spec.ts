@@ -82,31 +82,29 @@ test.describe('an empty paragraph round-trips as a blank line, never as <br />',
   // paragraphs and save back as N blank lines (packages/editor/src/
   // milkdown-compat/emptyLine.ts). Each case is asserted twice — the first
   // save is allowed to re-spell (ADR-0002), the second must be a fixed point.
-  // Fixed points of the census harness's serializer. Where the input ends on a
-  // block that is not a paragraph, the trailing blank line is Milkdown's
-  // `trailing` plugin parking its end-of-document paragraph — pre-existing and
-  // unrelated to this rule — and `*`/`| - |` are remark-stringify's defaults
-  // (the app sets `bullet: '-'` in its own config, the harness does not).
+  // Fixed points of the census harness's serializer. `*`/`| - |` are
+  // remark-stringify's defaults (the app sets `bullet: '-'` in its own config,
+  // the harness does not).
   const STABLE: Record<string, string> = {
     'two blank lines between paragraphs': 'para one\n\n\npara two\n',
     'three blank lines between paragraphs': 'para one\n\n\n\npara two\n',
     'blank lines before the first block': '\n\npara\n',
-    'two blank lines inside a blockquote': '> a\n>\n>\n> b\n\n',
-    'two blank lines inside a list item': '* a\n\n\n  b\n* c\n\n',
-    'an empty list item': '* a\n*\n* b\n\n',
+    'two blank lines inside a blockquote': '> a\n>\n>\n> b\n',
+    'two blank lines inside a list item': '* a\n\n\n  b\n* c\n',
+    'an empty list item': '* a\n*\n* b\n',
     // The schema puts an empty paragraph in front of an item whose only content
     // is a block; that filler is not the note's and is not written
     // (packages/editor/src/milkdown-compat/listItemFiller.ts). Without that,
     // these save as a bare `*` over an indented block, and the NEXT save escapes
     // it to a literal `\*` — 60 census notes.
-    'a list item holding only a blockquote': '* > quote\n* b\n\n',
-    'a list item holding only a heading': '* # heading\n\n',
-    'a list item holding only a nested list': '* * nested\n  * deeper\n\n',
+    'a list item holding only a blockquote': '* > quote\n* b\n',
+    'a list item holding only a heading': '* # heading\n',
+    'a list item holding only a nested list': '* * nested\n  * deeper\n',
     // Two lists with a gap between them: the second list alternates its marker
     // as if adjacent, or CommonMark would read the pair back as ONE list.
-    'two bullet lists with a blank line between them': '* a\n\n\n- b\n\n',
-    'two ordered lists with a blank line between them': '1. a\n\n\n1) b\n\n',
-    'an empty table cell': '| a | b |\n| - | - |\n|   | x |\n\n',
+    'two bullet lists with a blank line between them': '* a\n\n\n- b\n',
+    'two ordered lists with a blank line between them': '1. a\n\n\n1) b\n',
+    'an empty table cell': '| a | b |\n| - | - |\n|   | x |\n',
   };
 
   for (const [name, markdown] of Object.entries(STABLE)) {
@@ -144,11 +142,11 @@ test.describe('an empty paragraph round-trips as a blank line, never as <br />',
     ],
     'an empty table cell': [
       '| a | b |\n| --- | --- |\n| <br /> | x |\n',
-      '| a | b |\n| - | - |\n|   | x |\n\n',
+      '| a | b |\n| - | - |\n|   | x |\n',
     ],
-    'an empty list item': ['- a\n- <br />\n- b\n', '* a\n*\n* b\n\n'],
-    'an empty blockquote line': ['> <br />\n', '>\n\n'],
-    'an empty footnote definition': ['ref[^4]\n\n[^4]: <br />\n', 'ref[^4]\n\n[^4]: \n\n'],
+    'an empty list item': ['- a\n- <br />\n- b\n', '* a\n*\n* b\n'],
+    'an empty blockquote line': ['> <br />\n', '>\n'],
+    'an empty footnote definition': ['ref[^4]\n\n[^4]: <br />\n', 'ref[^4]\n\n[^4]: \n'],
   };
 
   for (const [name, [legacy, respelled]] of Object.entries(LEGACY)) {
@@ -159,6 +157,38 @@ test.describe('an empty paragraph round-trips as a blank line, never as <br />',
       expect(await roundTrip(page, 'compat', out)).toBe(out);
     });
   }
+});
+
+test.describe('the parked end-of-document paragraph is not written', () => {
+  // @milkdown/plugin-trailing parks an empty paragraph after a last block that
+  // is not a paragraph or heading, and the serializer wrote it as one more
+  // blank line: the first edit of every such note ended the file in `\n\n`
+  // (RC-22). The spec drops a trailing empty paragraph on save.
+  test('canary: upstream still writes it as a blank line', async ({ page }) => {
+    expect(await roundTrip(page, 'baseline', '- a\n- b\n')).toBe('* a\n* b\n\n');
+  });
+
+  const LAST_BLOCKS: Record<string, string> = {
+    'a list': '* a\n* b\n',
+    'a task list': '* [ ] a\n* [x] b\n',
+    'a blockquote': '> quote\n',
+    'a table': '| a | b |\n| - | - |\n| 1 | 2 |\n',
+    'a fence': '```\ncode\n```\n',
+    'a thematic break': 'a\n\n***\n',
+  };
+  for (const [name, markdown] of Object.entries(LAST_BLOCKS)) {
+    test(`compat ends a note whose last block is ${name} in one newline`, async ({ page }) => {
+      const { once, twice } = await twoSaves(page, 'compat', markdown);
+      expect(once).toBe(markdown);
+      expect(twice).toBe(once);
+    });
+  }
+
+  test('compat still writes an empty paragraph that is not at the end', async ({ page }) => {
+    const { once, twice } = await twoSaves(page, 'compat', '* a\n\n\npara\n');
+    expect(once).toBe('* a\n\n\npara\n');
+    expect(twice).toBe(once);
+  });
 });
 
 test.describe('a link reference definition nothing uses survives', () => {
@@ -381,18 +411,13 @@ test.describe('YAML front matter survives the round trip', () => {
     });
   }
 
-  test('compat keeps the fences on a note with no body at all', async ({ page }) => {
-    // The one shape that is not byte-identical, and it is the accepted
-    // normalize-once class rather than a front matter defect: the doc's content
-    // expression is `frontmatter? block+`, so a document parsed as nothing but
-    // front matter gets ProseMirror's required empty paragraph filled in, and
-    // that serializes as one trailing blank line. Keeping the fill is the
-    // deliberate trade — without it the only selection such a note admits is a
-    // node selection ON the front matter, and the next keystroke would replace
-    // the metadata. Opening still hands back the host's own bytes (the
-    // load-echo guard); this is only what a real edit writes.
-    const out = await roundTrip(page, 'compat', '---\na: 1\n---\n');
-    expect(out).toBe('---\na: 1\n---\n\n');
+  test('compat keeps a note with no body at all byte-for-byte', async ({ page }) => {
+    // The doc's content expression is `frontmatter? block+`, so a document
+    // parsed as nothing but front matter gets ProseMirror's required empty
+    // paragraph filled in — the caret's only place that is not a selection ON
+    // the metadata. It is a trailing empty paragraph, which is not written
+    // (milkdown-compat/trailingParagraph.ts), so it costs the file nothing.
+    expect(await roundTrip(page, 'compat', '---\na: 1\n---\n')).toBe('---\na: 1\n---\n');
   });
 
   test('compat leaves a mid-document `---` a thematic break', async ({ page }) => {
@@ -576,10 +601,8 @@ test.describe('a multi-line inline HTML tag keeps its continuation indent', () =
   for (const [name, markdown] of [
     ['a tag that starts the paragraph', TAG],
     ['a tag in mid-paragraph', MID],
-    // A document that ends in a container gains the trailing plugin's
-    // paragraph (pre-existing, see the blank-line cases above).
-    ['a tag inside a blockquote', "> text <span\n>     a='1'>t</span> end\n\n"],
-    ['a tag inside a list item', "* text <span\n      a='1'>t</span> end\n\n"],
+    ['a tag inside a blockquote', "> text <span\n>     a='1'>t</span> end\n"],
+    ['a tag inside a list item', "* text <span\n      a='1'>t</span> end\n"],
   ] as const) {
     test(`compat keeps ${name} byte-for-byte`, async ({ page }) => {
       const { once, twice } = await twoSaves(page, 'compat', markdown);
