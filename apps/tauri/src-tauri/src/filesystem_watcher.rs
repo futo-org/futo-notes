@@ -475,7 +475,7 @@ impl<S: ChangeSink> EventProcessor<S> {
             .old_half
             .take_if(|old| old.entry + 1 == entry && old.path != path)
         {
-            Some(old) => self.pair(state, old.path, path, unpaired_kind, old.at),
+            Some(old) => self.pair(state, old.path, path, unpaired_kind, old.at, false),
             None => self.arrived(state, &path, unpaired_kind),
         }
     }
@@ -516,7 +516,7 @@ impl<S: ChangeSink> EventProcessor<S> {
                 .and_then(|mut pending| pending.remove(&(cookie as u128)))
                 .map(|rename| rename.from_path);
             if let Some(from) = from {
-                self.pair(state, from, to, "add", now);
+                self.pair(state, from, to, "add", now, true);
                 return;
             }
         } else if let Some(to) = first {
@@ -535,6 +535,12 @@ impl<S: ChangeSink> EventProcessor<S> {
     /// notes and the old name stayed empty. Renaming a note to a non-note name
     /// (vim's backup before it writes the note again) empties the note's path
     /// for a moment, so that waits out the window like a move out of the vault.
+    ///
+    /// `by_cookie` says the backend itself matched the halves (inotify's
+    /// cookie), so the pair is exact and the old name is not looked at again:
+    /// it may already be occupied by a new note (a cloud client's conflict
+    /// rename), and that does not undo the rename. Cookieless halves were
+    /// matched by arrival order, and only the old name being gone confirms it.
     fn pair(
         &self,
         state: &mut RenameState,
@@ -542,6 +548,7 @@ impl<S: ChangeSink> EventProcessor<S> {
         to: PathBuf,
         unpaired_kind: &str,
         at: i64,
+        by_cookie: bool,
     ) {
         if from == to {
             self.present(state, &to, "change");
@@ -551,7 +558,7 @@ impl<S: ChangeSink> EventProcessor<S> {
             relative_note_path_any(&self.bases, &from),
             relative_note_path_any(&self.bases, &to),
         ) {
-            (Some(from_relative), Some(to_relative)) if !path_exists(&from) => {
+            (Some(from_relative), Some(to_relative)) if by_cookie || !path_exists(&from) => {
                 self.revisit(state, &to);
                 self.sink.rename(&from_relative, &to_relative);
             }
@@ -967,6 +974,26 @@ mod tests {
         assert_eq!(seen, vec!["rename Note.md -> Moved.md"]);
     }
 
+    /// inotify hands the two halves of a rename a shared cookie, so the pair
+    /// is exact whatever happens to the old name next. A cloud client's
+    /// rename of a note to a conflict name that a sync then writes a new note
+    /// over (iCloud: "A" -> "A 2", new "A") leaves the old name occupied by
+    /// the time the halves are read; the rename is still a rename.
+    #[test]
+    fn a_cookie_paired_rename_is_exact_even_when_the_old_name_is_occupied_again() {
+        let root = temp_vault("cookie");
+        std::fs::write(root.join("A.md"), "new note").unwrap();
+        std::fs::write(root.join("A 2.md"), "old note").unwrap();
+        let (processor, recorder) = recording_processor(&root);
+
+        processor.process(rename_half(RenameMode::From, root.join("A.md")).set_tracker(7));
+        processor.process(rename_half(RenameMode::To, root.join("A 2.md")).set_tracker(7));
+
+        let seen = recorder.take();
+        std::fs::remove_dir_all(&root).unwrap();
+        assert_eq!(seen, vec!["rename A.md -> A 2.md"]);
+    }
+
     /// An old name whose new half never comes (moved out of the vault — the
     /// Trash is outside it) is a removal, reported once the pair window closes
     /// even when no later event arrives to flush it.
@@ -1109,6 +1136,44 @@ mod tests {
                 .any(|entry| entry.starts_with("change ") || entry.starts_with("unlink ")),
             "a rename must not read as an edit or removal; sink saw {seen:?}, backend sent {raw:?}"
         );
+    }
+
+    /// inotify pairs a rename's halves itself, so a rename reads as one rename
+    /// however soon the old name is written again. A cloud client renames a
+    /// note to a conflict name and writes the remote note at the old name
+    /// (iCloud: "A" -> "A 2", new "A"); dropping the pair for the old name
+    /// being occupied lost the rename, and an editor open on the note did not
+    /// follow it.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn inotify_reports_a_rename_then_a_new_note_at_the_old_name_as_a_rename() {
+        let root = temp_vault("recreate");
+        let rounds = 20;
+        for round in 0..rounds {
+            std::fs::write(root.join(format!("A {round}.md")), "local").unwrap();
+        }
+        let watch = NativeWatch::start(&root);
+
+        for round in 0..rounds {
+            std::fs::rename(
+                root.join(format!("A {round}.md")),
+                root.join(format!("A {round} 2.md")),
+            )
+            .unwrap();
+            // No gap: the remote note is written before the rename is read.
+            std::fs::write(root.join(format!("A {round}.md")), "remote").unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(30));
+        }
+        let (seen, raw) = watch.settle();
+        std::fs::remove_dir_all(&root).unwrap();
+
+        for round in 0..rounds {
+            let renamed = format!("rename A {round}.md -> A {round} 2.md");
+            assert!(
+                seen.contains(&renamed),
+                "round {round}: the rename was not reported; sink saw {seen:?}, backend sent {raw:?}"
+            );
+        }
     }
 
     /// vim's default save renames the note to a backup name, writes a new file
