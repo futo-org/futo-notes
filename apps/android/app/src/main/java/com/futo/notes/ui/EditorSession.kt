@@ -22,6 +22,14 @@ internal interface OpenNoteEffects {
     /** This screen still owns the app-lifetime editor WebView. */
     fun isCurrentEditor(): Boolean
 
+    /**
+     * Read the live editor into the screen's draft WITHOUT ending the editing
+     * session, and say what the read came back with. The draft `change`
+     * messages delivered lags the editor (a streaming note withholds them; an
+     * edit spends 200 ms in the debounce), and [gatherFacts] reads that draft.
+     */
+    suspend fun captureEditor(): EditorCaptureOutcome
+
     suspend fun gatherFacts(noteId: String): OpenNoteFacts
 
     fun classify(facts: OpenNoteFacts): OpenNoteDisposition
@@ -342,6 +350,19 @@ internal class EditorSession(
         expectedId: String,
         effects: OpenNoteEffects,
     ): OpenNoteDisposition? {
+        // Read the editor BEFORE the facts (RC-08). The draft is kept current
+        // by `change` messages, and the editor withholds those while a large
+        // note streams and for the change debounce: classified on that draft,
+        // an edit only the editor knew about read as "nothing to lose", and a
+        // peer edit was adopted over it or a peer delete closed the note. The
+        // outcomes mean what they mean to an exit ([editorExitBody]): no live
+        // document leaves the draft as the freshest body; a busy renderer or
+        // another note's document cannot answer for this one, so no verdict is
+        // taken on it — and nothing has been cancelled yet to resume.
+        when (effects.captureEditor()) {
+            is EditorCaptureOutcome.Captured, EditorCaptureOutcome.NoLiveDocument -> Unit
+            EditorCaptureOutcome.NotOurs, EditorCaptureOutcome.TimedOut -> return null
+        }
         val facts =
             try {
                 effects.gatherFacts(expectedId)

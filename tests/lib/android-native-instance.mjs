@@ -430,6 +430,23 @@ class AndroidNativeSyncClient {
     );
   }
 
+  /** Type into the focused editor through the browser's own editing command,
+   *  so ProseMirror handles it as input — an edit the editor itself decides
+   *  when to report (contrast replaceOpenEditorContent, which posts the
+   *  `change` by hand). Call focusOpenEditor first. */
+  async typeIntoOpenEditor(text) {
+    const typed = await this.#evaluateInEditor(
+      `document.execCommand('insertText', false, ${JSON.stringify(text)})`,
+    );
+    if (typed !== true) throw new Error(`${this.name}: the editor refused typed input`);
+  }
+
+  /** Is the open note still streaming its tail ("Loading the rest…")? While it
+   *  is, the editor withholds `change` (the save lock). */
+  async isOpenEditorStreaming() {
+    return this.#evaluateInEditor(`document.querySelector('.milkdown-stream-tail') !== null`);
+  }
+
   async waitForOpenEditorTitle(title, timeoutMs = LIVE_TIMEOUT_MS) {
     await this.device.waitFor(`"${title}" as ${this.name}'s open-note title`, timeoutMs, () =>
       this.device.isVisible(title),

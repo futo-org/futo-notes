@@ -2180,6 +2180,111 @@ async function androidKeepsADraftTypedWhileAPeerEditIsDeferred(desktop, android,
   await waitForDesktopNoteContent(desktop, id, peerEdit);
 }
 
+// RC-08 (FB-5): the open-note verdict must see an edit the editor has not
+// reported yet. A large note withholds `change` while its tail streams, so the
+// shell's copy — which the verdict used to be taken on — still equals the base
+// after the user typed and dismissed the keyboard. A peer edit then classified
+// as a clean Adopt and `applyExternalContent` discarded the edit; a peer delete
+// classified as Close. The shell now reads the editor before it classifies.
+//
+// Outcome-based on purpose: whether the engine answers KeepDraft (the read
+// answered) or nothing at all (the read ran out of its deadline while the
+// renderer finished the tail — then the released `change` reaches the ordinary
+// save, whose flush verb parks it), the typed text must survive and so must
+// the peer's.
+const UNREPORTED_EDIT_SECTIONS = 20_000;
+
+function streamingSizedNote(title) {
+  const sections = Array.from(
+    { length: UNREPORTED_EDIT_SECTIONS },
+    (_, i) => `## Section ${i}\n\nBody line ${i} of a note long enough to stream.`,
+  );
+  return `# ${title}\n\n${sections.join('\n\n')}\n`;
+}
+
+/** Open `id`, type `marker` while its tail is still streaming, dismiss the
+ *  keyboard, and prove the edit is still unreported when this returns. */
+async function typeUnreportedEditWhileStreaming(android, id, base, marker) {
+  await android.openNoteInEditor(id);
+  await android.focusOpenEditor();
+  await android.typeIntoOpenEditor(marker);
+  await android.blurOpenEditor();
+  // M11: the window this scenario exists for. A stream that already finished
+  // released the `change`, and the verdict below would pass for the wrong
+  // reason — raise UNREPORTED_EDIT_SECTIONS rather than accept that.
+  assert(
+    await android.isOpenEditorStreaming(),
+    'the note finished streaming before the peer change could land — the edit is ' +
+      'already reported, so this run proves nothing',
+  );
+  assertEqual(android.readNote(id), base, 'the typed edit must not have been saved yet');
+}
+
+/** Every harness note in the Android vault holding `text`, by id. */
+function androidNotesContaining(android, text) {
+  return android
+    .listNoteFilenames()
+    .filter((name) => name.startsWith(HARNESS_NOTE_PREFIX))
+    .map((name) => name.replace(/\.md$/, ''))
+    .filter((candidate) => (android.readNote(candidate) ?? '').includes(text));
+}
+
+async function waitForAndroidNoteContaining(android, text, timeoutMs = 120_000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const hits = androidNotesContaining(android, text);
+    if (hits.length > 0) return hits;
+    await sleep(1_000);
+  }
+  throw new Error(
+    `${android.name}: no note holds ${JSON.stringify(text)} — the unreported edit was discarded ` +
+      `(notes: ${JSON.stringify(android.listNoteFilenames())})`,
+  );
+}
+
+async function androidKeepsAnUnreportedEditOverAPeerEdit(desktop, android, server) {
+  await desktop.connectSync(server.url, server.password);
+  await android.connectSync(server.url, server.password);
+  await desktop.pauseAutoSync();
+
+  const id = `${HARNESS_NOTE_PREFIX}unreported-edit`;
+  const base = streamingSizedNote('unreported edit');
+  await desktop.writeNote(id, base);
+  await desktop.syncNow();
+  await android.waitForNoteContent(id, base);
+
+  const marker = 'TYPEDWHILESTREAMING ';
+  await typeUnreportedEditWhileStreaming(android, id, base, marker);
+
+  const peerEdit = base.replace('Body line 1 of', 'Body line 1 (peer edit) of');
+  await desktop.writeNote(id, peerEdit);
+  await desktop.syncNow();
+
+  await waitForAndroidNoteContaining(android, marker);
+  await waitForAndroidNoteContaining(android, '(peer edit)');
+}
+
+async function androidKeepsAnUnreportedEditOverAPeerDelete(desktop, android, server) {
+  await desktop.connectSync(server.url, server.password);
+  await android.connectSync(server.url, server.password);
+  await desktop.pauseAutoSync();
+
+  const id = `${HARNESS_NOTE_PREFIX}unreported-delete`;
+  const base = streamingSizedNote('unreported delete');
+  await desktop.writeNote(id, base);
+  await desktop.syncNow();
+  await android.waitForNoteContent(id, base);
+
+  const marker = 'TYPEDBEFOREPEERDELETE ';
+  await typeUnreportedEditWhileStreaming(android, id, base, marker);
+
+  await desktop.deleteNoteInApp(id);
+  await desktop.syncNow();
+
+  // Persist-or-park: the draft stays open and its save recreates the note.
+  await waitForAndroidNoteContaining(android, marker);
+}
+
 async function androidFollowsPeerRenameWhileOpen(desktop, android, server) {
   await desktop.connectSync(server.url, server.password);
   await android.connectSync(server.url, server.password);
@@ -3457,6 +3562,16 @@ const scenarios = [
   {
     name: 'android keeps a draft typed while a peer edit is deferred',
     fn: androidKeepsADraftTypedWhileAPeerEditIsDeferred,
+    matrices: [ANDROID_MATRIX],
+  },
+  {
+    name: 'android keeps an unreported edit over a peer edit',
+    fn: androidKeepsAnUnreportedEditOverAPeerEdit,
+    matrices: [ANDROID_MATRIX],
+  },
+  {
+    name: 'android keeps an unreported edit over a peer delete',
+    fn: androidKeepsAnUnreportedEditOverAPeerDelete,
     matrices: [ANDROID_MATRIX],
   },
   {

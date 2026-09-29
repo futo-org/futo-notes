@@ -295,6 +295,34 @@ fun NoteEditorScreen(
         }
     }
 
+    /**
+     * An editor `change` — or a read of the live editor that found text no
+     * `change` had delivered yet ([OpenNoteEffects.captureEditor]). Both are the
+     * editor telling this screen what the note now holds, so both take this one
+     * path.
+     */
+    fun receiveEditorChange(newContent: String) {
+        // Data-loss guard: ignore editor change events until the off-main
+        // initial read has landed (`loaded`). The WebView mounts with "" and can
+        // emit a setContent echo before the real body loads; saving that empty
+        // echo would clobber the note on disk. Once loaded, all edits flow
+        // through.
+        if (
+            session.acceptsEditorChange(
+                loaded = loaded,
+                storageMigrationStarted = store.isVaultMigrationStarted,
+            )
+        ) {
+            // Just update the buffer state. The unsaved-draft register follows
+            // from the snapshotFlow derivation (content != savedContent) — no
+            // manual publish; the register goes clean the instant the debounced
+            // save sets savedContent (PKT-12 R5). F8 jetsam guard.
+            content = newContent
+            editVersion += 1
+            scheduleBodySave(newContent)
+        }
+    }
+
     fun dismissFind() {
         // Take the soft keyboard down with the bar. The query field is a native
         // EditText, and Android does NOT hide the IME when the view serving it
@@ -322,6 +350,21 @@ fun NoteEditorScreen(
 
             override fun isCurrentEditor(): Boolean =
                 editorAttachment?.let(host::isCurrentAttachment) == true
+
+            // The draft `change` messages delivered can lag the editor. Read the
+            // document itself — without blurring it, which would take the
+            // keyboard from a typist — and hear anything it holds that no
+            // `change` said. The bundle also posts that `change` inside the
+            // read, but the bridge hands it to the main looper on its own, so
+            // it can land after this reply: the read is not left waiting on it.
+            override suspend fun captureEditor(): EditorCaptureOutcome {
+                val attachment = editorAttachment ?: return EditorCaptureOutcome.NotOurs
+                val outcome = host.readContentAndWait(attachment, shellCopy = content)
+                if (outcome is EditorCaptureOutcome.Captured && outcome.text != content) {
+                    receiveEditorChange(outcome.text)
+                }
+                return outcome
+            }
 
             override suspend fun gatherFacts(noteId: String): OpenNoteFacts {
                 // The reconciliation owns the debounce now. If it was already
@@ -1026,28 +1069,7 @@ fun NoteEditorScreen(
                                 findTotal = report.total
                             }
                         },
-                        onChange = { newContent ->
-                            // Data-loss guard: ignore editor change events until the
-                            // off-main initial read has landed (`loaded`). The WebView
-                            // mounts with "" and can emit a setContent echo before the
-                            // real body loads; saving that empty echo would clobber the
-                            // note on disk. Once loaded, all edits flow through.
-                            if (
-                                session.acceptsEditorChange(
-                                    loaded = loaded,
-                                    storageMigrationStarted = store.isVaultMigrationStarted,
-                                )
-                            ) {
-                                // Just update the buffer state. The unsaved-draft
-                                // register follows from the snapshotFlow derivation
-                                // (content != savedContent) — no manual publish; the
-                                // register goes clean the instant the debounced save
-                                // sets savedContent (PKT-12 R5). F8 jetsam guard.
-                                content = newContent
-                                editVersion += 1
-                                scheduleBodySave(newContent)
-                            }
-                        },
+                        onChange = { newContent -> receiveEditorChange(newContent) },
                     )
                 }
             }

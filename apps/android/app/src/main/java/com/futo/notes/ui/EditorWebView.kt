@@ -296,6 +296,9 @@ class EditorHost private constructor(appContext: Context) {
     private var desiredTheme: String = "light"
     private var desiredLanguageTag: String = "en"
     private var desiredContent: String = ""
+    /** Every document this host has sent the page, counted — so a read can tell
+     *  that one landed while it was in flight ([readContentAndWait]). */
+    private var contentPushes = 0L
     // Note universe + image base (bridge v2). The notes JSON can be large, so
     // dedupe holds only its hash, not the string.
     private var desiredNotesJson: String? = null
@@ -760,6 +763,7 @@ class EditorHost private constructor(appContext: Context) {
         currentTheme = desiredTheme
         currentLanguageTag = desiredLanguageTag
         lastPushedContent = desiredContent
+        contentPushes += 1
         lastNotesJsonHash = desiredNotesJson?.hashCode()
         currentImageBaseUrl = desiredImageBaseUrl
 
@@ -862,6 +866,7 @@ class EditorHost private constructor(appContext: Context) {
     fun applyExternalContent(markdown: String) {
         desiredContent = markdown
         lastPushedContent = markdown
+        contentPushes += 1
         eval("window.FutoEditor && window.FutoEditor.applyExternalContent(${JSONObject.quote(markdown)});")
     }
 
@@ -927,6 +932,41 @@ class EditorHost private constructor(appContext: Context) {
      */
     internal suspend fun captureContentAndWait(
         attachment: EditorAttachmentToken,
+    ): EditorCaptureOutcome = readWithinDeadline(attachment, CAPTURE_SCRIPT)
+
+    /**
+     * Read the live document for a note that stays open — the open-note
+     * reconcile's read (RC-08), not an exit's.
+     *
+     * The same read as [captureContentAndWait], under the same deadline and
+     * liveness probe, except that it does not blur: a reconcile runs whenever
+     * sync touches the open note, typist or not, and may not take the keyboard
+     * away.
+     *
+     * It answers for [shellCopy] only. Owning the WebView is not enough: a
+     * reconcile can run the moment the note loads from disk, before
+     * composition has pushed that text, while the page still holds the empty
+     * document the attach pushed — and taking THAT as the user's latest text
+     * would blank or truncate the note. A page whose last known text (pushed,
+     * or reported by a `change`) is not [shellCopy] holds nothing typed into
+     * this note that the screen has not heard, so the answer is
+     * [EditorCaptureOutcome.NoLiveDocument]. A push sent while the read is
+     * in flight makes the answer describe the document it replaced:
+     * [EditorCaptureOutcome.NotOurs].
+     */
+    internal suspend fun readContentAndWait(
+        attachment: EditorAttachmentToken,
+        shellCopy: String,
+    ): EditorCaptureOutcome {
+        if (lastPushedContent != shellCopy) return EditorCaptureOutcome.NoLiveDocument
+        val pushesBefore = contentPushes
+        val outcome = readWithinDeadline(attachment, READ_SCRIPT)
+        return if (contentPushes == pushesBefore) outcome else EditorCaptureOutcome.NotOurs
+    }
+
+    private suspend fun readWithinDeadline(
+        attachment: EditorAttachmentToken,
+        script: String,
     ): EditorCaptureOutcome {
         // No `initialized` yet: the bundle is still applying this shell's
         // config — for a big enough note, for a long time — so nothing is on
@@ -938,7 +978,7 @@ class EditorHost private constructor(appContext: Context) {
             deadlineMs = CAPTURE_DEADLINE_MS,
             startLivenessProbe = { rendererAnswered = startRendererLivenessProbe() },
             rendererAnswered = { rendererAnswered() },
-        ) { awaitCapture(attachment) }
+        ) { awaitCapture(attachment, script) }
     }
 
     /**
@@ -969,6 +1009,7 @@ class EditorHost private constructor(appContext: Context) {
 
     private suspend fun awaitCapture(
         attachment: EditorAttachmentToken,
+        script: String,
     ): EditorCaptureOutcome =
         suspendCancellableCoroutine { continuation ->
             val permit = EditorAttachmentOperationPermit(attachments, attachment)
@@ -978,15 +1019,7 @@ class EditorHost private constructor(appContext: Context) {
                     if (continuation.isActive) continuation.resume(EditorCaptureOutcome.NotOurs)
                     return@Runnable
                 }
-                webView.evaluateJavascript(
-                    """
-                    (() => {
-                      if (!window.FutoEditor) return null;
-                      window.FutoEditor.blur();
-                      return window.FutoEditor.getContent();
-                    })()
-                    """.trimIndent(),
-                ) { result ->
+                webView.evaluateJavascript(script) { result ->
                     // The deadline may already have answered for us. Returning
                     // here is what makes a late callback harmless: the stale
                     // bytes never reach [lastPushedContent].
@@ -1065,6 +1098,7 @@ class EditorHost private constructor(appContext: Context) {
 
     private fun pushContent(content: String) {
         lastPushedContent = content
+        contentPushes += 1
         eval("window.FutoEditor && window.FutoEditor.setContent(${JSONObject.quote(content)});")
     }
 
@@ -1157,6 +1191,27 @@ class EditorHost private constructor(appContext: Context) {
          * not end.
          */
         private const val CAPTURE_DEADLINE_MS = 6_000L
+
+        /** An exit's read of the open document: end the editing session, then
+         *  take the text. `null` is a page with no editor at all. */
+        private val CAPTURE_SCRIPT =
+            """
+            (() => {
+              if (!window.FutoEditor) return null;
+              window.FutoEditor.blur();
+              return window.FutoEditor.getContent();
+            })()
+            """.trimIndent()
+
+        /** [CAPTURE_SCRIPT] without ending the editing session: the reconcile's
+         *  read of a note that stays open ([readContentAndWait]). */
+        private val READ_SCRIPT =
+            """
+            (() => {
+              if (!window.FutoEditor) return null;
+              return window.FutoEditor.getContent();
+            })()
+            """.trimIndent()
 
         @Volatile
         private var instance: EditorHost? = null

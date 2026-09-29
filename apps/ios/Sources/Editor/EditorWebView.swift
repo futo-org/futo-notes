@@ -575,6 +575,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private var desiredLocalization = Localization.system()
     private var desiredLanguageTag: String { desiredLocalization.effectiveLanguage.tag }
     private var desiredContent = ""
+    /// Every document this host has sent the page, counted — so a read can tell
+    /// that one landed while it was in flight (``readContent(ownedBy:showing:)``).
+    private var contentPushes = 0
     /// The last content we pushed in, so we don't re-push our own echoes.
     private var lastPushedContent: String?
     /// The note universe JSON (setNotes) to (re)push when ready. The JSON string
@@ -951,6 +954,39 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         return documentOwner == token ? outcome : .notOurs
     }
 
+    /// Read the document `token`'s editor is showing while it stays open — the
+    /// open-note reconcile's read (RC-08), not an exit's.
+    ///
+    /// The same read as ``captureCurrentContent()``, under the same deadline
+    /// and liveness probe, with one difference: it does not blur. A reconcile
+    /// runs whenever sync touches the open note, typist or not, and it may not
+    /// take the keyboard away.
+    ///
+    /// It answers for `shellCopy` only. Owning the WebView is not enough: an
+    /// editor reconciles the moment its note loads from disk, before SwiftUI
+    /// has pushed that text — the page still holds what the attach pushed
+    /// before the load (an empty document), and taking THAT as the user's
+    /// latest text blanked or truncated the note (the wikilink-pop story).
+    /// A page whose last known text (pushed, or reported by a `change`) is not
+    /// `shellCopy` holds nothing typed into this note that the shell has not
+    /// heard, so the answer is `.noLiveDocument`: the shell copy is the
+    /// freshest body. A push sent while the read is in flight makes the answer
+    /// describe the document it replaced: `.notOurs`, and the reconcile asks
+    /// again.
+    func readContent(ownedBy token: Int, showing shellCopy: String) async -> EditorCaptureOutcome {
+        guard documentOwner == token else { return .notOurs }
+        guard lastPushedContent == shellCopy else { return .noLiveDocument }
+        let pushesBefore = contentPushes
+        let outcome = await captureCurrentContent(script: EditorHost.readScript)
+        guard documentOwner == token, contentPushes == pushesBefore else { return .notOurs }
+        // What the page holds now, as a `change` would have said (Android's
+        // capture does the same). The shell adopting this text must not read
+        // as a push still to be sent: a `setContent` of it would replace
+        // keystrokes typed since.
+        if case .captured(let text) = outcome { lastPushedContent = text }
+        return outcome
+    }
+
     /// Read the note the WebView is showing on behalf of the attachment that
     /// owns it, ahead of the next note's push. Call it before `updateDesired`
     /// and `attach`, both of which can push. See ``EditorDepartureCapture``.
@@ -1014,6 +1050,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         desiredContent = content
         guard isReady else { return }
         lastPushedContent = content
+        contentPushes += 1
         let js =
             "window.FutoEditor && window.FutoEditor.applyExternalContent(\(jsLiteral(content)));"
         webView.evaluateJavaScript(js, completionHandler: nil)
@@ -1129,6 +1166,15 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         })()
         """
 
+    /// ``captureScript`` without ending the editing session: the reconcile's
+    /// read of a note that stays open (``readContent(ownedBy:)``).
+    private static let readScript = """
+        (() => {
+          if (!window.FutoEditor) return null;
+          return window.FutoEditor.getContent();
+        })()
+        """
+
     /// Ask the page for nothing at all, and hand back a reader for whether it
     /// got round to answering.
     ///
@@ -1161,6 +1207,10 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// and ``captureWithinDeadline(deadlineSeconds:startLivenessProbe:rendererAnswered:start:)``
     /// for how the last two are told apart.
     func captureCurrentContent() async -> EditorCaptureOutcome {
+        await captureCurrentContent(script: EditorHost.captureScript)
+    }
+
+    private func captureCurrentContent(script: String) async -> EditorCaptureOutcome {
         let capturedGeneration = generation
         await completionQueue.waitForCurrent()
         guard
@@ -1179,7 +1229,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             startLivenessProbe: { rendererAnswered = self.startRendererLivenessProbe() },
             rendererAnswered: { rendererAnswered() },
             start: { answer in
-                webView.evaluateJavaScript(EditorHost.captureScript) { [weak self] result, error in
+                webView.evaluateJavaScript(script) { [weak self] result, error in
                     guard let self,
                         error == nil,
                         shouldDeliverEditorCompletion(
@@ -1584,6 +1634,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     private func pushContent(_ content: String) {
         lastPushedContent = content
+        contentPushes += 1
         let js = "window.FutoEditor && window.FutoEditor.setContent(\(jsLiteral(content)));"
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
@@ -1646,6 +1697,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         currentTheme = desiredTheme
         currentLanguageTag = desiredLanguageTag
         lastPushedContent = desiredContent
+        contentPushes += 1
         lastPushedNotesJson = desiredNotesJson
 
         webView.evaluateJavaScript(

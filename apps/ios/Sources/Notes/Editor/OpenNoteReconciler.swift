@@ -81,6 +81,10 @@ struct OpenNoteReconcileFacts: Equatable {
 
 struct OpenNoteReconcileEffects {
     var snapshot: @MainActor () -> OpenNoteEditorSnapshot?
+    /// Read the live editor into the shell's copy WITHOUT ending the editing
+    /// session, and say what the read came back with. See
+    /// ``OpenNoteReconciler`` for why the classifier may not run without it.
+    var captureEditor: @MainActor () async -> EditorCaptureOutcome
     var cancelAndDrainSave: @MainActor () async -> Void
     var readDisk: @MainActor (String) async throws -> String?
     var resumeDraftSave: @MainActor () -> Void
@@ -102,8 +106,9 @@ typealias OpenNoteClassifier =
 
 /// The iOS executor for the engine's open-note disposition.
 ///
-/// Every pass gathers facts, asks Rust once, then validates the live editor
-/// snapshot exactly once before applying a synchronous effect. A reported
+/// Every pass reads the live editor, gathers facts, asks Rust once, then
+/// validates the live editor snapshot exactly once before applying a
+/// synchronous effect. A reported
 /// rename is one pass of the same verb and is followed by a fresh pass against
 /// the target id, so a relocation can never be mistaken for a peer delete.
 @MainActor
@@ -156,6 +161,28 @@ final class OpenNoteReconciler {
                 effects.followRename(toId)
                 mustGatherTarget = true
                 continue
+            }
+
+            // Read the editor BEFORE the facts (RC-08). The snapshot's draft is
+            // kept current by `change` messages, and the editor withholds those
+            // while a large note streams and for the change debounce:
+            // classified on that draft, an edit only the editor knew about read
+            // as "nothing to lose", and a peer edit was adopted over it or a
+            // peer delete closed the note. The outcomes mean what they mean to
+            // an exit (``editorExitBody(_:shellCopy:)``): no live document
+            // leaves the shell copy as the freshest body; a busy renderer or
+            // another note's document cannot answer for this one, so no verdict
+            // is taken, and the pass is retried like any stale one. A hidden
+            // editor is not read at all — the shared WebView shows another
+            // note — and its verdict is deferred below anyway.
+            if initial.isVisible {
+                switch await effects.captureEditor() {
+                case .captured, .noLiveDocument:
+                    break
+                case .notOurs, .timedOut:
+                    return .stale
+                }
+                guard !Task.isCancelled else { return .stale }
             }
 
             await effects.cancelAndDrainSave()
