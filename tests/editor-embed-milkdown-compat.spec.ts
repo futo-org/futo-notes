@@ -547,3 +547,31 @@ test.describe('strikethrough whose edge is punctuation next to a letter', () => 
     expect(await roundTrip(page, 'compat', 'a ~~b~~ c\n')).toBe('a ~~b~~ c\n');
   });
 });
+
+test.describe('an underscore emphasis with a letter on both sides switches to `*`', () => {
+  // `_` cannot open or close inside a word, so `Z_b_` next to letters needs
+  // BOTH neighbours written as references (`&#x5A;_&#x62;_`). `*` flanks there
+  // with nothing encoded, and the marker is spelling, not meaning (ADR-0002).
+  for (const [name, markdown, respelled] of [
+    ['italic', 'a &#x5A;_&#x62;_ c\n', 'a Z*b* c\n'],
+    ['bold', 'a &#x5A;__&#x62;__ c\n', 'a Z**b** c\n'],
+  ] as const) {
+    test(`compat re-spells the ${name} with \`*\`, then holds`, async ({ page }) => {
+      const { once, twice } = await twoSaves(page, 'compat', markdown);
+      expect(once).toBe(respelled);
+      expect(twice).toBe(once);
+    });
+  }
+
+  test('compat keeps `_` and its references where `*` would need them too', async ({ page }) => {
+    // Punctuation inside, a letter outside: both markers need the outer letter
+    // encoded, so there is nothing to gain by switching.
+    const { once, twice } = await twoSaves(page, 'compat', '&#x61;_(b)_&#x63;\n');
+    expect(once).toBe('&#x61;_(b)_&#x63;\n');
+    expect(twice).toBe(once);
+  });
+
+  test('compat leaves an underscore emphasis that already flanks alone', async ({ page }) => {
+    expect(await roundTrip(page, 'compat', 'a _b_ c\n')).toBe('a _b_ c\n');
+  });
+});
