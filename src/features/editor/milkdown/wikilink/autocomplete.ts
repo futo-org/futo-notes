@@ -34,6 +34,16 @@ const CLOSED: PluginState = { open: null, dismissedFrom: null };
 
 const wikilinkSuggestKey = new PluginKey<PluginState>('futo-wikilink-suggest');
 
+/**
+ * Whether the `[[` suggestion popup is showing for `state`. The popup's own
+ * `handleKeyDown` is a PLUGIN prop, so any DIRECT view prop that claims
+ * Enter/Tab (keyboardParity.ts) runs first and would swallow the accept; those
+ * ask this and decline while the popup owns the key.
+ */
+export function isWikilinkSuggestOpen(state: EditorState): boolean {
+  return wikilinkSuggestKey.getState(state)?.open != null;
+}
+
 /** An open `[[` run at the caret, and what it currently offers. */
 interface OpenRun {
   /** Document position of the `[` that opened it. */

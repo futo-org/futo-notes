@@ -1,4 +1,4 @@
-import { expect, test as base, type Page } from '@playwright/test';
+import { expect, test as base, type Locator, type Page } from '@playwright/test';
 
 import { BRIDGE_VERSION } from '@futo-notes/editor';
 
@@ -344,6 +344,50 @@ test('Enter inserts the FULL path and leaves the caret AFTER the link', async ({
   await expectReported(page, '[[work/notes/ideas]] next\n');
   // What the reader sees is still the short form.
   await expect(chip(page)).toHaveText('ideas');
+});
+
+/** Puts the caret at the end of `target`'s text with a real click just right of it. */
+async function clickLineEnd(page: Page, target: Locator): Promise<void> {
+  const box = await target.boundingBox();
+  if (!box) throw new Error('clickLineEnd: target is not visible');
+  await page.mouse.click(box.x + box.width - 2, box.y + box.height / 2);
+}
+
+test('Enter accepts the suggestion inside a CHECKED task item instead of splitting it', async ({
+  page,
+}) => {
+  // The direct `handleKeyDown` of keyboardParity.ts claims Enter in a checked
+  // task ("split, new item unchecked"); it runs before the popup's own keymap,
+  // so the suggestion used to be left as literal `\[\[ideas` and an empty item
+  // was added underneath (RC-20).
+  await open(page, '- [x] done\n');
+  await clickLineEnd(page, page.locator('.ProseMirror li p'));
+  await page.keyboard.type('[[ideas');
+  await expect(rows(page)).toHaveCount(1);
+  await page.keyboard.press('Enter');
+  await expect(popup(page)).toBeHidden();
+  // The trailing blank line after a list is a separate known serializer quirk
+  // (RC-22), so pin the item line itself: accepted in place, no second item.
+  await expect
+    .poll(async () => (await messagesOfType(page, 'change')).at(-1)?.content?.trimEnd())
+    .toBe('- [x] done[[work/notes/ideas]]');
+});
+
+test('Enter accepts the suggestion inside a table cell instead of moving the caret', async ({
+  page,
+}) => {
+  // Same Enter-claim family as above: the table's Enter (move down / append a
+  // row) used to win over the popup.
+  await open(page, '| a | b |\n| - | - |\n| c | d |\n');
+  await clickLineEnd(page, page.locator('.ProseMirror tr:last-child td:last-child p'));
+  await page.keyboard.type('[[ideas');
+  await expect(rows(page)).toHaveCount(1);
+  await page.keyboard.press('Enter');
+  await expect(popup(page)).toBeHidden();
+  // The table serializer pads columns to the widest cell; pin the cell.
+  await expect
+    .poll(async () => (await messagesOfType(page, 'change')).at(-1)?.content)
+    .toContain('| c | d[[work/notes/ideas]] |\n');
 });
 
 test('arrow keys move the highlighted row and Enter takes it', async ({ page }) => {
