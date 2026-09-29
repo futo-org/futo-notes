@@ -90,6 +90,11 @@ Two things about how the floor is judged, both deliberate:
   place by anchoring the 10 MiB linearity check — a per-byte comparison needs a smaller reading from
   the same generator.
 
+- **Every fixture opens on a fresh page.** On a shared page a fixture's open time included the
+  teardown of the document before it: the two fixtures after the 50,000-line one read 2.7-3.8 s
+  against ~90 ms fresh. The cost of replacing each fixture's document is reported separately as
+  `replaceAwayMs` (measured only, no budget reads it).
+
 The floor is asserted, not ledgered: three numbers you read directly, where a stale perf ledger
 would rot and a noisy one would flake.
 
