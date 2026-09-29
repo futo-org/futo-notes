@@ -293,6 +293,40 @@ describe('pre-merge CI routing contracts', () => {
     }
   });
 
+  // RC-65: GitLab and the CI scripts run with pipefail. `producer | grep -q`
+  // exits on the first match and SIGPIPEs a producer that still has output to
+  // write (141), so the pipeline reads as failed on a true condition. It made
+  // the Android JVM-unit-test guard fire falsely on MR !359 (59 result files).
+  // Only a producer that emits one small buffer (echo/printf of a short value)
+  // is safe; anything else must be pipe-free or consume all input.
+  it('has no early-exit `| grep -q` consumer of a multi-buffer producer under pipefail', () => {
+    const sources = {
+      '.gitlab-ci.yml': gitlabPipeline,
+      justfile,
+      'scripts/ci-android-sync-leg.sh': androidSyncLegScript,
+      'scripts/ci-android-instrumentation.sh': androidInstrumentationScript,
+      'scripts/ci-android-emulator.sh': androidEmulatorScript,
+    };
+    const earlyExitGrep =
+      /\|\s*(?:grep|egrep|fgrep|rg)\b[^|\n]*?(?:\s-[a-zA-Z]*q|--quiet|--silent)/;
+    /\|\s*(?:grep|egrep|fgrep|rg)\s[^|\n]*?(?:\s-[a-zA-Z]*q|--quiet|--silent)/;
+    const smallProducer = /(?:\becho|\bprintf|simctl list devices booted)\b[^|\n]*\|/;
+    const offenders = [];
+    for (const [file, text] of Object.entries(sources)) {
+      text.split('\n').forEach((line, i) => {
+        if (!line.trim().startsWith('#') && earlyExitGrep.test(line) && !smallProducer.test(line)) {
+          offenders.push(`${file}:${i + 1}: ${line.trim()}`);
+        }
+      });
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('checks the Android JVM unit-test XML without a find | grep pipe', () => {
+    const androidJob = topLevelBlock(gitlabPipeline, /^build:android-native:$/m);
+    expect(androidJob).toContain("-name 'TEST-*.xml' -type f -print -quit");
+  });
+
   it('skips slow sync scenarios only on MR pipelines, never on main or tags', () => {
     const syncJob = topLevelBlock(gitlabPipeline, /^test:cross-platform-sync:$/m);
 

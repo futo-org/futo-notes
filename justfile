@@ -862,7 +862,8 @@ deploy-android flavor="direct": editor-deps android-env-check
   echo "Installing ${APK} (com.futo.notes)…"
   adb install -r "$APK"
   # Assert the PRODUCTION package landed, not a leftover .dev install.
-  adb shell pm list packages | grep -qx 'package:com.futo.notes' || {
+  # No `grep -q`: pipefail + early exit SIGPIPEs adb and reads as "not installed".
+  adb shell pm list packages | grep -x 'package:com.futo.notes' >/dev/null || {
     echo "com.futo.notes is not installed after adb install — nothing was deployed." >&2
     exit 1
   }
