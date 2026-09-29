@@ -330,6 +330,43 @@ test.describe('YAML front matter survives the round trip', () => {
     expect(out).toContain('title: x');
     expect(out).toContain('body');
   });
+
+  // An opening `---` with no closing fence (RC-07). The front matter construct
+  // is `concrete`, so while it hunts for a closing fence micromark checks no
+  // container on any later line; when the hunt fails at the end of the file,
+  // every line is replayed as if no list or quote had ever opened.
+  const UNCLOSED =
+    '---\n\nShopping\n\n- milk\n  - skim\n- [ ] eggs\n\n> quoted\n\nx[^1]\n\n[^1]: a note\n\nend\n';
+
+  // Its canary is a unit test beside the guard, because the unpatched preset
+  // has no front matter at all: packages/editor/src/milkdown-compat/frontmatter.test.ts.
+
+  test('compat keeps the lists, task, quote and footnote after an unclosed fence', async ({
+    page,
+  }) => {
+    const { once, twice } = await twoSaves(page, 'compat', UNCLOSED);
+    expect(once).toBe(
+      '***\n\nShopping\n\n* milk\n  * skim\n* [ ] eggs\n\n> quoted\n\nx[^1]\n\n[^1]: a note\n\nend\n',
+    );
+    expect(twice).toBe(once);
+  });
+
+  test('compat reads a CRLF note with an unclosed fence the same way', async ({ page }) => {
+    const out = await roundTrip(page, 'compat', '---\r\n\r\n- milk\r\n\r\n> quoted\r\n');
+    expect(out).not.toContain('\\-');
+    expect(out).toContain('> quoted');
+  });
+
+  test('compat still finds a closing fence after an interior blank line and a list', async ({
+    page,
+  }) => {
+    // The guard asks only "is there a closing fence"; this block has one, so it
+    // stays front matter, YAML list included.
+    const note = '---\ntags:\n\n  - a\n---\n\n- body\n\nend\n';
+    expect(await roundTrip(page, 'compat', note)).toBe(
+      '---\ntags:\n\n  - a\n---\n\n* body\n\nend\n',
+    );
+  });
 });
 
 /** Two loads: what the first save writes, and whether the second agrees. */

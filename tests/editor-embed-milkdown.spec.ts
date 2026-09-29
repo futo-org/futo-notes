@@ -400,6 +400,26 @@ test('backspace at the top of the body cannot eat the front matter', async ({ pa
   );
 });
 
+test('a note that opens with an unclosed --- rule keeps its lists and quotes', async ({ page }) => {
+  // With no closing fence the `---` is a thematic break (docs/spec/editor.md,
+  // YAML front matter). The front matter construct used to hunt for the fence
+  // to the end of the file and take every container with it, so the first
+  // keystroke anywhere saved `\- milk` and `\> quoted`, nesting flattened.
+  const note = '---\n\nShopping\n\n- milk\n  - skim\n\n> quoted\n\nend\n';
+  await hostSetContent(page, note);
+  await expect(page.locator('.ProseMirror ul li')).toHaveCount(2);
+  await expect(page.locator('.ProseMirror blockquote')).toHaveCount(1);
+  await clearMessages(page);
+
+  await focusEditor(page);
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('X');
+
+  const changes = await waitForMessages(page, 'change');
+  expect(changes).toHaveLength(1);
+  expect(changes[0].content).toBe('***\n\nShopping\n\n- milk\n  - skim\n\n> quoted\n\nendX\n');
+});
+
 test('applyExternalContent adopts differing content without a change echo', async ({ page }) => {
   await hostSetContent(page, 'original');
   await clearMessages(page);

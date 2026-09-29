@@ -91,9 +91,97 @@ const FRONTMATTER_DOM_ATTR = 'data-frontmatter';
  * already round-trips as the paragraph CommonMark reads it as, so adding it
  * would take an untested construct out of a safe path.
  */
-export const remarkFrontmatterPlugin = $remark('futo-frontmatter', () => remarkFrontmatter, [
+export const remarkFrontmatterPlugin = $remark('futo-frontmatter', () => remarkClosedFrontmatter, [
   'yaml',
 ]);
+
+/**
+ * Whether `markdown` has a closing fence for the front matter its first line
+ * would open: a later line that is `---` at column 0 followed by nothing but
+ * spaces or tabs. The rules are `micromark-extension-frontmatter`'s own: its
+ * preprocessor drops a leading byte-order mark, the opening line must end in a
+ * line ending (a lone `---` at the end of the file is a thematic break), and
+ * any of CR, LF or CRLF ends a line. A document whose first line is not an
+ * opening fence answers `true`, because the construct refuses it anyway.
+ */
+export function hasClosingFrontmatterFence(markdown: string): boolean {
+  const opening = /^\uFEFF?---[ \t]*(?:\r\n|\r|\n)/.exec(markdown);
+  if (!opening) return true;
+  return /(?:^|\r\n|\r|\n)---[ \t]*(?:\r\n|\r|\n|$)/.test(markdown.slice(opening[0].length));
+}
+
+/** A micromark state; the construct only ever hands its own states around. */
+type MicromarkState = (code: number | null) => unknown;
+
+/** A micromark flow construct, as far as the guard below needs one. */
+interface FlowConstruct {
+  tokenize: (
+    this: unknown,
+    effects: unknown,
+    ok: MicromarkState,
+    nok: MicromarkState,
+  ) => MicromarkState;
+}
+
+/** What a remark plugin's `this` is, as far as {@link remarkClosedFrontmatter} reads it. */
+interface RemarkProcessorLike {
+  data(): { micromarkExtensions?: unknown[] };
+  parser?: (document: string, file: never) => unknown;
+}
+
+/**
+ * `remark-frontmatter`, with its construct refused outright when the note has
+ * no closing fence.
+ *
+ * `micromark-extension-frontmatter@2.0.0` marks the construct `concrete`, which
+ * tells micromark's document tokenizer to check for NO container (list item,
+ * blockquote, footnote definition) at the start of any line while the construct
+ * is being attempted — right for YAML, whose `- a` lines are not a list. But
+ * the attempt only fails once it reaches the end of the file without a closing
+ * fence, and the lines are then replayed as flow content with no container ever
+ * opened: every later list, task, quote and footnote of a note that merely
+ * starts with a `---` rule came back as escaped text on its first save, nesting
+ * flattened (census idx 7383; the spec says that `---` is a thematic break).
+ *
+ * No state inside a tokenizer can see past the line it is on, so the question
+ * is asked of the whole source before micromark starts: the parser remark-parse
+ * installed is wrapped, and the construct answers `nok` at once for a document
+ * {@link hasClosingFrontmatterFence} rejects. A note WITH a closing fence
+ * parses exactly as before. Unit-tested, with the upstream canary, in
+ * `frontmatter.test.ts`.
+ */
+function remarkClosedFrontmatter(this: RemarkProcessorLike, options: 'yaml'[]): void {
+  (remarkFrontmatter as (this: unknown, settings: unknown) => void).call(this, options);
+  const extensions = this.data().micromarkExtensions;
+  const upstream = extensions?.pop() as { flow?: Record<number, FlowConstruct[]> } | undefined;
+  const parse = this.parser;
+  if (!extensions || !upstream?.flow || typeof parse !== 'function') {
+    throw new Error(
+      'milkdown-compat: remark-frontmatter no longer registers one flow extension after ' +
+        'remark-parse. Re-check remark-frontmatter against frontmatter.ts.',
+    );
+  }
+  let closed = true;
+  const flow: Record<number, FlowConstruct[]> = {};
+  for (const [code, constructs] of Object.entries(upstream.flow)) {
+    flow[Number(code)] = constructs.map((construct) => ({
+      ...construct,
+      tokenize(effects, ok, nok) {
+        return closed ? construct.tokenize.call(this, effects, ok, nok) : nok;
+      },
+    }));
+  }
+  extensions.push({ flow });
+  this.parser = (document, file) => {
+    const outer = closed;
+    closed = hasClosingFrontmatterFence(document);
+    try {
+      return parse(document, file);
+    } finally {
+      closed = outer;
+    }
+  };
+}
 
 /**
  * The front matter block itself.
