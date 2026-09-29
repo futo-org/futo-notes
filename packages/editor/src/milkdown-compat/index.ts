@@ -72,6 +72,7 @@
  */
 import {
   commonmark,
+  remarkInlineLinkPlugin,
   remarkPreserveEmptyLinePlugin,
   syncHeadingIdPlugin,
   syncListOrderPlugin,
@@ -84,6 +85,7 @@ import { remarkExpandEmptyLinksPlugin } from './emptyLink';
 import { remarkInlineHtmlIndentPlugin } from './inlineHtmlIndent';
 import { remarkEmptyTaskItemPlugin } from './emptyTaskItem';
 import { remarkImageTitlePlugin } from './imageTitle';
+import { remarkInlineUsedLinkDefinitionsPlugin } from './linkDefinitions';
 import { blankLineJoinPlugin, remarkBlankLineParagraphsPlugin } from './emptyLine';
 import { frontmatterPlugins } from './frontmatter';
 import { paragraphFillerGuard, paragraphWithoutFillerSchema } from './listItemFiller';
@@ -109,6 +111,12 @@ export type { MdastNode } from './mdast';
 const UPSTREAM_EMPTY_LINE_ENTRIES: readonly unknown[] = [
   remarkPreserveEmptyLinePlugin.options,
   remarkPreserveEmptyLinePlugin.plugin,
+];
+
+/** `remarkInlineLinkPlugin`'s two entries — replaced by `./linkDefinitions`. */
+const UPSTREAM_INLINE_LINK_ENTRIES: readonly unknown[] = [
+  remarkInlineLinkPlugin.options,
+  remarkInlineLinkPlugin.plugin,
 ];
 
 /** `syncHeadingIdPlugin`'s one entry — removed with no replacement (see 4). */
@@ -162,8 +170,13 @@ function upstreamPresetWithoutForkedPlugins(): MilkdownPlugin[] {
     UPSTREAM_EMPTY_LINE_ENTRIES,
     'empty-line',
   );
-  const withoutHeadingId = withoutPresetEntries(
+  const withoutInlineLink = withoutPresetEntries(
     withoutEmptyLine,
+    UPSTREAM_INLINE_LINK_ENTRIES,
+    'inline-link',
+  );
+  const withoutHeadingId = withoutPresetEntries(
+    withoutInlineLink,
     UPSTREAM_HEADING_ID_ENTRIES,
     'heading-id',
   );
@@ -215,6 +228,9 @@ export function commonmarkWithCompat(): MilkdownPlugin[] {
   cached ??= [
     ...upstreamPresetWithoutForkedPlugins(),
     ...remarkBlankLineParagraphsPlugin,
+    /* After the blank-line restore, which counts gaps by source line: a used
+     * definition deleted before it left its lines behind as empty paragraphs. */
+    ...remarkInlineUsedLinkDefinitionsPlugin,
     blankLineJoinPlugin,
     attentionEncodingPlugin,
     /* After the preset (it upserts the preset's `paragraph` by id), and part of

@@ -161,6 +161,58 @@ test.describe('an empty paragraph round-trips as a blank line, never as <br />',
   }
 });
 
+test.describe('a link reference definition nothing uses survives', () => {
+  // The preset's remark-inline-links deletes EVERY definition and inlines the
+  // references that used one. Inlining a used definition is an accepted
+  // re-spelling (Q17 17B); deleting an unused one lost its URL and title on
+  // the first edit, and a note of nothing but definitions saved as ''.
+  const UNUSED = 'Some text here.\n\n[docs]: https://example.com/docs\n';
+
+  test('canary: upstream still deletes an unused definition', async ({ page }) => {
+    expect(await roundTrip(page, 'baseline', UNUSED)).toBe('Some text here.\n');
+    expect(await roundTrip(page, 'baseline', '[a]: https://a.example\n')).toBe('');
+  });
+
+  const VERBATIM: Record<string, string> = {
+    'an unused definition': UNUSED,
+    'a note of nothing but definitions': '[a]: https://a.example\n[b]: https://b.example "B"\n',
+    'a definition referenced only from code': 'use `[docs]` here\n\n[docs]: https://e.example/d\n',
+    'a definition inside a blockquote': '> [q]: https://q.example\n\nend\n',
+    'a definition with extra blank lines after it': 'a\n\n[x]: /u\n\n\nb\n',
+  };
+  for (const [name, markdown] of Object.entries(VERBATIM)) {
+    test(`compat keeps ${name} byte-for-byte`, async ({ page }) => {
+      const { once, twice } = await twoSaves(page, 'compat', markdown);
+      expect(once).toBe(markdown);
+      expect(twice).toBe(once);
+    });
+  }
+
+  const INLINED: Record<string, [string, string]> = {
+    // No empty paragraphs where the definition was: its lines are not a gap.
+    'a used definition': [
+      'See [docs] now.\n\n[docs]: https://example.com/docs "T"\n\nafter\n',
+      'See [docs](https://example.com/docs "T") now.\n\nafter\n',
+    ],
+    'a used definition next to an unused one': [
+      'See [a].\n\n[a]: /1\n[b]: /2\n\nend\n',
+      'See [a](/1).\n\n[b]: /2\n\nend\n',
+    ],
+    // CommonMark: the first definition of a label wins; the second is unused.
+    'a duplicate label': [
+      'See [a].\n\n[a]: /1\n[a]: /2\n\nend\n',
+      'See [a](/1).\n\n[a]: /2\n\nend\n',
+    ],
+  };
+  for (const [name, [markdown, expected]] of Object.entries(INLINED)) {
+    test(`compat inlines ${name} and keeps the rest`, async ({ page }) => {
+      const { once, twice } = await twoSaves(page, 'compat', markdown);
+      expect(once).toBe(expected);
+      expect(twice).toBe(once);
+    });
+  }
+});
+
 test.describe('empty-label links keep their href', () => {
   const LINK = '## h\n\n[](api-plan.md)\n';
 

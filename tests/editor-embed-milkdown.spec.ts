@@ -481,6 +481,22 @@ test('front matter pasted where it cannot live keeps its text', async ({ page })
   );
 });
 
+test('an edit keeps a link definition nothing references', async ({ page }) => {
+  // The preset deleted every definition on the first save; one that no link
+  // used took its URL and title with it (RC-41).
+  const note = 'Some text here.\n\n[docs]: https://example.com/docs "Docs"\n';
+  await hostSetContent(page, note);
+  await clearMessages(page);
+
+  await page.locator('.ProseMirror p').first().click();
+  await page.keyboard.press('End');
+  await page.keyboard.type('!');
+
+  const changes = await waitForMessages(page, 'change');
+  expect(changes).toHaveLength(1);
+  expect(changes[0].content).toBe(note.replace('here.', 'here.!'));
+});
+
 test('applyExternalContent adopts differing content without a change echo', async ({ page }) => {
   await hostSetContent(page, 'original');
   await clearMessages(page);
