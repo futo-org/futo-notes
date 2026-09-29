@@ -382,7 +382,17 @@ struct NoteEditorView: View {
             // the task on disappear, and `loaded` guards re-entry on reappear so
             // a reloaded view never discards in-memory edits.
             guard !loaded else { return }
-            let disk = await store.read(noteId)
+            let disk: String
+            do {
+                disk = try await store.read(noteId)
+            } catch {
+                // A note that exists but cannot be read (bytes that are not
+                // UTF-8) never opens as a blank page (desktop loader parity):
+                // `loaded` stays false, so nothing can save over it, and the
+                // editor leaves without writing.
+                if !navPath.isEmpty { navPath.removeLast() }
+                return
+            }
             content = disk
             savedContent = disk
             loaded = true

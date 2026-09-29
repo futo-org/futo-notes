@@ -36,8 +36,10 @@ impl NoteStore {
         self.inner.snapshot().into()
     }
 
-    pub fn read(&self, id: String) -> String {
-        self.inner.read(&id)
+    /// A missing note reads as empty; one that exists but cannot be decoded is
+    /// an error, so the editor never opens it as a blank page.
+    pub fn read(&self, id: String) -> Result<String, NoteError> {
+        self.inner.read(&id).map_err(NoteError::Io)
     }
 
     pub fn read_if_exists(&self, id: String) -> Result<Option<String>, NoteError> {

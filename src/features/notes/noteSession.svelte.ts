@@ -11,7 +11,7 @@ import {
   isEditorChangeEcho,
   normalizeTitleForPersistence,
 } from './noteSessionChanges';
-import { getNoteById } from './notes.svelte';
+import { getNoteById, readNote } from './notes.svelte';
 
 export interface NoteSessionDeps {
   getEditorContent: () => string | undefined;
@@ -71,6 +71,8 @@ export interface NoteSession {
   reattachEditor: () => void;
   /** Replaces the saved-content base without changing the live editor buffer. */
   rebaseSavedContent: (freshContent: string) => void;
+  /** Hears the notes a local workflow's backlink rewrite changed on disk. */
+  noteRelinked: (ids: readonly string[]) => void;
   applyRemoteRename: (toId: string, newTitle: string) => void;
 }
 
@@ -195,8 +197,57 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   });
   let persistenceTail: Promise<void> = Promise.resolve();
 
+  /* Notes a local rename, move, or folder workflow relinked since the last
+   * persistence step. Renaming a note the open note links to — or the open
+   * note itself, when it links to itself — rewrites the open note's file
+   * behind the editor (the store suppresses the watcher for its own writes).
+   * Left alone, the editor's baseline no longer describes the file and its
+   * next save parks a conflict copy for a conflict nobody made, taking the
+   * typed word with it. Every persistence step settles these first, so no
+   * save runs from the stale baseline. */
+  const relinkedIds = new Set<string>();
+
+  function noteRelinked(ids: readonly string[]): void {
+    for (const id of ids) relinkedIds.add(id);
+    // An idle editor shows the rewritten link at once; a save queued behind a
+    // locked workflow settles it before it writes.
+    void serializePersistence(async () => {});
+  }
+
+  async function settleRelinks(): Promise<void> {
+    const id = originalId;
+    const openNoteRelinked = id !== null && relinkedIds.has(id);
+    relinkedIds.clear();
+    // A note being loaded is read afresh by the load itself.
+    if (!openNoteRelinked || loading) return;
+    let fresh: string;
+    try {
+      fresh = await readNote(id);
+    } catch (error) {
+      console.warn('Failed to read the relinked open note:', error);
+      return;
+    }
+    if (originalId !== id || loading || fresh === savedContent) return;
+    const editorContent = deps.getEditorContent() ?? content;
+    if (editorContent === savedContent && content === savedContent) {
+      // The rewrite is the user's own action, so it is adopted even into a
+      // focused editor; the title is not the rewrite's to touch.
+      adoptContent(fresh);
+      return;
+    }
+    // Typing landed while the workflow committed. It is kept: the file is the
+    // new baseline, and the next save writes the draft over it — a save, not
+    // a conflict. The draft keeps the link text the user sees.
+    savedContent = fresh;
+    saveQueue.resume();
+  }
+
   function serializePersistence<T>(operation: () => Promise<T>): Promise<T> {
-    const run = persistenceTail.then(operation, operation);
+    // Not an async wrapper: with nothing to settle the operation starts in the
+    // same tick it always did.
+    const step = (): Promise<T> =>
+      relinkedIds.size > 0 ? settleRelinks().then(operation, operation) : operation();
+    const run = persistenceTail.then(step, step);
     persistenceTail = run.then(
       () => undefined,
       () => undefined,
@@ -265,7 +316,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     return saveQueue.isPending() || hasUnseenEditorChanges();
   }
 
-  function applyExternalContent(freshContent: string): void {
+  function adoptContent(freshContent: string): void {
     content = freshContent;
     savedContent = freshContent;
     suppressSaveOnChange = true;
@@ -274,6 +325,10 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     } finally {
       suppressSaveOnChange = false;
     }
+  }
+
+  function applyExternalContent(freshContent: string): void {
+    adoptContent(freshContent);
 
     const meta = originalId ? getNoteById(originalId) : null;
     if (meta) {
@@ -384,6 +439,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     applyExternalContent,
     reattachEditor,
     rebaseSavedContent,
+    noteRelinked,
     applyRemoteRename,
   };
 }
