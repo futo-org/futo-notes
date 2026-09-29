@@ -562,17 +562,14 @@ const PROOFS = [
   },
   {
     gate: 'title-spec',
-    id: 'swift-control-range-lock',
-    seeded: 'expanded the canonical title-control range beyond Foundation’s shortcut',
-    claim:
-      'a canonical control-range change must not leave the generated Swift filter silently green',
+    id: 'control-range-reaches-both-shells',
+    seeded: 'expanded the canonical title-control range',
+    claim: 'a canonical control-range change must regenerate both native title filters',
     inject: (wt) =>
       seed.replace(wt, 'packages/editor/src/filename.ts', '[0x007f, 0x009f],', '[0x007f, 0x00a0],'),
-    expect: [
-      'TitleSpec.swift uses Foundation .controlCharacters; update its template for the changed canonical control ranges.',
-    ],
+    expect: [`${TITLE_SWIFT} is STALE`, `${TITLE_KOTLIN} is STALE`],
     marker: 'claim',
-    fix: 'the Swift title filter is no longer locked to FORBIDDEN_TITLE_CONTROL_RANGES; restore the generator’s Foundation-range assertion or derive the Swift set directly.',
+    fix: 'a native title filter no longer derives its control ranges from FORBIDDEN_TITLE_CONTROL_RANGES — check swiftControlRanges/kotlinRegexControlRanges in scripts/gen-title-spec.ts.',
   },
   {
     gate: 'bridge-spec',

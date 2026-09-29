@@ -23,10 +23,6 @@ import {
 } from '../packages/editor/src/filename.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const FOUNDATION_CONTROL_CHARACTER_RANGES = [
-  [0x00, 0x1f],
-  [0x7f, 0x9f],
-] as const;
 
 function swiftString(s: string): string {
   return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
@@ -52,15 +48,19 @@ function kotlinRegexControlRanges(): string {
   }).join('');
 }
 
+// Swift control ranges as explicit scalar ranges. Foundation's
+// `.controlCharacters` is NOT equivalent: it also holds the Cf format
+// characters, so it stripped the U+200D joiner out of emoji like the family
+// and the rainbow flag.
+function swiftControlRanges(): string[] {
+  const scalar = (value: number) => `"\\u{${value.toString(16).toUpperCase()}}"`;
+  return FORBIDDEN_TITLE_CONTROL_RANGES.map(
+    ([start, end]) =>
+      `        .union(CharacterSet(charactersIn: ${scalar(start)}...${scalar(end)}))`,
+  );
+}
+
 function renderSwiftFile(): string {
-  if (
-    JSON.stringify(FORBIDDEN_TITLE_CONTROL_RANGES) !==
-    JSON.stringify(FOUNDATION_CONTROL_CHARACTER_RANGES)
-  ) {
-    throw new Error(
-      'TitleSpec.swift uses Foundation .controlCharacters; update its template for the changed canonical control ranges.',
-    );
-  }
   return [
     '// GENERATED FILE — DO NOT EDIT.',
     '// Source of truth: packages/editor/src/filename.ts (@futo-notes/editor).',
@@ -69,14 +69,13 @@ function renderSwiftFile(): string {
     '',
     'import Foundation',
     '',
-    '/// Characters forbidden in a note title: `< > : " / \\ | ? *` plus Unicode',
-    '/// control characters, matching the canonical Rust rule. Used only for live',
+    '/// Characters forbidden in a note title: `< > : " / \\ | ? *` plus the C0, DEL,',
+    '/// and C1 control ranges, matching the canonical Rust rule. Used only for live',
     '/// input filtering; authoritative validation + messages come from Rust FFI.',
-    '///',
-    '/// `.controlCharacters` covers the shared C0, DEL, and C1 ranges.',
     'enum TitleSpec {',
     `    static let forbiddenScalars: CharacterSet =`,
-    `        CharacterSet(charactersIn: ${swiftString(FORBIDDEN_TITLE_CHARS_VISIBLE)}).union(.controlCharacters)`,
+    `        CharacterSet(charactersIn: ${swiftString(FORBIDDEN_TITLE_CHARS_VISIBLE)})`,
+    ...swiftControlRanges(),
     '',
     '    /// Max title length (chars) — matches the shared `MAX_TITLE_LENGTH`.',
     `    static let maxLength = ${MAX_TITLE_LENGTH}`,
