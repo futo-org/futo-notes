@@ -31,6 +31,10 @@ census harness, so both write the same bytes), and scopes the presets' three
 whole-document passes to the touched blocks (`listOrder.ts`, `tablePasses.ts`,
 `touchedRange.ts`; `gfmWithCompat()` pairs with `commonmarkWithCompat()`).
 **CommonMark decides ambiguous list syntax; there is no pre-parse bullet-number rewriting.**
+**These carry no Rust mirror.** They
+are adapters to one editor library's implementation — which mdast node a plugin
+deletes, how a link mark finds text to attach to — not note rules, so M6 does
+not apply. Nothing in Swift, Kotlin, or Rust may hold a second copy either.
 
 Four more escaping repairs, from the 2026-09 release-hardening campaign (FB-4a):
 
@@ -55,10 +59,6 @@ Four more escaping repairs, from the 2026-09 release-hardening campaign (FB-4a):
 - The app's own `break` handler (`src/features/editor/milkdown/table/tableLineBreak.ts`)
   writes a space where `\n` is unsafe (an ATX heading) and `<br>` before inline
   HTML; the wikilink handler writes `|` as `\|` in a table cell.
-**These carry no Rust mirror.** They
-are adapters to one editor library's implementation — which mdast node a plugin
-deletes, how a link mark finds text to attach to — not note rules, so M6 does
-not apply. Nothing in Swift, Kotlin, or Rust may hold a second copy either.
 
 `src/milkdown-compat/frontmatter.ts` is in the same directory for the same
 reason but is an ADDITION, not a fork: the preset has no front matter construct,
