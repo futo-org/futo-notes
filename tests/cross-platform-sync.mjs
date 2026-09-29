@@ -2700,6 +2700,280 @@ async function hostedRestartSyncsAtLaunchWithoutOpeningSettings(a, b, server) {
   await hostedConnect(b, server);
 }
 
+async function conflictCopiesOf(client, title) {
+  const files = (await client.listNotes()).map((file) =>
+    String(file.filename || file.name || file),
+  );
+  return files.filter((name) => name.startsWith(`${title} (conflict`));
+}
+
+async function focusedTypistAfterDeferredPeerEditMintsOneCopy(a, b, server) {
+  // One peer edit is one conflict. A focused reader defers the peer's edit
+  // (the adopt would move the caret), then keeps typing in pauses longer than
+  // the body debounce. The first save parks the draft as a conflict copy; every
+  // later save must be an ordinary save of the same continuing edit. The editor
+  // follows the copy and advances its baseline to the parked draft (the native
+  // shells' rule, editor.md), so it never re-parks against the peer's bytes at
+  // the note's own id. Leaving the baseline behind minted a copy per pause (3
+  // pauses, 3 copies) and the typed words existed only across those copies.
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
+  await a.writeNote('focused typist', '# Base');
+  await a.syncNow();
+  await b.syncNow();
+  await b.openNote('focused typist');
+  await waitForEditorContent(b, '# Base');
+  await b.focusEditor();
+
+  await a.writeNote('focused typist', '# Base\nPeer edit');
+  await a.syncNow();
+  const pulled = await b.syncNow();
+  assertEqual(pulled.summary.downloaded, 1, `B downloaded=${pulled.summary.downloaded}`);
+  assertEqual(
+    (await b.getOpenNoteState()).editorContent,
+    '# Base',
+    'a focused editor defers the peer edit',
+  );
+
+  for (const word of ['alpha', 'bravo', 'charlie']) {
+    await b.typeInEditor(` ${word}`);
+    await sleep(1500);
+  }
+  await waitForSaveIdle(b);
+  const copies = await conflictCopiesOf(b, 'focused typist');
+  console.log(`    [focused typist] copies after one peer edit: ${JSON.stringify(copies)}`);
+  assertEqual(copies.length, 1, `one conflict must mint ONE copy, got ${JSON.stringify(copies)}`);
+  const copyId = copies[0].replace(/\.md$/, '');
+  const copyBody = await b.readNote(copyId);
+  for (const word of ['alpha', 'bravo', 'charlie']) {
+    assert(copyBody.includes(word), `the copy must hold every typed word, got ${copyBody}`);
+  }
+  assertEqual(
+    await b.readNote('focused typist'),
+    '# Base\nPeer edit',
+    "the peer's bytes stay at the note's own id",
+  );
+  const state = await b.getOpenNoteState();
+  assertEqual(state.originalId, copyId, 'the editor follows the parked copy');
+
+  // Leaving the editor settles nothing new: no adopt over the typist's text,
+  // no further copy.
+  await b.blurEditor();
+  await sleep(500);
+  await waitForSaveIdle(b);
+  assertEqual((await b.getOpenNoteState()).originalId, copyId, 'blur keeps the editor on the copy');
+  assertEqual((await conflictCopiesOf(b, 'focused typist')).length, 1, 'blur mints no copy');
+
+  await b.syncNow();
+  await a.syncNow();
+  const aCopies = await conflictCopiesOf(a, 'focused typist');
+  assertEqual(aCopies.length, 1, `the peer receives ONE copy, got ${JSON.stringify(aCopies)}`);
+  assertEqual(await a.readNote(copyId), copyBody, 'the peer receives the continuing edit');
+}
+
+async function peerRenameWhileSavePendingLeavesNoGhost(a, b, server) {
+  // A pending body save must follow a reported rename of the open note before
+  // it persists. Flushing it first addressed it to the pre-rename id, whose
+  // file sync had just moved away, so the store recreated the note there: a
+  // ghost that synced to every device, and the renamed note then parked a
+  // conflict copy on the next edit (sync.md: the editor never stays bound to
+  // the id the note left). Pauses of ~300 ms keep the 500 ms body debounce
+  // armed when the completion lands; back-to-back typing stays inside the
+  // editor's own 200 ms change debounce and never arms it.
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
+  await a.writeNote('peer renames', '# Plan');
+  await a.syncNow();
+  await b.syncNow();
+  await b.openNote('peer renames');
+  await waitForEditorContent(b, '# Plan');
+
+  await a.moveNote('peer renames', 'peer renamed');
+  await a.syncNow();
+
+  await b.startSync();
+  let stop = false;
+  let typed = 0;
+  const typing = (async () => {
+    while (!stop && typed < 400) {
+      await b.typeInEditor(` r${typed}`);
+      typed += 1;
+      await sleep(300);
+    }
+  })();
+  const pulled = await b.awaitStartedSync();
+  const atCompletion = await b.getOpenNoteState();
+  stop = true;
+  await typing;
+  console.log(
+    `    [peer rename] renamed=${JSON.stringify(pulled.summary.renamed)} typed=${typed} ` +
+      `atCompletion open=${atCompletion.originalId} savePending=${atCompletion.savePending}`,
+  );
+  await sleep(1000);
+  await b.flushSave();
+  await waitForSaveIdle(b);
+  const state = await b.getOpenNoteState();
+  const ghost = await b.noteExists('peer renames');
+  const copies = await conflictCopiesOf(b, 'peer renamed');
+  console.log(
+    `    [peer rename] open=${state.originalId} ghostAtOldId=${ghost} copies=${JSON.stringify(copies)}`,
+  );
+  assert(!ghost, 'a pending save recreated the note at the id the peer renamed away from');
+  assertEqual(copies.length, 0, `no conflict copies expected, got ${JSON.stringify(copies)}`);
+  assertEqual(state.originalId, 'peer renamed', 'the editor follows the rename');
+  const renamedBody = await b.readNote('peer renamed');
+  assert(
+    renamedBody.includes(`r${typed - 1}`),
+    `the typing lands in the renamed note: disk ${JSON.stringify(renamedBody)}, ` +
+      `editor ${JSON.stringify(state.editorContent)}`,
+  );
+
+  await b.syncNow();
+  await a.syncNow();
+  assert(!(await a.noteExists('peer renames')), 'no ghost reaches the peer');
+}
+
+async function tabTitles(client) {
+  return client.readWebview(
+    `[...document.querySelectorAll('.tab-pill .tab-title')].map((e) => e.textContent.trim())`,
+    'tab titles',
+  );
+}
+
+/** Press a shell shortcut (primary = Cmd on macOS, Ctrl elsewhere), typing
+ * `text` first in the SAME page task when given, so the switch's own flush is
+ * the first save of that typing. */
+async function pressShellShortcut(client, shortcut, text = null) {
+  return client._executeMutation(
+    `(() => {
+      const mac = /Mac|iPhone|iPad/i.test(navigator.userAgent);
+      const { primary, ...init } = ${JSON.stringify(shortcut)};
+      if (primary) Object.assign(init, mac ? { metaKey: true } : { ctrlKey: true });
+      const text = ${JSON.stringify(text)};
+      if (text !== null) window.__notesShellTest.typeInEditor(text);
+      window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
+      return true;
+    })()`,
+    'shell shortcut',
+  );
+}
+
+async function switchWhoseFlushParks(a, b, variant) {
+  const id = `switch park ${variant}`;
+  const other = `switch park ${variant} other`;
+  await a.writeNote(other, '# Other');
+  await a.writeNote(id, '# Base');
+  await a.syncNow();
+  await b.syncNow();
+
+  // new tab: [.., id] -> Ctrl+T -> a Home tab.
+  // close tab: [.., other, id] -> Ctrl+W -> other.
+  // next tab: [.., id, other] with id active -> Ctrl+Tab -> other.
+  let shortcut;
+  await b.openNote(variant === 'close tab' ? other : id);
+  if (variant === 'new tab') {
+    shortcut = { key: 't', primary: true };
+  } else {
+    await waitForEditorContent(b, variant === 'next tab' ? '# Base' : '# Other');
+    await pressShellShortcut(b, { key: 't', primary: true });
+    await waitForOpenNoteState(b, 'open a new tab', (state) => state.originalId === null);
+    await b.openNote(variant === 'next tab' ? other : id);
+    if (variant === 'next tab') {
+      await waitForEditorContent(b, '# Other');
+      await pressShellShortcut(b, { key: 'Tab', ctrlKey: true, shiftKey: true });
+      shortcut = { key: 'Tab', ctrlKey: true };
+    } else {
+      shortcut = { key: 'w', primary: true };
+    }
+  }
+  await waitForEditorContent(b, '# Base');
+  await b.focusEditor();
+
+  await a.writeNote(id, '# Base\nPeer edit');
+  await a.syncNow();
+  const pulled = await b.syncNow();
+  assertEqual(pulled.summary.downloaded, 1, `[${variant}] B downloaded`);
+  assertEqual(
+    (await b.getOpenNoteState()).editorContent,
+    '# Base',
+    `[${variant}] a focused editor defers the peer edit`,
+  );
+  const tabsBefore = await tabTitles(b);
+
+  await pressShellShortcut(b, shortcut, ' zulu');
+  const expectedOpen = variant === 'new tab' ? null : other;
+  const arrived = await waitForOpenNoteState(
+    b,
+    `[${variant}] complete the switch to ${JSON.stringify(expectedOpen)}`,
+    (state) => state.originalId === expectedOpen,
+  );
+  await waitForSaveIdle(b);
+  await sleep(1000); // a late re-park would land in this window
+  const tabsAfter = await tabTitles(b);
+  const copies = await conflictCopiesOf(b, id);
+  console.log(
+    `    [${variant}] open=${JSON.stringify(arrived.originalId)} tabs ${JSON.stringify(tabsBefore)} -> ` +
+      `${JSON.stringify(tabsAfter)} copies=${JSON.stringify(copies)}`,
+  );
+
+  assert(
+    !tabsAfter.some((title) => title.includes('(conflict')),
+    `[${variant}] no tab may be retargeted to the copy: ${JSON.stringify(tabsAfter)}`,
+  );
+  if (variant === 'new tab') {
+    assertEqual(tabsAfter.length, tabsBefore.length + 1, `[${variant}] one tab opens`);
+    for (const title of tabsBefore) {
+      assert(
+        tabsAfter.includes(title),
+        `[${variant}] tab ${title} survives: ${JSON.stringify(tabsAfter)}`,
+      );
+    }
+  } else {
+    const expectedTabs = [...tabsBefore];
+    if (variant === 'close tab') expectedTabs.splice(expectedTabs.lastIndexOf(id), 1);
+    assertEqual(JSON.stringify(tabsAfter), JSON.stringify(expectedTabs), `[${variant}] tab strip`);
+  }
+  assertEqual(
+    copies.length,
+    1,
+    `[${variant}] one conflict mints ONE copy: ${JSON.stringify(copies)}`,
+  );
+  const copyBody = await b.readNote(copies[0].replace(/\.md$/, ''));
+  assert(copyBody.includes('zulu'), `[${variant}] the copy holds the typed word: ${copyBody}`);
+  assertEqual(await b.readNote(id), '# Base\nPeer edit', `[${variant}] peer bytes at the id`);
+}
+
+async function parkInsideAKeyboardSwitchLeavesTheSwitchAlone(a, b, server) {
+  // The first save after a deferred peer edit parks the draft as a conflict
+  // copy. When that save is the flush of a keyboard note switch (the editor
+  // keeps DOM focus through Ctrl+T / Ctrl+W / Ctrl+Tab), the tab store has
+  // already moved to the destination. Following the copy there retargeted the
+  // DESTINATION tab: the new tab showed the copy, the closed tab's neighbour
+  // was rewritten to the copy, Ctrl+Tab rewrote the tab it landed on. The
+  // user is leaving the note, so the switch completes untouched and the copy
+  // is only listed (editor.md, desktop parked disposition).
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
+
+  // Each variant reports on its own, so one failure does not hide the others.
+  const failures = [];
+  for (const variant of ['new tab', 'close tab', 'next tab']) {
+    try {
+      await switchWhoseFlushParks(a, b, variant);
+    } catch (error) {
+      console.log(`    [${variant}] FAIL ${error.message}`);
+      failures.push(`[${variant}] ${error.message}`);
+    }
+  }
+  assertEqual(failures.length, 0, `switch variants failed: ${failures.join(' | ')}`);
+}
+
 // ── Scenario registry ───────────────────────────────────────────
 
 const scenarios = [
@@ -2731,6 +3005,22 @@ const scenarios = [
   {
     name: 'focused open note defers peer edit until blur',
     fn: focusedOpenNoteDefersPeerEditUntilBlur,
+    matrices: ['desktop-desktop'],
+  },
+  {
+    name: 'a focused typist after a deferred peer edit mints exactly one copy',
+    fn: focusedTypistAfterDeferredPeerEditMintsOneCopy,
+    matrices: ['desktop-desktop'],
+  },
+  {
+    name: 'peer rename of the open note while a save is pending leaves no ghost',
+    fn: peerRenameWhileSavePendingLeavesNoGhost,
+    serverOptions: { syncDelayMs: 1500 },
+    matrices: ['desktop-desktop'],
+  },
+  {
+    name: 'a park inside a keyboard note switch leaves the switch alone',
+    fn: parkInsideAKeyboardSwitchLeavesTheSwitchAlone,
     matrices: ['desktop-desktop'],
   },
   // Folder-support v1 scenarios — see Specs § Sync conflict resolution.

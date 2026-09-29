@@ -159,7 +159,14 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     isLoading: () => loading,
     showTitleWarning: (message) => titleController.showWarning(message, null),
     reconcileOpenNote: deps.reconcileOpenNote,
-    onSaved: ({ id, title: newTitle, content: newContent, savedOriginalId, requestedTitle }) => {
+    onSaved: ({
+      id,
+      title: newTitle,
+      content: newContent,
+      savedOriginalId,
+      requestedTitle,
+      keepsOriginal,
+    }) => {
       // A first save has no original id, so the route must still identify the
       // new-note session; existing-note saves remain bound by original id.
       const isCurrentSave =
@@ -172,7 +179,18 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       savedContent = newContent;
       savedTitle = newTitle;
       if (title === requestedTitle) title = newTitle;
-      if (savedOriginalId !== id) deps.onNoteRenamed(savedOriginalId, id);
+      if (savedOriginalId === id) return;
+      if (!keepsOriginal) {
+        deps.onNoteRenamed(savedOriginalId, id);
+        return;
+      }
+      // After a park the original still exists, so only the tab showing it
+      // moves to the copy (a null source retargets the active tab). A park
+      // inside a note switch's own flush lands after the tabs moved to the
+      // destination: the user is leaving, so no tab follows. The session above
+      // still does, so a save queued behind the park lands in the copy rather
+      // than parking a second one.
+      if (deps.getNoteId() === savedOriginalId) deps.onNoteRenamed(null, id);
     },
   });
   let persistenceTail: Promise<void> = Promise.resolve();
