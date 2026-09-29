@@ -118,14 +118,7 @@ function flanking(written: string, size: 1 | 2, info: AttentionInfo, marker = wr
  * Milkdown's `strong` (`size` 2) or `emphasis` (`size` 1) handler — or
  * {@link strikethroughHandler} — with upstream's flanking encoding applied to
  * what it wrote.
- *
- * One step upstream does not take: a `_` run that could only flank with
- * character references is written with `*` instead when `*` flanks there with
- * none. `_` cannot open or close inside a word, so a letter typed straight
- * before `_b_` needed BOTH neighbours encoded (`&#x5A;_&#x62;_`); `Z*b*` means
- * the same and reads as written. The marker is spelling (ADR-0002: re-spelled
- * once, then stable, because the reopened mark carries `*`). Where no marker
- * flanks unencoded, the `_` and its references stay.
+
  */
 export function withAttentionEncoding<
   Node,
@@ -137,15 +130,8 @@ export function withAttentionEncoding<
   size: 1 | 2,
 ): ((node: Node, parent: Parent, state: State, info: Info) => string) & { peek: typeof base } {
   const handler = (node: Node, parent: Parent, state: State, info: Info): string => {
-    let written = base(node, parent, state, info);
+    const written = base(node, parent, state, info);
     if (written.length <= 2 * size) return written;
-    if (
-      written.charAt(0) === '_' &&
-      flanking(written, size, info).encodes &&
-      !flanking(written, size, info, '*').encodes
-    ) {
-      written = base({ ...node, marker: '*' }, parent, state, info);
-    }
 
     const { before, after, open, close, ...run } = flanking(written, size, info);
     let between = run.between;

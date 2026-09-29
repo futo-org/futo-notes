@@ -620,28 +620,3 @@ for (const [name, text, length, key, tag] of [
     ]);
   });
 }
-
-test('a letter typed right before an underscore emphasis keeps it italic, with no references', async ({
-  page,
-}) => {
-  // `Z` + `_b_` inside a word: `_` cannot flank there, so the save used to
-  // write both letters as character references (`&#x5A;_&#x62;_`).
-  await open(page, 'a _b_ c');
-  await withCaretObserved(page, () =>
-    page.evaluate(() => {
-      const text = document.querySelector('.ProseMirror p')?.firstChild;
-      if (!text) throw new Error('no text node');
-      const range = document.createRange();
-      range.setStart(text, 'a '.length);
-      range.collapse(true);
-      getSelection()?.removeAllRanges();
-      getSelection()?.addRange(range);
-    }),
-  );
-  await page.keyboard.type('Z');
-  await settled(page);
-  const saved = await getContent(page);
-  expect(saved).toBe('a Z*b* c\n');
-  await reopen(page, saved);
-  expect(await page.locator('.ProseMirror p em').allTextContents(), saved).toEqual(['b']);
-});
