@@ -15,8 +15,12 @@
  *    in front of `* > quote` is not written at all.
  * 2. `[](url)` loses its href along with its empty label. A remark transformer
  *    gives the link its URL as visible text (`./emptyLink`).
- * 3. A title-less `![alt](src)` parses to `title: null`, which the preset's own
+ * 3a. A title-less `![alt](src)` parses to `title: null`, which the preset's own
  *    image schema rejects; `./imageTitle` gives it the empty string.
+ * 3b. An EMPTY task item has no text for GFM's `[ ]` marker to be followed by,
+ *    so `- [ ]` parsed as a bullet holding the literal text `[ ]`, and the item
+ *    saved as a bare `-`. `./emptyTaskItem` (with `./listItemFiller`) writes and
+ *    reads it as a task item.
  * Ambiguous bullet contents use CommonMark's interpretation. Empty schema
  * fillers are still omitted by `listItemFiller`.
  *
@@ -78,6 +82,7 @@ import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 import { attentionEncodingPlugin } from './attentionEncoding';
 import { remarkExpandEmptyLinksPlugin } from './emptyLink';
 import { remarkInlineHtmlIndentPlugin } from './inlineHtmlIndent';
+import { remarkEmptyTaskItemPlugin } from './emptyTaskItem';
 import { remarkImageTitlePlugin } from './imageTitle';
 import { blankLineJoinPlugin, remarkBlankLineParagraphsPlugin } from './emptyLine';
 import { frontmatterPlugins } from './frontmatter';
@@ -89,6 +94,7 @@ export * from './atxEscape';
 export * from './stringifyHandlers';
 export * from './underscoreEscape';
 export { expandEmptyLinks } from './emptyLink';
+export { markEmptyTaskItems } from './emptyTaskItem';
 export { defaultImageTitles } from './imageTitle';
 export { blankLineJoin, fixEmptyLinePlaceholders, restoreBlankLineParagraphs } from './emptyLine';
 export {
@@ -219,6 +225,7 @@ export function commonmarkWithCompat(): MilkdownPlugin[] {
     ...remarkExpandEmptyLinksPlugin,
     ...remarkInlineHtmlIndentPlugin,
     ...remarkImageTitlePlugin,
+    ...remarkEmptyTaskItemPlugin,
     /* The preset's list numbering over the touched blocks only (see
      * UPSTREAM_LIST_ORDER_ENTRIES). */
     scopedListOrderPlugin,
