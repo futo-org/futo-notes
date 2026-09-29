@@ -2965,6 +2965,40 @@ test('the resolved URL never reaches the note — opening leaves the reference b
   expect(await getContent(page)).toBe('before\n\n![](pic.png)\n\nafter');
 });
 
+test('an image with no title still passes the schema validator', async ({ page }) => {
+  // mdast gives `![a](b.png)` `title: null`; the image attr validates as a
+  // string, so `doc.check()` and `nodeFromJSON()` threw on ordinary notes (RC-31).
+  await initialize(page, hostConfig({ content: '![a](b.png)\n\n![c](d.png "cap")\n' }));
+  await flushFrames(page);
+  const result = await page.evaluate(() => {
+    const view = (
+      window as unknown as {
+        __futoProseMirrorView: () => {
+          state: {
+            doc: { check(): void; toJSON(): unknown };
+            schema: { nodeFromJSON(json: unknown): { check(): void } };
+          };
+        };
+      }
+    ).__futoProseMirrorView();
+    const errors: string[] = [];
+    try {
+      view.state.doc.check();
+    } catch (e) {
+      errors.push(`check: ${(e as Error).message}`);
+    }
+    try {
+      view.state.schema.nodeFromJSON(view.state.doc.toJSON()).check();
+    } catch (e) {
+      errors.push(`nodeFromJSON: ${(e as Error).message}`);
+    }
+    return errors;
+  });
+  expect(result).toEqual([]);
+  // ...and the title survives where there is one, and is not invented where not.
+  expect(await getContent(page)).toBe('![a](b.png)\n\n![c](d.png "cap")\n');
+});
+
 test('the resolved URL never reaches the note — a real edit still serializes the vault filename', async ({
   page,
 }) => {
