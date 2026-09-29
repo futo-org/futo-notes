@@ -124,10 +124,14 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
     },
     getContent(): string {
       /* The bridge contract types this `string` (bridge.ts). The component
-       * answers `undefined` only before any note has ever reached it, where an
-       * empty document is the truthful answer anyway — every native host calls
-       * `initialize`/`setContent` before it reads. A note whose parse FAILED
-       * comes back as the host's own bytes, not as ''.
+       * answers `undefined` before any note has ever reached it (every native
+       * host calls `initialize`/`setContent` before it reads) and — since the
+       * RC-17 hardening — when serializing an edited document throws. The
+       * second case is coerced to '' here, and the native shells have no guard
+       * against '' over a non-empty note: a known latent gap (RC-73 in
+       * docs/plan/editor-release-hardening.md). No natural serializer throw is
+       * known; closing it means answering `null` across the bridge. A note
+       * whose parse FAILED comes back as the host's own bytes, not as ''.
        *
        * Every host read is an exit's capture of the note it is about to leave,
        * so it is the capturing read: nothing about this document is reported

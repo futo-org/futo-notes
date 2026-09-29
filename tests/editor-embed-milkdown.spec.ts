@@ -2486,6 +2486,138 @@ test('getContent mid-stream after an edit finishes the load rather than answerin
   expect(midStream.content).toContain('Section 3999');
 });
 
+/*
+ * "Did the user edit while the tail streamed?" must not alias (RC-11: L6a-2,
+ * L6b-12, L6b-12b). The answer used to be `undoDepth > depth when the load
+ * started`, and undo depth is not a count of edits: a sync adopt keeps the
+ * user's history (no `resetHistory` — see "a version adopted from outside the
+ * editor"), an Undo LOWERS the depth, and prosemirror-history trims its stack
+ * from 120 events back to 100. Either way a real edit netted to "not edited":
+ * no `change`, and `getContent()` answered the peer's bytes while the typed
+ * word sat on screen, to be lost on the next leave.
+ */
+
+const TYPED_MID_STREAM = 'the keystrokes must land while the tail streams (M11)';
+
+/** Top-level blocks mounted right now; a streaming note has only its head. */
+async function mountedBlocks(page: Page): Promise<number> {
+  return page.evaluate(() => document.querySelectorAll('.ProseMirror > *').length);
+}
+
+/** The history plugin's recorded undo events. */
+async function undoEvents(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    type HistoryPlugin = {
+      key: string;
+      getState: (state: unknown) => { done: { eventCount: number } };
+    };
+    const view = (
+      window as unknown as {
+        __futoProseMirrorView: () => { state: { plugins: HistoryPlugin[] } };
+      }
+    ).__futoProseMirrorView();
+    const plugin = view.state.plugins.find((p) => String(p.key).startsWith('history$'));
+    return plugin!.getState(view.state).done.eventCount;
+  });
+}
+
+/** A selection-only caret move to the start of the text holding `marker`. */
+async function caretBefore(page: Page, marker: string): Promise<void> {
+  await page.evaluate((text) => {
+    type ProseNodeLike = { isText: boolean; text?: string };
+    const view = (
+      window as unknown as {
+        __futoProseMirrorView: () => {
+          state: {
+            doc: { descendants: (f: (n: ProseNodeLike, pos: number) => boolean) => void };
+            selection: { constructor: { create: (doc: unknown, pos: number) => unknown } };
+            tr: { setSelection: (s: unknown) => unknown };
+          };
+          dispatch: (tr: unknown) => void;
+        };
+      }
+    ).__futoProseMirrorView();
+    let at = -1;
+    view.state.doc.descendants((node, pos) => {
+      if (at >= 0) return false;
+      if (node.isText && node.text!.includes(text)) at = pos + node.text!.indexOf(text);
+      return true;
+    });
+    if (at < 0) throw new Error(`no text ${text}`);
+    const selection = view.state.selection.constructor.create(view.state.doc, at);
+    view.dispatch(view.state.tr.setSelection(selection));
+  }, marker);
+}
+
+/** Adopt `note` as a sync update would, and report whether it took the streaming path. */
+async function adoptStreaming(page: Page, note: string): Promise<boolean> {
+  return page.evaluate((md) => {
+    const w = window as unknown as FakeHostWindow;
+    w.FutoEditor.applyExternalContent(md);
+    w.__msgs.length = 0;
+    // The tail affordance is Svelte state, painted after this task; the block
+    // count is synchronous. Only chunk 0 is mounted yet.
+    return document.querySelectorAll('.ProseMirror > *').length < 1000;
+  }, note);
+}
+
+test('an Undo while an adopted note streams does not hide the word typed after it', async ({
+  page,
+}) => {
+  await hostSetContent(page, 'small note\n');
+  await focusEditor(page);
+  await page.keyboard.type('edited ');
+  await waitForMessages(page, 'change');
+
+  const peer = largeNote(3000);
+  expect(await adoptStreaming(page, peer), 'the adopt must take the progressive path').toBe(true);
+
+  // The pre-adopt step maps to nothing over the replaced document: this Undo
+  // changes no text, only the undo depth.
+  await page.keyboard.press('ControlOrMeta+z');
+  await page.keyboard.type('QQQ');
+  expect(await mountedBlocks(page), TYPED_MID_STREAM).toBeLessThan(5000);
+  await expect(page.locator('.ProseMirror')).toContainText('QQQ');
+
+  await waitForStreamComplete(page);
+
+  const changes = await messagesOfType(page, 'change');
+  expect(changes.some((m) => String(m.content).includes('QQQ'))).toBe(true);
+  const content = await getContent(page);
+  expect(content).toContain('QQQ');
+  expect(content).toContain('Section 2999');
+});
+
+test('a word typed while an adopted note streams is reported with the undo stack full', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await initialize(page, hostConfig({ content: largeNote(300) }));
+  await waitForStreamComplete(page);
+  await focusEditor(page);
+  // 120 separate undo events, at two non-adjacent places so none merge: the
+  // stack is at the depth where the next event trims it back to 100.
+  for (let i = 0; i < 120; i += 1) {
+    await caretBefore(page, i % 2 === 0 ? 'Body line 1 ' : 'Body line 7 ');
+    await page.keyboard.type('x');
+  }
+  expect(await undoEvents(page), 'the undo stack must be at its trim threshold').toBe(120);
+  await settleChangeDebounce(page);
+
+  const peer = largeNote(3000).replace('Body line 0 ', 'Peer line 0 ');
+  expect(await adoptStreaming(page, peer), 'the adopt must take the progressive path').toBe(true);
+  await caretBefore(page, 'Peer line 0 ');
+  await page.keyboard.type('Q');
+  expect(await mountedBlocks(page), TYPED_MID_STREAM).toBeLessThan(5000);
+  expect(await undoEvents(page), 'this keystroke must have trimmed the stack').toBeLessThan(120);
+
+  await waitForStreamComplete(page);
+
+  const changes = await messagesOfType(page, 'change');
+  expect(changes.some((m) => String(m.content).includes('QPeer line 0 '))).toBe(true);
+  expect(await getContent(page)).toContain('QPeer line 0 ');
+});
+
 /** The top-level block shapes of the live document, `p:empty` for an empty paragraph. */
 async function topLevelShapes(page: Page): Promise<string[]> {
   return page.evaluate(() =>
