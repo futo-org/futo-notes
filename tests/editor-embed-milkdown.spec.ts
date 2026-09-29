@@ -2591,6 +2591,67 @@ interface ProseMirrorDiagnosticWindow {
 }
 
 /**
+ * The scoped list-order pass re-labels the items of a bullet list whose first
+ * item says `ordered`. It wrote each item's attrs at the item's offset INSIDE
+ * the list instead of its document position (RC-55, copied from upstream), so
+ * the attrs landed on whatever block sat at that offset of the document: a
+ * heading was reset to H1, and a text node there made `setNodeMarkup` throw
+ * and dropped the whole transaction. Reached by dispatching such a list
+ * directly — no typed path was found that builds one.
+ */
+test('list relabelling writes item attrs at document positions, not list-relative ones', async ({
+  page,
+}) => {
+  await initialize(page, hostConfig({ content: 'seed\n' }));
+  const outcome = await page.evaluate(() => {
+    interface Json {
+      type: string;
+      attrs?: Record<string, unknown>;
+      content?: Json[];
+      text?: string;
+    }
+    const view = (
+      window as unknown as {
+        __futoProseMirrorView: () => {
+          state: {
+            doc: { content: { size: number } };
+            schema: { nodeFromJSON(json: Json): { content: unknown } };
+            tr: { replaceWith(from: number, to: number, content: unknown): unknown };
+          };
+          dispatch(tr: unknown): void;
+        };
+      }
+    ).__futoProseMirrorView();
+    const text = (t: string): Json => ({ type: 'text', text: t });
+    const item = (t: string, label: string): Json => ({
+      type: 'list_item',
+      attrs: { label, listType: 'ordered', spread: true },
+      content: [{ type: 'paragraph', content: [text(t)] }],
+    });
+    const doc = view.state.schema.nodeFromJSON({
+      type: 'doc',
+      content: [
+        { type: 'heading', attrs: { level: 3 }, content: [text('Title')] },
+        { type: 'paragraph', content: [text('body')] },
+        { type: 'bullet_list', content: [item('x', '7.'), item('y', '9.'), item('z', '9.')] },
+      ],
+    });
+    try {
+      view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, doc.content));
+      return null;
+    } catch (error) {
+      return (error as Error).message;
+    }
+  });
+  expect(outcome).toBeNull();
+  await flushFrames(page);
+  const content = await getContent(page);
+  expect(content).toMatch(/^### Title\n/);
+  expect(content).toContain('1. x');
+  expect(content).toContain('3. z');
+});
+
+/**
  * Every top-level block is rendered eagerly: the editor applies no
  * `content-visibility` containment to its blocks. One ran on Chromium from
  * #106 until 2026-09-05, when eager rendering measured better on the low-end
