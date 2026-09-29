@@ -36,6 +36,31 @@ are adapters to one editor library's implementation — which mdast node a plugi
 deletes, how a link mark finds text to attach to — not note rules, so M6 does
 not apply. Nothing in Swift, Kotlin, or Rust may hold a second copy either.
 
+Four more escaping repairs, from the 2026-09 release-hardening campaign (FB-4a):
+
+- `withNarrowedEscapes` also writes an autolink's text (`<https://…>`)
+  VERBATIM — CommonMark reads no escapes inside `<…>`, and `safe()` doubled
+  its backslashes every save — and sends every run Milkdown's `text` handler
+  would return raw (`/^[^*_\\]*\s+$/`: any run ending in whitespace, which is
+  every run before a mark, link, wikilink or inline HTML) through `safe()`
+  minus its trailing whitespace. Never delegate such a run back to Milkdown's
+  handler: that shortcut is what saved `\# a **b**` as a heading and split a
+  cell on a typed `|`.
+- `attentionEncoding.ts` wraps Milkdown's `strong`/`emphasis` handlers (and
+  a restated GFM `delete`) with upstream's `encodeInfo`, so bold, italic or
+  strikethrough whose edge is punctuation next to a letter still flanks
+  (`**Note:**&#x62;ar`). When such an edge can only flank encoded, the
+  adjacent character is written as a character reference (`&#x62;`); the marker
+  is never switched (`_` to `*`), because that broke flanking next to `*` runs.
+  Installed by `attentionEncodingPlugin` in `commonmarkWithCompat()`.
+- `inlineHtmlIndent.ts` puts back the up-to-three continuation-line columns
+  micromark strips from INLINE HTML. It hooks the `htmlText` token on purpose:
+  by the time a tree transform runs, the preset has wrapped block HTML in a
+  paragraph and the two are indistinguishable.
+- The app's own `break` handler (`src/features/editor/milkdown/table/tableLineBreak.ts`)
+  writes a space where `\n` is unsafe (an ATX heading) and `<br>` before inline
+  HTML; the wikilink handler writes `|` as `\|` in a table cell.
+
 `src/milkdown-compat/frontmatter.ts` is in the same directory for the same
 reason but is an ADDITION, not a fork: the preset has no front matter construct,
 so `---\ntags: [a, b]\n---` parsed as a thematic break plus a setext heading and

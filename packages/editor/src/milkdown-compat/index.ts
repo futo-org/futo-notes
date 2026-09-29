@@ -40,6 +40,13 @@
  * serializer-side members of the same set, from the tag work (#102): remark
  * escapes every line-leading `#`, which destroys a `#tag`, and every `_` in
  * prose, which rewrites `snake_case` and destroys `#dog_problems`.
+ * `./stringifyHandlers` also closes two upstream escaping holes the 2026-09
+ * hardening campaign found: Milkdown's `text` handler writes a run that ends in
+ * whitespace with no escaping at all, and an autolink's backslash doubled on
+ * every save. `./inlineHtmlIndent` gives a multi-line inline HTML tag back the
+ * continuation indent the parser strips, which otherwise shrank every save.
+ * `./attentionEncoding` puts back the flanking encoding Milkdown's own `strong`
+ * and `emphasis` handlers drop, so `**Note:**bar` stays bold.
  *
  * `./frontmatter` is the one member that is an ADDITION rather than a fork: the
  * preset has no front matter construct at all, so `---\ntags: [a, b]\n---`
@@ -66,7 +73,9 @@ import {
 import { gfm, keepTableAlignPlugin, tableEditingPlugin } from '@milkdown/kit/preset/gfm';
 import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 
+import { attentionEncodingPlugin } from './attentionEncoding';
 import { remarkExpandEmptyLinksPlugin } from './emptyLink';
+import { remarkInlineHtmlIndentPlugin } from './inlineHtmlIndent';
 import { blankLineJoinPlugin, remarkBlankLineParagraphsPlugin } from './emptyLine';
 import { frontmatterPlugins } from './frontmatter';
 import { paragraphFillerGuard, paragraphWithoutFillerSchema } from './listItemFiller';
@@ -197,12 +206,14 @@ export function commonmarkWithCompat(): MilkdownPlugin[] {
     ...upstreamPresetWithoutForkedPlugins(),
     ...remarkBlankLineParagraphsPlugin,
     blankLineJoinPlugin,
+    attentionEncodingPlugin,
     /* After the preset (it upserts the preset's `paragraph` by id), and part of
      * the same rule as the two above: without it, the empty paragraph the
      * schema puts in front of `* > quote` would save as a bare `*` line. */
     paragraphWithoutFillerSchema,
     paragraphFillerGuard,
     ...remarkExpandEmptyLinksPlugin,
+    ...remarkInlineHtmlIndentPlugin,
     /* The preset's list numbering over the touched blocks only (see
      * UPSTREAM_LIST_ORDER_ENTRIES). */
     scopedListOrderPlugin,
