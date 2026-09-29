@@ -20,6 +20,8 @@
  * edge characters here, the outer ones through
  * `state.attentionEncodeSurroundingInfo`, which upstream's `containerPhrasing`
  * reads after each child exactly as it does for its own handlers.
+ * GFM strikethrough has the same hole one package over — its `delete` handler
+ * never encoded at all — and gets the same wrapper ({@link strikethroughHandler}).
  *
  * Characters are classified per UTF-16 unit, the way micromark's parser sees
  * them (an emoji's lead surrogate is a "letter" to it), so the verdict matches
@@ -33,7 +35,7 @@
  * handler override, not a note rule (packages/editor/AGENTS.md). Typed
  * structurally for the reason `stringifyHandlers.ts` gives.
  */
-import type { MilkdownPlugin } from '@milkdown/kit/ctx';
+import type { MilkdownPlugin, SliceType } from '@milkdown/kit/ctx';
 import { remarkStringifyOptionsCtx } from '@milkdown/kit/core';
 
 /** The serializer-state field this wrapper writes. */
@@ -101,9 +103,22 @@ function encodeTail(text: string): string {
   return text.slice(0, start) + reference(text.codePointAt(start) ?? last);
 }
 
+/** Where an attention run written as `written` sits, and what it would need encoded. */
+function flanking(written: string, size: 1 | 2, info: AttentionInfo, marker = written.charAt(0)) {
+  const between = written.slice(size, written.length - size);
+  const before = info.before.charCodeAt(info.before.length - 1);
+  const after = info.after.charCodeAt(0);
+  const open = encodeInfo(before, between.charCodeAt(0), marker);
+  const close = encodeInfo(after, between.charCodeAt(between.length - 1), marker);
+  const encodes = open.inside || open.outside || close.inside || close.outside;
+  return { between, before, after, open, close, encodes };
+}
+
 /**
- * Milkdown's `strong` (`size` 2) or `emphasis` (`size` 1) handler with
- * upstream's flanking encoding applied to what it wrote.
+ * Milkdown's `strong` (`size` 2) or `emphasis` (`size` 1) handler — or
+ * {@link strikethroughHandler} — with upstream's flanking encoding applied to
+ * what it wrote.
+
  */
 export function withAttentionEncoding<
   Node,
@@ -116,15 +131,11 @@ export function withAttentionEncoding<
 ): ((node: Node, parent: Parent, state: State, info: Info) => string) & { peek: typeof base } {
   const handler = (node: Node, parent: Parent, state: State, info: Info): string => {
     const written = base(node, parent, state, info);
-    const marker = written.charAt(0);
-    let between = written.slice(size, written.length - size);
-    if (between === '') return written;
+    if (written.length <= 2 * size) return written;
 
-    const before = info.before.charCodeAt(info.before.length - 1);
-    const open = encodeInfo(before, between.charCodeAt(0), marker);
+    const { before, after, open, close, ...run } = flanking(written, size, info);
+    let between = run.between;
     if (open.inside) between = encodeHead(between);
-    const after = info.after.charCodeAt(0);
-    const close = encodeInfo(after, between.charCodeAt(between.length - 1), marker);
     if (close.inside) between = encodeTail(between);
 
     state.attentionEncodeSurroundingInfo = {
@@ -141,8 +152,36 @@ export function withAttentionEncoding<
   return Object.assign(handler, { peek: base });
 }
 
+type StringifyOptions =
+  typeof remarkStringifyOptionsCtx extends SliceType<infer Options> ? Options : never;
+/** A `mdast-util-to-markdown` node handler, as the stringify options type it. */
+type Handle = NonNullable<NonNullable<StringifyOptions['handlers']>['strong']>;
+
 /**
- * Installs the wrapper over Milkdown's `strong` and `emphasis` handlers, in the
+ * `mdast-util-gfm-strikethrough`'s `handleDelete`, restated so it can be
+ * wrapped: GFM strikethrough flanks by the same rule as `*`, and upstream's
+ * handler has no `encodeInfo` at all, so `~~Note:~~bar` (Mod+Alt+X on `Note:`)
+ * reopened as literal tildes. That handler is registered by the gfm
+ * to-markdown extension, not in the stringify options, so there is no function
+ * here to wrap — and that package reaches this one only transitively (see
+ * `stringifyHandlers.ts` on phantom imports).
+ */
+const strikethroughHandler: Handle = (node, _parent, state, info) => {
+  const tracker = state.createTracker(info);
+  // Upstream's own construct name (its `unsafe` `~` rule is keyed on it); the
+  // type registering it is declared by that package, which is not imported.
+  const exit = state.enter('strikethrough' as Parameters<typeof state.enter>[0]);
+  let value = tracker.move('~~');
+  value += state.containerPhrasing(node, { ...tracker.current(), before: value, after: '~' });
+  value += tracker.move('~~');
+  exit();
+  return value;
+};
+
+/**
+ * Installs the wrapper over Milkdown's `strong` and `emphasis` handlers (and
+ * over {@link strikethroughHandler} as `delete`: stringify-option handlers
+ * are applied after the extensions', so this one wins), in the
  * plugin's prepare phase for the reason `blankLineJoinPlugin` gives. If
  * Milkdown ever stops overriding them, upstream's own handlers already encode
  * and there is nothing to wrap — the compat spec's canary goes red first.
@@ -157,6 +196,7 @@ export const attentionEncodingPlugin: MilkdownPlugin = (ctx) => {
         ...options.handlers,
         strong: withAttentionEncoding(strong, 2),
         emphasis: withAttentionEncoding(emphasis, 1),
+        delete: withAttentionEncoding(strikethroughHandler, 2),
       },
     };
   });

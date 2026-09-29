@@ -523,3 +523,27 @@ test.describe('bold or italic whose edge is punctuation next to a letter', () =>
     }
   });
 });
+
+test.describe('strikethrough whose edge is punctuation next to a letter', () => {
+  // The same flanking rule as bold and italic (GFM strikethrough classifies
+  // its neighbours the way `*` does), and `mdast-util-gfm-strikethrough`'s
+  // `delete` handler has no `encodeInfo` at all: `~~Note:~~bar` reopened as
+  // literal tildes and the next save escaped them for good.
+  const STRUCK = '~~Note:~~&#x62;ar\n';
+
+  test('canary: upstream still writes the run unencoded', async ({ page }) => {
+    const { once, twice } = await twoSaves(page, 'baseline', STRUCK);
+    expect(once).toBe('~~Note:~~bar\n');
+    expect(twice).toBe('\\~\\~Note:\\~\\~bar\n');
+  });
+
+  test('compat keeps it byte-for-byte', async ({ page }) => {
+    const { once, twice } = await twoSaves(page, 'compat', STRUCK);
+    expect(once).toBe(STRUCK);
+    expect(twice).toBe(once);
+  });
+
+  test('compat leaves a strikethrough that already flanks alone', async ({ page }) => {
+    expect(await roundTrip(page, 'compat', 'a ~~b~~ c\n')).toBe('a ~~b~~ c\n');
+  });
+});

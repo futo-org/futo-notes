@@ -604,6 +604,7 @@ async function selectParagraphStart(page: Page, length: number): Promise<void> {
 for (const [name, text, length, key, tag] of [
   ['Mod+B on "Note:" before a letter', 'Note:bar', 5, 'b', 'strong'],
   ['Mod+I on "Note:" before a letter', 'Note:bar', 5, 'i', 'em'],
+  ['Mod+Alt+X on "Note:" before a letter', 'Note:bar', 5, 'Alt+x', 'del'],
   // CJK: bold on a phrase ending in a full-width colon, before the next ideograph.
   ['Mod+B on a CJK phrase ending in a full-width colon', '重要：这是', 3, 'b', 'strong'],
 ] as const) {
