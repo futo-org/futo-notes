@@ -237,6 +237,21 @@ async function holdNextVaultCall(
   );
 }
 
+/**
+ * Hand the page's timers to the test (M15). Installed before the app boots,
+ * with time flowing as usual until `stopClock`; from then on the editor's
+ * 200 ms change debounce and the 500 ms save debounce fire only when the test
+ * runs the clock forward, however fast or slow the machine is.
+ */
+async function installClock(page: import('@playwright/test').Page): Promise<void> {
+  await page.clock.install();
+}
+
+async function stopClock(page: import('@playwright/test').Page): Promise<void> {
+  // Jumps a second ahead first, so anything the open itself scheduled has run.
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000);
+}
+
 async function waitUntilVaultCallHeld(page: import('@playwright/test').Page): Promise<void> {
   await page.waitForFunction(() => (window as unknown as VaultGateWindow).__vaultGate.held);
 }
@@ -270,30 +285,51 @@ test.describe('an edit the editor still holds is never dropped by the save queue
    * the in-flight save and return, and the switch then replaced the document
    * the edit lived in. */
   test('a note switch during an in-flight save keeps the last edit', async ({ page }) => {
+    await installClock(page);
     await openNewNote(page);
     await writeNotes(page, { 'switch a': 'first body\n', 'switch b': 'the other note\n' });
     await openStoredNote(page, 'switch a', 'first body');
+    await stopClock(page);
 
+    // A reported edit whose save is then held in flight.
     await holdNextVaultCall(page, 'flushDraft', 'switch a');
     await page.evaluate(() => {
       (window as unknown as NotesHookWindow).__notesShellTest.typeInEditor('alpha');
     });
+    await page.clock.runFor(200 + 500);
     await waitUntilVaultCallHeld(page);
 
-    // One more word, and the switch, inside that word's change debounce: the
-    // editor has not reported it by the time the switch flushes.
-    const reportedBeforeSwitch = await page.evaluate(async () => {
-      const w = window as unknown as NotesHookWindow & VaultGateWindow;
-      w.__notesShellTest.typeInEditor('omega');
+    // One more word, and the switch. The clock is stopped, so the editor's
+    // change debounce cannot report the word before the switch flushes.
+    await page.evaluate(() => {
+      (window as unknown as NotesHookWindow).__notesShellTest.typeInEditor('omega');
       window.location.hash = '#/note/switch%20b';
-      await new Promise((resolve) => setTimeout(resolve, 40));
-      const pending = w.__notesShellTest.getState().savePending;
-      w.__vaultGate.release();
-      return pending;
     });
-    expect(reportedBeforeSwitch, 'the first save must still be in flight at the switch').toBe(true);
+    // The switch is inside its flush (begun, not yet past it), awaiting the held save.
+    await page.waitForFunction(() => {
+      const hook = (
+        window as unknown as {
+          __notesShellTest: {
+            noteSwitchTimelines: () => Array<{
+              noteId: string | null;
+              phases: { phase: string }[];
+            }>;
+          };
+        }
+      ).__notesShellTest;
+      const last = hook.noteSwitchTimelines().at(-1);
+      return last?.noteId === 'switch b' && !last.phases.some((p) => p.phase === 'saveFlushed');
+    });
+    expect(
+      await page.evaluate(
+        () => (window as unknown as NotesHookWindow).__notesShellTest.getState().savePending,
+      ),
+      'the first save must still be in flight at the switch',
+    ).toBe(true);
+    await page.evaluate(() => (window as unknown as VaultGateWindow).__vaultGate.release());
 
     await expect(page.locator(EDITOR)).toContainText('the other note');
+    await page.clock.resume();
     await page.evaluate(() => (window as unknown as NotesHookWindow).__notesShellTest.flushSave());
 
     const stored = await storedBody(page, 'switch a');
@@ -335,29 +371,30 @@ test.describe('an edit the editor still holds is never dropped by the save queue
    * back to the document as it was loaded then looked like the load's own
    * echo and was never reported, so the undone edit stayed on disk. */
   test('an Undo after a read-driven save of an unreported edit is saved too', async ({ page }) => {
+    await installClock(page);
     await openNewNote(page);
     await writeNotes(page, { 'undo after read': 'loaded body\n' });
     await openStoredNote(page, 'undo after read', 'loaded body');
     await page.locator(EDITOR).click();
-    await page.evaluate(() => {
-      const w = window as unknown as VaultGateWindow;
-      w.__keydownTimes = [];
-      document.addEventListener('keydown', () => w.__keydownTimes.push(performance.now()), true);
-    });
+    await stopClock(page);
 
+    // With the clock stopped, the edit and its Undo both land inside the
+    // editor's change debounce, whatever the machine's speed.
     await page.keyboard.type('q');
     await page.evaluate(() => (window as unknown as NotesHookWindow).__notesShellTest.flushSave());
     expect(await storedBody(page, 'undo after read')).toContain('q');
     await page.keyboard.press('ControlOrMeta+z');
-    const keyGap = await page.evaluate(() => {
-      const keys = (window as unknown as VaultGateWindow).__keydownTimes;
-      return keys[keys.length - 1] - keys[0];
-    });
-    expect(keyGap, 'the Undo must land inside the change debounce of the edit').toBeLessThan(200);
     await expect(page.locator(EDITOR)).not.toContainText('q');
+    expect(
+      await page.evaluate(
+        () => (window as unknown as NotesHookWindow).__notesShellTest.getState().savePending,
+      ),
+      'the editor must not have reported either keystroke yet',
+    ).toBe(false);
 
     // Past the editor's 200 ms change debounce and the 500 ms save debounce,
     // with nothing flushing on the test's behalf.
+    await page.clock.runFor(200 + 500 + 100);
     await expect
       .poll(() => storedBody(page, 'undo after read'), { timeout: 3000 })
       .toBe('loaded body\n');
@@ -368,10 +405,12 @@ test.describe('an edit the editor still holds is never dropped by the save queue
    * typist was saved only when they paused, and a crash mid-burst lost the
    * whole burst. A save now lands every ~2 s while typing continues. */
   test('continuous typing is saved within about two seconds, without a pause', async ({ page }) => {
+    await installClock(page);
     await openNewNote(page);
     await writeNotes(page, { 'steady typist': 'start\n' });
     await openStoredNote(page, 'steady typist', 'start');
     await page.locator(EDITOR).click();
+    await stopClock(page);
 
     await page.evaluate(async (modulePath) => {
       const { webLocalNoteStore } = await import(/* @vite-ignore */ modulePath);
@@ -387,8 +426,12 @@ test.describe('an edit the editor still holds is never dropped by the save queue
       document.addEventListener('keydown', () => w.__keydownTimes.push(performance.now()), true);
     }, WEB_VAULT_MODULE);
 
-    // ~4 s of typing with no gap the editor's 200 ms change debounce could fire in.
-    await page.keyboard.type('zq steady words typed without a pause qz', { delay: 100 });
+    // 4 s of typing, one keystroke every 100 ms of page time: no gap the
+    // editor's 200 ms change debounce could fire in, however slow the machine.
+    for (const key of 'zq steady words typed without a pause qz') {
+      await page.keyboard.press(key === ' ' ? 'Space' : key);
+      await page.clock.runFor(100);
+    }
 
     const timing = await page.evaluate(() => {
       const w = window as unknown as VaultGateWindow;
@@ -408,7 +451,9 @@ test.describe('an edit the editor still holds is never dropped by the save queue
     ).toBeLessThan(200);
     expect(timing.typedFor).toBeGreaterThan(3000);
     expect(timing.firstSaveAfter, 'no save landed while the typist kept typing').not.toBeNull();
-    expect(timing.firstSaveAfter!).toBeLessThan(2600);
+    // The editor reports after 1.5 s of unbroken editing; the save follows 500 ms later.
+    expect(timing.firstSaveAfter!).toBeLessThanOrEqual(2100);
+    expect(timing.firstSaveAfter!).toBeLessThan(timing.typedFor);
   });
 });
 
