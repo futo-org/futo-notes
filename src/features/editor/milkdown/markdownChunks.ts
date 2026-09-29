@@ -24,20 +24,46 @@
  * behavior. `scripts/milkdown-chunk-census.mjs` measures how often it happens
  * and proves property 2 against the real editor over the note corpus.
  *
- * What can cross a blank line, and how each is handled:
+ * THE RULE: this scanner is a line-based approximation of micromark, and every
+ * time it was patched to agree with micromark on one more shape (an indented
+ * fence closed at column 0, a fence under an HTML block, a lone CR, an
+ * NBSP-only line, a definition in a list item, ...) the release-hardening
+ * fuzz found the next shape. So it does not try to model what it cannot prove.
+ * It cuts only while every line so far is a construct it tracks exactly, and
+ * the moment it meets one it cannot prove is top-level and block-bounded it
+ * STOPS CUTTING: the lines before that point were understood exactly, so their
+ * cuts stand; the offending line and everything after it is one last chunk,
+ * parsed as a piece. (When nothing was cut before it, the note loads whole.)
+ *
+ * | Construct | Why it stops the scan |
+ * |---|---|
+ * | Any HTML block start (a line opening `<tag`, `<!`, `<?`, `</`) | ends by rules (blank line, `-->`, `</pre>`, ...) that interact with fences and paragraphs in ways the scanner got wrong twice |
+ * | A fence indented 1–3, or opened after a list/quote marker | its close is decided by the enclosing container, which a chunk boundary removes |
+ * | A lone CR, U+2028/U+2029 | micromark ends a line at a lone CR; `.` and `$` in the scanner's regexes stop at U+2028/9 |
+ * | A line of only whitespace other than space/tab (NBSP, U+3000, `\f`, ...) | `String#trim` calls it blank; CommonMark calls it a paragraph line |
+ * | U+FEFF anywhere but the very start | micromark strips a chunk-leading one, so a chunk must never start at it |
+ *
+ * One construct cannot be handled by stopping, because it acts BACKWARDS: any
+ * `]:` outside a fence (a link reference or footnote definition) declines the
+ * whole note. Definitions resolve document-wide — a `[foo]` in chunk 1 whose
+ * definition lands in chunk 3 parses as literal text — and they hide in list
+ * items and quotes and behind escaped `]` and two-line labels. After the scan
+ * has stopped, the rest of the note is searched for `]:` without regard to
+ * fences.
+ *
+ * A LEADING U+FEFF is scanned as if it were absent (the parser strips it too,
+ * see `parseNote.ts`); it stays in the first chunk so the chunks still join
+ * back to the input.
+ *
+ * What can cross a blank line, and how each tracked construct is handled:
  *
  * | Construct | Handling |
  * |---|---|
- * | Fenced code block | tracked; blank lines inside are never boundaries |
- * | HTML blocks 1–5 (`<pre>`, `<!--`, `<?`, `<!X`, `<![CDATA[`) | tracked to their end condition |
+ * | Fenced code block at column 0 | tracked; blank lines inside are never boundaries |
  * | Indented code block | next line must start at column 0; never cut out of an indent-4 region |
  * | List item continuation | next line must start at column 0 |
  * | Loose list (`- a` / blank / `- b` is ONE list) | a list is never followed by a list marker |
- * | Link reference definitions, GFM footnote definitions | document-scoped, so the whole document declines |
  * | A `---` fence | never a boundary: at the start of a chunk it would parse as FRONT MATTER |
- *
- * HTML blocks 6 and 7 end AT a blank line by definition, so a blank line after
- * one is a genuine boundary and needs no tracking.
  *
  * A cut point is not only the line AFTER a blank line: CommonMark guarantees a
  * NEW top-level block starts at a column-0 ATX heading, fence opener,
@@ -45,13 +71,12 @@
  * ordered item starting at `1`), regardless of what precedes it — the same
  * rule that lets these constructs interrupt a paragraph without a blank line.
  * This is what makes a note with no blank line anywhere (`tests/lib/editorDevicePerf.mjs`'s
- * `lineFixture`, and the largest declined corpus notes) chunkable. Three more
+ * `lineFixture`, and the largest declined corpus notes) chunkable. Two more
  * things must stay closed for it to be safe:
  *
  * | Construct | Handling |
  * |---|---|
  * | A GFM table | tracked from its delimiter row; ends only at a blank line, over-approximated |
- * | An HTML block of type 6/7 (`<div>`, any other bare tag) | tracked from its first line; ends only at a blank line, over-approximated |
  * | An open top-level blockquote | tracked; a lazy continuation line does NOT close it, so nothing after it may cut in as a NEW block until a hard starter or blank line closes the quote |
  */
 
@@ -73,7 +98,15 @@ export interface MarkdownChunkOptions {
 }
 
 /** Why a document is being loaded whole instead of progressively. */
-export type ChunkDeclineReason = 'too-short' | 'reference-definition' | 'no-boundary';
+export type ChunkDeclineReason =
+  | 'too-short'
+  | 'reference-definition'
+  | 'html-block'
+  | 'unprovable-fence'
+  | 'line-ending'
+  | 'unicode-blank'
+  | 'bom'
+  | 'no-boundary';
 
 export interface MarkdownChunkPlan {
   /** In order; always concatenates back to the exact input. */
@@ -82,6 +115,12 @@ export interface MarkdownChunkPlan {
   chunked: boolean;
   /** Set only when `chunked` is false. */
   declined?: ChunkDeclineReason;
+  /**
+   * Set when the scanner stopped trusting itself part-way: the chunks before
+   * the last cut are proven, and the last chunk runs from that cut to the end
+   * of the note and is parsed as one piece.
+   */
+  stoppedBy?: ChunkDeclineReason;
 }
 
 export const DEFAULT_CHUNK_OPTIONS: Required<MarkdownChunkOptions> = {
@@ -106,8 +145,13 @@ function indentWidth(line: string): number {
   return width;
 }
 
+/**
+ * CommonMark's blank line: only space and tab. NOT `String#trim`, which also
+ * strips NBSP and friends; `lineOffense` stops the scan before that
+ * difference can matter, so the two agree on every line the scanner reaches.
+ */
 function isBlank(line: string): boolean {
-  return line.trim() === '';
+  return /^[ \t]*$/.test(line);
 }
 
 /** `- `, `* `, `+ `, `1. `, `1) ` — a list-item marker starting a line. */
@@ -125,12 +169,34 @@ const LIST_MARKER = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/;
 const EMPTY_LIST_ITEM = /^ {0,3}(?:[-*+]|\d{1,9}[.)])[ \t]*$/;
 
 /**
- * A link reference definition (`[label]: dest`) or a GFM footnote definition
- * (`[^1]: text`). Both resolve across the WHOLE document — a `[foo]` in chunk 1
- * whose definition lands in chunk 3 parses as literal text when the chunks are
- * parsed apart — so one of these anywhere makes the document ineligible.
+ * Where a link reference definition (`[label]: dest`) or a GFM footnote
+ * definition (`[^1]: text`) can begin: a `[` after nothing but container
+ * markers (`>`, `- `, `1. `) and whitespace. Both kinds resolve across the
+ * WHOLE document — a `[foo]` in chunk 1 whose definition lands in chunk 3
+ * parses as literal text when the chunks are parsed apart — so one anywhere
+ * makes the document ineligible.
+ *
+ * This is a deliberately loose reading of the grammar, not a model of it: the
+ * definition may sit in a list item or a blockquote, carry an escaped `]` in
+ * its label, or break its label over lines, and every one still begins with
+ * `[` at the start of a line and still has a `]:` where the label ends.
  */
-const REFERENCE_DEFINITION = /^ {0,3}\[[^\]]*\]:/;
+const DEFINITION_START = /^(?:[ \t]|>|(?:[-*+]|\d{1,9}[.)])(?=[ \t]))*\[/;
+
+/**
+ * Whether `bare` could be (the end of) a definition's label line, given whether
+ * an earlier line of this paragraph opened a `[` that has not closed yet.
+ * Returns the new "label still open" flag alongside.
+ */
+function definitionLabel(bare: string, labelOpen: boolean): { hit: boolean; labelOpen: boolean } {
+  const starts = DEFINITION_START.test(bare);
+  // An escaped `]` does not end a label.
+  const closes = bare.replace(/\\./g, '').includes(']');
+  return {
+    hit: bare.includes(']:') && (starts || labelOpen),
+    labelOpen: (starts || labelOpen) && !closes,
+  };
+}
 
 /** Opening fence: 3+ backticks or tildes, indented at most 3, plus its info string. */
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
@@ -180,15 +246,22 @@ const INTERRUPTING_LIST_ITEM = /^(?:[-*+]|1[.)])[ \t]+\S/;
 const TABLE_DELIMITER_ROW = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
 
 /**
- * The start of an HTML block NOT covered by `HTML_BLOCK_STARTS` (types 1-5,
- * which have their own end condition) — CommonMark's types 6 and 7, which end
- * only at a blank line. Deliberately over-approximate: a bare inline tag like
- * `<span>` at the start of a line also matches, and is also presumed to run
- * until a blank line even though it does not. That costs a missed cut on a
- * document shaped that way; it can never cause a wrong one, because nothing
- * inside the run is ever offered as a boundary while the flag holds.
+ * The start of ANY HTML block (CommonMark types 1–7: `<pre`, `<!--`, `<?`,
+ * `<!X`, `<![CDATA[`, a block tag, or any bare tag/closing tag). Deliberately
+ * over-approximate: a paragraph that begins with an inline tag or an autolink
+ * also matches. An HTML block's end condition depends on its type, and on
+ * whether a fence or another starter appears inside it; the scanner used to
+ * track that and disagreed with micromark twice, so any match declines.
  */
-const HTML_BLOCK_6_7_START = /^ {0,3}<[A-Za-z/!?]/;
+const HTML_BLOCK_START = /^ {0,3}<[A-Za-z/!?]/;
+
+/**
+ * A fence marker run that follows only whitespace and container markers
+ * (`- `, `1. `, `> `), with something in front of it. At column 0 the scanner
+ * tracks a fence exactly; anywhere else its closing rule belongs to the
+ * enclosing container and the scanner cannot prove where it ends.
+ */
+const CONTAINED_FENCE = /^[ \t>*+\-\d.)]+(?:`{3,}|~{3,})/;
 
 /**
  * A line that would open YAML front matter if it were the first line of a
@@ -227,18 +300,6 @@ function frontMatterEndLine(lines: string[]): number {
   return 0;
 }
 
-/** HTML block start conditions 1–5: the ones that can contain a blank line. */
-const HTML_BLOCK_STARTS: ReadonlyArray<{ start: RegExp; end: RegExp }> = [
-  {
-    start: /^ {0,3}<(?:pre|script|style|textarea)(?:[\s>]|$)/i,
-    end: /<\/(?:pre|script|style|textarea)>/i,
-  },
-  { start: /^ {0,3}<!--/, end: /-->/ },
-  { start: /^ {0,3}<\?/, end: /\?>/ },
-  { start: /^ {0,3}<![A-Za-z]/, end: />/ },
-  { start: /^ {0,3}<!\[CDATA\[/, end: /\]\]>/ },
-];
-
 /** Splits into lines, each keeping its own terminator, so a join is byte-exact. */
 function splitKeepingLineEndings(text: string): string[] {
   if (text === '') return [];
@@ -247,8 +308,8 @@ function splitKeepingLineEndings(text: string): string[] {
 }
 
 interface ScanState {
-  fence: { marker: string; length: number; indent: number } | null;
-  htmlEnd: RegExp | null;
+  /** An open column-0 fence. (Any other fence stops the scan; see `lineOffense`.) */
+  fence: { marker: string; length: number } | null;
   /**
    * Indent of the last line that carried content. A cut coming out of a region
    * indented 4+ is unsafe: that is an indented code block (or a deep container
@@ -276,13 +337,43 @@ interface ScanState {
    * exactly as it closes an open list.
    */
   inBlockquote: boolean;
-  /** An HTML block of type 6/7 may be open; see `HTML_BLOCK_6_7_START`. */
-  htmlUntilBlank: boolean;
   /** A GFM table may be open; see `TABLE_DELIMITER_ROW`. */
   tableUntilBlank: boolean;
   /** Whether the PREVIOUS line was blank — i.e. the next line may start a block. */
   prevLineBlank: boolean;
-  sawReferenceDefinition: boolean;
+  /** A `[` that could open a definition label is still unclosed; see {@link definitionLabel}. */
+  labelOpen: boolean;
+}
+
+/**
+ * Why the scanner can no longer vouch for the note from this line on, or null.
+ *
+ * `raw` is judged in the scanner's current state: inside a fence only the
+ * line-splitting rules apply (BOM, CR, U+2028/9, non-space blanks — micromark
+ * applies those there too); a tag or `]:` inside a column-0 fence is code, not
+ * HTML or a definition.
+ */
+function lineOffense(state: ScanState, raw: string): ChunkDeclineReason | null {
+  const bare = raw.replace(/\r?\n$/, '');
+  /* U+FEFF: micromark strips one at the start of any parse, so a chunk may
+   * never start at one, and remark's marker lookup is offset by it. */
+  if (bare.includes('\ufeff')) return 'bom';
+  /* A lone CR is a line ending to micromark and not to `split(/(?<=\n)/)`;
+   * `.` and `$` in the scanner's regexes stop at U+2028/U+2029. */
+  if (bare.includes('\r') || bare.includes('\u2028') || bare.includes('\u2029')) {
+    return 'line-ending';
+  }
+  /* `trim()`-blank but not space/tab-blank: NBSP, U+3000, \f, \v, ... */
+  if (bare.trim() === '') return isBlank(bare) ? null : 'unicode-blank';
+  if (state.fence) return null;
+  if (HTML_BLOCK_START.test(bare)) return 'html-block';
+  /* A fence indented 1–3 closes by a rule the enclosing block decides (a
+   * column-0 line closes it implicitly, and a column-0 run then opens a NEW
+   * fence): the scanner was a whole code block out of step with micromark. */
+  if (CONTAINED_FENCE.test(bare)) return 'unprovable-fence';
+  if (parseFenceOpen(bare) !== null && indentWidth(bare) !== 0) return 'unprovable-fence';
+  if (definitionLabel(bare, state.labelOpen).hit) return 'reference-definition';
+  return null;
 }
 
 /** Advances `state` over one line. */
@@ -290,36 +381,26 @@ function advance(state: ScanState, raw: string): void {
   const line = raw.replace(/\r?\n$/, '');
 
   if (state.fence) {
-    /* A fence opened inside a container (a list item, so indented) cannot be
-     * closed by a line at column 0: that line is outside the container, and
-     * CommonMark closes the fence implicitly at the container's end and lets
-     * the column-0 run open a NEW fence. Treating it as a closer put the
-     * scanner a whole code block out of step with remark. */
-    const minCloseIndent = state.fence.indent > 0 ? 1 : 0;
-    const closing = new RegExp(`^ {0,3}${state.fence.marker}{${state.fence.length},}\\s*$`);
-    if (closing.test(line) && indentWidth(line) >= minCloseIndent) state.fence = null;
-    state.prevLineBlank = false;
-    state.lastContentIndent = indentWidth(line);
-    return;
-  }
-
-  if (state.htmlEnd) {
-    if (state.htmlEnd.test(line)) state.htmlEnd = null;
+    /* Space/tab only after the closer: `\\s` would also accept NBSP, which
+     * CommonMark does not. */
+    const closing = new RegExp(`^ {0,3}${state.fence.marker}{${state.fence.length},}[ \\t]*$`);
+    if (closing.test(line)) state.fence = null;
     state.prevLineBlank = false;
     state.lastContentIndent = indentWidth(line);
     return;
   }
 
   if (isBlank(line)) {
+    state.labelOpen = false;
     state.prevLineBlank = true;
     // A blank line closes every "until blank" tracked construct.
     state.inBlockquote = false;
-    state.htmlUntilBlank = false;
     state.tableUntilBlank = false;
     return;
   }
 
   state.lastContentIndent = indentWidth(line);
+  state.labelOpen = definitionLabel(line, state.labelOpen).labelOpen;
 
   const atTopLevel = indentWidth(line) === 0;
   /* A line begins a new TOP-LEVEL block when it starts at column 0 after a
@@ -333,30 +414,13 @@ function advance(state: ScanState, raw: string): void {
 
   const fenceOpen = parseFenceOpen(line);
   if (fenceOpen) {
-    state.fence = { marker: fenceOpen.marker, length: fenceOpen.length, indent: indentWidth(line) };
+    state.fence = { marker: fenceOpen.marker, length: fenceOpen.length };
     /* A column-0 fence opener closes an open list or blockquote even without a
      * preceding blank line — it is one of CommonMark's hard block starts. */
-    if (atTopLevel) {
-      state.inList = false;
-      state.inBlockquote = false;
-    }
+    state.inList = false;
+    state.inBlockquote = false;
     state.prevLineBlank = false;
-    state.lastContentIndent = indentWidth(line);
-    return;
-  }
-
-  for (const { start, end } of HTML_BLOCK_STARTS) {
-    if (!start.test(line)) continue;
-    // A block that opens and closes on the same line never spans anything.
-    if (!end.test(line)) state.htmlEnd = end;
-    if (startsTopLevelBlock) state.inList = false;
-    state.prevLineBlank = false;
-    return;
-  }
-
-  if (HTML_BLOCK_6_7_START.test(line)) {
-    state.htmlUntilBlank = true;
-    state.prevLineBlank = false;
+    state.lastContentIndent = 0;
     return;
   }
 
@@ -370,8 +434,6 @@ function advance(state: ScanState, raw: string): void {
   }
 
   if (TABLE_DELIMITER_ROW.test(line)) state.tableUntilBlank = true;
-
-  if (REFERENCE_DEFINITION.test(line)) state.sawReferenceDefinition = true;
 
   if (BLOCKQUOTE_LINE.test(line)) {
     state.inBlockquote = true;
@@ -431,16 +493,23 @@ export function planMarkdownChunks(
   const lines = splitKeepingLineEndings(markdown);
   if (lines.length < minLines) return whole('too-short');
 
+  /* Scan a copy without a LEADING U+FEFF; the parser strips exactly that one
+   * (`parseNote.ts`), so line 0's front-matter fence and block structure are
+   * what the scanner should see. `lines` keeps the byte for the join. */
+  const scan = lines.slice();
+  if (scan[0]?.charCodeAt(0) === 0xfeff) scan[0] = scan[0].slice(1);
+
+  let stoppedBy: ChunkDeclineReason | null = null;
+  let stoppedAt = scan.length;
+
   const state: ScanState = {
     fence: null,
-    htmlEnd: null,
     lastContentIndent: 0,
     inList: false,
     inBlockquote: false,
-    htmlUntilBlank: false,
     tableUntilBlank: false,
     prevLineBlank: true,
-    sawReferenceDefinition: false,
+    labelOpen: false,
   };
 
   /** Line indices a chunk may START at, in order. */
@@ -448,11 +517,18 @@ export function planMarkdownChunks(
 
   /* Everything up to and including the note's own front matter belongs to the
    * first chunk (see {@link frontMatterEndLine}). */
-  const frontMatterEnd = frontMatterEndLine(lines);
+  const frontMatterEnd = frontMatterEndLine(scan);
 
-  for (let i = 0; i < lines.length; i += 1) {
-    const bare = lines[i].replace(/\r?\n$/, '');
-    const inProtectedBlock = state.fence !== null || state.htmlEnd !== null;
+  for (let i = 0; i < scan.length; i += 1) {
+    const offense = lineOffense(state, scan[i]);
+    if (offense === 'reference-definition') return whole(offense);
+    if (offense) {
+      stoppedBy = offense;
+      stoppedAt = i;
+      break;
+    }
+    const bare = scan[i].replace(/\r?\n$/, '');
+    const inProtectedBlock = state.fence !== null;
 
     /* An EMPTY line, not merely a blank one. A line of spaces reads as blank at
      * the top level but is content inside an indented code block, and whether
@@ -463,9 +539,9 @@ export function planMarkdownChunks(
       // that actually carries content, and the blank run stays with the chunk
       // that precedes it.
       let next = i + 1;
-      while (next < lines.length && isBlank(lines[next].replace(/\r?\n$/, ''))) next += 1;
-      if (next < lines.length) {
-        const nextLine = lines[next].replace(/\r?\n$/, '');
+      while (next < scan.length && isBlank(scan[next].replace(/\r?\n$/, ''))) next += 1;
+      if (next < scan.length) {
+        const nextLine = scan[next].replace(/\r?\n$/, '');
         const startsAtColumnZero = indentWidth(nextLine) === 0;
         const wouldFuseLists = state.inList && LIST_MARKER.test(nextLine);
         const dependsOnWhatPrecedes = EMPTY_LIST_ITEM.test(nextLine);
@@ -484,7 +560,6 @@ export function planMarkdownChunks(
     } else if (
       i > 0 &&
       !inProtectedBlock &&
-      !state.htmlUntilBlank &&
       !state.tableUntilBlank &&
       !state.prevLineBlank &&
       i >= frontMatterEnd &&
@@ -495,11 +570,30 @@ export function planMarkdownChunks(
       boundaries.push(i);
     }
 
-    advance(state, lines[i]);
+    advance(state, scan[i]);
   }
 
-  if (state.sawReferenceDefinition) return whole('reference-definition');
-  if (boundaries.length === 0) return whole('no-boundary');
+  if (stoppedBy) {
+    /* Definitions resolve document-wide, so the tail still gets a check for
+     * one — context-free, since the scanner no longer knows what is a fence. */
+    let labelOpen = false;
+    for (let i = stoppedAt; i < scan.length; i += 1) {
+      const bare = scan[i].replace(/\r?\n$/, '');
+      if (isBlank(bare)) {
+        labelOpen = false;
+        continue;
+      }
+      const label = definitionLabel(bare, labelOpen);
+      if (label.hit) return whole('reference-definition');
+      labelOpen = label.labelOpen;
+    }
+    /* Everything from the offending line on is one chunk: a cut needs a
+     * proven state, and a cut AT the line could start a chunk with a U+FEFF. */
+    while (boundaries.length > 0 && boundaries[boundaries.length - 1] >= stoppedAt) {
+      boundaries.pop();
+    }
+  }
+  if (boundaries.length === 0) return whole(stoppedBy ?? 'no-boundary');
 
   const chunks: string[] = [];
   let start = 0;
@@ -513,5 +607,5 @@ export function planMarkdownChunks(
   chunks.push(lines.slice(start).join(''));
 
   if (chunks.length < 2) return whole('no-boundary');
-  return { chunks, chunked: true };
+  return stoppedBy ? { chunks, chunked: true, stoppedBy } : { chunks, chunked: true };
 }
