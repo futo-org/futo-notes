@@ -260,6 +260,12 @@ test.describe('a link reference definition nothing uses survives', () => {
       'See [a].\n\n[a]: /1\n[b]: /2\n\nend\n',
       'See [a](/1).\n\n[b]: /2\n\nend\n',
     ],
+    // The blank lines before a used definition that ended its container are
+    // trailing once it is gone, and are dropped like any other trailing gap.
+    'a used definition that ends a blockquote': [
+      '> See [a].\n>\n>\n> [a]: /u\n\nend\n',
+      '> See [a](/u).\n\nend\n',
+    ],
     // CommonMark: the first definition of a label wins; the second is unused.
     'a duplicate label': [
       'See [a].\n\n[a]: /1\n[a]: /2\n\nend\n',

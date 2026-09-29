@@ -83,8 +83,20 @@ export function inlineUsedLinkDefinitions(tree: MdastNode, source: string): void
       }
       if (run) run.endLine = endLine;
     }
+    // Blank lines before a used definition that ended its container were
+    // restored as empty paragraphs; with the definition gone they are TRAILING
+    // blank lines, which a load never produces (`./emptyLine`) and a save never
+    // writes, so keeping them made the document differ from its own reload.
+    const last = children[children.length - 1];
+    if (last && used.has(last)) {
+      while (kept.length > 0 && isEmptyParagraph(kept[kept.length - 1] as MdastNode)) kept.pop();
+    }
     node.children = kept;
   });
+}
+
+function isEmptyParagraph(node: MdastNode): boolean {
+  return node.type === 'paragraph' && (node.children?.length ?? 0) === 0;
 }
 
 /** The definition as the author wrote it (see {@link inlineUsedLinkDefinitions}). */
