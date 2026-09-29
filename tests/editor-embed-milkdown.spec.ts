@@ -536,6 +536,19 @@ test('an edit to a note that ends in a list adds no trailing blank line', async 
   }
 });
 
+test('a table pasted as plain text is written the way an opened one is', async ({ page }) => {
+  // A paste goes through the DOM, where the gfm preset read a cell with no
+  // alignment back as `left`: the pasted table saved `| :- |`, the same table
+  // opened and edited saved `| -- |` (RC-59).
+  await hostSetContent(page, 'one\n');
+  await focusEditor(page);
+  await page.keyboard.press('Control+End');
+  await pasteClipboard(page, { 'text/plain': '| a | b |\n| --- | --- |\n| 1 | 2 |\n' });
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe('one\n\n| a | b |\n| - | - |\n| 1 | 2 |\n');
+});
+
 test('applyExternalContent adopts differing content without a change echo', async ({ page }) => {
   await hostSetContent(page, 'original');
   await clearMessages(page);

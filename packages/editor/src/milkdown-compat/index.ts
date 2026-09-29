@@ -91,6 +91,7 @@ import { frontmatterPlugins } from './frontmatter';
 import { paragraphFillerGuard, paragraphWithoutFillerSchema } from './listItemFiller';
 import { scopedListOrderPlugin } from './listOrder';
 import { scopedKeepTableAlignPlugin, scopedTableEditingPlugin } from './tablePasses';
+import { tableAlignmentSchemas } from './tableAlignment';
 import { remarkPadTableRowsPlugin } from './tableWidth';
 import { trailingParagraphDocSchema } from './trailingParagraph';
 
@@ -209,6 +210,9 @@ export function gfmWithCompat(): MilkdownPlugin[] {
     /* Ragged rows squared up at the end, before `fixTables` can pad them at
      * the start (see `./tableWidth`). */
     ...remarkPadTableRowsPlugin,
+    /* After the preset, whose cell nodes they re-register: a cell with no
+     * alignment keeps none through a paste (see `./tableAlignment`). */
+    ...tableAlignmentSchemas,
   ];
   return cachedGfm;
 }

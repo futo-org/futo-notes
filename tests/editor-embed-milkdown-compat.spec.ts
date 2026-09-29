@@ -191,6 +191,38 @@ test.describe('the parked end-of-document paragraph is not written', () => {
   });
 });
 
+/** A plain-text paste into an empty editor, through Milkdown's clipboard plugin. */
+async function pastePlain(page: Page, variant: 'compat' | 'baseline', markdown: string) {
+  return page.evaluate(
+    ([v, m]) => window.__futoCensus.pastePlainText(v as 'compat' | 'baseline', m),
+    [variant, markdown] as const,
+  );
+}
+
+test.describe('a pasted table keeps the alignment it was written with', () => {
+  // A paste goes through the DOM, and the gfm preset spells a cell's missing
+  // alignment there as `text-align: left` and reads it back as `left`: a
+  // pasted `| --- |` table saved as `| :- |`, while opening the same table and
+  // editing it saved `| -- |` (RC-59).
+  const TABLE = '| a | b |\n| --- | --- |\n| 1 | 2 |\n';
+
+  test('canary: upstream still invents left alignment on paste', async ({ page }) => {
+    expect(await pastePlain(page, 'baseline', TABLE)).toContain('| :- | :- |');
+  });
+
+  test('compat writes a pasted table the way it writes an opened one', async ({ page }) => {
+    const opened = await roundTrip(page, 'compat', TABLE);
+    // The leading blank line is a separate thing: Milkdown's plain-text route
+    // pastes a maximally open slice, which leaves the empty paragraph above.
+    expect((await pastePlain(page, 'compat', TABLE)).replace(/^\n/, '')).toBe(opened);
+  });
+
+  test('compat keeps an explicit alignment through a paste', async ({ page }) => {
+    const aligned = '| a | b | c |\n| :-- | :-: | --: |\n| 1 | 2 | 3 |\n';
+    expect(await pastePlain(page, 'compat', aligned)).toContain('| :- | :-: | -: |');
+  });
+});
+
 test.describe('a link reference definition nothing uses survives', () => {
   // The preset's remark-inline-links deletes EVERY definition and inlines the
   // references that used one. Inlining a used definition is an accepted

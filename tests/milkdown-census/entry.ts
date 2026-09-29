@@ -194,13 +194,51 @@ async function headingEditChurn(
   }
 }
 
+/**
+ * Pastes `markdown` as plain text into an empty editor and returns what it
+ * saves. Dispatched as a real `paste` event, so it takes Milkdown's own
+ * clipboard route: markdown parsed, serialized to DOM, and parsed back.
+ */
+async function pastePlainText(variant: CensusVariant, markdown: string): Promise<string> {
+  const root = document.createElement('div');
+  document.body.appendChild(root);
+  const preset = variant === 'compat' ? commonmarkWithCompat() : commonmark;
+  const editor = await Editor.make()
+    .config((ctx) => {
+      ctx.set(rootCtx, root);
+      if (variant === 'compat') configureSerializer(ctx);
+    })
+    .use(preset)
+    .use(variant === 'compat' ? gfmWithCompat() : gfm)
+    .use(history)
+    .use(listener)
+    .use(clipboard)
+    .use(cursor)
+    .use(trailing)
+    .create();
+  try {
+    const view = editor.ctx.get(editorViewCtx);
+    view.focus();
+    const data = new DataTransfer();
+    data.setData('text/plain', markdown);
+    view.dom.dispatchEvent(
+      new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }),
+    );
+    return editor.action(getMarkdown());
+  } finally {
+    await editor.destroy();
+    root.remove();
+  }
+}
+
 declare global {
   interface Window {
     __futoCensus: {
       load: (variant: CensusVariant, markdown: string) => Promise<RoundTrip>;
       headingEditChurn: (variant: CensusVariant, markdown: string) => Promise<HeadingEditChurn>;
+      pastePlainText: (variant: CensusVariant, markdown: string) => Promise<string>;
     };
   }
 }
 
-window.__futoCensus = { load: loadOnce, headingEditChurn };
+window.__futoCensus = { load: loadOnce, headingEditChurn, pastePlainText };
