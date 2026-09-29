@@ -24,6 +24,7 @@ alias di := deploy-ios
 # Install pnpm dependencies.
 install:
   pnpm install
+  @node scripts/check-node-modules.mjs
 
 # Provision pinned Node when needed, then install dependencies/check prerequisites.
 setup *args:
@@ -731,8 +732,9 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-# Three independent fail-fast guards for the same "no node_modules" papercut,
-# Three independent fail-fast guards for the same papercut; see docs/agents/justfile-notes.md.
+# Three independent fail-fast guards for the same "no node_modules" papercut; see
+# docs/agents/justfile-notes.md. This one also fails when a pnpm patchedDependencies
+# patch is not applied in the installed copy (RC-69); `just install` runs it afterwards.
 check-node-modules:
   @node scripts/check-node-modules.mjs
 
