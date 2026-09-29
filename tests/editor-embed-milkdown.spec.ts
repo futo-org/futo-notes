@@ -739,7 +739,10 @@ test('blur() drops a highlighted range, and refocusing does not bring it back', 
   const line = page.getByText('alpha bravo charlie');
   const box = await line.boundingBox();
   await line.dblclick({ position: { x: 4, y: box!.height / 2 } });
-  expect(await page.evaluate(() => document.getSelection()?.toString())).toBe('alpha');
+  // The precondition is "a non-collapsed range over the first word". Windows
+  // Chromium's double-click also takes the trailing space ("alpha "), Linux and
+  // macOS do not; both are the word, but "alpha bravo" or a caret are not.
+  expect(await page.evaluate(() => document.getSelection()?.toString())).toMatch(/^alpha ?$/);
 
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.blur());
   await flushFrames(page);
