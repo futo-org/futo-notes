@@ -59,6 +59,31 @@ test.describe('Wikilinks on desktop', () => {
     await expect(page.locator('.cm-md-wikilink')).toHaveText('future note');
   });
 
+  test('a broken wikilink is painted differently from a resolved one', async ({ page }) => {
+    // The distinct-paint rules used to sit in an `@layer components` sheet that
+    // the editor's unlayered `a` rule always beat: both chips had identical
+    // computed styles (RC-58). Assert the paint, not the class.
+    await seedNote(page, '[[welcome]] and [[nope-x]]\n\nMore text');
+    await page.evaluate(() => {
+      (window as any).__testNotes?._injectTestNote('welcome', 'body');
+    });
+    await blurEditor(page);
+    const resolved = page.locator('.ProseMirror a.cm-md-wikilink:not(.cm-md-wikilink-broken)');
+    const broken = page.locator('.ProseMirror a.cm-md-wikilink-broken');
+    await expect(resolved).toHaveCount(1);
+    await expect(broken).toHaveCount(1);
+
+    const paint = (chip: typeof resolved) =>
+      chip.evaluate((el) => {
+        const style = getComputedStyle(el);
+        return { color: style.color, decorationStyle: style.textDecorationStyle };
+      });
+    const resolvedPaint = await paint(resolved);
+    const brokenPaint = await paint(broken);
+    expect(resolvedPaint.decorationStyle).toBe('dashed');
+    expect(brokenPaint.color).not.toBe(resolvedPaint.color);
+  });
+
   test('clicking a wikilink navigates to the note URL', async ({ page }) => {
     await seedNote(page, 'See [[some target note]] for info.\n\nMore text');
     await blurEditor(page);

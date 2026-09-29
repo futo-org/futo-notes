@@ -57,6 +57,13 @@ Four more escaping repairs, from the 2026-09 release-hardening campaign (FB-4a):
   micromark strips from INLINE HTML. It hooks the `htmlText` token on purpose:
   by the time a tree transform runs, the preset has wrapped block HTML in a
   paragraph and the two are indistinguishable.
+- `imageTitle.ts` gives a title-less image the empty-string `title` its schema
+  validates as a string (mdast hands the parser `null`); an empty title is not
+  written back, so the round trip is unchanged.
+- `emptyTaskItem.ts` reads a list item whose first paragraph is only `[ ]`/`[x]`
+  as an EMPTY task item (GFM needs text after the marker), and `listItemFiller.ts`
+  writes that marker itself for an empty task item; without the pair it saved as
+  a bare `-`.
 - The app's own `break` handler (`src/features/editor/milkdown/table/tableLineBreak.ts`)
   writes a space where `\n` is unsafe (an ATX heading) and `<br>` before inline
   HTML; the wikilink handler writes `|` as `\|` in a table cell.

@@ -13,6 +13,8 @@ export interface MdastNode {
   value?: string;
   children?: MdastNode[];
   url?: string;
+  title?: string | null;
+  checked?: boolean | null;
   data?: { isInline?: boolean };
   /** Source lines (1-based), as mdast-util-from-markdown records them. */
   position?: { start: { line: number }; end: { line: number } };
