@@ -286,15 +286,19 @@
   /* Drives the loading affordance over the streaming tail. `$state` because it
    * is read by the template. */
   let streamingTail = $state(false);
-  /* Undo depth when the current progressive load started — the baseline the
-   * "did the user type while the tail was streaming?" question is asked
-   * against. A plain `undoDepth > 0` test would be wrong: the host calls
-   * `resetHistory()` after every setContent/initialize (so the baseline is
-   * usually 0), but `applyExternalContent` — a remote sync update — does NOT,
-   * and there the user's earlier history is still on the stack. Reading that as
-   * an edit would make adopting a sync update rewrite a large note on disk,
-   * which ADR-0002 forbids. `resetHistory()` below keeps this in step. */
-  let historyBaselineDepth = 0;
+  /* Whether the user has edited since the current progressive load started —
+   * the answer to "did the user type while the tail was streaming?". Set by
+   * every reportable transaction (documentChanges.ts), cleared when a load
+   * starts, and nothing else moves it.
+   *
+   * It used to be derived from the undo depth (`undoDepth > depth at load
+   * start`), and undo depth is not a count of edits (RC-11): a sync adopt
+   * keeps the user's history, an Undo LOWERS the depth, and prosemirror-history
+   * trims its stack from 120 events back to 100. An Undo during a streamed
+   * adopt followed by one word, or one word typed with the stack full, netted
+   * to "not edited" — no `change`, and `getContent()` answered the peer's bytes
+   * while the word sat on screen. */
+  let editedDuringLoad = false;
   /* The pending debounced change notification (documentChanges.ts). */
   let changeTimer: number | null = null;
   /* A change notification the debounce already handed to the idle priming
@@ -689,7 +693,7 @@
         .use(vaultImageView)
         .use(history)
         .use(listener)
-        .use(documentChanges(scheduleChangeNotification))
+        .use(documentChanges(documentEdited))
         .use(clipboard)
         .use(gapCursorPlugin)
         .use(trailing)
@@ -1006,6 +1010,12 @@
     reportAwaitsPriming = false;
   }
 
+  /** A user edit (documentChanges.ts): remember it, and report it once the document settles. */
+  function documentEdited(): void {
+    editedDuringLoad = true;
+    scheduleChangeNotification();
+  }
+
   function scheduleChangeNotification(): void {
     if (changeTimer !== null) window.clearTimeout(changeTimer);
     changeTimer = window.setTimeout(() => {
@@ -1246,17 +1256,17 @@
   }
 
   /**
-   * Whether the user has made an undoable change since the current load began.
+   * Whether the user has changed the document since the current load began.
    *
-   * Every user edit is history-recorded — that is what the history plugin is
-   * for — while the editor's own housekeeping is not: the preset re-stamps
-   * heading ids in a 125-step transaction after content lands, which a
-   * "any document change that isn't ours" test misreads as typing, and which
-   * would then rewrite every large note on open.
+   * Asked of `isReportableDocumentChange`, the one definition of a user edit:
+   * the editor's own housekeeping carries `addToHistory: false` — the preset
+   * re-stamps heading ids in a 125-step transaction after content lands, and
+   * a "any document change that isn't ours" test would misread that as typing
+   * and rewrite every large note on open — and so does everything a load
+   * knocks on.
    */
   function editedSinceLoadStart(): boolean {
-    const view = pmView();
-    return view ? undoDepth(view.state) > historyBaselineDepth : false;
+    return editedDuringLoad;
   }
 
   /**
@@ -1444,11 +1454,9 @@
 
     progressive = load;
     streamingTail = load.loading;
-    // After chunk 0. Its replace is outside the history (`loadParsedDocument`),
-    // so this is the depth of whatever the user had before the load: 0 after
-    // the host's `resetHistory()` on an open, their own edits on a sync adopt.
-    const view = pmView();
-    historyBaselineDepth = view ? undoDepth(view.state) : 0;
+    // After chunk 0, which is not an edit (`loadParsedDocument`): whatever
+    // the user does from here on is.
+    editedDuringLoad = false;
     measureOpen(OPEN_INTERACTIVE_MEASURE);
   }
 
@@ -1851,8 +1859,6 @@
    * setContent.
    */
   export function resetHistory(): void {
-    // Whatever this does to the stack, the stack is empty afterwards.
-    historyBaselineDepth = 0;
     const view = pmView();
     if (!view) return;
     /* Find state dies with the note. The host calls this on every

@@ -35,17 +35,26 @@ import { $prose } from '@milkdown/kit/utils';
  */
 export const DOCUMENT_CHANGE_DEBOUNCE_MS = 200;
 
+function isHousekeeping(transaction: Transaction): boolean {
+  return transaction.getMeta('addToHistory') === false;
+}
+
 /**
- * Whether a transaction is one the host should hear about.
+ * Whether a transaction is one the host should hear about — the editor's one
+ * definition of a user edit.
  *
  * `addToHistory: false` is the editor's own housekeeping — above all the
  * streamed chunk appends of a progressive open (progressiveLoad.ts), which are
  * a PREFIX of the note and must never start a report. The listener plugin
  * skipped exactly these, and the save lock in MilkdownEditor is the second half
- * of the same guarantee.
+ * of the same guarantee. A transaction another plugin appended in reaction to
+ * one of them (`trailing` re-adding its empty paragraph after a load) is
+ * housekeeping too, by the rule prosemirror-history itself applies.
  */
 export function isReportableDocumentChange(transaction: Transaction): boolean {
-  return transaction.docChanged && transaction.getMeta('addToHistory') !== false;
+  if (!transaction.docChanged || isHousekeeping(transaction)) return false;
+  const root = transaction.getMeta('appendedTransaction') as Transaction | undefined;
+  return !(root && isHousekeeping(root));
 }
 
 /**
