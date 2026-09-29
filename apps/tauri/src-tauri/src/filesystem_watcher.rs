@@ -25,6 +25,11 @@ use crate::background_tasks::blocking;
 /// pair fixes at one poll interval.
 const SUPPRESSION_WINDOW_MS: i64 = 5_000;
 const RENAME_PAIR_TIMEOUT_MS: i64 = 500;
+/// FSEvents and ReadDirectoryChangesW have no rename cookie, but deliver a
+/// rename's two names as consecutive entries, microseconds apart. An old name
+/// pairs only with a new name that follows it that closely; anything later is
+/// a different change.
+const RENAME_HALF_GAP_MS: i64 = 100;
 /// How often the poll watcher restats the vault. Only reached on filesystems
 /// where inotify lies (see `WatchMode::Poll`), so a normal vault never pays it.
 /// A stat walk over the document portal measured ~0.095 ms per entry (2,000 notes
@@ -107,10 +112,25 @@ struct PendingRename {
     inserted_at: i64,
 }
 
-/// Old names of cookieless renames, oldest first, waiting for their new half.
+/// A cookieless rename's old name, waiting for the entry after its own.
+struct OldHalf {
+    path: PathBuf,
+    entry: u64,
+    at: i64,
+}
+
+/// What the processor carries between events.
 #[derive(Default)]
-struct UnpairedRenames {
-    old_names: std::collections::VecDeque<PendingRename>,
+struct RenameState {
+    /// notify reports one backend entry as one event per flag, all with the
+    /// entry's path, so a change of path starts the next entry. `entry`
+    /// counts them.
+    entry_path: Option<PathBuf>,
+    entry: u64,
+    old_half: Option<OldHalf>,
+    /// Note paths a rename emptied, waiting to learn whether the note left
+    /// the vault or was written again in place.
+    vacated: Vec<PendingRename>,
     flusher_running: bool,
 }
 
@@ -232,7 +252,7 @@ impl ChangeSink for EventSink {
 struct EventProcessor<S: ChangeSink> {
     bases: Vec<PathBuf>,
     pending_renames: Arc<Mutex<HashMap<u128, PendingRename>>>,
-    unpaired_renames: Arc<Mutex<UnpairedRenames>>,
+    renames: Arc<Mutex<RenameState>>,
     sink: S,
     mode: WatchMode,
 }
@@ -247,131 +267,220 @@ impl<S: ChangeSink> EventProcessor<S> {
         Self {
             bases,
             pending_renames,
-            unpaired_renames: Arc::default(),
+            renames: Arc::default(),
             sink,
             mode,
         }
     }
 
+    /// Runs under the rename-state lock, as does the timer that resolves
+    /// what it leaves waiting, so the two report in one order.
     fn process(&self, event: Event) {
+        let Ok(mut state) = self.renames.lock() else {
+            return;
+        };
+        let now = futo_notes_core::files::now_ms();
+        self.enter_entry(&mut state, event.paths.first(), now);
         let Some(kind) = classify(&event, self.mode) else {
             return;
         };
-        self.flush_stale_renames();
+        self.flush_stale(&mut state, now);
         match kind {
-            ChangeKind::RenameFrom => self.rename_from(event),
-            ChangeKind::RenameTo => self.rename_to(event),
-            ChangeKind::RenameEither => self.rename_either(event),
+            ChangeKind::RenameFrom => self.rename_from(&mut state, event, now),
+            ChangeKind::RenameTo => self.rename_to(&mut state, event, now),
+            ChangeKind::RenameEither => self.rename_either(&mut state, event, now),
             // FSEvents coalesces flags per path, so a rename's old name can also
             // carry its earlier create/write after the file is gone. A path that
             // no longer exists was not added or edited: the rename or removal
             // half reports it. Reporting it as an edit made the shell flush the
             // open note's pending save to that id and recreate it there.
-            ChangeKind::Add => self.emit_existing_paths("add", event.paths),
-            ChangeKind::Change => self.emit_existing_paths("change", event.paths),
-            ChangeKind::Unlink => self.emit_paths("unlink", event.paths),
+            ChangeKind::Add => {
+                for path in event.paths {
+                    self.present(&mut state, &path, "add");
+                }
+            }
+            ChangeKind::Change => {
+                for path in event.paths {
+                    self.present(&mut state, &path, "change");
+                }
+            }
+            // Coalescing also leaves a removal on a path that was written again
+            // since: a note that exists was not removed.
+            ChangeKind::Unlink => {
+                for path in event.paths {
+                    if path_exists(&path) {
+                        self.arrived(&mut state, &path, "change");
+                    } else {
+                        self.revisit(&mut state, &path);
+                        self.emit_path("unlink", &path);
+                    }
+                }
+            }
         }
     }
 
-    fn flush_stale_renames(&self) {
-        let Ok(mut pending) = self.pending_renames.lock() else {
-            return;
-        };
-        let now = futo_notes_core::files::now_ms();
-        let stale = pending
-            .iter()
-            .filter_map(|(cookie, rename)| {
-                (now - rename.inserted_at > RENAME_PAIR_TIMEOUT_MS).then_some(*cookie)
-            })
-            .collect::<Vec<_>>();
-        for cookie in stale {
-            if let Some(rename) = pending.remove(&cookie) {
-                self.emit_path("unlink", &rename.from_path);
-            }
+    /// Count backend entries, and give up on an old name that the entry
+    /// straight after its own did not take.
+    fn enter_entry(&self, state: &mut RenameState, path: Option<&PathBuf>, now: i64) {
+        if state.entry_path.as_ref() != path {
+            state.entry_path = path.cloned();
+            state.entry += 1;
         }
-        drop(pending);
+        let entry = state.entry;
+        if let Some(old) = state
+            .old_half
+            .take_if(|old| entry > old.entry + 1 || now - old.at > RENAME_HALF_GAP_MS)
+        {
+            self.vacate(state, old.path, old.at);
+        }
+    }
 
-        let stale = {
-            let Ok(mut unpaired) = self.unpaired_renames.lock() else {
-                return;
-            };
-            let fresh = unpaired
-                .old_names
+    /// Resolve what has waited out its window: a cookie rename whose new half
+    /// never came, an old name nothing took, and a vacated note path, which
+    /// is an edit if something is at the path again and a removal if not.
+    fn flush_stale(&self, state: &mut RenameState, now: i64) {
+        if let Ok(mut pending) = self.pending_renames.lock() {
+            let stale = pending
                 .iter()
-                .position(|rename| now - rename.inserted_at <= RENAME_PAIR_TIMEOUT_MS)
-                .unwrap_or(unpaired.old_names.len());
-            unpaired.old_names.drain(..fresh).collect::<Vec<_>>()
-        };
-        for rename in stale {
-            self.emit_path("unlink", &rename.from_path);
-        }
-    }
-
-    /// A rename half with no cookie. Its old name no longer exists and its new
-    /// one does, and the backend delivers the old name first (FSEvents orders
-    /// by event id), so the halves pair in arrival order.
-    fn rename_either(&self, event: Event) {
-        for path in event.paths {
-            if path_exists(&path) {
-                self.pair_new_name(path, "change");
-            } else {
-                self.queue_old_name(path);
+                .filter_map(|(cookie, rename)| {
+                    (now - rename.inserted_at > RENAME_PAIR_TIMEOUT_MS).then_some(*cookie)
+                })
+                .collect::<Vec<_>>();
+            for cookie in stale {
+                if let Some(rename) = pending.remove(&cookie) {
+                    self.vacate(state, rename.from_path, rename.inserted_at);
+                }
             }
         }
+        if let Some(old) = state
+            .old_half
+            .take_if(|old| now - old.at > RENAME_HALF_GAP_MS)
+        {
+            self.vacate(state, old.path, old.at);
+        }
+        let (stale, waiting) = std::mem::take(&mut state.vacated)
+            .into_iter()
+            .partition::<Vec<_>, _>(|vacated| now - vacated.inserted_at > RENAME_PAIR_TIMEOUT_MS);
+        state.vacated = waiting;
+        for vacated in stale {
+            let path = vacated.from_path;
+            self.emit_path(
+                if path_exists(&path) {
+                    "change"
+                } else {
+                    "unlink"
+                },
+                &path,
+            );
+        }
     }
 
-    /// Hold a cookieless old name for its new half. If the pair window closes
-    /// first (the file left the vault, e.g. for the Trash), it is reported as
-    /// removed — by a timer, since no later event may come to flush it.
-    fn queue_old_name(&self, path: PathBuf) {
+    /// Hold a note path a rename emptied until its window closes. Nothing may
+    /// come to flush it, so a timer does.
+    fn vacate(&self, state: &mut RenameState, path: PathBuf, at: i64) {
         if relative_note_path_any(&self.bases, &path).is_none() {
             return;
         }
-        let Ok(mut unpaired) = self.unpaired_renames.lock() else {
-            return;
-        };
-        unpaired.old_names.push_back(PendingRename {
-            from_path: path,
-            inserted_at: futo_notes_core::files::now_ms(),
-        });
-        if unpaired.flusher_running {
+        if !state
+            .vacated
+            .iter()
+            .any(|vacated| vacated.from_path == path)
+        {
+            state.vacated.push(PendingRename {
+                from_path: path,
+                inserted_at: at,
+            });
+        }
+        self.ensure_flusher(state);
+    }
+
+    /// Forget a waiting old name or vacated path that `path` fills again, and
+    /// say whether there was one.
+    fn revisit(&self, state: &mut RenameState, path: &Path) -> bool {
+        let vacated = state.vacated.len();
+        state.vacated.retain(|waiting| waiting.from_path != path);
+        let old_half = state.old_half.take_if(|old| old.path == path).is_some();
+        old_half || state.vacated.len() != vacated
+    }
+
+    /// Report `path` if something is there now.
+    fn present(&self, state: &mut RenameState, path: &Path, kind: &str) {
+        if path_exists(path) {
+            self.arrived(state, path, kind);
+        }
+    }
+
+    /// Report a name that exists: a note the vault just lost is back, which
+    /// is an edit of it whatever `kind` the event had.
+    fn arrived(&self, state: &mut RenameState, path: &Path, kind: &str) {
+        let back = self.revisit(state, path);
+        self.emit_path(if back { "change" } else { kind }, path);
+    }
+
+    fn ensure_flusher(&self, state: &mut RenameState) {
+        if state.flusher_running {
             return;
         }
         let processor = self.clone();
         let started = crate::background_tasks::spawn("watcher-rename-pairing", move || loop {
-            std::thread::sleep(std::time::Duration::from_millis(
-                RENAME_PAIR_TIMEOUT_MS as u64 + 50,
-            ));
-            processor.flush_stale_renames();
-            let Ok(mut unpaired) = processor.unpaired_renames.lock() else {
+            std::thread::sleep(std::time::Duration::from_millis(RENAME_HALF_GAP_MS as u64));
+            let Ok(mut state) = processor.renames.lock() else {
                 return;
             };
-            if unpaired.old_names.is_empty() {
-                unpaired.flusher_running = false;
+            processor.flush_stale(&mut state, futo_notes_core::files::now_ms());
+            let cookies_waiting = processor
+                .pending_renames
+                .lock()
+                .map(|pending| !pending.is_empty())
+                .unwrap_or(false);
+            if state.old_half.is_none() && state.vacated.is_empty() && !cookies_waiting {
+                state.flusher_running = false;
                 return;
             }
         });
-        unpaired.flusher_running = started.is_ok();
+        state.flusher_running = started.is_ok();
     }
 
-    /// Pair a cookieless new name with the oldest waiting old name. Without
-    /// one it keeps its unpaired meaning (`unpaired_kind`).
-    fn pair_new_name(&self, path: PathBuf, unpaired_kind: &str) {
-        let old_name = if relative_note_path_any(&self.bases, &path).is_some() {
-            self.unpaired_renames
-                .lock()
-                .ok()
-                .and_then(|mut unpaired| unpaired.old_names.pop_front())
-        } else {
-            None
-        };
-        match old_name {
-            Some(old_name) => self.emit_rename_pair(&old_name.from_path, &path),
-            None => self.emit_path(unpaired_kind, &path),
+    /// A rename half with no cookie that does not say which it is (FSEvents).
+    /// The old name no longer exists; the new one does.
+    fn rename_either(&self, state: &mut RenameState, event: Event, now: i64) {
+        for path in event.paths {
+            if path_exists(&path) {
+                self.new_half(state, path, "change");
+            } else {
+                self.old_half(state, path, now);
+            }
         }
     }
 
-    fn rename_from(&self, event: Event) {
+    /// Hold a cookieless old name for the entry after its own. Temp files
+    /// count too: an atomic save's temp is what its destination pairs with.
+    fn old_half(&self, state: &mut RenameState, path: PathBuf, now: i64) {
+        if let Some(previous) = state.old_half.take() {
+            self.vacate(state, previous.path, previous.at);
+        }
+        state.old_half = Some(OldHalf {
+            path,
+            entry: state.entry,
+            at: now,
+        });
+        self.ensure_flusher(state);
+    }
+
+    /// Pair a cookieless new name with the old name of the entry just before
+    /// it. Without one it keeps its unpaired meaning (`unpaired_kind`).
+    fn new_half(&self, state: &mut RenameState, path: PathBuf, unpaired_kind: &str) {
+        let entry = state.entry;
+        match state
+            .old_half
+            .take_if(|old| old.entry + 1 == entry && old.path != path)
+        {
+            Some(old) => self.pair(state, old.path, path, unpaired_kind, old.at),
+            None => self.arrived(state, &path, unpaired_kind),
+        }
+    }
+
+    fn rename_from(&self, state: &mut RenameState, event: Event, now: i64) {
         let mut paths = event.paths.into_iter();
         let first = paths.next();
         if let (Some(cookie), Some(path)) = (event.attrs.tracker(), first.clone()) {
@@ -380,20 +489,23 @@ impl<S: ChangeSink> EventProcessor<S> {
                     cookie as u128,
                     PendingRename {
                         from_path: path,
-                        inserted_at: futo_notes_core::files::now_ms(),
+                        inserted_at: now,
                     },
                 );
             }
+            // A note moved out of the vault has no new half and may have no
+            // later event to flush it either.
+            self.ensure_flusher(state);
             return;
         }
         // No cookie (Windows): wait for the new half instead of reporting a
         // removal and an add.
         for path in first.into_iter().chain(paths) {
-            self.queue_old_name(path);
+            self.old_half(state, path, now);
         }
     }
 
-    fn rename_to(&self, event: Event) {
+    fn rename_to(&self, state: &mut RenameState, event: Event, now: i64) {
         let mut paths = event.paths.into_iter();
         let first = paths.next();
         if let (Some(cookie), Some(to)) = (event.attrs.tracker(), first.clone()) {
@@ -404,24 +516,51 @@ impl<S: ChangeSink> EventProcessor<S> {
                 .and_then(|mut pending| pending.remove(&(cookie as u128)))
                 .map(|rename| rename.from_path);
             if let Some(from) = from {
-                self.emit_rename_pair(&from, &to);
+                self.pair(state, from, to, "add", now);
                 return;
             }
         } else if let Some(to) = first {
-            self.pair_new_name(to, "add");
-            self.emit_existing_paths("add", paths);
+            self.new_half(state, to, "add");
+            for path in paths {
+                self.present(state, &path, "add");
+            }
             return;
         }
-        self.emit_existing_paths("add", first.into_iter().chain(paths));
+        for path in first.into_iter().chain(paths) {
+            self.present(state, &path, "add");
+        }
     }
 
-    fn emit_rename_pair(&self, from: &Path, to: &Path) {
-        let from = relative_note_path_any(&self.bases, from);
-        let to = relative_note_path_any(&self.bases, to);
-        match (from, to) {
-            (Some(from), Some(to)) => self.sink.rename(&from, &to),
-            (Some(from), None) => self.sink.change("unlink", &from),
-            (None, Some(to)) => self.sink.change("add", &to),
+    /// Report the two names of one rename. It is a move only when both are
+    /// notes and the old name stayed empty. Renaming a note to a non-note name
+    /// (vim's backup before it writes the note again) empties the note's path
+    /// for a moment, so that waits out the window like a move out of the vault.
+    fn pair(
+        &self,
+        state: &mut RenameState,
+        from: PathBuf,
+        to: PathBuf,
+        unpaired_kind: &str,
+        at: i64,
+    ) {
+        if from == to {
+            self.present(state, &to, "change");
+            return;
+        }
+        match (
+            relative_note_path_any(&self.bases, &from),
+            relative_note_path_any(&self.bases, &to),
+        ) {
+            (Some(from_relative), Some(to_relative)) if !path_exists(&from) => {
+                self.revisit(state, &to);
+                self.sink.rename(&from_relative, &to_relative);
+            }
+            (Some(_), Some(_)) => {
+                self.arrived(state, &from, "change");
+                self.arrived(state, &to, unpaired_kind);
+            }
+            (Some(_), None) => self.vacate(state, from, at),
+            (None, Some(_)) => self.arrived(state, &to, unpaired_kind),
             (None, None) => {}
         }
     }
@@ -429,16 +568,6 @@ impl<S: ChangeSink> EventProcessor<S> {
     fn emit_path(&self, kind: &str, path: &Path) {
         if let Some(relative) = relative_note_path_any(&self.bases, path) {
             self.sink.change(kind, &relative);
-        }
-    }
-
-    fn emit_existing_paths(&self, kind: &str, paths: impl IntoIterator<Item = PathBuf>) {
-        self.emit_paths(kind, paths.into_iter().filter(|path| path_exists(path)));
-    }
-
-    fn emit_paths(&self, kind: &str, paths: impl IntoIterator<Item = PathBuf>) {
-        for path in paths {
-            self.emit_path(kind, &path);
         }
     }
 }
@@ -860,52 +989,114 @@ mod tests {
         assert_eq!(seen, vec!["unlink Gone.md"]);
     }
 
-    /// The platform's own backend — FSEvents on macOS, inotify on Linux,
-    /// ReadDirectoryChangesW on Windows — reports a rename inside the vault as
-    /// one rename, never as an edit or a removal of either name (M26: this runs
+    /// A note path that a rename emptied and that is written again is an edit
+    /// of the note, whether the rewrite is reported (vim: backup rename, new
+    /// file) or only found by the recheck when the window closes. So is a
+    /// removal FSEvents left on a path that exists again.
+    #[test]
+    fn a_note_path_a_rename_emptied_is_an_edit_once_it_is_back() {
+        let root = temp_vault("back");
+        let (processor, recorder) = recording_processor(&root);
+
+        processor.process(rename_half(RenameMode::Any, root.join("note.md")));
+        processor.process(rename_half(RenameMode::Any, root.join("note.md~")));
+        std::fs::write(root.join("note.md"), "rewritten").unwrap();
+        processor.process(
+            Event::new(EventKind::Create(notify::event::CreateKind::File))
+                .add_path(root.join("note.md")),
+        );
+        processor.process(
+            Event::new(EventKind::Remove(notify::event::RemoveKind::File))
+                .add_path(root.join("note.md")),
+        );
+        let reported = recorder.take();
+
+        processor.process(rename_half(RenameMode::Any, root.join("quiet.md")));
+        std::fs::write(root.join("quiet.md"), "rewritten").unwrap();
+        let rechecked = recorder.wait_for("change quiet.md", std::time::Duration::from_secs(3));
+        std::thread::sleep(std::time::Duration::from_millis(
+            RENAME_PAIR_TIMEOUT_MS as u64 + 200,
+        ));
+        let seen = recorder.take();
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert_eq!(reported, vec!["change note.md", "change note.md"]);
+        assert!(rechecked, "never rechecked; saw {seen:?}");
+        assert_eq!(seen, vec!["change quiet.md"]);
+    }
+
+    /// The platform's own backend (FSEvents on macOS, inotify on Linux,
+    /// ReadDirectoryChangesW on Windows) feeding a recording processor.
+    struct NativeWatch {
+        _watcher: RecommendedWatcher,
+        recorder: Recorder,
+        raw: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl NativeWatch {
+        fn start(root: &Path) -> Self {
+            // Let the vault's setup writes age out of the backend's coalescing window.
+            std::thread::sleep(std::time::Duration::from_millis(1_000));
+            let (processor, recorder) = recording_processor(root);
+            let raw = Arc::new(Mutex::new(Vec::<String>::new()));
+            let raw_log = raw.clone();
+            let mut watcher = RecommendedWatcher::new(
+                move |result: Result<Event, notify::Error>| {
+                    if let Ok(event) = result {
+                        raw_log.lock().unwrap().push(format!(
+                            "{:?} {:?} {:?}",
+                            event.kind,
+                            event
+                                .paths
+                                .iter()
+                                .filter_map(|p| p.file_name())
+                                .collect::<Vec<_>>(),
+                            event.attrs.tracker()
+                        ));
+                        processor.process(event);
+                    }
+                },
+                Config::default(),
+            )
+            .unwrap();
+            watcher.watch(root, RecursiveMode::Recursive).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            recorder.take();
+            raw.lock().unwrap().clear();
+            Self {
+                _watcher: watcher,
+                recorder,
+                raw,
+            }
+        }
+
+        /// Everything reported once any pair window the actions opened has
+        /// closed, and what the backend sent.
+        fn settle(self) -> (Vec<String>, Vec<String>) {
+            std::thread::sleep(std::time::Duration::from_millis(
+                RENAME_PAIR_TIMEOUT_MS as u64 + 1_000,
+            ));
+            drop(self._watcher);
+            let raw = self.raw.lock().unwrap().clone();
+            (self.recorder.take(), raw)
+        }
+    }
+
+    /// The platform's own backend reports a rename inside the vault as one
+    /// rename, never as an edit or a removal of either name (M26: this runs
     /// on each desktop platform's real backend, not only on a synthetic shape).
     #[test]
     fn the_native_backend_reports_a_rename_as_one_rename() {
         let root = temp_vault("native");
         std::fs::write(root.join("Draft.md"), "draft").unwrap();
-        // Let the creation age out of the backend's coalescing window.
-        std::thread::sleep(std::time::Duration::from_millis(1_000));
-
-        let (processor, recorder) = recording_processor(&root);
-        let raw = Arc::new(Mutex::new(Vec::<String>::new()));
-        let raw_log = raw.clone();
-        let mut watcher = RecommendedWatcher::new(
-            move |result: Result<Event, notify::Error>| {
-                if let Ok(event) = result {
-                    raw_log.lock().unwrap().push(format!(
-                        "{:?} {:?} {:?}",
-                        event.kind,
-                        event.paths,
-                        event.attrs.tracker()
-                    ));
-                    processor.process(event);
-                }
-            },
-            Config::default(),
-        )
-        .unwrap();
-        watcher.watch(&root, RecursiveMode::Recursive).unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        recorder.take();
-        raw.lock().unwrap().clear();
+        let watch = NativeWatch::start(&root);
 
         std::fs::rename(root.join("Draft.md"), root.join("Draft renamed.md")).unwrap();
-        let renamed = recorder.wait_for(
+        let renamed = watch.recorder.wait_for(
             "rename Draft.md -> Draft renamed.md",
             std::time::Duration::from_secs(5),
         );
-        // Anything the pair window would still turn into a removal lands here.
-        std::thread::sleep(std::time::Duration::from_millis(
-            RENAME_PAIR_TIMEOUT_MS as u64 + 500,
-        ));
-        drop(watcher);
-        let seen = recorder.take();
-        let raw = raw.lock().unwrap().clone();
+        let (seen, raw) = watch.settle();
         std::fs::remove_dir_all(&root).unwrap();
 
         assert!(
@@ -917,6 +1108,151 @@ mod tests {
                 .iter()
                 .any(|entry| entry.starts_with("change ") || entry.starts_with("unlink ")),
             "a rename must not read as an edit or removal; sink saw {seen:?}, backend sent {raw:?}"
+        );
+    }
+
+    /// vim's default save renames the note to a backup name, writes a new file
+    /// at the note's path and deletes the backup, so the path is briefly
+    /// missing. That is an edit of a note that never stopped existing: a
+    /// removal would drop it from the search index (and close it if open).
+    #[test]
+    fn a_vim_style_save_never_reports_the_live_note_removed() {
+        let root = temp_vault("vim");
+        let note = root.join("note.md");
+        let backup = root.join("note.md~");
+        std::fs::write(&note, "v0").unwrap();
+        let watch = NativeWatch::start(&root);
+
+        for round in 0..24u64 {
+            std::fs::rename(&note, &backup).unwrap();
+            // The gap between the rename and the rewrite decides whether the
+            // backend sees the path missing; cover none, short and long.
+            std::thread::sleep(std::time::Duration::from_millis(
+                [0, 2, 10][round as usize % 3],
+            ));
+            std::fs::write(&note, format!("v{}", round + 1)).unwrap();
+            std::fs::remove_file(&backup).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(40));
+        }
+        let (seen, raw) = watch.settle();
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert!(
+            !seen
+                .iter()
+                .any(|entry| entry.starts_with("unlink ") || entry.starts_with("rename ")),
+            "a rewrite of note.md read as a removal or rename; sink saw {seen:?}, backend sent {raw:?}"
+        );
+        assert!(
+            seen.iter()
+                .any(|entry| entry == "change note.md" || entry == "add note.md"),
+            "the rewrite was never reported; sink saw {seen:?}, backend sent {raw:?}"
+        );
+    }
+
+    /// An atomic save whose temp file has a note's name (mkstemp with a `.md`
+    /// suffix, TextEdit's "(A Document Being Saved By …)" folder) moves the
+    /// temp onto the note. The note must never read as removed, and the report
+    /// must name it as the destination, so the shell re-reads it.
+    #[test]
+    fn an_atomic_save_through_a_note_named_temp_reports_the_note_rewritten() {
+        let root = temp_vault("md-temp");
+        let note = root.join("note.md");
+        std::fs::write(&note, "v0").unwrap();
+        std::fs::create_dir_all(root.join("(A Document Being Saved By Editor)")).unwrap();
+        let watch = NativeWatch::start(&root);
+
+        let temp = root.join("tmpk3j2v9.md");
+        std::fs::write(&temp, "v1").unwrap();
+        std::fs::rename(&temp, &note).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let temp = root.join("(A Document Being Saved By Editor)/note.md");
+        std::fs::write(&temp, "v2").unwrap();
+        std::fs::rename(&temp, &note).unwrap();
+        let (seen, raw) = watch.settle();
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert!(
+            !seen.iter().any(|entry| entry == "unlink note.md"),
+            "the rewritten note read as removed; sink saw {seen:?}, backend sent {raw:?}"
+        );
+        for temp in ["tmpk3j2v9.md", "(A Document Being Saved By Editor)/note.md"] {
+            let onto_note = format!("rename {temp} -> note.md");
+            assert!(
+                seen.contains(&onto_note)
+                    || seen.iter().any(|entry| entry == "change note.md"),
+                "the save through {temp} never named note.md; sink saw {seen:?}, backend sent {raw:?}"
+            );
+        }
+    }
+
+    /// A note moved out of the vault (the Trash is outside it) has no new half.
+    /// Waiting for one must not let it claim the destination of an unrelated
+    /// atomic save that lands next: that reported the removed note renamed onto
+    /// the saved one, and an editor open on it followed there.
+    #[test]
+    fn a_note_moved_out_of_the_vault_is_removed_and_never_paired_with_an_unrelated_save() {
+        let root = temp_vault("out");
+        let outside = temp_vault("out-trash");
+        for delay_ms in [0u64, 30, 150] {
+            let gone = format!("Gone {delay_ms}.md");
+            let saved = format!("other {delay_ms}.md");
+            std::fs::write(root.join(&gone), "gone").unwrap();
+            std::fs::write(root.join(&saved), "v0").unwrap();
+            let watch = NativeWatch::start(&root);
+
+            std::fs::rename(root.join(&gone), outside.join(&gone)).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            let temp = root.join(format!(".{saved}.tmp123"));
+            std::fs::write(&temp, "v1").unwrap();
+            std::fs::rename(&temp, root.join(&saved)).unwrap();
+            let (seen, raw) = watch.settle();
+
+            let unlink = format!("unlink {gone}");
+            assert!(
+                !seen.iter().any(|entry| entry.starts_with("rename ")),
+                "delay {delay_ms} ms: an unrelated save was paired as a rename; sink saw {seen:?}, backend sent {raw:?}"
+            );
+            assert!(
+                seen.contains(&unlink),
+                "delay {delay_ms} ms: the moved-out note was never reported removed; sink saw {seen:?}, backend sent {raw:?}"
+            );
+            assert!(
+                seen.iter()
+                    .any(|entry| *entry == format!("change {saved}") || *entry == format!("add {saved}")),
+                "delay {delay_ms} ms: the save was never reported; sink saw {seen:?}, backend sent {raw:?}"
+            );
+        }
+        std::fs::remove_dir_all(&root).unwrap();
+        std::fs::remove_dir_all(&outside).unwrap();
+    }
+
+    /// A note moved out of the vault is reported removed once the pair window
+    /// closes, on every backend, even when no later event arrives to flush it.
+    #[test]
+    fn a_note_moved_out_of_the_vault_is_reported_removed_after_the_pair_window() {
+        let root = temp_vault("moved-out");
+        let outside = temp_vault("moved-out-trash");
+        std::fs::write(root.join("Gone.md"), "gone").unwrap();
+        let watch = NativeWatch::start(&root);
+
+        let moved_at = std::time::Instant::now();
+        std::fs::rename(root.join("Gone.md"), outside.join("Gone.md")).unwrap();
+        let removed = watch
+            .recorder
+            .wait_for("unlink Gone.md", std::time::Duration::from_secs(3));
+        let elapsed = moved_at.elapsed();
+        let (seen, raw) = watch.settle();
+        std::fs::remove_dir_all(&root).unwrap();
+        std::fs::remove_dir_all(&outside).unwrap();
+
+        assert!(
+            removed,
+            "never reported removed; sink saw {seen:?}, backend sent {raw:?}"
+        );
+        assert!(
+            elapsed >= std::time::Duration::from_millis(RENAME_PAIR_TIMEOUT_MS as u64),
+            "reported removed after {elapsed:?}, before its pair window closed"
         );
     }
 }
