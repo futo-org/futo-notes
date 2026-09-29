@@ -23,7 +23,9 @@ actor NoteVault {
     }
 
     func scan() -> NoteSnapshot { core.scan() }
-    func read(_ id: String) -> String { core.read(id: id) }
+    /// A missing note reads as empty; one that exists but cannot be decoded
+    /// throws, so it never opens as a blank page.
+    func read(_ id: String) throws -> String { try core.read(id: id) }
     func exists(_ id: String) -> Bool { core.exists(id: id) }
     func readIfExists(_ id: String) throws -> String? {
         return try core.readIfExists(id: id)
@@ -511,7 +513,14 @@ final class NotesStore: ObservableObject {
         }
     }
 
-    func read(_ id: String) async -> String { await vault.read(id) }
+    func read(_ id: String) async throws -> String {
+        do {
+            return try await vault.read(id)
+        } catch {
+            print("read note failed for \(id): \(error)")
+            throw error
+        }
+    }
     func readIfExists(_ id: String) async throws -> String? {
         do {
             return try await vault.readIfExists(id)

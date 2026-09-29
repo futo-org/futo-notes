@@ -117,7 +117,10 @@ fn note_store_projects_complete_workflow_results() {
     assert_eq!(created.folders, ["Projects", "Projects/Nested"]);
     assert!(created.warnings.is_empty());
     assert!(store.exists("Projects/Beta".to_owned()));
-    assert_eq!(store.read("Projects/Beta".to_owned()), "version one");
+    assert_eq!(
+        store.read("Projects/Beta".to_owned()).unwrap(),
+        "version one"
+    );
 
     let written = store
         .write("Projects/Beta".to_owned(), "version two".to_owned())
@@ -141,7 +144,7 @@ fn note_store_projects_complete_workflow_results() {
         )
         .unwrap();
     assert_eq!(recreated.upserted[0].note.id, "Projects/Beta");
-    assert_eq!(store.read("Projects/Beta".to_owned()), "restored");
+    assert_eq!(store.read("Projects/Beta".to_owned()).unwrap(), "restored");
 
     let renamed = store
         .rename("Projects/Beta".to_owned(), "Projects/Gamma".to_owned())
@@ -316,7 +319,7 @@ fn flush_draft_projects_every_disposition() {
     assert_eq!(wrote.disposition, FlushDisposition::Wrote);
     let mutation = wrote.mutation.expect("a write projects a mutation");
     assert_eq!(mutation.final_id.as_deref(), Some("note"));
-    assert_eq!(store.read("note".to_owned()), "draft");
+    assert_eq!(store.read("note".to_owned()).unwrap(), "draft");
 
     let converged = store
         .flush_draft("note".to_owned(), "stale".to_owned(), "draft".to_owned())
@@ -331,9 +334,9 @@ fn flush_draft_projects_every_disposition() {
         panic!("expected the diverged draft to be parked");
     };
     assert!(parked_id.starts_with("note (conflict "));
-    assert_eq!(store.read(parked_id.clone()), "diverged");
+    assert_eq!(store.read(parked_id.clone()).unwrap(), "diverged");
     assert_eq!(
-        store.read("note".to_owned()),
+        store.read("note".to_owned()).unwrap(),
         "draft",
         "diverged note untouched"
     );
@@ -361,7 +364,7 @@ fn flush_draft_projects_every_disposition() {
     let mutation = recreated.mutation.expect("a recreate projects a mutation");
     assert_eq!(mutation.final_id.as_deref(), Some("note"));
     assert_eq!(mutation.upserted[0].position, 0);
-    assert_eq!(store.read("note".to_owned()), "survivor");
+    assert_eq!(store.read("note".to_owned()).unwrap(), "survivor");
 }
 
 #[test]

@@ -16,6 +16,7 @@ import type { LocalNoteMutation } from '$lib/localNoteStore';
 function parkedSave(reconcileOpenNote: (state: { savedContent: string }) => void) {
   const parkedMutation = {
     warnings: [],
+    relinked: [],
     upserted: [
       { note: { id: 'Original (conflict 2026-07-29)', title: 'Original (conflict 2026-07-29)' } },
     ],

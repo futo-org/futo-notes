@@ -356,7 +356,17 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         }
     }
 
-    suspend fun read(id: String): String = withCore { core.read(id) }
+    /** A missing note reads as empty; null means the note exists but cannot be
+     *  read (bytes that are not UTF-8), so it must never open as a blank page. */
+    suspend fun read(id: String): String? =
+        try {
+            withCore { core.read(id) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e("NotesStore", "read note failed for $id", e)
+            null
+        }
     suspend fun readIfExists(id: String): String? = withCore { core.readIfExists(id) }
 
     /** Save an editor image and consume its filename while holding the same

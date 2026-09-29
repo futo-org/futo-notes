@@ -602,7 +602,14 @@ fun NoteEditorScreen(
     // which gates the live-sync adopt + onChange save so an empty placeholder is
     // never written back over the real note (data-loss guard).
     LaunchedEffect(initialNoteId) {
+        // A note that exists but cannot be read never opens as a blank page
+        // (desktop loader parity): `loaded` stays false, so nothing can save
+        // over it, and the editor leaves without writing.
         val disk = store.read(initialNoteId)
+        if (disk == null) {
+            onBack()
+            return@LaunchedEffect
+        }
         content = disk
         savedContent = disk
         loaded = true

@@ -77,6 +77,19 @@ export function getSaveIdentityChange(): { from: string | null; to: string } | n
   return lastSaveIdentityChange;
 }
 
+type RelinkListener = (ids: readonly string[]) => void;
+const relinkListeners = new Set<RelinkListener>();
+
+/** Hear the notes a committed local workflow's backlink rewrite changed on
+ * disk. The open editor may hold one of them, with bytes the file no longer
+ * has; every workflow reaches the cache through `_applyLocalMutation`. */
+export function onNotesRelinked(listener: RelinkListener): () => void {
+  relinkListeners.add(listener);
+  return () => {
+    relinkListeners.delete(listener);
+  };
+}
+
 /** Project a committed Rust mutation by removing affected rows and splicing
  * ordered upserts at clamped positions. No sort rule lives in this cache. */
 export function _applyLocalMutation(mutation: LocalNoteMutation): void {
@@ -98,6 +111,9 @@ export function _applyLocalMutation(mutation: LocalNoteMutation): void {
     lastSaveIdentityChange = null;
   }
   for (const warning of mutation.warnings) console.warn(`[local-notes] ${warning}`);
+  if (mutation.relinked.length > 0) {
+    for (const listener of relinkListeners) listener(mutation.relinked);
+  }
 }
 
 /** Project the single committed mutation returned by the desktop's external
