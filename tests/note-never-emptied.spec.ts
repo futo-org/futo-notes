@@ -330,3 +330,45 @@ test.describe('an edit the editor still holds is never dropped by the save queue
     expect(await storedBody(page, 'slow b')).toBe('incoming body\n');
   });
 });
+
+/**
+ * RC-17 (L6a-4). CRITICAL never-emptied, under a serializer that throws.
+ *
+ * No natural document is known to make serialization throw, so the throw is
+ * injected into the served `blockSerializer.ts` for any document carrying a
+ * synthetic marker. The tag bar replaces the whole note (`applyEdit`) and then
+ * nothing can serialize it: `getContent()` used to fall back to `''`, which the
+ * save pipeline could not tell from a real clear, and the note was written
+ * empty.
+ */
+test('a tag added to a note the serializer cannot handle never writes the note empty', async ({
+  page,
+}) => {
+  const POISON = 'zqserializerfaultzq';
+  let injected = false;
+  await page.route('**/src/features/editor/milkdown/blockSerializer.ts*', async (route) => {
+    const response = await route.fetch();
+    const source = await response.text();
+    const poisoned = source.replace(
+      /function serialize\(doc\)\s*\{/,
+      (head) =>
+        `${head} if (doc.textContent.includes(${JSON.stringify(POISON)})) throw new Error('injected serializer fault');`,
+    );
+    injected = poisoned !== source;
+    await route.fulfill({ response, body: poisoned });
+  });
+
+  await openNewNote(page);
+  expect(injected, 'the serializer fault was never injected').toBe(true);
+  const body = `a note with a body ${POISON}\n`;
+  await writeNotes(page, { 'tagged note': body });
+  await openStoredNote(page, 'tagged note', 'a note with a body');
+
+  await page.locator('.tag-add-btn').click();
+  await page.locator('.tag-input').fill('zqtag');
+  await page.locator('.tag-input').press('Enter');
+  await page.evaluate(() => (window as unknown as NotesHookWindow).__notesShellTest.flushSave());
+
+  expect(await storedBody(page, 'tagged note')).not.toBe('');
+  expect((await storedBody(page, 'tagged note')).length).toBeGreaterThan(0);
+});

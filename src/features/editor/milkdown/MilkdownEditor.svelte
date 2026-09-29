@@ -1668,7 +1668,11 @@
     // answers here without serializing anything.
     if (hostMarkdown !== null && unchangedSinceLoad()) return hostMarkdown;
     const live = readSerialized();
-    if (live === null) return hostMarkdown ?? liveMarkdown ?? '';
+    /* CRITICAL — a document that cannot be serialized is not an empty one
+     * (RC-17). After a chrome edit (`applyEdit`) nothing else describes it,
+     * and `''` here was indistinguishable from the user clearing the note. No
+     * answer is the honest one: every caller treats `undefined` as unsaveable. */
+    if (live === null) return hostMarkdown ?? liveMarkdown ?? undefined;
     return live;
   }
 
