@@ -1242,6 +1242,65 @@ async fn save_during_a_conflict_copy_keeps_the_peer_edit() {
     common::cleanup(&vb);
 }
 
+/// RC-93: a pull checks that B's note still holds the revision it recorded, then
+/// replaces it with A's edit — and B's editor saves in between. The check and the
+/// write must be one step under the vault guard the save also takes, or the pull
+/// overwrites B's save with A's text. `pre_write` is the engine's own call just
+/// before the pull writes the file, so the save is landed exactly there.
+#[tokio::test]
+#[ignore = "requires a running FUTO_TEST_SERVER"]
+async fn save_during_a_pull_write_is_not_overwritten() {
+    if common::skip_if_no_server("save_during_a_pull_write_is_not_overwritten") {
+        return;
+    }
+    let server = common::server_url().unwrap();
+    let file = format!("{}.md", common::unique("rc93-pull"));
+
+    let (a, va) = fresh_client(&server).await;
+    std::fs::write(va.join(&file), "L1\nL2\nL3\n").unwrap();
+    let (_c, a) = futo_notes_sync::run_push(&a, &va, &no_progress, &no_pre_write)
+        .await
+        .expect("A push base");
+    let (b, vb) = fresh_client(&server).await;
+    let b = pull(&b, &vb).await;
+    std::fs::write(va.join(&file), "A1 peer\nL2\nL3\n").unwrap();
+    let (_c, a) = futo_notes_sync::run_push(&a, &va, &no_progress, &no_pre_write)
+        .await
+        .expect("A push peer edit");
+
+    // B's note is clean when the cycle starts; the save lands as the pull writes.
+    let saved = vb.join(&file);
+    let target = file.clone();
+    let fired = std::sync::atomic::AtomicBool::new(false);
+    let save_during_write = move |name: &str| {
+        if name == target && !fired.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            std::fs::write(&saved, "L1\nL2\nB3 saved\n").unwrap();
+        }
+    };
+    let (_s, b) = futo_notes_sync::run_sync(&b, &vb, &no_progress, &save_during_write)
+        .await
+        .expect("B sync (pull)");
+    assert!(
+        !files_containing(&vb, "B3 saved").is_empty(),
+        "B's save was overwritten by the pull; B's note = {:?}",
+        std::fs::read_to_string(vb.join(&file)).unwrap_or_default()
+    );
+    let (_s, _b) = futo_notes_sync::run_sync(&b, &vb, &no_progress, &no_pre_write)
+        .await
+        .expect("B next sync");
+    let (_s, _a) = futo_notes_sync::run_sync(&a, &va, &no_progress, &no_pre_write)
+        .await
+        .expect("A pull");
+
+    assert_eq!(
+        std::fs::read_to_string(va.join(&file)).unwrap(),
+        "A1 peer\nL2\nB3 saved\n",
+        "both edits merge once B's save is pushed"
+    );
+    common::cleanup(&va);
+    common::cleanup(&vb);
+}
+
 /// F4: two clients create the SAME filename → the server holds two DISTINCT
 /// objects whose names collide on a case/normalization-insensitive FS. A
 /// fresh pull must materialize BOTH (winner on the canonical name, loser as a
