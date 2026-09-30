@@ -100,7 +100,10 @@ struct NoteEditorView: View {
     @State private var editorBottomGlobalY: CGFloat = 0
     @State private var findBarTopGlobalY: CGFloat = 0
     @State private var findOverlayInset: CGFloat = 0
-    @State private var editorAttachment: Int?
+    /// The shared-WebView attachment this editor holds: what an exit and the
+    /// open-note reconcile read the editor through. See ``EditorAttachmentSlot``.
+    @State private var editorAttachmentSlot = EditorAttachmentSlot()
+    private var editorAttachment: Int? { editorAttachmentSlot.token }
 
     /// Whether this editor is the visible top of the stack. With wikilink pushes
     /// several editors coexist; only the visible one may drive the single shared
@@ -187,37 +190,7 @@ struct NoteEditorView: View {
                 theme: theme,
                 localization: localization,
                 autoFocus: autoFocus,
-                onChange: { newContent in
-                    // Data-loss guard: ignore editor change events until the off-main
-                    // initial read has landed (`loaded`). The reused WebView mounts
-                    // with the new note's content via setContent and can emit an echo
-                    // before the disk read returns; saving that echo could clobber the
-                    // note on disk. Once loaded, all edits flow through.
-                    switch session.disposition(loaded: loaded) {
-                    case .ignore:
-                        return
-                    case .quarantine:
-                        session.quarantine(newContent)
-                        return
-                    case .apply:
-                        break
-                    }
-                    editVersion &+= 1
-                    content = newContent
-                    // Publish the derived draft SYNCHRONOUSLY here, not only via the
-                    // async `.onChange(of: draftInputs)` below. The scenePhase
-                    // background handler reads the register synchronously on
-                    // `.inactive`; SwiftUI may not have run the `.onChange` publish
-                    // yet in the same update pass, so an edit-then-immediate-
-                    // background could leave the register stale and lose the newest
-                    // keystroke to jetsam (N1 — this restores the pre-refactor
-                    // synchronous publish). publishDraft runs the same derivation, so
-                    // a clean buffer still publishes nil (no R1 regression); the
-                    // derived `.onChange` still owns clear-on-save/clear-on-adopt.
-                    // F8 jetsam guard.
-                    publishDraft()
-                    scheduleSave(newContent)
-                },
+                onChange: { receiveEditorChange($0) },
                 onFocusChange: { focused in
                     editorFocused = focused
                     if openNoteReconciler.shouldReconcileAfterFocusChange(
@@ -233,9 +206,7 @@ struct NoteEditorView: View {
                     findQuery = report.query
                     findLabel = report.label
                 },
-                onAttachmentChange: {
-                    editorAttachment = $0
-                }
+                attachment: editorAttachmentSlot
             )
             // Measured INSIDE ignoresSafeArea: that is the WebView's RENDERED
             // bottom (the window's edge, or the keyboard's top when the IME is
@@ -771,6 +742,42 @@ struct NoteEditorView: View {
             modified: Date(), richPreview: "", tags: [])
     }
 
+    /// An editor `change` — or a read of the live editor that found text no
+    /// `change` had delivered yet (``openNoteEffects()`` `captureEditor`). Both
+    /// are the editor telling this shell what the note now holds, so both take
+    /// this one path.
+    private func receiveEditorChange(_ newContent: String) {
+        // Data-loss guard: ignore editor change events until the off-main
+        // initial read has landed (`loaded`). The reused WebView mounts
+        // with the new note's content via setContent and can emit an echo
+        // before the disk read returns; saving that echo could clobber the
+        // note on disk. Once loaded, all edits flow through.
+        switch session.disposition(loaded: loaded) {
+        case .ignore:
+            return
+        case .quarantine:
+            session.quarantine(newContent)
+            return
+        case .apply:
+            break
+        }
+        editVersion &+= 1
+        content = newContent
+        // Publish the derived draft SYNCHRONOUSLY here, not only via the
+        // async `.onChange(of: draftInputs)` below. The scenePhase
+        // background handler reads the register synchronously on
+        // `.inactive`; SwiftUI may not have run the `.onChange` publish
+        // yet in the same update pass, so an edit-then-immediate-
+        // background could leave the register stale and lose the newest
+        // keystroke to jetsam (N1 — this restores the pre-refactor
+        // synchronous publish). publishDraft runs the same derivation, so
+        // a clean buffer still publishes nil (no R1 regression); the
+        // derived `.onChange` still owns clear-on-save/clear-on-adopt.
+        // F8 jetsam guard.
+        publishDraft()
+        scheduleSave(newContent)
+    }
+
     /// Supply the reconciler with live editor state and the synchronous effects
     /// that render Rust's exhaustive disposition. No conflict policy lives in
     /// this view.
@@ -786,6 +793,20 @@ struct NoteEditorView: View {
                     isVisible: isVisible,
                     editVersion: editVersion
                 )
+            },
+            captureEditor: {
+                // The draft `change` messages delivered can lag the editor: a
+                // large note withholds them while its tail streams, and every
+                // edit spends 200 ms in the debounce. Read the document itself
+                // — without blurring it, which would take the keyboard from a
+                // typist — and hear anything it holds that no `change` said.
+                guard let attachment = editorAttachment else { return .notOurs }
+                let outcome = await EditorHost.shared.readContent(
+                    ownedBy: attachment, showing: content)
+                if case .captured(let live) = outcome, live != content {
+                    receiveEditorChange(live)
+                }
+                return outcome
             },
             cancelAndDrainSave: {
                 await session.cancelAndDrain(.save)

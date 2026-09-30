@@ -297,6 +297,39 @@ struct EditorSessionTests {
         #expect(!session.isClosing)
     }
 
+    /// FB-5: an open-note reconcile reads the editor under the capture
+    /// deadline, and Back used to wait that read out before starting its own
+    /// (against a busy or wedged page: the full deadline twice, and more when
+    /// the reconcile retried). The exit cancels it; its own read counts.
+    @Test("navigation cancels an in-flight reconcile read instead of waiting it out")
+    func navigationPreemptsTheReconcileRead() async {
+        let session = EditorSession()
+        let recorder = Recorder()
+        let started = ContinuousClock.now
+        var reconcileRead: EditorCaptureOutcome?
+        var reading = false
+        session.schedule(.adopt) {
+            // The reconcile's read against a page that never answers.
+            reading = true
+            reconcileRead = await captureWithinDeadline(
+                deadlineSeconds: 30,
+                startLivenessProbe: {},
+                rendererAnswered: { true },
+                start: { _ in }
+            )
+            return true
+        }
+        while !reading { await Task.yield() }
+
+        let exit = session.end(.navigate, effects: effects(recorder, name: "nav"))
+        let left = await exit?.value
+
+        #expect(left == true)
+        #expect(reconcileRead == .notOurs)
+        #expect(ContinuousClock.now - started < .seconds(5))
+        #expect(recorder.events.last == "nav:onSucceeded")
+    }
+
     @Test("navigation commits the title before the body, then leaves")
     func navigationCommitOrder() async {
         let session = EditorSession()

@@ -272,16 +272,36 @@ func captureWithinDeadline(
     rendererAnswered: @escaping () -> Bool,
     start: (@escaping (EditorCaptureOutcome) -> Void) -> Void
 ) async -> EditorCaptureOutcome {
-    await withCheckedContinuation { continuation in
-        let answer = EditorCaptureResumer(continuation)
-        startLivenessProbe()
-        start { answer.resume($0) }
-        // Both the page's reply and this run on the main thread, so the
-        // resumer needs no lock — only the once-only latch.
-        DispatchQueue.main.asyncAfter(deadline: .now() + deadlineSeconds) {
-            answer.resume(rendererAnswered() ? .timedOut : .noLiveDocument)
+    // A cancelled wait answers `.notOurs` at once — "nobody is waiting for this
+    // read any more" — instead of holding its task for the whole deadline. An
+    // exit cancels the open-note reconcile's read this way, so Back never
+    // waits out a read it is about to repeat itself (FB-5).
+    let pending = EditorCaptureWait()
+    return await withTaskCancellationHandler {
+        await withCheckedContinuation { continuation in
+            let answer = EditorCaptureResumer(continuation)
+            pending.resumer = answer
+            if Task.isCancelled {
+                answer.resume(.notOurs)
+                return
+            }
+            startLivenessProbe()
+            start { answer.resume($0) }
+            // Both the page's reply and this run on the main thread, so the
+            // resumer needs no lock — only the once-only latch.
+            DispatchQueue.main.asyncAfter(deadline: .now() + deadlineSeconds) {
+                answer.resume(rendererAnswered() ? .timedOut : .noLiveDocument)
+            }
         }
+    } onCancel: {
+        Task { @MainActor in pending.resumer?.resume(.notOurs) }
     }
+}
+
+/// Where a cancellation finds the capture it has to end early.
+@MainActor
+private final class EditorCaptureWait {
+    var resumer: EditorCaptureResumer?
 }
 
 @MainActor
@@ -383,8 +403,8 @@ struct EditorWebView: UIViewRepresentable {
     var onOpenNote: ((String) -> Void)? = nil
     /// Receives the engine-authored native find-bar state verbatim.
     var onFindMatches: ((FindMatchesReport) -> Void)? = nil
-    /// Reports this view's host generation so imperative calls can reject a stale screen.
-    var onAttachmentChange: ((Int?) -> Void)? = nil
+    /// Receives this view's host generation so imperative calls can reject a stale screen.
+    var attachment: EditorAttachmentSlot? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -396,7 +416,7 @@ struct EditorWebView: UIViewRepresentable {
             content: content, theme: theme, localization: localization, autoFocus: autoFocus,
             onChange: onChange, onFocusChange: onFocusChange,
             onOpenNote: onOpenNote,
-            onFindMatches: onFindMatches, onAttachmentChange: onAttachmentChange)
+            onFindMatches: onFindMatches, attachment: attachment)
         let container = EditorContainerView()
         container.backgroundColor = .clear
         coord.container = container
@@ -417,7 +437,7 @@ struct EditorWebView: UIViewRepresentable {
             content: content, theme: theme, localization: localization, autoFocus: autoFocus,
             onChange: onChange, onFocusChange: onFocusChange,
             onOpenNote: onOpenNote,
-            onFindMatches: onFindMatches, onAttachmentChange: onAttachmentChange)
+            onFindMatches: onFindMatches, attachment: attachment)
         // Only the VISIBLE editor drives the shared WebView. Gating on `window`
         // stops an off-screen editor (covered by a pushed one) from stealing the
         // WebView or pushing its content over the visible note — e.g. when a
@@ -436,14 +456,16 @@ struct EditorWebView: UIViewRepresentable {
         // The shared WebView itself is NEVER torn down — it lives for the whole
         // app so the next note-open reuses it.
         //
-        // NOTHING ELSE MAY GO HERE THAT WRITES SwiftUI STATE. `onAttachmentChange`
+        // NOTHING ELSE MAY GO HERE THAT WRITES SwiftUI STATE. The attachment token
         // used to be cleared on this line, and that write aborted the app on every
         // exit from a note: AttributeGraph is invalidating the subgraph that owns
         // the `@State` while this runs, so setting it trips Swift's exclusivity
-        // check ("Fatal access conflict detected"). `detach` above is also what
-        // makes such a clear redundant — the host's generation is monotonic and
-        // never equal to a detached token again, so a stale attachment token can
-        // no longer satisfy `isCurrentAttachment`.
+        // check ("Fatal access conflict detected"). Nor may the slot be cleared:
+        // a system pop dismantles BEFORE the editor's onDisappear runs its exit,
+        // and that exit reads the popped note's document through this token.
+        // `detach` is what makes a clear redundant — the host's generation is
+        // monotonic and never equal to a detached token again, so a stale token
+        // can no longer satisfy `isCurrentAttachment`.
         EditorHost.shared.detach(coordinator.token)
     }
 
@@ -468,7 +490,7 @@ struct EditorWebView: UIViewRepresentable {
         private var onFocusChange: (Bool) -> Void = { _ in }
         private var onOpenNote: ((String) -> Void)?
         private var onFindMatches: ((FindMatchesReport) -> Void)?
-        private var onAttachmentChange: ((Int?) -> Void)?
+        private var attachment: EditorAttachmentSlot?
 
         func sync(
             content: String, theme: String, localization: Localization, autoFocus: Bool,
@@ -476,7 +498,7 @@ struct EditorWebView: UIViewRepresentable {
             onFocusChange: @escaping (Bool) -> Void,
             onOpenNote: ((String) -> Void)?,
             onFindMatches: ((FindMatchesReport) -> Void)?,
-            onAttachmentChange: ((Int?) -> Void)?
+            attachment: EditorAttachmentSlot?
         ) {
             self.content = content
             self.theme = theme
@@ -486,7 +508,7 @@ struct EditorWebView: UIViewRepresentable {
             self.onFocusChange = onFocusChange
             self.onOpenNote = onOpenNote
             self.onFindMatches = onFindMatches
-            self.onAttachmentChange = onAttachmentChange
+            self.attachment = attachment
         }
 
         /// Reclaim the shared WebView for this container unless it already hosts it.
@@ -517,10 +539,29 @@ struct EditorWebView: UIViewRepresentable {
                 onFocusChange: onFocusChange,
                 onOpenNote: onOpenNote,
                 onFindMatches: onFindMatches)
-            onAttachmentChange?(token)
+            attachment?.token = token
             didInitialAdopt = true
         }
     }
+}
+
+/// Where an editor keeps the attachment token its ``EditorWebView`` holds —
+/// what its exit and its open-note reconcile read the shared WebView through.
+///
+/// A reference the coordinator writes, not a callback into the editor's
+/// `@State`: the token arrives from inside `makeUIView` (the first adopt),
+/// where SwiftUI DISCARDS a state write. On iOS 27 it read back nil on every
+/// open, so a system pop never read the editor and committed the shell's copy —
+/// losing every keystroke whose debounced `change` had not arrived yet, and
+/// the whole edit when it was typed while a large note's tail streamed (RC-77).
+/// No view renders from the token, so nothing needs a state write's
+/// invalidation.
+@MainActor
+final class EditorAttachmentSlot {
+    var token: Int?
+
+    /// `nonisolated` so a SwiftUI view can hold one in `@State`.
+    nonisolated init() {}
 }
 
 /// Hosts the single shared editor WKWebView. Reports when it becomes visible
@@ -575,6 +616,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private var desiredLocalization = Localization.system()
     private var desiredLanguageTag: String { desiredLocalization.effectiveLanguage.tag }
     private var desiredContent = ""
+    /// Every document this host has sent the page, counted — so a read can tell
+    /// that one landed while it was in flight (``readContent(ownedBy:showing:)``).
+    private var contentPushes = 0
     /// The last content we pushed in, so we don't re-push our own echoes.
     private var lastPushedContent: String?
     /// The note universe JSON (setNotes) to (re)push when ready. The JSON string
@@ -951,6 +995,39 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         return documentOwner == token ? outcome : .notOurs
     }
 
+    /// Read the document `token`'s editor is showing while it stays open — the
+    /// open-note reconcile's read (RC-08), not an exit's.
+    ///
+    /// The same read as ``captureCurrentContent()``, under the same deadline
+    /// and liveness probe, with one difference: it does not blur. A reconcile
+    /// runs whenever sync touches the open note, typist or not, and it may not
+    /// take the keyboard away.
+    ///
+    /// It answers for `shellCopy` only. Owning the WebView is not enough: an
+    /// editor reconciles the moment its note loads from disk, before SwiftUI
+    /// has pushed that text — the page still holds what the attach pushed
+    /// before the load (an empty document), and taking THAT as the user's
+    /// latest text blanked or truncated the note (the wikilink-pop story).
+    /// A page whose last known text (pushed, or reported by a `change`) is not
+    /// `shellCopy` holds nothing typed into this note that the shell has not
+    /// heard, so the answer is `.noLiveDocument`: the shell copy is the
+    /// freshest body. A push sent while the read is in flight makes the answer
+    /// describe the document it replaced: `.notOurs`, and the reconcile asks
+    /// again.
+    func readContent(ownedBy token: Int, showing shellCopy: String) async -> EditorCaptureOutcome {
+        guard documentOwner == token else { return .notOurs }
+        guard lastPushedContent == shellCopy else { return .noLiveDocument }
+        let pushesBefore = contentPushes
+        let outcome = await captureCurrentContent(script: EditorHost.readScript)
+        guard documentOwner == token, contentPushes == pushesBefore else { return .notOurs }
+        // What the page holds now, as a `change` would have said (Android's
+        // capture does the same). The shell adopting this text must not read
+        // as a push still to be sent: a `setContent` of it would replace
+        // keystrokes typed since.
+        if case .captured(let text) = outcome { lastPushedContent = text }
+        return outcome
+    }
+
     /// Read the note the WebView is showing on behalf of the attachment that
     /// owns it, ahead of the next note's push. Call it before `updateDesired`
     /// and `attach`, both of which can push. See ``EditorDepartureCapture``.
@@ -1014,6 +1091,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         desiredContent = content
         guard isReady else { return }
         lastPushedContent = content
+        contentPushes += 1
         let js =
             "window.FutoEditor && window.FutoEditor.applyExternalContent(\(jsLiteral(content)));"
         webView.evaluateJavaScript(js, completionHandler: nil)
@@ -1129,6 +1207,15 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         })()
         """
 
+    /// ``captureScript`` without ending the editing session: the reconcile's
+    /// read of a note that stays open (``readContent(ownedBy:)``).
+    private static let readScript = """
+        (() => {
+          if (!window.FutoEditor) return null;
+          return window.FutoEditor.getContent();
+        })()
+        """
+
     /// Ask the page for nothing at all, and hand back a reader for whether it
     /// got round to answering.
     ///
@@ -1161,6 +1248,10 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// and ``captureWithinDeadline(deadlineSeconds:startLivenessProbe:rendererAnswered:start:)``
     /// for how the last two are told apart.
     func captureCurrentContent() async -> EditorCaptureOutcome {
+        await captureCurrentContent(script: EditorHost.captureScript)
+    }
+
+    private func captureCurrentContent(script: String) async -> EditorCaptureOutcome {
         let capturedGeneration = generation
         await completionQueue.waitForCurrent()
         guard
@@ -1179,7 +1270,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             startLivenessProbe: { rendererAnswered = self.startRendererLivenessProbe() },
             rendererAnswered: { rendererAnswered() },
             start: { answer in
-                webView.evaluateJavaScript(EditorHost.captureScript) { [weak self] result, error in
+                webView.evaluateJavaScript(script) { [weak self] result, error in
                     guard let self,
                         error == nil,
                         shouldDeliverEditorCompletion(
@@ -1584,6 +1675,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     private func pushContent(_ content: String) {
         lastPushedContent = content
+        contentPushes += 1
         let js = "window.FutoEditor && window.FutoEditor.setContent(\(jsLiteral(content)));"
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
@@ -1646,6 +1738,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         currentTheme = desiredTheme
         currentLanguageTag = desiredLanguageTag
         lastPushedContent = desiredContent
+        contentPushes += 1
         lastPushedNotesJson = desiredNotesJson
 
         webView.evaluateJavaScript(

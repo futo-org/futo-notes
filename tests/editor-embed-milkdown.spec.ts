@@ -2853,6 +2853,88 @@ test('a word typed while an adopted note streams is reported with the undo stack
   expect(await getContent(page)).toContain('QPeer line 0 ');
 });
 
+/*
+ * applyExternalContent over an unreported edit (RC-08, FB-5).
+ *
+ * Both native shells classify a peer's edit or delete of the OPEN note
+ * (`classify_open_note`) from a draft kept current by `change` messages. Two
+ * windows leave that draft behind the editor: a large note withholds `change`
+ * while its tail streams (the save lock), and every edit spends 200 ms in the
+ * change debounce. Classified on that draft, the edit read as "nothing to
+ * lose": a peer edit was adopted over it (`applyExternalContent` discards the
+ * document) and a peer delete closed the note. So the shells now READ the
+ * editor before classifying, without blurring it (a reconcile may not take the
+ * keyboard from a typist). These pin what that read has to give them: the
+ * edit, over the whole note, with the `change` that brings the shell's own copy
+ * level posted inside the read — and focus left where it was.
+ */
+async function reconcileRead(page: Page) {
+  return page.evaluate(() => {
+    const w = window as unknown as FakeHostWindow;
+    const before = w.__msgs.length;
+    const streaming = document.querySelectorAll('.milkdown-stream-tail').length > 0;
+    // The shells' reconcile read (EditorHost.readScript / READ_SCRIPT).
+    const content = w.FutoEditor.getContent();
+    const posted = w.__msgs.slice(before);
+    return {
+      streaming,
+      content,
+      changes: posted.filter((m) => m.type === 'change').map((m) => String(m.content)),
+      blurred: posted.some((m) => m.type === 'focus' && m.focused === false),
+      focused: !!document.activeElement?.closest('.ProseMirror'),
+    };
+  });
+}
+
+test('applyExternalContent over an unreported edit: the read the host takes first reports an edit made while the tail streams', async ({
+  page,
+}) => {
+  const note = largeNote(4000);
+  await page.evaluate(
+    (json) => {
+      const w = window as unknown as FakeHostWindow;
+      w.__msgs.length = 0;
+      w.FutoEditor.initialize(json);
+      w.FutoEditor.focus();
+    },
+    hostConfig({ content: note }),
+  );
+  await page.keyboard.type('UNREPORTED ');
+
+  const read = await reconcileRead(page);
+
+  expect(read.streaming, 'the read must land while the tail streams (M11)').toBe(true);
+  expect(read.content).toContain('UNREPORTED ');
+  // Not a prefix (F3): the tail that had not been parsed when the read began.
+  expect(read.content).toContain('Section 3999');
+  // The shell's change-fed copy is level with the read before the read returns.
+  expect(read.changes.at(-1)).toBe(read.content);
+  expect(read.blurred).toBe(false);
+  expect(read.focused).toBe(true);
+});
+
+test('applyExternalContent over an unreported edit: the read the host takes first reports an edit still inside the change debounce', async ({
+  page,
+}) => {
+  await initialize(page, hostConfig({ content: 'the note\n' }));
+  await focusEditor(page);
+  await clearMessages(page);
+  await page.keyboard.type('burst');
+
+  // No settle: the burst is still inside the 200 ms debounce.
+  const read = await reconcileRead(page);
+
+  expect(read.content).toContain('burst');
+  expect(read.changes).toEqual([read.content]);
+  expect(read.blurred).toBe(false);
+  expect(read.focused).toBe(true);
+
+  // Reported once: the read retired the debounce, so nothing about this
+  // document arrives after the host has classified on it.
+  await settleChangeDebounce(page);
+  expect((await messagesOfType(page, 'change')).length).toBe(1);
+});
+
 /** The top-level block shapes of the live document, `p:empty` for an empty paragraph. */
 async function topLevelShapes(page: Page): Promise<string[]> {
   return page.evaluate(() =>

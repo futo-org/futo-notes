@@ -6,8 +6,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -39,6 +41,11 @@ class EditorSessionTest {
         override fun currentNoteId(): String = noteId
 
         override fun isCurrentEditor(): Boolean = isCurrentEditor.invoke()
+
+        override suspend fun captureEditor(): EditorCaptureOutcome {
+            log += "capture"
+            return EditorCaptureOutcome.Captured("draft")
+        }
 
         override suspend fun gatherFacts(noteId: String): OpenNoteFacts {
             log += "facts:$noteId"
@@ -167,7 +174,7 @@ class EditorSessionTest {
                     log = log,
                 ),
             )
-            val expected = mutableListOf("facts:note", "classify")
+            val expected = mutableListOf("capture", "facts:note", "classify")
             if (disposition === OpenNoteDisposition.Leave) expected += "resume-draft"
             expected += "apply:note:${disposition::class.simpleName}"
             assertEquals(expected, log)
@@ -183,7 +190,7 @@ class EditorSessionTest {
         )
         assertTrue(closingSession.isClosing)
         assertEquals(
-            listOf("facts:note", "classify", "apply:note:Close"),
+            listOf("capture", "facts:note", "classify", "apply:note:Close"),
             closeLog,
         )
     }
@@ -204,9 +211,11 @@ class EditorSessionTest {
 
         assertEquals(
             listOf(
+                "capture",
                 "facts:note",
                 "classify",
                 "apply:note:DeferAdopt",
+                "capture",
                 "facts:note",
                 "classify",
                 "apply:note:Adopt",
@@ -250,9 +259,11 @@ class EditorSessionTest {
 
         assertEquals(
             listOf(
+                "capture",
                 "facts:note",
                 "classify",
                 "apply:note:DeferAdopt",
+                "capture",
                 "facts:note",
                 "classify",
                 "apply:note:Adopt",
@@ -286,6 +297,9 @@ class EditorSessionTest {
             override fun currentNoteId(): String = "note"
 
             override fun isCurrentEditor(): Boolean = true
+
+            override suspend fun captureEditor(): EditorCaptureOutcome =
+                EditorCaptureOutcome.Captured(draft)
 
             override suspend fun gatherFacts(noteId: String): OpenNoteFacts {
                 log += "facts:draft=$draft"
@@ -358,6 +372,7 @@ class EditorSessionTest {
 
             assertEquals(
                 listOf(
+                    "capture",
                     "facts:note",
                     "classify",
                     "apply:note:FollowRename",
@@ -400,7 +415,7 @@ class EditorSessionTest {
 
         EditorSession(scope()).reconcileOpenNote(effects)
 
-        assertEquals(listOf("facts:note"), log)
+        assertEquals(listOf("capture", "facts:note"), log)
     }
 
     @Test
@@ -421,7 +436,7 @@ class EditorSessionTest {
 
             session.reconcileOpenNote(effects)
 
-            assertEquals(listOf("facts:note"), log)
+            assertEquals(listOf("capture", "facts:note"), log)
             assertFalse(session.isClosing)
         }
     }
@@ -442,8 +457,218 @@ class EditorSessionTest {
             }.exceptionOrNull()
 
             assertSame(failure, caught)
-            assertEquals(listOf("facts:note", "resume-draft"), log)
+            assertEquals(listOf("capture", "facts:note", "resume-draft"), log)
         }
+
+    /**
+     * The screen's side of RC-08: a draft kept current only by `change`
+     * messages, and an editor that may hold more than they said (a streaming
+     * note withholds `change`; an edit spends 200 ms in the debounce). Its
+     * [captureEditor] merges what the read found exactly as NoteEditorScreen
+     * does — through the path a `change` takes — and [gatherFacts] reads the
+     * draft as the screen does.
+     */
+    private class LiveEditorOpenNoteEffects(
+        val live: EditorCaptureOutcome,
+        val disk: String?,
+        val log: MutableList<String>,
+    ) : OpenNoteEffects {
+        var draft = "base"
+        var editVersion = 0L
+        val factsSeen = mutableListOf<OpenNoteFacts>()
+
+        override fun currentNoteId(): String = "note"
+
+        override fun isCurrentEditor(): Boolean = true
+
+        override suspend fun captureEditor(): EditorCaptureOutcome {
+            log += "capture"
+            if (live is EditorCaptureOutcome.Captured && live.text != draft) {
+                draft = live.text
+                editVersion += 1
+            }
+            return live
+        }
+
+        override suspend fun gatherFacts(noteId: String): OpenNoteFacts {
+            log += "facts"
+            return OpenNoteFacts(
+                base = "base",
+                draft = draft,
+                disk = disk,
+                renamedTo = null,
+                editorFocused = false,
+                editedDuringCycle = editVersion != 0L,
+            ).also { factsSeen += it }
+        }
+
+        // Answers exactly as the engine does for these fact sets (the engine
+        // itself is unreachable from a JVM unit test — no loadable JNI
+        // library; `no_reachable_fact_combination_can_discard_unsaved_work`
+        // in crates/futo-notes-sync/src/open_note.rs owns the rule).
+        override fun classify(facts: OpenNoteFacts): OpenNoteDisposition {
+            log += "classify"
+            val dirty = facts.draft != facts.base || facts.editedDuringCycle
+            val disk = facts.disk
+            return when {
+                disk == null && facts.draft != facts.base ->
+                    OpenNoteDisposition.KeepDraft(facts.base, KeepDraftReason.PEER_DELETED)
+                disk == null -> OpenNoteDisposition.Close
+                dirty -> OpenNoteDisposition.KeepDraft(facts.base, KeepDraftReason.DIVERGED)
+                else -> OpenNoteDisposition.Adopt(disk)
+            }
+        }
+
+        override fun resumeDraftPersistence() {
+            log += "resume-draft"
+        }
+
+        override fun apply(noteId: String, disposition: OpenNoteDisposition) {
+            log += "apply:${disposition::class.simpleName}"
+        }
+    }
+
+    /**
+     * RC-08: the verdict used to be taken on the screen's draft alone, so an
+     * edit the editor had not reported read as "nothing to lose" — a peer edit
+     * was adopted over it and a peer delete closed the note. "A busy editor's
+     * silence cannot be read as nothing to lose" (docs/spec/editor.md).
+     */
+    @Test
+    fun `an edit the editor has not reported is read before the verdict`() = runBlocking {
+        listOf("peer" to "KeepDraft", null to "KeepDraft").forEach { (disk, verdict) ->
+            val log = mutableListOf<String>()
+            val session = EditorSession(scope())
+            val effects = LiveEditorOpenNoteEffects(
+                live = EditorCaptureOutcome.Captured("base + typed while the tail streamed"),
+                disk = disk,
+                log = log,
+            )
+
+            session.reconcileOpenNote(effects)
+
+            assertEquals(listOf("capture", "facts", "classify", "apply:$verdict"), log)
+            assertEquals("base + typed while the tail streamed", effects.factsSeen.single().draft)
+            assertFalse(session.isClosing)
+        }
+    }
+
+    /**
+     * A live renderer too busy to answer (an edited note finishing its streamed
+     * tail) may hold exactly the edit the draft lacks, and an editor showing
+     * another note answers for the wrong one: neither may be read as the
+     * draft. No verdict is taken — the read already made the editor finish,
+     * and its `change` reaches the ordinary save, whose flush verb parks it.
+     */
+    @Test
+    fun `an editor that cannot answer for this note gets no verdict`() = runBlocking {
+        listOf(EditorCaptureOutcome.TimedOut, EditorCaptureOutcome.NotOurs).forEach { live ->
+            listOf("peer", null).forEach { disk ->
+                val log = mutableListOf<String>()
+                val session = EditorSession(scope())
+                val effects = LiveEditorOpenNoteEffects(live = live, disk = disk, log = log)
+
+                assertNull(session.reconcileOpenNote(effects))
+
+                assertEquals(listOf("capture"), log)
+                assertFalse(session.isClosing)
+            }
+        }
+    }
+
+    /**
+     * A wedged renderer, or one with no document, never presented an editable
+     * document, so the draft is the freshest body there is and sync must not
+     * wait on it — the exit rule ([editorExitBody]).
+     */
+    @Test
+    fun `an editor with no live document is classified on the draft`() = runBlocking {
+        val log = mutableListOf<String>()
+        val effects = LiveEditorOpenNoteEffects(
+            live = EditorCaptureOutcome.NoLiveDocument,
+            disk = "peer",
+            log = log,
+        )
+
+        EditorSession(scope()).reconcileOpenNote(effects)
+
+        assertEquals(listOf("capture", "facts", "classify", "apply:Adopt"), log)
+    }
+
+    /**
+     * FB-5 refute: the reconcile's editor read runs under the capture deadline
+     * against a page that may be busy or wedged, and it used to hold the
+     * session lock — Back waited it out before its own read (Android Back
+     * 15.2 s against 9.3 s on the base build). An exit starting mid-read
+     * cancels it and drains at once; its own read is the one that counts.
+     */
+    @Test
+    fun `Back does not wait out a reconcile read in flight`() = runBlocking {
+        val scope = scope()
+        val session = EditorSession(scope)
+        val log = mutableListOf<String>()
+        val reading = CompletableDeferred<Unit>()
+        val neverAnswers = CompletableDeferred<EditorCaptureOutcome>()
+        val effects = object : OpenNoteEffects by LiveEditorOpenNoteEffects(
+            live = EditorCaptureOutcome.Captured("unused"),
+            disk = "peer",
+            log = log,
+        ) {
+            override suspend fun captureEditor(): EditorCaptureOutcome {
+                log += "capture"
+                reading.complete(Unit)
+                return neverAnswers.await()
+            }
+        }
+
+        val reconcile = scope.async { session.reconcileOpenNote(effects) }
+        reading.await()
+        val nav = RecordingEffects(log, name = "nav")
+        session.end(EditorExit.NAVIGATE, nav)
+
+        withTimeout(5_000) { scope.settle() }
+        assertTrue(nav.succeeded)
+        assertNull(reconcile.await())
+        assertEquals("capture", log.first())
+        assertFalse(log.contains("facts"))
+        assertFalse(log.contains("classify"))
+    }
+
+    /** A refused exit leaves the editor open: the reconcile it interrupted runs again. */
+    @Test
+    fun `an exit that stops short re-runs the reconcile it interrupted`() = runBlocking {
+        val scope = scope()
+        val session = EditorSession(scope)
+        val log = mutableListOf<String>()
+        val reading = CompletableDeferred<Unit>()
+        val neverAnswers = CompletableDeferred<EditorCaptureOutcome>()
+        var reads = 0
+        val effects = object : OpenNoteEffects by LiveEditorOpenNoteEffects(
+            live = EditorCaptureOutcome.NoLiveDocument,
+            disk = "peer",
+            log = log,
+        ) {
+            override suspend fun captureEditor(): EditorCaptureOutcome {
+                log += "capture"
+                reads += 1
+                if (reads == 1) {
+                    reading.complete(Unit)
+                    return neverAnswers.await()
+                }
+                return EditorCaptureOutcome.NoLiveDocument
+            }
+        }
+
+        scope.launch { session.reconcileOpenNote(effects) }
+        reading.await()
+        val nav = RecordingEffects(log, name = "nav", body = { null })
+        session.end(EditorExit.NAVIGATE, nav)
+
+        withTimeout(5_000) { scope.settle() }
+        assertFalse(nav.succeeded)
+        assertEquals(2, log.count { it == "capture" })
+        assertEquals("apply:Adopt", log.last())
+    }
 
     @Test
     fun `an admitted autosave completes its base update before a replacement runs`() =
