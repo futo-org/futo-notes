@@ -61,6 +61,32 @@ async function settleChangeDebounce(page: Page): Promise<void> {
   await flushFrames(page);
 }
 
+/**
+ * One key that moves the caret, returning only once ProseMirror has read the new
+ * caret out of the DOM (`withCaretObserved`). `page.keyboard.press` resolves in
+ * ~2 ms but the browser reports the caret to ProseMirror on the next rendering
+ * update, so on a loaded runner the next key (or the typed `[[`) acted on the
+ * PREVIOUS caret: RC-100 saw the popup open because the caret was still outside
+ * the code span. The key MUST really move the caret, or there is nothing to
+ * wait for.
+ */
+async function moveCaret(page: Page, key: string, times = 1): Promise<void> {
+  for (let i = 0; i < times; i += 1) {
+    await withCaretObserved(page, () => page.keyboard.press(key));
+  }
+}
+
+/**
+ * `End` after `focusEditor`. The caret may already BE at the end (`focus()` leaves
+ * it there for a one-paragraph note), so no selection change is guaranteed and
+ * `withCaretObserved` would wait for ever: settle on rendering frames instead,
+ * which is when the browser reports a pending caret to ProseMirror.
+ */
+async function goToEnd(page: Page): Promise<void> {
+  await page.keyboard.press('End');
+  await flushFrames(page);
+}
+
 /** Boots the bundle exactly as a native host does: one `initialize` call. */
 async function open(
   page: Page,
@@ -221,7 +247,7 @@ test('opening a note with wikilinks never rewrites it', async ({ page }) => {
 test('a real edit still writes the wikilink unescaped', async ({ page }) => {
   await open(page, 'See [[Projects/Roadmap]].\n');
   await focusEditor(page);
-  await page.keyboard.press('End');
+  await goToEnd(page);
   await page.keyboard.type(' Done.');
   const [change] = await waitForMessages(page, 'change');
 
@@ -234,7 +260,7 @@ test('a real edit still writes the wikilink unescaped', async ({ page }) => {
 test('an edit elsewhere leaves every other wikilink byte-identical', async ({ page }) => {
   await open(page, '# Notes\n\n[[a|b]] [[a]b]] [[a*b*c]] [[Über/naïve]]\n');
   await focusEditor(page);
-  await page.keyboard.press('End');
+  await goToEnd(page);
   await page.keyboard.type('!');
   const [change] = await waitForMessages(page, 'change');
   for (const link of ['[[a|b]]', '[[a]b]]', '[[a*b*c]]', '[[Über/naïve]]']) {
@@ -456,21 +482,26 @@ test('`[[` inside inline code never opens the popup', async ({ page }) => {
   // extracted — so autocomplete must not offer to write one there either.
   await open(page, 'text `code` tail\n');
   await focusEditor(page);
-  await page.keyboard.press('End');
+  await goToEnd(page);
   /* Land BETWEEN two characters of the span, not on its edge: code marks are
    * non-inclusive, so a caret at the closing edge is genuinely outside the
    * span and typing there is not code. " tail" is 5, plus 2 into "code". */
-  for (let i = 0; i < 7; i += 1) await page.keyboard.press('ArrowLeft');
+  await moveCaret(page, 'ArrowLeft', 7);
   await page.keyboard.type('[[');
+  await expect(popup(page)).toBeHidden();
+  /* `toBeHidden` alone passes before a popup could ever appear, and would pass
+   * just as well if the caret had missed the span. Prove the premise: the
+   * brackets went INTO the code span. */
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toBe('text `co[[de` tail\n');
   await expect(popup(page)).toBeHidden();
 });
 
 test('typing a full wikilink inside inline code leaves it as text', async ({ page }) => {
   await open(page, '`abc`\n');
   await focusEditor(page);
-  await page.keyboard.press('End');
-  await page.keyboard.press('ArrowLeft');
-  await page.keyboard.press('ArrowLeft');
+  await goToEnd(page);
+  await moveCaret(page, 'ArrowLeft', 2);
   await page.keyboard.type('[[grocery list]]');
   const [change] = await waitForMessages(page, 'change');
   expect(await chip(page).count()).toBe(0);
@@ -516,7 +547,7 @@ test('a wikilink typed with a `|` in a table cell keeps its row and its link', a
   // link into `\\[\\[note` text (hardening L6e-15).
   await open(page, '| a | b |\n| - | - |\n| c | d |\n');
   await withCaretObserved(page, () => page.getByText('c', { exact: true }).click());
-  await page.keyboard.press('End');
+  await goToEnd(page); // the click may already have left the caret at the end
   await page.keyboard.type(' [[note|alias');
   await page.keyboard.press('Escape');
   await page.keyboard.type(']]');
