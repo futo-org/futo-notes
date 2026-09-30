@@ -1893,6 +1893,7 @@ build:ios-native:
   artifacts:
     paths:
       - buildFutoNotesIOSNative/binary/*.ipa
+      - buildFutoNotesIOSNative/dsyms/*-dSYMs.zip
     expire_in: 4 weeks
   rules:
     # No MR rule: test:ios-native compiles the same FFI xcframework + editor
@@ -2913,6 +2914,12 @@ release:
         NAME="FUTO-Notes-${VERSION}.ipa"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$IPA" "${REGISTRY_URL}/${NAME}"
+        # The dSYMs that symbolicate this build's crash reports.
+        DSYMS=$(find buildFutoNotesIOSNative -name "*-dSYMs.zip" -type f 2>/dev/null | head -1)
+        test -n "$DSYMS" || { echo "no dSYMs zip from build:ios-native" >&2; exit 1; }
+        NAME="FUTO-Notes-${VERSION}-dSYMs.zip"
+        echo "Uploading $NAME"
+        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$DSYMS" "${REGISTRY_URL}/${NAME}"
       fi
     # macOS DMG (first-install download)
     - |

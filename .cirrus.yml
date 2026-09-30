@@ -443,6 +443,13 @@ build_ios_native_task:
           exit 1
         fi
         cp "$IPA_PATH" ./
+        # Keep the dSYMs: the crash reporter writes `<image> <offset>` frames,
+        # which only these symbolicate (the release job stores them per tag).
+        if ! ls "$ARCHIVE"/dSYMs/*.dSYM >/dev/null 2>&1; then
+          echo "ERROR: native iOS archive produced no dSYMs"
+          exit 1
+        fi
+        ditto -c -k --keepParent "$ARCHIVE/dSYMs" FutoNotesNative-dSYMs.zip
       else
         # Simulator compile check (unsigned). ARCHS=arm64: the FFI xcframework
         # only ships an arm64 simulator slice (aarch64-apple-ios-sim); a bare
@@ -457,3 +464,5 @@ build_ios_native_task:
       fi
   binary_artifacts:
     path: "*.ipa"
+  dsyms_artifacts:
+    path: "*-dSYMs.zip"
