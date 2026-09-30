@@ -63,6 +63,7 @@
       searchNotes: localizedText('app.desktop.menu.searchNotes'),
       closeTab: localizedText('app.desktop.menu.closeTab'),
       closeWindow: localizedText('app.desktop.menu.closeWindow'),
+      quit: localizedText('app.desktop.menu.quit', { appName: applicationTitle }),
       toggleSidebar: localizedText('app.desktop.menu.toggleSidebar'),
     });
   });
