@@ -211,7 +211,11 @@ async fn edit_during_replay_conflict_resolution_is_not_overwritten() {
         "newest disk edit\n"
     );
     assert!(state.pending_creates.is_empty());
-    assert_eq!(state.object_map["note.md"].version, 2);
+    // The newest edit descends from the replayed revision, not from the remote
+    // one it never saw: recording version 2 would push it over the remote text
+    // as a plain update next cycle (RC-82).
+    assert_eq!(state.object_map["note.md"].version, 1);
+    assert_eq!(state.object_map["note.md"].blob_key, "base-blob");
     assert!(state.object_map["note.md"].mtime_ms.is_none());
     assert_eq!(summary.local_writes_applied, 1);
 }

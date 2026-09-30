@@ -24,6 +24,7 @@ use super::{SyncErrorKind, SyncFailure};
 pub(super) mod reason {
     pub(super) const REMOTE_ALREADY_HOLDS_LOCAL: &str = "remote_already_holds_local_content";
     pub(super) const THREE_WAY_MERGE_WAS_CLEAN: &str = "three_way_merge_was_clean";
+    pub(super) const LOCAL_CHANGED_DURING_MERGE: &str = "local_changed_during_merge";
     pub(super) const MERGE_IMPOSSIBLE: &str = "concurrent_edit_could_not_merge";
     pub(super) const SERVER_REJECTED_413: &str = "server_rejected_413";
     pub(super) const REMOTE_OBJECT_DELETED: &str = "remote_object_was_deleted";
@@ -141,6 +142,7 @@ async fn resolve_live_remote_conflict(
             conflict.existing,
             &conflict.response,
             target,
+            conflict.local,
             merged,
             &conflict.local_hash,
         )
@@ -155,6 +157,7 @@ async fn resolve_live_remote_conflict(
     write_conflict_pair(
         context,
         conflict.file,
+        conflict.existing,
         conflict.local,
         &remote,
         remote_name,
