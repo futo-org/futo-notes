@@ -62,7 +62,11 @@
     type Schema as ProseSchema,
   } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
-  import { imageReferenceMarkdown, withNarrowedEscapes } from '@futo-notes/editor';
+  import {
+    imageReferenceMarkdown,
+    toWellFormedText,
+    withNarrowedEscapes,
+  } from '@futo-notes/editor';
   import {
     FRONTMATTER_NODE,
     hasSurplusTrailingEmptyParagraphs,
@@ -1141,7 +1145,12 @@
     const doc = view.state.doc;
     if (liveDoc === doc && liveMarkdown !== null) return liveMarkdown;
     try {
-      const markdown = blockSerializer.serialize(doc);
+      /* The one place the live document becomes text (`getContent`, the
+       * `change` report): a lone surrogate — a Backspace that split an emoji, a
+       * paste that carried half of one — is written as U+FFFD (RC-48, decision
+       * 16A). Unfixed it reached the Tauri IPC as a `\ud800` JSON escape and the
+       * save never settled. */
+      const markdown = toWellFormedText(blockSerializer.serialize(doc));
       liveDoc = doc;
       liveMarkdown = markdown;
       return markdown;
@@ -1671,6 +1680,13 @@
   }
 
   export function getContent(): string | undefined {
+    const text = readContent();
+    /* Every answer passes here, the host's own bytes included: nothing that
+     * leaves the editor may carry a lone surrogate (RC-48, decision 16A). */
+    return text === undefined ? text : toWellFormedText(text);
+  }
+
+  function readContent(): string | undefined {
     /* NOT THIS NOTE (CRITICAL — 2026-09-03 data loss, docs/spec/editor.md).
      * Two ways this component ends up holding an empty document for a note that
      * has bytes, both of which used to serialize back as "the user deleted

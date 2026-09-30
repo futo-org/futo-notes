@@ -1,4 +1,4 @@
-import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { readFile, writeFile } from '@tauri-apps/plugin-fs';
 import { IMAGE_EXTENSIONS } from '@futo-notes/editor';
 
@@ -10,6 +10,8 @@ import {
 
 import { ensureSafeRelativePath } from '../pathSafety';
 import type { PickedImage, PlatformFS } from '../types';
+
+import { invoke } from './invoke';
 
 type TauriImages = Pick<
   PlatformFS,

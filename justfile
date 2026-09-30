@@ -504,6 +504,11 @@ test-desktop-journeys: build-desktop-test
 test-desktop-close-deadline:
   bash scripts/run-under-virtual-kwin.sh bash -c 'just build-desktop-test && node tests/desktop-close-deadline.mjs'
 
+# A lone UTF-16 surrogate in a note (RC-48): the save settles, the file holds U+FFFD, the note can be
+# left. Linux, under a private compositor (WebKitGTK is the engine that never answered). Not in CI.
+test-desktop-lone-surrogate:
+  bash scripts/run-under-virtual-kwin.sh bash -c 'just build-desktop-test && node tests/desktop-lone-surrogate.mjs'
+
 # Rust conformance goldens + the TS↔Rust title-rules differential.
 test-rust:
   cargo test -p futo-notes-model --test conformance

@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './invoke';
 import { mkdir } from '@tauri-apps/plugin-fs';
 
 export function loadNotesDirOverride(): Promise<string | null> {

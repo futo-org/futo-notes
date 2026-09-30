@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './invoke';
 
 /**
  * Tells the Rust shell whether the open note holds edits that are not on disk.
