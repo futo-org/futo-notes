@@ -482,7 +482,7 @@ struct OpenNoteReconcilerTests {
     /// adopt nor a close may be taken on the shell's copy. The read already
     /// made the editor finish; its `change` then reaches the ordinary save,
     /// whose flush verb parks it against the peer's bytes.
-    @Test("an editor too busy to answer is never adopted over or closed")
+    @Test("an editor too busy to answer is never adopted over, closed, or read again")
     func busyEditorGetsNoVerdict() async {
         for disk in ["peer", nil] as [String?] {
             let editor = FakeEditor()
@@ -492,7 +492,7 @@ struct OpenNoteReconcilerTests {
 
             let result = await reconciler.reconcile(change: .external, effects: editor.effects())
 
-            #expect(result == .stale)
+            #expect(result == .unread)
             #expect(!editor.events.contains { $0.hasPrefix("adopt") || $0 == "close" })
             #expect(!editor.events.contains("drain"))
         }
@@ -507,7 +507,7 @@ struct OpenNoteReconcilerTests {
 
         let result = await reconciler.reconcile(change: .external, effects: editor.effects())
 
-        #expect(result == .stale)
+        #expect(result == .unread)
         #expect(!editor.events.contains("close"))
     }
 

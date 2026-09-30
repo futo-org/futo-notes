@@ -2,7 +2,12 @@ package com.futo.notes.ui
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -247,6 +252,8 @@ internal class EditorSession(
     private var closed = false
 
     private var exiting = false
+    /** The open-note reconcile's editor read, while it is in flight. */
+    private var reconcileRead: Job? = null
 
     /** The focused note whose clean peer update waits for blur before adoption. */
     private var deferredAdoptionId: String? = null
@@ -299,8 +306,10 @@ internal class EditorSession(
      * once, and render its answer while serialized against every other editor
      * workflow. A same-cycle rename target gets its next pass under this lock.
      */
-    suspend fun reconcileOpenNote(effects: OpenNoteEffects): OpenNoteDisposition? =
-        runWork {
+    suspend fun reconcileOpenNote(effects: OpenNoteEffects): OpenNoteDisposition? {
+        if (!readEditorAheadOfAnExit(effects)) return null
+        return runWork {
+            if (exiting) return@runWork null
             var expectedId = effects.currentNoteId()
             val seenIds = mutableSetOf(expectedId)
             var disposition: OpenNoteDisposition?
@@ -318,6 +327,7 @@ internal class EditorSession(
             } while (true)
             disposition
         }
+    }
 
     /**
      * Settle the one deferred clean adoption after body-editor blur. Deferred
@@ -332,8 +342,8 @@ internal class EditorSession(
      * blur edge to retry on. Taking the lock first IS waiting for that cycle,
      * after which the fresh deferral is visible.
      */
-    suspend fun settleDeferredAdoption(effects: OpenNoteEffects): OpenNoteDisposition? =
-        runWork {
+    suspend fun settleDeferredAdoption(effects: OpenNoteEffects): OpenNoteDisposition? {
+        val deferredId = runWork {
             val deferredId = deferredAdoptionId
             when {
                 deferredId == null -> null
@@ -342,27 +352,62 @@ internal class EditorSession(
                     null
                 }
 
-                else -> reconcilePass(deferredId, effects)
+                else -> deferredId
+            }
+        } ?: return null
+        if (!readEditorAheadOfAnExit(effects)) return null
+        return runWork {
+            if (exiting || deferredAdoptionId != deferredId) null
+            else reconcilePass(deferredId, effects)
+        }
+    }
+
+    /**
+     * Read the editor BEFORE the facts (RC-08), OUTSIDE the session lock, and
+     * give way to an exit.
+     *
+     * The draft is kept current by `change` messages, and the editor withholds
+     * those while a large note streams and for the change debounce: classified
+     * on that draft, an edit only the editor knew about read as "nothing to
+     * lose", and a peer edit was adopted over it or a peer delete closed the
+     * note. The outcomes mean what they mean to an exit ([editorExitBody]): no
+     * live document leaves the draft as the freshest body; a busy renderer or
+     * another note's document cannot answer for this one, so no verdict is
+     * taken — and the read is not retried.
+     *
+     * The read runs under the capture deadline, against a page that may be
+     * busy or wedged, so it must not hold the lock every exit drains: Back
+     * waited it out before starting its own read (FB-5 refute: 15.2 s against
+     * 9.3 s). An exit that starts meanwhile cancels it ([end]); its own read
+     * is the one that counts. `false` means: take no verdict.
+     */
+    private suspend fun readEditorAheadOfAnExit(effects: OpenNoteEffects): Boolean {
+        if (exiting || closed) return false
+        val outcome = coroutineScope {
+            val read = async { effects.captureEditor() }
+            reconcileRead = read
+            try {
+                read.await()
+            } catch (e: CancellationException) {
+                // Our own cancellation propagates; an exit's cancel of the
+                // read alone is an answer: no verdict.
+                currentCoroutineContext().ensureActive()
+                null
+            } finally {
+                if (reconcileRead === read) reconcileRead = null
             }
         }
+        if (outcome == null || exiting || closed) return false
+        return when (outcome) {
+            is EditorCaptureOutcome.Captured, EditorCaptureOutcome.NoLiveDocument -> true
+            EditorCaptureOutcome.NotOurs, EditorCaptureOutcome.TimedOut -> false
+        }
+    }
 
     private suspend fun reconcilePass(
         expectedId: String,
         effects: OpenNoteEffects,
     ): OpenNoteDisposition? {
-        // Read the editor BEFORE the facts (RC-08). The draft is kept current
-        // by `change` messages, and the editor withholds those while a large
-        // note streams and for the change debounce: classified on that draft,
-        // an edit only the editor knew about read as "nothing to lose", and a
-        // peer edit was adopted over it or a peer delete closed the note. The
-        // outcomes mean what they mean to an exit ([editorExitBody]): no live
-        // document leaves the draft as the freshest body; a busy renderer or
-        // another note's document cannot answer for this one, so no verdict is
-        // taken on it — and nothing has been cancelled yet to resume.
-        when (effects.captureEditor()) {
-            is EditorCaptureOutcome.Captured, EditorCaptureOutcome.NoLiveDocument -> Unit
-            EditorCaptureOutcome.NotOurs, EditorCaptureOutcome.TimedOut -> return null
-        }
         val facts =
             try {
                 effects.gatherFacts(expectedId)
@@ -411,6 +456,9 @@ internal class EditorSession(
             if (closed) return
             closed = true
         }
+        // This exit reads the editor itself; a reconcile's read must not make
+        // it wait (see readEditorAheadOfAnExit).
+        reconcileRead?.cancel()
         effects.prepare()
 
         scope.launch {

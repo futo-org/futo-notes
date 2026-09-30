@@ -99,6 +99,9 @@ enum OpenNoteReconcileResult: Equatable {
     case deferred
     case stale
     case failed
+    /// The editor could not answer for this note (busy, or showing another
+    /// one). No verdict, and not worth another read.
+    case unread
 }
 
 typealias OpenNoteClassifier =
@@ -172,17 +175,21 @@ final class OpenNoteReconciler {
             // an exit (``editorExitBody(_:shellCopy:)``): no live document
             // leaves the shell copy as the freshest body; a busy renderer or
             // another note's document cannot answer for this one, so no verdict
-            // is taken, and the pass is retried like any stale one. A hidden
+            // is taken — and the read is NOT retried: a retry against a busy
+            // page is another full deadline that an exit would wait behind,
+            // while the note loses nothing without a verdict (the released
+            // `change` reaches the flush verb, which parks it). A hidden
             // editor is not read at all — the shared WebView shows another
             // note — and its verdict is deferred below anyway.
             if initial.isVisible {
-                switch await effects.captureEditor() {
+                let live = await effects.captureEditor()
+                guard !Task.isCancelled else { return .stale }
+                switch live {
                 case .captured, .noLiveDocument:
                     break
                 case .notOurs, .timedOut:
-                    return .stale
+                    return .unread
                 }
-                guard !Task.isCancelled else { return .stale }
             }
 
             await effects.cancelAndDrainSave()

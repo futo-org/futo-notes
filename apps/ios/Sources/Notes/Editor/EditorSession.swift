@@ -104,8 +104,13 @@ private struct EditorExitPlan {
     static func of(_ exit: EditorExit) -> EditorExitPlan {
         switch exit {
         case .navigate:
+            // The adopt is CANCELLED, not only awaited: an open-note reconcile
+            // may be reading the editor (up to the capture deadline against a
+            // busy or wedged page), and this exit is about to read it itself.
+            // Its own read is the one that counts (FB-5).
             return EditorExitPlan(
                 admitsOne: true,
+                cancelsBeforeDrain: [.adopt],
                 drains: [.adopt, .move, .rename],
                 commitsBody: true,
                 commitsTitle: true,
@@ -113,13 +118,13 @@ private struct EditorExitPlan {
             )
         case .prepareMove:
             return EditorExitPlan(
-                cancelsBeforeDrain: [.move],
+                cancelsBeforeDrain: [.adopt, .move],
                 drains: [.adopt, .move, .rename],
                 registersAs: .move
             )
         case .move:
             return EditorExitPlan(
-                cancelsBeforeDrain: [.move],
+                cancelsBeforeDrain: [.adopt, .move],
                 drains: [.adopt, .move, .rename],
                 registersAs: .move,
                 commitsBody: true,

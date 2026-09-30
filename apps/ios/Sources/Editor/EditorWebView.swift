@@ -272,16 +272,36 @@ func captureWithinDeadline(
     rendererAnswered: @escaping () -> Bool,
     start: (@escaping (EditorCaptureOutcome) -> Void) -> Void
 ) async -> EditorCaptureOutcome {
-    await withCheckedContinuation { continuation in
-        let answer = EditorCaptureResumer(continuation)
-        startLivenessProbe()
-        start { answer.resume($0) }
-        // Both the page's reply and this run on the main thread, so the
-        // resumer needs no lock — only the once-only latch.
-        DispatchQueue.main.asyncAfter(deadline: .now() + deadlineSeconds) {
-            answer.resume(rendererAnswered() ? .timedOut : .noLiveDocument)
+    // A cancelled wait answers `.notOurs` at once — "nobody is waiting for this
+    // read any more" — instead of holding its task for the whole deadline. An
+    // exit cancels the open-note reconcile's read this way, so Back never
+    // waits out a read it is about to repeat itself (FB-5).
+    let pending = EditorCaptureWait()
+    return await withTaskCancellationHandler {
+        await withCheckedContinuation { continuation in
+            let answer = EditorCaptureResumer(continuation)
+            pending.resumer = answer
+            if Task.isCancelled {
+                answer.resume(.notOurs)
+                return
+            }
+            startLivenessProbe()
+            start { answer.resume($0) }
+            // Both the page's reply and this run on the main thread, so the
+            // resumer needs no lock — only the once-only latch.
+            DispatchQueue.main.asyncAfter(deadline: .now() + deadlineSeconds) {
+                answer.resume(rendererAnswered() ? .timedOut : .noLiveDocument)
+            }
         }
+    } onCancel: {
+        Task { @MainActor in pending.resumer?.resume(.notOurs) }
     }
+}
+
+/// Where a cancellation finds the capture it has to end early.
+@MainActor
+private final class EditorCaptureWait {
+    var resumer: EditorCaptureResumer?
 }
 
 @MainActor

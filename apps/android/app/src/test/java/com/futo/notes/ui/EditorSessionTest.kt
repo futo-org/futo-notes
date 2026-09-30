@@ -6,8 +6,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -374,7 +376,6 @@ class EditorSessionTest {
                     "facts:note",
                     "classify",
                     "apply:note:FollowRename",
-                    "capture",
                     "facts:renamed",
                     "classify",
                     "apply:renamed:Adopt",
@@ -592,6 +593,45 @@ class EditorSessionTest {
         EditorSession(scope()).reconcileOpenNote(effects)
 
         assertEquals(listOf("capture", "facts", "classify", "apply:Adopt"), log)
+    }
+
+    /**
+     * FB-5 refute: the reconcile's editor read runs under the capture deadline
+     * against a page that may be busy or wedged, and it used to hold the
+     * session lock — Back waited it out before its own read (Android Back
+     * 15.2 s against 9.3 s on the base build). An exit starting mid-read
+     * cancels it and drains at once; its own read is the one that counts.
+     */
+    @Test
+    fun `Back does not wait out a reconcile read in flight`() = runBlocking {
+        val scope = scope()
+        val session = EditorSession(scope)
+        val log = mutableListOf<String>()
+        val reading = CompletableDeferred<Unit>()
+        val neverAnswers = CompletableDeferred<EditorCaptureOutcome>()
+        val effects = object : OpenNoteEffects by LiveEditorOpenNoteEffects(
+            live = EditorCaptureOutcome.Captured("unused"),
+            disk = "peer",
+            log = log,
+        ) {
+            override suspend fun captureEditor(): EditorCaptureOutcome {
+                log += "capture"
+                reading.complete(Unit)
+                return neverAnswers.await()
+            }
+        }
+
+        val reconcile = scope.async { session.reconcileOpenNote(effects) }
+        reading.await()
+        val nav = RecordingEffects(log, name = "nav")
+        session.end(EditorExit.NAVIGATE, nav)
+
+        withTimeout(5_000) { scope.settle() }
+        assertTrue(nav.succeeded)
+        assertNull(reconcile.await())
+        assertEquals("capture", log.first())
+        assertFalse(log.contains("facts"))
+        assertFalse(log.contains("classify"))
     }
 
     @Test
