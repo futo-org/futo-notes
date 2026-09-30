@@ -25,6 +25,20 @@ const FLUSH_CAP_MS = 15_000;
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 let source: ExitFlushSource | null = null;
+const tasks = new Set<() => Promise<void>>();
+
+/**
+ * Registers a write the exit must let finish, beyond the open note: the app
+ * config and app state, whose atomic rewrite (temp file + rename) an exit
+ * mid-write leaves as a hidden `.sf-tmp-*` in the vault (RC-101: closing
+ * 0.1-0.3 s after a note click). Bounded with the rest, by the same race.
+ */
+export function registerExitTask(task: () => Promise<void>): () => void {
+  tasks.add(task);
+  return () => {
+    tasks.delete(task);
+  };
+}
 
 /** The notes shell registers its session here; returns the unregister. */
 export function registerExitFlushSource(next: ExitFlushSource): () => void {
@@ -35,9 +49,19 @@ export function registerExitFlushSource(next: ExitFlushSource): () => void {
 }
 
 export async function flushPendingSaveBeforeExit(): Promise<void> {
+  const others = Promise.all(
+    [...tasks].map((task) =>
+      Promise.resolve()
+        .then(task)
+        .catch(() => {}),
+    ),
+  ).then(() => {});
   const current = source;
-  if (!current) return;
-  const flushed = current.flushSave().catch(() => {});
+  if (!current) {
+    await Promise.race([others, delay(FLUSH_RACE_MS)]);
+    return;
+  }
+  const flushed = Promise.all([current.flushSave().catch(() => {}), others]).then(() => {});
   await Promise.race([flushed, delay(FLUSH_RACE_MS)]);
   if (current.isSavePending?.()) await Promise.race([flushed, delay(FLUSH_CAP_MS - FLUSH_RACE_MS)]);
 }

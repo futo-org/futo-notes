@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { flushPendingSaveBeforeExit, registerExitFlushSource } from './flushBeforeExit';
+import {
+  flushPendingSaveBeforeExit,
+  registerExitFlushSource,
+  registerExitTask,
+} from './flushBeforeExit';
 
 describe('flushPendingSaveBeforeExit', () => {
   afterEach(() => vi.useRealTimers());
@@ -78,5 +82,29 @@ describe('flushPendingSaveBeforeExit', () => {
     await vi.advanceTimersByTimeAsync(15_000);
     await expect(stuck).resolves.toBeUndefined();
     unregister();
+  });
+
+  it('waits for a registered exit task (a config write) even with no note open, and gives up on a hung one', async () => {
+    vi.useFakeTimers();
+    let landed = false;
+    const unregister = registerExitTask(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      landed = true;
+    });
+    const drained = flushPendingSaveBeforeExit();
+    await vi.advanceTimersByTimeAsync(200);
+    await drained;
+    expect(landed).toBe(true);
+    unregister();
+
+    const hung = registerExitTask(() => new Promise<void>(() => {}));
+    const throws = registerExitTask(() => {
+      throw new Error('boom');
+    });
+    const stuck = flushPendingSaveBeforeExit();
+    await vi.advanceTimersByTimeAsync(3000);
+    await expect(stuck).resolves.toBeUndefined();
+    hung();
+    throws();
   });
 });

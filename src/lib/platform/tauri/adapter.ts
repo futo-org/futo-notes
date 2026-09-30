@@ -82,5 +82,5 @@ export function createTauriAdapter() {
     return subscribe('fs:change', callback);
   }
 
-  return { fs, invalidateNotesRoot, onFileChange };
+  return { fs, invalidateNotesRoot, onFileChange, sweepStaleTemps: storage.sweepStaleTemps };
 }
