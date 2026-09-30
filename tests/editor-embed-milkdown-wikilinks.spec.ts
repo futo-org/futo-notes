@@ -686,6 +686,36 @@ async function placeCaret(page: Page, spot: CaretSpot): Promise<void> {
   }, spot);
 }
 
+/**
+ * Selects `count` consecutive inline atoms (chips / images), skipping the first
+ * `skip`, and focuses the editor. One atom is a NodeSelection, as a tap or an
+ * arrow key makes it; more are the text range a drag makes.
+ */
+async function selectAtoms(page: Page, skip: number, count: number): Promise<void> {
+  await page.evaluate(
+    ({ skip: skipped, count: n }) => {
+      const view = (window as unknown as ComposingViewWindow).__futoProseMirrorView();
+      const doc = view.state.doc;
+      const at: number[] = [];
+      doc.descendants((node, pos) => {
+        if (node.isInline && !node.isText) at.push(pos);
+        return true;
+      });
+      const from = at[skipped];
+      const last = at[skipped + n - 1];
+      if (from === undefined || last === undefined) throw new Error('no such chip in the document');
+      const Selection = Object.getPrototypeOf(view.state.selection.constructor) as {
+        fromJSON(doc: unknown, json: unknown): unknown;
+      };
+      const json =
+        n === 1 ? { type: 'node', anchor: from } : { type: 'text', anchor: from, head: last + 1 };
+      view.dispatch(view.state.tr.setSelection(Selection.fromJSON(doc, json)));
+      view.focus();
+    },
+    { skip, count },
+  );
+}
+
 const composing = (page: Page) =>
   page.evaluate(() => (window as unknown as ComposingViewWindow).__futoProseMirrorView().composing);
 
@@ -884,6 +914,43 @@ test.describe('IME commit next to a chip', () => {
     expect(OCCURRENCES(after, 'NIHAO')).toBe(1);
     expect(await composing(page)).toBe(false);
   });
+
+  // RC-97 (FB-19's refuter). A chip that is SELECTED (a NodeSelection: tapped, or
+  // reached by an arrow key) and composed over: the IME replaces the selection
+  // with the composed text. ProseMirror re-dispatched the selection as a text
+  // range under the live composition, Chromium dropped the composition without a
+  // `compositionend`, and the commit was lost, the chip stayed and
+  // `view.composing` stayed set.
+  const SELECTED: Array<[string, string, number, number, string]> = [
+    ['a chip', 'pre [[one]] post\n', 0, 1, 'pre NIHAO post'],
+    [
+      'the middle one of three chips',
+      'a [[one]][[two]][[three]] z\n',
+      1,
+      1,
+      '[[one]]NIHAO[[three]]',
+    ],
+    ['an image', 'pre ![pic](pic.png) post\n', 0, 1, 'pre NIHAO post'],
+    ['two chips as a text range', 'pre [[one]][[two]] post\n', 0, 2, 'pre NIHAO post'],
+  ];
+  for (const [what, markdown, skip, count, expected] of SELECTED) {
+    test(`composing over ${what} replaces it and ends the composition`, async ({ page }) => {
+      await open(page, markdown);
+      await selectAtoms(page, skip, count);
+      await imeCommit(page, ['ni', 'nihao'], 'NIHAO');
+      const after = await getContent(page);
+      expect(OCCURRENCES(after, 'NIHAO')).toBe(1);
+      expect(after).toContain(expected);
+      expect(after).not.toContain('[[one]][[two]]');
+      expect.soft(await composing(page)).toBe(false);
+      // Input rules run again: `- ` at the start of a fresh line is a bullet.
+      await page.keyboard.press('ControlOrMeta+End');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('- item');
+      await flushFrames(page);
+      await expect(page.locator('.ProseMirror ul li')).toHaveCount(1);
+    });
+  }
 
   test('ordinary text is unchanged: commit lands once and composing clears', async ({ page }) => {
     await open(page, 'hello world\n');

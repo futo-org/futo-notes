@@ -44,7 +44,8 @@ not apply. Nothing in Swift, Kotlin, or Rust may hold a second copy either.
 `inlineNodesCursorPlugin` returned `true` from `compositionend`, which keeps ProseMirror's own
 handler from running, so an IME commit between two non-text inline nodes (two chips, image +
 chip) left `view.composing` set for good off Android — input rules stop and `isComposing()`
-sticks. The fork is swapped in at the same index in `commonmarkWithCompat()`; its canary is in
+sticks. It also deletes a selection that covers a chip before a composition starts over it (RC-97:
+ProseMirror re-dispatching that selection made Chromium drop the composition). The fork is swapped in at the same index in `commonmarkWithCompat()`; its canary is in
 `editor-embed-milkdown-compat.spec.ts`, its real-IME tests in
 `editor-embed-milkdown-wikilinks.spec.ts`.
 
@@ -76,6 +77,10 @@ Four more escaping repairs, from the 2026-09 release-hardening campaign (FB-4a):
   as an EMPTY task item (GFM needs text after the marker), and `listItemFiller.ts`
   writes that marker itself for an empty task item; without the pair it saved as
   a bare `-`.
+- `listItemSpread.ts` makes an editor-made list item TIGHT: the preset defaults
+  `list_item.spread` to `true` (the parser always overrides it from the source), so
+  a nested list built by typing Enter then Tab saved `- b\n\n  - c` (RC-102). Placed
+  after the gfm preset in `gfmWithCompat()`; parsed and pasted items are untouched.
 - The app's own `break` handler (`src/features/editor/milkdown/table/tableLineBreak.ts`)
   writes a space where `\n` is unsafe (an ATX heading) and `<br>` before inline
   HTML; the wikilink handler writes `|` as `\|` in a table cell.
@@ -122,7 +127,7 @@ Rules that do bind here:
   `@futo-notes/editor` and pull `@milkdown/kit` into every bundle that touches
   the barrel, the codegen scripts' included.
 - **The forks are meant to die.** `tests/editor-embed-milkdown-compat.spec.ts`
-  reproduces each upstream bug against the *unpatched* preset. A red canary means
+  reproduces each upstream bug against the _unpatched_ preset. A red canary means
   upstream shipped a fix — delete our fork, do not relax the canary. The
   `@milkdown/kit` version is pinned (not a range) so this stays meaningful.
 - Any change to these plugins is measured, not argued:

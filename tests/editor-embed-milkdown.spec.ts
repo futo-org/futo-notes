@@ -687,6 +687,46 @@ test('undoing a keystroke typed over a selected divider restores the note exactl
   expect(await getContent(page)).toBe(note);
 });
 
+/*
+ * RC-54 (L3-6): Ctrl-Z after an adopt threw `RangeError: Position N out of range`.
+ * The adopt was incidental. An undo that restores a divider ran `dividerCaret`,
+ * whose `appendTransaction` added an empty paragraph to the replay; that
+ * paragraph is in no history event, so every OLDER event that sat below it in
+ * the document was now two positions off, its inverse steps no longer fitted
+ * ("Inconsistent open depths"), and resolving its selection bookmark ran past the
+ * end of the document. It needs the divider event to have an earlier event
+ * below it, which is why a lone undo (RC-60's case above) never showed it.
+ */
+test('undoing everything after an adopt, a later edit and a keystroke over a divider is exact', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await hostSetContent(page, 'first\n\n***\n\nlast\n');
+  await page.evaluate(() =>
+    (window as unknown as FakeHostWindow).FutoEditor.applyExternalContent(
+      'first peer\n\n***\n\nlast\n',
+    ),
+  );
+  await flushFrames(page);
+  const adopted = 'first peer\n\n***\n\nlast\n';
+
+  // An edit BELOW the divider, then one over it.
+  await page.getByText('last', { exact: true }).click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' one');
+  await page.locator('.ProseMirror hr').click();
+  await page.keyboard.type('hello');
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toContain('hello');
+
+  for (let i = 0; i < 30; i++) await page.keyboard.press('ControlOrMeta+z');
+  await settleChangeDebounce(page);
+
+  expect(errors).toEqual([]);
+  expect(await getContent(page)).toBe(adopted);
+});
+
 test('undo and redo of a typed `---` leave the divider note byte-stable', async ({ page }) => {
   await hostSetContent(page, 'above\n\n');
   await focusEditor(page);

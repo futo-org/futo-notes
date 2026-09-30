@@ -1017,3 +1017,51 @@ test('a typed plain link `[a](b)` is not turned into an image or a link', async 
     '[a](https://example.com)',
   );
 });
+
+// ============================================================
+// A nested list made by typing saves TIGHT (RC-102). Items the editor creates
+// used to carry `spread: true`, so the moment Tab gave one a child list the item
+// text and the list were separated by a blank line — where the same list opened
+// from a tight file and edited stayed tight. Two spellings of one list, and the
+// loose one reads as a different document to any other Markdown renderer.
+// ============================================================
+
+/** Presses `Enter` / `Tab` for those exact entries and types everything else. */
+async function typeAndPress(page: Page, steps: string[]): Promise<void> {
+  for (const step of steps) {
+    if (step === 'Enter' || step === 'Tab') await page.keyboard.press(step);
+    else await page.keyboard.type(step);
+  }
+}
+
+test('a bullet list nested by typing Enter then Tab saves tight', async ({ page }) => {
+  await open(page, '');
+  await page.locator('.ProseMirror').click();
+  await typeAndPress(page, ['- item a', 'Enter', 'item b', 'Enter', 'Tab', 'nested c']);
+  await settled(page);
+  expect(await getContent(page)).toBe('- item a\n- item b\n  - nested c\n');
+});
+
+test('an ordered list nested by typing Enter then Tab saves tight', async ({ page }) => {
+  await open(page, '');
+  await page.locator('.ProseMirror').click();
+  await typeAndPress(page, ['1. one', 'Enter', 'two', 'Enter', 'Tab', 'nested']);
+  await settled(page);
+  expect(await getContent(page)).toBe('1. one\n2. two\n   1. nested\n');
+});
+
+test('the same list opened from a tight file and edited saves the same bytes', async ({ page }) => {
+  await open(page, '- item a\n- item b\n  - nested c\n');
+  await caretAtEndOf(page, 'nested c');
+  await page.keyboard.type('!');
+  await settled(page);
+  expect(await getContent(page)).toBe('- item a\n- item b\n  - nested c!\n');
+});
+
+test('a LOOSE file keeps its blank lines after the same edit', async ({ page }) => {
+  await open(page, '- item a\n\n- item b\n\n  - nested c\n');
+  await caretAtEndOf(page, 'nested c');
+  await page.keyboard.type('!');
+  await settled(page);
+  expect(await getContent(page)).toBe('- item a\n\n- item b\n\n  - nested c!\n');
+});
