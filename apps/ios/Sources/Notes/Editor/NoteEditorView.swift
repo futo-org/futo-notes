@@ -697,6 +697,9 @@ struct NoteEditorView: View {
     private func settleRelink(flushed: String, relinkedBody: String?) async {
         guard let body = relinkedBody, body != flushed else { return }
         savedContent = body
+        // What the page held when it was read: the text the adopt below is
+        // conditional on. nil = the page holds no document of ours to compare.
+        var readText: String?
         var ownsPage = false
         if content == flushed, let attachment = editorAttachment {
             // A keystroke the editor has not reported yet must not be replaced:
@@ -704,18 +707,41 @@ struct NoteEditorView: View {
             switch await EditorHost.shared.readContent(ownedBy: attachment, showing: content) {
             case .captured(let live):
                 if live != content { receiveEditorChange(live) }
+                readText = live
                 ownsPage = true
             case .noLiveDocument:
                 ownsPage = true
             case .notOurs, .timedOut:
-                // Cannot tell: keep the draft (rebased onto the file below).
+                // Cannot tell: keep the draft (rebased onto the file above).
                 return
             }
         }
         let rebase = rebasedOnRelink(flushed: flushed, live: content, relinkedBody: body)
         savedContent = rebase.savedContent
         guard rebase.adoptIntoEditor else { return }
-        if ownsPage { EditorHost.shared.applyExternal(content: rebase.content) }
+        if let attachment = editorAttachment, ownsPage, let readText {
+            // The read above and this adopt are two WebKit round trips; a
+            // keystroke can land between them and a plain replace destroys it.
+            // Compare and replace inside ONE script instead: the page is
+            // single-threaded, so it either still holds what was read (replace)
+            // or holds a newer edit (keep it as the draft, RC-70 path).
+            switch await EditorHost.shared.applyExternalIfUnchanged(
+                ownedBy: attachment, expected: readText, content: rebase.content)
+            {
+            case .applied:
+                content = rebase.content
+            case .kept(let liveText):
+                if liveText != content { receiveEditorChange(liveText) }
+            case .unavailable:
+                break
+            }
+            return
+        }
+        // The page holds no editable document of ours (never presented, or no
+        // attachment): nothing typed can be lost by replacing it.
+        if editorAttachment != nil, ownsPage {
+            EditorHost.shared.applyExternal(content: rebase.content)
+        }
         content = rebase.content
     }
 

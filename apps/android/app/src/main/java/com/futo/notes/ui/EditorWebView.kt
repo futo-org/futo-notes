@@ -31,6 +31,7 @@ import com.futo.notes.localization.Localization
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.coroutines.resume
@@ -99,6 +100,50 @@ internal fun isCurrentFindReportOwner(
     postedAttachmentGeneration: Long,
     currentAttachment: EditorAttachmentToken?,
 ): Boolean = currentAttachment?.generation == postedAttachmentGeneration
+
+/**
+ * What an atomic "adopt this text if the page still holds that text" did.
+ * See [EditorHost.applyExternalContentIfUnchanged].
+ */
+internal sealed interface ExternalAdoption {
+    /** The page held exactly the expected text, and now holds the new one. */
+    data object Applied : ExternalAdoption
+
+    /** The page held something else (a keystroke landed first) and was left alone. */
+    data class Kept(val liveText: String) : ExternalAdoption
+
+    /** Nothing was decided: no editor, not ours, or the page did not answer in time. */
+    data object Unavailable : ExternalAdoption
+}
+
+/**
+ * The page-side half of [EditorHost.applyExternalContentIfUnchanged]: compare
+ * and replace in ONE script. The page's JS is single-threaded, so no input
+ * event can land between the `getContent()` and the `applyExternalContent()` —
+ * two separate evaluations (a read, then an adopt) leave a window in which a
+ * keystroke is destroyed by the replace. Composes existing bridge calls only.
+ * Answers a JSON object: `{"applied":true}`, `{"applied":false,"text":<live>}`,
+ * or `null` for a page with no editor.
+ */
+internal fun adoptIfUnchangedScript(expected: String, replacement: String): String =
+    """
+    (() => {
+      if (!window.FutoEditor) return null;
+      const live = window.FutoEditor.getContent();
+      if (live !== ${JSONObject.quote(expected)}) return JSON.stringify({ applied: false, text: live });
+      window.FutoEditor.applyExternalContent(${JSONObject.quote(replacement)});
+      return JSON.stringify({ applied: true });
+    })()
+    """.trimIndent()
+
+/** Decode the answer of [adoptIfUnchangedScript]; `null` (no editor / garbage) is [ExternalAdoption.Unavailable]. */
+internal fun externalAdoptionFrom(answer: String?): ExternalAdoption {
+    if (answer == null) return ExternalAdoption.Unavailable
+    val parsed = runCatching { JSONObject(answer) }.getOrNull() ?: return ExternalAdoption.Unavailable
+    if (parsed.optBoolean("applied", false)) return ExternalAdoption.Applied
+    if (!parsed.has("text")) return ExternalAdoption.Unavailable
+    return ExternalAdoption.Kept(parsed.getString("text"))
+}
 
 /**
  * Compose host for the embedded markdown editor — the Android counterpart of
@@ -969,6 +1014,49 @@ class EditorHost private constructor(appContext: Context) {
         val pushesBefore = contentPushes
         val outcome = readPage(attachment, READ_SCRIPT, forExit = false)
         return if (contentPushes == pushesBefore) outcome else EditorCaptureOutcome.NotOurs
+    }
+
+    /**
+     * Adopt [markdown] into the open document ONLY IF the page still holds
+     * [expected] — checked and applied inside one script, so a keystroke cannot
+     * land between the two (see [adoptIfUnchangedScript]). A page that holds
+     * something else is left alone and its text reported, so the caller can hear
+     * the edit and keep it as a draft.
+     *
+     * Bounded by [CAPTURE_DEADLINE_MS]; running out of time decides nothing
+     * ([ExternalAdoption.Unavailable]), and the caller keeps the draft.
+     */
+    internal suspend fun applyExternalContentIfUnchanged(
+        attachment: EditorAttachmentToken,
+        expected: String,
+        markdown: String,
+    ): ExternalAdoption {
+        if (!isReady) return ExternalAdoption.Unavailable
+        // `evaluateJavascript` is main-thread-only.
+        if (Looper.myLooper() != Looper.getMainLooper()) return ExternalAdoption.Unavailable
+        if (!attachments.permits(attachment)) return ExternalAdoption.Unavailable
+        val answer = withTimeoutOrNull(CAPTURE_DEADLINE_MS) {
+            suspendCancellableCoroutine<String?> { continuation ->
+                webView.evaluateJavascript(adoptIfUnchangedScript(expected, markdown)) { result ->
+                    if (continuation.isActive) continuation.resume(decodeJavascriptString(result))
+                }
+            }
+        }
+        return when (val adoption = externalAdoptionFrom(answer)) {
+            ExternalAdoption.Applied -> {
+                // The page now holds the new text: record it as pushed, so the
+                // same text is not pushed to the page a second time.
+                desiredContent = markdown
+                lastPushedContent = markdown
+                contentPushes += 1
+                adoption
+            }
+            is ExternalAdoption.Kept -> {
+                lastPushedContent = adoption.liveText
+                adoption
+            }
+            ExternalAdoption.Unavailable -> adoption
+        }
     }
 
     /**

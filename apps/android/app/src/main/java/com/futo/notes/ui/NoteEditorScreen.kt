@@ -335,6 +335,9 @@ fun NoteEditorScreen(
         val body = relinkedBody ?: return
         if (body == flushed) return
         savedContent = body
+        // What the page held when it was read: the text the adopt below is
+        // conditional on. null = the page holds no document of ours to compare.
+        var readText: String? = null
         var ownsPage = false
         val attachment = editorAttachment
         if (content == flushed && attachment != null) {
@@ -343,6 +346,7 @@ fun NoteEditorScreen(
             when (val outcome = host.readContentAndWait(attachment, shellCopy = content)) {
                 is EditorCaptureOutcome.Captured -> {
                     if (outcome.text != content) receiveEditorChange(outcome.text)
+                    readText = outcome.text
                     ownsPage = true
                 }
                 EditorCaptureOutcome.NoLiveDocument -> ownsPage = true
@@ -353,7 +357,22 @@ fun NoteEditorScreen(
         val rebase = rebasedOnRelink(flushed, content, body)
         savedContent = rebase.savedContent
         if (!rebase.adoptIntoEditor) return
-        if (ownsPage) host.applyExternalContent(rebase.content)
+        if (attachment != null && ownsPage && readText != null) {
+            // The read above and this adopt are two renderer round trips; a
+            // keystroke can land between them and a plain replace destroys it.
+            // Compare and replace inside ONE script instead: the page is
+            // single-threaded, so it either still holds what was read (replace)
+            // or holds a newer edit (keep it as the draft, RC-70 path).
+            when (val adoption = host.applyExternalContentIfUnchanged(attachment, readText, rebase.content)) {
+                ExternalAdoption.Applied -> content = rebase.content
+                is ExternalAdoption.Kept -> if (adoption.liveText != content) receiveEditorChange(adoption.liveText)
+                ExternalAdoption.Unavailable -> Unit
+            }
+            return
+        }
+        // The page holds no editable document of ours (never presented, or no
+        // attachment): nothing typed can be lost by replacing it.
+        if (attachment != null && ownsPage) host.applyExternalContent(rebase.content)
         content = rebase.content
     }
 
