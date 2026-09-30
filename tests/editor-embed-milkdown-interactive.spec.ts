@@ -357,6 +357,39 @@ test('pasting an HTML table into a table cell throws nothing and pastes the cell
   ]);
 });
 
+/*
+ * Plain-text pastes into a table cell and a list item (R10-FB13-1/-2, RC-81).
+ * `text/html` is left empty, so ProseMirror takes its plain-text route — the one
+ * `plainTextBlockPaste.ts` touches — and only the clipboard event is synthetic.
+ */
+test('a lone heading pasted into an empty table cell does not split the table', async ({
+  page,
+}) => {
+  await open(page, '| a | b |\n| --- | --- |\n|   | y |\n');
+  await withCaretObserved(page, () => page.locator('.ProseMirror tbody td').first().click());
+  await pasteHtml(page, '', '# x');
+  await settled(page);
+  const content = await getContent(page);
+  expect(content.match(/^\|\s*a\s*\|/gm)).toHaveLength(1);
+  expect(tableRows(content)).toEqual([
+    ['a', 'b'],
+    ['x', 'y'],
+  ]);
+});
+
+test('a list pasted into an empty list item becomes siblings, not a nested list', async ({
+  page,
+}) => {
+  await open(page, '- a\n- b\n');
+  await caretAtEndOf(page, 'b');
+  await page.keyboard.press('Enter');
+  await pasteHtml(page, '', '- x\n- y');
+  await settled(page);
+  const content = await getContent(page);
+  expect(content).not.toMatch(/-\s+-\s/);
+  expect(content.match(/^\s*[-*+]\s/gm)).toHaveLength(4);
+});
+
 test('pasting an HTML table into the header row, and a <th> table into a body row, both land', async ({
   page,
 }) => {

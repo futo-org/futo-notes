@@ -14,8 +14,15 @@
  * Deliberately narrow, and everything else stays with the clipboard plugin
  * (registered after this one): only a `text/plain`-only paste (a `text/html`
  * paste has its own DOM path), only a collapsed caret in a paragraph with no
- * content, and only when the pasted text is not just one paragraph (that pastes
- * inline, into the paragraph, and always did).
+ * content, only when the pasted text is not just one paragraph (that pastes
+ * inline, into the paragraph, and always did), and only when that paragraph is
+ * a direct child of the document or a quote. Not a list item's first paragraph
+ * (the fitter keeps the item's empty filler there and nests the pasted blocks
+ * under it: `- - x`, where the clipboard route appends a pasted list as
+ * siblings) and not a table cell (a lone `# x` fits the cell's content model
+ * and split the table around the heading). `canReplace` is asked outright
+ * rather than waiting for the fitter to throw, because in both of those places
+ * it does not throw.
  */
 import { parserCtx, schemaCtx } from '@milkdown/kit/core';
 import { DOMParser, DOMSerializer } from '@milkdown/kit/prose/model';
@@ -44,9 +51,17 @@ export const plainTextBlockPaste = $prose((ctx) => {
     const only = parsed.childCount === 1 ? parsed.firstChild : null;
     if (parsed.childCount === 0 || only?.type === schema.nodes.paragraph) return false;
 
+    const containerDepth = $from.depth - 1;
+    const container = $from.node(containerDepth);
+    if (container.type !== schema.nodes.doc && container.type !== schema.nodes.blockquote) {
+      return false;
+    }
+
     const slice = DOMParser.fromSchema(schema).parseSlice(
       DOMSerializer.fromSchema(schema).serializeFragment(parsed.content),
     );
+    const at = $from.index(containerDepth);
+    if (!container.canReplace(at, at + 1, slice.content)) return false;
     try {
       const from = $from.before();
       const tr = view.state.tr.replaceWith(from, $from.after(), slice.content);

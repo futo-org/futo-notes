@@ -15,7 +15,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { mount } from 'svelte';
 import { TextSelection } from '@milkdown/kit/prose/state';
+import * as prosemirrorView from '@milkdown/kit/prose/view';
 import type { EditorView } from '@milkdown/kit/prose/view';
+import { splitListItem } from '@milkdown/kit/prose/schema-list';
+import type { Slice } from '@milkdown/kit/prose/model';
 
 import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
 import { guardEditorTimers } from './__fixtures__/editorTimerGuard';
@@ -58,7 +61,21 @@ function pastePlain(view: EditorView, text: string): boolean {
     clipboardData: { getData: (type: string) => (type === 'text/plain' ? text : '') },
     preventDefault: () => {},
   } as unknown as ClipboardEvent;
-  return !!view.someProp('handlePaste', (handler) => handler(view, event, null as never));
+  // The slice ProseMirror itself builds from the text, which every `handlePaste`
+  // receives from a real paste (prosemirror-tables reads it and dies on null).
+  const parseFromClipboard = (
+    prosemirrorView as unknown as {
+      __parseFromClipboard: (
+        view: EditorView,
+        text: string,
+        html: string | null,
+        plain: boolean,
+        $context: unknown,
+      ) => Slice;
+    }
+  ).__parseFromClipboard;
+  const slice = parseFromClipboard(view, text, null, false, view.state.selection.$from);
+  return !!view.someProp('handlePaste', (handler) => handler(view, event, slice));
 }
 
 const TABLE = '| a | b |\n| --- | --- |\n| 1 | 2 |\n';
@@ -129,5 +146,70 @@ describe('pasting a block as plain text into an empty paragraph (RC-59)', () => 
 
     expect(blockTypes(view)[0]).toBe('paragraph');
     expect(view.state.doc.child(0).textContent).toContain('keep me');
+  });
+});
+
+/*
+ * R10-FB13-1 / -2: the plugin is for an empty paragraph that is a direct child
+ * of the document (or a quote). Two other places an empty paragraph sits took
+ * the same code path and regressed against the clipboard plugin's own route:
+ *
+ *  - the FIRST paragraph of a list item: the fitter keeps the item's empty
+ *    filler paragraph and nests the pasted blocks under it (`- - x`), where the
+ *    clipboard route appends a pasted list as siblings;
+ *  - a table CELL: a lone `# x` fits the cell's content model, so the heading
+ *    split the table in two instead of landing in the cell.
+ */
+describe('an empty paragraph that is not a document or quote child is left to the clipboard route', () => {
+  function texts(view: EditorView, type: string): string[] {
+    const found: string[] = [];
+    view.state.doc.descendants((node) => {
+      if (node.type.name === type) found.push(node.textContent);
+    });
+    return found;
+  }
+
+  function count(view: EditorView, type: string): number {
+    return texts(view, type).length;
+  }
+
+  it('a list pasted into an empty list item becomes siblings, not a nested list', async () => {
+    const handle = await mountEditor('');
+    handle.openNote('- a\n- b\n');
+    const view = handle.getProseMirrorView()!;
+    // Enter at the end of `b`: a new, empty item.
+    let endOfB = -1;
+    view.state.doc.descendants((node, pos) => {
+      if (node.isTextblock && node.textContent === 'b') endOfB = pos + node.nodeSize - 1;
+      return endOfB === -1;
+    });
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, endOfB)));
+    expect(splitListItem(view.state.schema.nodes.list_item)(view.state, view.dispatch)).toBe(true);
+    expect(view.state.selection.$from.parent.content.size).toBe(0);
+
+    pastePlain(view, '- x\n- y\n');
+
+    expect(count(view, 'bullet_list')).toBe(1);
+    expect(texts(view, 'list_item')).toEqual(['a', 'b', 'x', 'y']);
+  });
+
+  it('a lone heading pasted into an empty table cell does not split the table', async () => {
+    const handle = await mountEditor('');
+    handle.openNote('| a | b |\n| --- | --- |\n| | y |\n');
+    const view = handle.getProseMirrorView()!;
+    let cell = -1;
+    view.state.doc.descendants((node, pos) => {
+      if (cell === -1 && node.type.name === 'table_cell' && node.textContent === '') cell = pos;
+      return cell === -1;
+    });
+    expect(cell).toBeGreaterThanOrEqual(0);
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, cell + 2)));
+    expect(view.state.selection.$from.parent.content.size).toBe(0);
+
+    pastePlain(view, '# x');
+
+    expect(count(view, 'table')).toBe(1);
+    expect(blockTypes(view)).not.toContain('heading');
+    expect(view.state.doc.textContent).toContain('x');
   });
 });
