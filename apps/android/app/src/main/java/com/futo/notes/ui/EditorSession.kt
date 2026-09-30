@@ -255,6 +255,7 @@ internal class EditorSession(
     /** The open-note reconcile's editor read, while it is in flight. */
     private var reconcileRead: Job? = null
     private var reconcileRetry: (suspend () -> Unit)? = null
+    private var reconcileRetryInFlight = false
 
     /** The focused note whose clean peer update waits for blur before adoption. */
     private var deferredAdoptionId: String? = null
@@ -536,8 +537,19 @@ internal class EditorSession(
                     }
                     if (plan.closes) closed = false
                     // The editor stays open: finish the reconcile this exit
-                    // interrupted.
-                    interrupted?.let { retry -> scope.launch { retry() } }
+                    // interrupted — once. Back pressed again and again against
+                    // a busy page refuses again and again, and each refusal
+                    // must not stack up another reconcile behind the last.
+                    if (interrupted != null && !reconcileRetryInFlight) {
+                        reconcileRetryInFlight = true
+                        scope.launch {
+                            try {
+                                interrupted()
+                            } finally {
+                                reconcileRetryInFlight = false
+                            }
+                        }
+                    }
                 }
             }
         }

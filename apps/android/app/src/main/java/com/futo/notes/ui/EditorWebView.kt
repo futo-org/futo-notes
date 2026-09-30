@@ -29,11 +29,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.futo.notes.BuildConfig
 import com.futo.notes.localization.Localization
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONArray
 import org.json.JSONObject
@@ -304,9 +300,6 @@ class EditorHost private constructor(appContext: Context) {
     /** Every document this host has sent the page, counted — so a read can tell
      *  that one landed while it was in flight ([readContentAndWait]). */
     private var contentPushes = 0L
-    /** The open-note reconcile's page read while the page has not answered it. */
-    private var reconcilePageRead: Deferred<EditorCaptureOutcome>? = null
-    private val readScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     // Note universe + image base (bridge v2). The notes JSON can be large, so
     // dedupe holds only its hash, not the string.
     private var desiredNotesJson: String? = null
@@ -422,7 +415,13 @@ class EditorHost private constructor(appContext: Context) {
                     "FutoEditor",
                     "WebView renderer gone (didCrash=${detail?.didCrash()}); rebuilding",
                 )
-                main.post { rebuildWebView() }
+                main.post {
+                    // A dead renderer answers nothing: the read it held is over.
+                    pageRead?.answer?.complete(null)
+                    pageRead = null
+                    unresponsiveSinceMs = null
+                    rebuildWebView()
+                }
                 return true
             }
 
@@ -940,32 +939,7 @@ class EditorHost private constructor(appContext: Context) {
      */
     internal suspend fun captureContentAndWait(
         attachment: EditorAttachmentToken,
-    ): EditorCaptureOutcome {
-        // An open-note reconcile's read may still be running in the page — an
-        // exit cancels the reconcile's WAIT for it, not the page's work. The
-        // page answers scripts in order, so this read would queue behind that
-        // one and spend its own deadline on the other's work: an edited
-        // streaming note settles its tail inside the first read, the second
-        // ran out of time, and the exit committed the shell's copy without the
-        // edit (FB-5 refute, round 2). So wait for the page's answer to that
-        // read first. A page it found dead (nothing answered, not even the
-        // liveness probe) is just as dead for this one. A page that answered
-        // answers this read promptly. A page that was merely busy — the
-        // settle, one long synchronous task, is still running — gets this
-        // read's own deadline on top, and is KNOWN to be alive: this read's
-        // probe queues behind that same task and cannot answer, and reading
-        // its silence as a wedge committed the shell's copy without the edit.
-        // Out of time there, the exit is refused (TimedOut), and the next Back
-        // finds the settle done.
-        val knownBusy = reconcilePageRead?.let { pending ->
-            when (pending.await()) {
-                EditorCaptureOutcome.NoLiveDocument -> return EditorCaptureOutcome.NoLiveDocument
-                EditorCaptureOutcome.TimedOut -> true
-                is EditorCaptureOutcome.Captured, EditorCaptureOutcome.NotOurs -> false
-            }
-        } ?: false
-        return readWithinDeadline(attachment, CAPTURE_SCRIPT, knownAlive = knownBusy)
-    }
+    ): EditorCaptureOutcome = readPage(attachment, CAPTURE_SCRIPT, forExit = true)
 
     /**
      * Read the live document for a note that stays open — the open-note
@@ -993,98 +967,103 @@ class EditorHost private constructor(appContext: Context) {
     ): EditorCaptureOutcome {
         if (lastPushedContent != shellCopy) return EditorCaptureOutcome.NoLiveDocument
         val pushesBefore = contentPushes
-        // Owned by the host, not by the caller: a caller that stops waiting
-        // (an exit cancels the reconcile) leaves the page's answer to the
-        // exit's own read (captureContentAndWait).
-        val read = readScope.async { readWithinDeadline(attachment, READ_SCRIPT) }
-        reconcilePageRead = read
-        read.invokeOnCompletion { if (reconcilePageRead === read) reconcilePageRead = null }
-        val outcome = read.await()
+        val outcome = readPage(attachment, READ_SCRIPT, forExit = false)
         return if (contentPushes == pushesBefore) outcome else EditorCaptureOutcome.NotOurs
     }
 
-    private suspend fun readWithinDeadline(
+    /**
+     * The page read in flight: ONE script in the renderer, however many callers
+     * wait for it, with the liveness probe dispatched ahead of it.
+     */
+    private class PageRead {
+        val probeAnswered = AtomicBoolean(false)
+        /** The script's answer: the document, or `null` for a page with no editor. */
+        val answer = CompletableDeferred<String?>()
+    }
+
+    private var pageRead: PageRead? = null
+    /** When an exit first found the page giving no sign of life; see [unansweredPageRead]. */
+    private var unresponsiveSinceMs: Long? = null
+
+    /**
+     * Read the open document, under the capture deadline.
+     *
+     * At most one read is ever outstanding in the page. The renderer answers
+     * scripts in order, so a second read only queues behind the first and
+     * spends its own deadline on the other's work — an edited streaming note
+     * settles its tail inside the first read — and every Back refused against
+     * a blocked page queued one more (FB-5 refute round 3: Back pressed every
+     * 2 s never left). A caller that finds a read outstanding waits for THAT
+     * read's answer instead; the exit's blur is `prepare()`'s own. A read
+     * answered is done with, so the next caller starts a fresh one.
+     *
+     * Out of time, the answer depends on what the page has shown (see
+     * [unansweredPageRead]); the page's answer, when it comes, still retires
+     * the read.
+     */
+    private suspend fun readPage(
         attachment: EditorAttachmentToken,
         script: String,
-        knownAlive: Boolean = false,
+        forExit: Boolean,
     ): EditorCaptureOutcome {
         // No `initialized` yet: the bundle is still applying this shell's
         // config — for a big enough note, for a long time — so nothing is on
         // screen and there is nothing of the user's to lose. Answer without
         // touching the renderer at all.
         if (!isReady) return EditorCaptureOutcome.NoLiveDocument
-        var rendererAnswered = { false }
-        return captureWithinDeadline(
+        // `evaluateJavascript` is main-thread-only.
+        if (Looper.myLooper() != Looper.getMainLooper()) return EditorCaptureOutcome.NotOurs
+        if (!attachments.permits(attachment)) return EditorCaptureOutcome.NotOurs
+        val read = pageRead ?: startPageRead(script)
+        val outcome = captureWithinDeadline(
             deadlineMs = CAPTURE_DEADLINE_MS,
-            startLivenessProbe = { rendererAnswered = startRendererLivenessProbe() },
-            rendererAnswered = { knownAlive || rendererAnswered() },
-        ) { awaitCapture(attachment, script) }
+            startLivenessProbe = {},
+            rendererAnswered = { read.probeAnswered.get() },
+        ) {
+            val text = read.answer.await()
+            when {
+                !attachments.permits(attachment) -> EditorCaptureOutcome.NotOurs
+                // The page is alive but has no `window.FutoEditor` — the
+                // legacy-WebView notice, or a boot that failed.
+                text == null -> EditorCaptureOutcome.NoLiveDocument
+                else -> {
+                    lastPushedContent = text
+                    EditorCaptureOutcome.Captured(text)
+                }
+            }
+        }
+        if (read.answer.isCompleted) return outcome
+        val decided = unansweredPageRead(
+            probeAnswered = read.probeAnswered.get(),
+            forExit = forExit,
+            unresponsiveSinceMs = unresponsiveSinceMs,
+            nowMs = System.currentTimeMillis(),
+            deadAfterMs = UNRESPONSIVE_PAGE_DEAD_AFTER_MS,
+        )
+        unresponsiveSinceMs = decided.unresponsiveSinceMs
+        return decided.outcome
     }
 
     /**
-     * Ask the renderer for nothing at all, and hand back a reader for whether it
-     * got round to answering.
-     *
-     * Dispatched immediately before the capture so it sits AHEAD of it in the
-     * renderer's task queue: an editor streaming a note's tail in idle slices
-     * runs this between two of them and answers in milliseconds, while a JS
-     * thread wedged inside one long synchronous parse runs neither. That is the
-     * whole difference between [EditorCaptureOutcome.TimedOut] and
-     * [EditorCaptureOutcome.NoLiveDocument] — see [captureWithinDeadline].
-     *
-     * Deliberately does NOT touch `window.FutoEditor`: this asks whether the JS
-     * thread is turning over, not whether the bundle booted. A page that is
-     * alive without an editor answers the capture itself, promptly, with
-     * [EditorCaptureOutcome.NoLiveDocument].
+     * Dispatch the probe and then the read. The probe is a trivial round trip
+     * that sits AHEAD of the read in the renderer's task queue: an editor busy
+     * with a long task answers it before the read, a JS thread blocked inside
+     * one never does. It deliberately does not touch `window.FutoEditor`.
      */
-    private fun startRendererLivenessProbe(): () -> Boolean {
-        // `evaluateJavascript` is main-thread-only, and an off-main capture is
-        // already answered NotOurs by [awaitCapture]; probing there would crash
-        // instead. Reporting "no answer" costs nothing — that path never reads it.
-        if (Looper.myLooper() != Looper.getMainLooper()) return { false }
-        val answered = AtomicBoolean(false)
-        webView.evaluateJavascript("1") { answered.set(true) }
-        return { answered.get() }
-    }
-
-    private suspend fun awaitCapture(
-        attachment: EditorAttachmentToken,
-        script: String,
-    ): EditorCaptureOutcome =
-        suspendCancellableCoroutine { continuation ->
-            val permit = EditorAttachmentOperationPermit(attachments, attachment)
-            continuation.invokeOnCancellation { permit.cancel() }
-            val capture = Runnable {
-                if (!permit.mayRun()) {
-                    if (continuation.isActive) continuation.resume(EditorCaptureOutcome.NotOurs)
-                    return@Runnable
-                }
-                webView.evaluateJavascript(script) { result ->
-                    // The deadline may already have answered for us. Returning
-                    // here is what makes a late callback harmless: the stale
-                    // bytes never reach [lastPushedContent].
-                    if (!continuation.isActive) return@evaluateJavascript
-                    if (!attachments.permits(attachment)) {
-                        continuation.resume(EditorCaptureOutcome.NotOurs)
-                        return@evaluateJavascript
-                    }
-                    val captured = decodeJavascriptString(result)
-                    if (captured == null) {
-                        // The page answered but has no `window.FutoEditor` —
-                        // the legacy-WebView notice, or a boot that failed.
-                        continuation.resume(EditorCaptureOutcome.NoLiveDocument)
-                        return@evaluateJavascript
-                    }
-                    lastPushedContent = captured
-                    continuation.resume(EditorCaptureOutcome.Captured(captured))
-                }
-            }
-            if (Looper.myLooper() != Looper.getMainLooper()) {
-                if (continuation.isActive) continuation.resume(EditorCaptureOutcome.NotOurs)
-                return@suspendCancellableCoroutine
-            }
-            capture.run()
+    private fun startPageRead(script: String): PageRead {
+        val read = PageRead()
+        webView.evaluateJavascript("1") {
+            read.probeAnswered.set(true)
+            unresponsiveSinceMs = null
         }
+        webView.evaluateJavascript(script) { result ->
+            unresponsiveSinceMs = null
+            if (pageRead === read) pageRead = null
+            read.answer.complete(decodeJavascriptString(result))
+        }
+        pageRead = read
+        return read
+    }
 
     /** Run a shared editor command (TOOLBAR_EXEC in markdownToolbar.ts). */
     fun exec(commandId: String) {
@@ -1231,6 +1210,9 @@ class EditorHost private constructor(appContext: Context) {
          * not end.
          */
         private const val CAPTURE_DEADLINE_MS = 6_000L
+
+        /** See [unansweredPageRead] for why an exit waits this long on a silent page. */
+        private const val UNRESPONSIVE_PAGE_DEAD_AFTER_MS = 60_000L
 
         /** An exit's read of the open document: end the editing session, then
          *  take the text. `null` is a page with no editor at all. */
