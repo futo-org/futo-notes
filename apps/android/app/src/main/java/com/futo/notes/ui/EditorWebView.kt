@@ -29,6 +29,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.futo.notes.BuildConfig
 import com.futo.notes.localization.Localization
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONArray
 import org.json.JSONObject
@@ -299,6 +304,9 @@ class EditorHost private constructor(appContext: Context) {
     /** Every document this host has sent the page, counted — so a read can tell
      *  that one landed while it was in flight ([readContentAndWait]). */
     private var contentPushes = 0L
+    /** The open-note reconcile's page read while the page has not answered it. */
+    private var reconcilePageRead: Deferred<EditorCaptureOutcome>? = null
+    private val readScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     // Note universe + image base (bridge v2). The notes JSON can be large, so
     // dedupe holds only its hash, not the string.
     private var desiredNotesJson: String? = null
@@ -932,7 +940,32 @@ class EditorHost private constructor(appContext: Context) {
      */
     internal suspend fun captureContentAndWait(
         attachment: EditorAttachmentToken,
-    ): EditorCaptureOutcome = readWithinDeadline(attachment, CAPTURE_SCRIPT)
+    ): EditorCaptureOutcome {
+        // An open-note reconcile's read may still be running in the page — an
+        // exit cancels the reconcile's WAIT for it, not the page's work. The
+        // page answers scripts in order, so this read would queue behind that
+        // one and spend its own deadline on the other's work: an edited
+        // streaming note settles its tail inside the first read, the second
+        // ran out of time, and the exit committed the shell's copy without the
+        // edit (FB-5 refute, round 2). So wait for the page's answer to that
+        // read first. A page it found dead (nothing answered, not even the
+        // liveness probe) is just as dead for this one. A page that answered
+        // answers this read promptly. A page that was merely busy — the
+        // settle, one long synchronous task, is still running — gets this
+        // read's own deadline on top, and is KNOWN to be alive: this read's
+        // probe queues behind that same task and cannot answer, and reading
+        // its silence as a wedge committed the shell's copy without the edit.
+        // Out of time there, the exit is refused (TimedOut), and the next Back
+        // finds the settle done.
+        val knownBusy = reconcilePageRead?.let { pending ->
+            when (pending.await()) {
+                EditorCaptureOutcome.NoLiveDocument -> return EditorCaptureOutcome.NoLiveDocument
+                EditorCaptureOutcome.TimedOut -> true
+                is EditorCaptureOutcome.Captured, EditorCaptureOutcome.NotOurs -> false
+            }
+        } ?: false
+        return readWithinDeadline(attachment, CAPTURE_SCRIPT, knownAlive = knownBusy)
+    }
 
     /**
      * Read the live document for a note that stays open — the open-note
@@ -960,13 +993,20 @@ class EditorHost private constructor(appContext: Context) {
     ): EditorCaptureOutcome {
         if (lastPushedContent != shellCopy) return EditorCaptureOutcome.NoLiveDocument
         val pushesBefore = contentPushes
-        val outcome = readWithinDeadline(attachment, READ_SCRIPT)
+        // Owned by the host, not by the caller: a caller that stops waiting
+        // (an exit cancels the reconcile) leaves the page's answer to the
+        // exit's own read (captureContentAndWait).
+        val read = readScope.async { readWithinDeadline(attachment, READ_SCRIPT) }
+        reconcilePageRead = read
+        read.invokeOnCompletion { if (reconcilePageRead === read) reconcilePageRead = null }
+        val outcome = read.await()
         return if (contentPushes == pushesBefore) outcome else EditorCaptureOutcome.NotOurs
     }
 
     private suspend fun readWithinDeadline(
         attachment: EditorAttachmentToken,
         script: String,
+        knownAlive: Boolean = false,
     ): EditorCaptureOutcome {
         // No `initialized` yet: the bundle is still applying this shell's
         // config — for a big enough note, for a long time — so nothing is on
@@ -977,7 +1017,7 @@ class EditorHost private constructor(appContext: Context) {
         return captureWithinDeadline(
             deadlineMs = CAPTURE_DEADLINE_MS,
             startLivenessProbe = { rendererAnswered = startRendererLivenessProbe() },
-            rendererAnswered = { rendererAnswered() },
+            rendererAnswered = { knownAlive || rendererAnswered() },
         ) { awaitCapture(attachment, script) }
     }
 

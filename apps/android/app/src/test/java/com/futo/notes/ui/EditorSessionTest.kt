@@ -634,6 +634,42 @@ class EditorSessionTest {
         assertFalse(log.contains("classify"))
     }
 
+    /** A refused exit leaves the editor open: the reconcile it interrupted runs again. */
+    @Test
+    fun `an exit that stops short re-runs the reconcile it interrupted`() = runBlocking {
+        val scope = scope()
+        val session = EditorSession(scope)
+        val log = mutableListOf<String>()
+        val reading = CompletableDeferred<Unit>()
+        val neverAnswers = CompletableDeferred<EditorCaptureOutcome>()
+        var reads = 0
+        val effects = object : OpenNoteEffects by LiveEditorOpenNoteEffects(
+            live = EditorCaptureOutcome.NoLiveDocument,
+            disk = "peer",
+            log = log,
+        ) {
+            override suspend fun captureEditor(): EditorCaptureOutcome {
+                log += "capture"
+                reads += 1
+                if (reads == 1) {
+                    reading.complete(Unit)
+                    return neverAnswers.await()
+                }
+                return EditorCaptureOutcome.NoLiveDocument
+            }
+        }
+
+        scope.launch { session.reconcileOpenNote(effects) }
+        reading.await()
+        val nav = RecordingEffects(log, name = "nav", body = { null })
+        session.end(EditorExit.NAVIGATE, nav)
+
+        withTimeout(5_000) { scope.settle() }
+        assertFalse(nav.succeeded)
+        assertEquals(2, log.count { it == "capture" })
+        assertEquals("apply:Adopt", log.last())
+    }
+
     @Test
     fun `an admitted autosave completes its base update before a replacement runs`() =
         runBlocking {

@@ -254,6 +254,7 @@ internal class EditorSession(
     private var exiting = false
     /** The open-note reconcile's editor read, while it is in flight. */
     private var reconcileRead: Job? = null
+    private var reconcileRetry: (suspend () -> Unit)? = null
 
     /** The focused note whose clean peer update waits for blur before adoption. */
     private var deferredAdoptionId: String? = null
@@ -307,7 +308,7 @@ internal class EditorSession(
      * workflow. A same-cycle rename target gets its next pass under this lock.
      */
     suspend fun reconcileOpenNote(effects: OpenNoteEffects): OpenNoteDisposition? {
-        if (!readEditorAheadOfAnExit(effects)) return null
+        if (!readEditorAheadOfAnExit(effects) { reconcileOpenNote(effects) }) return null
         return runWork {
             if (exiting) return@runWork null
             var expectedId = effects.currentNoteId()
@@ -355,7 +356,7 @@ internal class EditorSession(
                 else -> deferredId
             }
         } ?: return null
-        if (!readEditorAheadOfAnExit(effects)) return null
+        if (!readEditorAheadOfAnExit(effects) { settleDeferredAdoption(effects) }) return null
         return runWork {
             if (exiting || deferredAdoptionId != deferredId) null
             else reconcilePass(deferredId, effects)
@@ -379,13 +380,19 @@ internal class EditorSession(
      * busy or wedged, so it must not hold the lock every exit drains: Back
      * waited it out before starting its own read (FB-5 refute: 15.2 s against
      * 9.3 s). An exit that starts meanwhile cancels it ([end]); its own read
-     * is the one that counts. `false` means: take no verdict.
+     * is the one that counts. `false` means: take no verdict. An exit that
+     * then stops short of leaving runs [retry], so the peer's change it
+     * interrupted is not left unapplied until the next sync.
      */
-    private suspend fun readEditorAheadOfAnExit(effects: OpenNoteEffects): Boolean {
+    private suspend fun readEditorAheadOfAnExit(
+        effects: OpenNoteEffects,
+        retry: suspend () -> Unit,
+    ): Boolean {
         if (exiting || closed) return false
         val outcome = coroutineScope {
             val read = async { effects.captureEditor() }
             reconcileRead = read
+            reconcileRetry = retry
             try {
                 read.await()
             } catch (e: CancellationException) {
@@ -394,7 +401,10 @@ internal class EditorSession(
                 currentCoroutineContext().ensureActive()
                 null
             } finally {
-                if (reconcileRead === read) reconcileRead = null
+                if (reconcileRead === read) {
+                    reconcileRead = null
+                    reconcileRetry = null
+                }
             }
         }
         if (outcome == null || exiting || closed) return false
@@ -458,7 +468,9 @@ internal class EditorSession(
         }
         // This exit reads the editor itself; a reconcile's read must not make
         // it wait (see readEditorAheadOfAnExit).
-        reconcileRead?.cancel()
+        val read = reconcileRead
+        val interrupted = if (read != null) reconcileRetry else null
+        read?.cancel()
         effects.prepare()
 
         scope.launch {
@@ -523,6 +535,9 @@ internal class EditorSession(
                         setInteractionLocked(false)
                     }
                     if (plan.closes) closed = false
+                    // The editor stays open: finish the reconcile this exit
+                    // interrupted.
+                    interrupted?.let { retry -> scope.launch { retry() } }
                 }
             }
         }

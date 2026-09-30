@@ -193,18 +193,22 @@ final class OpenNoteReconciler {
             }
 
             await effects.cancelAndDrainSave()
-            guard !Task.isCancelled else { return .stale }
+            // From here on this pass has cancelled the debounced save. A pass
+            // cancelled before its verdict (an exit or the move picker cancels
+            // .adopt) re-arms it, or a draft typed before the pass waits for
+            // the next keystroke to be saved.
+            guard !Task.isCancelled else { return cancelled(effects) }
             guard let readTarget = effects.snapshot() else { return .stale }
             let disk: String?
             do {
                 disk = try await effects.readDisk(readTarget.id)
             } catch {
-                guard !Task.isCancelled else { return .stale }
+                guard !Task.isCancelled else { return cancelled(effects) }
                 print("open-note disk read failed for \(readTarget.id): \(error)")
                 effects.resumeDraftSave()
                 return .failed
             }
-            guard !Task.isCancelled else { return .stale }
+            guard !Task.isCancelled else { return cancelled(effects) }
             guard
                 let current = effects.snapshot(),
                 current.id == readTarget.id,
@@ -224,6 +228,11 @@ final class OpenNoteReconciler {
             return apply(classify(facts), snapshot: current, effects: effects)
         }
 
+        return .stale
+    }
+
+    private func cancelled(_ effects: OpenNoteReconcileEffects) -> OpenNoteReconcileResult {
+        effects.resumeDraftSave()
         return .stale
     }
 
