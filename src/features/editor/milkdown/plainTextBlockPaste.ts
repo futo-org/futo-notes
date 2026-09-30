@@ -34,6 +34,8 @@ import { Plugin, PluginKey, TextSelection, type Selection } from '@milkdown/kit/
 import type { EditorView } from '@milkdown/kit/prose/view';
 import { $prose } from '@milkdown/kit/utils';
 
+import { flattenHtmlBlocks } from './cellHtmlFlatten';
+
 /** The text a table cell can hold: one line. Null when the caret is not in a cell. */
 function flattenedForCell(text: string, selection: Selection): string | null {
   if (!(selection instanceof TextSelection)) return null;
@@ -111,6 +113,15 @@ export const plainTextBlockPaste = $prose((ctx) => {
        * neighbour. */
       transformPastedText: (text, _plain, view) =>
         flattenedForCell(text, view.state.selection) ?? text,
+      /* The HTML twin of the above (RC-83): several pasted `<p>`/`<li>`/`<h1>`
+       * blocks become cells the same way, so they are flattened to one inline
+       * run first (cellHtmlFlatten.ts). Only for a caret in a cell: a
+       * CellSelection pastes into the cells picked, and a pasted `<table>` is
+       * left alone. */
+      transformPastedHTML: (html, view) =>
+        flattenedForCell('', view.state.selection) === null
+          ? html
+          : (flattenHtmlBlocks(html) ?? html),
     },
   });
 });
