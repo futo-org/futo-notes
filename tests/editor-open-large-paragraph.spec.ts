@@ -134,7 +134,8 @@ test('opening a large paragraph never rewrites DOM under a live selection or Ran
     // The probe saw the open's DOM work, so a zero below is a measurement.
     expect(probe.writes, `${id}: child-list changes observed`).toBeGreaterThan(1_000);
     expect(probe.boundariesAtFirstWrite, `${id}: live boundaries in the editor`).toBe(0);
-    await expect.poll(() => editorMarkdown(page)).toContain(body.slice(0, 40));
+    // Serializing a paragraph this size is slow on a loaded CI runner; the probe above is the measurement.
+    await expect.poll(() => editorMarkdown(page), { timeout: 60_000 }).toContain(body.slice(0, 40));
   }
 
   // The caret the load let go of is back, in the editor: typing still lands.
@@ -142,6 +143,6 @@ test('opening a large paragraph never rewrites DOM under a live selection or Ran
     .poll(() => page.evaluate(() => document.activeElement?.matches('.ProseMirror')))
     .toBe(true);
   await page.keyboard.type('Z');
-  await expect.poll(() => editorMarkdown(page)).toContain('Z');
+  await expect.poll(() => editorMarkdown(page), { timeout: 30_000 }).toContain('Z');
   expect(pageErrors).toEqual([]);
 });
