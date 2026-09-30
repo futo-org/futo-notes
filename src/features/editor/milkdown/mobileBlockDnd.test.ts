@@ -26,6 +26,7 @@ import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import {
   DEFAULT_LONG_PRESS_MS,
   MobileBlockDndView,
+  dropBlockDndFocusGuards,
   type MobileBlockDndOptions,
 } from './mobileBlockDnd';
 import { testSchema } from './__fixtures__/schema';
@@ -62,8 +63,8 @@ function rectAt(top: number, bottom: number): DOMRect {
  * to its `ownerDocument`, so it has to be something the DOM can actually
  * dispatch through.
  */
-function makeView(hasFocus: boolean) {
-  const doc = s.nodes.doc.create(null, [paragraph('a')]);
+function makeView(hasFocus: boolean, empty = false) {
+  const doc = s.nodes.doc.create(null, [empty ? s.nodes.paragraph.create() : paragraph('a')]);
   let state = EditorState.create({ doc });
   const dispatched: Transaction[] = [];
 
@@ -260,8 +261,10 @@ describe('MobileBlockDndView — focus arbitration (QA #001)', () => {
   // editor focused and the NEXT press (which never arms over a focused editor)
   // silently did nothing.
   describe('the release-time focus guard outlives frames, not presses', () => {
+    // The empty paragraph is the release that ends in a native click and never
+    // lifts; a lifted drag is covered separately below.
     function holdAndRelease() {
-      const rig = makeView(/* hasFocus */ false);
+      const rig = makeView(/* hasFocus */ false, /* empty */ true);
       rig.dom.tabIndex = -1; // focusable in jsdom
       const pluginView = new MobileBlockDndView(rig.view, makeOptions().options);
       rig.dom.dispatchEvent(
@@ -298,6 +301,33 @@ describe('MobileBlockDndView — focus arbitration (QA #001)', () => {
       expect(document.activeElement).toBe(dom);
       pluginView.destroy();
       dom.remove();
+    });
+
+    // R10-FB20-1: the host's own focus() is intentional and must get through.
+    it('lets a host focus() through once the editor drops the guard', () => {
+      const { dom, pluginView } = holdAndRelease();
+      vi.advanceTimersByTime(100);
+      dropBlockDndFocusGuards();
+      dom.focus();
+      expect(document.activeElement).toBe(dom);
+      pluginView.destroy();
+      dom.remove();
+    });
+
+    it('a lifted drag release keeps only the one-frame guard (a moved touch emits no click)', () => {
+      const rig = makeView(/* hasFocus */ false);
+      rig.dom.tabIndex = -1;
+      const pluginView = new MobileBlockDndView(rig.view, makeOptions().options);
+      rig.dom.dispatchEvent(
+        pointerEvent('pointerdown', { clientX: rig.pointA.x, clientY: rig.pointA.y }),
+      );
+      vi.advanceTimersByTime(DEFAULT_LONG_PRESS_MS + 10); // lifted
+      document.dispatchEvent(pointerEvent('pointerup', {}));
+      vi.advanceTimersByTime(100); // frames later, well inside the 1 s window
+      rig.dom.focus();
+      expect(document.activeElement).toBe(rig.dom);
+      pluginView.destroy();
+      rig.dom.remove();
     });
   });
 

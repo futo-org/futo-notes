@@ -2213,6 +2213,48 @@ mobileDndTest(
   },
 );
 
+// R10-FB20-1: the release focus guard exists to absorb the native click's focus
+// and must never swallow the HOST's own focus() (quick-capture open, returning
+// to a note): a host focus is intentional. Checked inside the guard's 1 s window.
+mobileDndTest(
+  'a host focus() right after a lifted drop focuses the editor',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+    await clearMessages(page);
+    const alpha = await blockCenter(page, 'alpha');
+    const charlie = await blockCenter(page, 'charlie');
+    await longPressDrag(page, cdp, alpha, { x: charlie.x, y: charlie.y + 4 });
+    await page.waitForTimeout(100);
+
+    await focusEditor(page);
+    await flushFrames(page);
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
+    await page.waitForTimeout(300); // and it stays focused
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
+  },
+);
+
+mobileDndTest(
+  'a host focus() right after an empty-paragraph release focuses the editor',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, 'alpha\n\n\nbravo');
+    await clearMessages(page);
+    const emptyBox = await page.locator('.ProseMirror > *').nth(1).boundingBox();
+    if (!emptyBox) throw new Error('no geometry for the empty paragraph');
+    const empty = { x: emptyBox.x + emptyBox.width / 2, y: emptyBox.y + emptyBox.height / 2 };
+    await touch(cdp, 'touchStart', empty.x, empty.y);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 150);
+    await touch(cdp, 'touchEnd', empty.x, empty.y);
+    await page.waitForTimeout(100);
+
+    await focusEditor(page);
+    await flushFrames(page);
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
+  },
+);
+
 // The other half of the same tester report: on Android, Chromium's own
 // long-press forces focus onto the editable regardless of the page cancelling
 // selectstart/contextmenu/touchend (module doc's "a block press must never
