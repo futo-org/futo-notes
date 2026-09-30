@@ -104,13 +104,31 @@ function isHistoryReplay(tr: Transaction): boolean {
   return tr.getMeta(HISTORY_KEY) !== undefined;
 }
 
-/** Every `hr` node's position in `doc` (the position right before the node). */
-function hrPositions(doc: ProseNode): number[] {
+/** The position of every `hr` node that overlaps `from..to` in `doc` (clamped to it). */
+function hrPositionsBetween(doc: ProseNode, from: number, to: number): number[] {
   const positions: number[] = [];
-  doc.descendants((node, pos) => {
+  doc.nodesBetween(Math.max(0, from), Math.min(doc.content.size, to), (node, pos) => {
     if (node.type.name === 'hr') positions.push(pos);
   });
   return positions;
+}
+
+/**
+ * The spans of the final document that `mapping` rewrote, in its coordinates.
+ * Everything outside them is the old document, shifted, so a divider that did
+ * not exist a moment ago can only be inside one — which keeps this plugin from
+ * walking the whole document on every keystroke (RC-80: two full walks per
+ * transaction were the one document-sized piece of editor work per key).
+ */
+function rewrittenSpans(mapping: Mapping): { from: number; to: number }[] {
+  const spans: { from: number; to: number }[] = [];
+  mapping.maps.forEach((map, index) => {
+    const after = mapping.slice(index + 1);
+    map.forEach((_oldStart, _oldEnd, newStart, newEnd) => {
+      spans.push({ from: after.map(newStart, -1), to: after.map(newEnd, 1) });
+    });
+  });
+  return spans;
 }
 
 /**
@@ -122,8 +140,11 @@ function hrPositions(doc: ProseNode): number[] {
  * module comment above promises for a future user-facing divider path — as
  * long as it marks its own transaction `addToHistory: false`, which every
  * write path already must for its OWN undo/change-notification correctness.
+ *
+ * Exported for its differential test against the whole-document scan it
+ * replaced (dividerCaret.test.ts).
  */
-function newlyCreatedDivider(
+export function newlyCreatedDivider(
   transactions: readonly Transaction[],
   oldState: EditorState,
   newState: EditorState,
@@ -134,9 +155,20 @@ function newlyCreatedDivider(
 
   const mapping = new Mapping();
   for (const tr of transactions) mapping.appendMapping(tr.mapping);
+  const inverse = mapping.invert();
 
-  const stillThere = new Set(hrPositions(oldState.doc).map((pos) => mapping.map(pos, 1)));
-  const created = hrPositions(newState.doc).filter((pos) => !stillThere.has(pos));
+  // One position of slack on each side: an hr is a leaf of size 1, and one
+  // that sits right against a span's edge is still the old one shifted.
+  const found = new Set<number>();
+  const stillThere = new Set<number>();
+  for (const { from, to } of rewrittenSpans(mapping)) {
+    for (const pos of hrPositionsBetween(newState.doc, from - 1, to + 1)) found.add(pos);
+    const oldFrom = inverse.map(from, -1);
+    const oldTo = inverse.map(to, 1);
+    for (const pos of hrPositionsBetween(oldState.doc, oldFrom - 1, oldTo + 1))
+      stillThere.add(mapping.map(pos, 1));
+  }
+  const created = [...found].filter((pos) => !stillThere.has(pos));
   return created.length === 1 ? created[0] : null;
 }
 

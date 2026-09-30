@@ -57,6 +57,15 @@ describe('MILKDOWN_FLOOR_FIXTURES', () => {
   });
 });
 
+/** The three section fixtures, with the given per-keystroke node walks. */
+function sections(small: number, medium: number, large: number): PerformanceResult[] {
+  return [
+    result({ fixture: '1000-sections', lines: 3_999, bytes: 55_779, openMs: 120 }),
+    result({ fixture: '5000-sections', lines: 19_999, bytes: 287_779, openMs: 200 }),
+    result({ fixture: '20000-sections', lines: 79_999, bytes: 1_177_779, openMs: 400 }),
+  ].map((r, i) => ({ ...r, keystrokeNodeVisitsP95: [small, medium, large][i] }));
+}
+
 /** The named fixtures only, so a partial run does not report the rest missing. */
 function only(...names: string[]): FloorFixture[] {
   return names.map((name) => {
@@ -74,6 +83,7 @@ describe('evaluatePerformanceFloor', () => {
       result({ fixture: '50000-lines', lines: 50_000, bytes: 2_500_000, openMs: 2_600 }),
       result({ fixture: '10k-char-js-fence', lines: 180, bytes: 10_100, openMs: 2_700 }),
       result({ fixture: '2000-item-task-list', lines: 2_000, bytes: 30_000, openMs: 150 }),
+      ...sections(40, 40, 40),
       result({ fixture: '1mb-adversarial', lines: 5_000, bytes: 1_048_576, openMs: 700 }),
       result({ fixture: '10mb-adversarial', lines: 50_000, bytes: 10_485_760, openMs: 7_500 }),
     ]);
@@ -128,6 +138,29 @@ describe('evaluatePerformanceFloor', () => {
       result({ fixture: '10mb-adversarial', bytes: 10_485_760, keystrokeSynchronousP95Ms: 40 }),
     ]);
     expect(violations.map((v) => v.kind)).toContain('keystroke-budget');
+  });
+
+  it('fails a keystroke whose document walk grows with the note', () => {
+    const violations = evaluatePerformanceFloor(
+      only('1000-sections', '5000-sections', '20000-sections'),
+      sections(12_000, 60_000, 240_000),
+    );
+    expect(violations.map((v) => [v.fixture, v.kind])).toEqual([
+      ['5000-sections', 'keystroke-walk'],
+      ['20000-sections', 'keystroke-walk'],
+    ]);
+    expect(violations[1].detail).toBe(
+      "a keystroke walks 240000 document nodes, 20.0x 1000-sections's 12000, past the 2x factor",
+    );
+  });
+
+  it('fails a keystroke walk it cannot count', () => {
+    const [small, , large] = sections(40, 40, 40);
+    const violations = evaluatePerformanceFloor(only('1000-sections', '20000-sections'), [
+      small,
+      { ...large, keystrokeNodeVisitsP95: undefined },
+    ]);
+    expect(violations.map((v) => v.kind)).toEqual(['missing-measurement']);
   });
 
   it('fails when a fixture produced no measurement at all', () => {

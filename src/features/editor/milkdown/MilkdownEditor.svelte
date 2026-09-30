@@ -1187,8 +1187,21 @@
    * `EXTERNAL_CONTENT_OPTS` did. It also means documentChanges.ts never reports
    * the load itself — correct, since a load is never an edit.
    * → docs/spec/editor.md "Saving & rename", tests/editor-embed-milkdown.spec.ts
+   *
+   * A focused editable's DOM caret is let go first; ProseMirror puts it back
+   * once the new document's DOM exists. Left in place, it sits in the block
+   * being rewritten, and WebKit pays for every child written or removed
+   * around it: the Selection's live range is re-indexed per removal, and the
+   * writing-suggestions pass walks to the caret's child index per element
+   * built — O(n²) in a block's inline children. Measured on WebKit, a 100 KB
+   * paragraph dense with marks opened in 9 s with the caret in place and in
+   * 1.4 s without. (ProseMirror's own measuring Range is the other boundary
+   * that used to sit there; patches/prosemirror-view parks it.)
+   * → tests/editor-open-large-paragraph.spec.ts
    */
   function loadParsedDocument(view: ProseView, parsed: ProseNode): void {
+    if (view.hasFocus() && !view.composing)
+      view.dom.ownerDocument.getSelection()?.removeAllRanges();
     const { state } = view;
     view.dispatch(
       state.tr
