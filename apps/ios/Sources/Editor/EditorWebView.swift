@@ -403,8 +403,8 @@ struct EditorWebView: UIViewRepresentable {
     var onOpenNote: ((String) -> Void)? = nil
     /// Receives the engine-authored native find-bar state verbatim.
     var onFindMatches: ((FindMatchesReport) -> Void)? = nil
-    /// Reports this view's host generation so imperative calls can reject a stale screen.
-    var onAttachmentChange: ((Int?) -> Void)? = nil
+    /// Receives this view's host generation so imperative calls can reject a stale screen.
+    var attachment: EditorAttachmentSlot? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -416,7 +416,7 @@ struct EditorWebView: UIViewRepresentable {
             content: content, theme: theme, localization: localization, autoFocus: autoFocus,
             onChange: onChange, onFocusChange: onFocusChange,
             onOpenNote: onOpenNote,
-            onFindMatches: onFindMatches, onAttachmentChange: onAttachmentChange)
+            onFindMatches: onFindMatches, attachment: attachment)
         let container = EditorContainerView()
         container.backgroundColor = .clear
         coord.container = container
@@ -437,7 +437,7 @@ struct EditorWebView: UIViewRepresentable {
             content: content, theme: theme, localization: localization, autoFocus: autoFocus,
             onChange: onChange, onFocusChange: onFocusChange,
             onOpenNote: onOpenNote,
-            onFindMatches: onFindMatches, onAttachmentChange: onAttachmentChange)
+            onFindMatches: onFindMatches, attachment: attachment)
         // Only the VISIBLE editor drives the shared WebView. Gating on `window`
         // stops an off-screen editor (covered by a pushed one) from stealing the
         // WebView or pushing its content over the visible note — e.g. when a
@@ -456,14 +456,16 @@ struct EditorWebView: UIViewRepresentable {
         // The shared WebView itself is NEVER torn down — it lives for the whole
         // app so the next note-open reuses it.
         //
-        // NOTHING ELSE MAY GO HERE THAT WRITES SwiftUI STATE. `onAttachmentChange`
+        // NOTHING ELSE MAY GO HERE THAT WRITES SwiftUI STATE. The attachment token
         // used to be cleared on this line, and that write aborted the app on every
         // exit from a note: AttributeGraph is invalidating the subgraph that owns
         // the `@State` while this runs, so setting it trips Swift's exclusivity
-        // check ("Fatal access conflict detected"). `detach` above is also what
-        // makes such a clear redundant — the host's generation is monotonic and
-        // never equal to a detached token again, so a stale attachment token can
-        // no longer satisfy `isCurrentAttachment`.
+        // check ("Fatal access conflict detected"). Nor may the slot be cleared:
+        // a system pop dismantles BEFORE the editor's onDisappear runs its exit,
+        // and that exit reads the popped note's document through this token.
+        // `detach` is what makes a clear redundant — the host's generation is
+        // monotonic and never equal to a detached token again, so a stale token
+        // can no longer satisfy `isCurrentAttachment`.
         EditorHost.shared.detach(coordinator.token)
     }
 
@@ -488,7 +490,7 @@ struct EditorWebView: UIViewRepresentable {
         private var onFocusChange: (Bool) -> Void = { _ in }
         private var onOpenNote: ((String) -> Void)?
         private var onFindMatches: ((FindMatchesReport) -> Void)?
-        private var onAttachmentChange: ((Int?) -> Void)?
+        private var attachment: EditorAttachmentSlot?
 
         func sync(
             content: String, theme: String, localization: Localization, autoFocus: Bool,
@@ -496,7 +498,7 @@ struct EditorWebView: UIViewRepresentable {
             onFocusChange: @escaping (Bool) -> Void,
             onOpenNote: ((String) -> Void)?,
             onFindMatches: ((FindMatchesReport) -> Void)?,
-            onAttachmentChange: ((Int?) -> Void)?
+            attachment: EditorAttachmentSlot?
         ) {
             self.content = content
             self.theme = theme
@@ -506,7 +508,7 @@ struct EditorWebView: UIViewRepresentable {
             self.onFocusChange = onFocusChange
             self.onOpenNote = onOpenNote
             self.onFindMatches = onFindMatches
-            self.onAttachmentChange = onAttachmentChange
+            self.attachment = attachment
         }
 
         /// Reclaim the shared WebView for this container unless it already hosts it.
@@ -537,10 +539,29 @@ struct EditorWebView: UIViewRepresentable {
                 onFocusChange: onFocusChange,
                 onOpenNote: onOpenNote,
                 onFindMatches: onFindMatches)
-            onAttachmentChange?(token)
+            attachment?.token = token
             didInitialAdopt = true
         }
     }
+}
+
+/// Where an editor keeps the attachment token its ``EditorWebView`` holds —
+/// what its exit and its open-note reconcile read the shared WebView through.
+///
+/// A reference the coordinator writes, not a callback into the editor's
+/// `@State`: the token arrives from inside `makeUIView` (the first adopt),
+/// where SwiftUI DISCARDS a state write. On iOS 27 it read back nil on every
+/// open, so a system pop never read the editor and committed the shell's copy —
+/// losing every keystroke whose debounced `change` had not arrived yet, and
+/// the whole edit when it was typed while a large note's tail streamed (RC-77).
+/// No view renders from the token, so nothing needs a state write's
+/// invalidation.
+@MainActor
+final class EditorAttachmentSlot {
+    var token: Int?
+
+    /// `nonisolated` so a SwiftUI view can hold one in `@State`.
+    nonisolated init() {}
 }
 
 /// Hosts the single shared editor WKWebView. Reports when it becomes visible

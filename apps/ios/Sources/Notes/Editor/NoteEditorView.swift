@@ -100,7 +100,10 @@ struct NoteEditorView: View {
     @State private var editorBottomGlobalY: CGFloat = 0
     @State private var findBarTopGlobalY: CGFloat = 0
     @State private var findOverlayInset: CGFloat = 0
-    @State private var editorAttachment: Int?
+    /// The shared-WebView attachment this editor holds: what an exit and the
+    /// open-note reconcile read the editor through. See ``EditorAttachmentSlot``.
+    @State private var editorAttachmentSlot = EditorAttachmentSlot()
+    private var editorAttachment: Int? { editorAttachmentSlot.token }
 
     /// Whether this editor is the visible top of the stack. With wikilink pushes
     /// several editors coexist; only the visible one may drive the single shared
@@ -203,9 +206,7 @@ struct NoteEditorView: View {
                     findQuery = report.query
                     findLabel = report.label
                 },
-                onAttachmentChange: {
-                    editorAttachment = $0
-                }
+                attachment: editorAttachmentSlot
             )
             // Measured INSIDE ignoresSafeArea: that is the WebView's RENDERED
             // bottom (the window's edge, or the keyboard's top when the IME is
