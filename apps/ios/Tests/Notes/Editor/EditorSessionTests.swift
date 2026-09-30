@@ -523,4 +523,125 @@ struct EditorSessionTests {
         #expect(!session.shouldFlushOnLeave(loaded: false, content: "edit", savedContent: ""))
         #expect(!session.shouldFlushOnLeave(loaded: true, content: "same", savedContent: "same"))
     }
+
+    // MARK: - Backgrounding reads the live editor (RC-92)
+
+    @Test("backgrounding adopts what the live editor holds, then settles the draft")
+    func backgroundingReadsTheLiveEditor() async {
+        let session = EditorSession()
+        let recorder = Recorder()
+
+        await session.refreshFromLiveEditor(
+            capture: {
+                recorder.append("capture")
+                return .captured("base + typed while the tail streamed")
+            },
+            settled: { recorder.append("settled") }
+        )
+
+        #expect(recorder.events == ["capture", "settled"])
+    }
+
+    @Test("an editor that cannot answer leaves the draft as it was")
+    func backgroundingAnUnansweringEditorSettlesNothing() async {
+        // A busy page is asked again, as an exit is, and then given up on.
+        let cases: [(EditorCaptureOutcome, Int)] = [
+            (.notOurs, 1), (.timedOut, EditorSession.lifecycleReadAttempts),
+        ]
+        for (outcome, reads) in cases {
+            let session = EditorSession()
+            let recorder = Recorder()
+            await session.refreshFromLiveEditor(
+                capture: {
+                    recorder.append("capture")
+                    return outcome
+                },
+                settled: { recorder.append("settled") }
+            )
+            #expect(recorder.events == Array(repeating: "capture", count: reads))
+        }
+    }
+
+    @Test("a busy editor is asked again and the second read is what is settled")
+    func backgroundingAsksABusyEditorAgain() async {
+        let session = EditorSession()
+        let recorder = Recorder()
+        var reads = 0
+        await session.refreshFromLiveEditor(
+            capture: {
+                reads += 1
+                recorder.append("capture")
+                return reads == 1 ? .timedOut : .captured("live")
+            },
+            settled: { recorder.append("settled") }
+        )
+        #expect(recorder.events == ["capture", "capture", "settled"])
+    }
+
+    @Test("an editor with no live document is settled without a read of anything")
+    func backgroundingAnEditorWithNoDocument() async {
+        let session = EditorSession()
+        let recorder = Recorder()
+        await session.refreshFromLiveEditor(
+            capture: { .noLiveDocument },
+            settled: { recorder.append("settled") }
+        )
+        #expect(recorder.events == ["settled"])
+    }
+
+    @Test("an autosave already writing finishes before the draft is settled")
+    func backgroundingWaitsForAnAutosaveInFlight() async {
+        let session = EditorSession()
+        let recorder = Recorder()
+        let writing = Signal()
+        let finishWrite = Signal()
+        let save = session.schedule(.save) {
+            writing.set()
+            await finishWrite.wait()
+            recorder.append("autosave-done")
+            return true
+        }
+        await writing.wait()
+
+        let refresh = Task { @MainActor in
+            await session.refreshFromLiveEditor(
+                capture: { .captured("live") },
+                settled: { recorder.append("settled") }
+            )
+        }
+        await Task.yield()
+        #expect(recorder.events.isEmpty)
+
+        finishWrite.set()
+        _ = await save.value
+        await refresh.value
+        #expect(recorder.events == ["autosave-done", "settled"])
+    }
+
+    @Test("Back cancels the background read: the exit's own read is the one that counts")
+    func anExitCancelsTheBackgroundRead() async {
+        let session = EditorSession()
+        let recorder = Recorder()
+        let reading = Signal()
+        let answer = Signal()
+        let refresh = Task { @MainActor in
+            await session.refreshFromLiveEditor(
+                capture: {
+                    reading.set()
+                    await answer.wait()
+                    return .captured("live")
+                },
+                settled: { recorder.append("settled") }
+            )
+        }
+        await reading.wait()
+
+        let exit = session.end(.navigate, effects: effects(recorder, name: "nav"))
+        answer.set()
+        _ = await exit?.value
+        await refresh.value
+
+        #expect(!recorder.events.contains("settled"))
+        #expect(recorder.succeeded)
+    }
 }

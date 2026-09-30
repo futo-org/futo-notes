@@ -398,6 +398,9 @@ struct NoteEditorView: View {
             // re-claims because onDisappear released the previous token.
             if draftToken == 0 { draftToken = store.claimDraftOwnership() }
             publishDraft()
+            // The leave-active flush reads this editor first (RC-92). Registered
+            // on every appearance: a cover or pop released it with the token.
+            store.setDraftRefresher(token: draftToken) { await refreshFromLiveEditor() }
             // Re-gather after a buried editor becomes visible. This settles any
             // hidden or focused deferral against current disk rather than
             // applying a stale content snapshot.
@@ -836,6 +839,29 @@ struct NoteEditorView: View {
         // F8 jetsam guard.
         publishDraft()
         scheduleSave(newContent)
+    }
+
+    /// The app is leaving the foreground and the flush wants this editor's
+    /// draft to be what the editor holds (RC-92). Only the visible editor owns
+    /// the shared WebView, so a covered or leaving one has nothing to read; a
+    /// load that has not landed has nothing to save.
+    private func refreshFromLiveEditor() async {
+        guard loaded, isVisible, !session.isClosing else { return }
+        await session.refreshFromLiveEditor(
+            capture: {
+                guard let attachment = editorAttachment else { return .notOurs }
+                let outcome = await EditorHost.shared.readContent(
+                    ownedBy: attachment, showing: content)
+                if case .captured(let live) = outcome, live != content {
+                    receiveEditorChange(live)
+                }
+                return outcome
+            },
+            settled: {
+                publishDraft()
+                if content != savedContent { scheduleSave(content) }
+            }
+        )
     }
 
     /// Supply the reconciler with live editor state and the synchronous effects

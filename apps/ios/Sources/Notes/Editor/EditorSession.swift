@@ -14,6 +14,9 @@ enum EditorWork: CaseIterable {
     case adopt
     /// Presenting and committing a folder move.
     case move
+    /// The app leaving the foreground: reading the live editor into the draft
+    /// so the flush that follows saves what was typed (RC-92).
+    case lifecycle
 }
 
 /// Every way an open note ends.
@@ -110,7 +113,7 @@ private struct EditorExitPlan {
             // Its own read is the one that counts (FB-5).
             return EditorExitPlan(
                 admitsOne: true,
-                cancelsBeforeDrain: [.adopt],
+                cancelsBeforeDrain: [.adopt, .lifecycle],
                 drains: [.adopt, .move, .rename],
                 commitsBody: true,
                 commitsTitle: true,
@@ -118,13 +121,13 @@ private struct EditorExitPlan {
             )
         case .prepareMove:
             return EditorExitPlan(
-                cancelsBeforeDrain: [.adopt, .move],
+                cancelsBeforeDrain: [.adopt, .move, .lifecycle],
                 drains: [.adopt, .move, .rename],
                 registersAs: .move
             )
         case .move:
             return EditorExitPlan(
-                cancelsBeforeDrain: [.adopt, .move],
+                cancelsBeforeDrain: [.adopt, .move, .lifecycle],
                 drains: [.adopt, .move, .rename],
                 registersAs: .move,
                 commitsBody: true,
@@ -240,6 +243,52 @@ final class EditorSession {
         let pending = work[kind]
         pending?.cancel()
         _ = await pending?.value
+    }
+
+    /// Reads a background flush makes of a page that is busy finishing a load
+    /// (an exit's `finishLeave` asks three times too).
+    static let lifecycleReadAttempts = 3
+
+    /// The app is leaving the foreground: read the LIVE editor into the draft,
+    /// so the flush that follows saves what the user typed and not what the
+    /// editor last reported (RC-92).
+    ///
+    /// A note still streaming its tail reports no `change` at all — it never
+    /// reports a prefix — and a typed edit spends 200 ms in the bundle's
+    /// debounce. `capture` is the exit's bounded, single-outstanding read: an
+    /// answer of no live document, another note's document, or a busy renderer
+    /// leaves the draft as it is, so the flush saves only what the editor had
+    /// already reported — never `""`, never a prefix. An exit that starts
+    /// meanwhile cancels this; its own read is the one that counts.
+    ///
+    /// After a live answer the debounced save is drained: an autosave already
+    /// writing has then advanced the baseline, so the flush does not write a
+    /// stale base over its own note and mint a conflict copy. `settled` then
+    /// republishes the draft and re-arms the debounced save, which the drain
+    /// cancelled.
+    func refreshFromLiveEditor(
+        capture: @escaping @MainActor () async -> EditorCaptureOutcome,
+        settled: @escaping @MainActor () -> Void
+    ) async {
+        let task = schedule(.lifecycle) { [weak self] in
+            // A big note edited while it streams settles its tail INSIDE the
+            // first read, which can outlast the capture deadline; the retry
+            // hears the answer, as an exit's does (`finishLeave`).
+            var outcome = await capture()
+            for _ in 1..<Self.lifecycleReadAttempts where outcome == .timedOut {
+                outcome = await capture()
+            }
+            switch outcome {
+            case .captured, .noLiveDocument: break
+            case .notOurs, .timedOut: return false
+            }
+            guard let self, self.isActive else { return false }
+            await self.cancelAndDrain(.save)
+            guard self.isActive else { return false }
+            settled()
+            return true
+        }
+        _ = await task.value
     }
 
     /// The fifth way a note ends: it was deleted underneath us. A peer delete
