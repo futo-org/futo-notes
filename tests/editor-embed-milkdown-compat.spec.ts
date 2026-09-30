@@ -397,6 +397,50 @@ test.describe('a keystroke in a heading leaves the heading alone', () => {
   });
 });
 
+test.describe('an IME commit between two inline nodes ends the composition', () => {
+  // Two images side by side: the caret between them is the spot upstream's
+  // `inlineNodesCursorPlugin` takes over. Its `compositionend` handler claimed
+  // the event, so ProseMirror never ended the composition and `view.composing`
+  // stayed set after the commit (FB-19, L6f-2) — which switches off markdown
+  // input rules and pins the host's `isComposing()`. The shipped plugin
+  // (milkdown-compat/inlineNodesCursor.ts) lets ProseMirror's handler run. The
+  // wikilink-chip version of this, with input rules and line edges, is in
+  // editor-embed-milkdown-wikilinks.spec.ts; this half needs the UNPATCHED preset.
+  const NOTE = '![a](a.png)![b](b.png)\n';
+
+  async function composingAfterCommit(page: Page, variant: 'compat' | 'baseline') {
+    await page.evaluate(
+      async ([v, m]) => {
+        (window as unknown as { __ime: unknown }).__ime = await window.__futoCensus.mountForIme(
+          v as 'compat' | 'baseline',
+          m,
+        );
+      },
+      [variant, NOTE] as const,
+    );
+    const cdp = await page.context().newCDPSession(page);
+    for (const text of ['ni', 'nihao'])
+      await cdp.send('Input.imeSetComposition', {
+        text,
+        selectionStart: text.length,
+        selectionEnd: text.length,
+      });
+    await cdp.send('Input.insertText', { text: 'NIHAO' });
+    await page.waitForTimeout(100);
+    return page.evaluate(() =>
+      (window as unknown as { __ime: { composing(): boolean } }).__ime.composing(),
+    );
+  }
+
+  test('canary: upstream still leaves view.composing set after the commit', async ({ page }) => {
+    expect(await composingAfterCommit(page, 'baseline')).toBe(true);
+  });
+
+  test('compat ends the composition', async ({ page }) => {
+    expect(await composingAfterCommit(page, 'compat')).toBe(false);
+  });
+});
+
 test.describe('YAML front matter survives the round trip', () => {
   // The bug report's note, verbatim. Three separate harms on the unpatched
   // preset: `---` → `***`, the closing `---` → a 16-dash setext underline, and

@@ -40,6 +40,14 @@ are adapters to one editor library's implementation — which mdast node a plugi
 deletes, how a link mark finds text to attach to — not note rules, so M6 does
 not apply. Nothing in Swift, Kotlin, or Rust may hold a second copy either.
 
+`inlineNodesCursor.ts` is an INPUT fork, not a round-trip one (FB-19): upstream's
+`inlineNodesCursorPlugin` returned `true` from `compositionend`, which keeps ProseMirror's own
+handler from running, so an IME commit between two non-text inline nodes (two chips, image +
+chip) left `view.composing` set for good off Android — input rules stop and `isComposing()`
+sticks. The fork is swapped in at the same index in `commonmarkWithCompat()`; its canary is in
+`editor-embed-milkdown-compat.spec.ts`, its real-IME tests in
+`editor-embed-milkdown-wikilinks.spec.ts`.
+
 Four more escaping repairs, from the 2026-09 release-hardening campaign (FB-4a):
 
 - `withNarrowedEscapes` also writes an autolink's text (`<https://…>`)

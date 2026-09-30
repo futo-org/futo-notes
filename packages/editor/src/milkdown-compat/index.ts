@@ -42,6 +42,13 @@
  *    and no rendered output reads. Dropping it also takes a whole-document walk off
  *    every keystroke (AGENTS.md M5).
  *
+ * One more fork is not a round-trip fix but an input one (FB-19, L6f-2):
+ * `./inlineNodesCursor` replaces `inlineNodesCursorPlugin`, whose
+ * `compositionend` handler claimed the event and so kept ProseMirror from ever
+ * ending an IME composition that committed between two non-text inline nodes
+ * (two wikilink chips, an image and a chip). `view.composing` stayed set: `- `
+ * stopped making a list and the host's `isComposing()` stuck true.
+ *
  * `./atxEscape`, `./underscoreEscape` and `./stringifyHandlers` are the
  * serializer-side members of the same set, from the tag work (#102): remark
  * escapes every line-leading `#`, which destroys a `#tag`, and every `_` in
@@ -79,6 +86,7 @@
  */
 import {
   commonmark,
+  inlineNodesCursorPlugin as upstreamInlineNodesCursorPlugin,
   remarkInlineLinkPlugin,
   remarkPreserveEmptyLinePlugin,
   syncHeadingIdPlugin,
@@ -92,6 +100,7 @@ import { remarkExpandEmptyLinksPlugin } from './emptyLink';
 import { remarkInlineHtmlIndentPlugin } from './inlineHtmlIndent';
 import { remarkEmptyTaskItemPlugin } from './emptyTaskItem';
 import { remarkImageTitlePlugin } from './imageTitle';
+import { inlineNodesCursorPlugin } from './inlineNodesCursor';
 import { remarkInlineUsedLinkDefinitionsPlugin } from './linkDefinitions';
 import { blankLineJoinPlugin, remarkBlankLineParagraphsPlugin } from './emptyLine';
 import { frontmatterPlugins } from './frontmatter';
@@ -177,6 +186,28 @@ function withoutPresetEntries(
   return kept;
 }
 
+/**
+ * `plugins` with `upstream` swapped for `replacement` at the same index — for a
+ * fork whose position matters: where a `handleDOMEvents` plugin sits in the
+ * list decides which of two plugins claims an event first. Throws, like
+ * `withoutPresetEntries`, when the preset no longer holds `upstream`.
+ */
+function replacePresetEntry(
+  plugins: MilkdownPlugin[],
+  upstream: MilkdownPlugin,
+  replacement: MilkdownPlugin,
+  what: string,
+): MilkdownPlugin[] {
+  const at = plugins.indexOf(upstream);
+  if (at < 0) {
+    throw new Error(
+      `milkdown-compat: expected to replace the upstream ${what} entry in the preset, ` +
+        `found none. Re-check @milkdown/preset-commonmark's composition against this module.`,
+    );
+  }
+  return plugins.map((plugin, index) => (index === at ? replacement : plugin));
+}
+
 /** The upstream preset minus every plugin this module forks or drops. */
 function upstreamPresetWithoutForkedPlugins(): MilkdownPlugin[] {
   const withoutEmptyLine = withoutPresetEntries(
@@ -194,7 +225,17 @@ function upstreamPresetWithoutForkedPlugins(): MilkdownPlugin[] {
     UPSTREAM_HEADING_ID_ENTRIES,
     'heading-id',
   );
-  return withoutPresetEntries(withoutHeadingId, UPSTREAM_LIST_ORDER_ENTRIES, 'list-order');
+  const withoutListOrder = withoutPresetEntries(
+    withoutHeadingId,
+    UPSTREAM_LIST_ORDER_ENTRIES,
+    'list-order',
+  );
+  return replacePresetEntry(
+    withoutListOrder,
+    upstreamInlineNodesCursorPlugin,
+    inlineNodesCursorPlugin,
+    'inline-cursor',
+  );
 }
 
 let cached: MilkdownPlugin[] | null = null;
