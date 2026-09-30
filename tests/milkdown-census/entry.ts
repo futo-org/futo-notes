@@ -36,6 +36,7 @@ import { listener } from '@milkdown/kit/plugin/listener';
 import { trailing } from '@milkdown/kit/plugin/trailing';
 import { getMarkdown, replaceAll } from '@milkdown/kit/utils';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
+import { Selection } from '@milkdown/kit/prose/state';
 
 import {
   commonmarkWithCompat,
@@ -231,14 +232,64 @@ async function pastePlainText(variant: CensusVariant, markdown: string): Promise
   }
 }
 
+/**
+ * Mounts an editor that STAYS mounted, with the caret focused between the first
+ * two adjacent non-text inline nodes (two images), for a test that drives a real
+ * IME into it. Returns a probe for `view.composing`. Positioning the caret is a
+ * selection, not input: the composition itself is the test's CDP IME.
+ */
+async function mountForIme(
+  variant: CensusVariant,
+  markdown: string,
+): Promise<{ composing: () => boolean; destroy: () => Promise<void> }> {
+  const root = document.createElement('div');
+  document.body.appendChild(root);
+  const preset = variant === 'compat' ? commonmarkWithCompat() : commonmark;
+  const editor = await Editor.make()
+    .config((ctx) => {
+      ctx.set(rootCtx, root);
+      ctx.set(defaultValueCtx, markdown);
+    })
+    .use(preset)
+    .use(variant === 'compat' ? gfmWithCompat() : gfm)
+    .use(history)
+    .use(listener)
+    .use(clipboard)
+    .use(cursor)
+    .use(trailing)
+    .create();
+  editor.action(replaceAll(markdown));
+  const view = editor.ctx.get(editorViewCtx);
+  let gap = -1;
+  view.state.doc.descendants((node, pos, parent, index) => {
+    if (gap >= 0) return false;
+    if (node.isInline && !node.isText && index > 0) {
+      const before = parent?.child(index - 1);
+      if (before?.isInline && !before.isText) gap = pos;
+    }
+    return true;
+  });
+  if (gap < 0) throw new Error('no two adjacent inline nodes in the fixture');
+  view.dispatch(view.state.tr.setSelection(Selection.near(view.state.doc.resolve(gap))));
+  view.focus();
+  return {
+    composing: () => view.composing,
+    destroy: async () => {
+      await editor.destroy();
+      root.remove();
+    },
+  };
+}
+
 declare global {
   interface Window {
     __futoCensus: {
       load: (variant: CensusVariant, markdown: string) => Promise<RoundTrip>;
       headingEditChurn: (variant: CensusVariant, markdown: string) => Promise<HeadingEditChurn>;
       pastePlainText: (variant: CensusVariant, markdown: string) => Promise<string>;
+      mountForIme: typeof mountForIme;
     };
   }
 }
 
-window.__futoCensus = { load: loadOnce, headingEditChurn, pastePlainText };
+window.__futoCensus = { load: loadOnce, headingEditChurn, pastePlainText, mountForIme };
