@@ -70,6 +70,7 @@ pub(crate) fn run() {
     );
 
     builder
+        .on_window_event(crate::close_deadline::on_window_event)
         .setup(|app| {
             let handle = app.handle();
             if let Ok(root) = crate::vault_location::root(handle) {
@@ -85,6 +86,7 @@ pub(crate) fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             crate::image_commands::fs_paste_clipboard_image,
+            crate::close_deadline::close_deadline_set_dirty,
             crate::app_menu::app_menu_set_labels,
             crate::platform_integration::read_desktop_color_scheme,
             crate::filesystem_watcher::fs_start_watcher,

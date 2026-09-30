@@ -498,6 +498,12 @@ build-desktop-test:
 test-desktop-journeys: build-desktop-test
   node tests/desktop-journeys.mjs
 
+# Window close with the webview's JS thread stalled (RC-37): the giant-note open must not trap the
+# window, and a stall with an unsaved edit in it must not lose the edit. Linux: it asks a headless
+# KWin to close the window. Not in CI: the desktop jobs run xvfb-run with no window manager.
+test-desktop-close-deadline:
+  bash scripts/run-under-virtual-kwin.sh bash -c 'just build-desktop-test && node tests/desktop-close-deadline.mjs'
+
 # Rust conformance goldens + the TS↔Rust title-rules differential.
 test-rust:
   cargo test -p futo-notes-model --test conformance

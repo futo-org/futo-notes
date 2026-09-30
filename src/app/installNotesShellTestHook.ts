@@ -5,6 +5,7 @@ import {
   type NoteSwitchTimeline,
 } from '$shared/perf/noteSwitchTimeline';
 
+import { noteEditIntent } from './closeDeadlineDirty';
 import { testHooksEnabled } from './testHooksEnabled';
 
 /**
@@ -105,12 +106,16 @@ export function installNotesShellTestHook(options: NotesShellTestHookOptions): (
 function typeInEditor(editor: TestEditorTarget | null, text: string): string {
   if (!editor) throw new Error('editor not ready');
   editor.focus();
+  // Stands in for typing, which would fire `beforeinput`; announce it the same way.
+  noteEditIntent();
   editor.insertMarkdown(text);
   return editor.getContent() ?? '';
 }
 
 function replaceEditorContent(editor: TestEditorTarget | null, content: string): string {
   if (!editor) throw new Error('editor not ready');
+  // Not an input event, so announce the edit before the work that may stall.
+  noteEditIntent();
   editor.applyEdit(content);
   return editor.getContent() ?? '';
 }

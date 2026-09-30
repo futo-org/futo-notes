@@ -8,6 +8,7 @@ mod app_menu;
 mod application;
 mod application_state;
 mod background_tasks;
+mod close_deadline;
 mod desktop_settings;
 mod external_file_open;
 mod filesystem_watcher;

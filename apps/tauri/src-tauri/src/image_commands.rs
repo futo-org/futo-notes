@@ -1,15 +1,15 @@
 //! Tauri commands for image import and clipboard paste.
 
-use std::fs;
 use std::path::Path;
 
 use tauri::AppHandle;
 
-use crate::background_tasks::{blocking, io_error};
+use crate::background_tasks::blocking;
 
 // Canonical set lives in `futo_notes_core::image` (shared with the sync layer,
 // the note domain, and the conformance-locked `@futo-notes/editor` hot path);
 // no local copy to drift.
+use futo_notes_core::files::{vault_fs, vault_mutation_guard};
 use futo_notes_core::image::IMAGE_EXTENSIONS;
 
 fn validate_extension(extension: &str) -> Result<String, String> {
@@ -35,7 +35,12 @@ fn unique_filename(extension: &str) -> String {
 fn write_image(root: &Path, bytes: &[u8], extension: &str) -> Result<String, String> {
     let extension = validate_extension(extension)?;
     let filename = unique_filename(&extension);
-    fs::write(root.join(&filename), bytes).map_err(io_error)?;
+    // Atomic (tmp + rename) and under the process-wide vault guard, like every
+    // note write: a plain `fs::write` truncates first, so an exit landing inside
+    // it (the close deadline, a crash) left a torn image, and nothing made the
+    // deadline wait for it (RC-89).
+    let _vault_mutation = vault_mutation_guard()?;
+    vault_fs::write_atomic_local(root, &filename, bytes)?;
     Ok(filename)
 }
 
@@ -75,6 +80,7 @@ pub async fn fs_paste_clipboard_image(app: AppHandle) -> Result<String, String> 
 mod tests {
     //! Tests for image import and validation commands.
     use super::*;
+    use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -105,6 +111,31 @@ mod tests {
         let filename = write_image(&root, b"image", "png").unwrap();
         assert!(filename.ends_with(".png"));
         assert_eq!(fs::read(root.join(filename)).unwrap(), b"image");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// RC-89: an image lands whole (no torn file, no temp left) and only while the
+    /// process-wide vault guard is free, so the close deadline waits for it.
+    #[test]
+    fn image_write_is_atomic_and_waits_for_the_vault_guard() {
+        let root = temp_dir();
+        let held = vault_mutation_guard().unwrap();
+        let writer_root = root.clone();
+        let writer =
+            std::thread::spawn(move || write_image(&writer_root, b"image", "png").unwrap());
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(
+            !writer.is_finished(),
+            "the write must wait for the vault guard"
+        );
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+        drop(held);
+        let filename = writer.join().unwrap();
+        let names: Vec<_> = fs::read_dir(&root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(names, vec![filename]);
         fs::remove_dir_all(root).unwrap();
     }
 }
