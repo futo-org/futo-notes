@@ -25,6 +25,7 @@ import * as prosemirrorView from '@milkdown/kit/prose/view';
 import type { EditorView } from '@milkdown/kit/prose/view';
 import type { Slice } from '@milkdown/kit/prose/model';
 
+import { flattenHtmlBlocks } from './cellHtmlFlatten';
 import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
 import { guardEditorTimers } from './__fixtures__/editorTimerGuard';
 
@@ -187,5 +188,73 @@ describe('what stays spreadsheet-style (unchanged)', () => {
     pasteHtml(view, '<p>P</p><p>Q</p>');
 
     expect(bodyRow(handle.getContent()!)).toEqual(['P', 'Q']);
+  });
+});
+
+/*
+ * R10 round on RC-83: the flatten put a space AFTER each block only, so an inline
+ * run meeting a block fused two words (`Kn1 a` + `<p>Kn2 b</p>` -> `Kn1 aKn2 b`);
+ * a huge sibling list overflowed the stack in the spread; a custom element whose
+ * name starts with `table` switched the flatten off; and a blank paste inserted
+ * a non-breaking space where blank plain text pastes nothing.
+ */
+describe('the flatten keeps words apart, survives size, and reads the DOM, not the string', () => {
+  it('an inline run followed by a block does not fuse with it', async () => {
+    const { handle, view } = await openWithCaretInC1();
+
+    pasteHtml(view, '<span>Kn1 a</span><p>Kn2 b</p>');
+
+    expect(bodyRow(handle.getContent()!)).toEqual(['c1Kn1 a Kn2 b', 'c2']);
+  });
+
+  it('a block followed by an inline run, a nested list and marks stay apart', () => {
+    expect(flattenHtmlBlocks('Kn3 a<div>Kn4 b</div>')).toBe('Kn3 a Kn4 b');
+    expect(flattenHtmlBlocks('<ul><li>Kn5 a<ul><li>Kn6 b</li></ul></li></ul>')).toBe('Kn5 a Kn6 b');
+    expect(flattenHtmlBlocks('<b>x</b><p>y</p>')).toBe('<b>x</b> y');
+  });
+
+  it('never leaves a double space or a space at either end', () => {
+    expect(flattenHtmlBlocks('<p> a </p><p> b </p>')).toBe('a b');
+    expect(flattenHtmlBlocks('<ul><li><p>a</p></li><li><p>b</p></li></ul>')).toBe('a b');
+  });
+
+  it('a very long run of siblings does not overflow the stack', () => {
+    const html = `<p>${'<b>x</b>'.repeat(150_000)}</p><p>z</p>`;
+
+    const flat = flattenHtmlBlocks(html);
+
+    expect(flat).not.toBeNull();
+    expect(flat!.endsWith(' z')).toBe(true);
+  }, 60_000);
+
+  it('a custom element that merely starts with "table" is not a table', async () => {
+    expect(flattenHtmlBlocks('<p>a <table-of-contents>x</table-of-contents></p><p>b</p>')).toBe(
+      'a <table-of-contents>x</table-of-contents> b',
+    );
+    const { handle, view } = await openWithCaretInC1();
+
+    pasteHtml(view, '<p>Kn42 <table-of-contents>x</table-of-contents></p><p>Kn43 z</p>');
+
+    const row = bodyRow(handle.getContent()!);
+    expect(row[1]).toBe('c2');
+    expect(row[0]).toContain('Kn43 z');
+  });
+
+  it('a real table anywhere in the paste is still left alone', () => {
+    expect(flattenHtmlBlocks('<div><table><tr><td>a</td></tr></table></div>')).toBeNull();
+    expect(flattenHtmlBlocks('<td>a</td><td>b</td>')).toBeNull();
+  });
+
+  it('a whitespace-only paste pastes nothing', async () => {
+    expect(flattenHtmlBlocks('<p> </p><p>&nbsp;</p>')).toBe('');
+    const { handle, view } = await openWithCaretInC1();
+
+    pasteHtml(view, '<p> </p><p>&nbsp;</p>', ' \n\u00a0');
+
+    expect(bodyRow(handle.getContent()!)).toEqual(['c1', 'c2']);
+  });
+
+  it('an image is not blank text', () => {
+    expect(flattenHtmlBlocks('<p><img src="a.png"></p><p> </p>')).toContain('<img');
   });
 });

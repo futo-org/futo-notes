@@ -397,6 +397,20 @@ test('several HTML blocks pasted into a cell join in that cell and spare the nex
   ]);
 });
 
+test('an inline run meeting a block keeps its words apart when pasted into a cell (RC-83)', async ({
+  page,
+}) => {
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r1a');
+  await pasteHtml(page, '<span>Kn1 a</span><div>Kn2 b</div>', 'Kn1 a\nKn2 b');
+  await settled(page);
+  expect(tableRows(await getContent(page))).toEqual([
+    ['a', 'b'],
+    ['r1aKn1 a Kn2 b', 'r1b'],
+    ['r2a', 'r2b'],
+  ]);
+});
+
 test('a pasted HTML table still overwrites cell by cell, spreadsheet-style', async ({ page }) => {
   await open(page, TABLE);
   await caretAtEndOf(page, 'r1a');
