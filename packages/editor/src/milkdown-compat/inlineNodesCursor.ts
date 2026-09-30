@@ -20,7 +20,7 @@
  * toolbar stays hidden, until the next composition happens to end (FB-19,
  * L6f-2).
  *
- * This is the upstream plugin with two changes, everything else verbatim:
+ * This is the upstream plugin with three changes, everything else verbatim:
  *  1. `compositionend` returns `false`, so ProseMirror ends the composition.
  *  2. The re-insert no longer asks "is the caret STILL between two inline
  *     nodes?" at the next frame. A character typed in the gap — the keyboard
@@ -29,6 +29,12 @@
  *     (measured: `hello` + `X` saved as just `X`). It asks instead whether
  *     anything BEFORE the caret changed; the typed character lands at the same
  *     position, so the word goes in front of it, in typed order.
+ *  3. `compositionend` re-inserts only while the caret is still in the gap.
+ *     Dropping the old next-frame check made `lock` ("this composition started
+ *     in the gap") outlive the gap: a candidate pick that commits a prefix and
+ *     keeps composing, a deleted chip or a moved selection all continue as an
+ *     ordinary composition ProseMirror reads itself, and its commit was then
+ *     inserted a second time (R10-FB19-1).
  *
  * `milkdown-compat.canary.spec.ts`-style canary: the `baseline` half of
  * `tests/editor-embed-milkdown-compat.spec.ts` shows the upstream plugin still
@@ -66,6 +72,13 @@ export const inlineNodesCursorPlugin = $prose(() => {
         compositionend: (view, e) => {
           if (!lock) return false;
           lock = false;
+          /* `lock` only says the composition STARTED in the gap. If the caret has
+           * left it since — the previous commit's re-insert ran, a chip was
+           * deleted, the selection moved — the composed text went into ordinary
+           * text, which ProseMirror read itself; inserting it again would
+           * duplicate it. Upstream never had this hole: it only re-inserted while
+           * the caret was still in the gap. */
+          if (!plugin.getState(view.state)) return false;
           const data = (e as CompositionEvent).data || '';
           const docAtEnd = view.state.doc;
           const from = view.state.selection.from;

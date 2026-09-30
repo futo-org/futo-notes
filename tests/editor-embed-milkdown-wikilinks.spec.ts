@@ -750,6 +750,110 @@ test.describe('IME commit next to a chip', () => {
     expect(await composing(page)).toBe(false);
   });
 
+  // R10-FB19-1. The fork's re-insert runs a frame after the commit. A candidate
+  // pick that commits a prefix and keeps composing starts the next composition
+  // inside that frame, with the caret still "between" the nodes, so the plugin's
+  // `lock` was set for a composition ProseMirror reads natively from then on:
+  // its compositionend inserted the text a second time. Two frames' worth of
+  // delay is made deterministic by slowing requestAnimationFrame to 30 ms.
+  async function slowFrames(page: Page, ms: number): Promise<void> {
+    await page.evaluate((delay) => {
+      window.requestAnimationFrame = (cb) =>
+        window.setTimeout(() => cb(performance.now()), delay) as unknown as number;
+    }, ms);
+  }
+
+  async function composeInGap(page: Page): Promise<import('@playwright/test').CDPSession> {
+    const cdp = await page.context().newCDPSession(page);
+    for (const text of ['ni', 'nihao'])
+      await cdp.send('Input.imeSetComposition', {
+        text,
+        selectionStart: text.length,
+        selectionEnd: text.length,
+      });
+    return cdp;
+  }
+
+  // Chromium drops a live composition silently when the selection or the nodes
+  // around it change under it (no compositionend), and the IME then carries on
+  // with a fresh composition: that is the sequence below.
+  async function continueComposition(cdp: import('@playwright/test').CDPSession): Promise<void> {
+    await cdp.send('Input.imeSetComposition', {
+      text: 'nihao',
+      selectionStart: 5,
+      selectionEnd: 5,
+    });
+    await cdp.send('Input.insertText', { text: 'NIHAO' });
+  }
+
+  test('a prefix commit that keeps composing does not duplicate the next commit', async ({
+    page,
+  }) => {
+    await open(page, 'pre [[one]][[two]] post\n');
+    await slowFrames(page, 30);
+    await placeCaret(page, 'between-chips');
+    const cdp = await page.context().newCDPSession(page);
+    const compose = async (text: string) => {
+      await cdp.send('Input.imeSetComposition', {
+        text,
+        selectionStart: text.length,
+        selectionEnd: text.length,
+      });
+      await page.waitForTimeout(120);
+    };
+    await compose('ni');
+    await compose('nihao');
+    await cdp.send('Input.insertText', { text: '你' });
+    await compose('hao');
+    await compose('haos');
+    await compose('haoshi');
+    await cdp.send('Input.insertText', { text: '好世' });
+    await compose('jie');
+    await cdp.send('Input.insertText', { text: '界' });
+    await page.waitForTimeout(200);
+    await flushFrames(page);
+    expect(await getContent(page)).toContain('[[one]]你好世界[[two]]');
+    expect(await composing(page)).toBe(false);
+  });
+
+  test('a chip deleted mid-composition does not duplicate the commit', async ({ page }) => {
+    await open(page, 'pre [[one]][[two]] post\n');
+    await placeCaret(page, 'between-chips');
+    const cdp = await composeInGap(page);
+    await page.evaluate(() => {
+      const view = (
+        window as unknown as {
+          __futoProseMirrorView: () => {
+            state: { selection: { from: number }; tr: { delete(a: number, b: number): unknown } };
+            dispatch(tr: unknown): void;
+          };
+        }
+      ).__futoProseMirrorView();
+      const at = view.state.selection.from;
+      // The chip to the left of the gap, removed by something other than the IME.
+      view.dispatch(view.state.tr.delete(at - 1, at));
+    });
+    await continueComposition(cdp);
+    await flushFrames(page);
+    await page.waitForTimeout(100);
+    const after = await getContent(page);
+    expect(OCCURRENCES(after, 'NIHAO')).toBe(1);
+    expect(await composing(page)).toBe(false);
+  });
+
+  test('a selection moved mid-composition does not duplicate the commit', async ({ page }) => {
+    await open(page, 'pre [[one]][[two]] post\n');
+    await placeCaret(page, 'between-chips');
+    const cdp = await composeInGap(page);
+    await placeCaret(page, 'line-end');
+    await continueComposition(cdp);
+    await flushFrames(page);
+    await page.waitForTimeout(100);
+    const after = await getContent(page);
+    expect(OCCURRENCES(after, 'NIHAO')).toBe(1);
+    expect(await composing(page)).toBe(false);
+  });
+
   test('ordinary text is unchanged: commit lands once and composing clears', async ({ page }) => {
     await open(page, 'hello world\n');
     await placeCaret(page, 'line-end');
