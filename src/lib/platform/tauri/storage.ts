@@ -8,6 +8,7 @@ import {
   stat,
   writeTextFile,
 } from '@tauri-apps/plugin-fs';
+import { toWellFormedText } from '@futo-notes/editor';
 
 import { sweepStaleAtomicTemps, writeAtomicText, type AtomicWriteFS } from '../atomicWrite';
 import { isNotFound } from '../fsErrors';
@@ -74,7 +75,9 @@ export function createTauriStorage({
     },
 
     async readAppData(path) {
-      const fullPath = safeAppdataPath(await getNotesRoot(), path);
+      // `exists` and `readTextFile` are raw plugin calls: a lone surrogate in the
+      // path would leave them pending for ever on WebKitGTK (RC-95).
+      const fullPath = toWellFormedText(safeAppdataPath(await getNotesRoot(), path));
       try {
         if (!(await withTimeout(`exists(${path})`, exists(fullPath)))) return null;
         return await withTimeout(`readAppData(${path})`, readTextFile(fullPath));
