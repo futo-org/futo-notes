@@ -20,7 +20,7 @@
  * toolbar stays hidden, until the next composition happens to end (FB-19,
  * L6f-2).
  *
- * This is the upstream plugin with three changes, everything else verbatim:
+ * This is the upstream plugin with four changes, everything else verbatim:
  *  1. `compositionend` returns `false`, so ProseMirror ends the composition.
  *  2. The re-insert no longer asks "is the caret STILL between two inline
  *     nodes?" at the next frame. A character typed in the gap — the keyboard
@@ -35,17 +35,37 @@
  *     keeps composing, a deleted chip or a moved selection all continue as an
  *     ordinary composition ProseMirror reads itself, and its commit was then
  *     inserted a second time (R10-FB19-1).
+ *  4. `compositionstart` deletes a selection that covers a chip (a NodeSelection,
+ *     or a range across one) before ProseMirror's own handler sees it, so an IME
+ *     composed over a selected chip replaces it instead of losing the commit
+ *     and sticking `view.composing` (RC-97; not the gap, but the same symptom).
  *
  * `milkdown-compat.canary.spec.ts`-style canary: the `baseline` half of
  * `tests/editor-embed-milkdown-compat.spec.ts` shows the upstream plugin still
  * leaves `view.composing` set; when upstream fixes it, delete this file.
  */
-import { Plugin, PluginKey } from '@milkdown/kit/prose/state';
+import { NodeSelection, Plugin, PluginKey, type Selection } from '@milkdown/kit/prose/state';
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
 import { $prose } from '@milkdown/kit/utils';
 
+/** A non-empty selection that takes a chip, an image or a hard break with it. */
+function coversInlineAtom(selection: Selection): boolean {
+  if (selection.empty) return false;
+  if (selection instanceof NodeSelection) return selection.node.isInline && !selection.node.isText;
+  let found = false;
+  selection.$from.doc.nodesBetween(selection.from, selection.to, (node) => {
+    if (node.isInline && !node.isText) found = true;
+    return !found;
+  });
+  return found;
+}
+
 export const inlineNodesCursorPlugin = $prose(() => {
   let lock = false;
+  /* Set while `compositionstart` deletes a selected chip (RC-97): the gap that
+   * leaves is where a composition is ALREADY starting, so its widgets must be
+   * editable now, not on the next tick. */
+  let widgetsAtOnce = false;
   const plugin: Plugin<boolean> = new Plugin<boolean>({
     key: new PluginKey('MILKDOWN_INLINE_NODES_CURSOR'),
     state: {
@@ -92,6 +112,24 @@ export const inlineNodesCursorPlugin = $prose(() => {
           return false;
         },
         compositionstart: (view) => {
+          /* A SELECTED chip (a NodeSelection: tapped, or reached with an arrow key),
+           * or a range that spans one, composed over. ProseMirror's own
+           * `compositionstart` sees a DOM selection that differs from its state's
+           * and re-dispatches it under the live composition, and re-rendering the
+           * selection makes Chromium drop the composition with no `compositionend`:
+           * the committed text is lost and `view.composing` stays set (RC-97). Blink
+           * deletes the selection itself right after this event, so doing it here
+           * first leaves an empty caret and an ordinary composition, the way a
+           * range of plain text already behaves. Runs before the gap check below:
+           * deleting a chip can leave the caret between two others. */
+          if (coversInlineAtom(view.state.selection)) {
+            widgetsAtOnce = true;
+            try {
+              view.dispatch(view.state.tr.deleteSelection());
+            } finally {
+              widgetsAtOnce = false;
+            }
+          }
           if (plugin.getState(view.state)) lock = true;
           return false;
         },
@@ -109,10 +147,12 @@ export const inlineNodesCursorPlugin = $prose(() => {
         const position = state.selection.$from.pos;
         const left = document.createElement('span');
         const right = document.createElement('span');
-        setTimeout(() => {
+        const makeEditable = () => {
           left.contentEditable = 'true';
           right.contentEditable = 'true';
-        });
+        };
+        if (widgetsAtOnce) makeEditable();
+        else setTimeout(makeEditable);
         return DecorationSet.create(state.doc, [
           Decoration.widget(position, left, { side: -1 }),
           Decoration.widget(position, right),
