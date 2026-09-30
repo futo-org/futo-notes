@@ -362,6 +362,20 @@ test('pasting an HTML table into a table cell throws nothing and pastes the cell
  * `text/html` is left empty, so ProseMirror takes its plain-text route — the one
  * `plainTextBlockPaste.ts` touches — and only the clipboard event is synthetic.
  */
+test('multi-line plain text pasted into a cell stays in that cell and spares the next (RC-81)', async ({
+  page,
+}) => {
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r1a');
+  await pasteHtml(page, '', 'P\n\nQ');
+  await settled(page);
+  expect(tableRows(await getContent(page))).toEqual([
+    ['a', 'b'],
+    ['r1aP Q', 'r1b'],
+    ['r2a', 'r2b'],
+  ]);
+});
+
 test('a lone heading pasted into an empty table cell does not split the table', async ({
   page,
 }) => {

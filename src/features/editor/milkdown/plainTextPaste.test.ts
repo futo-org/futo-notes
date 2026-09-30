@@ -213,3 +213,44 @@ describe('an empty paragraph that is not a document or quote child is left to th
     expect(view.state.doc.textContent).toContain('x');
   });
 });
+
+/*
+ * RC-81: multi-line plain text pasted into a table cell OVERWROTE the cell next
+ * to it. ProseMirror parses plain text to one paragraph per line; a cell holds
+ * one line, so each paragraph was wrapped in a new cell and prosemirror-tables
+ * pasted that run of cells over the row. `x<newline>` was enough (the trailing
+ * newline is a second, empty paragraph). It needs no plugin of ours to be
+ * involved at all, which is why it reproduces on base.
+ */
+describe('multi-line plain text pasted into a table cell keeps the neighbouring cell (RC-81)', () => {
+  async function pasteIntoEmptyCell(text: string): Promise<string> {
+    const handle = await mountEditor('');
+    handle.openNote('| a | b |\n| --- | --- |\n| | y |\n');
+    const view = handle.getProseMirrorView()!;
+    let cell = -1;
+    view.state.doc.descendants((node, pos) => {
+      if (cell === -1 && node.type.name === 'table_cell' && node.textContent === '') cell = pos;
+      return cell === -1;
+    });
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, cell + 2)));
+    pastePlain(view, text);
+    return handle.getContent()!;
+  }
+
+  it('a trailing newline does not spill into the next cell', async () => {
+    const md = await pasteIntoEmptyCell('x\n');
+    expect(md).toContain('y');
+    expect(md).toMatch(/\|\s*x\s*\|\s*y\s*\|/);
+  });
+
+  it('two paragraphs land in the cell, joined, and the next cell survives', async () => {
+    const md = await pasteIntoEmptyCell('p\n\nq');
+    expect(md).toMatch(/\|\s*p q\s*\|\s*y\s*\|/);
+  });
+
+  it('a pasted list keeps every line and the next cell', async () => {
+    const md = await pasteIntoEmptyCell('- a\n- b');
+    expect(md).toContain('y');
+    expect(md).toMatch(/a[^|]*b/);
+  });
+});

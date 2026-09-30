@@ -1,4 +1,8 @@
 /*
+ * Two plain-text paste repairs, one file because both are about where the
+ * clipboard route puts multi-line text. `transformPastedText` at the bottom is
+ * the table-cell one (RC-81).
+ *
  * Pasting a BLOCK as plain text into an EMPTY paragraph replaces that paragraph
  * (RC-59's leftover: an empty note saved with a leading blank line, and an empty
  * line stayed above the paste wherever the caret was on an empty line).
@@ -26,9 +30,17 @@
  */
 import { parserCtx, schemaCtx } from '@milkdown/kit/core';
 import { DOMParser, DOMSerializer } from '@milkdown/kit/prose/model';
-import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';
+import { Plugin, PluginKey, TextSelection, type Selection } from '@milkdown/kit/prose/state';
 import type { EditorView } from '@milkdown/kit/prose/view';
 import { $prose } from '@milkdown/kit/utils';
+
+/** The text a table cell can hold: one line. Null when the caret is not in a cell. */
+function flattenedForCell(text: string, selection: Selection): string | null {
+  if (!(selection instanceof TextSelection)) return null;
+  const role = selection.$from.node(selection.$from.depth - 1).type.spec.tableRole;
+  if (role !== 'cell' && role !== 'header_cell') return null;
+  return text.replace(/^\s+|\s+$/g, '').replace(/\s*(?:\r\n?|\n)+\s*/g, ' ');
+}
 
 export const plainTextBlockPaste = $prose((ctx) => {
   const schema = ctx.get(schemaCtx);
@@ -41,6 +53,15 @@ export const plainTextBlockPaste = $prose((ctx) => {
     if (!text) return false;
 
     const { selection } = view.state;
+    // A table cell takes one line (RC-81, `transformPastedText` below): claim
+    // the paste, because the clipboard plugin would re-read the raw text.
+    const oneLine = flattenedForCell(text, selection);
+    if (oneLine !== null) {
+      if (oneLine === text) return false;
+      view.dispatch(view.state.tr.insertText(oneLine).scrollIntoView());
+      return true;
+    }
+
     if (!(selection instanceof TextSelection) || !selection.empty) return false;
     const { $from } = selection;
     const line = $from.parent;
@@ -77,6 +98,19 @@ export const plainTextBlockPaste = $prose((ctx) => {
 
   return new Plugin({
     key: new PluginKey('FUTO_PLAIN_TEXT_BLOCK_PASTE'),
-    props: { handlePaste: (view, event) => paste(view, event) },
+    props: {
+      handlePaste: (view, event) => paste(view, event),
+      /* A table cell holds ONE line of inline content (a GFM cell cannot hold a
+       * block), and ProseMirror parses plain text into one paragraph per line.
+       * More than one paragraph cannot sit in a cell, so the parser wraps each
+       * in a NEW CELL and prosemirror-tables pastes that run of cells over the
+       * cells that follow the caret: `| | y |` + paste `p<newline><newline>q`
+       * (or just `x<newline>`, whose trailing newline is a second, empty
+       * paragraph) saved `| p | q |` and lost `y` (RC-81). Joining the lines
+       * with a space before it is parsed keeps every word and touches no
+       * neighbour. */
+      transformPastedText: (text, _plain, view) =>
+        flattenedForCell(text, view.state.selection) ?? text,
+    },
   });
 });
