@@ -376,6 +376,53 @@ test('multi-line plain text pasted into a cell stays in that cell and spares the
   ]);
 });
 
+/*
+ * RC-83: the HTML twin of RC-81. `text/html` with several blocks, caret in a
+ * cell: ProseMirror wrapped each `<p>` in a new cell and prosemirror-tables
+ * pasted them over the caret's cell and the next (`c1`, `r1b` both lost). A
+ * pasted `<table>` is a spreadsheet paste and overwrites by design.
+ */
+test('several HTML blocks pasted into a cell join in that cell and spare the next (RC-83)', async ({
+  page,
+}) => {
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r1a');
+  await pasteHtml(page, '<p>P <b>bold</b></p><p>Q</p>', 'P bold\n\nQ');
+  await settled(page);
+  const content = await getContent(page);
+  expect(tableRows(content)).toEqual([
+    ['a', 'b'],
+    ['r1aP **bold** Q', 'r1b'],
+    ['r2a', 'r2b'],
+  ]);
+});
+
+test('an inline run meeting a block keeps its words apart when pasted into a cell (RC-83)', async ({
+  page,
+}) => {
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r1a');
+  await pasteHtml(page, '<span>Kn1 a</span><div>Kn2 b</div>', 'Kn1 a\nKn2 b');
+  await settled(page);
+  expect(tableRows(await getContent(page))).toEqual([
+    ['a', 'b'],
+    ['r1aKn1 a Kn2 b', 'r1b'],
+    ['r2a', 'r2b'],
+  ]);
+});
+
+test('a pasted HTML table still overwrites cell by cell, spreadsheet-style', async ({ page }) => {
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r1a');
+  await pasteHtml(page, '<table><tr><td>X</td><td>Y</td></tr></table>', 'X\tY');
+  await settled(page);
+  expect(tableRows(await getContent(page))).toEqual([
+    ['a', 'b'],
+    ['X', 'Y'],
+    ['r2a', 'r2b'],
+  ]);
+});
+
 test('a lone heading pasted into an empty table cell does not split the table', async ({
   page,
 }) => {
