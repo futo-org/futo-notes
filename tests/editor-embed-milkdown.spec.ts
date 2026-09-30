@@ -2191,6 +2191,11 @@ mobileDndTest(
     // platform's own long-press gestures down — just never liftable.
     expect((await messagesOfType(page, 'blockPress')).map((m) => m.pressed)).toEqual([true, false]);
     expect(await getContent(page)).toBe('alpha\n\n\nbravo');
+    // The release's native click must not leave the editor focused: a focused
+    // editor makes the next press below a text-selection gesture that never
+    // arms, so the `haptic` wait timed out under load (RC-84: the one-frame
+    // release guard had expired before the click's focus arrived).
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
 
     // A real block right next to it is unaffected.
     await clearMessages(page);

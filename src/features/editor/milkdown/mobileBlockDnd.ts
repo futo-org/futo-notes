@@ -202,6 +202,9 @@ export interface MobileBlockDndOptions {
 /** Exported so a test can hold for longer than the lift timer without
  * hardcoding a second copy of the number. */
 export const DEFAULT_LONG_PRESS_MS = 340;
+
+/** How long a released hold keeps absorbing the native click's deferred focus. */
+const FOCUS_GUARD_MS = 1000;
 const DEFAULT_MOVE_CANCEL_PX = 10;
 
 /** Horizontal breathing room the ghost card adds around the block's own rect,
@@ -426,6 +429,7 @@ export class MobileBlockDndView {
   }
 
   destroy(): void {
+    this.dropFocusGuard();
     this.disarm();
     this.cleanupDragVisuals();
     this.view.dom.removeEventListener('pointerdown', this.onPointerDown);
@@ -545,17 +549,32 @@ export class MobileBlockDndView {
    * focus without staying registered a moment longer than it has to, so it
    * can never shadow a genuinely new press's own guard. */
   private guardFocusBriefly(): void {
+    this.dropFocusGuard();
     const doc = this.doc;
     const handler = (event: FocusEvent): void => {
       const target = event.target;
       if (!(target instanceof HTMLElement) || !this.view.dom.contains(target)) return;
       event.stopPropagation();
       target.blur();
-      doc.removeEventListener('focus', handler, true);
+      this.dropFocusGuard();
     };
     doc.addEventListener('focus', handler, true);
-    requestAnimationFrame(() => doc.removeEventListener('focus', handler, true));
+    // NOT a requestAnimationFrame: the native click that carries this focus is
+    // a separate task after `pointerup`, and under load a frame runs in
+    // between, so a one-frame guard was already gone when the focus arrived
+    // (the editor ended up focused, and the NEXT press then saw a focused
+    // editor and never armed — RC-84). The guard now lives until it absorbs
+    // that one focus, the next press starts, or this timeout.
+    const timer = setTimeout(() => this.dropFocusGuard(), FOCUS_GUARD_MS);
+    this.dropFocusGuard = () => {
+      clearTimeout(timer);
+      doc.removeEventListener('focus', handler, true);
+      this.dropFocusGuard = () => {};
+    };
   }
+
+  /** Removes the release-time focus guard, if one is live. */
+  private dropFocusGuard: () => void = () => {};
 
   /** Collapses any live range in BOTH representations. The ProseMirror state
    * is authoritative for the editor, but WebKit can leave a DOM range behind
@@ -583,6 +602,9 @@ export class MobileBlockDndView {
   private onPointerDown = (event: PointerEvent): void => {
     if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
     if (this.pointerId !== null) return; // a second simultaneous touch
+    // A new press owns focus arbitration from here (its own `onFocusCapture`);
+    // the previous release's guard must not outlive it and swallow a tap's focus.
+    this.dropFocusGuard();
     // FOCUS ARBITRATES DRAG VS. SELECTION (module doc): a press that starts
     // with the editor already focused is text selection/caret placement and
     // this plugin must not touch it AT ALL — arming here, even briefly, would
