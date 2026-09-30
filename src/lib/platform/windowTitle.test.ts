@@ -43,6 +43,16 @@ describe('native window title', () => {
     expect(tauriWindow.setTitle).toHaveBeenLastCalledWith('welcome — FUTO 笔记（开发版）');
   });
 
+  // RC-95: a raw plugin call carrying a lone surrogate never settles on WebKitGTK.
+  it('never sends the window a lone surrogate (a title cut through an emoji)', async () => {
+    const platform = await loadPlatform();
+    platform.setApplicationWindowTitle('FUTO Notes');
+    platform.setAppWindowTitle('party \uD83C');
+    await settle();
+
+    expect(tauriWindow.setTitle).toHaveBeenLastCalledWith('party \uFFFD — FUTO Notes');
+  });
+
   it('composes the note title with the localized app name', async () => {
     const platform = await loadPlatform();
     platform.setApplicationWindowTitle('FUTO 笔记');

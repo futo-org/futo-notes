@@ -11,7 +11,7 @@ use crate::sync::encrypted_note::{state_from_remote, RemoteNote};
 use crate::sync::object_map::mapped_name;
 use crate::sync::outcome::note_id;
 use crate::sync::vault::{
-    content_hash, park_local, path_exists, remove_local, write_content_if_changed,
+    content_hash, park_local, path_exists, remove_local, write_content_if_changed, PulledWrite,
 };
 use crate::sync::{
     decision, FailureKind, PreWrite, RenamePair, SyncFailure, SyncPhase, SyncSummary,
@@ -241,30 +241,29 @@ fn commit_remote_file(
     target: String,
     remote_hash: &str,
 ) -> Result<(), String> {
-    if let Some(expected) = context
+    let local_base = context
         .state
         .object_map
         .get(&target)
-        .and_then(|entry| entry.hash.as_deref())
-    {
-        let current = content_hash(context.root, &target);
-        if current.as_deref() != Some(expected) && current.as_deref() != Some(remote_hash) {
-            return Err(format!(
-                "local revision changed before applying remote object {}",
-                remote.object.id
-            ));
-        }
-    }
+        .and_then(|entry| entry.hash.clone());
     let modified = timestamp_ms(&remote.object.updated_at);
-    if write_content_if_changed(
+    match write_content_if_changed(
         context.root,
         &target,
         &remote.content,
         remote_hash,
+        local_base.as_deref(),
         modified,
         context.pre_write,
     )? {
-        context.summary.local_writes_applied += 1;
+        PulledWrite::Written => context.summary.local_writes_applied += 1,
+        PulledWrite::AlreadyCurrent => {}
+        PulledWrite::LocalChanged => {
+            return Err(format!(
+                "local revision changed before applying remote object {}",
+                remote.object.id
+            ))
+        }
     }
     context
         .state

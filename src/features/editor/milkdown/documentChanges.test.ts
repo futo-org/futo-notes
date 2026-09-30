@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { EditorState, Plugin } from '@milkdown/kit/prose/state';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 
+import { setEditIntentListener } from '$shared/lifecycle/editIntent';
 import { createDocumentChangePlugin, isReportableDocumentChange } from './documentChanges';
 import { testSchema as s } from './__fixtures__/schema';
 
@@ -56,6 +57,20 @@ describe('createDocumentChangePlugin', () => {
 
   it('fires once for a document change', () => {
     expect(apply((state) => state.tr.insertText('b', 1))).toBe(1);
+  });
+
+  it('announces an edit intent at dispatch, for edits that raise no input event', () => {
+    let intents = 0;
+    setEditIntentListener(() => (intents += 1));
+    try {
+      apply((state) => state.tr.insertText('b', 1)); // what a keymap command or a toolbar click dispatches
+      expect(intents).toBe(1);
+      apply((state) => state.tr.scrollIntoView());
+      apply((state) => state.tr.insertText('b', 1).setMeta('addToHistory', false)); // a load or a chunk append
+      expect(intents).toBe(1);
+    } finally {
+      setEditIntentListener(null);
+    }
   });
 
   it('stays silent for a selection-only transaction', () => {

@@ -29,7 +29,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.futo.notes.BuildConfig
 import com.futo.notes.localization.Localization
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.coroutines.resume
@@ -98,6 +100,50 @@ internal fun isCurrentFindReportOwner(
     postedAttachmentGeneration: Long,
     currentAttachment: EditorAttachmentToken?,
 ): Boolean = currentAttachment?.generation == postedAttachmentGeneration
+
+/**
+ * What an atomic "adopt this text if the page still holds that text" did.
+ * See [EditorHost.applyExternalContentIfUnchanged].
+ */
+internal sealed interface ExternalAdoption {
+    /** The page held exactly the expected text, and now holds the new one. */
+    data object Applied : ExternalAdoption
+
+    /** The page held something else (a keystroke landed first) and was left alone. */
+    data class Kept(val liveText: String) : ExternalAdoption
+
+    /** Nothing was decided: no editor, not ours, or the page did not answer in time. */
+    data object Unavailable : ExternalAdoption
+}
+
+/**
+ * The page-side half of [EditorHost.applyExternalContentIfUnchanged]: compare
+ * and replace in ONE script. The page's JS is single-threaded, so no input
+ * event can land between the `getContent()` and the `applyExternalContent()` —
+ * two separate evaluations (a read, then an adopt) leave a window in which a
+ * keystroke is destroyed by the replace. Composes existing bridge calls only.
+ * Answers a JSON object: `{"applied":true}`, `{"applied":false,"text":<live>}`,
+ * or `null` for a page with no editor.
+ */
+internal fun adoptIfUnchangedScript(expected: String, replacement: String): String =
+    """
+    (() => {
+      if (!window.FutoEditor) return null;
+      const live = window.FutoEditor.getContent();
+      if (live !== ${JSONObject.quote(expected)}) return JSON.stringify({ applied: false, text: live });
+      window.FutoEditor.applyExternalContent(${JSONObject.quote(replacement)});
+      return JSON.stringify({ applied: true });
+    })()
+    """.trimIndent()
+
+/** Decode the answer of [adoptIfUnchangedScript]; `null` (no editor / garbage) is [ExternalAdoption.Unavailable]. */
+internal fun externalAdoptionFrom(answer: String?): ExternalAdoption {
+    if (answer == null) return ExternalAdoption.Unavailable
+    val parsed = runCatching { JSONObject(answer) }.getOrNull() ?: return ExternalAdoption.Unavailable
+    if (parsed.optBoolean("applied", false)) return ExternalAdoption.Applied
+    if (!parsed.has("text")) return ExternalAdoption.Unavailable
+    return ExternalAdoption.Kept(parsed.getString("text"))
+}
 
 /**
  * Compose host for the embedded markdown editor — the Android counterpart of
@@ -296,6 +342,9 @@ class EditorHost private constructor(appContext: Context) {
     private var desiredTheme: String = "light"
     private var desiredLanguageTag: String = "en"
     private var desiredContent: String = ""
+    /** Every document this host has sent the page, counted — so a read can tell
+     *  that one landed while it was in flight ([readContentAndWait]). */
+    private var contentPushes = 0L
     // Note universe + image base (bridge v2). The notes JSON can be large, so
     // dedupe holds only its hash, not the string.
     private var desiredNotesJson: String? = null
@@ -411,7 +460,13 @@ class EditorHost private constructor(appContext: Context) {
                     "FutoEditor",
                     "WebView renderer gone (didCrash=${detail?.didCrash()}); rebuilding",
                 )
-                main.post { rebuildWebView() }
+                main.post {
+                    // A dead renderer answers nothing: the read it held is over.
+                    pageRead?.answer?.complete(null)
+                    pageRead = null
+                    unresponsiveSinceMs = null
+                    rebuildWebView()
+                }
                 return true
             }
 
@@ -760,6 +815,7 @@ class EditorHost private constructor(appContext: Context) {
         currentTheme = desiredTheme
         currentLanguageTag = desiredLanguageTag
         lastPushedContent = desiredContent
+        contentPushes += 1
         lastNotesJsonHash = desiredNotesJson?.hashCode()
         currentImageBaseUrl = desiredImageBaseUrl
 
@@ -862,6 +918,7 @@ class EditorHost private constructor(appContext: Context) {
     fun applyExternalContent(markdown: String) {
         desiredContent = markdown
         lastPushedContent = markdown
+        contentPushes += 1
         eval("window.FutoEditor && window.FutoEditor.applyExternalContent(${JSONObject.quote(markdown)});")
     }
 
@@ -927,91 +984,174 @@ class EditorHost private constructor(appContext: Context) {
      */
     internal suspend fun captureContentAndWait(
         attachment: EditorAttachmentToken,
+    ): EditorCaptureOutcome = readPage(attachment, CAPTURE_SCRIPT, forExit = true)
+
+    /**
+     * Read the live document for a note that stays open — the open-note
+     * reconcile's read (RC-08), not an exit's.
+     *
+     * The same read as [captureContentAndWait], under the same deadline and
+     * liveness probe, except that it does not blur: a reconcile runs whenever
+     * sync touches the open note, typist or not, and may not take the keyboard
+     * away.
+     *
+     * It answers for [shellCopy] only. Owning the WebView is not enough: a
+     * reconcile can run the moment the note loads from disk, before
+     * composition has pushed that text, while the page still holds the empty
+     * document the attach pushed — and taking THAT as the user's latest text
+     * would blank or truncate the note. A page whose last known text (pushed,
+     * or reported by a `change`) is not [shellCopy] holds nothing typed into
+     * this note that the screen has not heard, so the answer is
+     * [EditorCaptureOutcome.NoLiveDocument]. A push sent while the read is
+     * in flight makes the answer describe the document it replaced:
+     * [EditorCaptureOutcome.NotOurs].
+     */
+    internal suspend fun readContentAndWait(
+        attachment: EditorAttachmentToken,
+        shellCopy: String,
+    ): EditorCaptureOutcome {
+        if (lastPushedContent != shellCopy) return EditorCaptureOutcome.NoLiveDocument
+        val pushesBefore = contentPushes
+        val outcome = readPage(attachment, READ_SCRIPT, forExit = false)
+        return if (contentPushes == pushesBefore) outcome else EditorCaptureOutcome.NotOurs
+    }
+
+    /**
+     * Adopt [markdown] into the open document ONLY IF the page still holds
+     * [expected] — checked and applied inside one script, so a keystroke cannot
+     * land between the two (see [adoptIfUnchangedScript]). A page that holds
+     * something else is left alone and its text reported, so the caller can hear
+     * the edit and keep it as a draft.
+     *
+     * Bounded by [CAPTURE_DEADLINE_MS]; running out of time decides nothing
+     * ([ExternalAdoption.Unavailable]), and the caller keeps the draft.
+     */
+    internal suspend fun applyExternalContentIfUnchanged(
+        attachment: EditorAttachmentToken,
+        expected: String,
+        markdown: String,
+    ): ExternalAdoption {
+        if (!isReady) return ExternalAdoption.Unavailable
+        // `evaluateJavascript` is main-thread-only.
+        if (Looper.myLooper() != Looper.getMainLooper()) return ExternalAdoption.Unavailable
+        if (!attachments.permits(attachment)) return ExternalAdoption.Unavailable
+        val answer = withTimeoutOrNull(CAPTURE_DEADLINE_MS) {
+            suspendCancellableCoroutine<String?> { continuation ->
+                webView.evaluateJavascript(adoptIfUnchangedScript(expected, markdown)) { result ->
+                    if (continuation.isActive) continuation.resume(decodeJavascriptString(result))
+                }
+            }
+        }
+        return when (val adoption = externalAdoptionFrom(answer)) {
+            ExternalAdoption.Applied -> {
+                // The page now holds the new text: record it as pushed, so the
+                // same text is not pushed to the page a second time.
+                desiredContent = markdown
+                lastPushedContent = markdown
+                contentPushes += 1
+                adoption
+            }
+            is ExternalAdoption.Kept -> {
+                lastPushedContent = adoption.liveText
+                adoption
+            }
+            ExternalAdoption.Unavailable -> adoption
+        }
+    }
+
+    /**
+     * The page read in flight: ONE script in the renderer, however many callers
+     * wait for it, with the liveness probe dispatched ahead of it.
+     */
+    private class PageRead {
+        val probeAnswered = AtomicBoolean(false)
+        /** The script's answer: the document, or `null` for a page with no editor. */
+        val answer = CompletableDeferred<String?>()
+    }
+
+    private var pageRead: PageRead? = null
+    /** When an exit first found the page giving no sign of life; see [unansweredPageRead]. */
+    private var unresponsiveSinceMs: Long? = null
+
+    /**
+     * Read the open document, under the capture deadline.
+     *
+     * At most one read is ever outstanding in the page. The renderer answers
+     * scripts in order, so a second read only queues behind the first and
+     * spends its own deadline on the other's work — an edited streaming note
+     * settles its tail inside the first read — and every Back refused against
+     * a blocked page queued one more (FB-5 refute round 3: Back pressed every
+     * 2 s never left). A caller that finds a read outstanding waits for THAT
+     * read's answer instead; the exit's blur is `prepare()`'s own. A read
+     * answered is done with, so the next caller starts a fresh one.
+     *
+     * Out of time, the answer depends on what the page has shown (see
+     * [unansweredPageRead]); the page's answer, when it comes, still retires
+     * the read.
+     */
+    private suspend fun readPage(
+        attachment: EditorAttachmentToken,
+        script: String,
+        forExit: Boolean,
     ): EditorCaptureOutcome {
         // No `initialized` yet: the bundle is still applying this shell's
         // config — for a big enough note, for a long time — so nothing is on
         // screen and there is nothing of the user's to lose. Answer without
         // touching the renderer at all.
         if (!isReady) return EditorCaptureOutcome.NoLiveDocument
-        var rendererAnswered = { false }
-        return captureWithinDeadline(
+        // `evaluateJavascript` is main-thread-only.
+        if (Looper.myLooper() != Looper.getMainLooper()) return EditorCaptureOutcome.NotOurs
+        if (!attachments.permits(attachment)) return EditorCaptureOutcome.NotOurs
+        val read = pageRead ?: startPageRead(script)
+        val outcome = captureWithinDeadline(
             deadlineMs = CAPTURE_DEADLINE_MS,
-            startLivenessProbe = { rendererAnswered = startRendererLivenessProbe() },
-            rendererAnswered = { rendererAnswered() },
-        ) { awaitCapture(attachment) }
+            startLivenessProbe = {},
+            rendererAnswered = { read.probeAnswered.get() },
+        ) {
+            val text = read.answer.await()
+            when {
+                !attachments.permits(attachment) -> EditorCaptureOutcome.NotOurs
+                // The page is alive but has no `window.FutoEditor` — the
+                // legacy-WebView notice, or a boot that failed.
+                text == null -> EditorCaptureOutcome.NoLiveDocument
+                else -> {
+                    lastPushedContent = text
+                    EditorCaptureOutcome.Captured(text)
+                }
+            }
+        }
+        if (read.answer.isCompleted) return outcome
+        val decided = unansweredPageRead(
+            probeAnswered = read.probeAnswered.get(),
+            forExit = forExit,
+            unresponsiveSinceMs = unresponsiveSinceMs,
+            nowMs = System.currentTimeMillis(),
+            deadAfterMs = UNRESPONSIVE_PAGE_DEAD_AFTER_MS,
+        )
+        unresponsiveSinceMs = decided.unresponsiveSinceMs
+        return decided.outcome
     }
 
     /**
-     * Ask the renderer for nothing at all, and hand back a reader for whether it
-     * got round to answering.
-     *
-     * Dispatched immediately before the capture so it sits AHEAD of it in the
-     * renderer's task queue: an editor streaming a note's tail in idle slices
-     * runs this between two of them and answers in milliseconds, while a JS
-     * thread wedged inside one long synchronous parse runs neither. That is the
-     * whole difference between [EditorCaptureOutcome.TimedOut] and
-     * [EditorCaptureOutcome.NoLiveDocument] — see [captureWithinDeadline].
-     *
-     * Deliberately does NOT touch `window.FutoEditor`: this asks whether the JS
-     * thread is turning over, not whether the bundle booted. A page that is
-     * alive without an editor answers the capture itself, promptly, with
-     * [EditorCaptureOutcome.NoLiveDocument].
+     * Dispatch the probe and then the read. The probe is a trivial round trip
+     * that sits AHEAD of the read in the renderer's task queue: an editor busy
+     * with a long task answers it before the read, a JS thread blocked inside
+     * one never does. It deliberately does not touch `window.FutoEditor`.
      */
-    private fun startRendererLivenessProbe(): () -> Boolean {
-        // `evaluateJavascript` is main-thread-only, and an off-main capture is
-        // already answered NotOurs by [awaitCapture]; probing there would crash
-        // instead. Reporting "no answer" costs nothing — that path never reads it.
-        if (Looper.myLooper() != Looper.getMainLooper()) return { false }
-        val answered = AtomicBoolean(false)
-        webView.evaluateJavascript("1") { answered.set(true) }
-        return { answered.get() }
-    }
-
-    private suspend fun awaitCapture(
-        attachment: EditorAttachmentToken,
-    ): EditorCaptureOutcome =
-        suspendCancellableCoroutine { continuation ->
-            val permit = EditorAttachmentOperationPermit(attachments, attachment)
-            continuation.invokeOnCancellation { permit.cancel() }
-            val capture = Runnable {
-                if (!permit.mayRun()) {
-                    if (continuation.isActive) continuation.resume(EditorCaptureOutcome.NotOurs)
-                    return@Runnable
-                }
-                webView.evaluateJavascript(
-                    """
-                    (() => {
-                      if (!window.FutoEditor) return null;
-                      window.FutoEditor.blur();
-                      return window.FutoEditor.getContent();
-                    })()
-                    """.trimIndent(),
-                ) { result ->
-                    // The deadline may already have answered for us. Returning
-                    // here is what makes a late callback harmless: the stale
-                    // bytes never reach [lastPushedContent].
-                    if (!continuation.isActive) return@evaluateJavascript
-                    if (!attachments.permits(attachment)) {
-                        continuation.resume(EditorCaptureOutcome.NotOurs)
-                        return@evaluateJavascript
-                    }
-                    val captured = decodeJavascriptString(result)
-                    if (captured == null) {
-                        // The page answered but has no `window.FutoEditor` —
-                        // the legacy-WebView notice, or a boot that failed.
-                        continuation.resume(EditorCaptureOutcome.NoLiveDocument)
-                        return@evaluateJavascript
-                    }
-                    lastPushedContent = captured
-                    continuation.resume(EditorCaptureOutcome.Captured(captured))
-                }
-            }
-            if (Looper.myLooper() != Looper.getMainLooper()) {
-                if (continuation.isActive) continuation.resume(EditorCaptureOutcome.NotOurs)
-                return@suspendCancellableCoroutine
-            }
-            capture.run()
+    private fun startPageRead(script: String): PageRead {
+        val read = PageRead()
+        webView.evaluateJavascript("1") {
+            read.probeAnswered.set(true)
+            unresponsiveSinceMs = null
         }
+        webView.evaluateJavascript(script) { result ->
+            unresponsiveSinceMs = null
+            if (pageRead === read) pageRead = null
+            read.answer.complete(decodeJavascriptString(result))
+        }
+        pageRead = read
+        return read
+    }
 
     /** Run a shared editor command (TOOLBAR_EXEC in markdownToolbar.ts). */
     fun exec(commandId: String) {
@@ -1065,6 +1205,7 @@ class EditorHost private constructor(appContext: Context) {
 
     private fun pushContent(content: String) {
         lastPushedContent = content
+        contentPushes += 1
         eval("window.FutoEditor && window.FutoEditor.setContent(${JSONObject.quote(content)});")
     }
 
@@ -1157,6 +1298,30 @@ class EditorHost private constructor(appContext: Context) {
          * not end.
          */
         private const val CAPTURE_DEADLINE_MS = 6_000L
+
+        /** See [unansweredPageRead] for why an exit waits this long on a silent page. */
+        private const val UNRESPONSIVE_PAGE_DEAD_AFTER_MS = 60_000L
+
+        /** An exit's read of the open document: end the editing session, then
+         *  take the text. `null` is a page with no editor at all. */
+        private val CAPTURE_SCRIPT =
+            """
+            (() => {
+              if (!window.FutoEditor) return null;
+              window.FutoEditor.blur();
+              return window.FutoEditor.getContent();
+            })()
+            """.trimIndent()
+
+        /** [CAPTURE_SCRIPT] without ending the editing session: the reconcile's
+         *  read of a note that stays open ([readContentAndWait]). */
+        private val READ_SCRIPT =
+            """
+            (() => {
+              if (!window.FutoEditor) return null;
+              return window.FutoEditor.getContent();
+            })()
+            """.trimIndent()
 
         @Volatile
         private var instance: EditorHost? = null

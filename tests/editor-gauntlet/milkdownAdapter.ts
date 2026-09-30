@@ -380,6 +380,14 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
    * Playwright's round trip and the browser's own input handling.
    */
   async measureKeystrokes(count: number, target?: KeystrokeTarget): Promise<KeystrokeMeasurement> {
+    if (target?.loaded) {
+      // progressiveLoad.ts records this measure when the last chunk lands.
+      await this.requirePage().waitForFunction(
+        () => performance.getEntriesByName('futo:editor-open-complete', 'measure').length > 0,
+        null,
+        { timeout: 120_000 },
+      );
+    }
     if (target?.ready) {
       await this.requirePage().waitForSelector(`.ProseMirror ${target.ready}`, {
         state: 'attached',
@@ -405,18 +413,54 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
         }
         const synchronousSamplesMs: number[] = [];
         const settledToPaintSamplesMs: number[] = [];
-        for (let index = 0; index < sampleCount; index += 1) {
-          const startedAt = performance.now();
-          view.dispatch(
-            at === undefined
-              ? view.state.tr.insertText('x')
-              : view.state.tr.insertText('x', at + index),
-          );
-          synchronousSamplesMs.push(performance.now() - startedAt);
-          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-          settledToPaintSamplesMs.push(performance.now() - startedAt);
+        const nodeVisitSamples: number[] = [];
+        // Every `descendants`/`nodesBetween` walk ends in Fragment's
+        // `nodesBetween`, so counting its callbacks counts the nodes any
+        // plugin or the view walked. Only the outermost call wraps the
+        // callback; the recursion passes the wrapped one down.
+        type NodesBetween = (
+          from: number,
+          to: number,
+          f: (...args: unknown[]) => unknown,
+          ...rest: unknown[]
+        ) => void;
+        const fragment = Object.getPrototypeOf(
+          (view.state.doc as unknown as { content: object }).content,
+        ) as { nodesBetween: NodesBetween };
+        const nodesBetween = fragment.nodesBetween;
+        let visits = 0;
+        let depth = 0;
+        fragment.nodesBetween = function (this: unknown, from, to, f, ...rest) {
+          if (depth > 0) return nodesBetween.call(this, from, to, f, ...rest);
+          depth += 1;
+          try {
+            const counted = (...args: unknown[]): unknown => {
+              visits += 1;
+              return f(...args);
+            };
+            return nodesBetween.call(this, from, to, counted, ...rest);
+          } finally {
+            depth -= 1;
+          }
+        };
+        try {
+          for (let index = 0; index < sampleCount; index += 1) {
+            visits = 0;
+            const startedAt = performance.now();
+            view.dispatch(
+              at === undefined
+                ? view.state.tr.insertText('x')
+                : view.state.tr.insertText('x', at + index),
+            );
+            synchronousSamplesMs.push(performance.now() - startedAt);
+            nodeVisitSamples.push(visits);
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            settledToPaintSamplesMs.push(performance.now() - startedAt);
+          }
+        } finally {
+          fragment.nodesBetween = nodesBetween;
         }
-        return { synchronousSamplesMs, settledToPaintSamplesMs };
+        return { synchronousSamplesMs, settledToPaintSamplesMs, nodeVisitSamples };
       },
       { sampleCount: count, text: target?.text },
     );
