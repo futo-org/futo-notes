@@ -131,6 +131,7 @@
   import { CHECKBOX_SIZE_PX, taskCheckbox } from './taskCheckbox';
   import { hideTableGrips, tableGrips } from './table/tableGrips';
   import { createToolbarExec } from './toolbarExec';
+  import { imageInputRule } from './imageInputRule';
   import { vaultImageView } from './vaultImageView';
   import { refreshWikilinkViews, wikilink, WIKILINK_TARGET_ATTR } from './wikilink';
   import { WIKILINK_BROKEN_CLASS } from './wikilink/display';
@@ -702,6 +703,7 @@
         .use(gfmWithCompat())
         .use(wikilink)
         .use(vaultImageView)
+        .use(imageInputRule)
         .use(history)
         .use(listener)
         .use(documentChanges(documentEdited))
