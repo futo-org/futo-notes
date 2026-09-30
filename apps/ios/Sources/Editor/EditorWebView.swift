@@ -20,6 +20,53 @@ func editorGenerationAfterDetach(
     detachedToken == currentGeneration ? currentGeneration + 1 : currentGeneration
 }
 
+/// What an atomic "adopt this text if the page still holds that text" did.
+/// See ``EditorHost/applyExternalIfUnchanged(ownedBy:expected:content:)``.
+enum ExternalAdoption: Equatable {
+    /// The page held exactly the expected text, and now holds the new one.
+    case applied
+    /// The page held something else (a keystroke landed first) and was left alone.
+    case kept(liveText: String)
+    /// Nothing was decided: no editor, not ours, or the page did not answer in time.
+    case unavailable
+}
+
+/// The page-side half of ``EditorHost/applyExternalIfUnchanged(ownedBy:expected:content:)``:
+/// compare and replace in ONE script. The page's JS is single-threaded, so no
+/// input event can land between the `getContent()` and the
+/// `applyExternalContent()` — two separate evaluations (a read, then an adopt)
+/// leave a window in which a keystroke is destroyed by the replace. Composes
+/// existing bridge calls only. Answers a JSON object: `{"applied":true}` or
+/// `{"applied":false,"text":<live>}`.
+func adoptIfUnchangedScript(expected: String, replacement: String) -> String {
+    func literal(_ text: String) -> String {
+        let data =
+            (try? JSONSerialization.data(withJSONObject: [text], options: []))
+            ?? Data("[\"\"]".utf8)
+        let json = String(data: data, encoding: .utf8) ?? "[\"\"]"
+        return String(json.dropFirst().dropLast())
+    }
+    return """
+        (() => {
+          if (!window.FutoEditor) return null;
+          const live = window.FutoEditor.getContent();
+          if (live !== \(literal(expected))) return JSON.stringify({ applied: false, text: live });
+          window.FutoEditor.applyExternalContent(\(literal(replacement)));
+          return JSON.stringify({ applied: true });
+        })()
+        """
+}
+
+/// Decode the answer of ``adoptIfUnchangedScript(expected:replacement:)``.
+func externalAdoption(from answer: String) -> ExternalAdoption {
+    guard let data = answer.data(using: .utf8),
+        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return .unavailable }
+    if object["applied"] as? Bool == true { return .applied }
+    guard let text = object["text"] as? String else { return .unavailable }
+    return .kept(liveText: text)
+}
+
 /// What an exit's attempt to read the open editor came back with.
 ///
 /// The three cases exist because `nil` used to mean two opposite things, and the
@@ -1026,6 +1073,35 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         // keystrokes typed since.
         if case .captured(let text) = outcome { lastPushedContent = text }
         return outcome
+    }
+
+    /// Adopt `content` into the open document ONLY IF the page still holds
+    /// `expected` — checked and applied inside one script, so a keystroke cannot
+    /// land between the two (see ``adoptIfUnchangedScript(expected:replacement:)``).
+    /// A page that holds something else is left alone and its text reported, so
+    /// the caller can hear the edit and keep it as a draft. Under the capture
+    /// deadline; running out of time decides nothing (``ExternalAdoption/unavailable``).
+    func applyExternalIfUnchanged(ownedBy token: Int, expected: String, content: String) async
+        -> ExternalAdoption
+    {
+        guard documentOwner == token else { return .unavailable }
+        let outcome = await captureCurrentContent(
+            script: adoptIfUnchangedScript(expected: expected, replacement: content))
+        guard case .captured(let answer) = outcome else { return .unavailable }
+        let adoption = externalAdoption(from: answer)
+        switch adoption {
+        case .applied:
+            // The page now holds the new text: record it as pushed, so the
+            // SwiftUI update that follows is not a second, caret-resetting push.
+            desiredContent = content
+            lastPushedContent = content
+            contentPushes += 1
+        case .kept(let liveText):
+            lastPushedContent = liveText
+        case .unavailable:
+            break
+        }
+        return adoption
     }
 
     /// Read the note the WebView is showing on behalf of the attachment that

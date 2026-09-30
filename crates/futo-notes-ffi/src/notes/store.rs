@@ -15,6 +15,22 @@ pub struct NoteStore {
     inner: store::LocalNoteStore,
 }
 
+impl NoteStore {
+    /// Project a workflow result for the shells. When the workflow rewrote the
+    /// final note's own links, the shells also need the bytes it left: an open
+    /// editor's baseline is what the file now holds, not what it last wrote.
+    fn project(&self, mutation: store::MutationResult) -> NoteMutation {
+        let body = mutation
+            .final_id
+            .as_ref()
+            .filter(|id| mutation.relinked.contains(id))
+            .and_then(|id| self.inner.read(id).ok());
+        let mut projected = NoteMutation::from(mutation);
+        projected.final_body = body;
+        projected
+    }
+}
+
 #[uniffi::export]
 impl NoteStore {
     #[uniffi::constructor]
@@ -101,7 +117,7 @@ impl NoteStore {
     ) -> Result<NoteMutation, NoteError> {
         self.inner
             .save_draft_as(&id, &wanted_id, &base, &content)
-            .map(Into::into)
+            .map(|mutation| self.project(mutation))
             .map_err(NoteError::Io)
     }
 
@@ -115,7 +131,7 @@ impl NoteStore {
     ) -> Result<NoteMutation, NoteError> {
         self.inner
             .move_draft(&id, &folder, &base, &content, create_folder)
-            .map(Into::into)
+            .map(|mutation| self.project(mutation))
             .map_err(NoteError::Io)
     }
 
@@ -141,14 +157,14 @@ impl NoteStore {
     pub fn rename(&self, old_id: String, new_id: String) -> Result<NoteMutation, NoteError> {
         self.inner
             .rename(&old_id, &new_id)
-            .map(Into::into)
+            .map(|mutation| self.project(mutation))
             .map_err(NoteError::Io)
     }
 
     pub fn move_note(&self, id: String, folder: String) -> Result<NoteMutation, NoteError> {
         self.inner
             .move_note(&id, &folder)
-            .map(Into::into)
+            .map(|mutation| self.project(mutation))
             .map_err(NoteError::Io)
     }
 
@@ -159,7 +175,7 @@ impl NoteStore {
     ) -> Result<NoteMutation, NoteError> {
         self.inner
             .move_note_to_new_folder(&id, &folder)
-            .map(Into::into)
+            .map(|mutation| self.project(mutation))
             .map_err(NoteError::Io)
     }
 
@@ -173,7 +189,7 @@ impl NoteStore {
     pub fn rename_folder(&self, from: String, to: String) -> Result<NoteMutation, NoteError> {
         self.inner
             .rename_folder(&from, &to)
-            .map(Into::into)
+            .map(|mutation| self.project(mutation))
             .map_err(NoteError::Io)
     }
 
@@ -184,7 +200,7 @@ impl NoteStore {
     ) -> Result<NoteMutation, NoteError> {
         self.inner
             .move_folder(&from, &destination_parent)
-            .map(Into::into)
+            .map(|mutation| self.project(mutation))
             .map_err(NoteError::Io)
     }
 
@@ -192,7 +208,7 @@ impl NoteStore {
     pub fn delete_folder(&self, folder: String) -> Result<NoteMutation, NoteError> {
         self.inner
             .delete_folder(&folder)
-            .map(Into::into)
+            .map(|mutation| self.project(mutation))
             .map_err(NoteError::Io)
     }
 

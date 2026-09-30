@@ -68,6 +68,45 @@ sealed interface NoteMutationOutcome<out T> {
 }
 
 /**
+ * A committed rename or move: the note's final id, and — only when the
+ * engine's relink rewrote the note's OWN links (a self-link) — the body it left
+ * on disk. The editor saved a draft carrying the old link text and the relink
+ * then changed it, so the editor's baseline must become this body, not the
+ * draft (RC-71: the pre-relink baseline made the next save read the relink as a
+ * peer's edit and park a conflict copy). Mirrors iOS `CommittedNote`.
+ */
+data class CommittedNote(val id: String, val relinkedBody: String?)
+
+/** What the editor holds after a rename/move whose relink rewrote its own body. */
+data class RelinkRebase(
+    /** The baseline: what the file now holds. */
+    val savedContent: String,
+    /** The editor's text. */
+    val content: String,
+    /** Push [content] into the live editor (selection-preserving adopt). */
+    val adoptIntoEditor: Boolean,
+)
+
+/**
+ * [flushed] is the draft the engine saved before it relinked; [live] is what
+ * the editor holds now; [relinkedBody] is the file after the relink.
+ *
+ * The file is the baseline whatever the editor holds. When nothing was typed
+ * since the snapshot the editor adopts the file, so it shows the relinked link
+ * text. A draft typed while the workflow committed is kept (the same
+ * rebase-and-keep the desktop session applies): it still carries the old link
+ * text and is saved over the file without a conflict copy (RC-70). Mirrors iOS
+ * `rebasedOnRelink`.
+ */
+internal fun rebasedOnRelink(flushed: String, live: String, relinkedBody: String?): RelinkRebase {
+    if (relinkedBody == null || relinkedBody == flushed) {
+        return RelinkRebase(flushed, live, adoptIntoEditor = false)
+    }
+    if (live != flushed) return RelinkRebase(relinkedBody, live, adoptIntoEditor = false)
+    return RelinkRebase(relinkedBody, relinkedBody, adoptIntoEditor = true)
+}
+
+/**
  * Run [action] and, if it fails, delete [file] before propagating — the F8
  * rule for a just-saved editor image that never got consumed. [action] is
  * `NotesStore.saveImageIntoVault`'s `useSavedImage`: a timed-out or
@@ -650,7 +689,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         scope.launch { delete(id, ownerToken = ownerToken) }
     }
 
-    suspend fun rename(oldId: String, newId: String, draft: PendingDraft? = null, ownerToken: Long? = null): NoteMutationOutcome<String> {
+    suspend fun rename(oldId: String, newId: String, draft: PendingDraft? = null, ownerToken: Long? = null): NoteMutationOutcome<CommittedNote> {
         if (ownerToken != null && !pendingEditor.owns(ownerToken)) return NoteMutationOutcome.Failed
         currentCoroutineContext().ensureActive()
         val identity = editorDraftCoordinator.beginIdentityMutation(oldId)
@@ -669,7 +708,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
                 editorDraftCoordinator.finishIdentityMutation(identity, committed = true)
                 editorDraftCoordinator.reopen(finalId)
                 signalLocalChange()
-                NoteMutationOutcome.Committed(finalId)
+                NoteMutationOutcome.Committed(CommittedNote(finalId, mutation.finalBody))
             }
         } catch (e: CancellationException) {
             editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
@@ -687,7 +726,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         createFolder: Boolean = false,
         draft: PendingDraft? = null,
         ownerToken: Long? = null,
-    ): NoteMutationOutcome<String> {
+    ): NoteMutationOutcome<CommittedNote> {
         if (ownerToken != null && !pendingEditor.owns(ownerToken)) return NoteMutationOutcome.Failed
         currentCoroutineContext().ensureActive()
         val identity = editorDraftCoordinator.beginIdentityMutation(id)
@@ -711,7 +750,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
                 editorDraftCoordinator.finishIdentityMutation(identity, committed = true)
                 editorDraftCoordinator.reopen(finalId)
                 signalLocalChange()
-                NoteMutationOutcome.Committed(finalId)
+                NoteMutationOutcome.Committed(CommittedNote(finalId, mutation.finalBody))
             }
         } catch (e: CancellationException) {
             editorDraftCoordinator.finishIdentityMutation(identity, committed = false)

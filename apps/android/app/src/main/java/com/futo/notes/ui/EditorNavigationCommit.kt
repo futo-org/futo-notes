@@ -1,5 +1,6 @@
 package com.futo.notes.ui
 
+import com.futo.notes.CommittedNote
 import com.futo.notes.NoteMutationOutcome
 import kotlinx.coroutines.withTimeoutOrNull
 import uniffi.futo_notes_ffi.FlushDisposition
@@ -217,19 +218,21 @@ internal data class EditorNavigationCommit(
 internal data class EditorTitleCommit(
     val id: String,
     val isCommitted: Boolean,
+    /** The body the relink left in the renamed note (a self-link), if it rewrote it. */
+    val relinkedBody: String? = null,
 )
 
 internal suspend fun commitEditorTitleSnapshot(
     currentId: String,
     targetId: String?,
-    rename: suspend (oldId: String, targetId: String) -> NoteMutationOutcome<String>,
+    rename: suspend (oldId: String, targetId: String) -> NoteMutationOutcome<CommittedNote>,
 ): EditorTitleCommit {
     if (targetId == null || targetId == currentId) {
         return EditorTitleCommit(currentId, isCommitted = true)
     }
     return when (val outcome = rename(currentId, targetId)) {
         is NoteMutationOutcome.Committed ->
-            EditorTitleCommit(outcome.value, isCommitted = true)
+            EditorTitleCommit(outcome.value.id, isCommitted = true, relinkedBody = outcome.value.relinkedBody)
         NoteMutationOutcome.Failed ->
             EditorTitleCommit(currentId, isCommitted = false)
     }

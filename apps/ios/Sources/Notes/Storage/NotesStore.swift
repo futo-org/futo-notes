@@ -159,6 +159,45 @@ enum NoteMutationOutcome<Value> {
     case failed
 }
 
+/// A committed rename or move: the note's final id, and — only when the
+/// engine's relink rewrote the note's OWN links (a self-link) — the body it
+/// left on disk. The editor saved a draft carrying the old link text and the
+/// relink then changed it, so the editor's baseline must become this body, not
+/// the draft (RC-71: the pre-relink baseline made the next save read the
+/// relink as a peer's edit and park a conflict copy).
+struct CommittedNote: Equatable {
+    let id: String
+    let relinkedBody: String?
+}
+
+/// What the editor holds after a rename/move whose relink rewrote its own body.
+struct RelinkRebase: Equatable {
+    /// The baseline: what the file now holds.
+    let savedContent: String
+    /// The editor's text.
+    let content: String
+    /// Push `content` into the live editor (selection-preserving adopt).
+    let adoptIntoEditor: Bool
+}
+
+/// `flushed` is the draft the engine saved before it relinked; `live` is what
+/// the editor holds now; `relinkedBody` is the file after the relink.
+///
+/// The file is the baseline whatever the editor holds. When nothing was typed
+/// since the snapshot the editor adopts the file, so it shows the relinked link
+/// text. A draft typed while the workflow committed is kept (the same
+/// rebase-and-keep the desktop session applies): it still carries the old link
+/// text and is saved over the file without a conflict copy (RC-70).
+func rebasedOnRelink(flushed: String, live: String, relinkedBody: String?) -> RelinkRebase {
+    guard let body = relinkedBody, body != flushed else {
+        return RelinkRebase(savedContent: flushed, content: live, adoptIntoEditor: false)
+    }
+    guard live == flushed else {
+        return RelinkRebase(savedContent: body, content: live, adoptIntoEditor: false)
+    }
+    return RelinkRebase(savedContent: body, content: body, adoptIntoEditor: true)
+}
+
 func confirmedSavedContent(
     previousSavedContent: String,
     writtenContent: String,
@@ -597,7 +636,7 @@ final class NotesStore: ObservableObject {
     @discardableResult
     func rename(
         oldId: String, newId: String, draft: PendingDraft? = nil, ownerToken: UInt64? = nil
-    ) async -> NoteMutationOutcome<String> {
+    ) async -> NoteMutationOutcome<CommittedNote> {
         let epoch = resetEpoch
         guard ownsDraft(ownerToken) else { return .failed }
         let identity = editorDraftCoordinator.beginIdentityMutation(oldId)
@@ -617,7 +656,7 @@ final class NotesStore: ObservableObject {
             editorDraftCoordinator.finishIdentityMutation(identity, committed: true)
             editorDraftCoordinator.reopen(finalId)
             onLocalChange?()
-            return .committed(finalId)
+            return .committed(CommittedNote(id: finalId, relinkedBody: mutation.finalBody))
         } catch {
             editorDraftCoordinator.finishIdentityMutation(identity, committed: false)
             print("rename failed \(oldId) -> \(newId): \(error)")
@@ -680,7 +719,7 @@ final class NotesStore: ObservableObject {
 
     func moveNote(
         _ id: String, toFolder folder: String, draft: PendingDraft? = nil, ownerToken: UInt64? = nil
-    ) async -> NoteMutationOutcome<String> {
+    ) async -> NoteMutationOutcome<CommittedNote> {
         let epoch = resetEpoch
         guard ownsDraft(ownerToken) else { return .failed }
         let identity = editorDraftCoordinator.beginIdentityMutation(id)
@@ -700,7 +739,7 @@ final class NotesStore: ObservableObject {
             editorDraftCoordinator.finishIdentityMutation(identity, committed: true)
             editorDraftCoordinator.reopen(finalId)
             onLocalChange?()
-            return .committed(finalId)
+            return .committed(CommittedNote(id: finalId, relinkedBody: mutation.finalBody))
         } catch {
             editorDraftCoordinator.finishIdentityMutation(identity, committed: false)
             print("moveNote failed \(id) -> \(folder): \(error)")
