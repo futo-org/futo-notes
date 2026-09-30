@@ -3265,6 +3265,22 @@ const CHUNK_AGREEMENT_CASES: Array<{ name: string; note: string }> = [
     note: `Intro para.\n\n<div>\n<!DOCTYPE x\n\n<pre>\n${Array.from({ length: 85 }, (_, i) => `pre line ${i}`).join('\n')}\n\n# not a heading\n* not a list\n</pre>\n\n${CHUNK_TAIL}\n`,
   },
   {
+    // HTML opened INSIDE a container (unit-tested in markdownChunks.test.ts;
+    // the embed suite had none). An unclosed comment in a list item runs through
+    // every blank line up to the end of the ITEM, so a blank-line cut inside it
+    // turns the comment's body into live markdown.
+    name: 'an HTML comment opened in a list item and never closed there',
+    note: `Intro para.\n\n- <!--\n${Array.from({ length: 85 }, (_, i) => `  comment line ${i}`).join('\n')}\n\n  # not a heading\n\n- second item\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    name: 'a <pre> opened in a blockquote',
+    note: `Intro para.\n\n> <pre>\n${Array.from({ length: 85 }, (_, i) => `> pre line ${i}`).join('\n')}\n>\n> # h\n> </pre>\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    name: 'a <script> opened in an ordered list item',
+    note: `Intro para.\n\n1. <script>\n${Array.from({ length: 85 }, (_, i) => `   var x${i};`).join('\n')}\n\n   # h\n   </script>\n\n${CHUNK_TAIL}\n`,
+  },
+  {
     // A ``` line inside the note's own YAML opened a phantom fence in the
     // scanner, which swallowed the real structure after it.
     name: 'a fence-looking line inside the front matter',
