@@ -51,9 +51,8 @@ export interface AttentionInfo {
 
 type Group = 'whitespace' | 'punctuation' | 'other';
 
-/** micromark's `classifyCharacter` for one UTF-16 unit (`NaN`: nothing there). */
+/** micromark's `classifyCharacter` for one UTF-16 unit. */
 function classify(unit: number): Group {
-  if (Number.isNaN(unit)) return 'other';
   const character = String.fromCharCode(unit);
   if (/\s/.test(character)) return 'whitespace';
   if (/\p{P}|\p{S}/u.test(character)) return 'punctuation';
@@ -91,23 +90,49 @@ const reference = (codePoint: number): string => `&#x${codePoint.toString(16).to
 
 /** `text` with its first character (a whole code point) written as a reference. */
 function encodeHead(text: string): string {
-  const codePoint = text.codePointAt(0) ?? 0;
+  const codePoint = text.codePointAt(0);
+  if (codePoint === undefined) return text;
   return reference(codePoint) + text.slice(codePoint > 0xffff ? 2 : 1);
 }
 
 /** `text` with its last character (a whole code point) written as a reference. */
 function encodeTail(text: string): string {
+  if (text === '') return text;
   const last = text.charCodeAt(text.length - 1);
   const pair = last >= 0xdc00 && last <= 0xdfff && text.length > 1;
   const start = pair ? text.length - 2 : text.length - 1;
   return text.slice(0, start) + reference(text.codePointAt(start) ?? last);
 }
 
+/** Whether `text` is exactly one character (a code point, so a surrogate pair counts once). */
+function isSingleCharacter(text: string): boolean {
+  const codePoint = text.codePointAt(0);
+  return codePoint !== undefined && text.length === (codePoint > 0xffff ? 2 : 1);
+}
+
+/**
+ * The delimiter a missing neighbour stands in for. An empty `before` or `after`
+ * is not a character: `@milkdown/transformer` trims a mark's edge spaces out of
+ * the mark and leaves the emptied text node behind (`moveSpaces`), so the first
+ * or last child of a link, bold or italic can be `''`, and `containerPhrasing`
+ * then passes the next sibling `before: ''`. What sits there is the enclosing
+ * construct's own delimiter (`[`, `](`, `*`, `~`) — always punctuation, never
+ * something that can be written as a reference. Classified as nothing at all
+ * (`NaN`) it counted as a letter, and the container, comparing `''` with the
+ * empty previous result, wrote `&#xNAN;` (RC-104).
+ */
+const DELIMITER = 0x5b; // `[`
+
+/** The UTF-16 unit `text` ends with (`last`) or starts with, or a delimiter when there is none. */
+function unitAt(text: string, last: boolean): number {
+  return text === '' ? DELIMITER : text.charCodeAt(last ? text.length - 1 : 0);
+}
+
 /** Where an attention run written as `written` sits, and what it would need encoded. */
 function flanking(written: string, size: 1 | 2, info: AttentionInfo, marker = written.charAt(0)) {
   const between = written.slice(size, written.length - size);
-  const before = info.before.charCodeAt(info.before.length - 1);
-  const after = info.after.charCodeAt(0);
+  const before = unitAt(info.before, true);
+  const after = unitAt(info.after, false);
   const open = encodeInfo(before, between.charCodeAt(0), marker);
   const close = encodeInfo(after, between.charCodeAt(between.length - 1), marker);
   const encodes = open.inside || open.outside || close.inside || close.outside;
@@ -136,11 +161,17 @@ export function withAttentionEncoding<
     const { before, after, open, close, ...run } = flanking(written, size, info);
     let between = run.between;
     if (open.inside) between = encodeHead(between);
-    if (close.inside) between = encodeTail(between);
+    /* One character that both edges want encoded is written once: encoding the
+     * tail of `&#x61;` cut the reference in two (`&#x61&#x3B;`). */
+    if (close.inside && !(open.inside && isSingleCharacter(run.between))) {
+      between = encodeTail(between);
+    }
 
+    /* Never ask the container to encode a neighbour that is not there: it
+     * compares `''` with the empty previous result and writes `&#xNAN;`. */
     state.attentionEncodeSurroundingInfo = {
-      before: open.outside && !isSurrogate(before),
-      after: close.outside && !isSurrogate(after),
+      before: open.outside && info.before !== '' && !isSurrogate(before),
+      after: close.outside && info.after !== '' && !isSurrogate(after),
     };
     return written.slice(0, size) + between + written.slice(written.length - size);
   };
