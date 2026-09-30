@@ -92,6 +92,7 @@
   import { editorView, enclosingListItem } from './caretContext';
   import { inIndentableContainer } from './blockCommands';
   import { dividerCaretFix } from './dividerCaret';
+  import { plainTextBlockPaste } from './plainTextBlockPaste';
   import { computeActiveFormats, computeDisabledFormats } from './formatState';
   import { handleIndentShortcut, handleParityKeyDown } from './keyboardParity';
   import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
@@ -710,6 +711,8 @@
         .use(history)
         .use(listener)
         .use(documentChanges(documentEdited))
+        // BEFORE clipboard: its handlePaste must see a plain-text block first.
+        .use(plainTextBlockPaste)
         .use(clipboard)
         .use(gapCursorPlugin)
         .use(trailing)

@@ -653,6 +653,58 @@ test('undo inside one note still works', async ({ page }) => {
 });
 
 /*
+ * RC-60 (L3-5): an undo that brings a divider back is not the user creating a
+ * divider. `dividerCaret` used to read the restored `hr` as new and append an
+ * empty paragraph after it, so undoing "type over a selected divider" left the
+ * note one blank line longer than it was opened. Real input only: a mouse click
+ * on the rule is how a user selects a divider (a click on a block atom is a
+ * NodeSelection; ArrowDown steps natively PAST the rule), then typed letters
+ * replace it.
+ */
+test('undoing a keystroke typed over a selected divider restores the note exactly', async ({
+  page,
+}) => {
+  const note = 'first\n\n***\n\nlast\n';
+  await hostSetContent(page, note);
+  await page.locator('.ProseMirror hr').click();
+  await page.keyboard.type('hello');
+  await waitForMessages(page, 'change');
+  expect(await getContent(page)).toContain('hello');
+  expect(await getContent(page)).not.toContain('***');
+
+  for (let i = 0; i < 20; i++) await page.keyboard.press('ControlOrMeta+z');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(note);
+
+  // Redo puts the edit back, and undoing it again is exact once more.
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toContain('h');
+  expect(await getContent(page)).not.toContain('***');
+  for (let i = 0; i < 20; i++) await page.keyboard.press('ControlOrMeta+z');
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toBe(note);
+});
+
+test('undo and redo of a typed `---` leave the divider note byte-stable', async ({ page }) => {
+  await hostSetContent(page, 'above\n\n');
+  await focusEditor(page);
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('---');
+  await settleChangeDebounce(page);
+  const made = await getContent(page);
+  expect(made).toContain('***');
+
+  await page.keyboard.press('ControlOrMeta+z');
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(made);
+});
+
+/*
  * Data safety: a version that arrives from OUTSIDE the editor is not an edit,
  * so it cannot be undone. `applyExternalContent` is the sync-adopt path, and it
  * deliberately does NOT reset the undo stack (the user's own edits stay
@@ -3213,6 +3265,22 @@ const CHUNK_AGREEMENT_CASES: Array<{ name: string; note: string }> = [
     note: `Intro para.\n\n<div>\n<!DOCTYPE x\n\n<pre>\n${Array.from({ length: 85 }, (_, i) => `pre line ${i}`).join('\n')}\n\n# not a heading\n* not a list\n</pre>\n\n${CHUNK_TAIL}\n`,
   },
   {
+    // HTML opened INSIDE a container (unit-tested in markdownChunks.test.ts;
+    // the embed suite had none). An unclosed comment in a list item runs through
+    // every blank line up to the end of the ITEM, so a blank-line cut inside it
+    // turns the comment's body into live markdown.
+    name: 'an HTML comment opened in a list item and never closed there',
+    note: `Intro para.\n\n- <!--\n${Array.from({ length: 85 }, (_, i) => `  comment line ${i}`).join('\n')}\n\n  # not a heading\n\n- second item\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    name: 'a <pre> opened in a blockquote',
+    note: `Intro para.\n\n> <pre>\n${Array.from({ length: 85 }, (_, i) => `> pre line ${i}`).join('\n')}\n>\n> # h\n> </pre>\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    name: 'a <script> opened in an ordered list item',
+    note: `Intro para.\n\n1. <script>\n${Array.from({ length: 85 }, (_, i) => `   var x${i};`).join('\n')}\n\n   # h\n   </script>\n\n${CHUNK_TAIL}\n`,
+  },
+  {
     // A ``` line inside the note's own YAML opened a phantom fence in the
     // scanner, which swallowed the real structure after it.
     name: 'a fence-looking line inside the front matter',
@@ -3742,6 +3810,30 @@ test('pasting text is left to the editor and posts no image message', async ({ p
   expect(await messagesOfType(page, 'saveImageData')).toHaveLength(0);
   expect(await messagesOfType(page, 'pasteClipboardImage')).toHaveLength(0);
   expect(await getContent(page)).toContain('just words');
+});
+
+test('a table pasted as plain text into an empty note takes the empty line (RC-59)', async ({
+  page,
+}) => {
+  // Milkdown's plain-text route kept the empty paragraph the caret was in, so
+  // the note saved with a blank line above the pasted block.
+  await hostSetContent(page, '');
+  await focusEditor(page);
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', '| a | b |\n| --- | --- |\n| 1 | 2 |\n');
+    document
+      .querySelector('.ProseMirror')!
+      .dispatchEvent(
+        new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }),
+      );
+  });
+  await settleChangeDebounce(page);
+
+  const content = await getContent(page);
+  expect(content.startsWith('|'), JSON.stringify(content)).toBe(true);
+  // Padding and alignment marks are the table serializer's business, not this test's.
+  expect(content).toMatch(/\|\s*1\s*\|\s*2\s*\|/);
 });
 
 // ============================================================
