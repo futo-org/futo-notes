@@ -735,6 +735,14 @@ fun NoteEditorScreen(
         store.setDraftProvider(ownerToken) {
             derivePendingDraft(loaded, noteId, savedContent, content)
         }
+        // The leave-foreground flush reads the live editor first (RC-92): a note
+        // still streaming its tail has reported nothing typed into it, so the
+        // provider above would derive a clean draft and the edit would be lost.
+        store.setEditorRefresher(ownerToken) {
+            session.refreshFromLiveEditor(
+                openNoteEffects(summary = null, reconciliationStartEditVersion = editVersion),
+            )
+        }
         onDispose { store.releaseDraftOwnership(ownerToken) }
     }
 

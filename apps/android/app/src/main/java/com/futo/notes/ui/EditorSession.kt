@@ -242,6 +242,10 @@ private val EXIT_PLANS = mapOf(
     ),
 )
 
+/** Reads a background flush makes of a page that is busy finishing a load; see
+ *  [EditorSession.refreshFromLiveEditor]. iOS's exit retries twice (3 in all). */
+internal const val LIFECYCLE_READ_ATTEMPTS = 3
+
 internal class EditorSession(
     private val scope: CoroutineScope,
     private val onInteractionLockChanged: (Boolean) -> Unit = {},
@@ -332,6 +336,45 @@ internal class EditorSession(
     }
 
     /**
+     * The app is leaving the foreground: read the LIVE editor into the screen's
+     * draft so the flush that follows saves what the user typed, not what the
+     * editor last reported (RC-92).
+     *
+     * A note that is still streaming its tail reports no `change` at all — it
+     * never reports a prefix (O6) — and a typed edit spends 200 ms in the
+     * bundle's debounce, so the register the lifecycle flush pulls lags the
+     * editor by exactly the text most likely to be lost. This is the exit's
+     * bounded, single-outstanding read ([readEditorAheadOfAnExit]): an answer
+     * of no live document, another note's document, or a busy renderer leaves
+     * the draft as it is, and the flush that follows saves only what the
+     * editor already reported — never `''`, never a prefix. An exit that
+     * starts meanwhile cancels the read; its own read is the one that counts.
+     *
+     * Ends by taking the session lock once: an autosave already writing has
+     * then advanced the baseline, so the flush that follows does not write a
+     * stale base over its own note and mint a conflict copy.
+     */
+    suspend fun refreshFromLiveEditor(effects: OpenNoteEffects) {
+        var outcome = readEditor(effects) {}
+        // A big note edited while it streams settles its tail INSIDE the first
+        // read, which can outlast the capture deadline. That read is still
+        // outstanding in the page and answers in time, so ask again: the retry
+        // joins it (one read at a time) instead of queueing another. An exit
+        // retries the same way. Anything still unanswered after the last
+        // attempt keeps the stored bytes; the read's own `change` reaches the
+        // ordinary save if the process lives to hear it.
+        var attempts = 1
+        while (outcome == EditorCaptureOutcome.TimedOut && attempts < LIFECYCLE_READ_ATTEMPTS) {
+            attempts += 1
+            outcome = readEditor(effects) {}
+        }
+        when (outcome) {
+            is EditorCaptureOutcome.Captured, EditorCaptureOutcome.NoLiveDocument -> runWork {}
+            EditorCaptureOutcome.NotOurs, EditorCaptureOutcome.TimedOut, null -> Unit
+        }
+    }
+
+    /**
      * Settle the one deferred clean adoption after body-editor blur. Deferred
      * state lives here rather than in Compose so a later unrelated sync cannot
      * accidentally adopt it, and a rename/navigation drops it by identity.
@@ -388,8 +431,19 @@ internal class EditorSession(
     private suspend fun readEditorAheadOfAnExit(
         effects: OpenNoteEffects,
         retry: suspend () -> Unit,
-    ): Boolean {
-        if (exiting || closed) return false
+    ): Boolean =
+        when (readEditor(effects, retry)) {
+            is EditorCaptureOutcome.Captured, EditorCaptureOutcome.NoLiveDocument -> true
+            EditorCaptureOutcome.NotOurs, EditorCaptureOutcome.TimedOut, null -> false
+        }
+
+    /** The read itself: what the editor answered, or `null` when an exit took
+     *  over (or the session is already leaving). */
+    private suspend fun readEditor(
+        effects: OpenNoteEffects,
+        retry: suspend () -> Unit,
+    ): EditorCaptureOutcome? {
+        if (exiting || closed) return null
         val outcome = coroutineScope {
             val read = async { effects.captureEditor() }
             reconcileRead = read
@@ -408,11 +462,8 @@ internal class EditorSession(
                 }
             }
         }
-        if (outcome == null || exiting || closed) return false
-        return when (outcome) {
-            is EditorCaptureOutcome.Captured, EditorCaptureOutcome.NoLiveDocument -> true
-            EditorCaptureOutcome.NotOurs, EditorCaptureOutcome.TimedOut -> false
-        }
+        if (exiting || closed) return null
+        return outcome
     }
 
     private suspend fun reconcilePass(

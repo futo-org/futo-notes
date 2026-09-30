@@ -19,6 +19,10 @@
  * its baseline, so the next save parked a conflict copy and the typed text
  * landed in the copy.
  *
+ * The backgrounding story guards RC-92: the Home button straight after typing
+ * into the same kind of note flushed only what the editor had reported, which
+ * for a streaming note is nothing.
+ *
  * Usage:
  *   eval "$(just qa-claim ios)"
  *   just test-ios-stories
@@ -49,7 +53,8 @@ const device = createIosDevice();
 const results = [];
 // `node tests/ios-editor-stories.mjs self-link` runs only the stories whose
 // name contains the argument.
-const storyFilter = process.argv[2]?.toLowerCase();
+// IOS_STORY_FILTER=<substring> is the same filter for a loop of fresh runs.
+const storyFilter = (process.argv[2] ?? process.env.IOS_STORY_FILTER)?.toLowerCase();
 
 async function check(name, fn) {
   if (storyFilter && !name.toLowerCase().includes(storyFilter)) return;
@@ -366,12 +371,71 @@ async function selfLinkRenameThenType() {
   if (problems.length > 0) throw new Error(problems.join('; '));
 }
 
+// RC-92 (2026-09-30): the Home button (the app switcher) straight after typing
+// into a large note whose tail is still streaming. The editor withholds `change`
+// while it streams, and the lifecycle flush saved only what the editor had
+// reported, so the whole edit was lost. Backgrounding now reads the live editor
+// first, inside a background task.
+//
+// The window is bounded on purpose: it is the time the OS leaves a backgrounded
+// app, not a patient wait. Measured on the broken build the edit is on disk
+// never (60 s of waiting in a live simulator changed nothing), while the fix
+// saves it 4-10 s after Home, when the read of the settling tail answers.
+const BACKGROUND_NOTE = 'Background.md';
+const BACKGROUND_TITLE = 'Background';
+const BACKGROUND_MARKER = 'qbackgroundmarkz';
+const BACKGROUND_SAVE_WINDOW_MS = 30_000;
+// 1.5x the pop story's note: the body must still be streaming when the story
+// gets to type, and a cold first launch of a freshly booted simulator can take
+// the 40,000-section note past its stream before the body takes focus. Not
+// larger: the fix's read of the settling tail must still answer inside the
+// three capture attempts on a loaded host.
+const BACKGROUND_SECTIONS = 60_000;
+const BACKGROUND_BODY = largeNoteBody(BACKGROUND_SECTIONS);
+
+async function homeFromAStreamingEditedNote() {
+  device.resetVault();
+  device.seedNote(BACKGROUND_NOTE, BACKGROUND_BODY);
+  const before = device.vaultFiles();
+  device.launch();
+
+  await device.tapLabel(BACKGROUND_TITLE);
+  await device.waitFor('the note to open', () => titleFieldReads(BACKGROUND_TITLE), {
+    timeoutMs: 10_000,
+  });
+  await focusFirstBodyParagraph('the note body');
+  await device.typeText(BACKGROUND_MARKER, { keySettleMs: 60 });
+  device.pressHome();
+
+  await device.waitFor(
+    'the typed marker to reach the note before the app is suspended',
+    // Case-blind: the keyboard capitalises the first letter typed at the start
+    // of a line when the simulator has just been rebooted.
+    () => device.readNote(BACKGROUND_NOTE).toLowerCase().includes(BACKGROUND_MARKER),
+    {
+      timeoutMs: BACKGROUND_SAVE_WINDOW_MS,
+      describeFailure: () =>
+        `vault: ${JSON.stringify(device.vaultFiles())}; note ${device.readNote(BACKGROUND_NOTE).length} bytes (seeded ${BACKGROUND_BODY.length})`,
+    },
+  );
+  // Nothing may run after the check: the story ends the process the way the OS
+  // ends a suspended one.
+  device.terminate();
+  const violations = vaultInvariant(before, device.vaultFiles(), [TXT_MIGRATION_SENTINEL]);
+  if (violations.length > 0) throw new Error(describeVaultViolations(violations));
+  if (!device.readNote(BACKGROUND_NOTE).includes(`## Section ${BACKGROUND_SECTIONS - 1}\n`)) {
+    throw new Error('the note lost its tail');
+  }
+}
+
 async function main() {
   device.requireReady();
   // Reboot only this explicitly claimed simulator so the story begins from a
   // known device state, with the boot-attached hardware keyboard disconnected
   // (while it is attached the software keyboard's keys park below the screen).
-  device.restartSimulator();
+  // IOS_STORY_NO_RESTART=1 skips the reboot, for a loop of fresh runs of one
+  // story on a simulator an earlier run has already put in that state.
+  if (!process.env.IOS_STORY_NO_RESTART) device.restartSimulator();
   device.requireReady();
   console.log(`iOS editor stories on ${device.client.udid}:\n`);
 
@@ -387,6 +451,10 @@ async function main() {
   await check(
     'a self-link rename keeps one note and the text typed after it',
     selfLinkRenameThenType,
+  );
+  await check(
+    'backgrounding a large note typed into while it streams keeps the edit',
+    homeFromAStreamingEditedNote,
   );
 
   const failed = results.filter((result) => !result.pass);

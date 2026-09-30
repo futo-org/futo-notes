@@ -367,11 +367,13 @@ final class NotesStore: ObservableObject {
     func releaseDraftOwnership(token: UInt64) {
         draftRegister[token] = nil
         oneShotDraftTokens.remove(token)
+        liveEditorFlush.release(token: token)
     }
 
     /// Keep a leaving editor's final dirty snapshot registered until its
     /// asynchronous flush has durably written or parked the draft.
     func retainDraftUntilFlushed(token: UInt64) {
+        liveEditorFlush.release(token: token)
         guard draftRegister[token] != nil else { return }
         oneShotDraftTokens.insert(token)
     }
@@ -445,6 +447,9 @@ final class NotesStore: ObservableObject {
     /// closed; safe at every leave-active signal.
     func flushPendingEditor() {
         guard !resetting, !draftRegister.isEmpty else { return }
+        // A live flush is reading the editor first; the register as it stands
+        // is the older text. See ``LiveEditorFlush``.
+        guard !liveEditorFlush.isHolding else { return }
         var byId: [String: (token: UInt64, draft: PendingDraft)] = [:]
         for (token, draft) in draftRegister {
             if let existing = byId[draft.id], existing.token >= token { continue }
@@ -465,6 +470,33 @@ final class NotesStore: ObservableObject {
     /// the next backgrounding flushes afresh.
     func rearmBackgroundFlush() {
         flushedThisEpisode.removeAll()
+        liveEditorFlush.rearm()
+    }
+
+    /// The visible editor registers how to read its LIVE document into its
+    /// draft — the read ``flushPendingEditorLive()`` makes before it flushes.
+    func setDraftRefresher(
+        token: UInt64, _ refresh: @escaping @MainActor () async -> Void
+    ) {
+        guard !resetting, token > retiredDraftTokensThrough else { return }
+        liveEditorFlush.register(token: token, refresh: refresh)
+    }
+
+    private let liveEditorFlush = LiveEditorFlush()
+
+    /// ``flushPendingEditor()`` after reading the live editor (RC-92): what a
+    /// note still streaming its tail holds is known only to the editor. The
+    /// reads and the writes run inside a background task, so the OS keeps the
+    /// process until they finish. Falls back to the plain flush when there is
+    /// no editor to read.
+    func flushPendingEditorLive() {
+        guard !resetting else { return }
+        let flushed = liveEditorFlush.run { [weak self] in
+            guard let self else { return }
+            self.flushPendingEditor()
+            await self.editorDraftTail?.value
+        }
+        if flushed == nil { flushPendingEditor() }
     }
 
     /// The off-main owner of the Rust vault. The single source of truth for the
@@ -891,6 +923,7 @@ final class NotesStore: ObservableObject {
         draftRegister.removeAll()
         oneShotDraftTokens.removeAll()
         flushedThisEpisode.removeAll()
+        liveEditorFlush.removeAll()
     }
 
     func fullReset() async throws {

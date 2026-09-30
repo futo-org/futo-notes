@@ -634,6 +634,134 @@ class EditorSessionTest {
         assertFalse(log.contains("classify"))
     }
 
+    /**
+     * RC-92: backgrounding reads the live editor into the draft, so the flush
+     * that follows saves the text a streaming note never reported. The read is
+     * the reconcile's — bounded, non-blurring, one outstanding — and it takes
+     * no verdict on the note: no facts are gathered, nothing is classified.
+     */
+    @Test
+    fun `backgrounding reads the live editor into the draft and gathers no facts`() = runBlocking {
+        val log = mutableListOf<String>()
+        val effects = LiveEditorOpenNoteEffects(
+            live = EditorCaptureOutcome.Captured("base + typed while the tail streamed"),
+            disk = "peer",
+            log = log,
+        )
+
+        EditorSession(scope()).refreshFromLiveEditor(effects)
+
+        assertEquals(listOf("capture"), log)
+        assertEquals("base + typed while the tail streamed", effects.draft)
+    }
+
+    /** Never `''`, never a prefix: an editor that cannot answer for this note leaves the draft alone. */
+    @Test
+    fun `backgrounding an editor that cannot answer leaves the draft as it was`() = runBlocking {
+        listOf(
+            EditorCaptureOutcome.NotOurs to 1,
+            EditorCaptureOutcome.NoLiveDocument to 1,
+            // A busy page is asked again, as an exit is, and then given up on.
+            EditorCaptureOutcome.TimedOut to LIFECYCLE_READ_ATTEMPTS,
+        ).forEach { (live, reads) ->
+            val log = mutableListOf<String>()
+            val effects = LiveEditorOpenNoteEffects(live = live, disk = "peer", log = log)
+
+            EditorSession(scope()).refreshFromLiveEditor(effects)
+
+            assertEquals(List(reads) { "capture" }, log)
+            assertEquals("base", effects.draft)
+        }
+    }
+
+    /** A big edited note settles its tail inside the first read, which can outlast the deadline: the retry hears the answer. */
+    @Test
+    fun `backgrounding asks a busy editor again and saves what the second read holds`() = runBlocking {
+        val log = mutableListOf<String>()
+        var reads = 0
+        val effects = object : OpenNoteEffects by LiveEditorOpenNoteEffects(
+            live = EditorCaptureOutcome.Captured("unused"),
+            disk = "peer",
+            log = log,
+        ) {
+            var draft = "base"
+            override suspend fun captureEditor(): EditorCaptureOutcome {
+                reads += 1
+                log += "capture"
+                if (reads == 1) return EditorCaptureOutcome.TimedOut
+                draft = "base + typed while the tail streamed"
+                return EditorCaptureOutcome.Captured(draft)
+            }
+        }
+
+        EditorSession(scope()).refreshFromLiveEditor(effects)
+
+        assertEquals(listOf("capture", "capture"), log)
+        assertEquals("base + typed while the tail streamed", effects.draft)
+    }
+
+    /** The flush that follows must not overtake an autosave already writing: it would write a stale base. */
+    @Test
+    fun `backgrounding waits for an autosave already writing`() = runBlocking {
+        val scope = scope()
+        val session = EditorSession(scope)
+        val log = mutableListOf<String>()
+        val writing = CompletableDeferred<Unit>()
+        val finishWrite = CompletableDeferred<Unit>()
+        val save = scope.async {
+            session.runAutosave {
+                writing.complete(Unit)
+                finishWrite.await()
+                log += "autosave-done"
+            }
+        }
+        writing.await()
+        val refresh = scope.async {
+            session.refreshFromLiveEditor(
+                LiveEditorOpenNoteEffects(EditorCaptureOutcome.Captured("live"), "peer", log),
+            )
+            log += "refresh-done"
+        }
+        assertFalse(refresh.isCompleted)
+
+        finishWrite.complete(Unit)
+        save.await()
+        refresh.await()
+
+        assertEquals(listOf("capture", "autosave-done", "refresh-done"), log)
+    }
+
+    /** Back pressed while the background read is out cancels it: the exit's own read is the one that counts. */
+    @Test
+    fun `an exit cancels the background read in flight`() = runBlocking {
+        val scope = scope()
+        val session = EditorSession(scope)
+        val log = mutableListOf<String>()
+        val reading = CompletableDeferred<Unit>()
+        val neverAnswers = CompletableDeferred<EditorCaptureOutcome>()
+        val effects = object : OpenNoteEffects by LiveEditorOpenNoteEffects(
+            live = EditorCaptureOutcome.Captured("unused"),
+            disk = "peer",
+            log = log,
+        ) {
+            override suspend fun captureEditor(): EditorCaptureOutcome {
+                log += "capture"
+                reading.complete(Unit)
+                return neverAnswers.await()
+            }
+        }
+
+        val refresh = scope.async { session.refreshFromLiveEditor(effects) }
+        reading.await()
+        val nav = RecordingEffects(log, name = "nav")
+        session.end(EditorExit.NAVIGATE, nav)
+
+        withTimeout(5_000) { scope.settle() }
+        assertTrue(nav.succeeded)
+        refresh.await()
+        assertEquals("capture", log.first())
+    }
+
     /** A refused exit leaves the editor open: the reconcile it interrupted runs again. */
     @Test
     fun `an exit that stops short re-runs the reconcile it interrupted`() = runBlocking {
