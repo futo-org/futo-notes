@@ -37,6 +37,10 @@ const { values: args } = parseArgs({
   options: {
     app: { type: 'string' },
     via: { type: 'string', default: 'apple-event' },
+    // gap: quit N ms after typing. stall: type, then an 8 s JS stall, quit 300 ms later.
+    // giant: quit during a giant-note open (the close deadline must end it).
+    scenario: { type: 'string', default: 'gap' },
+    lines: { type: 'string', default: '100000' },
     gaps: { type: 'string', default: '50,300' },
     tries: { type: 'string', default: '10' },
     port: { type: 'string', default: '9461' },
@@ -46,6 +50,8 @@ const { values: args } = parseArgs({
 if (process.platform !== 'darwin') throw new Error('macOS only');
 if (!args.app) throw new Error('--app "<path to a debug .app with its own bundle id>" is required');
 if (!['apple-event', 'menu'].includes(args.via)) throw new Error('--via apple-event | menu');
+if (!['gap', 'stall', 'giant'].includes(args.scenario))
+  throw new Error('--scenario gap | stall | giant');
 
 const plist = (key) =>
   execFileSync(
@@ -81,6 +87,15 @@ async function oneTry(gapMs, n) {
   fs.mkdirSync(notesDir, { recursive: true });
   fs.writeFileSync(path.join(dataDir, 'notes-dir-override.json'), JSON.stringify({ notesDir }));
   fs.writeFileSync(path.join(notesDir, 'Plain.md'), 'Before.\n');
+  let giantBody = null;
+  if (args.scenario === 'giant') {
+    giantBody =
+      Array.from(
+        { length: Number(args.lines) },
+        (_, i) => `w${i} lorem ipsum dolor sit amet consectetur adip`,
+      ).join('\n') + '\n';
+    fs.writeFileSync(path.join(notesDir, 'Giant.md'), giantBody);
+  }
   const logFile = path.join(tmpRoot, `app-${gapMs}-${n}.log`);
   const logFd = fs.openSync(logFile, 'w');
   const proc = spawn(executable, [], {
@@ -113,33 +128,82 @@ async function oneTry(gapMs, n) {
       dataDir,
       logFile,
     });
+    const requestQuit = () => {
+      if (args.via === 'menu') {
+        // Fire and forget: the app may be gone before the reply.
+        executeJs(
+          ws,
+          `window.__TAURI_INTERNALS__.invoke('app_menu_dispatch_for_test', { id: 'quit' }); 'sent'`,
+          { timeoutMs: 3000 },
+        ).catch(() => {});
+      } else {
+        // The AppleEvent reply arrives only once the app has answered the terminate, so it is
+        // never awaited: the exit, read off the process, is the measurement.
+        spawn('/usr/bin/osascript', ['-e', `tell application id "${bundleId}" to quit`], {
+          stdio: 'ignore',
+        });
+      }
+    };
+    const waitForExit = async (limitMs) => {
+      for (let i = 0; i < limitMs / 100 && !exited; i += 1) await sleep(100);
+    };
+    if (args.scenario === 'giant') {
+      // Wedge the page with the giant open, stay silent for 8 s, then quit: nothing is
+      // unsaved, so the close deadline (5 s) must end it without the JS thread.
+      executeJs(ws, `location.hash = '#/note/Giant'; 'set'`, { timeoutMs: 5000 }).catch(() => {});
+      const setAt = Date.now();
+      let firstFail = null;
+      while (Date.now() - setAt < 8000) {
+        await sleep(500);
+        try {
+          await executeJs(ws, '1', { timeoutMs: 400 });
+          if (firstFail !== null) throw new Error('the wedge ended early; raise --lines');
+        } catch (error) {
+          if (String(error.message).includes('wedge ended')) throw error;
+          firstFail ??= Date.now() - setAt;
+        }
+      }
+      if (firstFail === null)
+        throw new Error('the giant note never wedged the page; raise --lines');
+      const quitAt = Date.now();
+      requestQuit();
+      await waitForExit(60_000);
+      const file = fs.readFileSync(path.join(notesDir, 'Giant.md'), 'utf8');
+      return {
+        gapMs: 'giant',
+        exitMs: exited ? Date.now() - quitAt : null,
+        lost: file !== giantBody,
+        exited,
+      };
+    }
     await client.openNote('Plain');
     const marker = `Typed-${gapMs}-${n}-${Date.now()}`;
+    if (args.scenario === 'stall') {
+      // Fire and forget: the stall blocks the thread. typeInEditor announces the edit first.
+      executeJs(
+        ws,
+        `window.__notesShellTest.typeInEditor(${JSON.stringify(marker)});
+         setTimeout(() => { const t = Date.now(); while (Date.now() - t < 8000); }, 0); 'armed'`,
+        { timeoutMs: 2000 },
+      ).catch(() => {});
+      await sleep(300);
+      const quitAt = Date.now();
+      requestQuit();
+      await waitForExit(60_000);
+      const onDisk = fs.readFileSync(path.join(notesDir, 'Plain.md'), 'utf8');
+      return {
+        gapMs: 'stall',
+        exitMs: exited ? Date.now() - quitAt : null,
+        lost: !onDisk.includes(marker),
+        exited,
+      };
+    }
     await client.typeInEditor(marker);
     const typedAt = Date.now();
     await sleep(Math.max(0, gapMs - (Date.now() - typedAt)));
     const quitAt = Date.now();
-    if (args.via === 'menu') {
-      // Fire and forget: the app may be gone before the reply.
-      executeJs(
-        ws,
-        `window.__TAURI_INTERNALS__.invoke('app_menu_dispatch_for_test', { id: 'quit' }); 'sent'`,
-        { timeoutMs: 3000 },
-      ).catch(() => {});
-    } else {
-      try {
-        execFileSync('/usr/bin/osascript', ['-e', `tell application id "${bundleId}" to quit`], {
-          timeout: 20_000,
-          stdio: 'pipe',
-        });
-      } catch (error) {
-        // -128 "User canceled": the app answered the terminate with NSTerminateCancel and
-        // closes itself after the flush. Any other failure is the AppleEvent not landing,
-        // which the exit/lost columns below will show.
-        if (!String(error.stderr).includes('(-128)')) throw error;
-      }
-    }
-    for (let i = 0; i < 200 && !exited; i += 1) await sleep(100);
+    requestQuit();
+    await waitForExit(20_000);
     const exitMs = exited ? Date.now() - typedAt : null;
     const onDisk = fs.readFileSync(path.join(notesDir, 'Plain.md'), 'utf8');
     return { gapMs, exitMs, quitCallMs: quitAt - typedAt, lost: !onDisk.includes(marker), exited };
@@ -148,7 +212,8 @@ async function oneTry(gapMs, n) {
   }
 }
 
-for (const gap of args.gaps.split(',').map(Number)) {
+const gaps = args.scenario === 'gap' ? args.gaps.split(',').map(Number) : [args.scenario];
+for (const gap of gaps) {
   let lost = 0;
   for (let n = 0; n < Number(args.tries); n += 1) {
     const r = await oneTry(gap, n);
@@ -156,7 +221,9 @@ for (const gap of args.gaps.split(',').map(Number)) {
     if (r.lost) lost += 1;
     console.log(JSON.stringify(r));
   }
-  console.log(`via ${args.via}, gap ${gap} ms: ${lost}/${args.tries} lost`);
+  console.log(
+    `via ${args.via}, ${args.scenario === 'gap' ? `gap ${gap} ms` : gap}: ${lost}/${args.tries} lost`,
+  );
 }
 if (args.out)
   fs.writeFileSync(args.out, JSON.stringify({ bundleId, via: args.via, results }, null, 2));

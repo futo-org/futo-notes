@@ -10,15 +10,19 @@
 //! covers the callers that never touch the menu.
 //!
 //! tao's delegate has no `applicationShouldTerminate:`, so one is added to its
-//! class at startup. It cancels the terminate and closes the main window instead;
-//! the close handler flushes and exits through `app.exit`, which is how the app
-//! has always ended. Cancel rather than `NSTerminateLater`: a later-reply terminate
-//! runs AppKit's modal run-loop mode, in which the IPC the flush needs is not a
-//! given. The price is that a logout or shutdown that raised the terminate is
-//! cancelled once (the user retries; the app has closed itself by then), which is
-//! what every Electron and Tauri app that flushes on quit does.
+//! class at startup. It answers `NSTerminateLater`, closes the main window, and
+//! the close handler flushes and exits through `app.exit`; the resulting
+//! `RunEvent::ExitRequested` (application.rs) sends
+//! `replyToApplicationShouldTerminate:YES`, and AppKit finishes the terminate.
+//! A logout or shutdown that raised the terminate therefore waits for the flush
+//! and proceeds instead of being aborted (an earlier version answered
+//! `NSTerminateCancel`, which cancels it). The flush's IPC is serviced while AppKit
+//! waits in its modal run-loop mode (measured 0 of 10 lost at 50 ms and at 300 ms).
+//! A page that cannot answer is ended by the close deadline (close_deadline.rs),
+//! whose `app.exit` raises the same event.
 
 use std::ffi::c_char;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
 use objc2::ffi::class_addMethod;
@@ -27,10 +31,12 @@ use objc2::{class, msg_send, sel};
 use tauri::Manager;
 
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
+/// A terminate is waiting for `replyToApplicationShouldTerminate:`.
+static PENDING: AtomicBool = AtomicBool::new(false);
 
 /// `NSApplicationTerminateReply` values.
-const NS_TERMINATE_CANCEL: usize = 0;
 const NS_TERMINATE_NOW: usize = 1;
+const NS_TERMINATE_LATER: usize = 2;
 
 extern "C" fn application_should_terminate(
     _this: *mut AnyObject,
@@ -39,12 +45,26 @@ extern "C" fn application_should_terminate(
 ) -> usize {
     match APP.get().and_then(|app| app.get_webview_window("main")) {
         Some(window) => {
-            // The close handler saves, then exits the app itself.
+            // The close handler saves, then exits the app itself; the exit sends the reply.
+            PENDING.store(true, Ordering::SeqCst);
             let _ = window.close();
-            NS_TERMINATE_CANCEL
+            NS_TERMINATE_LATER
         }
         // No window, so no editor and nothing to flush.
         None => NS_TERMINATE_NOW,
+    }
+}
+
+/// Sends the pending terminate's reply; call it from `RunEvent::ExitRequested`, on
+/// the main thread. A no-op when no terminate is waiting (a menu Quit, a plain close).
+pub(crate) fn reply_to_pending_terminate() {
+    if !PENDING.swap(false, Ordering::SeqCst) {
+        return;
+    }
+    // SAFETY: a plain message to the shared NSApplication, on the main thread.
+    unsafe {
+        let ns_app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let _: () = msg_send![ns_app, replyToApplicationShouldTerminate: Bool::YES];
     }
 }
 

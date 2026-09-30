@@ -1,4 +1,5 @@
 import { reportUnsavedEdits } from '$lib/platform/tauri';
+import { setEditIntentListener } from '$shared/lifecycle/editIntent';
 
 /**
  * Tells Rust whether the open note holds edits that are not on disk yet, so the
@@ -14,6 +15,11 @@ import { reportUnsavedEdits } from '$lib/platform/tauri';
  * input event itself, before the work starts, closes that gap; once the thread is
  * blocked the last report simply stays in force.
  *
+ * The editor also raises the same signal from its transaction dispatch
+ * (documentChanges.ts, via shared/lifecycle/editIntent.ts), which covers the edits
+ * that raise no input event at all: keymap commands (Ctrl-B, Enter, Tab, undo),
+ * toolbar and checkbox clicks.
+ *
  * Only edits count as input. A click or a keydown that edits nothing would leave
  * the page "dirty" until the next poll, and a click on a note in the sidebar
  * happens right before the giant open this whole mechanism exists to get out of.
@@ -23,16 +29,6 @@ import { reportUnsavedEdits } from '$lib/platform/tauri';
 const EDIT_SETTLE_MS = 600;
 const POLL_MS = 200;
 const EDIT_EVENTS = ['beforeinput', 'paste', 'cut', 'drop'] as const;
-
-let announceEdit: (() => void) | null = null;
-
-/**
- * For an edit that does not arrive as an input event (the test hook that swaps
- * the document): say so before the work that may stall.
- */
-export function noteEditIntent(): void {
-  announceEdit?.();
-}
 
 export interface CloseDirtyReporterDeps {
   isSavePending: () => boolean;
@@ -64,11 +60,11 @@ export function startCloseDirtyReporter(deps: CloseDirtyReporterDeps): () => voi
 
   for (const type of EDIT_EVENTS) document.addEventListener(type, onEdit, true);
   const timer = window.setInterval(evaluate, POLL_MS);
-  announceEdit = onEdit;
+  setEditIntentListener(onEdit);
   return () => {
     for (const type of EDIT_EVENTS) document.removeEventListener(type, onEdit, true);
     window.clearInterval(timer);
-    if (announceEdit === onEdit) announceEdit = null;
+    setEditIntentListener(null);
     if (reported) report(false);
   };
 }

@@ -13,13 +13,22 @@
 //! an edit still waiting in it, and cutting that loses the edit the JS handler
 //! would have saved (R10 FB-9: 8 s busy loop, 2.5 MB paste). So the page tells
 //! Rust on every clean/dirty transition (`close_deadline_set_dirty`,
-//! `closeDeadlineDirty.ts`), and a dirty page is never cut: Rust keeps waiting
-//! for the JS handler exactly as it did before this module existed. A giant
-//! OPEN is not dirty (a note switch awaits the outgoing save before the new note
-//! is read, and the user cannot type while the parse runs), so RC-37 stays fixed.
-//! There is deliberately no hard cap on a dirty wait: a cap could only ever
-//! discard an edit, and the alternative it would rescue the user from (a renderer
-//! hung for good with an unsaved edit) is one Force Quit, which loses the same edit.
+//! `closeDeadlineDirty.ts`), and a dirty page is not cut at the deadline: Rust
+//! keeps waiting for the JS handler. A giant OPEN is not dirty (a note switch
+//! awaits the outgoing save before the new note is read, and the user cannot type
+//! while the parse runs), so RC-37 stays fixed.
+//!
+//! A dirty flag must never be able to outlive the page that set it, or the window
+//! would never close (R10 round 2: type, kill the web process, close). Three
+//! things end a dirty wait that JS never will:
+//! - the engine reporting its web process gone (`watch_web_process`: WebKitGTK's
+//!   `web-process-terminated`; WKWebView and WebView2 are not hooked, see there);
+//! - a new page load, which throws the old page's report away (`mark_clean`);
+//! - `DIRTY_CAP`: no stall that is still an edit being saved lasts this long, and a
+//!   page that has been silent for a minute with the user pressing close is hung, not
+//!   slow. The cap can cost the unsaved edit of a stall longer than a minute (a paste
+//!   of ~5 MB into a WebKitGTK page takes ~80 s); that is the price of a window that
+//!   can always be closed, and it logs one line when it fires.
 //!
 //! `CLOSE_DEADLINE` is the JS handler's own 3 s flush race plus a 2 s margin
 //! for the exit IPC, so a responsive page with nothing dirty never reaches it.
@@ -32,7 +41,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futo_notes_core::files::vault_mutation_guard;
 use tauri::{Manager, WindowEvent};
@@ -45,10 +54,13 @@ const WRITE_GRACE: Duration = Duration::from_secs(5);
 const EXIT_FALLBACK: Duration = Duration::from_secs(3);
 /// How often a dirty page is re-checked once the deadline has passed.
 const DIRTY_POLL: Duration = Duration::from_millis(100);
+/// The longest a dirty page is waited for, from the first close request.
+pub(crate) const DIRTY_CAP: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Copy)]
 struct Timing {
     deadline: Duration,
+    dirty_cap: Duration,
     write_grace: Duration,
 }
 
@@ -86,9 +98,18 @@ impl CloseDeadline {
         let spawned = std::thread::Builder::new()
             .name("close-deadline".to_owned())
             .spawn(move || {
+                let armed_at = Instant::now();
                 std::thread::sleep(timing.deadline);
-                // A dirty page is the JS handler's to save; it is never cut.
+                // A dirty page is the JS handler's to save, for as long as the cap.
                 while self.is_dirty() {
+                    if armed_at.elapsed() >= timing.dirty_cap {
+                        eprintln!(
+                            "[close] the page still reports unsaved edits {} s after the close \
+                             request; exiting without them",
+                            armed_at.elapsed().as_secs()
+                        );
+                        break;
+                    }
                     std::thread::sleep(DIRTY_POLL);
                 }
                 exit_after_in_flight_writes(timing.write_grace, exit);
@@ -126,6 +147,35 @@ fn exit_after_in_flight_writes<F: FnOnce()>(write_grace: Duration, exit: F) {
 
 static CLOSE_DEADLINE_STATE: CloseDeadline = CloseDeadline::new();
 
+/// Forget any dirty report: the page that made it is gone or reloading.
+pub(crate) fn mark_clean() {
+    CLOSE_DEADLINE_STATE.set_dirty(false);
+}
+
+/// Treat a terminated web process as clean: its page can never report again. Hooked
+/// where the stack exposes the signal: WebKitGTK (Linux). WKWebView
+/// (`webViewWebContentProcessDidTerminate:`) and WebView2 (`ProcessFailed`) are not
+/// reachable through Tauri 2.10 / wry 0.54 without replacing the engine delegate's
+/// methods, so there a dead page with an unsaved edit is ended by `DIRTY_CAP`.
+#[cfg(target_os = "linux")]
+pub(crate) fn watch_web_process(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let _ = window.with_webview(|webview| {
+        use webkit2gtk::WebViewExt;
+        webview.inner().connect_web_process_terminated(|_, reason| {
+            eprintln!(
+                "[close] the web process ended ({reason:?}); its unsaved-edit report is void"
+            );
+            mark_clean();
+        });
+    });
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn watch_web_process(_app: &tauri::AppHandle) {}
+
 /// The page reports whether the open note holds edits not yet on disk.
 #[tauri::command]
 pub async fn close_deadline_set_dirty(dirty: bool) {
@@ -141,6 +191,7 @@ pub(crate) fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
     CLOSE_DEADLINE_STATE.arm(
         Timing {
             deadline: CLOSE_DEADLINE,
+            dirty_cap: DIRTY_CAP,
             write_grace: WRITE_GRACE,
         },
         move || {
@@ -159,6 +210,7 @@ mod tests {
     fn timing(deadline_ms: u64, grace_ms: u64) -> Timing {
         Timing {
             deadline: Duration::from_millis(deadline_ms),
+            dirty_cap: Duration::from_secs(3600),
             write_grace: Duration::from_millis(grace_ms),
         }
     }
@@ -268,6 +320,31 @@ mod tests {
         exited
             .recv_timeout(Duration::from_secs(5))
             .expect("exit ran once the page was clean");
+    }
+
+    #[test]
+    fn a_dirty_wait_ends_at_the_cap() {
+        let state = state();
+        let (exit, exited) = exit_signal();
+        state.set_dirty(true);
+        let started = Instant::now();
+        let capped = Timing {
+            dirty_cap: Duration::from_millis(400),
+            ..timing(20, 1000)
+        };
+        assert!(state.arm(capped, exit));
+        let at = exited
+            .recv_timeout(Duration::from_secs(5))
+            .expect("exit ran at the cap");
+        assert!(at - started >= Duration::from_millis(400));
+    }
+
+    #[test]
+    fn mark_clean_releases_a_dirty_wait() {
+        // The real static: a dead or reloaded page's report must not outlive it.
+        CLOSE_DEADLINE_STATE.set_dirty(true);
+        mark_clean();
+        assert!(!CLOSE_DEADLINE_STATE.is_dirty());
     }
 
     #[test]

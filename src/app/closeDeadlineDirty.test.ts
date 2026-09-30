@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/platform/tauri', () => ({ reportUnsavedEdits: vi.fn(async () => undefined) }));
 
-import { noteEditIntent, startCloseDirtyReporter } from './closeDeadlineDirty';
+import { noteEditIntent } from '$shared/lifecycle/editIntent';
+import { startCloseDirtyReporter } from './closeDeadlineDirty';
 
 describe('close-deadline dirty reporter', () => {
   let pending: boolean;

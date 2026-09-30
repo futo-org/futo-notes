@@ -2042,6 +2042,7 @@ dependencies = [
  "tauri-plugin-window-state",
  "time",
  "trash",
+ "webkit2gtk",
  "zbus 5.14.0",
 ]
 

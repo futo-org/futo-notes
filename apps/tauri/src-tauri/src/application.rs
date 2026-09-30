@@ -71,6 +71,12 @@ pub(crate) fn run() {
 
     builder
         .on_window_event(crate::close_deadline::on_window_event)
+        .on_page_load(|_webview, payload| {
+            // A new page has not reported anything yet; the old one's dirty flag is void.
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+                crate::close_deadline::mark_clean();
+            }
+        })
         .setup(|app| {
             let handle = app.handle();
             if let Ok(root) = crate::vault_location::root(handle) {
@@ -85,6 +91,7 @@ pub(crate) fn run() {
             }
             crate::window_reveal::install(handle)?;
             crate::instance_journal::install(handle);
+            crate::close_deadline::watch_web_process(handle);
             crate::license::install(handle);
             crate::local_notes::init_on_startup(handle);
             Ok(())
@@ -167,6 +174,13 @@ pub(crate) fn run() {
             crate::local_notes::local_notes_rescan,
             crate::local_notes::local_notes_refresh_external_changes,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            // Every exit, however it was reached, ends a terminate: that AppKit is waiting on.
+            #[cfg(target_os = "macos")]
+            if matches!(_event, tauri::RunEvent::ExitRequested { .. }) {
+                crate::macos_terminate::reply_to_pending_terminate();
+            }
+        });
 }

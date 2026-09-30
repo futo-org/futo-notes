@@ -5,7 +5,7 @@ import {
   type NoteSwitchTimeline,
 } from '$shared/perf/noteSwitchTimeline';
 
-import { noteEditIntent } from './closeDeadlineDirty';
+import { noteEditIntent } from '$shared/lifecycle/editIntent';
 import { testHooksEnabled } from './testHooksEnabled';
 
 /**

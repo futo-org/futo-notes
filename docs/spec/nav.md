@@ -279,9 +279,10 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   `CloseRequested` and so skipped the flush (RC-85: ⌘Q within 0.5 s of typing
   lost the edit, 19 of 20 runs). A Dock Quit, an AppleScript `quit` and a
   logout reach the process as that same `terminate:`, so an
-  `applicationShouldTerminate:` added to tao's delegate cancels it and closes the
-  window instead (the flush then exits the app; a logout or shutdown that raised
-  it is cancelled once). The updater's install and every relaunch (vault change,
+  `applicationShouldTerminate:` added to tao's delegate answers
+  `NSTerminateLater`, closes the window, and replies once the flush has exited
+  the app (`RunEvent::ExitRequested`), so a logout or shutdown waits for the
+  flush and proceeds instead of being cancelled. The updater's install and every relaunch (vault change,
   Update & restart) drain the save first too (RC-87). → app_menu.rs,
   macos_terminate.rs, registerNotesShellShortcuts.ts, startNativeShell.ts,
   flushBeforeExit.ts, tests/macos-quit-flush.mjs

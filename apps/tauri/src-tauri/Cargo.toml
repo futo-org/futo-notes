@@ -83,6 +83,8 @@ keyring = { version = "3", features = ["windows-native"] }
 tauri-plugin-dialog = { version = "2.7", default-features = false, features = ["xdg-portal"] }
 tauri-plugin-single-instance = "2"
 glib = "0.18"
+# The web-process-terminated signal (close_deadline.rs); the version tauri/wry already use.
+webkit2gtk = "2"
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 zbus = "5"
 

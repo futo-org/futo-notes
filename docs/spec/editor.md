@@ -1931,14 +1931,19 @@ unchanged by it.
   at most 5 s more) and exits without the JS thread. A note open is not an unsaved
   edit (a note switch awaits the outgoing save before the next note is read, and
   the page cannot be typed into while it parses), so the open case is exactly
-  what the deadline cuts. A page that does hold an unsaved edit is never cut,
-  however long its JS thread stalls (an 8 s task, a 2.5 MB paste): the page tells
-  Rust on every clean/dirty transition, reports at once on `beforeinput`, `paste`,
-  `cut` and `drop` (before the stalling work begins, since the save queue only
-  learns of an edit after the editor's own 200 ms debounce), and Rust waits for
-  the JS handler exactly as it did before the deadline existed, with no cap
-  (a cap could only discard the edit; a renderer hung for good is one Force
-  Quit, which loses it too). Measured: exit 5.4 s after the request with the
+  what the deadline cuts. A page that does hold an unsaved edit is not cut at the
+  deadline, however long its JS thread stalls (an 8 s task, a 2.5 MB paste): the
+  page tells Rust on every clean/dirty transition, reports at once from the
+  editor's own transaction dispatch (any document-changing transaction, so
+  keymap commands, toolbar and checkbox clicks count as well as typing; sidebar
+  clicks do not) and on `beforeinput`, `paste`, `cut` and `drop` (before the
+  stalling work begins, since the save queue only learns of an edit after the
+  editor's own 200 ms debounce), and Rust waits for the JS handler. That wait
+  ends early when the page that set the flag is gone (WebKitGTK's
+  `web-process-terminated`, or a new page load; WKWebView and WebView2 are not
+  hooked) and is capped at 60 s from the first close request, because a window
+  must always be closable: a stall longer than that with an unsaved edit (a
+  ~5 MB paste on WebKitGTK takes ~80 s) loses it, with one log line. Measured: exit 5.4 s after the request with the
   giant note's bytes unchanged; 8 s busy loop, 2.5 MB paste and 2.5 MB replace
   each exit when the stall ends with the edit on disk; a responsive page with an
   unsaved edit still drains it through the JS handler and exits in 0.1 s. The

@@ -13,6 +13,12 @@
 //          unsaved edit in it (an 8 s task, a 2.5 MB paste, a 2.5 MB replace): the
 //          deadline must not cut it, the JS handler saves the edit once the stall
 //          ends. Before the dirty-aware deadline these lost the edit.
+//   keymap  the same, for an edit that raises no input event (Ctrl-A, Ctrl-B).
+//   crash-clean, crash-dirty
+//          the web process is killed, with and without an unsaved edit: the window still
+//          closes on the deadline (a dead page cannot clear its own dirty flag).
+//   reload  a stale "unsaved edits" report, then a page reload, then a 30 s stall with
+//          nothing unsaved: the reload voids the report, so the deadline cuts it at ~5 s.
 //   slowdisk
 //          every fsync under the vault takes 4 s: the close waits for the write that is
 //          still running instead of abandoning it after 3 s (edit kept, no `.sf-tmp-*`).
@@ -39,6 +45,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { startDesktopTauriInstance } from './lib/tauri-instance.mjs';
 import { executeJs, sleep } from './lib/mcp-client.mjs';
+import { waitForTestHooks } from './lib/tauri-test-client.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { values: args } = parseArgs({
@@ -56,6 +63,7 @@ const { values: args } = parseArgs({
     // fast; raise it to MEASURE an unfixed build (RC-37 was ~107 s).
     'exit-wait-s': { type: 'string' },
     leg: { type: 'string', default: 'all' },
+    'no-reload': { type: 'boolean', default: false },
     out: { type: 'string' },
   },
 });
@@ -125,6 +133,7 @@ function killIfAlive(client) {
 }
 
 async function giantLeg() {
+  const legName = 'giant';
   const body = giantParagraph(Number(args.lines));
   const before = { bytes: Buffer.byteLength(body), sha: sha(Buffer.from(body)) };
   const client = await launch({ 'Giant.md': body, 'Other.md': 'Other note.\n' });
@@ -190,8 +199,8 @@ async function giantLeg() {
       signal: client.proc.signalCode,
       bytesUnchanged: file.length === before.bytes && sha(file) === before.sha,
     };
-    report.legs.giant = leg;
-    console.log(`giant: ${JSON.stringify(leg)}`);
+    report.legs[legName] = leg;
+    console.log(`${legName}: ${JSON.stringify(leg)}`);
     assert.notEqual(
       exitMs,
       null,
@@ -253,6 +262,18 @@ const STALLS = {
       setTimeout(() => { const t = Date.now(); while (Date.now() - t < 8000); }, 0); 'armed'`,
     saved: (onDisk, marker) => onDisk.includes(marker),
   },
+  // An edit that raises no input event (a keymap command: select all, bold), then a stall.
+  keymap: {
+    arm: () => `(() => {
+      const pm = document.querySelector('.ProseMirror');
+      pm.focus();
+      const press = (key) => pm.dispatchEvent(new KeyboardEvent('keydown',
+        { key, code: 'Key' + key.toUpperCase(), ctrlKey: true, bubbles: true, cancelable: true }));
+      press('a'); press('b');
+      setTimeout(() => { const t = Date.now(); while (Date.now() - t < 8000); }, 0);
+      return 'armed'; })()`,
+    saved: (onDisk) => onDisk.includes('**'),
+  },
   // A multi-megabyte paste parsing synchronously (WebKitGTK: ~10 s at 2.5 MB).
   paste: {
     arm: () => `(() => {
@@ -294,6 +315,90 @@ async function stallLeg(name) {
       `${name}: exit at ${exitMs} ms: too early, the stall had not ended, so the edit cannot have been saved`,
     );
     assert.equal(leg.edited, true, `${name}: the edit typed before the stall was lost`);
+  } finally {
+    killIfAlive(client);
+  }
+}
+
+// A page reload voids the old page's "unsaved edits" report. The last thing the old page
+// said is "dirty"; it reloads; the new page is then stalled by a 30 s task with nothing
+// unsaved in it. The deadline must cut it at ~5 s. (`--no-reload` leaves the stale report in
+// force as the control: the window then waits for the stall, ~30 s.)
+async function reloadLeg() {
+  const client = await launch({ 'Plain.md': 'Before.\n' });
+  try {
+    await client.openNote('Plain');
+    await executeJs(
+      client.ws,
+      `window.__TAURI_INTERNALS__.invoke('close_deadline_set_dirty', { dirty: true }); 1`,
+    );
+    if (!args['no-reload']) {
+      executeJs(client.ws, 'location.reload(); 1', { timeoutMs: 2000 }).catch(() => {});
+      await sleep(1500);
+      await waitForTestHooks(client.ws, 'reload', {
+        initialDelayMs: 0,
+        attempts: 30,
+        intervalMs: 1000,
+      });
+    }
+    executeJs(
+      client.ws,
+      `setTimeout(() => { const t = Date.now(); while (Date.now() - t < 30000); }, 0); 'armed'`,
+      { timeoutMs: 2000 },
+    ).catch(() => {});
+    await sleep(300);
+    requestWindowClose();
+    const exitMs = await exitAfter(client.proc, 120_000);
+    const leg = { exitMs, reloaded: !args['no-reload'] };
+    report.legs.reload = leg;
+    console.log(`reload: ${JSON.stringify(leg)}`);
+    assert.notEqual(exitMs, null, 'reload: the window never closed');
+    if (!args['no-reload'])
+      assert.ok(
+        exitMs <= deadlineMs + Number(args['margin-s']) * 1000,
+        `reload: exit took ${exitMs} ms; the stale report was not voided`,
+      );
+  } finally {
+    killIfAlive(client);
+  }
+}
+
+// The web process dies (crash, OOM kill) while the page has an unsaved edit, or none: the
+// dead page can never report clean, so the window must still close on the deadline rather
+// than wait on a flag nobody will clear. The edit itself is gone with the page.
+function killWebProcess(appPid) {
+  const children = execSync(`ps -o pid=,comm= --ppid ${appPid}`, { encoding: 'utf8' })
+    .split('\n')
+    .map((line) => line.trim().split(/\s+/))
+    .filter(([, comm]) => comm === 'WebKitWebProces');
+  assert.equal(children.length, 1, 'expected one WebKit web process');
+  process.kill(Number(children[0][0]), 'SIGKILL');
+}
+
+async function crashLeg(dirty) {
+  const name = dirty ? 'crash-dirty' : 'crash-clean';
+  const client = await launch({ 'Plain.md': 'Before.\n' });
+  try {
+    await client.openNote('Plain');
+    if (dirty) {
+      await executeJs(
+        client.ws,
+        `window.__notesShellTest.typeInEditor('typed, then the renderer died')`,
+      );
+      await sleep(100);
+    }
+    killWebProcess(client.proc.pid);
+    await sleep(300);
+    requestWindowClose();
+    const exitMs = await exitAfter(client.proc, exitWaitMs);
+    const leg = { exitMs };
+    report.legs[name] = leg;
+    console.log(`${name}: ${JSON.stringify(leg)}`);
+    assert.notEqual(exitMs, null, `${name}: the window never closed`);
+    assert.ok(
+      exitMs <= deadlineMs + Number(args['margin-s']) * 1000,
+      `${name}: exit took ${exitMs} ms`,
+    );
   } finally {
     killIfAlive(client);
   }
@@ -359,9 +464,12 @@ async function slowdiskLeg() {
 try {
   if (args.leg === 'all' || args.leg === 'flush') await flushLeg();
   if (args.leg === 'all' || args.leg === 'slowdisk') await slowdiskLeg();
+  if (args.leg === 'all' || args.leg === 'crash-clean') await crashLeg(false);
+  if (args.leg === 'all' || args.leg === 'crash-dirty') await crashLeg(true);
   for (const name of Object.keys(STALLS))
     if (args.leg === 'all' || args.leg === name) await stallLeg(name);
   if (args.leg === 'all' || args.leg === 'giant') await giantLeg();
+  if (args.leg === 'all' || args.leg === 'reload') await reloadLeg();
   console.log('desktop close deadline: PASS');
 } catch (error) {
   console.error(error);
