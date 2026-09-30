@@ -56,6 +56,7 @@ interface EditorHandle {
   openNote: (text: string) => void;
   setContent: (text: string) => void;
   applyEdit: (text: string) => void;
+  insertMarkdown: (text: string) => void;
   getContent: () => string | undefined;
   hasFocus: () => boolean;
   getProseMirrorView: () => import('@milkdown/kit/prose/view').EditorView | null;
@@ -394,5 +395,52 @@ describe('a note that starts with a byte order mark', () => {
     handle.applyEdit(`${note}\n#tag\n`);
 
     expect(changes.at(-1)).toBe(`${BODY}\n#tag\n`);
+  });
+});
+
+/**
+ * The other two doors a string reaches the parser through without `parseNote`
+ * (FB-8 follow-up): Milkdown's own `insert` action, and the `defaultValueCtx`
+ * the engine is created with. Each strips the leading BOM itself
+ * (`stripLeadingBoms`); nothing else pins either call, so removing one strip
+ * would have kept the whole suite green while re-opening RC-38 through it.
+ */
+describe('the BOM strip on the parser doors other than openNote', () => {
+  const BODY = 'Intro **b** and _it_ x**y**z\n';
+
+  it('insertMarkdown keeps the emphasis of markdown that starts with a BOM', () => {
+    handle.openNote('');
+    handle.insertMarkdown(`\ufeff${BODY}`);
+
+    expect(handle.getContent()).toBe(BODY);
+  });
+
+  it('a note handed to the engine as its initial value keeps its emphasis', async () => {
+    const mounted = document.createElement('div');
+    document.body.appendChild(mounted);
+    /* `applyExternal` replaces this document with a parseNote'd copy the moment
+     * the engine is up, so only the instant BEFORE that — `onenginemounted` —
+     * shows what `defaultValueCtx` built. Every mark's source spelling: `*` or `_`. */
+    let markers: string[] | null = null;
+    let initial!: EditorHandle;
+    await withoutLeakedCtxTimers(async () => {
+      initial = mount(MilkdownEditor, {
+        target: mounted,
+        props: {
+          content: `\ufeff${BODY}`,
+          onchange: () => {},
+          onenginemounted: () => {
+            const found: string[] = [];
+            initial.getProseMirrorView()!.state.doc.descendants((node) => {
+              for (const mark of node.marks) found.push(`${mark.type.name}:${mark.attrs.marker}`);
+            });
+            markers = found;
+          },
+        },
+      }) as unknown as EditorHandle;
+      await vi.waitFor(() => expect(markers).not.toBeNull());
+    });
+
+    expect(markers).toEqual(['strong:*', 'emphasis:_', 'strong:*']);
   });
 });
