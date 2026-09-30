@@ -100,6 +100,43 @@ test.describe('a note with content is never written back empty', () => {
     expect(pageErrors).toEqual([]);
   });
 
+  /**
+   * The read-back half of the first-edit rule for a note that ENDS in a block
+   * that is not a paragraph (here a table). Milkdown's `trailing` plugin parks
+   * an empty paragraph below it, and the first real edit used to store that as
+   * a second trailing newline (RC-22; docs/spec/editor.md: a trailing empty
+   * paragraph is dropped on save).
+   */
+  test('a real edit stores a note that ends in a table with one trailing newline', async ({
+    page,
+  }) => {
+    await openNewNote(page);
+    await page.evaluate(
+      async ([id, body]) => {
+        await (window as unknown as NotesHookWindow).__testNotes.writeNote(id, body);
+      },
+      ['ends in a table', BODY] as const,
+    );
+    await page.evaluate(() => {
+      window.location.hash = '#/note/ends%20in%20a%20table';
+    });
+    await waitForEditor(page);
+    await expect(page.locator(EDITOR)).toContainText('How to Do Great Work');
+
+    await page.locator(`${EDITOR} h1`).click();
+    await page.keyboard.press('End');
+    await page.keyboard.type('X');
+    await page.waitForFunction(
+      () => (window as unknown as NotesHookWindow).__notesShellTest.getState().savePending,
+    );
+    await page.evaluate(() => (window as unknown as NotesHookWindow).__notesShellTest.flushSave());
+
+    // The one re-spelling a first edit is allowed (ADR-0002): `| --- |` -> `| - |`.
+    expect(await storedBody(page, 'ends in a table')).toBe(
+      BODY.replace('Great Work', 'Great WorkX').replace('| --- | --- |', '| - | - |'),
+    );
+  });
+
   test('a note the user really clears is still emptied', async ({ page }) => {
     await openNewNote(page);
     await page.evaluate(async () => {

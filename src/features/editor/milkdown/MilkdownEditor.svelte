@@ -63,7 +63,10 @@
   } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
   import { imageReferenceMarkdown, withNarrowedEscapes } from '@futo-notes/editor';
-  import { FRONTMATTER_NODE } from '@futo-notes/editor/milkdown-compat';
+  import {
+    FRONTMATTER_NODE,
+    hasSurplusTrailingEmptyParagraphs,
+  } from '@futo-notes/editor/milkdown-compat';
   import {
     installVaultImageUrlResolver,
     uninstallVaultImageUrlResolver,
@@ -89,6 +92,7 @@
   import { editorView, enclosingListItem } from './caretContext';
   import { inIndentableContainer } from './blockCommands';
   import { dividerCaretFix } from './dividerCaret';
+  import { plainTextBlockPaste } from './plainTextBlockPaste';
   import { computeActiveFormats, computeDisabledFormats } from './formatState';
   import { handleIndentShortcut, handleParityKeyDown } from './keyboardParity';
   import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
@@ -131,6 +135,7 @@
   import { CHECKBOX_SIZE_PX, taskCheckbox } from './taskCheckbox';
   import { hideTableGrips, tableGrips } from './table/tableGrips';
   import { createToolbarExec } from './toolbarExec';
+  import { imageInputRule } from './imageInputRule';
   import { vaultImageView } from './vaultImageView';
   import { refreshWikilinkViews, wikilink, WIKILINK_TARGET_ATTR } from './wikilink';
   import { WIKILINK_BROKEN_CLASS } from './wikilink/display';
@@ -702,9 +707,12 @@
         .use(gfmWithCompat())
         .use(wikilink)
         .use(vaultImageView)
+        .use(imageInputRule)
         .use(history)
         .use(listener)
         .use(documentChanges(documentEdited))
+        // BEFORE clipboard: its handlePaste must see a plain-text block first.
+        .use(plainTextBlockPaste)
         .use(clipboard)
         .use(gapCursorPlugin)
         .use(trailing)
@@ -1630,6 +1638,12 @@
       return text === hostMarkdown && (loadFailed || !editedSinceLoadStart());
     }
     if (hostMarkdown !== null && unchangedSinceLoad()) return text === hostMarkdown;
+    /* Equal bytes are not an equal document: trailing empty paragraphs are not
+     * written (RC-22), so a document the user stacked blank paragraphs onto
+     * serializes like one without them, and skipping would leave those on
+     * screen under the next note. Such a document is reloaded. */
+    const view = pmView();
+    if (view && hasSurplusTrailingEmptyParagraphs(view.state.doc)) return false;
     return text === readSerialized();
   }
 

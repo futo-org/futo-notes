@@ -68,14 +68,36 @@ Four more escaping repairs, from the 2026-09 release-hardening campaign (FB-4a):
   writes a space where `\n` is unsafe (an ATX heading) and `<br>` before inline
   HTML; the wikilink handler writes `|` as `\|` in a table cell.
 
+Five structural repairs from the same campaign (FB-4b/4c):
+
+- `linkDefinitions.ts` replaces the preset's `remarkInlineLinkPlugin`: it
+  inlines a USED link reference definition exactly as upstream did, but keeps
+  every unused one as its own source text (an inline `html` atom, verbatim).
+  It runs after the blank-line restore, so inlining leaves no empty paragraphs.
+- `tableWidth.ts` pads a ragged table's rows at the END (header included,
+  alignment unset) before ProseMirror sees it; `fixTables` padded them at the
+  START and moved values under the wrong header.
+- `tableAlignment.ts` keeps a cell's missing alignment through the DOM
+  (`data-align-unset`), so a pasted table is not written `| :- |`.
+- `trailingParagraph.ts` wraps the doc serializer so the document's trailing
+  empty paragraphs (the `trailing` plugin's parked one) are not written;
+  `src/features/editor/milkdown/blockSerializer.ts` drops the same units, and
+  the two must stay byte-identical (`just chunk-census --serialize`).
+- In `frontmatter.ts`: a parser wrapper refuses the front matter construct for
+  a note with no closing fence (the construct is `concrete`, and a failed
+  attempt at EOF had disabled every list and quote; canary in
+  `frontmatter.test.ts`), and a paste keeps front matter only where it can
+  land (`withLandableFrontmatter`), else as a code block, never dropped.
+
 `src/milkdown-compat/frontmatter.ts` is in the same directory for the same
 reason but is an ADDITION, not a fork: the preset has no front matter construct,
 so `---\ntags: [a, b]\n---` parsed as a thematic break plus a setext heading and
-any edit wrote back `***` and `tags: \[a, b]`. It has no canary — upstream is
-not wrong, it just does not ship the extension — and it must stay LAST in
-`commonmarkWithCompat()`, because it overrides the preset's own `doc` node by
-re-registering that id and reads the registered entry back to inherit everything
-but the content expression.
+any edit wrote back `***` and `tags: \[a, b]`. The block itself has no canary — upstream
+is not wrong, it just does not ship the extension — and it must come after the
+preset in `commonmarkWithCompat()`, because it overrides the preset's own `doc`
+node by re-registering that id and reads the registered entry back to inherit
+everything but the content expression (only `trailingParagraph.ts`'s doc
+override, which wraps it the same way, comes later).
 
 Rules that do bind here:
 

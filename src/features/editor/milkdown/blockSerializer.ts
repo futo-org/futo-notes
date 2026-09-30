@@ -143,7 +143,10 @@
  * non-empty and does not already end in `\n`/`\r`.
  */
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
-import { FRONTMATTER_NODE } from '@futo-notes/editor/milkdown-compat';
+import {
+  FRONTMATTER_NODE,
+  withoutTrailingEmptyParagraphs,
+} from '@futo-notes/editor/milkdown-compat';
 
 /** What the cache needs to turn a set of top-level nodes into markdown. */
 export interface BlockSerializerDeps {
@@ -276,6 +279,28 @@ function stripAddedTrailingNewline(text: string): string {
   return text.endsWith('\n') ? text.slice(0, -1) : text;
 }
 
+/**
+ * The units the document's bytes are made of: {@link partitionUnits} without
+ * the document's trailing empty paragraphs, which Milkdown's own serializer no
+ * longer writes either (`withoutTrailingEmptyParagraphs`, RC-22). Dropped here,
+ * before the join, because the join is what would otherwise spell each one as
+ * a blank line.
+ */
+function writtenUnits(doc: ProseNode): ProseNode[][] {
+  const units = partitionUnits(doc);
+  while (units.length > 0) {
+    const last = units[units.length - 1] as ProseNode[];
+    const kept = withoutTrailingEmptyParagraphs(last);
+    if (kept.length === last.length) break;
+    if (kept.length > 0) {
+      units[units.length - 1] = kept;
+      break;
+    }
+    units.pop();
+  }
+  return units;
+}
+
 /** The separator `containerFlow`/`blankLineJoin` would put between two units. */
 function separatorAfter(unit: ProseNode[]): string {
   const last = unit[unit.length - 1] as ProseNode;
@@ -310,17 +335,17 @@ export function createBlockSerializer(deps: BlockSerializerDeps): BlockSerialize
   }
 
   function serialize(doc: ProseNode): string {
-    const units = partitionUnits(doc);
+    const units = writtenUnits(doc);
     const texts = units.map(serializeUnit);
     return joinUnits(units, texts);
   }
 
   function isPrimed(doc: ProseNode): boolean {
-    return partitionUnits(doc).every((unit) => cached(unit) !== undefined);
+    return writtenUnits(doc).every((unit) => cached(unit) !== undefined);
   }
 
   function prime(doc: ProseNode, timeRemainingMs: () => number): boolean {
-    const units = partitionUnits(doc);
+    const units = writtenUnits(doc);
     let didWork = false;
     for (const unit of units) {
       if (cached(unit)) continue;

@@ -24,6 +24,7 @@ alias di := deploy-ios
 # Install pnpm dependencies.
 install:
   pnpm install
+  @node scripts/check-node-modules.mjs
 
 # Provision pinned Node when needed, then install dependencies/check prerequisites.
 setup *args:
@@ -497,6 +498,12 @@ build-desktop-test:
 test-desktop-journeys: build-desktop-test
   node tests/desktop-journeys.mjs
 
+# Window close with the webview's JS thread stalled (RC-37): the giant-note open must not trap the
+# window, and a stall with an unsaved edit in it must not lose the edit. Linux: it asks a headless
+# KWin to close the window. Not in CI: the desktop jobs run xvfb-run with no window manager.
+test-desktop-close-deadline:
+  bash scripts/run-under-virtual-kwin.sh bash -c 'just build-desktop-test && node tests/desktop-close-deadline.mjs'
+
 # Rust conformance goldens + the TS↔Rust title-rules differential.
 test-rust:
   cargo test -p futo-notes-model --test conformance
@@ -731,8 +738,9 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-# Three independent fail-fast guards for the same "no node_modules" papercut,
-# Three independent fail-fast guards for the same papercut; see docs/agents/justfile-notes.md.
+# Three independent fail-fast guards for the same "no node_modules" papercut; see
+# docs/agents/justfile-notes.md. This one also fails when a pnpm patchedDependencies
+# patch is not applied in the installed copy (RC-69); `just install` runs it afterwards.
 check-node-modules:
   @node scripts/check-node-modules.mjs
 

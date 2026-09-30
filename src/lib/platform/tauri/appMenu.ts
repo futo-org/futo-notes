@@ -18,6 +18,7 @@ export interface ApplicationMenuLabels {
   searchNotes: string;
   closeTab: string;
   closeWindow: string;
+  quit: string;
   toggleSidebar: string;
 }
 
