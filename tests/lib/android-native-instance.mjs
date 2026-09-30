@@ -447,6 +447,23 @@ class AndroidNativeSyncClient {
     return this.#evaluateInEditor(`document.querySelector('.milkdown-stream-tail') !== null`);
   }
 
+  /** Rename the open note the way a user does: focus the inline title field
+   *  (its own text is the node label), replace the title, and let the editor's
+   *  debounce commit it. Returns once the note exists under `newId` on disk. */
+  async renameOpenNote(currentId, newId) {
+    const field = await this.device.waitFor(`the title field of ${currentId}`, UI_TIMEOUT_MS, () =>
+      this.device.findNode(currentId),
+    );
+    this.device.tapPoint(field.x, field.y);
+    await this.device.waitFor(`the title field to accept input`, UI_TIMEOUT_MS, () =>
+      this.device.isImeInputActive(),
+    );
+    this.device.typeReplacingSelection(newId);
+    await this.device.waitFor(`${currentId} to be renamed to ${newId}`, SAVE_TIMEOUT_MS, () =>
+      this.noteExists(newId),
+    );
+  }
+
   async waitForOpenEditorTitle(title, timeoutMs = LIVE_TIMEOUT_MS) {
     await this.device.waitFor(`"${title}" as ${this.name}'s open-note title`, timeoutMs, () =>
       this.device.isVisible(title),

@@ -4,15 +4,18 @@ import UIKit
 struct RenameResolution {
     let id: String
     let isCommitted: Bool
+    /// The body the relink left in the renamed note (a self-link), if it rewrote it.
+    var relinkedBody: String? = nil
 }
 
 func resolvedRename(
     currentId: String,
-    outcome: NoteMutationOutcome<String>
+    outcome: NoteMutationOutcome<CommittedNote>
 ) -> RenameResolution {
     switch outcome {
-    case .committed(let finalId):
-        RenameResolution(id: finalId, isCommitted: true)
+    case .committed(let committed):
+        RenameResolution(
+            id: committed.id, isCommitted: true, relinkedBody: committed.relinkedBody)
     case .failed:
         RenameResolution(id: currentId, isCommitted: false)
     }
@@ -682,7 +685,38 @@ struct NoteEditorView: View {
         savedContent = flushed
         noteId = resolution.id
         titleField = splitId(id: resolution.id).title
+        await settleRelink(flushed: flushed, relinkedBody: resolution.relinkedBody)
         return true
+    }
+
+    /// A rename or move whose relink rewrote THIS note's own links (a
+    /// self-link) left a file that differs from the draft the engine saved
+    /// first. The file is the baseline; the editor shows it unless the user has
+    /// typed since (see ``rebasedOnRelink``). Without this the next save reads
+    /// the relink as a peer's edit and parks a conflict copy (RC-71).
+    private func settleRelink(flushed: String, relinkedBody: String?) async {
+        guard let body = relinkedBody, body != flushed else { return }
+        savedContent = body
+        var ownsPage = false
+        if content == flushed, let attachment = editorAttachment {
+            // A keystroke the editor has not reported yet must not be replaced:
+            // read the document itself, without blurring it.
+            switch await EditorHost.shared.readContent(ownedBy: attachment, showing: content) {
+            case .captured(let live):
+                if live != content { receiveEditorChange(live) }
+                ownsPage = true
+            case .noLiveDocument:
+                ownsPage = true
+            case .notOurs, .timedOut:
+                // Cannot tell: keep the draft (rebased onto the file below).
+                return
+            }
+        }
+        let rebase = rebasedOnRelink(flushed: flushed, live: content, relinkedBody: body)
+        savedContent = rebase.savedContent
+        guard rebase.adoptIntoEditor else { return }
+        if ownsPage { EditorHost.shared.applyExternal(content: rebase.content) }
+        content = rebase.content
     }
 
     /// Inline title editing (desktop parity): update the persistent warning for
@@ -977,13 +1011,14 @@ struct NoteEditorView: View {
                         draft: PendingDraft(id: noteId, base: savedContent, content: flushed),
                         ownerToken: draftToken)
                     {
-                    case .committed(let finalId):
+                    case .committed(let committed):
                         // Apply even if a delete latched the session closed while
                         // the actor call was in flight. Delete awaits this task
                         // and must see the committed id.
                         savedContent = flushed
-                        noteId = finalId
-                        titleField = splitId(id: finalId).title
+                        noteId = committed.id
+                        titleField = splitId(id: committed.id).title
+                        await settleRelink(flushed: flushed, relinkedBody: committed.relinkedBody)
                         return true
                     case .failed:
                         return false

@@ -76,6 +76,7 @@ import androidx.core.view.WindowInsetsCompat
 import com.futo.notes.ImagePicker
 import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NotesStore
+import com.futo.notes.rebasedOnRelink
 import com.futo.notes.PendingDraft
 import com.futo.notes.clipboardImageUri
 import com.futo.notes.confirmedSavedContent
@@ -323,6 +324,39 @@ fun NoteEditorScreen(
         }
     }
 
+    /**
+     * A rename or move whose relink rewrote THIS note's own links (a self-link)
+     * left a file that differs from the draft the engine saved first. The file is
+     * the baseline; the editor shows it unless the user has typed since (see
+     * [rebasedOnRelink]). Without this the next save reads the relink as a peer's
+     * edit and parks a conflict copy (RC-71).
+     */
+    suspend fun settleRelink(flushed: String, relinkedBody: String?) {
+        val body = relinkedBody ?: return
+        if (body == flushed) return
+        savedContent = body
+        var ownsPage = false
+        val attachment = editorAttachment
+        if (content == flushed && attachment != null) {
+            // A keystroke the editor has not reported yet must not be replaced:
+            // read the document itself, without blurring it.
+            when (val outcome = host.readContentAndWait(attachment, shellCopy = content)) {
+                is EditorCaptureOutcome.Captured -> {
+                    if (outcome.text != content) receiveEditorChange(outcome.text)
+                    ownsPage = true
+                }
+                EditorCaptureOutcome.NoLiveDocument -> ownsPage = true
+                // Cannot tell: keep the draft (rebased onto the file above).
+                EditorCaptureOutcome.NotOurs, EditorCaptureOutcome.TimedOut -> return
+            }
+        }
+        val rebase = rebasedOnRelink(flushed, content, body)
+        savedContent = rebase.savedContent
+        if (!rebase.adoptIntoEditor) return
+        if (ownsPage) host.applyExternalContent(rebase.content)
+        content = rebase.content
+    }
+
     fun dismissFind() {
         // Take the soft keyboard down with the bar. The query field is a native
         // EditText, and Android does NOT hide the IME when the view serving it
@@ -544,6 +578,7 @@ fun NoteEditorScreen(
                     if (titleCommit.isCommitted && titleValue.text == requestedTitle) {
                         titleValue = TextFieldValue(splitId(noteId).title)
                     }
+                    if (titleCommit.isCommitted) settleRelink(flushed, titleCommit.relinkedBody)
                     return titleCommit.isCommitted
                 }
 
@@ -802,6 +837,7 @@ fun NoteEditorScreen(
                 if (titleCommit.isCommitted && titleValue.text == next) {
                     titleValue = titleFieldAfterRename(titleValue, splitId(noteId).title)
                 }
+                if (titleCommit.isCommitted) settleRelink(flushed, titleCommit.relinkedBody)
                 if (!titleCommit.isCommitted) {
                     Toast.makeText(
                         context,
@@ -1266,10 +1302,11 @@ fun NoteEditorScreen(
                             // delete already waiting behind this move must
                             // target the final id.
                             savedContent = flushed
-                            noteId = moveOutcome.value
+                            noteId = moveOutcome.value.id
                             if (titleValue.text == requestedTitle) {
                                 titleValue = TextFieldValue(splitId(noteId).title)
                             }
+                            settleRelink(flushed, moveOutcome.value.relinkedBody)
                             return true
                         }
 
