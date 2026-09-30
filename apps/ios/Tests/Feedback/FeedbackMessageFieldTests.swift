@@ -28,8 +28,7 @@ struct FeedbackMessageFieldTests {
         try await Task.sleep(for: .milliseconds(20))
     }
 
-    @Test("a paste past the cap is trimmed to fit, and undo removes only the paste")
-    func pastePastCap() async throws {
+    private func focusedMessageField() throws -> (UIWindow, UITextView) {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 400))
         window.rootViewController = UIHostingController(
             rootView: FeedbackMessageField(text: .constant("")))
@@ -37,12 +36,49 @@ struct FeedbackMessageFieldTests {
         window.layoutIfNeeded()
         let textView = try #require(Self.firstTextView(in: window))
         #expect(textView.becomeFirstResponder())
+        return (window, textView)
+    }
 
+    @Test("a paste past the cap is trimmed to fit, and undo removes only the paste")
+    func pastePastCap() async throws {
+        let (window, textView) = try focusedMessageField()
         let nearlyFull = String(repeating: "a", count: FeedbackSubmission.maxMessageLength - 1)
         try await userEnters(nearlyFull, into: textView)
         try await userEnters("bcd", into: textView)
         #expect(textView.text == nearlyFull + "b")
         textView.undoManager?.undo()
         #expect(textView.text == nearlyFull)
+        textView.undoManager?.redo()
+        #expect(textView.text == nearlyFull + "b")
+        _ = window
+    }
+
+    /// Removing the "x" joins the regional indicators around it into one flag,
+    /// so the room under the cap must be measured on the whole result.
+    @Test("replacing a character between two flag halves never pushes the message past the cap")
+    func capMeasuresTheWholeResult() async throws {
+        let (window, textView) = try focusedMessageField()
+        let limit = FeedbackSubmission.maxMessageLength
+        let full = String(repeating: "a", count: limit - 3) + "\u{1F1E6}x\u{1F1E7}"
+        try await userEnters(full, into: textView)
+        textView.selectedRange = NSRange(location: limit - 3 + 2, length: 1)
+        try await userEnters("YZ", into: textView)
+        #expect(textView.text.count == limit)
+        #expect(textView.text.hasSuffix("\u{1F1E6}Y\u{1F1E7}"))
+        textView.undoManager?.undo()
+        #expect(textView.text == full)
+        _ = window
+    }
+
+    /// A combining accent joins the character before it, so it costs no room
+    /// under the cap and must not be cut.
+    @Test("input that joins the preceding character is kept at the cap")
+    func capKeepsJoiningInput() async throws {
+        let (window, textView) = try focusedMessageField()
+        let nearlyFull = String(repeating: "a", count: FeedbackSubmission.maxMessageLength - 1)
+        try await userEnters(nearlyFull, into: textView)
+        try await userEnters("\u{0301}b", into: textView)
+        #expect(textView.text == nearlyFull + "\u{0301}b")
+        _ = window
     }
 }

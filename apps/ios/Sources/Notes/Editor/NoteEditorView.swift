@@ -1293,8 +1293,8 @@ struct TitleTextField: UIViewRepresentable {
             // Refuse rather than throw on a range past the end.
             guard NSMaxRange(range) <= current.length else { return false }
             let (cleaned, hadForbidden) = Self.stripped(string)
-            let untouched = current.replacingCharacters(in: range, with: "")
-            let allowed = String(cleaned.prefix(max(0, TitleSpec.maxLength - untouched.count)))
+            let allowed = current.longestPrefix(
+                of: cleaned, replacing: range, within: TitleSpec.maxLength)
             guard allowed != string else { return true }
             if allowed.isEmpty && range.length == 0 {
                 if hadForbidden { parent.onForbidden() }

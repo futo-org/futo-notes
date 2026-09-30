@@ -51,10 +51,10 @@ struct FeedbackMessageField: UIViewRepresentable {
             let current = textView.text as NSString
             // Refuse rather than throw on a range past the end.
             guard NSMaxRange(range) <= current.length else { return false }
-            let untouched = current.replacingCharacters(in: range, with: "")
-            let room = max(0, FeedbackSubmission.maxMessageLength - untouched.count)
-            guard replacementText.count > room else { return true }
-            let allowed = String(replacementText.prefix(room))
+            let allowed = current.longestPrefix(
+                of: replacementText, replacing: range,
+                within: FeedbackSubmission.maxMessageLength)
+            guard allowed != replacementText else { return true }
             if !(allowed.isEmpty && range.length == 0) {
                 textView.replaceAfterCurrentEdit(range, with: allowed)
             }
