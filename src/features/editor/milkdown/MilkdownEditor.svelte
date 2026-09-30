@@ -63,7 +63,10 @@
   } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
   import { imageReferenceMarkdown, withNarrowedEscapes } from '@futo-notes/editor';
-  import { FRONTMATTER_NODE } from '@futo-notes/editor/milkdown-compat';
+  import {
+    FRONTMATTER_NODE,
+    hasSurplusTrailingEmptyParagraphs,
+  } from '@futo-notes/editor/milkdown-compat';
   import {
     installVaultImageUrlResolver,
     uninstallVaultImageUrlResolver,
@@ -1630,6 +1633,12 @@
       return text === hostMarkdown && (loadFailed || !editedSinceLoadStart());
     }
     if (hostMarkdown !== null && unchangedSinceLoad()) return text === hostMarkdown;
+    /* Equal bytes are not an equal document: trailing empty paragraphs are not
+     * written (RC-22), so a document the user stacked blank paragraphs onto
+     * serializes like one without them, and skipping would leave those on
+     * screen under the next note. Such a document is reloaded. */
+    const view = pmView();
+    if (view && hasSurplusTrailingEmptyParagraphs(view.state.doc)) return false;
     return text === readSerialized();
   }
 

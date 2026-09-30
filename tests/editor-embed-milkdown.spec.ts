@@ -400,6 +400,155 @@ test('backspace at the top of the body cannot eat the front matter', async ({ pa
   );
 });
 
+test('a note that opens with an unclosed --- rule keeps its lists and quotes', async ({ page }) => {
+  // With no closing fence the `---` is a thematic break (docs/spec/editor.md,
+  // YAML front matter). The front matter construct used to hunt for the fence
+  // to the end of the file and take every container with it, so the first
+  // keystroke anywhere saved `\- milk` and `\> quoted`, nesting flattened.
+  const note = '---\n\nShopping\n\n- milk\n  - skim\n\n> quoted\n\nend\n';
+  await hostSetContent(page, note);
+  await expect(page.locator('.ProseMirror ul li')).toHaveCount(2);
+  await expect(page.locator('.ProseMirror blockquote')).toHaveCount(1);
+  await clearMessages(page);
+
+  await focusEditor(page);
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('X');
+
+  const changes = await waitForMessages(page, 'change');
+  expect(changes).toHaveLength(1);
+  expect(changes[0].content).toBe('***\n\nShopping\n\n- milk\n  - skim\n\n> quoted\n\nendX\n');
+});
+
+// A paste reaches the document through the DOM: our own copy writes the block
+// as `<pre data-frontmatter>`, and a plain-text paste is parsed as markdown and
+// then serialized to DOM and parsed back (Milkdown's clipboard plugin). The
+// preset's code block claims every `<pre>`, so either way the metadata used to
+// land as a fenced code block.
+test('cutting a whole note and pasting it back keeps its front matter', async ({
+  browser,
+  browserName,
+}) => {
+  test.skip(browserName !== 'chromium', 'clipboard permissions are Chromium-only in Playwright');
+  const context = await browser.newContext({
+    hasTouch: true,
+    permissions: ['clipboard-read', 'clipboard-write'],
+  });
+  await context.addInitScript(installFakeAndroidHost);
+  const page = await context.newPage();
+  await page.goto(EDITOR_URL);
+  await page.waitForFunction(() =>
+    (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
+  );
+  await hostSetContent(page, FRONT_MATTER_NOTE);
+  await focusEditor(page);
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('ControlOrMeta+x');
+  await page.keyboard.press('ControlOrMeta+v');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(FRONT_MATTER_NOTE);
+  await expect(page.locator('.futo-frontmatter')).toHaveCount(1);
+  await context.close();
+});
+
+test('pasting a note with front matter as plain text keeps the front matter', async ({ page }) => {
+  await hostSetContent(page, '');
+  await focusEditor(page);
+  await pasteClipboard(page, { 'text/plain': FRONT_MATTER_NOTE });
+  await settleChangeDebounce(page);
+
+  await expect(page.locator('.futo-frontmatter')).toHaveCount(1);
+  expect(await getContent(page)).toBe(FRONT_MATTER_NOTE);
+});
+
+test('front matter pasted where it cannot live keeps its text', async ({ page }) => {
+  // Front matter can only open a note, and a paste drops a block that fits
+  // nowhere — so once the block's parse rule won, mid-note front matter would
+  // have vanished. It lands as a code block of the same text instead.
+  await hostSetContent(page, 'one\n\ntwo\n');
+  await focusEditor(page);
+  await page.keyboard.press('Control+End');
+  await pasteClipboard(page, { 'text/plain': '---\na: 1\n---\n\nbody\n' });
+  await pasteClipboard(page, {
+    'text/html': '<pre data-frontmatter="">b: 2</pre><p>more</p>',
+    'text/plain': 'b: 2',
+  });
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(
+    'one\n\ntwo\n\n```\na: 1\n```\n\nbody\n\n```\nb: 2\n```\n\nmore\n',
+  );
+});
+
+test('an edit keeps a link definition nothing references', async ({ page }) => {
+  // The preset deleted every definition on the first save; one that no link
+  // used took its URL and title with it (RC-41).
+  const note = 'Some text here.\n\n[docs]: https://example.com/docs "Docs"\n';
+  await hostSetContent(page, note);
+  await clearMessages(page);
+
+  await page.locator('.ProseMirror p').first().click();
+  await page.keyboard.press('End');
+  await page.keyboard.type('!');
+
+  const changes = await waitForMessages(page, 'change');
+  expect(changes).toHaveLength(1);
+  expect(changes[0].content).toBe(note.replace('here.', 'here.!'));
+});
+
+test('an edit beside a table with a wide row keeps every value in its column', async ({ page }) => {
+  // One trailing `| |` made fixTables pad every row above it at the START, and
+  // the edit elsewhere saved `apple` under no header at all (RC-42).
+  await hostSetContent(
+    page,
+    'Prices\n\n| item | price |\n| - | - |\n| apple | 3 |\n| pear | 4 | |\n\nend\n',
+  );
+  await clearMessages(page);
+
+  await page.locator('.ProseMirror p').first().click();
+  await page.keyboard.press('End');
+  await page.keyboard.type('!');
+
+  const changes = await waitForMessages(page, 'change');
+  expect(changes).toHaveLength(1);
+  expect(changes[0].content).toBe(
+    'Prices!\n\n| item  | price |   |\n| ----- | ----- | - |\n| apple | 3     |   |\n| pear  | 4     |   |\n\nend\n',
+  );
+});
+
+test('an edit to a note that ends in a list adds no trailing blank line', async ({ page }) => {
+  // The `trailing` plugin parks an empty paragraph below a last list, quote,
+  // table, fence or rule, and the first edit used to write it as `\n\n` at the
+  // end of the file (RC-22). The spec drops a trailing empty paragraph on save.
+  for (const [note, edited] of [
+    ['- a\n- b\n', '- aX\n- b\n'],
+    ['> a\n', '> aX\n'],
+    ['| a | b |\n| - | - |\n| 1 | 2 |\n', '| aX | b |\n| -- | - |\n| 1  | 2 |\n'],
+  ] as const) {
+    await hostSetContent(page, note);
+    await clearMessages(page);
+    await page.locator('.ProseMirror :is(li, blockquote, th) p').first().click();
+    await page.keyboard.press('End');
+    await page.keyboard.type('X');
+    const changes = await waitForMessages(page, 'change');
+    expect(changes[changes.length - 1].content).toBe(edited);
+  }
+});
+
+test('a table pasted as plain text is written the way an opened one is', async ({ page }) => {
+  // A paste goes through the DOM, where the gfm preset read a cell with no
+  // alignment back as `left`: the pasted table saved `| :- |`, the same table
+  // opened and edited saved `| -- |` (RC-59).
+  await hostSetContent(page, 'one\n');
+  await focusEditor(page);
+  await page.keyboard.press('Control+End');
+  await pasteClipboard(page, { 'text/plain': '| a | b |\n| --- | --- |\n| 1 | 2 |\n' });
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe('one\n\n| a | b |\n| - | - |\n| 1 | 2 |\n');
+});
+
 test('applyExternalContent adopts differing content without a change echo', async ({ page }) => {
   await hostSetContent(page, 'original');
   await clearMessages(page);
@@ -696,6 +845,40 @@ test('a host re-sending the note on screen leaves the caret where it was', async
 
   await waitForMessages(page, 'change');
   expect(await getContent(page)).toBe('abcZdef\n');
+});
+
+test('a switch to an empty note drops the blank paragraphs the last note was left with', async ({
+  page,
+}) => {
+  // RC-22 regression: trailing empty paragraphs are not written, so a note the
+  // user pressed Enter in serializes like a note without them, and the switch
+  // was skipped as "already on screen" with the blanks still there.
+  await initialize(page, hostConfig({ content: '' }));
+  await focusEditor(page);
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await settleChangeDebounce(page);
+
+  await hostSetContent(page, '');
+  await focusEditor(page);
+  await page.keyboard.type('shopping');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe('shopping\n');
+});
+
+test('a switch to the same text drops the blank paragraphs stacked under it', async ({ page }) => {
+  await hostSetContent(page, 'hello\n');
+  await focusEditor(page);
+  await page.keyboard.press('ControlOrMeta+End');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Enter');
+  await settleChangeDebounce(page);
+  expect(await page.locator('.ProseMirror > p').count()).toBe(4);
+
+  await hostSetContent(page, 'hello\n');
+
+  expect(await page.locator('.ProseMirror > p').count()).toBe(1);
+  expect(await getContent(page)).toBe('hello\n');
 });
 
 test('a push equal to an out-of-date serialization still replaces the document', async ({
@@ -3481,11 +3664,13 @@ test('insertImage puts the vault reference in the note and renders it resolved',
  */
 async function pasteClipboard(
   page: Page,
-  build: 'imageFile' | 'hiddenBitmap' | 'plainText',
+  build: 'imageFile' | 'hiddenBitmap' | 'plainText' | Record<string, string>,
 ): Promise<void> {
   await page.evaluate((kind) => {
     const dt = new DataTransfer();
-    if (kind === 'imageFile') {
+    if (typeof kind === 'object') {
+      for (const [format, data] of Object.entries(kind)) dt.setData(format, data);
+    } else if (kind === 'imageFile') {
       const bytes = Uint8Array.from(atob('iVBORw0KGgo='), (c) => c.charCodeAt(0));
       dt.items.add(new File([bytes], 'shot.png', { type: 'image/png' }));
     } else if (kind === 'plainText') {

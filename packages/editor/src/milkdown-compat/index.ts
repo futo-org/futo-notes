@@ -54,6 +54,13 @@
  * `./attentionEncoding` puts back the flanking encoding Milkdown's own `strong`
  * and `emphasis` handlers drop, so `**Note:**bar` stays bold.
  *
+ * Structure, from the same campaign: `./linkDefinitions` keeps a link
+ * reference definition nothing uses (upstream deleted every one), `./tableWidth`
+ * pads a ragged table at the end rather than letting `fixTables` shift its rows,
+ * `./tableAlignment` keeps a cell's missing alignment through a paste, and
+ * `./trailingParagraph` stops the `trailing` plugin's parked paragraph from
+ * being written as a second trailing newline.
+ *
  * `./frontmatter` is the one member that is an ADDITION rather than a fork: the
  * preset has no front matter construct at all, so `---\ntags: [a, b]\n---`
  * parsed as a thematic break plus a setext heading and the first edit anywhere
@@ -72,6 +79,7 @@
  */
 import {
   commonmark,
+  remarkInlineLinkPlugin,
   remarkPreserveEmptyLinePlugin,
   syncHeadingIdPlugin,
   syncListOrderPlugin,
@@ -84,11 +92,15 @@ import { remarkExpandEmptyLinksPlugin } from './emptyLink';
 import { remarkInlineHtmlIndentPlugin } from './inlineHtmlIndent';
 import { remarkEmptyTaskItemPlugin } from './emptyTaskItem';
 import { remarkImageTitlePlugin } from './imageTitle';
+import { remarkInlineUsedLinkDefinitionsPlugin } from './linkDefinitions';
 import { blankLineJoinPlugin, remarkBlankLineParagraphsPlugin } from './emptyLine';
 import { frontmatterPlugins } from './frontmatter';
 import { paragraphFillerGuard, paragraphWithoutFillerSchema } from './listItemFiller';
 import { scopedListOrderPlugin } from './listOrder';
 import { scopedKeepTableAlignPlugin, scopedTableEditingPlugin } from './tablePasses';
+import { tableAlignmentSchemas } from './tableAlignment';
+import { remarkPadTableRowsPlugin } from './tableWidth';
+import { trailingParagraphDocSchema } from './trailingParagraph';
 
 export * from './atxEscape';
 export * from './stringifyHandlers';
@@ -104,11 +116,21 @@ export {
   FRONTMATTER_NODE,
 } from './frontmatter';
 export type { MdastNode } from './mdast';
+export {
+  hasSurplusTrailingEmptyParagraphs,
+  withoutTrailingEmptyParagraphs,
+} from './trailingParagraph';
 
 /** The two entries `remarkPreserveEmptyLinePlugin` contributes to the preset. */
 const UPSTREAM_EMPTY_LINE_ENTRIES: readonly unknown[] = [
   remarkPreserveEmptyLinePlugin.options,
   remarkPreserveEmptyLinePlugin.plugin,
+];
+
+/** `remarkInlineLinkPlugin`'s two entries — replaced by `./linkDefinitions`. */
+const UPSTREAM_INLINE_LINK_ENTRIES: readonly unknown[] = [
+  remarkInlineLinkPlugin.options,
+  remarkInlineLinkPlugin.plugin,
 ];
 
 /** `syncHeadingIdPlugin`'s one entry — removed with no replacement (see 4). */
@@ -162,8 +184,13 @@ function upstreamPresetWithoutForkedPlugins(): MilkdownPlugin[] {
     UPSTREAM_EMPTY_LINE_ENTRIES,
     'empty-line',
   );
-  const withoutHeadingId = withoutPresetEntries(
+  const withoutInlineLink = withoutPresetEntries(
     withoutEmptyLine,
+    UPSTREAM_INLINE_LINK_ENTRIES,
+    'inline-link',
+  );
+  const withoutHeadingId = withoutPresetEntries(
+    withoutInlineLink,
     UPSTREAM_HEADING_ID_ENTRIES,
     'heading-id',
   );
@@ -190,6 +217,12 @@ export function gfmWithCompat(): MilkdownPlugin[] {
     ),
     scopedKeepTableAlignPlugin,
     scopedTableEditingPlugin,
+    /* Ragged rows squared up at the end, before `fixTables` can pad them at
+     * the start (see `./tableWidth`). */
+    ...remarkPadTableRowsPlugin,
+    /* After the preset, whose cell nodes they re-register: a cell with no
+     * alignment keeps none through a paste (see `./tableAlignment`). */
+    ...tableAlignmentSchemas,
   ];
   return cachedGfm;
 }
@@ -215,6 +248,9 @@ export function commonmarkWithCompat(): MilkdownPlugin[] {
   cached ??= [
     ...upstreamPresetWithoutForkedPlugins(),
     ...remarkBlankLineParagraphsPlugin,
+    /* After the blank-line restore, which counts gaps by source line: a used
+     * definition deleted before it left its lines behind as empty paragraphs. */
+    ...remarkInlineUsedLinkDefinitionsPlugin,
     blankLineJoinPlugin,
     attentionEncodingPlugin,
     /* After the preset (it upserts the preset's `paragraph` by id), and part of
@@ -229,11 +265,14 @@ export function commonmarkWithCompat(): MilkdownPlugin[] {
     /* The preset's list numbering over the touched blocks only (see
      * UPSTREAM_LIST_ORDER_ENTRIES). */
     scopedListOrderPlugin,
-    /* LAST, and it has to be: the front matter set overrides the preset's own
+    /* Last but one, and it has to be: the front matter set overrides the preset's own
      * `doc` node by re-registering that id, which `$node` resolves by upsert —
      * so it must be registered after the preset, and it reads the registered
      * entry back to inherit everything but the content expression. */
     ...frontmatterPlugins,
+    /* After the front matter set, whose `doc` it reads back and wraps: the
+     * document's trailing empty paragraphs are not written (`./trailingParagraph`). */
+    trailingParagraphDocSchema,
   ];
   return cached;
 }
