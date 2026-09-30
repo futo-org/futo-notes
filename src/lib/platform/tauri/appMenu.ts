@@ -1,5 +1,5 @@
 import { listen } from '@tauri-apps/api/event';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './invoke';
 
 // Command ids emitted by the macOS application menu
 // (apps/tauri/src-tauri/src/app_menu.rs). The shell dispatches them through
