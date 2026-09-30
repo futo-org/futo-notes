@@ -185,15 +185,15 @@ mod tests {
     fn the_deadline_outlasts_the_js_flush_race() {
         let shell = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../../src/app/startNativeShell.ts"
+            "/../../../src/shared/lifecycle/flushBeforeExit.ts"
         ))
-        .expect("the close handler is readable from the crate");
+        .expect("the exit flush is readable from the crate");
         let race_ms: u64 = shell
             .split("const FLUSH_RACE_MS = ")
             .nth(1)
             .and_then(|rest| rest.split(';').next())
             .and_then(|digits| digits.trim().parse().ok())
-            .expect("startNativeShell.ts declares FLUSH_RACE_MS");
+            .expect("flushBeforeExit.ts declares FLUSH_RACE_MS");
         assert!(
             CLOSE_DEADLINE >= Duration::from_millis(race_ms) + Duration::from_secs(1),
             "CLOSE_DEADLINE must leave at least 1s past the {race_ms} ms JS flush race"

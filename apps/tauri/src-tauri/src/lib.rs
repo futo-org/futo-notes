@@ -16,6 +16,8 @@ mod image_commands;
 mod instance_journal;
 mod license;
 mod local_notes;
+#[cfg(target_os = "macos")]
+mod macos_terminate;
 mod panic_reporter;
 mod platform_integration;
 mod portal_vault;

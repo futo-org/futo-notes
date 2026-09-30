@@ -272,9 +272,18 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   open-in-background-tab modifier. → installDesktopContextMenuGuard.ts
 - Settings opens with ⌘, and the sidebar toggles with ⌘\ (Ctrl elsewhere). →
   registerNotesShellShortcuts.ts
-- Ctrl+Q closes the app window on Linux and Windows through the normal close
-  path, which flushes a pending note save before exit; macOS keeps its native
-  ⌘Q application-menu command. → registerNotesShellShortcuts.ts,
-  startNativeShell.ts
+- Quitting flushes a pending note save first, on every platform. Ctrl+Q on
+  Linux and Windows and ⌘Q / App ▸ Quit on macOS close the app window through
+  the normal close path; the macOS Quit item is a custom item that closes the
+  window rather than AppKit's `terminate:`, which tao 0.34 answers without a
+  `CloseRequested` and so skipped the flush (RC-85: ⌘Q within 0.5 s of typing
+  lost the edit, 19 of 20 runs). A Dock Quit, an AppleScript `quit` and a
+  logout reach the process as that same `terminate:`, so an
+  `applicationShouldTerminate:` added to tao's delegate cancels it and closes the
+  window instead (the flush then exits the app; a logout or shutdown that raised
+  it is cancelled once). The updater's install and every relaunch (vault change,
+  Update & restart) drain the save first too (RC-87). → app_menu.rs,
+  macos_terminate.rs, registerNotesShellShortcuts.ts, startNativeShell.ts,
+  flushBeforeExit.ts, tests/macos-quit-flush.mjs
 - The system "Reduce Motion" setting removes the shell's transitions and
   animations. → desktop-native.css

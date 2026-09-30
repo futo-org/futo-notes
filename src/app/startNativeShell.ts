@@ -3,6 +3,10 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { isTauri } from '$lib/platform';
 import { onFileChange, vaultStatus } from '$lib/platform/tauri';
 import type { FileChangeEvent } from '$lib/platform/types';
+import {
+  flushPendingSaveBeforeExit,
+  registerExitFlushSource,
+} from '$shared/lifecycle/flushBeforeExit';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import { startCloseDirtyReporter } from './closeDeadlineDirty';
 
@@ -12,11 +16,6 @@ export interface NativeShellDeps {
   /** A save is pending or in flight (the session's own signal). */
   isSavePending: () => boolean;
 }
-
-const FLUSH_RACE_MS = 3000;
-/** The longest a close waits for a write that is still running after the race. */
-const FLUSH_CAP_MS = 15_000;
-const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Wires the Tauri window/file-watcher glue on desktop. Registration of the
 // close handler is async (it resolves an unlisten fn), so every disposer is
@@ -68,25 +67,20 @@ export function startNativeShell(deps: NativeShellDeps): () => void {
     .catch((error) => console.warn('Failed to read vault status:', error));
 
   track(startCloseDirtyReporter({ isSavePending: deps.isSavePending }));
+  track(registerExitFlushSource({ flushSave: deps.flushSave, isSavePending: deps.isSavePending }));
 
   const appWindow = getCurrentWindow();
   void appWindow
     .onCloseRequested(async (event) => {
       event.preventDefault();
       // Drain any pending save before teardown so a fast quit never drops the
-      // last keystrokes — but never let a hung or failed save trap shutdown.
-      // After 3s the app exits regardless, except that a write still running
-      // then is given until FLUSH_CAP_MS: an exit mid-write abandons it, and on a
-      // slow disk (a >3 s fsync) that lost the edit and left a `.sf-tmp-*` behind.
-      //
-      // These timers need this JS thread, which a giant-note open can block for a
-      // minute, so Rust backstops the handler: close_deadline.rs exits the app 5s
-      // after the first close request (keep it above the 3s race) — but only while
-      // the page reports nothing unsaved (closeDeadlineDirty.ts). A page with an
-      // edit in it is waited for, here, however long that takes.
-      const flushed = deps.flushSave().catch(() => {});
-      await Promise.race([flushed, delay(FLUSH_RACE_MS)]);
-      if (deps.isSavePending()) await Promise.race([flushed, delay(FLUSH_CAP_MS - FLUSH_RACE_MS)]);
+      // last keystrokes (flushBeforeExit.ts: bounded, so a hung or failed save
+      // cannot trap shutdown). That drain needs this JS thread, which a giant-note
+      // open can block for a minute, so Rust backstops the handler: close_deadline.rs
+      // exits the app 5s after the first close request (keep it above the 3s race in
+      // flushBeforeExit.ts), but only while the page reports nothing unsaved
+      // (closeDeadlineDirty.ts). A page with an edit in it is waited for, here.
+      await flushPendingSaveBeforeExit();
       try {
         const { exit } = await import('@tauri-apps/plugin-process');
         await exit(0);

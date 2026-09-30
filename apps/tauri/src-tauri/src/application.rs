@@ -78,6 +78,11 @@ pub(crate) fn run() {
             }
             crate::platform_integration::configure_app(handle)?;
             crate::app_menu::install(handle)?;
+            #[cfg(target_os = "macos")]
+            if let Err(error) = crate::macos_terminate::install(handle) {
+                // Dock/AppleScript quit then end the old way (no save flush).
+                eprintln!("[quit] cannot route terminate: through the close handler: {error}");
+            }
             crate::window_reveal::install(handle)?;
             crate::instance_journal::install(handle);
             crate::license::install(handle);
@@ -88,6 +93,7 @@ pub(crate) fn run() {
             crate::image_commands::fs_paste_clipboard_image,
             crate::close_deadline::close_deadline_set_dirty,
             crate::app_menu::app_menu_set_labels,
+            crate::app_menu::app_menu_dispatch_for_test,
             crate::platform_integration::read_desktop_color_scheme,
             crate::filesystem_watcher::fs_start_watcher,
             crate::vault_location::notes_dir_override_load,
