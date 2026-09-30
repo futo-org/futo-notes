@@ -106,6 +106,7 @@ import { blankLineJoinPlugin, remarkBlankLineParagraphsPlugin } from './emptyLin
 import { frontmatterPlugins } from './frontmatter';
 import { paragraphFillerGuard, paragraphWithoutFillerSchema } from './listItemFiller';
 import { scopedListOrderPlugin } from './listOrder';
+import { tightListItemSchema } from './listItemSpread';
 import { scopedKeepTableAlignPlugin, scopedTableEditingPlugin } from './tablePasses';
 import { tableAlignmentSchemas } from './tableAlignment';
 import { remarkPadTableRowsPlugin } from './tableWidth';
@@ -264,6 +265,9 @@ export function gfmWithCompat(): MilkdownPlugin[] {
     /* After the preset, whose cell nodes they re-register: a cell with no
      * alignment keeps none through a paste (see `./tableAlignment`). */
     ...tableAlignmentSchemas,
+    /* After the preset, whose task-list support extends `list_item`: an item the
+     * editor makes is tight, like one read from a tight file (see `./listItemSpread`). */
+    tightListItemSchema,
   ];
   return cachedGfm;
 }

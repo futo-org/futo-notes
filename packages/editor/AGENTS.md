@@ -77,6 +77,10 @@ Four more escaping repairs, from the 2026-09 release-hardening campaign (FB-4a):
   as an EMPTY task item (GFM needs text after the marker), and `listItemFiller.ts`
   writes that marker itself for an empty task item; without the pair it saved as
   a bare `-`.
+- `listItemSpread.ts` makes an editor-made list item TIGHT: the preset defaults
+  `list_item.spread` to `true` (the parser always overrides it from the source), so
+  a nested list built by typing Enter then Tab saved `- b\n\n  - c` (RC-102). Placed
+  after the gfm preset in `gfmWithCompat()`; parsed and pasted items are untouched.
 - The app's own `break` handler (`src/features/editor/milkdown/table/tableLineBreak.ts`)
   writes a space where `\n` is unsafe (an ATX heading) and `<br>` before inline
   HTML; the wikilink handler writes `|` as `\|` in a table cell.
