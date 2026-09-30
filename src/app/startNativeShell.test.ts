@@ -12,7 +12,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('$lib/platform', () => ({ isTauri: true }));
 vi.mock('$lib/platform/tauri', () => ({
+  flushAppConfigWrites: vi.fn(async () => undefined),
   onFileChange: mocks.onFileChange,
+  sweepStaleTemps: vi.fn(async () => undefined),
   vaultStatus: mocks.vaultStatus,
   reportUnsavedEdits: vi.fn(async () => undefined),
 }));

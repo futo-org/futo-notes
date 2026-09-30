@@ -1,4 +1,5 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { toWellFormedText } from '@futo-notes/editor';
 
 // The native title has two writers that change independently: App.svelte sets
 // the localized app name (re-run on every language change) and TabsStrip sets
@@ -18,5 +19,8 @@ export async function applyAppWindowTitle(title?: string): Promise<void> {
 }
 
 async function applyWindowTitle(): Promise<void> {
-  await getCurrentWindow().setTitle(noteTitle ? `${noteTitle} — ${appName}` : appName);
+  // A note title can end in a lone surrogate (a truncated emoji); as a raw plugin
+  // call `set_title` would never settle on WebKitGTK (RC-95).
+  const title = noteTitle ? `${noteTitle} — ${appName}` : appName;
+  await getCurrentWindow().setTitle(toWellFormedText(title));
 }

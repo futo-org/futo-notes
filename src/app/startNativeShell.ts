@@ -1,12 +1,19 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import { isTauri } from '$lib/platform';
-import { onFileChange, vaultStatus } from '$lib/platform/tauri';
+import {
+  flushAppConfigWrites,
+  onFileChange,
+  sweepStaleTemps,
+  vaultStatus,
+} from '$lib/platform/tauri';
 import type { FileChangeEvent } from '$lib/platform/types';
 import {
   flushPendingSaveBeforeExit,
   registerExitFlushSource,
+  registerExitTask,
 } from '$shared/lifecycle/flushBeforeExit';
+import { flushAppStateWrites } from '$shared/state/appState';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import { startCloseDirtyReporter } from './closeDeadlineDirty';
 
@@ -68,6 +75,11 @@ export function startNativeShell(deps: NativeShellDeps): () => void {
 
   track(startCloseDirtyReporter({ isSavePending: deps.isSavePending }));
   track(registerExitFlushSource({ flushSave: deps.flushSave, isSavePending: deps.isSavePending }));
+  track(registerExitTask(flushAppConfigWrites));
+  track(registerExitTask(flushAppStateWrites));
+  // An exit that beat an atomic rewrite leaves its temp file behind; clear the
+  // stale ones (ours by name, and old) now.
+  void sweepStaleTemps();
 
   const appWindow = getCurrentWindow();
   void appWindow

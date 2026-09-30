@@ -13,6 +13,7 @@ const adapter = createTauriAdapter();
 
 export const tauriFS = adapter.fs;
 export const onFileChange = adapter.onFileChange;
+export const sweepStaleTemps = adapter.sweepStaleTemps;
 
 const appConfig = createAppConfigStore({
   storage: tauriFS,
@@ -23,3 +24,4 @@ export const getConfig = appConfig.getConfig;
 export const saveConfig = appConfig.saveConfig;
 export const loadOpenFoldersConfig = appConfig.loadOpenFoldersConfig;
 export const setNotesDir = appConfig.setNotesDir;
+export const flushAppConfigWrites = appConfig.flushWrites;

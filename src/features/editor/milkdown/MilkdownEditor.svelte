@@ -99,7 +99,11 @@
   import { plainTextBlockPaste } from './plainTextBlockPaste';
   import { computeActiveFormats, computeDisabledFormats } from './formatState';
   import { handleIndentShortcut, handleParityKeyDown } from './keyboardParity';
-  import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
+  import {
+    createMobileBlockDndPlugin,
+    dropBlockDndFocusGuards,
+    type MobileDndHapticKind,
+  } from './mobileBlockDnd';
   import { codeHighlight } from './codeHighlight';
   import { createSelectionToolbarPlugin, resolveSelectionToolbar } from './selectionToolbar';
   import { createSlashMenuPlugin, resolveSlashMenu } from './slash';
@@ -1755,6 +1759,7 @@
   }
 
   export function focus(): void {
+    dropBlockDndFocusGuards(); // a host focus is intentional (R10-FB20-1)
     pmView()?.focus();
   }
 
