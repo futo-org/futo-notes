@@ -3812,6 +3812,30 @@ test('pasting text is left to the editor and posts no image message', async ({ p
   expect(await getContent(page)).toContain('just words');
 });
 
+test('a table pasted as plain text into an empty note takes the empty line (RC-59)', async ({
+  page,
+}) => {
+  // Milkdown's plain-text route kept the empty paragraph the caret was in, so
+  // the note saved with a blank line above the pasted block.
+  await hostSetContent(page, '');
+  await focusEditor(page);
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', '| a | b |\n| --- | --- |\n| 1 | 2 |\n');
+    document
+      .querySelector('.ProseMirror')!
+      .dispatchEvent(
+        new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }),
+      );
+  });
+  await settleChangeDebounce(page);
+
+  const content = await getContent(page);
+  expect(content.startsWith('|'), JSON.stringify(content)).toBe(true);
+  // Padding and alignment marks are the table serializer's business, not this test's.
+  expect(content).toMatch(/\|\s*1\s*\|\s*2\s*\|/);
+});
+
 // ============================================================
 // Transport, host config and theming
 //
