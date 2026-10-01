@@ -1,6 +1,7 @@
 import Foundation
 import MachO
 import SwiftUI
+import Synchronization
 
 // Native crash pipeline for the iOS app — the counterpart of the desktop pair
 // src/features/system/crashHandler.ts (capture) + src/features/system/crashReporter.ts (upload) and
@@ -12,14 +13,22 @@ import SwiftUI
 // ── Handler state, pre-computed at install ──────────────────────────────────
 // The signal handler must not allocate or call Foundation: everything it needs
 // (per-signal file path, the JSON around the stack, the loaded-image table, the
-// output buffer) is prepared up front, and at crash time it only reads memory
-// and write()s. The NSException handler unwinds on a normal thread, so
-// Foundation is fine there.
+// output buffer) is allocated by install(), and at crash time it only reads
+// memory and write()s. The buffers are optionals install() assigns, never
+// globals with an allocating initializer: Swift runs those lazily on first
+// touch, which would malloc inside the handler. The NSException handler
+// unwinds on a normal thread, so Foundation is fine there.
 
 /// One crash file per fatal signal: C-string path, plus the pre-rendered JSON
 /// split around the stack value the handler renders at crash time.
-private nonisolated(unsafe) var futoSignalEntries:
-    [(sig: Int32, path: [CChar], prefix: [UInt8], suffix: [UInt8])] = []
+private struct FutoSignalEntry {
+    var sig: Int32
+    var path: UnsafePointer<CChar>
+    var prefix: UnsafeBufferPointer<UInt8>
+    var suffix: UnsafeBufferPointer<UInt8>
+}
+private nonisolated(unsafe) var futoSignalEntries: UnsafeMutablePointer<FutoSignalEntry>?
+private nonisolated(unsafe) var futoSignalEntryCount = 0
 private nonisolated(unsafe) var futoCrashlogsDir: URL?
 private nonisolated(unsafe) var futoCrashSessionId = ""
 private nonisolated(unsafe) var futoCrashVersion = "0.0.0"
@@ -30,8 +39,9 @@ private nonisolated(unsafe) var futoPreviousExceptionHandler:
 /// calls abort(), and the SIGABRT that follows must not file a second report
 /// for the same crash. A plain Bool read is async-signal-safe.
 private nonisolated(unsafe) var futoExceptionReported = false
-/// A fault inside the handler itself must not recurse into another report.
-private nonisolated(unsafe) var futoHandlingSignal = false
+/// Taken by the first thread into the handler: a second crashing thread, or a
+/// fault inside the handler itself, must not render into the shared buffer.
+private let futoHandlingSignal = Atomic<Bool>(false)
 
 /// A loaded image, so a crash-time frame can be written as `<image> <offset>`
 /// and symbolicated against the dSYM with that UUID (ASLR moves absolute
@@ -50,19 +60,16 @@ private struct FutoImage {
 }
 
 private let futoImageCapacity = 2048
-private nonisolated(unsafe) let futoImages =
-    UnsafeMutablePointer<FutoImage>.allocate(capacity: futoImageCapacity)
+private nonisolated(unsafe) var futoImages: UnsafeMutablePointer<FutoImage>!
 private nonisolated(unsafe) var futoImageCount = 0
 
 private let futoMaxFrames = 64
 /// Indices into futoImages of the images the current backtrace touched.
-private nonisolated(unsafe) let futoFrameImages =
-    UnsafeMutablePointer<Int>.allocate(capacity: futoMaxFrames)
+private nonisolated(unsafe) var futoFrameImages: UnsafeMutablePointer<Int>!
 private nonisolated(unsafe) var futoFrameImageCount = 0
 
 private let futoReportCapacity = 32 * 1024
-private nonisolated(unsafe) let futoReport =
-    UnsafeMutablePointer<UInt8>.allocate(capacity: futoReportCapacity)
+private nonisolated(unsafe) var futoReport: UnsafeMutablePointer<UInt8>!
 private nonisolated(unsafe) var futoReportLength = 0
 private nonisolated(unsafe) var futoReportLimit = 0
 
@@ -72,9 +79,14 @@ private nonisolated(unsafe) var futoReportLimit = 0
 private func futoHandleSignal(
     _ sig: Int32, _ info: UnsafeMutablePointer<__siginfo>?, _ context: UnsafeMutableRawPointer?
 ) {
-    if !futoExceptionReported && !futoHandlingSignal {
-        futoHandlingSignal = true
+    if futoExceptionReported {
+        // The NSException report already covers this abort().
+    } else if !futoHandlingSignal.exchange(true, ordering: .acquiring) {
         futoWriteSignalReport(sig, context)
+    } else {
+        // ponytail: another thread is rendering — give it time to finish and
+        // kill the process; a fault inside the handler itself waits too.
+        sleep(2)
     }
     signal(sig, SIG_DFL)
     raise(sig)
@@ -100,22 +112,16 @@ private func futoWriteSignalReport(_ sig: Int32, _ context: UnsafeMutableRawPoin
     let stackHigh = UInt(bitPattern: pthread_get_stackaddr_np(thread))
     let stackLow = stackHigh - UInt(pthread_get_stacksize_np(thread))
 
-    for entry in futoSignalEntries where entry.sig == sig {
-        entry.prefix.withUnsafeBufferPointer { prefix in
-            entry.suffix.withUnsafeBufferPointer { suffix in
-                let report = futoRenderSignalReport(
-                    prefix: prefix, suffix: suffix, pc: pc, lr: lr, fp: fp,
-                    stackLow: stackLow, stackHigh: stackHigh)
-                entry.path.withUnsafeBufferPointer { path in
-                    guard let base = path.baseAddress else { return }
-                    let fd = open(base, O_CREAT | O_WRONLY | O_TRUNC, 0o644)
-                    guard fd >= 0 else { return }
-                    _ = write(fd, report.baseAddress, report.count)
-                    close(fd)
-                }
-            }
-        }
-        break
+    guard let entries = futoSignalEntries else { return }
+    for index in 0..<futoSignalEntryCount where entries[index].sig == sig {
+        let report = futoRenderSignalReport(
+            prefix: entries[index].prefix, suffix: entries[index].suffix, pc: pc, lr: lr,
+            fp: fp, stackLow: stackLow, stackHigh: stackHigh)
+        let fd = open(entries[index].path, O_CREAT | O_WRONLY | O_TRUNC, 0o644)
+        guard fd >= 0 else { return }
+        _ = write(fd, report.baseAddress, report.count)
+        close(fd)
+        return
     }
 }
 
@@ -151,7 +157,8 @@ func futoRenderSignalReport(
     // Each frame record is [caller's fp, return address].
     var frame = fp
     var index = 1
-    while index < futoMaxFrames, frame >= stackLow, frame + 16 <= stackHigh, frame % 8 == 0,
+    while index < futoMaxFrames, frame >= stackLow, frame < stackHigh, stackHigh - frame >= 16,
+        frame % 8 == 0,
         let record = UnsafePointer<UInt>(bitPattern: frame)
     {
         let returnAddress = futoStripPointerAuthentication(record[1])
@@ -236,7 +243,10 @@ private func futoAppend(_ bytes: UnsafeBufferPointer<UInt8>) {
     for byte in bytes { futoAppend(byte) }
 }
 
+/// All or nothing, so truncation never leaves half an escape sequence that
+/// would break the JSON.
 private func futoAppend(_ text: StaticString) {
+    guard futoReportLimit - futoReportLength >= text.utf8CodeUnitCount else { return }
     text.withUTF8Buffer { futoAppend($0) }
 }
 
@@ -273,9 +283,10 @@ private func futoAppendEscaped(_ text: UnsafePointer<CChar>, limit: Int) {
         switch byte {
         case 0:
             return
-        case UInt8(ascii: "\""), UInt8(ascii: "\\"):
-            futoAppend(UInt8(ascii: "\\"))
-            futoAppend(byte)
+        case UInt8(ascii: "\""):
+            futoAppend("\\\"")
+        case UInt8(ascii: "\\"):
+            futoAppend("\\\\")
         case UInt8(ascii: "\n"):
             futoAppendLineBreak()
         case 0x20..<0x7F:
@@ -284,6 +295,13 @@ private func futoAppendEscaped(_ text: UnsafePointer<CChar>, limit: Int) {
             futoAppend(UInt8(ascii: "?"))
         }
     }
+}
+
+/// Copy into memory that lives for the process, for the signal handler.
+private func futoPermanentCopy<Element>(_ elements: [Element]) -> UnsafeBufferPointer<Element> {
+    let copy = UnsafeMutableBufferPointer<Element>.allocate(capacity: elements.count)
+    _ = copy.initialize(from: elements)
+    return UnsafeBufferPointer(copy)
 }
 
 /// Uncaught-NSException handler: full report with callStackSymbols.
@@ -348,14 +366,23 @@ final class CrashReporter: ObservableObject {
         ]
         let ms = Int(Date().timeIntervalSince1970 * 1000)
         let sid8 = String(futoCrashSessionId.prefix(8))
-        futoSignalEntries = signals.map { sig, name in
+        let entries = UnsafeMutablePointer<FutoSignalEntry>.allocate(capacity: signals.count)
+        for (index, (sig, name)) in signals.enumerated() {
             let template = signalReportTemplate(error: "Fatal signal \(name)")
             let path = dir.appendingPathComponent("crash-\(ms)-\(sid8)-\(name).json").path
-            return (
-                sig: sig, path: Array(path.utf8CString), prefix: template.prefix,
-                suffix: template.suffix
-            )
+            entries[index] = FutoSignalEntry(
+                sig: sig, path: futoPermanentCopy(Array(path.utf8CString)).baseAddress!,
+                prefix: futoPermanentCopy(template.prefix),
+                suffix: futoPermanentCopy(template.suffix))
         }
+        futoSignalEntries = entries
+        futoSignalEntryCount = signals.count
+        futoImages = .allocate(capacity: futoImageCapacity)
+        futoFrameImages = .allocate(capacity: futoMaxFrames)
+        futoReport = .allocate(capacity: futoReportCapacity)
+        // Not a reset: first touch runs the global's lazy initializer, which
+        // must happen here and never inside the handler.
+        futoHandlingSignal.store(false, ordering: .relaxed)
         trackLoadedImages()
 
         futoPreviousExceptionHandler = NSGetUncaughtExceptionHandler()
@@ -374,10 +401,12 @@ final class CrashReporter: ObservableObject {
         prefix: [UInt8], suffix: [UInt8]
     ) {
         let placeholder = "FUTO_SIGNAL_STACK_PLACEHOLDER"
+        // An all-string dictionary always serializes and keeps the placeholder
+        // verbatim; failing loudly here beats writing reports loadReports drops.
         let json = [UInt8](
-            (try? JSONSerialization.data(
-                withJSONObject: crashReportDict(error: error, stack: placeholder))) ?? Data())
-        guard let range = json.firstRange(of: Array(placeholder.utf8)) else { return ([], []) }
+            try! JSONSerialization.data(
+                withJSONObject: crashReportDict(error: error, stack: placeholder)))
+        let range = json.firstRange(of: Array(placeholder.utf8))!
         return (Array(json[..<range.lowerBound]), Array(json[range.upperBound...]))
     }
 
@@ -399,24 +428,23 @@ final class CrashReporter: ObservableObject {
             var command = UnsafeRawPointer(header) + MemoryLayout<mach_header_64>.size
             for _ in 0..<header.pointee.ncmds {
                 let load = command.loadUnaligned(as: load_command.self)
-                if load.cmd == LC_SEGMENT_64 {
-                    let segment = command.loadUnaligned(as: segment_command_64.self)
-                    let segmentName = withUnsafeBytes(of: segment.segname) {
-                        String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
-                    }
-                    if segmentName == "__TEXT" { image.end = start + UInt(segment.vmsize) }
-                } else if load.cmd == LC_UUID {
+                if load.cmd == LC_UUID {
                     image.uuid = command.loadUnaligned(as: uuid_command.self).uuid
                 }
                 command += Int(load.cmdsize)
             }
             header.withMemoryRebound(to: mach_header_64.self, capacity: 1) { header64 in
                 var size: UInt = 0
-                // Fields [0] version … [4] message2, 8 bytes each.
-                if let section = getsectiondata(header64, "__DATA", "__crash_info", &size),
-                    size >= 5 * 8
-                {
-                    image.crashInfo = UnsafeRawPointer(section).assumingMemoryBound(to: UInt64.self)
+                if getsegmentdata(header64, "__TEXT", &size) != nil { image.end = start + size }
+                // Shared-cache dylibs may move the section to __DATA_DIRTY
+                // (libobjc does). Fields [0] version … [4] message2, 8 bytes each.
+                for segment in ["__DATA", "__DATA_DIRTY"] where image.crashInfo == nil {
+                    if let section = getsectiondata(header64, segment, "__crash_info", &size),
+                        size >= 5 * 8
+                    {
+                        image.crashInfo = UnsafeRawPointer(section).assumingMemoryBound(
+                            to: UInt64.self)
+                    }
                 }
             }
             futoImages[count] = image

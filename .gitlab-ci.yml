@@ -2641,6 +2641,7 @@ release:gate:
       check_find "apps/android/app/build/outputs/apk/direct/release" "*release*.apk"
       check_find "apps/android/app/build/outputs/bundle/playRelease" "*.aab"
       check "buildFutoNotesIOSNative/binary/*.ipa"
+      check "buildFutoNotesIOSNative/dsyms/*-dSYMs.zip"
       check "buildFutoNotesMacOS/binary/*.dmg"
 
       echo ""
@@ -2916,7 +2917,6 @@ release:
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$IPA" "${REGISTRY_URL}/${NAME}"
         # The dSYMs that symbolicate this build's crash reports.
         DSYMS=$(find buildFutoNotesIOSNative -name "*-dSYMs.zip" -type f 2>/dev/null | head -1)
-        test -n "$DSYMS" || { echo "no dSYMs zip from build:ios-native" >&2; exit 1; }
         NAME="FUTO-Notes-${VERSION}-dSYMs.zip"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$DSYMS" "${REGISTRY_URL}/${NAME}"
