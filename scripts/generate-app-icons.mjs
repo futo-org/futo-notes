@@ -34,7 +34,10 @@ for (const [id, name] of choices) {
       /<rect\b[^>]*\/>/,
       '',
     );
+    // The export has a 16px dark outline; keep the textured tile edge-to-edge.
     artwork = await sharp(artwork)
+      .extract({ left: 16, top: 16, width: 992, height: 992 })
+      .resize(1024, 1024)
       .composite([{ input: await sharp(Buffer.from(logo)).resize(1024, 1024).png().toBuffer() }])
       .png()
       .toBuffer();

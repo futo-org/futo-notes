@@ -188,15 +188,15 @@
       "appIcon": {
         "heading": "App icon",
         "choices": {
-          "lightStandard": "Light / Standard",
-          "lightReversed": "Light / Reversed",
-          "darkStandard": "Dark / Standard",
-          "darkReversed": "Dark / Reversed",
+          "lightStandard": "Standard",
+          "lightReversed": "Reversed",
+          "darkStandard": "Dark",
+          "darkReversed": "Dark, Reversed",
           "futo": "FUTO",
           "website": "Scanlines"
         },
         "failed": "Could not change the app icon. Please try again.",
-        "resetFailed": "Your notes were reset, but the app icon could not be restored. Please choose Light / Standard in Settings.",
+        "resetFailed": "Your notes were reset, but the app icon could not be restored. Please choose Standard in Settings.",
         "unavailable": "Changing app icons is unavailable on this device.",
         "changing": "Changing app icon…"
       }

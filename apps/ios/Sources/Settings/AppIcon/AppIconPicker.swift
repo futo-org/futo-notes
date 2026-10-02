@@ -13,9 +13,6 @@ struct AppIconPicker: View {
                     if !controller.available {
                         Text(localization.localizedText("settings.appIcon.unavailable"))
                     }
-                    if controller.changing {
-                        ProgressView(localization.localizedText("settings.appIcon.changing"))
-                    }
                     if controller.failed {
                         Text(localization.localizedText("settings.appIcon.failed"))
                             .foregroundStyle(.red)
@@ -39,7 +36,7 @@ struct AppIconPicker: View {
                                 }
                                 .frame(maxWidth: .infinity, minHeight: 44)
                                 .padding(12)
-                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .disabled(controller.changing || !controller.available)
@@ -51,6 +48,7 @@ struct AppIconPicker: View {
                 }
                 .padding()
             }
+            .background(Theme.surface)
             .navigationTitle(localization.localizedText("settings.appIcon.heading"))
             .navigationBarTitleDisplayMode(.inline)
             .tint(Theme.primary)
