@@ -318,7 +318,7 @@ qa-server-stop *flags:
 
 # ── Agent developer experience (worktrees, orientation, waiting; docs/plan/agent-dx.md) ──
 
-# Create a sibling worktree with warm caches, list worktrees, or reap stale ones.
+# Create with `just wt <name>` (or `new <name>`), list worktrees, or reap stale ones.
 wt *args:
   #!/usr/bin/env bash
   exec node scripts/worktree.mjs "$@"
