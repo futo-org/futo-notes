@@ -890,3 +890,7 @@ deploy-android flavor="direct": editor-deps android-env-check
 # Build a RELEASE native iOS build and install it on a connected iPhone (com.futo.notes).
 deploy-ios:
   apps/ios/deploy.sh
+
+# Regenerate selectable mobile icon catalogs, adaptive layers, and previews.
+app-icons:
+  node scripts/generate-app-icons.mjs
