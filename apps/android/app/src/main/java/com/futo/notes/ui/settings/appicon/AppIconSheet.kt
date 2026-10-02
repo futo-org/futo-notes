@@ -3,6 +3,7 @@ package com.futo.notes.ui.settings.appicon
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -62,19 +63,20 @@ fun AppIconSheet(controller: AppIconController, onSelect: (AppIcon) -> Unit, onD
             items(AppIcon.entries, key = { it.id }) { icon ->
                 val isSelected = controller.selected == icon
                 val label = localization.localizedText(icon.labelKey)
-                OutlinedCard(
-                    onClick = { onSelect(icon) },
-                    enabled = !controller.changing,
-                    modifier = Modifier.semantics { selected = isSelected },
-                    colors = CardDefaults.outlinedCardColors(containerColor = colors.surface),
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(enabled = !controller.changing) { onSelect(icon) }
+                        .semantics { selected = isSelected }
+                        .padding(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Column(Modifier.fillMaxWidth().padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Image(painterResource(icon.preview), contentDescription = null, modifier = Modifier.size(80.dp).clip(RoundedCornerShape(16.dp)))
-                        Spacer(Modifier.height(8.dp))
-                        Text(label, color = colors.textPrimary)
-                        Box(Modifier.height(28.dp), contentAlignment = Alignment.Center) {
-                            if (isSelected) Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = colors.accent)
-                        }
+                    Image(painterResource(icon.preview), contentDescription = null, modifier = Modifier.size(80.dp).clip(RoundedCornerShape(16.dp)))
+                    Spacer(Modifier.height(8.dp))
+                    Text(label, color = colors.textPrimary)
+                    Box(Modifier.height(28.dp), contentAlignment = Alignment.Center) {
+                        if (isSelected) Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = colors.accent)
                     }
                 }
             }

@@ -46,7 +46,7 @@ describe('packaged selectable mobile icons', () => {
       expect((await sharp(resolve(root, preview, 'preview.png')).metadata()).width).toBe(256);
     }
   });
-  it('preserves the shipped Android mark size and removes the Scanlines mole', async () => {
+  it('preserves the shipped Android mark size and includes the Scanlines mole', async () => {
     const res = resolve(root, 'apps/android/app/src/main/res');
     async function bounds(file, visible) {
       const { data, info } = await sharp(resolve(res, file))
@@ -79,7 +79,7 @@ describe('packaged selectable mobile icons', () => {
     for (let i = 0; i < 4; i++) expect(Math.abs(alternate[i] - original[i])).toBeLessThanOrEqual(1);
     expect(
       await bounds('drawable-nodpi/app_icon_website_foreground.png', ([, , , a]) => a > 0),
-    ).toBeNull();
+    ).not.toBeNull();
   });
   it('keeps MainActivity enabled and binds all six permanent launcher aliases to real assets', async () => {
     const manifest = read('apps/android/app/src/main/AndroidManifest.xml');

@@ -30,6 +30,14 @@ for (const [id, name] of choices) {
     artwork = await readFile(path.join(root, 'assets/images/icon.png'));
   } else if (id === 'website') {
     artwork = await readFile(path.join(source, 'website.png'));
+    const logo = (await readFile(path.join(source, 'website-logo.svg'), 'utf8')).replace(
+      /<rect\b[^>]*\/>/,
+      '',
+    );
+    artwork = await sharp(artwork)
+      .composite([{ input: await sharp(Buffer.from(logo)).resize(1024, 1024).png().toBuffer() }])
+      .png()
+      .toBuffer();
   } else {
     // Dark/Reversed's export includes 32px of outside shadow. The launcher
     // tile is its original 1024px rect; discard only that export overflow.
@@ -94,12 +102,6 @@ for (const [id, name] of choices) {
       const stripes = Buffer.from(
         `<svg xmlns="http://www.w3.org/2000/svg" width="432" height="432"><defs><pattern id="s" width="27" height="27" patternUnits="userSpaceOnUse"><rect width="27" height="9" fill="white" fill-opacity=".09"/></pattern></defs><rect width="432" height="432" fill="url(#s)"/></svg>`,
       );
-      // Scanlines has no mole; keep the foreground fully transparent.
-      foreground = await sharp({
-        create: { width: 432, height: 432, channels: 4, background: '#00000000' },
-      })
-        .png()
-        .toBuffer();
       background = await sharp(background)
         .ensureAlpha()
         .composite([{ input: stripes, blend: 'overlay' }])

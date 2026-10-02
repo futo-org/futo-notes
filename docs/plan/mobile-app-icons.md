@@ -36,7 +36,7 @@ Light / Standard also returned design context successfully.
 | `dark-standard`  | Dark / Standard  | Figma `329:972`                                                | Orange mole on a dark background          |
 | `dark-reversed`  | Dark / Reversed  | Figma `329:974`                                                | Dark mole on orange                       |
 | `futo`           | FUTO             | Figma `335:6`                                                  | White mole on FUTO's dark blue background |
-| `website`        | Scanlines        | The adjacent `../futo.tech` project card composition           | Orange gradient and scanlines, no mole    |
+| `website`        | Scanlines        | The adjacent `../futo.tech` project card composition           | White mole on orange gradient and scanlines |
 
 The separate Figma Transparent frame (`329:983`) is not a seventh choice.
 
@@ -45,7 +45,8 @@ Keep the existing Light / Standard primary artwork for this feature. The current
 in scale and effects; adopting all of the latest default artwork would be a
 separate visual change. Generate a faithful preview of the existing default.
 
-The Scanlines option keeps the website gradient and stripes without the mole (updated per maintainer request). Its stable ID remains `website`. The original composition is:
+The Scanlines option keeps the full website logo over its gradient and stripes.
+Its stable ID remains `website`. The original composition is:
 
 - `../futo.tech/src/routes/projects/-projects.ts` maps FUTO Notes to
   `logoFutonotes`.
@@ -150,9 +151,9 @@ sheet. Wire it from
    MainActivity. Keep MainActivity itself enabled, with its existing
    `singleTop`, license deep-link filter, configuration handling, and editor
    lifecycle. [Android alias documentation](https://developer.android.com/guide/topics/manifest/activity-alias-element).
-2. Give each choice adaptive foreground/background assets; keep the Scanlines foreground empty and put each branded mark in the
-   66dp safe region of the 108dp layers. Preserve gradients, reversed colors,
-   and the website scanlines in the generated layers. Do not embed an outer
+2. Give each choice adaptive foreground/background assets; put each branded
+   mark in the 66dp safe region of the 108dp layers. Preserve gradients,
+   reversed colors, and the website scanlines in the generated layers. Do not embed an outer
    rounded-square mask. Keep the existing omission of `roundIcon`: the manifest
    documents a previous undersized rendering bug from the legacy round bitmap.
    Supply monochrome layers for themed-icon support and use color previews in
