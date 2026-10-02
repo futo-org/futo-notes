@@ -340,7 +340,7 @@ replaced the "Report an issue" link to the GitHub issue tracker.
 ## Native app icons
 
 - _(native shells)_ An **App icon** section directly after Appearance shows the current icon thumbnail and localized name; tapping opens a native picker sheet. → apps/ios/Sources/Settings/AppIcon/, apps/android/app/src/main/java/com/futo/notes/ui/settings/appicon/
-- _(native shells)_ The six permanent choices are Light / Standard, Light / Reversed, Dark / Standard, Dark / Reversed, FUTO, and Website; the choice belongs to this installation and is independent of theme and sync.
+- _(native shells)_ The six permanent choices are Light / Standard, Light / Reversed, Dark / Standard, Dark / Reversed, FUTO, and Scanlines (the orange gradient and stripes without a mole); the choice belongs to this installation and is independent of theme and sync.
 - _(native shells)_ Selecting a choice requests an immediate OS change, keeps the sheet open, disables further choices while pending, and marks the actual OS selection only after readback; selecting the current choice is a no-op.
 - _(native shells)_ A failed request retains the actual icon and shows a localized error; dismissing the sheet does not undo a completed change.
 - _(iOS)_ The OS alternate-icon name is authoritative; the default uses nil, unsupported devices show the current preview and an unavailable message, and Apple's icon-change notification remains enabled.

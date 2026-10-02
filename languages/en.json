@@ -193,7 +193,7 @@
           "darkStandard": "Dark / Standard",
           "darkReversed": "Dark / Reversed",
           "futo": "FUTO",
-          "website": "Website"
+          "website": "Scanlines"
         },
         "failed": "Could not change the app icon. Please try again.",
         "resetFailed": "Your notes were reset, but the app icon could not be restored. Please choose Light / Standard in Settings.",

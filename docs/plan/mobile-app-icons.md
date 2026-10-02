@@ -36,7 +36,7 @@ Light / Standard also returned design context successfully.
 | `dark-standard`  | Dark / Standard  | Figma `329:972`                                                | Orange mole on a dark background          |
 | `dark-reversed`  | Dark / Reversed  | Figma `329:974`                                                | Dark mole on orange                       |
 | `futo`           | FUTO             | Figma `335:6`                                                  | White mole on FUTO's dark blue background |
-| `website`        | Website          | The adjacent `../futo.tech` project card composition           | Website logo with its scanline treatment  |
+| `website`        | Scanlines        | The adjacent `../futo.tech` project card composition           | Orange gradient and scanlines, no mole    |
 
 The separate Figma Transparent frame (`329:983`) is not a seventh choice.
 
@@ -45,7 +45,7 @@ Keep the existing Light / Standard primary artwork for this feature. The current
 in scale and effects; adopting all of the latest default artwork would be a
 separate visual change. Generate a faithful preview of the existing default.
 
-The website option is a composed visual, not just an SVG:
+The Scanlines option keeps the website gradient and stripes without the mole (updated per maintainer request). Its stable ID remains `website`. The original composition is:
 
 - `../futo.tech/src/routes/projects/-projects.ts` maps FUTO Notes to
   `logoFutonotes`.

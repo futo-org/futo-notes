@@ -46,6 +46,41 @@ describe('packaged selectable mobile icons', () => {
       expect((await sharp(resolve(root, preview, 'preview.png')).metadata()).width).toBe(256);
     }
   });
+  it('preserves the shipped Android mark size and removes the Scanlines mole', async () => {
+    const res = resolve(root, 'apps/android/app/src/main/res');
+    async function bounds(file, visible) {
+      const { data, info } = await sharp(resolve(res, file))
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      const xs = [],
+        ys = [];
+      for (let y = 0; y < info.height; y++)
+        for (let x = 0; x < info.width; x++) {
+          const i = (y * info.width + x) * 4;
+          if (visible(data.subarray(i, i + 4))) {
+            xs.push(x);
+            ys.push(y);
+          }
+        }
+      return xs.length
+        ? [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
+        : null;
+    }
+    const original = await bounds(
+      'mipmap-xxxhdpi/ic_launcher_foreground.png',
+      ([r, g, b]) => r > 200 && g > 50 && g < 200 && b < 100,
+    );
+    const alternate = await bounds(
+      'drawable-nodpi/app_icon_futo_foreground.png',
+      ([, , , a]) => a > 250,
+    );
+    // The vector alternate and legacy raster differ by at most one antialiased pixel.
+    for (let i = 0; i < 4; i++) expect(Math.abs(alternate[i] - original[i])).toBeLessThanOrEqual(1);
+    expect(
+      await bounds('drawable-nodpi/app_icon_website_foreground.png', ([, , , a]) => a > 0),
+    ).toBeNull();
+  });
   it('keeps MainActivity enabled and binds all six permanent launcher aliases to real assets', async () => {
     const manifest = read('apps/android/app/src/main/AndroidManifest.xml');
     const activity = manifest.match(/<activity\s[\s\S]*?<\/activity>/)[0];

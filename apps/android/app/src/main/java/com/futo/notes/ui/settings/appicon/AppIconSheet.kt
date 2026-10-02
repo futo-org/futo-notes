@@ -1,5 +1,7 @@
 package com.futo.notes.ui.settings.appicon
 
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -67,7 +69,7 @@ fun AppIconSheet(controller: AppIconController, onSelect: (AppIcon) -> Unit, onD
                     colors = CardDefaults.outlinedCardColors(containerColor = colors.surface),
                 ) {
                     Column(Modifier.fillMaxWidth().padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Image(painterResource(icon.preview), contentDescription = null, modifier = Modifier.size(80.dp))
+                        Image(painterResource(icon.preview), contentDescription = null, modifier = Modifier.size(80.dp).clip(RoundedCornerShape(16.dp)))
                         Spacer(Modifier.height(8.dp))
                         Text(label, color = colors.textPrimary)
                         Box(Modifier.height(28.dp), contentAlignment = Alignment.Center) {

@@ -67,7 +67,7 @@ for (const [id, name] of choices) {
   await save(path.join(ios, `AppIcon${name}.appiconset/Contents.json`), json(catalog));
   const resource = `app_icon_${id.replaceAll('-', '_')}`;
   // Background is the full tile; a smaller transparent mark fits the adaptive
-  // safe region. The website's scanlines stay in both layers.
+  // safe region. Scanlines uses only its textured background.
   let foreground, background;
   {
     const svg = await readFile(
@@ -82,10 +82,10 @@ for (const [id, name] of choices) {
     let mark = svg.replace(rect, '');
     if (id === 'dark-reversed')
       mark = mark.replace('viewBox="0 0 1088 1088"', 'viewBox="32 32 1024 1024"');
-    // The artwork's mark spans 74% of the source: 0.82 * 74% * 108dp = 65.5dp.
+    // Match the shipped primary foreground: a 228 × 208px mark in a 432px layer.
     foreground = await sharp(Buffer.from(mark))
-      .resize(354, 354)
-      .extend({ top: 39, bottom: 39, left: 39, right: 39, background: '#00000000' })
+      .resize(312, 312)
+      .extend({ top: 60, bottom: 60, left: 60, right: 60, background: '#00000000' })
       .png()
       .toBuffer();
     if (id === 'website') {
@@ -94,13 +94,10 @@ for (const [id, name] of choices) {
       const stripes = Buffer.from(
         `<svg xmlns="http://www.w3.org/2000/svg" width="432" height="432"><defs><pattern id="s" width="27" height="27" patternUnits="userSpaceOnUse"><rect width="27" height="9" fill="white" fill-opacity=".09"/></pattern></defs><rect width="432" height="432" fill="url(#s)"/></svg>`,
       );
-      const mask = foreground;
-      foreground = await sharp(foreground)
-        .ensureAlpha()
-        .composite([
-          { input: stripes, blend: 'overlay' },
-          { input: mask, blend: 'dest-in' },
-        ])
+      // Scanlines has no mole; keep the foreground fully transparent.
+      foreground = await sharp({
+        create: { width: 432, height: 432, channels: 4, background: '#00000000' },
+      })
         .png()
         .toBuffer();
       background = await sharp(background)
@@ -123,8 +120,8 @@ const mark = svg.replace(/<rect\b[^>]*\/>/, '');
 await save(
   path.join(android, 'drawable-nodpi/app_icon_monochrome.png'),
   await sharp(Buffer.from(mark))
-    .resize(354, 354)
-    .extend({ top: 39, bottom: 39, left: 39, right: 39, background: '#00000000' })
+    .resize(312, 312)
+    .extend({ top: 60, bottom: 60, left: 60, right: 60, background: '#00000000' })
     .png()
     .toBuffer(),
 );

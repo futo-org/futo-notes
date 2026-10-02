@@ -56,6 +56,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -194,7 +195,7 @@ fun SettingsScreen(
                 SettingsRow(
                     title = localization.localizedText(appIcons.selected.labelKey),
                     onClick = { showAppIcons = true },
-                    leading = { Image(painterResource(appIcons.selected.preview), null, Modifier.size(40.dp)) },
+                    leading = { Image(painterResource(appIcons.selected.preview), null, Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))) },
                 ) {
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = c.textMuted)
                 }
