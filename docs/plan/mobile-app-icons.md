@@ -70,7 +70,7 @@ Place the App icon section directly after Appearance. Use the existing native
 section and row styling, with the thumbnail, selected name, and disclosure affordance.
 The sheet has an **App icon** title, native navigation chrome, and a scrollable
 two-column grid that adapts to narrow screens, tablets, and large text. Each
-cell is a button containing a preview, a label, and a selected checkmark.
+cell is a button containing rounded preview artwork, a label, and a selected checkmark.
 
 While the OS request is running, show progress and disable additional choices.
 Tapping the selected choice is a no-op. Mark the new selection only after
@@ -150,7 +150,7 @@ sheet. Wire it from
    MainActivity. Keep MainActivity itself enabled, with its existing
    `singleTop`, license deep-link filter, configuration handling, and editor
    lifecycle. [Android alias documentation](https://developer.android.com/guide/topics/manifest/activity-alias-element).
-2. Give each choice adaptive foreground/background assets; put the mark in the
+2. Give each choice adaptive foreground/background assets; keep the Scanlines foreground empty and put each branded mark in the
    66dp safe region of the 108dp layers. Preserve gradients, reversed colors,
    and the website scanlines in the generated layers. Do not embed an outer
    rounded-square mask. Keep the existing omission of `roundIcon`: the manifest

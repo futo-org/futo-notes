@@ -141,6 +141,6 @@ the system setting.
 ## Native app icon picker
 
 - _(native shells)_ App icon appears directly after Appearance using the shell's existing section and row styling, with a thumbnail, selected name, and disclosure affordance.
-- _(native shells)_ The picker has an App icon title and a scrollable two-column grid of labeled preview buttons with a selected checkmark; labels wrap for narrow screens and large text, and selected state is exposed to accessibility.
+- _(native shells)_ The picker has an App icon title and a scrollable two-column grid of labeled preview buttons with rounded icon artwork and a selected checkmark; labels wrap for narrow screens and large text, and selected state is exposed to accessibility.
 - _(iOS)_ The picker is a sheet with its own NavigationStack, inline title, and trailing Done button.
 - _(Android)_ The picker is an initially expanded Material 3 ModalBottomSheet with the existing TopBar and a Back button.
