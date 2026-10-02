@@ -29,7 +29,11 @@ final class AppIconTests: XCTestCase {
         XCTAssertTrue(primary.waitForExistence(timeout: 10))
         primary.tap()
         dismissIconNotification(app)
-        XCTAssertTrue(primary.isSelected)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "icon-reset-result"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        XCTAssertTrue(primary.isSelected, app.debugDescription)
     }
 
     @MainActor

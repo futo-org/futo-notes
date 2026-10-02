@@ -1,4 +1,5 @@
 import Observation
+import OSLog
 import UIKit
 
 @MainActor
@@ -25,6 +26,7 @@ private struct UIKitAppIcons: AppIconSystem {
 @MainActor
 @Observable
 final class AppIconController {
+    private let logger = Logger(subsystem: "com.futo.notes", category: "app-icon")
     private let system: any AppIconSystem
     private(set) var selected: AppIcon = .lightStandard
     private(set) var changing = false
@@ -57,6 +59,7 @@ final class AppIconController {
             refresh()
             failed = selected != icon
         } catch {
+            logger.error("App icon change failed: \(String(describing: error), privacy: .public)")
             refresh()
             failed = true
         }

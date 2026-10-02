@@ -1,4 +1,5 @@
 import Testing
+import UIKit
 @testable import FutoNotesNative
 
 @MainActor
@@ -18,6 +19,27 @@ struct AppIconControllerTests {
         }
         enum Failure: Error { case os }
     }
+    @Test func bundlesEveryAlternateForIPhoneAndIPad() throws {
+        let expected = Set(AppIcon.allCases.compactMap(\.alternateName))
+        let files = try FileManager.default.contentsOfDirectory(atPath: Bundle.main.bundlePath)
+        for family in ["CFBundleIcons", "CFBundleIcons~ipad"] {
+            let icons = try #require(Bundle.main.infoDictionary?[family] as? [String: Any])
+            let alternates = try #require(icons["CFBundleAlternateIcons"] as? [String: Any])
+            #expect(Set(alternates.keys) == expected)
+            for name in expected {
+                let definition = try #require(alternates[name] as? [String: Any])
+                let resources = try #require(definition["CFBundleIconFiles"] as? [String])
+                #expect(!resources.isEmpty)
+                for resource in resources {
+                    #expect(files.contains { $0.hasPrefix(resource) && $0.hasSuffix(".png") })
+                }
+            }
+        }
+        for icon in AppIcon.allCases {
+            #expect(UIImage(named: icon.previewName) != nil)
+        }
+    }
+
     @Test func mapsEveryNameAndPrimary() {
         for icon in AppIcon.allCases {
             #expect(AppIcon.from(alternateName: icon.alternateName) == icon)
