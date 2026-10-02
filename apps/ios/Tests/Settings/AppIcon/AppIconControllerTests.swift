@@ -28,10 +28,15 @@ struct AppIconControllerTests {
             #expect(Set(alternates.keys) == expected)
             for name in expected {
                 let definition = try #require(alternates[name] as? [String: Any])
-                let resources = try #require(definition["CFBundleIconFiles"] as? [String])
-                #expect(!resources.isEmpty)
-                for resource in resources {
-                    #expect(files.contains { $0.hasPrefix(resource) && $0.hasSuffix(".png") })
+                #expect(definition["CFBundleIconName"] as? String == name)
+                // Current Xcode stores icons in Assets.car. Older compilers also
+                // expose PNG filenames; verify those whenever they are emitted.
+                #expect(files.contains("Assets.car"))
+                if let resources = definition["CFBundleIconFiles"] as? [String] {
+                    #expect(!resources.isEmpty)
+                    for resource in resources {
+                        #expect(files.contains { $0.hasPrefix(resource) && $0.hasSuffix(".png") })
+                    }
                 }
             }
         }
