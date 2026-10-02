@@ -90,7 +90,9 @@ struct SettingsView: View {
                 }
 
                 Section(localization.localizedText("settings.appIcon.heading")) {
-                    Button { showAppIcons = true } label: {
+                    Button {
+                        showAppIcons = true
+                    } label: {
                         HStack(spacing: 12) {
                             Image(appIcons.selected.previewName)
                                 .resizable().scaledToFit().frame(width: 40, height: 40)
@@ -269,8 +271,9 @@ struct SettingsView: View {
                 resetStore: { try await store.fullReset() },
                 clearLicense: { license.clearForFullReset() },
                 resetIcon: {
-                    do { try await appIcons.reset() }
-                    catch { store.showTransient(LocalizedMessage("settings.appIcon.resetFailed")) }
+                    do { try await appIcons.reset() } catch {
+                        store.showTransient(LocalizedMessage("settings.appIcon.resetFailed"))
+                    }
                 }
             )
         } catch {

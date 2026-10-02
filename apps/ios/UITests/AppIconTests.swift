@@ -15,25 +15,50 @@ final class AppIconTests: XCTestCase {
         }
         XCTAssertTrue(row.isHittable)
         row.tap()
-        let choice = app.buttons["app-icon-futo"]
-        XCTAssertTrue(choice.waitForExistence(timeout: 10))
-        choice.tap()
-        // Apple's own notification is kept; the picker must survive it.
-        dismissIconNotification(app)
-        XCTAssertTrue(app.navigationBars["App icon"].exists)
-        XCTAssertTrue(choice.isSelected)
-        app.navigationBars["App icon"].buttons["Done"].tap()
-        XCTAssertTrue(app.navigationBars["Settings"].exists)
-        row.tap()
+        XCTAssertTrue(app.navigationBars["App icon"].waitForExistence(timeout: 10))
+
         let primary = app.buttons["app-icon-light-standard"]
         XCTAssertTrue(primary.waitForExistence(timeout: 10))
+        if !primary.isSelected {
+            primary.tap()
+            dismissIconNotification(app)
+            waitForSelection(primary, in: app)
+        }
+        primary.tap()
+        waitForSelection(primary, in: app)
+
+        for iconID in ["light-reversed", "dark-standard", "dark-reversed", "futo", "website"] {
+            let choice = app.buttons["app-icon-\(iconID)"]
+            XCTAssertTrue(choice.waitForExistence(timeout: 10))
+            choice.tap()
+            // Apple's own notification is kept; the picker must survive it.
+            dismissIconNotification(app)
+            waitForSelection(choice, in: app)
+            XCTAssertTrue(choice.isSelected, "\(iconID) should be the active icon")
+        }
+        XCTAssertTrue(app.navigationBars["App icon"].exists)
+        app.navigationBars["App icon"].buttons["Done"].tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+        XCTAssertTrue(row.label.contains("Scanlines"))
+        row.tap()
+        XCTAssertTrue(app.navigationBars["App icon"].waitForExistence(timeout: 10))
         primary.tap()
         dismissIconNotification(app)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "icon-reset-result"
         screenshot.lifetime = .keepAlways
         add(screenshot)
+        waitForSelection(primary, in: app)
         XCTAssertTrue(primary.isSelected, app.debugDescription)
+    }
+
+    @MainActor
+    private func waitForSelection(_ element: XCUIElement, in app: XCUIApplication) {
+        let selected = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in element.isSelected },
+            object: app,
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 10), .completed)
     }
 
     @MainActor

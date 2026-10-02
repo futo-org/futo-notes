@@ -21,7 +21,8 @@ struct AppIconPicker: View {
                             .foregroundStyle(.red)
                             .accessibilityAddTraits(.updatesFrequently)
                     }
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16)
+                    {
                         ForEach(AppIcon.allCases) { icon in
                             Button {
                                 Task { await controller.select(icon) }

@@ -1,6 +1,9 @@
 import Testing
 import UIKit
+
 @testable import FutoNotesNative
+
+private final class AppIconTestBundleToken {}
 
 @MainActor
 @Suite("App icons")
@@ -21,9 +24,20 @@ struct AppIconControllerTests {
     }
     @Test func bundlesEveryAlternateForIPhoneAndIPad() throws {
         let expected = Set(AppIcon.allCases.compactMap(\.alternateName))
-        let files = try FileManager.default.contentsOfDirectory(atPath: Bundle.main.bundlePath)
+        let testBundle = Bundle(for: AppIconTestBundleToken.self)
+        let appBundleURL = testBundle.bundleURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appBundle = try #require(Bundle(url: appBundleURL))
+        let files = try FileManager.default.contentsOfDirectory(atPath: appBundle.bundlePath)
+        let plistData = try Data(contentsOf: appBundle.bundleURL.appending(path: "Info.plist"))
+        let plistObject = try PropertyListSerialization.propertyList(from: plistData, format: nil)
+        let info = try #require(plistObject as? [String: Any])
         for family in ["CFBundleIcons", "CFBundleIcons~ipad"] {
-            let icons = try #require(Bundle.main.infoDictionary?[family] as? [String: Any])
+            let icons = try #require(
+                info[family] as? [String: Any],
+                "Missing \(family) in \(appBundle.bundleURL.path) (\(appBundle.bundleIdentifier ?? "no bundle identifier"))",
+            )
             let alternates = try #require(icons["CFBundleAlternateIcons"] as? [String: Any])
             #expect(Set(alternates.keys) == expected)
             for name in expected {

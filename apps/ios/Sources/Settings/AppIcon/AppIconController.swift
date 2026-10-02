@@ -1,5 +1,5 @@
-import Observation
 import OSLog
+import Observation
 import UIKit
 
 @MainActor
@@ -14,10 +14,10 @@ private struct UIKitAppIcons: AppIconSystem {
     var supportsAlternateIcons: Bool { UIApplication.shared.supportsAlternateIcons }
     var alternateIconName: String? { UIApplication.shared.alternateIconName }
     func setAlternateIconName(_ name: String?) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Void, Error>) in
             UIApplication.shared.setAlternateIconName(name) { error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume() }
+                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
             }
         }
     }
@@ -49,8 +49,14 @@ final class AppIconController {
     func select(_ icon: AppIcon) async {
         guard !changing else { return }
         refresh()
-        guard icon != selected else { failed = false; return }
-        guard available else { failed = true; return }
+        guard icon != selected else {
+            failed = false
+            return
+        }
+        guard available else {
+            failed = true
+            return
+        }
         changing = true
         failed = false
         defer { changing = false }

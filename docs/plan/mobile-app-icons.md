@@ -1,8 +1,11 @@
 # Selectable app icons on iOS and Android
 
-Status: implemented in the icons branch, 2026-10-02; Android emulator checks and
-video are complete. iOS build, simulator checks, and video remain pending because
-`justins-macbook-pro` is offline on Tailscale. This is not yet merged or shipped.
+Status: implementation is complete in the icons branch, 2026-10-02. Android
+API 30/36 emulator checks and video are complete. The iOS build, all-six-choice
+simulator switching/reset, and video are complete on iOS 27.0. Broader physical
+device, iPad, accessibility, and OEM launcher acceptance below remains release
+follow-up. The full iOS suite still reports unrelated Hosted Setup and find-bar
+failures on that runtime. This is not yet merged or shipped.
 
 ## Result
 
@@ -240,6 +243,17 @@ Required implementation checks:
 - `just test-android-native-ui` on a claimed emulator/device, including sheet
   Back/dismissal and selection semantics.
 - `just check` before merge.
+
+iOS simulator run on `justins-macbook-pro`, Xcode 27.1 / iOS 27.0, passed the
+icon controller and icon picker UI tests. It selects all six icons, confirms
+same-choice no-op, keeps the picker open, and restores Light / Standard after
+the system notifications. The icon metadata test reads the built app plist so
+it validates both iPhone and iPad entries. Recording:
+`test-screenshots/ios-app-icon-switch-reset.mov` (ignored local evidence). The
+full `just test-ios-native` run still has two failures on iOS 27.0 outside the
+icon feature: HostedSetupModelTests expects `signOut` in the fake call log, and
+AppLaunchTests measures a 64 pt find-bar gap against its 24 pt limit. Neither
+assertion was relaxed.
 
 Device acceptance must show the actual launcher, not only Settings thumbnails:
 
