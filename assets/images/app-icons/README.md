@@ -28,8 +28,8 @@ The source of this composition is ProjectCard in `src/routes/projects/index.tsx`
 and `.scanlines-sm` in `src/styles/styles.css` in the sibling website project;
 regeneration never accesses that checkout.
 
-Android themed icons use the same monochrome mole for every choice, so system
-tinting deliberately suppresses differences in color and texture.
+Android themed icons use the same monochrome mole for the five branded choices.
+Scanlines remains free of the mole when system tinting is enabled.
 
 Scanlines retains the stable `website` / `Website` asset identity for saved selections.
 Android alternate marks match the original launcher foreground size; picker previews use rounded corners.

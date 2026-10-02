@@ -111,7 +111,7 @@ for (const [id, name] of choices) {
   await save(path.join(android, `drawable-nodpi/${resource}_background.png`), background);
   await save(
     path.join(android, `mipmap-anydpi-v26/${resource}.xml`),
-    `<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n  <background android:drawable="@drawable/${resource}_background"/>\n  <foreground android:drawable="@drawable/${resource}_foreground"/>\n  <monochrome android:drawable="@drawable/app_icon_monochrome"/>\n</adaptive-icon>\n`,
+    `<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n  <background android:drawable="@drawable/${resource}_background"/>\n  <foreground android:drawable="@drawable/${resource}_foreground"/>\n  <monochrome android:drawable="@drawable/${id === 'website' ? resource + '_foreground' : 'app_icon_monochrome'}"/>\n</adaptive-icon>\n`,
   );
 }
 // The monochrome mark is shared: themed icons deliberately discard color/texture.
