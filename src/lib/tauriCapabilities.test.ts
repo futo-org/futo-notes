@@ -6,16 +6,12 @@ describe('Tauri capabilities', () => {
   const capsPath = path.resolve(__dirname, '../../apps/tauri/src-tauri/capabilities/default.json');
   const caps = JSON.parse(readFileSync(capsPath, 'utf-8'));
 
-  it('includes core:window:allow-destroy so the close handler can force-close the window', () => {
-    expect(caps.permissions).toContain('core:window:allow-destroy');
-  });
-
-  it('allows the localized application title to update the native window', () => {
-    expect(caps.permissions).toContain('core:window:allow-set-title');
-  });
-
-  it('includes process:allow-exit so the app can exit cleanly', () => {
-    expect(caps.permissions).toContain('process:allow-exit');
+  it.each([
+    ['core:window:allow-destroy', 'so the close handler can force-close the window'],
+    ['core:window:allow-set-title', 'so the localized application title reaches the native window'],
+    ['process:allow-exit', 'so the app can exit cleanly'],
+  ])('includes %s %s', (permission) => {
+    expect(caps.permissions).toContain(permission);
   });
 
   // The license deep link is delivered by the plugin, and the plugin only

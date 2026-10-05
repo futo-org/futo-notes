@@ -20,27 +20,32 @@ vi.mock('$features/notes/notes.svelte', () => ({
 
 import { createCurrentNoteActions } from './createCurrentNoteActions.svelte';
 
-describe('createCurrentNoteActions', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.getNoteById.mockImplementation((id: string) => ({ id }));
-    mocks.getSaveIdentityChange.mockReturnValue(null);
+function makeActions(overrides: Partial<Parameters<typeof createCurrentNoteActions>[0]> = {}) {
+  return createCurrentNoteActions({
+    getActiveNoteId: () => 'Projects/Roadmap',
+    runWithActiveNoteLock: async <T>(operation: () => Promise<T>) => operation(),
+    showToast: vi.fn(),
+    onMoved: vi.fn(),
+    onDeleted: vi.fn(),
+    onDeleteConfirmed: vi.fn(),
+    ...overrides,
   });
+}
 
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.getNoteById.mockImplementation((id: string) => ({ id }));
+  mocks.getSaveIdentityChange.mockReturnValue(null);
+});
+
+describe('createCurrentNoteActions', () => {
   it('confirms before deleting the active note and reports the completed action', async () => {
     mocks.confirmDialog.mockResolvedValue(true);
     const showToast = vi.fn();
     const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => operation());
     const onDeleted = vi.fn();
     const onDeleteConfirmed = vi.fn();
-    const actions = createCurrentNoteActions({
-      getActiveNoteId: () => 'Projects/Roadmap',
-      runWithActiveNoteLock,
-      showToast,
-      onMoved: vi.fn(),
-      onDeleted,
-      onDeleteConfirmed,
-    });
+    const actions = makeActions({ runWithActiveNoteLock, showToast, onDeleted, onDeleteConfirmed });
 
     await actions.deleteCurrentNote();
 
@@ -65,14 +70,7 @@ describe('createCurrentNoteActions', () => {
     mocks.moveNote.mockRejectedValue(new Error('A note with that name already exists'));
     const showToast = vi.fn();
     const onMoved = vi.fn();
-    const actions = createCurrentNoteActions({
-      getActiveNoteId: () => 'Projects/Roadmap',
-      runWithActiveNoteLock: async <T>(operation: () => Promise<T>) => operation(),
-      showToast,
-      onMoved,
-      onDeleted: vi.fn(),
-      onDeleteConfirmed: vi.fn(),
-    });
+    const actions = makeActions({ showToast, onMoved });
 
     await expect(actions.moveToFolder('Archive')).resolves.toBeUndefined();
 
@@ -82,12 +80,6 @@ describe('createCurrentNoteActions', () => {
 });
 
 describe('createCurrentNoteActions note targeting', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.getNoteById.mockImplementation((id: string) => ({ id }));
-    mocks.getSaveIdentityChange.mockReturnValue(null);
-  });
-
   it('ignores a save that renamed some other note', async () => {
     mocks.getSaveIdentityChange.mockReturnValue({ from: 'Something else', to: 'Its new name' });
     mocks.confirmDialog.mockResolvedValue(true);
@@ -95,14 +87,7 @@ describe('createCurrentNoteActions note targeting', () => {
       id === 'Its new name' ? { id } : undefined,
     );
     const showToast = vi.fn();
-    const actions = createCurrentNoteActions({
-      getActiveNoteId: () => 'Doomed',
-      runWithActiveNoteLock: async <T>(operation: () => Promise<T>) => operation(),
-      showToast,
-      onMoved: vi.fn(),
-      onDeleted: vi.fn(),
-      onDeleteConfirmed: vi.fn(),
-    });
+    const actions = makeActions({ getActiveNoteId: () => 'Doomed', showToast });
 
     await actions.deleteCurrentNote();
 
@@ -118,14 +103,7 @@ describe('createCurrentNoteActions note targeting', () => {
       activeId = 'Innocent';
       return operation();
     });
-    const actions = createCurrentNoteActions({
-      getActiveNoteId: () => activeId,
-      runWithActiveNoteLock,
-      showToast: vi.fn(),
-      onMoved: vi.fn(),
-      onDeleted: vi.fn(),
-      onDeleteConfirmed: vi.fn(),
-    });
+    const actions = makeActions({ getActiveNoteId: () => activeId, runWithActiveNoteLock });
 
     await actions.deleteCurrentNote();
 
@@ -143,14 +121,7 @@ describe('createCurrentNoteActions note targeting', () => {
       activeId = 'Bystander';
       return operation();
     });
-    const actions = createCurrentNoteActions({
-      getActiveNoteId: () => activeId,
-      runWithActiveNoteLock,
-      showToast: vi.fn(),
-      onMoved: vi.fn(),
-      onDeleted: vi.fn(),
-      onDeleteConfirmed: vi.fn(),
-    });
+    const actions = makeActions({ getActiveNoteId: () => activeId, runWithActiveNoteLock });
 
     await actions.deleteCurrentNote();
 
@@ -167,13 +138,11 @@ describe('createCurrentNoteActions note targeting', () => {
     });
     const onDeleted = vi.fn();
     const showToast = vi.fn();
-    const actions = createCurrentNoteActions({
+    const actions = makeActions({
       getActiveNoteId: () => activeId,
       runWithActiveNoteLock,
       showToast,
-      onMoved: vi.fn(),
       onDeleted,
-      onDeleteConfirmed: vi.fn(),
     });
 
     await actions.deleteCurrentNote();
@@ -191,14 +160,7 @@ describe('createCurrentNoteActions note targeting', () => {
       return operation();
     });
     mocks.moveNote.mockResolvedValue({ id: 'Work/Mover', mtime: 1 });
-    const actions = createCurrentNoteActions({
-      getActiveNoteId: () => activeId,
-      runWithActiveNoteLock,
-      showToast: vi.fn(),
-      onMoved: vi.fn(),
-      onDeleted: vi.fn(),
-      onDeleteConfirmed: vi.fn(),
-    });
+    const actions = makeActions({ getActiveNoteId: () => activeId, runWithActiveNoteLock });
 
     await actions.moveToFolder('Work');
 
@@ -220,13 +182,10 @@ describe('createCurrentNoteActions note targeting', () => {
     );
     mocks.moveNote.mockResolvedValue({ id: 'Archive/Renamed roadmap', mtime: 1 });
     const onMoved = vi.fn();
-    const actions = createCurrentNoteActions({
+    const actions = makeActions({
       getActiveNoteId: () => activeId,
       runWithActiveNoteLock,
-      showToast: vi.fn(),
       onMoved,
-      onDeleted: vi.fn(),
-      onDeleteConfirmed: vi.fn(),
     });
 
     await actions.moveToFolder('Archive');

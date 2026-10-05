@@ -7,26 +7,14 @@ import org.junit.Test
 
 class EditorLinkNavigationTest {
     @Test
-    fun httpLinkIsHandedOffNotLoadedInEditor() {
-        assertFalse(isInAppEditorNavigation("http"))
-        assertFalse(isInAppEditorNavigation("https"))
-    }
-
-    @Test
-    fun nonWebSchemesAreAlsoHandedOff() {
-        assertFalse(isInAppEditorNavigation("mailto"))
-        assertFalse(isInAppEditorNavigation("tel"))
-        assertFalse(isInAppEditorNavigation(null))
-    }
-
-    @Test
-    fun localEditorBundleLoadsInPlace() {
-        assertTrue(isInAppEditorNavigation("file"))
-    }
-
-    @Test
-    fun schemeMatchIsCaseInsensitive() {
-        assertTrue(isInAppEditorNavigation("FILE"))
-        assertFalse(isInAppEditorNavigation("HTTPS"))
+    fun schemeRoutingMatchesWhatTheEditorCanLoadInPlace() {
+        // Only the local editor bundle loads in place, whatever its case.
+        listOf("file", "FILE").forEach { scheme ->
+            assertTrue(scheme, isInAppEditorNavigation(scheme))
+        }
+        // Everything else, web or not, is handed off to the system.
+        listOf("http", "https", "HTTPS", "mailto", "tel", null).forEach { scheme ->
+            assertFalse("$scheme", isInAppEditorNavigation(scheme))
+        }
     }
 }

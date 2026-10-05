@@ -75,7 +75,10 @@ describe('language catalogs', () => {
     expect(validation.errors.join('\n')).toMatch('fr.json: invalid JSON');
   });
 
-  it('blocks translated placeholders that English does not declare', () => {
+  it.each([
+    ['a key English also has', { save: 'Enregistrer {name}' }, 'save'],
+    ['a translation-only key', { extra: 'Supprimer {name}' }, 'extra'],
+  ])('blocks a placeholder English does not declare on %s', (_label, messages, key) => {
     const directory = temporaryCatalogDirectory();
     writeFileSync(
       path.join(directory, 'en.json'),
@@ -83,7 +86,7 @@ describe('language catalogs', () => {
     );
     writeFileSync(
       path.join(directory, 'fr.json'),
-      JSON.stringify(catalog('French', 'Français', { save: 'Enregistrer {name}' })),
+      JSON.stringify(catalog('French', 'Français', messages)),
     );
 
     const validation = validateLanguageCatalogs({
@@ -92,28 +95,7 @@ describe('language catalogs', () => {
     });
 
     expect(validation.errors).toContain(
-      'fr.json: save: placeholder {name} is not declared by en.json',
-    );
-  });
-
-  it('blocks placeholders on translation-only paths', () => {
-    const directory = temporaryCatalogDirectory();
-    writeFileSync(
-      path.join(directory, 'en.json'),
-      JSON.stringify(catalog('English', 'English', { save: 'Save' })),
-    );
-    writeFileSync(
-      path.join(directory, 'fr.json'),
-      JSON.stringify(catalog('French', 'Français', { extra: 'Supprimer {name}' })),
-    );
-
-    const validation = validateLanguageCatalogs({
-      languagesDirectory: directory,
-      schemaPath: path.join(directory, 'catalog.schema.json'),
-    });
-
-    expect(validation.errors).toContain(
-      'fr.json: extra: placeholder {name} is not declared by en.json',
+      `fr.json: ${key}: placeholder {name} is not declared by en.json`,
     );
   });
 

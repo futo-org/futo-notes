@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Browser } from '@playwright/test';
 
 import { BRIDGE_VERSION } from '@futo-notes/editor';
 
@@ -29,15 +29,18 @@ const EXPECTED = {
   writingsuggestions: 'false',
 };
 
-async function imeAttributes(
-  browser: import('@playwright/test').Browser,
-  url: string,
-  selector: string,
-): Promise<Record<string, string | null>> {
+type Attributes = Record<string, string | null>;
+
+/** Boot the embed on `content` and read the IME attributes off each named selector. */
+async function imeAttributes<Name extends string>(
+  browser: Browser,
+  content: string,
+  selectors: Record<Name, string>,
+): Promise<Record<Name, Attributes>> {
   const context = await browser.newContext({ hasTouch: true });
   await context.addInitScript(installFakeAndroidHost);
   const page = await context.newPage();
-  await page.goto(url);
+  await page.goto(EDITOR_URL);
   await page.waitForFunction(() =>
     (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
   );
@@ -46,23 +49,27 @@ async function imeAttributes(
     JSON.stringify({
       bridgeVersion: BRIDGE_VERSION,
       theme: 'light',
-      content: 'the quick brown fox',
+      content,
       nativeToolbar: true,
       contentPaddingInlinePx: 14,
     }),
   );
-  await page.waitForSelector(selector);
+  for (const selector of Object.values<string>(selectors)) await page.waitForSelector(selector);
   const attributes = await page.evaluate(
-    ([sel, keys]) => {
-      const el = document.querySelector(sel as string);
-      const out: Record<string, string | null> = {};
-      for (const key of keys as string[]) out[key] = el?.getAttribute(key) ?? null;
-      return out;
-    },
-    [selector, IME_ATTRIBUTES] as const,
+    ([named, keys]) =>
+      Object.fromEntries(
+        Object.entries(named).map(([name, selector]) => {
+          const el = document.querySelector(selector);
+          return [
+            name,
+            Object.fromEntries(keys.map((key) => [key, el?.getAttribute(key) ?? null])),
+          ];
+        }),
+      ),
+    [selectors as Record<string, string>, IME_ATTRIBUTES] as const,
   );
   await context.close();
-  return attributes;
+  return attributes as Record<Name, Attributes>;
 }
 
 /** Inside code the keyboard's help is corruption, so every code surface opts out. */
@@ -74,7 +81,9 @@ const CODE_EXPECTED = {
 };
 
 test('the editor hands the keyboard the intended instructions', async ({ browser }) => {
-  const attributes = await imeAttributes(browser, EDITOR_URL, '.ProseMirror');
+  const { root: attributes } = await imeAttributes(browser, 'the quick brown fox', {
+    root: '.ProseMirror',
+  });
 
   // Autocorrect on is the half that regressed; asserted by name so a future
   // "turn the squiggles off" change cannot quietly take it out again.
@@ -97,41 +106,15 @@ test('the editor hands the keyboard the intended instructions', async ({ browser
  * caret's context to reach the shell for a `reloadInputViews()`.
  */
 test('code blocks and inline code declare the autocorrect opt-out', async ({ browser }) => {
-  const context = await browser.newContext({ hasTouch: true });
-  await context.addInitScript(installFakeAndroidHost);
-  const page = await context.newPage();
-  await page.goto(EDITOR_URL);
-  await page.waitForFunction(() =>
-    (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
-  );
-  await page.evaluate(
-    (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
-    JSON.stringify({
-      bridgeVersion: BRIDGE_VERSION,
-      theme: 'light',
-      content: 'prose with `inline code` in it\n\n```js\nconst dont = 1;\n```\n',
-      nativeToolbar: true,
-      contentPaddingInlinePx: 14,
-    }),
-  );
-  await page.waitForSelector('.ProseMirror pre code');
-
-  const surfaces = await page.evaluate(
-    (keys) => {
-      const read = (selector: string) => {
-        const el = document.querySelector(selector);
-        const out: Record<string, string | null> = {};
-        for (const key of keys as string[]) out[key] = el?.getAttribute(key) ?? null;
-        return out;
-      };
-      return {
-        root: read('.ProseMirror'),
-        pre: read('.ProseMirror pre'),
-        code: read('.ProseMirror pre code'),
-        inline: read('.ProseMirror p code'),
-      };
+  const surfaces = await imeAttributes(
+    browser,
+    'prose with `inline code` in it\n\n```js\nconst dont = 1;\n```\n',
+    {
+      root: '.ProseMirror',
+      pre: '.ProseMirror pre',
+      code: '.ProseMirror pre code',
+      inline: '.ProseMirror p code',
     },
-    IME_ATTRIBUTES as unknown as string[],
   );
 
   // The prose around them is untouched — this is a scoping fix, not a retreat.
@@ -139,6 +122,4 @@ test('code blocks and inline code declare the autocorrect opt-out', async ({ bro
   expect(surfaces.pre).toEqual(CODE_EXPECTED);
   expect(surfaces.code).toEqual(CODE_EXPECTED);
   expect(surfaces.inline).toEqual(CODE_EXPECTED);
-
-  await context.close();
 });

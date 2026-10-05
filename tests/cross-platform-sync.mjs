@@ -1030,11 +1030,10 @@ async function deleteVsEdit(a, b, server) {
   // edit wins"). With the live loop running, a background cycle can push A's
   // delete or pull B's edit between the explicit steps below, so the "B first"
   // premise stops holding and A converges to the (correct, non-lossy) delete
-  // instead of B's edit — the same contended-convergence hazard the sibling
-  // scenarios (fileMovedToTwoFoldersByAandB, concurrentOfflineFolderRename,
-  // fileMoveOnAEditOnB) pause auto-sync to avoid. Pausing here changes nothing
-  // about the conflict tested (A deletes, B edits, both from the shared
-  // baseline); it only makes the stated sync ordering real.
+  // instead of B's edit — the same contended-convergence hazard the
+  // folder/move rows (FOLDER_MOVE_CASES) pause auto-sync to avoid. Pausing
+  // here changes nothing about the conflict tested (A deletes, B edits, both
+  // from the shared baseline); it only makes the stated sync ordering real.
   await a.pauseAutoSync();
   await b.pauseAutoSync();
 
@@ -1337,389 +1336,223 @@ async function tombstoneDoesNotBlockNewNote(a, b, server) {
 // They exercise the full client stack so the path-as-ID + sync frame v2
 // pieces are verified end-to-end.
 
-async function folderRenameOnAEditOnB(a, b, server) {
-  // "Folder rename on A + note edit inside on B → both apply"
-  await a.connectSync(server.url, server.password);
-  await b.connectSync(server.url, server.password);
-  // Own the a→b→a sync ordering: A's folder rename (delete+create) and B's edit
-  // must reconcile in that order. Either live loop auto-pushing/pulling out of
-  // order can orphan content or duplicate the note. Same contended-convergence
-  // family as fileMoveOnAEditOnB.
-  await a.pauseAutoSync();
-  await b.pauseAutoSync();
-  await a.writeNote('Specs/folder-support', '# Folders');
-  await a.syncNow();
-  await b.syncNow();
-  assert(await b.noteExists('Specs/folder-support'), 'B should have nested note');
+// The two-client folder/move convergence rows share one shape, so they are one
+// table walked by one runner (runFolderMoveCase). Each row still registers as
+// its own scenario under its own name, so a failure names the case.
+//
+// Shape of every row: both clients connect and PAUSE auto-sync, A writes
+// `seed` and syncs, B syncs and must see every seeded note, then A performs
+// its `a` steps and B its `b` steps with no sync in between (both offline
+// relative to each other), then the explicit `syncs` run in order and the
+// `expect` block is asserted.
+//
+// Why both clients pause: convergence in every row depends on the exact
+// explicit a→b(→a) sync ordering. With either live loop up, a move
+// (delete+create) or edit auto-pushes at an uncontrolled time and the peer's
+// live loop auto-pulls out of order — stranding an edit on a deleted path,
+// leaving a transient duplicate, reordering the last write that LWW converges
+// to, or splitting a batch that pair_local_moved_objects must see in ONE push
+// (flakes on MR !64 and !66 run-1). Pausing makes the explicit syncs the sole
+// driver; it changes nothing about the conflict each row sets up.
+//
+// Steps are [verb, ...args]: write(id, body) · delete(id) · move(from, to) ·
+// mkdir(path) · rmdir(path). `expect.files` is the exact sorted note-id set on
+// BOTH clients; `expect.content` maps id → body on BOTH clients;
+// `expect.eitherHas` is the weaker "at least one client has it" check.
+const FOLDER_MOVE_CASES = [
+  {
+    // Spec row: folder rename on A + note edit inside on B → both apply. Either
+    // the rename or the edit lands; the other applies on top via LWW. Asserted:
+    // no orphaned content (the renamed path exists somewhere).
+    name: 'folder rename on A edit on B',
+    seed: { 'Specs/folder-support': '# Folders' },
+    a: [
+      ['delete', 'Specs/folder-support'],
+      ['write', 'Specs/folders/folder-support', '# Folders'],
+    ],
+    b: [['write', 'Specs/folder-support', '# Folders\n\nNew section from B']],
+    syncs: 'aba',
+    expect: { eitherHas: 'Specs/folders/folder-support' },
+  },
+  {
+    // Spec row: file move to folder on A + edit on B → both apply; the peer
+    // edit lands on the moved path only.
+    name: 'file move on A edit on B',
+    seed: { grocery: '# Grocery' },
+    a: [
+      ['delete', 'grocery'],
+      ['write', 'Lists/grocery', '# Grocery'],
+    ],
+    b: [['write', 'grocery', '# Grocery\nupdated']],
+    syncs: 'aba',
+    expect: {
+      files: ['Lists/grocery'],
+      content: { 'Lists/grocery': '# Grocery\nupdated' },
+    },
+  },
+  {
+    // Spec row: same file moved to two different folders by A and B →
+    // last-write-wins; both converge on B's (later) destination.
+    name: 'file moved to two folders by A and B',
+    seed: { contested: '# Original' },
+    a: [
+      ['delete', 'contested'],
+      ['write', 'FolderA/contested', '# Original'],
+    ],
+    b: [
+      ['delete', 'contested'],
+      ['write', 'FolderB/contested', '# Original'],
+    ],
+    syncs: 'aba',
+    expect: { files: ['FolderB/contested'] },
+  },
+  {
+    // Both clients move the same notes to different new folders; convergence is
+    // to the later server write.
+    name: 'concurrent offline folder rename',
+    seed: { 'Specs/alpha': '# Alpha', 'Specs/beta': '# Beta' },
+    a: [
+      ['mkdir', 'Docs'],
+      ['move', 'Specs/alpha', 'Docs/alpha'],
+      ['move', 'Specs/beta', 'Docs/beta'],
+    ],
+    b: [
+      ['mkdir', 'Archive'],
+      ['move', 'Specs/alpha', 'Archive/alpha'],
+      ['move', 'Specs/beta', 'Archive/beta'],
+    ],
+    syncs: 'aba',
+    expect: { files: ['Archive/alpha', 'Archive/beta'] },
+  },
+  {
+    // A moves a note into X while B creates-then-deletes X and edits the note:
+    // one moved path carrying the merged edit.
+    name: 'move note into folder delete folder',
+    seed: { 'draft-note-01': '# Draft' },
+    a: [
+      ['mkdir', 'X'],
+      ['move', 'draft-note-01', 'X/draft-note-01'],
+    ],
+    b: [
+      ['mkdir', 'X'],
+      ['rmdir', 'X'],
+      ['write', 'draft-note-01', '# Draft\n\nedited while X was deleted'],
+    ],
+    syncs: 'aba',
+    expect: {
+      files: ['X/draft-note-01'],
+      content: { 'X/draft-note-01': '# Draft\n\nedited while X was deleted' },
+    },
+  },
+  // Adversarial rows targeting pair_local_moved_objects edge cases.
+  {
+    // One client renames AND edits before syncing: the rename must collapse
+    // into a single PUT at the new filename (object_id preserved) carrying the
+    // edit — not a DELETE + POST that tombstones the object.
+    name: 'local rename and edit in same sync',
+    seed: { grocery: '# Grocery' },
+    a: [
+      ['delete', 'grocery'],
+      ['write', 'Lists/grocery', '# Grocery\n\nMilk, eggs, bread'],
+    ],
+    b: [],
+    syncs: 'ab',
+    expect: {
+      files: ['Lists/grocery'],
+      content: { 'Lists/grocery': '# Grocery\n\nMilk, eggs, bread' },
+    },
+  },
+  {
+    // One client moves THREE notes before syncing: each pairs independently by
+    // basename, and B's pull sees three in-place renames, not tombstone+create.
+    name: 'multiple local moves in one sync',
+    seed: { apple: '# Apple', banana: '# Banana', cherry: '# Cherry' },
+    a: [
+      ['delete', 'apple'],
+      ['write', 'Fruit/apple', '# Apple'],
+      ['delete', 'banana'],
+      ['write', 'Fruit/banana', '# Banana'],
+      ['delete', 'cherry'],
+      ['write', 'Fruit/cherry', '# Cherry'],
+    ],
+    b: [],
+    syncs: 'ab',
+    expect: { files: ['Fruit/apple', 'Fruit/banana', 'Fruit/cherry'] },
+  },
+  {
+    // Both clients make the SAME rename. The second PUT 409s,
+    // resolve_update_conflict sees remote.path == its own filename, 3-way
+    // merges cleanly (identical content) and converges without a copy.
+    name: 'both clients rename to same destination',
+    seed: { shared: '# Shared' },
+    a: [
+      ['delete', 'shared'],
+      ['write', 'Docs/shared', '# Shared'],
+    ],
+    b: [
+      ['delete', 'shared'],
+      ['write', 'Docs/shared', '# Shared'],
+    ],
+    syncs: 'aba',
+    expect: { files: ['Docs/shared'], content: { 'Docs/shared': '# Shared' } },
+  },
+];
 
-  // A renames the folder (delete + create paths)
-  await a.deleteNote('Specs/folder-support');
-  await a.writeNote('Specs/folders/folder-support', '# Folders');
-  // B independently edits content at the old path
-  await b.writeNote('Specs/folder-support', '# Folders\n\nNew section from B');
+const FOLDER_MOVE_STEPS = {
+  write: (client, id, body) => client.writeNote(id, body),
+  delete: (client, id) => client.deleteNote(id),
+  move: (client, from, to) => client.moveNote(from, to),
+  mkdir: (client, path) => client.createFolder(path),
+  rmdir: (client, path) => client.deleteFolder(path),
+};
 
-  // Sync — A first, then B
-  await a.syncNow();
-  await b.syncNow();
-  await a.syncNow();
-
-  // Either the rename or the edit lands; the other applies on top via
-  // last-write-wins. We assert no orphaned content and no duplicate.
-  const aHas = await a.noteExists('Specs/folders/folder-support');
-  const bHas = await b.noteExists('Specs/folders/folder-support');
-  assert(aHas || bHas, 'one client should have the renamed/edited note');
+async function listNoteIds(client) {
+  return (await client.listNotes())
+    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
+    .sort();
 }
 
-async function fileMoveOnAEditOnB(a, b, server) {
-  // "File move to folder on A + edit on B → both apply"
+async function runFolderMoveCase(row, a, b, server) {
+  const clients = { a, b };
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
-  // Own the whole push/pull on both clients: convergence here depends on the
-  // exact a→b→a explicit sync ordering (A's move, then B's edit reconciled onto
-  // the moved path, then A pulls it back). With either live loop up, A's move
-  // (delete+create) or B's edit auto-pushes at an uncontrolled time and the
-  // peer's live loop auto-pulls out of order, so a background cycle can strand
-  // the edit on the deleted flat path or leave a transient duplicate path
-  // (flake on MR !66 run-1). Pausing both makes the explicit syncs the sole
-  // driver.
   await a.pauseAutoSync();
   await b.pauseAutoSync();
-  await a.writeNote('grocery', '# Grocery');
+
+  for (const [id, body] of Object.entries(row.seed)) await a.writeNote(id, body);
   await a.syncNow();
   await b.syncNow();
-  assert(await b.noteExists('grocery'), 'B should see the flat note');
+  for (const id of Object.keys(row.seed)) {
+    assert(await b.noteExists(id), `B should see seeded note ${id} before the offline edits`);
+  }
 
-  // A moves to a folder
-  await a.deleteNote('grocery');
-  await a.writeNote('Lists/grocery', '# Grocery');
-  // B edits the flat path
-  await b.writeNote('grocery', '# Grocery\nupdated');
+  for (const side of ['a', 'b']) {
+    for (const [verb, ...stepArgs] of row[side]) {
+      await FOLDER_MOVE_STEPS[verb](clients[side], ...stepArgs);
+    }
+  }
+  for (const side of row.syncs) await clients[side].syncNow();
 
-  await a.syncNow();
-  await b.syncNow();
-  await a.syncNow();
-  // After convergence, the peer edit should land on the moved path only.
-  const aFiles = (await a.listNotes())
-    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
-    .sort();
-  const bFiles = (await b.listNotes())
-    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
-    .sort();
-  assertEqual(
-    JSON.stringify(aFiles),
-    JSON.stringify(['Lists/grocery']),
-    'A should keep only the moved path',
-  );
-  assertEqual(
-    JSON.stringify(bFiles),
-    JSON.stringify(['Lists/grocery']),
-    'B should keep only the moved path',
-  );
-  assertEqual(
-    await a.readNote('Lists/grocery'),
-    '# Grocery\nupdated',
-    'A should have B edit at moved path',
-  );
-  assertEqual(
-    await b.readNote('Lists/grocery'),
-    '# Grocery\nupdated',
-    'B should have B edit at moved path',
-  );
-}
-
-async function fileMovedToTwoFoldersByAandB(a, b, server) {
-  // "Same file moved to two different folders by A and B → last-write-wins"
-  await a.connectSync(server.url, server.password);
-  await b.connectSync(server.url, server.password);
-  // Own the a→b→a ordering that LWW convergence depends on; a background live
-  // loop auto-pushing/pulling either move out of order breaks the deterministic
-  // last-write. Same contended-convergence family as fileMoveOnAEditOnB.
-  await a.pauseAutoSync();
-  await b.pauseAutoSync();
-  await a.writeNote('contested', '# Original');
-  await a.syncNow();
-  await b.syncNow();
-  assert(await b.noteExists('contested'), 'B should see the flat note before move');
-
-  // A moves to FolderA/, B moves to FolderB/. Both delete the flat path.
-  await a.deleteNote('contested');
-  await a.writeNote('FolderA/contested', '# Original');
-  await b.deleteNote('contested');
-  await b.writeNote('FolderB/contested', '# Original');
-
-  // A syncs first; B syncs second. Server's last-write-wins reconciles.
-  await a.syncNow();
-  await b.syncNow();
-  await a.syncNow();
-
-  // After convergence both clients should agree on the later server write.
-  const aFiles = (await a.listNotes())
-    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
-    .sort();
-  const bFiles = (await b.listNotes())
-    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
-    .sort();
-  assertEqual(
-    JSON.stringify(aFiles),
-    JSON.stringify(['FolderB/contested']),
-    'A should converge to B move destination',
-  );
-  assertEqual(
-    JSON.stringify(bFiles),
-    JSON.stringify(['FolderB/contested']),
-    'B should converge to B move destination',
-  );
-}
-
-async function concurrentOfflineFolderRename(a, b, server) {
-  await a.connectSync(server.url, server.password);
-  await b.connectSync(server.url, server.password);
-  // Own the a→b→a ordering: both clients move the same notes to different
-  // folders and convergence is to the later server write. A background live
-  // loop reordering the pushes/pulls breaks it. Same contended-convergence
-  // family as fileMovedToTwoFoldersByAandB.
-  await a.pauseAutoSync();
-  await b.pauseAutoSync();
-  await a.writeNote('Specs/alpha', '# Alpha');
-  await a.writeNote('Specs/beta', '# Beta');
-  await a.syncNow();
-  await b.syncNow();
-
-  await a.createFolder('Docs');
-  await a.moveNote('Specs/alpha', 'Docs/alpha');
-  await a.moveNote('Specs/beta', 'Docs/beta');
-  await b.createFolder('Archive');
-  await b.moveNote('Specs/alpha', 'Archive/alpha');
-  await b.moveNote('Specs/beta', 'Archive/beta');
-
-  await a.syncNow();
-  await b.syncNow();
-  await a.syncNow();
-
-  const aFiles = (await a.listNotes())
-    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
-    .sort();
-  const bFiles = (await b.listNotes())
-    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
-    .sort();
-  const expected = ['Archive/alpha', 'Archive/beta'];
-  assertEqual(
-    JSON.stringify(aFiles),
-    JSON.stringify(expected),
-    'A should converge to the later folder rename',
-  );
-  assertEqual(
-    JSON.stringify(bFiles),
-    JSON.stringify(expected),
-    'B should converge to the later folder rename',
-  );
-}
-
-async function moveNoteIntoFolderDeleteFolder(a, b, server) {
-  await a.connectSync(server.url, server.password);
-  await b.connectSync(server.url, server.password);
-  // Own the push/pull on both clients: convergence depends on the a→b→a
-  // explicit sync ordering (A's move into X, B's create+delete-X plus edit,
-  // then A pulls the merged result). With either live loop up, the moves/edits
-  // auto-push and the peer auto-pulls out of order, which can strand the edit
-  // or leave a transient extra path (flake on MR !64 run-1). Pausing both makes
-  // the explicit syncs the sole driver.
-  await a.pauseAutoSync();
-  await b.pauseAutoSync();
-  await a.writeNote('draft-note-01', '# Draft');
-  await a.syncNow();
-  await b.syncNow();
-
-  await a.createFolder('X');
-  await a.moveNote('draft-note-01', 'X/draft-note-01');
-  await b.createFolder('X');
-  await b.deleteFolder('X');
-  await b.writeNote('draft-note-01', '# Draft\n\nedited while X was deleted');
-
-  await a.syncNow();
-  await b.syncNow();
-  await a.syncNow();
-
-  const aFiles = (await a.listNotes())
-    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
-    .sort();
-  const bFiles = (await b.listNotes())
-    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
-    .sort();
-  assertEqual(
-    JSON.stringify(aFiles),
-    JSON.stringify(['X/draft-note-01']),
-    'A should have one moved draft path',
-  );
-  assertEqual(
-    JSON.stringify(bFiles),
-    JSON.stringify(['X/draft-note-01']),
-    'B should have one moved draft path',
-  );
-  assertEqual(
-    await a.readNote('X/draft-note-01'),
-    '# Draft\n\nedited while X was deleted',
-    'A should have merged edit at moved path',
-  );
-  assertEqual(
-    await b.readNote('X/draft-note-01'),
-    '# Draft\n\nedited while X was deleted',
-    'B should have merged edit at moved path',
-  );
-}
-
-async function localRenameAndEditInSameSync(a, b, server) {
-  // Single client renames a note AND edits its content before syncing.
-  // Exercises pair_local_moved_objects: the rename must collapse into
-  // a single PUT at the new filename (preserving object_id), and the
-  // edit must land in the same blob — not a DELETE + POST that would
-  // tombstone the object and lose the peer-visible history.
-  await a.connectSync(server.url, server.password);
-  await b.connectSync(server.url, server.password);
-  // Own the push: pair_local_moved_objects only collapses the rename+edit into
-  // one in-place PUT if A's single explicit syncNow carries BOTH together. With
-  // A's live loop up, its ~1s debounced auto-push can ship the rename before the
-  // edit (or as a separate cycle), defeating the pairing the scenario asserts.
-  // Pause B too so its explicit pull owns the download. Same family.
-  await a.pauseAutoSync();
-  await b.pauseAutoSync();
-  await a.writeNote('grocery', '# Grocery');
-  await a.syncNow();
-  await b.syncNow();
-  assert(await b.noteExists('grocery'), 'B should see the flat note before A renames');
-
-  // A renames AND edits in one local transaction (no sync between).
-  await a.deleteNote('grocery');
-  await a.writeNote('Lists/grocery', '# Grocery\n\nMilk, eggs, bread');
-
-  await a.syncNow();
-  await b.syncNow();
-
-  const aFiles = (await a.listNotes())
-    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
-    .sort();
-  const bFiles = (await b.listNotes())
-    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
-    .sort();
-  assertEqual(
-    JSON.stringify(aFiles),
-    JSON.stringify(['Lists/grocery']),
-    'A should have only the renamed path',
-  );
-  assertEqual(
-    JSON.stringify(bFiles),
-    JSON.stringify(['Lists/grocery']),
-    'B should pick up the rename',
-  );
-  assertEqual(
-    await a.readNote('Lists/grocery'),
-    '# Grocery\n\nMilk, eggs, bread',
-    'A should see the edited content',
-  );
-  assertEqual(
-    await b.readNote('Lists/grocery'),
-    '# Grocery\n\nMilk, eggs, bread',
-    'B should see the edited content',
-  );
-}
-
-async function multipleLocalMovesInOneSync(a, b, server) {
-  // Single client renames THREE notes simultaneously before syncing.
-  // pair_local_moved_objects must pair all three independently by
-  // basename — and B's pull side must see three in-place renames, not
-  // tombstone+create pairs.
-  await a.connectSync(server.url, server.password);
-  await b.connectSync(server.url, server.password);
-  // Own the push so all three renames land in ONE explicit syncNow (the "in one
-  // sync" this scenario is named for). A's live loop would auto-push each
-  // debounced save separately, so pair_local_moved_objects would never see them
-  // as a batch. Pause B too so its explicit pull owns the download. Same family.
-  await a.pauseAutoSync();
-  await b.pauseAutoSync();
-  await a.writeNote('apple', '# Apple');
-  await a.writeNote('banana', '# Banana');
-  await a.writeNote('cherry', '# Cherry');
-  await a.syncNow();
-  await b.syncNow();
-
-  // Move all three from root into Fruit/.
-  await a.deleteNote('apple');
-  await a.writeNote('Fruit/apple', '# Apple');
-  await a.deleteNote('banana');
-  await a.writeNote('Fruit/banana', '# Banana');
-  await a.deleteNote('cherry');
-  await a.writeNote('Fruit/cherry', '# Cherry');
-
-  await a.syncNow();
-  await b.syncNow();
-
-  const expected = ['Fruit/apple', 'Fruit/banana', 'Fruit/cherry'];
-  const aFiles = (await a.listNotes())
-    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
-    .sort();
-  const bFiles = (await b.listNotes())
-    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
-    .sort();
-  assertEqual(
-    JSON.stringify(aFiles),
-    JSON.stringify(expected),
-    'A should have all three moved paths',
-  );
-  assertEqual(
-    JSON.stringify(bFiles),
-    JSON.stringify(expected),
-    'B should converge to all three moved paths',
-  );
-}
-
-async function bothClientsRenameToSameDestination(a, b, server) {
-  // Two clients independently make the SAME rename (same source, same
-  // destination). With pair_local_moved_objects on both sides, each
-  // pushes a PUT at the new filename; the second client's PUT 409s,
-  // resolve_update_conflict sees remote.path matches its own filename
-  // (target_filename == filename branch), 3-way merges (clean — both
-  // have identical content), and converges without producing a copy.
-  await a.connectSync(server.url, server.password);
-  await b.connectSync(server.url, server.password);
-  // Own the a→b→a ordering so the second client's PUT deterministically 409s
-  // and drives resolve_update_conflict (the path this scenario exercises). A
-  // background live loop pushing either rename early scrambles which PUT
-  // conflicts. Same contended-convergence family.
-  await a.pauseAutoSync();
-  await b.pauseAutoSync();
-  await a.writeNote('shared', '# Shared');
-  await a.syncNow();
-  await b.syncNow();
-  assert(await b.noteExists('shared'), 'B should see the flat note before both rename');
-
-  // Both clients move shared → Docs/shared with identical content.
-  await a.deleteNote('shared');
-  await a.writeNote('Docs/shared', '# Shared');
-  await b.deleteNote('shared');
-  await b.writeNote('Docs/shared', '# Shared');
-
-  await a.syncNow();
-  await b.syncNow();
-  await a.syncNow();
-
-  const aFiles = (await a.listNotes())
-    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
-    .sort();
-  const bFiles = (await b.listNotes())
-    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
-    .sort();
-  assertEqual(
-    JSON.stringify(aFiles),
-    JSON.stringify(['Docs/shared']),
-    'A should have only the moved path',
-  );
-  assertEqual(
-    JSON.stringify(bFiles),
-    JSON.stringify(['Docs/shared']),
-    'B should have only the moved path',
-  );
-  assertEqual(await a.readNote('Docs/shared'), '# Shared', 'A content unchanged');
-  assertEqual(await b.readNote('Docs/shared'), '# Shared', 'B content unchanged');
+  const { files, content = {}, eitherHas } = row.expect;
+  if (eitherHas) {
+    const has = (await a.noteExists(eitherHas)) || (await b.noteExists(eitherHas));
+    assert(has, `one client should have ${eitherHas}`);
+  }
+  for (const [label, client] of [
+    ['A', a],
+    ['B', b],
+  ]) {
+    if (files) {
+      assertEqual(
+        JSON.stringify(await listNoteIds(client)),
+        JSON.stringify(files),
+        `${label} should converge to exactly these note paths`,
+      );
+    }
+    for (const [id, body] of Object.entries(content)) {
+      assertEqual(await client.readNote(id), body, `${label} content of ${id}`);
+    }
+  }
 }
 
 async function folderXVsFileXAtSameLevel(a, b, server) {
@@ -3464,44 +3297,12 @@ const scenarios = [
     fn: aNoteThatIsNotUtf8NeverOpensBlank,
     matrices: ['desktop-desktop'],
   },
-  // Folder-support v1 scenarios — see Specs § Sync conflict resolution.
-  {
-    name: 'folder rename on A edit on B',
-    fn: folderRenameOnAEditOnB,
+  // Folder-support v1 + pair_local_moved_objects rows — see FOLDER_MOVE_CASES.
+  ...FOLDER_MOVE_CASES.map((row) => ({
+    name: row.name,
+    fn: (a, b, server) => runFolderMoveCase(row, a, b, server),
     matrices: ['desktop-desktop'],
-  },
-  { name: 'file move on A edit on B', fn: fileMoveOnAEditOnB, matrices: ['desktop-desktop'] },
-  {
-    name: 'file moved to two folders by A and B',
-    fn: fileMovedToTwoFoldersByAandB,
-    matrices: ['desktop-desktop'],
-  },
-  {
-    name: 'concurrent offline folder rename',
-    fn: concurrentOfflineFolderRename,
-    matrices: ['desktop-desktop'],
-  },
-  {
-    name: 'move note into folder delete folder',
-    fn: moveNoteIntoFolderDeleteFolder,
-    matrices: ['desktop-desktop'],
-  },
-  // Adversarial scenarios targeting pair_local_moved_objects edge cases.
-  {
-    name: 'local rename and edit in same sync',
-    fn: localRenameAndEditInSameSync,
-    matrices: ['desktop-desktop'],
-  },
-  {
-    name: 'multiple local moves in one sync',
-    fn: multipleLocalMovesInOneSync,
-    matrices: ['desktop-desktop'],
-  },
-  {
-    name: 'both clients rename to same destination',
-    fn: bothClientsRenameToSameDestination,
-    matrices: ['desktop-desktop'],
-  },
+  })),
   {
     name: 'folder X and file X coexist at same level',
     fn: folderXVsFileXAtSameLevel,

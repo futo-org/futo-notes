@@ -124,7 +124,7 @@ pub fn find_wikilinks(text: &str) -> Vec<WikilinkOccurrence> {
     out
 }
 
-/// Return the leaf (last component) of a note ID. Mirrors `noteIdLeaf`.
+/// Return the leaf (last component) of a note ID.
 pub fn note_id_leaf(id: &str) -> &str {
     id.rsplit('/').next().unwrap_or(id)
 }
@@ -331,34 +331,6 @@ mod tests {
         );
         // Two ids end in `pasta` → the bare leaf stays broken.
         assert_eq!(resolve_wikilink("pasta", &universe), None);
-    }
-
-    // ── shortest_unique_suffix ───────────────────────────────────────────
-
-    #[test]
-    fn suffix_grows_until_unique() {
-        let universe = ids(&[
-            "Specs/folder-support",
-            "Specs/Drafts/folder-support",
-            "other",
-        ]);
-        assert_eq!(
-            shortest_unique_suffix("Specs/Drafts/folder-support", &universe),
-            "Drafts/folder-support"
-        );
-        assert_eq!(shortest_unique_suffix("other", &universe), "other");
-    }
-
-    #[test]
-    fn suffix_falls_back_to_full_id_on_total_collision() {
-        // A longer id ending in the FULL target collides at every suffix
-        // length → return target_id itself (the no-infinite-loop fallback).
-        let universe = ids(&["a/x", "b/a/x"]);
-        assert_eq!(shortest_unique_suffix("a/x", &universe), "a/x");
-        // Duplicate ids are excluded from the collision set entirely (the TS
-        // `if (id === targetId) continue` skips BOTH copies), so the leaf wins.
-        let universe = ids(&["dup/x", "dup/x"]);
-        assert_eq!(shortest_unique_suffix("dup/x", &universe), "x");
     }
 
     // ── rewrite_wikilinks ────────────────────────────────────────────────

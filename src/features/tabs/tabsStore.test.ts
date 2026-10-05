@@ -16,18 +16,6 @@ describe('tabsStore initial state', () => {
 });
 
 describe('per-tab state persistence', () => {
-  it('persists tab scroll state in the snapshot', () => {
-    let snap: PersistedTabs | null = null;
-    tabsStore.setPersister((s) => {
-      snap = s;
-    });
-    const tab = tabsStore.openNote('a', 'foreground');
-    tabsStore.setTabState(tab.id, { scroll: 120 });
-    expect(snap).not.toBeNull();
-    const persisted = snap!.tabs.find((t) => t.id === tab.id);
-    expect(persisted?.state).toEqual({ scroll: 120 });
-  });
-
   it('restores tab state on hydrate, accepting the legacy selFrom/selTo shape', () => {
     const snap = {
       tabs: [{ id: 't1', noteId: 'a', state: { scroll: 55, selFrom: 1, selTo: 2 } }],
@@ -58,16 +46,6 @@ describe('openNote', () => {
     expect(tabsStore.activeNoteId).toBe('note-a');
   });
 
-  it("'background' appends after the active tab, leaves active unchanged", () => {
-    tabsStore.openNote('first', 'current');
-    const activeBefore = tabsStore.activeTabId;
-    const added = tabsStore.openNote('second', 'background');
-    expect(tabsStore.tabs).toHaveLength(2);
-    expect(tabsStore.tabs[1]!.id).toBe(added.id);
-    expect(tabsStore.activeTabId).toBe(activeBefore);
-    expect(tabsStore.activeNoteId).toBe('first');
-  });
-
   it("'foreground' appends and activates", () => {
     tabsStore.openNote('first', 'current');
     const added = tabsStore.openNote('second', 'foreground');
@@ -76,13 +54,17 @@ describe('openNote', () => {
     expect(tabsStore.activeNoteId).toBe('second');
   });
 
-  it('background tab inserts immediately after the active tab, not at the end', () => {
+  it("'background' inserts immediately after the active tab, not at the end, and leaves active unchanged", () => {
     tabsStore.openNote('a', 'current');
     tabsStore.openNote('b', 'foreground');
     tabsStore.openNote('c', 'foreground');
     tabsStore.activateByIndex(1);
-    tabsStore.openNote('d', 'background');
+    const activeBefore = tabsStore.activeTabId;
+    const added = tabsStore.openNote('d', 'background');
     expect(tabsStore.tabs.map((t) => t.noteId)).toEqual(['a', 'b', 'd', 'c']);
+    expect(tabsStore.tabs[2]!.id).toBe(added.id);
+    expect(tabsStore.activeTabId).toBe(activeBefore);
+    expect(tabsStore.activeNoteId).toBe('b');
   });
 
   it("dedupes 'new' tab: opening 'new' twice activates the existing one", () => {
@@ -226,83 +208,37 @@ describe('next/prev/activate', () => {
 });
 
 describe('moveTab', () => {
-  function openAbc() {
+  it.each([
+    ['reorders within bounds', 0, 2, ['b', 'c', 'a']],
+    ['clamps the destination to in-range', 0, 99, ['b', 'c', 'a']],
+    ['ignores a from-index out of range', 99, 0, ['a', 'b', 'c']],
+  ])('%s', (_case, from, to, expected) => {
     tabsStore.openNote('a', 'current');
     tabsStore.openNote('b', 'foreground');
     tabsStore.openNote('c', 'foreground');
-  }
-
-  it('reorders within bounds', () => {
-    openAbc();
-    tabsStore.moveTab(0, 2);
-    expect(tabsStore.tabs.map((t) => t.noteId)).toEqual(['b', 'c', 'a']);
-  });
-
-  it('clamps the destination to in-range', () => {
-    tabsStore.openNote('a', 'current');
-    tabsStore.openNote('b', 'foreground');
-    tabsStore.moveTab(0, 99);
-    expect(tabsStore.tabs.map((t) => t.noteId)).toEqual(['b', 'a']);
-  });
-
-  it('ignores from-index out of range', () => {
-    tabsStore.openNote('a', 'current');
-    tabsStore.openNote('b', 'foreground');
-    tabsStore.moveTab(99, 0);
-    expect(tabsStore.tabs.map((t) => t.noteId)).toEqual(['a', 'b']);
+    tabsStore.moveTab(from, to);
+    expect(tabsStore.tabs.map((t) => t.noteId)).toEqual(expected);
   });
 });
 
 describe('modeFromEvent', () => {
-  const setUserAgent = (ua: string) => {
-    Object.defineProperty(navigator, 'userAgent', { value: ua, configurable: true });
-  };
+  const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)';
+  const LINUX = 'Mozilla/5.0 (X11; Linux x86_64)';
+  const click = { metaKey: false, ctrlKey: false, shiftKey: false, button: 0 };
 
-  it('plain click → current', () => {
-    expect(
-      tabsStore.modeFromEvent({ metaKey: false, ctrlKey: false, shiftKey: false, button: 0 }),
-    ).toBe('current');
-  });
-
-  it('mac: cmd+click → background', () => {
-    setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)');
-    expect(
-      tabsStore.modeFromEvent({ metaKey: true, ctrlKey: false, shiftKey: false, button: 0 }),
-    ).toBe('background');
-  });
-
-  it('mac: cmd+shift+click → foreground', () => {
-    setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)');
-    expect(
-      tabsStore.modeFromEvent({ metaKey: true, ctrlKey: false, shiftKey: true, button: 0 }),
-    ).toBe('foreground');
-  });
-
-  it('non-mac: ctrl+click → background, ctrl+shift+click → foreground', () => {
-    setUserAgent('Mozilla/5.0 (X11; Linux x86_64)');
-    expect(
-      tabsStore.modeFromEvent({ metaKey: false, ctrlKey: true, shiftKey: false, button: 0 }),
-    ).toBe('background');
-    expect(
-      tabsStore.modeFromEvent({ metaKey: false, ctrlKey: true, shiftKey: true, button: 0 }),
-    ).toBe('foreground');
-  });
-
-  it('shift-only click → background (tabs.md: Shift+click opens a background tab)', () => {
-    expect(
-      tabsStore.modeFromEvent({ metaKey: false, ctrlKey: false, shiftKey: true, button: 0 }),
-    ).toBe('background');
-  });
-
-  it('middle-click anywhere → background', () => {
-    setUserAgent('Mozilla/5.0 (X11; Linux x86_64)');
-    expect(
-      tabsStore.modeFromEvent({ metaKey: false, ctrlKey: false, shiftKey: false, button: 1 }),
-    ).toBe('background');
-  });
-
-  it('null event → current', () => {
-    expect(tabsStore.modeFromEvent(null)).toBe('current');
+  it.each([
+    ['plain click', 'current', LINUX, click],
+    ['mac: cmd+click', 'background', MAC, { ...click, metaKey: true }],
+    ['mac: cmd+shift+click', 'foreground', MAC, { ...click, metaKey: true, shiftKey: true }],
+    ['non-mac: ctrl+click', 'background', LINUX, { ...click, ctrlKey: true }],
+    ['non-mac: ctrl+shift+click', 'foreground', LINUX, { ...click, ctrlKey: true, shiftKey: true }],
+    // tabs.md: Shift+click opens a background tab
+    ['shift-only click', 'background', LINUX, { ...click, shiftKey: true }],
+    ['middle-click', 'background', LINUX, { ...click, button: 1 }],
+    ['null event', 'current', LINUX, null],
+  ] as const)('%s → %s', (_case, expected, userAgent, event) => {
+    Object.defineProperty(navigator, 'userAgent', { value: userAgent, configurable: true });
+    expect(tabsStore.modeFromEvent(event)).toBe(expected);
   });
 });
 

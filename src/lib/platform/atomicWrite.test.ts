@@ -73,20 +73,16 @@ describe('writeAtomicText', () => {
     }
   });
 
-  it('preserves Unicode content exactly', async () => {
-    const filePath = path.join(tmpDir, 'unicode.md');
-    const unicode =
-      '# Hello \u4e16\u754c \ud83c\udf0d\n\nCaf\u00e9 \u00fc\u00f6\u00e4 \u2603\ufe0f \u2764\ufe0f\u200d\ud83d\udd25';
-    await writeAtomicText(filePath, unicode, adapter);
-    const content = await fs.readFile(filePath, 'utf-8');
-    expect(content).toBe(unicode);
-  });
-
-  it('handles empty content', async () => {
-    const filePath = path.join(tmpDir, 'empty.md');
-    await writeAtomicText(filePath, '', adapter);
-    const content = await fs.readFile(filePath, 'utf-8');
-    expect(content).toBe('');
+  it.each([
+    [
+      'preserves Unicode content exactly',
+      '# Hello \u4e16\u754c \ud83c\udf0d\n\nCaf\u00e9 \u00fc\u00f6\u00e4 \u2603\ufe0f \u2764\ufe0f\u200d\ud83d\udd25',
+    ],
+    ['handles empty content', ''],
+  ])('%s', async (_name, text) => {
+    const filePath = path.join(tmpDir, 'round-trip.md');
+    await writeAtomicText(filePath, text, adapter);
+    expect(await fs.readFile(filePath, 'utf-8')).toBe(text);
   });
 
   it('throws on invalid path (no parent)', async () => {

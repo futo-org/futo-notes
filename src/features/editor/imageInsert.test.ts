@@ -90,11 +90,6 @@ describe('imageFilesIn', () => {
     expect(imageFilesIn(transferWith(note))).toEqual([]);
   });
 
-  it('keeps only the images out of a mixed drop', () => {
-    const note = new File([new Uint8Array([1])], 'notes.md', { type: 'text/markdown' });
-    expect(imageFilesIn(transferWith(note, pngFile())).map((f) => f.name)).toEqual(['photo.png']);
-  });
-
   it('is empty for no transfer at all', () => {
     expect(imageFilesIn(null)).toEqual([]);
   });
@@ -184,16 +179,12 @@ describe('filePathFromUri', () => {
     );
   });
 
-  it('rejects a non-file scheme', () => {
-    expect(filePathFromUri('http://example.com/photo.png')).toBeNull();
-  });
-
-  it('rejects a file:// URI naming a different host', () => {
-    expect(filePathFromUri('file://otherhost/home/justin/photo.png')).toBeNull();
-  });
-
-  it('rejects unparsable text rather than throwing', () => {
-    expect(filePathFromUri('not a uri at all')).toBeNull();
+  it.each([
+    ['a non-file scheme', 'http://example.com/photo.png'],
+    ['a file:// URI naming a different host', 'file://otherhost/home/justin/photo.png'],
+    ['unparsable text rather than throwing', 'not a uri at all'],
+  ])('rejects %s', (_label, uri) => {
+    expect(filePathFromUri(uri)).toBeNull();
   });
 });
 

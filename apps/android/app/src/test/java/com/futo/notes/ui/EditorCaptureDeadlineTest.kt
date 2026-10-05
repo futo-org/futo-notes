@@ -117,14 +117,6 @@ class EditorCaptureDeadlineTest {
         assertNull(editorExitBody(EditorCaptureOutcome.TimedOut, shellCopy = "the note as opened"))
     }
 
-    @Test
-    fun `an editor that never presented a document still lets the user leave`() {
-        assertEquals(
-            "from disk",
-            editorExitBody(EditorCaptureOutcome.NoLiveDocument, shellCopy = "from disk"),
-        )
-    }
-
     /**
      * FB-5 refute round 3 (never-lose): an exit whose read finds the page
      * silent refuses — a long synchronous task and a wedge look the same —

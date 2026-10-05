@@ -581,23 +581,25 @@ mod tests {
         std::fs::remove_dir_all(other).unwrap();
     }
 
+    /// The shell's rename pairs reach the engine field for field. What the
+    /// engine does with them is owned by futo-notes-store's
+    /// `reported_external_changes_*` tests.
     #[test]
-    fn refresh_external_changes_impl_projects_the_complete_engine_mutation() {
+    fn refresh_external_changes_impl_hands_renames_to_the_engine() {
         let root = temp_root();
         let store = LocalNoteStore::new(root.clone());
         store.write("Old", "body", Some(10)).unwrap();
-        store.write("Gone", "deleted", Some(5)).unwrap();
         std::fs::rename(root.join("Old.md"), root.join("New.md")).unwrap();
-        std::fs::remove_file(root.join("Gone.md")).unwrap();
 
+        let rename = ExternalRenamePair {
+            from_id: "Old".to_owned(),
+            to_id: "New".to_owned(),
+        };
         let mutation = local_notes_refresh_external_changes_impl(
             &store,
             &["New".to_owned()],
-            &["Gone".to_owned()],
-            vec![ExternalRenamePair {
-                from_id: "Old".to_owned(),
-                to_id: "New".to_owned(),
-            }],
+            &[],
+            vec![rename],
         )
         .unwrap();
 
@@ -608,10 +610,6 @@ mod tests {
                 to: "New".to_owned(),
             }]
         );
-        assert_eq!(mutation.removed, ["Gone", "Old"]);
-        assert_eq!(mutation.upserted.len(), 1);
-        assert_eq!(mutation.upserted[0].note.id, "New");
-        assert_eq!(mutation.upserted[0].position, 0);
         std::fs::remove_dir_all(root).unwrap();
     }
 }

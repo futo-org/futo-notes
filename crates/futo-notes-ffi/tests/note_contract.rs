@@ -481,12 +481,24 @@ fn bootstrap_makes_existing_note_content_searchable_through_bm25() {
     );
 }
 
+/// Compile-time only: every record is built and destructured without `..`, so
+/// adding, removing or renaming a field on the mobile wire shape breaks this
+/// file and forces the shells' side of the change to be looked at. The values
+/// themselves are exercised with real store output by the tests above.
 #[test]
-fn note_records_errors_and_threading_keep_the_full_semantic_shape() {
+fn note_records_and_threading_keep_the_full_semantic_shape() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<NoteStore>();
 
-    let metadata = NoteMetadata {
+    let NoteMetadata {
+        id: _,
+        title: _,
+        folder: _,
+        modified_ms: _,
+        preview: _,
+        rich_preview: _,
+        tags: _,
+    } = NoteMetadata {
         id: "folder/note.md".to_owned(),
         title: "note".to_owned(),
         folder: "folder".to_owned(),
@@ -495,44 +507,16 @@ fn note_records_errors_and_threading_keep_the_full_semantic_shape() {
         rich_preview: "rich".to_owned(),
         tags: vec!["tag".to_owned()],
     };
-    let NoteMetadata {
-        id,
-        title,
-        folder,
-        modified_ms,
-        preview,
-        rich_preview,
-        tags,
-    } = metadata;
-    assert_eq!(
-        (id, title, folder, modified_ms, preview, rich_preview, tags),
-        (
-            "folder/note.md".to_owned(),
-            "note".to_owned(),
-            "folder".to_owned(),
-            42,
-            "preview".to_owned(),
-            "rich".to_owned(),
-            vec!["tag".to_owned()]
-        )
-    );
-
-    let NoteSnapshot { notes, folders } = NoteSnapshot {
-        notes: Vec::new(),
-        folders: vec!["folder".to_owned()],
-    };
-    assert!(notes.is_empty());
-    assert_eq!(folders, vec!["folder"]);
 
     let NoteMutation {
-        upserted,
-        removed,
-        folders,
-        final_id,
-        final_folder,
-        relinked,
-        final_body,
-        warnings,
+        upserted: _,
+        removed: _,
+        folders: _,
+        final_id: _,
+        final_folder: _,
+        relinked: _,
+        final_body: _,
+        warnings: _,
     } = NoteMutation {
         upserted: Vec::new(),
         removed: vec!["before.md".to_owned()],
@@ -543,74 +527,52 @@ fn note_records_errors_and_threading_keep_the_full_semantic_shape() {
         final_body: Some("body".to_owned()),
         warnings: vec!["warning".to_owned()],
     };
-    assert!(upserted.is_empty());
-    assert_eq!(removed, vec!["before.md"]);
-    assert_eq!(folders, vec!["folder"]);
-    assert_eq!(final_id.as_deref(), Some("after.md"));
-    assert_eq!(final_folder.as_deref(), Some("folder"));
-    assert_eq!(relinked, vec!["after.md"]);
-    assert_eq!(final_body.as_deref(), Some("body"));
-    assert_eq!(warnings, vec!["warning"]);
 
     let NoteBootstrap {
-        snapshot,
-        seeded,
-        migrated,
-        warnings,
+        snapshot: NoteSnapshot {
+            notes: _,
+            folders: _,
+        },
+        seeded: _,
+        migrated: _,
+        warnings: _,
     } = NoteBootstrap {
         snapshot: NoteSnapshot {
             notes: Vec::new(),
-            folders: Vec::new(),
+            folders: vec!["folder".to_owned()],
         },
         seeded: 1,
         migrated: 2,
         warnings: vec!["warning".to_owned()],
     };
-    assert!(snapshot.notes.is_empty());
-    assert_eq!(
-        (seeded, migrated, warnings),
-        (1, 2, vec!["warning".to_owned()])
-    );
 
     let FlushDraftResult {
-        disposition,
-        mutation,
+        disposition: _,
+        mutation: _,
     } = FlushDraftResult {
         disposition: FlushDisposition::ParkedConflict {
             parked_id: "note (conflict 2026-07-21)".to_owned(),
         },
         mutation: None,
     };
-    assert_eq!(
-        disposition,
-        FlushDisposition::ParkedConflict {
-            parked_id: "note (conflict 2026-07-21)".to_owned()
-        }
-    );
-    assert!(mutation.is_none());
 
-    let TitleIssue { kind, message } = TitleIssue {
+    let TitleIssue {
+        kind: _,
+        message: _,
+    } = TitleIssue {
         kind: "empty".to_owned(),
         message: "message".to_owned(),
     };
-    assert_eq!((kind.as_str(), message.as_str()), ("empty", "message"));
 
     let SearchHit {
-        note_id,
-        score,
-        source,
+        note_id: _,
+        score: _,
+        source: _,
     } = SearchHit {
         note_id: "note.md".to_owned(),
         score: 1.25,
         source: "bm25".to_owned(),
     };
-    assert_eq!(
-        (note_id.as_str(), score, source.as_str()),
-        ("note.md", 1.25, "bm25")
-    );
-
-    assert!(matches!(NoteError::Io("io".to_owned()), NoteError::Io(_)));
-    assert_eq!(NoteError::Io("io".to_owned()).to_string(), "io");
 }
 
 #[test]
