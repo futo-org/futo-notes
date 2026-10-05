@@ -45,6 +45,8 @@
  * plugin, for the same reason `handlePaste` is: direct props are consulted
  * before every plugin keymap, so this wins deterministically over the preset's
  * own Enter/Tab bindings without depending on plugin registration order.
+ * While the `[[` suggestion popup is open, Enter and Tab are the popup's
+ * (accept), so this module declines both.
  * Everything it does not explicitly claim falls through untouched —
  * Shift-Enter hard breaks outside a table (inside one, `insertLineBreakInTableCell`
  * claims it — see that command's own doc), Mod-Enter's `exitTable`,
@@ -71,6 +73,7 @@ import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
 import { blockFormatAtPos, changeBlockIndent } from './blockCommands';
 import { enclosingListItem } from './caretContext';
+import { isWikilinkSuggestOpen } from './wikilink/autocomplete';
 
 /**
  * The cell rect of a cursor/text selection inside one table cell, or null for
@@ -312,6 +315,15 @@ export function handleParityKeyDown(view: ProseView, event: KeyboardEvent): bool
   }
   const armed = tabEscapeArmed.get(view) === true;
   if (event.key !== 'Tab') tabEscapeArmed.delete(view);
+
+  /* An open `[[` suggestion popup owns Enter and Tab (accept the highlighted
+   * row). Its keymap is a plugin prop and this is a direct prop, which runs
+   * first, so without this a checked task item split / a table-cell Enter won
+   * over the accept and the `[[query` stayed as literal text (RC-20). */
+  if ((event.key === 'Enter' || event.key === 'Tab') && isWikilinkSuggestOpen(view.state)) {
+    tabEscapeArmed.delete(view);
+    return false;
+  }
 
   if (event.key === 'Enter' && !event.shiftKey) {
     return (

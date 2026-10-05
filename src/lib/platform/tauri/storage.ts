@@ -8,8 +8,9 @@ import {
   stat,
   writeTextFile,
 } from '@tauri-apps/plugin-fs';
+import { toWellFormedText } from '@futo-notes/editor';
 
-import { writeAtomicText, type AtomicWriteFS } from '../atomicWrite';
+import { sweepStaleAtomicTemps, writeAtomicText, type AtomicWriteFS } from '../atomicWrite';
 import { isNotFound } from '../fsErrors';
 import { ensureSafeRelativePath, safeAppdataPath } from '../pathSafety';
 import type { DirFileEntry, PlatformFS } from '../types';
@@ -18,6 +19,11 @@ type TauriStorage = Pick<
   PlatformFS,
   'readAppData' | 'writeAppData' | 'deleteAppData' | 'listAppData' | 'listVaultFiles' | 'deleteFile'
 >;
+
+export type TauriStorageWithSweep = TauriStorage & {
+  /** Removes stale `writeAtomicText` temps left in the vault by an interrupted write. */
+  sweepStaleTemps(): Promise<void>;
+};
 
 interface TauriStorageDependencies {
   getNotesRoot: () => Promise<string>;
@@ -49,10 +55,29 @@ function dateToMs(date: Date | null | undefined): number {
   return date?.getTime() ?? Date.now();
 }
 
-export function createTauriStorage({ getNotesRoot }: TauriStorageDependencies): TauriStorage {
+// The directories `writeAppData` targets: the vault root (.app-config.json,
+// .app-state.json) and the crash-log folder.
+const APP_DATA_DIRS = ['', '.crashlogs'];
+
+export function createTauriStorage({
+  getNotesRoot,
+}: TauriStorageDependencies): TauriStorageWithSweep {
   return {
+    async sweepStaleTemps() {
+      try {
+        const root = await getNotesRoot();
+        for (const dir of APP_DATA_DIRS) {
+          await sweepStaleAtomicTemps(dir ? `${root}/${dir}` : root, { readDir, remove });
+        }
+      } catch {
+        /* Best-effort: an unreachable vault is reported elsewhere. */
+      }
+    },
+
     async readAppData(path) {
-      const fullPath = safeAppdataPath(await getNotesRoot(), path);
+      // `exists` and `readTextFile` are raw plugin calls: a lone surrogate in the
+      // path would leave them pending for ever on WebKitGTK (RC-95).
+      const fullPath = toWellFormedText(safeAppdataPath(await getNotesRoot(), path));
       try {
         if (!(await withTimeout(`exists(${path})`, exists(fullPath)))) return null;
         return await withTimeout(`readAppData(${path})`, readTextFile(fullPath));

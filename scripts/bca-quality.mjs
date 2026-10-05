@@ -10,6 +10,8 @@
 // 3. Runs the ratchet gate: `bca check` exits 2 only when a function is a NEW
 //    or WORSENED offender against .bca-baseline.toml. Existing debt stays
 //    invisible until its baseline row is deleted, so MR diffs stay signal.
+//    On an MR (or with BCA_DIFF_BASE set) the gate is scoped to the files the
+//    MR changed — see gateArgs.
 //
 // Artifacts are collected with --no-fail and validated as reports before being
 // trusted (M11: a job that misses its purpose fails red — a download that
@@ -149,6 +151,34 @@ function validateCodeClimateReport(file) {
   return Array.isArray(parsed) && parsed.every((finding) => finding && typeof finding === 'object');
 }
 
+// On an MR the gate judges only the files the MR touched: debt that drifted in
+// elsewhere on main is not this MR's finding, and gating on it turned every
+// badge yellow. The Code Climate artifact stays whole-tree — GitLab diffs it
+// against main's report itself, and a partial one would read as mass "fixed".
+export function gateArgs(diffBase) {
+  return diffBase ? ['check', '--since', diffBase, '--changed-only'] : ['check'];
+}
+
+function git(args) {
+  return spawnSync('git', args, { cwd: ROOT, stdio: 'ignore' }).status === 0;
+}
+
+// `--since` diffs base...HEAD, which needs their merge base in a shallow CI
+// clone. Deepen once; if it is still unreachable, gate the whole tree (the
+// stricter answer) rather than let `--changed-only` fail the job as a tool error.
+function resolveDiffBase() {
+  const base = process.env.BCA_DIFF_BASE || process.env.CI_MERGE_REQUEST_DIFF_BASE_SHA;
+  if (!base) return null;
+  const reachable = () => git(['merge-base', base, 'HEAD']);
+  if (!reachable()) {
+    git(['fetch', '--quiet', '--depth=200', 'origin', base]);
+    git(['fetch', '--quiet', '--deepen=200']);
+  }
+  if (reachable()) return base;
+  console.error(`bca-quality: diff base ${base} unreachable; gating the whole tree`);
+  return null;
+}
+
 function main() {
   const binary = ensureBca();
   if (!binary) {
@@ -196,7 +226,7 @@ function main() {
   // The gate runs last so both artifacts publish even when it fails (CI
   // artifacts are `when: always`). Exit codes: 0 clean, 2 new/worsened
   // offender, anything else is a tool error and must not read as a pass.
-  const gate = runBca(binary, ['check']);
+  const gate = runBca(binary, gateArgs(resolveDiffBase()));
   if (gate === null) {
     console.error('\nBCA-DID-NOT-RUN: bca check could not run.');
     process.exit(1);

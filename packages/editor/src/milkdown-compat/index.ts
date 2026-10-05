@@ -15,6 +15,12 @@
  *    in front of `* > quote` is not written at all.
  * 2. `[](url)` loses its href along with its empty label. A remark transformer
  *    gives the link its URL as visible text (`./emptyLink`).
+ * 3a. A title-less `![alt](src)` parses to `title: null`, which the preset's own
+ *    image schema rejects; `./imageTitle` gives it the empty string.
+ * 3b. An EMPTY task item has no text for GFM's `[ ]` marker to be followed by,
+ *    so `- [ ]` parsed as a bullet holding the literal text `[ ]`, and the item
+ *    saved as a bare `-`. `./emptyTaskItem` (with `./listItemFiller`) writes and
+ *    reads it as a task item.
  * Ambiguous bullet contents use CommonMark's interpretation. Empty schema
  * fillers are still omitted by `listItemFiller`.
  *
@@ -36,10 +42,31 @@
  *    and no rendered output reads. Dropping it also takes a whole-document walk off
  *    every keystroke (AGENTS.md M5).
  *
+ * One more fork is not a round-trip fix but an input one (FB-19, L6f-2):
+ * `./inlineNodesCursor` replaces `inlineNodesCursorPlugin`, whose
+ * `compositionend` handler claimed the event and so kept ProseMirror from ever
+ * ending an IME composition that committed between two non-text inline nodes
+ * (two wikilink chips, an image and a chip). `view.composing` stayed set: `- `
+ * stopped making a list and the host's `isComposing()` stuck true.
+ *
  * `./atxEscape`, `./underscoreEscape` and `./stringifyHandlers` are the
  * serializer-side members of the same set, from the tag work (#102): remark
  * escapes every line-leading `#`, which destroys a `#tag`, and every `_` in
  * prose, which rewrites `snake_case` and destroys `#dog_problems`.
+ * `./stringifyHandlers` also closes two upstream escaping holes the 2026-09
+ * hardening campaign found: Milkdown's `text` handler writes a run that ends in
+ * whitespace with no escaping at all, and an autolink's backslash doubled on
+ * every save. `./inlineHtmlIndent` gives a multi-line inline HTML tag back the
+ * continuation indent the parser strips, which otherwise shrank every save.
+ * `./attentionEncoding` puts back the flanking encoding Milkdown's own `strong`
+ * and `emphasis` handlers drop, so `**Note:**bar` stays bold.
+ *
+ * Structure, from the same campaign: `./linkDefinitions` keeps a link
+ * reference definition nothing uses (upstream deleted every one), `./tableWidth`
+ * pads a ragged table at the end rather than letting `fixTables` shift its rows,
+ * `./tableAlignment` keeps a cell's missing alignment through a paste, and
+ * `./trailingParagraph` stops the `trailing` plugin's parked paragraph from
+ * being written as a second trailing newline.
  *
  * `./frontmatter` is the one member that is an ADDITION rather than a fork: the
  * preset has no front matter construct at all, so `---\ntags: [a, b]\n---`
@@ -59,6 +86,8 @@
  */
 import {
   commonmark,
+  inlineNodesCursorPlugin as upstreamInlineNodesCursorPlugin,
+  remarkInlineLinkPlugin,
   remarkPreserveEmptyLinePlugin,
   syncHeadingIdPlugin,
   syncListOrderPlugin,
@@ -66,18 +95,30 @@ import {
 import { gfm, keepTableAlignPlugin, tableEditingPlugin } from '@milkdown/kit/preset/gfm';
 import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 
+import { attentionEncodingPlugin } from './attentionEncoding';
 import { remarkExpandEmptyLinksPlugin } from './emptyLink';
+import { remarkInlineHtmlIndentPlugin } from './inlineHtmlIndent';
+import { remarkEmptyTaskItemPlugin } from './emptyTaskItem';
+import { remarkImageTitlePlugin } from './imageTitle';
+import { inlineNodesCursorPlugin } from './inlineNodesCursor';
+import { remarkInlineUsedLinkDefinitionsPlugin } from './linkDefinitions';
 import { blankLineJoinPlugin, remarkBlankLineParagraphsPlugin } from './emptyLine';
 import { frontmatterPlugins } from './frontmatter';
 import { paragraphFillerGuard, paragraphWithoutFillerSchema } from './listItemFiller';
 import { scopedListOrderPlugin } from './listOrder';
+import { tightListItemSchema } from './listItemSpread';
 import { scopedKeepTableAlignPlugin, scopedTableEditingPlugin } from './tablePasses';
+import { tableAlignmentSchemas } from './tableAlignment';
+import { remarkPadTableRowsPlugin } from './tableWidth';
+import { trailingParagraphDocSchema } from './trailingParagraph';
 
 export * from './atxEscape';
 export * from './bareUrl';
 export * from './stringifyHandlers';
 export * from './underscoreEscape';
 export { expandEmptyLinks } from './emptyLink';
+export { markEmptyTaskItems } from './emptyTaskItem';
+export { defaultImageTitles } from './imageTitle';
 export { blankLineJoin, fixEmptyLinePlaceholders, restoreBlankLineParagraphs } from './emptyLine';
 export {
   FRONTMATTER_CLASS,
@@ -86,11 +127,21 @@ export {
   FRONTMATTER_NODE,
 } from './frontmatter';
 export type { MdastNode } from './mdast';
+export {
+  hasSurplusTrailingEmptyParagraphs,
+  withoutTrailingEmptyParagraphs,
+} from './trailingParagraph';
 
 /** The two entries `remarkPreserveEmptyLinePlugin` contributes to the preset. */
 const UPSTREAM_EMPTY_LINE_ENTRIES: readonly unknown[] = [
   remarkPreserveEmptyLinePlugin.options,
   remarkPreserveEmptyLinePlugin.plugin,
+];
+
+/** `remarkInlineLinkPlugin`'s two entries — replaced by `./linkDefinitions`. */
+const UPSTREAM_INLINE_LINK_ENTRIES: readonly unknown[] = [
+  remarkInlineLinkPlugin.options,
+  remarkInlineLinkPlugin.plugin,
 ];
 
 /** `syncHeadingIdPlugin`'s one entry — removed with no replacement (see 4). */
@@ -137,6 +188,28 @@ function withoutPresetEntries(
   return kept;
 }
 
+/**
+ * `plugins` with `upstream` swapped for `replacement` at the same index — for a
+ * fork whose position matters: where a `handleDOMEvents` plugin sits in the
+ * list decides which of two plugins claims an event first. Throws, like
+ * `withoutPresetEntries`, when the preset no longer holds `upstream`.
+ */
+function replacePresetEntry(
+  plugins: MilkdownPlugin[],
+  upstream: MilkdownPlugin,
+  replacement: MilkdownPlugin,
+  what: string,
+): MilkdownPlugin[] {
+  const at = plugins.indexOf(upstream);
+  if (at < 0) {
+    throw new Error(
+      `milkdown-compat: expected to replace the upstream ${what} entry in the preset, ` +
+        `found none. Re-check @milkdown/preset-commonmark's composition against this module.`,
+    );
+  }
+  return plugins.map((plugin, index) => (index === at ? replacement : plugin));
+}
+
 /** The upstream preset minus every plugin this module forks or drops. */
 function upstreamPresetWithoutForkedPlugins(): MilkdownPlugin[] {
   const withoutEmptyLine = withoutPresetEntries(
@@ -144,12 +217,27 @@ function upstreamPresetWithoutForkedPlugins(): MilkdownPlugin[] {
     UPSTREAM_EMPTY_LINE_ENTRIES,
     'empty-line',
   );
-  const withoutHeadingId = withoutPresetEntries(
+  const withoutInlineLink = withoutPresetEntries(
     withoutEmptyLine,
+    UPSTREAM_INLINE_LINK_ENTRIES,
+    'inline-link',
+  );
+  const withoutHeadingId = withoutPresetEntries(
+    withoutInlineLink,
     UPSTREAM_HEADING_ID_ENTRIES,
     'heading-id',
   );
-  return withoutPresetEntries(withoutHeadingId, UPSTREAM_LIST_ORDER_ENTRIES, 'list-order');
+  const withoutListOrder = withoutPresetEntries(
+    withoutHeadingId,
+    UPSTREAM_LIST_ORDER_ENTRIES,
+    'list-order',
+  );
+  return replacePresetEntry(
+    withoutListOrder,
+    upstreamInlineNodesCursorPlugin,
+    inlineNodesCursorPlugin,
+    'inline-cursor',
+  );
 }
 
 let cached: MilkdownPlugin[] | null = null;
@@ -172,6 +260,15 @@ export function gfmWithCompat(): MilkdownPlugin[] {
     ),
     scopedKeepTableAlignPlugin,
     scopedTableEditingPlugin,
+    /* Ragged rows squared up at the end, before `fixTables` can pad them at
+     * the start (see `./tableWidth`). */
+    ...remarkPadTableRowsPlugin,
+    /* After the preset, whose cell nodes they re-register: a cell with no
+     * alignment keeps none through a paste (see `./tableAlignment`). */
+    ...tableAlignmentSchemas,
+    /* After the preset, whose task-list support extends `list_item`: an item the
+     * editor makes is tight, like one read from a tight file (see `./listItemSpread`). */
+    tightListItemSchema,
   ];
   return cachedGfm;
 }
@@ -197,21 +294,31 @@ export function commonmarkWithCompat(): MilkdownPlugin[] {
   cached ??= [
     ...upstreamPresetWithoutForkedPlugins(),
     ...remarkBlankLineParagraphsPlugin,
+    /* After the blank-line restore, which counts gaps by source line: a used
+     * definition deleted before it left its lines behind as empty paragraphs. */
+    ...remarkInlineUsedLinkDefinitionsPlugin,
     blankLineJoinPlugin,
+    attentionEncodingPlugin,
     /* After the preset (it upserts the preset's `paragraph` by id), and part of
      * the same rule as the two above: without it, the empty paragraph the
      * schema puts in front of `* > quote` would save as a bare `*` line. */
     paragraphWithoutFillerSchema,
     paragraphFillerGuard,
     ...remarkExpandEmptyLinksPlugin,
+    ...remarkInlineHtmlIndentPlugin,
+    ...remarkImageTitlePlugin,
+    ...remarkEmptyTaskItemPlugin,
     /* The preset's list numbering over the touched blocks only (see
      * UPSTREAM_LIST_ORDER_ENTRIES). */
     scopedListOrderPlugin,
-    /* LAST, and it has to be: the front matter set overrides the preset's own
+    /* Last but one, and it has to be: the front matter set overrides the preset's own
      * `doc` node by re-registering that id, which `$node` resolves by upsert —
      * so it must be registered after the preset, and it reads the registered
      * entry back to inherit everything but the content expression. */
     ...frontmatterPlugins,
+    /* After the front matter set, whose `doc` it reads back and wraps: the
+     * document's trailing empty paragraphs are not written (`./trailingParagraph`). */
+    trailingParagraphDocSchema,
   ];
   return cached;
 }

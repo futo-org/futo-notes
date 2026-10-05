@@ -1909,18 +1909,54 @@ unchanged by it.
   > all: `planMarkdownChunks` declines `no-boundary` in ~41 ms and the whole
   > document goes through a single parse/dispatch of one `<p>` with tens of
   > thousands of inline children, with correct content once it lands. The
-  > cost is entirely engine-specific (M22). Same fixture, 50,000 lines / one
-  > paragraph / 2,543,891 chars (~2.5 MB): measured live in the shipped Linux
-  > Tauri debug app (WebKitGTK, normal window, GPU compositor) via its own
-  > `futo:editor-open-complete` mark, **desktop opens it in about 41 s**
-  > (41,014 / 41,221 / 41,321 ms across three runs); the identical bundle in
-  > desktop Chromium opens it in **0.93–1.06 s**, which is why the embed
-  > spec's 20,000-line budget stays green — Playwright never runs this suite
-  > on WebKitGTK (M22). CodeMirror on `main` opens the same file instantly at
-  > any size (virtualized DOM). _(desktop, Linux/WebKitGTK)_ →
-  > milkdown/markdownChunks.ts `planMarkdownChunks`,
+  > cost is engine-specific (M22) and super-linear, and the JS thread is
+  > blocked for all of it. Measured 2026-09-29 in the shipped Linux Tauri
+  > debug app (WebKitGTK, private virtual KWin, box load average 1–5):
+  > 20,000 lines / ~1.0 MB opens in ~0.5 s with no block; 50,000 lines /
+  > 2,538,890 chars (~2.5 MB) blocks the JS thread for ~11.6 s; 100,000 lines /
+  > ~5.1 MB blocks it for ~82 s. The `futo:editor-open-complete` mark fires
+  > BEFORE most of that (1.2 s at 50,000 lines): the long task follows it, so
+  > the mark understates the freeze. Load multiplies it: the same 2.5 MB file
+  > measured 61–62 s at load average 10–17 (2026-09-28), and ~41 s on an
+  > earlier build. Desktop Chromium returns from `initialize` in ~1 s but a
+  > ~12 s main-thread task follows at 2.5 MB, so the embed spec's 20,000-line
+  > budget, which stays green, does not see it. CodeMirror on `main` opens the
+  > same file instantly at any size (virtualized DOM). _(desktop,
+  > Linux/WebKitGTK)_ → milkdown/markdownChunks.ts `planMarkdownChunks`,
   > milkdown/progressiveLoad.ts, tests/editor-embed-milkdown.spec.ts
   > `oneParagraphNote`
+
+  The desktop window can still be closed during that freeze (RC-37): the close
+  is JS-mediated (`startNativeShell.ts` `onCloseRequested`), so before
+  2026-09-30 a close request made 8 s into a 100,000-line block was ignored
+  for 70 s (until the parse ended). `close_deadline.rs` now arms on the first
+  `CloseRequested`; if the app is still alive 5 s later (the JS handler's own
+  3 s flush race plus 2 s margin) AND the page reports nothing unsaved, Rust
+  waits for any in-flight vault write (the process-wide `vault_mutation_guard`,
+  at most 5 s more) and exits without the JS thread. A note open is not an unsaved
+  edit (a note switch awaits the outgoing save before the next note is read, and
+  the page cannot be typed into while it parses), so the open case is exactly
+  what the deadline cuts. A page that does hold an unsaved edit is not cut at the
+  deadline, however long its JS thread stalls (an 8 s task, a 2.5 MB paste): the
+  page tells Rust on every clean/dirty transition, reports at once from the
+  editor's own transaction dispatch (any document-changing transaction, so
+  keymap commands, toolbar and checkbox clicks count as well as typing; sidebar
+  clicks do not) and on `beforeinput`, `paste`, `cut` and `drop` (before the
+  stalling work begins, since the save queue only learns of an edit after the
+  editor's own 200 ms debounce), and Rust waits for the JS handler. That wait
+  ends early when the page that set the flag is gone (WebKitGTK's
+  `web-process-terminated`, or a new page load; WKWebView and WebView2 are not
+  hooked) and is capped at 60 s from the first close request, because a window
+  must always be closable: a stall longer than that with an unsaved edit (a
+  ~5 MB paste on WebKitGTK takes ~80 s) loses it, with one log line. Measured: exit 5.4 s after the request with the
+  giant note's bytes unchanged; 8 s busy loop, 2.5 MB paste and 2.5 MB replace
+  each exit when the stall ends with the edit on disk; a responsive page with an
+  unsaved edit still drains it through the JS handler and exits in 0.1 s. The
+  JS handler also no longer abandons a write that is still running after its 3 s
+  race (up to 15 s), which on a slow disk used to lose the edit and leave a
+  `.sf-tmp-*` file. The freeze itself remains the gap. →
+  apps/tauri/src-tauri/src/close_deadline.rs, closeDeadlineDirty.ts,
+  startNativeShell.ts, tests/desktop-close-deadline.mjs
 
   > **Gap (Android):** the same giant-paragraph parse cost blocks LEAVING such
   > a note too: `EditorWebView.kt`'s navigation-exit capture holds
@@ -1934,6 +1970,32 @@ unchanged by it.
   > does not swap until its synchronous parse completes. →
   > EditorWebView.kt `captureContentAndWait`, `CAPTURE_DEADLINE_MS`,
   > EditorSession.kt `isInteractionLocked`
+
+  > **Gap (iOS and Android, one unsplittable block in a streamed note):** the
+  > exit's liveness probe (`captureWithinDeadline`) tells "busy" from "wedged"
+  > by whether a trivial `1` evaluated ahead of the capture comes back inside
+  > the 6 s deadline, which assumes every idle slice is short. A chunk cannot
+  > be smaller than one block, so a note of ordinary prose around a single
+  > unsplittable block streams that block as ONE idle slice. Longest main-thread
+  > task measured while such a note opens (desktop Chromium embed, 300 short
+  > paragraphs either side; CPU throttled 6× to approximate a phone): 20,000-item
+  > list 0.8 s / 4.8 s; 20,000 nested items 2.6 s / 15.7 s; 20,000-item
+  > checklist 5.5 s / 6.7 s; 1 MB paragraph 0.4 s / 2.3 s; 2.5 MB paragraph
+  > 12.2 s / 5.4 s; a 20,000-line fence 0.07 s / 0.3 s. Where a slice outlasts
+  > the deadline the probe does not return, the outcome is `noLiveDocument`, and
+  > the exit commits the shell's own copy (`editorExitBody`) instead of refusing:
+  > it WAITS at most 6 s and then leaves, and loses exactly the edits typed in
+  > the streaming window before that slice began (the editor withholds `change`
+  > until the stream ends, so the shell never saw them). The window is the gap
+  > between `initialized` and the start of the long slice, so the loss needs a
+  > keystroke within a fraction of a second of the open plus a Back tap inside
+  > the freeze. Capping the chunk size cannot close it, since the slice is one
+  > block. Closing it needs the bundle to tell the shell "edited while
+  > streaming" so the exit can refuse. → EditorWebView.swift
+  > `captureWithinDeadline` / `editorExitBody` / `captureDeadlineSeconds`,
+  > EditorNavigationCommit.kt `editorExitBody` / `captureWithinDeadline`,
+  > EditorWebView.kt `captureContentAndWait` / `CAPTURE_DEADLINE_MS`,
+  > milkdown/progressiveLoad.ts
 
 - While the tail is still streaming, content cannot leave the editor as a
   PREFIX: `change` is suppressed, and `getContent()` either returns the host's
