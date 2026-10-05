@@ -5,3 +5,7 @@ pub mod hash;
 pub mod image;
 pub mod journal;
 pub mod merge;
+mod stderr_log;
+
+#[doc(hidden)]
+pub use stderr_log::write_stderr_line;

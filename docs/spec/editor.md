@@ -401,7 +401,7 @@ about.
   `GHOST_MAX_HEIGHT_FRACTION`, tests/editor-embed-milkdown.spec.ts
   _(native shells)_
 - On desktop a ⠿ handle appears in the left gutter beside the block under the
-  pointer — in the GUTTER, 8px left of the text column, at every nesting depth:
+  pointer — in the GUTTER, 4px left of the text column, at every nesting depth:
   a list item's own box starts at its text, so an offset from that box would
   put the handle over the bullet, and over the parent's text for a nested item
   — and dragging it with a mouse reorders blocks. Where there is no

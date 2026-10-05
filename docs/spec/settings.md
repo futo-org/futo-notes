@@ -4,9 +4,10 @@
 
 - **Theme**: Light / Dark / Auto. Auto follows the system setting; selecting a
   theme applies immediately (no restart) and persists across restarts. On
-  desktop, Auto tracks the OS theme via the window/portal theme-change event and
-  the event's reported value wins — the webview's own `matchMedia` cannot observe
-  the Linux desktop theme, so it is not the source of truth for Auto. →
+  desktop, Auto asks the OS directly (the desktop portal on Linux, the released
+  window on macOS and Windows) and tracks later changes via the window/portal
+  theme-change event — the webview's own `matchMedia` echoes the app's own last
+  pin, so it is never the source of truth for Auto. →
   SettingsScreen.kt (SharedPreferences `theme_mode`) _(Android)_;
   theme.ts / createAppBootstrap.svelte.ts / SettingsScreen.svelte _(Tauri)_
 - **Language** follows [localization.md](localization.md). Desktop and Android

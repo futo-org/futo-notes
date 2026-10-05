@@ -16,6 +16,16 @@
  * is answered by the thing that will answer it on the next open. Anything else
  * — neighbours that would lengthen or cut the literal, a titled link, an email,
  * a `|` inside a table cell — keeps the stock output.
+ *
+ * "The characters after it" means what the FILE will hold there, up to the
+ * whitespace that ends a literal — escapes included, since a `\` is not
+ * punctuation GFM trims (`_x (https://a.com)_*** y` reads `https://a.com`, but
+ * its save `…)_\*\*\* y` would read `https://a.com)_\*\*\`). So the text after
+ * the URL is written by the real `text` handler before it is re-parsed, and it
+ * must reach whitespace inside this parent — or end a paragraph, heading or
+ * cell, where the line or the cell ends with it. A URL that a mark closes
+ * right after, or that a mark opens or closes right before (whose edge
+ * character the attention encoding may turn into `&#x…;`), keeps the stock form.
  */
 import { defaultHandlers } from 'mdast-util-to-markdown';
 
@@ -53,18 +63,67 @@ function literalText(node: LinkNode): string | null {
   return null;
 }
 
-/** What comes straight after the link, up to the whitespace that ends a
- * literal — or null when that is something this check cannot vouch for. */
-function followingText(node: LinkNode, parent: LinkParent, info: LinkInfo): string | null {
-  const siblings = parent?.children as readonly unknown[] | undefined;
-  const next = siblings?.[siblings.indexOf(node) + 1] as ParsedNode | undefined;
-  if (next?.type === 'text') {
-    const word = /^\S*/.exec(next.value ?? '')?.[0] ?? '';
-    return TRIMMED_TAIL.test(word) ? word : null;
+/** Containers whose phrasing nothing follows on the same line (or in the
+ * same cell): a literal that reaches their end ends there. */
+const LINE_ENDING_PARENTS = new Set(['paragraph', 'heading', 'tableCell']);
+
+/** The marks whose handlers encode a neighbouring character (attentionEncoding.ts). */
+const ATTENTION = new Set(['emphasis', 'strong', 'delete']);
+
+/** Whether a mark's opener or closer sits straight before `node`: its handler
+ * may write the character after it as a reference (`**Note:**&#x68;ttps://…`
+ * still reads back linked, through remark-gfm's text pass, but nobody typed
+ * that), so a URL there keeps the stock form. Empty text writes nothing — the
+ * transformer leaves it where it moved a mark's edge space out. */
+function afterAttention(node: LinkNode, parent: LinkParent): boolean {
+  const siblings = (parent?.children ?? []) as readonly ParsedNode[];
+  const written = siblings
+    .slice(0, siblings.indexOf(node as ParsedNode))
+    .filter((sibling) => sibling.type !== 'text' || sibling.value !== '');
+  const previous = written.length > 0 ? written[written.length - 1] : parent;
+  return previous !== undefined && ATTENTION.has(previous.type);
+}
+
+/** The first character `node` will write — `containerPhrasing`'s own peek. */
+function peek(node: ParsedNode, parent: LinkParent, state: LinkState, info: LinkInfo): string {
+  type Handle = LinkState['handle'] & { peek?: LinkState['handle'] };
+  const handle = (state.handlers as Partial<Record<string, Handle>>)[node.type];
+  const look = handle?.peek ?? handle;
+  return look ? look(node, parent, state, { ...info, before: '', after: '' }).charAt(0) : '';
+}
+
+/** What the file will hold straight after the bare URL `text`, up to the
+ * whitespace that ends a literal — or null when that is not provably all
+ * trailing punctuation GFM trims. */
+function followingText(
+  node: LinkNode,
+  text: string,
+  parent: LinkParent,
+  state: LinkState,
+  info: LinkInfo,
+): string | null {
+  const siblings = (parent?.children ?? []) as readonly unknown[];
+  const index = siblings.indexOf(node);
+  const next = siblings[index + 1] as ParsedNode | undefined;
+  if (next?.type !== 'text') {
+    // Another construct, or the end of the parent: only an ending the literal
+    // cannot run into.
+    return info.after === '' || /\s/.test(info.after) ? '' : null;
   }
-  // Another construct, or the end of the parent: only an ending the literal
-  // cannot run into.
-  return info.after === '' || /\s/.test(info.after) ? '' : null;
+  const isLast = index + 2 >= siblings.length;
+  // Written exactly as `containerPhrasing` will write it next: after the bare
+  // URL, before the next sibling's first character. Past the parent's end
+  // `\n` stands in for whatever follows a line — no escape of the trailing
+  // punctuation accepted below keys on it.
+  const after = isLast ? '\n' : peek(siblings[index + 2] as ParsedNode, parent, state, info);
+  const written = state.handle(next, parent, state, { ...info, before: text.slice(-1), after });
+  const word = /^\S*/.exec(written)?.[0] ?? '';
+  if (!TRIMMED_TAIL.test(word)) return null;
+  if (word.length < written.length) return word;
+  // The word runs to the end of this text: whatever follows it — a mark's
+  // closer, the next sibling — is part of the literal too, unless the line or
+  // cell ends here.
+  return isLast && parent && LINE_ENDING_PARENTS.has(parent.type) ? word : null;
 }
 
 function firstLink(node: ParsedNode): ParsedNode | null {
@@ -86,7 +145,8 @@ function bareForm(
   const text = literalText(node);
   if (text === null) return null;
   if (text.includes('|') && state.stack.includes('tableCell')) return null;
-  const after = followingText(node, parent, info);
+  if (afterAttention(node, parent)) return null;
+  const after = followingText(node, text, parent, state, info);
   if (after === null) return null;
   const before = info.before === '\n' ? '' : info.before;
   const link = firstLink(parse(before + text + after));
@@ -109,7 +169,10 @@ export function bareUrlLinkHandler(parse: ParseMarkdown): LinkHandler {
   // decision above cannot be re-made here, so this answers for the shape: a
   // bare URL starts with a letter, and no stock escape keys on a following
   // letter, so a URL that falls back to `<…>` is not under-escaped by it.
+  // After a mark it always falls back, so the mark is told `<`, as stock.
   handler.peek = (node, parent, state) =>
-    literalText(node)?.charAt(0) ?? defaultHandlers.link.peek?.(node, parent, state) ?? '';
+    (afterAttention(node, parent) ? null : literalText(node)?.charAt(0)) ??
+    defaultHandlers.link.peek?.(node, parent, state) ??
+    '';
   return handler;
 }
