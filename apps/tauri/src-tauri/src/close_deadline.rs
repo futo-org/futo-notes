@@ -103,7 +103,7 @@ impl CloseDeadline {
                 // A dirty page is the JS handler's to save, for as long as the cap.
                 while self.is_dirty() {
                     if armed_at.elapsed() >= timing.dirty_cap {
-                        eprintln!(
+                        futo_notes_core::log_to_stderr!(
                             "[close] the page still reports unsaved edits {} s after the close \
                              request; exiting without them",
                             armed_at.elapsed().as_secs()
@@ -165,7 +165,7 @@ pub(crate) fn watch_web_process(app: &tauri::AppHandle) {
     let _ = window.with_webview(|webview| {
         use webkit2gtk::WebViewExt;
         webview.inner().connect_web_process_terminated(|_, reason| {
-            eprintln!(
+            futo_notes_core::log_to_stderr!(
                 "[close] the web process ended ({reason:?}); its unsaved-edit report is void"
             );
             mark_clean();
