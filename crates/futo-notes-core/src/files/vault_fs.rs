@@ -117,6 +117,10 @@ pub fn exists(root: &Path, relative: &str) -> Result<bool, String> {
 }
 
 pub fn set_mtime_ms(root: &Path, relative: &str, modified_at_ms: i64) -> Result<(), String> {
+    // An `updated_at` that failed to parse arrives as 0; never stamp 1970.
+    if modified_at_ms <= 0 {
+        return Ok(());
+    }
     platform::set_mtime_ms(root, relative, modified_at_ms)
 }
 

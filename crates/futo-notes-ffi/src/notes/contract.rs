@@ -1,5 +1,38 @@
 use futo_notes_store as store;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum NoteSortKey {
+    LastModified,
+    Name,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum SortDirection {
+    Ascending,
+    Descending,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct NoteSortOrder {
+    pub key: NoteSortKey,
+    pub direction: SortDirection,
+}
+
+impl From<NoteSortOrder> for store::NoteSortOrder {
+    fn from(order: NoteSortOrder) -> Self {
+        Self {
+            key: match order.key {
+                NoteSortKey::LastModified => store::NoteSortKey::LastModified,
+                NoteSortKey::Name => store::NoteSortKey::Name,
+            },
+            direction: match order.direction {
+                SortDirection::Ascending => store::SortDirection::Ascending,
+                SortDirection::Descending => store::SortDirection::Descending,
+            },
+        }
+    }
+}
+
 #[derive(uniffi::Record)]
 pub struct NoteMetadata {
     pub id: String,

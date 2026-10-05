@@ -34,6 +34,14 @@ curl -s $H "$API/jobs/<JOB_ID>/trace" | tail -80
 `glab ci status` / `glab ci view` work for quick looks; use the raw API when you need job traces
 or to script a watch loop.
 
+For pipelines on the current branch, `glab ci list -b <branch>` may parse the branch as a date and
+fail. Use the encoded project path through `glab api`:
+
+```bash
+BRANCH=$(git branch --show-current)
+glab api "projects/futo-notes%2Ffuto-notes/pipelines?ref=$BRANCH"
+```
+
 Read the log tail FIRST, then the failing job's `script:` in `.gitlab-ci.yml`, then the diff of
 the commit that broke it (`git log --oneline -5 -- .gitlab-ci.yml`).
 

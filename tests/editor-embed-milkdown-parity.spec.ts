@@ -335,8 +335,10 @@ test('the checkbox stays clear of the screen edge iOS reserves', async ({ page }
 test('the caret in an empty task item sits on the line, not above it', async ({ page }) => {
   await open(page, '- [ ] tasks\n');
   // Enter at the end of a task item makes the empty one, as a user would.
-  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
-  await page.keyboard.press('Control+End');
+  // Control+End would land in the trailing paragraph after the list instead.
+  const { x, y } = await centerOf(page, '.ProseMirror li p');
+  await page.mouse.click(x, y);
+  await page.keyboard.press('End');
   await page.keyboard.press('Enter');
   await expect(page.locator('.ProseMirror li')).toHaveCount(2);
   await flushFrames(page);

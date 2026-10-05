@@ -432,6 +432,30 @@ async function threeWayMerge(a, b, server) {
   assertEqual(conflictFiles.length, 0, 'clean merge should produce no conflict copies');
 }
 
+async function backlinkRewritePropagation(a, b, server) {
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
+
+  await a.writeNote('recieve', 'body');
+  await a.writeNote('hub', 'see [[recieve]]');
+  await a.syncNow();
+  await b.syncNow();
+  assert(
+    (await b.readNote('hub')).includes('[[recieve]]'),
+    'B should start out holding the misspelled link',
+  );
+
+  // Same length on purpose: the rewritten hub keeps both its mtime and its size.
+  await a.moveNote('recieve', 'receive');
+  await a.syncNow();
+  await b.syncNow();
+
+  const hub = await b.readNote('hub');
+  assert(hub.includes('[[receive]]'), `B's hub must follow the rewrite, got: ${hub}`);
+}
+
 async function renamePropagation(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
@@ -3343,6 +3367,11 @@ const scenarios = [
   { name: 'concurrent edit conflict', fn: concurrentEditConflict, matrices: ['desktop-desktop'] },
   { name: 'three way merge', fn: threeWayMerge, matrices: ['desktop-desktop'] },
   { name: 'rename propagation', fn: renamePropagation, matrices: ['desktop-desktop'] },
+  {
+    name: 'backlink rewrite propagation',
+    fn: backlinkRewritePropagation,
+    matrices: ['desktop-desktop'],
+  },
   {
     name: 'collision placement follows open note',
     fn: collisionPlacementFollowsOpenNote,

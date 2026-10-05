@@ -2,6 +2,19 @@ import { isTauri } from './platform';
 import { tauriLocalNoteStore } from './platform/localNoteStore';
 import { webLocalNoteStore } from './platform/webLocalNoteStore';
 
+export type NoteSortKey = 'lastModified' | 'name';
+export type SortDirection = 'ascending' | 'descending';
+
+export interface NoteSortOrder {
+  key: NoteSortKey;
+  direction: SortDirection;
+}
+
+export const DEFAULT_NOTE_SORT_ORDER: NoteSortOrder = {
+  key: 'lastModified',
+  direction: 'descending',
+};
+
 export interface LocalNoteMetadata {
   id: string;
   title: string;
@@ -94,7 +107,10 @@ export interface LocalSearchHit {
 }
 
 export interface LocalNoteStore {
-  startupListing(): Promise<LocalNoteListingSnapshot>;
+  startupListing(order: NoteSortOrder): Promise<LocalNoteListingSnapshot>;
+  setSortOrder(order: NoteSortOrder): Promise<LocalNoteSnapshot>;
+  /** Most recently modified first, independent of the active sort order. */
+  recentNoteIds(limit: number): Promise<string[]>;
   bootstrap(): Promise<LocalNoteBootstrap>;
   snapshot(): Promise<LocalNoteSnapshot>;
   inventory(): Promise<LocalNoteInventoryItem[]>;
@@ -137,10 +153,10 @@ let localNotes: LocalNoteStore | null = null;
 /** Start desktop's content-free listing invoke before Svelte mounts. Never
  * awaited: M1's first render remains synchronous, and init consumes this same
  * promise once the reactive notes owner exists. */
-export function prefetchLocalNoteListing(): void {
+export function prefetchLocalNoteListing(order: NoteSortOrder): void {
   if (!isTauri) return;
   localNotes = tauriLocalNoteStore;
-  tauriLocalNoteStore.prefetchStartupListing();
+  tauriLocalNoteStore.prefetchStartupListing(order);
 }
 
 export function getLocalNoteStoreSync(): LocalNoteStore {

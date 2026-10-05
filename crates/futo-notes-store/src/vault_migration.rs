@@ -432,6 +432,10 @@ fn copy_manifest(
 
 fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {
     let mut input = fs::File::open(source).map_err(io_error)?;
+    let modified = input
+        .metadata()
+        .and_then(|metadata| metadata.modified())
+        .ok();
     let mut output = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -445,7 +449,11 @@ fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {
         }
         output.write_all(&buffer[..read]).map_err(io_error)?;
     }
-    output.sync_all().map_err(io_error)
+    if let Some(modified) = modified {
+        let _ = output.set_modified(modified);
+    }
+    output.sync_all().map_err(io_error)?;
+    Ok(())
 }
 
 fn make_existing_destination_durable(
@@ -944,5 +952,33 @@ mod tests {
         );
         assert!(source.exists());
         assert!(destination.exists());
+    }
+    #[test]
+    fn stage_preserves_each_copied_note_modified_time() {
+        let root = TestDirectory::new();
+        let source = root.0.join("source");
+        let destination = root.0.join("destination");
+        fs::create_dir_all(source.join("Folder")).unwrap();
+        fs::write(source.join("old.md"), "old").unwrap();
+        fs::write(source.join("Folder/newer.md"), "newer").unwrap();
+        futo_notes_core::files::set_file_mtime_ms(&source.join("old.md"), 1_600_000_000_000)
+            .unwrap();
+        futo_notes_core::files::set_file_mtime_ms(
+            &source.join("Folder/newer.md"),
+            1_700_000_000_000,
+        )
+        .unwrap();
+
+        let outcome = stage(&source, &destination).unwrap();
+
+        assert_eq!(outcome.status, VaultMigrationStatus::Migrated);
+        assert_eq!(
+            newest_modified_ms(&destination.join("old.md")),
+            Some(1_600_000_000_000)
+        );
+        assert_eq!(
+            newest_modified_ms(&destination.join("Folder/newer.md")),
+            Some(1_700_000_000_000)
+        );
     }
 }
