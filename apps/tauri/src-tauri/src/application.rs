@@ -89,7 +89,9 @@ pub(crate) fn run() {
             #[cfg(target_os = "macos")]
             if let Err(error) = crate::macos_terminate::install(handle) {
                 // Dock/AppleScript quit then end the old way (no save flush).
-                eprintln!("[quit] cannot route terminate: through the close handler: {error}");
+                futo_notes_core::log_to_stderr!(
+                    "[quit] cannot route terminate: through the close handler: {error}"
+                );
             }
             crate::window_reveal::install(handle)?;
             crate::instance_journal::install(handle);
