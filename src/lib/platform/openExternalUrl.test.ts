@@ -11,6 +11,17 @@ afterEach(() => {
 });
 
 describe('openExternalUrl on desktop', () => {
+  // RC-95: a raw plugin call carrying a lone surrogate never settles on WebKitGTK.
+  it('hands the opener only a well-formed url', async () => {
+    openUrl.mockResolvedValueOnce(undefined);
+
+    openExternalUrl('https://futo.tech/a\uD800b?q=\uD83D\uDE00');
+
+    await vi.waitFor(() =>
+      expect(openUrl).toHaveBeenCalledWith('https://futo.tech/a\uFFFDb?q=\uD83D\uDE00'),
+    );
+  });
+
   // The Tauri opener rejects anything outside its scheme allowlist ("Not
   // allowed to open url futo.tech"). Unhandled, that rejection reached the
   // global handler and was filed as a crash report.

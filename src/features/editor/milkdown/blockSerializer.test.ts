@@ -189,12 +189,15 @@ describe('createBlockSerializer — join', () => {
     expect(serializer.serialize(doc(emptyP()))).toBe('');
   });
 
-  it('adds no extra trailing newline when a doc ends with an empty paragraph', () => {
+  it('writes none of the empty paragraphs a doc ends with', () => {
     const { serializer } = makeSerializer();
-    // separator before the trailing empty unit is already '\n\n' (its
-    // predecessor is not itself an empty paragraph), so the whole already
-    // ends in '\n' and toMarkdown's own append does not fire again.
-    expect(serializer.serialize(doc(p('a'), emptyP()))).toBe('a\n\n');
+    // The `trailing` plugin's parked paragraph, or Enter at the end: the spec
+    // drops it on save, and Milkdown's own doc serializer skips it the same way
+    // (milkdown-compat/trailingParagraph.ts, RC-22). Only the END is trimmed.
+    expect(serializer.serialize(doc(p('a'), emptyP()))).toBe('a\n');
+    expect(serializer.serialize(doc(p('a'), emptyP(), emptyP()))).toBe('a\n');
+    expect(serializer.serialize(doc(p('a'), emptyP(), p('b'), emptyP()))).toBe('a\n\n\nb\n');
+    expect(serializer.serialize(doc(emptyP(), emptyP()))).toBe('');
   });
 
   it('never doubles the trailing newline for a single block', () => {

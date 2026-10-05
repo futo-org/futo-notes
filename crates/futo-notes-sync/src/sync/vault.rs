@@ -172,19 +172,37 @@ fn content_bytes(name: &str, content: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-/// Commit one pulled object under the same guard as its hash check.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum PulledWrite {
+    Written,
+    AlreadyCurrent,
+    /// The file no longer holds `local_base`: a local save landed. Nothing written.
+    LocalChanged,
+}
+
+/// Commit one pulled object under the same guard as both of its hash checks.
+/// `local_base` is the hash the object map records for the file; a file that
+/// holds neither it nor `expected_hash` is a local save and is never replaced.
+/// The check and the write share one guard hold because the editor's save takes
+/// the same guard: checked outside it, a save landing in between was overwritten
+/// by the remote text (RC-93).
 pub(super) fn write_content_if_changed(
     root: &Path,
     name: &str,
     content: &str,
     expected_hash: &str,
+    local_base: Option<&str>,
     modified_ms: i64,
     pre_write: &PreWrite,
-) -> Result<bool, String> {
+) -> Result<PulledWrite, String> {
     let bytes = content_bytes(name, content)?;
     pre_write(name);
     let _vault_mutation = vault_mutation_guard()?;
-    let changed = content_hash(root, name).as_deref() != Some(expected_hash);
+    let current = content_hash(root, name);
+    let changed = current.as_deref() != Some(expected_hash);
+    if changed && local_base.is_some_and(|base| current.as_deref() != Some(base)) {
+        return Ok(PulledWrite::LocalChanged);
+    }
     if changed {
         vault_fs::write_atomic(root, name, &bytes)?;
     } else {
@@ -196,7 +214,11 @@ pub(super) fn write_content_if_changed(
         }
         let _ = vault_fs::set_mtime_ms(root, name, modified_ms);
     }
-    Ok(changed)
+    Ok(if changed {
+        PulledWrite::Written
+    } else {
+        PulledWrite::AlreadyCurrent
+    })
 }
 
 pub(super) fn remove_local(root: &Path, name: &str, pre_write: &PreWrite) -> Result<bool, String> {
@@ -287,7 +309,8 @@ mod tests {
             callback_calls.lock().unwrap().push(name.to_owned());
             assert_eq!(std::fs::read_to_string(&callback_note).unwrap(), "old body");
         };
-        write_content_if_changed(&root.0, "note.md", "new body", "", 0, &before_write).unwrap();
+        write_content_if_changed(&root.0, "note.md", "new body", "", None, 0, &before_write)
+            .unwrap();
         assert_eq!(write_calls.lock().unwrap().as_slice(), ["note.md"]);
         assert_eq!(std::fs::read_to_string(&note).unwrap(), "new body");
 

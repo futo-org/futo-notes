@@ -99,6 +99,69 @@ export function leadingFrontMatter(markdown) {
   return FRONT_MATTER_RE.exec(markdown)?.[0] ?? null;
 }
 
+/**
+ * A numeric character reference the editor WROTE that the note never had.
+ *
+ * The serializer writes references on purpose — `**Note:**&#x62;ar` keeps a bold
+ * run whose edge is punctuation, and upstream writes `&#x20;` for a space that
+ * would end a line — so a reference in the output is not a flag by itself. What
+ * is one: a reference that is malformed (`&#xNAN;`, `&#x61&#x3B;`, a missing
+ * `;`, a code point past U+10FFFF or a lone surrogate) or that names a
+ * character the note did not contain. Both read back as text the author never
+ * wrote (RC-104, P4-L8-1): a count of lost tokens cannot see text that was
+ * GAINED, which is why `text_loss` stayed silent. References the note already
+ * had (same spelling, same count) are the note's own and are skipped.
+ */
+const REFERENCE_RE = /&#(?:[xX][0-9A-Za-z]*|[0-9A-Za-z]*);?/g;
+const WELL_FORMED_REFERENCE_RE = /^&#(?:[xX]([0-9A-Fa-f]{1,6})|([0-9]{1,7}));$/;
+
+function referenceCodePoint(reference) {
+  const match = WELL_FORMED_REFERENCE_RE.exec(reference);
+  if (!match) return null;
+  const codePoint = match[1] ? parseInt(match[1], 16) : parseInt(match[2], 10);
+  if (codePoint === 0 || codePoint > 0x10ffff) return null;
+  if (codePoint >= 0xd800 && codePoint <= 0xdfff) return null;
+  return codePoint;
+}
+
+/** Whether the `&` at `index` is backslash-escaped, which makes the reference literal text. */
+function isEscaped(text, index) {
+  let slashes = 0;
+  while (index - 1 - slashes >= 0 && text[index - 1 - slashes] === '\\') slashes += 1;
+  return slashes % 2 === 1;
+}
+
+/** Whether `output` holds a reference `input` did not, that is malformed or foreign to it. */
+export function hasInsertedReference(input, output) {
+  const had = new Map();
+  const characters = new Set(Array.from(input, (char) => char.codePointAt(0)));
+  for (const match of input.matchAll(REFERENCE_RE)) {
+    const reference = match[0];
+    had.set(reference, (had.get(reference) ?? 0) + 1);
+    const codePoint = referenceCodePoint(reference);
+    if (codePoint !== null) characters.add(codePoint);
+  }
+  for (const match of output.matchAll(REFERENCE_RE)) {
+    const reference = match[0];
+    const left = had.get(reference) ?? 0;
+    if (left > 0) {
+      had.set(reference, left - 1);
+      continue;
+    }
+    /* `\&#x1F600;` is the text `&#x1F600;`, which is how a note that spelled it
+     * `&amp;#x1F600;` is saved: literal text, fine while the note held those
+     * characters (an escaped `&#xNAN;` is still the editor's garbage, just
+     * escaped once by the next save). */
+    if (isEscaped(output, match.index)) {
+      if (input.includes(reference.slice(1))) continue;
+      return true;
+    }
+    const codePoint = referenceCodePoint(reference);
+    if (codePoint === null || !characters.has(codePoint)) return true;
+  }
+  return false;
+}
+
 const WIKILINK_RE = /\\?\[\\?\[[^\]\n]+\]\\?\]/g;
 
 export function countWikilinks(markdown) {
@@ -145,6 +208,7 @@ export function classify({ body, round1, round2, round3 }) {
 
   if (countHtmlTags(round1.markdown) < countHtmlTags(body)) flags.html_loss = true;
   if (countWikilinks(round1.markdown) < countWikilinks(body)) flags.wikilink_loss = true;
+  if (hasInsertedReference(body, round1.markdown)) flags.entity_inserted = true;
 
   /* The one flag here that compares round1 against the ORIGINAL BYTES rather
    * than against round2, and it has to: corrupted front matter is STABLE. With
@@ -176,4 +240,5 @@ export const FLAG_ORDER = [
   'html_loss',
   'wikilink_loss',
   'frontmatter_loss',
+  'entity_inserted',
 ];

@@ -12,7 +12,7 @@
  * type-only import of a file that happens to live under `features/sync`.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './invoke';
 
 import type {
   BillingStatusOutput,

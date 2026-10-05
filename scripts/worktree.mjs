@@ -6,7 +6,8 @@
 // a cargo target/ (19 over 100 GB), 7 for branches already merged and 50
 // untouched since July. `just qa-gc` reaps devices, nothing reaped checkouts.
 //
-//   just wt new <name> [--branch <b>] [--base origin/main] [--no-install] [--no-target]
+//   just wt <name> [--branch <b>] [--base origin/main] [--no-install] [--no-target]
+//       `just wt new <name>` is also accepted.
 //       sibling checkout ../<repo>-<name>, deps installed, target/ reflink-cloned
 //       from the primary checkout (btrfs / APFS; skipped with a note elsewhere),
 //       purpose recorded, ports printed.
@@ -317,9 +318,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (cmd === 'new') cmdNew(flags);
     else if (cmd === 'list') cmdList();
     else if (cmd === 'gc') cmdGc(flags);
+    else if (cmd && !cmd.startsWith('-')) cmdNew(parseFlags([cmd, ...rest]));
     else
       die(
-        'usage: just wt new <name> [--branch b] [--base ref] | just wt list | just wt gc [--apply] [--idle-days N] [--sizes]',
+        'usage: just wt [new] <name> [--branch b] [--base ref] | just wt list | just wt gc [--apply] [--idle-days N] [--sizes]',
         2,
       );
   } catch (error) {

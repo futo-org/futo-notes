@@ -28,9 +28,9 @@ struct FlushDraftVerbTests {
         await #expect(throws: (any Error).self) {
             _ = try await vault.write("old", content: "late body", epoch: 0)
         }
-        #expect(await vault.read("old") == "")
+        #expect(try await vault.read("old") == "")
         _ = try await vault.write("new", content: "new body", epoch: 1)
-        #expect(await vault.read("new") == "new body")
+        #expect(try await vault.read("new") == "new body")
     }
 
     @Test("a draft whose base still matches disk is written")
@@ -45,7 +45,7 @@ struct FlushDraftVerbTests {
 
         #expect(result.disposition == .wrote)
         #expect(result.mutation?.finalId == "note")
-        #expect(await vault.read("note") == "draft text")
+        #expect(try await vault.read("note") == "draft text")
     }
 
     @Test("a draft the disk already holds converges without a mutation")
@@ -75,7 +75,7 @@ struct FlushDraftVerbTests {
         let mutation = try #require(result.mutation)
         #expect(mutation.finalId == "Gone")
         #expect(mutation.upserted.first?.position == 0)
-        #expect(await vault.read("Gone") == "surviving draft")
+        #expect(try await vault.read("Gone") == "surviving draft")
     }
 
     @Test("a diverged draft is parked once — an identical re-park mints nothing")
@@ -94,8 +94,8 @@ struct FlushDraftVerbTests {
         }
         #expect(parkedId.hasPrefix("note (conflict "))
         #expect(first.mutation != nil, "a fresh park projects a mutation")
-        #expect(await vault.read("note") == "peer version", "diverged note untouched")
-        #expect(await vault.read(parkedId) == "my draft")
+        #expect(try await vault.read("note") == "peer version", "diverged note untouched")
+        #expect(try await vault.read(parkedId) == "my draft")
 
         // The crash-window double-park (scenePhase flush firing at both .inactive
         // and .background): the identical draft reports the same copy, mints none.

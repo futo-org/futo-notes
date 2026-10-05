@@ -117,7 +117,10 @@ fn note_store_projects_complete_workflow_results() {
     assert_eq!(created.folders, ["Projects", "Projects/Nested"]);
     assert!(created.warnings.is_empty());
     assert!(store.exists("Projects/Beta".to_owned()));
-    assert_eq!(store.read("Projects/Beta".to_owned()), "version one");
+    assert_eq!(
+        store.read("Projects/Beta".to_owned()).unwrap(),
+        "version one"
+    );
 
     let written = store
         .write("Projects/Beta".to_owned(), "version two".to_owned())
@@ -141,7 +144,7 @@ fn note_store_projects_complete_workflow_results() {
         )
         .unwrap();
     assert_eq!(recreated.upserted[0].note.id, "Projects/Beta");
-    assert_eq!(store.read("Projects/Beta".to_owned()), "restored");
+    assert_eq!(store.read("Projects/Beta".to_owned()).unwrap(), "restored");
 
     let renamed = store
         .rename("Projects/Beta".to_owned(), "Projects/Gamma".to_owned())
@@ -205,6 +208,74 @@ fn note_store_projects_complete_workflow_results() {
     assert!(after_reset.notes.is_empty());
     assert!(after_reset.folders.is_empty());
     assert!(notes_root.is_dir(), "reset must preserve the vault root");
+}
+
+// RC-71: the editor's own title rename rewrites the note's self-link after the
+// editor saved its draft. The mutation must carry the bytes the relink left
+// (and name the note in `relinked`), or the shell keeps the pre-relink draft as
+// its baseline and its next save parks a conflict copy with no real conflict.
+#[test]
+fn a_self_link_rename_carries_the_relinked_body_to_the_shell() {
+    let temp = TempTree::new();
+    let notes_root = temp.path("vault");
+    fs::create_dir_all(&notes_root).unwrap();
+    let store = NoteStore::new(path_string(&notes_root));
+    store
+        .write("Diary".to_owned(), "back to [[Diary]]".to_owned())
+        .unwrap();
+    store
+        .write("Hub".to_owned(), "see [[Diary]]".to_owned())
+        .unwrap();
+    store
+        .write("Plain".to_owned(), "no links".to_owned())
+        .unwrap();
+
+    // The draft carries a new word; the rename relinks the draft's own link.
+    let retitled = store
+        .save_draft_as(
+            "Diary".to_owned(),
+            "Journal".to_owned(),
+            "back to [[Diary]]".to_owned(),
+            "back to [[Diary]] today".to_owned(),
+        )
+        .unwrap();
+    assert_eq!(retitled.final_id.as_deref(), Some("Journal"));
+    assert_eq!(retitled.relinked, vec!["Hub", "Journal"]);
+    assert_eq!(
+        retitled.final_body.as_deref(),
+        Some("back to [[Journal]] today")
+    );
+    assert_eq!(
+        store.read("Journal".to_owned()).unwrap(),
+        "back to [[Journal]] today"
+    );
+
+    // A plain rename of the same shape carries it too.
+    store
+        .write("Loop".to_owned(), "[[Loop]]".to_owned())
+        .unwrap();
+    let renamed = store.rename("Loop".to_owned(), "Ring".to_owned()).unwrap();
+    assert_eq!(renamed.final_body.as_deref(), Some("[[Ring]]"));
+
+    // Nothing rewritten: no body is shipped (other notes' bodies never cross).
+    let plain = store
+        .rename("Plain".to_owned(), "Plainer".to_owned())
+        .unwrap();
+    assert!(plain.relinked.is_empty());
+    assert_eq!(plain.final_body, None);
+    // Another note's body is reported by id only: a rename whose relink
+    // rewrote a BACKLINKER, not the renamed note, ships no body.
+    store
+        .write("Target".to_owned(), "no self link".to_owned())
+        .unwrap();
+    store
+        .write("Fan".to_owned(), "see [[Target]]".to_owned())
+        .unwrap();
+    let other = store
+        .rename("Target".to_owned(), "Target2".to_owned())
+        .unwrap();
+    assert_eq!(other.relinked, vec!["Fan"]);
+    assert_eq!(other.final_body, None);
 }
 
 #[test]
@@ -316,7 +387,7 @@ fn flush_draft_projects_every_disposition() {
     assert_eq!(wrote.disposition, FlushDisposition::Wrote);
     let mutation = wrote.mutation.expect("a write projects a mutation");
     assert_eq!(mutation.final_id.as_deref(), Some("note"));
-    assert_eq!(store.read("note".to_owned()), "draft");
+    assert_eq!(store.read("note".to_owned()).unwrap(), "draft");
 
     let converged = store
         .flush_draft("note".to_owned(), "stale".to_owned(), "draft".to_owned())
@@ -331,9 +402,9 @@ fn flush_draft_projects_every_disposition() {
         panic!("expected the diverged draft to be parked");
     };
     assert!(parked_id.starts_with("note (conflict "));
-    assert_eq!(store.read(parked_id.clone()), "diverged");
+    assert_eq!(store.read(parked_id.clone()).unwrap(), "diverged");
     assert_eq!(
-        store.read("note".to_owned()),
+        store.read("note".to_owned()).unwrap(),
         "draft",
         "diverged note untouched"
     );
@@ -361,7 +432,7 @@ fn flush_draft_projects_every_disposition() {
     let mutation = recreated.mutation.expect("a recreate projects a mutation");
     assert_eq!(mutation.final_id.as_deref(), Some("note"));
     assert_eq!(mutation.upserted[0].position, 0);
-    assert_eq!(store.read("note".to_owned()), "survivor");
+    assert_eq!(store.read("note".to_owned()).unwrap(), "survivor");
 }
 
 #[test]
@@ -448,6 +519,8 @@ fn note_records_errors_and_threading_keep_the_full_semantic_shape() {
         folders,
         final_id,
         final_folder,
+        relinked,
+        final_body,
         warnings,
     } = NoteMutation {
         upserted: Vec::new(),
@@ -455,6 +528,8 @@ fn note_records_errors_and_threading_keep_the_full_semantic_shape() {
         folders: vec!["folder".to_owned()],
         final_id: Some("after.md".to_owned()),
         final_folder: Some("folder".to_owned()),
+        relinked: vec!["after.md".to_owned()],
+        final_body: Some("body".to_owned()),
         warnings: vec!["warning".to_owned()],
     };
     assert!(upserted.is_empty());
@@ -462,6 +537,8 @@ fn note_records_errors_and_threading_keep_the_full_semantic_shape() {
     assert_eq!(folders, vec!["folder"]);
     assert_eq!(final_id.as_deref(), Some("after.md"));
     assert_eq!(final_folder.as_deref(), Some("folder"));
+    assert_eq!(relinked, vec!["after.md"]);
+    assert_eq!(final_body.as_deref(), Some("body"));
     assert_eq!(warnings, vec!["warning"]);
 
     let NoteBootstrap {
