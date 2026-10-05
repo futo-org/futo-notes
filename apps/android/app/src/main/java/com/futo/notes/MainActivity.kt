@@ -167,17 +167,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        // Flush the open editor's pending edit at the FIRST leave-foreground
-        // signal (onPause always precedes onStop) — an edit caught inside the
-        // 400 ms autosave debounce would otherwise be lost if the OS kills the
-        // backgrounded process or the user swipes the app away. F8 jetsam-guard
-        // parity with iOS FutoNotesApp scenePhase `.inactive`. Idempotent and a
-        // no-op when the draft is clean; the write is fire-and-forget so it never
-        // blocks the main thread. `store` is null while the first-run picker is up.
-        // The open editor is read first (RC-92): a note still streaming its tail
-        // reports no `change`, so its typed edit reaches the register only by
-        // asking the editor. The read is asynchronous — nothing waits here.
-        store.value?.flushPendingEditorLive()
+        store.value?.requestPendingEditorFlush()
     }
 
     override fun onStop() {

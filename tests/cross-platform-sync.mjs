@@ -2035,7 +2035,7 @@ async function desktopReceivesAndroidEditorEdit(desktop, android, server) {
   // A real editor edit on the phone: the WebView posts the bridge `change`
   // message, the shell debounces a write, and NotesStore's mutation hook tells
   // Rust a local note changed so the live loop pushes it.
-  const edited = '# shared\nedited in the Android editor';
+  const edited = '# shared\n\nedited in the Android editor\n';
   await android.editNoteViaEditor(ANDROID_SHARED_NOTE, edited);
 
   await waitForDesktopNoteContent(desktop, ANDROID_SHARED_NOTE, edited);
@@ -2160,7 +2160,7 @@ async function androidKeepsADraftTypedWhileAPeerEditIsDeferred(desktop, android,
 
   // The user keeps typing on top of the deferral — this is the draft that must
   // survive the blur.
-  const localDraft = '# deferred draft\ntyped on the phone after the peer edit';
+  const localDraft = '# deferred draft\n\ntyped on the phone after the peer edit\n';
   await android.replaceOpenEditorContent(localDraft);
   await android.blurOpenEditor();
 
@@ -2202,13 +2202,12 @@ function streamingSizedNote(title) {
   return `# ${title}\n\n${sections.join('\n\n')}\n`;
 }
 
-/** Open `id`, type `marker` while its tail is still streaming, dismiss the
- *  keyboard, and prove the edit is still unreported when this returns. */
+/** Open `id`, type `marker` while its tail is still streaming, and prove the
+ *  focused edit is still unreported when this returns. Blur now flushes it. */
 async function typeUnreportedEditWhileStreaming(android, id, base, marker) {
   await android.openNoteInEditor(id);
   await android.focusOpenEditor();
   await android.typeIntoOpenEditor(marker);
-  await android.blurOpenEditor();
   // M11: the window this scenario exists for. A stream that already finished
   // released the `change`, and the verdict below would pass for the wrong
   // reason — raise UNREPORTED_EDIT_SECTIONS rather than accept that.
@@ -2307,7 +2306,7 @@ async function androidFollowsPeerRenameWhileOpen(desktop, android, server) {
   await android.waitForOpenEditorTitle(newId);
   await android.waitForOpenEditorContent(base);
 
-  const editedAfterRename = '# rename while open\nedited after rename';
+  const editedAfterRename = '# rename while open\n\nedited after rename\n';
   await android.replaceOpenEditorContent(editedAfterRename);
   await android.waitForNoteContent(newId, editedAfterRename);
   assert(!android.noteExists(oldId), 'editing after a peer rename must not resurrect old id');
@@ -2331,7 +2330,7 @@ async function androidConflictsWithDesktopEdit(desktop, android, server) {
   // there is no conflict left to resolve (observed).
   await android.goOffline();
 
-  const androidText = '# shared\nedited on the phone while offline';
+  const androidText = '# shared\n\nedited on the phone while offline\n';
   await android.editNoteViaEditor(ANDROID_SHARED_NOTE, androidText);
 
   const desktopText = '# shared\ndesktop got there first';

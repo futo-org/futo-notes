@@ -56,13 +56,25 @@ private func createNote(in app: XCUIApplication, title: String, body: String) {
     XCTAssertTrue(create.waitForExistence(timeout: 5))
     create.tap()
     XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 5))
+    XCTAssertTrue(
+        app.keyboards.firstMatch.waitForExistence(timeout: 5),
+        "quick capture did not focus the body")
     app.typeText(body)
+    XCTAssertTrue(
+        app.webViews.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", body.components(separatedBy: " [[").first!)
+        ).firstMatch.waitForExistence(timeout: 5),
+        "body did not receive typing: \(app.debugDescription)")
     let titleField = app.textFields.firstMatch
     XCTAssertTrue(titleField.waitForExistence(timeout: 5))
     titleField.tap()
     titleField.typeText(title)
     tapBack(in: app)
-    XCTAssertTrue(row(in: app, title: title).waitForExistence(timeout: 10), "\(title) was not saved")
+    XCTAssertTrue(
+        row(in: app, title: title).waitForExistence(timeout: 10), "\(title) was not saved")
+    XCTAssertTrue(
+        row(in: app, title: title).label.contains(body),
+        "saved row: \(row(in: app, title: title).label)")
 }
 
 @MainActor

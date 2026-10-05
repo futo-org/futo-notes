@@ -45,6 +45,7 @@ async function open(page: Page, content: string): Promise<void> {
     (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
     JSON.stringify({
       bridgeVersion: BRIDGE_VERSION,
+      noteId: 'test-note',
       theme: 'light',
       content,
       nativeToolbar: true,
@@ -632,9 +633,11 @@ test('Escape then Tab releases the code-block claim for the next Tab only', asyn
 /** Open `markdown` as a different note, the way the host re-opens a saved one. */
 async function reopen(page: Page, markdown: string): Promise<void> {
   // Through another note first, so a same-bytes reopen is never deduped away.
-  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.setContent('-'));
+  await page.evaluate(() =>
+    (window as unknown as FakeHostWindow).FutoEditor.setContent('test-note', '-'),
+  );
   await page.evaluate(
-    (m) => (window as unknown as FakeHostWindow).FutoEditor.setContent(m),
+    (m) => (window as unknown as FakeHostWindow).FutoEditor.setContent('test-note', m),
     markdown,
   );
   await flushFrames(page);

@@ -16,16 +16,18 @@ export interface BridgeMessage {
 
 export interface FakeHostWindow extends Window {
   __msgs: BridgeMessage[];
+  __loadedGenerations: Record<string, number>;
   __openCalls: unknown[][];
+  __futoTest: { readDocument(): string; documentRef(): { noteId: string; generation: number } };
   FutoEditor: {
     initialize(configJson: string): void;
-    setContent(markdown: string): void;
-    getContent(): string;
+    setContent(noteId: string, markdown: string): void;
+    flush(token: string): void;
     focus(): void;
     blur(): void;
     setTheme(theme: 'light' | 'dark'): void;
     setNotes(notesJson: string): void;
-    applyExternalContent(markdown: string): void;
+    applyExternalContent(noteId: string, markdown: string, expectedGeneration: number): void;
     insertImage(filename: string): void;
     setImageBaseUrl(base: string): void;
     exec(commandId: string): void;
@@ -46,13 +48,19 @@ export interface FakeHostWindow extends Window {
 export function installFakeAndroidHost(): void {
   const w = window as unknown as FakeHostWindow;
   w.__msgs = [];
+  w.__loadedGenerations = {};
   w.__openCalls = [];
   w.open = ((...args: unknown[]) => {
     w.__openCalls.push(args);
     return null;
   }) as typeof window.open;
   (w as unknown as { futoBridge: { postMessage(json: string): void } }).futoBridge = {
-    postMessage: (json: string) => w.__msgs.push(JSON.parse(json) as BridgeMessage),
+    postMessage: (json: string) => {
+      const message = JSON.parse(json) as BridgeMessage;
+      if (message.type === 'documentLoaded')
+        w.__loadedGenerations[String(message.noteId)] = Number(message.generation);
+      w.__msgs.push(message);
+    },
   };
 }
 
@@ -94,7 +102,7 @@ export async function clearMessages(page: Page): Promise<void> {
 }
 
 export function getContent(page: Page): Promise<string> {
-  return page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.getContent());
+  return page.evaluate(() => (window as unknown as FakeHostWindow).__futoTest.readDocument());
 }
 
 export function focusEditor(page: Page): Promise<void> {
@@ -163,7 +171,13 @@ export async function waitForMessages(
 ): Promise<BridgeMessage[]> {
   await page.waitForFunction(
     ({ type: t, count: n }) =>
-      (window as unknown as FakeHostWindow).__msgs.filter((m) => m.type === t).length >= n,
+      (window as unknown as FakeHostWindow).__msgs.filter(
+        (m) =>
+          m.type === t &&
+          (t !== 'change' ||
+            Number(m.generation) >
+              ((window as unknown as FakeHostWindow).__loadedGenerations[String(m.noteId)] ?? -1)),
+      ).length >= n,
     { type, count },
   );
   return messagesOfType(page, type);

@@ -245,14 +245,12 @@
       },
       "navigation": {
         "renamePending": "无法重命名笔记。标题仍在等待保存，因此已暂停导航。",
-        "captureFailed": "无法读取笔记的最新内容。更改仍在等待保存，因此已暂停导航。",
         "saveFailed": "无法保存笔记。更改仍在等待保存，因此已暂停导航。"
       },
       "move": {
         "createAndMove": "创建并移动",
         "createFolderPrompt": "新建一个文件夹并将笔记移入其中。",
         "createFolderInPrompt": "在 {folderName} 中新建一个文件夹，并将笔记移入其中。",
-        "captureFailed": "无法读取笔记的最新内容。更改仍在等待保存，因此已暂停移动。",
         "saveFailed": "无法保存笔记。更改仍在等待保存，因此已暂停移动。"
       },
       "errors": {
@@ -270,8 +268,7 @@
         "namedNoteRecoverableConfirmation": "要删除笔记“{noteTitle}”吗？此操作无法撤销。",
         "namedNotePermanentConfirmation": "要删除笔记“{noteTitle}”吗？这会永久删除文件，不会将其移至回收站。",
         "recoverableWarning": "此操作无法撤销。",
-        "savePending": "无法保存笔记。更改仍在等待保存，因此已暂停删除。",
-        "captureFailed": "无法读取笔记的最新内容。更改仍在等待保存，因此已暂停删除。"
+        "savePending": "无法保存笔记。更改仍在等待保存，因此已暂停删除。"
       }
     },
     "folders": {

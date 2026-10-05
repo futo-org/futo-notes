@@ -17,7 +17,7 @@ export interface NoteSessionDeps {
   getEditorContent: () => string | undefined;
   setEditorContent: (text: string) => void;
   /** Points the editor at a note; a `null` id is an unsaved new note. */
-  openEditorNote: (text: string) => void;
+  openEditorNote: (noteId: string | null, text: string) => void;
   focusEditor: () => void;
   isEditorFocused: () => boolean;
   isComposing: () => boolean;
@@ -279,7 +279,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     openNote: (noteId, value) => {
       if (noteId === null && deps.getNoteId() === 'new')
         pendingNewFolder = deps.getPendingFolder?.() ?? null;
-      deps.openEditorNote(value);
+      deps.openEditorNote(noteId, value);
     },
     getNoteBody: deps.getNoteBody,
     focusEditor: deps.focusEditor,
@@ -361,7 +361,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
    * here rather than in a comment. → docs/spec/editor.md
    */
   function reattachEditor(): void {
-    deps.openEditorNote(content);
+    deps.openEditorNote(originalId ?? deps.getNoteId(), content);
   }
 
   function applyRemoteRename(toId: string, newTitle: string): void {
@@ -377,7 +377,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     savedTitle = id;
     content = body;
     savedContent = body;
-    deps.openEditorNote(body);
+    deps.openEditorNote(id, body);
     deps.setPrevNoteId(id);
     titleController.clearWarning();
     deps.navigate(`/note/${encodeURIComponent(id)}`);
@@ -387,7 +387,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     noteLoader.cancel();
     saveQueue.cancelPending();
     titleController.clearWarning();
-    deps.openEditorNote('');
+    deps.openEditorNote(null, '');
     resetSessionState();
     deps.navigate('/');
   }

@@ -58,7 +58,7 @@ interface EditorHandle {
  * 400-line production default).
  */
 interface LoadableEditorHandle extends EditorHandle {
-  openNote: (text: string) => void;
+  openNote: (noteId: string, text: string) => void;
   getContent: () => string | undefined;
   censusLoad: (
     text: string,
@@ -238,7 +238,7 @@ describe('opening a note must never move a divider or its caret (regression)', (
 
   it('a plain open (below the chunking threshold) leaves the note byte-identical', async () => {
     const handle = await mountEditorHandle('');
-    handle.openNote(NOTE_WITH_MID_DOCUMENT_DIVIDERS);
+    handle.openNote('test-note', NOTE_WITH_MID_DOCUMENT_DIVIDERS);
 
     expect(handle.getContent()).toBe(NOTE_WITH_MID_DOCUMENT_DIVIDERS);
   });
@@ -288,7 +288,7 @@ describe('undo and redo must not treat a restored divider as a new one (RC-60)',
 
   it('undoing the replacement of a selected divider restores exactly the loaded note', async () => {
     const handle = await mountEditorHandle('');
-    handle.openNote(NOTE);
+    handle.openNote('test-note', NOTE);
     const view = handle.getProseMirrorView()!;
     expect(handle.getContent()).toBe(NOTE);
     const before = blockTypes(view);
@@ -305,7 +305,7 @@ describe('undo and redo must not treat a restored divider as a new one (RC-60)',
 
   it('redoing over the divider and undoing again is byte-stable, both ways', async () => {
     const handle = await mountEditorHandle('');
-    handle.openNote(NOTE);
+    handle.openNote('test-note', NOTE);
     const view = handle.getProseMirrorView()!;
     selectDivider(view);
     typeChar(view, 'h');

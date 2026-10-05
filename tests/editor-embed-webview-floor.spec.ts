@@ -146,12 +146,12 @@ async function editorSurvivesWithout(
     (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
   );
   await page.evaluate(() =>
-    (window as unknown as FakeHostWindow).FutoEditor.setContent('floor probe'),
+    (window as unknown as FakeHostWindow).FutoEditor.setContent('test-note', 'floor probe'),
   );
   await flushFrames(page);
   return {
     serialized: await page.evaluate(() =>
-      (window as unknown as FakeHostWindow).FutoEditor.getContent(),
+      (window as unknown as FakeHostWindow).__futoTest.readDocument(),
     ),
     page,
     close: () => context.close(),
@@ -420,7 +420,7 @@ async function editorContentColor(
   await page.evaluate((t) => {
     const w = window as unknown as FakeHostWindow;
     w.FutoEditor.setTheme(t);
-    w.FutoEditor.setContent('legible text probe');
+    w.FutoEditor.setContent('test-note', 'legible text probe');
   }, theme);
   await flushFrames(page);
   const color = await page.locator('.ProseMirror').evaluate((el) => getComputedStyle(el).color);
@@ -565,7 +565,7 @@ async function openPreInsetEmbed(browser: Browser, markdown: string) {
     (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
   );
   await page.evaluate(
-    (md) => (window as unknown as FakeHostWindow).FutoEditor.setContent(md),
+    (md) => (window as unknown as FakeHostWindow).FutoEditor.setContent('test-note', md),
     markdown,
   );
   await flushFrames(page);

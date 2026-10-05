@@ -38,15 +38,19 @@ struct OpenNoteReconcilerTests {
         /// heard yet (a streaming note's withheld `change`, or one still in the
         /// 200 ms debounce) is merged into the shell copy exactly as
         /// NoteEditorView does: through the path a `change` takes.
-        var liveEditor: EditorCaptureOutcome?
+        var liveEditor: EditorCurrent?
 
         func effects() -> OpenNoteReconcileEffects {
             OpenNoteReconcileEffects(
                 snapshot: { self.snapshot },
-                captureEditor: {
-                    self.events.append("capture")
-                    let outcome = self.liveEditor ?? .captured(self.snapshot.draft)
-                    if case .captured(let live) = outcome, live != self.snapshot.draft {
+                awaitCurrent: {
+                    self.events.append("current")
+                    let outcome =
+                        self.liveEditor
+                        ?? EditorCurrent(
+                            latest: DocumentSnapshot(generation: 1, content: self.snapshot.draft),
+                            behind: false)
+                    if let live = outcome.latest?.content, live != self.snapshot.draft {
                         self.snapshot.draft = live
                         self.snapshot.editVersion += 1
                     }
@@ -67,6 +71,7 @@ struct OpenNoteReconcilerTests {
                     self.events.append("adopt:\(content)")
                     self.snapshot.base = content
                     self.snapshot.draft = content
+                    return true
                 },
                 keepDraft: { base, reason in
                     self.events.append("keep:\(base):\(reason)")
@@ -93,7 +98,7 @@ struct OpenNoteReconcilerTests {
         let result = await reconcile(.leave, editor: editor)
 
         #expect(result == .applied)
-        #expect(editor.events == ["capture", "drain", "read:note"])
+        #expect(editor.events == ["current", "drain", "read:note"])
     }
 
     @Test("leave resumes a draft save cancelled for fact gathering")
@@ -103,7 +108,7 @@ struct OpenNoteReconcilerTests {
 
         _ = await reconcile(.leave, editor: editor)
 
-        #expect(editor.events == ["capture", "drain", "read:note", "resume-save"])
+        #expect(editor.events == ["current", "drain", "read:note", "resume-save"])
     }
 
     @Test("a per-id delta skips an unrelated open note")
@@ -127,7 +132,7 @@ struct OpenNoteReconcilerTests {
 
         _ = await reconcile(.adopt(content: "peer"), editor: editor)
 
-        #expect(editor.events == ["capture", "drain", "read:note", "adopt:peer"])
+        #expect(editor.events == ["current", "drain", "read:note", "adopt:peer"])
     }
 
     @Test("keep-draft rebases without replacing the buffer")
@@ -140,7 +145,7 @@ struct OpenNoteReconcilerTests {
             editor: editor
         )
 
-        #expect(editor.events == ["capture", "drain", "read:note", "keep:peer:diverged"])
+        #expect(editor.events == ["current", "drain", "read:note", "keep:peer:diverged"])
         #expect(editor.snapshot.draft == "mine")
         #expect(editor.snapshot.base == "peer")
     }
@@ -151,7 +156,7 @@ struct OpenNoteReconcilerTests {
 
         _ = await reconcile(.close, editor: editor)
 
-        #expect(editor.events == ["capture", "drain", "read:note", "close"])
+        #expect(editor.events == ["current", "drain", "read:note", "close"])
     }
 
     @Test("a focused adopt is remembered and re-gathered after blur")
@@ -285,7 +290,7 @@ struct OpenNoteReconcilerTests {
         _ = await reconciler.reconcile(change: change, effects: editor.effects())
 
         #expect(
-            editor.events == ["rename:renamed", "capture", "drain", "read:renamed", "adopt:peer"])
+            editor.events == ["rename:renamed", "current", "drain", "read:renamed", "adopt:peer"])
         #expect(factsSeen.map(\.id) == ["note", "renamed"])
     }
 
@@ -298,7 +303,7 @@ struct OpenNoteReconcilerTests {
         let result = await reconcile(.adopt(content: "peer"), editor: editor)
 
         #expect(result == .stale)
-        #expect(editor.events == ["capture", "drain", "read:note"])
+        #expect(editor.events == ["current", "drain", "read:note"])
     }
 
     @Test("a visibility change during the disk read drops the verdict")
@@ -325,7 +330,7 @@ struct OpenNoteReconcilerTests {
 
         #expect(result == .failed)
         #expect(!editor.events.contains("close"))
-        #expect(editor.events == ["capture", "drain", "resume-save"])
+        #expect(editor.events == ["current", "drain", "resume-save"])
     }
 
     @Test("sync intent received during initial load is replayed losslessly")
@@ -426,19 +431,13 @@ struct OpenNoteReconcilerTests {
         #expect(!editor.events.contains("close"))
     }
 
-    // MARK: - The classifier reads the live editor (RC-08)
-    //
-    // The shell's draft is kept current only by `change` messages, and the
-    // editor withholds those while a large note streams and for the 200 ms
-    // change debounce. "A busy editor's silence cannot be read as nothing to
-    // lose" (docs/spec/editor.md): each case below had an edit only the
-    // editor knew about, and the verdict used to be taken on the shell's copy.
-
     @Test("a peer edit over an edit the editor has not reported keeps the edit")
     func unreportedEditSurvivesPeerEdit() async {
         let editor = FakeEditor()
         editor.disk = "peer"
-        editor.liveEditor = .captured("base + typed mid-stream")
+        editor.liveEditor = EditorCurrent(
+            latest: DocumentSnapshot(generation: 2, content: "base + typed mid-stream"),
+            behind: false)
         let reconciler = OpenNoteReconciler()
 
         let result = await reconciler.reconcile(change: .external, effects: editor.effects())
@@ -453,7 +452,9 @@ struct OpenNoteReconcilerTests {
     func unreportedEditSurvivesPeerDelete() async {
         let editor = FakeEditor()
         editor.disk = nil
-        editor.liveEditor = .captured("base + typed inside the debounce")
+        editor.liveEditor = EditorCurrent(
+            latest: DocumentSnapshot(generation: 2, content: "base + typed inside the debounce"),
+            behind: false)
         let reconciler = OpenNoteReconciler()
 
         let result = await reconciler.reconcile(change: .external, effects: editor.effects())
@@ -472,11 +473,12 @@ struct OpenNoteReconcilerTests {
             factsSeen = facts
             return .leave
         }
-        editor.liveEditor = .captured("live")
+        editor.liveEditor = EditorCurrent(
+            latest: DocumentSnapshot(generation: 2, content: "live"), behind: false)
 
         _ = await reconciler.reconcile(change: .external, effects: editor.effects())
 
-        #expect(Array(editor.events.prefix(3)) == ["capture", "drain", "read:note"])
+        #expect(Array(editor.events.prefix(3)) == ["current", "drain", "read:note"])
         #expect(factsSeen?.draft == "live")
         #expect(factsSeen?.editedDuringCycle == true)
     }
@@ -491,7 +493,7 @@ struct OpenNoteReconcilerTests {
         for disk in ["peer", nil] as [String?] {
             let editor = FakeEditor()
             editor.disk = disk
-            editor.liveEditor = .timedOut
+            editor.liveEditor = EditorCurrent(latest: nil, behind: true)
             let reconciler = OpenNoteReconciler()
 
             let result = await reconciler.reconcile(change: .external, effects: editor.effects())
@@ -506,7 +508,7 @@ struct OpenNoteReconcilerTests {
     func foreignDocumentGetsNoVerdict() async {
         let editor = FakeEditor()
         editor.disk = nil
-        editor.liveEditor = .notOurs
+        editor.liveEditor = EditorCurrent(latest: nil, behind: true)
         let reconciler = OpenNoteReconciler()
 
         let result = await reconciler.reconcile(change: .external, effects: editor.effects())
@@ -515,14 +517,11 @@ struct OpenNoteReconcilerTests {
         #expect(!editor.events.contains("close"))
     }
 
-    /// A wedged renderer (or one with no document) never presented an
-    /// editable document, so the shell copy is the freshest body there is and
-    /// sync must not wait on it forever — the exit rule (editorExitBody).
     @Test("an editor with no live document is classified on the shell copy")
     func deadEditorStillReconciles() async {
         let editor = FakeEditor()
         editor.disk = "peer"
-        editor.liveEditor = .noLiveDocument
+        editor.liveEditor = EditorCurrent(latest: nil, behind: false)
         let reconciler = OpenNoteReconciler()
 
         let result = await reconciler.reconcile(change: .external, effects: editor.effects())
@@ -535,13 +534,27 @@ struct OpenNoteReconcilerTests {
     func hiddenEditorIsNotRead() async {
         let editor = FakeEditor()
         editor.snapshot.isVisible = false
-        editor.liveEditor = .captured("the visible note's text")
+        editor.liveEditor = EditorCurrent(
+            latest: DocumentSnapshot(generation: 2, content: "the visible note's text"),
+            behind: false)
         let reconciler = OpenNoteReconciler(classify: { _ in .close })
 
         let result = await reconciler.reconcile(change: .external, effects: editor.effects())
 
         #expect(result == .deferred)
-        #expect(!editor.events.contains("capture"))
+        #expect(!editor.events.contains("current"))
         #expect(editor.snapshot.draft == "base")
     }
+    @Test func refusedAdoptionRemainsEligibleForNextBlur() async {
+        let editor = FakeEditor()
+        let reconciler = OpenNoteReconciler(classify: { _ in .adopt(content: "peer") })
+        var effects = editor.effects()
+        effects.adopt = { _ in false }
+        let result = await reconciler.reconcile(change: .external, effects: effects)
+        #expect(result == .unread)
+        #expect(reconciler.shouldReconcileAfterFocusChange(isFocused: false))
+        _ = await reconciler.reconcile(change: .external, effects: editor.effects())
+        #expect(!reconciler.shouldReconcileAfterFocusChange(isFocused: false))
+    }
+
 }

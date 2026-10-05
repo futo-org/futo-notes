@@ -26,6 +26,7 @@
  * Usage:
  *   eval "$(just qa-claim ios)"
  *   just test-ios-stories
+ *   IOS_TEXT_INPUT=softwareKeyboard just test-ios-stories # iOS 27 HID fallback
  */
 
 import { join } from 'node:path';
@@ -126,9 +127,9 @@ async function sustainedTyping() {
 
 // RC-04 / RC-09 (2026-09-28): a system pop from a note opened through a
 // wikilink re-attaches the linking note's editor BEFORE the popped note's exit
-// runs. A `change` names no note, so the popped note's edit — the whole body of
-// a large note edited while its tail streamed — was saved over the linking
-// note, and the popped note kept nothing. docs/qa/wikilink-pop-large-edited-note.md.
+// runs. Bridge v9 flushes the outgoing edit with its note id before the
+// incoming load. This story verifies the complete native navigation chain.
+// docs/qa/wikilink-pop-large-edited-note.md.
 const LINKING_NOTE = 'Parent.md';
 const LINKING_BODY = 'Parent note body line\n\n[[Child]]\n';
 const LINKED_NOTE = 'Child.md';
@@ -388,8 +389,7 @@ const BACKGROUND_SAVE_WINDOW_MS = 30_000;
 // 1.5x the pop story's note: the body must still be streaming when the story
 // gets to type, and a cold first launch of a freshly booted simulator can take
 // the 40,000-section note past its stream before the body takes focus. Not
-// larger: the fix's read of the settling tail must still answer inside the
-// three capture attempts on a loaded host.
+// larger: the mailbox flush still has to settle the tail within its deadline.
 const BACKGROUND_SECTIONS = 60_000;
 const BACKGROUND_BODY = largeNoteBody(BACKGROUND_SECTIONS);
 

@@ -1854,7 +1854,7 @@ journal --dir` has nothing to read from a phone.
   > src/editor-embed/createFutoEditorApi.ts `applyExternalContent`
 
   Neither shell invokes that bridge
-  while the editor is focused: each remembers `DeferAdopt`, then re-reads and
+  while the editor is focused: each remembers `DeferAdopt`, then waits for its mailbox to be current and
   classifies current disk content on blur. The blur edge every host settles on
   is ONE reported fact — the embed's `focus` bridge message, from the editor's
   own `hasFocus()` — and it means "the editor holds the caret", not merely

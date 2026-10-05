@@ -95,6 +95,7 @@ async function open(
 ): Promise<void> {
   const config = JSON.stringify({
     bridgeVersion: BRIDGE_VERSION,
+    noteId: 'test-note',
     theme: 'light',
     content,
     nativeToolbar: true,
@@ -196,7 +197,11 @@ test('a rename arriving as an external update relinks the open note silently', a
     (json) => {
       const editor = (window as unknown as FakeHostWindow).FutoEditor;
       editor.setNotes(json);
-      editor.applyExternalContent('Link to [[work/notes/plans]].\n');
+      editor.applyExternalContent(
+        'test-note',
+        'Link to [[work/notes/plans]].\n',
+        (window as unknown as FakeHostWindow).__futoTest.documentRef().generation,
+      );
     },
     JSON.stringify([{ id: 'work/notes/plans', title: 'plans', modifiedMs: 0 }]),
   );
@@ -221,7 +226,11 @@ test('a self-referencing wikilink relinks with the rest', async ({ page }) => {
     (json) => {
       const editor = (window as unknown as FakeHostWindow).FutoEditor;
       editor.setNotes(json);
-      editor.applyExternalContent('Me: [[shopping list]]\n');
+      editor.applyExternalContent(
+        'test-note',
+        'Me: [[shopping list]]\n',
+        (window as unknown as FakeHostWindow).__futoTest.documentRef().generation,
+      );
     },
     JSON.stringify([{ id: 'shopping list', title: 'shopping list', modifiedMs: 0 }]),
   );
@@ -556,8 +565,13 @@ test('a wikilink typed with a `|` in a table cell keeps its row and its link', a
   const saved = await getContent(page);
   expect(saved).toContain('| c [[note\\|alias]] | d |');
 
-  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.setContent('-'));
-  await page.evaluate((m) => (window as unknown as FakeHostWindow).FutoEditor.setContent(m), saved);
+  await page.evaluate(() =>
+    (window as unknown as FakeHostWindow).FutoEditor.setContent('test-note', '-'),
+  );
+  await page.evaluate(
+    (m) => (window as unknown as FakeHostWindow).FutoEditor.setContent('test-note', m),
+    saved,
+  );
   await flushFrames(page);
   const cells = page.locator('.ProseMirror tr').nth(1).locator('td, th');
   await expect(cells, saved).toHaveCount(2);

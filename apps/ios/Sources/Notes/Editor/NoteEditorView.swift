@@ -80,6 +80,7 @@ struct NoteEditorView: View {
     /// written back over the real note (data-loss guard). Mirrors Android's
     /// `loaded` flag in NoteEditorScreen.kt.
     @State private var loaded = false
+    @State private var documentReady = false
     // Rename is presented from the nav-bar menu (the big title header is gone
     // so the editor can be full-screen).
     @State private var showRename = false
@@ -103,8 +104,8 @@ struct NoteEditorView: View {
     @State private var editorBottomGlobalY: CGFloat = 0
     @State private var findBarTopGlobalY: CGFloat = 0
     @State private var findOverlayInset: CGFloat = 0
-    /// The shared-WebView attachment this editor holds: what an exit and the
-    /// open-note reconcile read the editor through. See ``EditorAttachmentSlot``.
+    /// The shared-WebView attachment used to authorize view and find operations.
+    /// Document text comes from the mailbox. See ``EditorAttachmentSlot``.
     @State private var editorAttachmentSlot = EditorAttachmentSlot()
     private var editorAttachment: Int? { editorAttachmentSlot.token }
 
@@ -146,6 +147,8 @@ struct NoteEditorView: View {
         _noteId = State(initialValue: noteId)
         _titleField = State(initialValue: splitId(id: noteId).title)
         _content = State(initialValue: "")
+        // Quick capture comes from the completed create-empty-note workflow.
+        _loaded = State(initialValue: autoFocus)
         _navPath = navPath
         self.autoFocus = autoFocus
         self.originalId = noteId
@@ -189,11 +192,20 @@ struct NoteEditorView: View {
             }
 
             EditorWebView(
+                noteId: loaded ? noteId : "",
                 content: content,
                 theme: theme,
                 localization: localization,
                 autoFocus: autoFocus,
                 onChange: { receiveEditorChange($0) },
+                onDocumentLoaded: { id in
+                    guard loaded, id == noteId else { return }
+                    let first = !documentReady
+                    documentReady = true
+                    if first {
+                        scheduleOpenNoteReconciliation(openNoteChangeBuffer.finishInitialLoad())
+                    }
+                },
                 onFocusChange: { focused in
                     editorFocused = focused
                     if openNoteReconciler.shouldReconcileAfterFocusChange(
@@ -367,10 +379,10 @@ struct NoteEditorView: View {
                 if !navPath.isEmpty { navPath.removeLast() }
                 return
             }
+            EditorHost.shared.prepareLoad(noteId)
             content = disk
             savedContent = disk
             loaded = true
-            scheduleOpenNoteReconciliation(openNoteChangeBuffer.finishInitialLoad())
         }
         .onReceive(store.$notes) { _ in
             // Keep the embed's note universe (wikilink resolution/autocomplete)
@@ -382,7 +394,7 @@ struct NoteEditorView: View {
         .onReceive(store.$localTreeChange) { summary in
             guard let summary else { return }
             let change = OpenNoteChange(summary: summary)
-            if let ready = openNoteChangeBuffer.receive(change, isLoaded: loaded) {
+            if let ready = openNoteChangeBuffer.receive(change, isLoaded: documentReady) {
                 scheduleOpenNoteReconciliation(ready)
             }
         }
@@ -398,13 +410,11 @@ struct NoteEditorView: View {
             // re-claims because onDisappear released the previous token.
             if draftToken == 0 { draftToken = store.claimDraftOwnership() }
             publishDraft()
-            // The leave-active flush reads this editor first (RC-92). Registered
-            // on every appearance: a cover or pop released it with the token.
-            store.setDraftRefresher(token: draftToken) { await refreshFromLiveEditor() }
+            store.setDraftFlushWaiter(token: draftToken) { await flushEditorMailbox() }
             // Re-gather after a buried editor becomes visible. This settles any
             // hidden or focused deferral against current disk rather than
             // applying a stale content snapshot.
-            if loaded { scheduleOpenNoteReconciliation(.external) }
+            if documentReady { scheduleOpenNoteReconciliation(.external) }
         }
         // Keep the register's derivation current: any change to loaded/noteId/
         // savedContent/content re-publishes this editor's draft (or clears it the
@@ -484,22 +494,14 @@ struct NoteEditorView: View {
     /// takes the retained-draft flush, which stays eligible for lifecycle retry.
     private func finishLeave() {
         let token = draftToken
-        let attachment = editorAttachment
+        let departureId = noteId
         session.cancel(.rename)
         let exit = session.end(
             .navigate,
             effects: EditorExitEffects(
-                captureBody: {
-                    // A busy editor may be holding an edit it has not reported
-                    // (a streamed load withholds `change`). The first capture
-                    // makes it finish that load, so a retry answers with the
-                    // real document instead of falling back to the shell's copy.
-                    guard let attachment else { return content }
-                    var outcome = await EditorHost.shared.captureContent(leftBy: attachment)
-                    for _ in 0..<2 where outcome == .timedOut {
-                        outcome = await EditorHost.shared.captureContent(leftBy: attachment)
-                    }
-                    return editorLeaveBody(outcome, shellCopy: content)
+                awaitCurrentBody: {
+                    let current = await EditorHost.shared.awaitCurrent(noteId)
+                    return current.latest?.content ?? content
                 },
                 commitBody: { flushed in
                     content = flushed
@@ -522,11 +524,29 @@ struct NoteEditorView: View {
         )
         Task { @MainActor in
             let left = await exit?.value ?? false
-            if !left, loaded, content != savedContent {
-                let draft = PendingDraft(id: noteId, base: savedContent, content: content)
-                store.publishDraft(token: token, draft)
-                store.retainDraftUntilFlushed(token: token)
-                store.flushAsync(draft, ownerToken: token)
+            let destinationId = noteId
+            let baseline = savedContent
+            let latest = EditorHost.shared.latest(departureId)
+            if !latest.canProceed {
+                if loaded, content != savedContent {
+                    store.publishDraft(
+                        token: token,
+                        PendingDraft(id: destinationId, base: baseline, content: content))
+                    store.retainDraftUntilFlushed(token: token)
+                }
+                EditorHost.shared.retainUnflushed(departureId) { text in
+                    store.flushRetainedEditor(
+                        PendingDraft(id: destinationId, base: savedContent, content: text),
+                        ownerToken: token)
+                }
+            } else if let text = latest.latest?.content, text != baseline {
+                store.flushRetainedEditor(
+                    PendingDraft(id: destinationId, base: baseline, content: text),
+                    ownerToken: token)
+            } else if !left, loaded, content != savedContent {
+                store.flushRetainedEditor(
+                    PendingDraft(id: noteId, base: savedContent, content: content),
+                    ownerToken: token)
             } else {
                 store.releaseDraftOwnership(token: token)
             }
@@ -584,42 +604,46 @@ struct NoteEditorView: View {
 
     private func scheduleSave(_ newContent: String) {
         session.schedule(.save) {
-            try? await Task.sleep(nanoseconds: 400_000_000)  // 0.4s debounce
+            try? await Task.sleep(nanoseconds: 400_000_000)
             guard session.isActive else { return false }
-            // Re-read identity and base at FIRE time. A sync disposition may
-            // have followed a rename or rebased the draft while this debounce
-            // waited; the engine's flush verb, never a raw write, resolves that
-            // three-way state without clobbering the peer version.
-            let savedId = noteId
-            let base = savedContent
-            let disposition = await store.flushDraft(
-                PendingDraft(id: savedId, base: base, content: newContent), ownerToken: draftToken)
-            // No cancellation guard here, deliberately: by the time the flush
-            // answers, its write is durable, and this task is routinely cancelled
-            // by the next keystroke's `session.schedule(.save)`. Skipping the
-            // baseline advance on that cancellation left `savedContent` behind
-            // disk, so the next flush's `base` no longer matched — and the engine
-            // parked this editor's own earlier write as a conflict copy.
-            // `settledFlush` owns that decision and vetoes on identity only.
-            switch settledFlush(
-                disposition: disposition,
-                writtenContent: newContent,
-                flushedId: savedId,
-                currentId: noteId,
-                sessionIsClosing: session.isClosing
-            ) {
-            case .ignore:
-                return false
-            case .record(let content):
-                savedContent = content
-            case .follow(let parkedId, let content):
-                savedContent = content
-                noteId = parkedId
-                titleField = splitId(id: parkedId).title
-                store.showTransient(LocalizedMessage("notes.save.conflictCopy"))
-            }
-            return true
+            return await persistBody(newContent)
         }
+    }
+
+    private func persistBody(_ newContent: String) async -> Bool {
+        // Re-read identity and base at FIRE time. A sync disposition may
+        // have followed a rename or rebased the draft while this debounce
+        // waited; the engine's flush verb, never a raw write, resolves that
+        // three-way state without clobbering the peer version.
+        let savedId = noteId
+        let base = savedContent
+        let disposition = await store.flushDraft(
+            PendingDraft(id: savedId, base: base, content: newContent), ownerToken: draftToken)
+        // No cancellation guard here, deliberately: by the time the flush
+        // answers, its write is durable, and this task is routinely cancelled
+        // by the next keystroke's `session.schedule(.save)`. Skipping the
+        // baseline advance on that cancellation left `savedContent` behind
+        // disk, so the next flush's `base` no longer matched — and the engine
+        // parked this editor's own earlier write as a conflict copy.
+        // `settledFlush` owns that decision and vetoes on identity only.
+        switch settledFlush(
+            disposition: disposition,
+            writtenContent: newContent,
+            flushedId: savedId,
+            currentId: noteId,
+            sessionIsClosing: session.isClosing
+        ) {
+        case .ignore:
+            return false
+        case .record(let content):
+            savedContent = content
+        case .follow(let parkedId, let content):
+            savedContent = content
+            await retargetNoteId(parkedId)
+            titleField = splitId(id: parkedId).title
+            store.showTransient(LocalizedMessage("notes.save.conflictCopy"))
+        }
+        return true
     }
 
     private func commitRename() {
@@ -631,6 +655,23 @@ struct NoteEditorView: View {
 
     /// Debounced inline-title rename (Android parity): reschedule on each
     /// keystroke and rename once typing settles. Cancelled on leave/delete.
+    private func retargetNoteId(_ id: String) async {
+        guard id != noteId else { return }
+        let oldId = noteId
+        let current = await EditorHost.shared.awaitCurrent(oldId)
+        if let live = current.latest?.content, live != content { receiveEditorChange(live) }
+        if !current.canProceed {
+            let token = draftToken
+            let base = savedContent
+            EditorHost.shared.retainUnflushed(oldId) { text in
+                store.flushRetainedEditor(
+                    PendingDraft(id: id, base: base, content: text), ownerToken: token)
+            }
+        }
+        EditorHost.shared.prepareLoad(id)
+        noteId = id
+    }
+
     private func scheduleRename(_ newTitle: String) {
         session.schedule(.rename) {
             try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5s debounce
@@ -686,7 +727,7 @@ struct NoteEditorView: View {
             return false
         }
         savedContent = flushed
-        noteId = resolution.id
+        await retargetNoteId(resolution.id)
         titleField = splitId(id: resolution.id).title
         await settleRelink(flushed: flushed, relinkedBody: resolution.relinkedBody)
         return true
@@ -700,52 +741,22 @@ struct NoteEditorView: View {
     private func settleRelink(flushed: String, relinkedBody: String?) async {
         guard let body = relinkedBody, body != flushed else { return }
         savedContent = body
-        // What the page held when it was read: the text the adopt below is
-        // conditional on. nil = the page holds no document of ours to compare.
-        var readText: String?
-        var ownsPage = false
-        if content == flushed, let attachment = editorAttachment {
-            // A keystroke the editor has not reported yet must not be replaced:
-            // read the document itself, without blurring it.
-            switch await EditorHost.shared.readContent(ownedBy: attachment, showing: content) {
-            case .captured(let live):
-                if live != content { receiveEditorChange(live) }
-                readText = live
-                ownsPage = true
-            case .noLiveDocument:
-                ownsPage = true
-            case .notOurs, .timedOut:
-                // Cannot tell: keep the draft (rebased onto the file above).
-                return
+        let loadedDocument = await EditorHost.shared.awaitLoaded(noteId, content: content)
+        guard loadedDocument.latest != nil else { return }
+        await settleRelinkAdoption(
+            flushed: flushed,
+            relinkedBody: body,
+            awaitCurrent: { await EditorHost.shared.awaitCurrent(noteId) },
+            liveContent: { content },
+            receiveChange: { receiveEditorChange($0) },
+            setBaseline: { savedContent = $0 },
+            apply: { replacement, generation in
+                let applied = await EditorHost.shared.applyExternal(
+                    noteId: noteId, content: replacement, expectedGeneration: generation)
+                if applied { content = replacement }
+                return applied
             }
-        }
-        let rebase = rebasedOnRelink(flushed: flushed, live: content, relinkedBody: body)
-        savedContent = rebase.savedContent
-        guard rebase.adoptIntoEditor else { return }
-        if let attachment = editorAttachment, ownsPage, let readText {
-            // The read above and this adopt are two WebKit round trips; a
-            // keystroke can land between them and a plain replace destroys it.
-            // Compare and replace inside ONE script instead: the page is
-            // single-threaded, so it either still holds what was read (replace)
-            // or holds a newer edit (keep it as the draft, RC-70 path).
-            switch await EditorHost.shared.applyExternalIfUnchanged(
-                ownedBy: attachment, expected: readText, content: rebase.content)
-            {
-            case .applied:
-                content = rebase.content
-            case .kept(let liveText):
-                if liveText != content { receiveEditorChange(liveText) }
-            case .unavailable:
-                break
-            }
-            return
-        }
-        // The page holds no editable document of ours (never presented, or no
-        // attachment): nothing typed can be lost by replacing it.
-        if editorAttachment != nil, ownsPage {
-            EditorHost.shared.applyExternal(content: rebase.content)
-        }
-        content = rebase.content
+        )
     }
 
     /// Inline title editing (desktop parity): update the persistent warning for
@@ -805,10 +816,7 @@ struct NoteEditorView: View {
             modified: Date(), richPreview: "", tags: [])
     }
 
-    /// An editor `change` — or a read of the live editor that found text no
-    /// `change` had delivered yet (``openNoteEffects()`` `captureEditor`). Both
-    /// are the editor telling this shell what the note now holds, so both take
-    /// this one path.
+    /// Posted changes and mailbox snapshots take the same persistence path.
     private func receiveEditorChange(_ newContent: String) {
         // Data-loss guard: ignore editor change events until the off-main
         // initial read has landed (`loaded`). The reused WebView mounts
@@ -841,27 +849,18 @@ struct NoteEditorView: View {
         scheduleSave(newContent)
     }
 
-    /// The app is leaving the foreground and the flush wants this editor's
-    /// draft to be what the editor holds (RC-92). Only the visible editor owns
-    /// the shared WebView, so a covered or leaving one has nothing to read; a
-    /// load that has not landed has nothing to save.
-    private func refreshFromLiveEditor() async {
-        guard loaded, isVisible, !session.isClosing else { return }
-        await session.refreshFromLiveEditor(
-            capture: {
-                guard let attachment = editorAttachment else { return .notOurs }
-                let outcome = await EditorHost.shared.readContent(
-                    ownedBy: attachment, showing: content)
-                if case .captured(let live) = outcome, live != content {
-                    receiveEditorChange(live)
-                }
-                return outcome
-            },
-            settled: {
-                publishDraft()
-                if content != savedContent { scheduleSave(content) }
-            }
-        )
+    private func flushEditorMailbox() async {
+        guard loaded, !session.isClosing else { return }
+        let current = await EditorHost.shared.awaitCurrent(noteId)
+        if let live = current.latest?.content, live != content { receiveEditorChange(live) }
+        await session.cancelAndDrain(.save)
+        publishDraft()
+        if content != savedContent {
+            let snapshot = content
+            _ = await session.schedule(.save) { await persistBody(snapshot) }.value
+        }
+        publishDraft()
+        if content != savedContent { scheduleSave(content) }
     }
 
     /// Supply the reconciler with live editor state and the synchronous effects
@@ -870,7 +869,7 @@ struct NoteEditorView: View {
     private func openNoteEffects() -> OpenNoteReconcileEffects {
         OpenNoteReconcileEffects(
             snapshot: {
-                guard loaded, !session.isClosing else { return nil }
+                guard documentReady, !session.isClosing else { return nil }
                 return OpenNoteEditorSnapshot(
                     id: noteId,
                     base: savedContent,
@@ -880,19 +879,10 @@ struct NoteEditorView: View {
                     editVersion: editVersion
                 )
             },
-            captureEditor: {
-                // The draft `change` messages delivered can lag the editor: a
-                // large note withholds them while its tail streams, and every
-                // edit spends 200 ms in the debounce. Read the document itself
-                // — without blurring it, which would take the keyboard from a
-                // typist — and hear anything it holds that no `change` said.
-                guard let attachment = editorAttachment else { return .notOurs }
-                let outcome = await EditorHost.shared.readContent(
-                    ownedBy: attachment, showing: content)
-                if case .captured(let live) = outcome, live != content {
-                    receiveEditorChange(live)
-                }
-                return outcome
+            awaitCurrent: {
+                let current = await EditorHost.shared.awaitCurrent(noteId)
+                if let live = current.latest?.content, live != content { receiveEditorChange(live) }
+                return current
             },
             cancelAndDrainSave: {
                 await session.cancelAndDrain(.save)
@@ -904,13 +894,17 @@ struct NoteEditorView: View {
                 if content != savedContent { scheduleSave(content) }
             },
             followRename: { toId in
-                noteId = toId
+                await retargetNoteId(toId)
                 titleField = splitId(id: toId).title
             },
             adopt: { disk in
-                EditorHost.shared.applyExternal(content: disk)
+                guard let generation = EditorHost.shared.latest(noteId).latest?.generation,
+                    await EditorHost.shared.applyExternal(
+                        noteId: noteId, content: disk, expectedGeneration: generation)
+                else { return false }
                 content = disk
                 savedContent = disk
+                return true
             },
             keepDraft: { base, reason in
                 savedContent = base
@@ -944,10 +938,11 @@ struct NoteEditorView: View {
     /// no-op when the note was never edited, which ABANDONS the load rather
     /// than saving a prefix.
     ///
-    /// Refusing is reserved for the one case where reading is genuinely
-    /// ambiguous: another note owns the shared WebView.
-    private func captureBodyForExit() async -> String? {
-        editorExitBody(await EditorHost.shared.captureCurrentContent(), shellCopy: content)
+    /// A behind mailbox that cannot flush refuses a user exit; renderer death
+    /// permits proceeding with the newest received bytes.
+    private func awaitBodyForExit() async -> String? {
+        let current = await EditorHost.shared.awaitCurrent(noteId)
+        return current.canProceed ? (current.latest?.content ?? content) : nil
     }
 
     /// Push the note universe ([{id,title,modifiedMs,tags}] JSON) into the
@@ -994,7 +989,7 @@ struct NoteEditorView: View {
         session.end(
             .navigate,
             effects: EditorExitEffects(
-                captureBody: { await captureBodyForExit() },
+                awaitCurrentBody: { await awaitBodyForExit() },
                 commitBody: { flushed in
                     content = flushed
                     // Only a loaded, dirty editor has anything to persist.
@@ -1016,8 +1011,8 @@ struct NoteEditorView: View {
                     switch failure {
                     case .title:
                         store.showTransient(LocalizedMessage("notes.navigation.renamePending"))
-                    case .capture:
-                        store.showTransient(LocalizedMessage("notes.navigation.captureFailed"))
+                    case .unflushed:
+                        store.showTransient(LocalizedMessage("notes.navigation.unflushed"))
                     case .body:
                         store.showTransient(LocalizedMessage("notes.navigation.saveFailed"))
                     case .action:
@@ -1051,7 +1046,7 @@ struct NoteEditorView: View {
         session.end(
             .move,
             effects: EditorExitEffects(
-                captureBody: { await captureBodyForExit() },
+                awaitCurrentBody: { await awaitBodyForExit() },
                 commitBody: { flushed in
                     content = flushed
                     return true
@@ -1068,7 +1063,7 @@ struct NoteEditorView: View {
                         // the actor call was in flight. Delete awaits this task
                         // and must see the committed id.
                         savedContent = flushed
-                        noteId = committed.id
+                        await retargetNoteId(committed.id)
                         titleField = splitId(id: committed.id).title
                         await settleRelink(flushed: flushed, relinkedBody: committed.relinkedBody)
                         return true
@@ -1078,8 +1073,8 @@ struct NoteEditorView: View {
                 },
                 onFailed: { failure, _, _ in
                     switch failure {
-                    case .capture:
-                        store.showTransient(LocalizedMessage("notes.move.captureFailed"))
+                    case .unflushed:
+                        store.showTransient(LocalizedMessage("notes.navigation.unflushed"))
                     case .body:
                         store.showTransient(LocalizedMessage("notes.move.saveFailed"))
                     case .action:
@@ -1105,7 +1100,7 @@ struct NoteEditorView: View {
                 // closed, so a bridge change arriving from here on is
                 // quarantined rather than applied.
                 prepare: { EditorHost.shared.blur() },
-                captureBody: { await captureBodyForExit() },
+                awaitCurrentBody: { await awaitBodyForExit() },
                 commitBody: { body in
                     let hasPendingChanges = body != savedContent
                     let writeOutcome =
@@ -1141,12 +1136,12 @@ struct NoteEditorView: View {
                 },
                 onFailed: { failure, lateContent, attemptedBody in
                     switch failure {
-                    case .capture:
+                    case .unflushed:
                         content = lateContent ?? content
                         presentWithoutAnimation { showDeleteConfirm = false }
                         publishDraft()
                         if content != savedContent { scheduleSave(content) }
-                        store.showTransient(LocalizedMessage("notes.delete.captureFailed"))
+                        store.showTransient(LocalizedMessage("notes.navigation.unflushed"))
                     case .body:
                         content = lateContent ?? attemptedBody ?? content
                         presentWithoutAnimation { showDeleteConfirm = false }

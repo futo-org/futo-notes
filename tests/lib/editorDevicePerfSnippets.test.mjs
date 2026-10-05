@@ -32,8 +32,11 @@ describe('open then type', () => {
     const context = {
       window: {
         FutoEditor: {
-          setContent: (md) => calls.push(md === '' ? 'reset' : 'setContent'),
-          getContent: () => '',
+          setContent: (_id, md) => calls.push(md === '' ? 'reset' : 'setContent'),
+        },
+        __futoTest: {
+          readDocument: () => '',
+          documentRef: () => ({ noteId: 'perf-note', generation: 1 }),
         },
         __futoProseMirrorView: () => view,
       },

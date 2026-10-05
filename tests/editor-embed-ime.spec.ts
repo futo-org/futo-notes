@@ -45,6 +45,7 @@ async function imeAttributes(
     (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
     JSON.stringify({
       bridgeVersion: BRIDGE_VERSION,
+      noteId: 'test-note',
       theme: 'light',
       content: 'the quick brown fox',
       nativeToolbar: true,
@@ -108,6 +109,7 @@ test('code blocks and inline code declare the autocorrect opt-out', async ({ bro
     (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
     JSON.stringify({
       bridgeVersion: BRIDGE_VERSION,
+      noteId: 'test-note',
       theme: 'light',
       content: 'prose with `inline code` in it\n\n```js\nconst dont = 1;\n```\n',
       nativeToolbar: true,

@@ -18,7 +18,7 @@ struct BridgeCallSurfaceTests {
     /// together: a method added here without a bridge.ts counterpart is not a
     /// real contract member.
     static let documentedMethods: Set<String> = [
-        "initialize", "setContent", "getContent", "focus", "setTheme", "setLanguage", "setNotes",
+        "initialize", "setContent", "flush", "focus", "setTheme", "setLanguage", "setNotes",
         "applyExternalContent", "insertImage", "setImageBaseUrl",
         "exec", "blur", "setNativeToolbar",
         "openFind", "setFindQuery", "stepFind", "closeFind", "setFindOverlayInset",

@@ -15,8 +15,8 @@
 
   // The subset of the editor's imperative API the shell drives.
   export interface EditorApi {
-    setContent: (text: string) => void;
-    openNote: (text: string) => void;
+    setContent: (noteId: string, text: string) => void;
+    openNote: (noteId: string | null, text: string) => void;
     applyEdit: (markdown: string) => void;
     insertMarkdown: (text: string) => void;
     focus: () => void;

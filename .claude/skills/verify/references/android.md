@@ -145,18 +145,19 @@ app launch, then evaluate arbitrary JS in the editor page:
 just cdp-forward            # finds the app's devtools socket, forwards to a
                             # per-worktree port, prints `export CDP_PORT=…` — set it
 node scripts/cdp-invoke.mjs "document.title"
-node scripts/cdp-invoke.mjs "window.FutoEditor.getContent()"
-node scripts/cdp-invoke.mjs "window.FutoEditor.setContent('# from CDP')"
+node scripts/cdp-invoke.mjs "window.__futoTest.readDocument()"
+node scripts/cdp-invoke.mjs "window.FutoEditor.setContent('qa-note', '# from CDP')"
 ```
 
-`window.FutoEditor` is the embed's API surface (setContent / getContent /
+`window.FutoEditor` is the embed's API surface (setContent / flush /
 focus / setTheme / exec / setNativeToolbar, …) — see the contract comment at
 the top of `packages/editor/src/bridge.ts` (same embed on both
 platforms). **`setContent` updates the visible editor only** — it does not
-fire the native change/save pipeline, so the content reverts on background
-unless you also post the bridge message a real keystroke would send:
-`window.futoBridge.postMessage(JSON.stringify({type:'change', content}))`
-(or send one real keystroke through the UI). There is **no** `window.__TAURI__` or `window.__testSync`
+fire the native change/save pipeline. Make a reportable ProseMirror edit or send
+one real keystroke through the UI, then request `FutoEditor.flush('qa')`. Production
+hosts receive tagged messages; never manufacture an anonymous `change`. Debug
+builds expose `__futoTest.readDocument()` for assertions only.
+There is **no** `window.__TAURI__` or `window.__testSync`
 inside this page — those are Tauri-desktop-only; the Android equivalent is the
 native hook surface in §3, driven by broadcast rather than JS.
 `cdp-invoke.mjs` awaits promises and bypasses page CSP; re-run

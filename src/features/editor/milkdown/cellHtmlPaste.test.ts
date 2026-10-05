@@ -38,7 +38,7 @@ vi.mock('$lib/platform', async (importOriginal) => ({
 }));
 
 interface EditorHandle {
-  openNote: (text: string) => void;
+  openNote: (noteId: string, text: string) => void;
   getContent: () => string | undefined;
   getProseMirrorView: () => EditorView | null;
 }
@@ -89,7 +89,7 @@ const NOTE = '| a | b |\n| --- | --- |\n| c1 | c2 |\n';
 /** Opens NOTE with the caret at the end of the `c1` cell. */
 async function openWithCaretInC1(): Promise<{ handle: EditorHandle; view: EditorView }> {
   const handle = await mountEditor();
-  handle.openNote(NOTE);
+  handle.openNote('test-note', NOTE);
   const view = handle.getProseMirrorView()!;
   let end = -1;
   view.state.doc.descendants((node, pos) => {

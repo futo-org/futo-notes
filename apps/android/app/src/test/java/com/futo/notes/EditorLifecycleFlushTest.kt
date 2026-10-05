@@ -11,6 +11,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.futo.notes.ui.EditorMailbox
 
 /**
  * Regression for the Android editor's unsaved-draft register (F5 lifecycle
@@ -395,55 +396,51 @@ class EditorLifecycleFlushTest {
         st.savedContent = st.content  // BUG: assign from live content, not the snapshot
         assertNull("buggy assignment loses the keystroke", st.derive())
     }
-
-    // ── the leave-foreground flush reads the LIVE editor first (RC-92) ──
-
     /**
      * The RC-92 shape: a note still streaming its tail reports no `change`, so
      * the editor's draft is clean (content == savedContent) while the editor
-     * holds the user's typing. The plain flush saves nothing; the live flush
+     * holds the user's typing. The plain flush saves nothing; the mailbox flush
      * asks the editor first and saves what it said.
      */
     @Test
-    fun liveFlushSavesTheEditWhichNoChangeEverReported() = runBlocking {
+    fun mailboxFlushSavesTheEditWhichNoChangeEverReported() = runBlocking {
         val rec = Recorder()
         val pending = PendingEditorDraft(rec::persist)
         val st = EditorState(savedContent = "streamed note", content = "streamed note")
         val token = pending.claim()
         pending.setProvider(token, st::derive)
-        pending.setRefresher(token) { st.content = "streamed note + typed while streaming" }
+        pending.setFlushWaiter(token) { st.content = "streamed note + typed while streaming" }
 
         pending.flush()
         assertTrue("the change-fed flush cannot see the edit", rec.writes.isEmpty())
 
-        pending.flushLive()
+        pending.flushAfterEditor()
         assertEquals(
             listOf(PendingDraft("todo", "streamed note", "streamed note + typed while streaming")),
             rec.writes,
         )
     }
 
-    /** The change-fed draft is not written ahead of the read: two writes of different text over one base park the newer as a conflict copy. */
+    /** The change-fed draft is not written ahead of the wait: two writes of different text over one base park the newer as a conflict copy. */
     @Test
-    fun theChangeFedFlushWaitsForTheLiveRead() = runBlocking {
+    fun theChangeFedFlushWaitsForTheMailboxWait() = runBlocking {
         val rec = Recorder()
         val pending = PendingEditorDraft(rec::persist)
         val st = EditorState(savedContent = "v0", content = "v0 A")
         val token = pending.claim()
         pending.setProvider(token, st::derive)
-        val reading = CompletableDeferred<Unit>()
+        val waiting = CompletableDeferred<Unit>()
         val answer = CompletableDeferred<Unit>()
-        pending.setRefresher(token) {
-            reading.complete(Unit)
+        pending.setFlushWaiter(token) {
+            waiting.complete(Unit)
             answer.await()
             st.content = "v0 AB"
         }
 
         val scope = CoroutineScope(Dispatchers.Unconfined + Job())
-        val flush = scope.async { pending.flushLive() }
-        reading.await()
-        // onPause's synchronous pull of the register (any other caller) writes nothing while the read is out.
-        pending.flush()
+        val flush = scope.async { pending.flushAfterEditor() }
+        waiting.await()
+        // onPause's synchronous pull of the register (any other caller) writes nothing while the wait is out.
         assertTrue(rec.writes.isEmpty())
 
         answer.complete(Unit)
@@ -451,17 +448,17 @@ class EditorLifecycleFlushTest {
         assertEquals(listOf(PendingDraft("todo", "v0", "v0 AB")), rec.writes)
     }
 
-    /** A read that fails or is cancelled still lets the register flush as the editor last reported; a busy editor's answer of "unknown" leaves the draft as it was. */
+    /** A wait that fails or is cancelled still lets the register flush as the editor last reported; a busy editor's answer of "unknown" leaves the draft as it was. */
     @Test
-    fun aReadThatCannotAnswerFlushesTheDraftAsReported() = runBlocking {
+    fun aWaitThatCannotAnswerFlushesTheDraftAsReported() = runBlocking {
         val rec = Recorder()
         val pending = PendingEditorDraft(rec::persist)
         val st = EditorState(savedContent = "v0", content = "v0 reported")
         val token = pending.claim()
         pending.setProvider(token, st::derive)
-        pending.setRefresher(token) { error("renderer gone") }
+        pending.setFlushWaiter(token) { error("renderer gone") }
 
-        pending.flushLive()
+        pending.flushAfterEditor()
 
         assertEquals(listOf(PendingDraft("todo", "v0", "v0 reported")), rec.writes)
         // ...and the hold is released: a later plain flush is not swallowed.
@@ -469,17 +466,17 @@ class EditorLifecycleFlushTest {
         assertEquals(2, rec.writes.size)
     }
 
-    /** A read that never returns must not hold the change-fed flush back for good. */
+    /** A wait that never returns must not hold the change-fed flush back for good. */
     @Test
-    fun aReadThatNeverReturnsIsGivenUpOn() = runBlocking {
+    fun aWaitThatNeverReturnsIsGivenUpOn() = runBlocking {
         val rec = Recorder()
         val pending = PendingEditorDraft(rec::persist)
         val st = EditorState(savedContent = "v0", content = "v0 reported")
         val token = pending.claim()
         pending.setProvider(token, st::derive)
-        pending.setRefresher(token) { CompletableDeferred<Unit>().await() }
+        pending.setFlushWaiter(token) { CompletableDeferred<Unit>().await() }
 
-        pending.flushLive(budgetMs = 50)
+        pending.flushAfterEditor(budgetMs = 50)
 
         assertEquals(listOf(PendingDraft("todo", "v0", "v0 reported")), rec.writes)
         pending.flush()
@@ -487,35 +484,62 @@ class EditorLifecycleFlushTest {
     }
 
     @Test
-    fun aReleasedEditorIsNotReadAndAResetRetiresRefreshers() = runBlocking {
+    fun aReleasedEditorIsNotWaitAndAResetRetiresRefreshers() = runBlocking {
         val rec = Recorder()
         val pending = PendingEditorDraft(rec::persist)
-        var reads = 0
+        var waits = 0
         val gone = pending.claim()
-        pending.setRefresher(gone) { reads += 1 }
+        pending.setFlushWaiter(gone) { waits += 1 }
         pending.release(gone)
         val retired = pending.claim()
-        pending.setRefresher(retired) { reads += 1 }
+        pending.setFlushWaiter(retired) { waits += 1 }
         pending.reset()
-        pending.setRefresher(retired) { reads += 1 }
+        pending.setFlushWaiter(retired) { waits += 1 }
 
-        pending.flushLive()
+        pending.flushAfterEditor()
 
-        assertEquals(0, reads)
+        assertEquals(0, waits)
         assertTrue(rec.writes.isEmpty())
     }
 
-    /** With no editor to read the live flush is the plain one. */
+    /** With no editor to wait the mailbox flush is the plain one. */
     @Test
-    fun liveFlushWithoutAnEditorIsThePlainFlush() = runBlocking {
+    fun mailboxFlushWithoutAnEditorIsThePlainFlush() = runBlocking {
         val rec = Recorder()
         val pending = PendingEditorDraft(rec::persist)
         val released = pending.claim()
         pending.setProvider(released) { PendingDraft("gone", "a", "b") }
         pending.release(released)
 
-        pending.flushLive()
+        pending.flushAfterEditor()
 
         assertEquals(listOf(PendingDraft("gone", "a", "b")), rec.writes)
     }
+    @Test
+    fun behindFlushWaitUpdatesRegisterBeforeTheWrite() = runBlocking {
+        val mailbox = EditorMailbox()
+        mailbox.loaded("todo", 1, "base")
+        mailbox.edited("todo", 2)
+        val state = EditorState(savedContent = "base", content = "base")
+        val writes = mutableListOf<PendingDraft>()
+        val pending = PendingEditorDraft { writes += it }
+        val token = pending.claim()
+        pending.setProvider(token, state::derive)
+        mailbox.bind(1, "todo") { state.content = it }
+        var flushes = 0
+        pending.setFlushWaiter(token) {
+            mailbox.awaitCurrent("todo") {
+                flushes++
+                mailbox.change("todo", 2, "base + latest")
+            }
+        }
+        pending.flushAfterEditor()
+        assertEquals(1, flushes)
+        assertEquals(listOf(PendingDraft("todo", "base", "base + latest")), writes)
+    }
+
+    @Test fun backgroundBudgetIsTwoSeconds() {
+        assertEquals(2_000L, EDITOR_FLUSH_BUDGET_MS)
+    }
+
 }

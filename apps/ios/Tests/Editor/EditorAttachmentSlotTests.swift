@@ -4,14 +4,6 @@ import UIKit
 
 @testable import FutoNotesNative
 
-/// RC-77: the token an editor reads the shared WebView through must be there
-/// the moment the editor is on screen.
-///
-/// `EditorWebView` reports it from its first adopt, which runs inside
-/// `makeUIView` — a SwiftUI view update, where a `@State` write is discarded.
-/// When `NoteEditorView` kept the token in `@State`, it read back nil on every
-/// open (iOS 27.0), so a system pop committed the shell's copy without reading
-/// the editor and dropped whatever the editor had not reported yet.
 @MainActor
 @Suite("Editor attachment slot", .serialized)
 struct EditorAttachmentSlotTests {
@@ -23,6 +15,7 @@ struct EditorAttachmentSlotTests {
 
         var body: some View {
             EditorWebView(
+                noteId: "test-note",
                 content: "",
                 theme: "light",
                 localization: Localization.system(

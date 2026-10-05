@@ -264,3 +264,5 @@ full playbook is the `/verify` skill's `references/android.md`.
 then `node scripts/cdp-invoke.mjs "document.title"` — debug builds only, and
 re-run the forward after every app restart because the WebView pid changes. The
 emulator reaches host services (a local sync server) via `10.0.2.2`.
+
+The native shell never evaluates JavaScript to learn the document. It reads its per-note mailbox; only a behind mailbox requests a bounded `flush`.

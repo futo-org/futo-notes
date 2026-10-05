@@ -37,14 +37,15 @@ class EditorSessionTest {
         val gatherGate: (suspend () -> Unit)? = null,
         val isCurrentEditor: () -> Boolean = { true },
         val gatherFailure: Exception? = null,
+        val applyGate: (suspend () -> Unit)? = null,
     ) : OpenNoteEffects {
         override fun currentNoteId(): String = noteId
 
         override fun isCurrentEditor(): Boolean = isCurrentEditor.invoke()
 
-        override suspend fun captureEditor(): EditorCaptureOutcome {
-            log += "capture"
-            return EditorCaptureOutcome.Captured("draft")
+        override suspend fun awaitCurrent(): EditorCurrent {
+            log += "current"
+            return EditorCurrent(DocumentSnapshot(1, "draft"), false)
         }
 
         override suspend fun gatherFacts(noteId: String): OpenNoteFacts {
@@ -67,10 +68,11 @@ class EditorSessionTest {
             return dispositions.removeFirst()
         }
 
-        override fun apply(
+        override suspend fun apply(
             noteId: String,
             disposition: OpenNoteDisposition,
         ) {
+            applyGate?.invoke()
             log += "apply:$noteId:${disposition::class.simpleName}"
             if (disposition is OpenNoteDisposition.FollowRename) {
                 this.noteId = disposition.toId
@@ -118,8 +120,8 @@ class EditorSessionTest {
             log += "$name:cancelPendingSave"
         }
 
-        override suspend fun captureBody(): String? {
-            log += "$name:captureBody"
+        override suspend fun awaitCurrentBody(): String? {
+            log += "$name:awaitCurrentBody"
             return body()
         }
 
@@ -174,7 +176,7 @@ class EditorSessionTest {
                     log = log,
                 ),
             )
-            val expected = mutableListOf("capture", "facts:note", "classify")
+            val expected = mutableListOf("current", "facts:note", "classify")
             if (disposition === OpenNoteDisposition.Leave) expected += "resume-draft"
             expected += "apply:note:${disposition::class.simpleName}"
             assertEquals(expected, log)
@@ -190,7 +192,7 @@ class EditorSessionTest {
         )
         assertTrue(closingSession.isClosing)
         assertEquals(
-            listOf("capture", "facts:note", "classify", "apply:note:Close"),
+            listOf("current", "facts:note", "classify", "apply:note:Close"),
             closeLog,
         )
     }
@@ -211,11 +213,11 @@ class EditorSessionTest {
 
         assertEquals(
             listOf(
-                "capture",
+                "current",
                 "facts:note",
                 "classify",
                 "apply:note:DeferAdopt",
-                "capture",
+                "current",
                 "facts:note",
                 "classify",
                 "apply:note:Adopt",
@@ -259,11 +261,11 @@ class EditorSessionTest {
 
         assertEquals(
             listOf(
-                "capture",
+                "current",
                 "facts:note",
                 "classify",
                 "apply:note:DeferAdopt",
-                "capture",
+                "current",
                 "facts:note",
                 "classify",
                 "apply:note:Adopt",
@@ -298,8 +300,8 @@ class EditorSessionTest {
 
             override fun isCurrentEditor(): Boolean = true
 
-            override suspend fun captureEditor(): EditorCaptureOutcome =
-                EditorCaptureOutcome.Captured(draft)
+            override suspend fun awaitCurrent(): EditorCurrent =
+                EditorCurrent(DocumentSnapshot(1, draft), false)
 
             override suspend fun gatherFacts(noteId: String): OpenNoteFacts {
                 log += "facts:draft=$draft"
@@ -327,7 +329,7 @@ class EditorSessionTest {
                 log += "resume-draft"
             }
 
-            override fun apply(
+            override suspend fun apply(
                 noteId: String,
                 disposition: OpenNoteDisposition,
             ) {
@@ -372,7 +374,7 @@ class EditorSessionTest {
 
             assertEquals(
                 listOf(
-                    "capture",
+                    "current",
                     "facts:note",
                     "classify",
                     "apply:note:FollowRename",
@@ -415,7 +417,7 @@ class EditorSessionTest {
 
         EditorSession(scope()).reconcileOpenNote(effects)
 
-        assertEquals(listOf("capture", "facts:note"), log)
+        assertEquals(listOf("current", "facts:note"), log)
     }
 
     @Test
@@ -436,7 +438,7 @@ class EditorSessionTest {
 
             session.reconcileOpenNote(effects)
 
-            assertEquals(listOf("capture", "facts:note"), log)
+            assertEquals(listOf("current", "facts:note"), log)
             assertFalse(session.isClosing)
         }
     }
@@ -457,346 +459,8 @@ class EditorSessionTest {
             }.exceptionOrNull()
 
             assertSame(failure, caught)
-            assertEquals(listOf("capture", "facts:note", "resume-draft"), log)
+            assertEquals(listOf("current", "facts:note", "resume-draft"), log)
         }
-
-    /**
-     * The screen's side of RC-08: a draft kept current only by `change`
-     * messages, and an editor that may hold more than they said (a streaming
-     * note withholds `change`; an edit spends 200 ms in the debounce). Its
-     * [captureEditor] merges what the read found exactly as NoteEditorScreen
-     * does — through the path a `change` takes — and [gatherFacts] reads the
-     * draft as the screen does.
-     */
-    private class LiveEditorOpenNoteEffects(
-        val live: EditorCaptureOutcome,
-        val disk: String?,
-        val log: MutableList<String>,
-    ) : OpenNoteEffects {
-        var draft = "base"
-        var editVersion = 0L
-        val factsSeen = mutableListOf<OpenNoteFacts>()
-
-        override fun currentNoteId(): String = "note"
-
-        override fun isCurrentEditor(): Boolean = true
-
-        override suspend fun captureEditor(): EditorCaptureOutcome {
-            log += "capture"
-            if (live is EditorCaptureOutcome.Captured && live.text != draft) {
-                draft = live.text
-                editVersion += 1
-            }
-            return live
-        }
-
-        override suspend fun gatherFacts(noteId: String): OpenNoteFacts {
-            log += "facts"
-            return OpenNoteFacts(
-                base = "base",
-                draft = draft,
-                disk = disk,
-                renamedTo = null,
-                editorFocused = false,
-                editedDuringCycle = editVersion != 0L,
-            ).also { factsSeen += it }
-        }
-
-        // Answers exactly as the engine does for these fact sets (the engine
-        // itself is unreachable from a JVM unit test — no loadable JNI
-        // library; `no_reachable_fact_combination_can_discard_unsaved_work`
-        // in crates/futo-notes-sync/src/open_note.rs owns the rule).
-        override fun classify(facts: OpenNoteFacts): OpenNoteDisposition {
-            log += "classify"
-            val dirty = facts.draft != facts.base || facts.editedDuringCycle
-            val disk = facts.disk
-            return when {
-                disk == null && facts.draft != facts.base ->
-                    OpenNoteDisposition.KeepDraft(facts.base, KeepDraftReason.PEER_DELETED)
-                disk == null -> OpenNoteDisposition.Close
-                dirty -> OpenNoteDisposition.KeepDraft(facts.base, KeepDraftReason.DIVERGED)
-                else -> OpenNoteDisposition.Adopt(disk)
-            }
-        }
-
-        override fun resumeDraftPersistence() {
-            log += "resume-draft"
-        }
-
-        override fun apply(noteId: String, disposition: OpenNoteDisposition) {
-            log += "apply:${disposition::class.simpleName}"
-        }
-    }
-
-    /**
-     * RC-08: the verdict used to be taken on the screen's draft alone, so an
-     * edit the editor had not reported read as "nothing to lose" — a peer edit
-     * was adopted over it and a peer delete closed the note. "A busy editor's
-     * silence cannot be read as nothing to lose" (docs/spec/editor.md).
-     */
-    @Test
-    fun `an edit the editor has not reported is read before the verdict`() = runBlocking {
-        listOf("peer" to "KeepDraft", null to "KeepDraft").forEach { (disk, verdict) ->
-            val log = mutableListOf<String>()
-            val session = EditorSession(scope())
-            val effects = LiveEditorOpenNoteEffects(
-                live = EditorCaptureOutcome.Captured("base + typed while the tail streamed"),
-                disk = disk,
-                log = log,
-            )
-
-            session.reconcileOpenNote(effects)
-
-            assertEquals(listOf("capture", "facts", "classify", "apply:$verdict"), log)
-            assertEquals("base + typed while the tail streamed", effects.factsSeen.single().draft)
-            assertFalse(session.isClosing)
-        }
-    }
-
-    /**
-     * A live renderer too busy to answer (an edited note finishing its streamed
-     * tail) may hold exactly the edit the draft lacks, and an editor showing
-     * another note answers for the wrong one: neither may be read as the
-     * draft. No verdict is taken — the read already made the editor finish,
-     * and its `change` reaches the ordinary save, whose flush verb parks it.
-     */
-    @Test
-    fun `an editor that cannot answer for this note gets no verdict`() = runBlocking {
-        listOf(EditorCaptureOutcome.TimedOut, EditorCaptureOutcome.NotOurs).forEach { live ->
-            listOf("peer", null).forEach { disk ->
-                val log = mutableListOf<String>()
-                val session = EditorSession(scope())
-                val effects = LiveEditorOpenNoteEffects(live = live, disk = disk, log = log)
-
-                assertNull(session.reconcileOpenNote(effects))
-
-                assertEquals(listOf("capture"), log)
-                assertFalse(session.isClosing)
-            }
-        }
-    }
-
-    /**
-     * A wedged renderer, or one with no document, never presented an editable
-     * document, so the draft is the freshest body there is and sync must not
-     * wait on it — the exit rule ([editorExitBody]).
-     */
-    @Test
-    fun `an editor with no live document is classified on the draft`() = runBlocking {
-        val log = mutableListOf<String>()
-        val effects = LiveEditorOpenNoteEffects(
-            live = EditorCaptureOutcome.NoLiveDocument,
-            disk = "peer",
-            log = log,
-        )
-
-        EditorSession(scope()).reconcileOpenNote(effects)
-
-        assertEquals(listOf("capture", "facts", "classify", "apply:Adopt"), log)
-    }
-
-    /**
-     * FB-5 refute: the reconcile's editor read runs under the capture deadline
-     * against a page that may be busy or wedged, and it used to hold the
-     * session lock — Back waited it out before its own read (Android Back
-     * 15.2 s against 9.3 s on the base build). An exit starting mid-read
-     * cancels it and drains at once; its own read is the one that counts.
-     */
-    @Test
-    fun `Back does not wait out a reconcile read in flight`() = runBlocking {
-        val scope = scope()
-        val session = EditorSession(scope)
-        val log = mutableListOf<String>()
-        val reading = CompletableDeferred<Unit>()
-        val neverAnswers = CompletableDeferred<EditorCaptureOutcome>()
-        val effects = object : OpenNoteEffects by LiveEditorOpenNoteEffects(
-            live = EditorCaptureOutcome.Captured("unused"),
-            disk = "peer",
-            log = log,
-        ) {
-            override suspend fun captureEditor(): EditorCaptureOutcome {
-                log += "capture"
-                reading.complete(Unit)
-                return neverAnswers.await()
-            }
-        }
-
-        val reconcile = scope.async { session.reconcileOpenNote(effects) }
-        reading.await()
-        val nav = RecordingEffects(log, name = "nav")
-        session.end(EditorExit.NAVIGATE, nav)
-
-        withTimeout(5_000) { scope.settle() }
-        assertTrue(nav.succeeded)
-        assertNull(reconcile.await())
-        assertEquals("capture", log.first())
-        assertFalse(log.contains("facts"))
-        assertFalse(log.contains("classify"))
-    }
-
-    /**
-     * RC-92: backgrounding reads the live editor into the draft, so the flush
-     * that follows saves the text a streaming note never reported. The read is
-     * the reconcile's — bounded, non-blurring, one outstanding — and it takes
-     * no verdict on the note: no facts are gathered, nothing is classified.
-     */
-    @Test
-    fun `backgrounding reads the live editor into the draft and gathers no facts`() = runBlocking {
-        val log = mutableListOf<String>()
-        val effects = LiveEditorOpenNoteEffects(
-            live = EditorCaptureOutcome.Captured("base + typed while the tail streamed"),
-            disk = "peer",
-            log = log,
-        )
-
-        EditorSession(scope()).refreshFromLiveEditor(effects)
-
-        assertEquals(listOf("capture"), log)
-        assertEquals("base + typed while the tail streamed", effects.draft)
-    }
-
-    /** Never `''`, never a prefix: an editor that cannot answer for this note leaves the draft alone. */
-    @Test
-    fun `backgrounding an editor that cannot answer leaves the draft as it was`() = runBlocking {
-        listOf(
-            EditorCaptureOutcome.NotOurs to 1,
-            EditorCaptureOutcome.NoLiveDocument to 1,
-            // A busy page is asked again, as an exit is, and then given up on.
-            EditorCaptureOutcome.TimedOut to LIFECYCLE_READ_ATTEMPTS,
-        ).forEach { (live, reads) ->
-            val log = mutableListOf<String>()
-            val effects = LiveEditorOpenNoteEffects(live = live, disk = "peer", log = log)
-
-            EditorSession(scope()).refreshFromLiveEditor(effects)
-
-            assertEquals(List(reads) { "capture" }, log)
-            assertEquals("base", effects.draft)
-        }
-    }
-
-    /** A big edited note settles its tail inside the first read, which can outlast the deadline: the retry hears the answer. */
-    @Test
-    fun `backgrounding asks a busy editor again and saves what the second read holds`() = runBlocking {
-        val log = mutableListOf<String>()
-        var reads = 0
-        val effects = object : OpenNoteEffects by LiveEditorOpenNoteEffects(
-            live = EditorCaptureOutcome.Captured("unused"),
-            disk = "peer",
-            log = log,
-        ) {
-            var draft = "base"
-            override suspend fun captureEditor(): EditorCaptureOutcome {
-                reads += 1
-                log += "capture"
-                if (reads == 1) return EditorCaptureOutcome.TimedOut
-                draft = "base + typed while the tail streamed"
-                return EditorCaptureOutcome.Captured(draft)
-            }
-        }
-
-        EditorSession(scope()).refreshFromLiveEditor(effects)
-
-        assertEquals(listOf("capture", "capture"), log)
-        assertEquals("base + typed while the tail streamed", effects.draft)
-    }
-
-    /** The flush that follows must not overtake an autosave already writing: it would write a stale base. */
-    @Test
-    fun `backgrounding waits for an autosave already writing`() = runBlocking {
-        val scope = scope()
-        val session = EditorSession(scope)
-        val log = mutableListOf<String>()
-        val writing = CompletableDeferred<Unit>()
-        val finishWrite = CompletableDeferred<Unit>()
-        val save = scope.async {
-            session.runAutosave {
-                writing.complete(Unit)
-                finishWrite.await()
-                log += "autosave-done"
-            }
-        }
-        writing.await()
-        val refresh = scope.async {
-            session.refreshFromLiveEditor(
-                LiveEditorOpenNoteEffects(EditorCaptureOutcome.Captured("live"), "peer", log),
-            )
-            log += "refresh-done"
-        }
-        assertFalse(refresh.isCompleted)
-
-        finishWrite.complete(Unit)
-        save.await()
-        refresh.await()
-
-        assertEquals(listOf("capture", "autosave-done", "refresh-done"), log)
-    }
-
-    /** Back pressed while the background read is out cancels it: the exit's own read is the one that counts. */
-    @Test
-    fun `an exit cancels the background read in flight`() = runBlocking {
-        val scope = scope()
-        val session = EditorSession(scope)
-        val log = mutableListOf<String>()
-        val reading = CompletableDeferred<Unit>()
-        val neverAnswers = CompletableDeferred<EditorCaptureOutcome>()
-        val effects = object : OpenNoteEffects by LiveEditorOpenNoteEffects(
-            live = EditorCaptureOutcome.Captured("unused"),
-            disk = "peer",
-            log = log,
-        ) {
-            override suspend fun captureEditor(): EditorCaptureOutcome {
-                log += "capture"
-                reading.complete(Unit)
-                return neverAnswers.await()
-            }
-        }
-
-        val refresh = scope.async { session.refreshFromLiveEditor(effects) }
-        reading.await()
-        val nav = RecordingEffects(log, name = "nav")
-        session.end(EditorExit.NAVIGATE, nav)
-
-        withTimeout(5_000) { scope.settle() }
-        assertTrue(nav.succeeded)
-        refresh.await()
-        assertEquals("capture", log.first())
-    }
-
-    /** A refused exit leaves the editor open: the reconcile it interrupted runs again. */
-    @Test
-    fun `an exit that stops short re-runs the reconcile it interrupted`() = runBlocking {
-        val scope = scope()
-        val session = EditorSession(scope)
-        val log = mutableListOf<String>()
-        val reading = CompletableDeferred<Unit>()
-        val neverAnswers = CompletableDeferred<EditorCaptureOutcome>()
-        var reads = 0
-        val effects = object : OpenNoteEffects by LiveEditorOpenNoteEffects(
-            live = EditorCaptureOutcome.NoLiveDocument,
-            disk = "peer",
-            log = log,
-        ) {
-            override suspend fun captureEditor(): EditorCaptureOutcome {
-                log += "capture"
-                reads += 1
-                if (reads == 1) {
-                    reading.complete(Unit)
-                    return neverAnswers.await()
-                }
-                return EditorCaptureOutcome.NoLiveDocument
-            }
-        }
-
-        scope.launch { session.reconcileOpenNote(effects) }
-        reading.await()
-        val nav = RecordingEffects(log, name = "nav", body = { null })
-        session.end(EditorExit.NAVIGATE, nav)
-
-        withTimeout(5_000) { scope.settle() }
-        assertFalse(nav.succeeded)
-        assertEquals(2, log.count { it == "capture" })
-        assertEquals("apply:Adopt", log.last())
-    }
 
     @Test
     fun `an admitted autosave completes its base update before a replacement runs`() =
@@ -890,7 +554,7 @@ class EditorSessionTest {
                 "delete:awaitPendingWork:start",
                 "delete:awaitPendingWork:end",
                 "delete:cancelPendingSave",
-                "delete:captureBody",
+                "delete:awaitCurrentBody",
                 "delete:commitBody",
                 "delete:perform",
                 "delete:onSucceeded",
@@ -922,7 +586,7 @@ class EditorSessionTest {
         work.join()
         scope.settle()
 
-        assertEquals("work", log.first { it == "work" || it.startsWith("delete:captureBody") })
+        assertEquals("work", log.first { it == "work" || it.startsWith("delete:awaitCurrentBody") })
         assertTrue(log.indexOf("work") < log.indexOf("delete:perform"))
     }
 
@@ -972,7 +636,7 @@ class EditorSessionTest {
                 "nav:awaitPendingWork:start",
                 "nav:awaitPendingWork:end",
                 "nav:cancelPendingSave",
-                "nav:captureBody",
+                "nav:awaitCurrentBody",
                 "nav:commitBody",
                 "nav:commitTitle",
                 "nav:perform",
@@ -1004,7 +668,7 @@ class EditorSessionTest {
         image.join()
         scope.settle()
 
-        assertTrue(log.indexOf("image inserted") < log.indexOf("nav:captureBody"))
+        assertTrue(log.indexOf("image inserted") < log.indexOf("nav:awaitCurrentBody"))
     }
 
     /**
@@ -1041,7 +705,7 @@ class EditorSessionTest {
 
             // Still waiting on the picker: nothing has been captured, let alone
             // committed or navigated — the note must not be deletable yet.
-            assertTrue(log.none { it.startsWith("nav:captureBody") })
+            assertTrue(log.none { it.startsWith("nav:awaitCurrentBody") })
             assertFalse(effects.succeeded)
 
             pickerReturned.complete(Unit)
@@ -1053,7 +717,7 @@ class EditorSessionTest {
                     "nav:awaitPendingWork:start",
                     "nav:awaitPendingWork:end",
                     "nav:cancelPendingSave",
-                    "nav:captureBody",
+                    "nav:awaitCurrentBody",
                     "nav:commitBody",
                     "nav:commitTitle",
                     "nav:perform",
@@ -1099,7 +763,7 @@ class EditorSessionTest {
 
     /**
      * F3: `end()`'s unlatch used to live only in the ordinary "the exit
-     * returned false" branch. `captureBody`/`commitBody`/`perform` are
+     * returned false" branch. `awaitCurrentBody`/`commitBody`/`perform` are
      * arbitrary suspend calls into the shell, and none of them are
      * guaranteed to fail by RETURNING false — a genuinely unexpected error
      * throws instead. Without a `finally`, that exception unwound straight
@@ -1192,7 +856,7 @@ class EditorSessionTest {
         session.end(EditorExit.NAVIGATE, effects)
         scope.settle()
 
-        assertEquals(EditorExitFailure.CAPTURE, effects.failure)
+        assertEquals(EditorExitFailure.UNFLUSHED, effects.failure)
         assertFalse(log.contains("nav:commitBody"))
     }
 
@@ -1237,7 +901,7 @@ class EditorSessionTest {
                 "nav:awaitPendingWork:start",
                 "nav:awaitPendingWork:end",
                 "nav:cancelPendingSave",
-                "nav:captureBody",
+                "nav:awaitCurrentBody",
                 "nav:commitBody",
                 "nav:commitTitle",
             ),
@@ -1255,8 +919,8 @@ class EditorSessionTest {
         val queued = CompletableDeferred<Unit>()
 
         val effects = object : EditorExitEffects {
-            override suspend fun captureBody(): String {
-                log += "move:captureBody"
+            override suspend fun awaitCurrentBody(): String {
+                log += "move:awaitCurrentBody"
                 return "body"
             }
 
@@ -1288,7 +952,7 @@ class EditorSessionTest {
 
         assertEquals(
             listOf(
-                "move:captureBody",
+                "move:awaitCurrentBody",
                 "move:commitBody",
                 "move:perform",
                 "move:onSucceeded",
@@ -1342,7 +1006,7 @@ class EditorSessionTest {
 
             session.end(EditorExit.MOVE, effects)
 
-            assertTrue(log.none { it.startsWith("move:captureBody") })
+            assertTrue(log.none { it.startsWith("move:awaitCurrentBody") })
             assertFalse(effects.succeeded)
 
             pickerReturned.complete(Unit)
@@ -1354,7 +1018,7 @@ class EditorSessionTest {
                     "move:awaitPendingWork:start",
                     "move:awaitPendingWork:end",
                     "move:cancelPendingSave",
-                    "move:captureBody",
+                    "move:awaitCurrentBody",
                     "move:commitBody",
                     "move:perform",
                     "move:onSucceeded",
@@ -1371,4 +1035,133 @@ class EditorSessionTest {
         assertTrue(session.acceptsEditorChange(loaded = true, storageMigrationStarted = false))
         assertFalse(session.acceptsEditorChange(loaded = true, storageMigrationStarted = true))
     }
+    @Test
+    fun `Back does not wait for a wedged renderer during reconcile adoption`() = runBlocking {
+        val scope = scope()
+        val session = EditorSession(scope)
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val log = mutableListOf<String>()
+        val reconciliation = scope.launch {
+            session.reconcileOpenNote(RecordingOpenNoteEffects(
+                dispositions = ArrayDeque(listOf(OpenNoteDisposition.Adopt("peer"))),
+                log = log,
+                applyGate = { started.complete(Unit); release.await() },
+            ))
+        }
+        started.await()
+        val exited = CompletableDeferred<Unit>()
+        session.end(EditorExit.NAVIGATE, RecordingEffects(log, performs = { exited.complete(Unit); true }))
+        try { withTimeout(250) { exited.await() } }
+        finally { release.complete(Unit); reconciliation.join(); scope.settle() }
+        assertTrue(log.none { it == "apply:note:Adopt" })
+    }
+
+    @Test fun `Back cancels a pending reconcile mailbox wait`() = runBlocking {
+        val scope = scope()
+        val session = EditorSession(scope)
+        val started = CompletableDeferred<Unit>()
+        val log = mutableListOf<String>()
+        val recording = RecordingOpenNoteEffects(dispositions = ArrayDeque(), log = log)
+        val effects = object : OpenNoteEffects by recording {
+            override suspend fun awaitCurrent(): EditorCurrent {
+                started.complete(Unit)
+                return CompletableDeferred<EditorCurrent>().await()
+            }
+        }
+        val reconcile = scope.async { session.reconcileOpenNote(effects) }
+        started.await()
+        val nav = RecordingEffects(log)
+        session.end(EditorExit.NAVIGATE, nav)
+        withTimeout(250) { scope.settle() }
+        assertTrue(nav.succeeded)
+        assertNull(reconcile.await())
+        assertFalse(log.contains("classify"))
+    }
+
+    @Test fun `an exit that stops short reruns its interrupted reconcile`() = runBlocking {
+        val scope = scope()
+        val session = EditorSession(scope)
+        val started = CompletableDeferred<Unit>()
+        val log = mutableListOf<String>()
+        var waits = 0
+        val recording = RecordingOpenNoteEffects(dispositions = ArrayDeque(listOf(OpenNoteDisposition.Leave)), log = log)
+        val effects = object : OpenNoteEffects by recording {
+            override suspend fun awaitCurrent(): EditorCurrent {
+                if (++waits == 1) { started.complete(Unit); CompletableDeferred<Unit>().await() }
+                return EditorCurrent(DocumentSnapshot(1, "draft"), false)
+            }
+        }
+        scope.launch { session.reconcileOpenNote(effects) }
+        started.await()
+        session.end(EditorExit.NAVIGATE, RecordingEffects(log, body = { null }))
+        withTimeout(250) { scope.settle() }
+        assertEquals(2, waits)
+        assertEquals(1, log.count { it == "classify" })
+        assertFalse(session.isInteractionLocked)
+    }
+
+    @Test fun `background flush waits for an admitted autosave to advance its base`() = runBlocking {
+        val scope = scope()
+        val session = EditorSession(scope)
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var base = "before"
+        val save = scope.async { session.runAutosave { started.complete(Unit); release.await(); base = "after" } }
+        started.await()
+        val log = mutableListOf<String>()
+        val effects = RecordingOpenNoteEffects(dispositions = ArrayDeque(), log = log)
+        val background = scope.async { session.flushPendingEditor(effects); base }
+        assertFalse(background.isCompleted)
+        release.complete(Unit)
+        save.await()
+        assertEquals("after", background.await())
+        assertEquals(listOf("current"), log)
+    }
+
+    @Test fun `every exit uses latest mailbox bytes or refuses while behind`() = runBlocking {
+        EditorExit.entries.forEach { exit ->
+            listOf(false, true).forEach { gone ->
+                val mailbox = EditorMailbox()
+                mailbox.loaded("note", 1, "base")
+                mailbox.edited("note", 2)
+                if (gone) mailbox.rendererGone()
+                val scope = scope()
+                val session = EditorSession(scope)
+                var committed: String? = null
+                val effects = object : EditorExitEffects {
+                    override suspend fun awaitCurrentBody(): String? {
+                        val current = mailbox.awaitCurrent("note") { mailbox.failed("note", it) }
+                        return if (current.canProceed) current.latest?.content else null
+                    }
+                    override suspend fun commitBody(body: String): Boolean { committed = body; return true }
+                    override suspend fun perform() = true
+                }
+                session.end(exit, effects)
+                scope.settle()
+                assertEquals(if (gone) "base" else null, committed)
+                if (!gone) assertFalse(session.isClosing || session.isInteractionLocked)
+            }
+        }
+    }
+
+    @Test fun `background flush records a durable baseline before the next keystroke saves`() = runBlocking {
+        val session = EditorSession(scope())
+        var base = "base"
+        var draft = "base typed"
+        val writtenBases = mutableListOf<String>()
+        val recording = RecordingOpenNoteEffects(dispositions = ArrayDeque(), log = mutableListOf())
+        val effects = object : OpenNoteEffects by recording {
+            override suspend fun persistDraft() {
+                writtenBases += base
+                base = draft
+            }
+        }
+        session.flushPendingEditor(effects)
+        draft += " more"
+        session.runAutosave { effects.persistDraft() }
+        assertEquals(listOf("base", "base typed"), writtenBases)
+        assertEquals("base typed more", base)
+    }
+
 }

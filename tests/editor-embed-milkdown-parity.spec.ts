@@ -53,6 +53,7 @@ async function open(page: Page, content: string, theme: 'light' | 'dark' = 'ligh
     (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
     JSON.stringify({
       bridgeVersion: BRIDGE_VERSION,
+      noteId: 'test-note',
       theme,
       content,
       nativeToolbar: true,

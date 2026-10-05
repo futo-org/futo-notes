@@ -30,9 +30,9 @@ export function openSnippet(markdown) {
      * of them (5,000 block updates, 332 ms, on the 25k fixture after the 10k
      * one). That is the benchmark's history leaking into the fixture, not the
      * fixture's cost. */
-    window.FutoEditor.setContent('');
+    window.FutoEditor.setContent(window.__futoTest.documentRef().noteId, '');
     await new Promise((r) => requestAnimationFrame(() => r()));
-    window.FutoEditor.setContent(md);
+    window.FutoEditor.setContent(window.__futoTest.documentRef().noteId, md);
     const deadline = performance.now() + ${OPEN_COMPLETE_TIMEOUT_MS};
     while (performance.getEntriesByName('futo:editor-open-complete').length === 0) {
       if (performance.now() > deadline) throw new Error('open never completed (screen off? app backgrounded?)');
@@ -50,7 +50,7 @@ export function openSnippet(markdown) {
     if (loadedSize < md.length / 2) {
       throw new Error(
         'the fixture did not load: asked for ' + md.length + ' chars, document holds ' +
-        loadedSize + ' (starts: ' + JSON.stringify(window.FutoEditor.getContent().slice(0, 60)) + ')',
+        loadedSize + ' (starts: ' + JSON.stringify(window.__futoTest.readDocument().slice(0, 60)) + ')',
       );
     }
     /* "Complete" means the document is in the DOM, not that it has been on

@@ -52,17 +52,37 @@ vi.mock('./parseNote', async (importOriginal) => {
   };
 });
 
+vi.mock('./blockSerializer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./blockSerializer')>();
+  return {
+    ...actual,
+    createBlockSerializer: (...args: Parameters<typeof actual.createBlockSerializer>) => {
+      const serializer = actual.createBlockSerializer(...args);
+      return {
+        ...serializer,
+        serialize: (...values: Parameters<typeof serializer.serialize>) => {
+          if (failSerialization) throw new Error('injected serializer failure');
+          return serializer.serialize(...values);
+        },
+      };
+    },
+  };
+});
+
 interface EditorHandle {
-  openNote: (text: string) => void;
-  setContent: (text: string) => void;
+  openNote: (noteId: string, text: string) => void;
+  setContent: (noteId: string, text: string) => void;
   applyEdit: (text: string) => void;
   insertMarkdown: (text: string) => void;
   getContent: () => string | undefined;
+  flush: (token: string) => void;
   hasFocus: () => boolean;
   getProseMirrorView: () => import('@milkdown/kit/prose/view').EditorView | null;
 }
 
 let changes: string[] = [];
+let failures: { token: string; reason: string }[] = [];
+let failSerialization = false;
 let target: HTMLElement;
 let handle: EditorHandle;
 
@@ -81,6 +101,8 @@ const MilkdownEditor = (await import('./MilkdownEditor.svelte')).default;
 /** Mounts a fresh editor and waits for Milkdown's async `create()` to land. */
 async function mountEditor(): Promise<void> {
   changes = [];
+  failures = [];
+  failSerialization = false;
   target = document.createElement('div');
   document.body.appendChild(target);
   await withoutLeakedCtxTimers(async () => {
@@ -88,6 +110,8 @@ async function mountEditor(): Promise<void> {
       target,
       props: {
         content: '',
+        onflushfailed: (_ref: unknown, token: string, reason: string) =>
+          failures.push({ token, reason }),
         onchange: (content: string) => {
           changes.push(content);
         },
@@ -140,7 +164,7 @@ describe('an editor holding no note', () => {
   });
 
   it('reports an empty string once a brand-new note has been opened', () => {
-    handle.openNote('');
+    handle.openNote('test-note', '');
     expect(handle.getContent()).toBe('');
   });
 });
@@ -157,7 +181,7 @@ describe('an editor holding no note', () => {
  */
 describe('a note the user clears', () => {
   it('reports the empty document', async () => {
-    handle.openNote('delete me\n');
+    handle.openNote('test-note', 'delete me\n');
     await afterChangeDebounce();
 
     clearDocument();
@@ -175,7 +199,7 @@ describe('a note the user clears', () => {
     // coalesced away by this very edit. A cleared note is exactly that
     // document, so the clear was reported as "nothing changed": no `change`,
     // no save, and the note came back on the next open.
-    handle.openNote('delete me\n');
+    handle.openNote('test-note', 'delete me\n');
     clearDocument();
     await afterChangeDebounce();
 
@@ -183,7 +207,7 @@ describe('a note the user clears', () => {
   });
 
   it('reports what was typed when the user clears and starts over', async () => {
-    handle.openNote('the old body\n');
+    handle.openNote('test-note', 'the old body\n');
     clearDocument();
     const view = handle.getProseMirrorView();
     view?.dispatch(view.state.tr.insertText('x', 1));
@@ -195,21 +219,21 @@ describe('a note the user clears', () => {
 
 describe('a note whose parse throws', () => {
   it('reports the host bytes it was given, never the empty document', () => {
-    handle.openNote(POISONED);
+    handle.openNote('test-note', POISONED);
 
     expect(editable().textContent).toBe('');
     expect(handle.getContent()).toBe(POISONED);
   });
 
   it('emits no change, so nothing reaches the save queue', async () => {
-    handle.openNote(POISONED);
+    handle.openNote('test-note', POISONED);
     await afterChangeDebounce();
 
     expect(changes).toEqual([]);
   });
 
   it('says so, and goes read-only rather than showing a blank editable page', async () => {
-    handle.openNote(POISONED);
+    handle.openNote('test-note', POISONED);
     await tick();
 
     expect(target.querySelector('[role="alert"]')?.textContent).toContain('could not be displayed');
@@ -217,7 +241,7 @@ describe('a note whose parse throws', () => {
   });
 
   it('refuses chrome edits computed from a document it never loaded', () => {
-    handle.openNote(POISONED);
+    handle.openNote('test-note', POISONED);
     handle.applyEdit('#tag\n\nsomething else\n');
 
     expect(handle.getContent()).toBe(POISONED);
@@ -225,9 +249,9 @@ describe('a note whose parse throws', () => {
   });
 
   it('recovers completely when the next note parses', async () => {
-    handle.openNote(POISONED);
+    handle.openNote('test-note', POISONED);
     await tick();
-    handle.openNote('# fine\n\nbody\n');
+    handle.openNote('test-note', '# fine\n\nbody\n');
     await tick();
 
     expect(handle.getContent()).toBe('# fine\n\nbody\n');
@@ -287,7 +311,7 @@ describe('a chrome edit during a progressive open', () => {
   }
 
   it('does not append the streaming tail on top of the replaced document', async () => {
-    handle.openNote(STREAMING_NOTE);
+    handle.openNote('test-note', STREAMING_NOTE);
     // Mid-stream by construction — nothing has yielded since the open.
     expectMidStream();
     handle.applyEdit(TAGGED);
@@ -300,7 +324,7 @@ describe('a chrome edit during a progressive open', () => {
   });
 
   it('never reports a doubled note to the host', async () => {
-    handle.openNote(STREAMING_NOTE);
+    handle.openNote('test-note', STREAMING_NOTE);
     expectMidStream();
     handle.applyEdit(TAGGED);
 
@@ -321,7 +345,7 @@ describe('a chrome edit during a progressive open', () => {
    * shortened one.
    */
   it('leaves undo on the complete note, not the half-loaded prefix', async () => {
-    handle.openNote(STREAMING_NOTE);
+    handle.openNote('test-note', STREAMING_NOTE);
     expectMidStream();
     handle.applyEdit(TAGGED);
 
@@ -378,7 +402,7 @@ describe('a note that starts with a byte order mark', () => {
   const BODY = 'Intro **b** and _it_ x**y**z\n';
 
   it('keeps its emphasis when the tag bar rewrites the document', () => {
-    handle.openNote(`\ufeff${BODY}`);
+    handle.openNote('test-note', `\ufeff${BODY}`);
     expect(handle.getContent()).toBe(`\ufeff${BODY}`);
 
     handle.applyEdit(`${handle.getContent()}\n#tag\n`);
@@ -389,7 +413,7 @@ describe('a note that starts with a byte order mark', () => {
 
   it('keeps its emphasis when the BOM is doubled, and echoes the host bytes on open', () => {
     const note = `\ufeff\ufeff${BODY}`;
-    handle.openNote(note);
+    handle.openNote('test-note', note);
     expect(handle.getContent()).toBe(note);
 
     handle.applyEdit(`${note}\n#tag\n`);
@@ -409,7 +433,7 @@ describe('the BOM strip on the parser doors other than openNote', () => {
   const BODY = 'Intro **b** and _it_ x**y**z\n';
 
   it('insertMarkdown keeps the emphasis of markdown that starts with a BOM', () => {
-    handle.openNote('');
+    handle.openNote('test-note', '');
     handle.insertMarkdown(`\ufeff${BODY}`);
 
     expect(handle.getContent()).toBe(BODY);
@@ -442,5 +466,31 @@ describe('the BOM strip on the parser doors other than openNote', () => {
     });
 
     expect(markers).toEqual(['strong:*', 'emphasis:_', 'strong:*']);
+  });
+});
+
+describe('flush failures never invent a body', () => {
+  it('reports a never-loaded document as noDocument', () => {
+    handle.flush('never-loaded');
+    expect(failures).toEqual([{ token: 'never-loaded', reason: 'noDocument' }]);
+    expect(changes).toEqual([]);
+  });
+  it('reports a failed load instead of publishing a blank body', () => {
+    handle.openNote('test-note', POISONED);
+    handle.flush('failed-load');
+    expect(failures).toEqual([{ token: 'failed-load', reason: 'loadFailed' }]);
+    expect(changes).toEqual([]);
+  });
+  it('reports serializer failure and preserves an unreported edit for retry', () => {
+    handle.openNote('test-note', 'base');
+    const view = handle.getProseMirrorView()!;
+    view.dispatch(view.state.tr.insertText('typed', 1));
+    failSerialization = true;
+    handle.flush('failed-serializer');
+    expect(failures).toEqual([{ token: 'failed-serializer', reason: 'serializer' }]);
+    expect(changes).toEqual([]);
+    failSerialization = false;
+    handle.flush('retry');
+    expect(changes).toEqual(['typedbase\n']);
   });
 });

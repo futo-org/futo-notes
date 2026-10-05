@@ -18,7 +18,7 @@ import { guardEditorTimers } from '../__fixtures__/editorTimerGuard';
 guardEditorTimers();
 
 interface EditorHandle {
-  openNote: (text: string) => void;
+  openNote: (noteId: string, text: string) => void;
   getContent: () => string | undefined;
 }
 
@@ -51,7 +51,7 @@ beforeEach(async () => {
 
 describe('the selection toolbar URL field across a note switch', () => {
   it('closes rather than applying the link to the note the user moved to', async () => {
-    handle.openNote('note A body');
+    handle.openNote('test-note', 'note A body');
     const view = target.querySelector('.ProseMirror') as HTMLElement;
     view.focus();
     // A non-empty text selection is what puts the bar on screen.
@@ -66,7 +66,7 @@ describe('the selection toolbar URL field across a note switch', () => {
     linkButton()!.click();
     await vi.waitFor(() => expect(urlField()).not.toBeNull());
 
-    handle.openNote('note B body');
+    handle.openNote('test-note', 'note B body');
 
     await vi.waitFor(() => expect(urlField()).toBeNull());
     expect(handle.getContent()).toBe('note B body');

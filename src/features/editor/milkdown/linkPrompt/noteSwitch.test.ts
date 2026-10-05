@@ -21,7 +21,7 @@ import { guardEditorTimers } from '../__fixtures__/editorTimerGuard';
 guardEditorTimers();
 
 interface EditorHandle {
-  openNote: (text: string) => void;
+  openNote: (noteId: string, text: string) => void;
   getContent: () => string | undefined;
   exec: (commandId: string) => boolean;
 }
@@ -58,12 +58,12 @@ beforeEach(async () => {
 
 describe('a Link URL prompt left open across a note switch', () => {
   it('is taken down, so nothing can be written into the note the user moved to', async () => {
-    handle.openNote('note A body');
+    handle.openNote('test-note', 'note A body');
     handle.exec('link');
     await vi.waitFor(() => expect(promptInput()).not.toBeNull());
     const input = promptInput()!;
 
-    handle.openNote('note B body');
+    handle.openNote('test-note', 'note B body');
 
     expect(promptInput()).toBeNull();
     submitPrompt(input, 'https://example.com');
@@ -71,7 +71,7 @@ describe('a Link URL prompt left open across a note switch', () => {
   });
 
   it('still inserts the link when the note has not changed', async () => {
-    handle.openNote('note A body');
+    handle.openNote('test-note', 'note A body');
     handle.exec('link');
     await vi.waitFor(() => expect(promptInput()).not.toBeNull());
 
