@@ -19,6 +19,7 @@ import uniffi.futo_notes_ffi.licenseEnterKey
 import uniffi.futo_notes_ffi.licenseEvaluate
 import uniffi.futo_notes_ffi.licenseHandleDeepLink
 import uniffi.futo_notes_ffi.licenseLinks
+import uniffi.futo_notes_ffi.licenseLinkOut
 import uniffi.futo_notes_ffi.licenseRowActions
 
 /**
@@ -40,11 +41,15 @@ class LicenseModel(
      * a direct read of the constant so both of its values are exercised by
      * tests without a build flip.
      */
-    private val linkOut: Boolean = BuildConfig.LICENSE_LINK_OUT,
+    buildAllowsLinkOut: Boolean = BuildConfig.LICENSE_LINK_OUT,
     private val enterLicenseKey: suspend (String, String) -> LicenseAcceptance = { input, id ->
         licenseEnterKey(input, id)
     },
 ) {
+    val linkOut: Boolean by lazy {
+        licenseLinkOut(LicensePlatform.ANDROID, null, buildAllowsLinkOut)
+    }
+
     /**
      * `null` until [load] has read the stored pair and Rust has judged it.
      *
