@@ -229,7 +229,7 @@ fn map_batch_mutation(result: BatchMutation) -> CandidateResult {
         BatchMutation::NotFound => CandidateResult::Failed(Some(404)),
         BatchMutation::TooLarge => CandidateResult::TooLarge,
         BatchMutation::Error(error) => {
-            eprintln!("[sync] batch upload entry failed: {error}");
+            futo_notes_core::log_to_stderr!("[sync] batch upload entry failed: {error}");
             CandidateResult::Failed(None)
         }
     }

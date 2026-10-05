@@ -63,6 +63,11 @@ The home screen: the vault root's folders and notes, folder browsing, and search
   someone else's rename. Neither may move it to the top, on any filesystem.
   → futo-notes-store `stamp_note`, called from `write_raw` / `install_new` /
   `rename_raw` / `finish_mappings`
+- Every note id appears in the list exactly once, because every list keys its
+  rows by id. A file is a note only when its id names that exact file: a Unix
+  filename holding `\` or a filename that is not UTF-8 is not a note, since it
+  would alias another note's id. A directory read that returns a name twice
+  still yields one note. → futo-notes-store `vault::note_id_of` / `walk`
 - _(Tauri)_ A **sort button** right of the sidebar search bar (notes view only)
   opens the same anchored dropdown the note ⋮ menu uses, in two labelled
   sections: **Sort by** (**Name** / **Last Modified**) and **Order** (the

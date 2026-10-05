@@ -8,7 +8,7 @@ import {
   applyResolvedTheme,
   windowAppearanceFor,
 } from './theme';
-import { readDesktopColorScheme, setNativeWindowAppearance } from '$lib/platform';
+import { readSystemTheme, setNativeWindowAppearance } from '$lib/platform';
 
 // `isLinux` is a live binding read at call time, so a getter lets one suite
 // exercise both platform branches without reloading the module.
@@ -16,21 +16,21 @@ const platform = vi.hoisted(() => ({ isLinux: false }));
 
 vi.mock('$lib/platform', () => ({
   setNativeWindowAppearance: vi.fn(),
-  readDesktopColorScheme: vi.fn(async () => null),
+  readSystemTheme: vi.fn(async () => null),
   get isLinux() {
     return platform.isLinux;
   },
 }));
 
 const nativeAppearance = vi.mocked(setNativeWindowAppearance);
-const desktopColorScheme = vi.mocked(readDesktopColorScheme);
+const systemTheme = vi.mocked(readSystemTheme);
 
 afterEach(() => {
   delete document.documentElement.dataset.theme;
   document.documentElement.style.colorScheme = '';
   nativeAppearance.mockClear();
-  desktopColorScheme.mockReset();
-  desktopColorScheme.mockResolvedValue(null);
+  systemTheme.mockReset();
+  systemTheme.mockResolvedValue(null);
   platform.isLinux = false;
   vi.unstubAllGlobals();
 });
@@ -176,45 +176,43 @@ describe('resolveAutoTheme', () => {
     // The page reports "not dark" because Light pinned the window a moment ago,
     // while the desktop it claims to describe is dark.
     stubPageColorScheme(false);
-    desktopColorScheme.mockResolvedValue('dark');
+    systemTheme.mockResolvedValue('dark');
 
-    await expect(resolveAutoTheme(undefined, true)).resolves.toBe('dark');
+    await expect(resolveAutoTheme(undefined)).resolves.toBe('dark');
   });
 
-  it('follows the page media query on Linux when the portal agrees with it', async () => {
+  it('follows the page media query when the OS agrees with it', async () => {
     stubPageColorScheme(true);
-    desktopColorScheme.mockResolvedValue('dark');
+    systemTheme.mockResolvedValue('dark');
 
-    await expect(resolveAutoTheme(undefined, true)).resolves.toBe('dark');
+    await expect(resolveAutoTheme(undefined)).resolves.toBe('dark');
   });
 
   it('falls back to the reported change when the portal cannot be read', async () => {
-    desktopColorScheme.mockResolvedValue(null);
-    await expect(resolveAutoTheme('dark', true)).resolves.toBe('dark');
+    systemTheme.mockResolvedValue(null);
+    await expect(resolveAutoTheme('dark')).resolves.toBe('dark');
   });
 
-  it('falls back to the page media query when Linux offers neither', async () => {
-    desktopColorScheme.mockResolvedValue(null);
-    await expect(resolveAutoTheme(undefined, true)).resolves.toBe('light');
+  it('falls back to the page media query when the OS offers neither', async () => {
+    systemTheme.mockResolvedValue(null);
+    await expect(resolveAutoTheme(undefined)).resolves.toBe('light');
   });
 
-  // macOS and Windows hand the window back to the OS on `auto` and so never
-  // write the appearance they read — their media query is trustworthy, and
-  // reaching for a Linux portal there would be a regression, not a fix.
-  it('never asks the desktop portal off Linux', async () => {
-    desktopColorScheme.mockResolvedValue('dark');
+  // macOS pins NSApp.appearance app-wide, so after Dark the page's media query
+  // reports dark on a light desktop, and tao emits no ThemeChanged for the
+  // app's own unpin. Measured on macOS 26: Dark then Auto stayed dark.
+  it('prefers the released window over the pinned page media query on macOS', async () => {
+    stubPageColorScheme(true);
+    systemTheme.mockResolvedValue('light');
 
-    await expect(resolveAutoTheme(undefined, false)).resolves.toBe('light');
-    await expect(resolveAutoTheme('dark', false)).resolves.toBe('dark');
-
-    expect(desktopColorScheme).not.toHaveBeenCalled();
+    await expect(resolveAutoTheme(undefined)).resolves.toBe('light');
   });
 });
 
 describe('applyThemePreference — Linux auto', () => {
   it('renders and pins the desktop theme after an explicit choice poisoned the page', async () => {
     platform.isLinux = true;
-    desktopColorScheme.mockResolvedValue('dark');
+    systemTheme.mockResolvedValue('dark');
     // Choosing Light pins the window, tao writes
     // gtk-application-prefer-dark-theme=false, and the page starts answering
     // "not dark" — on a desktop that is dark.
@@ -229,18 +227,13 @@ describe('applyThemePreference — Linux auto', () => {
     expect(nativeAppearance).toHaveBeenLastCalledWith('dark');
   });
 
-  it('does not consult the desktop portal off Linux', async () => {
-    await applyThemePreference('auto');
-    expect(desktopColorScheme).not.toHaveBeenCalled();
-  });
-
   // One desktop theme change is a BURST of portal signals — five to seven on
   // KDE — and resolving each of them crosses to the portal, so the applies
   // overlap. Whichever RESOLVED last used to win, which is how a stale answer
   // latched the wrong theme AND the wrong window appearance with it.
   it('lets the newest request win when applies overlap', async () => {
     platform.isLinux = true;
-    desktopColorScheme
+    systemTheme
       .mockImplementationOnce(
         () => new Promise((resolve) => setTimeout(() => resolve('light'), 20)),
       )

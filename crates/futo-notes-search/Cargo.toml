@@ -12,6 +12,9 @@ name = "futo_notes_search"
 # callback and returns data. One engine shared by desktop (Tauri) and both
 # native apps (via futo-notes-ffi).
 [dependencies]
+# `log_to_stderr!`, the non-panicking diagnostic line.
+futo-notes-core = { path = "../futo-notes-core" }
+
 # Full-text engine.
 tantivy = "0.26"
 
@@ -32,3 +35,6 @@ tempfile = "3"
 [[bench]]
 name = "search"
 harness = false
+
+[lints]
+workspace = true
