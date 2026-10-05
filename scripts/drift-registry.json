@@ -245,7 +245,7 @@
       "concept": "title-validation-constants",
       "description": "MAX_TITLE_LENGTH (200), the visible forbidden-character set, and the full C0/DEL/C1 control ranges shared by packages/editor/src/filename.ts and Rust, then generated into both native shells as a live-input-filter fast path (apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift, apps/android/.../TitleSpec.kt) via scripts/gen-title-spec.ts.",
       "lockStatus": "locked",
-      "note": "LOCKED: constants.json pins MAX_TITLE_LENGTH in TS+Rust; the reviewed filename fixture and batched differential pin title behavior; gen-title-spec derives both native filters from the TS manifest; Android's TitleSpecTest executes the generated C0/DEL/C1 regex. Swift uses Foundation's matching `.controlCharacters` category and title-spec-check locks the generated source.",
+      "note": "LOCKED: constants.json pins MAX_TITLE_LENGTH in TS+Rust; the reviewed filename fixture and batched differential pin title behavior; gen-title-spec derives both native filters from the TS manifest; Android's TitleSpecTest executes the generated C0/DEL/C1 regex. Swift's generated CharacterSet uses the same explicit C0/DEL/C1 ranges (TitleSpecTests executes it) and title-spec-check locks the generated source.",
       "copies": [
         {
           "location": "packages/editor/src/filename.ts",
