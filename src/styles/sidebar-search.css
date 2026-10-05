@@ -4,10 +4,14 @@
 .drawer-search-area {
   padding: 12px 12px 0;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .search-button {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   height: 40px;
   border-radius: 10px;
   border: none;
@@ -21,6 +25,12 @@
   justify-content: center;
   gap: 8px;
   -webkit-tap-highlight-color: transparent;
+}
+
+.sidebar-sort-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
 }
 
 .search-button:active {

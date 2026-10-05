@@ -2,7 +2,7 @@
 // actually did, so its arithmetic has to be right: a launch-relative number that
 // silently drifts would send an investigation the wrong way.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -114,5 +114,25 @@ describe('just journal last-sync', () => {
     ]);
 
     expect(run('last-sync')).toContain('+4950ms after app launch');
+  });
+});
+
+describe('just journal release lookup', () => {
+  it('uses the release app data directory instead of a checkout-local dev journal', () => {
+    const home = mkdtempSync(join(tmpdir(), 'futo-journal-release-home-'));
+    const appData =
+      process.platform === 'darwin'
+        ? join(home, 'Library', 'Application Support', 'com.futo.notes', 'journal')
+        : join(home, '.local', 'share', 'com.futo.notes', 'journal');
+    mkdirSync(appData, { recursive: true });
+    try {
+      const env = { ...process.env, HOME: home };
+      delete env.FUTO_NOTES_DATA_DIR;
+      expect(
+        execFileSync('node', [SCRIPT, 'where', '--release'], { encoding: 'utf8', env }).trim(),
+      ).toBe(appData);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

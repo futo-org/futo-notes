@@ -6,8 +6,8 @@ use futo_notes_store as store;
 use crate::RenamePair;
 
 use super::{
-    FlushDraftResult, NoteBootstrap, NoteError, NoteMutation, NoteSnapshot, SearchHit,
-    VaultDestinationInspection, VaultMigrationFinalization, VaultMigrationOutcome,
+    FlushDraftResult, NoteBootstrap, NoteError, NoteMutation, NoteSnapshot, NoteSortOrder,
+    SearchHit, VaultDestinationInspection, VaultMigrationFinalization, VaultMigrationOutcome,
 };
 
 #[derive(uniffi::Object)]
@@ -41,9 +41,24 @@ impl NoteStore {
     }
 
     /// Search startup is best effort so index availability never gates the note snapshot.
-    pub fn bootstrap(&self, index_dir: String) -> Result<NoteBootstrap, NoteError> {
+    pub fn bootstrap(
+        &self,
+        index_dir: String,
+        order: NoteSortOrder,
+    ) -> Result<NoteBootstrap, NoteError> {
         self.inner
-            .bootstrap_with_search(PathBuf::from(index_dir), Arc::new(|_| {}))
+            .bootstrap_with_search_in_order(
+                order.into(),
+                PathBuf::from(index_dir),
+                Arc::new(|_| {}),
+            )
+            .map(Into::into)
+            .map_err(NoteError::Io)
+    }
+
+    pub fn set_sort_order(&self, order: NoteSortOrder) -> Result<NoteSnapshot, NoteError> {
+        self.inner
+            .set_sort_order(order.into())
             .map(Into::into)
             .map_err(NoteError::Io)
     }

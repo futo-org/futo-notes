@@ -36,6 +36,21 @@ function topLevelBlock(contents, startPattern) {
 }
 
 describe('pre-merge CI routing contracts', () => {
+  it('keeps the internal Windows VM chain together when its build script changes', () => {
+    // A ci/win-build.ps1-only MR previously included the build without its
+    // provision job, so GitLab rejected the entire pipeline before any job ran.
+    for (const name of [
+      'windows:provision:internal',
+      'build:desktop-internal:windows',
+      'windows:cleanup:internal',
+    ]) {
+      const block = topLevelBlock(gitlabPipeline, new RegExp(`^${name}:$`, 'm'));
+      const mrRule = block.slice(block.lastIndexOf('    - if: $CI_MERGE_REQUEST_IID'));
+      expect(mrRule).toContain('      changes:');
+      expect(mrRule).toContain('        - ci/win-build.ps1');
+    }
+  });
+
   it('provisions missing Cirrus tools in every Mac runner shell', () => {
     const jobs = gitlabPipeline.split(/(?=^[^ #\n][^\n]*:\n)/m);
     const cirrusJobs = jobs.filter((job) => job.includes('    - cirrus run '));
@@ -556,15 +571,21 @@ describe('pre-merge CI routing contracts', () => {
 
     // The version is resolved after the clone, and asserted after activation —
     // this VM produces the binary that gets Authenticode signed.
-    const clonedAt = winBuild.indexOf('Set-Location C:\\build\\futo-notes');
-    const activatedAt = winBuild.indexOf('fnm use --install-if-missing');
-    const usesNodeAt = winBuild.indexOf('node scripts\\desktop-version.mjs');
+    const commandIndex = (pattern) => winBuild.search(pattern);
+    const clonedAt = commandIndex(/^\s*Set-Location C:\\build\\futo-notes\s*$/m);
+    const activatedAt = commandIndex(
+      /^\s*Invoke-Step "Activating Node from \.nvmrc" \{ fnm use --install-if-missing \}\s*$/m,
+    );
+    const usesNodeAt = commandIndex(/^\s*node scripts\\desktop-version\.mjs \$Version\s*$/m);
     expect(clonedAt).toBeGreaterThan(-1);
     expect(activatedAt).toBeGreaterThan(clonedAt);
     expect(usesNodeAt).toBeGreaterThan(activatedAt);
     // The abort keyword, not its message: turning `throw` into `Write-Warning`
     // keeps the sentence and drops the guarantee.
     expect(winBuild).toMatch(/throw "Node \$expectedNode is pinned/);
+    // Windows artifacts are NSIS only; MSI rejects non-numeric prerelease
+    // identifiers even though the pipeline collects and signs only NSIS.
+    expect(winBuild).toMatch(/cargo tauri build --bundles nsis/);
 
     // windows:sign is the ONE sanctioned exception: Node there only runs the
     // pinned @tauri-apps/cli, which is what actually determines the updater

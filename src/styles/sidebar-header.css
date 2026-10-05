@@ -54,7 +54,7 @@
   text-overflow: ellipsis;
 }
 
-.sidebar-settings-btn {
+.sidebar-icon-btn {
   width: 36px;
   height: 36px;
   border: none;
@@ -69,7 +69,8 @@
   transition: background 0.15s ease;
 }
 
-.sidebar-settings-btn:active {
+.sidebar-icon-btn:active,
+.sidebar-icon-btn[aria-expanded='true'] {
   background: rgba(var(--ink-rgb), 0.06);
 }
 
@@ -77,23 +78,4 @@
   display: flex;
   align-items: center;
   gap: 2px;
-}
-
-.sidebar-collapse-btn {
-  width: 36px;
-  height: 36px;
-  border: none;
-  background: transparent;
-  border-radius: 8px;
-  color: var(--color-muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  -webkit-tap-highlight-color: transparent;
-  transition: background 0.15s ease;
-}
-
-.sidebar-collapse-btn:active {
-  background: rgba(var(--ink-rgb), 0.06);
 }

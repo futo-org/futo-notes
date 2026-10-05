@@ -165,17 +165,15 @@ describe('portable suites', () => {
 describe('remote node version', () => {
   it('activates .nvmrc after the checkout, so a remote run is not on the box default', () => {
     const script = runScript();
-    const activation = script.indexOf('fnm use --install-if-missing');
+    const commandIndex = (pattern) => script.search(pattern);
+    const activation = commandIndex(/^fnm use --install-if-missing$/m);
     expect(activation).toBeGreaterThan(-1);
     // Must land after the worktree exists, and before anything reports or uses node.
-    expect(activation).toBeGreaterThan(script.indexOf('cd "$REMOTE_DIR"'));
-    expect(activation).toBeLessThan(script.indexOf('node --version'));
-    expect(activation).toBeLessThan(script.indexOf('just test-rust-full'));
-    // And before pnpm install, or native modules compile against the box default
-    // and the pin buys nothing. Matched as a command line: the comments around
-    // it name the command too, so indexOf() finds prose and compares the wrong
-    // offsets.
-    const installsDeps = script.search(/^\s*pnpm install$/m);
+    expect(activation).toBeGreaterThan(commandIndex(/^cd "\$REMOTE_DIR"$/m));
+    expect(activation).toBeLessThan(commandIndex(/^echo "==> node \$\(node --version\)/m));
+    expect(activation).toBeLessThan(commandIndex(/^just 'test-rust-full' &$/m));
+    // And before pnpm install, or native modules compile against the box default.
+    const installsDeps = commandIndex(/^\s*pnpm install$/m);
     expect(installsDeps).toBeGreaterThan(-1);
     expect(activation).toBeLessThan(installsDeps);
   });

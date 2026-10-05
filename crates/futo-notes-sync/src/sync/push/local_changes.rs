@@ -129,13 +129,9 @@ pub(in crate::sync) fn prepare_upload(
         return None;
     }
     let existing = context.state.object_map.get(&file.name).cloned();
-    if !renamed
-        && existing.as_ref().is_some_and(|entry| {
-            entry.mtime_ms == Some(file.mtime) && entry.size_bytes == Some(file.size)
-        })
-    {
-        return None;
-    }
+    // No mtime+size shortcut before the hash: a backlink rewrite keeps the
+    // note's mtime, and a same-length edit on a frozen-mtime filesystem moves
+    // neither, so the peer would keep different bytes under one hash forever.
     let content = match read_content(context.root, &file.name) {
         Ok(content) => content,
         Err(error) => {

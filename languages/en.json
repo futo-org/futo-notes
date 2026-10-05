@@ -189,6 +189,16 @@
     },
     "notes": {
       "heading": "Notes",
+      "sort": {
+        "heading": "Sort by",
+        "orderHeading": "Order",
+        "name": "Name",
+        "lastModified": "Last Modified",
+        "aToZ": "A-Z",
+        "zToA": "Z-A",
+        "newest": "Recent first",
+        "oldest": "Oldest first"
+      },
       "forYou": {
         "heading": "For You",
         "empty": "Create your first note from the sidebar to get started."
