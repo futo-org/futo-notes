@@ -105,6 +105,12 @@ pub struct MutationResult {
     pub final_id: Option<String>,
     /// Collision-resolved folder path for rename/move-folder workflows.
     pub final_folder: Option<String>,
+    /// Final ids of the notes whose body this workflow's backlink rewrite
+    /// changed on disk. An editor holding one of them holds bytes that are no
+    /// longer the file's, from a change its own user made: it adopts the file
+    /// rather than treating the difference as a peer's edit.
+    #[serde(default)]
+    pub relinked: Vec<String>,
     pub warnings: Vec<String>,
 }
 
@@ -325,8 +331,12 @@ impl LocalNoteStore {
         vault::inventory(&self.root)
     }
 
-    pub fn read(&self, id: &str) -> String {
-        self.read_existing(id).ok().flatten().unwrap_or_default()
+    /// A missing note reads as empty (a broken wikilink opens through the
+    /// ordinary path and is created on its first save). A note that exists but
+    /// cannot be read or decoded is an error, never an empty note: answering ""
+    /// opened it as a blank page whose every save then failed.
+    pub fn read(&self, id: &str) -> Result<String, String> {
+        Ok(self.read_existing(id)?.unwrap_or_default())
     }
 
     pub fn read_existing(&self, id: &str) -> Result<Option<String>, String> {
@@ -612,7 +622,7 @@ impl LocalNoteStore {
                 continue;
             }
             let parked_id = join_id(&folder, sibling_title);
-            if self.read(&parked_id) == content {
+            if self.read(&parked_id).as_deref() == Ok(content) {
                 return Ok(FlushDraftResult {
                     disposition: FlushDisposition::ParkedConflict { parked_id },
                     mutation: None,
@@ -832,6 +842,7 @@ impl LocalNoteStore {
         let mut changes = rename_changes(&mappings);
         changes.extend(
             relinks
+                .rewritten
                 .keys()
                 .map(|id| FileChange::Changed(note_filename(id))),
         );
@@ -916,6 +927,7 @@ impl LocalNoteStore {
         let mut changes = rename_changes(&mappings);
         changes.extend(
             relinks
+                .rewritten
                 .keys()
                 .map(|id| FileChange::Changed(note_filename(id))),
         );
@@ -993,6 +1005,7 @@ impl LocalNoteStore {
         let mut changes = rename_changes(&mappings);
         changes.extend(
             relinks
+                .rewritten
                 .keys()
                 .map(|id| FileChange::Changed(note_filename(id))),
         );
@@ -1004,22 +1017,29 @@ impl LocalNoteStore {
     fn finish_mappings(
         &self,
         mappings: Vec<(String, String)>,
-        relinks: HashMap<String, String>,
+        relinks: Relinks,
         final_id: Option<String>,
     ) -> MutationResult {
-        let mut warnings = Vec::new();
+        let mut warnings = relinks
+            .skipped
+            .iter()
+            .map(|id| format!("backlink rewrite skipped for {id}: the note is not valid UTF-8"))
+            .collect::<Vec<_>>();
         let mut touched = HashSet::new();
-        for (id, content) in relinks {
+        let mut relinked = Vec::new();
+        for (id, content) in relinks.rewritten {
             match paths::note_path(&self.root, &id).and_then(|_| {
                 vault_fs::write_atomic_local(&self.root, &note_filename(&id), content.as_bytes())
             }) {
                 Ok(()) => {
                     touched.insert(id.clone());
                     self.search.notify(&FileChange::Changed(note_filename(&id)));
+                    relinked.push(id);
                 }
                 Err(error) => warnings.push(format!("backlink rewrite for {id}: {error}")),
             }
         }
+        relinked.sort();
         for (from, to) in &mappings {
             self.search.notify(&FileChange::Renamed {
                 from: note_filename(from),
@@ -1040,6 +1060,7 @@ impl LocalNoteStore {
                     .map(|(from, to)| NoteRename { from, to })
                     .collect(),
                 final_id,
+                relinked,
                 warnings,
                 ..MutationResult::default()
             },
@@ -1184,7 +1205,7 @@ impl LocalNoteStore {
             // note like "<stem> draft" that happens to share content (F1).
             id_folder == folder
                 && paths::is_unique_variant(&stem, &id_title)
-                && self.read(&id) == backup_content
+                && self.read(&id).as_deref() == Ok(backup_content.as_str())
         });
         if already_parked {
             // Drop the sidecar ONLY after the backup unlink succeeds. If the
@@ -1472,15 +1493,43 @@ fn remove_empty_folder_tree(root: &Path, folder: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn prepare_relinks(root: &Path, mappings: &[(String, String)]) -> HashMap<String, String> {
+/// The backlink rewrite a rename plans before it moves anything.
+#[derive(Default)]
+struct Relinks {
+    /// Rewritten bodies to write, keyed by the note's FINAL id.
+    rewritten: HashMap<String, String>,
+    /// Final ids of notes whose links matched but whose bytes are not UTF-8.
+    /// They are left byte-for-byte untouched: re-encoding one would destroy
+    /// every byte it could not decode, and writing the new link into a file of
+    /// unknown encoding cannot promise the rest survives either.
+    skipped: Vec<String>,
+}
+
+fn prepare_relinks(root: &Path, mappings: &[(String, String)]) -> Relinks {
     if mappings.is_empty() {
-        return HashMap::new();
+        return Relinks::default();
     }
-    let original = vault::bodies(root);
+    let raw = vault::bodies(root);
+    // Every note counts toward link resolution, decodable or not.
+    let mut ids = raw.keys().cloned().collect::<Vec<_>>();
+    let mut original = HashMap::new();
+    // A lossy view of each undecodable note, used ONLY to learn whether the
+    // rename would have rewritten it. It is never written.
+    let mut undecodable = HashMap::new();
+    for (id, bytes) in raw {
+        match String::from_utf8(bytes) {
+            Ok(body) => {
+                original.insert(id, body);
+            }
+            Err(error) => {
+                undecodable.insert(id, String::from_utf8_lossy(error.as_bytes()).into_owned());
+            }
+        }
+    }
     let mut bodies = original.clone();
-    let mut ids = original.keys().cloned().collect::<Vec<_>>();
+    let mut lossy = undecodable.clone();
     for (old, new) in mappings {
-        for body in bodies.values_mut() {
+        for body in bodies.values_mut().chain(lossy.values_mut()) {
             if !body.contains("[[") {
                 continue;
             }
@@ -1494,15 +1543,19 @@ fn prepare_relinks(root: &Path, mappings: &[(String, String)]) -> HashMap<String
         }
     }
     let final_ids = mappings.iter().cloned().collect::<HashMap<_, _>>();
-    bodies
+    let final_id = |old_id: String| final_ids.get(&old_id).cloned().unwrap_or(old_id);
+    let rewritten = bodies
         .into_iter()
-        .filter_map(|(old_id, body)| {
-            (original.get(&old_id) != Some(&body)).then(|| {
-                let id = final_ids.get(&old_id).cloned().unwrap_or(old_id);
-                (id, body)
-            })
-        })
-        .collect()
+        .filter(|(old_id, body)| original.get(old_id) != Some(body))
+        .map(|(old_id, body)| (final_id(old_id), body))
+        .collect();
+    let mut skipped = lossy
+        .into_iter()
+        .filter(|(old_id, body)| undecodable.get(old_id) != Some(body))
+        .map(|(old_id, _)| final_id(old_id))
+        .collect::<Vec<_>>();
+    skipped.sort();
+    Relinks { rewritten, skipped }
 }
 
 fn rename_changes(mappings: &[(String, String)]) -> Vec<FileChange> {

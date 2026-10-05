@@ -8,8 +8,16 @@
 # baseline is the goal).
 #
 # Scope notes:
-# - Tests and fixtures are exempt from the gate via [check] exclude; they are
-#   still walked and shown by `bca report`.
+# - Tests, fixtures, test harnesses and dev tooling (scripts/) are exempt from
+#   the gate via [check] exclude; they are still walked and shown by
+#   `bca report`. Rust inline #[cfg(test)] modules are dropped from the
+#   metrics themselves (exclude_tests), so a file's lloc measures its code.
+# - Rust `?` does not count toward cyclomatic: it is linear error
+#   propagation, and counting it penalised exactly the fallible-but-flat
+#   code a maintainability gate should leave alone.
+# - Baseline matching is rename-tolerant (baseline_fuzzy_match): a function
+#   renamed or moved with its body unchanged keeps its baseline row instead
+#   of resurfacing as a [new] offender.
 # - .svelte files have no supported bca language and are skipped by the tool
 #   itself — the measured TypeScript surface is .ts only.
 # - .gitignore'd trees (uniffi bindings, node_modules, target/) are excluded
@@ -17,8 +25,12 @@
 
 paths = ["src", "packages", "crates", "apps", "scripts"]
 
+exclude_tests = true
+cyclomatic_count_try = false
+
 [check]
 baseline = ".bca-baseline.toml"
+baseline_fuzzy_match = true
 exclude = [
   "**/*.test.ts",
   "**/*.test.mjs",
@@ -26,6 +38,9 @@ exclude = [
   "**/tests/**",
   "**/src/test/**",
   "**/src/androidTest/**",
+  "**/tests.rs",
+  "src/features/sync/testHostedSync.ts",
+  "scripts/**",
 ]
 
 [thresholds]

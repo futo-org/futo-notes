@@ -69,6 +69,16 @@ export const paragraphWithoutFillerSchema = $node(PARAGRAPH_NODE, (ctx) => {
       // task-list one included) read `node.children[0]` unguarded.
       const parent = state.top();
       if (parent) parent.children ??= [];
+      // An empty TASK item would save as a bare `-`: the task-list handler
+      // only writes `[ ] ` in front of a first child that is a paragraph, and
+      // this item has none. Write the marker itself instead, as raw text in a
+      // paragraph of a plain item, so the file keeps `- [ ]` (`./emptyTaskItem`
+      // reads it back as the task item it was).
+      if (parent && typeof parent.props.checked === 'boolean') {
+        const marker = parent.props.checked ? '[x]' : '[ ]';
+        delete parent.props.checked;
+        state.addNode('paragraph', [{ type: 'html', value: marker }]);
+      }
       return;
     }
     // Upstream's runner is `(state, node)`; spread so any later parameter is

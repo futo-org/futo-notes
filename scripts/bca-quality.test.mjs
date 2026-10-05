@@ -5,6 +5,7 @@ import {
   BCA_VERSION,
   SHA256_BY_TARGET,
   downloadUrl,
+  gateArgs,
   tarballName,
   targetFor,
 } from './bca-quality.mjs';
@@ -44,6 +45,13 @@ describe('bca-quality release pin', () => {
   it('pins a release for the current platform', () => {
     const target = targetFor(process.platform, process.arch);
     expect(SHA256_BY_TARGET[target]).toBeDefined();
+  });
+});
+
+describe('bca-quality gate scope', () => {
+  it('scopes the gate to changed files only when a diff base is known', () => {
+    expect(gateArgs('abc123')).toEqual(['check', '--since', 'abc123', '--changed-only']);
+    expect(gateArgs(null)).toEqual(['check']);
   });
 });
 

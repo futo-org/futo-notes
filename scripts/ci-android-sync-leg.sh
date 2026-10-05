@@ -57,7 +57,9 @@ ci_emulator_start --read-only
 # so no system dialog can sit in front of the UI the harness drives.
 "$ADB" -s "$ANDROID_SERIAL" install -r -g "$APK"
 
-if ! "$ADB" -s "$ANDROID_SERIAL" shell pm list packages | tr -d '\r' | grep -qx "package:$PACKAGE"; then
+# No `grep -q` here: with pipefail its early exit SIGPIPEs adb (a package list is
+# many buffers) and the check reads "not installed" although it is (RC-65).
+if ! "$ADB" -s "$ANDROID_SERIAL" shell pm list packages | tr -d '\r' | grep -x "package:$PACKAGE" >/dev/null; then
   echo "ERROR: $PACKAGE is not installed after adb install" >&2
   exit 1
 fi
