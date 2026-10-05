@@ -97,7 +97,8 @@ their notes when they switch. Never give a flavor its own id or suffix;
 `BuildConfig.IS_PLAY_BUILD` is the seam. Reach for it only for behavior that
 Google Play's policies require and other channels do not — nothing else is a
 flavor difference. Today nothing reads it, and the flavors still behave
-identically: the one per-flavor constant, `LICENSE_LINK_OUT`, is `true` on both.
+identically except for license checkout: `LICENSE_LINK_OUT` is `true` on `direct`
+and `false` on `play`.
 
 In order of preference:
 

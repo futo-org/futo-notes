@@ -31,9 +31,11 @@ import com.futo.notes.BuildConfig
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.Localization
 import com.futo.notes.ui.LicenseSettingsSection
+import com.futo.notes.ui.licenseExplanationPath
 import com.futo.notes.ui.theme.FutoNotesTheme
 import kotlinx.coroutines.awaitCancellation
 import org.junit.After
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -46,6 +48,7 @@ import uniffi.futo_notes_ffi.LicenseStatus
 import uniffi.futo_notes_ffi.licenseDeepLinkScheme
 import uniffi.futo_notes_ffi.licenseEvaluate
 import uniffi.futo_notes_ffi.licenseLinks
+import uniffi.futo_notes_ffi.licenseLinkOut
 import uniffi.futo_notes_ffi.licenseRowActions
 
 /**
@@ -88,23 +91,42 @@ class LicenseSurfaceTest {
 
         val handlers = context.packageManager
             .queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
-            .map { it.activityInfo.packageName }
+            .map { it.activityInfo.name }
 
         assertTrue(
             "no activity answers $link — handlers: $handlers",
-            handlers.contains(BuildConfig.APPLICATION_ID),
+            handlers.contains(LicenseLinkActivity::class.java.name),
         )
     }
 
-    /**
-     * `LICENSE_LINK_OUT` is `true` at launch on both flavors: the app ships the
-     * full surface worldwide (docs/spec/license.md § Store posture). This is
-     * the assertion to flip, together with the `play` line in
-     * `app/build.gradle.kts`, if Google ever objects.
-     */
     @Test
-    fun theAppLinksOutAtLaunch() {
-        assertTrue(BuildConfig.LICENSE_LINK_OUT)
+    fun linkOutFollowsTheSharedCasesAndFlavor() {
+        val fixture = JSONObject(
+            InstrumentationRegistry.getInstrumentation().context.assets
+                .open("license.json").bufferedReader().use { it.readText() },
+        ).getJSONArray("linkOut")
+        assertEquals(10, fixture.length())
+        for (index in 0 until fixture.length()) {
+            val testCase = fixture.getJSONObject(index)
+            val platform = when (testCase.getString("platform")) {
+                "ios" -> LicensePlatform.IOS
+                "android" -> LicensePlatform.ANDROID
+                else -> LicensePlatform.DESKTOP
+            }
+            assertEquals(
+                testCase.getString("name"), testCase.getBoolean("expected"),
+                licenseLinkOut(
+                    platform,
+                    if (testCase.isNull("storefrontCountry")) null else testCase.getString("storefrontCountry"),
+                    testCase.getBoolean("buildAllows"),
+                ),
+            )
+        }
+        assertEquals(BuildConfig.FLAVOR == "direct", BuildConfig.LICENSE_LINK_OUT)
+        assertEquals("license.keyOnlyExplanation", licenseExplanationPath(LicenseStatus.UNLICENSED, false))
+        assertEquals("license.explanation", licenseExplanationPath(LicenseStatus.UNLICENSED, true))
+        assertEquals("license.keyOnlyExplanation", licenseExplanationPath(LicenseStatus.EXPIRED, false))
+        assertEquals("license.explanationLicensed", licenseExplanationPath(LicenseStatus.LICENSED, false))
     }
 
     /**
@@ -267,7 +289,13 @@ class LicenseSurfaceTest {
     @Test
     fun unlicensedLeadsWithTheAskAndCarriesNoCardChrome() {
         val localization = Localization.fromGeneratedCatalogs(listOf("en"), "en-US")
-        val license = LicenseModel(LicenseStorage(preferences), LicenseFixture.DEV_APPLICATION_ID)
+        // Link-out pinned on: this asserts the Buy surface, which the Play
+        // flavor hides by design (covered by linkOutFalseKeepsTheKeyField...).
+        val license = LicenseModel(
+            LicenseStorage(preferences),
+            LicenseFixture.DEV_APPLICATION_ID,
+            buildAllowsLinkOut = true,
+        )
         license.showMessage = {}
         license.applyEvaluated(licenseEvaluate(null, LicenseFixture.DEV_APPLICATION_ID))
 
@@ -466,4 +494,3 @@ class LicenseSurfaceTest {
         return license
     }
 }
-

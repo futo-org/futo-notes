@@ -20,6 +20,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# FUTO_LICENSE_ENV=staging|production overrides which FUTOpay org the license
+# crate verifies and buys against (default: the bundle id's `.dev` split).
+# It is compiled in, so it must be set on THIS build; say so loudly.
+if [[ -n "${FUTO_LICENSE_ENV:-}" ]]; then
+  echo "==> FUTO_LICENSE_ENV=$FUTO_LICENSE_ENV — license org forced for this build (overrides the bundle id)"
+fi
+
 # ── Early environment checks with actionable errors ──────────────────────
 # ANDROID_NDK_HOME is often not exported even when the NDK is installed —
 # fall back to the newest NDK under the SDK before giving up.

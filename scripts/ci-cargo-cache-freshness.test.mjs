@@ -92,6 +92,10 @@ function runGuard(dir, args = []) {
       // a normal Mac, red under any runner that exports CARGO_TARGET_DIR, which
       // is how it surfaced (pc_7f277346768b).
       env: { ...process.env, CI_PROJECT_DIR: dir, CARGO_TARGET_DIR: undefined },
+      // execFileSync inherits stderr by default, so every expected SKEWED
+      // failure also printed into the Vitest run and read as a real warning
+      // (pc_69840db25618). Piped, it still reaches `error.stderr` below.
+      stdio: 'pipe',
     });
     return { status: 0, output: stdout };
   } catch (error) {

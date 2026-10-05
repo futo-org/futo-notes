@@ -133,6 +133,22 @@ pub enum LicenseLinkOutcome {
 pub enum LicensePlatform {
     Ios,
     Android,
+    Desktop,
+}
+
+/// Whether this distribution may offer a purchase link in this storefront.
+/// An unknown iOS storefront is deliberately treated as outside the US.
+#[uniffi::export]
+pub fn license_link_out(
+    platform: LicensePlatform,
+    storefront_country: Option<String>,
+    build_allows: bool,
+) -> bool {
+    futo_notes_license::license_link_out(
+        platform.into(),
+        storefront_country.as_deref(),
+        build_allows,
+    )
 }
 
 impl From<LicensePlatform> for Platform {
@@ -140,13 +156,14 @@ impl From<LicensePlatform> for Platform {
         match platform {
             LicensePlatform::Ios => Platform::Ios,
             LicensePlatform::Android => Platform::Android,
+            LicensePlatform::Desktop => Platform::Desktop,
         }
     }
 }
 
 /// The Buy / Renew and "Lost your key?" destinations, read from the crate so
-/// no shell hardcodes a URL and every platform agrees. Open both in the
-/// **system browser**, never an in-app WebView.
+/// no shell hardcodes a URL and every platform agrees. Shells choose the
+/// browser surface permitted by their distribution.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct LicenseLinks {
     pub buy: String,
@@ -174,8 +191,7 @@ pub enum LicenseAction {
 ///
 /// This is the spec's States-and-copy table (docs/spec/license.md), owned once
 /// so the two native shells cannot drift apart on it — and so the meaning of
-/// `LICENSE_LINK_OUT` is pinned by a golden rather than re-derived in Swift and
-/// again in Kotlin. `link_out` is the shell's build-time constant: `false`
+/// `link_out` is the result of [`license_link_out`]: `false`
 /// hides everything that leaves the app for a storefront, and keeps the key
 /// field and the deep link (the consumption-only shape).
 #[uniffi::export]
@@ -279,7 +295,9 @@ pub async fn license_enter_key(
         // network failure. The user still gets the fail-safe outcome (nothing
         // was stored, entering again is free), but it must leave a trace
         // rather than masquerade silently as "offline" (M11).
-        eprintln!("[license] the activation worker stopped before it answered");
+        futo_notes_core::log_to_stderr!(
+            "[license] the activation worker stopped before it answered"
+        );
         Err(LicenseError::Offline {
             reason: "the activation worker stopped before it answered".to_string(),
         })
@@ -785,8 +803,36 @@ mod tests {
         );
     }
 
-    /// `LICENSE_LINK_OUT = false` is the consumption-only shape a store
-    /// objection would force: it hides Buy, Renew and Lost-your-key, and keeps
+    #[test]
+    fn storefront_link_out_fails_closed_and_follows_the_distribution() {
+        for country in [None, Some("FRA"), Some("JPN"), Some(""), Some("usa")] {
+            assert!(!license_link_out(
+                LicensePlatform::Ios,
+                country.map(str::to_owned),
+                true
+            ));
+        }
+        assert!(license_link_out(
+            LicensePlatform::Ios,
+            Some("USA".into()),
+            true
+        ));
+        assert!(!license_link_out(
+            LicensePlatform::Ios,
+            Some("USA".into()),
+            false
+        ));
+        assert!(license_link_out(LicensePlatform::Android, None, true));
+        assert!(!license_link_out(
+            LicensePlatform::Android,
+            Some("USA".into()),
+            false
+        ));
+        assert!(license_link_out(LicensePlatform::Desktop, None, false));
+    }
+
+    /// `link_out = false` is the consumption-only shape: it hides Buy, Renew
+    /// and Lost-your-key, and keeps
     /// the key field (and the deep link, which is not a control at all).
     #[test]
     fn link_out_false_hides_every_way_out_of_the_app_and_nothing_else() {

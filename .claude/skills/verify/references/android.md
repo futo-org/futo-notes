@@ -33,7 +33,8 @@ adb devices                 # solo alternative: anything already attached?
 `adb` honors `$ANDROID_SERIAL` natively; with multiple devices attached every
 `adb` call is ambiguous without it. Driving a device another session claimed
 (see `just qa-status`) causes install-thrashing — don't. Release with
-`just qa-release` when done.
+`just qa-release android` when done — a bare `just qa-release` also frees any
+simulator this worktree claimed.
 
 ## 2. Build, install, launch
 
