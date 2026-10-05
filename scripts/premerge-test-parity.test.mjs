@@ -37,6 +37,17 @@ function topLevelBlock(contents, startPattern) {
 }
 
 describe('pre-merge CI routing contracts', () => {
+  it('provisions missing Cirrus tools in every Mac runner shell', () => {
+    const jobs = gitlabPipeline.split(/(?=^[^ #\n][^\n]*:\n)/m);
+    const cirrusJobs = jobs.filter((job) => job.includes('    - cirrus run '));
+    expect(cirrusJobs).toHaveLength(8);
+    for (const job of cirrusJobs) {
+      expect(job).toContain('    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"');
+      expect(job).toContain('command -v cirrus || brew install cirruslabs/cli/cirrus');
+      expect(job.indexOf('export PATH=')).toBeLessThan(job.indexOf('    - cirrus run '));
+    }
+  });
+
   it('builds iOS stories from the pushed source and routes them through both local gates', () => {
     const storyRecipe = topLevelBlock(justfile, /^test-ios-stories:[^\n]*$/m);
     const prepushRecipe = topLevelBlock(justfile, /^prepush:[^\n]*$/m);

@@ -935,6 +935,8 @@ test:rust:macos:
   before_script:
     - env | grep -E '^(CI_)' > "$CI_PROJECT_DIR/.cienv"
   script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
     - cirrus run testRustMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   rules:
     - if: $CI_COMMIT_TAG
@@ -1283,6 +1285,8 @@ test:desktop-smoke:macos:
   before_script:
     - env | grep -E '^(CI_)' > "$CI_PROJECT_DIR/.cienv"
   script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
     - cirrus run testDesktopSmokeMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   artifacts:
     when: always
@@ -1550,6 +1554,8 @@ build:desktop-internal:macos:
   before_script:
     - env | grep -E '^(CI_)' > "$CI_PROJECT_DIR/.cienv"
   script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
     - cirrus run buildFutoNotesMacOSInternal --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   artifacts:
     paths:
@@ -1646,6 +1652,8 @@ build:macos:
     # through to the Cirrus macOS task, which builds the signed .app.tar.gz.
     - env | grep -E '^(CI_|MACOS_|ASC_|TAURI_)' > "$CI_PROJECT_DIR/.cienv"
   script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
     - cirrus run buildFutoNotesMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   artifacts:
     paths:
@@ -1892,6 +1900,8 @@ build:ios-native:
     # password and "MAC verification failed during PKCS12 import".
     - env | grep -E '^(CI_|IOS_)' > "$CI_PROJECT_DIR/.cienv"
   script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
     - cirrus run buildFutoNotesIOSNative --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   artifacts:
     paths:
@@ -1925,6 +1935,8 @@ test:ios-native:
   before_script:
     - env | grep -E '^(CI_|IOS_)' > "$CI_PROJECT_DIR/.cienv"
   script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
     - cirrus run testFutoNotesIOSNative --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   artifacts:
     when: always
@@ -2691,6 +2703,8 @@ publish:ios:
   before_script:
     - env | grep -E '^(CI_|IOS_|ASC_)' > "$CI_PROJECT_DIR/.cienv"
   script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
     - cirrus run publishFutoNotesIOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   rules:
     # STABLE tags only — same guard as `release:`. A bare $CI_COMMIT_TAG rule
@@ -2721,6 +2735,8 @@ publish:ios:main:
   before_script:
     - env | grep -E '^(CI_|IOS_|ASC_)' > "$CI_PROJECT_DIR/.cienv"
   script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
     - cirrus run publishFutoNotesIOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

@@ -51,11 +51,23 @@ export interface OpenMeasurement {
 export interface KeystrokeTarget {
   text: string;
   ready?: string;
+  /**
+   * Type only once the whole note has loaded. Without it a large note's
+   * keystrokes land while progressive open is still streaming, into a document
+   * a fraction of the note's size.
+   */
+  loaded?: boolean;
 }
 
 export interface KeystrokeMeasurement {
   synchronousSamplesMs: number[];
   settledToPaintSamplesMs: number[];
+  /**
+   * Per keystroke, how many document nodes the editor walked through
+   * `nodesBetween`/`descendants` — a load-independent count of its own work.
+   * Absent where the candidate cannot count it.
+   */
+  nodeVisitSamples?: number[];
 }
 
 /**

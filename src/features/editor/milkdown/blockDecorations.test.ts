@@ -310,3 +310,116 @@ describe('repaintBlocks cost', () => {
     },
   );
 });
+
+describe('decoration lookup cost', () => {
+  /*
+   * RC-80: every redraw asks the decoration tree for each child node's own
+   * decorations (`DecorationSet.forChild`), and upstream found each one by
+   * scanning the tree's children from the front — O(blocks²) per keystroke in
+   * a note whose blocks each carry a decoration (a #tag per section cost
+   * 115 ms a key at 20,000 sections). patches/prosemirror-view makes it a
+   * binary search. Counted, not timed: reads of the tree's child array per
+   * lookup, at 250 and 4,000 decorated blocks.
+   */
+  it('finds a child’s decorations without scanning its siblings', () => {
+    const readsPerBlock = (k: number): number => {
+      const doc = docOf(...Array.from({ length: k }, (_, i) => `#tag${i}`));
+      const set = decorateAll(doc, paragraphsIn, wholeBlock) as unknown as {
+        children: unknown[];
+        forChild: (offset: number, node: ProseNode) => DecorationSet;
+      };
+      let reads = 0;
+      set.children = new Proxy(set.children, {
+        get(target, key, receiver) {
+          if (typeof key === 'string' && /^\d+$/.test(key)) reads += 1;
+          return Reflect.get(target, key, receiver);
+        },
+      });
+      let found = 0;
+      doc.forEach((child, offset) => {
+        if (set.forChild(offset, child).find().length === 1) found += 1;
+      });
+      expect(found).toBe(k);
+      return reads / k;
+    };
+    const small = readsPerBlock(250);
+    const large = readsPerBlock(4_000);
+    // A scan from the front read ~k/2 per lookup: ~125 and ~2,000.
+    expect(large, JSON.stringify({ small, large })).toBeLessThanOrEqual(2 * small);
+    expect(large).toBeLessThan(40);
+  });
+
+  /*
+   * The search relies on `children` staying sorted by start through every
+   * build, map, add and remove. Held here to the front-to-back scan it
+   * replaced, over decoration sets that random edits have mapped, grown and
+   * shrunk — nested lists included, so the lookups reach inner nodes too.
+   */
+  it('answers every lookup exactly as the scan from the front did', () => {
+    type Tree = { children: readonly (number | Tree)[] };
+    const scanned = (set: Tree, offset: number): Tree | undefined => {
+      for (let i = 0; i < set.children.length; i += 3)
+        if ((set.children[i] as number) >= offset)
+          return set.children[i] == offset ? (set.children[i + 2] as Tree) : undefined;
+      return undefined;
+    };
+    let seed = 11;
+    const random = (n: number): number => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed % n;
+    };
+    const item = (text: string): ProseNode => s.nodes.list_item.create(null, [para(text)]);
+    const block = (i: number): ProseNode =>
+      random(4) === 0
+        ? s.nodes.bullet_list.create(null, [item(`item ${i}a`), item(`item ${i}b`)])
+        : para(`block ${i} text`);
+    const decorate = (doc: ProseNode): Decoration[] => {
+      const out: Decoration[] = [];
+      doc.descendants((node, pos) => {
+        if (node.isTextblock && random(2) === 0) out.push(...wholeBlock(node, pos));
+      });
+      return out;
+    };
+    let lookups = 0;
+    for (let round = 0; round < 300; round += 1) {
+      const state = EditorState.create({
+        doc: s.nodes.doc.create(
+          null,
+          Array.from({ length: 5 + random(40) }, (_, i) => block(i)),
+        ),
+      });
+      let set = DecorationSet.create(state.doc, decorate(state.doc));
+      let doc = state.doc;
+      for (let step = 0; step < 4; step += 1) {
+        const tr = EditorState.create({ doc }).tr;
+        const at = 1 + random(doc.content.size - 1);
+        if (random(2) === 0) tr.insertText('xy', at);
+        else tr.delete(at, Math.min(doc.content.size, at + random(30)));
+        set = set.map(tr.mapping, tr.doc);
+        doc = tr.doc;
+        const fresh = decorate(doc);
+        set =
+          random(2) === 0 ? set.add(doc, fresh.slice(0, 3)) : set.remove(set.find().slice(0, 2));
+      }
+      const compare = (tree: DecorationSet, node: ProseNode): void => {
+        node.forEach((child, offset) => {
+          if (child.isLeaf) return;
+          lookups += 1;
+          const inner = tree.forChild(offset, child);
+          const expected = scanned(tree as unknown as Tree, offset);
+          // Either the very subtree the scan found, or a group/local set built
+          // around it — both carry that subtree's decorations.
+          const found = inner as unknown as Tree & { members?: Tree[] };
+          const holds =
+            expected === undefined
+              ? !found.members?.length && (inner === DecorationSet.empty || !found.children.length)
+              : inner === (expected as unknown) || !!found.members?.includes(expected);
+          expect(holds, `round ${round}, offset ${offset}`).toBe(true);
+          if (inner instanceof DecorationSet) compare(inner, child);
+        });
+      };
+      compare(set, doc);
+    }
+    expect(lookups).toBeGreaterThan(5_000);
+  });
+});

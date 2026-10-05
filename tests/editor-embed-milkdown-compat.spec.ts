@@ -82,31 +82,29 @@ test.describe('an empty paragraph round-trips as a blank line, never as <br />',
   // paragraphs and save back as N blank lines (packages/editor/src/
   // milkdown-compat/emptyLine.ts). Each case is asserted twice — the first
   // save is allowed to re-spell (ADR-0002), the second must be a fixed point.
-  // Fixed points of the census harness's serializer. Where the input ends on a
-  // block that is not a paragraph, the trailing blank line is Milkdown's
-  // `trailing` plugin parking its end-of-document paragraph — pre-existing and
-  // unrelated to this rule — and `*`/`| - |` are remark-stringify's defaults
-  // (the app sets `bullet: '-'` in its own config, the harness does not).
+  // Fixed points of the census harness's serializer. `*`/`| - |` are
+  // remark-stringify's defaults (the app sets `bullet: '-'` in its own config,
+  // the harness does not).
   const STABLE: Record<string, string> = {
     'two blank lines between paragraphs': 'para one\n\n\npara two\n',
     'three blank lines between paragraphs': 'para one\n\n\n\npara two\n',
     'blank lines before the first block': '\n\npara\n',
-    'two blank lines inside a blockquote': '> a\n>\n>\n> b\n\n',
-    'two blank lines inside a list item': '* a\n\n\n  b\n* c\n\n',
-    'an empty list item': '* a\n*\n* b\n\n',
+    'two blank lines inside a blockquote': '> a\n>\n>\n> b\n',
+    'two blank lines inside a list item': '* a\n\n\n  b\n* c\n',
+    'an empty list item': '* a\n*\n* b\n',
     // The schema puts an empty paragraph in front of an item whose only content
     // is a block; that filler is not the note's and is not written
     // (packages/editor/src/milkdown-compat/listItemFiller.ts). Without that,
     // these save as a bare `*` over an indented block, and the NEXT save escapes
     // it to a literal `\*` — 60 census notes.
-    'a list item holding only a blockquote': '* > quote\n* b\n\n',
-    'a list item holding only a heading': '* # heading\n\n',
-    'a list item holding only a nested list': '* * nested\n  * deeper\n\n',
+    'a list item holding only a blockquote': '* > quote\n* b\n',
+    'a list item holding only a heading': '* # heading\n',
+    'a list item holding only a nested list': '* * nested\n  * deeper\n',
     // Two lists with a gap between them: the second list alternates its marker
     // as if adjacent, or CommonMark would read the pair back as ONE list.
-    'two bullet lists with a blank line between them': '* a\n\n\n- b\n\n',
-    'two ordered lists with a blank line between them': '1. a\n\n\n1) b\n\n',
-    'an empty table cell': '| a | b |\n| - | - |\n|   | x |\n\n',
+    'two bullet lists with a blank line between them': '* a\n\n\n- b\n',
+    'two ordered lists with a blank line between them': '1. a\n\n\n1) b\n',
+    'an empty table cell': '| a | b |\n| - | - |\n|   | x |\n',
   };
 
   for (const [name, markdown] of Object.entries(STABLE)) {
@@ -144,11 +142,11 @@ test.describe('an empty paragraph round-trips as a blank line, never as <br />',
     ],
     'an empty table cell': [
       '| a | b |\n| --- | --- |\n| <br /> | x |\n',
-      '| a | b |\n| - | - |\n|   | x |\n\n',
+      '| a | b |\n| - | - |\n|   | x |\n',
     ],
-    'an empty list item': ['- a\n- <br />\n- b\n', '* a\n*\n* b\n\n'],
-    'an empty blockquote line': ['> <br />\n', '>\n\n'],
-    'an empty footnote definition': ['ref[^4]\n\n[^4]: <br />\n', 'ref[^4]\n\n[^4]: \n\n'],
+    'an empty list item': ['- a\n- <br />\n- b\n', '* a\n*\n* b\n'],
+    'an empty blockquote line': ['> <br />\n', '>\n'],
+    'an empty footnote definition': ['ref[^4]\n\n[^4]: <br />\n', 'ref[^4]\n\n[^4]: \n'],
   };
 
   for (const [name, [legacy, respelled]] of Object.entries(LEGACY)) {
@@ -157,6 +155,166 @@ test.describe('an empty paragraph round-trips as a blank line, never as <br />',
       expect(out).not.toContain('<br');
       expect(out).toBe(respelled);
       expect(await roundTrip(page, 'compat', out)).toBe(out);
+    });
+  }
+});
+
+test.describe('the parked end-of-document paragraph is not written', () => {
+  // @milkdown/plugin-trailing parks an empty paragraph after a last block that
+  // is not a paragraph or heading, and the serializer wrote it as one more
+  // blank line: the first edit of every such note ended the file in `\n\n`
+  // (RC-22). The spec drops a trailing empty paragraph on save.
+  test('canary: upstream still writes it as a blank line', async ({ page }) => {
+    expect(await roundTrip(page, 'baseline', '- a\n- b\n')).toBe('* a\n* b\n\n');
+  });
+
+  const LAST_BLOCKS: Record<string, string> = {
+    'a list': '* a\n* b\n',
+    'a task list': '* [ ] a\n* [x] b\n',
+    'a blockquote': '> quote\n',
+    'a table': '| a | b |\n| - | - |\n| 1 | 2 |\n',
+    'a fence': '```\ncode\n```\n',
+    'a thematic break': 'a\n\n***\n',
+  };
+  for (const [name, markdown] of Object.entries(LAST_BLOCKS)) {
+    test(`compat ends a note whose last block is ${name} in one newline`, async ({ page }) => {
+      const { once, twice } = await twoSaves(page, 'compat', markdown);
+      expect(once).toBe(markdown);
+      expect(twice).toBe(once);
+    });
+  }
+
+  test('compat still writes an empty paragraph that is not at the end', async ({ page }) => {
+    const { once, twice } = await twoSaves(page, 'compat', '* a\n\n\npara\n');
+    expect(once).toBe('* a\n\n\npara\n');
+    expect(twice).toBe(once);
+  });
+});
+
+/** A plain-text paste into an empty editor, through Milkdown's clipboard plugin. */
+async function pastePlain(page: Page, variant: 'compat' | 'baseline', markdown: string) {
+  return page.evaluate(
+    ([v, m]) => window.__futoCensus.pastePlainText(v as 'compat' | 'baseline', m),
+    [variant, markdown] as const,
+  );
+}
+
+test.describe('a pasted table keeps the alignment it was written with', () => {
+  // A paste goes through the DOM, and the gfm preset spells a cell's missing
+  // alignment there as `text-align: left` and reads it back as `left`: a
+  // pasted `| --- |` table saved as `| :- |`, while opening the same table and
+  // editing it saved `| -- |` (RC-59).
+  const TABLE = '| a | b |\n| --- | --- |\n| 1 | 2 |\n';
+
+  test('canary: upstream still invents left alignment on paste', async ({ page }) => {
+    expect(await pastePlain(page, 'baseline', TABLE)).toContain('| :- | :- |');
+  });
+
+  test('compat writes a pasted table the way it writes an opened one', async ({ page }) => {
+    const opened = await roundTrip(page, 'compat', TABLE);
+    // The leading blank line is a separate thing: Milkdown's plain-text route
+    // pastes a maximally open slice, which leaves the empty paragraph above.
+    expect((await pastePlain(page, 'compat', TABLE)).replace(/^\n/, '')).toBe(opened);
+  });
+
+  test('compat keeps an explicit alignment through a paste', async ({ page }) => {
+    const aligned = '| a | b | c |\n| :-- | :-: | --: |\n| 1 | 2 | 3 |\n';
+    expect(await pastePlain(page, 'compat', aligned)).toContain('| :- | :-: | -: |');
+  });
+});
+
+test.describe('a link reference definition nothing uses survives', () => {
+  // The preset's remark-inline-links deletes EVERY definition and inlines the
+  // references that used one. Inlining a used definition is an accepted
+  // re-spelling (Q17 17B); deleting an unused one lost its URL and title on
+  // the first edit, and a note of nothing but definitions saved as ''.
+  const UNUSED = 'Some text here.\n\n[docs]: https://example.com/docs\n';
+
+  test('canary: upstream still deletes an unused definition', async ({ page }) => {
+    expect(await roundTrip(page, 'baseline', UNUSED)).toBe('Some text here.\n');
+    expect(await roundTrip(page, 'baseline', '[a]: https://a.example\n')).toBe('');
+  });
+
+  const VERBATIM: Record<string, string> = {
+    'an unused definition': UNUSED,
+    'a note of nothing but definitions': '[a]: https://a.example\n[b]: https://b.example "B"\n',
+    'a definition referenced only from code': 'use `[docs]` here\n\n[docs]: https://e.example/d\n',
+    'a definition inside a blockquote': '> [q]: https://q.example\n\nend\n',
+    'a definition with extra blank lines after it': 'a\n\n[x]: /u\n\n\nb\n',
+  };
+  for (const [name, markdown] of Object.entries(VERBATIM)) {
+    test(`compat keeps ${name} byte-for-byte`, async ({ page }) => {
+      const { once, twice } = await twoSaves(page, 'compat', markdown);
+      expect(once).toBe(markdown);
+      expect(twice).toBe(once);
+    });
+  }
+
+  const INLINED: Record<string, [string, string]> = {
+    // No empty paragraphs where the definition was: its lines are not a gap.
+    'a used definition': [
+      'See [docs] now.\n\n[docs]: https://example.com/docs "T"\n\nafter\n',
+      'See [docs](https://example.com/docs "T") now.\n\nafter\n',
+    ],
+    'a used definition next to an unused one': [
+      'See [a].\n\n[a]: /1\n[b]: /2\n\nend\n',
+      'See [a](/1).\n\n[b]: /2\n\nend\n',
+    ],
+    // The blank lines before a used definition that ended its container are
+    // trailing once it is gone, and are dropped like any other trailing gap.
+    'a used definition that ends a blockquote': [
+      '> See [a].\n>\n>\n> [a]: /u\n\nend\n',
+      '> See [a](/u).\n\nend\n',
+    ],
+    // CommonMark: the first definition of a label wins; the second is unused.
+    'a duplicate label': [
+      'See [a].\n\n[a]: /1\n[a]: /2\n\nend\n',
+      'See [a](/1).\n\n[a]: /2\n\nend\n',
+    ],
+  };
+  for (const [name, [markdown, expected]] of Object.entries(INLINED)) {
+    test(`compat inlines ${name} and keeps the rest`, async ({ page }) => {
+      const { once, twice } = await twoSaves(page, 'compat', markdown);
+      expect(once).toBe(expected);
+      expect(twice).toBe(once);
+    });
+  }
+});
+
+test.describe('a table row wider than the header keeps every value in its column', () => {
+  // prosemirror-tables' fixTables squares a ragged table up by inserting the
+  // missing cells at the START of each short row above the wide one, so their
+  // values saved one column right, under the wrong header (RC-42). Padding
+  // happens at the END instead, header included (Q13 option 13A).
+  const WIDE_LAST = 'Prices\n\n| item | price |\n| - | - |\n| apple | 3 |\n| pear | 4 | |\n\nend\n';
+
+  test('canary: upstream still shifts the rows above the wide one', async ({ page }) => {
+    expect(await roundTrip(page, 'baseline', WIDE_LAST)).toMatch(/^\| <br \/> \| apple +\|/m);
+  });
+
+  const CASES: Record<string, [string, string]> = {
+    'a trailing empty cell on the last row': [
+      WIDE_LAST,
+      'Prices\n\n| item  | price |   |\n| ----- | ----- | - |\n| apple | 3     |   |\n| pear  | 4     |   |\n\nend\n',
+    ],
+    'a wide middle row, alignment kept': [
+      '| a | b |\n| :-: | -: |\n| 1 | 2 | 3 | 4 |\n| 5 | 6 |\n\nend\n',
+      '|  a  |  b |   |   |\n| :-: | -: | - | - |\n|  1  |  2 | 3 | 4 |\n|  5  |  6 |   |   |\n\nend\n',
+    ],
+    'a row shorter than the header': [
+      '| a | b | c |\n| - | - | - |\n| 1 |\n| 2 | 3 |\n\nend\n',
+      '| a | b | c |\n| - | - | - |\n| 1 |   |   |\n| 2 | 3 |   |\n\nend\n',
+    ],
+    'a wide row in a blockquote': [
+      '> | a | b |\n> | - | - |\n> | 1 | 2 | x |\n\nend\n',
+      '> | a | b |   |\n> | - | - | - |\n> | 1 | 2 | x |\n\nend\n',
+    ],
+  };
+  for (const [name, [markdown, expected]] of Object.entries(CASES)) {
+    test(`compat pads ${name} at the end`, async ({ page }) => {
+      const { once, twice } = await twoSaves(page, 'compat', markdown);
+      expect(once).toBe(expected);
+      expect(twice).toBe(once);
     });
   }
 });
@@ -239,6 +397,50 @@ test.describe('a keystroke in a heading leaves the heading alone', () => {
   });
 });
 
+test.describe('an IME commit between two inline nodes ends the composition', () => {
+  // Two images side by side: the caret between them is the spot upstream's
+  // `inlineNodesCursorPlugin` takes over. Its `compositionend` handler claimed
+  // the event, so ProseMirror never ended the composition and `view.composing`
+  // stayed set after the commit (FB-19, L6f-2) — which switches off markdown
+  // input rules and pins the host's `isComposing()`. The shipped plugin
+  // (milkdown-compat/inlineNodesCursor.ts) lets ProseMirror's handler run. The
+  // wikilink-chip version of this, with input rules and line edges, is in
+  // editor-embed-milkdown-wikilinks.spec.ts; this half needs the UNPATCHED preset.
+  const NOTE = '![a](a.png)![b](b.png)\n';
+
+  async function composingAfterCommit(page: Page, variant: 'compat' | 'baseline') {
+    await page.evaluate(
+      async ([v, m]) => {
+        (window as unknown as { __ime: unknown }).__ime = await window.__futoCensus.mountForIme(
+          v as 'compat' | 'baseline',
+          m,
+        );
+      },
+      [variant, NOTE] as const,
+    );
+    const cdp = await page.context().newCDPSession(page);
+    for (const text of ['ni', 'nihao'])
+      await cdp.send('Input.imeSetComposition', {
+        text,
+        selectionStart: text.length,
+        selectionEnd: text.length,
+      });
+    await cdp.send('Input.insertText', { text: 'NIHAO' });
+    await page.waitForTimeout(100);
+    return page.evaluate(() =>
+      (window as unknown as { __ime: { composing(): boolean } }).__ime.composing(),
+    );
+  }
+
+  test('canary: upstream still leaves view.composing set after the commit', async ({ page }) => {
+    expect(await composingAfterCommit(page, 'baseline')).toBe(true);
+  });
+
+  test('compat ends the composition', async ({ page }) => {
+    expect(await composingAfterCommit(page, 'compat')).toBe(false);
+  });
+});
+
 test.describe('YAML front matter survives the round trip', () => {
   // The bug report's note, verbatim. Three separate harms on the unpatched
   // preset: `---` → `***`, the closing `---` → a 16-dash setext underline, and
@@ -291,18 +493,13 @@ test.describe('YAML front matter survives the round trip', () => {
     });
   }
 
-  test('compat keeps the fences on a note with no body at all', async ({ page }) => {
-    // The one shape that is not byte-identical, and it is the accepted
-    // normalize-once class rather than a front matter defect: the doc's content
-    // expression is `frontmatter? block+`, so a document parsed as nothing but
-    // front matter gets ProseMirror's required empty paragraph filled in, and
-    // that serializes as one trailing blank line. Keeping the fill is the
-    // deliberate trade — without it the only selection such a note admits is a
-    // node selection ON the front matter, and the next keystroke would replace
-    // the metadata. Opening still hands back the host's own bytes (the
-    // load-echo guard); this is only what a real edit writes.
-    const out = await roundTrip(page, 'compat', '---\na: 1\n---\n');
-    expect(out).toBe('---\na: 1\n---\n\n');
+  test('compat keeps a note with no body at all byte-for-byte', async ({ page }) => {
+    // The doc's content expression is `frontmatter? block+`, so a document
+    // parsed as nothing but front matter gets ProseMirror's required empty
+    // paragraph filled in — the caret's only place that is not a selection ON
+    // the metadata. It is a trailing empty paragraph, which is not written
+    // (milkdown-compat/trailingParagraph.ts), so it costs the file nothing.
+    expect(await roundTrip(page, 'compat', '---\na: 1\n---\n')).toBe('---\na: 1\n---\n');
   });
 
   test('compat leaves a mid-document `---` a thematic break', async ({ page }) => {
@@ -329,6 +526,43 @@ test.describe('YAML front matter survives the round trip', () => {
     const out = await roundTrip(page, 'compat', '---\ntitle: x\n\nbody\n');
     expect(out).toContain('title: x');
     expect(out).toContain('body');
+  });
+
+  // An opening `---` with no closing fence (RC-07). The front matter construct
+  // is `concrete`, so while it hunts for a closing fence micromark checks no
+  // container on any later line; when the hunt fails at the end of the file,
+  // every line is replayed as if no list or quote had ever opened.
+  const UNCLOSED =
+    '---\n\nShopping\n\n- milk\n  - skim\n- [ ] eggs\n\n> quoted\n\nx[^1]\n\n[^1]: a note\n\nend\n';
+
+  // Its canary is a unit test beside the guard, because the unpatched preset
+  // has no front matter at all: packages/editor/src/milkdown-compat/frontmatter.test.ts.
+
+  test('compat keeps the lists, task, quote and footnote after an unclosed fence', async ({
+    page,
+  }) => {
+    const { once, twice } = await twoSaves(page, 'compat', UNCLOSED);
+    expect(once).toBe(
+      '***\n\nShopping\n\n* milk\n  * skim\n* [ ] eggs\n\n> quoted\n\nx[^1]\n\n[^1]: a note\n\nend\n',
+    );
+    expect(twice).toBe(once);
+  });
+
+  test('compat reads a CRLF note with an unclosed fence the same way', async ({ page }) => {
+    const out = await roundTrip(page, 'compat', '---\r\n\r\n- milk\r\n\r\n> quoted\r\n');
+    expect(out).not.toContain('\\-');
+    expect(out).toContain('> quoted');
+  });
+
+  test('compat still finds a closing fence after an interior blank line and a list', async ({
+    page,
+  }) => {
+    // The guard asks only "is there a closing fence"; this block has one, so it
+    // stays front matter, YAML list included.
+    const note = '---\ntags:\n\n  - a\n---\n\n- body\n\nend\n';
+    expect(await roundTrip(page, 'compat', note)).toBe(
+      '---\ntags:\n\n  - a\n---\n\n* body\n\nend\n',
+    );
   });
 });
 
@@ -449,10 +683,8 @@ test.describe('a multi-line inline HTML tag keeps its continuation indent', () =
   for (const [name, markdown] of [
     ['a tag that starts the paragraph', TAG],
     ['a tag in mid-paragraph', MID],
-    // A document that ends in a container gains the trailing plugin's
-    // paragraph (pre-existing, see the blank-line cases above).
-    ['a tag inside a blockquote', "> text <span\n>     a='1'>t</span> end\n\n"],
-    ['a tag inside a list item', "* text <span\n      a='1'>t</span> end\n\n"],
+    ['a tag inside a blockquote', "> text <span\n>     a='1'>t</span> end\n"],
+    ['a tag inside a list item', "* text <span\n      a='1'>t</span> end\n"],
   ] as const) {
     test(`compat keeps ${name} byte-for-byte`, async ({ page }) => {
       const { once, twice } = await twoSaves(page, 'compat', markdown);
@@ -568,6 +800,168 @@ test.describe('an underscore emphasis next to a `*` run is never re-spelled', ()
       expect(twice).toBe(once);
       // A switched marker would leave `**` behind; no shape here should.
       expect(once).not.toContain('**');
+    });
+  }
+});
+
+test.describe('an attention run never invents a character reference (RC-104)', () => {
+  // Milkdown trims a mark's edge spaces out of the mark and leaves the emptied
+  // text node behind, so the first child of a link can be `''`. The container
+  // compared the empty neighbour with the empty previous result and wrote
+  // `&#xNAN;` into the note, on the first save of any note holding the shape.
+  const SHAPES: Record<string, string> = {
+    // the reported repro; the bold hoisted out of the link is upstream's own
+    // re-spelling (the baseline writes the same links) and is not asserted away
+    'a link over two bold runs and a bold-italic run': '[**a** ***b*** **c**](https://e.com/u)\n',
+    'a link over a bold run and a bold-italic run': '[**a** ***b***](u)\n',
+    'a link over a bold run and an underscore bold': '[**a** __b__ **c**](u)\n',
+    'a link over a bold run then an italic whose edge is punctuation': '[**a** *:b*](u)\n',
+    'a link that opens with a space then an underscore italic': '[ _a_](u)\n',
+    'a link that opens and closes with a space around an underscore italic': '[ _a_ ](u)\n',
+    'the same shape in a blockquote': '> [**a** ***b*** **c**](u)\n',
+    'the same shape in a list item': '- [**a** ***b*** **c**](u)\n',
+    'the same shape in a heading': '# [**a** ***b*** **c**](u)\n',
+    'the same shape in a table cell': '| h |\n| --- |\n| [**a** ***b*** **c**](u) |\n',
+  };
+
+  for (const [name, markdown] of Object.entries(SHAPES)) {
+    test(`compat writes no reference for ${name}`, async ({ page }) => {
+      const { once, twice } = await twoSaves(page, 'compat', markdown);
+      expect(once).not.toMatch(/&#/);
+      expect(twice).not.toMatch(/&#|\\&/);
+    });
+  }
+
+  test('canary: upstream never writes a reference for the reported shape', async ({ page }) => {
+    // The garbage is the compat wrapper's alone, so the unpatched preset is the control.
+    expect(
+      await roundTrip(page, 'baseline', SHAPES['a link over a bold run and a bold-italic run']),
+    ).not.toMatch(/&#/);
+  });
+
+  test('a single character whose two edges both want encoding is written once', async ({
+    page,
+  }) => {
+    // `x_a_y` is not emphasis; the entities make the intraword `_` run
+    // reachable. Encoding the tail of `&#x61;` as well cut the reference in two
+    // (`&#x61&#x3B;`), which reopened as text and gained a backslash.
+    const markdown = '&#x78;_a_&#x79;\n';
+    const { once, twice } = await twoSaves(page, 'compat', markdown);
+    expect(once).toBe('&#x78;_&#x61;_&#x79;\n');
+    expect(twice).toBe(once);
+  });
+});
+
+/**
+ * A small seeded generator of inline markdown: text, punctuation and space
+ * runs, bold / italic / strikethrough spelled every way, and links, nested to
+ * depth three. Synthetic by construction — nothing here comes from a corpus.
+ */
+function inlineMarkdown(seed: number, depth = 0): string {
+  let state = seed >>> 0;
+  const next = (): number => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const pick = <T>(items: readonly T[]): T => items[Math.floor(next() * items.length)] as T;
+  const WORDS = ['a', 'b', 'Note', 'x9', 'é', '重要', '这是', '😀', '1'];
+  const EDGES = [':', '(', ')', '，', '：', '.', '"', '!', '-', ' '];
+  const MARKS = ['**', '*', '_', '__', '~~', '***', '___'];
+  const run = (level: number): string => {
+    let out = '';
+    const count = 1 + Math.floor(next() * 4);
+    for (let i = 0; i < count; i++) {
+      const roll = next();
+      if (roll < 0.28) out += pick(WORDS);
+      else if (roll < 0.38) out += pick(EDGES);
+      else if (roll < 0.5) out += ' ';
+      else if (level >= 3) out += pick(WORDS);
+      else if (roll < 0.85) {
+        const mark = pick(MARKS);
+        out += mark + run(level + 1) + mark;
+      } else out += `[${run(level + 1)}](https://e.com/u)`;
+    }
+    return out;
+  };
+  return run(depth);
+}
+
+const CONTAINERS: Record<string, (inline: string) => string> = {
+  paragraph: (x) => `${x}\n`,
+  heading: (x) => `## ${x}\n`,
+  blockquote: (x) => `> ${x}\n`,
+  'bullet item': (x) => `- ${x}\n`,
+  'ordered item': (x) => `1. ${x}\n`,
+  'task item': (x) => `- [ ] ${x}\n`,
+  'table cell': (x) => `| h |\n| --- |\n| ${x} |\n`,
+  'link label': (x) => `[${x}](https://e.com/u)\n`,
+  'image alt': (x) => `![${x}](p.png)\n`,
+  'nested quote list': (x) => `> - ${x}\n`,
+};
+
+test.describe('random mark runs inside every container never gain a reference (RC-104)', () => {
+  const PER_CONTAINER = 200;
+
+  for (const [name, wrap] of Object.entries(CONTAINERS)) {
+    test(`compat: ${name}`, async ({ page }) => {
+      const cases = Array.from({ length: PER_CONTAINER }, (_, i) =>
+        wrap(inlineMarkdown(0x9e3779b1 * (i + 1) + name.length * 7919)),
+      );
+      const results = await page.evaluate(async (inputs) => {
+        const load = window.__futoCensus.load;
+        const out = [];
+        for (const input of inputs) {
+          const c1 = await load('compat', input);
+          const c2 = await load('compat', c1.markdown);
+          const b1 = await load('baseline', input);
+          const b2 = await load('baseline', b1.markdown);
+          out.push({
+            input,
+            saved: c1.markdown,
+            docStable: JSON.stringify(c1.docJson) === JSON.stringify(c2.docJson),
+            baselineDocStable: JSON.stringify(b1.docJson) === JSON.stringify(b2.docJson),
+          });
+        }
+        return out;
+      }, cases);
+
+      // A tool's silence is not evidence: the generator has to reach the
+      // encoder, or an all-green run proves nothing. (An image's alt text
+      // keeps no marks, so it is the one container with nothing to encode.)
+      if (name !== 'image alt') {
+        expect(results.filter((r) => r.saved.includes('&#x')).length).toBeGreaterThan(5);
+      }
+      const inputChars = (input: string) => new Set(Array.from(input));
+      for (const r of results) {
+        // The generator writes no `&`: every `&` in a save is an encoding the
+        // editor chose, and it must be a well-formed reference to a character
+        // the note already had — never NaN, undefined, or a half-cut `&#x61`.
+        const refs = r.saved.match(/&[^\s]{0,12}/g) ?? [];
+        for (const ref of refs) {
+          const ok = /^&#x[0-9A-F]{1,6};/.exec(ref);
+          expect(
+            ok,
+            `malformed reference ${ref} saving ${JSON.stringify(r.input)} as ${JSON.stringify(r.saved)}`,
+          ).not.toBeNull();
+          const char = String.fromCodePoint(parseInt((ok as RegExpExecArray)[0].slice(3, -1), 16));
+          expect(
+            inputChars(r.input).has(char),
+            `reference to a character the note never had in ${JSON.stringify(r.saved)}`,
+          ).toBe(true);
+        }
+        expect(r.saved).not.toMatch(/NaN|undefined/);
+        // parse(serialize(doc)) equals doc — at least whenever the unpatched
+        // preset manages it, so the assertion is about what THIS layer adds.
+        if (r.baselineDocStable) {
+          expect(
+            r.docStable,
+            `the document changed on reopen: ${JSON.stringify(r.input)} saved as ${JSON.stringify(r.saved)}`,
+          ).toBe(true);
+        }
+      }
     });
   }
 });

@@ -25,6 +25,7 @@
 import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 import { Plugin, PluginKey, type Transaction } from '@milkdown/kit/prose/state';
 import { $prose } from '@milkdown/kit/utils';
+import { noteEditIntent } from '$shared/lifecycle/editIntent';
 
 /**
  * How long the document must sit still before it is reported.
@@ -74,7 +75,13 @@ export function createDocumentChangePlugin(onDocumentChanged: () => void): Plugi
   return new Plugin({
     key: new PluginKey('FUTO_DOCUMENT_CHANGES'),
     appendTransaction: (transactions) => {
-      if (transactions.some(isReportableDocumentChange)) onDocumentChanged();
+      if (transactions.some(isReportableDocumentChange)) {
+        // Synchronously, at dispatch: before the work the edit sets off (re-render,
+        // layout) and before the debounce the host hears about it through. Covers every
+        // edit source, including keymap commands and clicks that raise no input event.
+        noteEditIntent();
+        onDocumentChanged();
+      }
       return null;
     },
   });

@@ -1,8 +1,21 @@
 diff --git a/dist/index.cjs b/dist/index.cjs
-index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..4037249400ba33423920686dd17e368d7060cd02 100644
+index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..53a79db89e9ed151ec4dc5d36821e62310aa68bb 100644
 --- a/dist/index.cjs
 +++ b/dist/index.cjs
-@@ -663,6 +663,8 @@ var ViewDesc = function () {
+@@ -45,6 +45,12 @@ var textRange = function textRange(node, from, to) {
+ var clearReusedRange = function clearReusedRange() {
+   reusedRange = null;
+ };
++var parkReusedRange = function parkReusedRange() {
++  if (!reusedRange) return;
++  var doc = reusedRange.startContainer.ownerDocument || document;
++  reusedRange.setEnd(doc, 0);
++  reusedRange.setStart(doc, 0);
++};
+ var isEquivalentPosition = function isEquivalentPosition(node, off, targetNode, targetOff) {
+   return targetNode && (scanFor(node, off, targetNode, targetOff, -1) || scanFor(node, off, targetNode, targetOff, 1));
+ };
+@@ -663,6 +669,8 @@ var ViewDesc = function () {
      this.dom = dom;
      this.contentDOM = contentDOM;
      this.dirty = NOT_DIRTY;
@@ -11,7 +24,7 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..4037249400ba33423920686dd17e368d
      dom.pmViewDesc = this;
    }
    _createClass(ViewDesc, [{
-@@ -717,6 +719,7 @@ var ViewDesc = function () {
+@@ -717,6 +725,7 @@ var ViewDesc = function () {
    }, {
      key: "posBeforeChild",
      value: function posBeforeChild(child) {
@@ -19,7 +32,7 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..4037249400ba33423920686dd17e368d
        for (var i = 0, pos = this.posAtStart;; i++) {
          var cur = this.children[i];
          if (cur == child) return pos;
-@@ -1416,12 +1419,31 @@ var NodeViewDesc = function (_ViewDesc4) {
+@@ -1416,12 +1425,31 @@ var NodeViewDesc = function (_ViewDesc4) {
    }, {
      key: "updateInner",
      value: function updateInner(node, outerDeco, innerDeco, view) {
@@ -52,7 +65,7 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..4037249400ba33423920686dd17e368d
    }, {
      key: "updateOuterDeco",
      value: function updateOuterDeco(outerDeco) {
-@@ -3921,11 +3943,12 @@ var DecorationSet = function () {
+@@ -3921,11 +3949,12 @@ var DecorationSet = function () {
      value: function addInner(doc, decorations, offset) {
        var _this11 = this;
        var children,
@@ -67,7 +80,7 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..4037249400ba33423920686dd17e368d
          if (!children) children = _this11.children.slice();
          while (childIndex < children.length && children[childIndex] < childOffset) childIndex += 3;
          if (children[childIndex] == childOffset) children[childIndex + 2] = children[childIndex + 2].addInner(childNode, found, baseOffset + 1);else children.splice(childIndex, 0, childOffset, childOffset + childNode.nodeSize, buildTree(found, childNode, baseOffset + 1, noSpec));
-@@ -3946,30 +3969,50 @@ var DecorationSet = function () {
+@@ -3946,30 +3975,50 @@ var DecorationSet = function () {
      value: function removeInner(decorations, offset) {
        var children = this.children,
          local = this.local;
@@ -139,7 +152,24 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..4037249400ba33423920686dd17e368d
          }
        }
        if (children == this.children && local == this.local) return this;
-@@ -4212,17 +4255,27 @@ function mapAndGatherRemainingDecorations(children, oldChildren, decorations, ma
+@@ -3981,10 +4030,13 @@ var DecorationSet = function () {
+       if (this == empty) return this;
+       if (node.isLeaf) return DecorationSet.empty;
+       var child, local;
+-      for (var i = 0; i < this.children.length; i += 3) if (this.children[i] >= offset) {
+-        if (this.children[i] == offset) child = this.children[i + 2];
+-        break;
++      var lo = 0,
++        hi = this.children.length / 3;
++      while (lo < hi) {
++        var mid = lo + hi >> 1;
++        if (this.children[mid * 3] < offset) lo = mid + 1;else hi = mid;
+       }
++      if (this.children[lo * 3] == offset) child = this.children[lo * 3 + 2];
+       var start = offset + 1,
+         end = start + node.content.size;
+       for (var _i9 = 0; _i9 < this.local.length; _i9++) {
+@@ -4212,17 +4264,27 @@ function mapAndGatherRemainingDecorations(children, oldChildren, decorations, ma
    for (var i = 0; i < children.length; i += 3) if (children[i + 1] == -1) gather(children[i + 2], oldChildren[i] + oldOffset + 1);
    return decorations;
  }
@@ -177,7 +207,7 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..4037249400ba33423920686dd17e368d
  }
  function withoutNulls(array) {
    var result = [];
-@@ -4231,9 +4284,10 @@ function withoutNulls(array) {
+@@ -4231,9 +4293,10 @@ function withoutNulls(array) {
  }
  function buildTree(spans, node, offset, options) {
    var children = [],
@@ -190,20 +220,41 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..4037249400ba33423920686dd17e368d
      if (found) {
        hasNulls = true;
        var subtree = buildTree(found, childNode, offset + localStart + 1, options);
-@@ -5165,7 +5219,7 @@ var EditorView = function () {
+@@ -5165,8 +5228,9 @@ var EditorView = function () {
          this.domObserver.stop();
          var forceSelUpdate = updateDoc && (ie || chrome) && !this.composing && !prev.selection.empty && !state.selection.empty && selectionContextChanged(prev.selection, state.selection);
          if (updateDoc) {
 -          var chromeKludge = chrome ? this.trackWrites = this.domSelectionRange().focusNode : null;
 +          var chromeKludge = chrome && (!this.editable || this.hasFocus()) ? this.trackWrites = this.domSelectionRange().focusNode : null;
            if (this.composing) this.input.compositionNode = findCompositionNode(this);
++          parkReusedRange();
            if (redraw || !this.docView.update(state.doc, outerDeco, innerDeco, this)) {
              this.docView.updateOuterDeco(outerDeco);
+             this.docView.destroy();
 diff --git a/dist/index.js b/dist/index.js
-index 012237dd813a21d86d6d527263b49c5af0a0e2f0..e64274614b5d218ac6fcbe2567af16bf69053b54 100644
+index 012237dd813a21d86d6d527263b49c5af0a0e2f0..8cf2fa3d9cd611fe76498ba6c9b970f8ab03f276 100644
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -751,6 +751,10 @@ class ViewDesc {
+@@ -26,6 +26,18 @@ const textRange = function (node, from, to) {
+ const clearReusedRange = function () {
+     reusedRange = null;
+ };
++// The reused range is still live after the measurement that set it, and a live
++// range whose boundary sits in the document is updated on every later mutation
++// of that boundary's parent. WebKit does so by re-indexing the boundary node
++// (O(children)), which makes re-rendering a paragraph with many inline children
++// quadratic. Park it outside the content before the view rewrites the DOM.
++const parkReusedRange = function () {
++    if (!reusedRange)
++        return;
++    let doc = reusedRange.startContainer.ownerDocument || document;
++    reusedRange.setEnd(doc, 0);
++    reusedRange.setStart(doc, 0);
++};
+ // Scans forward and backward through DOM positions equivalent to the
+ // given one to see if the two are in the same place (i.e. after a
+ // text node vs at the end of that text node)
+@@ -751,6 +763,10 @@ class ViewDesc {
          this.dom = dom;
          this.contentDOM = contentDOM;
          this.dirty = NOT_DIRTY;
@@ -214,7 +265,7 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..e64274614b5d218ac6fcbe2567af16bf
          // An expando property on the DOM node provides a link back to its
          // description.
          dom.pmViewDesc = this;
-@@ -786,6 +790,8 @@ class ViewDesc {
+@@ -786,6 +802,8 @@ class ViewDesc {
              this.children[i].destroy();
      }
      posBeforeChild(child) {
@@ -223,7 +274,7 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..e64274614b5d218ac6fcbe2567af16bf
          for (let i = 0, pos = this.posAtStart;; i++) {
              let cur = this.children[i];
              if (cur == child)
-@@ -1476,13 +1482,38 @@ class NodeViewDesc extends ViewDesc {
+@@ -1476,13 +1494,38 @@ class NodeViewDesc extends ViewDesc {
          return true;
      }
      updateInner(node, outerDeco, innerDeco, view) {
@@ -263,7 +314,7 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..e64274614b5d218ac6fcbe2567af16bf
      updateOuterDeco(outerDeco) {
          if (sameOuterDeco(outerDeco, this.outerDeco))
              return;
-@@ -4204,10 +4235,10 @@ class DecorationSet {
+@@ -4204,10 +4247,10 @@ class DecorationSet {
          return this.addInner(doc, decorations, 0);
      }
      addInner(doc, decorations, offset) {
@@ -276,7 +327,7 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..e64274614b5d218ac6fcbe2567af16bf
                  return;
              if (!children)
                  children = this.children.slice();
-@@ -4236,39 +4267,76 @@ class DecorationSet {
+@@ -4236,39 +4279,76 @@ class DecorationSet {
      }
      removeInner(decorations, offset) {
          let children = this.children, local = this.local;
@@ -376,7 +427,33 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..e64274614b5d218ac6fcbe2567af16bf
          if (children == this.children && local == this.local)
              return this;
          return local.length || children.length ? new DecorationSet(local, children) : empty;
-@@ -4530,17 +4598,29 @@ function mapAndGatherRemainingDecorations(children, oldChildren, decorations, ma
+@@ -4279,12 +4359,19 @@ class DecorationSet {
+         if (node.isLeaf)
+             return DecorationSet.empty;
+         let child, local;
+-        for (let i = 0; i < this.children.length; i += 3)
+-            if (this.children[i] >= offset) {
+-                if (this.children[i] == offset)
+-                    child = this.children[i + 2];
+-                break;
+-            }
++        // `children` is sorted by start. A binary search, not a scan from the
++        // front: the view asks once per child node, so a scan made every redraw of
++        // a block with many decorated siblings O(children²).
++        let lo = 0, hi = this.children.length / 3;
++        while (lo < hi) {
++            let mid = (lo + hi) >> 1;
++            if (this.children[mid * 3] < offset)
++                lo = mid + 1;
++            else
++                hi = mid;
++        }
++        if (this.children[lo * 3] == offset)
++            child = this.children[lo * 3 + 2];
+         let start = offset + 1, end = start + node.content.size;
+         for (let i = 0; i < this.local.length; i++) {
+             let dec = this.local[i];
+@@ -4530,17 +4617,29 @@ function mapAndGatherRemainingDecorations(children, oldChildren, decorations, ma
              gather(children[i + 2], oldChildren[i] + oldOffset + 1);
      return decorations;
  }
@@ -416,7 +493,7 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..e64274614b5d218ac6fcbe2567af16bf
  }
  function withoutNulls(array) {
      let result = [];
-@@ -4554,9 +4634,9 @@ function withoutNulls(array) {
+@@ -4554,9 +4653,9 @@ function withoutNulls(array) {
  // positions in the spans (so that we don't have to allocate new spans
  // for recursive calls).
  function buildTree(spans, node, offset, options) {
@@ -428,7 +505,7 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..e64274614b5d218ac6fcbe2567af16bf
          if (found) {
              hasNulls = true;
              let subtree = buildTree(found, childNode, offset + localStart + 1, options);
-@@ -5583,7 +5663,8 @@ class EditorView {
+@@ -5583,9 +5682,11 @@ class EditorView {
                  // Chrome sometimes starts misreporting the selection, so this
                  // tracks that and forces a selection reset when our update
                  // did write to the node.
@@ -437,12 +514,71 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..e64274614b5d218ac6fcbe2567af16bf
 +                let chromeKludge = chrome && (!this.editable || this.hasFocus()) ? (this.trackWrites = this.domSelectionRange().focusNode) : null;
                  if (this.composing)
                      this.input.compositionNode = findCompositionNode(this);
++                parkReusedRange();
                  if (redraw || !this.docView.update(state.doc, outerDeco, innerDeco, this)) {
+                     this.docView.updateOuterDeco(outerDeco);
+                     this.docView.destroy();
+diff --git a/src/decoration.ts b/src/decoration.ts
+index 31ee3700a3da54a83f37c61a5a2e1c874d5e1ece..68ca3e22e307c41f0e8e83363760110bc3502c7f 100644
+--- a/src/decoration.ts
++++ b/src/decoration.ts
+@@ -433,10 +433,16 @@ export class DecorationSet implements DecorationSource {
+     if (node.isLeaf) return DecorationSet.empty
+ 
+     let child, local: Decoration[] | undefined
+-    for (let i = 0; i < this.children.length; i += 3) if ((this.children[i] as number) >= offset) {
+-      if (this.children[i] == offset) child = this.children[i + 2] as DecorationSet
+-      break
++    // `children` is sorted by start. A binary search, not a scan from the
++    // front: the view asks once per child node, so a scan made every redraw of
++    // a block with many decorated siblings O(children²).
++    let lo = 0, hi = this.children.length / 3
++    while (lo < hi) {
++      let mid = (lo + hi) >> 1
++      if ((this.children[mid * 3] as number) < offset) lo = mid + 1
++      else hi = mid
+     }
++    if (this.children[lo * 3] == offset) child = this.children[lo * 3 + 2] as DecorationSet
+     let start = offset + 1, end = start + node.content.size
+     for (let i = 0; i < this.local.length; i++) {
+       let dec = this.local[i]
+diff --git a/src/dom.ts b/src/dom.ts
+index 07b47c811826825956118e989522ebdf8b488666..07a4a689a4514171dc192058560a6f1f83fe805f 100644
+--- a/src/dom.ts
++++ b/src/dom.ts
+@@ -33,6 +33,18 @@ export const clearReusedRange = function() {
+   reusedRange = null
+ }
+ 
++// The reused range is still live after the measurement that set it, and a live
++// range whose boundary sits in the document is updated on every later mutation
++// of that boundary's parent. WebKit does so by re-indexing the boundary node
++// (O(children)), which makes re-rendering a paragraph with many inline children
++// quadratic. Park it outside the content before the view rewrites the DOM.
++export const parkReusedRange = function() {
++  if (!reusedRange) return
++  let doc = reusedRange.startContainer.ownerDocument || document
++  reusedRange.setEnd(doc, 0)
++  reusedRange.setStart(doc, 0)
++}
++
+ // Scans forward and backward through DOM positions equivalent to the
+ // given one to see if the two are in the same place (i.e. after a
+ // text node vs at the end of that text node)
 diff --git a/src/index.ts b/src/index.ts
-index 54f4d0eccf9ba6845984e32a148c537d1c203ca5..4105f198c36c89c21df68c3edcdb739ae74e160f 100644
+index 54f4d0eccf9ba6845984e32a148c537d1c203ca5..9d648892c8c141276fd635cad7277d00fe2a9403 100644
 --- a/src/index.ts
 +++ b/src/index.ts
-@@ -195,7 +195,11 @@ export class EditorView {
+@@ -10,7 +10,7 @@ import {selectionToDOM, anchorInRightPlace, syncNodeSelection} from "./selection
+ import {Decoration, viewDecorations, DecorationSource} from "./decoration"
+ import {DOMObserver, safariShadowSelectionRange} from "./domobserver"
+ import {readDOMChange} from "./domchange"
+-import {DOMSelection, DOMNode, DOMSelectionRange, deepActiveElement, clearReusedRange} from "./dom"
++import {DOMSelection, DOMNode, DOMSelectionRange, deepActiveElement, clearReusedRange, parkReusedRange} from "./dom"
+ import * as browser from "./browser"
+ 
+ export {Decoration, DecorationSet, DecorationAttrs, DecorationSource} from "./decoration"
+@@ -195,8 +195,13 @@ export class EditorView {
          // Chrome sometimes starts misreporting the selection, so this
          // tracks that and forces a selection reset when our update
          // did write to the node.
@@ -453,8 +589,10 @@ index 54f4d0eccf9ba6845984e32a148c537d1c203ca5..4105f198c36c89c21df68c3edcdb739a
 +        let chromeKludge = browser.chrome && (!this.editable || this.hasFocus())
 +            ? (this.trackWrites = this.domSelectionRange().focusNode) : null
          if (this.composing) this.input.compositionNode = findCompositionNode(this)
++        parkReusedRange()
          if (redraw || !this.docView.update(state.doc, outerDeco, innerDeco, this)) {
            this.docView.updateOuterDeco(outerDeco)
+           this.docView.destroy()
 diff --git a/src/viewdesc.ts b/src/viewdesc.ts
 index 18a0caa29fd2ed9ac3b90ab4653dd86c025ac9b2..482381ca9708160a862850da7f867dd0777e535a 100644
 --- a/src/viewdesc.ts
