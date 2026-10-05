@@ -9,6 +9,8 @@ const artifactCapture = gauntletArtifactCapture();
 // Sanitised: this becomes a path segment, so anything that could escape
 // test-results/ is stripped rather than trusted.
 const runId = (process.env.PW_RUN_ID ?? '').replace(/[^A-Za-z0-9._-]/g, '').slice(0, 64);
+const evidenceDir = process.env.FUTO_VERIFICATION_DIR;
+const reportRoot = evidenceDir ? `${evidenceDir}/playwright` : null;
 
 export default defineConfig({
   testDir: './tests',
@@ -36,13 +38,23 @@ export default defineConfig({
   //   PW_RUN_ID=before pnpm exec playwright test tests/foo.spec.ts
   //   PW_RUN_ID=after  pnpm exec playwright test tests/foo.spec.ts
   // Unset (CI included) it stays 'test-results', so artifact paths are unchanged.
-  outputDir: runId ? `test-results/${runId}` : 'test-results',
+  outputDir: reportRoot
+    ? `${reportRoot}/test-output`
+    : runId
+      ? `test-results/${runId}`
+      : 'test-results',
   reporter: [
     [isCI ? 'dot' : 'list'],
-    ['json', { outputFile: 'test-results/results.json' }],
+    [
+      'json',
+      { outputFile: reportRoot ? `${reportRoot}/results.json` : 'test-results/results.json' },
+    ],
     // open: 'never' so a local run never pops a browser tab; CI uploads the
     // folder as an artifact instead (see .gitlab-ci.yml).
-    ['html', { open: 'never', outputFolder: 'playwright-report' }],
+    [
+      'html',
+      { open: 'never', outputFolder: reportRoot ? `${reportRoot}/report` : 'playwright-report' },
+    ],
   ],
   use: {
     baseURL,

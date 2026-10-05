@@ -18,6 +18,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, tick } from 'svelte';
 
 import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
+import { guardEditorTimers } from './__fixtures__/editorTimerGuard';
+
+// RC-66: no native timer may outlive a test (see the guard's header).
+guardEditorTimers();
 
 interface FileDropPayload {
   paths: string[];
@@ -39,6 +43,7 @@ vi.mock('$lib/platform', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   hasFileSystem: true,
   getFS: () => fsMock,
+  getPlatformFS: async () => fsMock,
   onFileDrop: (listener: (payload: FileDropPayload) => void) => {
     fileDropListeners.push(listener);
     return () => {};

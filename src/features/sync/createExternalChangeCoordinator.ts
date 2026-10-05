@@ -48,6 +48,9 @@ const NO_RECONCILIATION: OpenNoteReconcileResult = {
   stale: false,
 };
 
+/** A queued operation found a save pending; settle it outside the queue. */
+const SETTLE_SAVE_FIRST = Symbol('settleSaveFirst');
+
 // eslint-disable-next-line max-lines-per-function -- One coordinator owns the serialized watcher and engine-verdict lifecycle.
 export function createExternalChangeCoordinator(dependencies: ExternalChangeDependencies) {
   let rescanTimer: number | null = null;
@@ -184,15 +187,27 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
   async function reconcileOpenNoteWithEngine(
     id: string,
     options: ReconcileOpenNoteOptions,
-  ): Promise<OpenNoteReconcileResult> {
+    saveSettled: boolean,
+  ): Promise<OpenNoteReconcileResult | typeof SETTLE_SAVE_FIRST> {
     if (disposed || dependencies.session.originalId !== id) return NO_RECONCILIATION;
-    if (dependencies.session.composing && dependencies.session.savePending) {
+    // A reported relocation is followed BEFORE any pending save persists: that
+    // save is addressed to the id the note just left, and the store would
+    // recreate the note there — a ghost that syncs to every device (sync.md,
+    // "the editor never stays bound to the deleted id"). Following touches only
+    // identity, never the buffer, so neither composition nor a pending save is
+    // a reason to wait; the save then lands at the new id.
+    const followsRename = Boolean(options.renamedTo);
+    if (!followsRename && dependencies.session.composing && dependencies.session.savePending) {
       deferReconcile(id, options);
       return NO_RECONCILIATION;
     }
-    if (dependencies.session.savePending && options.parkedDraft === undefined) {
-      await dependencies.session.flushSave();
-      if (disposed || dependencies.session.originalId !== id) return NO_RECONCILIATION;
+    if (
+      !followsRename &&
+      !saveSettled &&
+      dependencies.session.savePending &&
+      options.parkedDraft === undefined
+    ) {
+      return SETTLE_SAVE_FIRST;
     }
 
     const snapshot = captureEditor(id, options);
@@ -205,7 +220,13 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
       console.warn('Open-note classification failed:', error);
       return { ...NO_RECONCILIATION, keptDraftId: id };
     }
-    if (!editorStillMatches(snapshot)) {
+    // A rename verdict reads no editor fact, so typing during the IPC cannot
+    // stale it; deferring it would leave the next save addressed to the old id.
+    const stale =
+      disposition.kind === 'followRename'
+        ? disposed || dependencies.session.originalId !== id
+        : !editorStillMatches(snapshot);
+    if (stale) {
       if (dependencies.session.originalId === id) {
         deferReconcile(id, options);
       }
@@ -214,17 +235,29 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     return applyDisposition(id, disposition, options);
   }
 
+  // A queued operation never awaits the save queue. A save that parks awaits
+  // its own post-park reconcile, which queues here; an operation that flushed
+  // from inside the queue would wait on that save while the save waited behind
+  // the operation — a deadlock that wedged every later save. So an operation
+  // that finds a save pending gives the queue up, settles the save outside it,
+  // then queues once more.
   function reconcileOpenNote(
     id: string,
     options: ReconcileOpenNoteOptions = {},
+    saveSettled = false,
   ): Promise<OpenNoteReconcileResult> {
-    const operation = () => reconcileOpenNoteWithEngine(id, options);
+    const operation = () => reconcileOpenNoteWithEngine(id, options, saveSettled);
     const run = reconciliationTail.then(operation, operation);
     reconciliationTail = run.then(
       () => undefined,
       () => undefined,
     );
-    return run;
+    return run.then(async (result) => {
+      if (result !== SETTLE_SAVE_FIRST) return result;
+      await dependencies.session.flushSave();
+      if (disposed || dependencies.session.originalId !== id) return NO_RECONCILIATION;
+      return reconcileOpenNote(id, options, true);
+    });
   }
 
   async function settleDeferredAdopt(): Promise<void> {
@@ -250,9 +283,12 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
       return;
     }
     compositionRetries = 0;
-    await dependencies.session.flushSave();
-    if (disposed) return;
-    if (dependencies.session.originalId !== id || dependencies.session.dirty) return;
+    // A retained rename is followed first; its pending save lands at the new id.
+    if (!options.renamedTo) {
+      await dependencies.session.flushSave();
+      if (disposed) return;
+      if (dependencies.session.originalId !== id || dependencies.session.dirty) return;
+    }
     pendingReconcile = null;
     await reconcileOpenNote(id, options);
   }
@@ -311,6 +347,12 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
       const fromId = event.from.replace(/\.md$/, '');
       const toId = filename.replace(/\.md$/, '');
       if (suppressor.getRecentRemoteRename(fromId)) return;
+      // A rename onto the open note (an atomic save through a temp file with
+      // a note's name) replaced its bytes: re-read it like an edit.
+      if (toId === session.originalId) {
+        await handleFileChange({ type: 'change', filename }, shouldNotifySaved);
+        return;
+      }
       if (fromId === session.originalId) {
         await reconcileOpenNote(fromId, { renamedTo: toId });
       }
@@ -322,7 +364,9 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
     if (!filename.endsWith('.md')) return;
 
     const id = filename.replace(/\.md$/, '');
-    const isActiveNoteChange = type === 'change' && id === session.originalId;
+    // An add of the open note is an atomic save through a hidden temp file
+    // (Linux inotify reports the temp's rename that way): new bytes, too.
+    const isActiveNoteChange = (type === 'change' || type === 'add') && id === session.originalId;
     if (!isActiveNoteChange && suppressor.isRecentSyncWrite(filename)) {
       return;
     }

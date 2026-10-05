@@ -261,7 +261,10 @@ pub(crate) async fn pull_with_checkpoint(
     pre_write: &PreWrite,
     save_checkpoint: &SaveCheckpoint,
 ) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
-    pull_with_checkpoint_protected(
+    let clients = crate::server::HttpClients::new().map_err(super::connect::http_error)?;
+    let http = client(&clients, state)?;
+    pull_with_checkpoint_protected_client(
+        &http,
         state,
         root,
         since,
@@ -273,7 +276,30 @@ pub(crate) async fn pull_with_checkpoint(
     .await
 }
 
-pub(super) async fn pull_with_checkpoint_protected(
+pub(super) async fn pull_with_checkpoint_client(
+    http: &crate::server::Http,
+    state: &ConnectedState,
+    root: &Path,
+    since: u64,
+    progress: &Progress,
+    pre_write: &PreWrite,
+    save_checkpoint: &SaveCheckpoint,
+) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
+    pull_with_checkpoint_protected_client(
+        http,
+        state,
+        root,
+        since,
+        progress,
+        pre_write,
+        save_checkpoint,
+        &HashSet::new(),
+    )
+    .await
+}
+
+pub(super) async fn pull_with_checkpoint_protected_client(
+    http: &crate::server::Http,
     state: &ConnectedState,
     root: &Path,
     since: u64,
@@ -283,7 +309,6 @@ pub(super) async fn pull_with_checkpoint_protected(
     protected_paths: &HashSet<String>,
 ) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
     recover_stale_claims(root, pre_write);
-    let http = client(state)?;
     let objects = http
         .objects(&state.collection_id, since)
         .await
@@ -311,28 +336,22 @@ pub(super) async fn pull_with_checkpoint_protected(
 
     let pending_downloads = pending_live_downloads(&next, &objects, protected_paths, &mut cursor);
     let vault_key = next.vault_key;
-    download_stage(
-        &http,
-        &vault_key,
-        pending_downloads,
-        progress,
-        |completed| {
-            apply_completed_downloads(
-                &mut PullContext {
-                    state: &mut next,
-                    root,
-                    ancestry: &ancestry,
-                    bootstrap,
-                    pre_write,
-                    summary: &mut summary,
-                    cursor: &mut cursor,
-                },
-                completed,
-            );
-            next.pull_cursor = since;
-            checkpoint::save(root, &next).map_err(SyncErrorKind::Io)
-        },
-    )
+    download_stage(http, &vault_key, pending_downloads, progress, |completed| {
+        apply_completed_downloads(
+            &mut PullContext {
+                state: &mut next,
+                root,
+                ancestry: &ancestry,
+                bootstrap,
+                pre_write,
+                summary: &mut summary,
+                cursor: &mut cursor,
+            },
+            completed,
+        );
+        next.pull_cursor = since;
+        checkpoint::save(root, &next).map_err(SyncErrorKind::Io)
+    })
     .await?;
     append_derived_renames(&mut summary, &state.object_map, &next.object_map);
     next.max_version = cursor.value();

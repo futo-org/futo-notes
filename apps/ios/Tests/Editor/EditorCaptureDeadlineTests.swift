@@ -42,6 +42,27 @@ struct EditorCaptureDeadlineTests {
         #expect(outcome == .captured("live"))
     }
 
+    /// An exit cancels the open-note reconcile's read rather than waiting out
+    /// its deadline behind a busy or wedged page (FB-5): the cancelled wait
+    /// has to end at once, not when the deadline fires.
+    @Test("a cancelled capture answers at once, not at its deadline")
+    func cancelledCaptureEndsAtOnce() async {
+        let started = ContinuousClock.now
+        let read = Task { @MainActor in
+            await captureWithinDeadline(
+                deadlineSeconds: 30,
+                startLivenessProbe: {},
+                rendererAnswered: { true },
+                start: { _ in }
+            )
+        }
+        await Task.yield()
+        read.cancel()
+        let outcome = await read.value
+        #expect(outcome == .notOurs)
+        #expect(ContinuousClock.now - started < .seconds(5))
+    }
+
     @Test("a busy but answering renderer times out instead of claiming no document")
     func busyRendererTimesOut() async {
         // The editor is finishing the streamed tail, so nothing ever calls back

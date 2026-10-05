@@ -10,7 +10,7 @@ export const webFS: PlatformFS = {
   async listAppData(_dir: string): Promise<string[]> {
     return [];
   },
-  async listDirFiles() {
+  async listVaultFiles(_include: (path: string) => boolean) {
     return [];
   },
   async deleteFile(_filename: string): Promise<void> {},

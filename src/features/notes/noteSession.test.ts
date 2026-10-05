@@ -516,12 +516,17 @@ describe('stale first-save completion after navigation', () => {
     resolveSave({ id: 'Untitled', mtime: 0, disposition: 'wrote' });
     await vi.waitFor(() => expect(readNote).toHaveBeenCalledWith('other'));
 
-    expect(session.originalId).toBe('other');
+    // The outgoing session is the new note's until the other note is read,
+    // and the stale first save did not rebind it (nor save it again).
+    expect(session.originalId).toBeNull();
     expect(session.savedContent).toBe('');
     expect(deps.onNoteRenamed).not.toHaveBeenCalled();
+    expect(updateNote).toHaveBeenCalledOnce();
 
     resolveOtherRead('other content');
     await openingOther;
+    expect(session.originalId).toBe('other');
+    expect(deps.onNoteRenamed).not.toHaveBeenCalled();
   });
 });
 

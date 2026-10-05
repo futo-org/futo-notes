@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { EditorState } from '@milkdown/kit/prose/state';
+import { EditorState, Plugin } from '@milkdown/kit/prose/state';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 
+import { setEditIntentListener } from '$shared/lifecycle/editIntent';
 import { createDocumentChangePlugin, isReportableDocumentChange } from './documentChanges';
 import { testSchema as s } from './__fixtures__/schema';
 
@@ -58,11 +59,51 @@ describe('createDocumentChangePlugin', () => {
     expect(apply((state) => state.tr.insertText('b', 1))).toBe(1);
   });
 
+  it('announces an edit intent at dispatch, for edits that raise no input event', () => {
+    let intents = 0;
+    setEditIntentListener(() => (intents += 1));
+    try {
+      apply((state) => state.tr.insertText('b', 1)); // what a keymap command or a toolbar click dispatches
+      expect(intents).toBe(1);
+      apply((state) => state.tr.scrollIntoView());
+      apply((state) => state.tr.insertText('b', 1).setMeta('addToHistory', false)); // a load or a chunk append
+      expect(intents).toBe(1);
+    } finally {
+      setEditIntentListener(null);
+    }
+  });
+
   it('stays silent for a selection-only transaction', () => {
     expect(apply((state) => state.tr.scrollIntoView())).toBe(0);
   });
 
   it('stays silent for a chunk append', () => {
     expect(apply((state) => state.tr.insertText('b', 1).setMeta('addToHistory', false))).toBe(0);
+  });
+
+  /* `trailing` answers a load with a transaction of its own that carries no
+   * marker. It is still part of the load, and the editor reads this signal as
+   * "the user edited" (MilkdownEditor `editedSinceLoadStart`): calling it an
+   * edit would rewrite every large note on open. */
+  it("counts another plugin's reaction as part of what it reacted to", () => {
+    function applyWithReaction(markAsLoad: boolean): number {
+      let calls = 0;
+      const reacts = new Plugin({
+        appendTransaction: (transactions, _old, state) =>
+          transactions.some((tr) => tr.getMeta('appendedTransaction') === undefined)
+            ? state.tr.insertText('!', state.doc.content.size - 1)
+            : null,
+      });
+      const state = EditorState.create({
+        doc: s.nodes.doc.create(null, [paragraph('a')]),
+        plugins: [reacts, createDocumentChangePlugin(() => (calls += 1))],
+      });
+      const tr = state.tr.insertText('b', 1);
+      state.applyTransaction(markAsLoad ? tr.setMeta('addToHistory', false) : tr);
+      return calls;
+    }
+
+    expect(applyWithReaction(true)).toBe(0);
+    expect(applyWithReaction(false)).toBe(1);
   });
 });

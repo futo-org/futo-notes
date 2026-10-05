@@ -44,10 +44,20 @@ platform playbook needed for the target. Defect capture lives in `references/evi
 ## Step 1: Detect what changed (change verification mode only)
 
 ```bash
-{ git diff --name-only HEAD~1 HEAD 2>/dev/null; git diff --name-only --cached; git diff --name-only; } | sort -u
+just orient --json
 ```
 
-If nothing changed, tell the user and stop. Categorize into ALL matching
+Use `changes.all`: it includes every commit since the merge base with
+`origin/main`, staged and unstaged changes, deletions, and untracked files.
+If the user names another branch, tag or commit, pass it with `--base <ref>`.
+The base is local: fetch it first when freshness matters. A missing base is an
+error; do not silently substitute the last commit. JSON preserves filenames
+with spaces or newlines. Inspect existing files from that list, retaining
+removed paths when selecting the affected owners.
+
+Record `head`, `baseSha`, `mergeBase` and whether local changes are included.
+Read each changed owner's nearest `AGENTS.md` before choosing its chain.
+If nothing changed, report the comparison scope and stop. Categorize into ALL matching
 categories — a change can match several; run every matching chain:
 
 | Pattern | Category |
@@ -63,7 +73,8 @@ categories — a change can match several; run every matching chain:
 | `apps/android/**` | android-native |
 | `tests/**` | playwright-tests |
 | `docs/spec/**` | spec |
-| `.gitlab-ci.yml` | ci |
+| `.gitlab-ci.yml`, `ci/**` | ci |
+| `scripts/**`, `justfile`, agent instructions | tooling — co-located script tests and the instruction/safety gates |
 
 ## Step 2: Run verification chains
 
@@ -168,7 +179,13 @@ report that explicitly. The desktop driver API is in `references/desktop.md`.
 
 ## Step 4: Report
 
-Summarize in a table: commands run, pass/fail, key observed behavior.
+Record checkout path, host/platform, comparison base, tested SHA and any dirty
+changes, then summarize commands, exit codes and observed behavior. Link the
+logs/screenshots/traces and name the verified desktop target or claimed device.
+For persistence behavior, record a flush/reopen and disk readback as appropriate.
+If code or installed artifacts changed after a check, rerun the affected check;
+do not carry its previous PASS forward. Include the next action for any gap.
+Do not commit private conversation excerpts or real-vault content as evidence.
 
 ```
 | Check            | Result | Notes                              |

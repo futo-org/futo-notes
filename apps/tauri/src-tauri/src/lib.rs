@@ -8,6 +8,7 @@ mod app_menu;
 mod application;
 mod application_state;
 mod background_tasks;
+mod close_deadline;
 mod desktop_settings;
 mod external_file_open;
 mod filesystem_watcher;
@@ -15,6 +16,8 @@ mod image_commands;
 mod instance_journal;
 mod license;
 mod local_notes;
+#[cfg(target_os = "macos")]
+mod macos_terminate;
 mod panic_reporter;
 mod platform_integration;
 mod portal_vault;

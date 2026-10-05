@@ -1,6 +1,7 @@
 # AGENTS.md — FUTO Notes Operating Manual
 
-@README.md for project overview. @justfile for all commands.
+@README.md for project overview. `just --list` shows every command with its doc line; the
+justfile is the command authority (longer rationale: `docs/agents/justfile-notes.md`).
 
 FUTO Notes is an offline-first markdown app with a Svelte 5 editor, shared Rust core, Tauri
 desktop, native SwiftUI/Compose mobile shells, and optional E2EE sync.
@@ -45,6 +46,7 @@ Their nested manuals own build, device, release, and test variants. Missing
   device can show (a camera, an OS auth sheet, a keychain), each carrying the result of
   the last run and what that run could not prove; `tests/` (unit, Playwright, and the
   editor gauntlet) and `markdown-spec/`: fixture/oracle systems.
+- `release-notes/`: one `v<X.Y.Z>.md` per stable release — the App Store and Play copy (§5).
 
 Generated and gitignored: native bindings/JNI libraries and `editor.html`. The external sync server
 (its own Go repo) receives only client-encrypted opaque blobs; sync tests download the release
@@ -89,9 +91,24 @@ infrastructure owner.
   scope is a surface or platform. A nontrivial fix's body names the exact failure (pipeline number,
   error string), the root cause, and a `Verified:` line listing the commands run. Risky work uses a
   branch + GitLab MR; migrations and perf land as small per-concern commits. Releases: `/release`.
+- **A stable `vX.Y.Z` tag publishes itself to both app stores** — `publish:android` to the Play
+  PRODUCTION track, `publish:ios:appstore` to Apple review (auto-release on approval). So
+  `release-notes/<tag>.md` is the only source of the copy users read, and it must be on the TAGGED
+  commit: write it in the release MR, because afterwards the only fix is a re-tag. `check:release-notes`
+  gates the tag pipeline in its first minute and is in `release:gate.needs`. Format and limits (App
+  Store 4000 / Play 500): `release-notes/README.md`; verify with `just release-notes-check`.
 - Repo-tooling friction (dead-end tool call, stale doc, broken recipe, missing helper) is a
   **papercut**: file it without stopping the task, `papercuts add "<what you hit>" --tag <area>`.
   Product bugs and spec gaps are never papercuts. Full procedure: `docs/agents/papercuts.md`.
+- `.claude/settings.json` wires `scripts/hooks/session-orient.mjs` (SessionStart) and
+  `scripts/hooks/subagent-scratch.mjs` (SubagentStart). A prior PreToolUse hook that denied
+  process-name kills, `git stash` in a linked worktree (refs/stash is shared by every worktree of
+  this repo, so a pop here can restore a parallel lane's work-in-progress over yours), and
+  OS-level input on every Bash call was removed (too broad — it also denied unrelated,
+  non-FUTO-Notes commands with FUTO-Notes-specific reasoning); those remain prose-only rules (M24,
+  M25 below) with no runtime enforcement, so follow them by hand and never `git stash` outside the
+  primary checkout. Sessions open with `just orient`; agent worktrees come from `just wt new
+  <name>` and go via `just wt gc`.
 
 ## 6. Named mistakes — and the rule that prevents each
 
@@ -144,8 +161,9 @@ These are observed failures, not generic advice.
 - **M13 — Untested tag job.** Exercise tag-gated work before tagging, propagate secrets into nested
   VMs, and upload caches `when: always`. Use `/ci-doctor`.
 - **M14 — Missing release dependency.** Every new test job enters `release:gate.needs` in the same
-  commit or it cannot block publication. Deliberate exceptions: `test:audit` and
-  `test:localization-audit` are non-blocking by design (docs/architecture-gates.md).
+  commit or it cannot block publication. Deliberate exceptions: `test:audit`,
+  `test:localization-audit`, and `test:quality-report` (phase-1 ratchet) are non-blocking by
+  design (docs/architecture-gates.md).
 - **M15 — Loosening instead of diagnosing.** Wait on conditions, not sleeps; avoid exact
   cross-platform UI strings. A second timeout bump means stop and root-cause.
 - **M16 — Landed artifacts/debugging.** Gitignore generated paths before building, inspect status,
@@ -172,7 +190,8 @@ These are observed failures, not generic advice.
   break the mounted view.
 - **M23 — Updater signing order.** The detached `.sig` must be the LAST touch on artifact bytes —
   after patching/notarization/Authenticode. Read `docs/release/updater.md` and `keys/README.md`, and
-  rehearse locally with `just updater-localdev`; localdev signatures must never verify in production.
+  rehearse locally with `node scripts/release-build.mjs e2e`; localdev signatures must never verify
+  in production.
 - **M24 — QA input hit the production app.** OS-level input (AppleScript UI scripting, `cliclick`)
   goes to the FOCUSED window, and every build shares the binary name — so a name/PID lookup sent
   real keystrokes into the user's live vault. Resolve any desktop QA target ONLY through
@@ -190,6 +209,10 @@ These are observed failures, not generic advice.
   needs no platform APIs to RUN (plain `std::fs`) gets compiled under `cfg(test)` everywhere and
   held to the shipped branch's rules — `crates/futo-notes-core/src/files/vault_fs/contract_tests.rs`
   stamps one rule set over both implementations.
+- **M27 — Invisible characters through Write/Edit.** The file tools normalize exotic whitespace
+  (U+0085, U+205F) to plain spaces, so a script whose map keys were those characters lost them and a
+  `split('')` destroyed an 1100-line file. Write non-printable characters as ASCII escapes
+  (`\u0085`), never literally.
 
 ## 7. Quality bar per deliverable
 
@@ -235,6 +258,9 @@ Resolve from spec → fixtures → canonical Rust → `git log` + `docs/learning
 the existing pattern; do not invent one. **Act without asking** on reversible in-repo work: fixes,
 tests, refactors within a layer, running suites, dev builds/installs, spec edits that record
 verified behavior, and force-pushing a feature branch (`--force-with-lease`, never bare `--force`).
+Put choices to the user as numbered options in plain text (1A/1B/2A), never a picker
+(`AskUserQuestion`): the maintainer cannot arrow-key it, and pickers cost 85 minutes of blocked
+wall-clock in one month of transcripts.
 
 **Stop and ask first — exact list:**
 1. Anything under `keys/`, signing keys, or the updater trust boundary (M23).
@@ -244,7 +270,8 @@ verified behavior, and force-pushing a feature branch (`--force-with-lease`, nev
    outside your scratchpad — gitignored ≠ disposable, and `target/` is a 31GB rebuild. Cleanup
    removes only paths the script itself created, never a computed ancestor: `rmSync(rel.split('/')[0])`
    ate a worktree's `target/` and the then-tracked `factory/`.
-4. Publishing: Play/TestFlight uploads, tagging a release, posting to Zulip, F-Droid.
+4. Publishing: posting to Zulip, F-Droid, and **tagging a release — a stable tag now goes
+   straight to Play production and Apple review, not to a testing track**.
 5. Changing specified intent rather than closing a Gap.
 6. Sync payload, `BRIDGE_VERSION`, or `AppState` schema changes.
 

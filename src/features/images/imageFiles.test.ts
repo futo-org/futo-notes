@@ -32,6 +32,21 @@ describe('listImageFiles', () => {
     expect(images[0].size).toBeGreaterThan(0);
   });
 
+  it('finds images inside folders, not just the vault root', async () => {
+    fs.mkdirSync(path.join(testFS.root, 'trip', 'day one'), { recursive: true });
+    fs.writeFileSync(path.join(testFS.root, 'top.png'), 'data-1');
+    fs.writeFileSync(path.join(testFS.root, 'trip', 'beach.png'), 'data-2');
+    fs.writeFileSync(path.join(testFS.root, 'trip', 'day one', 'sunrise.jpg'), 'data-3');
+
+    const images = await listImageFiles();
+
+    expect(images.map((image) => image.filename).sort()).toEqual([
+      'top.png',
+      'trip/beach.png',
+      'trip/day one/sunrise.jpg',
+    ]);
+  });
+
   it('sorts by mtime descending', async () => {
     const older = path.join(testFS.root, 'older.png');
     const newer = path.join(testFS.root, 'newer.jpg');
@@ -65,9 +80,17 @@ describe('deleteImage', () => {
     await expect(deleteImage('file.txt')).rejects.toThrow('not an image filename');
   });
 
-  it('rejects traversal attempts', async () => {
-    await expect(deleteImage('../etc/passwd.png')).rejects.toThrow('invalid filename');
-    await expect(deleteImage('sub/image.jpg')).rejects.toThrow('invalid filename');
-    await expect(deleteImage('..\\evil.png')).rejects.toThrow('invalid filename');
+  it('rejects paths that leave the vault', async () => {
+    await expect(deleteImage('../etc/passwd.png')).rejects.toThrow('path traversal blocked');
+    await expect(deleteImage('..\\evil.png')).rejects.toThrow('path traversal blocked');
+  });
+
+  it('deletes an image that lives in a folder', async () => {
+    fs.mkdirSync(path.join(testFS.root, 'trip'));
+    fs.writeFileSync(path.join(testFS.root, 'trip', 'beach.png'), 'image-data');
+
+    await deleteImage('trip/beach.png');
+
+    expect(await listImageFiles()).toEqual([]);
   });
 });

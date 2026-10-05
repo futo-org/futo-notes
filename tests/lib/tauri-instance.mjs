@@ -3,28 +3,67 @@
  */
 
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync, openSync, accessSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  openSync,
+  closeSync,
+  accessSync,
+  lstatSync,
+} from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
+import { homedir } from 'node:os';
+import { createHash, randomUUID } from 'node:crypto';
+import { candidateFor, verifyTarget, worktreeRoots } from '../../scripts/qa-target.mjs';
+import { portsFor } from '../../scripts/lib/slot.mjs';
 import { discoverPort, connectWs } from './mcp-client.mjs';
 import { TauriTestClient, waitForTestHooks } from './tauri-test-client.mjs';
+
+// Reject escapes and symlinks before creating directories or starting the app.
+function assertRunPath(value, base) {
+  const rel = relative(resolve(base), resolve(value));
+  if (!rel || rel === '..' || rel.startsWith('..' + sep))
+    throw new Error('Desktop storage must stay inside its run directory');
+  let part = resolve(base);
+  for (const segment of ['', ...rel.split(sep)]) {
+    part = join(part, segment);
+    if (lstatSync(part, { throwIfNoEntry: false })?.isSymbolicLink())
+      throw new Error('Desktop storage symlink escapes run ownership');
+  }
+}
 
 /**
  * @param {string} name
  * @param {string} repoRoot
- * @param {{ reuse?: import('./tauri-test-client.mjs').TauriTestClient, env?: Record<string,string> }} [options]
+ * @param {{ reuse?: import('./tauri-test-client.mjs').TauriTestClient, env?: Record<string,string>, storage?: { instanceDir: string, dataDir: string, notesDir: string } }} [options]
  *   `reuse` relaunches an existing client's data dir and notes dir into the
- *   same client object — see `restartDesktopTauriInstance`.
+ *   same client object — see `restartDesktopTauriInstance`. `storage` resumes
+ *   a previously provisioned run directory (e.g. across separate invocations
+ *   of a resumable verification run) without an in-memory client to reuse.
  */
 export async function startDesktopTauriInstance(name, repoRoot, options = {}) {
-  const { reuse = null, env: extraEnv = {} } = options;
-  const dataDir = reuse?.dataDir ?? mkdtempSync(join(tmpdir(), `sf-${name}-`));
-  const notesDir = reuse?.notesDir ?? mkdtempSync(join(tmpdir(), `sf-notes-${name}-`));
+  const { reuse = null, env: extraEnv = {}, storage } = options;
+  const parent = process.env.FUTO_VERIFICATION_DIR || join(repoRoot, '.tauri-data');
+  assertRunPath(parent, repoRoot);
+  mkdirSync(parent, { recursive: true });
+  const instanceDir =
+    reuse?.storage?.instanceDir || storage?.instanceDir || mkdtempSync(join(parent, 'desktop-'));
+  assertRunPath(instanceDir, parent);
+  const dataDir = join(instanceDir, 'data');
+  const notesDir = join(instanceDir, 'notes');
+  if (storage && (storage.dataDir !== dataDir || storage.notesDir !== notesDir))
+    throw new Error('Desktop storage must use the original run directories');
+  assertRunPath(dataDir, instanceDir);
+  assertRunPath(notesDir, instanceDir);
+  mkdirSync(dataDir, { recursive: true });
+  mkdirSync(notesDir, { recursive: true });
 
-  if (!reuse) writeFileSync(join(dataDir, 'notes-dir-override.json'), JSON.stringify({ notesDir }));
+  if (!reuse && !storage)
+    writeFileSync(join(dataDir, 'notes-dir-override.json'), JSON.stringify({ notesDir }));
 
-  const logFile = join(tmpdir(), `tauri-${name}-${Date.now()}.log`);
-  const logFd = openSync(logFile, 'w');
+  const logFile = join(instanceDir, `app-${randomUUID()}.log`);
 
   const candidates = [
     join(repoRoot, 'target', 'debug', 'futo-notes-tauri'),
@@ -54,24 +93,26 @@ export async function startDesktopTauriInstance(name, repoRoot, options = {}) {
         ...candidates.map((c) => `  ${c}`),
         relocated
           ? `\nCARGO_TARGET_DIR is set to '${relocated}', so cargo put the binary there ` +
-            `instead. This harness (and cross-platform-sync.mjs's pgrep cleanup, which only ` +
-            `kills binaries under the repo-local target/) requires the repo-local path — ` +
+            `instead. This harness requires the repo-local path — ` +
             `unset CARGO_TARGET_DIR and re-run.`
-          : `\nRun: cd apps/tauri && cargo tauri build --debug --no-bundle`,
+          : `\nRun from the repo root: just build-desktop-test`,
       ].join('\n'),
     );
   }
 
+  const logFd = openSync(logFile, 'w');
   const proc = spawn(binaryPath, [], {
     env: {
       ...process.env,
       FUTO_NOTES_DATA_DIR: dataDir,
       FUTO_NOTES_MULTI_INSTANCE: '1',
+      FUTO_MCP_BASE_PORT: String(portsFor(repoRoot).mcp),
       WEBKIT_DISABLE_DMABUF_RENDERER: '1',
       ...extraEnv,
     },
     stdio: ['ignore', logFd, logFd],
   });
+  closeSync(logFd);
 
   let port;
   try {
@@ -83,6 +124,25 @@ export async function startDesktopTauriInstance(name, repoRoot, options = {}) {
 
   let ws;
   try {
+    const target = verifyTarget(candidateFor(proc.pid), {
+      selfRoot: repoRoot,
+      worktreeRoots: worktreeRoots(repoRoot),
+      home: homedir(),
+    });
+    if (target.verdict !== 'verified') throw new Error(JSON.stringify(target.refusals));
+    writeFileSync(
+      join(instanceDir, `target-${proc.pid}.json`),
+      JSON.stringify(
+        {
+          ...target,
+          binarySha256: createHash('sha256').update(readFileSync(binaryPath)).digest('hex'),
+          port,
+          engine: process.platform === 'darwin' ? 'WKWebView' : 'WebKitGTK',
+        },
+        null,
+        2,
+      ),
+    );
     ws = await connectWs(port);
     // Probe immediately: the MCP bridge often becomes discoverable only after
     // the webview is already ready. Retries preserve the same 90s CI budget
@@ -104,7 +164,7 @@ export async function startDesktopTauriInstance(name, repoRoot, options = {}) {
     return reuse;
   }
 
-  return new TauriTestClient({
+  const client = new TauriTestClient({
     name,
     platform: 'desktop',
     proc,
@@ -114,6 +174,8 @@ export async function startDesktopTauriInstance(name, repoRoot, options = {}) {
     dataDir,
     logFile,
   });
+  client.storage = { instanceDir, dataDir, notesDir };
+  return client;
 }
 
 /**

@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './invoke';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export type WindowControl = 'minimize' | 'maximize' | 'close';
@@ -22,10 +22,4 @@ export async function toggleMaximizeAppWindow(): Promise<void> {
 
 export async function closeAppWindow(): Promise<void> {
   await getCurrentWindow().close();
-}
-
-export async function applyAppWindowTitle(noteTitle?: string): Promise<void> {
-  const appName = import.meta.env.DEV ? 'FUTO Notes (Dev)' : 'FUTO Notes';
-  const title = noteTitle ? `${noteTitle} — ${appName}` : appName;
-  await getCurrentWindow().setTitle(title);
 }

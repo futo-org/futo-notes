@@ -66,6 +66,9 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   `pruneFolderRoutes`, AppNavStackTest.kt *(Android)*
 - The editor keeps the system back button, so the leading-edge swipe is the
   native, finger-tracked interactive pop, over the full-bleed editor WebView.
+  The one exception is while a block is airborne in the long-press drag: both
+  pop recognisers stand down then, so moving the block sideways can't swipe the
+  note away (see editor.md, "Selection").
   Hiding that button (as the editor once did, to force every exit through the
   vetoable `requestNavigation`) also disables the gesture. A system pop cannot be
   refused, so the exit commits after the fact instead: in-flight rename/move/adopt
@@ -151,10 +154,12 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   take clicks. → DesktopTopBand.svelte, TabsStrip.svelte,
   WindowControls.svelte
 - The native window title is the active note title followed by "— FUTO Notes";
-  Home falls back to the app name. Debug builds retain the `FUTO Notes (Dev)`
-  identity in both forms, so tab changes cannot erase the dev/prod distinction.
-  This is the title shown by the compositor in Alt+Tab and overview surfaces. →
-  TabsStrip.svelte, windowControls.ts, tauri.dev.conf.json
+  Home falls back to the app name. The app name follows the selected language,
+  and changing the language keeps the active note in the title. Debug builds
+  retain the `FUTO Notes (Dev)` identity in both forms, so tab changes cannot
+  erase the dev/prod distinction. This is the title shown by the compositor in
+  Alt+Tab and overview surfaces. → TabsStrip.svelte, App.svelte,
+  windowTitle.ts, tauri.dev.conf.json
 - Debian and RPM packages install a hidden `futo-notes-tauri.desktop` identity
   alias matching the native Wayland app ID, so compositors resolve the FUTO
   Notes icon in Alt+Tab. The visible `FUTO Notes.desktop` launcher remains in
@@ -271,9 +276,19 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   open-in-background-tab modifier. → installDesktopContextMenuGuard.ts
 - Settings opens with ⌘, and the sidebar toggles with ⌘\ (Ctrl elsewhere). →
   registerNotesShellShortcuts.ts
-- Ctrl+Q closes the app window on Linux and Windows through the normal close
-  path, which flushes a pending note save before exit; macOS keeps its native
-  ⌘Q application-menu command. → registerNotesShellShortcuts.ts,
-  startNativeShell.ts
+- Quitting flushes a pending note save first, on every platform. Ctrl+Q on
+  Linux and Windows and ⌘Q / App ▸ Quit on macOS close the app window through
+  the normal close path; the macOS Quit item is a custom item that closes the
+  window rather than AppKit's `terminate:`, which tao 0.34 answers without a
+  `CloseRequested` and so skipped the flush (RC-85: ⌘Q within 0.5 s of typing
+  lost the edit, 19 of 20 runs). A Dock Quit, an AppleScript `quit` and a
+  logout reach the process as that same `terminate:`, so an
+  `applicationShouldTerminate:` added to tao's delegate answers
+  `NSTerminateLater`, closes the window, and replies once the flush has exited
+  the app (`RunEvent::ExitRequested`), so a logout or shutdown waits for the
+  flush and proceeds instead of being cancelled. The updater's install and every relaunch (vault change,
+  Update & restart) drain the save first too (RC-87). → app_menu.rs,
+  macos_terminate.rs, registerNotesShellShortcuts.ts, startNativeShell.ts,
+  flushBeforeExit.ts, tests/macos-quit-flush.mjs
 - The system "Reduce Motion" setting removes the shell's transitions and
   animations. → desktop-native.css

@@ -26,7 +26,7 @@ use std::sync::Mutex;
 
 use tokio::sync::Notify;
 
-use crate::server::{HandoffPoll, Http};
+use crate::server::{HandoffPoll, Http, HttpClients};
 
 pub use address::{hosted_server, HOSTED_SERVER};
 pub use capability::{probe_sign_in_flow, SignInFlow};
@@ -287,7 +287,9 @@ impl HostedSetup {
     /// [`HostedSetup::hosted`]. An address that is not a usable http(s) URL
     /// fails here, before any request, as [`HostedError::Network`].
     pub fn at(server: &str) -> Result<Self, HostedError> {
-        let http = Http::new(server).map_err(|error| HostedError::Network(error.message))?;
+        let http = HttpClients::new()
+            .and_then(|clients| clients.for_base(server))
+            .map_err(|error| HostedError::Network(error.message))?;
         Ok(Self {
             server_url: server.trim().trim_end_matches('/').to_owned(),
             http,

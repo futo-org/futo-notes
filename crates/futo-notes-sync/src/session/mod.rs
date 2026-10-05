@@ -11,6 +11,7 @@ use futo_notes_core::journal::Journal;
 
 use crate::checkpoint::{self, ConnectedState};
 use crate::journal::{SyncRunJournal, SyncTrigger};
+use crate::server::{HttpClients, HttpError};
 use crate::sync::{ConnectInfo, PreWrite, Progress, SyncErrorKind, SyncSummary};
 
 use live::LiveTask;
@@ -45,17 +46,35 @@ pub struct HostedCredentials {
     pub vault_key: [u8; 32],
 }
 
-#[derive(Default)]
 pub struct SyncSession {
     state: Arc<Mutex<Option<ConnectedState>>>,
     cycle_gate: Arc<Mutex<()>>,
     live: std::sync::Mutex<Option<LiveTask>>,
     journal: std::sync::Mutex<Journal>,
+    clients: Result<HttpClients, HttpError>,
+}
+
+impl Default for SyncSession {
+    fn default() -> Self {
+        Self {
+            state: Arc::default(),
+            cycle_gate: Arc::default(),
+            live: std::sync::Mutex::default(),
+            journal: std::sync::Mutex::default(),
+            clients: HttpClients::new(),
+        }
+    }
 }
 
 impl SyncSession {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn clients(&self) -> Result<&HttpClients, SyncErrorKind> {
+        self.clients
+            .as_ref()
+            .map_err(|error| connect::http_error(error.clone()))
     }
 
     /// Points this session's runs at an instance journal. Sessions start with a
@@ -82,7 +101,7 @@ impl SyncSession {
     ) -> Result<ConnectInfo, SyncErrorKind> {
         self.stop_live();
         let _gate = self.cycle_gate.lock().await;
-        let (state, info) = connect::connect(root, server, password).await?;
+        let (state, info) = connect::connect(self.clients()?, root, server, password).await?;
         *self.state.lock().await = Some(state);
         Ok(info)
     }
@@ -118,6 +137,7 @@ impl SyncSession {
         self.stop_live();
         let _gate = self.cycle_gate.lock().await;
         let state = connect::resume(
+            self.clients()?,
             root,
             &credentials.server_url,
             &credentials.token,
@@ -143,6 +163,7 @@ impl SyncSession {
             progress,
             pre_write,
             &SyncRunJournal::new(self.journal_handle(), SyncTrigger::Manual),
+            self.clients()?,
         )
         .await
     }
@@ -187,6 +208,7 @@ impl SyncSession {
             listener,
             pre_write,
             self.journal_handle(),
+            self.clients()?.clone(),
         ));
         Ok(())
     }

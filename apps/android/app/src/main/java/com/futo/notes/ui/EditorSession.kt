@@ -2,7 +2,12 @@ package com.futo.notes.ui
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -21,6 +26,14 @@ internal interface OpenNoteEffects {
 
     /** This screen still owns the app-lifetime editor WebView. */
     fun isCurrentEditor(): Boolean
+
+    /**
+     * Read the live editor into the screen's draft WITHOUT ending the editing
+     * session, and say what the read came back with. The draft `change`
+     * messages delivered lags the editor (a streaming note withholds them; an
+     * edit spends 200 ms in the debounce), and [gatherFacts] reads that draft.
+     */
+    suspend fun captureEditor(): EditorCaptureOutcome
 
     suspend fun gatherFacts(noteId: String): OpenNoteFacts
 
@@ -229,6 +242,10 @@ private val EXIT_PLANS = mapOf(
     ),
 )
 
+/** Reads a background flush makes of a page that is busy finishing a load; see
+ *  [EditorSession.refreshFromLiveEditor]. iOS's exit retries twice (3 in all). */
+internal const val LIFECYCLE_READ_ATTEMPTS = 3
+
 internal class EditorSession(
     private val scope: CoroutineScope,
     private val onInteractionLockChanged: (Boolean) -> Unit = {},
@@ -239,6 +256,10 @@ internal class EditorSession(
     private var closed = false
 
     private var exiting = false
+    /** The open-note reconcile's editor read, while it is in flight. */
+    private var reconcileRead: Job? = null
+    private var reconcileRetry: (suspend () -> Unit)? = null
+    private var reconcileRetryInFlight = false
 
     /** The focused note whose clean peer update waits for blur before adoption. */
     private var deferredAdoptionId: String? = null
@@ -291,8 +312,10 @@ internal class EditorSession(
      * once, and render its answer while serialized against every other editor
      * workflow. A same-cycle rename target gets its next pass under this lock.
      */
-    suspend fun reconcileOpenNote(effects: OpenNoteEffects): OpenNoteDisposition? =
-        runWork {
+    suspend fun reconcileOpenNote(effects: OpenNoteEffects): OpenNoteDisposition? {
+        if (!readEditorAheadOfAnExit(effects) { reconcileOpenNote(effects) }) return null
+        return runWork {
+            if (exiting) return@runWork null
             var expectedId = effects.currentNoteId()
             val seenIds = mutableSetOf(expectedId)
             var disposition: OpenNoteDisposition?
@@ -310,6 +333,46 @@ internal class EditorSession(
             } while (true)
             disposition
         }
+    }
+
+    /**
+     * The app is leaving the foreground: read the LIVE editor into the screen's
+     * draft so the flush that follows saves what the user typed, not what the
+     * editor last reported (RC-92).
+     *
+     * A note that is still streaming its tail reports no `change` at all — it
+     * never reports a prefix (O6) — and a typed edit spends 200 ms in the
+     * bundle's debounce, so the register the lifecycle flush pulls lags the
+     * editor by exactly the text most likely to be lost. This is the exit's
+     * bounded, single-outstanding read ([readEditorAheadOfAnExit]): an answer
+     * of no live document, another note's document, or a busy renderer leaves
+     * the draft as it is, and the flush that follows saves only what the
+     * editor already reported — never `''`, never a prefix. An exit that
+     * starts meanwhile cancels the read; its own read is the one that counts.
+     *
+     * Ends by taking the session lock once: an autosave already writing has
+     * then advanced the baseline, so the flush that follows does not write a
+     * stale base over its own note and mint a conflict copy.
+     */
+    suspend fun refreshFromLiveEditor(effects: OpenNoteEffects) {
+        var outcome = readEditor(effects) {}
+        // A big note edited while it streams settles its tail INSIDE the first
+        // read, which can outlast the capture deadline. That read is still
+        // outstanding in the page and answers in time, so ask again: the retry
+        // joins it (one read at a time) instead of queueing another. An exit
+        // retries the same way. Anything still unanswered after the last
+        // attempt keeps the stored bytes; the read's own `change` reaches the
+        // ordinary save if the process lives to hear it.
+        var attempts = 1
+        while (outcome == EditorCaptureOutcome.TimedOut && attempts < LIFECYCLE_READ_ATTEMPTS) {
+            attempts += 1
+            outcome = readEditor(effects) {}
+        }
+        when (outcome) {
+            is EditorCaptureOutcome.Captured, EditorCaptureOutcome.NoLiveDocument -> runWork {}
+            EditorCaptureOutcome.NotOurs, EditorCaptureOutcome.TimedOut, null -> Unit
+        }
+    }
 
     /**
      * Settle the one deferred clean adoption after body-editor blur. Deferred
@@ -324,8 +387,8 @@ internal class EditorSession(
      * blur edge to retry on. Taking the lock first IS waiting for that cycle,
      * after which the fresh deferral is visible.
      */
-    suspend fun settleDeferredAdoption(effects: OpenNoteEffects): OpenNoteDisposition? =
-        runWork {
+    suspend fun settleDeferredAdoption(effects: OpenNoteEffects): OpenNoteDisposition? {
+        val deferredId = runWork {
             val deferredId = deferredAdoptionId
             when {
                 deferredId == null -> null
@@ -334,9 +397,74 @@ internal class EditorSession(
                     null
                 }
 
-                else -> reconcilePass(deferredId, effects)
+                else -> deferredId
+            }
+        } ?: return null
+        if (!readEditorAheadOfAnExit(effects) { settleDeferredAdoption(effects) }) return null
+        return runWork {
+            if (exiting || deferredAdoptionId != deferredId) null
+            else reconcilePass(deferredId, effects)
+        }
+    }
+
+    /**
+     * Read the editor BEFORE the facts (RC-08), OUTSIDE the session lock, and
+     * give way to an exit.
+     *
+     * The draft is kept current by `change` messages, and the editor withholds
+     * those while a large note streams and for the change debounce: classified
+     * on that draft, an edit only the editor knew about read as "nothing to
+     * lose", and a peer edit was adopted over it or a peer delete closed the
+     * note. The outcomes mean what they mean to an exit ([editorExitBody]): no
+     * live document leaves the draft as the freshest body; a busy renderer or
+     * another note's document cannot answer for this one, so no verdict is
+     * taken — and the read is not retried.
+     *
+     * The read runs under the capture deadline, against a page that may be
+     * busy or wedged, so it must not hold the lock every exit drains: Back
+     * waited it out before starting its own read (FB-5 refute: 15.2 s against
+     * 9.3 s). An exit that starts meanwhile cancels it ([end]); its own read
+     * is the one that counts. `false` means: take no verdict. An exit that
+     * then stops short of leaving runs [retry], so the peer's change it
+     * interrupted is not left unapplied until the next sync.
+     */
+    private suspend fun readEditorAheadOfAnExit(
+        effects: OpenNoteEffects,
+        retry: suspend () -> Unit,
+    ): Boolean =
+        when (readEditor(effects, retry)) {
+            is EditorCaptureOutcome.Captured, EditorCaptureOutcome.NoLiveDocument -> true
+            EditorCaptureOutcome.NotOurs, EditorCaptureOutcome.TimedOut, null -> false
+        }
+
+    /** The read itself: what the editor answered, or `null` when an exit took
+     *  over (or the session is already leaving). */
+    private suspend fun readEditor(
+        effects: OpenNoteEffects,
+        retry: suspend () -> Unit,
+    ): EditorCaptureOutcome? {
+        if (exiting || closed) return null
+        val outcome = coroutineScope {
+            val read = async { effects.captureEditor() }
+            reconcileRead = read
+            reconcileRetry = retry
+            try {
+                read.await()
+            } catch (e: CancellationException) {
+                // Our own cancellation propagates; an exit's cancel of the
+                // read alone is an answer: no verdict.
+                currentCoroutineContext().ensureActive()
+                null
+            } finally {
+                if (reconcileRead === read) {
+                    reconcileRead = null
+                    reconcileRetry = null
+                }
             }
         }
+        if (exiting || closed) return null
+        return outcome
+    }
 
     private suspend fun reconcilePass(
         expectedId: String,
@@ -390,6 +518,11 @@ internal class EditorSession(
             if (closed) return
             closed = true
         }
+        // This exit reads the editor itself; a reconcile's read must not make
+        // it wait (see readEditorAheadOfAnExit).
+        val read = reconcileRead
+        val interrupted = if (read != null) reconcileRetry else null
+        read?.cancel()
         effects.prepare()
 
         scope.launch {
@@ -454,6 +587,20 @@ internal class EditorSession(
                         setInteractionLocked(false)
                     }
                     if (plan.closes) closed = false
+                    // The editor stays open: finish the reconcile this exit
+                    // interrupted — once. Back pressed again and again against
+                    // a busy page refuses again and again, and each refusal
+                    // must not stack up another reconcile behind the last.
+                    if (interrupted != null && !reconcileRetryInFlight) {
+                        reconcileRetryInFlight = true
+                        scope.launch {
+                            try {
+                                interrupted()
+                            } finally {
+                                reconcileRetryInFlight = false
+                            }
+                        }
+                    }
                 }
             }
         }

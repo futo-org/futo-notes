@@ -15,11 +15,13 @@ import { desktopLocalization } from '$shared/localization';
 
 export interface EmbeddedEditorHandle {
   blur: () => void;
+  captureContent: () => string | undefined;
   closeFind: () => void;
   focus: () => void;
   getContent: () => string;
   insertMarkdown: (text: string) => void;
   refreshDecorations: () => void;
+  revealSelection: () => void;
   resetHistory: () => void;
   openFind: () => void;
   setContent: (text: string) => void;
@@ -104,12 +106,6 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
     applyContent(markdown: string): void {
       editor.setContent(markdown);
     },
-    readContent(): string {
-      /* `undefined` means the component has never been handed a note (a fresh
-       * mount). Its document really is empty, and the only consumer is
-       * hostBoot's "is this already on screen?" dedupe, which must not match. */
-      return editor.getContent() ?? '';
-    },
     post: postToHost,
   };
 
@@ -128,11 +124,19 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
     },
     getContent(): string {
       /* The bridge contract types this `string` (bridge.ts). The component
-       * answers `undefined` only before any note has ever reached it, where an
-       * empty document is the truthful answer anyway — every native host calls
-       * `initialize`/`setContent` before it reads. A note whose parse FAILED
-       * comes back as the host's own bytes, not as ''. */
-      return editor.getContent() ?? '';
+       * answers `undefined` before any note has ever reached it (every native
+       * host calls `initialize`/`setContent` before it reads) and — since the
+       * RC-17 hardening — when serializing an edited document throws. The
+       * second case is coerced to '' here, and the native shells have no guard
+       * against '' over a non-empty note: a known latent gap (RC-73 in
+       * docs/plan/editor-release-hardening.md). No natural serializer throw is
+       * known; closing it means answering `null` across the bridge. A note
+       * whose parse FAILED comes back as the host's own bytes, not as ''.
+       *
+       * Every host read is an exit's capture of the note it is about to leave,
+       * so it is the capturing read: nothing about this document is reported
+       * after it returns (MilkdownEditor `captureContent`). */
+      return editor.captureContent() ?? '';
     },
     focus(): void {
       editor.focus();

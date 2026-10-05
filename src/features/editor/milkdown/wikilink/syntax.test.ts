@@ -131,6 +131,38 @@ describe('wikilink tokenizing', () => {
   );
 });
 
+/**
+ * The second place the two are meant to disagree: a `|` inside a GFM table
+ * cell. The row is split on every unescaped `|` before inline parsing, so a
+ * target holding one is spelled `\\|` there (Obsidian writes it the same way),
+ * and — as `mdast-util-gfm-table` does for inline code — it reads back as `|`.
+ * `findWikilinks` is a raw-text scanner and sees `a\\|b`. Neither resolves to a
+ * note (`|` is a forbidden title character), so no rename outcome differs.
+ */
+describe('a wikilink holding `|` inside a table cell (hardening L6e-15)', () => {
+  const row = (inner: string) => `| x ${inner} | d |`;
+  // The header is as wide as the row, so the stock table serializer pads nothing.
+  const cell = (inner: string) =>
+    `| ${'a'.padEnd(inner.length + 2)} | b |\n| ${'-'.repeat(inner.length + 2)} | - |\n${row(inner)}\n`;
+
+  it('reads the escaped pipe as part of the target, in one cell', async () => {
+    const { targets, markdown } = await roundTrip(cell('[[note\\|alias]]'));
+    expect(targets).toEqual(['note|alias']);
+    expect(markdown).toBe(cell('[[note\\|alias]]'));
+  });
+
+  it('never lets a backslash before the pipe turn it into a cell boundary', async () => {
+    // Source `a\\\|b`: an escaped backslash, then an escaped pipe — target `a\\|b`.
+    const { targets, markdown } = await roundTrip(cell('[[a\\\\\\|b]]'));
+    expect(targets).toEqual(['a\\\\|b']);
+    expect(markdown).toBe(cell('[[a\\\\\\|b]]'));
+  });
+
+  it('leaves a pipe outside a table raw', async () => {
+    expect((await roundTrip('[[a|b]]\n')).markdown).toBe('[[a|b]]\n');
+  });
+});
+
 describe('wikilink serialization', () => {
   /**
    * THE acceptance criterion. Without the `toMarkdown` handler, remark's text
@@ -246,4 +278,29 @@ describe('a `!` not followed by `[[` (issue #112)', () => {
       expect((await roundTrip(document_)).markdown).toBe(document_);
     },
   );
+});
+
+/**
+ * Hardening L6e-7: an unclosed `[[` reads its target to the end of the line
+ * before it fails, and micromark retries the construct at every `[` — so a
+ * long line dense with unclosed `[[` cost O(n²) to open (2.7 s for one
+ * 40k-character line). A ratio, not a wall-clock budget, so machine load cancels
+ * out: five times the line must cost about five times as much, not twenty-five.
+ */
+describe('a long line of unclosed `[[`', () => {
+  const openTime = async (repeats: number): Promise<number> => {
+    const source = `Intro\n\n${'[[a '.repeat(repeats)}\n`;
+    const started = performance.now();
+    const { targets } = await roundTrip(source);
+    const elapsed = performance.now() - started;
+    expect(targets).toEqual([]);
+    return elapsed;
+  };
+
+  it('opens in time linear in the line length', async () => {
+    await openTime(500); // warm the JIT and the editor's lazy setup
+    const small = await openTime(2_000);
+    const large = await openTime(10_000);
+    expect(large / small, `${small.toFixed(0)} ms -> ${large.toFixed(0)} ms`).toBeLessThan(10);
+  }, 60_000);
 });

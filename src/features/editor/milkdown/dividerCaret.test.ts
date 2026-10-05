@@ -23,10 +23,21 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { mount } from 'svelte';
-import { TextSelection } from '@milkdown/kit/prose/state';
+import { redo, undo } from '@milkdown/kit/prose/history';
+import {
+  EditorState,
+  NodeSelection,
+  TextSelection,
+  type Transaction,
+} from '@milkdown/kit/prose/state';
+import { Mapping } from '@milkdown/kit/prose/transform';
 import type { EditorView } from '@milkdown/kit/prose/view';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
+import { guardEditorTimers } from './__fixtures__/editorTimerGuard';
+
+// RC-66: no native timer may outlive a test (see the guard's header).
+guardEditorTimers();
 
 vi.mock('$lib/platform', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -246,5 +257,181 @@ describe('opening a note must never move a divider or its caret (regression)', (
     expect(result.chunked).toBe(true);
     expect(result.aborted).toBe(false);
     expect(result.markdown).toBe(NOTE_WITH_MID_DOCUMENT_DIVIDERS);
+  });
+});
+
+/*
+ * RC-60 (L3-5): an UNDO that brings a divider back is not the user creating one.
+ * `newlyCreatedDivider` saw the restored `hr` as new and appended an empty
+ * paragraph after it, so a full undo of "type over a selected divider" left the
+ * note one blank line longer than it was loaded. History transactions carry
+ * prosemirror-history's own meta, and that is the signal to leave alone.
+ */
+describe('undo and redo must not treat a restored divider as a new one (RC-60)', () => {
+  const NOTE = 'first\n\n***\n\nlast\n';
+
+  function selectDivider(view: EditorView): void {
+    let hrPos = -1;
+    view.state.doc.descendants((node, pos) => {
+      if (hrPos === -1 && node.type.name === 'hr') hrPos = pos;
+      return hrPos === -1;
+    });
+    expect(hrPos).toBeGreaterThanOrEqual(0);
+    view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, hrPos)));
+  }
+
+  const blockTypes = (view: EditorView): string[] => {
+    const types: string[] = [];
+    view.state.doc.forEach((node) => types.push(node.type.name));
+    return types;
+  };
+
+  it('undoing the replacement of a selected divider restores exactly the loaded note', async () => {
+    const handle = await mountEditorHandle('');
+    handle.openNote(NOTE);
+    const view = handle.getProseMirrorView()!;
+    expect(handle.getContent()).toBe(NOTE);
+    const before = blockTypes(view);
+
+    selectDivider(view);
+    typeChar(view, 'h'); // a real keystroke over the selected divider
+    expect(blockTypes(view)).not.toContain('hr');
+
+    expect(undo(view.state, view.dispatch)).toBe(true);
+
+    expect(blockTypes(view)).toEqual(before);
+    expect(handle.getContent()).toBe(NOTE);
+  });
+
+  it('redoing over the divider and undoing again is byte-stable, both ways', async () => {
+    const handle = await mountEditorHandle('');
+    handle.openNote(NOTE);
+    const view = handle.getProseMirrorView()!;
+    selectDivider(view);
+    typeChar(view, 'h');
+    const edited = handle.getContent();
+
+    undo(view.state, view.dispatch);
+    expect(handle.getContent()).toBe(NOTE);
+    redo(view.state, view.dispatch);
+    expect(handle.getContent()).toBe(edited);
+    undo(view.state, view.dispatch);
+    expect(handle.getContent()).toBe(NOTE);
+  });
+
+  it('undo and redo of a typed `---` neither add nor drop a paragraph', async () => {
+    const handle = await mountEditorHandle('');
+    const view = handle.getProseMirrorView()!;
+    typeDivider(view);
+    expectDividerEndState(view);
+    const created = handle.getContent();
+
+    undo(view.state, view.dispatch);
+    redo(view.state, view.dispatch);
+
+    expect(handle.getContent()).toBe(created);
+    expectDividerEndState(view);
+  });
+});
+
+/*
+ * RC-80: `newlyCreatedDivider` used to scan the whole old and new documents for
+ * dividers on every transaction — the one document-sized piece of editor work
+ * per keystroke. It now looks only inside the spans the transactions rewrote.
+ * This holds it to the whole-document answer over random edits of documents
+ * full of dividers, including multi-transaction batches and edits that land
+ * right against a divider.
+ */
+describe('newlyCreatedDivider agrees with a whole-document scan', () => {
+  function everyHr(doc: ProseNode): number[] {
+    const positions: number[] = [];
+    doc.descendants((node, pos) => {
+      if (node.type.name === 'hr') positions.push(pos);
+    });
+    return positions;
+  }
+
+  function wholeDocumentAnswer(
+    transactions: readonly Transaction[],
+    oldState: EditorState,
+    newState: EditorState,
+  ): number | null {
+    if (!transactions.some((tr) => tr.docChanged)) return null;
+    const mapping = new Mapping();
+    for (const tr of transactions) mapping.appendMapping(tr.mapping);
+    const stillThere = new Set(everyHr(oldState.doc).map((pos) => mapping.map(pos, 1)));
+    const created = everyHr(newState.doc).filter((pos) => !stillThere.has(pos));
+    return created.length === 1 ? created[0] : null;
+  }
+
+  it('over 2,000 random edit batches', async () => {
+    const { newlyCreatedDivider } = await import('./dividerCaret');
+    const view = await mountEditor('');
+    const { schema } = view.state;
+    let seed = 7;
+    const random = (n: number): number => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed % n;
+    };
+    const blockBoundaries = (doc: ProseNode): number[] => {
+      const positions: number[] = [0];
+      doc.forEach((node, offset) => positions.push(offset + node.nodeSize));
+      return positions;
+    };
+    const oneEdit = (state: EditorState): Transaction => {
+      const tr = state.tr;
+      const size = tr.doc.content.size;
+      switch (random(4)) {
+        case 0: {
+          const at = blockBoundaries(tr.doc)[random(tr.doc.childCount + 1)];
+          return tr.insert(at, schema.nodes.hr.create());
+        }
+        case 1: {
+          const from = random(size + 1);
+          return tr.delete(from, Math.min(size, from + random(12)));
+        }
+        case 2: {
+          const at = blockBoundaries(tr.doc)[random(tr.doc.childCount + 1)];
+          return tr.insert(at, schema.nodes.paragraph.create(null, schema.text('p')));
+        }
+        default: {
+          let target = -1;
+          tr.doc.descendants((node, pos) => {
+            if (target === -1 && node.isTextblock && random(3) === 0) target = pos + 1;
+            return target === -1;
+          });
+          return target === -1 ? tr : tr.insertText('x', target);
+        }
+      }
+    };
+
+    let disagreements = 0;
+    let created = 0;
+    for (let round = 0; round < 2_000; round += 1) {
+      const blocks = Array.from({ length: 2 + random(8) }, () =>
+        random(3) === 0
+          ? schema.nodes.hr.create()
+          : schema.nodes.paragraph.create(null, schema.text(`block ${round}`)),
+      );
+      const oldState = EditorState.create({ schema, doc: schema.topNodeType.create(null, blocks) });
+      const transactions: Transaction[] = [];
+      let state = oldState;
+      for (let step = 1 + random(3); step > 0; step -= 1) {
+        let tr: Transaction;
+        try {
+          tr = oneEdit(state);
+        } catch {
+          continue; // an edit the schema refuses is not this test's subject
+        }
+        transactions.push(tr);
+        state = state.apply(tr);
+      }
+      const expected = wholeDocumentAnswer(transactions, oldState, state);
+      if (expected !== null) created += 1;
+      if (newlyCreatedDivider(transactions, oldState, state) !== expected) disagreements += 1;
+    }
+    // Some batches really did create exactly one divider, so agreement is not vacuous.
+    expect(created).toBeGreaterThan(100);
+    expect(disagreements).toBe(0);
   });
 });

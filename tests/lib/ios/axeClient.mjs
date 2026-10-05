@@ -2,6 +2,8 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
+import { disconnectHardwareKeyboard } from '../../../scripts/lib/simulator-keyboard.mjs';
+
 const DEFAULT_BUNDLE_ID = 'com.futo.notes.dev';
 
 function outputOf(command, args, options = {}) {
@@ -44,14 +46,20 @@ export function createAxeClient({ udid, bundleId = DEFAULT_BUNDLE_ID } = {}) {
 
   const typeText = (text) => axe('type', text, '--udid', udid);
 
+  // The Home button: the app goes `.inactive` then `.background`, as it does
+  // for the app switcher.
+  const pressHome = () => axe('button', 'home', '--udid', udid);
+
   const appDataContainer = () => simctl('get_app_container', udid, bundleId, 'data').trim();
 
   const launch = () => simctl('launch', udid, bundleId);
 
+  // Every boot re-attaches the hardware keyboard that hides the software one.
   const restartSimulator = () => {
     simctl('shutdown', udid);
     simctl('boot', udid);
     simctl('bootstatus', udid, '-b');
+    disconnectHardwareKeyboard(udid);
   };
 
   // A stopped process is already in the required state. `simctl terminate`
@@ -89,6 +97,7 @@ export function createAxeClient({ udid, bundleId = DEFAULT_BUNDLE_ID } = {}) {
     tapPoint,
     touchPoint,
     typeText,
+    pressHome,
     appDataContainer,
     launch,
     restartSimulator,

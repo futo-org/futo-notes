@@ -18,7 +18,7 @@
         "debugDisplayName": "FUTO Notes Dev"
       },
       "desktop": {
-        "debugDisplayName": "FUTO Notes (dev)",
+        "debugDisplayName": "FUTO Notes (Dev)",
         "developmentBadge": "DEV",
         "versionShort": "v{version}",
         "minimizeWindowAccessibilityLabel": "Minimize window",
@@ -36,6 +36,7 @@
           "searchNotes": "Search Notes…",
           "closeTab": "Close Tab",
           "closeWindow": "Close Window",
+          "quit": "Quit {appName}",
           "toggleSidebar": "Toggle Sidebar"
         }
       }

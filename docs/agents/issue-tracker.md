@@ -21,6 +21,38 @@ Infer the repo from `git remote -v` — `glab` does this automatically when run 
 Each of these produced an error message that named nothing useful, and each was
 reported more than once.
 
+- **A write that fails `Unauthenticated.` is a per-machine setup gap, and `glab mr
+  create` will not say so.** This project is public, so every *read* succeeds with no
+  credentials at all — the CLI looks authenticated right up to the first write. The
+  write then prints a generic "ensure you are authenticated / merge requests are
+  enabled / your role allows it" checklist plus a recovery file, hiding the API's
+  actual answer. Re-run the same call through `glab api` to read it:
+
+  ```bash
+  glab api --hostname gitlab.futo.org --method POST \
+    "projects/futo-notes%2Ffuto-notes/merge_requests" \
+    -f source_branch=<branch> -f target_branch=main -f title="..."
+  ```
+
+  glab authenticates from a `gitlab.futo.org` entry in its own config file
+  (`glab auth login --hostname gitlab.futo.org`, once per machine) or from
+  `GITLAB_TOKEN` in the environment. Exporting that token from an *interactive*
+  profile only is the usual trap: a non-interactive agent shell never sources
+  `~/.zshrc`, so the command works by hand and fails under an agent. Two routes
+  need neither — the REST API with the token passed explicitly:
+
+  ```bash
+  curl -sS --request POST --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+    --data source_branch=<branch> --data target_branch=main \
+    --data title="Draft: ..." \
+    "https://gitlab.futo.org/api/v4/projects/futo-notes%2Ffuto-notes/merge_requests"
+  ```
+
+  and git push options over SSH (`git push -u origin <branch>
+  -o merge_request.create -o merge_request.target=main -o merge_request.title=...`),
+  which ride your git credentials. Push options are only transmitted when the push
+  actually updates a ref, so an already-pushed branch needs a new commit first.
+
 - **Run it from inside the checkout, or set the host.** `glab api` fills the
   endpoint's repo placeholders from *the repository of the current directory*, so
   run outside one it silently targets `gitlab.com` and returns `401`. That reads
@@ -49,6 +81,37 @@ reported more than once.
   is rejected by the installed CLI. Use `glab mr view <n> -F json` (and
   `glab issue list -F json`). Note the overload: on `glab api`, `-F` means
   *field*; on `issue`/`mr` subcommands it means *output format*.
+
+- **Reads work unauthenticated; writes need a token the shell can see.** The
+  project is public, so `glab issue list` and `glab api` GETs answer fine with
+  no credentials — the CLI looks authenticated right up to the first write,
+  which fails with `Unauthenticated.`. `glab mr create` does not even show that:
+  it prints a generic "ensure you are authenticated / MRs are enabled / your
+  role allows it" guess-list and writes a recover file. Two things make it
+  concrete:
+
+  ```bash
+  glab auth status                                   # is there a host entry at all?
+  [ -n "$GITLAB_TOKEN" ] || echo 'no token in this shell'
+  ```
+
+  A token exported only from an interactive `~/.zshrc` or `~/.bashrc` does not
+  exist in a non-interactive agent shell, which is why the same command works
+  in a terminal and fails under an agent. Repair it once with `glab auth login`
+  (per machine, stored in the glab config), or drive the API directly:
+
+  ```bash
+  curl -sS --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+    --header 'Content-Type: application/json' --request POST \
+    --data '{"source_branch":"my-branch","target_branch":"main","title":"Draft: ..."}' \
+    "https://gitlab.futo.org/api/v4/projects/futo-notes%2Ffuto-notes/merge_requests"
+  ```
+
+  Git push options are the other route, and need no token at all because they
+  ride the SSH push: `git push -u origin <branch> -o merge_request.create -o
+  merge_request.target=main -o merge_request.title='...'`. GitLab only reads
+  them when the push actually updates a ref, so a branch that is already
+  pushed needs a new commit before they take effect.
 
 ## Merge requests as a triage surface
 
