@@ -176,10 +176,13 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   and `.markdown`, so file managers offer FUTO Notes under **Open With**. Tauri's
   `Productivity` bundle category is the source value that emits `Office` in the
   desktop entry. → tauri.conf.json, linux/futo-notes.desktop.hbs
-- The window is not shown until the shell has painted: it is created hidden and
-  revealed on first render, so launching never flashes the webview's white.
-  Rust reveals it regardless after a timeout, so a frontend that never paints
-  delays the window rather than losing it. → window_reveal.rs, App.svelte
+- The window is not shown until the shell has painted in its theme: it is
+  created hidden and revealed on first render once the stored theme preference
+  has been applied, so launching never flashes the webview's white, and an
+  `auto` launch on a dark Linux desktop never paints light before the portal
+  answers. Rust reveals it regardless after a timeout, so a frontend that never
+  paints or a read that never answers delays the window rather than losing it.
+  → window_reveal.rs, App.svelte, createAppBootstrap.svelte.ts
 - Window size, position, maximized and fullscreen state persist across launches,
   validated against the attached monitors so an unplugged display cannot strand
   the window off-screen. → application.rs (tauri-plugin-window-state)
@@ -202,16 +205,17 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   page's own `prefers-color-scheme`, so handing the window back would make a dark
   Linux desktop render light. → theme.ts `windowAppearanceFor`,
   desktop_settings.rs (`linux-theme-changed`)
-- On **auto** the resolved theme comes from the system's own answer, which is a
-  different signal per platform. macOS and Windows read the page's
-  `prefers-color-scheme`: their `auto` hands the window back to the OS, so they
-  never write the value they read. Linux reads the xdg desktop portal's
-  `org.freedesktop.appearance` / `color-scheme`, because pinning makes the page's
-  media query an echo of the app's own last choice — so on a dark desktop,
-  choosing **Light** and then **Auto** renders dark, and it does so immediately
-  rather than only after a relaunch. Linux falls back to the reported change and
-  then to the media query only when no portal answers. → theme.ts
-  `resolveAutoTheme`, platform_integration.rs `read_desktop_color_scheme`
+- On **auto** the resolved theme comes from the OS's own answer, never from the
+  page's `prefers-color-scheme`, which echoes the app's own last pin: on a dark
+  Linux desktop choosing **Light** and then **Auto** renders dark, and on a light
+  macOS desktop choosing **Dark** and then **Auto** renders light, both
+  immediately rather than only after a relaunch. Linux reads the xdg desktop
+  portal's `org.freedesktop.appearance` / `color-scheme`; macOS and Windows hand
+  the window back to the OS and read the theme it then wears, because on macOS
+  tao reports no ThemeChanged for the app's own unpin. The reported change and
+  then the media query are fallbacks only where nothing answers. → theme.ts
+  `resolveAutoTheme`, windowAppearance.ts `releaseNativeWindowAppearance`,
+  platform_integration.rs `read_desktop_color_scheme`
 - One desktop light/dark change can arrive alongside unrelated portal signals
   on the same `SettingChanged` stream, and only an exact
   `org.freedesktop.appearance` / `color-scheme` namespace+key match re-resolves
