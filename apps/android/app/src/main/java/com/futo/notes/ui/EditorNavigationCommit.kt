@@ -1,5 +1,6 @@
 package com.futo.notes.ui
 
+import com.futo.notes.CommittedNote
 import com.futo.notes.NoteMutationOutcome
 import kotlinx.coroutines.withTimeoutOrNull
 import uniffi.futo_notes_ffi.FlushDisposition
@@ -92,6 +93,49 @@ internal fun editorExitBody(outcome: EditorCaptureOutcome, shellCopy: String): S
         EditorCaptureOutcome.TimedOut -> null
     }
 
+/** What a page read that ran out of time answers, and the new unresponsive-since mark. */
+internal data class UnansweredPageRead(
+    val outcome: EditorCaptureOutcome,
+    val unresponsiveSinceMs: Long?,
+)
+
+/**
+ * A page read ran out of its deadline without the page answering it: what does
+ * that mean? (FB-5 refute round 3, never-lose rule.)
+ *
+ * - The probe dispatched ahead of the read came back: the renderer is alive
+ *   and busy (a long settle, a big serialization), and may hold an edit the
+ *   shell has never seen. [EditorCaptureOutcome.TimedOut] — an exit refuses
+ *   and the next Back finds the work done.
+ * - Nothing came back, for an open-note reconcile: no verdict either way
+ *   (TimedOut). Silence is never read as "the editor holds nothing" there —
+ *   that would adopt a peer's version over an edit the page is sitting on.
+ * - Nothing came back, for an exit: a JS thread blocked that long looks
+ *   exactly like a wedge, but it may be a long synchronous task that ends —
+ *   and committing the shell's copy then loses whatever the page held. So the
+ *   exit refuses too, and only a page that has given no sign of life for
+ *   [deadAfterMs] since the FIRST such refusal is treated as dead
+ *   ([EditorCaptureOutcome.NoLiveDocument]: leave on the shell's copy, which
+ *   the user never saw an editable alternative to). Any answer from the page
+ *   clears the mark. A renderer that is gone is dead at once (the host
+ *   answers the outstanding read itself).
+ */
+internal fun unansweredPageRead(
+    probeAnswered: Boolean,
+    forExit: Boolean,
+    unresponsiveSinceMs: Long?,
+    nowMs: Long,
+    deadAfterMs: Long,
+): UnansweredPageRead =
+    when {
+        probeAnswered -> UnansweredPageRead(EditorCaptureOutcome.TimedOut, null)
+        !forExit -> UnansweredPageRead(EditorCaptureOutcome.TimedOut, unresponsiveSinceMs)
+        unresponsiveSinceMs == null -> UnansweredPageRead(EditorCaptureOutcome.TimedOut, nowMs)
+        nowMs - unresponsiveSinceMs >= deadAfterMs ->
+            UnansweredPageRead(EditorCaptureOutcome.NoLiveDocument, unresponsiveSinceMs)
+        else -> UnansweredPageRead(EditorCaptureOutcome.TimedOut, unresponsiveSinceMs)
+    }
+
 /**
  * Run [capture] under the exit's deadline, and decide what running out of time
  * MEANS by racing a trivial renderer round trip against it.
@@ -174,19 +218,21 @@ internal data class EditorNavigationCommit(
 internal data class EditorTitleCommit(
     val id: String,
     val isCommitted: Boolean,
+    /** The body the relink left in the renamed note (a self-link), if it rewrote it. */
+    val relinkedBody: String? = null,
 )
 
 internal suspend fun commitEditorTitleSnapshot(
     currentId: String,
     targetId: String?,
-    rename: suspend (oldId: String, targetId: String) -> NoteMutationOutcome<String>,
+    rename: suspend (oldId: String, targetId: String) -> NoteMutationOutcome<CommittedNote>,
 ): EditorTitleCommit {
     if (targetId == null || targetId == currentId) {
         return EditorTitleCommit(currentId, isCommitted = true)
     }
     return when (val outcome = rename(currentId, targetId)) {
         is NoteMutationOutcome.Committed ->
-            EditorTitleCommit(outcome.value, isCommitted = true)
+            EditorTitleCommit(outcome.value.id, isCommitted = true, relinkedBody = outcome.value.relinkedBody)
         NoteMutationOutcome.Failed ->
             EditorTitleCommit(currentId, isCommitted = false)
     }

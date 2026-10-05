@@ -400,6 +400,155 @@ test('backspace at the top of the body cannot eat the front matter', async ({ pa
   );
 });
 
+test('a note that opens with an unclosed --- rule keeps its lists and quotes', async ({ page }) => {
+  // With no closing fence the `---` is a thematic break (docs/spec/editor.md,
+  // YAML front matter). The front matter construct used to hunt for the fence
+  // to the end of the file and take every container with it, so the first
+  // keystroke anywhere saved `\- milk` and `\> quoted`, nesting flattened.
+  const note = '---\n\nShopping\n\n- milk\n  - skim\n\n> quoted\n\nend\n';
+  await hostSetContent(page, note);
+  await expect(page.locator('.ProseMirror ul li')).toHaveCount(2);
+  await expect(page.locator('.ProseMirror blockquote')).toHaveCount(1);
+  await clearMessages(page);
+
+  await focusEditor(page);
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('X');
+
+  const changes = await waitForMessages(page, 'change');
+  expect(changes).toHaveLength(1);
+  expect(changes[0].content).toBe('***\n\nShopping\n\n- milk\n  - skim\n\n> quoted\n\nendX\n');
+});
+
+// A paste reaches the document through the DOM: our own copy writes the block
+// as `<pre data-frontmatter>`, and a plain-text paste is parsed as markdown and
+// then serialized to DOM and parsed back (Milkdown's clipboard plugin). The
+// preset's code block claims every `<pre>`, so either way the metadata used to
+// land as a fenced code block.
+test('cutting a whole note and pasting it back keeps its front matter', async ({
+  browser,
+  browserName,
+}) => {
+  test.skip(browserName !== 'chromium', 'clipboard permissions are Chromium-only in Playwright');
+  const context = await browser.newContext({
+    hasTouch: true,
+    permissions: ['clipboard-read', 'clipboard-write'],
+  });
+  await context.addInitScript(installFakeAndroidHost);
+  const page = await context.newPage();
+  await page.goto(EDITOR_URL);
+  await page.waitForFunction(() =>
+    (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
+  );
+  await hostSetContent(page, FRONT_MATTER_NOTE);
+  await focusEditor(page);
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('ControlOrMeta+x');
+  await page.keyboard.press('ControlOrMeta+v');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(FRONT_MATTER_NOTE);
+  await expect(page.locator('.futo-frontmatter')).toHaveCount(1);
+  await context.close();
+});
+
+test('pasting a note with front matter as plain text keeps the front matter', async ({ page }) => {
+  await hostSetContent(page, '');
+  await focusEditor(page);
+  await pasteClipboard(page, { 'text/plain': FRONT_MATTER_NOTE });
+  await settleChangeDebounce(page);
+
+  await expect(page.locator('.futo-frontmatter')).toHaveCount(1);
+  expect(await getContent(page)).toBe(FRONT_MATTER_NOTE);
+});
+
+test('front matter pasted where it cannot live keeps its text', async ({ page }) => {
+  // Front matter can only open a note, and a paste drops a block that fits
+  // nowhere — so once the block's parse rule won, mid-note front matter would
+  // have vanished. It lands as a code block of the same text instead.
+  await hostSetContent(page, 'one\n\ntwo\n');
+  await focusEditor(page);
+  await page.keyboard.press('Control+End');
+  await pasteClipboard(page, { 'text/plain': '---\na: 1\n---\n\nbody\n' });
+  await pasteClipboard(page, {
+    'text/html': '<pre data-frontmatter="">b: 2</pre><p>more</p>',
+    'text/plain': 'b: 2',
+  });
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(
+    'one\n\ntwo\n\n```\na: 1\n```\n\nbody\n\n```\nb: 2\n```\n\nmore\n',
+  );
+});
+
+test('an edit keeps a link definition nothing references', async ({ page }) => {
+  // The preset deleted every definition on the first save; one that no link
+  // used took its URL and title with it (RC-41).
+  const note = 'Some text here.\n\n[docs]: https://example.com/docs "Docs"\n';
+  await hostSetContent(page, note);
+  await clearMessages(page);
+
+  await page.locator('.ProseMirror p').first().click();
+  await page.keyboard.press('End');
+  await page.keyboard.type('!');
+
+  const changes = await waitForMessages(page, 'change');
+  expect(changes).toHaveLength(1);
+  expect(changes[0].content).toBe(note.replace('here.', 'here.!'));
+});
+
+test('an edit beside a table with a wide row keeps every value in its column', async ({ page }) => {
+  // One trailing `| |` made fixTables pad every row above it at the START, and
+  // the edit elsewhere saved `apple` under no header at all (RC-42).
+  await hostSetContent(
+    page,
+    'Prices\n\n| item | price |\n| - | - |\n| apple | 3 |\n| pear | 4 | |\n\nend\n',
+  );
+  await clearMessages(page);
+
+  await page.locator('.ProseMirror p').first().click();
+  await page.keyboard.press('End');
+  await page.keyboard.type('!');
+
+  const changes = await waitForMessages(page, 'change');
+  expect(changes).toHaveLength(1);
+  expect(changes[0].content).toBe(
+    'Prices!\n\n| item  | price |   |\n| ----- | ----- | - |\n| apple | 3     |   |\n| pear  | 4     |   |\n\nend\n',
+  );
+});
+
+test('an edit to a note that ends in a list adds no trailing blank line', async ({ page }) => {
+  // The `trailing` plugin parks an empty paragraph below a last list, quote,
+  // table, fence or rule, and the first edit used to write it as `\n\n` at the
+  // end of the file (RC-22). The spec drops a trailing empty paragraph on save.
+  for (const [note, edited] of [
+    ['- a\n- b\n', '- aX\n- b\n'],
+    ['> a\n', '> aX\n'],
+    ['| a | b |\n| - | - |\n| 1 | 2 |\n', '| aX | b |\n| -- | - |\n| 1  | 2 |\n'],
+  ] as const) {
+    await hostSetContent(page, note);
+    await clearMessages(page);
+    await page.locator('.ProseMirror :is(li, blockquote, th) p').first().click();
+    await page.keyboard.press('End');
+    await page.keyboard.type('X');
+    const changes = await waitForMessages(page, 'change');
+    expect(changes[changes.length - 1].content).toBe(edited);
+  }
+});
+
+test('a table pasted as plain text is written the way an opened one is', async ({ page }) => {
+  // A paste goes through the DOM, where the gfm preset read a cell with no
+  // alignment back as `left`: the pasted table saved `| :- |`, the same table
+  // opened and edited saved `| -- |` (RC-59).
+  await hostSetContent(page, 'one\n');
+  await focusEditor(page);
+  await page.keyboard.press('Control+End');
+  await pasteClipboard(page, { 'text/plain': '| a | b |\n| --- | --- |\n| 1 | 2 |\n' });
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe('one\n\n| a | b |\n| - | - |\n| 1 | 2 |\n');
+});
+
 test('applyExternalContent adopts differing content without a change echo', async ({ page }) => {
   await hostSetContent(page, 'original');
   await clearMessages(page);
@@ -504,6 +653,98 @@ test('undo inside one note still works', async ({ page }) => {
 });
 
 /*
+ * RC-60 (L3-5): an undo that brings a divider back is not the user creating a
+ * divider. `dividerCaret` used to read the restored `hr` as new and append an
+ * empty paragraph after it, so undoing "type over a selected divider" left the
+ * note one blank line longer than it was opened. Real input only: a mouse click
+ * on the rule is how a user selects a divider (a click on a block atom is a
+ * NodeSelection; ArrowDown steps natively PAST the rule), then typed letters
+ * replace it.
+ */
+test('undoing a keystroke typed over a selected divider restores the note exactly', async ({
+  page,
+}) => {
+  const note = 'first\n\n***\n\nlast\n';
+  await hostSetContent(page, note);
+  await page.locator('.ProseMirror hr').click();
+  await page.keyboard.type('hello');
+  await waitForMessages(page, 'change');
+  expect(await getContent(page)).toContain('hello');
+  expect(await getContent(page)).not.toContain('***');
+
+  for (let i = 0; i < 20; i++) await page.keyboard.press('ControlOrMeta+z');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(note);
+
+  // Redo puts the edit back, and undoing it again is exact once more.
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toContain('h');
+  expect(await getContent(page)).not.toContain('***');
+  for (let i = 0; i < 20; i++) await page.keyboard.press('ControlOrMeta+z');
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toBe(note);
+});
+
+/*
+ * RC-54 (L3-6): Ctrl-Z after an adopt threw `RangeError: Position N out of range`.
+ * The adopt was incidental. An undo that restores a divider ran `dividerCaret`,
+ * whose `appendTransaction` added an empty paragraph to the replay; that
+ * paragraph is in no history event, so every OLDER event that sat below it in
+ * the document was now two positions off, its inverse steps no longer fitted
+ * ("Inconsistent open depths"), and resolving its selection bookmark ran past the
+ * end of the document. It needs the divider event to have an earlier event
+ * below it, which is why a lone undo (RC-60's case above) never showed it.
+ */
+test('undoing everything after an adopt, a later edit and a keystroke over a divider is exact', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await hostSetContent(page, 'first\n\n***\n\nlast\n');
+  await page.evaluate(() =>
+    (window as unknown as FakeHostWindow).FutoEditor.applyExternalContent(
+      'first peer\n\n***\n\nlast\n',
+    ),
+  );
+  await flushFrames(page);
+  const adopted = 'first peer\n\n***\n\nlast\n';
+
+  // An edit BELOW the divider, then one over it.
+  await page.getByText('last', { exact: true }).click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' one');
+  await page.locator('.ProseMirror hr').click();
+  await page.keyboard.type('hello');
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toContain('hello');
+
+  for (let i = 0; i < 30; i++) await page.keyboard.press('ControlOrMeta+z');
+  await settleChangeDebounce(page);
+
+  expect(errors).toEqual([]);
+  expect(await getContent(page)).toBe(adopted);
+});
+
+test('undo and redo of a typed `---` leave the divider note byte-stable', async ({ page }) => {
+  await hostSetContent(page, 'above\n\n');
+  await focusEditor(page);
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('---');
+  await settleChangeDebounce(page);
+  const made = await getContent(page);
+  expect(made).toContain('***');
+
+  await page.keyboard.press('ControlOrMeta+z');
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(made);
+});
+
+/*
  * Data safety: a version that arrives from OUTSIDE the editor is not an edit,
  * so it cannot be undone. `applyExternalContent` is the sync-adopt path, and it
  * deliberately does NOT reset the undo stack (the user's own edits stay
@@ -535,6 +776,221 @@ test('a version adopted from outside the editor is not something undo can revive
 });
 
 // ============================================================
+// Note switch — the outgoing note's edit belongs to the outgoing note
+// ============================================================
+//
+// Both shells share ONE WebView between notes, and a `change` carries no note
+// identity: whichever note the shell has bound when it ARRIVES is the note it
+// is saved into. So the shell reads the outgoing note (`blur(); getContent()`)
+// before the next note's push — Android in its exit before it navigates, iOS
+// also inside the attach that rebinds its callbacks (EditorWebView.swift
+// `attach`, which then holds back any `change` until that read answers).
+// Everything below is the bundle's half of that contract: the read is the
+// outgoing note's last word — whatever it still had to report goes out inside
+// the read, nothing after it — and the switch itself posts nothing.
+// `__switch` in the message log marks the point from which the shell is
+// listening for the NEXT note.
+// → docs/qa/wikilink-pop-large-edited-note.md
+
+const LINKING_NOTE = 'Parent note body\n\n[[Child]]\n';
+const LINKED_NOTE = 'Child note body\n';
+
+/** Every `change` posted after the `__switch` marker. */
+async function changesAfterSwitch(page: Page): Promise<string[]> {
+  const log = await messages(page);
+  const at = log.findIndex((m) => m.type === '__switch');
+  expect(at, 'the test never marked the switch').toBeGreaterThanOrEqual(0);
+  return log
+    .slice(at + 1)
+    .filter((m) => m.type === 'change')
+    .map((m) => m.content as string);
+}
+
+/** The shell's exit read of the outgoing note, after which it listens for the next one. */
+async function captureOutgoingNote(page: Page): Promise<{ body: string; streaming: boolean }> {
+  return page.evaluate(() => {
+    const w = window as unknown as FakeHostWindow;
+    const streaming = document.querySelector('.milkdown-stream-tail') !== null;
+    w.FutoEditor.blur();
+    const body = w.FutoEditor.getContent();
+    w.__msgs.push({ type: '__switch' });
+    return { body, streaming };
+  });
+}
+
+/**
+ * Follow a link from the linking note to `linked` (a host push) and type into
+ * it. A large note is typed into at the caret `focus()` leaves, straight away,
+ * so the keystrokes land while its tail is still streaming.
+ */
+async function openLinkedNoteAndType(page: Page, linked: string, typed: string): Promise<void> {
+  await initialize(page, hostConfig({ content: LINKING_NOTE }));
+  await page.evaluate((md) => {
+    const w = window as unknown as FakeHostWindow;
+    w.FutoEditor.setContent(md);
+    w.__msgs.length = 0;
+    w.FutoEditor.focus();
+  }, linked);
+  if (linked === LINKED_NOTE) await page.keyboard.press('End');
+  await page.keyboard.type(typed);
+}
+
+const STILL_STREAMING = 'the linked note must still be streaming for this case to mean anything';
+
+test('switching notes posts nothing for the outgoing note, even one edited while it streams', async ({
+  page,
+}) => {
+  // RC-04: the switch's own "is this already on screen?" read used to settle
+  // the stream and post the linked note's whole body INSIDE the push of the
+  // linking note, which iOS had already rebound its callbacks to — the parent
+  // file was overwritten with the child's body.
+  await openLinkedNoteAndType(page, largeNote(4000), 'EDITED ');
+
+  const streaming = await page.evaluate((md) => {
+    const w = window as unknown as FakeHostWindow;
+    const tail = document.querySelector('.milkdown-stream-tail') !== null;
+    w.__msgs.push({ type: '__switch' });
+    w.FutoEditor.setContent(md);
+    return tail;
+  }, LINKING_NOTE);
+  await settleChangeDebounce(page);
+
+  expect(streaming, STILL_STREAMING).toBe(true);
+  expect(await changesAfterSwitch(page), 'this would be saved into the linking note').toEqual([]);
+  expect(await getContent(page)).toBe(LINKING_NOTE);
+});
+
+test('the exit read of a streaming, edited note is its last word', async ({ page }) => {
+  await openLinkedNoteAndType(page, largeNote(4000), 'EDITED ');
+
+  const captured = await captureOutgoingNote(page);
+  await hostSetContent(page, LINKING_NOTE);
+
+  expect(captured.streaming, STILL_STREAMING).toBe(true);
+  expect(captured.body).toContain('EDITED ');
+  expect(captured.body).toContain('Section 3999');
+  // A `change` for the edit now would reach the next note's binding.
+  expect(await changesAfterSwitch(page)).toEqual([]);
+  expect(await getContent(page)).toBe(LINKING_NOTE);
+});
+
+test('the exit read reports the pending change itself, so none arrives after the switch', async ({
+  page,
+}) => {
+  // RC-09 / L6c-3: typing, then leaving inside the change debounce. The read
+  // carries the typed words, and so does a report posted INSIDE it, to the
+  // binding that is still the outgoing note's. The debounce armed by the last
+  // keystroke must not fire afterwards, however late the next note's push.
+  await openLinkedNoteAndType(page, LINKED_NOTE, ' plus typed words');
+
+  const captured = await captureOutgoingNote(page);
+  await settleChangeDebounce(page);
+  await hostSetContent(page, LINKING_NOTE);
+
+  expect(captured.body).toContain('plus typed words');
+  const log = await messages(page);
+  const beforeSwitch = log
+    .slice(
+      0,
+      log.findIndex((m) => m.type === '__switch'),
+    )
+    .filter((m) => m.type === 'change')
+    .map((m) => m.content);
+  expect(beforeSwitch).toEqual([captured.body]);
+  expect(await changesAfterSwitch(page)).toEqual([]);
+  expect(await getContent(page)).toBe(LINKING_NOTE);
+});
+
+test('a switch inside the change debounce shows the next note, even with the same bytes', async ({
+  page,
+}) => {
+  // L6a-1: two new, empty notes. The switch used to be compared against what
+  // the host last loaded ('') instead of the live document, so it was
+  // swallowed: the first note's text stayed on screen and was then posted as
+  // the second note's change.
+  await initialize(page, hostConfig({ content: '' }));
+  await focusEditor(page);
+  await page.keyboard.type('typed into the first note');
+
+  const changesBeforeSwitch = await page.evaluate(() => {
+    const w = window as unknown as FakeHostWindow;
+    const before = w.__msgs.filter((m) => m.type === 'change').length;
+    w.__msgs.push({ type: '__switch' });
+    w.FutoEditor.setContent('');
+    return before;
+  });
+  expect(changesBeforeSwitch, 'the switch must land inside the debounce').toBe(0);
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe('');
+  expect(await changesAfterSwitch(page)).toEqual([]);
+});
+
+test('a host re-sending the note on screen leaves the caret where it was', async ({ page }) => {
+  await hostSetContent(page, 'abcdef');
+  await focusEditor(page);
+  await clickCaretInto(page, 3);
+
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.setContent('abcdef'));
+  await flushFrames(page);
+  await page.keyboard.type('Z');
+
+  await waitForMessages(page, 'change');
+  expect(await getContent(page)).toBe('abcZdef\n');
+});
+
+test('a switch to an empty note drops the blank paragraphs the last note was left with', async ({
+  page,
+}) => {
+  // RC-22 regression: trailing empty paragraphs are not written, so a note the
+  // user pressed Enter in serializes like a note without them, and the switch
+  // was skipped as "already on screen" with the blanks still there.
+  await initialize(page, hostConfig({ content: '' }));
+  await focusEditor(page);
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await settleChangeDebounce(page);
+
+  await hostSetContent(page, '');
+  await focusEditor(page);
+  await page.keyboard.type('shopping');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe('shopping\n');
+});
+
+test('a switch to the same text drops the blank paragraphs stacked under it', async ({ page }) => {
+  await hostSetContent(page, 'hello\n');
+  await focusEditor(page);
+  await page.keyboard.press('ControlOrMeta+End');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Enter');
+  await settleChangeDebounce(page);
+  expect(await page.locator('.ProseMirror > p').count()).toBe(4);
+
+  await hostSetContent(page, 'hello\n');
+
+  expect(await page.locator('.ProseMirror > p').count()).toBe(1);
+  expect(await getContent(page)).toBe('hello\n');
+});
+
+test('a push equal to an out-of-date serialization still replaces the document', async ({
+  page,
+}) => {
+  // L6a-1, second shape: the last REPORTED text is not the live document once
+  // the user has typed past it.
+  await hostSetContent(page, 'seed');
+  await focusEditor(page);
+  await page.keyboard.press('End');
+  await page.keyboard.type(' one');
+  await waitForMessages(page, 'change');
+  await page.keyboard.type(' two');
+
+  await hostSetContent(page, 'seed one\n');
+
+  expect(await getContent(page)).toBe('seed one\n');
+});
+
+// ============================================================
 // Focus and link routing
 // ============================================================
 
@@ -558,7 +1014,10 @@ test('blur() drops a highlighted range, and refocusing does not bring it back', 
   const line = page.getByText('alpha bravo charlie');
   const box = await line.boundingBox();
   await line.dblclick({ position: { x: 4, y: box!.height / 2 } });
-  expect(await page.evaluate(() => document.getSelection()?.toString())).toBe('alpha');
+  // The precondition is "a non-collapsed range over the first word". Windows
+  // Chromium's double-click also takes the trailing space ("alpha "), Linux and
+  // macOS do not; both are the word, but "alpha bravo" or a caret are not.
+  expect(await page.evaluate(() => document.getSelection()?.toString())).toMatch(/^alpha ?$/);
 
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.blur());
   await flushFrames(page);
@@ -1928,6 +2387,11 @@ mobileDndTest(
     // platform's own long-press gestures down — just never liftable.
     expect((await messagesOfType(page, 'blockPress')).map((m) => m.pressed)).toEqual([true, false]);
     expect(await getContent(page)).toBe('alpha\n\n\nbravo');
+    // The release's native click must not leave the editor focused: a focused
+    // editor makes the next press below a text-selection gesture that never
+    // arms, so the `haptic` wait timed out under load (RC-84: the one-frame
+    // release guard had expired before the click's focus arrived).
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
 
     // A real block right next to it is unaffected.
     await clearMessages(page);
@@ -1942,6 +2406,48 @@ mobileDndTest(
     const [haptic] = await waitForMessages(page, 'haptic');
     expect(haptic.kind).toBe('lift');
     await touch(cdp, 'touchEnd', alpha.x, alpha.y);
+  },
+);
+
+// R10-FB20-1: the release focus guard exists to absorb the native click's focus
+// and must never swallow the HOST's own focus() (quick-capture open, returning
+// to a note): a host focus is intentional. Checked inside the guard's 1 s window.
+mobileDndTest(
+  'a host focus() right after a lifted drop focuses the editor',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+    await clearMessages(page);
+    const alpha = await blockCenter(page, 'alpha');
+    const charlie = await blockCenter(page, 'charlie');
+    await longPressDrag(page, cdp, alpha, { x: charlie.x, y: charlie.y + 4 });
+    await page.waitForTimeout(100);
+
+    await focusEditor(page);
+    await flushFrames(page);
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
+    await page.waitForTimeout(300); // and it stays focused
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
+  },
+);
+
+mobileDndTest(
+  'a host focus() right after an empty-paragraph release focuses the editor',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, 'alpha\n\n\nbravo');
+    await clearMessages(page);
+    const emptyBox = await page.locator('.ProseMirror > *').nth(1).boundingBox();
+    if (!emptyBox) throw new Error('no geometry for the empty paragraph');
+    const empty = { x: emptyBox.x + emptyBox.width / 2, y: emptyBox.y + emptyBox.height / 2 };
+    await touch(cdp, 'touchStart', empty.x, empty.y);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 150);
+    await touch(cdp, 'touchEnd', empty.x, empty.y);
+    await page.waitForTimeout(100);
+
+    await focusEditor(page);
+    await flushFrames(page);
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
   },
 );
 
@@ -2458,6 +2964,220 @@ test('getContent mid-stream after an edit finishes the load rather than answerin
   expect(midStream.content).toContain('Section 3999');
 });
 
+/*
+ * "Did the user edit while the tail streamed?" must not alias (RC-11: L6a-2,
+ * L6b-12, L6b-12b). The answer used to be `undoDepth > depth when the load
+ * started`, and undo depth is not a count of edits: a sync adopt keeps the
+ * user's history (no `resetHistory` — see "a version adopted from outside the
+ * editor"), an Undo LOWERS the depth, and prosemirror-history trims its stack
+ * from 120 events back to 100. Either way a real edit netted to "not edited":
+ * no `change`, and `getContent()` answered the peer's bytes while the typed
+ * word sat on screen, to be lost on the next leave.
+ */
+
+const TYPED_MID_STREAM = 'the keystrokes must land while the tail streams (M11)';
+
+/** Top-level blocks mounted right now; a streaming note has only its head. */
+async function mountedBlocks(page: Page): Promise<number> {
+  return page.evaluate(() => document.querySelectorAll('.ProseMirror > *').length);
+}
+
+/** The history plugin's recorded undo events. */
+async function undoEvents(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    type HistoryPlugin = {
+      key: string;
+      getState: (state: unknown) => { done: { eventCount: number } };
+    };
+    const view = (
+      window as unknown as {
+        __futoProseMirrorView: () => { state: { plugins: HistoryPlugin[] } };
+      }
+    ).__futoProseMirrorView();
+    const plugin = view.state.plugins.find((p) => String(p.key).startsWith('history$'));
+    return plugin!.getState(view.state).done.eventCount;
+  });
+}
+
+/** A selection-only caret move to the start of the text holding `marker`. */
+async function caretBefore(page: Page, marker: string): Promise<void> {
+  await page.evaluate((text) => {
+    type ProseNodeLike = { isText: boolean; text?: string };
+    const view = (
+      window as unknown as {
+        __futoProseMirrorView: () => {
+          state: {
+            doc: { descendants: (f: (n: ProseNodeLike, pos: number) => boolean) => void };
+            selection: { constructor: { create: (doc: unknown, pos: number) => unknown } };
+            tr: { setSelection: (s: unknown) => unknown };
+          };
+          dispatch: (tr: unknown) => void;
+        };
+      }
+    ).__futoProseMirrorView();
+    let at = -1;
+    view.state.doc.descendants((node, pos) => {
+      if (at >= 0) return false;
+      if (node.isText && node.text!.includes(text)) at = pos + node.text!.indexOf(text);
+      return true;
+    });
+    if (at < 0) throw new Error(`no text ${text}`);
+    const selection = view.state.selection.constructor.create(view.state.doc, at);
+    view.dispatch(view.state.tr.setSelection(selection));
+  }, marker);
+}
+
+/** Adopt `note` as a sync update would, and report whether it took the streaming path. */
+async function adoptStreaming(page: Page, note: string): Promise<boolean> {
+  return page.evaluate((md) => {
+    const w = window as unknown as FakeHostWindow;
+    w.FutoEditor.applyExternalContent(md);
+    w.__msgs.length = 0;
+    // The tail affordance is Svelte state, painted after this task; the block
+    // count is synchronous. Only chunk 0 is mounted yet.
+    return document.querySelectorAll('.ProseMirror > *').length < 1000;
+  }, note);
+}
+
+test('an Undo while an adopted note streams does not hide the word typed after it', async ({
+  page,
+}) => {
+  await hostSetContent(page, 'small note\n');
+  await focusEditor(page);
+  await page.keyboard.type('edited ');
+  await waitForMessages(page, 'change');
+
+  const peer = largeNote(3000);
+  expect(await adoptStreaming(page, peer), 'the adopt must take the progressive path').toBe(true);
+
+  // The pre-adopt step maps to nothing over the replaced document: this Undo
+  // changes no text, only the undo depth.
+  await page.keyboard.press('ControlOrMeta+z');
+  await page.keyboard.type('QQQ');
+  expect(await mountedBlocks(page), TYPED_MID_STREAM).toBeLessThan(5000);
+  await expect(page.locator('.ProseMirror')).toContainText('QQQ');
+
+  await waitForStreamComplete(page);
+
+  const changes = await messagesOfType(page, 'change');
+  expect(changes.some((m) => String(m.content).includes('QQQ'))).toBe(true);
+  const content = await getContent(page);
+  expect(content).toContain('QQQ');
+  expect(content).toContain('Section 2999');
+});
+
+test('a word typed while an adopted note streams is reported with the undo stack full', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await initialize(page, hostConfig({ content: largeNote(300) }));
+  await waitForStreamComplete(page);
+  await focusEditor(page);
+  // 120 separate undo events, at two non-adjacent places so none merge: the
+  // stack is at the depth where the next event trims it back to 100.
+  for (let i = 0; i < 120; i += 1) {
+    await caretBefore(page, i % 2 === 0 ? 'Body line 1 ' : 'Body line 7 ');
+    await page.keyboard.type('x');
+  }
+  expect(await undoEvents(page), 'the undo stack must be at its trim threshold').toBe(120);
+  await settleChangeDebounce(page);
+
+  const peer = largeNote(3000).replace('Body line 0 ', 'Peer line 0 ');
+  expect(await adoptStreaming(page, peer), 'the adopt must take the progressive path').toBe(true);
+  await caretBefore(page, 'Peer line 0 ');
+  await page.keyboard.type('Q');
+  expect(await mountedBlocks(page), TYPED_MID_STREAM).toBeLessThan(5000);
+  expect(await undoEvents(page), 'this keystroke must have trimmed the stack').toBeLessThan(120);
+
+  await waitForStreamComplete(page);
+
+  const changes = await messagesOfType(page, 'change');
+  expect(changes.some((m) => String(m.content).includes('QPeer line 0 '))).toBe(true);
+  expect(await getContent(page)).toContain('QPeer line 0 ');
+});
+
+/*
+ * applyExternalContent over an unreported edit (RC-08, FB-5).
+ *
+ * Both native shells classify a peer's edit or delete of the OPEN note
+ * (`classify_open_note`) from a draft kept current by `change` messages. Two
+ * windows leave that draft behind the editor: a large note withholds `change`
+ * while its tail streams (the save lock), and every edit spends 200 ms in the
+ * change debounce. Classified on that draft, the edit read as "nothing to
+ * lose": a peer edit was adopted over it (`applyExternalContent` discards the
+ * document) and a peer delete closed the note. So the shells now READ the
+ * editor before classifying, without blurring it (a reconcile may not take the
+ * keyboard from a typist). These pin what that read has to give them: the
+ * edit, over the whole note, with the `change` that brings the shell's own copy
+ * level posted inside the read — and focus left where it was.
+ */
+async function reconcileRead(page: Page) {
+  return page.evaluate(() => {
+    const w = window as unknown as FakeHostWindow;
+    const before = w.__msgs.length;
+    const streaming = document.querySelectorAll('.milkdown-stream-tail').length > 0;
+    // The shells' reconcile read (EditorHost.readScript / READ_SCRIPT).
+    const content = w.FutoEditor.getContent();
+    const posted = w.__msgs.slice(before);
+    return {
+      streaming,
+      content,
+      changes: posted.filter((m) => m.type === 'change').map((m) => String(m.content)),
+      blurred: posted.some((m) => m.type === 'focus' && m.focused === false),
+      focused: !!document.activeElement?.closest('.ProseMirror'),
+    };
+  });
+}
+
+test('applyExternalContent over an unreported edit: the read the host takes first reports an edit made while the tail streams', async ({
+  page,
+}) => {
+  const note = largeNote(4000);
+  await page.evaluate(
+    (json) => {
+      const w = window as unknown as FakeHostWindow;
+      w.__msgs.length = 0;
+      w.FutoEditor.initialize(json);
+      w.FutoEditor.focus();
+    },
+    hostConfig({ content: note }),
+  );
+  await page.keyboard.type('UNREPORTED ');
+
+  const read = await reconcileRead(page);
+
+  expect(read.streaming, 'the read must land while the tail streams (M11)').toBe(true);
+  expect(read.content).toContain('UNREPORTED ');
+  // Not a prefix (F3): the tail that had not been parsed when the read began.
+  expect(read.content).toContain('Section 3999');
+  // The shell's change-fed copy is level with the read before the read returns.
+  expect(read.changes.at(-1)).toBe(read.content);
+  expect(read.blurred).toBe(false);
+  expect(read.focused).toBe(true);
+});
+
+test('applyExternalContent over an unreported edit: the read the host takes first reports an edit still inside the change debounce', async ({
+  page,
+}) => {
+  await initialize(page, hostConfig({ content: 'the note\n' }));
+  await focusEditor(page);
+  await clearMessages(page);
+  await page.keyboard.type('burst');
+
+  // No settle: the burst is still inside the 200 ms debounce.
+  const read = await reconcileRead(page);
+
+  expect(read.content).toContain('burst');
+  expect(read.changes).toEqual([read.content]);
+  expect(read.blurred).toBe(false);
+  expect(read.focused).toBe(true);
+
+  // Reported once: the read retired the debounce, so nothing about this
+  // document arrives after the host has classified on it.
+  await settleChangeDebounce(page);
+  expect((await messagesOfType(page, 'change')).length).toBe(1);
+});
+
 /** The top-level block shapes of the live document, `p:empty` for an empty paragraph. */
 async function topLevelShapes(page: Page): Promise<string[]> {
   return page.evaluate(() =>
@@ -2561,6 +3281,67 @@ interface ProseMirrorDiagnosticWindow {
     domAtPos(pos: number): { node: Node };
   };
 }
+
+/**
+ * The scoped list-order pass re-labels the items of a bullet list whose first
+ * item says `ordered`. It wrote each item's attrs at the item's offset INSIDE
+ * the list instead of its document position (RC-55, copied from upstream), so
+ * the attrs landed on whatever block sat at that offset of the document: a
+ * heading was reset to H1, and a text node there made `setNodeMarkup` throw
+ * and dropped the whole transaction. Reached by dispatching such a list
+ * directly — no typed path was found that builds one.
+ */
+test('list relabelling writes item attrs at document positions, not list-relative ones', async ({
+  page,
+}) => {
+  await initialize(page, hostConfig({ content: 'seed\n' }));
+  const outcome = await page.evaluate(() => {
+    interface Json {
+      type: string;
+      attrs?: Record<string, unknown>;
+      content?: Json[];
+      text?: string;
+    }
+    const view = (
+      window as unknown as {
+        __futoProseMirrorView: () => {
+          state: {
+            doc: { content: { size: number } };
+            schema: { nodeFromJSON(json: Json): { content: unknown } };
+            tr: { replaceWith(from: number, to: number, content: unknown): unknown };
+          };
+          dispatch(tr: unknown): void;
+        };
+      }
+    ).__futoProseMirrorView();
+    const text = (t: string): Json => ({ type: 'text', text: t });
+    const item = (t: string, label: string): Json => ({
+      type: 'list_item',
+      attrs: { label, listType: 'ordered', spread: true },
+      content: [{ type: 'paragraph', content: [text(t)] }],
+    });
+    const doc = view.state.schema.nodeFromJSON({
+      type: 'doc',
+      content: [
+        { type: 'heading', attrs: { level: 3 }, content: [text('Title')] },
+        { type: 'paragraph', content: [text('body')] },
+        { type: 'bullet_list', content: [item('x', '7.'), item('y', '9.'), item('z', '9.')] },
+      ],
+    });
+    try {
+      view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, doc.content));
+      return null;
+    } catch (error) {
+      return (error as Error).message;
+    }
+  });
+  expect(outcome).toBeNull();
+  await flushFrames(page);
+  const content = await getContent(page);
+  expect(content).toMatch(/^### Title\n/);
+  expect(content).toContain('1. x');
+  expect(content).toContain('3. z');
+});
 
 /**
  * Every top-level block is rendered eagerly: the editor applies no
@@ -2727,6 +3508,265 @@ base('killing the app mid-stream leaves the note file byte-untouched', async ({ 
 
   expect(readFileSync(notePath).equals(originalBytes)).toBe(true);
   rmSync(dir, { recursive: true, force: true });
+});
+
+// ------------------------------------------------------------
+// Progressive open agrees with the whole-document parse (RC-38, RC-39, RC-40)
+// ------------------------------------------------------------
+//
+// The planner is a line scanner standing in for micromark, and the release-
+// hardening fuzz (lens B) found it cutting INSIDE a code or HTML block, or
+// chunking a note whose definitions resolve document-wide, in a dozen shapes.
+// The fix is to DECLINE whatever it cannot prove top-level and block-bounded
+// (markdownChunks.ts, "THE RULE"), so these notes now load whole. The oracle
+// does not care which path a note takes: the first edit after opening must
+// write exactly the bytes a whole-document parse writes, with the keystroke
+// applied. Each case fails against the scanner it replaces.
+
+/** 84 lines of one plain paragraph: no blank line, no hard starter, no boundary. */
+const CHUNK_INTRO = [
+  'Intro paragraph.',
+  ...Array.from({ length: 84 }, (_, i) => `plain line ${i}`),
+].join('\n');
+/** A tail long enough to push the note past the 400-line threshold. */
+const CHUNK_TAIL = Array.from({ length: 330 }, (_, i) => `tail line ${i}`).join('\n');
+const CHUNK_INTRO_REST = CHUNK_INTRO.split('\n').slice(1).join('\n');
+
+const CHUNK_AGREEMENT_CASES: Array<{ name: string; note: string }> = [
+  {
+    // A fence indented 1 space and closed at column 0, then a second bare
+    // fence: the scanner "closed" on the line micromark OPENS, and cut in
+    // front of a `#` line that is inside a code block.
+    name: 'a fence indented one space and closed at column 0',
+    note: `${CHUNK_INTRO}\n\n \`\`\`\ncode A\n\`\`\`\ntext\n \`\`\`\n# not a heading\n\nmore code\n\`\`\`\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    // A U+FEFF at the start of a line that became a chunk start: micromark
+    // strips it and the line re-parsed as a heading.
+    name: 'a U+FEFF in the middle of the note, at the start of a line',
+    note: `${CHUNK_INTRO}\n\n\ufeff# not a heading\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    // A lone CR ends `para` for micromark, so the fence after it opens a code
+    // block the (\n-only) scanner never saw.
+    name: 'a lone CR hiding a fence opener',
+    note: `${CHUNK_INTRO}\r\`\`\`\n\n# in code\n\n\`\`\`\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    name: 'a link reference definition inside a list item',
+    note: `Intro [site][a].\n${CHUNK_INTRO_REST}\n\n- [a]: https://example.com/x\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    name: 'a link reference definition inside a blockquote',
+    note: `Intro [site][a].\n${CHUNK_INTRO_REST}\n\n> [a]: https://example.com/x\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    name: 'a footnote definition inside a list item',
+    note: `Intro text[^n].\n${CHUNK_INTRO_REST}\n\n- [^n]: note body\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    // U+00A0 is not blank to CommonMark (space and tab are), so the NBSP line
+    // is a paragraph line and `2. x` continues it. `String#trim` called it blank.
+    name: 'a NBSP-only line, which CommonMark does not call blank',
+    note: `${CHUNK_INTRO}\n\n\u00a0\n2. not a list item\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    // micromark strips the BOM, so the whole parse sees front matter; the
+    // scanner tested line 0 with the BOM on and cut inside the YAML.
+    name: 'a BOM before a long front matter block with blank lines in it',
+    note: `\ufeff---\n${Array.from({ length: 90 }, (_, i) => (i % 10 === 9 ? '' : `key${i}: v`)).join('\n')}\n---\n\n${CHUNK_INTRO}\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    // A fence line directly under an HTML block is HTML to micromark, but
+    // opened a fence for the scanner.
+    name: 'a fence line directly under an HTML block',
+    note: `Intro para.\n\n<div>\n\`\`\`\n\ntext\n\n\`\`\`\`\n# in code\n${Array.from({ length: 85 }, (_, i) => `code line ${i}`).join('\n')}\n\nmore code\n\`\`\`\`\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    // `<!DOCTYPE x` directly under a type-6 line is part of THAT block; the
+    // scanner opened a type-4 block that survived the blank line and closed on
+    // the `>` of `<pre>`, so a blank-line cut landed inside the real <pre>.
+    name: 'an HTML declaration line under an HTML block, hiding a <pre> block',
+    note: `Intro para.\n\n<div>\n<!DOCTYPE x\n\n<pre>\n${Array.from({ length: 85 }, (_, i) => `pre line ${i}`).join('\n')}\n\n# not a heading\n* not a list\n</pre>\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    // HTML opened INSIDE a container (unit-tested in markdownChunks.test.ts;
+    // the embed suite had none). An unclosed comment in a list item runs through
+    // every blank line up to the end of the ITEM, so a blank-line cut inside it
+    // turns the comment's body into live markdown.
+    name: 'an HTML comment opened in a list item and never closed there',
+    note: `Intro para.\n\n- <!--\n${Array.from({ length: 85 }, (_, i) => `  comment line ${i}`).join('\n')}\n\n  # not a heading\n\n- second item\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    name: 'a <pre> opened in a blockquote',
+    note: `Intro para.\n\n> <pre>\n${Array.from({ length: 85 }, (_, i) => `> pre line ${i}`).join('\n')}\n>\n> # h\n> </pre>\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    name: 'a <script> opened in an ordered list item',
+    note: `Intro para.\n\n1. <script>\n${Array.from({ length: 85 }, (_, i) => `   var x${i};`).join('\n')}\n\n   # h\n   </script>\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    // A ``` line inside the note's own YAML opened a phantom fence in the
+    // scanner, which swallowed the real structure after it.
+    name: 'a fence-looking line inside the front matter',
+    note: `---\n\`\`\`\n---\n\nIntro [x].\n${CHUNK_INTRO_REST}\n\n[x]: /u\n\n\`\`\`\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    name: 'a reference definition with an escaped bracket in its label',
+    note: `Intro [si\\]te].\n${CHUNK_INTRO_REST}\n\n[si\\]te]: https://example.com/x\nmore text\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    name: 'a reference definition whose label spans two lines',
+    note: `Intro [my site].\n${CHUNK_INTRO_REST}\n\n[my\nsite]: https://example.com/x\nmore text\n\n${CHUNK_TAIL}\n`,
+  },
+  {
+    // The unclosed fence on a list marker line: the chunk alone ran the fence to
+    // ITS end, so blank lines that belong to the list item landed in the code.
+    name: 'an unclosed fence opened on a list item line',
+    note: `Intro paragraph.\n\n- ~~~\n${Array.from({ length: 85 }, (_, i) => `  code ${i}`).join('\n')}\n\n\n\n${CHUNK_TAIL}\n`,
+  },
+];
+
+/** The whole-document parse's serialization, from the same bundle's `?census` door. */
+async function wholeDocumentSerialization(page: Page, note: string): Promise<string> {
+  const census = await page.context().newPage();
+  await census.goto(`${EDITOR_URL}?census`);
+  await census.waitForFunction(
+    () =>
+      typeof (window as unknown as { __futoSerializeCensus?: unknown }).__futoSerializeCensus ===
+        'function' &&
+      (window as unknown as { __futoEditorMounted?: boolean }).__futoEditorMounted === true,
+  );
+  const whole = await census.evaluate(
+    (md) =>
+      (
+        window as unknown as { __futoSerializeCensus: (m: string) => { whole: string } }
+      ).__futoSerializeCensus(md).whole,
+    note,
+  );
+  await census.close();
+  return whole;
+}
+
+/** Selection-only placement in front of the first text occurrence of `marker`. */
+async function placeCaretBeforeText(page: Page, marker: string): Promise<void> {
+  await page.evaluate((m) => {
+    const w = window as unknown as FakeHostWindow & {
+      __futoProseMirrorView: () => {
+        state: {
+          doc: {
+            descendants(
+              cb: (node: { isText: boolean; text?: string }, pos: number) => boolean | void,
+            ): void;
+          };
+          selection: { constructor: { create(doc: unknown, pos: number): unknown } };
+          tr: { setSelection(selection: unknown): unknown };
+        };
+        dispatch(tr: unknown): void;
+      };
+    };
+    w.FutoEditor.focus();
+    const view = w.__futoProseMirrorView();
+    let at = -1;
+    view.state.doc.descendants((node, pos) => {
+      if (at >= 0) return false;
+      if (node.isText && node.text?.includes(m)) at = pos + node.text.indexOf(m);
+      return true;
+    });
+    if (at < 0) throw new Error(`marker ${m} not in the document`);
+    const Selection = view.state.selection.constructor;
+    view.dispatch(view.state.tr.setSelection(Selection.create(view.state.doc, at)));
+    w.__msgs.length = 0;
+  }, marker);
+}
+
+/** Types one real key in front of `marker` and returns the bytes the host is told to save. */
+async function typeInFrontOfAndReadChange(page: Page, marker: string): Promise<string> {
+  await placeCaretBeforeText(page, marker);
+  await page.keyboard.type('Z');
+  await page.waitForFunction(
+    () => (window as unknown as FakeHostWindow).__msgs.some((m) => m.type === 'change'),
+    null,
+    { timeout: 10_000 },
+  );
+  const changes = await messagesOfType(page, 'change');
+  return String(changes[changes.length - 1].content);
+}
+
+for (const { name, note } of CHUNK_AGREEMENT_CASES) {
+  test(`the first edit after opening a note with ${name} writes the whole-parse bytes`, async ({
+    page,
+  }) => {
+    const expected = (await wholeDocumentSerialization(page, note)).replace('Intro', 'ZIntro');
+    expect(expected).toContain('ZIntro');
+
+    await initialize(page, hostConfig({ content: note }));
+    // The stream, if the planner chose one, must finish before the edit.
+    await page.waitForSelector('.milkdown-stream-tail', { state: 'detached', timeout: 30_000 });
+    // Load echo: an untouched open hands back the host's bytes.
+    expect(await getContent(page)).toBe(note);
+
+    const written = await typeInFrontOfAndReadChange(page, 'Intro');
+    expect(written.length, 'sanity: the whole note was written').toBeGreaterThan(1000);
+    // The BOM is dropped by the first edit (RC-38, Q18 18A); nothing else may differ.
+    expect(written).toBe(expected.replace(/^\ufeff/, ''));
+  });
+}
+
+// RC-38: micromark strips a leading U+FEFF, so every node position is one code
+// unit short of `file.value`, and Milkdown's remarkMarker reads
+// `file.value.charAt(offset)` — the character BEFORE each `*`/`_` run — as the
+// strong/emphasis marker. The first edit re-spelled every emphasis in the note.
+// This is the ordinary whole-document open, not the progressive one.
+for (const where of ['in another block', 'in the same block'] as const) {
+  test(`a BOM-leading note keeps its bold and italic markers on the first edit (${where})`, async ({
+    page,
+  }) => {
+    const body =
+      where === 'in another block'
+        ? 'Intro para\n\nsome **bold** and _it_ word\n\nx**y**z\n'
+        : 'Intro para with **bold** and _it_ and x**y**z\n';
+    const note = `\ufeff${body}`;
+
+    await initialize(page, hostConfig({ content: note }));
+    // Load echo: the host's bytes, BOM included, until the user edits.
+    expect(await getContent(page)).toBe(note);
+    expect(
+      await page.evaluate(() => ({
+        strong: document.querySelectorAll('.ProseMirror strong').length,
+        em: document.querySelectorAll('.ProseMirror em').length,
+      })),
+    ).toEqual({ strong: 2, em: 1 });
+
+    const written = await typeInFrontOfAndReadChange(page, 'Intro');
+    expect(written).toBe(body.replace('Intro', 'ZIntro'));
+  });
+}
+
+test('a note with a DOUBLED leading BOM keeps its emphasis and echoes the host bytes', async ({
+  page,
+}) => {
+  const body = 'Intro **b** and _it_ x**y**z\n';
+  const note = `\ufeff\ufeff${body}`;
+  await initialize(page, hostConfig({ content: note }));
+  expect(await getContent(page)).toBe(note);
+  expect(await messagesOfType(page, 'change')).toHaveLength(0);
+
+  const written = await typeInFrontOfAndReadChange(page, 'Intro');
+  expect(written).toBe(body.replace('Intro', 'ZIntro'));
+});
+
+test('a BOM-leading note that IS large still opens progressively and keeps its emphasis', async ({
+  page,
+}) => {
+  // The BOM is stripped once, before the planner and the parser (Q18 18A), so a
+  // BOM note is not a reason to lose progressive open.
+  const body = `Intro **bold** para\n\n${largeNote()}`;
+  await initialize(page, hostConfig({ content: `\ufeff${body}` }));
+  await waitForStreamComplete(page);
+
+  const written = await typeInFrontOfAndReadChange(page, 'Intro');
+  expect(written).toBe(body.replace('Intro', 'ZIntro'));
 });
 
 // ============================================================
@@ -2937,6 +3977,40 @@ test('the resolved URL never reaches the note — opening leaves the reference b
   expect(await getContent(page)).toBe('before\n\n![](pic.png)\n\nafter');
 });
 
+test('an image with no title still passes the schema validator', async ({ page }) => {
+  // mdast gives `![a](b.png)` `title: null`; the image attr validates as a
+  // string, so `doc.check()` and `nodeFromJSON()` threw on ordinary notes (RC-31).
+  await initialize(page, hostConfig({ content: '![a](b.png)\n\n![c](d.png "cap")\n' }));
+  await flushFrames(page);
+  const result = await page.evaluate(() => {
+    const view = (
+      window as unknown as {
+        __futoProseMirrorView: () => {
+          state: {
+            doc: { check(): void; toJSON(): unknown };
+            schema: { nodeFromJSON(json: unknown): { check(): void } };
+          };
+        };
+      }
+    ).__futoProseMirrorView();
+    const errors: string[] = [];
+    try {
+      view.state.doc.check();
+    } catch (e) {
+      errors.push(`check: ${(e as Error).message}`);
+    }
+    try {
+      view.state.schema.nodeFromJSON(view.state.doc.toJSON()).check();
+    } catch (e) {
+      errors.push(`nodeFromJSON: ${(e as Error).message}`);
+    }
+    return errors;
+  });
+  expect(result).toEqual([]);
+  // ...and the title survives where there is one, and is not invented where not.
+  expect(await getContent(page)).toBe('![a](b.png)\n\n![c](d.png "cap")\n');
+});
+
 test('the resolved URL never reaches the note — a real edit still serializes the vault filename', async ({
   page,
 }) => {
@@ -2983,11 +4057,13 @@ test('insertImage puts the vault reference in the note and renders it resolved',
  */
 async function pasteClipboard(
   page: Page,
-  build: 'imageFile' | 'hiddenBitmap' | 'plainText',
+  build: 'imageFile' | 'hiddenBitmap' | 'plainText' | Record<string, string>,
 ): Promise<void> {
   await page.evaluate((kind) => {
     const dt = new DataTransfer();
-    if (kind === 'imageFile') {
+    if (typeof kind === 'object') {
+      for (const [format, data] of Object.entries(kind)) dt.setData(format, data);
+    } else if (kind === 'imageFile') {
       const bytes = Uint8Array.from(atob('iVBORw0KGgo='), (c) => c.charCodeAt(0));
       dt.items.add(new File([bytes], 'shot.png', { type: 'image/png' }));
     } else if (kind === 'plainText') {
@@ -3059,6 +4135,30 @@ test('pasting text is left to the editor and posts no image message', async ({ p
   expect(await messagesOfType(page, 'saveImageData')).toHaveLength(0);
   expect(await messagesOfType(page, 'pasteClipboardImage')).toHaveLength(0);
   expect(await getContent(page)).toContain('just words');
+});
+
+test('a table pasted as plain text into an empty note takes the empty line (RC-59)', async ({
+  page,
+}) => {
+  // Milkdown's plain-text route kept the empty paragraph the caret was in, so
+  // the note saved with a blank line above the pasted block.
+  await hostSetContent(page, '');
+  await focusEditor(page);
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', '| a | b |\n| --- | --- |\n| 1 | 2 |\n');
+    document
+      .querySelector('.ProseMirror')!
+      .dispatchEvent(
+        new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }),
+      );
+  });
+  await settleChangeDebounce(page);
+
+  const content = await getContent(page);
+  expect(content.startsWith('|'), JSON.stringify(content)).toBe(true);
+  // Padding and alignment marks are the table serializer's business, not this test's.
+  expect(content).toMatch(/\|\s*1\s*\|\s*2\s*\|/);
 });
 
 // ============================================================

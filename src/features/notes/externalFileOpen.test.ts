@@ -10,6 +10,7 @@ const mutation: LocalNoteMutation = {
   folders: [],
   finalId: 'grocery list-2',
   finalFolder: null,
+  relinked: [],
   warnings: [],
 };
 

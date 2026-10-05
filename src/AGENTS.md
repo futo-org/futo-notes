@@ -20,7 +20,7 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 
 ## Key Constraints
 
-- **Editor styling lives with the editor.** `MilkdownEditor.svelte`'s own `<style>` block owns the `.ProseMirror` surface and every element rendered inside it. What is left under `src/styles/` is only what is genuinely shared beyond that surface: `code-tokens.css` (the `tok-*` fence palette, also read by the highlighter) and `markdown-links.css` (the link and wikilink chips, whose `cm-md-*` class names are a legacy name from the CodeMirror engine, not a CodeMirror selector). `markdown.css` is the facade over those two.
+- **Editor styling lives with the editor.** `MilkdownEditor.svelte`'s own `<style>` block owns the `.ProseMirror` surface and every element rendered inside it. What is left under `src/styles/` is only what is genuinely shared beyond that surface: `code-tokens.css` (the `tok-*` fence palette, also read by the highlighter) and `markdown-links.css` (the `cm-md-*` link classes — a legacy name from the CodeMirror engine, not a CodeMirror selector — and the wikilink suggestion popup; the wikilink chip paint itself lives in `MilkdownEditor.svelte` because a layered rule here loses to the editor's unlayered `a` rule). `markdown.css` is the facade over those two.
 - **IMPORTANT**: Styles in `@layer(components)` lose to *any* unlayered CSS — on cascade origin, not
   specificity. Every `.css` a Svelte component imports directly (`folderTree.css`, `tabsStrip.css`,
   `settings.css`, `modal.css`, `feedback.css`, `crashReportDialog.css`, …) is unlayered; none of

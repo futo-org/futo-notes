@@ -59,8 +59,10 @@ export const scopedListOrderPlugin = $prose((ctx) => {
           node.descendants((child, childPos, _parent, childIndex) => {
             if (child.type === listItemType) {
               const attrs = { ...child.attrs };
+              // `descendants` on the LIST reports positions inside the list's
+              // content, not the document: shift by the list's own start.
               if (handleNodeItem(attrs, childIndex))
-                tr = tr.setNodeMarkup(childPos, undefined, attrs);
+                tr = tr.setNodeMarkup(pos + 1 + childPos, undefined, attrs);
             }
             return false;
           });

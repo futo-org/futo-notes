@@ -2,6 +2,7 @@ import { createTauriAdapter } from './tauri/adapter';
 import { createAppConfigStore } from './tauri/appConfig';
 
 export type { AppConfig, AppConfigUpdates, PersistedTab, PersistedTabs } from './tauri/appConfig';
+export { reportUnsavedEdits } from './tauri/closeDeadline';
 export type { VaultStatus } from './tauri/notesRoot';
 export { vaultDisplayPath, vaultStatus } from './tauri/notesRoot';
 export type { SaveTextFileRequest } from './tauri/saveTextFile';
@@ -12,6 +13,7 @@ const adapter = createTauriAdapter();
 
 export const tauriFS = adapter.fs;
 export const onFileChange = adapter.onFileChange;
+export const sweepStaleTemps = adapter.sweepStaleTemps;
 
 const appConfig = createAppConfigStore({
   storage: tauriFS,
@@ -22,3 +24,4 @@ export const getConfig = appConfig.getConfig;
 export const saveConfig = appConfig.saveConfig;
 export const loadOpenFoldersConfig = appConfig.loadOpenFoldersConfig;
 export const setNotesDir = appConfig.setNotesDir;
+export const flushAppConfigWrites = appConfig.flushWrites;

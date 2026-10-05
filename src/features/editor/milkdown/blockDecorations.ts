@@ -53,11 +53,12 @@ export function changedRanges(tr: { mapping: Mapping }): Array<[number, number]>
  * what changed. Callers pass `blocksIn` to say which blocks they own.
  *
  * REQUIREMENT ON `blocksIn`: the blocks it returns must not contain one
- * another. Rebuilding a block clears its whole range first, so a block nested
- * inside another would have its decorations cleared by the parent's rebuild and
- * never put back. Textblocks and fenced code blocks satisfy this for free.
- * Nested task items do not, so `taskCheckbox.ts` repaints their widgets through
- * its own item-level path instead of this helper.
+ * another. Every block returned is decorated after one clear of their whole
+ * range, so a block nested inside another would be decorated twice when the
+ * outer block's `decorate` covers its subtree. Textblocks and fenced code
+ * blocks satisfy this for free. Nested task items do not, so `taskCheckbox.ts`
+ * repaints their widgets through its own item-level path instead of this
+ * helper.
  */
 export function repaintBlocks(
   set: DecorationSet,
@@ -75,14 +76,24 @@ export function repaintBlocks(
     // task item clear of its list (Shift+Tab, or the toolbar's Task button)
     // stranded the checkbox widget on the plain paragraph it became.
     // Decorations owned by a block that merely straddles the range are not
-    // contained by it and so survive; the per-block clear below still catches a
-    // surviving block whose decorations reach outside the range.
-    next = next.remove(decorationsWithin(next, start, end));
-    for (const { node, pos } of blocksIn(doc, start, end)) {
-      next = next
-        .remove(decorationsWithin(next, pos, pos + node.nodeSize))
-        .add(doc, decorate(node, pos));
+    // contained by it and so survive; widening the clear to the blocks being
+    // rebuilt still catches one whose decorations reach outside the range.
+    //
+    // ONE remove and ONE add for the whole range, never one per block (RC-46):
+    // each `add` walks the children of every node it adds into, so rebuilding
+    // a 2,000-item task list item by item walked the list 2,000 times — 40 ms
+    // a keystroke.
+    const blocks = blocksIn(doc, start, end);
+    let clearFrom = start;
+    let clearTo = end;
+    for (const { node, pos } of blocks) {
+      clearFrom = Math.min(clearFrom, pos);
+      clearTo = Math.max(clearTo, pos + node.nodeSize);
     }
+    next = next.remove(decorationsWithin(next, clearFrom, clearTo)).add(
+      doc,
+      blocks.flatMap(({ node, pos }) => decorate(node, pos)),
+    );
   }
   return next;
 }

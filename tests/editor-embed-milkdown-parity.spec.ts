@@ -150,7 +150,7 @@ test('a line-leading `#` that IS a heading still round-trips as a heading', asyn
   await open(page, '# A real heading\n\nbody\n');
   await typeAtEnd(page);
   expect(await getContent(page)).toContain('# A real heading');
-  expect(await page.locator('.ProseMirror h1')).toHaveText('A real heading');
+  await expect(page.locator('.ProseMirror h1')).toHaveText('A real heading');
 });
 
 test('an inline tag is decorated', async ({ page }) => {
