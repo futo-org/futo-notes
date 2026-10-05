@@ -222,8 +222,8 @@ test('retargeting an acknowledged live document preserves the typed tail, caret 
   await expect(page.locator('.ProseMirror')).toHaveText('base tail');
   await page.keyboard.type('!');
   await expect(page.locator('.ProseMirror')).toHaveText('base tail!');
-  await page.keyboard.press('Control+z');
-  await page.keyboard.press('Control+z');
+  await page.keyboard.press('ControlOrMeta+z');
+  await page.keyboard.press('ControlOrMeta+z');
   await expect(page.locator('.ProseMirror')).toHaveText('base');
   expect(await messages(page)).toContainEqual(
     expect.objectContaining({ type: 'documentLoaded', noteId: 'new' }),
