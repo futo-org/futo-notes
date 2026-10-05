@@ -247,6 +247,7 @@ class EditorHost private constructor(appContext: Context) {
     private var onPasteClipboardImage: () -> Unit = {}
     private var onFindMatches: (FindMatchesReport) -> Unit = {}
     private var autoFocus = false
+    private val renameHandover = EditorRenameHandover()
 
     // Reactive inputs for the NATIVE Compose toolbar (EditorToolbar.kt), fed by
     // bridge messages — the Android counterpart of iOS's EditorToolbarState.
@@ -836,9 +837,14 @@ class EditorHost private constructor(appContext: Context) {
         this.autoFocus = autoFocus
         val token = attachments.attach()
         mailbox.bind(token.generation, noteId, onChange)
+        // A rename's re-key keeps the focused editor as it is: re-running the
+        // open-time focus blurs and refocuses the page, and an IME commit in
+        // that window never reaches the document.
+        val continuesRename = renameHandover.consume(noteId)
+        if (!continuesRename) editorFocused = false
         if (isReady) {
             onReady()
-            if (autoFocus) focusEditor()
+            if (autoFocus && !continuesRename) focusEditor()
         }
         return token
     }
@@ -858,8 +864,9 @@ class EditorHost private constructor(appContext: Context) {
         onFindMatches = {}
         autoFocus = false
         // Leaving the editor screen detaches the WebView without a blur event;
-        // clear the flag so a reopened note doesn't flash a stale toolbar.
-        editorFocused = false
+        // clear the flag so a reopened note doesn't flash a stale toolbar. A
+        // rename's re-key (see [EditorRenameHandover]) is not leaving.
+        if (!renameHandover.pending) editorFocused = false
     }
 
     internal fun currentAttachment(): EditorAttachmentToken? = attachments.current()
@@ -977,6 +984,7 @@ class EditorHost private constructor(appContext: Context) {
         pushed[fromId]?.let { pushed[toId] = it }
         if (!isReady || lastPushedNoteId != fromId) return
         lastPushedNoteId = toId
+        renameHandover.begin(toId)
         eval("window.FutoEditor && window.FutoEditor.retarget(${JSONObject.quote(fromId)}, ${JSONObject.quote(toId)});")
     }
 
