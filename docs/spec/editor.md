@@ -191,7 +191,6 @@ about.
   [localization.md](localization.md), packages/editor/src/toolbar.ts,
   scripts/gen-toolbar-spec.ts
 
-
 ## Cursor
 
 ### Placement
@@ -402,7 +401,7 @@ about.
   `GHOST_MAX_HEIGHT_FRACTION`, tests/editor-embed-milkdown.spec.ts
   _(native shells)_
 - On desktop a ⠿ handle appears in the left gutter beside the block under the
-  pointer — in the GUTTER, 8px left of the text column, at every nesting depth:
+  pointer — in the GUTTER, 4px left of the text column, at every nesting depth:
   a list item's own box starts at its text, so an offset from that box would
   put the handle over the bullet, and over the parent's text for a nested item
   — and dragging it with a mouse reorders blocks. Where there is no
@@ -948,13 +947,17 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   that wraps onto several visual lines — places the caret instead of opening the
   URL. → src/features/editor/milkdown/MilkdownEditor.svelte `linkAt`
 
-  > **Gap:** typing a bare URL does not turn it into a link. GFM autolink
-  > literals are recognised when a note is PARSED, so a URL already in the file
-  > renders as a link and a URL you just typed becomes one only after the note is
-  > saved and reopened. The CodeMirror editor linkified it as you typed
-  > (`links/autolinks.ts`, deleted with it); the WYSIWYG editor has no
-  > equivalent input rule. → `@milkdown/preset-gfm` (remark-gfm),
-  > src/features/editor/milkdown/MilkdownEditor.svelte
+- Typing a bare URL links it the moment its word ends — Space, Enter, or a
+  hard break — with exactly the extent and href reopening the note would give
+  it (GFM's autolink literal: trailing punctuation left out, `http://` added
+  for `www.`), because the word is read by the editor's own markdown parser.
+  A URL inside inline code or a code block stays text. The note keeps the URL
+  as typed: a bare URL is saved bare, not as `<url>` or `[www.…](http://…)`,
+  and editing a note leaves the bare URLs already in it bare, unless a bare
+  spelling would not read back as the same link. →
+  src/features/editor/milkdown/autolink.ts,
+  packages/editor/src/milkdown-compat/bareUrl.ts,
+  tests/editor-embed-milkdown-parity.spec.ts
 
 ## Interactive elements
 
@@ -1483,6 +1486,7 @@ unchanged by it.
   > serialization of the document and mapping markdown offsets back to
   > positions, which is a different feature from the one #26 asked for.
   > _(all platforms)_ → src/features/editor/milkdown/find/findMatches.ts
+
 - Find searches the note **body** only. The title is the filename — a native
   field on the native shells, not part of the document text — and titles are
   cross-note search's job (search.md indexes them).
@@ -1552,6 +1556,7 @@ unchanged by it.
   > up, the 2nd took the keyboard down, the 3rd dismissed the bar, the 4th left
   > the note. Closing the bar with its X is unaffected (one Back leaves the note
   > after it). → NoteEditorScreen.kt `FindQueryEditText.onKeyPreIme`
+
 - _(Android)_ Closing the bar takes the soft keyboard down with it whenever the
   bar's own query field owned the keyboard, so the next Back leaves the note.
   The field is a native `EditText`, and Android leaves the IME shown when the

@@ -24,6 +24,7 @@ import {
   Editor,
   defaultValueCtx,
   editorViewCtx,
+  remarkCtx,
   remarkStringifyOptionsCtx,
   rootCtx,
 } from '@milkdown/kit/core';
@@ -39,6 +40,7 @@ import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { Selection } from '@milkdown/kit/prose/state';
 
 import {
+  bareUrlLinkHandler,
   commonmarkWithCompat,
   gfmWithCompat,
   withNarrowedEscapes,
@@ -48,7 +50,8 @@ export type CensusVariant = 'compat' | 'baseline';
 
 /**
  * The escape narrowing MilkdownEditor.svelte installs (`withNarrowedEscapes`:
- * the line-leading `#` and the intra-word `_`), applied to the `compat` variant
+ * the line-leading `#` and the intra-word `_`) and its bare-URL link handler
+ * (`bareUrlLinkHandler`), applied to the `compat` variant
  * so a change to either is measured by this census the way the manual
  * requires. The `baseline` variant keeps remark-stringify's stock escapes.
  *
@@ -60,7 +63,14 @@ function configureSerializer(ctx: Parameters<Parameters<Editor['config']>[0]>[0]
   ctx.update(remarkStringifyOptionsCtx, (options) => {
     const text = options.handlers?.text;
     if (!text) return options;
-    return { ...options, handlers: { ...options.handlers, text: withNarrowedEscapes(text) } };
+    return {
+      ...options,
+      handlers: {
+        ...options.handlers,
+        text: withNarrowedEscapes(text),
+        link: bareUrlLinkHandler((markdown) => ctx.get(remarkCtx).parse(markdown)),
+      },
+    };
   });
 }
 

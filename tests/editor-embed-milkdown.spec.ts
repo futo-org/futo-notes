@@ -1275,9 +1275,23 @@ async function surfaceHandle(
   const block = options.item
     ? await itemBox(page, text).then((box) => ({ x: box.x, y: (box.top + box.bottom) / 2 }))
     : await blockCenter(page, text);
+  const range = options.item ? await itemBox(page, text) : await blockBox(page, text);
   await page.mouse.move(block.x, block.y);
   const handle = page.locator('.milkdown-block-handle[data-show="true"]');
   await handle.waitFor({ state: 'attached' });
+  // plugin-block's hover detection is throttled, so a handle already showing
+  // for the block the pointer came FROM is still there for a beat: wait for it
+  // to reach this one.
+  await expect
+    .poll(
+      async () => {
+        const box = await handle.boundingBox();
+        const y = box ? box.y + box.height / 2 : -1;
+        return y >= range.top && y <= range.bottom;
+      },
+      { message: `the ⠿ handle never reached "${text}"` },
+    )
+    .toBe(true);
   const box = await handle.boundingBox();
   if (!box) throw new Error('the ⠿ handle has no geometry');
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
@@ -1506,6 +1520,148 @@ gutterHandleTest(
     );
   },
 );
+
+/* USING THE ⠿ HANDLE NEVER SELECTS ANYTHING. @milkdown/plugin-block dispatches
+ * a NodeSelection over the block on mousedown — it is what the drag carries —
+ * and nothing ever took it back: a click that did not drag, a drop back where
+ * the block started, or a drag released outside the note all left the whole
+ * block selected, and ProseMirror hands that selection to the browser as a
+ * native range over the block's text, so it painted as highlighted text.
+ * Reported: "sometimes when I use it, text or other items get selected".
+ * The rule instead: the handle leaves the user's own selection where it was,
+ * carried along with the block when it was inside the one that moved. */
+
+/** The DOM selection, reduced to what these tests assert on. */
+function domSelection(page: Page): Promise<{ collapsed: boolean; text: string; block: string }> {
+  return page.evaluate(() => {
+    const selection = window.getSelection()!;
+    const node = selection.anchorNode;
+    const el = node instanceof Element ? node : node?.parentElement;
+    return {
+      collapsed: selection.isCollapsed,
+      text: selection.toString(),
+      block: el?.closest('.ProseMirror > *')?.textContent ?? '',
+    };
+  });
+}
+
+/** Put the caret at the end of the block containing `text`. */
+async function caretAtEndOf(page: Page, text: string): Promise<void> {
+  const box = (await page.getByText(text, { exact: true }).first().boundingBox())!;
+  await page.mouse.click(box.x + box.width - 1, box.y + box.height / 2);
+  await expect.poll(() => domSelection(page)).toMatchObject({ collapsed: true, block: text });
+}
+
+gutterHandleTest('clicking the ⠿ handle leaves the caret where it was', async ({ page }) => {
+  await hostSetContent(page, 'alpha\n\nbravo');
+  await caretAtEndOf(page, 'bravo');
+
+  const handle = await surfaceHandle(page, 'alpha');
+  await page.mouse.move(handle.x, handle.y);
+  await page.mouse.down();
+  await page.mouse.up();
+  // plugin-block refocuses the view a frame after mouseup.
+  await page.waitForTimeout(50);
+
+  expect(await domSelection(page)).toEqual({ collapsed: true, text: '', block: 'bravo' });
+});
+
+gutterHandleTest('a block moved with the ⠿ handle leaves nothing selected', async ({ page }) => {
+  await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+  await caretAtEndOf(page, 'charlie');
+  await clearMessages(page);
+
+  const handle = await surfaceHandle(page, 'alpha');
+  const charlie = await blockBox(page, 'charlie');
+  const drag = await startHandleDrag(page, handle);
+  await drag.drop(charlie.x, charlie.top + 3);
+  const changes = await waitForMessages(page, 'change');
+  expect(changes[changes.length - 1].content).toBe('bravo\n\nalpha\n\ncharlie\n');
+
+  await expect
+    .poll(() => domSelection(page))
+    .toEqual({ collapsed: true, text: '', block: 'charlie' });
+});
+
+gutterHandleTest('the caret travels with the block the ⠿ handle moved', async ({ page }) => {
+  await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+  await caretAtEndOf(page, 'alpha');
+  await clearMessages(page);
+
+  const handle = await surfaceHandle(page, 'alpha');
+  const charlie = await blockBox(page, 'charlie');
+  const drag = await startHandleDrag(page, handle);
+  await drag.drop(charlie.x, charlie.bottom - 3);
+  await waitForMessages(page, 'change');
+
+  await expect
+    .poll(() => domSelection(page))
+    .toEqual({ collapsed: true, text: '', block: 'alpha' });
+  // At the same offset it had: typing lands at the end of "alpha".
+  await clearMessages(page);
+  await page.keyboard.type('!');
+  const changes = await waitForMessages(page, 'change');
+  expect(changes[changes.length - 1].content).toBe('bravo\n\ncharlie\n\nalpha!\n');
+});
+
+gutterHandleTest(
+  'a ⠿ drag released back over its own block leaves nothing selected',
+  async ({ page }) => {
+    await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+    await caretAtEndOf(page, 'charlie');
+
+    const alpha = await blockBox(page, 'alpha');
+    const handle = await surfaceHandle(page, 'alpha');
+    const drag = await startHandleDrag(page, handle);
+    await drag.drop(alpha.x, alpha.top + 2);
+
+    await expect
+      .poll(() => domSelection(page))
+      .toEqual({ collapsed: true, text: '', block: 'charlie' });
+  },
+);
+
+gutterHandleTest(
+  "pressing the ⠿ handle does not paint the block's text as selected",
+  async ({ page }) => {
+    await hostSetContent(page, 'alpha\n\nbravo');
+    const handle = await surfaceHandle(page, 'alpha');
+    await page.mouse.move(handle.x, handle.y);
+    await page.mouse.down();
+
+    const paint = await page.evaluate(() => {
+      const block = document.querySelector('.ProseMirror > p')!;
+      return getComputedStyle(block, '::selection').backgroundColor;
+    });
+    await page.mouse.up();
+    expect(paint).toBe('rgba(0, 0, 0, 0)');
+  },
+);
+
+/* The handle is a mouse target: big enough to hit without aiming, and beside
+ * the line a block STARTS on — floating-ui centred it on the whole block, which
+ * put it halfway down a long paragraph. */
+gutterHandleTest('the ⠿ handle is a comfortable target on the first line', async ({ page }) => {
+  const long = 'wrapping words '.repeat(60).trim();
+  await hostSetContent(page, `${long}\n\nafter`);
+  const block = await blockBox(page, 'wrapping');
+  const handle = await surfaceHandle(page, 'wrapping');
+  const firstLine = await page.evaluate(() => {
+    const text = document.querySelector('.ProseMirror > p')!.firstChild!;
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 1);
+    const rect = range.getBoundingClientRect();
+    return { top: rect.top, bottom: rect.bottom };
+  });
+  // Several lines, or this is not testing anything.
+  expect(block.bottom - block.top).toBeGreaterThan(4 * (firstLine.bottom - firstLine.top));
+  expect(Math.abs(handle.y - (firstLine.top + firstLine.bottom) / 2)).toBeLessThan(2);
+
+  const box = (await page.locator('.milkdown-block-handle[data-show="true"]').boundingBox())!;
+  expect(box.width).toBeGreaterThanOrEqual(24);
+  expect(box.height).toBeGreaterThanOrEqual(24);
+});
 
 gutterHandleTest(
   'a ⠿ drag down the whole note passes through one slot per boundary',
