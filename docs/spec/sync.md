@@ -187,12 +187,12 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   line as a whole-cycle failure. Previously these returned `Ok` and were
   swallowed to stderr — invisible in packaged builds — so a server rejecting
   every upload (the 2026-06-29 EACCES/HTTP-500 incident) showed **no** client
-  signal for days. **The user-facing message is computed ONCE, in the Rust
-  core** (`SyncSummary::failure_message`) and rendered verbatim by all three
-  shells.
+  signal for days. The Rust core computes `SyncSummary::failure_message` as a
+  diagnostic. Shells render catalog messages for the visible status line and
+  use structured failures to name 413 and rejected-path files.
 
-  > **Gap:** _(desktop)_ the core message is NOT rendered verbatim — the
-  > desktop shell discards it. `raiseSyncError` sets the user-facing
+  > **Gap:** _(desktop)_ for other failure kinds, the core message is NOT
+  > rendered verbatim — the desktop shell discards it. `raiseSyncError` sets the user-facing
   > `syncErrorMessage` to `syncErrorForSource(source)`, a fixed catalog string
   > per source (`sync.errors.completedWithErrors`, or
   > `sync.errors.liveUnavailable` for the stream), and stores the core's own
@@ -234,8 +234,11 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   reach the server — so it gets its own clause ("sync state couldn't be
   saved locally"), never the server wording, and is recorded at most once
   per cycle even when the interim and final persists both fail.
-  413-oversize and unresolved-merge outcomes stay in `conflicts`, NOT
-  `failures`. Partial cycles report honestly — a cycle can have both
+  An HTTP 413 upload stays in `conflicts` for existing accounting and also
+  enters `failures` (with filename and status), including cycles that skip the
+  unchanged file after the original rejection. Every shell shows a catalog
+  message naming the affected files and the server or proxy size limit.
+  Unresolved-merge outcomes stay in `conflicts`, not `failures`. Partial cycles report honestly — a cycle can have both
   `uploaded > 0` and failures.
   → futo-notes-sync (`SyncFailure`, `FailureKind`,
   `SyncSummary::failure_message`, push/pull cycle),
@@ -540,6 +543,14 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   → futo-notes-sync `sync/push/mod.rs` `uploadable_files`; guarded by
   `an_unportable_name_is_never_uploaded_and_is_journaled_not_failed` +
   `an_unportable_name_is_not_mistaken_for_a_local_delete`
+- **A local path a receiver rejects for excess folder depth or a component
+  beyond 255 bytes is never uploaded.** It remains in the local scan so an
+  older uploaded copy is not mistaken for a deletion. Each skipped file enters
+  `failures` as `rejected`, and the shell names the file. Other valid files in
+  the same cycle still sync. → futo-notes-sync `sync/push/mod.rs`
+  `uploadable_files`; guarded by
+  `local_paths_rejected_by_receivers_are_skipped_and_reported` and the
+  `overdeep local path is reported before upload` cross-platform scenario.
 - **A healed incoming name is a LOCAL alias, not pushed back to the server.**
   The healing client writes + maps the object under the safe name but does not
   re-upload it, so the server object keeps its original path until someone edits
@@ -1122,10 +1133,14 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   content); the client always pulls from its persisted `max_version` cursor, so
   it is robust to missed/duplicated events.
 - The stream is lossy across disconnects (the server replays nothing), so the
-  client also runs a ~45 s safety poll and reconnects with exponential backoff;
+  client also runs a ~45 s safety poll while connected, during reconnect
+  backoff, and while a new stream handshake is pending. It reconnects with exponential backoff;
   a fresh `ready` drives a catch-up pull. This safety poll is also the only path
   that catches mutations the server emits no event for (collection
-  create/delete, key rotation).
+  create/delete, key rotation). The same Rust task runs on iOS and Android,
+  so a proxy that never establishes SSE cannot strand native sync after launch.
+  → `session/live/runner.rs`, guarded by
+  `hung_event_handshake_still_runs_the_safety_poll`.
 - **Every finite server request has a total deadline.** The auth-mode probe
   times out after 5 s; login, collection/key/object requests, deletes, and blob
   transfers with no known size use a 30 s total-request timeout. Known-size
@@ -1728,8 +1743,8 @@ journal --dir` has nothing to read from a phone.
 - Desktop auto-sync poll interval is intentionally short (the SSE live stream is
   the push replacement; the poll remains the desktop fallback) — don't lengthen
   it. → project decision
-- Native shells do not run a foreground poll loop; the SSE live stream plus its
-  ~45 s safety poll cover liveness (see "Live sync (SSE)"). → futo-notes-sync
+- Native shells do not run a foreground poll loop; the SSE live task's
+  ~45 s safety poll covers liveness even when the stream is down (see "Live sync (SSE)"). → futo-notes-sync
   `session/`
 - **An idle cycle is cheap.** A cycle that finds nothing to push or pull opens
   no new connection (one connection pool belongs to the `SyncSession` and
