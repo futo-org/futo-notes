@@ -33,7 +33,7 @@ export interface AppState {
 
   // E2EE sync state
   e2eeServerUrl?: string;
-  e2eeAuthToken?: string;
+  // The server bearer token is held in the per-vault OS keyring, never here.
   e2eeUserId?: string;
   e2eeCollectionId?: string;
   e2eeSalt?: string;
@@ -44,8 +44,8 @@ export interface AppState {
   // pre-migration file can never re-persist it (see `getLegacyE2eePassword`).
   /**
    * Non-secret marker: a disconnect / "forget password" / Full reset could not
-   * reach the keyring to delete the stored vault password, so an orphaned OS
-   * credential remains. `syncServiceE2ee.initSyncPassword()` retries the delete
+   * reach the keyring to delete the stored vault password or session token, so
+   * an orphaned OS credential remains. `syncServiceE2ee.initSyncPassword()` retries the delete
    * on the next launch and clears this once it succeeds (K3). Never holds the
    * password itself — only the fact that a deletion is outstanding.
    */
@@ -102,6 +102,15 @@ let loadPromise: Promise<AppState> | null = null;
 // password in NEITHER place (K1). Cleared only by `clearLegacyE2eePassword()`,
 // after the keyring write is confirmed, after which the next save scrubs it.
 let legacyE2eePassword: string | undefined;
+let legacyE2eeAuthToken: string | undefined;
+
+export function getLegacyE2eeAuthToken(): string | undefined {
+  return legacyE2eeAuthToken;
+}
+
+export function clearLegacyE2eeAuthToken(): void {
+  legacyE2eeAuthToken = undefined;
+}
 
 /** Peek at the legacy plaintext password captured during load (no clear). */
 export function getLegacyE2eePassword(): string | undefined {
@@ -203,7 +212,6 @@ function sanitize(raw: unknown): AppState {
     lastSyncError: typeof obj.lastSyncError === 'string' ? obj.lastSyncError : '',
     // E2EE state — passthrough with type guards
     ...(typeof obj.e2eeServerUrl === 'string' ? { e2eeServerUrl: obj.e2eeServerUrl } : {}),
-    ...(typeof obj.e2eeAuthToken === 'string' ? { e2eeAuthToken: obj.e2eeAuthToken } : {}),
     ...(typeof obj.e2eeUserId === 'string' ? { e2eeUserId: obj.e2eeUserId } : {}),
     ...(typeof obj.e2eeCollectionId === 'string' ? { e2eeCollectionId: obj.e2eeCollectionId } : {}),
     ...(typeof obj.e2eeSalt === 'string' ? { e2eeSalt: obj.e2eeSalt } : {}),
@@ -269,6 +277,9 @@ async function hydrateAppState(): Promise<AppState> {
       if (typeof parsed?.e2eePassword === 'string' && parsed.e2eePassword.length > 0) {
         legacyE2eePassword = parsed.e2eePassword;
       }
+      if (typeof parsed?.e2eeAuthToken === 'string' && parsed.e2eeAuthToken.length > 0) {
+        legacyE2eeAuthToken = parsed.e2eeAuthToken;
+      }
       // Capture the pre-port sync bookkeeping before `sanitize()` drops it, so
       // saves re-inject it until the Rust import consumes it (see the holdover
       // note above). A subsequent boot that still finds the fields (no
@@ -331,6 +342,9 @@ export async function saveAppState(state: AppState): Promise<void> {
   cached = state;
   if (!hasFileSystem) return;
   const serialized: Record<string, unknown> = { ...state };
+  // Callers can pass an object loaded by an older build or assembled in JS;
+  // only the explicit legacy holdover below may keep this field temporarily.
+  delete serialized.e2eeAuthToken;
   // K1: while a legacy plaintext password is mid-migration to the keyring,
   // keep re-writing it to disk so an interleaved save can't strand the user
   // with the password in neither place. Confirmed migration calls
@@ -339,6 +353,9 @@ export async function saveAppState(state: AppState): Promise<void> {
   // scrub's payload is fixed before it joins the write chain.
   if (legacyE2eePassword !== undefined) {
     serialized.e2eePassword = legacyE2eePassword;
+  }
+  if (legacyE2eeAuthToken !== undefined) {
+    serialized.e2eeAuthToken = legacyE2eeAuthToken;
   }
   // PKT-17: while a pre-port object map is awaiting the Rust import, re-inject
   // it on every write so an interleaved save (notably the boot keyring
@@ -376,7 +393,6 @@ export async function updateAppState(
       | 'crashReporting'
       | 'updates'
       | 'e2eeServerUrl'
-      | 'e2eeAuthToken'
       | 'e2eeUserId'
       | 'e2eeCollectionId'
       | 'e2eeSalt'
@@ -407,7 +423,6 @@ export interface AppPreferences {
   };
   sync: {
     serverUrl: string;
-    token: string;
     lastSyncedAt: number | null;
     lastError: string;
   };
@@ -424,7 +439,6 @@ function stateToPrefs(): AppPreferences {
     updates: { ...s.updates },
     sync: {
       serverUrl: s.e2eeServerUrl ?? '',
-      token: s.e2eeAuthToken ?? '',
       lastSyncedAt: s.lastSyncedAt,
       lastError: s.lastSyncError,
     },

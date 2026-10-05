@@ -1147,6 +1147,15 @@ async function lostStateRecovery(a, _b, server) {
   assert(await a.noteExists('recover 3'), 'recover 3 should exist');
 }
 
+async function selfHostedBearerStaysOutOfVault(a, _b, server) {
+  await a.connectSync(server.url, server.password);
+  const statePath = join(a.notesDir, '.app-state.json');
+  const state = JSON.parse(readFileSync(statePath, 'utf8'));
+  assert(!Object.hasOwn(state, 'e2eeAuthToken'), 'vault app state must not carry the bearer token');
+  await a.syncNow();
+  await a.disconnectSync();
+}
+
 async function rapidReconnect(a, _b, server) {
   // Connect and disconnect 3 times (server rate limits /login to 5/min).
   for (let i = 0; i < 3; i++) {
@@ -3355,6 +3364,11 @@ const scenarios = [
     matrices: ['desktop-desktop'],
   },
   { name: 'lost state recovery', fn: lostStateRecovery, matrices: ['desktop-desktop'] },
+  {
+    name: 'self hosted bearer stays out of vault',
+    fn: selfHostedBearerStaysOutOfVault,
+    matrices: ['desktop-desktop'],
+  },
   { name: 'rapid reconnect', fn: rapidReconnect, matrices: ['desktop-desktop'] },
   { name: 'offline accumulation', fn: offlineAccumulation, matrices: ['desktop-desktop'] },
   // slow: ~2 minutes of a ~4-minute scenario budget for a scale probe whose

@@ -223,6 +223,24 @@ pub async fn e2ee_password_delete(app: AppHandle) -> Result<(), String> {
     blocking(move || delete_impl(&KeyringStore, &root)).await
 }
 
+#[tauri::command]
+pub async fn e2ee_session_token_get(app: AppHandle) -> Result<Option<String>, String> {
+    let root = crate::vault_location::root(&app)?;
+    blocking(move || session_token_get_impl(&KeyringStore, &root)).await
+}
+
+#[tauri::command]
+pub async fn e2ee_session_token_set(app: AppHandle, token: String) -> Result<(), String> {
+    let root = crate::vault_location::root(&app)?;
+    blocking(move || session_token_set_impl(&KeyringStore, &root, &token)).await
+}
+
+#[tauri::command]
+pub async fn e2ee_session_token_delete(app: AppHandle) -> Result<(), String> {
+    let root = crate::vault_location::root(&app)?;
+    blocking(move || session_token_delete_impl(&KeyringStore, &root)).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
