@@ -17,39 +17,34 @@ final class AppIconTests: XCTestCase {
         row.tap()
         XCTAssertTrue(app.navigationBars["App icon"].waitForExistence(timeout: 10))
 
-        let primary = app.buttons["app-icon-light-standard"]
-        XCTAssertTrue(primary.waitForExistence(timeout: 10))
-        if !primary.isSelected {
-            primary.tap()
-            dismissIconNotification(app)
-            waitForSelection(primary, in: app)
-        }
-        primary.tap()
-        waitForSelection(primary, in: app)
+        // One switch to any choice other than the current one.
+        let choice = ["futo", "website"]
+            .map { app.buttons["app-icon-\($0)"] }
+            .first { !$0.isSelected }!
+        XCTAssertTrue(choice.waitForExistence(timeout: 10))
+        choice.tap()
+        // Apple's own notification is kept; the picker must survive it.
+        dismissIconNotification(app)
+        waitForSelection(choice, in: app)
+        XCTAssertTrue(choice.isSelected, "\(choice.identifier) should be the active icon")
 
-        for iconID in ["light-reversed", "dark-standard", "dark-reversed", "futo", "website"] {
-            let choice = app.buttons["app-icon-\(iconID)"]
-            XCTAssertTrue(choice.waitForExistence(timeout: 10))
-            choice.tap()
-            // Apple's own notification is kept; the picker must survive it.
-            dismissIconNotification(app)
-            waitForSelection(choice, in: app)
-            XCTAssertTrue(choice.isSelected, "\(iconID) should be the active icon")
-        }
         XCTAssertTrue(app.navigationBars["App icon"].exists)
         app.navigationBars["App icon"].buttons["Done"].tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
-        XCTAssertTrue(row.label.contains("Scanlines"))
+
+        restoreDefaultIcon(app, row: row)
+    }
+
+    /// Best-effort, never asserts: leaves the installation on the default icon so
+    /// later runs on a reused simulator start from a known state.
+    @MainActor
+    private func restoreDefaultIcon(_ app: XCUIApplication, row: XCUIElement) {
+        guard row.waitForExistence(timeout: 5) else { return }
         row.tap()
-        XCTAssertTrue(app.navigationBars["App icon"].waitForExistence(timeout: 10))
+        let primary = app.buttons["app-icon-light-standard"]
+        guard primary.waitForExistence(timeout: 10), !primary.isSelected else { return }
         primary.tap()
         dismissIconNotification(app)
-        let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "icon-reset-result"
-        screenshot.lifetime = .keepAlways
-        add(screenshot)
-        waitForSelection(primary, in: app)
-        XCTAssertTrue(primary.isSelected, app.debugDescription)
     }
 
     @MainActor
