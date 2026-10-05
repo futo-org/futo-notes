@@ -645,25 +645,24 @@ test.describe('an autolink with a backslash is written verbatim', () => {
     expect(twice).toBe('see <https://example.com/a\\\\\\\\.b> here\n');
   });
 
-  for (const markdown of [
-    'see <https://example.com/a\\.b> here\n',
-    'see <file:\\\\srv\\s> here\n',
-    'see <https://example.com/a\\> here\n',
+  // Either spelling keeps exactly the one backslash: an http(s) URL is written
+  // bare (packages/editor/src/milkdown-compat/bareUrl.ts — a GFM literal
+  // processes no escapes either, and the handler re-parses the bare spelling
+  // to prove it is the same link), anything else keeps its `<...>`.
+  for (const [markdown, saved] of [
+    ['see <https://example.com/a\\.b> here\n', 'see https://example.com/a\\.b here\n'],
+    ['see <file:\\\\srv\\s> here\n', 'see <file:\\\\srv\\s> here\n'],
+    ['see <https://example.com/a\\> here\n', 'see https://example.com/a\\ here\n'],
+    ['see https://example.com/a\\_b now\n', 'see https://example.com/a\\_b now\n'],
   ]) {
-    test(`compat round-trips ${JSON.stringify(markdown)} byte-for-byte`, async ({ page }) => {
+    test(`compat writes ${JSON.stringify(markdown)} with its one backslash, then holds`, async ({
+      page,
+    }) => {
       const { once, twice } = await twoSaves(page, 'compat', markdown);
-      expect(once).toBe(markdown);
+      expect(once).toBe(saved);
       expect(twice).toBe(once);
     });
   }
-
-  test('compat writes a bare URL with a backslash once, then holds', async ({ page }) => {
-    // The bare (GFM literal) form is re-spelled as `<...>` — accepted
-    // normalization — but keeps exactly the one backslash it had.
-    const { once, twice } = await twoSaves(page, 'compat', 'see https://example.com/a\\_b now\n');
-    expect(once).toBe('see <https://example.com/a\\_b> now\n');
-    expect(twice).toBe(once);
-  });
 });
 
 test.describe('a multi-line inline HTML tag keeps its continuation indent', () => {

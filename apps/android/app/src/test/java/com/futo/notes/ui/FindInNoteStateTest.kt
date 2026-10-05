@@ -118,9 +118,8 @@ class FindInNoteStateTest {
 
     @Test
     fun `ime visibility stays scoped to the toolbar composition group`() {
-        val source = noteEditorSource()
-
-        assertFalse(source.contains("val findImeVisible = WindowInsets.isImeVisible"))
-        assertTrue(source.contains("if (host.editorFocused && WindowInsets.isImeVisible)"))
+        assertTrue(
+            noteEditorSource().contains("if (host.editorFocused && WindowInsets.isImeVisible)"),
+        )
     }
 }

@@ -28,7 +28,8 @@ owners.
 | `local_notes.rs`                           | `local_notes_*` projection, including desktop note/folder trash policy.               |
 | `filesystem_watcher.rs`                    | Recursive watcher, normalized events, rename pairing, and typed one-shot suppression. |
 | `vault_location.rs`                        | Custom-root persistence, vault availability reporting, and the debug/release default-root safety split. |
-| `image_commands.rs`                        | Clipboard bitmap → PNG persistence (`fs_paste_clipboard_image`).                     |
+| `image_commands.rs`                        | Image saves through the vault boundary: webview bytes (`fs_save_image`) and the clipboard bitmap (`fs_paste_clipboard_image`). |
+| `app_data.rs`                              | App-data writes (`.app-state.json`, `.app-config.json`, `.crashlogs/`) through the vault boundary (`app_data_write`). |
 | `app_menu.rs`                              | macOS application menu; frontend items forwarded as `app-menu` events.               |
 | `window_reveal.rs`                         | Reveals the hidden window once the shell paints, with a timeout fallback.            |
 | `instance_journal.rs`                      | Installs the instance journal under the app data dir.                                |
@@ -70,7 +71,8 @@ compatibility requirements and must not be reintroduced.
 
 - Every store mutation is serialized.
 - Note reads, writes, creates, and moves use the core's shared vault-relative
-  filesystem boundary. Symlinked parent components and note leaves are refused.
+  filesystem boundary, and so do the app data and images the desktop writes beside
+  them. Symlinked parent components and note leaves are refused.
   Unix operations pin no-follow directory handles through the final syscall;
   path-based OS trash and the Windows fallback preflight every component.
   Local operations preserve best-effort directory fsync; sync's journal-facing
@@ -82,6 +84,10 @@ compatibility requirements and must not be reintroduced.
 - Atomic Markdown writes use a flushed, short-named temporary file in the same
   directory followed by rename. Case/normalization-only renames use a hidden
   temp hop and restore the source if the second hop fails.
+- A temp that vanishes before it is installed (a file-provider agent such as
+  iCloud Drive or Dropbox can take it) is written once more, for notes, app data
+  and images alike. →
+  `vault_fs::contract_tests::*::a_temp_file_taken_before_install_is_written_again`
 - A watcher echo consumes one suppression entry. A later external edit inside
   the expiry window is therefore still delivered.
 - External changes are projected back into the store and trigger one index
@@ -121,11 +127,37 @@ compatibility requirements and must not be reintroduced.
   in `src/lib/platform/tauri/notesRoot.ts`; it never reconstructs either path.
 - The default root is created on first use; a **custom** root is not. A custom
   root that has gone missing fails every command with the vault-unavailable
-  error (`vault_location::VAULT_UNAVAILABLE`, surfaced as the localized
-  "Can't find your vault folder at {folderPath}. Please reconfigure in settings.")
-  rather than being recreated, so notes are never written into an empty directory
+  error (`vault_location::VAULT_UNAVAILABLE`; the shell shows the unusable-vault
+  banner, see settings.md) rather than being recreated, so notes are never written into an empty directory
   standing where the vault used to be. `vault_status` reports that state without
   touching the vault, which is what keeps the recovery UI reachable.
+- A default root that cannot be created (Windows Controlled Folder Access refuses
+  `Documents\futo-notes` while `Documents` stays readable) is unavailable in the
+  same way: the setup hook creates the default root before the webview loads, so
+  `vault_status` stays read-only and reports a default that is not a directory as
+  `available: false`; the recovery UI appears instead of an empty app. App-data
+  writes and image saves resolve their root through `vault_location` like a note
+  command, so they too recreate a missing default root and never a custom one, and
+  a Rust panic report is dropped rather than recreating a vanished vault for its
+  `.crashlogs`. →
+  `vault_location::tests::a_default_root_that_cannot_be_created_is_reported_unavailable`,
+  `panic_reporter::tests::a_crash_never_recreates_a_missing_vault`
+- A root that is a directory but refused to let a file or folder be created
+  directly in it for want of permission (Controlled Folder Access over an existing
+  folder, a read-only mount, a folder owned by another user) is also unavailable.
+  Only a create directly in the root counts — one read-only subfolder fails only
+  its own writes — and only creation: a refused rename or delete is usually another
+  process holding the file. Controlled Folder Access answers a blocked create, of a
+  folder (crash 1739) or of a file in an existing folder, with ERROR_FILE_NOT_FOUND
+  (os error 2), which counts on Windows. `vault_fs`
+  records the first such refusal of any write through it — a note, a folder, app
+  data, an image — process-wide and `vault_status` reports it as `accessRefused`;
+  nothing writes to the vault to find out. →
+  `vault_fs::contract_tests::only_a_permission_refusal_directly_in_the_root_counts`,
+  `*::a_refused_create_in_the_root_marks_the_vault_access_refused`,
+  `*::a_refused_create_in_a_subfolder_leaves_the_vault_usable`,
+  `vault_location::tests::a_root_that_refused_a_write_is_unavailable`,
+  docs/qa/windows-controlled-folder-access.md
 - Note IDs and folder paths are validated beneath the root; traversal and root
   deletion are refused.
 - Destination collisions are folded by case and Unicode normalization, then

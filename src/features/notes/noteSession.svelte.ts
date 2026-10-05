@@ -31,6 +31,8 @@ export interface NoteSessionDeps {
   onNoteRenamed: (savedOriginalId: string | null, realId: string) => void;
   reconcileOpenNote: (id: string, parkedDraft: ParkedDraftSnapshot) => Promise<unknown>;
   navigate: (path: string) => void;
+  /** The desktop vault refuses writes: nothing can be saved for the rest of the launch. */
+  isVaultLocked?: () => boolean;
 }
 
 /** The exact body and title a save parked as a conflict copy. */
@@ -268,7 +270,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     notifySaved,
   });
   const noteLoader = createNoteLoader({
-    flushSave: saveQueue.flush,
+    flushSave: flushBeforeLeaving,
     getNotes: deps.getNotes,
     getEditorContent: deps.getEditorContent,
     isSavePending: saveQueue.isPending,
@@ -299,6 +301,16 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     if (loading || !hasFileSystem || deps.getNoteId() === null) return;
     if (nextContent === undefined) saveQueue.schedule(TITLE_SAVE_DEBOUNCE_MS);
     else saveQueue.schedule(BODY_SAVE_DEBOUNCE_MS, BODY_SAVE_MAX_WAIT_MS);
+  }
+
+  // A failed save holds the user on the note (editor.md), but while the vault is
+  // locked no save can succeed, so leaving discards the unsaved text instead.
+  async function flushBeforeLeaving(): Promise<void> {
+    try {
+      await saveQueue.flush();
+    } catch (error) {
+      if (!deps.isVaultLocked?.()) throw error;
+    }
   }
 
   function hasUnseenEditorChanges(): boolean {

@@ -390,24 +390,36 @@ sim-udid:
   [ "$COUNT" -eq 1 ] || { echo "Multiple booted simulators — set SIM=<udid> (just qa-claim ios prints it):" >&2; echo "$UDIDS" >&2; exit 1; }
   echo "$UDIDS"
 
-# Screenshot the target simulator ($SIM, else booted) → test-screenshots/<name>.png
+# Screenshot the target simulator ($SIM, else booted), isolated by worktree and device.
+[positional-arguments]
 sim-screenshot name="sim":
-  @mkdir -p test-screenshots
-  xcrun simctl io "${SIM:-booted}" screenshot 'test-screenshots/{{name}}.png'
+  #!/usr/bin/env bash
+  set -euo pipefail
+  SLOT=$(node scripts/lib/slot.mjs slot)
+  DEVICE="${SIM:-booted}"
+  OUT="test-screenshots/ios/s${SLOT}/${DEVICE}/$1.png"
+  mkdir -p "$(dirname "$OUT")"
+  xcrun simctl io "$DEVICE" screenshot "$OUT"
 
 # Flip the target simulator's system appearance (dark|light).
 sim-appearance mode="dark":
   xcrun simctl ui "${SIM:-booted}" appearance {{mode}}
 
-# Screenshot the connected Android device/emulator → test-screenshots/<name>.png
+# Screenshot the connected Android device/emulator, isolated by worktree and device.
+[positional-arguments]
 emu-screenshot name="emu":
-  @mkdir -p test-screenshots
-  adb exec-out screencap -p > 'test-screenshots/{{name}}.png'
+  #!/usr/bin/env bash
+  set -euo pipefail
+  SLOT=$(node scripts/lib/slot.mjs slot)
+  DEVICE="${ANDROID_SERIAL:-$(adb get-serialno)}"
+  OUT="test-screenshots/android/s${SLOT}/${DEVICE}/$1.png"
+  mkdir -p "$(dirname "$OUT")"
+  adb -s "$DEVICE" exec-out screencap -p > "$OUT"
 
 # Tag-scoped logcat for the native Android app's stable log tags.
 emu-logs:
   # `adb logcat -c` first for a clean slate; crashes land under AndroidRuntime.
-  adb logcat -s FutoStartup FutoSearch NotesStore FutoLicense FutoTestHook FutoToolbarDBG FutoBridgeDBG AndroidRuntime
+  adb logcat -s FutoStartup FutoSearch NotesStore FutoLicense SyncManager PlatformTrust FutoTestHook FutoToolbarDBG FutoBridgeDBG AndroidRuntime
 
 # Forward the Android app's WebView DevTools socket for cdp-invoke.mjs.
 cdp-forward:
@@ -433,7 +445,7 @@ _require-node-modules:
   @[ -d node_modules ] || { echo "No node_modules in this worktree — run: just install" >&2; exit 1; }
 
 # Type-check + build the web app (pipefail so a failing tsc/vite can't hide behind `| tail`).
-build: _require-node-modules
+build: check-node-version _require-node-modules
   #!/usr/bin/env bash
   set -euo pipefail
   pnpm exec tsc --noEmit | head -30
@@ -468,7 +480,7 @@ test-e2e-rest:
   pnpm run test:e2e:rest
 
 # Cross-platform E2EE sync against the pinned sync-server release.
-test-cross-platform *args:
+test-cross-platform *args: editor-deps
   pnpm run test:cross-platform "$@"
 
 # The Rust server-backed sync suites against REAL servers (two server modes); see justfile-notes.md.
@@ -538,6 +550,13 @@ test-search *args:
 [positional-arguments]
 bench-search *args:
   cargo bench -p futo-notes-search --bench search -- "$@"
+
+# Vault-open cost (bootstrap_with_search, bootstrap, startup_listing) over a
+# realistic synthetic vault; see crates/futo-notes-store/benches/vault_open.rs.
+# Override VAULT_BENCH_NOTES for a different corpus size.
+[positional-arguments]
+bench-vault *args:
+  cargo bench -p futo-notes-store --bench vault_open -- "$@"
 
 # ── Remote (Linux) test execution over Tailscale; mechanism: scripts/remote-test.mjs ──
 # `node scripts/remote-test.mjs --doctor|--help|<recipe>` runs any other portable recipe
@@ -698,7 +717,7 @@ check-agent-docs:
 arch-gate:
   pnpm run check:arch-gate
 
-# Link installed third-party skills from .agents/skills/ into .claude/skills/ (idempotent).
+# Link installed third-party skills into .claude/skills/, including lock-matched sibling worktrees.
 skills-link:
   @node scripts/skills-link.mjs
 
@@ -756,11 +775,15 @@ clean:
 check-node-modules:
   @node scripts/check-node-modules.mjs
 
+# Fail before tests/builds when the active Node differs from the pinned .nvmrc.
+check-node-version:
+  @node scripts/check-node-version.mjs
+
 _require-install:
   @[ -d node_modules ] || { echo 'node_modules is missing in this worktree — run: just install' >&2; exit 1; }
 
 # The normal pre-merge umbrella: specs, arch gates, Rust conformance, lint, tests, build.
-check: check-node-modules _require-install _require-node-modules toolbar-spec-check title-spec-check coin-check arch-gate lint-swift test-rust rust-format-check rust-lint
+check: check-node-modules check-node-version _require-install _require-node-modules toolbar-spec-check title-spec-check coin-check arch-gate lint-swift test-rust rust-format-check rust-lint
   #!/usr/bin/env bash
   # pipefail: see `build:` above — a failing tsc/vite build must not hide behind `| tail`.
   set -euo pipefail
@@ -785,7 +808,6 @@ prepush: check test-rust-full
 deploy-deb:
   #!/usr/bin/env bash
   set -euo pipefail
-  CONF="apps/tauri/src-tauri/tauri.conf.json"
   BUNDLE_DIR="target/release/bundle/deb"
   # Version = latest git tag + commit distance.
   LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
@@ -797,25 +819,25 @@ deploy-deb:
     VERSION="${BASE_VER}"
   fi
   echo "Version: ${VERSION}"
-  node -e "const fs=require('fs'),f='${CONF}',c=JSON.parse(fs.readFileSync(f));c.version='${VERSION}';fs.writeFileSync(f,JSON.stringify(c,null,2)+'\n')"
+  VERSION_CONFIG_DIR=$(mktemp -d)
+  VERSION_CONFIG="$VERSION_CONFIG_DIR/version.json"
+  printf '{"version":"%s"}\n' "$VERSION" > "$VERSION_CONFIG"
+  trap 'rm -f "$VERSION_CONFIG"; rmdir "$VERSION_CONFIG_DIR" 2>/dev/null || true' EXIT
   rm -rf "$BUNDLE_DIR"
   echo "Building .deb package..."
-  cd apps/tauri && cargo tauri build --bundles deb
-  cd ../..
+  (cd apps/tauri && cargo tauri build --bundles deb --config "$VERSION_CONFIG")
   DEB=$(ls -t "${BUNDLE_DIR}"/*.deb | head -1)
   # Single-checkout install: stops every FUTO Notes on the machine before
   # overwriting /usr/bin. NOT a QA-cleanup template — see justfile-notes.md.
   pkill -f futo-notes-tauri 2>/dev/null && echo "Stopped running instance." && sleep 1 || true
   echo "Installing ${DEB}..."
   sudo dpkg -i "$DEB"
-  git checkout -- "$CONF"
   echo "Done. Installed FUTO Notes ${VERSION}."
 
 # Build .rpm from current repo state and install it.
 deploy-rpm:
   #!/usr/bin/env bash
   set -euo pipefail
-  CONF="apps/tauri/src-tauri/tauri.conf.json"
   BUNDLE_DIR="target/release/bundle/rpm"
   # Version = latest git tag + commit distance.
   LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
@@ -827,15 +849,13 @@ deploy-rpm:
     VERSION="${BASE_VER}"
   fi
   echo "Version: ${VERSION}"
-  ROOT="$PWD"
-  node -e "const fs=require('fs'),f='${CONF}',c=JSON.parse(fs.readFileSync(f));c.version='${VERSION}';fs.writeFileSync(f,JSON.stringify(c,null,2)+'\n')"
-  # Restore even on a red exit from the install assertion below; $ROOT because
-  # the build step leaves us inside apps/tauri.
-  trap 'git -C "$ROOT" checkout -- "$CONF"' EXIT
+  VERSION_CONFIG_DIR=$(mktemp -d)
+  VERSION_CONFIG="$VERSION_CONFIG_DIR/version.json"
+  printf '{"version":"%s"}\n' "$VERSION" > "$VERSION_CONFIG"
+  trap 'rm -f "$VERSION_CONFIG"; rmdir "$VERSION_CONFIG_DIR" 2>/dev/null || true' EXIT
   rm -rf "$BUNDLE_DIR"
   echo "Building .rpm package..."
-  cd apps/tauri && cargo tauri build --bundles rpm
-  cd ../..
+  (cd apps/tauri && cargo tauri build --bundles rpm --config "$VERSION_CONFIG")
   RPM=$(ls -t "${BUNDLE_DIR}"/*.rpm | head -1)
   # Single-checkout install: stops every FUTO Notes on the machine before
   # overwriting /usr/bin. NOT a QA-cleanup template — see justfile-notes.md.
@@ -897,3 +917,7 @@ deploy-android flavor="direct": editor-deps android-env-check
 # Build a RELEASE native iOS build and install it on a connected iPhone (com.futo.notes).
 deploy-ios:
   apps/ios/deploy.sh
+
+# Regenerate selectable mobile icon catalogs, adaptive layers, and previews.
+app-icons:
+  node scripts/generate-app-icons.mjs

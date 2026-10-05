@@ -20,7 +20,8 @@ The desktop adapter is split by responsibility:
   field on `AppState` — there is no separate session-state bridge module.
 - **`vault_location.rs`**: the only authority for environment overrides, persisted custom roots, and the CRITICAL debug (`fake-notes`) / release (`futo-notes`) default split.
 - **`filesystem_watcher.rs`**: `notify` lifecycle, rename-cookie pairing, relative-path normalization, `fs:change` emission, and the typed one-shot `WatcherSuppression` service shared by note/folder/sync commands.
-- **`image_commands.rs`**: native clipboard bitmap → PNG ingestion (`fs_paste_clipboard_image`); file-based image import goes through `PlatformFS`, not this module.
+- **`image_commands.rs`**: every image the desktop saves into the vault, through `vault_fs` — webview bytes from a drop, pick or paste (`fs_save_image`) and the native clipboard bitmap (`fs_paste_clipboard_image`).
+- **`app_data.rs`**: app-data writes (`.app-state.json`, `.app-config.json`, crash logs) through `vault_fs` (`app_data_write`), so a vault that refuses them is marked unusable like one that refuses a note save.
 - **`portal_vault.rs`**: document-portal vaults — path recognition, grant persistence, host-path display, and the watcher-backend reliability probe.
 - **`app_menu.rs`**: the macOS application menu; frontend-performed items are forwarded as `app-menu` events whose ids the frontend shortcut registry dispatches on.
 - **`window_reveal.rs`**: shows the initially hidden window once the shell paints, with a timeout fallback so a frontend that never paints cannot hide the app.

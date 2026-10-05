@@ -56,9 +56,9 @@ export function changedRanges(tr: { mapping: Mapping }): Array<[number, number]>
  * another. Every block returned is decorated after one clear of their whole
  * range, so a block nested inside another would be decorated twice when the
  * outer block's `decorate` covers its subtree. Textblocks and fenced code
- * blocks satisfy this for free; task items do not, and `taskCheckbox.ts`
- * returns only outermost items with a `decorate` that covers their whole
- * subtree.
+ * blocks satisfy this for free. Nested task items do not, so `taskCheckbox.ts`
+ * repaints their widgets through its own item-level path instead of this
+ * helper.
  */
 export function repaintBlocks(
   set: DecorationSet,
@@ -99,7 +99,7 @@ export function repaintBlocks(
 }
 
 /**
- * `[from, to]` widened to the top-level blocks it touches.
+ * `[from, to]` widened to the textblocks it touches.
  *
  * A step that changes STRUCTURE rather than text reports zero-width ranges: a
  * lift out of a list rewrites the wrappers on either side of the content and
@@ -108,25 +108,28 @@ export function repaintBlocks(
  * sitting in the middle is in neither. Widening to the block means the repaint
  * sees the paragraph that the item became.
  *
- * Still bounded (AGENTS.md M5): every step here is a `resolve`, which costs the
- * document's DEPTH, and the widened range covers the one or two top-level
- * blocks at the edit — never a walk of the document's children.
+ * A top-level list may hold thousands of items, so widening to its container
+ * would turn one keystroke into a whole-list decoration rebuild. At a wrapper
+ * boundary, include the adjacent children so a deleted or lifted decoration
+ * is cleared even if its content no longer exists in the new document.
  */
-function expandToBlocks(doc: ProseNode, from: number, to: number): [number, number] {
+export function expandToBlocks(doc: ProseNode, from: number, to: number): [number, number] {
   const start = Math.max(0, Math.min(from, doc.content.size));
   const end = Math.max(start, Math.min(to, doc.content.size));
   const $start = doc.resolve(start);
   const $end = doc.resolve(end);
-  // A position at depth 0 sits BETWEEN top-level blocks rather than inside one.
-  // Reaching out to the neighbour there is only right when the range is EMPTY:
-  // a range with width already covers whole blocks, and widening past them
-  // would repaint a block the transaction never touched.
-  const empty = start === end;
-  const blockStart =
-    $start.depth > 0 ? $start.before(1) : start - (empty ? ($start.nodeBefore?.nodeSize ?? 0) : 0);
-  const blockEnd =
-    $end.depth > 0 ? $end.after(1) : end + (empty ? ($end.nodeAfter?.nodeSize ?? 0) : 0);
-  return [Math.max(0, blockStart), Math.min(doc.content.size, Math.max(blockStart, blockEnd))];
+  const edge = ($pos: typeof $start, side: 'start' | 'end'): number => {
+    if ($pos.parent.isTextblock) {
+      return side === 'start' ? $pos.before() : $pos.after();
+    }
+    if (start === end) {
+      return side === 'start'
+        ? $pos.pos - ($pos.nodeBefore?.nodeSize ?? 0)
+        : $pos.pos + ($pos.nodeAfter?.nodeSize ?? 0);
+    }
+    return $pos.pos;
+  };
+  return [edge($start, 'start'), edge($end, 'end')];
 }
 
 /**

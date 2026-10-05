@@ -148,7 +148,12 @@
   color: var(--color-text);
 }
 
-.sidebar-image-menu button:hover {
+.sidebar-image-menu button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.sidebar-image-menu button:hover:not(:disabled) {
   background: rgba(var(--ink-rgb), 0.05);
 }
 

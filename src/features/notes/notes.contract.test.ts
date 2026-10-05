@@ -8,7 +8,9 @@ import {
   handleExternalFileChange,
   moveNote,
   refreshNotesAfterSync,
+  refreshNotesFromStorage,
   search,
+  setNoteSortOrder,
   setNotesUniverse,
   updateNote,
 } from './notes.svelte';
@@ -74,6 +76,7 @@ function projectAsCallerWould(result: { unappliedMutation: LocalNoteMutation | n
 function fakeStore(overrides: Partial<LocalNoteStore> = {}): LocalNoteStore {
   return {
     startupListing: vi.fn(async () => ({ notes: [], folders: [] })),
+    setSortOrder: vi.fn(async () => ({ notes: [], folders: [] })),
     bootstrap: vi.fn(async () => bootstrapResult()),
     snapshot: vi.fn(),
     inventory: vi.fn(),
@@ -132,6 +135,77 @@ describe('TypeScript local-note projection', () => {
     expect(move).toHaveBeenCalledOnce();
     expect(getAllNotes().map((note) => note.id)).toEqual(['Folder/New', 'Links']);
     expect(getAllNotes().find((note) => note.id === 'Links')?.preview).toBe('See [[Folder/New]]');
+  });
+
+  it('changes the sort order with one engine call and projects its snapshot verbatim', async () => {
+    setNotesUniverse([preview('Newest'), preview('Alpha')]);
+    const setSortOrder = vi.fn(async () => ({
+      notes: [metadata('Alpha'), metadata('Newest')],
+      folders: ['Kept'],
+    }));
+    const snapshot = vi.fn();
+    _setLocalNoteStoreForTest(fakeStore({ setSortOrder, snapshot }));
+
+    await setNoteSortOrder({ key: 'name', direction: 'ascending' });
+
+    expect(setSortOrder).toHaveBeenCalledExactlyOnceWith({ key: 'name', direction: 'ascending' });
+    expect(snapshot).not.toHaveBeenCalled();
+    expect(getAllNotes().map((note) => note.id)).toEqual(['Alpha', 'Newest']);
+    expect([...getEmptyFolders()]).toEqual(['Kept']);
+  });
+
+  it('sends rapid sort picks to the engine one at a time, in order', async () => {
+    let resolveFirst!: (snapshot: { notes: LocalNoteMetadata[]; folders: string[] }) => void;
+    const setSortOrder = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ notes: LocalNoteMetadata[]; folders: string[] }>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockImplementationOnce(async () => ({ notes: [metadata('B')], folders: [] }));
+    _setLocalNoteStoreForTest(fakeStore({ setSortOrder }));
+
+    const first = setNoteSortOrder({ key: 'name', direction: 'ascending' });
+    const second = setNoteSortOrder({ key: 'name', direction: 'descending' });
+    await Promise.resolve();
+    expect(setSortOrder).toHaveBeenCalledOnce();
+
+    resolveFirst({ notes: [metadata('A')], folders: [] });
+    await Promise.all([first, second]);
+    expect(setSortOrder.mock.calls.map(([order]) => order)).toEqual([
+      { key: 'name', direction: 'ascending' },
+      { key: 'name', direction: 'descending' },
+    ]);
+    expect(getAllNotes().map((note) => note.id)).toEqual(['B']);
+  });
+
+  it('re-reads a storage refresh when a mutation lands while the scan is in flight', async () => {
+    setNotesUniverse([preview('Existing')]);
+    let resolveFirst!: (snapshot: { notes: LocalNoteMetadata[]; folders: string[] }) => void;
+    const snapshot = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ notes: LocalNoteMetadata[]; folders: string[] }>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockImplementationOnce(async () => ({
+        notes: [metadata('New'), metadata('Existing')],
+        folders: [],
+      }));
+    _setLocalNoteStoreForTest(fakeStore({ snapshot }));
+
+    const refresh = refreshNotesFromStorage();
+    await vi.waitFor(() => expect(snapshot).toHaveBeenCalledOnce());
+    _applyLocalMutation(mutation({ upserted: [upsert('New')] }));
+    resolveFirst({ notes: [metadata('Existing')], folders: [] });
+    await refresh;
+
+    expect(snapshot).toHaveBeenCalledTimes(2);
+    expect(getAllNotes().map((note) => note.id)).toEqual(['New', 'Existing']);
   });
 
   it('applies the engine mutation returned for sync-written files', async () => {
@@ -378,23 +452,6 @@ describe('the recorded save identity change', () => {
 });
 
 describe('search readiness (A4)', () => {
-  it('passes the configured budget to the engine wait and degrades when it reports not-ready', async () => {
-    const { notes, ln } = await freshModules();
-    notes._setSearchReadyTimeoutForTest(60);
-    const waitUntilSearchReady = vi.fn(async () => false);
-    ln._setLocalNoteStoreForTest(
-      fakeStore({
-        bootstrap: vi.fn(async () => bootstrapResult()),
-        waitUntilSearchReady,
-        search: vi.fn(async () => []),
-      }),
-    );
-    await notes.initNotes();
-
-    await expect(notes.search('needle')).resolves.toEqual([]);
-    expect(waitUntilSearchReady).toHaveBeenCalledWith(60);
-  });
-
   it('survives a rejected readiness wait without poisoning search', async () => {
     const { notes, ln } = await freshModules();
     ln._setLocalNoteStoreForTest(

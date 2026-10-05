@@ -59,7 +59,8 @@ class SyncManager(
         private set
     var lastErrorDiagnostic: String? = null
         private set
-    private var errorMessage by mutableStateOf<LocalizedMessage?>(null)
+    internal var errorMessage by mutableStateOf<LocalizedMessage?>(null)
+        private set
 
     /** Whether the LAST completed cycle's writes were refused, and which way
      *  (`futo_notes_sync::WriteRefusal`). Held here because this object
@@ -161,6 +162,11 @@ class SyncManager(
             }
             return
         }
+        if (needsPlatformTrust(url) && !PlatformTrust.isBound) {
+            statusMessage = LocalizedMessage("sync.status.error")
+            errorMessage = LocalizedMessage("sync.errors.secureConnectionUnavailable")
+            return
+        }
         busy = true
         lastErrorDiagnostic = null
         errorMessage = null
@@ -187,7 +193,7 @@ class SyncManager(
             connected = client != null
             lastErrorDiagnostic = describe(e)
             statusMessage = LocalizedMessage("sync.status.error")
-            errorMessage = LocalizedMessage("sync.errors.connectFailed")
+            errorMessage = failureMessage(e, "sync.errors.connectFailed")
         } finally {
             busy = false
         }
@@ -361,7 +367,7 @@ class SyncManager(
                 } else {
                     lastErrorDiagnostic = describe(e)
                     statusMessage = LocalizedMessage("sync.status.error")
-                    errorMessage = LocalizedMessage("sync.errors.syncFailed")
+                    errorMessage = failureMessage(e, "sync.errors.syncFailed")
                 }
             } finally {
                 busy = false
@@ -371,6 +377,18 @@ class SyncManager(
 
     private fun isRecoverableSessionError(e: Exception): Boolean =
         e is SyncException.Auth || e is SyncException.CollectionGone
+
+    internal fun failureMessage(e: Exception, fallbackPath: String): LocalizedMessage =
+        if (isCertificateRejection(describe(e))) {
+            LocalizedMessage("sync.errors.certificateNotTrusted")
+        } else {
+            LocalizedMessage(fallbackPath)
+        }
+
+    /** rustls prefixes every certificate rejection this way, whatever the
+     *  verifier's reason [sync.md]. */
+    private fun isCertificateRejection(message: String): Boolean =
+        message.contains("invalid peer certificate")
 
     /** Re-login with the stored password to recover an expired session or
      *  collapsed vault without deleting state. Guarded against re-entry;
@@ -423,7 +441,15 @@ class SyncManager(
             healSession(message)
         } else {
             lastErrorDiagnostic = message
-            errorMessage = LocalizedMessage("sync.errors.liveUnavailable")
+            // A certificate rejection is reported as such whichever kind it
+            // arrives as (connect, stream or cycle) [sync.md].
+            errorMessage = LocalizedMessage(
+                if (isCertificateRejection(message)) {
+                    "sync.errors.certificateNotTrusted"
+                } else {
+                    "sync.errors.liveUnavailable"
+                },
+            )
         }
     }
 
@@ -435,8 +461,9 @@ class SyncManager(
 
     /** Single reporter for a completed cycle's outcome [sync.md]: clean →
      *  "Sync complete" (no counts); per-item failures → the red error line,
-     *  using `failureMessage` (computed once in the Rust core so every shell
-     *  shows identical wording). Cleared by the next clean cycle. */
+     *  using `failureMessage` (computed in Rust as a diagnostic) to select the
+     *  error state; visible wording comes from the shared catalog. Cleared by
+     *  the next clean cycle. */
     internal fun applyOutcome(summary: SyncSummary) {
         lastWriteRefusal = summary.writeRefusal
         val message = summary.failureMessage
@@ -454,12 +481,30 @@ class SyncManager(
         } else if (message != null) {
             lastErrorDiagnostic = message
             statusMessage = LocalizedMessage("sync.status.error")
-            errorMessage = LocalizedMessage("sync.errors.completedWithErrors")
+            errorMessage = specificFileFailure(summary)
+                ?: LocalizedMessage("sync.errors.completedWithErrors")
         } else {
             lastErrorDiagnostic = null
             statusMessage = LocalizedMessage("sync.status.complete")
             errorMessage = null
         }
+    }
+
+    private fun specificFileFailure(summary: SyncSummary): LocalizedMessage? {
+        val oversized = summary.failures.filter { it.kind == "upload" && it.statusCode == 413u.toUShort() }
+            .map { it.filename }
+        val rejected = summary.failures.filter { it.kind == "rejected" }.map { it.filename }
+        if (oversized.isNotEmpty() && rejected.isNotEmpty()) return LocalizedMessage(
+            "sync.errors.uploadsTooLargeAndUnsupported",
+            mapOf("oversized" to oversized.joinToString(", "), "unsupported" to rejected.joinToString(", ")),
+        )
+        if (oversized.isNotEmpty()) return LocalizedMessage(
+            "sync.errors.uploadsTooLarge", mapOf("filenames" to oversized.joinToString(", ")),
+        )
+        if (rejected.isNotEmpty()) return LocalizedMessage(
+            "sync.errors.unsupportedPaths", mapOf("filenames" to rejected.joinToString(", ")),
+        )
+        return null
     }
 
     /** Signal Rust that a local note changed so the live loop debounces and
@@ -593,12 +638,12 @@ class SyncManager(
         errorMessage = null
     }
 
-    private fun describe(e: Exception): String = when (e) {
-        is SyncException.Http -> "HTTP: ${e.message}"
-        is SyncException.Crypto -> "Crypto: ${e.message}"
-        is SyncException.Io -> "IO: ${e.message}"
-        is SyncException.Auth -> "Auth: ${e.message}"
-        is SyncException.CollectionGone -> e.message ?: "collection-gone"
+    internal fun describe(e: Exception): String = when (e) {
+        is SyncException.Http -> "HTTP: ${e.v1}"
+        is SyncException.Crypto -> "Crypto: ${e.v1}"
+        is SyncException.Io -> "IO: ${e.v1}"
+        is SyncException.Auth -> "Auth: ${e.v1}"
+        is SyncException.CollectionGone -> e.v1
         is SyncException.NotConnected -> "Not connected"
         else -> e.message ?: e.toString()
     }
@@ -721,6 +766,9 @@ class SyncManager(
             }
             return null
         }
+
+        internal fun needsPlatformTrust(url: String): Boolean =
+            url.trim().lowercase().startsWith("https://")
 
         /** Live-loop auth errors and collection-gone are terminal for the old
          *  bearer session but recoverable with the securely stored password. */

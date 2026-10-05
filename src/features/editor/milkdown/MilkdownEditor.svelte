@@ -30,6 +30,7 @@
     defaultValueCtx,
     editorViewCtx,
     editorViewOptionsCtx,
+    remarkCtx,
     remarkStringifyOptionsCtx,
     rootCtx,
     schemaCtx,
@@ -63,6 +64,7 @@
   } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
   import {
+    bareUrlLinkHandler,
     imageReferenceMarkdown,
     toWellFormedText,
     withNarrowedEscapes,
@@ -76,6 +78,7 @@
     uninstallVaultImageUrlResolver,
   } from '$features/images/vaultImageUrlResolver';
   import { deleteImage } from '$features/images/imageFiles';
+  import { readOnlyGuard } from './readOnlyGuard';
   import { onFileDrop } from '$lib/platform';
   import { localizedText } from '$shared/localization';
   import { createImageInsertTarget } from '../imageInsertTarget';
@@ -90,7 +93,12 @@
   import { createImagePasteHandler, resolveImagePasteSink } from '../imagePasteSink';
   import type { EditorLinkGesture } from '../editorLinkGesture';
   import { resolveBlockDragMode } from './blockDragMode';
+  import { autolink } from './autolink';
   import { blockDropIndicator } from './blockDropIndicator';
+  import {
+    rememberSelectionBeforeHandlePress,
+    settleSelectionAfterHandlePress,
+  } from './handlePressSelection';
   import { retargetListDragToItem } from './listItemHandleDrag';
   import { setDprCorrectedDragImage } from './blockDragGeometry';
   import { editorView, enclosingListItem } from './caretContext';
@@ -102,6 +110,7 @@
   import {
     createMobileBlockDndPlugin,
     dropBlockDndFocusGuards,
+    DEFAULT_LONG_PRESS_MS,
     type MobileDndHapticKind,
   } from './mobileBlockDnd';
   import { codeHighlight } from './codeHighlight';
@@ -188,6 +197,8 @@
     /* Everything a find bar renders, deduped. The desktop shell draws its bar
      * from this; the native shells ignore it and read `onfindmatches`. */
     onfindstate?: (state: FindBarState) => void;
+    /** The note stays readable but takes no edits: its vault refuses writes. */
+    readonly?: boolean;
     /* The editor engine is up and holding a document. Milkdown's
      * `Editor.make().create()` is ASYNC, so Svelte's `mount()` returns long
      * before this — and the Android WebView gate used to read the host API that
@@ -217,6 +228,7 @@
     onblockpress,
     onfindmatches,
     onfindstate,
+    readonly = false,
     onenginemounted,
   }: Props = $props();
 
@@ -507,7 +519,49 @@
     const contentLeft =
       editorDom.getBoundingClientRect().left + parseFloat(getComputedStyle(editorDom).paddingLeft);
     const inset = Math.max(0, blockDom.getBoundingClientRect().left - contentLeft);
-    return { mainAxis: 8 + inset };
+    return { mainAxis: 4 + inset };
+  }
+
+  /** The handle's hit box, in px — matches `.milkdown-block-handle` below. */
+  const BLOCK_HANDLE_HEIGHT_PX = 28;
+
+  /** Six dots, two columns of three: the grip glyph. An SVG rather than the
+   * old `⠿` character, whose size and weight came from whatever font the
+   * platform picked for braille. */
+  const BLOCK_HANDLE_GRIP_SVG =
+    '<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">' +
+    '<circle cx="2" cy="2" r="1.5"/><circle cx="8" cy="2" r="1.5"/>' +
+    '<circle cx="2" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/>' +
+    '<circle cx="2" cy="14" r="1.5"/><circle cx="8" cy="14" r="1.5"/></svg>';
+
+  /* What the handle lines up with: the block's FIRST LINE, not its middle.
+   * floating-ui's `left` placement centres the handle on whatever box it is
+   * given, and the block's own box put it halfway down a long paragraph, a
+   * code block or a list — away from the line the block starts on, which is
+   * where the eye looks for it. The first line is the first character's box;
+   * a block with no text (an image, a divider) aligns to its top instead. */
+  function blockHandleAnchor(blockDom: HTMLElement): DOMRect {
+    const box = blockDom.getBoundingClientRect();
+    const walker = document.createTreeWalker(blockDom, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) =>
+        node.textContent?.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
+    });
+    const text = walker.nextNode() as Text | null;
+    if (text) {
+      const range = document.createRange();
+      const start = text.data.search(/\S/);
+      range.setStart(text, start);
+      range.setEnd(text, start + 1);
+      const line = range.getClientRects()[0];
+      // Park it outside the editor: a Range stays live until collected, and
+      // one left in a block makes the next open rewrite DOM under it — the
+      // WebKit O(n²) of tests/editor-open-large-paragraph.spec.ts.
+      range.setEnd(document, 0);
+      range.setStart(document, 0);
+      if (line && line.height > 0) return new DOMRect(box.left, line.top, box.width, line.height);
+    }
+    if (box.height <= BLOCK_HANDLE_HEIGHT_PX) return box;
+    return new DOMRect(box.left, box.top, box.width, BLOCK_HANDLE_HEIGHT_PX);
   }
 
   /* Drives the block plugin's own hover-detection path (BlockService listens
@@ -525,6 +579,23 @@
       cancelable: true,
     });
     view.dom.dispatchEvent(evt);
+  }
+
+  /* Where a press on the ⠿ handle is, for the selection handback and for the
+   * `handle-pressed` class that stops the plugin's NodeSelection painting as
+   * selected text while the press lasts (handlePressSelection.ts). */
+  let handlePress = $state<'idle' | 'pressed' | 'dragging'>('idle');
+
+  function endHandlePress(): void {
+    handlePress = 'idle';
+    const view = pmView();
+    if (view) settleSelectionAfterHandlePress(view);
+  }
+
+  /** A mouseup that did not start a drag — a click. A drag never gets here:
+   * the engine swallows its mouseup, and `dragend` settles it instead. */
+  function endHandleClick(): void {
+    if (handlePress === 'pressed') endHandlePress();
   }
 
   /* The handle's position is only recomputed when the plugin shows/hides it;
@@ -551,7 +622,12 @@
     document.addEventListener('visibilitychange', visibility);
     window.addEventListener('pagehide', flushOnPageHide);
     container.addEventListener('click', handleClick);
+    container.addEventListener('auxclick', handleAuxClick);
+    container.addEventListener('pointerdown', handlePointerDown);
     // Not passive: the handler must be able to preventDefault a link tap.
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchmove', handleTouchMove, { passive: true });
+    container.addEventListener('touchcancel', handleTouchCancel);
     container.addEventListener('touchend', handleTouchEnd, { passive: false });
 
     (async () => {
@@ -579,6 +655,18 @@
               handlers: { ...options.handlers, text: withNarrowedEscapes(text) },
             };
           });
+
+          /* Write a bare URL back bare instead of as `<url>` (or, for `www.`,
+           * a full `[text](url)`) — see packages/editor/src/milkdown-compat/
+           * bareUrl.ts. The processor is read at serialize time: it only has
+           * the gfm preset's plugins once the editor has been created. */
+          ctx.update(remarkStringifyOptionsCtx, (options) => ({
+            ...options,
+            handlers: {
+              ...options.handlers,
+              link: bareUrlLinkHandler((markdown) => ctx.get(remarkCtx).parse(markdown)),
+            },
+          }));
 
           /* `-` for bullet markers, not remark-stringify's default `*`.
            * The manifest's Bullet/Task buttons emit `- `, and so does the
@@ -634,7 +722,7 @@
              * empty editable page. Typing into a document that is not the note
              * is the one gesture that could make the failure destructive.
              * `refreshEditable()` is what re-asks this. */
-            editable: () => !loadFailed,
+            editable: () => !loadFailed && !readonly,
           }));
 
           /* ...but not in code, as far as the engine will allow. Autocorrect
@@ -704,11 +792,13 @@
         .use(commonmarkWithCompat())
         .use(gfmWithCompat())
         .use(wikilink)
+        .use(autolink)
         .use(vaultImageView)
         .use(imageInputRule)
         .use(history)
         .use(listener)
         .use(documentChanges(documentEdited))
+        .use(readOnlyGuard(() => readonly))
         // BEFORE clipboard: its handlePaste must see a plain-text block first.
         .use(plainTextBlockPaste)
         .use(clipboard)
@@ -870,7 +960,8 @@
       if (!useMobileBlockDnd) {
         const handleEl = document.createElement('div');
         handleEl.className = 'milkdown-block-handle';
-        handleEl.textContent = '⠿';
+        // A static string, no interpolation.
+        handleEl.innerHTML = BLOCK_HANDLE_GRIP_SVG;
         handleEl.setAttribute('aria-hidden', 'true');
         blockProvider = new BlockProvider({
           ctx: created.ctx,
@@ -878,8 +969,29 @@
           // `blockDom` in this context is the HANDLE element, not the block;
           // the block's own element is `active.el`.
           getOffset: ({ editorDom, active }) => blockHandleOffset(editorDom, active.el),
+          getPosition: ({ active }) => blockHandleAnchor(active.el),
         });
         blockProvider.update();
+        // The press never changes the user's selection (handlePressSelection.ts).
+        // Registered BEFORE the provider's own listeners — `update()` only
+        // attaches them on the next frame — so the selection remembered here
+        // is the user's, not the NodeSelection the plugin is about to dispatch.
+        handleEl.addEventListener('mousedown', () => {
+          rememberSelectionBeforeHandlePress(created.ctx.get(editorViewCtx));
+          handlePress = 'pressed';
+          window.addEventListener('mouseup', endHandleClick, { once: true });
+        });
+        handleEl.addEventListener('dragstart', () => {
+          handlePress = 'dragging';
+          window.removeEventListener('mouseup', endHandleClick);
+        });
+        // `drop` normally comes first and has already carried the selection
+        // through the move; the delay covers engines that fire `dragend` before
+        // `drop` (the same guard @milkdown/plugin-block's own dragend uses),
+        // where settling now would take the NodeSelection the drop still needs.
+        handleEl.addEventListener('dragend', () => {
+          window.setTimeout(endHandlePress, 50);
+        });
         // AFTER the provider's own dragstart listener on the same element, so
         // the plugin's list selection exists to be re-targeted
         // (listItemHandleDrag.ts).
@@ -945,8 +1057,14 @@
         ownsImageUrlResolver = false;
       }
       container.removeEventListener('click', handleClick);
+      container.removeEventListener('auxclick', handleAuxClick);
+      container.removeEventListener('pointerdown', handlePointerDown);
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchcancel', handleTouchCancel);
       container.removeEventListener('touchend', handleTouchEnd);
       document.removeEventListener('scroll', handleBlockScroll, { capture: true });
+      window.removeEventListener('mouseup', endHandleClick);
       blockProvider?.destroy();
       blockProvider = null;
       const current = editor;
@@ -956,7 +1074,7 @@
   });
 
   /**
-   * Re-asks the view for its `editable` prop after `loadFailed` moved.
+   * Re-asks the view for its `editable` prop after `loadFailed` or `readonly` moved.
    *
    * ProseMirror reads `editable` during `updateStateInner`, which nothing here
    * would otherwise trigger — a plain assignment to `loadFailed` leaves the
@@ -966,6 +1084,11 @@
   function refreshEditable(): void {
     pmView()?.setProps({});
   }
+
+  $effect(() => {
+    void readonly;
+    refreshEditable();
+  });
 
   /**
    * A transaction changed the document — report it once it settles.
@@ -1572,14 +1695,21 @@
     shiftKey: false,
   };
 
-  /* A touchend that activated a link suppresses its own synthetic click, but
-   * belt-and-braces: a WebView that emits one anyway must not open the note
-   * twice. */
-  let lastLinkActivationMs = 0;
+  /* A WebView can emit a click after touchend despite preventDefault. Remember
+   * only that touch's anchor; independent mouse clicks must still open links. */
+  let pendingTouchClick: { anchor: HTMLAnchorElement; at: number } | null = null;
+  let linkTouch: {
+    identifier: number;
+    x: number;
+    y: number;
+    at: number;
+    anchor: HTMLAnchorElement;
+    moved: boolean;
+  } | null = null;
   const SYNTHETIC_CLICK_WINDOW_MS = 700;
+  const TAP_MOVE_PX = 10;
 
   function activateLink(link: EditorLink, gesture: EditorLinkGesture): void {
-    lastLinkActivationMs = Date.now();
     /* Broken links are posted too: what happens next is the HOST's call —
      * desktop opens an empty editor bound to the target text, the native embed
      * drops it (a recorded spec Gap). The editor does not resolve here. */
@@ -1587,8 +1717,63 @@
     else onopenurl?.(link.url);
   }
 
+  function handleTouchStart(event: TouchEvent): void {
+    linkTouch = null;
+    if (event.touches.length !== 1) return;
+    const anchor = (event.target as HTMLElement | null)?.closest('a');
+    const touch = event.changedTouches[0];
+    if (!anchor || !touch || !linkAt(anchor)) return;
+    linkTouch = {
+      identifier: touch.identifier,
+      x: touch.clientX,
+      y: touch.clientY,
+      at: Date.now(),
+      anchor,
+      moved: false,
+    };
+  }
+
+  function handleTouchMove(event: TouchEvent): void {
+    if (!linkTouch) return;
+    const touch = Array.from(event.touches).find(
+      (candidate) => candidate.identifier === linkTouch?.identifier,
+    );
+    if (
+      !touch ||
+      event.touches.length !== 1 ||
+      Math.hypot(touch.clientX - linkTouch.x, touch.clientY - linkTouch.y) > TAP_MOVE_PX
+    ) {
+      linkTouch.moved = true;
+    }
+  }
+
+  function handleTouchCancel(): void {
+    linkTouch = null;
+  }
+
+  function handlePointerDown(event: PointerEvent): void {
+    if (event.pointerType === 'mouse') pendingTouchClick = null;
+  }
+
   function handleTouchEnd(event: TouchEvent): void {
-    const link = linkAt(event.target as HTMLElement | null);
+    const started = linkTouch;
+    linkTouch = null;
+    const touch = Array.from(event.changedTouches).find(
+      (candidate) => candidate.identifier === started?.identifier,
+    );
+    // A rejected hold can still produce a compatibility click on release.
+    if (started && touch) pendingTouchClick = { anchor: started.anchor, at: Date.now() };
+    if (
+      !started ||
+      !touch ||
+      event.touches.length !== 0 ||
+      started.moved ||
+      Date.now() - started.at >= DEFAULT_LONG_PRESS_MS ||
+      Math.hypot(touch.clientX - started.x, touch.clientY - started.y) > TAP_MOVE_PX ||
+      !(event.target as HTMLElement | null)?.closest('a')?.isSameNode(started.anchor)
+    )
+      return;
+    const link = linkAt(started.anchor);
     if (!link) return;
     // Also stops WebKit turning the tap into a caret placement inside the chip.
     if (consumesTap(link)) event.preventDefault();
@@ -1599,6 +1784,15 @@
    * both draws the box and toggles it. This handler is only links and the
    * tap-to-surface-the-drag-handle behavior. */
   function handleClick(event: MouseEvent): void {
+    if (event.button !== 0) return;
+    handleLinkClick(event);
+  }
+
+  function handleAuxClick(event: MouseEvent): void {
+    if (event.button === 1) handleLinkClick(event);
+  }
+
+  function handleLinkClick(event: MouseEvent): void {
     const target = event.target as HTMLElement | null;
     if (!target) return;
 
@@ -1608,15 +1802,29 @@
     const link = linkAt(target);
     if (link) {
       if (consumesTap(link)) event.preventDefault();
-      if (Date.now() - lastLinkActivationMs > SYNTHETIC_CLICK_WINDOW_MS) {
-        activateLink(link, {
-          button: event.button === 1 ? 1 : 0,
-          altKey: event.altKey,
-          ctrlKey: event.ctrlKey,
-          metaKey: event.metaKey,
-          shiftKey: event.shiftKey,
-        });
-      }
+      const anchor = target.closest('a');
+      const touchClick = pendingTouchClick;
+      pendingTouchClick = null;
+      if (
+        event.button === 0 &&
+        event.detail !== 0 &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        touchClick?.anchor === anchor &&
+        Date.now() - touchClick.at <= SYNTHETIC_CLICK_WINDOW_MS &&
+        (event as MouseEvent & { sourceCapabilities?: { firesTouchEvents: boolean } })
+          .sourceCapabilities?.firesTouchEvents !== false
+      )
+        return;
+      activateLink(link, {
+        button: event.button === 1 ? 1 : 0,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+      });
       return;
     }
 
@@ -2182,6 +2390,7 @@
 <div
   class="futo-milkdown"
   class:mobile-dnd={useMobileBlockDnd}
+  class:handle-pressed={handlePress !== 'idle'}
   style="--futo-checkbox-slot: {CHECKBOX_SIZE_PX}px"
   bind:this={container}
   oncompositionend={() => oncompositionend?.()}
@@ -2680,6 +2889,19 @@
     border-radius: 6px;
   }
 
+  /* ProseMirror's own stylesheet rule, which this editor never loads. The
+   * separator is the invisible `<img>` ProseMirror puts between a widget and
+   * a trailing `<br>` — an empty task item is exactly that: checkbox widget,
+   * separator, break. The global `img { display: block }` reset made it a
+   * block, splitting the empty line into anonymous boxes, and the caret was
+   * drawn in the zero-height one above the real line: "cursor is too high
+   * when no text is entered". → tests/editor-embed-milkdown-parity.spec.ts */
+  :global(.futo-milkdown .ProseMirror img.ProseMirror-separator) {
+    display: inline !important;
+    border: none !important;
+    margin: 0 !important;
+  }
+
   :global(.futo-milkdown .ProseMirror table) {
     border-collapse: collapse;
     display: block;
@@ -2701,6 +2923,17 @@
 
   :global(.futo-milkdown .ProseMirror ::selection) {
     background: var(--color-selection, #ffe4d1);
+  }
+
+  /* While the ⠿ handle is pressed the selection is plugin-block's NodeSelection
+   * over the block, not anything the user chose; ProseMirror mirrors it as a
+   * native range over the block's text, which must not paint. */
+  .futo-milkdown.handle-pressed :global(.ProseMirror ::selection) {
+    background: transparent;
+  }
+
+  .futo-milkdown.handle-pressed :global(.ProseMirror) {
+    caret-color: transparent;
   }
 
   /* Table row/column grips (table/tableGrips.ts). `position: fixed` in
@@ -2786,22 +3019,20 @@
    * dispatched from this component (see nudgeBlockHandle). */
   :global(.futo-milkdown .milkdown-block-handle) {
     position: absolute;
-    width: 20px;
-    height: 20px;
+    /* A comfortable target for a mouse: 24 x 28 around a 10 x 16 grip. The
+     * height is BLOCK_HANDLE_HEIGHT_PX in the script above. */
+    width: 24px;
+    height: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
-    line-height: 1;
     color: var(--color-muted, #737373);
     background: transparent;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: grab;
     opacity: 0;
     pointer-events: none;
-    transition:
-      opacity 0.12s ease,
-      background-color 0.12s ease;
+    transition: opacity 0.12s ease;
     /* iOS/WKWebView native HTML5 drag on a plain draggable div: touch-action
      * stops the browser eating the long-press-drag gesture as a scroll, and
      * -webkit-user-drag is WebKit's own opt-in for element drag sources. */
@@ -2817,9 +3048,21 @@
     pointer-events: auto;
   }
 
+  :global(.futo-milkdown .milkdown-block-handle svg) {
+    display: block;
+    pointer-events: none;
+  }
+
+  /* Tint off the text colour rather than a surface token, so it reads on the
+   * editor background in both themes. */
+  :global(.futo-milkdown .milkdown-block-handle:hover) {
+    color: var(--color-text, #0f0f0f);
+    background: color-mix(in srgb, var(--color-text, #0f0f0f) 8%, transparent);
+  }
+
   :global(.futo-milkdown .milkdown-block-handle:active) {
     cursor: grabbing;
-    background: var(--color-surface, #f2f2f2);
+    background: color-mix(in srgb, var(--color-text, #0f0f0f) 12%, transparent);
   }
 
   /* Drop indicator for the desktop ⠿ handle's HTML5 drag. The DOM and its

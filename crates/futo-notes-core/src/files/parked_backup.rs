@@ -2,6 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use rayon::prelude::*;
+
 use super::atomic_write::move_no_replace;
 use super::filenames::collision_key;
 use super::paths::MAX_FOLDER_DEPTH;
@@ -76,29 +78,32 @@ pub struct RecoveredBackup {
 /// Returns divergent backups intact so callers can rename them visibly before removing the sidecar.
 #[must_use]
 pub fn recover_parked_backups(root: &Path) -> Vec<RecoveredBackup> {
-    let mut recovered = Vec::new();
-    recover_parked_in(root, 0, &mut recovered);
-    recovered
+    recover_parked_in(root, 0)
 }
 
-fn recover_parked_in(dir: &Path, depth: usize, recovered: &mut Vec<RecoveredBackup>) {
+/// Sibling directories are scanned in parallel: this runs before every vault
+/// open. `scan_parked_entries` has closed each directory before recursing.
+fn recover_parked_in(dir: &Path, depth: usize) -> Vec<RecoveredBackup> {
     let Some(entries) = scan_parked_entries(dir) else {
-        return;
+        return Vec::new();
     };
 
-    for name in entries.backups {
-        if let Some(backup) = recover_parked_backup(dir, &name) {
-            recovered.push(backup);
-        }
-    }
+    let mut recovered: Vec<RecoveredBackup> = entries
+        .backups
+        .iter()
+        .filter_map(|name| recover_parked_backup(dir, name))
+        .collect();
     remove_orphan_sidecars(dir, entries.sidecars);
 
-    if depth >= MAX_FOLDER_DEPTH {
-        return;
+    if depth < MAX_FOLDER_DEPTH {
+        let nested: Vec<Vec<RecoveredBackup>> = entries
+            .subdirs
+            .par_iter()
+            .map(|subdir| recover_parked_in(subdir, depth + 1))
+            .collect();
+        recovered.extend(nested.into_iter().flatten());
     }
-    for subdir in entries.subdirs {
-        recover_parked_in(&subdir, depth + 1, recovered);
-    }
+    recovered
 }
 
 struct ParkedEntries {

@@ -23,6 +23,7 @@ import com.futo.notes.storage.StorageDestination
 import com.futo.notes.storage.StorageMigrationGate
 import uniffi.futo_notes_ffi.FlushDisposition
 import uniffi.futo_notes_ffi.NoteMutation
+import uniffi.futo_notes_ffi.NoteSortOrder
 import uniffi.futo_notes_ffi.NoteStore
 import uniffi.futo_notes_ffi.NoteMetadata
 import uniffi.futo_notes_ffi.SearchHit
@@ -356,12 +357,18 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
  * rules, scan/preview, CRUD, folder ops) lives in `futo-notes-model` and is
  * reached through `core`; this class only holds Compose state and seeds.
  */
-class NotesStore(notesRoot: File, searchIndex: File) {
+class NotesStore(
+    notesRoot: File,
+    searchIndex: File,
+    initialSortOrder: NoteSortOrder = NoteSortPreference.DEFAULT,
+) {
     var notes by mutableStateOf<List<NoteItem>>(emptyList())
         private set
     var folders by mutableStateOf<List<String>>(emptyList())
         private set
     var hasBootstrapped by mutableStateOf(false)
+        private set
+    var sortOrder by mutableStateOf(initialSortOrder)
         private set
 
     val rootPath: String = notesRoot.absolutePath
@@ -371,6 +378,9 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  [SyncManager.noteChanged] so a connected live session debounces and
      *  auto-pushes the edit to peers. Mirrors the iOS `NotesStore.onLocalChange`. */
     var onLocalChange: (() -> Unit)? = null
+
+    /** Persists a sort order once Rust and the list have both taken it. */
+    var onSortOrderChanged: ((NoteSortOrder) -> Unit)? = null
 
     /** When true, mutations do NOT signal [onLocalChange] — set by the full-
      *  reset flow so the bulk wipe can't trigger an auto-push mid-delete
@@ -422,7 +432,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         scope.launch {
             val epoch = vaultEpoch
             val bootstrap = withCore {
-                core.bootstrap(searchIndex.absolutePath)
+                core.bootstrap(searchIndex.absolutePath, initialSortOrder)
             }
             applySnapshot(bootstrap.snapshot.notes, bootstrap.snapshot.folders, epoch)
             hasBootstrapped = true
@@ -434,6 +444,30 @@ class NotesStore(notesRoot: File, searchIndex: File) {
             }
         }
     }
+
+    // Fair lock on the store's own scope: picks reach Rust, the shell and the
+    // preference in tap order, and leaving the list can't cancel one mid-flight.
+    private val sortOrderMutex = Mutex()
+
+    fun selectSortOrder(order: NoteSortOrder) {
+        scope.launch {
+            sortOrderMutex.withLock {
+                if (order == sortOrder) return@withLock
+                val epoch = vaultEpoch
+                try {
+                    val snapshot = withCore { core.setSortOrder(order) }
+                    sortOrder = order
+                    onSortOrderChanged?.invoke(order)
+                    applySnapshot(snapshot.notes, snapshot.folders, epoch)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    android.util.Log.w("NotesStore", "sort order change failed", e)
+                }
+            }
+        }
+    }
+
 
     /** A missing note reads as empty; null means the note exists but cannot be
      *  read (bytes that are not UTF-8), so it must never open as a blank page. */
@@ -868,7 +902,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
             null
         }
 
-    /** MOVE-UP folder delete (Tauri parity, [list.md:121]): notes under
+    /** MOVE-UP folder delete (Tauri parity, [list.md]): notes under
      *  [path] move to the parent (Rust bails atomically — if ANY move fails
      *  nothing is deleted), wikilinks are relinked, then the folder tree goes.
      *  Returns the moved-note count, or null when the FFI rejected the delete

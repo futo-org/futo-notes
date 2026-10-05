@@ -12,6 +12,8 @@ object Prefs {
 
     const val LANGUAGE = "language"
 
+    const val SORT_ORDER = "sort_order"
+
     // Vault storage location [app.md]. One of StorageMode (DEVICE/APP/INTERNAL).
     // Absent = undecided: a fresh install shows the storage picker; an existing
     // install (non-empty internal vault) is grandfathered on INTERNAL.

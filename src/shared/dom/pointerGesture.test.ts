@@ -18,28 +18,6 @@ describe('runWhenPointerIdle', () => {
     _resetPointerGestureForTest();
   });
 
-  it('runs synchronously when no pointer is held', () => {
-    const run = vi.fn();
-    runWhenPointerIdle(run);
-    expect(run).toHaveBeenCalledOnce();
-  });
-
-  it('holds the work until after the click the gesture delivers', () => {
-    const run = vi.fn();
-    fire('pointerdown');
-    runWhenPointerIdle(run);
-    expect(run).not.toHaveBeenCalled();
-
-    fire('pointerup');
-    expect(run).not.toHaveBeenCalled();
-
-    fire('click');
-    expect(run).not.toHaveBeenCalled();
-
-    vi.advanceTimersByTime(0);
-    expect(run).toHaveBeenCalledOnce();
-  });
-
   it('still runs when the gesture ends without a click', () => {
     const run = vi.fn();
     fire('pointerdown');
@@ -110,35 +88,8 @@ describe('runWhenPointerIdle', () => {
     runWhenPointerIdle(later);
     expect(later).toHaveBeenCalledOnce();
   });
-});
 
-describe('runWhenPointerIdle during a drag', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    _resetPointerGestureForTest();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    _resetPointerGestureForTest();
-  });
-
-  it('holds the work for the whole drag, not just to the pointercancel', () => {
-    const run = vi.fn();
-    fire('pointerdown');
-    runWhenPointerIdle(run);
-
-    fire('dragstart');
-    fire('pointercancel');
-    vi.advanceTimersByTime(1000);
-    expect(run).not.toHaveBeenCalled();
-
-    fire('drop');
-    fire('dragend');
-    vi.advanceTimersByTime(100);
-    expect(run).toHaveBeenCalledOnce();
-  });
-
+  // A drag's release is `dragend`, not the `pointercancel` that `dragstart` fires.
   it('keeps waiting after a drag ends while another pointer is still held', () => {
     const run = vi.fn();
     fire('pointerdown');

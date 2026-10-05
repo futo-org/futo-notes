@@ -73,8 +73,12 @@ Debug builds include `tauri-plugin-mcp-bridge`, exposing the Tauri MCP tools
 (`driver_session`, `webview_*`). The bridge binds **loopback only** and scans
 upward from a per-worktree base port (`scripts/lib/slot.mjs` -> `mcp`, passed as
 `FUTO_MCP_BASE_PORT` by `just tauri-dev`), so worktree instances coexist without
-contending for one port. Bases land in 9223–9272 and the scan runs 100 ports up,
-so 9223–9322 is still the range to sweep.
+contending for one port. Each slot has a disjoint 100-port band beginning at
+`9223 + slot * 100`, so the full scan range is 9223–14222. A slot hash can
+collide, so `just tauri-dev` also takes a machine-wide slot lease and refuses a
+second simultaneous desktop launch for the same slot.
+After a hard kill, a stale lease error prints the exact file and prior PID;
+verify that PID is gone before removing that one lease file and retrying.
 
 Print this worktree's base with `just ports`. Loopback-only matters: the plugin
 used to bind `0.0.0.0`, which succeeds even while another process holds
@@ -82,9 +86,6 @@ used to bind `0.0.0.0`, which succeeds even while another process holds
 127.0.0.1) resolved to the OTHER process.
 
 ### Launch (or reuse a running instance)
-
-<!-- The config path below is relative to the cd into apps/tauri a few lines into this same script, not repo-root — the checker can't see that shell context. -->
-<!-- check-agent-docs: ignore-next-block -->
 
 ```bash
 # Re-compute instance variables (see SKILL.md Instance Setup)
@@ -97,26 +98,15 @@ fi
 if [ "$ALREADY_RUNNING" = false ]; then
   rm -f "$PID_FILE"
   # The env vars are Linux/Wayland-specific and harmless on macOS.
-  # The `s` prefix on the slot is required: D-Bus well-known names cannot have
-  # segments starting with a digit; tauri-plugin-single-instance panics on
-  # `.47`, accepts `.s47`.
-  # The trailing `.dev` is NOT decoration: `Environment::for_bundle_id` picks
-  # staging vs production off that literal suffix (M3), so an id ending in the
-  # slot puts the QA instance on the PRODUCTION license key and the production
-  # buy destination — a staging-signed fixture then fails as "invalid" while
-  # every test stays green (pc_a028e420f16d).
+  # The launcher holds the machine-wide slot lease for the full app lifetime.
+  # The launcher derives its unique identifier from the worktree slot and keeps
+  # the required trailing `.dev` so license verification stays on staging (M3).
   # NOTE: use Bash run_in_background instead of shell `&` — `$!` does not
   # expand correctly inside the Bash tool.
   # FUTO_NOTES_DATA_DIR isolates notes/app data per worktree — the debug
   # default (~/Documents/fake-notes) is machine-global and would be shared
   # by parallel sessions.
-  cd "$WORKTREE_ROOT/apps/tauri" && \
-    WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=1 \
-    FUTO_NOTES_DATA_DIR="$WORKTREE_ROOT/.tauri-data" \
-    cargo tauri dev \
-      --config src-tauri/tauri.dev.conf.json \
-      --config '{"identifier":"com.futo.notes.verify.s'"$SLOT"'.dev","build":{"beforeDevCommand":"npm run dev --prefix ../.. -- --host 127.0.0.1 --port '"$VITE_PORT"' --strictPort","devUrl":"http://127.0.0.1:'"$VITE_PORT"'"}}' \
-    > "$TAURI_LOG" 2>&1 &
+  (cd "$WORKTREE_ROOT" && just tauri-dev) > "$TAURI_LOG" 2>&1 &
   echo $! > "$PID_FILE"
   # First build ~60s; rebuilds ~20s.
 fi
@@ -137,7 +127,7 @@ done
 # Fallback — scan the bridge port range and let the resolver vet the owner.
 # NEVER find the process by name: every build shares it, release included.
 if [ -z "$MCP_PORT" ]; then
-  for CANDIDATE in $(seq 9223 9322); do
+  for CANDIDATE in $(seq 9223 14222); do
     if node scripts/qa-target.mjs port "$CANDIDATE" >/dev/null 2>&1; then
       MCP_PORT=$CANDIDATE; break
     fi

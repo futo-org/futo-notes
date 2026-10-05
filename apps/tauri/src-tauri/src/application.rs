@@ -17,10 +17,11 @@ use crate::application_state::AppState;
 ///   clients actually dial makes the scan see what they see, so a squatter
 ///   pushes the bridge to the next free port instead of aliasing it.
 ///
-/// * **Per-worktree base port.** `FUTO_MCP_BASE_PORT` is set by
+/// * **Disjoint per-worktree scan band.** `FUTO_MCP_BASE_PORT` is set by
 ///   `scripts/tauri-dev.mjs` from the worktree slot (`scripts/lib/slot.mjs`,
-///   the single owner of slot derivation — do not re-derive it here). Parallel
-///   worktrees then never contend for one 9223 like they used to.
+///   the single owner of slot derivation — do not re-derive it here). Each slot
+///   gets 100 ports because the plugin scans base..base+99; adjacent bases would
+///   still overlap and a restart could move one worktree onto another's bridge.
 #[cfg(debug_assertions)]
 fn mcp_bridge_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     let mut builder = tauri_plugin_mcp_bridge::Builder::new().bind_address("127.0.0.1");
@@ -101,6 +102,8 @@ pub(crate) fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            crate::app_data::app_data_write,
+            crate::image_commands::fs_save_image,
             crate::image_commands::fs_paste_clipboard_image,
             crate::close_deadline::close_deadline_set_dirty,
             crate::app_menu::app_menu_set_labels,
@@ -157,8 +160,13 @@ pub(crate) fn run() {
             crate::sync::password_store::e2ee_password_get,
             crate::sync::password_store::e2ee_password_set,
             crate::sync::password_store::e2ee_password_delete,
+            crate::sync::password_store::e2ee_session_token_get,
+            crate::sync::password_store::e2ee_session_token_set,
+            crate::sync::password_store::e2ee_session_token_delete,
             crate::local_notes::local_notes_bootstrap,
             crate::local_notes::local_notes_startup_listing,
+            crate::local_notes::local_notes_set_sort_order,
+            crate::local_notes::local_notes_recent_ids,
             crate::local_notes::local_notes_snapshot,
             crate::local_notes::local_notes_inventory,
             crate::local_notes::local_notes_read,

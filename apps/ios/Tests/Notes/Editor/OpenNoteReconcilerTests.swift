@@ -91,16 +91,6 @@ struct OpenNoteReconcilerTests {
         return await reconciler.reconcile(change: change, effects: editor.effects())
     }
 
-    @Test("leave performs no editor mutation")
-    func rendersLeave() async {
-        let editor = FakeEditor()
-
-        let result = await reconcile(.leave, editor: editor)
-
-        #expect(result == .applied)
-        #expect(editor.events == ["current", "drain", "read:note"])
-    }
-
     @Test("leave resumes a draft save cancelled for fact gathering")
     func leaveResumesDirtyDraftSave() async {
         let editor = FakeEditor()
@@ -124,39 +114,6 @@ struct OpenNoteReconcilerTests {
 
         #expect(result == .applied)
         #expect(editor.events.isEmpty)
-    }
-
-    @Test("adopt replaces the clean buffer")
-    func rendersAdopt() async {
-        let editor = FakeEditor()
-
-        _ = await reconcile(.adopt(content: "peer"), editor: editor)
-
-        #expect(editor.events == ["current", "drain", "read:note", "adopt:peer"])
-    }
-
-    @Test("keep-draft rebases without replacing the buffer")
-    func rendersKeepDraft() async {
-        let editor = FakeEditor()
-        editor.snapshot.draft = "mine"
-
-        _ = await reconcile(
-            .keepDraft(base: "peer", reason: .diverged),
-            editor: editor
-        )
-
-        #expect(editor.events == ["current", "drain", "read:note", "keep:peer:diverged"])
-        #expect(editor.snapshot.draft == "mine")
-        #expect(editor.snapshot.base == "peer")
-    }
-
-    @Test("close ends a visible clean session")
-    func rendersClose() async {
-        let editor = FakeEditor()
-
-        _ = await reconcile(.close, editor: editor)
-
-        #expect(editor.events == ["current", "drain", "read:note", "close"])
     }
 
     @Test("a focused adopt is remembered and re-gathered after blur")

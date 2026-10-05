@@ -1371,32 +1371,65 @@ struct TitleTextField: UIViewRepresentable {
         var parent: TitleTextField
         init(_ parent: TitleTextField) { self.parent = parent }
 
+        /// Newlines removed silently; forbidden filesystem chars removed and
+        /// reported (desktop parity — the illegal char never persists).
+        private static func stripped(_ text: String) -> (text: String, hadForbidden: Bool) {
+            let withoutNewlines = text.replacingOccurrences(of: "\n", with: "")
+            let cleaned = String(
+                String.UnicodeScalarView(
+                    withoutNewlines.unicodeScalars.filter {
+                        !TitleSpec.forbiddenScalars.contains($0)
+                    }))
+            return (cleaned, cleaned != withoutNewlines)
+        }
+
+        /// Filter every edit BEFORE UIKit applies it, so UIKit's undo stack only
+        /// records edits that really happened. Rewriting `tf.text` after the fact
+        /// left undo replaying a range past the new end — crash 1747
+        /// (NSRangeException in NSMutableRLEArray).
+        func textField(
+            _ tf: UITextField, shouldChangeCharactersIn range: NSRange,
+            replacementString string: String
+        ) -> Bool {
+            // IME composition edits marked text; editingChanged filters it on commit.
+            guard tf.markedTextRange == nil else { return true }
+            let current = (tf.text ?? "") as NSString
+            // Refuse rather than throw on a range past the end.
+            guard NSMaxRange(range) <= current.length else { return false }
+            let (cleaned, hadForbidden) = Self.stripped(string)
+            let allowed = current.longestPrefix(
+                of: cleaned, replacing: range, within: TitleSpec.maxLength)
+            guard allowed != string else { return true }
+            if allowed.isEmpty && range.length == 0 {
+                if hadForbidden { parent.onForbidden() }
+            } else {
+                // Warn after the replace: its editingChanged → onChange clears the warning.
+                tf.replaceAfterCurrentEdit(range, with: allowed) {
+                    if hadForbidden { self.parent.onForbidden() }
+                }
+            }
+            return false
+        }
+
         @objc func editingChanged(_ tf: UITextField) {
-            let raw = (tf.text ?? "").replacingOccurrences(of: "\n", with: "")
-            // Strip forbidden filesystem chars in-place (desktop parity — the
-            // illegal char never persists) and cap at the title length limit.
-            var cleaned = String(
-                raw.unicodeScalars.filter { !TitleSpec.forbiddenScalars.contains($0) })
-            let forbidden = cleaned != raw
-            if cleaned.count > TitleSpec.maxLength {
-                cleaned = String(cleaned.prefix(TitleSpec.maxLength))
-            }
-            if tf.text != cleaned {
-                // Keep the caret roughly where it was: a stripped forbidden char
-                // shifts it back one; a length cap clamps it to the end.
-                var prev = cleaned.count
-                if let start = tf.selectedTextRange?.start {
-                    prev = tf.offset(from: tf.beginningOfDocument, to: start)
-                }
-                let target = max(0, min(cleaned.count, prev - (forbidden ? 1 : 0)))
-                tf.text = cleaned
-                if let pos = tf.position(from: tf.beginningOfDocument, offset: target) {
-                    tf.selectedTextRange = tf.textRange(from: pos, to: pos)
+            let text = tf.text ?? ""
+            var strippedForbidden = false
+            // Backstop for input that skipped the delegate, such as an IME
+            // composition. A programmatic `text` write invalidates UIKit's undo
+            // stack, so clear it rather than let undo crash.
+            if tf.markedTextRange == nil {
+                let (cleaned, hadForbidden) = Self.stripped(text)
+                let capped = String(cleaned.prefix(TitleSpec.maxLength))
+                if capped != text {
+                    tf.text = capped
+                    tf.undoManager?.removeAllActions()
+                    strippedForbidden = hadForbidden
                 }
             }
-            parent.text = cleaned
-            parent.onChange(cleaned)
-            if forbidden { parent.onForbidden() }
+            parent.text = tf.text ?? ""
+            parent.onChange(tf.text ?? "")
+            // After onChange, which clears the warning.
+            if strippedForbidden { parent.onForbidden() }
         }
 
         func textFieldDidBeginEditing(_ tf: UITextField) {

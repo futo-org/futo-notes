@@ -25,7 +25,8 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
   remove: vi.fn(() => Promise.resolve()),
   mkdir: vi.fn(() => Promise.resolve()),
   rename: vi.fn(() => Promise.resolve()),
-  exists: vi.fn(() => Promise.resolve(false)),
+  // The notes root exists (Rust creates it); app-data files do not unless a test says so.
+  exists: vi.fn((path: string) => Promise.resolve(path === '/home/user/Documents/futo-notes')),
   stat: vi.fn(() => Promise.resolve({ mtime: new Date() })),
 }));
 
@@ -43,9 +44,11 @@ import {
 } from '../tauri';
 
 const mockInvoke = vi.mocked(invoke);
+let appDataWrites: Array<{ path: string; content: string }> = [];
 
 beforeEach(() => {
   vi.clearAllMocks();
+  appDataWrites = [];
 });
 
 function setupInvokeMock(overrides: Partial<Record<string, unknown>> = {}) {
@@ -53,14 +56,21 @@ function setupInvokeMock(overrides: Partial<Record<string, unknown>> = {}) {
     notes_dir_override_load: null,
     notes_dir_override_save: undefined,
     resolve_default_notes_root: '/home/user/Documents/futo-notes',
-    appdata_read: null,
-    appdata_write: undefined,
     ...overrides,
   };
-  mockInvoke.mockImplementation(async (cmd: string) => {
+  mockInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
+    if (cmd === 'app_data_write') {
+      appDataWrites.push(args as { path: string; content: string });
+      return undefined;
+    }
     if (cmd in defaults) return defaults[cmd];
     throw new Error(`unexpected invoke: ${cmd}`);
   });
+}
+
+function writtenConfig(): Record<string, unknown> {
+  expect(appDataWrites.map((write) => write.path)).toEqual(['.app-config.json']);
+  return JSON.parse(appDataWrites[0].content);
 }
 
 describe('getConfig', () => {
@@ -85,11 +95,13 @@ describe('getConfig', () => {
     expect(mkdir).not.toHaveBeenCalled();
   });
 
-  it('creates the default root on first use', async () => {
+  // Crash 1739: a default root Windows refuses to create rejected here, outside
+  // the recovery path. Rust creates it and `vault_status` reports the failure.
+  it('never creates the default root itself', async () => {
     setupInvokeMock();
     const { mkdir } = await import('@tauri-apps/plugin-fs');
     await getConfig();
-    expect(mkdir).toHaveBeenCalledWith('/home/user/Documents/futo-notes', { recursive: true });
+    expect(mkdir).not.toHaveBeenCalled();
   });
 
   it('reads the sidebar width from the config file', async () => {
@@ -126,100 +138,91 @@ describe('getConfig', () => {
 describe('saveConfig', () => {
   // RC-101: a close 0.1-0.3 s after a click raced this write and left a
   // `.sf-tmp-*` in the vault; the exit now waits on this.
-  it('flushAppConfigWrites resolves only after every queued write has been renamed into place', async () => {
+  it('flushAppConfigWrites resolves only after every queued write has landed', async () => {
     setupInvokeMock();
-    const { writeTextFile, rename } = await import('@tauri-apps/plugin-fs');
+    const answer = mockInvoke.getMockImplementation()!;
     let releaseWrite!: () => void;
-    vi.mocked(writeTextFile).mockImplementationOnce(
-      () => new Promise<void>((resolve) => (releaseWrite = resolve)),
-    );
+    mockInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
+      if (cmd !== 'app_data_write') return answer(cmd, args as never);
+      await new Promise<void>((resolve) => (releaseWrite = resolve));
+      return answer(cmd, args as never);
+    });
 
     void saveConfig({ sidebarWidth: 300 });
     let flushed = false;
     const flush = flushAppConfigWrites().then(() => (flushed = true));
-    await vi.waitFor(() => expect(writeTextFile).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(releaseWrite).toBeTypeOf('function'));
+    await Promise.resolve();
     expect(flushed).toBe(false);
-    expect(rename).not.toHaveBeenCalled();
+    expect(appDataWrites).toEqual([]);
 
     releaseWrite();
     await flush;
-    expect(rename).toHaveBeenCalledTimes(1);
+    expect(writtenConfig().sidebarWidth).toBe(300);
   });
 
   it('merges sidebarWidth into existing config', async () => {
     setupInvokeMock();
-    const { readTextFile, writeTextFile, rename, exists } = await import('@tauri-apps/plugin-fs');
-    const mockReadTextFile = vi.mocked(readTextFile);
-    const mockWriteTextFile = vi.mocked(writeTextFile);
-    const mockRename = vi.mocked(rename);
+    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
     vi.mocked(exists).mockResolvedValueOnce(true);
     // A retired/unknown key (e.g. the removed graphSidebarWidth) must survive
     // a read-modify-write untouched — merges never clobber fields they don't own.
-    mockReadTextFile.mockResolvedValueOnce(JSON.stringify({ sidebarWidth: 280, legacyField: 320 }));
+    vi.mocked(readTextFile).mockResolvedValueOnce(
+      JSON.stringify({ sidebarWidth: 280, legacyField: 320 }),
+    );
 
     await saveConfig({ sidebarWidth: 350 });
-    expect(mockWriteTextFile).toHaveBeenCalledTimes(1);
-    const writtenContent = mockWriteTextFile.mock.calls[0][1] as string;
-    const written = JSON.parse(writtenContent);
+    const written = writtenConfig();
     expect(written.sidebarWidth).toBe(350);
     expect(written.legacyField).toBe(320);
-    expect(mockRename).toHaveBeenCalledTimes(1);
   });
 
   it('can set a width to null', async () => {
     setupInvokeMock();
-    const { readTextFile, writeTextFile, exists } = await import('@tauri-apps/plugin-fs');
-    const mockReadTextFile = vi.mocked(readTextFile);
-    const mockWriteTextFile = vi.mocked(writeTextFile);
+    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
     vi.mocked(exists).mockResolvedValueOnce(true);
-    mockReadTextFile.mockResolvedValueOnce(JSON.stringify({ sidebarWidth: 280 }));
+    vi.mocked(readTextFile).mockResolvedValueOnce(JSON.stringify({ sidebarWidth: 280 }));
 
     await saveConfig({ sidebarWidth: null });
-    const writtenContent = mockWriteTextFile.mock.calls[0][1] as string;
-    const written = JSON.parse(writtenContent);
-    expect(written.sidebarWidth).toBeNull();
+    expect(writtenConfig().sidebarWidth).toBeNull();
   });
 
   it('persists openFolders alongside other config fields', async () => {
     setupInvokeMock();
-    const { readTextFile, writeTextFile, exists } = await import('@tauri-apps/plugin-fs');
+    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
     vi.mocked(exists).mockResolvedValueOnce(true);
     vi.mocked(readTextFile).mockResolvedValueOnce(JSON.stringify({ sidebarWidth: 280 }));
 
     await saveConfig({ openFolders: ['Projects', 'Projects/2026'] });
-    const writtenContent = vi.mocked(writeTextFile).mock.calls[0][1] as string;
-    const written = JSON.parse(writtenContent);
+    const written = writtenConfig();
     expect(written.openFolders).toEqual(['Projects', 'Projects/2026']);
     expect(written.sidebarWidth).toBe(280);
   });
 
   it('does not write a partial config when the existing config read is denied', async () => {
     setupInvokeMock();
-    const { readTextFile, writeTextFile, rename, exists } = await import('@tauri-apps/plugin-fs');
+    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
     vi.mocked(exists).mockResolvedValueOnce(true);
     vi.mocked(readTextFile).mockRejectedValueOnce(
       new Error('Operation not permitted (os error 1)'),
     );
 
     await expect(saveConfig({ sidebarWidth: 360 })).rejects.toThrow('Operation not permitted');
-    expect(writeTextFile).not.toHaveBeenCalled();
-    expect(rename).not.toHaveBeenCalled();
+    expect(appDataWrites).toEqual([]);
   });
 
   it('serializes concurrent field updates so one writer cannot clobber another', async () => {
     setupInvokeMock();
-    const { readTextFile, writeTextFile, exists } = await import('@tauri-apps/plugin-fs');
-    let persisted = JSON.stringify({});
+    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
     vi.mocked(exists).mockResolvedValue(true);
-    vi.mocked(readTextFile).mockImplementation(async () => persisted);
-    vi.mocked(writeTextFile).mockImplementation(async (_path, content) => {
-      persisted = content as string;
-    });
+    vi.mocked(readTextFile).mockImplementation(
+      async () => appDataWrites.at(-1)?.content ?? JSON.stringify({}),
+    );
 
     const tabs = { tabs: [{ id: 'tab-1', noteId: 'Roadmap' }], activeTabId: 'tab-1' };
     await Promise.all([saveConfig({ sidebarWidth: 360 }), saveConfig({ openTabs: tabs })]);
 
-    expect(JSON.parse(persisted)).toMatchObject({
+    expect(JSON.parse(appDataWrites.at(-1)!.content)).toMatchObject({
       sidebarWidth: 360,
       openTabs: tabs,
     });

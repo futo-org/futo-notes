@@ -9,7 +9,7 @@ import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 
 /**
- * Destructive confirm dialog [list.md:62] — Cancel + a danger-colored confirm
+ * Destructive confirm dialog [list.md] — Cancel + a danger-colored confirm
  * action. Shared by note delete (list row + editor menu) and folder delete.
  */
 @Composable
@@ -19,6 +19,7 @@ fun ConfirmDialog(
     confirmLabel: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    destructive: Boolean = true,
 ) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
@@ -28,7 +29,7 @@ fun ConfirmDialog(
         title = { Text(title, style = FutoType.title, color = c.textPrimary) },
         text = { Text(body, style = FutoType.body, color = c.textSecondary) },
         confirmButton = {
-            TextButton(onClick = onConfirm) { Text(confirmLabel, color = c.danger) }
+            TextButton(onClick = onConfirm) { Text(confirmLabel, color = if (destructive) c.danger else c.accent) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {

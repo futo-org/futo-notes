@@ -287,7 +287,8 @@ Behaviors and constraints that hold across every surface and platform.
   with bespoke chrome — crash report, context menu, search, settings) share one
   document-level handler and a dialog stack. Escape consumed by an open overlay
   does not also reach the editor or the screen behind it. → shared/dialogs/dismissable.ts,
-  shared/dialogs/Modal.svelte, shared/dialogs/dismissable.test.ts
+  shared/dialogs/Modal.svelte, shared/dialogs/dismissable.test.ts,
+  tests/folder-support.spec.ts
 - **A popover anchored to a trigger (the Settings language dropdown, the
   sidebar context menu) also closes on a pointer press outside it**, on the
   press itself, before the click lands on whatever was pressed.

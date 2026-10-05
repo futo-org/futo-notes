@@ -11,9 +11,23 @@ futo-notes-core = { path = "../futo-notes-core" }
 futo-notes-model = { path = "../futo-notes-model" }
 futo-notes-search = { path = "../futo-notes-search" }
 rayon = "1"
+simdutf8 = "0.1"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
+crc32fast = "1"
 walkdir = "2.5"
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false }
+tempfile = "3"
+
+[target.'cfg(unix)'.dev-dependencies]
+# `tests/fd_limit.rs` lowers RLIMIT_NOFILE for its own process.
+rustix = { version = "1", features = ["fs", "process"] }
+
+[[bench]]
+name = "vault_open"
+harness = false
 
 [lints]
 workspace = true

@@ -41,7 +41,7 @@ import com.futo.notes.ui.theme.FutoType
  *
  * Backed by the FFI-derived [NoteItem] (no pin: the Rust model carries no
  * pinned flag). Long-press (when wired) opens the row actions menu
- * [list.md:62] — Surface's own onClick overload has no long-press, so the
+ * [list.md] — Surface's own onClick overload has no long-press, so the
  * card uses combinedClickable on the modifier instead.
  */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)

@@ -7,11 +7,12 @@
   import type { NoteSession } from '$features/notes/noteSession.svelte';
   import type { NotePreview } from '$shared/types/note';
   import FolderPickerModal from '$features/folders/FolderPickerModal.svelte';
+  import { vaultAvailability } from '$features/storage/vaultAvailability.svelte';
   import { openExternalUrl } from '$lib/platform/openExternalUrl';
   import { localizedText } from '$shared/localization';
 
   import type { createCurrentNoteActions } from '../createCurrentNoteActions.svelte';
-  import NoteActionsMenu from './NoteActionsMenu.svelte';
+  import DropdownMenu, { type DropdownMenuEntry } from '$shared/dialogs/DropdownMenu.svelte';
 
   // The subset of the editor's imperative API the shell drives.
   export interface EditorApi {
@@ -59,6 +60,23 @@
     noteBodyEl = $bindable(),
     titleEl = $bindable(),
   }: Props = $props();
+
+  // Move and Delete write to the vault; an unusable one disables them.
+  const noteMenuEntries: DropdownMenuEntry[] = $derived([
+    { label: { path: 'notes.actions.copyFilePath' }, onclick: () => void actions.copyFilePath() },
+    {
+      label: { path: 'notes.actions.moveToFolder' },
+      onclick: () => actions.openMovePicker(),
+      testId: 'note-menu-move',
+      disabled: vaultAvailability.unavailable,
+    },
+    {
+      label: { path: 'notes.actions.deleteNote' },
+      onclick: () => void actions.deleteCurrentNote(),
+      destructive: true,
+      disabled: vaultAvailability.unavailable,
+    },
+  ]);
 
   let editorFocused = $state(false);
   let tagBarEl: HTMLElement | undefined = $state(undefined);
@@ -126,6 +144,7 @@
       rows="1"
       spellcheck="false"
       placeholder={localizedText('notes.untitledPlaceholder')}
+      readonly={vaultAvailability.unavailable}
       oninput={session.handleTitleInput}
       onkeydown={session.handleTitleKeydown}
       onblur={session.handleTitleBlur}
@@ -142,6 +161,7 @@
     readMarkdown={() => editorApi?.getContent()}
     writeMarkdown={(markdown) => editorApi?.applyEdit(markdown)}
     {notes}
+    readonly={vaultAvailability.unavailable}
   />
 
   <div class="editor-container">
@@ -153,6 +173,7 @@
       {onopenlink}
       onopenurl={openExternalUrl}
       onfindstate={(state) => (find = state)}
+      readonly={vaultAvailability.unavailable}
     />
   </div>
 
@@ -171,14 +192,22 @@
 </div>
 
 {#if active}
-  <NoteActionsMenu
-    open={actions.menuOpen}
-    ontoggle={actions.toggleMenu}
-    onclose={actions.closeMenu}
-    oncopypath={actions.copyFilePath}
-    onmove={actions.openMovePicker}
-    ondelete={actions.deleteCurrentNote}
-  />
+  <div class="note-menu-anchor">
+    <DropdownMenu
+      open={actions.menuOpen}
+      ontoggle={actions.toggleMenu}
+      onclose={actions.closeMenu}
+      entries={noteMenuEntries}
+      label={localizedText('notes.actions.optionsAccessibilityLabel')}
+      toggleClass="note-menu-toggle"
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <circle cx="12" cy="5" r="1.6" />
+        <circle cx="12" cy="12" r="1.6" />
+        <circle cx="12" cy="19" r="1.6" />
+      </svg>
+    </DropdownMenu>
+  </div>
 {/if}
 
 {#if active && actions.movePickerOpen}

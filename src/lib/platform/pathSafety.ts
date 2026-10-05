@@ -1,7 +1,7 @@
 /**
  * Path safety utilities — TypeScript port of `ensure_safe_note_id`,
- * `safe_note_path`, `safe_appdata_path`, and `note_id_from_filename`
- * from `crates/futo-notes-core/src/files/paths.rs`.
+ * `safe_note_path`, and `safe_appdata_path` from
+ * `crates/futo-notes-core/src/files/paths.rs`.
  *
  * Per-component character set mirrors the editor filename rule minus `/`
  * (path separator) and `\` (always
@@ -82,16 +82,4 @@ export function ensureSafeRelativePath(relPath: string): void {
 export function safeAppdataPath(base: string, relPath: string): string {
   ensureSafeRelativePath(relPath);
   return `${base}/${relPath}`;
-}
-
-export function noteIdFromFilename(filename: string): string {
-  const normalized = filename.replace(/\\/g, '/');
-  if (!normalized.endsWith('.md')) {
-    throw new Error('filename does not end with .md');
-  }
-  const id = normalized.slice(0, -3);
-  if (id === '') {
-    throw new Error('note id cannot be empty');
-  }
-  return id;
 }

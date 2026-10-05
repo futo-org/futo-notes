@@ -75,12 +75,21 @@ fn scan_error(operation: &str, path: &Path, error: std::io::Error) -> String {
     )
 }
 
-fn local_files_with(root: &Path, scanner: &impl FileScanner) -> Result<Vec<LocalFile>, String> {
+/// Every file sync can name, plus the display names of the syncable files it
+/// cannot (a filename that is not UTF-8), which push journals instead of
+/// dropping them silently.
+#[derive(Debug, Default)]
+pub(super) struct LocalScan {
+    pub(super) files: Vec<LocalFile>,
+    pub(super) unnamed: Vec<String>,
+}
+
+fn local_files_with(root: &Path, scanner: &impl FileScanner) -> Result<LocalScan, String> {
     fn walk(
         root: &Path,
         dir: &Path,
         scanner: &impl FileScanner,
-        files: &mut Vec<LocalFile>,
+        scan: &mut LocalScan,
     ) -> Result<(), String> {
         let entries = scanner
             .entries(dir)
@@ -98,7 +107,7 @@ fn local_files_with(root: &Path, scanner: &impl FileScanner) -> Result<Vec<Local
                 continue;
             }
             if metadata.is_dir {
-                walk(root, &entry.path, scanner, files)?;
+                walk(root, &entry.path, scanner, scan)?;
                 continue;
             }
             let relative = entry.path.strip_prefix(root).map_err(|error| {
@@ -108,11 +117,20 @@ fn local_files_with(root: &Path, scanner: &impl FileScanner) -> Result<Vec<Local
                     entry.path.display()
                 )
             })?;
-            let name = relative.to_string_lossy().replace('\\', "/");
+            // The name vault_fs resolves back to this file. A lossy one (a Unix
+            // `\` read as a separator, bytes that are not UTF-8) named another
+            // file or none, and failing to read it failed every push.
+            let Some(name) = vault_fs::relative_name(root, &entry.path) else {
+                let lossy = relative.to_string_lossy().into_owned();
+                if is_syncable_filename(&lossy) {
+                    scan.unnamed.push(lossy);
+                }
+                continue;
+            };
             if !is_syncable_filename(&name) {
                 continue;
             }
-            files.push(LocalFile {
+            scan.files.push(LocalFile {
                 name,
                 mtime: metadata.mtime,
                 size: metadata.size,
@@ -120,14 +138,18 @@ fn local_files_with(root: &Path, scanner: &impl FileScanner) -> Result<Vec<Local
         }
         Ok(())
     }
-    let mut files = Vec::new();
-    walk(root, root, scanner, &mut files)?;
-    files.sort_by(|left, right| left.name.cmp(&right.name));
-    Ok(files)
+    let mut scan = LocalScan::default();
+    walk(root, root, scanner, &mut scan)?;
+    scan.files.sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(scan)
+}
+
+pub(super) fn local_scan(root: &Path) -> Result<LocalScan, String> {
+    local_files_with(root, &RealFileScanner)
 }
 
 pub(super) fn local_files(root: &Path) -> Result<Vec<LocalFile>, String> {
-    local_files_with(root, &RealFileScanner)
+    local_scan(root).map(|scan| scan.files)
 }
 
 pub(super) fn read_content(root: &Path, name: &str) -> Result<String, String> {
@@ -186,12 +208,7 @@ pub(super) fn write_content_if_changed(
     } else {
         vault_fs::sync_parent(root, name)?;
     }
-    if modified_ms > 0 {
-        if changed {
-            pre_write(name);
-        }
-        let _ = vault_fs::set_mtime_ms(root, name, modified_ms);
-    }
+    let _ = vault_fs::set_mtime_ms(root, name, modified_ms);
     Ok(if changed {
         PulledWrite::Written
     } else {
@@ -211,7 +228,12 @@ pub(super) fn path_exists(root: &Path, name: &str) -> Result<bool, String> {
 
 pub(super) fn rename_local(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
     let _vault_mutation = vault_mutation_guard()?;
-    vault_fs::rename(root, source, destination)
+    if vault_fs::exists(root, destination)? {
+        return Err(format!(
+            "collision destination already exists: {destination}"
+        ));
+    }
+    vault_fs::move_no_replace_strict(root, source, destination)
 }
 
 pub(super) fn conflict_date() -> String {
@@ -363,67 +385,34 @@ mod tests {
     }
 
     #[test]
-    fn scan_reports_root_directory_failure() {
-        let root = TempRoot::new();
-        let error = local_files_with(
-            &root.0,
-            &FaultingScanner {
-                fault: Fault::ReadDirectory(root.0.clone()),
-            },
-        )
-        .unwrap_err();
-
-        assert!(error.contains("read directory"));
-        assert!(error.contains(root.0.to_string_lossy().as_ref()));
-    }
-
-    #[test]
-    fn scan_reports_nested_directory_failure() {
+    fn scan_reports_each_failure_with_the_path_that_failed() {
         let root = TempRoot::new();
         let nested = root.0.join("nested");
-        std::fs::create_dir(&nested).unwrap();
-        let error = local_files_with(
-            &root.0,
-            &FaultingScanner {
-                fault: Fault::ReadDirectory(nested.clone()),
-            },
-        )
-        .unwrap_err();
-
-        assert!(error.contains("read directory"));
-        assert!(error.contains(nested.to_string_lossy().as_ref()));
-    }
-
-    #[test]
-    fn scan_reports_directory_entry_failure() {
-        let root = TempRoot::new();
-        let error = local_files_with(
-            &root.0,
-            &FaultingScanner {
-                fault: Fault::ReadEntry(root.0.clone()),
-            },
-        )
-        .unwrap_err();
-
-        assert!(error.contains("read entry"));
-        assert!(error.contains(root.0.to_string_lossy().as_ref()));
-    }
-
-    #[test]
-    fn scan_reports_metadata_failure() {
-        let root = TempRoot::new();
         let note = root.0.join("note.md");
+        std::fs::create_dir(&nested).unwrap();
         std::fs::write(&note, "body").unwrap();
-        let error = local_files_with(
-            &root.0,
-            &FaultingScanner {
-                fault: Fault::Metadata(note.clone()),
-            },
-        )
-        .unwrap_err();
 
-        assert!(error.contains("read metadata"));
-        assert!(error.contains(note.to_string_lossy().as_ref()));
+        for (fault, phrase, path) in [
+            (
+                Fault::ReadDirectory(root.0.clone()),
+                "read directory",
+                &root.0,
+            ),
+            (
+                Fault::ReadDirectory(nested.clone()),
+                "read directory",
+                &nested,
+            ),
+            (Fault::ReadEntry(root.0.clone()), "read entry", &root.0),
+            (Fault::Metadata(note.clone()), "read metadata", &note),
+        ] {
+            let error = local_files_with(&root.0, &FaultingScanner { fault }).unwrap_err();
+            assert!(error.contains(phrase), "expected {phrase:?} in {error:?}");
+            assert!(
+                error.contains(path.to_string_lossy().as_ref()),
+                "expected {path:?} in {error:?}"
+            );
+        }
     }
 
     #[cfg(unix)]

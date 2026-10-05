@@ -9,6 +9,9 @@
   --color-bg: #fcfcfc;
   --color-sidebar: #f4f4f4;
   --color-danger: #dc2626;
+  /* A danger fill under white text: 4.8:1 here, 6.5:1 in the dark theme, where
+     --color-danger is tuned for red text and leaves white on it at 3.8:1. */
+  --color-danger-fill: #dc2626;
   --color-text-inverse: #fcfcfc;
   --color-active-line: #efefef;
   --color-selection: #ffe4d1;
@@ -48,6 +51,7 @@
   --color-bg: #0a0a0a;
   --color-sidebar: #131313;
   --color-danger: #ef4444;
+  --color-danger-fill: #b91c1c;
   --color-text-inverse: #0a0a0a;
   --color-active-line: #1f1f1f;
   --color-selection: #6b3f1d;

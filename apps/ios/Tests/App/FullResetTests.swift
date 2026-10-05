@@ -46,10 +46,11 @@ struct FullResetTests {
         try await performFullReset(
             disconnectSync: { trail.events.append("disconnect") },
             resetStore: { trail.events.append("reset") },
-            clearLicense: { trail.events.append("license") }
+            clearLicense: { trail.events.append("license") },
+            resetIcon: { trail.events.append("icon") }
         )
 
-        #expect(trail.events == ["disconnect", "reset", "license"])
+        #expect(trail.events == ["disconnect", "reset", "license", "icon"])
     }
 
     @Test("admission closes before disconnect and reset failures propagate")
@@ -64,7 +65,8 @@ struct FullResetTests {
                     events.append("reset")
                     throw ResetFailure.disk
                 },
-                clearLicense: { events.append("license") }
+                clearLicense: { events.append("license") },
+                resetIcon: { events.append("icon") }
             )
             Issue.record("reset failure was swallowed")
         } catch {

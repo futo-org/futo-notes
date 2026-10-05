@@ -5,6 +5,7 @@
     listImageFiles,
     type ImageFileEntry,
   } from '$features/images/imageFiles';
+  import { vaultAvailability } from '$features/storage/vaultAvailability.svelte';
   import { localizedFileSize, localizedRelativeTime, localizedText } from '$shared/localization';
 
   let images: ImageFileEntry[] = $state([]);
@@ -111,7 +112,7 @@
               }}
             ></button>
             <div class="sidebar-image-menu">
-              <button class="danger" onclick={handleDelete}
+              <button class="danger" disabled={vaultAvailability.unavailable} onclick={handleDelete}
                 >{localizedText('sidebar.images.delete')}</button
               >
             </div>

@@ -47,13 +47,13 @@ import uniffi.futo_notes_ffi.LicensePlatform
 import uniffi.futo_notes_ffi.LicenseStatus
 import uniffi.futo_notes_ffi.licenseDeepLinkScheme
 import uniffi.futo_notes_ffi.licenseEvaluate
-import uniffi.futo_notes_ffi.licenseLinks
 import uniffi.futo_notes_ffi.licenseLinkOut
 import uniffi.futo_notes_ffi.licenseRowActions
 
 /**
  * What the BUILD promises about the license surface, where no test of the Rust
- * rules can see it: the manifest's URL scheme and the store-posture flag.
+ * rules can see it — the manifest's URL scheme — plus the rendered License
+ * plate. The store-posture flag is `LicenseLinkOutTest`'s, on both flavors.
  * Mirrors iOS `LicenseSurfaceTests`.
  */
 @RunWith(AndroidJUnit4::class)
@@ -156,26 +156,6 @@ class LicenseSurfaceTest {
             listOf(LicenseAction.REMOVE),
             licenseRowActions(LicenseStatus.LICENSED, false),
         )
-    }
-
-    /** The Buy link carries this platform, and it is a plain https URL the
-     *  system browser can open — never an in-app WebView target. */
-    @Test
-    fun theBuyLinkIsThisPlatforms() {
-        val links = licenseLinks(LicensePlatform.ANDROID, "com.futo.notes")
-        assertTrue(links.buy, links.buy.contains("platform=android"))
-        assertTrue(links.buy, links.buy.startsWith("https://"))
-        assertEquals("mailto:support@futo.tech", links.support)
-    }
-
-    /** The Buy destination follows the dev/prod split (M3), so the debug build
-     *  that verifies against the staging key also buys on staging. */
-    @Test
-    fun theBuyLinkFollowsTheEnvironment() {
-        val staging = licenseLinks(LicensePlatform.ANDROID, "com.futo.notes.dev").buy
-        val production = licenseLinks(LicensePlatform.ANDROID, "com.futo.notes").buy
-        assertTrue(staging, staging.startsWith("https://staging-pay2.futo.org/"))
-        assertTrue(production, production.startsWith("https://pay2.futo.org/"))
     }
 
     /**

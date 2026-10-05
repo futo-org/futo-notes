@@ -30,6 +30,19 @@ impl Drop for TempRoot {
 }
 
 #[test]
+fn a_non_positive_timestamp_never_stamps_the_file_to_1970() {
+    let root = TempRoot::new();
+    write_atomic(root.path(), "note.md", b"body").unwrap();
+    let path = root.path().join("note.md");
+    crate::files::set_file_mtime_ms(&path, 1_700_000_000_000).unwrap();
+
+    set_mtime_ms(root.path(), "note.md", 0).unwrap();
+
+    let metadata = std::fs::metadata(&path).unwrap();
+    assert_eq!(crate::files::file_mtime_ms(&metadata), 1_700_000_000_000);
+}
+
+#[test]
 fn write_reports_directory_sync_failure() {
     let root = TempRoot::new();
     platform::fail_directory_sync_on_call(1);
@@ -218,4 +231,24 @@ fn native_recursive_delete_does_not_follow_links() {
     assert!(remove_dir(root.path(), "link", true).is_err());
     clear(root.path()).unwrap();
     assert!(outside.path().join("keep.md").exists());
+}
+
+#[test]
+fn relative_name_is_the_name_that_resolves_back_to_the_path() {
+    let root = Path::new("/vault");
+    assert_eq!(
+        relative_name(root, &root.join("Folder").join("note.md")).as_deref(),
+        Some("Folder/note.md")
+    );
+    assert_eq!(relative_name(root, Path::new("/elsewhere/note.md")), None);
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        assert_eq!(
+            relative_name(root, &root.join("a\\b.md")).as_deref(),
+            Some("a\\b.md")
+        );
+        let latin1 = root.join(std::ffi::OsStr::from_bytes(b"caf\xe9.md"));
+        assert_eq!(relative_name(root, &latin1), None);
+    }
 }

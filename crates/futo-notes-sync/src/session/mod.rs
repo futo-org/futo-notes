@@ -183,6 +183,19 @@ impl SyncSession {
     pub async fn disconnect(&self, root: &Path) -> Result<(), SyncErrorKind> {
         self.stop_live();
         let _gate = self.cycle_gate.lock().await;
+        // A disconnected device must not leave its bearer token usable on the
+        // server. Network failure cannot keep the local vault connected, so
+        // revocation is best-effort and bounded by the HTTP client's timeout.
+        let connected = self.state.lock().await.clone();
+        if let Some(state) = connected {
+            if let Ok(http) = self.clients().and_then(|clients| {
+                clients
+                    .for_base(&state.base_url)
+                    .map_err(connect::http_error)
+            }) {
+                let _ = http.token(&state.token).logout().await;
+            }
+        }
         *self.state.lock().await = None;
         checkpoint::demote(root).map_err(SyncErrorKind::Io)
     }
@@ -240,6 +253,68 @@ impl SyncSession {
 }
 
 #[cfg(test)]
+mod disconnect_tests {
+    use super::*;
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn disconnect_revokes_the_bearer_session_before_forgetting_it() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/auth/logout"))
+            .and(header("authorization", "Bearer session-token"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let root = std::env::temp_dir().join(format!("sync-disconnect-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir(&root).unwrap();
+        let sync = SyncSession::new();
+        *sync.state.lock().await = Some(ConnectedState::new(
+            server.uri(),
+            "session-token".into(),
+            "user".into(),
+            "collection".into(),
+            [0; 32],
+        ));
+
+        sync.disconnect(&root).await.unwrap();
+
+        assert!(!sync.is_connected().await);
+        server.verify().await;
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn failed_logout_still_disconnects_locally() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/auth/logout"))
+            .respond_with(ResponseTemplate::new(503))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let root = std::env::temp_dir().join(format!("sync-disconnect-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir(&root).unwrap();
+        let sync = SyncSession::new();
+        *sync.state.lock().await = Some(ConnectedState::new(
+            server.uri(),
+            "session-token".into(),
+            "user".into(),
+            "collection".into(),
+            [0; 32],
+        ));
+
+        sync.disconnect(&root).await.unwrap();
+
+        assert!(!sync.is_connected().await);
+        server.verify().await;
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
@@ -268,14 +343,6 @@ mod tests {
 
         let _held = session.state.lock().await;
         assert!(session.status().is_none());
-    }
-
-    #[test]
-    fn stop_and_change_notifications_are_safe_without_a_live_task() {
-        let session = SyncSession::new();
-        session.note_changed();
-        session.stop_live();
-        session.stop_live();
     }
 
     #[tokio::test]

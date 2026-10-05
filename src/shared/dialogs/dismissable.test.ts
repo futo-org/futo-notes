@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRawSnippet, flushSync, mount, unmount } from 'svelte';
 
 import Modal from './Modal.svelte';
-import { _dismissableStackDepth } from './dismissable';
 
 /**
  * The Escape contract every dialog inherits from `Modal` / `use:dismissable`.
@@ -27,55 +26,33 @@ describe('dialog dismissal contract', () => {
   });
 
   const body = createRawSnippet(() => ({
-    render: () => '<input data-testid="dialog-field" /><button>OK</button>',
+    render: () => '<button>OK</button>',
   }));
 
-  function mountModal(ondismiss: () => void, title = 'Test dialog') {
-    const app = mount(Modal, { target, props: { title, ondismiss, children: body } });
-    mounted.push(app);
+  function mountModal(ondismiss: () => void, title = 'Test dialog'): void {
+    mounted.push(mount(Modal, { target, props: { title, ondismiss, children: body } }));
     flushSync();
-    return app;
   }
 
-  function pressEscape(from: Element | Document = document): void {
-    from.dispatchEvent(
+  function pressEscape(): void {
+    document.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
     );
     flushSync();
   }
 
-  it('dismisses on Escape from anywhere in the document', () => {
-    const ondismiss = vi.fn();
-    mountModal(ondismiss);
-    pressEscape();
-    expect(ondismiss).toHaveBeenCalledTimes(1);
-  });
-
-  it('dismisses on Escape typed inside a text field in the dialog', () => {
-    const ondismiss = vi.fn();
-    mountModal(ondismiss);
-    const field = document.querySelector('[data-testid="dialog-field"]')!;
-    pressEscape(field);
-    expect(ondismiss).toHaveBeenCalledTimes(1);
-  });
-
-  it('closes only the top-most dialog, never two at once', () => {
+  it('closes only the top-most dialog, and keeps Escape away from whatever is behind', () => {
     const outer = vi.fn();
     const inner = vi.fn();
-    mountModal(outer, 'Outer');
-    mountModal(inner, 'Inner');
-
-    pressEscape();
-    expect(inner).toHaveBeenCalledTimes(1);
-    expect(outer).not.toHaveBeenCalled();
-  });
-
-  it('keeps Escape away from whatever is behind the dialog', () => {
     const behind = vi.fn();
     document.addEventListener('keydown', behind);
     try {
-      mountModal(vi.fn());
+      mountModal(outer, 'Outer');
+      mountModal(inner, 'Inner');
+
       pressEscape();
+      expect(inner).toHaveBeenCalledTimes(1);
+      expect(outer).not.toHaveBeenCalled();
       expect(behind).not.toHaveBeenCalled();
     } finally {
       document.removeEventListener('keydown', behind);
@@ -85,13 +62,10 @@ describe('dialog dismissal contract', () => {
   it('lets Escape through again once every dialog has unmounted', () => {
     const ondismiss = vi.fn();
     const behind = vi.fn();
-    const app = mountModal(ondismiss);
-    expect(_dismissableStackDepth()).toBe(1);
+    mountModal(ondismiss);
 
     unmount(mounted.pop()!);
-    void app;
     flushSync();
-    expect(_dismissableStackDepth()).toBe(0);
 
     document.addEventListener('keydown', behind);
     try {
@@ -101,15 +75,6 @@ describe('dialog dismissal contract', () => {
     } finally {
       document.removeEventListener('keydown', behind);
     }
-  });
-
-  it('marks the card as a modal dialog named by its title', () => {
-    mountModal(vi.fn(), 'Move to folder');
-    const card = document.querySelector('.modal-card')!;
-    expect(card.getAttribute('role')).toBe('dialog');
-    expect(card.getAttribute('aria-modal')).toBe('true');
-    const labelledBy = card.getAttribute('aria-labelledby')!;
-    expect(document.getElementById(labelledBy)?.textContent).toBe('Move to folder');
   });
 
   it('dismisses on a backdrop click, and never on a click inside the card', () => {

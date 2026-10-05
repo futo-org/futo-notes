@@ -1,8 +1,12 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { createAxeClient, launchUntilRunning } from './axeClient.mjs';
+
+import { createAxeClient, iosStoryScreenshotPath, launchUntilRunning } from './axeClient.mjs';
+
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn(), spawnSync: vi.fn() }));
+
 beforeEach(() => vi.clearAllMocks());
+
 it('a tap sends one real touch sequence to the explicitly selected simulator', () => {
   createAxeClient({ udid: 'claimed-sim' }).tapPoint(12.4, 29.6);
   expect(execFileSync).toHaveBeenCalledWith(
@@ -101,4 +105,31 @@ it.each([
   });
   createAxeClient({ udid: 'claimed-sim', textInput: 'softwareKeyboard' }).typeText(character);
   expect(execFileSync.mock.calls.filter(([, args]) => args[0] === 'touch')).toHaveLength(2);
+});
+
+describe('iOS story screenshot paths', () => {
+  it('separates the same screenshot name by worktree slot and simulator', () => {
+    const simulator = '6DEFEA56-0FEA-4994-9AB4-CBDC759E05FA';
+    const firstWorktree = iosStoryScreenshotPath(
+      simulator,
+      'ios-editor-story-failure.png',
+      '/worktrees/ios-story-first',
+    );
+    const secondWorktree = iosStoryScreenshotPath(
+      simulator,
+      'ios-editor-story-failure.png',
+      '/worktrees/ios-story-second',
+    );
+    const secondDevice = iosStoryScreenshotPath(
+      'another-simulator',
+      'ios-editor-story-failure.png',
+      '/worktrees/ios-story-first',
+    );
+
+    expect(firstWorktree).toBe(
+      'test-screenshots/ios/s43/6DEFEA56-0FEA-4994-9AB4-CBDC759E05FA/ios-editor-story-failure.png',
+    );
+    expect(secondWorktree).not.toBe(firstWorktree);
+    expect(secondDevice).not.toBe(firstWorktree);
+  });
 });

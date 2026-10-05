@@ -245,7 +245,7 @@
       "concept": "title-validation-constants",
       "description": "MAX_TITLE_LENGTH (200), the visible forbidden-character set, and the full C0/DEL/C1 control ranges shared by packages/editor/src/filename.ts and Rust, then generated into both native shells as a live-input-filter fast path (apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift, apps/android/.../TitleSpec.kt) via scripts/gen-title-spec.ts.",
       "lockStatus": "locked",
-      "note": "LOCKED: constants.json pins MAX_TITLE_LENGTH in TS+Rust; the reviewed filename fixture and batched differential pin title behavior; gen-title-spec derives both native filters from the TS manifest; Android's TitleSpecTest executes the generated C0/DEL/C1 regex. Swift uses Foundation's matching `.controlCharacters` category and title-spec-check locks the generated source.",
+      "note": "LOCKED: constants.json pins MAX_TITLE_LENGTH in TS+Rust; the reviewed filename fixture and batched differential pin title behavior; gen-title-spec derives both native filters from the TS manifest; Android's TitleSpecTest executes the generated C0/DEL/C1 regex. Swift's generated CharacterSet uses the same explicit C0/DEL/C1 ranges (TitleSpecTests executes it) and title-spec-check locks the generated source.",
       "copies": [
         {
           "location": "packages/editor/src/filename.ts",
@@ -558,8 +558,8 @@
     {
       "concept": "hosted-sync-pairing-countdown",
       "description": "How long a pairing code has left, rendered for a person: whole seconds until the relay's own expires_at, and m:ss. Presentation, per shell, because the deadline itself is Rust's — await_pairing rebuilds its poll schedule from the same timestamp and is the only thing that ends a wait.",
-      "lockStatus": "unlocked",
-      "note": "UNLOCKED: nothing but you keeps these in step. All three read an unparseable timestamp as no time left, deliberately — a code shown as spent is the safe way to be wrong. Each has its own suite (pairingCountdown.test.ts / PairingCodeTests.swift / PairingCountdownTest.kt); no fixture is shared between them.",
+      "lockStatus": "partial",
+      "note": "PARTIAL (test-reduction lever C, 2026-09-24): the TS (pairingCountdown.test.ts) and Swift (formerly PairingCodeTests.swift's PairingCountdownTests suite) copies were dropped as per-shell replays of the same inputs; Kotlin's PairingCountdownTest.kt is now the one asserted suite for this concept. All three read an unparseable timestamp as no time left, deliberately — a code shown as spent is the safe way to be wrong. Still no shared fixture, so a change to the rule must land in all three production copies by hand; only the test is consolidated.",
       "copies": [
         {
           "location": "src/features/sync/pairingCountdown.ts",
@@ -573,13 +573,19 @@
           "location": "apps/android/app/src/main/java/com/futo/notes/sync/hosted/PairingCountdown.kt",
           "pattern": "fun pairingSecondsRemaining"
         }
+      ],
+      "locks": [
+        {
+          "path": "apps/android/app/src/test/java/com/futo/notes/sync/hosted/PairingCountdownTest.kt",
+          "kind": "test"
+        }
       ]
     },
     {
       "concept": "hosted-sync-shell-presentation",
       "description": "Turning the hosted engine's answers into what a person reads: which catalog message each HostedError variant gets, which sentence each subscription state gets, and the vault-password strength estimate. Hand-written per shell because this is presentation — Rust owns the rules underneath (the 12-character minimum, the error variants themselves). Android is the third copy (futo-notes#179).",
-      "lockStatus": "unlocked",
-      "note": "UNLOCKED: nothing but you keeps these in step. A new HostedError variant, a new subscription state, or a change to the strength thresholds must land in every copy in one commit. Each side has its own tests (hostedSyncErrors.test.ts / HostedSyncErrorsTests.swift / HostedSyncErrorsTest.kt and siblings), and the three strength suites deliberately assert the same inputs; no fixture is shared between them yet.",
+      "lockStatus": "partial",
+      "note": "PARTIAL (test-reduction lever C, 2026-09-24): the TS (hostedSyncErrors.test.ts / subscriptionState.test.ts / vaultPasswordStrength.test.ts) and Swift (HostedSyncErrorsTests.swift / SubscriptionStateTests.swift / VaultPasswordStrengthTests.swift) copies were dropped as per-shell replays; Kotlin's HostedSyncErrorsTest.kt / SubscriptionStateTest.kt / VaultPasswordStrengthTest.kt are now the one asserted suite per rule. A new HostedError variant, a new subscription state, or a change to the strength thresholds must still land in every production copy in one commit — there is no shared fixture, only the test is consolidated.",
       "copies": [
         {
           "location": "src/features/sync/hostedSyncErrors.ts",
@@ -617,13 +623,27 @@
           "location": "apps/android/app/src/main/java/com/futo/notes/sync/hosted/VaultPasswordStrength.kt",
           "pattern": "fun vaultPasswordStrength"
         }
+      ],
+      "locks": [
+        {
+          "path": "apps/android/app/src/test/java/com/futo/notes/sync/hosted/HostedSyncErrorsTest.kt",
+          "kind": "test"
+        },
+        {
+          "path": "apps/android/app/src/test/java/com/futo/notes/sync/hosted/SubscriptionStateTest.kt",
+          "kind": "test"
+        },
+        {
+          "path": "apps/android/app/src/test/java/com/futo/notes/sync/hosted/VaultPasswordStrengthTest.kt",
+          "kind": "test"
+        }
       ]
     },
     {
       "concept": "hosted-sync-banner-rule",
       "description": "Which refused-write banner an account earns from its billing status and from the last cycle's own write refusal: none, Sync paused, or Vault is full. One rule, three copies, because each shell reads its own BillingStatus and renders its own banner enum. Sync paused wins over a full vault, and a quota of zero is 'unknown' rather than 'full' — the second of those is why the stand-in server's filled quota shows no banner on an account that has stored nothing (futo-notes#178/#179 recorded it as unprovable on a device for that reason).",
-      "lockStatus": "unlocked",
-      "note": "UNLOCKED: nothing but you keeps these in step. The TS copy was extracted out of createHostedSyncSettings.svelte.ts into its own file (futo-notes#186) so the `__testSync` hosted hook could assert on the same rule the sync screen renders — a second TS copy would have made the tests prove something that does not ship. A change to the precedence, to the zero-quota reading, or to how the last cycle's `SyncSummary.writeRefusal` feeds in (futo-notes C4) must land in all three in one commit. Each has its own tests (hostedBanner.test.ts / HostedSetupModelTests.swift / HostedSetupModelTest.kt), and tests/cross-platform-sync.mjs drives the TS one against a real stand-in server.",
+      "lockStatus": "partial",
+      "note": "PARTIAL (test-reduction lever C, 2026-09-24): the TS (hostedBanner.test.ts) and Swift (formerly in HostedSetupModelTests.swift, now deleted) copies were dropped as per-shell replays; Kotlin's HostedSetupModelTest.kt banner cases are now the one asserted suite for this rule, with Rust's hosted_scenarios owning the engine behind it. The TS production copy was extracted out of createHostedSyncSettings.svelte.ts into its own file (futo-notes#186) so the `__testSync` hosted hook could assert on the same rule the sync screen renders — a second TS copy would have made the tests prove something that does not ship. A change to the precedence, to the zero-quota reading, or to how the last cycle's `SyncSummary.writeRefusal` feeds in (futo-notes C4) must still land in all three production copies in one commit. tests/cross-platform-sync.mjs continues to drive the TS production copy against a real stand-in server.",
       "copies": [
         {
           "location": "src/features/sync/hostedBanner.ts",
@@ -872,6 +892,137 @@
         },
         {
           "path": "apps/ios/Tests/Notes/Editor/RelinkAdoptionTests.swift",
+          "kind": "test"
+        }
+      ]
+    },
+    {
+      "concept": "certificate-rejection-message",
+      "description": "Each shell decides a sync failure was a TLS certificate rejection by matching rustls' 'invalid peer certificate' Display prefix, then shows sync.errors.certificateNotTrusted. The marker is a third-party string: a rustls reword reverts all three shells to the generic URL/password message. Two tests catch a reword against a real handshake — tls::tests (a_privately_signed_server_is_rejected_without_its_root) and the Android instrumentation PlatformTrustTest; the TypeScript, Swift and JVM unit tests feed in hand-written copies and cannot. Belongs in Rust as a typed SyncError variant (AGENTS.md 'Where logic lives' 1) — see the Gap in docs/spec/sync.md.",
+      "lockStatus": "unlocked",
+      "copies": [
+        {
+          "location": "src/features/sync/syncErrorClassification.ts",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "apps/ios/Sources/Sync/SyncManager.swift",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/SyncManager.kt",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "src/features/settings/createSyncSettings.test.ts",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "src/features/sync/syncErrorClassification.test.ts",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "src/features/sync/syncManager.test.ts",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "apps/android/app/src/test/java/com/futo/notes/SyncManagerOutcomeTest.kt",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "apps/android/app/src/androidTest/java/com/futo/notes/PlatformTrustTest.kt",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "apps/ios/Tests/Sync/CertificateFailureMessageTests.swift",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "crates/futo-notes-sync/src/tls/tests.rs",
+          "pattern": "invalid peer certificate"
+        }
+      ],
+      "scan": {
+        "dirs": ["src", "apps/ios", "apps/android/app/src", "crates"],
+        "extensions": [".ts", ".swift", ".kt", ".rs"],
+        "pattern": "invalid peer certificate"
+      }
+    },
+    {
+      "concept": "note-list-order-web-harness",
+      "description": "The note-list sort rule (key in direction, then id ascending by code point; Name folds the title with the filename collision rule). Canonical in the Rust store; the browser-mode web harness mirrors it so Playwright and web dev see the same order the engine produces (ADR-0001 keeps every shipping shell comparator-free).",
+      "lockStatus": "partial",
+      "copies": [
+        {
+          "location": "crates/futo-notes-store/src/vault.rs",
+          "pattern": "pub\\(crate\\) fn note_list_order"
+        },
+        {
+          "location": "src/lib/platform/webLocalNoteStore.ts",
+          "pattern": "function compareNotes"
+        }
+      ],
+      "locks": [
+        {
+          "path": "crates/futo-notes-store/src/tests.rs",
+          "kind": "test"
+        },
+        {
+          "path": "src/lib/platform/webLocalNoteStore.test.ts",
+          "kind": "test"
+        }
+      ],
+      "note": "Partial: both sides pin the same surrogate-range tiebreak fixture (U+FDFD before U+1F600) and the same case-insensitive Name ordering, but no shared fixture file drives both. The harness is not a shipping shell; a shipping shell must never grow a comparator (AGENTS.md §12)."
+    },
+    {
+      "concept": "sort-menu-presentation",
+      "description": "How a chosen sort key pairs with a direction, and which catalog path each (key, direction) label reads from — written once per shell because each menu is native. The ORDER ITSELF is not duplicated: every shell asks the Rust store (ADR-0001, vault::note_list_order) and splices engine-reported positions verbatim.",
+      "lockStatus": "unlocked",
+      "note": "Three copies of a two-row table, each with its own unit test asserting the same pairs. Nothing keeps them identical — change one and change all three in the same commit. Collapse candidate: a fourth generated spec alongside gen-title-spec.ts / gen-toolbar-spec.ts, which already emit exactly this class of constant into TitleSpec.swift/.kt. Better still, delete two of the four functions by having the shells send a delta (set the key / set the direction) and letting the store compose it against its own current order.",
+      "copies": [
+        {
+          "location": "src/features/notes/noteSortOrder.ts",
+          "pattern": "sortDirections"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/NoteSortPreference.kt",
+          "pattern": "fun directions"
+        },
+        {
+          "location": "apps/ios/Sources/Notes/Storage/NoteSortPreference.swift",
+          "pattern": "static func directions"
+        }
+      ]
+    },
+    {
+      "concept": "mobile-app-icon-identities",
+      "description": "Permanent manual icon IDs map to iOS alternate catalogs and Android launcher aliases. Both native definitions and bundled resources must stay aligned; the packaging test checks every choice and its iPhone/iPad/Android outputs.",
+      "lockStatus": "locked",
+      "copies": [
+        {
+          "location": "apps/ios/Sources/Settings/AppIcon/AppIcon.swift",
+          "pattern": "case lightStandard"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/ui/settings/appicon/AppIcon.kt",
+          "pattern": "LIGHT_STANDARD"
+        },
+        {
+          "location": "scripts/generate-app-icons.mjs",
+          "pattern": "LightStandard"
+        },
+        {
+          "location": "apps/android/app/src/main/AndroidManifest.xml",
+          "pattern": "LauncherLightStandard"
+        },
+        {
+          "location": "apps/ios/project.yml",
+          "pattern": "ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES"
+        }
+      ],
+      "locks": [
+        {
+          "path": "scripts/generate-app-icons.test.mjs",
           "kind": "test"
         }
       ]

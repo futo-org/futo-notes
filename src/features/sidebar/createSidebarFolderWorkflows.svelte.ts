@@ -1,4 +1,5 @@
 import { createFolder, validateNewFolderName } from '$features/folders/folderOperations';
+import { vaultAvailability } from '$features/storage/vaultAvailability.svelte';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import type { LocalizedMessage } from '$shared/localization';
 import {
@@ -15,6 +16,7 @@ import {
 export interface SidebarFolderMenuItem {
   label: LocalizedMessage;
   destructive?: boolean;
+  disabled?: boolean;
   onclick: () => void;
 }
 
@@ -27,6 +29,11 @@ interface SidebarFolderWorkflowOptions {
   onActiveNoteDeleted: () => void;
   onActiveNoteMoved: (fromId: string, toId: string, title: string) => void;
   onNewNoteInFolder: (folderPath: string) => void;
+}
+
+// Every row action writes to the vault, so an unusable one disables them all.
+function lockedWhileVaultUnusable(items: SidebarFolderMenuItem[]): SidebarFolderMenuItem[] {
+  return items.map((item) => ({ ...item, disabled: vaultAvailability.unavailable }));
 }
 
 /** Folder rows expose the same discoverable action set on every platform
@@ -78,6 +85,8 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
   } | null>(null);
 
   function openCreateFolder(parent: string): void {
+    // Without a usable vault the dialog can only fail, however often it is retried.
+    if (vaultAvailability.unavailable) return;
     createFolderParent = parent;
     isCreateFolderOpen = true;
   }
@@ -110,15 +119,17 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
     contextMenu = {
       x,
       y,
-      items: folderMenuItems({
-        newNote: () => options.onNewNoteInFolder(path),
-        newFolder: () => openCreateFolder(path),
-        rename: () => {
-          renameRequest = { path, nonce: Date.now() };
-        },
-        move: () => openMoveFolderPicker(path),
-        remove: () => void confirmDeleteSidebarFolder(path, options),
-      }),
+      items: lockedWhileVaultUnusable(
+        folderMenuItems({
+          newNote: () => options.onNewNoteInFolder(path),
+          newFolder: () => openCreateFolder(path),
+          rename: () => {
+            renameRequest = { path, nonce: Date.now() };
+          },
+          move: () => openMoveFolderPicker(path),
+          remove: () => void confirmDeleteSidebarFolder(path, options),
+        }),
+      ),
     };
   }
 
@@ -126,13 +137,15 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
     contextMenu = {
       x,
       y,
-      items: noteMenuItems({
-        rename: () => {
-          noteRenameRequest = { id, nonce: Date.now() };
-        },
-        move: () => openMoveNotePicker(id),
-        remove: () => void confirmDeleteSidebarNote(id, options),
-      }),
+      items: lockedWhileVaultUnusable(
+        noteMenuItems({
+          rename: () => {
+            noteRenameRequest = { id, nonce: Date.now() };
+          },
+          move: () => openMoveNotePicker(id),
+          remove: () => void confirmDeleteSidebarNote(id, options),
+        }),
+      ),
     };
   }
 

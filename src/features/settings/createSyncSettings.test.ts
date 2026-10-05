@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const appStateMock = {
   e2eeServerUrl: '',
-  e2eeAuthToken: '',
+  e2eeCollectionId: '',
 };
 const preferencesMock = {
   sync: { lastError: '', lastSyncedAt: null as number | null },
@@ -43,11 +43,16 @@ vi.mock('$features/sync/syncServiceE2ee', () => ({
   },
 }));
 
-import { createSyncSettings } from './createSyncSettings.svelte';
+const showGlobalToast = vi.fn();
+vi.mock('$shared/notifications/toastBus.svelte', () => ({
+  showGlobalToast: (...args: unknown[]) => showGlobalToast(...args),
+}));
+
+import { createSyncSettings, failureMessage } from './createSyncSettings.svelte';
 
 beforeEach(() => {
   appStateMock.e2eeServerUrl = '';
-  appStateMock.e2eeAuthToken = '';
+  appStateMock.e2eeCollectionId = '';
   preferencesMock.sync = { lastError: '', lastSyncedAt: null };
   requestSync.mockReset().mockResolvedValue({});
   wasSyncErrorReported.mockReset().mockReturnValue(false);
@@ -58,6 +63,7 @@ beforeEach(() => {
   reauthenticateE2ee.mockReset().mockResolvedValue(undefined);
   hasStoredSyncPassword.mockReset().mockReturnValue(false);
   progressListener = null;
+  showGlobalToast.mockReset();
 });
 
 describe('createSyncSettings', () => {
@@ -130,7 +136,8 @@ describe('createSyncSettings', () => {
   });
 
   it('reset connection is gated on the confirm dialog', async () => {
-    appStateMock.e2eeAuthToken = 'token';
+    appStateMock.e2eeServerUrl = 'https://notes.example.com';
+    appStateMock.e2eeCollectionId = 'collection';
     const sync = createSyncSettings();
 
     confirmDialog.mockResolvedValue(false);
@@ -146,7 +153,8 @@ describe('createSyncSettings', () => {
   });
 
   it('clicking the locked server URL opens the reset-connection confirm (hidden affordance)', async () => {
-    appStateMock.e2eeAuthToken = 'token';
+    appStateMock.e2eeServerUrl = 'https://notes.example.com';
+    appStateMock.e2eeCollectionId = 'collection';
     confirmDialog.mockResolvedValue(false);
     const sync = createSyncSettings();
 
@@ -160,7 +168,8 @@ describe('createSyncSettings', () => {
   });
 
   it('forget password drops only the stored keyring entry after confirmation', async () => {
-    appStateMock.e2eeAuthToken = 'token';
+    appStateMock.e2eeServerUrl = 'https://notes.example.com';
+    appStateMock.e2eeCollectionId = 'collection';
     hasStoredSyncPassword.mockReturnValue(true);
     confirmDialog.mockResolvedValue(true);
     const sync = createSyncSettings();
@@ -174,6 +183,23 @@ describe('createSyncSettings', () => {
     expect(sync.connected).toBe(true);
   });
 
+  // Crash #1788: both are fired un-awaited from the Settings UI, and both end in
+  // an app-state write that fails when the vault cannot be written to.
+  it('reset connection and forget password tell the user when the change cannot be saved', async () => {
+    appStateMock.e2eeAuthToken = 'token';
+    confirmDialog.mockResolvedValue(true);
+    const denied = new Error('Permission denied (os error 13)');
+    disconnectE2ee.mockRejectedValue(denied);
+    forgetStoredSyncPassword.mockRejectedValue(denied);
+    const sync = createSyncSettings();
+
+    await sync.resetConnection();
+    await sync.forgetPassword();
+
+    expect(showGlobalToast).toHaveBeenCalledTimes(2);
+    expect(showGlobalToast).toHaveBeenCalledWith({ path: 'settings.saveFailed' });
+  });
+
   it('seeds status from the persisted last sync error', () => {
     preferencesMock.sync.lastError = 'server exploded';
     const sync = createSyncSettings();
@@ -182,7 +208,8 @@ describe('createSyncSettings', () => {
 
   it('syncNow updates lastSyncedAt and clears status on success', async () => {
     preferencesMock.sync.lastSyncedAt = 1234;
-    appStateMock.e2eeAuthToken = 'token';
+    appStateMock.e2eeServerUrl = 'https://notes.example.com';
+    appStateMock.e2eeCollectionId = 'collection';
     const sync = createSyncSettings();
 
     await sync.syncNow();
@@ -194,7 +221,7 @@ describe('createSyncSettings', () => {
 
   it('reauthenticates with an entered password before syncing and clears it only after', async () => {
     appStateMock.e2eeServerUrl = 'https://notes.example.com';
-    appStateMock.e2eeAuthToken = 'expired-token';
+    appStateMock.e2eeCollectionId = 'collection';
     hasStoredSyncPassword.mockReturnValue(true);
     const sync = createSyncSettings();
     sync.password = 'saved-password';
@@ -208,5 +235,25 @@ describe('createSyncSettings', () => {
     expect(sync.password).toBe('');
     expect(sync.passwordSaved).toBe(true);
     expect(sync.connected).toBe(true);
+  });
+
+  it('names an untrusted certificate instead of blaming the URL or password', () => {
+    expect(
+      failureMessage(
+        new Error('error sending request: invalid peer certificate: UnknownIssuer'),
+        'sync.errors.connectFailed',
+      ),
+    ).toEqual({ path: 'sync.errors.certificateNotTrusted' });
+    expect(
+      failureMessage(
+        new Error(
+          'error sending request: invalid peer certificate: Other(OtherError("\u201cprivate ca\u201d certificate is not trusted: -67843"))',
+        ),
+        'sync.errors.connectFailed',
+      ),
+    ).toEqual({ path: 'sync.errors.certificateNotTrusted' });
+    expect(failureMessage(new Error('connection refused'), 'sync.errors.connectFailed')).toEqual({
+      path: 'sync.errors.connectFailed',
+    });
   });
 });

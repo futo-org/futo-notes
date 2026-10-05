@@ -1,5 +1,5 @@
 import { isTauri } from '$lib/platform';
-import { vaultStatus } from '$lib/platform/tauri';
+import { loadVaultAvailability } from '$features/storage/vaultAvailability.svelte';
 import type { LocalizedMessage } from '$shared/localization';
 
 /**
@@ -9,22 +9,17 @@ import type { LocalizedMessage } from '$shared/localization';
  * Trash portal declines those paths — and there the confirmation must not imply a
  * recovery that does not exist.
  */
-let permanence: Promise<{ notes: boolean; folders: boolean }> | null = null;
-
-// One answer per session: the active vault cannot change without a process
-// restart. A failed read reports recoverable — the milder claim, and true for
-// the default vault.
-function deletePermanence(): Promise<{ notes: boolean; folders: boolean }> {
-  permanence ??= vaultStatus()
-    .then((status) => ({
-      notes: status.deletesArePermanent,
-      folders: status.folderDeletesArePermanent,
-    }))
-    .catch((error) => {
-      console.warn('Failed to read vault delete policy:', error);
-      return { notes: false, folders: false };
-    });
-  return permanence;
+// Read from the launch's one vault status — the active vault cannot change
+// without a process restart. A failed read reports recoverable — the milder
+// claim, and true for the default vault.
+async function deletePermanence(): Promise<{ notes: boolean; folders: boolean }> {
+  try {
+    const status = await loadVaultAvailability();
+    return { notes: status.deletesArePermanent, folders: status.folderDeletesArePermanent };
+  } catch (error) {
+    console.warn('Failed to read vault delete policy:', error);
+    return { notes: false, folders: false };
+  }
 }
 
 /** The sentence a note-delete confirmation ends with. */

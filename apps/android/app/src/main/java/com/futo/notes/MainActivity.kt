@@ -193,6 +193,11 @@ class MainActivity : ComponentActivity() {
         }
 
         super.onCreate(savedInstanceState)
+        lifecycleScope.launch {
+            val icons = com.futo.notes.ui.settings.appicon.AppIconController(this@MainActivity)
+            icons.refresh()
+            if (icons.failed) android.util.Log.w("AppIcon", "Launcher icon reconciliation failed")
+        }
 
         // Edge-to-edge; Compose Scaffold/TopAppBar handle the system-bar insets.
         // enableEdgeToEdge() (androidx.activity) is the non-deprecated path: on
@@ -590,7 +595,7 @@ class MainActivity : ComponentActivity() {
         // the scan below offers them for upload.
         CrashReporter.install(root, BuildConfig.VERSION_NAME)
 
-        val s = NotesStore(root, File(filesDir, "search"))
+        val s = NotesStore(root, File(filesDir, "search"), NoteSortPreference.read(prefs))
         sync = SyncManager(secure, prefs)
         // Sync writes bypass local mutations, so project the engine-reported
         // affected rows and deliver the same summary to an open editor.
@@ -598,6 +603,7 @@ class MainActivity : ComponentActivity() {
         // Auto-push local edits: every NotesStore mutation signals the live loop,
         // which debounces and pushes to peers (no-op when not connected).
         s.onLocalChange = { sync.noteChanged() }
+        s.onSortOrderChanged = { order -> NoteSortPreference.write(prefs, order) }
 
         // Silent sync-session restore [sync.md:91] — off-main, fire-and-forget,
         // never gates render. No-op when no password is stored.

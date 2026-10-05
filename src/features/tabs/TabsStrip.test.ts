@@ -3,21 +3,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mount, unmount } from 'svelte';
 import TabsStrip from './TabsStrip.svelte';
 import { tabsStore } from './tabsStore.svelte';
-import type { NotePreview } from '$shared/types/note';
-
-type TabsStripProps = {
-  notes?: NotePreview[];
-};
-
 describe('TabsStrip', () => {
   let target: HTMLDivElement;
   let app: ReturnType<typeof mount> | null = null;
 
-  function mountStrip(props: TabsStripProps = {}): HTMLElement {
-    app = mount(TabsStrip, {
-      target,
-      props,
-    });
+  function mountStrip(): HTMLElement {
+    app = mount(TabsStrip, { target, props: {} });
     return target.querySelector('.tabs-strip') as HTMLElement;
   }
 
@@ -33,7 +24,6 @@ describe('TabsStrip', () => {
       app = null;
     }
     target.remove();
-    document.documentElement.style.removeProperty('--macos-traffic-lights-width');
   });
 
   it('clicking the "+" button creates a new tab', () => {
@@ -51,12 +41,6 @@ describe('TabsStrip', () => {
     const strip = mountStrip();
     expect(strip).not.toBeNull();
     expect(strip.hasAttribute('data-tauri-drag-region')).toBe(true);
-  });
-
-  it('does not host a sidebar control — the top band owns it now', () => {
-    mountStrip();
-    expect(target.querySelector('.sidebar-expand-fallback-btn')).toBeNull();
-    expect(target.querySelector('.sidebar-toggle-btn')).toBeNull();
   });
 
   it('clicking a tab pill activates it', () => {

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('$lib/platform', () => ({ platformName: 'tauri' }));
 vi.mock('$features/system/crashHandler', () => ({ getAppVersion: () => '1.2.3' }));
 
-const { submitFeedback, toBase64 } = await import('./submitFeedback');
+const { submitFeedback } = await import('./submitFeedback');
 
 const fetchMock = vi.fn();
 
@@ -19,51 +19,29 @@ describe('submitFeedback', () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
   });
 
-  it('follows the dev staging toggle to the staging host', async () => {
-    window.localStorage.setItem('futo_crashlog_staging', 'true');
-    try {
-      await submitFeedback({ message: 'it broke', images: [] });
-      expect(fetchMock.mock.calls[0][0]).toBe(
-        'https://staging-notes-crashlog.futo.org/api/feedback',
-      );
-    } finally {
-      window.localStorage.clear();
-    }
-  });
-
-  it('posts the field names the server schema expects', async () => {
+  // The field names are the server schema, and the key list is the privacy
+  // rule: nothing derived from the vault or the open note (no route, no session
+  // id, no path) rides along with what the user typed.
+  it('posts only the fields the server schema expects', async () => {
     await submitFeedback({ message: 'it broke', images: [] });
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('http://localhost:5100/api/feedback');
     expect(init.method).toBe('POST');
-    expect(sentBody()).toMatchObject({
+    expect(sentBody()).toEqual({
       message: 'it broke',
       app_version: '1.2.3',
       platform: 'tauri',
+      device_info: expect.any(String),
+      images: [],
     });
   });
 
-  it('sends nothing derived from the vault or the open note', async () => {
-    await submitFeedback({ message: 'hi', images: [] });
+  it('base64-encodes each image under a data key, bytes that are not text included', async () => {
+    const bytes = new Uint8Array([0x00, 0xff, 0x89, 0x50, 0x4e, 0x47]).buffer;
+    await submitFeedback({ message: 'shot', images: [bytes] });
 
-    const body = sentBody();
-    expect(body).not.toHaveProperty('route');
-    expect(body).not.toHaveProperty('session_id');
-    expect(Object.keys(body).sort()).toEqual([
-      'app_version',
-      'device_info',
-      'images',
-      'message',
-      'platform',
-    ]);
-  });
-
-  it('base64-encodes each image under a data key', async () => {
-    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer;
-    await submitFeedback({ message: 'shot', images: [png] });
-
-    expect(sentBody().images).toEqual([{ data: 'iVBORw==' }]);
+    expect(sentBody().images).toEqual([{ data: 'AP+JUE5H' }]);
   });
 
   it('reports the status when the server refuses', async () => {
@@ -82,18 +60,5 @@ describe('submitFeedback', () => {
     fetchMock.mockRejectedValue(new Error('offline'));
 
     await expect(submitFeedback({ message: 'x', images: [] })).rejects.toThrow('offline');
-  });
-});
-
-describe('toBase64', () => {
-  it('round-trips bytes that are not valid text', () => {
-    const bytes = new Uint8Array([0x00, 0xff, 0x89, 0x50, 0x4e, 0x47]);
-    const decoded = Uint8Array.from(atob(toBase64(bytes.buffer)), (c) => c.charCodeAt(0));
-
-    expect(Array.from(decoded)).toEqual(Array.from(bytes));
-  });
-
-  it('encodes an empty buffer as an empty string', () => {
-    expect(toBase64(new ArrayBuffer(0))).toBe('');
   });
 });

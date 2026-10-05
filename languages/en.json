@@ -63,6 +63,7 @@
       "heading": "Settings",
       "openAccessibilityLabel": "Open settings",
       "closeAccessibilityLabel": "Close settings",
+      "saveFailed": "Setting changed, but it couldn't be saved.",
       "sections": {
         "sync": "Sync",
         "appearance": "Appearance",
@@ -102,6 +103,8 @@
         "appFolderDescription": "App folder · private",
         "legacyInternalDescription": "Internal · private (legacy)",
         "unreachableCurrentWarning": "This folder is no longer reachable. Choose it again, or reset to the default location.",
+        "accessRefusedWarning": "FUTO Notes isn't allowed to change this folder, so nothing can be saved. Choose another folder. On Windows, this is usually Controlled folder access: you can instead allow FUTO Notes in Windows Security, then restart FUTO Notes.",
+        "uncreatableDefaultWarning": "FUTO Notes isn't allowed to create this folder, so nothing can be saved. Choose another folder. On Windows, this is usually Controlled folder access: you can instead allow FUTO Notes in Windows Security, then restart FUTO Notes.",
         "loading": "Loading…",
         "memoryVault": "In-memory test vault",
         "unableToRead": "Unable to read notes directory",
@@ -185,10 +188,40 @@
         "installedRestart": "Update installed. Restart to finish.",
         "currentVersion": "Currently running v{version}.",
         "failed": "Update failed"
+      },
+      "appIcon": {
+        "heading": "App icon",
+        "choices": {
+          "lightStandard": "Standard",
+          "lightReversed": "Reversed",
+          "darkStandard": "Dark",
+          "darkReversed": "Dark, Reversed",
+          "futo": "FUTO",
+          "website": "Scanlines"
+        },
+        "confirm": {
+          "title": "Change app icon to \"{iconName}\"?",
+          "body": "FUTO Notes may close to apply the new icon. You can reopen it from your launcher.",
+          "action": "Change"
+        },
+        "failed": "Could not change the app icon. Please try again.",
+        "resetFailed": "Your notes were reset, but the app icon could not be restored. Please choose Standard in Settings.",
+        "unavailable": "Changing app icons is unavailable on this device.",
+        "changing": "Changing app icon…"
       }
     },
     "notes": {
       "heading": "Notes",
+      "sort": {
+        "heading": "Sort by",
+        "orderHeading": "Order",
+        "name": "Name",
+        "lastModified": "Last Modified",
+        "aToZ": "A-Z",
+        "zToA": "Z-A",
+        "newest": "Recent first",
+        "oldest": "Oldest first"
+      },
       "forYou": {
         "heading": "For You",
         "empty": "Create your first note from the sidebar to get started."
@@ -336,7 +369,9 @@
         "heading": "Delete folder",
         "thisFolderQuestion": "Delete this folder?",
         "moveNotesWarning": "Notes inside it will be moved to the parent folder.",
+        "moveContentsWarning": "Notes and other files inside it will be moved to the parent folder. A file with the same name gets a numbered copy.",
         "recoverableConfirmation": "Delete this folder? Notes inside it will be moved to the parent folder.",
+        "preservingContentsConfirmation": "Delete this folder? Notes and other files inside it will be moved to the parent folder. A file with the same name gets a numbered copy.",
         "permanentConfirmation": "Delete this folder? Notes inside it will be moved to the parent folder. Anything else inside it is deleted for good.",
         "movedNotes": {
           "plural": "count",
@@ -610,9 +645,14 @@
         "enterServerUrl": "Enter a server URL.",
         "addServerScheme": "Add http:// or https:// to the start of the server URL.",
         "connectFailed": "Couldn't connect or sync. Check the server URL and password.",
+        "certificateNotTrusted": "This server's certificate isn't trusted by this device. If the server uses a private certificate authority, install it in the device settings, then try again.",
+        "secureConnectionUnavailable": "This device couldn't start a secure connection. Restart FUTO Notes and try again.",
         "syncFailed": "Sync failed. Try again.",
         "previousFailure": "The last sync failed. Try again.",
         "completedWithErrors": "Sync completed with errors. Some changes could not reach the server.",
+        "uploadsTooLarge": "These files could not sync because the server or proxy rejected them as too large: {filenames}",
+        "uploadsTooLargeAndUnsupported": "Some files were too large for the server or proxy: {oversized}. Other files have unsupported paths or names: {unsupported}.",
+        "unsupportedPaths": "These files could not sync because their paths or names are unsupported: {filenames}",
         "writePausedSubscription": "Sync paused. Your subscription has lapsed, so changes made here are not uploaded. Notes from your other devices still arrive.",
         "writePausedQuota": "Vault is full. You have used all of your storage, so changes made here are not uploaded.",
         "liveUnavailable": "Live sync is temporarily unavailable. FUTO Notes will keep retrying.",
@@ -839,6 +879,13 @@
       }
     },
     "storage": {
+      "unavailableBanner": {
+        "title": "FUTO Notes can't save anything.",
+        "uncreatableDefault": "It isn't allowed to create its notes folder at {folderPath}.",
+        "missingCustom": "It can't find your notes folder at {folderPath}.",
+        "accessRefused": "It isn't allowed to change your notes folder at {folderPath}.",
+        "chooseFolder": "Choose another folder"
+      },
       "onboarding": {
         "heading": "Where should your notes live?",
         "description": "Your notes are plain Markdown files. Choose where to keep them.",
@@ -930,8 +977,7 @@
       "disabled": "Crash reporting disabled. Re-enable it in Settings."
     },
     "system": {
-      "watcherUnavailable": "External file changes will not be detected until you restart.",
-      "notesFolderUnavailable": "Can't find your vault folder at {folderPath}. Please reconfigure in settings."
+      "watcherUnavailable": "External file changes will not be detected until you restart."
     },
     "permissions": {
       "ios": {

@@ -434,19 +434,14 @@ async function editorContentColor(
 // transparent over a native surface, so in dark mode the lost text color
 // degrades to UA black-on-dark: invisible notes. Reproduced for real on
 // Chromium 98 (r950370) headless, 2026-07-23.
-test('legacy WebView (no @layer): dark theme text keeps the dark token color', async ({
-  browser,
-}) => {
-  const url = writeLegacyWebViewBundle();
-  expect(await editorContentColor(browser, url, 'dark')).toBe(themeTextColor('dark'));
-});
-
-test('legacy WebView (no @layer): light theme text keeps the light token color', async ({
-  browser,
-}) => {
-  const url = writeLegacyWebViewBundle();
-  expect(await editorContentColor(browser, url, 'light')).toBe(themeTextColor('light'));
-});
+for (const theme of ['dark', 'light'] as const) {
+  test(`legacy WebView (no @layer): ${theme} theme text keeps the ${theme} token color`, async ({
+    browser,
+  }) => {
+    const url = writeLegacyWebViewBundle();
+    expect(await editorContentColor(browser, url, theme)).toBe(themeTextColor(theme));
+  });
+}
 
 test('modern engine: the unlayered fallback does not fight the layered theme', async ({
   browser,

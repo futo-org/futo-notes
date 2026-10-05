@@ -25,8 +25,7 @@ pub(crate) fn unique_folder_path(
     exclude: Option<&str>,
 ) -> Result<String, String> {
     folder_path(root, wanted)?;
-    let occupied = crate::vault::note_order_and_folders(root)
-        .1
+    let occupied = crate::vault::folders(root)
         .into_iter()
         .filter(|path| Some(path.as_str()) != exclude)
         .collect::<HashSet<_>>();

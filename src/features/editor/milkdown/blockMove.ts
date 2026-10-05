@@ -72,8 +72,10 @@ export function moveBlock(
   targetPos: number,
   /** Runs on the move transaction just before dispatch — used to clear the
    * drag decoration in the SAME transaction, so the source block is never
-   * drawn dimmed for a frame at its new position. */
-  beforeDispatch?: (tr: Transaction) => void,
+   * drawn dimmed for a frame at its new position, and to place the selection.
+   * `movedTo` is where the moved node now starts in `tr.doc` (inside the list
+   * that wraps it, when it was pulled out to the top level). */
+  beforeDispatch?: (tr: Transaction, movedTo: number) => void,
 ): boolean {
   const { from: srcStart, to: srcEnd } = range;
 
@@ -126,7 +128,7 @@ export function moveBlock(
   if (!moved || !moved.sameMarkup(inserted) || !moved.content.eq(inserted.content)) return false;
   if (tr.doc.eq(beforeDoc)) return false;
 
-  beforeDispatch?.(tr);
+  beforeDispatch?.(tr, inserted === node ? mappedTarget : mappedTarget + 1);
   view.dispatch(tr);
   return true;
 }

@@ -593,100 +593,70 @@ test.describe('Folder support', () => {
     expect(deepest.width).toBeGreaterThan(100);
   });
 
-  test('deeply nested rows stay usable at the minimum sidebar width', async ({ page }) => {
-    // Adversarial regression: folder depth is unbounded and the sidebar can
-    // shrink to MIN_SIDEBAR_WIDTH (200px). With a raw depth indent, a deep
-    // enough row consumes the entire width (depth 10 * 16px = 160px indent vs
-    // ~184px content) and renders as a blank, titleless click target. The
-    // indent is capped at 50% of the row so every row keeps a usable,
-    // title-bearing width at any depth and sidebar width.
-    const DEPTH = 10; // matches "folder depth allowed" + DEPTH_INDENT_PX = 16
-    await openSidebar(page);
-    const leafId = await page.evaluate(async (depth) => {
-      const win = window as unknown as {
-        __testNotes: {
-          createFolder: (path: string) => Promise<unknown>;
-          createNote: (id: string, body: string) => Promise<unknown>;
-        };
-      };
+  // Adversarial regression: folder depth is unbounded and the sidebar can
+  // shrink to MIN_SIDEBAR_WIDTH (200px). With a raw depth indent, a deep
+  // enough row consumes the entire width (depth 10 * 16px = 160px indent vs
+  // ~184px content) and renders as a blank, titleless click target. The
+  // indent is capped at 50% of the row so every row keeps a usable,
+  // title-bearing width at any depth and sidebar width. Both indented row
+  // types share the cap: a note row and a deep EMPTY folder's placeholder
+  // (.folder-empty-row).
+  for (const [rowKind, withLeaf] of [
+    ['note row', true],
+    ['empty-folder placeholder', false],
+  ] as const) {
+    test(`a deeply nested ${rowKind} stays usable at the minimum sidebar width`, async ({
+      page,
+    }) => {
+      const DEPTH = 10; // matches "folder depth allowed" + DEPTH_INDENT_PX = 16
+      const prefix = withLeaf ? 'd' : 'e';
+      await openSidebar(page);
+      const deepest = await page.evaluate(
+        async ({ depth, prefix, withLeaf }) => {
+          const win = window as unknown as {
+            __testNotes: {
+              createFolder: (path: string) => Promise<unknown>;
+              createNote: (id: string, body: string) => Promise<unknown>;
+            };
+          };
+          const parts: string[] = [];
+          for (let i = 1; i <= depth; i++) {
+            parts.push(`${prefix}${i}`);
+            await win.__testNotes.createFolder(parts.join('/'));
+          }
+          const folder = parts.join('/');
+          // Without a leaf, a root note nudges the reactive tree to render the
+          // note-less chain, so the deepest folder shows its placeholder row.
+          await win.__testNotes.createNote(withLeaf ? `${folder}/leaf` : 'tree-trigger', 'x');
+          return folder;
+        },
+        { depth: DEPTH, prefix, withLeaf },
+      );
+
+      // Expand every ancestor folder so the deepest row renders.
       const parts: string[] = [];
-      for (let i = 1; i <= depth; i++) {
-        parts.push(`d${i}`);
-        await win.__testNotes.createFolder(parts.join('/'));
+      for (let i = 1; i <= DEPTH; i++) {
+        parts.push(`${prefix}${i}`);
+        await page
+          .locator(`.folder-row[data-folder-path="${parts.join('/')}"]`)
+          .first()
+          .click();
       }
-      const id = `${parts.join('/')}/leaf`;
-      await win.__testNotes.createNote(id, 'deep note body');
-      return id;
-    }, DEPTH);
 
-    // Expand every ancestor folder so the leaf row renders.
-    const parts: string[] = [];
-    for (let i = 1; i <= DEPTH; i++) {
-      parts.push(`d${i}`);
-      await page
-        .locator(`.folder-row[data-folder-path="${parts.join('/')}"]`)
-        .first()
-        .click();
-    }
+      await pinSidebarToMinWidth(page);
 
-    await pinSidebarToMinWidth(page);
+      const row = withLeaf
+        ? page.locator(`.note-row[data-note-id="${deepest}/leaf"]`)
+        : page.locator(`.folder-empty-row[data-folder-path="${deepest}"]`);
+      await expect(row).toBeVisible();
+      const box = await measureRowFit(row);
 
-    const leaf = page.locator(`.note-row[data-note-id="${leafId}"]`);
-    await expect(leaf).toBeVisible();
-    const box = await measureRowFit(leaf);
-
-    // The deepest row must keep a usable, title-bearing content width — the
-    // old raw indent left 0px here. And its right edge stays in the viewport.
-    expect(box.contentWidth).toBeGreaterThan(40);
-    expect(box.rowRight).toBeLessThanOrEqual(box.scrollRight + 1);
-  });
-
-  test('deeply nested empty-folder placeholder stays usable at min width', async ({ page }) => {
-    // Same adversarial boundary as above, for the third indented row type: the
-    // per-folder empty-state row (.folder-empty-row) shares the capped indent
-    // rule, so a deep EMPTY folder's placeholder must not collapse to a blank
-    // strip at the 200px minimum sidebar width.
-    const DEPTH = 10;
-    await openSidebar(page);
-    const deepest = await page.evaluate(async (depth) => {
-      const win = window as unknown as {
-        __testNotes: {
-          createFolder: (path: string) => Promise<unknown>;
-          createNote: (id: string, body: string) => Promise<unknown>;
-        };
-      };
-      const parts: string[] = [];
-      for (let i = 1; i <= depth; i++) {
-        parts.push(`e${i}`);
-        await win.__testNotes.createFolder(parts.join('/'));
-      }
-      // A root note nudges the reactive tree to render the (otherwise
-      // note-less) empty folder chain; the chain itself stays empty so the
-      // deepest folder shows its placeholder row.
-      await win.__testNotes.createNote('tree-trigger', 'x');
-      return parts.join('/'); // deepest folder, left empty -> shows placeholder
-    }, DEPTH);
-
-    const parts: string[] = [];
-    for (let i = 1; i <= DEPTH; i++) {
-      parts.push(`e${i}`);
-      await page
-        .locator(`.folder-row[data-folder-path="${parts.join('/')}"]`)
-        .first()
-        .click();
-    }
-
-    await pinSidebarToMinWidth(page);
-
-    const placeholder = page.locator(`.folder-empty-row[data-folder-path="${deepest}"]`);
-    await expect(placeholder).toBeVisible();
-    const box = await measureRowFit(placeholder);
-
-    // Placeholder keeps a readable width and stays within the viewport — the
-    // pre-cap raw indent left it a blank strip here.
-    expect(box.contentWidth).toBeGreaterThan(40);
-    expect(box.rowRight).toBeLessThanOrEqual(box.scrollRight + 1);
-  });
+      // The old raw indent left 0px of content here; the row must keep a
+      // readable width, and its right edge stays in the viewport.
+      expect(box.contentWidth).toBeGreaterThan(40);
+      expect(box.rowRight).toBeLessThanOrEqual(box.scrollRight + 1);
+    });
+  }
 
   async function seedActionNotes(page: Page): Promise<void> {
     await openSidebar(page);

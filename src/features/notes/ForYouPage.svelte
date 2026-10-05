@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { NotePreview } from '$shared/types/note';
+  import { FOR_YOU_LIMIT, getForYouNotes } from './forYou';
+  import { readRecentNoteIds } from './notes.svelte';
   import { localizedRelativeTime, localizedText } from '$shared/localization';
 
   interface Props {
@@ -8,7 +10,21 @@
   }
 
   let { notes, onnavigate }: Props = $props();
-  const forYouNotes = $derived(notes.slice(0, 3));
+  // null until the engine answers, or the empty state flashes over a populated vault.
+  let recentIds = $state<string[] | null>(null);
+
+  $effect(() => {
+    const asked = notes;
+    let live = true;
+    void readRecentNoteIds(FOR_YOU_LIMIT).then((ids) => {
+      if (live && asked === notes) recentIds = ids;
+    });
+    return () => {
+      live = false;
+    };
+  });
+
+  const forYouNotes = $derived(getForYouNotes(recentIds ?? [], notes));
 
   function handleCardClick(id: string): void {
     onnavigate(id);
@@ -30,7 +46,7 @@
           </button>
         {/each}
       </div>
-    {:else}
+    {:else if recentIds !== null}
       <div class="for-you-empty">
         <div class="for-you-empty-title">{localizedText('app.name')}</div>
         <div class="for-you-empty-subtitle">{localizedText('notes.forYou.empty')}</div>

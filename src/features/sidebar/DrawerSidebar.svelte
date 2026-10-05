@@ -7,6 +7,7 @@
   import ContextMenu from './components/ContextMenu.svelte';
   import SidebarCreateActions from './components/SidebarCreateActions.svelte';
   import SidebarHeader from './components/SidebarHeader.svelte';
+  import SidebarSortControl from './components/SidebarSortControl.svelte';
   import SidebarViewSelector, { type SidebarView } from './components/SidebarViewSelector.svelte';
   import SidebarImageView from './SidebarImageView.svelte';
   import SidebarTagView from './SidebarTagView.svelte';
@@ -121,6 +122,9 @@
       </svg>
       {localizedText('search.heading')}
     </button>
+    {#if view === 'notes'}
+      <SidebarSortControl />
+    {/if}
   </div>
 
   <SidebarViewSelector selected={view} onselect={onselectview} />

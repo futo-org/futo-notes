@@ -35,6 +35,8 @@ hex = "0.4"
 thiserror = "1"
 time = "0.3"
 unicode-normalization = "0.1.25"
+# Parallel parked-backup recovery scan across sibling directories.
+rayon = "1"
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["fs"] }

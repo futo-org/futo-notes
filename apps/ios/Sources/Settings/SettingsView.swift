@@ -24,6 +24,9 @@ struct SettingsView: View {
     @AppStorage("futo.crashReporting.enabled") private var crashEnabled = true
     @AppStorage("futo.crashReporting.alwaysSend") private var crashAlwaysSend = false
 
+    @State private var appIcons = AppIconController()
+    @State private var showAppIcons = false
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showSync = false
     /// Full reset is guarded by a modal confirmation dialog: tapping the row
     /// opens it, and only confirming there runs the wipe. (The old in-place
@@ -85,6 +88,23 @@ struct SettingsView: View {
                             .tag(ThemeMode.auto.rawValue)
                     }
                     .pickerStyle(.segmented)
+                }
+
+                Section(localization.localizedText("settings.appIcon.heading")) {
+                    Button {
+                        showAppIcons = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(appIcons.selected.previewName)
+                                .resizable().scaledToFit().frame(width: 40, height: 40)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                            Text(localization.localizedText(appIcons.selected.labelKey))
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("settings-app-icon")
                 }
 
                 Section(localization.localizedText("settings.language.heading")) {
@@ -182,6 +202,9 @@ struct SettingsView: View {
                         .disabled(resetting)
                 }
             }
+            .sheet(isPresented: $showAppIcons) {
+                AppIconPicker(controller: appIcons)
+            }
             .sheet(isPresented: $showSync) {
                 SyncView()
                     .environmentObject(sync)
@@ -202,6 +225,10 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+        .onAppear { appIcons.refresh() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { appIcons.refresh() }
         }
         .transientMessageBanner(store)
         .interactiveDismissDisabled(resetting)
@@ -243,7 +270,12 @@ struct SettingsView: View {
                 beginStoreReset: { store.beginFullReset() },
                 disconnectSync: { await sync.disconnectForReset() },
                 resetStore: { try await store.fullReset() },
-                clearLicense: { license.clearForFullReset() }
+                clearLicense: { license.clearForFullReset() },
+                resetIcon: {
+                    do { try await appIcons.reset() } catch {
+                        store.showTransient(LocalizedMessage("settings.appIcon.resetFailed"))
+                    }
+                }
             )
         } catch {
             store.showTransient(LocalizedMessage("settings.danger.failed"))

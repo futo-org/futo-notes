@@ -1,4 +1,4 @@
-mod atomic_write;
+pub(crate) mod atomic_write;
 mod filenames;
 mod parked_backup;
 mod paths;

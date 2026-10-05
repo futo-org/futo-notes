@@ -1,4 +1,3 @@
-import { invoke } from './tauri/invoke';
 import type {
   LocalFlushDraftResult,
   LocalNoteBootstrap,
@@ -8,18 +7,30 @@ import type {
   LocalNoteSnapshot,
   LocalNoteStore,
   LocalSearchHit,
+  NoteSortOrder,
 } from '../localNoteStore';
+import { invokeVaultCommand as invoke } from './tauri/vaultCommands';
 
 class TauriLocalNoteStore implements LocalNoteStore {
   private startupListingPromise: Promise<LocalNoteListingSnapshot> | null = null;
 
-  prefetchStartupListing(): void {
-    this.startupListingPromise ??= invoke<LocalNoteListingSnapshot>('local_notes_startup_listing');
+  prefetchStartupListing(order: NoteSortOrder): void {
+    this.startupListingPromise ??= invoke<LocalNoteListingSnapshot>('local_notes_startup_listing', {
+      order,
+    });
   }
 
-  startupListing() {
-    this.prefetchStartupListing();
+  startupListing(order: NoteSortOrder) {
+    this.prefetchStartupListing(order);
     return this.startupListingPromise!;
+  }
+
+  setSortOrder(order: NoteSortOrder) {
+    return invoke<LocalNoteSnapshot>('local_notes_set_sort_order', { order });
+  }
+
+  recentNoteIds(limit: number) {
+    return invoke<string[]>('local_notes_recent_ids', { limit });
   }
 
   bootstrap() {

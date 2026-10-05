@@ -5,7 +5,6 @@ import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { EditorState, type Transaction } from '@milkdown/kit/prose/state';
 import type { Decoration, DecorationSet, EditorView as ProseView } from '@milkdown/kit/prose/view';
 
-import { changedRanges } from './blockDecorations';
 import {
   CHECKBOX_SIZE_PX,
   createTaskCheckboxPlugin,
@@ -90,8 +89,7 @@ describe('taskCheckboxDecorations', () => {
   });
 
   it('reports only the OUTERMOST task item, so no block contains another', () => {
-    // repaintBlocks clears a block's whole range; overlapping blocks would make
-    // the parent's rebuild delete the child's checkbox (see blockDecorations).
+    // The initial build visits each outer item once and paints its descendants.
     const parent = s.nodes.list_item.create({ checked: false }, [
       s.nodes.paragraph.create(null, s.text('parent')),
       s.nodes.bullet_list.create(null, item(true, 'child')),
@@ -220,33 +218,35 @@ describe('the plugin', () => {
   });
 
   it('rebuilds one item per keystroke, whatever the document size', () => {
-    // The M5 assertion. A toggle retypes ONE node, and typing in an item's text
-    // touches only that item, so neither costs a walk of the document — the
-    // shape this diff rejected two published highlight plugins for.
+    // Count actual widget replacements through the plugin's apply path (M5).
     const items = Array.from({ length: 500 }, (_, i) => item(false, `task ${i}`));
     const d = doc(list(...items));
     const state = EditorState.create({ doc: d, plugins: [createTaskCheckboxPlugin()] });
     const middle = state.doc.resolve(Math.floor(d.content.size / 2)).start();
+    const before = decorationsOf(state)
+      .find()
+      .map((widget) => widget.type);
+    const after = state.apply(state.tr.insertText('!', middle));
+    expect(
+      decorationsOf(after)
+        .find()
+        .filter((widget, i) => widget.type !== before[i]),
+    ).toHaveLength(1);
 
-    // Distinct items: `setNodeMarkup` is one step with two map ranges (the
-    // node's open and close), so the same item is reported by both — rebuilding
-    // it twice is wasted work, never wrong work.
-    const touched = (tr: Transaction) =>
-      new Set(changedRanges(tr).flatMap(([f, t]) => taskItemsIn(tr.doc, f, t).map((i) => i.pos)));
-
-    expect(touched(state.tr.insertText('!', middle)).size).toBe(1);
-
-    const last = taskItemsIn(d, 0, d.content.size)[499];
-    expect(touched(state.tr.setNodeMarkup(last.pos, undefined, { checked: true })).size).toBe(1);
-
-    expect(taskItemsIn(d, 0, d.content.size)).toHaveLength(500);
+    const last = taskItemsIn(after.doc, 0, after.doc.content.size)[499];
+    const typed = decorationsOf(after)
+      .find()
+      .map((widget) => widget.type);
+    const toggled = after.apply(after.tr.setNodeMarkup(last.pos, undefined, { checked: true }));
+    expect(
+      decorationsOf(toggled)
+        .find()
+        .filter((widget, i) => widget.type !== typed[i]),
+    ).toHaveLength(1);
   });
 
   it("keeps a nested task item's checkbox when the parent item is edited", () => {
-    // A task item's range CONTAINS any task item nested inside it, and
-    // repaintBlocks clears a block's whole range before rebuilding it — so a
-    // child whose own position is outside the edited range is cleared and
-    // never re-added. Same class as the abutting-fence bug, one level down.
+    // Repainting the parent's checkbox must leave the child's mapped widget.
     const child = s.nodes.bullet_list.create(null, item(false, 'child'));
     const parent = s.nodes.list_item.create({ checked: false }, [
       s.nodes.paragraph.create(null, s.text('parent')),
@@ -264,6 +264,28 @@ describe('the plugin', () => {
     expect(decorationsOf(state).find()).toHaveLength(2);
   });
 
+  it('rebuilds only one nested checkbox when typing in a large nested list', () => {
+    const children = Array.from({ length: 1000 }, (_, i) => item(false, `child ${i}`));
+    const parent = s.nodes.list_item.create({ checked: false }, [
+      s.nodes.paragraph.create(null, s.text('parent')),
+      list(...children),
+    ]);
+    const state = EditorState.create({
+      doc: doc(list(parent)),
+      plugins: [createTaskCheckboxPlugin()],
+    });
+    const before = decorationsOf(state)
+      .find()
+      .map((widget) => widget.type);
+    const child = state.doc.resolve(Math.floor(state.doc.content.size / 2));
+    const after = state.apply(state.tr.insertText('!', child.pos));
+    const rebuilt = decorationsOf(after)
+      .find()
+      .filter((widget, i) => widget.type !== before[i]);
+    expect(rebuilt).toHaveLength(1);
+    expect(decorationsOf(after).find()).toHaveLength(1001);
+  });
+
   it('adds a widget when an edit turns a bullet into a task', () => {
     let state = EditorState.create({
       doc: doc(list(item(null, 'plain'))),
@@ -272,5 +294,32 @@ describe('the plugin', () => {
     expect(decorationsOf(state).find()).toHaveLength(0);
     state = state.apply(state.tr.setNodeMarkup(1, undefined, { checked: false }));
     expect(decorationsOf(state).find()).toHaveLength(1);
+  });
+
+  it('removes a parent checkbox turned into a plain bullet without losing its nested task', () => {
+    const parent = s.nodes.list_item.create({ checked: false }, [
+      s.nodes.paragraph.create(null, s.text('parent')),
+      list(item(true, 'child')),
+    ]);
+    let state = EditorState.create({
+      doc: doc(list(parent)),
+      plugins: [createTaskCheckboxPlugin()],
+    });
+    expect(decorationsOf(state).find()).toHaveLength(2);
+    state = state.apply(state.tr.setNodeMarkup(1, undefined, { checked: null }));
+    expect(decorationsOf(state).find()).toHaveLength(1);
+    expect(decorationsOf(state).find()[0].from).toBeGreaterThan(3);
+  });
+
+  it('clears a task checkbox when its list is replaced by a paragraph', () => {
+    const state = EditorState.create({
+      doc: doc(list(item(false, 'old')), s.nodes.paragraph.create(null, s.text('later'))),
+      plugins: [createTaskCheckboxPlugin()],
+    });
+    const listSize = state.doc.firstChild?.nodeSize ?? 0;
+    const after = state.apply(
+      state.tr.replaceWith(0, listSize, s.nodes.paragraph.create(null, s.text('plain'))),
+    );
+    expect(decorationsOf(after).find()).toHaveLength(0);
   });
 });

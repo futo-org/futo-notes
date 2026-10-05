@@ -8,6 +8,7 @@ import {
   getContent,
   installFakeAndroidHost,
   messagesOfType,
+  waitForMessages,
   withCaretObserved,
   type FakeHostWindow,
 } from './lib/editorEmbedHost';
@@ -76,15 +77,26 @@ async function settled(page: Page): Promise<void> {
 }
 
 /**
- * Click at the START of the first text run equal to `text` (see
- * `caretAtEndOf`). `Home` moves the caret through the browser's own native
- * contenteditable handling too, so it needs the same `selectionchange` wait
- * the click does — without it, the Backspace that follows sees the
- * PRE-`Home` caret and misreads the item as one whose text is not at offset 0.
+ * Click at the left edge of the first text run equal to `text` (see
+ * `caretAtEndOf`). This places the caret at offset zero directly. Sending Home
+ * afterward is a no-op on some hosts and produces no `selectionchange`, which
+ * made the caret observer wait until timeout despite a correct selection.
  */
 async function caretAtStartOf(page: Page, text: string): Promise<void> {
-  await withCaretObserved(page, () => page.getByText(text, { exact: true }).first().click());
-  await withCaretObserved(page, () => page.keyboard.press('Home'));
+  await withCaretObserved(page, () =>
+    page
+      .getByText(text, { exact: true })
+      .first()
+      .click({ position: { x: 0, y: 0 } }),
+  );
+  await page.waitForFunction((expectedText) => {
+    const selection = document.getSelection();
+    return (
+      selection?.isCollapsed === true &&
+      selection.anchorNode?.textContent === expectedText &&
+      selection.anchorOffset === 0
+    );
+  }, text);
 }
 
 /** The serialized table as trimmed cell texts per row, delimiter row dropped. */
@@ -497,6 +509,102 @@ test('clicking blank space past a link places the caret instead of opening it', 
   expect(await messagesOfType(page, 'openUrl')).toHaveLength(1);
 });
 
+test('two immediate modifier clicks open two different links', async ({ page }) => {
+  await open(page, '[first](https://example.com/one)\n\n[second](https://example.com/two)');
+  await page
+    .locator('.ProseMirror a')
+    .nth(0)
+    .click({ modifiers: ['Meta'] });
+  await page
+    .locator('.ProseMirror a')
+    .nth(1)
+    .click({ modifiers: ['Meta'] });
+  expect((await messagesOfType(page, 'openUrl')).map((message) => message.url)).toEqual([
+    'https://example.com/one',
+    'https://example.com/two',
+  ]);
+});
+
+test('scrolling from an external link does not open it', async ({ page }) => {
+  await open(
+    page,
+    'before\n\nbefore again\n\n[site](https://example.com)\n\n' +
+      Array.from({ length: 100 }, (_, i) => `paragraph ${i}`).join('\n\n'),
+  );
+  const box = await page.locator('.ProseMirror a').first().boundingBox();
+  if (!box) throw new Error('link has no geometry');
+  const cdp = await page.context().newCDPSession(page);
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+  for (let step = 1; step <= 8; step++) {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x, y: y - step * 8 }],
+    });
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect
+    .poll(() => page.locator('.ProseMirror').evaluate((el) => el.scrollTop))
+    .toBeGreaterThan(0);
+  expect(await messagesOfType(page, 'openUrl')).toHaveLength(0);
+});
+
+test('holding a link through the block long press does not open it', async ({ page }) => {
+  await open(page, '[site](https://example.com)\n\nnext');
+  const box = await page.locator('.ProseMirror a').first().boundingBox();
+  if (!box) throw new Error('link has no geometry');
+  const cdp = await page.context().newCDPSession(page);
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+  const [drag] = await waitForMessages(page, 'blockDrag');
+  expect(drag.active).toBe(true);
+  await expect(page.locator('.futo-mobile-dnd-ghost')).toBeVisible();
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await flushFrames(page);
+  expect(await messagesOfType(page, 'openUrl')).toHaveLength(0);
+});
+
+test('releasing a link while another finger remains down does not open it', async ({ page }) => {
+  await open(page, '[site](https://example.com)\n\nnext');
+  const box = await page.locator('.ProseMirror a').first().boundingBox();
+  if (!box) throw new Error('link has no geometry');
+  // The second finger starts outside the editor, so its touchstart cannot
+  // reset the editor's tracked first touch by bubbling through the container.
+  const other = await page.evaluate(() => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText =
+      'position:fixed;inset:0 0 auto auto;width:80px;height:80px;z-index:99999';
+    document.body.appendChild(overlay);
+    document.addEventListener(
+      'touchend',
+      (event) => {
+        if (Array.from(event.changedTouches).some((touch) => touch.identifier === 1)) {
+          (window as unknown as { __remainingTouches?: number }).__remainingTouches =
+            event.touches.length;
+        }
+      },
+      true,
+    );
+    return { x: innerWidth - 30, y: 30 };
+  });
+  const cdp = await page.context().newCDPSession(page);
+  const first = { id: 1, x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const second = { id: 2, ...other };
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [first] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [first, second] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [second] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await flushFrames(page);
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { __remainingTouches?: number }).__remainingTouches,
+    ),
+  ).toBe(1);
+  expect(await messagesOfType(page, 'openUrl')).toHaveLength(0);
+});
+
 // ============================================================
 // Lists — Backspace at a nested item's own start keeps the indentation
 // (QA #004; docs/spec/editor.md "Markdown toolbar" family / keyboardParity.ts)
@@ -595,12 +703,32 @@ test('Tab over a multi-line selection in a code block indents every touched line
 }) => {
   await open(page, '```\none\ntwo\nthree\n```');
   // `caretAtStartOf` matches a text node EXACTLY, which a multi-line code
-  // block's single text node ("one\ntwo\nthree") never does — a plain,
-  // non-exact match is unambiguous here instead.
-  await withCaretObserved(page, () => page.getByText('one').first().click());
-  await withCaretObserved(page, () => page.keyboard.press('Home'));
-  await withCaretObserved(page, () => page.keyboard.press('Shift+ArrowDown')); // start of "two"
-  await withCaretObserved(page, () => page.keyboard.press('Shift+End')); // end of "two"
+  // block's single text node ("one\ntwo\nthree") never does. Place the caret
+  // at that node's start. Select the intended lines directly because browser
+  // vertical movement through a code block depends on font and line layout.
+  await withCaretObserved(page, () =>
+    page
+      .locator('.ProseMirror pre')
+      .first()
+      .evaluate((pre) => {
+        const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+        const text = walker.nextNode();
+        if (!text) throw new Error('code block has no text node');
+        document.getSelection()?.collapse(text, 0);
+      }),
+  );
+  await withCaretObserved(page, () =>
+    page
+      .locator('.ProseMirror pre')
+      .first()
+      .evaluate((pre) => {
+        const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+        const text = walker.nextNode();
+        if (!text) throw new Error('code block text node is missing');
+        document.getSelection()?.setBaseAndExtent(text, 0, text, 'one\ntwo'.length);
+      }),
+  );
+  expect(await page.evaluate(() => document.getSelection()?.toString())).toBe('one\ntwo');
   await page.keyboard.press('Tab');
   await settled(page);
   expect(await getContent(page)).toContain('```\n  one\n  two\nthree\n```');
@@ -618,7 +746,7 @@ test('Escape then Tab releases the code-block claim for the next Tab only', asyn
   await page.locator('.ProseMirror').click();
   await caretAtStartOf(page, 'code');
   await page.keyboard.type('x'); // re-arms the claim
-  await withCaretObserved(page, () => page.keyboard.press('Home'));
+  await withCaretObserved(page, () => page.keyboard.press('ArrowLeft'));
   await page.keyboard.press('Tab');
   await settled(page);
   expect(await getContent(page)).toContain('  xcode');

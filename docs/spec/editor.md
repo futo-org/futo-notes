@@ -401,7 +401,7 @@ about.
   `GHOST_MAX_HEIGHT_FRACTION`, tests/editor-embed-milkdown.spec.ts
   _(native shells)_
 - On desktop a ⠿ handle appears in the left gutter beside the block under the
-  pointer — in the GUTTER, 8px left of the text column, at every nesting depth:
+  pointer — in the GUTTER, 4px left of the text column, at every nesting depth:
   a list item's own box starts at its text, so an offset from that box would
   put the handle over the bullet, and over the parent's text for a nested item
   — and dragging it with a mouse reorders blocks. Where there is no
@@ -808,7 +808,9 @@ native shells edit tags as text in the body, which is not a gap.
   src/features/editor/milkdown/wikilink/syntax.test.ts,
   tests/editor-embed-milkdown-wikilinks.spec.ts
 - Clicking/tapping a wikilink navigates to the target note (desktop:
-  Cmd/Ctrl+click opens it in a new tab). → NotesShell.svelte onopenlink
+  Cmd/Ctrl+click opens it in a new tab; middle-click opens it in a background
+  tab). Rapid clicks on separate links each navigate. → NotesShell.svelte
+  onopenlink, MilkdownEditor.svelte `handleLinkClick`
 - A wikilink displays the **shortest unique path suffix** (`[[Projects/Roadmap]]`
   renders as "Roadmap" while unambiguous). The native shells feed the vault
   note list into the shared editor WebView over the bridge (`setNotes`), so
@@ -858,6 +860,9 @@ native shells edit tags as text in the body, which is not a gap.
   wikilink still
   focuses, so it can be edited). The editor consumes a tap on a NAVIGABLE link
   (`consumesTap`) and deliberately leaves a broken one to ProseMirror.
+  Scrolling, dragging, cancelling, or holding through the block long-press
+  threshold does not follow the touched link; a completed short tap follows it
+  once, even if the WebView also emits a synthetic click.
   Android already follows on the first tap (verified emulator 2026-07-08). Each pushed iOS
   editor needs an explicit `.id(noteId)` identity or SwiftUI would share one
   view's @State across the chain. Because the editor WebView is a single shared
@@ -935,6 +940,8 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   `EditorNavigationDecisionTests.swift`. Verified emulator + simulator
   2026-07-08 (tapping a rendered link opens Safari / Chrome to the target; iOS
   `openUrl` case and Android `ACTION_VIEW` intent both fire).
+  Scrolling from a link or holding it for a block drag does not open it;
+  separate rapid mouse clicks on links each open their URL.
   → platform/openExternalUrl.ts,
   src/features/editor/milkdown/MilkdownEditor.svelte `linkAt` / `activateLink`,
   editor-embed/main.ts, packages/editor bridge v6 `openUrl`,
@@ -947,13 +954,17 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   that wraps onto several visual lines — places the caret instead of opening the
   URL. → src/features/editor/milkdown/MilkdownEditor.svelte `linkAt`
 
-  > **Gap:** typing a bare URL does not turn it into a link. GFM autolink
-  > literals are recognised when a note is PARSED, so a URL already in the file
-  > renders as a link and a URL you just typed becomes one only after the note is
-  > saved and reopened. The CodeMirror editor linkified it as you typed
-  > (`links/autolinks.ts`, deleted with it); the WYSIWYG editor has no
-  > equivalent input rule. → `@milkdown/preset-gfm` (remark-gfm),
-  > src/features/editor/milkdown/MilkdownEditor.svelte
+- Typing a bare URL links it the moment its word ends — Space, Enter, or a
+  hard break — with exactly the extent and href reopening the note would give
+  it (GFM's autolink literal: trailing punctuation left out, `http://` added
+  for `www.`), because the word is read by the editor's own markdown parser.
+  A URL inside inline code or a code block stays text. The note keeps the URL
+  as typed: a bare URL is saved bare, not as `<url>` or `[www.…](http://…)`,
+  and editing a note leaves the bare URLs already in it bare, unless a bare
+  spelling would not read back as the same link. →
+  src/features/editor/milkdown/autolink.ts,
+  packages/editor/src/milkdown-compat/bareUrl.ts,
+  tests/editor-embed-milkdown-parity.spec.ts
 
 ## Interactive elements
 
@@ -989,7 +1000,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   reopen. → src/features/editor/milkdown/keyboardParity.ts
   `insertLineBreakInTableCell`,
   src/features/editor/milkdown/table/tableLineBreak.ts (markdown round trip),
-  src/features/editor/milkdown/keyboardParity.test.ts
+  src/features/editor/milkdown/table/tableLineBreak.test.ts
 
   > **Gap:** a cell holding ONLY a manual break and no other text collapses to
   > a genuinely empty cell on reload — that shape is indistinguishable on disk
@@ -1007,7 +1018,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   alignment correct for the columns that survive. Tapping a grip on touch
   does the same as clicking it. → src/features/editor/milkdown/table/tableGrips.ts,
   src/features/editor/milkdown/table/tableCommands.ts,
-  src/features/editor/milkdown/table/tableCommands.test.ts,
+  tests/editor-embed-milkdown-table-grips.spec.ts,
   src/features/editor/milkdown/table/tableCommands.roundtrip.test.ts
 
   > **Gap:** the grips are a fixed ~18px square, well under a comfortable
@@ -1599,8 +1610,8 @@ unchanged by it.
   generated UniFFI bindings. Both clipboard shapes work: a raw
   bitmap (OS screenshot-to-clipboard) and a browser **Copy Image** (which the
   source app puts on the clipboard as an `<img>` `text/html` fragment plus a
-  bitmap). When the paste event exposes an image file it is saved directly;
-  otherwise the bitmap is read from the OS clipboard via the
+  bitmap). When the paste event exposes an image file its bytes are saved by
+  `fs_save_image`; otherwise the bitmap is read from the OS clipboard via the
   `fs_paste_clipboard_image` Tauri command. This native fallback is required on
   Linux/Wayland, where WebKitGTK hides the clipboard image from the JS paste
   event — a screenshot arrives with empty `items`, and a Copy Image arrives as
@@ -1609,7 +1620,8 @@ unchanged by it.
   Verified on Linux (WebKitGTK) and Windows (WebView2), both image types,
   2026-06-22. → imagePaste.ts `handlePasteEvent` / `looksLikeImagePaste` /
   `pasteFromNativeClipboard`;
-  `apps/tauri/src-tauri/src/image_commands.rs` `fs_paste_clipboard_image`
+  `apps/tauri/src-tauri/src/image_commands.rs` `fs_save_image` /
+  `fs_paste_clipboard_image`
 - Images render inline via the Tauri asset protocol, with a
   `readFile`→blob-URL fallback when the asset protocol can't actually decode an
   `<img>` (macOS WKWebView / Linux WebKitGTK answer the request but paint a
@@ -1786,8 +1798,7 @@ unchanged by it.
   (`![](<my photo.png>)`); the bare `![](my photo.png)`
   is not an image in CommonMark and renders as text. Every filename the app
   itself generates is space-free, so this only reaches notes written elsewhere.
-  → shared/media/imageFiles.ts `createImageFilename`,
-  tests/editor-embed-milkdown.spec.ts
+  → `image_commands::write_image`, tests/editor-embed-milkdown.spec.ts
 
   > **Gap:** an image destination that is ALREADY percent-encoded in the file
   > (`![](my%20photo.png)`, as some other editors write it) does not render.
@@ -1982,8 +1993,9 @@ unchanged by it.
   `DEVICE_BUDGET.firstFocusMs`, tests/lib/editorDevicePerfSnippets.mjs,
   tests/android-editor-perf.mjs
 - Decoration repaints are bounded to the textblocks a transaction changed, never
-  the document: tag decorations and fenced-code highlighting both re-derive only
-  the blocks that moved. A fence over 20,000 characters is left uncoloured
+  the document: tag decorations and fenced-code highlighting re-derive only
+  the blocks that moved, and a task checkbox edit rebuilds only the affected
+  item even inside a long nested list. A fence over 20,000 characters is left uncoloured
   rather than paying for it. → milkdown/blockDecorations.ts,
   milkdown/tagDecorations.ts, milkdown/codeHighlight.ts
 - Per-keystroke work does not scale with the number of links on screen times the
@@ -2037,8 +2049,11 @@ unchanged by it.
 - A failed desktop disk save blocks switching notes, going Home, and closing the
   outgoing tab. The outgoing draft stays open and dirty, its tab is restored,
   and a visible save-failure message permits retry. A converged or durably
-  parked draft permits navigation. _(desktop)_ → `noteSaveQueue.ts`,
-  `createNotePersistence.ts`, `createTabNoteTransition.ts`
+  parked draft permits navigation. While the vault is locked (settings.md) no
+  save can succeed, so a failed save does not hold the user: leaving the note
+  discards its unsaved text. _(desktop)_ → `noteSaveQueue.ts`,
+  `createNotePersistence.ts`, `createTabNoteTransition.ts`,
+  `noteSession.svelte.ts` `flushBeforeLeaving`
 - Editor rename and move send the body, saved baseline, and destination through
   one Rust workflow. A peer-changed source remains untouched; the local draft
   becomes a conflict copy at the requested destination, and the editor follows

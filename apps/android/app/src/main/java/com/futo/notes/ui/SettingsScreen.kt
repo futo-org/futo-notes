@@ -4,6 +4,12 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.futo.notes.ui.settings.appicon.AppIconController
+import com.futo.notes.ui.settings.appicon.AppIconSheet
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -50,6 +56,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -64,6 +71,7 @@ import com.futo.notes.license.LicenseModel
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.Localization
 import com.futo.notes.ui.components.ConfirmDialog
+import com.futo.notes.ui.components.FutoMenu
 import com.futo.notes.ui.components.MicroLabel
 import com.futo.notes.ui.components.TopBar
 import com.futo.notes.ui.theme.FutoRadius
@@ -108,6 +116,12 @@ fun SettingsScreen(
     val prefs = remember { context.getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE) }
     var crashEnabled by remember { mutableStateOf(prefs.getBoolean(Prefs.CRASH_ENABLED, true)) }
     var crashAlwaysSend by remember { mutableStateOf(prefs.getBoolean(Prefs.CRASH_ALWAYS_SEND, false)) }
+    val appIcons = remember { AppIconController(context) }
+    var showAppIcons by remember { mutableStateOf(false) }
+    LifecycleResumeEffect(appIcons) {
+        scope.launch { appIcons.refresh() }
+        onPauseOrDispose {}
+    }
     var confirmReset by remember { mutableStateOf(false) }
     var resetting by remember { mutableStateOf(false) }
 
@@ -175,6 +189,16 @@ fun SettingsScreen(
                         selectedIndex = themeMode.ordinal,
                         onSelect = { onThemeMode(ThemeMode.entries[it]) },
                     )
+                }
+            }
+
+            SettingsGroup(localization.localizedText("settings.appIcon.heading")) {
+                SettingsRow(
+                    title = localization.localizedText(appIcons.selected.labelKey),
+                    onClick = { showAppIcons = true },
+                    leading = { Image(painterResource(appIcons.selected.preview), null, Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))) },
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = c.textMuted)
                 }
             }
 
@@ -308,6 +332,11 @@ fun SettingsScreen(
         }
     }
 
+    if (showAppIcons) {
+        LaunchedEffect(Unit) { appIcons.refresh() }
+        AppIconSheet(appIcons, onSelect = { icon -> scope.launch { appIcons.select(icon) } }) { showAppIcons = false }
+    }
+
     // Modal confirmation [settings.md]: a stray double-tap on the row must not
     // be able to wipe the vault — only confirming in this dialog deletes.
     if (confirmReset) {
@@ -332,6 +361,12 @@ fun SettingsScreen(
                             // looking at the result of a reset. A throwing
                             // deleteAll skips it: nothing was wiped.
                             license.clearForFullReset()
+                            try { appIcons.reset() }
+                            catch (_: Exception) {
+                                android.widget.Toast.makeText(context,
+                                    localization.localizedText("settings.appIcon.resetFailed"),
+                                    android.widget.Toast.LENGTH_LONG).show()
+                            }
                         }
                     } catch (e: Exception) {
                         android.widget.Toast.makeText(
@@ -404,7 +439,7 @@ private fun LanguageMenu(
                 modifier = Modifier.size(20.dp),
             )
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        FutoMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             for ((languageTag, name) in options) {
                 DropdownMenuItem(
                     text = { Text(name) },

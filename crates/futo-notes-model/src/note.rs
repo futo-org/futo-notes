@@ -74,8 +74,9 @@ fn replace_images(content: &str) -> Cow<'_, str> {
     let mut out = String::new();
     let mut copied = 0;
     let mut cursor = 0;
-    while cursor + 1 < bytes.len() {
-        if bytes[cursor] != b'!' || bytes[cursor + 1] != b'[' {
+    while let Some(offset) = memchr::memchr(b'!', &bytes[cursor..]) {
+        cursor += offset;
+        if bytes.get(cursor + 1) != Some(&b'[') {
             cursor += 1;
             continue;
         }
@@ -146,11 +147,8 @@ fn replace_line_break_tags(content: &str) -> Cow<'_, str> {
     let mut out = String::new();
     let mut copied = 0;
     let mut cursor = 0;
-    while cursor < bytes.len() {
-        if bytes[cursor] != b'<' {
-            cursor += 1;
-            continue;
-        }
+    while let Some(offset) = memchr::memchr(b'<', &bytes[cursor..]) {
+        cursor += offset;
         match line_break_tag_end(bytes, cursor) {
             Some(end) => {
                 if out.is_empty() {
@@ -258,7 +256,8 @@ pub fn make_rich_preview(content: &str) -> String {
     // Same two stand-ins as the single-line preview, and for the same reason:
     // a line that is nothing but the serializer's `<br />` placeholder becomes
     // blank here and is skipped below, instead of being shown as a preview line.
-    let content = replace_line_break_tags(&replace_images(content)).into_owned();
+    let images = replace_images(content);
+    let content = replace_line_break_tags(&images);
     let mut lines = Vec::with_capacity(3);
     for raw in content.lines() {
         if lines.len() == 3 {

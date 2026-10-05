@@ -11,7 +11,6 @@
 //! ASCII (which every conformance fixture is); for non-ASCII the offset is
 //! representation-correct on each side and callers slice their own string.
 
-use std::borrow::Cow;
 use std::sync::OnceLock;
 
 use fancy_regex::Regex;
@@ -25,15 +24,6 @@ fn tag_line_regex() -> &'static Regex {
     RE.get_or_init(|| {
         Regex::new(r"^\s*#[a-zA-Z][a-zA-Z0-9_-]{0,49}(\s+#[a-zA-Z][a-zA-Z0-9_-]{0,49})*\s*$")
             .expect("TAG_LINE_RE must compile")
-    })
-}
-
-/// A fence line: ≤3 leading spaces, then a run of ``` or ~~~, then the rest of
-/// the line. `(?m)` so `^`/`$` are line-anchored.
-fn fence_line_regex() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r"(?m)^( {0,3})(`{3,}|~{3,})(.*)$").expect("fence regex must compile")
     })
 }
 
@@ -167,155 +157,6 @@ pub fn normalize_tag_name(name: &str) -> String {
     out
 }
 
-/// Blank out regions inside fenced code blocks (``` / ~~~) and inline code
-/// (backticks), replacing them with spaces while preserving newlines and byte
-/// offsets. Port of TS `stripCodeRegions`.
-///
-/// Returns `Cow::Borrowed` unchanged when the note contains no backtick at all
-/// (no fences, no inline code) — the overwhelmingly common case for prose
-/// notes. That fast path skips the two full-body copies (`bytes.to_vec()` +
-/// the inline-pass result string) the general algorithm needs, which on a
-/// multi-MB note is the difference between two megabyte allocations per scan
-/// and none. The slow path below is byte-for-byte unchanged.
-fn strip_code_regions(content: &str) -> Cow<'_, str> {
-    // A code region can only exist if there is a backtick (inline code, and the
-    // only fence markers that can interact with the TAG_REGEX terminator set).
-    // `~~~` fences contain no tag-eligible `#...` differently than a plain line
-    // would, but the reference still blanks them — so we must NOT short-circuit
-    // on `~`-only content. We short-circuit only when there is no backtick AND
-    // no tilde-fence marker.
-    if !content.contains('`') && !content.contains('~') {
-        return Cow::Borrowed(content);
-    }
-    Cow::Owned(strip_code_regions_full(content))
-}
-
-/// The full (allocating) `stripCodeRegions` port. Always correct; the public
-/// `strip_code_regions` only calls this when a code marker is actually present.
-fn strip_code_regions_full(content: &str) -> String {
-    let bytes = content.as_bytes();
-    let mut buf = bytes.to_vec();
-
-    // ── Pass 1: fenced blocks ──
-    #[derive(Clone)]
-    struct FenceLine {
-        index: usize,
-        end_of_line: usize, // byte offset of the char after the line's content
-        marker_char: u8,
-        marker_len: usize,
-        rest_blank: bool,
-    }
-    let mut fence_lines: Vec<FenceLine> = Vec::new();
-    for caps in fence_line_regex().captures_iter(content).flatten() {
-        let whole = caps.get(0).unwrap();
-        let indent = caps.get(1).unwrap();
-        let marker = caps.get(2).unwrap();
-        let rest = caps.get(3).unwrap();
-        fence_lines.push(FenceLine {
-            index: indent.start(),
-            // = fence.index + marker.len + indent.len + rest.len (TS), i.e. the
-            // end of the line content (exclusive of the trailing newline).
-            end_of_line: whole.end(),
-            marker_char: marker.as_str().as_bytes()[0],
-            marker_len: marker.as_str().len(),
-            rest_blank: rest.as_str().trim().is_empty(),
-        });
-    }
-
-    struct OpenFence {
-        pos: usize,
-        marker_char: u8,
-        marker_len: usize,
-    }
-    let mut open_fences: Vec<OpenFence> = Vec::new();
-    let mut regions: Vec<(usize, usize)> = Vec::new();
-    for f in &fence_lines {
-        if let Some(open) = open_fences.last() {
-            // Closing fence: same char, at least as long, rest blank.
-            if f.marker_char == open.marker_char && f.marker_len >= open.marker_len && f.rest_blank
-            {
-                regions.push((open.pos, f.end_of_line));
-                open_fences.pop();
-                continue;
-            }
-        }
-        open_fences.push(OpenFence {
-            pos: f.index,
-            marker_char: f.marker_char,
-            marker_len: f.marker_len,
-        });
-    }
-    // Unclosed fences extend to end of document.
-    for open in &open_fences {
-        regions.push((open.pos, content.len()));
-    }
-
-    for (start, end) in regions {
-        let end = end.min(buf.len());
-        for b in buf.iter_mut().take(end).skip(start) {
-            if *b != b'\n' {
-                *b = b' ';
-            }
-        }
-    }
-
-    // `buf` only had non-newline bytes overwritten by spaces within
-    // char-aligned ranges, so it is still valid UTF-8.
-    let pass1 = String::from_utf8(buf).expect("strip pass1 stays valid UTF-8");
-    // ── Pass 2: inline code (backtick runs) ──
-    strip_inline_code_regions(pass1)
-}
-
-/// Blank the same non-overlapping matches as ``(`+)([^`]*?)\1`` in linear
-/// time. Running that backreference through fancy-regex's backtracking VM is
-/// pathologically slow on large prose buffers, even after the fenced-code pass
-/// has removed every backtick.
-fn strip_inline_code_regions(content: String) -> String {
-    let bytes = content.as_bytes();
-    let mut matches = Vec::new();
-    let mut cursor = 0usize;
-
-    while let Some(relative_start) = bytes[cursor..].iter().position(|&b| b == b'`') {
-        let start = cursor + relative_start;
-        let opener_end = backtick_run_end(&bytes, start);
-        let opener_len = opener_end - start;
-        let next_start = bytes[opener_end..]
-            .iter()
-            .position(|&b| b == b'`')
-            .map(|offset| opener_end + offset);
-
-        let match_end = next_start.and_then(|closing_start| {
-            let closing_len = backtick_run_end(&bytes, closing_start) - closing_start;
-            (closing_len >= opener_len).then_some(closing_start + opener_len)
-        });
-
-        if let Some(end) = match_end {
-            matches.push((start, end));
-            cursor = end;
-        } else if opener_len >= 2 {
-            // With no sufficiently long later closer, the regex backtracks
-            // within this run and matches the largest equal adjacent pair.
-            let end = start + 2 * (opener_len / 2);
-            matches.push((start, end));
-            cursor = end;
-        } else {
-            cursor = opener_end;
-        }
-    }
-
-    let mut result = String::with_capacity(content.len());
-    let mut last = 0usize;
-    for (start, end) in matches {
-        result.push_str(&content[last..start]);
-        for c in content[start..end].chars() {
-            result.push(if c == '\n' { '\n' } else { ' ' });
-        }
-        last = end;
-    }
-    result.push_str(&content[last..]);
-    result
-}
-
 fn backtick_run_end(bytes: &[u8], start: usize) -> usize {
     let mut end = start;
     while end < bytes.len() && bytes[end] == b'`' {
@@ -341,19 +182,269 @@ pub fn extract_tags(content: &str) -> Vec<String> {
 
 /// Same rule as [`extract_tags`] but returns the canonical tag names WITHOUT
 /// the leading `#`, in first-seen order. This is the form `NoteMetadata.tags`
-/// (the list/search display form) needs, so the scan path uses it directly
-/// instead of building `#tag` strings only to strip the `#` back off per note.
+/// (the list/search display form) needs.
+///
+/// One pass over the original text rather than over a copy with code blanked
+/// to spaces (as `packages/editor/src/tags.ts` does): a `#` inside a code
+/// region is skipped, and a position inside one counts as whitespace for the
+/// boundary checks, which is what the blanked copy would have held there. A
+/// name can never run into a region, since a fence starts after `\n` and
+/// inline code at a backtick.
 pub fn extract_tag_names(content: &str) -> Vec<String> {
-    let cleaned = strip_code_regions(content);
+    let bytes = content.as_bytes();
+    let regions = code_regions(content, bytes);
+    let cursor = RegionCursor::new(&regions);
+
     let mut seen = std::collections::HashSet::new();
     let mut names = Vec::new();
-    for raw in tag_regex_matches(&cleaned) {
-        let name = normalize_tag_name(&raw);
-        if seen.insert(name.clone()) {
-            names.push(name);
+    let mut i = 0usize;
+    while let Some(offset) = memchr::memchr(b'#', &bytes[i..]) {
+        let (tag, next) = tag_at(content, &cursor, i + offset);
+        if let Some(range) = tag {
+            let name = normalize_tag_name(&content[range]);
+            if seen.insert(name.clone()) {
+                names.push(name);
+            }
         }
+        i = next;
     }
     names
+}
+
+/// The tag name after the `#` at `hash`, if one starts there, and where the
+/// scan resumes. A position inside a code region counts as whitespace on
+/// either side, as the blanked copy would.
+fn tag_at(
+    content: &str,
+    cursor: &RegionCursor,
+    hash: usize,
+) -> (Option<std::ops::Range<usize>>, usize) {
+    let bytes = content.as_bytes();
+    let left_ok = !cursor.covers(hash)
+        && (hash == 0
+            || cursor.immediately_after_region(hash)
+            || prev_char_is_whitespace(content, hash));
+    let name_start = hash + 1;
+    if !left_ok || !bytes.get(name_start).is_some_and(u8::is_ascii_alphabetic) {
+        return (None, hash + 1);
+    }
+    let mut end = name_start + 1;
+    while end < bytes.len() && is_tag_name_byte(bytes[end]) {
+        end += 1;
+    }
+    let right_ok = end - name_start <= MAX_TAG_LENGTH
+        && (cursor.covers(end) || tag_right_boundary_ok(content, end));
+    (right_ok.then_some(name_start..end), end)
+}
+
+/// Byte ranges treated as blanked: fenced code, then inline code outside the
+/// fences, the same order as TS `stripCodeRegions`.
+fn code_regions(content: &str, bytes: &[u8]) -> Vec<(usize, usize)> {
+    if memchr::memchr2(b'`', b'~', bytes).is_none() {
+        return Vec::new();
+    }
+    let mut regions = fenced_regions(content, bytes);
+    regions.sort_unstable_by_key(|&(start, _)| start);
+    merge_regions(&mut regions);
+
+    let inline = inline_code_regions(bytes, &regions);
+    if inline.is_empty() {
+        return regions;
+    }
+    regions.extend(inline);
+    regions.sort_unstable_by_key(|&(start, _)| start);
+    merge_regions(&mut regions);
+    regions
+}
+
+fn merge_regions(regions: &mut Vec<(usize, usize)>) {
+    let mut merged: Vec<(usize, usize)> = Vec::with_capacity(regions.len());
+    for &(start, end) in regions.iter() {
+        match merged.last_mut() {
+            Some(last) if start <= last.1 => {
+                if end > last.1 {
+                    last.1 = end;
+                }
+            }
+            _ => merged.push((start, end)),
+        }
+    }
+    *regions = merged;
+}
+
+/// One fence-marker line, matching what `(?m)^( {0,3})(`{3,}|~{3,})(.*)$`
+/// captures: `index` is the line's start, `end_of_line` is the position right
+/// after the line's content (before its trailing `\n`, if any).
+struct FenceLine {
+    index: usize,
+    end_of_line: usize,
+    marker_char: u8,
+    marker_len: usize,
+    rest_blank: bool,
+}
+
+/// That regex as a byte scan (pinned by `fence_scan_matches_the_fence_regex`).
+/// The fence marker on the line `line_start..line_end`, if it has one.
+fn fence_at(content: &str, bytes: &[u8], line_start: usize, line_end: usize) -> Option<FenceLine> {
+    let max_indent = (line_start + 3).min(line_end);
+    let mut marker_start = line_start;
+    while marker_start < max_indent && bytes[marker_start] == b' ' {
+        marker_start += 1;
+    }
+    let marker_char = *bytes
+        .get(marker_start)
+        .filter(|_| marker_start < line_end)?;
+    if marker_char != b'`' && marker_char != b'~' {
+        return None;
+    }
+    let mut marker_end = marker_start;
+    while marker_end < line_end && bytes[marker_end] == marker_char {
+        marker_end += 1;
+    }
+    (marker_end - marker_start >= 3).then(|| FenceLine {
+        index: line_start,
+        end_of_line: line_end,
+        marker_char,
+        marker_len: marker_end - marker_start,
+        rest_blank: content[marker_end..line_end].trim().is_empty(),
+    })
+}
+
+fn scan_fence_lines(content: &str, bytes: &[u8]) -> Vec<FenceLine> {
+    let len = bytes.len();
+    let mut out = Vec::new();
+    let mut line_start = 0usize;
+    loop {
+        let line_end = memchr::memchr(b'\n', &bytes[line_start..])
+            .map(|pos| line_start + pos)
+            .unwrap_or(len);
+
+        out.extend(fence_at(content, bytes, line_start, line_end));
+        if line_end == len {
+            break;
+        }
+        line_start = line_end + 1;
+    }
+    out
+}
+
+/// A fence line closes the most recently opened fence when the marker char
+/// matches, the run is at least as long and the rest of the line is blank;
+/// otherwise it opens one. A fence left open runs to the end.
+fn fenced_regions(content: &str, bytes: &[u8]) -> Vec<(usize, usize)> {
+    let fence_lines = scan_fence_lines(content, bytes);
+
+    struct OpenFence {
+        pos: usize,
+        marker_char: u8,
+        marker_len: usize,
+    }
+    let mut open_fences: Vec<OpenFence> = Vec::new();
+    let mut regions: Vec<(usize, usize)> = Vec::new();
+    for f in &fence_lines {
+        if let Some(open) = open_fences.last() {
+            if f.marker_char == open.marker_char && f.marker_len >= open.marker_len && f.rest_blank
+            {
+                regions.push((open.pos, f.end_of_line));
+                open_fences.pop();
+                continue;
+            }
+        }
+        open_fences.push(OpenFence {
+            pos: f.index,
+            marker_char: f.marker_char,
+            marker_len: f.marker_len,
+        });
+    }
+    for open in &open_fences {
+        regions.push((open.pos, content.len()));
+    }
+    regions
+}
+
+/// The non-overlapping matches of ``(`+)([^`]*?)\1`` in linear time, with
+/// fenced bytes treated as absent (pinned by
+/// `linear_inline_scan_matches_backreference_regex`).
+fn inline_code_regions(bytes: &[u8], fenced: &[(usize, usize)]) -> Vec<(usize, usize)> {
+    let mut matches = Vec::new();
+    let skipper = RegionCursor::new(fenced);
+    let mut cursor = 0usize;
+    while let Some(start) = next_backtick_outside(bytes, cursor, &skipper) {
+        let opener_end = backtick_run_end(bytes, start);
+        let opener_len = opener_end - start;
+        let next_start = next_backtick_outside(bytes, opener_end, &skipper);
+
+        let match_end = next_start.and_then(|closing_start| {
+            let closing_len = backtick_run_end(bytes, closing_start) - closing_start;
+            (closing_len >= opener_len).then_some(closing_start + opener_len)
+        });
+
+        if let Some(end) = match_end {
+            matches.push((start, end));
+            cursor = end;
+        } else if opener_len >= 2 {
+            let end = start + 2 * (opener_len / 2);
+            matches.push((start, end));
+            cursor = end;
+        } else {
+            cursor = opener_end;
+        }
+    }
+    matches
+}
+
+/// The next backtick at or after `from` outside a fenced region.
+fn next_backtick_outside(bytes: &[u8], from: usize, skipper: &RegionCursor) -> Option<usize> {
+    let mut pos = from;
+    loop {
+        pos = skipper.skip(pos);
+        let found = pos + memchr::memchr(b'`', &bytes[pos..])?;
+        let after = skipper.skip(found);
+        if after == found {
+            return Some(found);
+        }
+        pos = after;
+    }
+}
+
+/// Point queries against sorted, disjoint ranges. Binary search, not a
+/// forward-only pointer: a failed closing-backtick probe resumes from an
+/// earlier position, so queries are not monotonic.
+struct RegionCursor<'a> {
+    regions: &'a [(usize, usize)],
+}
+
+impl<'a> RegionCursor<'a> {
+    fn new(regions: &'a [(usize, usize)]) -> Self {
+        Self { regions }
+    }
+
+    /// True if `pos` lies inside some region (`start <= pos < end`).
+    fn covers(&self, pos: usize) -> bool {
+        match self.regions.binary_search_by(|&(start, _)| start.cmp(&pos)) {
+            Ok(_) => true,
+            Err(idx) => idx > 0 && self.regions[idx - 1].1 > pos,
+        }
+    }
+
+    /// True if some region ends exactly at `pos` (equivalently, `pos - 1` is
+    /// covered by that region) — used instead of a separate `covers(pos - 1)`
+    /// query.
+    fn immediately_after_region(&self, pos: usize) -> bool {
+        self.regions
+            .binary_search_by(|&(_, end)| end.cmp(&pos))
+            .is_ok()
+    }
+
+    /// If `pos` lies inside a region, returns that region's end (the first
+    /// position outside it); otherwise returns `pos` unchanged.
+    fn skip(&self, pos: usize) -> usize {
+        match self.regions.binary_search_by(|&(start, _)| start.cmp(&pos)) {
+            Ok(idx) => self.regions[idx].1,
+            Err(idx) if idx > 0 && self.regions[idx - 1].1 > pos => self.regions[idx - 1].1,
+            Err(_) => pos,
+        }
+    }
 }
 
 /// Result of `extract_header_tag_block`: the canonical tags and the byte
@@ -559,6 +650,48 @@ mod tag_scan_tests {
     }
 
     #[test]
+    fn fence_scan_matches_the_fence_regex() {
+        let fence = Regex::new(r"(?m)^( {0,3})(`{3,}|~{3,})(.*)$").unwrap();
+        let alphabet = ['`', '~', ' ', '\n', 'a'];
+        for len in 0usize..=7 {
+            for mut encoded in 0..alphabet.len().pow(len as u32) {
+                let mut input = String::with_capacity(len);
+                for _ in 0..len {
+                    input.push(alphabet[encoded % alphabet.len()]);
+                    encoded /= alphabet.len();
+                }
+                let expected: Vec<_> = fence
+                    .captures_iter(&input)
+                    .flatten()
+                    .map(|caps| {
+                        let whole = caps.get(0).unwrap();
+                        (
+                            whole.start(),
+                            whole.end(),
+                            caps[2].as_bytes()[0],
+                            caps[2].len(),
+                            caps[3].trim().is_empty(),
+                        )
+                    })
+                    .collect();
+                let actual: Vec<_> = scan_fence_lines(&input, input.as_bytes())
+                    .iter()
+                    .map(|line| {
+                        (
+                            line.index,
+                            line.end_of_line,
+                            line.marker_char,
+                            line.marker_len,
+                            line.rest_blank,
+                        )
+                    })
+                    .collect();
+                assert_eq!(actual, expected, "input={input:?}");
+            }
+        }
+    }
+
+    #[test]
     fn linear_inline_scan_matches_backreference_regex() {
         let old = Regex::new(r"(`+)([^`]*?)\1").unwrap();
         let alphabet = ['`', 'a', '\n', 'é'];
@@ -572,19 +705,13 @@ mod tag_scan_tests {
                     encoded /= alphabet.len();
                 }
 
-                let mut expected = String::with_capacity(input.len());
-                let mut last = 0usize;
-                for matched in old.find_iter(&input).flatten() {
-                    expected.push_str(&input[last..matched.start()]);
-                    for c in input[matched.start()..matched.end()].chars() {
-                        expected.push(if c == '\n' { '\n' } else { ' ' });
-                    }
-                    last = matched.end();
-                }
-                expected.push_str(&input[last..]);
-
+                let expected: Vec<(usize, usize)> = old
+                    .find_iter(&input)
+                    .flatten()
+                    .map(|matched| (matched.start(), matched.end()))
+                    .collect();
                 assert_eq!(
-                    strip_inline_code_regions(input.clone()),
+                    inline_code_regions(input.as_bytes(), &[]),
                     expected,
                     "input={input:?}"
                 );

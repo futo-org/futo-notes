@@ -29,6 +29,30 @@ describe('updates preference', () => {
   });
 });
 
+// Crash #1788: Settings and the crash dialog fire these un-awaited, so a vault
+// the app cannot write to must not turn into an unhandled rejection.
+describe('a preference that cannot be saved', () => {
+  it('still applies for the session and resolves false instead of rejecting', async () => {
+    const platform = await import('$lib/platform');
+    platform.setActiveFS({
+      ...platform.testFS,
+      writeAppData: () => Promise.reject(new Error('Permission denied (os error 13)')),
+    });
+    try {
+      const { getCachedPreferences, savePreferences, saveSelectedLanguageTag } = await fresh();
+      const preferences = getCachedPreferences();
+      preferences.appearance.theme = 'dark';
+
+      await expect(savePreferences(preferences)).resolves.toBe(false);
+      await expect(saveSelectedLanguageTag('zh-Hans')).resolves.toBe(false);
+      expect(getCachedPreferences().appearance.theme).toBe('dark');
+      expect(getCachedPreferences().language.selectedLanguageTag).toBe('zh-Hans');
+    } finally {
+      platform.resetActiveFS();
+    }
+  });
+});
+
 describe('language preference', () => {
   it('defaults to System', async () => {
     const { getCachedPreferences } = await fresh();
@@ -118,5 +142,19 @@ describe('appearance preferences', () => {
     const { getCachedPreferences } = await fresh();
 
     expect(getCachedPreferences().appearance).toEqual({ theme: 'auto' });
+  });
+
+  it('drops a legacy preference field when loading persisted state', async () => {
+    const platform = await import('$lib/platform');
+    await platform.testFS.writeAppData(
+      '.app-state.json',
+      JSON.stringify({
+        deviceId: 'existing-device',
+        preferences: { theme: 'dark', interfaceFont: 'system' },
+      }),
+    );
+    const { loadPreferences } = await fresh();
+
+    expect((await loadPreferences()).appearance).toEqual({ theme: 'dark' });
   });
 });

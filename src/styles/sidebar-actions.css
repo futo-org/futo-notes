@@ -39,3 +39,13 @@
   right: max(16px, calc(16px + env(safe-area-inset-right)));
   bottom: max(16px, calc(16px + env(safe-area-inset-bottom)));
 }
+
+/* Opaque on purpose: the folder button overlaps the New button, so any
+   translucency shows one through the other. */
+.fab:disabled {
+  cursor: default;
+  background: var(--color-border);
+  color: var(--color-muted);
+  box-shadow: none;
+  transform: none;
+}

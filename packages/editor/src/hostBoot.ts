@@ -145,16 +145,8 @@ export function parseEditorHostConfig(configJson: string): EditorHostConfig | nu
   };
 }
 
-/**
- * Build the bundle's host-facing boot state over `effects`.
- *
- * `bundleVersion` is injectable only so a test can drive a mismatch; production
- * always uses {@link BRIDGE_VERSION}.
- */
-export function createEditorHostBoot(
-  effects: EditorHostEffects,
-  bundleVersion: number = BRIDGE_VERSION,
-): EditorHostBoot {
+/** Build the bundle's host-facing boot state over `effects`. */
+export function createEditorHostBoot(effects: EditorHostEffects): EditorHostBoot {
   // Last value pushed for each setting the host can update after boot. Content
   // is absent on purpose: the user types into the document, so the only honest
   // reference for "is this a change?" is the live document, not what we last
@@ -171,11 +163,11 @@ export function createEditorHostBoot(
         throw new Error('FutoEditor.initialize: malformed EditorHostConfig');
       }
 
-      if (config.bridgeVersion !== bundleVersion) {
+      if (config.bridgeVersion !== BRIDGE_VERSION) {
         effects.post({
           type: 'bridgeVersionMismatch',
           hostVersion: config.bridgeVersion,
-          bundleVersion,
+          bundleVersion: BRIDGE_VERSION,
         });
         // Deliberately fall through and boot anyway — see
         // BridgeVersionMismatchMessage in bridge.ts.
@@ -202,7 +194,7 @@ export function createEditorHostBoot(
       appliedNotesJson = config.notesJson ?? null;
       appliedImageBaseUrl = config.imageBaseUrl ?? null;
 
-      effects.post({ type: 'initialized', version: bundleVersion });
+      effects.post({ type: 'initialized', version: BRIDGE_VERSION });
     },
 
     setLanguage(languageTag: string): void {

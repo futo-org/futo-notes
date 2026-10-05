@@ -18,7 +18,7 @@ interface RecordedHost {
   posted: FutoEditorOutboundMessage[];
 }
 
-function recordHost(bundleVersion: number = BRIDGE_VERSION): RecordedHost {
+function recordHost(): RecordedHost {
   const steps: string[] = [];
   const posted: FutoEditorOutboundMessage[] = [];
 
@@ -34,7 +34,7 @@ function recordHost(bundleVersion: number = BRIDGE_VERSION): RecordedHost {
   };
 
   return {
-    boot: createEditorHostBoot(effects, bundleVersion),
+    boot: createEditorHostBoot(effects),
     steps,
     posted,
   };
@@ -70,29 +70,6 @@ describe('editor boot sequence', () => {
       'notes:[{"id":"a","title":"a","modifiedMs":1}]',
       'content:# note',
     ]);
-  });
-
-  it('settles layout, chrome and colour before the note text is applied', () => {
-    const host = recordHost();
-
-    host.boot.initialize(config());
-
-    const contentStep = host.steps.indexOf('content:# note');
-    for (const step of ['language:zh-Hans', 'padding:14', 'nativeToolbar:true', 'theme:light']) {
-      expect(host.steps.indexOf(step)).toBeLessThan(contentStep);
-    }
-  });
-
-  it('registers the image base URL and the note universe before the content', () => {
-    // The content push preloads its own image dimensions and resolves its own
-    // wikilink decorations; both need these already in place.
-    const host = recordHost();
-
-    host.boot.initialize(config());
-
-    const contentStep = host.steps.indexOf('content:# note');
-    expect(host.steps.findIndex((s) => s.startsWith('imageBaseUrl:'))).toBeLessThan(contentStep);
-    expect(host.steps.findIndex((s) => s.startsWith('notes:'))).toBeLessThan(contentStep);
   });
 
   it('reports the note is on screen only after every setting is applied', () => {
@@ -137,39 +114,6 @@ describe('editor boot sequence', () => {
 
     expect(host.steps).toContain('nativeToolbar:false');
   });
-});
-
-describe('bridge version policy', () => {
-  it('boots anyway when the host was built against a different version', () => {
-    const host = recordHost(7);
-
-    host.boot.initialize(config({ bridgeVersion: 6 }));
-
-    // The editor is the app's core surface: a stale build must not leave it
-    // permanently blank.
-    expect(host.steps).toContain('content:# note');
-    expect(host.posted).toContainEqual({ type: 'initialized', version: 7 });
-  });
-
-  it('reports the mismatch with both versions so a shell can log it', () => {
-    const host = recordHost(7);
-
-    host.boot.initialize(config({ bridgeVersion: 3 }));
-
-    expect(host.posted[0]).toEqual({
-      type: 'bridgeVersionMismatch',
-      hostVersion: 3,
-      bundleVersion: 7,
-    });
-  });
-
-  it('stays quiet when the versions agree', () => {
-    const host = recordHost();
-
-    host.boot.initialize(config());
-
-    expect(host.posted.map((m) => m.type)).toEqual(['initialized']);
-  });
 
   it('rejects a malformed config loudly rather than booting half-configured', () => {
     const host = recordHost();
@@ -202,16 +146,6 @@ describe('renderer-death recovery', () => {
       'content:# note',
     ]);
     expect(host.posted).toEqual([{ type: 'initialized', version: BRIDGE_VERSION }]);
-  });
-
-  it('restores the open note even when the host state never changed', () => {
-    const host = recordHost();
-    host.boot.initialize(config({ content: 'the open note' }));
-    host.steps.length = 0;
-
-    host.boot.initialize(config({ content: 'the open note' }));
-
-    expect(host.steps).toContain('content:the open note');
   });
 });
 

@@ -3,8 +3,13 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { disconnectHardwareKeyboard } from '../../../scripts/lib/simulator-keyboard.mjs';
+import { slotOf } from '../../../scripts/lib/slot.mjs';
 
 const DEFAULT_BUNDLE_ID = 'com.futo.notes.dev';
+
+export function iosStoryScreenshotPath(udid, fileName, worktreeRoot = process.cwd()) {
+  return join('test-screenshots', 'ios', `s${slotOf(worktreeRoot)}`, udid, fileName);
+}
 
 function outputOf(command, args, options = {}) {
   return execFileSync(command, args, {
@@ -116,7 +121,7 @@ export function createAxeClient({ udid, bundleId = DEFAULT_BUNDLE_ID, textInput 
     return path;
   };
 
-  const warmDisplay = () => screenshot(join('test-screenshots', 'ios-editor-story-warmup.png'));
+  const warmDisplay = () => screenshot(iosStoryScreenshotPath(udid, 'ios-editor-story-warmup.png'));
 
   const simulator = () => {
     const listing = JSON.parse(simctl('list', '-j', 'devices'));
