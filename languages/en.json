@@ -348,7 +348,9 @@
         "heading": "Delete folder",
         "thisFolderQuestion": "Delete this folder?",
         "moveNotesWarning": "Notes inside it will be moved to the parent folder.",
+        "moveContentsWarning": "Notes and other files inside it will be moved to the parent folder. A file with the same name gets a numbered copy.",
         "recoverableConfirmation": "Delete this folder? Notes inside it will be moved to the parent folder.",
+        "preservingContentsConfirmation": "Delete this folder? Notes and other files inside it will be moved to the parent folder. A file with the same name gets a numbered copy.",
         "permanentConfirmation": "Delete this folder? Notes inside it will be moved to the parent folder. Anything else inside it is deleted for good.",
         "movedNotes": {
           "plural": "count",

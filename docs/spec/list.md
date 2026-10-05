@@ -330,8 +330,8 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   sandbox the host trash directory is unreachable, so a delete inside the vault the
   sandbox was granted routes through the `org.freedesktop.portal.Trash` portal
   instead, with the same permanent-delete fallback. _(iOS, Android)_ delete
-  permanently; there
-  is no trash in the native UI flow. Sync is unaffected either way — the file
+  notes permanently; there is no trash in the native note-delete UI flow.
+  Sync is unaffected either way — the file
   leaving the vault tombstones the note on the next sync exactly as a
   permanent delete would. Deleting the only note in a folder prunes now-empty
   ancestor folders on every platform. Desktop supplies the trash policy to the
@@ -657,5 +657,14 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
     NoteListScreen.kt, FolderDeleteToastTest.kt
   - The native shells share the Rust primitive (rejects the vault root and
     path traversal; a missing folder is a no-op; relinks each moved note).
+    Remaining images and other files move up with their relative subfolder
+    paths. An existing destination is never replaced; a numbered filename
+    preserves the moved file instead. A collision may require a manual update
+    to a Markdown image link that names the original file. If a file cannot
+    move, the source folder remains with those bytes and the mutation reports
+    a cleanup warning. This gives app-private Android and iOS vault files a
+    recoverable location without relying on a platform trash service. →
+    `futo-notes-store::LocalNoteStore::delete_folder`,
+    `native_folder_delete_preserves_nested_attachments_and_name_collisions`
     → futo-notes-store `LocalNoteStore::delete_folder`, futo-notes-ffi
     `NoteStore::delete_folder`

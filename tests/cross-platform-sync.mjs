@@ -621,6 +621,31 @@ async function collisionPlacementFollowsOpenNote(a, b, server) {
   assertEqual(await a.readNote(conflictId), '# from B', 'A conflict copy should hold B’s content');
 }
 
+async function collisionNameUsesFullObjectIdentity(a, b, server) {
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
+
+  await a.writeNote('old/shared', 'older object');
+  await a.syncNow();
+  await b.syncNow();
+  await b.writeNote('shared', 'later object');
+  await b.syncNow();
+  await a.moveNote('old/shared', 'shared');
+  await a.syncNow();
+  await b.syncNow();
+
+  const bFiles = (await b.listNotes()).map((file) => file.filename || file.name || file);
+  const copy = bFiles.find((name) => /^shared \(conflict [0-9a-f]{32}\)\.md$/.test(name));
+  assert(copy, `collision copy should carry all UUID bits, got ${JSON.stringify(bFiles)}`);
+  assertEqual(await b.readNote('shared'), 'older object', 'winner body');
+  assertEqual(await b.readNote(copy.replace(/\.md$/, '')), 'later object', 'loser body');
+  await a.syncNow();
+  const aFiles = (await a.listNotes()).map((file) => file.filename || file.name || file);
+  assert(aFiles.includes(copy), 'both clients should converge on the same collision name');
+}
+
 async function focusedOpenNoteDefersPeerEditUntilBlur(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
@@ -3375,6 +3400,11 @@ const scenarios = [
   {
     name: 'collision placement follows open note',
     fn: collisionPlacementFollowsOpenNote,
+    matrices: ['desktop-desktop'],
+  },
+  {
+    name: 'collision name uses full object identity',
+    fn: collisionNameUsesFullObjectIdentity,
     matrices: ['desktop-desktop'],
   },
   {

@@ -15,8 +15,15 @@ pub fn current_conflict_date() -> String {
 
 pub fn collision_conflict_filename(canonical_name: &str, loser_object_id: &str) -> String {
     let (base, extension) = split_conflict_name_parts(canonical_name);
-    let short_id = object_id_short(loser_object_id);
-    format!("{base} (conflict {short_id}){extension}")
+    let id = object_id_short(loser_object_id);
+    let suffix = format!(" (conflict {id}){extension}");
+    // A near-limit title must leave room for the conflict token on every FS.
+    let max_base_bytes = 255usize.saturating_sub(suffix.len());
+    let mut end = max_base_bytes.min(base.len());
+    while !base.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}{suffix}", &base[..end])
 }
 
 pub fn conflict_filename(original: &str, date: &str, existing: &HashSet<String>) -> String {
@@ -36,6 +43,19 @@ pub fn conflict_filename(original: &str, date: &str, existing: &HashSet<String>)
 }
 
 fn object_id_short(object_id: &str) -> String {
+    // UUIDv7 starts with its timestamp: the old eight-character prefix was
+    // identical for objects created in the same minute. Use every UUID bit.
+    if object_id.len() == 36
+        && object_id.bytes().enumerate().all(|(index, byte)| {
+            if [8, 13, 18, 23].contains(&index) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
+    {
+        return object_id.chars().filter(|ch| *ch != '-').collect();
+    }
     let cleaned = object_id
         .chars()
         .filter(char::is_ascii_alphanumeric)
@@ -124,6 +144,7 @@ fn is_date_conflict_token(token: &str) -> bool {
 
 fn is_object_conflict_token(token: &str) -> bool {
     token == "object"
+        || (token.len() == 32 && token.as_bytes().iter().all(u8::is_ascii_hexdigit))
         || (token.len() == 8 && token.as_bytes().iter().all(u8::is_ascii_hexdigit))
         || (token.len() == 8
             && token.as_bytes().iter().all(u8::is_ascii_alphanumeric)
@@ -303,6 +324,25 @@ mod tests {
             collision_conflict_filename("note.md", "----"),
             "note (conflict object).md"
         );
+    }
+
+    #[test]
+    fn uuid_v7_ids_created_in_one_clock_tick_have_distinct_collision_names() {
+        let first = "019a7364-3120-7000-8000-000000000001";
+        let second = "019a7364-3120-7000-8000-000000000002";
+        assert_ne!(
+            collision_conflict_filename("note.md", first),
+            collision_conflict_filename("note.md", second)
+        );
+    }
+
+    #[test]
+    fn uuid_collision_name_fits_a_full_length_unicode_component() {
+        let title = format!("{}.md", "é".repeat(120));
+        let name = collision_conflict_filename(&title, "019a7364-3120-7000-8000-000000000001");
+        assert!(name.len() <= 255);
+        assert!(name.ends_with(".md"));
+        assert!(name.starts_with('é'));
     }
 }
 

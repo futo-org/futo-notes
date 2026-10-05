@@ -481,7 +481,7 @@ internal fun NoteListScreen(
     confirmDeleteFolder?.let { target ->
         ConfirmDialog(
             title = localization.localizedText("folders.delete.thisFolderQuestion"),
-            body = localization.localizedText("folders.delete.moveNotesWarning"),
+            body = localization.localizedText("folders.delete.moveContentsWarning"),
             confirmLabel = localization.localizedText("common.actions.delete"),
             onConfirm = {
                 confirmDeleteFolder = null
