@@ -14,7 +14,13 @@ primitives (path safety, atomic writes, conflict names, the vault mutation guard
   `startup_listing`, `snapshot`, `read`, `create`, `write`, `save`, `flush_draft`, `rename`,
   `move_note`, `delete`, the folder workflows, `reset`, and the vault-migration entry points.
 - **`vault.rs`**: the corpus walk, snapshot building, and `note_list_order` — **the** note-list sort
-  rule (modified desc, id asc).
+  rule (modified desc, id asc). The walk visits folders and each folder's notes in parallel and
+  closes a folder before opening its subfolders, so descriptors stay bounded (iOS defaults to 256;
+  `tests/fd_limit.rs`).
+- **`list_cache.rs`**: each note's derived preview, rich preview and tags, persisted at
+  `<index_dir>.list-cache` (outside the vault) so a relaunch reads no unchanged note. An entry is
+  trusted only on an exact stat fingerprint older than a 2 s racy margin; the file records the
+  vault root and a checksum of the derivation rules. Every open still stats every note.
 - **`paths.rs`**: collision resolution (`unique_note_id`, `unique_folder_path`).
 - **`editor_draft.rs`**: baseline-aware identity changes. A stale editor parks its draft at the
   requested destination instead of overwriting the peer, and does not redirect links away from it.
@@ -47,6 +53,12 @@ primitives (path safety, atomic writes, conflict names, the vault mutation guard
   branch whose tests are gated to the other platform ships untested (AGENTS.md M26). That cost
   github#48: `exists` answered a missing parent with an I/O error instead of `Ok(false)`, so from
   v1.6.1 every note a peer put in a folder the Windows client lacked failed on every sync cycle.
+
+## Performance
+
+`just bench-vault` (`benches/vault_open.rs`) measures what every shell waits on at launch:
+`bootstrap_with_search` over a synthetic 10k-note vault, plus a cold `bootstrap`, `startup_listing`
+and a flat vault. Method and numbers: `docs/perf/vault-open-hill-climb.md`.
 
 ## Testing
 
