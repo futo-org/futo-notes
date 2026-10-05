@@ -116,4 +116,36 @@ class EditorCaptureDeadlineTest {
         // shell never saw the edit. Leaving on `shellCopy` discards it.
         assertNull(editorExitBody(EditorCaptureOutcome.TimedOut, shellCopy = "the note as opened"))
     }
+
+    /**
+     * FB-5 refute round 3 (never-lose): an exit whose read finds the page
+     * silent refuses — a long synchronous task and a wedge look the same —
+     * until the page has been silent for the dead bound since the FIRST such
+     * refusal; any answer clears the mark, and a reconcile never reads
+     * silence as "nothing to lose".
+     */
+    @Test
+    fun `a silent page is refused for the dead bound, then left on the shell copy`() {
+        val dead = 60_000L
+        val first = unansweredPageRead(false, forExit = true, null, nowMs = 1_000, deadAfterMs = dead)
+        assertEquals(EditorCaptureOutcome.TimedOut, first.outcome)
+        assertEquals(1_000L, first.unresponsiveSinceMs)
+
+        val later = unansweredPageRead(false, true, first.unresponsiveSinceMs, 50_000, dead)
+        assertEquals(EditorCaptureOutcome.TimedOut, later.outcome)
+        assertEquals(1_000L, later.unresponsiveSinceMs)
+
+        val gone = unansweredPageRead(false, true, first.unresponsiveSinceMs, 61_000, dead)
+        assertEquals(EditorCaptureOutcome.NoLiveDocument, gone.outcome)
+    }
+
+    @Test
+    fun `a busy page is alive, and a reconcile never calls silence dead`() {
+        val busy = unansweredPageRead(true, forExit = true, 1_000, nowMs = 99_000, deadAfterMs = 60_000)
+        assertEquals(EditorCaptureOutcome.TimedOut, busy.outcome)
+        assertEquals(null, busy.unresponsiveSinceMs)
+
+        val reconcile = unansweredPageRead(false, forExit = false, 1_000, 99_000, 60_000)
+        assertEquals(EditorCaptureOutcome.TimedOut, reconcile.outcome)
+    }
 }

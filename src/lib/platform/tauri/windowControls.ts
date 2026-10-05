@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './invoke';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export type WindowControl = 'minimize' | 'maximize' | 'close';

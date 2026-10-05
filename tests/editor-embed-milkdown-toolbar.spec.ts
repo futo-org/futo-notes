@@ -458,6 +458,39 @@ for (const [id, marker] of [
   });
 }
 
+// An EMPTY task item is a task item: the checkbox marker must reach the file
+// (the note autosaves in this window), or leaving and reopening turns the fresh
+// item into a plain bullet. It used to serialize as a bare `-`, bytes identical
+// to an empty Bullet, because the mdast task-list handler writes `[ ]` in front
+// of the item's first paragraph and an empty item has none.
+test('task-list on an empty line saves the checkbox marker, and it reopens as a task', async ({
+  page,
+}) => {
+  const checkboxes = page.locator('.ProseMirror input[type="checkbox"]');
+  expect(await afterExec(page, '', 'task-list')).toBe('- [ ]');
+  await expect(checkboxes).toHaveCount(1);
+
+  // The saved bytes reopen as an empty task item, not a bullet with literal text.
+  await hostSetContent(page, '- [ ]');
+  await expect(checkboxes).toHaveCount(1);
+
+  await page.keyboard.type('x');
+  await settle(page);
+  expect((await getContent(page)).trimEnd()).toBe('- [ ] x');
+
+  // A checked empty task item, and one that carries a nested list, keep their
+  // state and their children across a load and a save.
+  for (const source of ['- [x]', '- [ ]\n  - child', 'a\n\n- [x]\n- [ ] b']) {
+    await hostSetContent(page, source);
+    await focusEditor(page);
+    await page.keyboard.press('ControlOrMeta+End');
+    await page.keyboard.type('!');
+    await page.keyboard.press('Backspace');
+    await settle(page);
+    expect((await getContent(page)).trimEnd()).toBe(source);
+  }
+});
+
 // A conversion between two kinds is two ProseMirror primitives underneath
 // (lift out of the blockquote, then wrap in a list). One tap has to be one undo.
 test('a conversion between two kinds is a single undo step', async ({ page }) => {

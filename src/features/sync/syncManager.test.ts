@@ -564,7 +564,10 @@ describe('sync outcome source clearing', () => {
 });
 
 describe('peer projections', () => {
-  it('waits for an in-flight save to commit before rebinding a remote rename', async () => {
+  it('follows a reported rename before a pending save persists', async () => {
+    // Flushing first addressed the save to the id the note just left, and the
+    // store recreated the note there: a ghost that synced to every device. The
+    // pending save is settled only once the editor is bound to the new id.
     openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
       kind: 'followRename',
       toId: 'New',
@@ -575,54 +578,34 @@ describe('peer projections', () => {
       savedContent: 'base',
       savePending: true,
     });
-    let releaseSave!: () => void;
-    const saveIdle = new Promise<void>((resolve) => {
-      releaseSave = () => {
-        sessionBundle.state.savedContent = 'draft';
-        sessionBundle.state.savePending = false;
-        resolve();
-      };
-    });
-    vi.mocked(sessionBundle.session.flushSave).mockReturnValueOnce(saveIdle);
     const bundle = makeManager(sessionBundle);
 
-    const reconciliation = bundle.manager.handleSyncComplete({
+    await bundle.manager.handleSyncComplete({
       ...emptySummary,
       renamed: [{ fromId: 'Old', toId: 'New' }],
     });
-    await yieldMicrotasks();
 
-    expect(bundle.applyRemoteRename).not.toHaveBeenCalled();
-    expect(bundle.state.savedContent).toBe('base');
-
-    releaseSave();
-    await reconciliation;
-
-    expect(bundle.state.savedContent).toBe('draft');
     expect(bundle.applyRemoteRename).toHaveBeenCalledExactlyOnceWith('New', 'New');
+    const flushSave = vi.mocked(sessionBundle.session.flushSave);
+    expect(flushSave).toHaveBeenCalledOnce();
+    expect(bundle.applyRemoteRename.mock.invocationCallOrder[0]).toBeLessThan(
+      flushSave.mock.invocationCallOrder[0],
+    );
   });
 
   it('does not rebind a remote rename after the session switches notes', async () => {
-    openNoteMocks.classifyOpenNote.mockResolvedValueOnce({
-      kind: 'followRename',
-      toId: 'New',
-    });
-    const sessionBundle = makeSession({ id: 'Old', savePending: true });
-    let releaseSave!: () => void;
-    vi.mocked(sessionBundle.session.flushSave).mockReturnValueOnce(
-      new Promise<void>((resolve) => {
-        releaseSave = resolve;
-      }),
-    );
+    const verdict = controlledPromise<{ kind: 'followRename'; toId: string }>();
+    openNoteMocks.classifyOpenNote.mockReturnValueOnce(verdict.promise);
+    const sessionBundle = makeSession({ id: 'Old', content: 'draft', savePending: true });
     const bundle = makeManager(sessionBundle);
 
     const reconciliation = bundle.manager.handleSyncComplete({
       ...emptySummary,
       renamed: [{ fromId: 'Old', toId: 'New' }],
     });
-    await yieldMicrotasks();
+    await vi.waitFor(() => expect(openNoteMocks.classifyOpenNote).toHaveBeenCalledOnce());
     sessionBundle.state.id = 'Other';
-    releaseSave();
+    verdict.resolve({ kind: 'followRename', toId: 'New' });
     await reconciliation;
 
     expect(bundle.applyRemoteRename).not.toHaveBeenCalled();
@@ -917,9 +900,7 @@ describe('editor reconciliation', () => {
       ...emptySummary,
       updatedIds: ['Save race'],
     });
-    await yieldMicrotasks();
-
-    expect(bundle.session.flushSave).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(bundle.session.flushSave).toHaveBeenCalledOnce());
     expect(openNoteMocks.classifyOpenNote).not.toHaveBeenCalled();
     expect(bundle.rebaseSavedContent).not.toHaveBeenCalled();
 

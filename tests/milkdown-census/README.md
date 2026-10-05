@@ -46,11 +46,15 @@ if there are any.
 
 ## The flags
 
-Two are precise measurements of the loss classes the compat plugins exist to
-eliminate. The acceptance criteria are stated against these:
+Three are precise measurements. The acceptance criteria are stated against these:
 
 - `br_loss` — the note came back with fewer `<br>` tags than it went in with.
 - `empty_link_loss` — a `[](url)`'s URL is not in the output at all.
+- `entity_inserted` — the save holds a numeric character reference the note did
+  not, and it is malformed (`&#xNAN;`, `&#x61&#x3B;`) or names a character the
+  note never contained. The serializer writes references on purpose (`**Note:**&#x62;ar`
+  keeps a bold run), so only a bad or foreign one counts. Text GAINED is
+  invisible to `text_loss`; this is the detector for it (RC-104). Must be 0.
 
 The rest are broad signals, useful against a baseline rather than in isolation:
 `unstable` (`round1 ≠ round2`), `unstable_persistent` (`round2 ≠ round3`),

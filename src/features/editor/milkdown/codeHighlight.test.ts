@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { javascript } from '@codemirror/lang-javascript';
-import type { Node as ProseNode } from '@milkdown/kit/prose/model';
+import { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { EditorState, type Plugin } from '@milkdown/kit/prose/state';
-import type { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
+import { Decoration, type DecorationSet } from '@milkdown/kit/prose/view';
 
 import {
   codeBlocksIn,
@@ -122,39 +122,63 @@ describe('the plugin', () => {
    * per fence on the document to carry a CSS class. A node decoration spanning
    * a whole top-level block is stored in the decoration tree's ROOT, so mapping
    * them made every keystroke cost O(fences) — measured 4.6 ms per keystroke at
-   * 1000 fences, against 0.075 ms once the decoration was gone (a 33x gap over
-   * the empty-plugin baseline, against the 4x this asserts).
+   * 1000 fences, against 0.075 ms once the decoration was gone.
    *
-   * Measured as a RATIO OF RATIOS — how much worse the plugin scales than an
-   * editor with no plugins at all — so it says nothing about how fast the
-   * machine running it is.
+   * Measured as WORK PER KEYSTROKE, not wall time (RC-96: a wall-clock growth
+   * ratio read 4.4-6.7 against a limit of 4 on a loaded runner, with the code
+   * unchanged). One keystroke at the end of the document is applied to a
+   * 20-fence and a 1000-fence document, counting the two things that scale with
+   * the document if a plugin gets this wrong: nodes walked by `nodesBetween`
+   * (repainting more than the changed blocks) and `Decoration.map` calls
+   * (decorations held at the set's root, remapped every transaction — the
+   * per-fence marker). Both are 0-3 and size-independent today; either
+   * regression makes the 1000-fence count grow by two to three orders of
+   * magnitude. Same idea as the perf floor's nodes-walked-per-keystroke.
    */
   it('costs no more per keystroke as the document grows', () => {
-    const growth = (plugins: Plugin[]) => {
-      const measure = (fences: number) => {
-        const blocks: ProseNode[] = [];
-        for (let i = 0; i < fences; i += 1) {
-          blocks.push(fence('mermaid', `graph ${i}`));
-          blocks.push(para(`body paragraph number ${i}`));
-        }
-        blocks.push(para('edit me'));
-        const state = EditorState.create({ doc: doc(...blocks), plugins });
-        const at = state.doc.content.size - 2;
-        for (let i = 0; i < 30; i += 1) state.apply(state.tr.insertText('x', at));
-        // The MINIMUM of several runs: the most stable statistic when
-        // something else on the machine is competing for the core.
-        let best = Infinity;
-        for (let run = 0; run < 5; run += 1) {
-          const started = performance.now();
-          for (let i = 0; i < 100; i += 1) state.apply(state.tr.insertText('x', at));
-          best = Math.min(best, performance.now() - started);
-        }
-        return best;
-      };
-      return measure(1000) / measure(20);
+    const workPerKeystroke = (fences: number) => {
+      const blocks: ProseNode[] = [];
+      for (let i = 0; i < fences; i += 1) {
+        blocks.push(fence('mermaid', `graph ${i}`));
+        blocks.push(para(`body paragraph number ${i}`));
+      }
+      blocks.push(para('edit me'));
+      const state = stateWith(doc(...blocks));
+      const at = state.doc.content.size - 2;
+
+      let work = 0;
+      const nodesBetween = ProseNode.prototype.nodesBetween;
+      const walk = vi.spyOn(ProseNode.prototype, 'nodesBetween').mockImplementation(function (
+        this: ProseNode,
+        from,
+        to,
+        callback,
+        startPos,
+      ) {
+        return nodesBetween.call(
+          this,
+          from,
+          to,
+          (...args: Parameters<typeof callback>) => {
+            work += 1;
+            return callback(...args);
+          },
+          startPos,
+        );
+      });
+      const remap = vi.spyOn(Decoration.prototype, 'map');
+      try {
+        state.apply(state.tr.insertText('x', at));
+        return work + remap.mock.calls.length;
+      } finally {
+        walk.mockRestore();
+        remap.mockRestore();
+      }
     };
 
-    expect(growth([createCodeHighlightPlugin()]) / growth([])).toBeLessThan(4);
+    const small = workPerKeystroke(20);
+    expect(small).toBeGreaterThan(0); // the counters are live
+    expect(workPerKeystroke(1000)).toBeLessThanOrEqual(small + 5);
   });
 
   it('keeps its decorations across a transaction that changed nothing', () => {

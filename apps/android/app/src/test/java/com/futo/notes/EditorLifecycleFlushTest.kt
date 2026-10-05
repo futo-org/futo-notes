@@ -1,5 +1,11 @@
 package com.futo.notes
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -344,5 +350,128 @@ class EditorLifecycleFlushTest {
             listOf(PendingDraft("todo", "saved", "saved + unsaved")),
             rec.writes,
         )
+    }
+
+    // ── the leave-foreground flush reads the LIVE editor first (RC-92) ──
+
+    /**
+     * The RC-92 shape: a note still streaming its tail reports no `change`, so
+     * the editor's draft is clean (content == savedContent) while the editor
+     * holds the user's typing. The plain flush saves nothing; the live flush
+     * asks the editor first and saves what it said.
+     */
+    @Test
+    fun liveFlushSavesTheEditWhichNoChangeEverReported() = runBlocking {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val st = EditorState(savedContent = "streamed note", content = "streamed note")
+        val token = pending.claim()
+        pending.setProvider(token, st::derive)
+        pending.setRefresher(token) { st.content = "streamed note + typed while streaming" }
+
+        pending.flush()
+        assertTrue("the change-fed flush cannot see the edit", rec.writes.isEmpty())
+
+        pending.flushLive()
+        assertEquals(
+            listOf(PendingDraft("todo", "streamed note", "streamed note + typed while streaming")),
+            rec.writes,
+        )
+    }
+
+    /** The change-fed draft is not written ahead of the read: two writes of different text over one base park the newer as a conflict copy. */
+    @Test
+    fun theChangeFedFlushWaitsForTheLiveRead() = runBlocking {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val st = EditorState(savedContent = "v0", content = "v0 A")
+        val token = pending.claim()
+        pending.setProvider(token, st::derive)
+        val reading = CompletableDeferred<Unit>()
+        val answer = CompletableDeferred<Unit>()
+        pending.setRefresher(token) {
+            reading.complete(Unit)
+            answer.await()
+            st.content = "v0 AB"
+        }
+
+        val scope = CoroutineScope(Dispatchers.Unconfined + Job())
+        val flush = scope.async { pending.flushLive() }
+        reading.await()
+        // onPause's synchronous pull of the register (any other caller) writes nothing while the read is out.
+        pending.flush()
+        assertTrue(rec.writes.isEmpty())
+
+        answer.complete(Unit)
+        flush.await()
+        assertEquals(listOf(PendingDraft("todo", "v0", "v0 AB")), rec.writes)
+    }
+
+    /** A read that fails or is cancelled still lets the register flush as the editor last reported; a busy editor's answer of "unknown" leaves the draft as it was. */
+    @Test
+    fun aReadThatCannotAnswerFlushesTheDraftAsReported() = runBlocking {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val st = EditorState(savedContent = "v0", content = "v0 reported")
+        val token = pending.claim()
+        pending.setProvider(token, st::derive)
+        pending.setRefresher(token) { error("renderer gone") }
+
+        pending.flushLive()
+
+        assertEquals(listOf(PendingDraft("todo", "v0", "v0 reported")), rec.writes)
+        // ...and the hold is released: a later plain flush is not swallowed.
+        pending.flush()
+        assertEquals(2, rec.writes.size)
+    }
+
+    /** A read that never returns must not hold the change-fed flush back for good. */
+    @Test
+    fun aReadThatNeverReturnsIsGivenUpOn() = runBlocking {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val st = EditorState(savedContent = "v0", content = "v0 reported")
+        val token = pending.claim()
+        pending.setProvider(token, st::derive)
+        pending.setRefresher(token) { CompletableDeferred<Unit>().await() }
+
+        pending.flushLive(budgetMs = 50)
+
+        assertEquals(listOf(PendingDraft("todo", "v0", "v0 reported")), rec.writes)
+        pending.flush()
+        assertEquals(2, rec.writes.size)
+    }
+
+    @Test
+    fun aReleasedEditorIsNotReadAndAResetRetiresRefreshers() = runBlocking {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        var reads = 0
+        val gone = pending.claim()
+        pending.setRefresher(gone) { reads += 1 }
+        pending.release(gone)
+        val retired = pending.claim()
+        pending.setRefresher(retired) { reads += 1 }
+        pending.reset()
+        pending.setRefresher(retired) { reads += 1 }
+
+        pending.flushLive()
+
+        assertEquals(0, reads)
+        assertTrue(rec.writes.isEmpty())
+    }
+
+    /** With no editor to read the live flush is the plain one. */
+    @Test
+    fun liveFlushWithoutAnEditorIsThePlainFlush() = runBlocking {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val released = pending.claim()
+        pending.setProvider(released) { PendingDraft("gone", "a", "b") }
+        pending.release(released)
+
+        pending.flushLive()
+
+        assertEquals(listOf(PendingDraft("gone", "a", "b")), rec.writes)
     }
 }

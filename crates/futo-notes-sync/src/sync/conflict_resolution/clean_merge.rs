@@ -1,4 +1,5 @@
 use futo_notes_core::hash::hash_sha256;
+use futo_notes_core::merge::{three_way_merge, MergeResult};
 
 use crate::checkpoint::ObjectState;
 use crate::server::{timestamp_ms, Conflict, Write};
@@ -8,7 +9,7 @@ use super::super::outcome::note_id;
 use super::super::push::PushContext;
 use super::super::transfer::http_transport::dispatch_one_upload;
 use super::super::transfer::{CandidateResult, UploadCandidate, UploadTarget};
-use super::super::vault::LocalFile;
+use super::super::vault::{read_content, LocalFile};
 use super::super::{decision, FailureKind, RenamePair, SyncErrorKind, SyncFailure, SyncPhase};
 use super::guarded_adoption::{replace_with_source_fallback, GuardedReplacement};
 use super::{create_from_content, reason};
@@ -68,23 +69,75 @@ fn record_merged_replacement(
     (settled_name, false)
 }
 
+/// The merged revision is on the server, but the local file moved past `local`
+/// while it uploaded — the editor's next save landed. That newer text descends
+/// from `local`, not from the merged revision, so it is rebased onto the merged
+/// text with `local` as the ancestor. `SourceChanged` means it could not be:
+/// the file is gone, the rebase conflicts, or it moved again.
+fn rebase_newer_local_edit(
+    context: &PushContext<'_>,
+    file: &LocalFile,
+    target: &str,
+    local: &str,
+    merged: &str,
+    modified: i64,
+) -> Result<GuardedReplacement, String> {
+    let Ok(newer) = read_content(context.root, &file.name) else {
+        return Ok(GuardedReplacement::SourceChanged);
+    };
+    let MergeResult::Clean(rebased) = three_way_merge(local, merged, &newer) else {
+        return Ok(GuardedReplacement::SourceChanged);
+    };
+    replace_with_source_fallback(
+        context,
+        file,
+        target,
+        &rebased,
+        &hash_sha256(&newer),
+        modified,
+    )
+}
+
+struct MergedWrite<'a> {
+    target: String,
+    local: &'a str,
+    merged: &'a str,
+    expected_local_hash: &'a str,
+    merged_hash: String,
+    existing: &'a ObjectState,
+    write: Write,
+}
+
 fn apply_merged_write(
     context: &mut PushContext<'_>,
     file: &LocalFile,
-    target: String,
-    merged: &str,
-    expected_local_hash: &str,
-    merged_hash: String,
-    write: Write,
+    merged_write: MergedWrite<'_>,
 ) -> MergeAttempt {
-    let replacement = replace_with_source_fallback(
+    let MergedWrite {
+        target,
+        local,
+        merged,
+        expected_local_hash,
+        merged_hash,
+        existing,
+        write,
+    } = merged_write;
+    let modified = timestamp_ms(&write.object.updated_at);
+    let mut rebased = false;
+    let replacement = match replace_with_source_fallback(
         context,
         file,
         &target,
         merged,
         expected_local_hash,
-        timestamp_ms(&write.object.updated_at),
-    );
+        modified,
+    ) {
+        Ok(GuardedReplacement::SourceChanged) => {
+            rebased = true;
+            rebase_newer_local_edit(context, file, &target, local, merged, modified)
+        }
+        other => other,
+    };
     let replacement = match replacement {
         Ok(replacement) => replacement,
         Err(error) => {
@@ -106,11 +159,23 @@ fn apply_merged_write(
         SyncPhase::Push,
         &file.name,
         decision::MERGED,
-        reason::THREE_WAY_MERGE_WAS_CLEAN,
+        if source_changed {
+            reason::LOCAL_CHANGED_DURING_MERGE
+        } else {
+            reason::THREE_WAY_MERGE_WAS_CLEAN
+        },
         settled_name.clone(),
     );
-    let mut entry = object_state(&write, merged_hash, merged.len() as u64);
-    if source_changed {
+    // The recorded revision is the base the next push sends its update from,
+    // so it must be one the file on disk descends from (RC-82). A file the
+    // merged text never reached still descends only from `existing`: the next
+    // cycle meets the merged revision as a conflict instead of overwriting it.
+    let mut entry = if source_changed {
+        existing.clone()
+    } else {
+        object_state(&write, merged_hash, merged.len() as u64)
+    };
+    if source_changed || rebased {
         entry.mtime_ms = None;
     }
     MergeAttempt::Applied((settled_name, entry))
@@ -122,6 +187,7 @@ pub(super) async fn persist_clean_merge(
     existing: &ObjectState,
     conflict: &Conflict,
     target: String,
+    local: &str,
     merged: String,
     expected_local_hash: &str,
 ) -> Result<MergeAttempt, SyncErrorKind> {
@@ -157,11 +223,15 @@ pub(super) async fn persist_clean_merge(
         CandidateResult::Updated(write) => Ok(apply_merged_write(
             context,
             file,
-            target,
-            &merged,
-            expected_local_hash,
-            merged_hash,
-            write,
+            MergedWrite {
+                target,
+                local,
+                merged: &merged,
+                expected_local_hash,
+                merged_hash,
+                existing,
+                write,
+            },
         )),
         CandidateResult::TooLarge => {
             context
@@ -223,14 +293,26 @@ mod tests {
             collection_version: 2,
         };
 
+        let existing = ObjectState {
+            object_id: "object".into(),
+            version: 1,
+            blob_key: "base".into(),
+            hash: Some(hash_sha256("base")),
+            mtime_ms: None,
+            size_bytes: Some(4),
+        };
         let result = apply_merged_write(
             &mut context,
             &file,
-            "target.md".into(),
-            "merged",
-            &hash_sha256("local"),
-            hash_sha256("merged"),
-            write,
+            MergedWrite {
+                target: "target.md".into(),
+                local: "local",
+                merged: "merged",
+                expected_local_hash: &hash_sha256("local"),
+                merged_hash: hash_sha256("merged"),
+                existing: &existing,
+                write,
+            },
         );
 
         let MergeAttempt::Applied((settled_name, _)) = result else {

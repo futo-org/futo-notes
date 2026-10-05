@@ -67,6 +67,7 @@ import {
   type Rect,
 } from './tableGripsGeometry';
 import { tableCellLineBreakRemark, tableCellLineBreakSerializer } from './tableLineBreak';
+import { tablePasteRepair } from './tablePaste';
 
 export const tableGripsKey = new PluginKey<number>('FUTO_TABLE_GRIPS');
 
@@ -501,11 +502,13 @@ const tableGripsView = $prose(
  * Everything `MilkdownEditor.svelte`'s one `.use(tableGrips)` needs to mount
  * for GFM tables: the grips view above, plus the Shift+Enter line-break
  * round-trip fix (`tableLineBreak.ts` — a different bug in the same feature
- * area, bundled here rather than adding a second `.use()` call), mirroring
+ * area, bundled here rather than adding a second `.use()` call), and the
+ * table-paste repair (`tablePaste.ts`), mirroring
  * how `wikilink/index.ts` bundles its own feature's plugins under one name.
  */
 export const tableGrips = [
   tableGripsView,
   tableCellLineBreakRemark,
   tableCellLineBreakSerializer,
+  tablePasteRepair,
 ].flat();

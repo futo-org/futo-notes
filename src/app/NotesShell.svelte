@@ -6,6 +6,7 @@
   import {
     applyExternalImportMutation,
     getAllNotes,
+    onNotesRelinked,
     whenNotesReady,
   } from '$features/notes/notes.svelte';
   import { startExternalFileOpen } from '$features/notes/externalFileOpen';
@@ -113,6 +114,7 @@
     },
   });
   reconcileOpenNote = sync.reconcileOpenNote;
+  const stopRelinks = onNotesRelinked(session.noteRelinked);
 
   function closeActiveNote(): void {
     tabsStore.openNote(null, 'current');
@@ -292,6 +294,7 @@
   const stopNativeShell = startNativeShell({
     enqueueFileChange: sync.enqueueFileChange,
     flushSave: session.flushSave,
+    isSavePending: () => session.savePending,
   });
   const stopExternalFileOpen = startExternalFileOpen({
     whenReady: whenNotesReady,
@@ -379,6 +382,7 @@
     return () => {
       window.removeEventListener('hashchange', handleHashChange);
       removeTestHook();
+      stopRelinks();
       stopNativeShell();
       stopExternalFileOpen();
       stopShortcuts();

@@ -16,6 +16,10 @@ import { mount } from 'svelte';
 import { undo } from '@milkdown/kit/prose/history';
 import type { EditorView } from '@milkdown/kit/prose/view';
 import { withoutLeakedCtxTimers } from '../__fixtures__/noLeakedCtxTimers';
+import { guardEditorTimers } from '../__fixtures__/editorTimerGuard';
+
+// RC-66: no native timer may outlive a test (see the guard's header).
+guardEditorTimers();
 
 vi.mock('$lib/platform', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),

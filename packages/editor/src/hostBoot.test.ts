@@ -10,20 +10,17 @@ import {
 
 /**
  * Records every effect in the order it was applied, so a test can assert the
- * boot SEQUENCE and not merely that each step happened. `content` doubles as
- * the live document the setContent guard reads back.
+ * boot SEQUENCE and not merely that each step happened.
  */
 interface RecordedHost {
   boot: EditorHostBoot;
   steps: string[];
   posted: FutoEditorOutboundMessage[];
-  setDocument(text: string): void;
 }
 
 function recordHost(): RecordedHost {
   const steps: string[] = [];
   const posted: FutoEditorOutboundMessage[] = [];
-  let document = '';
 
   const effects: EditorHostEffects = {
     applyContentPadding: (px) => steps.push(`padding:${px}`),
@@ -32,11 +29,7 @@ function recordHost(): RecordedHost {
     applyTheme: (theme) => steps.push(`theme:${theme}`),
     applyImageBaseUrl: (base) => steps.push(`imageBaseUrl:${base}`),
     applyNotes: (json) => steps.push(`notes:${json}`),
-    applyContent: (markdown) => {
-      document = markdown;
-      steps.push(`content:${markdown}`);
-    },
-    readContent: () => document,
+    applyContent: (markdown) => steps.push(`content:${markdown}`),
     post: (message) => posted.push(message),
   };
 
@@ -44,9 +37,6 @@ function recordHost(): RecordedHost {
     boot: createEditorHostBoot(effects),
     steps,
     posted,
-    setDocument: (text) => {
-      document = text;
-    },
   };
 }
 
@@ -217,27 +207,20 @@ describe('incremental updates after boot', () => {
     expect(host.steps).toEqual(['imageBaseUrl:file:///vault/']);
   });
 
-  it('leaves the document alone when the host re-sends what is on screen', () => {
+  it('hands every content push to the editor without reading the document first', () => {
+    // The live-document guard is the editor's (`applyContent`). A read from
+    // here settled an edited, streaming note and posted its body inside the
+    // push of the next note (RC-04), so nothing may be read or posted here.
     const host = recordHost();
     host.boot.initialize(config({ content: 'unchanged' }));
     host.steps.length = 0;
+    host.posted.length = 0;
 
     host.boot.setContent('unchanged');
-
-    expect(host.steps).toEqual([]);
-  });
-
-  it('overwrites edits the host has decided to replace', () => {
-    // The guard reads the LIVE document, so re-sending content the user has
-    // since edited still lands — a remembered "last push" would swallow it.
-    const host = recordHost();
-    host.boot.initialize(config({ content: 'from disk' }));
-    host.setDocument('typed by the user');
-    host.steps.length = 0;
-
     host.boot.setContent('from disk');
 
-    expect(host.steps).toEqual(['content:from disk']);
+    expect(host.steps).toEqual(['content:unchanged', 'content:from disk']);
+    expect(host.posted).toEqual([]);
   });
 });
 

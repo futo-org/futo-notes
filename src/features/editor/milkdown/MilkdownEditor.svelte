@@ -62,8 +62,15 @@
     type Schema as ProseSchema,
   } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
-  import { imageReferenceMarkdown, withNarrowedEscapes } from '@futo-notes/editor';
-  import { FRONTMATTER_NODE } from '@futo-notes/editor/milkdown-compat';
+  import {
+    imageReferenceMarkdown,
+    toWellFormedText,
+    withNarrowedEscapes,
+  } from '@futo-notes/editor';
+  import {
+    FRONTMATTER_NODE,
+    hasSurplusTrailingEmptyParagraphs,
+  } from '@futo-notes/editor/milkdown-compat';
   import {
     installVaultImageUrlResolver,
     uninstallVaultImageUrlResolver,
@@ -89,14 +96,19 @@
   import { editorView, enclosingListItem } from './caretContext';
   import { inIndentableContainer } from './blockCommands';
   import { dividerCaretFix } from './dividerCaret';
+  import { plainTextBlockPaste } from './plainTextBlockPaste';
   import { computeActiveFormats, computeDisabledFormats } from './formatState';
   import { handleIndentShortcut, handleParityKeyDown } from './keyboardParity';
-  import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
+  import {
+    createMobileBlockDndPlugin,
+    dropBlockDndFocusGuards,
+    type MobileDndHapticKind,
+  } from './mobileBlockDnd';
   import { codeHighlight } from './codeHighlight';
   import { createSelectionToolbarPlugin, resolveSelectionToolbar } from './selectionToolbar';
   import { createSlashMenuPlugin, resolveSlashMenu } from './slash';
   import { planMarkdownChunks, type MarkdownChunkOptions } from './markdownChunks';
-  import { parseNote } from './parseNote';
+  import { parseNote, stripLeadingBoms } from './parseNote';
   import {
     OPEN_COMPLETE_MEASURE,
     OPEN_INTERACTIVE_MEASURE,
@@ -121,12 +133,17 @@
     type FindMatchReport,
   } from './find';
   import { tagDecorations } from './tagDecorations';
-  import { DOCUMENT_CHANGE_DEBOUNCE_MS, documentChanges } from './documentChanges';
+  import {
+    DOCUMENT_CHANGE_DEBOUNCE_MS,
+    DOCUMENT_CHANGE_MAX_WAIT_MS,
+    documentChanges,
+  } from './documentChanges';
   import { createBlockSerializer, type BlockSerializer } from './blockSerializer';
   import { WHOLE as CENSUS_WHOLE } from './chunkCensusHook';
   import { CHECKBOX_SIZE_PX, taskCheckbox } from './taskCheckbox';
   import { hideTableGrips, tableGrips } from './table/tableGrips';
   import { createToolbarExec } from './toolbarExec';
+  import { imageInputRule } from './imageInputRule';
   import { vaultImageView } from './vaultImageView';
   import { refreshWikilinkViews, wikilink, WIKILINK_TARGET_ATTR } from './wikilink';
   import { WIKILINK_BROKEN_CLASS } from './wikilink/display';
@@ -286,17 +303,32 @@
   /* Drives the loading affordance over the streaming tail. `$state` because it
    * is read by the template. */
   let streamingTail = $state(false);
-  /* Undo depth when the current progressive load started — the baseline the
-   * "did the user type while the tail was streaming?" question is asked
-   * against. A plain `undoDepth > 0` test would be wrong: the host calls
-   * `resetHistory()` after every setContent/initialize (so the baseline is
-   * usually 0), but `applyExternalContent` — a remote sync update — does NOT,
-   * and there the user's earlier history is still on the stack. Reading that as
-   * an edit would make adopting a sync update rewrite a large note on disk,
-   * which ADR-0002 forbids. `resetHistory()` below keeps this in step. */
-  let historyBaselineDepth = 0;
+  /* Whether the user has edited since the current progressive load started —
+   * the answer to "did the user type while the tail was streaming?". Set by
+   * every reportable transaction (documentChanges.ts), cleared when a load
+   * starts, and nothing else moves it.
+   *
+   * It used to be derived from the undo depth (`undoDepth > depth at load
+   * start`), and undo depth is not a count of edits (RC-11): a sync adopt
+   * keeps the user's history, an Undo LOWERS the depth, and prosemirror-history
+   * trims its stack from 120 events back to 100. An Undo during a streamed
+   * adopt followed by one word, or one word typed with the stack full, netted
+   * to "not edited" — no `change`, and `getContent()` answered the peer's bytes
+   * while the word sat on screen. */
+  let editedDuringLoad = false;
   /* The pending debounced change notification (documentChanges.ts). */
   let changeTimer: number | null = null;
+  /* When the first edit the pending notification holds was made: the anchor
+   * for `DOCUMENT_CHANGE_MAX_WAIT_MS`. */
+  let changePendingSince: number | null = null;
+  /* The loaded document a host READ handed an edit of out, before any `change`
+   * said so (`getContent` inside the debounce — RC-28). An Undo back to that
+   * document is then a change the host has to hear, not the load's echo. */
+  let editReadOutOf: ProseNode | null = null;
+  /* A change notification the debounce already handed to the idle priming
+   * loop (`reportDocumentChange`, still-cold document): as unreported as one
+   * still sitting in `changeTimer`. */
+  let reportAwaitsPriming = false;
   /* Whether the last load gave up on chunking mid-flight and reloaded the note
    * whole. Reported by `censusLoad` so the equivalence census cannot score a
    * fallback as proof that a chunked parse matched a whole one — it would be
@@ -539,7 +571,7 @@
       let builder = Editor.make()
         .config((ctx) => {
           ctx.set(rootCtx, container);
-          ctx.set(defaultValueCtx, pendingContent ?? '');
+          ctx.set(defaultValueCtx, stripLeadingBoms(pendingContent ?? ''));
           /* Stop remark-stringify turning a note's leading `#tag` into `\#tag`
            * on save, which silently un-tags it, and `snake_case` into
            * `snake\_case` (which also un-tags `#dog_problems`). See
@@ -683,9 +715,12 @@
         .use(gfmWithCompat())
         .use(wikilink)
         .use(vaultImageView)
+        .use(imageInputRule)
         .use(history)
         .use(listener)
-        .use(documentChanges(scheduleChangeNotification))
+        .use(documentChanges(documentEdited))
+        // BEFORE clipboard: its handlePaste must see a plain-text block first.
+        .use(plainTextBlockPaste)
         .use(clipboard)
         .use(gapCursorPlugin)
         .use(trailing)
@@ -902,8 +937,7 @@
       endPendingLoad('discard');
       // A change notification that lands after the component is gone would
       // serialize a destroyed editor and report it as the note.
-      if (changeTimer !== null) window.clearTimeout(changeTimer);
-      changeTimer = null;
+      cancelChangeNotification();
       stopPriming();
       blockSerializer = null;
       stopFileDrop?.();
@@ -999,14 +1033,38 @@
   function stopPriming(): void {
     primeCancelIdle?.();
     primeCancelIdle = null;
+    reportAwaitsPriming = false;
   }
 
+  /** A user edit (documentChanges.ts): remember it, and report it once the document settles. */
+  function documentEdited(): void {
+    editedDuringLoad = true;
+    scheduleChangeNotification();
+  }
+
+  /* A trailing debounce, capped: an edit is reported once the document has sat
+   * still for DOCUMENT_CHANGE_DEBOUNCE_MS, or DOCUMENT_CHANGE_MAX_WAIT_MS after
+   * it was made, whichever is first (RC-26 — typing that never paused was never
+   * reported, so never saved). The same one timer either way. */
   function scheduleChangeNotification(): void {
     if (changeTimer !== null) window.clearTimeout(changeTimer);
+    const now = performance.now();
+    changePendingSince ??= now;
+    const delay = Math.min(
+      DOCUMENT_CHANGE_DEBOUNCE_MS,
+      Math.max(0, changePendingSince + DOCUMENT_CHANGE_MAX_WAIT_MS - now),
+    );
     changeTimer = window.setTimeout(() => {
       changeTimer = null;
+      changePendingSince = null;
       reportDocumentChange();
-    }, DOCUMENT_CHANGE_DEBOUNCE_MS);
+    }, delay);
+  }
+
+  function cancelChangeNotification(): void {
+    if (changeTimer !== null) window.clearTimeout(changeTimer);
+    changeTimer = null;
+    changePendingSince = null;
   }
 
   /** Hands the settled document to the host, unless it is not the host's to hear. */
@@ -1025,8 +1083,15 @@
     if (loadFailed) return;
 
     // The debounced echo of host content we just loaded — not an edit, and
-    // decided without serializing anything.
-    if (unchangedSinceLoad()) return;
+    // decided without serializing anything. Unless a host read already took
+    // an edit of this document away (RC-28): then coming back to it is news.
+    if (unchangedSinceLoad()) {
+      if (editReadOutOf === null || editReadOutOf !== loadedDoc) return;
+      editReadOutOf = null;
+      const loaded = hostMarkdown ?? readSerialized();
+      if (loaded !== null) onchange?.(loaded);
+      return;
+    }
 
     // Most notes are already fully primed here (noteLoaded/finishProgressiveLoad
     // warm the cache in the background), so this budget almost never does real
@@ -1052,7 +1117,11 @@
         // mid-typing-burst). Any keystrokes that arrive meanwhile are one or
         // two more cache misses, absorbed by the sync budget on that next
         // pass.
-        startPriming(scheduleChangeNotification);
+        startPriming(() => {
+          reportAwaitsPriming = false;
+          scheduleChangeNotification();
+        });
+        reportAwaitsPriming = true;
         return;
       }
     }
@@ -1064,6 +1133,7 @@
     // A genuine user edit: the host's copy is no longer authoritative.
     loadedDoc = null;
     hostMarkdown = null;
+    editReadOutOf = null;
     onchange?.(markdown);
   }
 
@@ -1079,7 +1149,12 @@
     const doc = view.state.doc;
     if (liveDoc === doc && liveMarkdown !== null) return liveMarkdown;
     try {
-      const markdown = blockSerializer.serialize(doc);
+      /* The one place the live document becomes text (`getContent`, the
+       * `change` report): a lone surrogate — a Backspace that split an emoji, a
+       * paste that carried half of one — is written as U+FFFD (RC-48, decision
+       * 16A). Unfixed it reached the Tauri IPC as a `\ud800` JSON escape and the
+       * save never settled. */
+      const markdown = toWellFormedText(blockSerializer.serialize(doc));
       liveDoc = doc;
       liveMarkdown = markdown;
       return markdown;
@@ -1125,8 +1200,21 @@
    * `EXTERNAL_CONTENT_OPTS` did. It also means documentChanges.ts never reports
    * the load itself — correct, since a load is never an edit.
    * → docs/spec/editor.md "Saving & rename", tests/editor-embed-milkdown.spec.ts
+   *
+   * A focused editable's DOM caret is let go first; ProseMirror puts it back
+   * once the new document's DOM exists. Left in place, it sits in the block
+   * being rewritten, and WebKit pays for every child written or removed
+   * around it: the Selection's live range is re-indexed per removal, and the
+   * writing-suggestions pass walks to the caret's child index per element
+   * built — O(n²) in a block's inline children. Measured on WebKit, a 100 KB
+   * paragraph dense with marks opened in 9 s with the caret in place and in
+   * 1.4 s without. (ProseMirror's own measuring Range is the other boundary
+   * that used to sit there; patches/prosemirror-view parks it.)
+   * → tests/editor-open-large-paragraph.spec.ts
    */
   function loadParsedDocument(view: ProseView, parsed: ProseNode): void {
+    if (view.hasFocus() && !view.composing)
+      view.dom.ownerDocument.getSelection()?.removeAllRanges();
     const { state } = view;
     view.dispatch(
       state.tr
@@ -1237,17 +1325,17 @@
   }
 
   /**
-   * Whether the user has made an undoable change since the current load began.
+   * Whether the user has changed the document since the current load began.
    *
-   * Every user edit is history-recorded — that is what the history plugin is
-   * for — while the editor's own housekeeping is not: the preset re-stamps
-   * heading ids in a 125-step transaction after content lands, which a
-   * "any document change that isn't ours" test misreads as typing, and which
-   * would then rewrite every large note on open.
+   * Asked of `isReportableDocumentChange`, the one definition of a user edit:
+   * the editor's own housekeeping carries `addToHistory: false` — the preset
+   * re-stamps heading ids in a 125-step transaction after content lands, and
+   * a "any document change that isn't ours" test would misread that as typing
+   * and rewrite every large note on open — and so does everything a load
+   * knocks on.
    */
   function editedSinceLoadStart(): boolean {
-    const view = pmView();
-    return view ? undoDepth(view.state) > historyBaselineDepth : false;
+    return editedDuringLoad;
   }
 
   /**
@@ -1261,8 +1349,7 @@
 
     /* Whatever the debounce is holding described a prefix, or is about to be
      * reported right here; either way a second report would be a duplicate. */
-    if (changeTimer !== null) window.clearTimeout(changeTimer);
-    changeTimer = null;
+    cancelChangeNotification();
     // Any cached serialization described a prefix of the note.
     liveDoc = null;
     liveMarkdown = null;
@@ -1435,11 +1522,9 @@
 
     progressive = load;
     streamingTail = load.loading;
-    // After chunk 0. Its replace is outside the history (`loadParsedDocument`),
-    // so this is the depth of whatever the user had before the load: 0 after
-    // the host's `resetHistory()` on an open, their own edits on a sync adopt.
-    const view = pmView();
-    historyBaselineDepth = view ? undoDepth(view.state) : 0;
+    // After chunk 0, which is not an edit (`loadParsedDocument`): whatever
+    // the user does from here on is.
+    editedDuringLoad = false;
     measureOpen(OPEN_INTERACTIVE_MEASURE);
   }
 
@@ -1551,11 +1636,74 @@
       hostMarkdown = text;
       return;
     }
-    if (text === hostMarkdown || text === liveMarkdown) return;
+    if (holdsExactly(text)) return;
     applyExternal(text);
   }
 
+  /**
+   * Is `text` what the document holds RIGHT NOW — so that loading it would
+   * change nothing but the caret?
+   *
+   * Asked of the live document, never of what this component last loaded or
+   * last reported. Both of those lag the user: `hostMarkdown` keeps the load
+   * bytes for the whole change debounce after a keystroke, and `liveMarkdown`
+   * describes whatever document was serialized last. A host that switches the
+   * shared WebView to another note with the same bytes (two new, empty notes)
+   * used to be swallowed by that bookkeeping, leaving the previous note's text
+   * on screen to be reported as the next note's (L6a-1).
+   *
+   * Side-effect free, which is the other half of the point: a note switch asks
+   * this of the OUTGOING document, so it must not settle a streaming load or
+   * post anything — a `change` posted from here would be saved into the note
+   * being switched TO (RC-04). A streaming document is compared without
+   * finishing it: untouched, it is the host's bytes; edited, it is not them,
+   * and nothing a host could send equals an edit it has never been told of.
+   */
+  function holdsExactly(text: string): boolean {
+    if (loadFailed || progressive?.loading) {
+      return text === hostMarkdown && (loadFailed || !editedSinceLoadStart());
+    }
+    if (hostMarkdown !== null && unchangedSinceLoad()) return text === hostMarkdown;
+    /* Equal bytes are not an equal document: trailing empty paragraphs are not
+     * written (RC-22), so a document the user stacked blank paragraphs onto
+     * serializes like one without them, and skipping would leave those on
+     * screen under the next note. Such a document is reloaded. */
+    const view = pmView();
+    if (view && hasSurplusTrailingEmptyParagraphs(view.state.doc)) return false;
+    return text === readSerialized();
+  }
+
+  /**
+   * The host's exit read of this note (`FutoEditor.getContent`): the answer
+   * `getContent()` gives, and the LAST word on this document.
+   *
+   * A `change` carries no note identity, so the shell saves each one into
+   * whichever note it has bound when the message arrives. Once a shell has
+   * read the document it is leaving, it moves on, and a report from the old
+   * document arriving after that lands in the next note (L6c-3). So the
+   * report the debounce is still holding goes out NOW, inside the read, rather
+   * than 200 ms later into a binding it was never meant for: a shell that
+   * reads before it rebinds (both do on a vetoable exit) hears it as the
+   * outgoing note's, and the bytes are exactly the ones this returns.
+   */
+  export function captureContent(): string | undefined {
+    const text = getContent();
+    if (changeTimer !== null || reportAwaitsPriming) {
+      cancelChangeNotification();
+      if (reportAwaitsPriming) startPriming();
+      reportDocumentChange();
+    }
+    return text;
+  }
+
   export function getContent(): string | undefined {
+    const text = readContent();
+    /* Every answer passes here, the host's own bytes included: nothing that
+     * leaves the editor may carry a lone surrogate (RC-48, decision 16A). */
+    return text === undefined ? text : toWellFormedText(text);
+  }
+
+  function readContent(): string | undefined {
     /* NOT THIS NOTE (CRITICAL — 2026-09-03 data loss, docs/spec/editor.md).
      * Two ways this component ends up holding an empty document for a note that
      * has bytes, both of which used to serialize back as "the user deleted
@@ -1600,11 +1748,18 @@
     // answers here without serializing anything.
     if (hostMarkdown !== null && unchangedSinceLoad()) return hostMarkdown;
     const live = readSerialized();
-    if (live === null) return hostMarkdown ?? liveMarkdown ?? '';
+    /* CRITICAL — a document that cannot be serialized is not an empty one
+     * (RC-17). After a chrome edit (`applyEdit`) nothing else describes it,
+     * and `''` here was indistinguishable from the user clearing the note. No
+     * answer is the honest one: every caller treats `undefined` as unsaveable. */
+    if (live === null) return hostMarkdown ?? liveMarkdown ?? undefined;
+    // Handed out before any `change` said so: the host may persist it.
+    if (loadedDoc !== null && !unchangedSinceLoad()) editReadOutOf = loadedDoc;
     return live;
   }
 
   export function focus(): void {
+    dropBlockDndFocusGuards(); // a host focus is intentional (R10-FB20-1)
     pmView()?.focus();
   }
 
@@ -1663,7 +1818,7 @@
   export function insertMarkdown(text: string): void {
     // Chrome must not write into a document that is not the note (`loadFailed`).
     if (!editor || loadFailed) return;
-    editor.action(insert(text));
+    editor.action(insert(stripLeadingBoms(text)));
     pmView()?.focus();
   }
 
@@ -1717,7 +1872,7 @@
      * discarded: this replace is one undoable step, so the document it leaves
      * behind for Ctrl-Z has to be the complete note (`endPendingLoad`). */
     endPendingLoad('settle');
-    editor.action(replaceAll(text));
+    editor.action(replaceAll(stripLeadingBoms(text)));
     // The document is no longer the host's bytes — and this replace's own
     // debounced change notification is an echo of the report made right here,
     // not a second edit: `loadedDoc` is what says so.
@@ -1791,8 +1946,6 @@
    * setContent.
    */
   export function resetHistory(): void {
-    // Whatever this does to the stack, the stack is empty afterwards.
-    historyBaselineDepth = 0;
     const view = pmView();
     if (!view) return;
     /* Find state dies with the note. The host calls this on every
@@ -2197,6 +2350,21 @@
   :global(.futo-milkdown .ProseMirror a) {
     color: var(--color-primary, #f26b1f);
     text-decoration: underline;
+  }
+
+  /* Wikilinks: a dashed underline tells them from web links, and a broken or
+     ambiguous one (wikilink/display.ts stamps `cm-md-wikilink-broken`) is muted
+     so a dead link is identifiable before it is tapped (editor.md "Wikilinks").
+     Here, unlayered and at the same specificity as the rule above, because the
+     `@layer components` copies these used to live in (markdown-links.css) lose to
+     it on cascade origin and never applied. */
+  :global(.futo-milkdown .ProseMirror a.cm-md-wikilink) {
+    text-decoration-style: dashed;
+  }
+
+  :global(.futo-milkdown .ProseMirror a.cm-md-wikilink.cm-md-wikilink-broken) {
+    color: var(--color-muted, #737373);
+    text-decoration-color: currentColor;
   }
 
   :global(.futo-milkdown .ProseMirror blockquote) {

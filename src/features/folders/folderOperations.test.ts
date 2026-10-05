@@ -44,6 +44,7 @@ describe('renameOrMoveFolder', () => {
       folders: ['Archive'],
       finalId: null,
       finalFolder: 'Archive',
+      relinked: [],
       warnings: [],
     };
     mocks.renameFolder.mockResolvedValue(mutation);
@@ -74,6 +75,7 @@ describe('moveFolder', () => {
       folders: ['Archive', 'Archive/Work', 'Archive/Work-2'],
       finalId: null,
       finalFolder: 'Archive/Work-2',
+      relinked: [],
       warnings: [],
     };
     mocks.moveFolder.mockResolvedValue(mutation);
@@ -122,6 +124,7 @@ describe('renameFolderInPlace', () => {
       folders: ['Projects', 'Projects/Archive'],
       finalId: null,
       finalFolder: 'Projects/Archive',
+      relinked: [],
       warnings: [],
     };
     mocks.renameFolder.mockResolvedValue(mutation);
@@ -147,6 +150,7 @@ describe('createFolder', () => {
       folders: ['Projects'],
       finalId: null,
       finalFolder: null,
+      relinked: [],
       warnings: [],
     };
     mocks.createFolder.mockResolvedValue(mutation);

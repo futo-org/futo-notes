@@ -6,7 +6,9 @@ import {
   PERFORMANCE_BUDGET,
   evaluatePerformanceFloor,
   type PerformanceResult,
+  runPerformanceFloor,
 } from './performanceFloor';
+import type { EditorGauntletAdapter } from './types';
 
 function result(overrides: Partial<PerformanceResult>): PerformanceResult {
   return {
@@ -55,6 +57,15 @@ describe('MILKDOWN_FLOOR_FIXTURES', () => {
   });
 });
 
+/** The three section fixtures, with the given per-keystroke node walks. */
+function sections(small: number, medium: number, large: number): PerformanceResult[] {
+  return [
+    result({ fixture: '1000-sections', lines: 3_999, bytes: 55_779, openMs: 120 }),
+    result({ fixture: '5000-sections', lines: 19_999, bytes: 287_779, openMs: 200 }),
+    result({ fixture: '20000-sections', lines: 79_999, bytes: 1_177_779, openMs: 400 }),
+  ].map((r, i) => ({ ...r, keystrokeNodeVisitsP95: [small, medium, large][i] }));
+}
+
 /** The named fixtures only, so a partial run does not report the rest missing. */
 function only(...names: string[]): FloorFixture[] {
   return names.map((name) => {
@@ -70,6 +81,9 @@ describe('evaluatePerformanceFloor', () => {
       result({ fixture: '1000-lines', lines: 1_000, bytes: 50_000, openMs: 60 }),
       result({ fixture: '10000-lines', openMs: 500 }),
       result({ fixture: '50000-lines', lines: 50_000, bytes: 2_500_000, openMs: 2_600 }),
+      result({ fixture: '10k-char-js-fence', lines: 180, bytes: 10_100, openMs: 2_700 }),
+      result({ fixture: '2000-item-task-list', lines: 2_000, bytes: 30_000, openMs: 150 }),
+      ...sections(40, 40, 40),
       result({ fixture: '1mb-adversarial', lines: 5_000, bytes: 1_048_576, openMs: 700 }),
       result({ fixture: '10mb-adversarial', lines: 50_000, bytes: 10_485_760, openMs: 7_500 }),
     ]);
@@ -126,10 +140,77 @@ describe('evaluatePerformanceFloor', () => {
     expect(violations.map((v) => v.kind)).toContain('keystroke-budget');
   });
 
+  it('fails a keystroke whose document walk grows with the note', () => {
+    const violations = evaluatePerformanceFloor(
+      only('1000-sections', '5000-sections', '20000-sections'),
+      sections(12_000, 60_000, 240_000),
+    );
+    expect(violations.map((v) => [v.fixture, v.kind])).toEqual([
+      ['5000-sections', 'keystroke-walk'],
+      ['20000-sections', 'keystroke-walk'],
+    ]);
+    expect(violations[1].detail).toBe(
+      "a keystroke walks 240000 document nodes, 20.0x 1000-sections's 12000, past the 2x factor",
+    );
+  });
+
+  it('fails a keystroke walk it cannot count', () => {
+    const [small, , large] = sections(40, 40, 40);
+    const violations = evaluatePerformanceFloor(only('1000-sections', '20000-sections'), [
+      small,
+      { ...large, keystrokeNodeVisitsP95: undefined },
+    ]);
+    expect(violations.map((v) => v.kind)).toEqual(['missing-measurement']);
+  });
+
   it('fails when a fixture produced no measurement at all', () => {
     const violations = evaluatePerformanceFloor(MILKDOWN_FLOOR_FIXTURES, []);
     expect(violations.filter((v) => v.kind === 'missing-measurement')).toHaveLength(
       MILKDOWN_FLOOR_FIXTURES.length,
     );
+  });
+});
+
+describe('runPerformanceFloor', () => {
+  it('opens every fixture on a fresh page and reports the replace cost apart from the open', async () => {
+    const calls: string[] = [];
+    const adapter = {
+      name: 'fake',
+      freshPage: async () => void calls.push('fresh'),
+      open: async () => void calls.push('open'),
+      measureOpen: async (source: string) => {
+        calls.push(source === '' ? 'replace-away' : 'measure-open');
+        return {
+          bytes: source.length,
+          lines: 1,
+          synchronousMs: 1,
+          settledMs: source === '' ? 3_000 : 90,
+        };
+      },
+      measureKeystrokes: async () => {
+        calls.push('keys');
+        return { synchronousSamplesMs: [1], settledToPaintSamplesMs: [2] };
+      },
+    } as unknown as EditorGauntletAdapter;
+
+    const fixtures = only('10k-char-js-fence', '2000-item-task-list');
+    const results = await runPerformanceFloor(adapter, fixtures);
+
+    // No open is measured on a page that still holds an earlier fixture.
+    expect(calls).toEqual([
+      ...['fresh', 'open', 'measure-open', 'keys', 'replace-away'],
+      ...['fresh', 'open', 'measure-open', 'keys', 'replace-away'],
+    ]);
+    expect(results.map((r) => [r.openMs, r.replaceAwayMs])).toEqual([
+      [90, 3_000],
+      [90, 3_000],
+    ]);
+    // The replace cost is reported, not judged.
+    expect(evaluatePerformanceFloor(fixtures, results)).toEqual([]);
+  });
+
+  it('refuses an adapter that cannot give each fixture a fresh page', async () => {
+    const adapter = { name: 'stale' } as unknown as EditorGauntletAdapter;
+    await expect(runPerformanceFloor(adapter, only('1000-lines'))).rejects.toThrow(/freshPage/);
   });
 });

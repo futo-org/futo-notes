@@ -28,18 +28,6 @@ interface SidebarMutationOptions {
   onActiveNoteMoved: (fromId: string, toId: string, title: string) => void;
 }
 
-function runWithActiveNoteLockIfInFolder<T>(
-  folderPath: string,
-  options: SidebarMutationOptions,
-  operation: () => Promise<T>,
-): Promise<T> {
-  const activeId = options.getActiveNoteId();
-  if (activeId && activeId !== 'new' && activeId.startsWith(`${folderPath}/`)) {
-    return options.runWithActiveNoteLock(operation);
-  }
-  return operation();
-}
-
 function retargetActiveNote(
   renames: Array<{ from: string; to: string }> | undefined,
   options: SidebarMutationOptions,
@@ -79,7 +67,10 @@ export async function renameSidebarFolder(
 ): Promise<LocalizedMessage | null> {
   const parent = idParent(path);
   const siblings = collectSiblingFolders(parent).filter((name) => name !== idLeaf(path));
-  return runWithActiveNoteLockIfInFolder(path, options, async () => {
+  // Always locked, like the note mutations: a note OUTSIDE the folder that
+  // links into it is relinked too, and no save may run from its pre-rewrite
+  // baseline while the rewrite commits.
+  return options.runWithActiveNoteLock(async () => {
     const result = await renameFolderInPlace(path, newName, siblings);
     if (!result.ok) return result.error ?? { path: 'folders.errors.renameFailed' };
     options.onNoteIdsRenamed(result.renames ?? []);
@@ -226,7 +217,7 @@ export async function confirmDeleteSidebarFolder(
   }
 
   const prefix = `${path}/`;
-  await runWithActiveNoteLockIfInFolder(path, options, async () => {
+  await options.runWithActiveNoteLock(async () => {
     // The shared store plans collisions, moves every note with rollback on
     // failure, rewrites backlinks, then removes the remaining folder tree.
     const result = await deleteFolder(path);
@@ -275,7 +266,7 @@ export async function moveSidebarFolder(
   } else if (folderPath === targetPath || targetPath.startsWith(`${folderPath}/`)) {
     return;
   }
-  await runWithActiveNoteLockIfInFolder(folderPath, options, async () => {
+  await options.runWithActiveNoteLock(async () => {
     const result = await moveFolder(folderPath, targetPath);
     if (!result.ok) {
       showGlobalToast(result.error ?? { path: 'folders.errors.moveFailed' });

@@ -134,7 +134,9 @@ export const CAVEATED = [
   [
     'test-cross-platform',
     'boots the real Tauri desktop app, which is WebKitGTK on Linux. The assertions are on sync ' +
-      'state and files, which are engine-independent — but a rendering regression will not show up here.',
+      'state and files, which are engine-independent — but a rendering regression will not show up here. ' +
+      'It also needs a Wayland/X display that a bare ssh shell lacks: without one it fails in ~9s ' +
+      '(`no DISPLAY or WAYLAND_DISPLAY`); see docs/remote-testing.md "Suites that need a display".',
   ],
   [
     'prepush',

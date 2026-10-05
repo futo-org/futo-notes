@@ -11,7 +11,7 @@
  * the way callers expect.
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '$lib/platform/tauri/invoke';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import {
   clearLegacyE2eePassword,

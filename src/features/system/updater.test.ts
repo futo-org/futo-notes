@@ -9,6 +9,7 @@ vi.mock('@tauri-apps/plugin-updater', () => ({ check: checkMock }));
 vi.mock('@tauri-apps/plugin-process', () => ({ relaunch: relaunchMock }));
 
 import { checkForUpdate, installUpdate, relaunchApp, selfUpdateSupported } from './updater';
+import { registerExitFlushSource } from '$shared/lifecycle/flushBeforeExit';
 
 beforeEach(() => {
   checkMock.mockReset();
@@ -137,10 +138,12 @@ describe('installUpdate', () => {
       ],
     ],
   ])('%s', async (_name, events, expected) => {
-    const downloadAndInstall = vi.fn(async (cb: (e: unknown) => void) => {
+    const download = vi.fn(async (cb: (e: unknown) => void) => {
       for (const e of events) cb(e);
     });
-    const update = { handle: { downloadAndInstall } } as unknown as PendingUpdate;
+    const update = {
+      handle: { download, install: vi.fn(async () => {}) },
+    } as unknown as PendingUpdate;
 
     const progress: Array<[number, number | null]> = [];
     await installUpdate(update, (received, total) => progress.push([received, total]));
@@ -155,14 +158,60 @@ describe('installUpdate', () => {
       { event: 'Progress', data: { chunkLength: 50 } },
       { event: 'Finished' },
     ];
-    const downloadAndInstall = vi.fn(async (cb: (e: unknown) => void) => {
+    const download = vi.fn(async (cb: (e: unknown) => void) => {
       for (const e of events) cb(e);
     });
-    const update = { handle: { downloadAndInstall } } as unknown as PendingUpdate;
+    const update = {
+      handle: { download, install: vi.fn(async () => {}) },
+    } as unknown as PendingUpdate;
 
     const onDownloadComplete = vi.fn();
     await installUpdate(update, undefined, onDownloadComplete);
     expect(onDownloadComplete).toHaveBeenCalledOnce();
     expect(relaunchMock).toHaveBeenCalledOnce();
+  });
+
+  it('drains the pending save between the download and the install, and again before the relaunch (RC-87)', async () => {
+    const order: string[] = [];
+    const unregister = registerExitFlushSource({
+      flushSave: async () => {
+        order.push('flush');
+      },
+    });
+    relaunchMock.mockImplementationOnce(async () => {
+      order.push('relaunch');
+    });
+    const update = {
+      handle: {
+        download: vi.fn(async () => {
+          order.push('download');
+        }),
+        install: vi.fn(async () => {
+          order.push('install');
+        }),
+      },
+    } as unknown as PendingUpdate;
+
+    await installUpdate(update);
+    unregister();
+
+    expect(order).toEqual(['download', 'flush', 'install', 'flush', 'relaunch']);
+  });
+
+  it('relaunchApp drains the pending save before it relaunches (RC-87)', async () => {
+    const order: string[] = [];
+    const unregister = registerExitFlushSource({
+      flushSave: async () => {
+        order.push('flush');
+      },
+    });
+    relaunchMock.mockImplementationOnce(async () => {
+      order.push('relaunch');
+    });
+
+    await relaunchApp();
+    unregister();
+
+    expect(order).toEqual(['flush', 'relaunch']);
   });
 });

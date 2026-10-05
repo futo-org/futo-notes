@@ -70,9 +70,16 @@ export interface EditorHostEffects {
   applyTheme(theme: EditorTheme): void;
   applyImageBaseUrl(base: string): void;
   applyNotes(notesJson: string): void;
+  /**
+   * Load `markdown` as the open note — a no-op when the live document already
+   * holds exactly that. The editor owns that guard, against its LIVE document:
+   * a host that re-sends content the user has since edited must still
+   * overwrite it, and re-sending exactly what is on screen must not disturb
+   * the caret. It must also be side-effect free: the document it is asked of
+   * is the one being switched AWAY from, and anything it reported would be
+   * saved into the note being switched to.
+   */
   applyContent(markdown: string): void;
-  /** The live document text, for {@link EditorHostBoot.setContent}'s guard. */
-  readContent(): string;
   post(message: FutoEditorOutboundMessage): void;
 }
 
@@ -201,11 +208,10 @@ export function createEditorHostBoot(effects: EditorHostEffects): EditorHostBoot
     },
 
     setContent(markdown: string): void {
-      // Guarded against the LIVE document, not the last push: a host that
-      // re-sends content the user has since edited must still overwrite it,
-      // and re-sending exactly what is already on screen must not disturb the
-      // caret.
-      if (markdown === effects.readContent()) return;
+      // The live-document guard is `applyContent`'s own. Reading the document
+      // from here to decide was RC-04: on an edited, streaming note the read
+      // settled the load and posted the OUTGOING note's body inside the push
+      // of the next one.
       effects.applyContent(markdown);
     },
 

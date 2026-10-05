@@ -73,6 +73,8 @@ tauri-plugin-single-instance = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
+# tao's delegate has no applicationShouldTerminate:; macos_terminate.rs adds one.
+objc2 = "0.6"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }
@@ -81,6 +83,8 @@ keyring = { version = "3", features = ["windows-native"] }
 tauri-plugin-dialog = { version = "2.7", default-features = false, features = ["xdg-portal"] }
 tauri-plugin-single-instance = "2"
 glib = "0.18"
+# The web-process-terminated signal (close_deadline.rs); the version tauri/wry already use.
+webkit2gtk = "2"
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 zbus = "5"
 
