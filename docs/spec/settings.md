@@ -180,8 +180,8 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   watcher binds the vault root once at startup, so only a restart rebinds it to
   the new vault (a webview reload leaves external-change detection pointed at the
   old root). →
-  `src/lib/platform/tauri/appConfig.ts`, `notesRoot.ts`, SettingsScreen.svelte,
-  `apps/tauri/src-tauri/src/vault_location.rs`
+  `src/lib/platform/tauri/appConfig.ts`, `notesRoot.ts`,
+  `src/features/storage/notesDirectory.ts`, `apps/tauri/src-tauri/src/vault_location.rs`
 - **Storage chooser:** **Change directory** uses the XDG FileChooser portal on
   Linux, so GNOME and Plasma show their own desktop chooser; macOS and Windows
   keep their native dialog backends. It works in sandboxed (Flatpak) builds too,
@@ -211,20 +211,79 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   read-only and grants nothing. → `vault_display_path`, `portal_vault::display_path`
 - Images in a sandboxed vault render through `asset://` like any other vault: the
   asset-protocol scope includes `/run/user/*/doc/**`. → tauri.conf.json
-- A picked directory the app cannot use — a folder it cannot create, a refused
-  relaunch — toasts "Could not use that folder: …" rather than leaving the pick to do
-  nothing. → SettingsScreen.svelte
+- A picked directory the app cannot use — a folder it cannot create, a folder it
+  may not create files in, a refused relaunch — toasts "Could not use that folder."
+  rather than leaving the pick to do nothing. Whether files may be created is asked
+  of the OS (`access` on Unix, a directory open for `FILE_ADD_FILE` on Windows);
+  nothing is written to find out, so Windows Controlled Folder Access, which only
+  blocks real writes, passes the pick and locks the vault at its first write
+  (docs/qa/windows-controlled-folder-access.md). →
+  `src/features/storage/notesDirectory.ts`, `vault_location::ensure_can_create_files_in`
 - **A vault that has gone missing** — an unmounted drive, a revoked sandbox grant
   — is a recoverable state, not a wedged app: the root is never recreated in
-  place, every note command fails with the vault-unavailable error, the shell
-  toasts the localized `notesFolderUnavailable` message ("Can't find your vault
-  folder at {folderPath}. Please reconfigure in settings."), and the
+  place, every note command fails with the vault-unavailable error, and the
   Storage section explains it ("This folder is no longer reachable. Choose it
   again, or reset to the default location.") and keeps both **Change directory**
   and **Reset to default** usable. `isCustom` is read from the vault's _location_,
   never from a successful vault read, so **Reset to default** cannot be hidden by
   the failure it is there to undo. → `vault_location::VAULT_UNAVAILABLE`,
   StorageSettingsSection.svelte
+- A **default** folder the app cannot create (e.g. blocked by Windows Controlled
+  Folder Access) is unusable in the same way, and the Storage section says "FUTO
+  Notes isn't allowed to create this folder, so nothing can be saved. Choose another
+  folder. On Windows, this is usually Controlled folder access: you can instead allow
+  FUTO Notes in Windows Security, then restart FUTO Notes." with **Change directory**
+  usable. Allowing it while the app runs takes effect on that restart: the note
+  list and watcher bind the vault only at launch. →
+  `vault_location::status_of`, StorageSettingsSection.svelte
+- A folder that **exists but refuses writes** (Controlled Folder Access over an
+  existing folder, a read-only mount) still lists and reads, so it loads normally.
+  It becomes unusable the first time it refuses to let a file or folder be created
+  directly in it — a top-level note or folder, a setting, the open tabs, an image;
+  nothing probes the vault. A refused create inside a subfolder (one read-only
+  folder, a root-owned `.crashlogs`) fails only that write, and a refused rename
+  or delete (another process holding the file) or an unreadable file does not
+  count. On Windows, "file not found" on such a create counts too: that is how
+  Controlled Folder Access answers a blocked create. The Storage section then
+  says "FUTO Notes isn't allowed to change this folder, so nothing can be saved.
+  Choose another folder. On Windows, this is usually Controlled folder access: you
+  can instead allow FUTO Notes in Windows Security, then restart FUTO Notes." →
+  `vault_fs::access_refused`, StorageSettingsSection.svelte
+- _(Desktop)_ The vault status is read at launch and again whenever a vault command
+  fails — a note command or external-file import, a settings, open-tabs or
+  crash-log write (a sync cycle ends with one), an image save — so a vault that
+  refuses a write or goes missing mid-session is caught at that failure. It only ever turns
+  unusable within a launch; every way back is a restart. → `src/features/storage/vaultAvailability.svelte.ts`,
+  `onVaultCommandFailed` in `src/lib/platform/tauri/vaultCommands.ts`
+- _(Desktop)_ While the vault is unusable (any case above), a banner stays at the
+  top of the window for the rest of the launch — "FUTO Notes can't save anything."
+  then "It isn't allowed to create its notes folder at {folderPath}." (default
+  cannot be created), "It can't find your notes folder at {folderPath}." (custom
+  missing) or "It isn't allowed to change your notes folder at {folderPath}."
+  (refused a write) — with **Choose another folder**, the same flow as **Change
+  directory**. It is never a toast: every edit is locked while it is up, and the
+  lock only makes sense next to it. The folder is always named (github#44). →
+  VaultUnavailableBanner.svelte
+- _(Desktop)_ While the vault is unusable, it is read-only in the UI: notes open
+  and read, but the editor body, title and tags take no edits (text typed before
+  the lock stays visible in the editor so it can be copied out; leaving the note
+  discards it, and the first refused save can hold the user once, before the lock
+  lands); **New note** and **New folder**
+  are disabled and Cmd/Ctrl+N and the app menu's **New Note** do nothing; every
+  folder and note row action (New note, New folder, Rename, Move, Delete) is
+  disabled, inline rename and drag-to-move do not start; the note menu's **Move**
+  and **Delete** and the Images view's **Delete** are disabled. **Copy file path**
+  stays. → NoteWorkspace.svelte, `src/app/createNewNote.ts`,
+  `createSidebarFolderWorkflows.svelte.ts`, FolderTreeFolderRow.svelte,
+  FolderTreeNoteRow.svelte
+- A setting that cannot be saved — the Settings toggles, Sync's **Reset
+  connection** and **Forget password**, the crash dialog's **Don't Send** — still
+  applies for the session and toasts "Setting changed, but it couldn't be saved."
+  (a language: "Language changed, but the preference could not be saved.") instead
+  of surfacing as a crash. The crash dialog still sends the reports the user chose
+  to send; an unsaved "Send crashes automatically" only means the dialog asks again
+  next time. → `savePreferences` in `src/shared/state/appState.ts`,
+  SettingsScreen.svelte, `createSyncSettings.svelte.ts`, `createCrashReporting.svelte.ts`
 - A vault whose external changes are found by polling rather than by inotify says
   nothing about it in the UI; the only user-visible consequence is that an external
   edit can take a few seconds to appear (see desktop-rust.md). If the watcher fails

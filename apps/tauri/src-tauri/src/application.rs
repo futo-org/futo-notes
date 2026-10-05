@@ -102,6 +102,8 @@ pub(crate) fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            crate::app_data::app_data_write,
+            crate::image_commands::fs_save_image,
             crate::image_commands::fs_paste_clipboard_image,
             crate::close_deadline::close_deadline_set_dirty,
             crate::app_menu::app_menu_set_labels,

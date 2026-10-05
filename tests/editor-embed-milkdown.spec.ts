@@ -3910,7 +3910,7 @@ test('a vault image renders against the base URL the host registered', async ({ 
 });
 
 /* CommonMark needs the pointy brackets for a destination containing a space,
- * and the app's own filenames never contain one (`createImageFilename`). This
+ * and the app's own filenames never contain one (`image_commands::write_image`). This
  * covers the foreign-vault spelling. */
 test('a filename with spaces is percent-encoded onto the base URL', async ({ page }) => {
   await initialize(page, hostConfig({ imageBaseUrl: 'file:///vault/' }));

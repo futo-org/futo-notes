@@ -47,7 +47,52 @@ fn read_override_file(path: &std::path::Path) -> Option<PathBuf> {
 }
 
 fn save_override(app: &AppHandle, directory: Option<&str>) -> Result<(), String> {
+    if let Some(directory) = directory {
+        ensure_can_create_files_in(std::path::Path::new(directory))?;
+    }
     write_override_file(&override_path(app)?, directory)
+}
+
+/// Refuses a picked folder this process may not create files in (crash #1788: a
+/// vault owned by another user). The OS answers from permissions alone, so
+/// nothing is written, and only a pick asks: a vault that refuses a write later
+/// is caught by that write (`vault_fs::access_refused`).
+fn ensure_can_create_files_in(directory: &std::path::Path) -> Result<(), String> {
+    can_create_files_in(directory).map_err(|error| {
+        format!(
+            "FUTO Notes can't create files in {}: {error}",
+            crate::portal_vault::display_path(directory)
+        )
+    })
+}
+
+/// The kernel's access check: ownership, mode bits, ACLs, read-only mounts. Plain
+/// `access`, not `faccessat(AT_EACCESS)`: glibc sends that as `faccessat2`, which
+/// an old container's seccomp filter refuses for every folder.
+#[cfg(unix)]
+fn can_create_files_in(directory: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(directory.as_os_str().as_bytes())?;
+    // SAFETY: `path` is a valid NUL-terminated string that outlives the call.
+    if unsafe { libc::access(path.as_ptr(), libc::W_OK | libc::X_OK) } == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+/// Opening the directory asking only for the right to add a file makes Windows
+/// run its full access check at open time; the handle is closed immediately.
+#[cfg(windows)]
+fn can_create_files_in(directory: &std::path::Path) -> std::io::Result<()> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_ADD_FILE: u32 = 0x0002;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    fs::OpenOptions::new()
+        .access_mode(FILE_ADD_FILE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(directory)
+        .map(drop)
 }
 
 /// Stores the picked directory verbatim, document-portal paths included: the
@@ -89,6 +134,9 @@ pub(crate) fn default_root(app: &AppHandle) -> Result<PathBuf, String> {
 /// cycle read the same thing.
 pub(crate) const VAULT_UNAVAILABLE: &str = "Can't find your vault folder at";
 
+/// Creates the default root on demand — the only root created on demand (a custom
+/// root is created once, when it is picked). The setup hook calls this before the
+/// webview loads, which is what lets `vault_status` answer read-only.
 pub(crate) fn root(app: &AppHandle) -> Result<PathBuf, String> {
     resolve_root(load_override(app), || {
         let root = default_root(app)?;
@@ -147,6 +195,10 @@ pub struct VaultStatus {
     display_path: String,
     is_custom: bool,
     available: bool,
+    /// The folder is there but the OS refused a write to it — Windows Controlled
+    /// Folder Access over an existing folder, a read-only mount. Learned from the
+    /// first refused operation, never by probing the vault.
+    access_refused: bool,
     /// True when the OS trash cannot accept deletions from this vault, so the
     /// delete confirmations must stop implying they are recoverable.
     deletes_are_permanent: bool,
@@ -157,19 +209,33 @@ pub struct VaultStatus {
 }
 
 fn status(app: &AppHandle) -> VaultStatus {
-    let custom = load_override(app);
+    status_of(
+        load_override(app),
+        default_root(app),
+        futo_notes_core::files::vault_fs::access_refused(),
+    )
+}
+
+fn status_of(
+    custom: Option<PathBuf>,
+    default: Result<PathBuf, String>,
+    access_refused: bool,
+) -> VaultStatus {
     // Where the vault is supposed to be — named even when unreachable, so Settings
     // can say which folder went missing.
-    let located = custom.clone().or_else(|| default_root(app).ok());
+    let located = custom.clone().or_else(|| default.clone().ok());
     VaultStatus {
         display_path: located.as_deref().map_or_else(
             || "No notes folder is available".to_owned(),
             crate::portal_vault::display_path,
         ),
         is_custom: custom.is_some(),
-        // The rule every command applies, with a read-only default closure so
-        // asking creates nothing.
-        available: resolve_root(custom, || default_root(app)).is_ok(),
+        // The rule every command applies, read-only: the setup hook already tried
+        // to create the default root, so one that is not a directory could not be
+        // created (Windows Controlled Folder Access, crash 1739) or has since gone.
+        available: !access_refused
+            && resolve_root(custom, || default).is_ok_and(|root| root.is_dir()),
+        access_refused,
         deletes_are_permanent: located
             .as_deref()
             .is_some_and(crate::system_trash::deletes_are_permanent),
@@ -293,6 +359,95 @@ mod tests {
             "resolve_root must not create the default root itself"
         );
         assert!(resolve_root(None, || Err("no documents dir".to_owned())).is_err());
+    }
+
+    /// Crash #1788: a folder the app cannot create files in is refused when
+    /// picked, and asking leaves nothing behind in one that is accepted. Root
+    /// ignores mode bits (Linux CI), so the check is held to what a real create
+    /// does rather than to the mode.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_the_process_cannot_create_files_in_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let writable = scratch("writable");
+        fs::create_dir_all(&writable).unwrap();
+        assert!(ensure_can_create_files_in(&writable).is_ok());
+        assert_eq!(fs::read_dir(&writable).unwrap().count(), 0);
+
+        let locked = scratch("locked");
+        fs::create_dir_all(&locked).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+        let result = ensure_can_create_files_in(&locked);
+        let can_create = fs::write(locked.join(".probe"), b"x").is_ok();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::remove_dir_all(&locked).unwrap();
+        fs::remove_dir_all(&writable).unwrap();
+        assert_eq!(
+            result.is_ok(),
+            can_create,
+            "the check must match a real create: {result:?}"
+        );
+        if let Err(error) = result {
+            assert!(error.contains("can't create files in"), "got {error}");
+        }
+    }
+
+    /// Crash 1739: Windows Controlled Folder Access refuses to create
+    /// `Documents\futo-notes`, so every command failed while `vault_status` still
+    /// reported the default root available — no toast, no Storage warning, just an
+    /// empty app. Setup's failed creation leaves no directory there — stood in for
+    /// here by a file — and a default root that is not a directory is unavailable.
+    #[test]
+    fn a_default_root_that_cannot_be_created_is_reported_unavailable() {
+        let parent = scratch("uncreatable-default");
+        fs::create_dir_all(&parent).unwrap();
+        // A file where the root should go makes creation fail on every OS.
+        let blocked = parent.join("notes");
+        fs::write(&blocked, "").unwrap();
+
+        let status = status_of(None, Ok(blocked.clone()), false);
+        assert!(
+            !status.available,
+            "an uncreatable default root must be unavailable"
+        );
+        assert!(!status.is_custom);
+        assert_eq!(status.display_path, blocked.display().to_string());
+
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    /// Asking must never write: startup creates the default root before the
+    /// webview asks, so a missing one is unavailable, not recreated in place.
+    #[test]
+    fn a_missing_default_root_is_unavailable_and_not_created() {
+        let missing = scratch("missing-default").join("notes");
+
+        assert!(!status_of(None, Ok(missing.clone()), false).available);
+        assert!(!missing.exists(), "vault_status must not create anything");
+    }
+
+    #[test]
+    fn an_existing_default_root_is_available() {
+        let existing = scratch("existing-default");
+        fs::create_dir_all(&existing).unwrap();
+
+        assert!(status_of(None, Ok(existing.clone()), false).available);
+
+        fs::remove_dir_all(existing).unwrap();
+    }
+
+    /// Controlled Folder Access over a folder that already holds notes: it lists
+    /// and reads, so only the refused write says it cannot be used.
+    #[test]
+    fn a_root_that_refused_a_write_is_unavailable() {
+        let existing = scratch("refused-default");
+        fs::create_dir_all(&existing).unwrap();
+
+        let status = status_of(None, Ok(existing.clone()), true);
+        assert!(!status.available);
+        assert!(status.access_refused);
+
+        fs::remove_dir_all(existing).unwrap();
     }
 
     /// A document-portal path must reach the override file byte-for-byte. An earlier

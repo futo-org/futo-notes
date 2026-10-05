@@ -19,9 +19,18 @@
     notes: NotePreview[];
     /** The bar's own box, for the shell's blank-space reach. */
     element?: HTMLElement;
+    /** Tags show but cannot be added or removed: the vault refuses writes. */
+    readonly?: boolean;
   }
 
-  let { content, readMarkdown, writeMarkdown, notes, element = $bindable() }: Props = $props();
+  let {
+    content,
+    readMarkdown,
+    writeMarkdown,
+    notes,
+    element = $bindable(),
+    readonly = false,
+  }: Props = $props();
 
   let adding = $state(false);
   let inputValue = $state('');
@@ -184,24 +193,26 @@
   {#each tags as tag}
     <span class="tag-pill">
       <span class="tag-pill-name">{tag.replace(/^#/, '')}</span>
-      <button
-        class="tag-pill-remove"
-        aria-label={localizedText('editor.tags.removeAccessibilityLabel', { tagName: tag })}
-        onclick={() => removeTag(tag)}
-      >
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
+      {#if !readonly}
+        <button
+          class="tag-pill-remove"
+          aria-label={localizedText('editor.tags.removeAccessibilityLabel', { tagName: tag })}
+          onclick={() => removeTag(tag)}
         >
-          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
-      </button>
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      {/if}
     </span>
   {/each}
 
@@ -248,7 +259,7 @@
         </div>
       {/if}
     </div>
-  {:else}
+  {:else if !readonly}
     <button
       class="tag-add-btn"
       aria-label={localizedText('editor.tags.addTag')}

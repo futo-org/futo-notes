@@ -17,8 +17,10 @@ export interface VaultStatus {
   /** The same location in terms a user recognises. */
   displayPath: string;
   isCustom: boolean;
-  /** False once the folder has gone: an unmounted drive, a revoked sandbox grant. */
+  /** False once the folder has gone (an unmounted drive, a revoked sandbox grant) or refused a write. */
   available: boolean;
+  /** The folder is there but refused a write: Controlled Folder Access, a read-only mount. */
+  accessRefused: boolean;
   /** True when the OS trash cannot accept deletions from this vault. */
   deletesArePermanent: boolean;
   /**
@@ -48,14 +50,9 @@ export async function ensureDirectory(path: string): Promise<void> {
   await mkdir(path, { recursive: true });
 }
 
-// Only the DEFAULT root is created on demand, matching Rust `vault_location`:
-// `mkdir -p` on a custom root succeeds under any writable ancestor, silently
-// replacing a vanished vault with an empty directory that `vault_status` then
-// reports available.
+// Creates nothing: Rust `vault_location` is the only owner of that rule — it
+// creates the default root at startup, and a root that cannot be created is
+// reported through `vaultStatus`, not thrown from here (crash 1739).
 export async function resolveNotesRoot(): Promise<string> {
-  const override = await loadNotesDirOverride();
-  if (override !== null) return override;
-  const root = await resolveDefaultNotesRoot();
-  await ensureDirectory(root);
-  return root;
+  return (await loadNotesDirOverride()) ?? resolveDefaultNotesRoot();
 }

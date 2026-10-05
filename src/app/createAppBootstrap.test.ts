@@ -13,7 +13,7 @@ vi.mock('$features/sync/syncServiceE2ee', () => ({
 }));
 const preferenceMocks = vi.hoisted(() => ({
   loadPreferences: vi.fn(() => new Promise(() => {})),
-  saveSelectedLanguageTag: vi.fn(() => Promise.resolve()),
+  saveSelectedLanguageTag: vi.fn(() => Promise.resolve(true)),
 }));
 vi.mock('$shared/state/appState', () => ({
   loadPreferences: preferenceMocks.loadPreferences,
@@ -214,7 +214,7 @@ describe('createAppBootstrap (M1 render gate)', () => {
 
   it('corrects an unavailable stored language to System and reports save failure', async () => {
     preferenceMocks.loadPreferences.mockResolvedValueOnce(storedPreferences('auto', 'fr'));
-    preferenceMocks.saveSelectedLanguageTag.mockRejectedValueOnce(new Error('disk unavailable'));
+    preferenceMocks.saveSelectedLanguageTag.mockResolvedValueOnce(false);
     const showToast = vi.fn();
     const bootstrap = createAppBootstrap({
       initializeCrashReporting: vi.fn(never),

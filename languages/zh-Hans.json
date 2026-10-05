@@ -61,6 +61,7 @@
       "heading": "设置",
       "openAccessibilityLabel": "打开设置",
       "closeAccessibilityLabel": "关闭设置",
+      "saveFailed": "设置已更改，但无法保存。",
       "sections": {
         "sync": "同步",
         "appearance": "外观",
@@ -100,6 +101,8 @@
         "appFolderDescription": "应用文件夹 · 私有",
         "legacyInternalDescription": "内部存储 · 私有（旧版）",
         "unreachableCurrentWarning": "此文件夹已无法访问。请重新选择它，或恢复默认位置。",
+        "accessRefusedWarning": "FUTO 笔记无权更改此文件夹，因此无法保存任何内容。请选择其他文件夹。在 Windows 上，这通常是由“受控文件夹访问”导致的：你也可以在“Windows 安全中心”中允许 FUTO 笔记，然后重新启动 FUTO 笔记。",
+        "uncreatableDefaultWarning": "FUTO 笔记无权创建此文件夹，因此无法保存任何内容。请选择其他文件夹。在 Windows 上，这通常是由“受控文件夹访问”导致的：你也可以在“Windows 安全中心”中允许 FUTO 笔记，然后重新启动 FUTO 笔记。",
         "loading": "正在加载…",
         "memoryVault": "内存测试笔记库",
         "unableToRead": "无法读取笔记目录",
@@ -591,6 +594,13 @@
       }
     },
     "storage": {
+      "unavailableBanner": {
+        "title": "FUTO 笔记无法保存任何内容。",
+        "uncreatableDefault": "它无权在 {folderPath} 创建笔记文件夹。",
+        "missingCustom": "它找不到位于 {folderPath} 的笔记文件夹。",
+        "accessRefused": "它无权更改位于 {folderPath} 的笔记文件夹。",
+        "chooseFolder": "选择其他文件夹"
+      },
       "onboarding": {
         "heading": "你的笔记应保存在哪里？",
         "description": "你的笔记是纯 Markdown 文件。请选择保存位置。",
@@ -678,8 +688,7 @@
       "disabled": "崩溃报告已关闭。可在“设置”中重新开启。"
     },
     "system": {
-      "watcherUnavailable": "重新启动之前，将无法检测外部文件更改。",
-      "notesFolderUnavailable": "找不到你的保管库文件夹 {folderPath}。请在“设置”中重新配置。"
+      "watcherUnavailable": "重新启动之前，将无法检测外部文件更改。"
     },
     "permissions": {
       "ios": {

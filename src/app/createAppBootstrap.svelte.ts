@@ -78,12 +78,11 @@ export function createAppBootstrap(deps: AppBootstrapDeps): AppBootstrap {
             const storedLanguageTag = preferences.language.selectedLanguageTag;
             const selectedLanguageTag =
               desktopLocalization.setSelectedLanguageTag(storedLanguageTag);
-            if (selectedLanguageTag !== storedLanguageTag) {
-              try {
-                await saveSelectedLanguageTag(selectedLanguageTag);
-              } catch {
-                deps.showToast({ path: 'settings.language.saveFailed' });
-              }
+            if (
+              selectedLanguageTag !== storedLanguageTag &&
+              !(await saveSelectedLanguageTag(selectedLanguageTag))
+            ) {
+              deps.showToast({ path: 'settings.language.saveFailed' });
             }
           }
           await themeApplication;

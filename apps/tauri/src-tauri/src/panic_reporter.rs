@@ -3,7 +3,7 @@
 //! Tauri-side panics that `window.onerror` can't see because the JS
 //! handler never gets a chance to run before the process unwinds.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -28,7 +28,9 @@ fn write_report(info: &std::panic::PanicHookInfo<'_>) {
     let Some(dir) = CRASHLOG_DIR.get() else {
         return;
     };
-    let _ = std::fs::create_dir_all(dir);
+    if !ensure_crashlog_dir(dir) {
+        return;
+    }
 
     let msg = if let Some(s) = info.payload().downcast_ref::<&'static str>() {
         (*s).to_string()
@@ -56,6 +58,12 @@ fn write_report(info: &std::panic::PanicHookInfo<'_>) {
         dir.join(filename),
         serde_json::to_string(&report).unwrap_or_default(),
     );
+}
+
+/// Creates `.crashlogs` but never the vault around it: a vault that has gone
+/// missing gets no report rather than being recreated as an empty folder.
+fn ensure_crashlog_dir(dir: &Path) -> bool {
+    std::fs::create_dir(dir).is_ok() || dir.is_dir()
 }
 
 /// Shape the JSON to match the JS `CrashReport` interface so the existing
@@ -107,6 +115,27 @@ mod tests {
         assert!(!report["app_version"].as_str().unwrap().is_empty());
         assert!(!report["platform"].as_str().unwrap().is_empty());
         assert!(!report["device_info"].as_str().unwrap().is_empty());
+    }
+
+    /// `.crashlogs` lives inside the vault; `create_dir_all` recreated a custom
+    /// vault that had gone missing (an unmounted drive) as an empty folder,
+    /// which `vault_status` then reported available.
+    #[test]
+    fn a_crash_never_recreates_a_missing_vault() {
+        let vault = std::env::temp_dir().join(format!("futo-panic-vault-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&vault);
+
+        assert!(!ensure_crashlog_dir(&vault.join(".crashlogs")));
+        assert!(!vault.exists(), "the missing vault must stay missing");
+
+        std::fs::create_dir_all(&vault).unwrap();
+        assert!(ensure_crashlog_dir(&vault.join(".crashlogs")));
+        assert!(
+            ensure_crashlog_dir(&vault.join(".crashlogs")),
+            "an existing dir is fine"
+        );
+        assert!(vault.join(".crashlogs").is_dir());
+        std::fs::remove_dir_all(&vault).unwrap();
     }
 
     #[test]

@@ -4,10 +4,14 @@ import { isTauri } from '$lib/platform';
 import {
   flushAppConfigWrites,
   onFileChange,
+  onVaultCommandFailed,
   sweepStaleTemps,
-  vaultStatus,
 } from '$lib/platform/tauri';
 import type { FileChangeEvent } from '$lib/platform/types';
+import {
+  loadVaultAvailability,
+  recheckVaultAvailability,
+} from '$features/storage/vaultAvailability.svelte';
 import {
   flushPendingSaveBeforeExit,
   registerExitFlushSource,
@@ -42,12 +46,11 @@ export function startNativeShell(deps: NativeShellDeps): () => void {
     onFileChange(
       (event) => deps.enqueueFileChange(event),
       () => {
-        // There is one toast slot, and an unreachable vault is *why* the watcher
-        // could not bind — so the symptom must not overwrite the vault toast below,
-        // which names the way out. Decided from the typed vault status, never by
-        // matching Rust's error prose. An unreadable status still shows the
-        // watcher toast: the watcher really did fail.
-        void vaultStatus()
+        // An unusable vault is *why* the watcher could not bind, and its banner
+        // already names the way out, so the symptom stays quiet. Decided from
+        // the typed vault status, never by matching Rust's error prose. An
+        // unreadable status still shows the toast: the watcher really did fail.
+        void loadVaultAvailability()
           .then((status) => {
             if (!status.available) return;
             showGlobalToast({ path: 'system.watcherUnavailable' });
@@ -57,28 +60,22 @@ export function startNativeShell(deps: NativeShellDeps): () => void {
     ),
   );
 
-  // An unreachable vault leaves the note list empty and every action failing, so
-  // say what happened and where the way out is. Settings' Storage section keeps
-  // working on purpose — see vault_location::VAULT_UNAVAILABLE, whose wording
-  // this matches: github#44 showed that a message which does not name the folder
-  // sends the user auditing their server instead of looking at their disk.
-  void vaultStatus()
-    .then((status) => {
-      if (!status.available) {
-        showGlobalToast({
-          path: 'system.notesFolderUnavailable',
-          arguments: { folderPath: status.displayPath },
-        });
-      }
-    })
-    .catch((error) => console.warn('Failed to read vault status:', error));
+  // Feeds VaultUnavailableBanner and the edit lock.
+  void loadVaultAvailability().catch((error) =>
+    console.warn('Failed to read vault status:', error),
+  );
+  onVaultCommandFailed(() => {
+    void recheckVaultAvailability().catch((error) =>
+      console.warn('Failed to re-read vault status:', error),
+    );
+  });
 
   track(startCloseDirtyReporter({ isSavePending: deps.isSavePending }));
   track(registerExitFlushSource({ flushSave: deps.flushSave, isSavePending: deps.isSavePending }));
   track(registerExitTask(flushAppConfigWrites));
   track(registerExitTask(flushAppStateWrites));
-  // An exit that beat an atomic rewrite leaves its temp file behind; clear the
-  // stale ones (ours by name, and old) now.
+  // An exit that beat an older build's TS atomic rewrite left its temp file
+  // behind; clear the stale ones (ours by name, and old) now.
   void sweepStaleTemps();
 
   const appWindow = getCurrentWindow();

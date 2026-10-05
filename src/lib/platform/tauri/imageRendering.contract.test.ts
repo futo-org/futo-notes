@@ -9,12 +9,21 @@ const RED_PNG = new Uint8Array([
   0x44, 0xae, 0x42, 0x60, 0x82,
 ]);
 
+const disk = new Map<string, Uint8Array>();
+
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(async (cmd: string) => {
-    if (cmd === 'resolve_default_notes_root') return '/home/user/Documents/futo-notes';
-    if (cmd === 'notes_dir_override_load') return null;
-    return null;
-  }),
+  invoke: vi.fn(
+    async (cmd: string, body?: ArrayBuffer, options?: { headers: Record<string, string> }) => {
+      if (cmd === 'resolve_default_notes_root') return '/home/user/Documents/futo-notes';
+      if (cmd === 'notes_dir_override_load') return null;
+      if (cmd === 'fs_save_image') {
+        const filename = `image-1.${options!.headers['image-extension']}`;
+        disk.set(`/home/user/Documents/futo-notes/${filename}`, new Uint8Array(body!));
+        return filename;
+      }
+      return null;
+    },
+  ),
   convertFileSrc: vi.fn((p: string) => `asset://localhost/${encodeURI(p)}`),
 }));
 
@@ -29,8 +38,6 @@ vi.mock('@tauri-apps/api/path', () => ({
   isAbsolute: vi.fn((p: string) => Promise.resolve(p.startsWith('/'))),
 }));
 
-const disk = new Map<string, Uint8Array>();
-
 vi.mock('@tauri-apps/plugin-fs', () => ({
   readTextFile: vi.fn(() => Promise.reject(new Error('not found'))),
   writeTextFile: vi.fn(() => Promise.resolve()),
@@ -38,9 +45,6 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
     const bytes = disk.get(path);
     if (!bytes) throw new Error(`not found: ${path}`);
     return bytes;
-  }),
-  writeFile: vi.fn(async (path: string, data: Uint8Array) => {
-    disk.set(path, data);
   }),
   readDir: vi.fn(() => Promise.resolve([])),
   remove: vi.fn(() => Promise.resolve()),

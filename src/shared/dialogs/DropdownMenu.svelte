@@ -9,6 +9,7 @@
     destructive?: boolean;
     checked?: boolean;
     testId?: string;
+    disabled?: boolean;
   }
 
   export interface DropdownMenuHeading {
@@ -95,6 +96,7 @@
             class:danger={entry.destructive}
             class:checkable={entry.checked !== undefined}
             data-testid={entry.testId}
+            disabled={entry.disabled}
             onclick={() => handleItemClick(entry)}
             >{#if entry.checked}<svg
                 class="dropdown-menu-check"

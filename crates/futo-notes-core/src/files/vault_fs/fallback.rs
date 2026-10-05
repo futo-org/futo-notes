@@ -2,6 +2,18 @@ use std::path::{Path, PathBuf};
 
 use super::{context, relative_components, OpenParentError};
 
+/// Makes the next temp file vanish before it is installed, as a file-provider
+/// agent can take it.
+#[cfg(test)]
+pub(super) fn take_next_temp() {
+    crate::files::atomic_write::take_next_temp();
+}
+
+fn make_dir(path: &Path) -> std::io::Result<()> {
+    super::refused_create(std::io::ErrorKind::PermissionDenied.into())
+        .and_then(|()| std::fs::create_dir(path))
+}
+
 /// A parent directory must be a real directory, not a link and not a file.
 fn accept_parent(path: &Path, metadata: &std::fs::Metadata) -> Result<(), OpenParentError> {
     if super::is_link(metadata) {
@@ -35,12 +47,12 @@ fn checked_path(root: &Path, relative: &str, create: bool) -> Result<PathBuf, Op
         ));
     }
     let mut path = root.to_owned();
-    for component in &components[..components.len() - 1] {
+    for (depth, component) in components[..components.len() - 1].iter().enumerate() {
         path.push(component);
         match std::fs::symlink_metadata(&path) {
             Ok(metadata) => accept_parent(&path, &metadata)?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound && create => {
-                match std::fs::create_dir(&path) {
+                match make_dir(&path) {
                     Ok(()) => {}
                     // A peer writer creating the same folder inside this window
                     // is a race, not a failure — `mkdirat` EEXIST is tolerated
@@ -58,11 +70,12 @@ fn checked_path(root: &Path, relative: &str, create: bool) -> Result<PathBuf, Op
                         accept_parent(&path, &metadata)?;
                     }
                     Err(error) => {
+                        super::note_create_failure(&error, depth == 0);
                         return Err(OpenParentError::Other(context(
                             "create parent for",
                             relative,
                             error,
-                        )))
+                        )));
                     }
                 }
             }
@@ -117,9 +130,10 @@ pub(super) fn read_optional(root: &Path, relative: &str) -> Result<Option<Vec<u8
     }
 }
 pub(super) fn create_new(root: &Path, relative: &str, bytes: &[u8]) -> Result<bool, String> {
-    crate::files::create_new_atomic(
+    crate::files::atomic_write::create_new_atomic_reporting(
         &checked_path(root, relative, true).map_err(OpenParentError::message)?,
         bytes,
+        &|error| super::note_create_failure(error, super::in_root(relative)),
     )
 }
 pub(super) fn move_no_replace(
@@ -158,7 +172,9 @@ pub(super) fn read(root: &Path, relative: &str) -> Result<Vec<u8>, String> {
 
 pub(super) fn write_atomic(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
     let path = checked_path(root, relative, true).map_err(OpenParentError::message)?;
-    crate::files::write_atomic_bytes(&path, bytes)
+    crate::files::atomic_write::write_atomic_bytes_reporting(&path, bytes, &|error| {
+        super::note_create_failure(error, super::in_root(relative))
+    })
 }
 
 pub(super) fn remove(root: &Path, relative: &str) -> Result<bool, String> {
@@ -212,7 +228,10 @@ pub(super) fn write_atomic_local(root: &Path, relative: &str, bytes: &[u8]) -> R
 }
 pub(super) fn create_dir(root: &Path, relative: &str) -> Result<(), String> {
     let path = checked_path(root, relative, false).map_err(OpenParentError::message)?;
-    std::fs::create_dir(path).map_err(|error| context("create directory", relative, error))
+    make_dir(&path).map_err(|error| {
+        super::note_create_failure(&error, super::in_root(relative));
+        context("create directory", relative, error)
+    })
 }
 pub(super) fn remove_dir(root: &Path, relative: &str, recursive: bool) -> Result<(), String> {
     let path = checked_path(root, relative, false).map_err(OpenParentError::message)?;

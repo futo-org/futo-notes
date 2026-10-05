@@ -454,23 +454,44 @@ export function getCachedPreferences(): AppPreferences {
   return stateToPrefs();
 }
 
-export async function saveSelectedLanguageTag(selectedLanguageTag: string | null): Promise<void> {
-  await loadAppState();
-  await updateAppState({
-    preferences: { ...getAppState().preferences, selectedLanguageTag },
+/**
+ * The preference savers never reject: Settings and the crash dialog fire them
+ * un-awaited, so a vault the app cannot write to (crash #1788) would otherwise
+ * surface as a crash. The change applies for the session either way —
+ * `saveAppState` updates the cache before it writes — and each resolves whether
+ * it was saved, for its caller to tell the user.
+ */
+async function savedPreferences(save: () => Promise<void>): Promise<boolean> {
+  try {
+    await save();
+    return true;
+  } catch (error) {
+    console.warn('Failed to save preferences:', error);
+    return false;
+  }
+}
+
+export function saveSelectedLanguageTag(selectedLanguageTag: string | null): Promise<boolean> {
+  return savedPreferences(async () => {
+    await loadAppState();
+    await updateAppState({
+      preferences: { ...getAppState().preferences, selectedLanguageTag },
+    });
   });
 }
 
-export async function savePreferences(prefs: AppPreferences): Promise<void> {
-  await updateAppState({
-    preferences: {
-      ...getAppState().preferences,
-      theme: prefs.appearance.theme,
-      selectedLanguageTag: prefs.language.selectedLanguageTag,
-    },
-    crashReporting: prefs.crashReporting,
-    updates: prefs.updates,
-    lastSyncedAt: prefs.sync.lastSyncedAt,
-    lastSyncError: prefs.sync.lastError,
-  });
+export function savePreferences(prefs: AppPreferences): Promise<boolean> {
+  return savedPreferences(() =>
+    updateAppState({
+      preferences: {
+        ...getAppState().preferences,
+        theme: prefs.appearance.theme,
+        selectedLanguageTag: prefs.language.selectedLanguageTag,
+      },
+      crashReporting: prefs.crashReporting,
+      updates: prefs.updates,
+      lastSyncedAt: prefs.sync.lastSyncedAt,
+      lastSyncError: prefs.sync.lastError,
+    }),
+  );
 }

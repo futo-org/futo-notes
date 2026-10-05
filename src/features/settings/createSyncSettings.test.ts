@@ -43,6 +43,11 @@ vi.mock('$features/sync/syncServiceE2ee', () => ({
   },
 }));
 
+const showGlobalToast = vi.fn();
+vi.mock('$shared/notifications/toastBus.svelte', () => ({
+  showGlobalToast: (...args: unknown[]) => showGlobalToast(...args),
+}));
+
 import { createSyncSettings, failureMessage } from './createSyncSettings.svelte';
 
 beforeEach(() => {
@@ -58,6 +63,7 @@ beforeEach(() => {
   reauthenticateE2ee.mockReset().mockResolvedValue(undefined);
   hasStoredSyncPassword.mockReset().mockReturnValue(false);
   progressListener = null;
+  showGlobalToast.mockReset();
 });
 
 describe('createSyncSettings', () => {
@@ -175,6 +181,23 @@ describe('createSyncSettings', () => {
     expect(disconnectE2ee).not.toHaveBeenCalled();
     expect(sync.passwordSaved).toBe(false);
     expect(sync.connected).toBe(true);
+  });
+
+  // Crash #1788: both are fired un-awaited from the Settings UI, and both end in
+  // an app-state write that fails when the vault cannot be written to.
+  it('reset connection and forget password tell the user when the change cannot be saved', async () => {
+    appStateMock.e2eeAuthToken = 'token';
+    confirmDialog.mockResolvedValue(true);
+    const denied = new Error('Permission denied (os error 13)');
+    disconnectE2ee.mockRejectedValue(denied);
+    forgetStoredSyncPassword.mockRejectedValue(denied);
+    const sync = createSyncSettings();
+
+    await sync.resetConnection();
+    await sync.forgetPassword();
+
+    expect(showGlobalToast).toHaveBeenCalledTimes(2);
+    expect(showGlobalToast).toHaveBeenCalledWith({ path: 'settings.saveFailed' });
   });
 
   it('seeds status from the persisted last sync error', () => {

@@ -1,19 +1,11 @@
-import {
-  exists,
-  mkdir,
-  readDir,
-  readTextFile,
-  remove,
-  rename,
-  stat,
-  writeTextFile,
-} from '@tauri-apps/plugin-fs';
+import { exists, readDir, readTextFile, remove, stat } from '@tauri-apps/plugin-fs';
 import { toWellFormedText } from '@futo-notes/editor';
 
-import { sweepStaleAtomicTemps, writeAtomicText, type AtomicWriteFS } from '../atomicWrite';
 import { isNotFound } from '../fsErrors';
 import { ensureSafeRelativePath, safeAppdataPath } from '../pathSafety';
+import { sweepStaleAtomicTemps } from '../staleAtomicTemps';
 import type { DirFileEntry, PlatformFS } from '../types';
+import { invokeVaultCommand } from './vaultCommands';
 
 type TauriStorage = Pick<
   PlatformFS,
@@ -21,7 +13,7 @@ type TauriStorage = Pick<
 >;
 
 export type TauriStorageWithSweep = TauriStorage & {
-  /** Removes stale `writeAtomicText` temps left in the vault by an interrupted write. */
+  /** Removes stale TS-writer temps an interrupted write left in the vault (pre-engine builds). */
   sweepStaleTemps(): Promise<void>;
 };
 
@@ -30,7 +22,6 @@ interface TauriStorageDependencies {
 }
 
 const FS_READ_TIMEOUT_MS = 8_000;
-const pluginFS: AtomicWriteFS = { writeTextFile, rename, mkdir, remove };
 
 function withTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -55,8 +46,8 @@ function dateToMs(date: Date | null | undefined): number {
   return date?.getTime() ?? Date.now();
 }
 
-// The directories `writeAppData` targets: the vault root (.app-config.json,
-// .app-state.json) and the crash-log folder.
+// The directories the TS writer's `writeAppData` targeted: the vault root
+// (.app-config.json, .app-state.json) and the crash-log folder.
 const APP_DATA_DIRS = ['', '.crashlogs'];
 
 export function createTauriStorage({
@@ -88,8 +79,7 @@ export function createTauriStorage({
     },
 
     async writeAppData(path, content) {
-      const fullPath = safeAppdataPath(await getNotesRoot(), path);
-      await writeAtomicText(fullPath, content, pluginFS);
+      await invokeVaultCommand('app_data_write', { path, content });
     },
 
     async deleteAppData(path) {

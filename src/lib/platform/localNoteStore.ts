@@ -1,4 +1,3 @@
-import { invoke } from './tauri/invoke';
 import type {
   LocalFlushDraftResult,
   LocalNoteBootstrap,
@@ -10,6 +9,7 @@ import type {
   LocalSearchHit,
   NoteSortOrder,
 } from '../localNoteStore';
+import { invokeVaultCommand as invoke } from './tauri/vaultCommands';
 
 class TauriLocalNoteStore implements LocalNoteStore {
   private startupListingPromise: Promise<LocalNoteListingSnapshot> | null = null;

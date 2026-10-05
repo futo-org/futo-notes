@@ -64,22 +64,32 @@ export function createCrashReporting(showToast: (message: ToastMessage) => void)
     }
   }
 
+  // Fired un-awaited by the dialog, so nothing here may reject: a vault the app
+  // cannot write to (crash #1788) would report a fresh crash.
   async function resolve(result: CrashDialogResult): Promise<void> {
     dialogOpen = false;
 
     if (result.action === 'discard') {
+      reports = [];
       const preferences = getCachedPreferences();
       preferences.crashReporting.enabled = false;
-      await savePreferences(preferences);
-      await discardAllPendingReports();
+      if (!(await savePreferences(preferences))) {
+        // The reports stay, so the next launch asks again.
+        showToast({ path: 'settings.saveFailed' });
+        return;
+      }
+      // Reporting is off now, so leftover reports are never offered again.
+      await discardAllPendingReports().catch((error) =>
+        console.warn('Failed to discard pending crash reports:', error),
+      );
       showToast({ path: 'crashReporting.disabled' });
-      reports = [];
       return;
     }
 
     if (result.alwaysSend) {
       const preferences = getCachedPreferences();
       preferences.crashReporting.alwaysSend = true;
+      // The user asked to send; an unsaved "always" only means the dialog asks again.
       await savePreferences(preferences);
     }
 

@@ -48,9 +48,11 @@ function walk(dir, exts, out = []) {
   return out;
 }
 
-// Matches invoke('name', ...) / invoke<T>('name', ...), tolerating a
-// multi-line generic type argument (e.g. `invoke<Array<{ ... }>>(\n  'x',`).
-const INVOKE_RE = /invoke\s*(?:<[\s\S]*?>)?\s*\(\s*['"]([a-zA-Z_][a-zA-Z0-9_]*)['"]/g;
+// Matches invoke('name', ...) / invoke<T>('name', ...) — and the vault-command
+// wrapper, invokeVaultCommand, that routes a failed vault command to the shell —
+// tolerating a multi-line generic type argument (e.g. `invoke<Array<{ ... }>>(\n  'x',`).
+const INVOKE_RE =
+  /invoke(?:VaultCommand)?\s*(?:<[\s\S]*?>)?\s*\(\s*['"]([a-zA-Z_][a-zA-Z0-9_]*)['"]/g;
 
 // Strips `// ...` and `/* ... */` comments so a commented-out invoke() call
 // doesn't count as a live caller (a registered command whose only remaining

@@ -4,6 +4,7 @@
 //! only Tauri IPC, desktop lifecycle, OS integration, and translation between
 //! those two boundaries.
 
+mod app_data;
 mod app_menu;
 mod application;
 mod application_state;

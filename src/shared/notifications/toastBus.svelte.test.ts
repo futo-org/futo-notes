@@ -6,10 +6,7 @@ import { desktopLocalization } from '$shared/localization';
 
 import { TOAST_DURATION_MS, currentToastMessage, showGlobalToast } from './toastBus.svelte';
 
-const vaultMissing = {
-  path: 'system.notesFolderUnavailable',
-  arguments: { folderPath: '/vault' },
-};
+const languageNotSaved = { path: 'settings.language.saveFailed' };
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -40,15 +37,11 @@ describe('toastBus', () => {
   // names a full path before telling them where to fix it — a screenshot taken
   // 3.4s after that failure caught nothing but the ⚠ indicator.
   it('holds a message for five seconds, then clears it', () => {
-    showGlobalToast(vaultMissing);
-    expect(currentToastMessage()).toBe(
-      "Can't find your vault folder at /vault. Please reconfigure in settings.",
-    );
+    showGlobalToast(languageNotSaved);
+    expect(currentToastMessage()).toBe('Language changed, but the preference could not be saved.');
 
     vi.advanceTimersByTime(TOAST_DURATION_MS - 1);
-    expect(currentToastMessage()).toBe(
-      "Can't find your vault folder at /vault. Please reconfigure in settings.",
-    );
+    expect(currentToastMessage()).toBe('Language changed, but the preference could not be saved.');
 
     vi.advanceTimersByTime(1);
     expect(currentToastMessage()).toBe('');
@@ -61,15 +54,11 @@ describe('toastBus', () => {
   it('a second toast replaces the first and restarts the clock', () => {
     showGlobalToast({ path: 'system.watcherUnavailable' });
     vi.advanceTimersByTime(TOAST_DURATION_MS - 500);
-    showGlobalToast(vaultMissing);
+    showGlobalToast(languageNotSaved);
 
-    expect(currentToastMessage()).toBe(
-      "Can't find your vault folder at /vault. Please reconfigure in settings.",
-    );
+    expect(currentToastMessage()).toBe('Language changed, but the preference could not be saved.');
     vi.advanceTimersByTime(TOAST_DURATION_MS - 1);
-    expect(currentToastMessage()).toBe(
-      "Can't find your vault folder at /vault. Please reconfigure in settings.",
-    );
+    expect(currentToastMessage()).toBe('Language changed, but the preference could not be saved.');
 
     vi.advanceTimersByTime(1);
     expect(currentToastMessage()).toBe('');

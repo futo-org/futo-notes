@@ -1610,8 +1610,8 @@ unchanged by it.
   generated UniFFI bindings. Both clipboard shapes work: a raw
   bitmap (OS screenshot-to-clipboard) and a browser **Copy Image** (which the
   source app puts on the clipboard as an `<img>` `text/html` fragment plus a
-  bitmap). When the paste event exposes an image file it is saved directly;
-  otherwise the bitmap is read from the OS clipboard via the
+  bitmap). When the paste event exposes an image file its bytes are saved by
+  `fs_save_image`; otherwise the bitmap is read from the OS clipboard via the
   `fs_paste_clipboard_image` Tauri command. This native fallback is required on
   Linux/Wayland, where WebKitGTK hides the clipboard image from the JS paste
   event — a screenshot arrives with empty `items`, and a Copy Image arrives as
@@ -1620,7 +1620,8 @@ unchanged by it.
   Verified on Linux (WebKitGTK) and Windows (WebView2), both image types,
   2026-06-22. → imagePaste.ts `handlePasteEvent` / `looksLikeImagePaste` /
   `pasteFromNativeClipboard`;
-  `apps/tauri/src-tauri/src/image_commands.rs` `fs_paste_clipboard_image`
+  `apps/tauri/src-tauri/src/image_commands.rs` `fs_save_image` /
+  `fs_paste_clipboard_image`
 - Images render inline via the Tauri asset protocol, with a
   `readFile`→blob-URL fallback when the asset protocol can't actually decode an
   `<img>` (macOS WKWebView / Linux WebKitGTK answer the request but paint a
@@ -1797,8 +1798,7 @@ unchanged by it.
   (`![](<my photo.png>)`); the bare `![](my photo.png)`
   is not an image in CommonMark and renders as text. Every filename the app
   itself generates is space-free, so this only reaches notes written elsewhere.
-  → shared/media/imageFiles.ts `createImageFilename`,
-  tests/editor-embed-milkdown.spec.ts
+  → `image_commands::write_image`, tests/editor-embed-milkdown.spec.ts
 
   > **Gap:** an image destination that is ALREADY percent-encoded in the file
   > (`![](my%20photo.png)`, as some other editors write it) does not render.
@@ -2090,8 +2090,11 @@ unchanged by it.
 - A failed desktop disk save blocks switching notes, going Home, and closing the
   outgoing tab. The outgoing draft stays open and dirty, its tab is restored,
   and a visible save-failure message permits retry. A converged or durably
-  parked draft permits navigation. _(desktop)_ → `noteSaveQueue.ts`,
-  `createNotePersistence.ts`, `createTabNoteTransition.ts`
+  parked draft permits navigation. While the vault is locked (settings.md) no
+  save can succeed, so a failed save does not hold the user: leaving the note
+  discards its unsaved text. _(desktop)_ → `noteSaveQueue.ts`,
+  `createNotePersistence.ts`, `createTabNoteTransition.ts`,
+  `noteSession.svelte.ts` `flushBeforeLeaving`
 - Editor rename and move send the body, saved baseline, and destination through
   one Rust workflow. A peer-changed source remains untouched; the local draft
   becomes a conflict copy at the requested destination, and the editor follows
