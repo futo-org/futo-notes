@@ -19,6 +19,7 @@
       },
       "desktop": {
         "debugDisplayName": "FUTO Notes (Dev)",
+        "debugDisplayNameWithBranch": "FUTO Notes (Dev) · {branch}",
         "developmentBadge": "DEV",
         "versionShort": "v{version}",
         "minimizeWindowAccessibilityLabel": "Minimize window",
