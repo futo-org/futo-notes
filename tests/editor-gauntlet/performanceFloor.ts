@@ -1,4 +1,4 @@
-import type { EditorGauntletAdapter } from './types';
+import type { EditorGauntletAdapter, KeystrokeTarget } from './types';
 
 const MIB = 1024 * 1024;
 
@@ -22,6 +22,14 @@ export const PERFORMANCE_BUDGET = {
    * to absorb GC and cache effects across a 5x size step.
    */
   openCliffFactor: 2.5,
+  /**
+   * How many times more document nodes a keystroke may walk in a large note
+   * than in its small reference. The count is the editor's own work, not the
+   * clock's, so it holds on any machine: a keystroke should touch the block it
+   * edits, not the note. RC-80: two whole-document walks per keystroke grew
+   * this ~20x from 1,000 to 20,000 sections.
+   */
+  keystrokeWalkFactor: 2,
 } as const;
 
 /**
@@ -34,7 +42,8 @@ export const PERFORMANCE_BUDGET = {
  * - `measured` — reported only. The keystroke budget still applies; nothing
  *              gates the open time. This exists for the adversarial generator,
  *              whose documents are not shaped like real notes, so the plan's
- *              note-size budgets have nothing to say about them.
+ *              note-size budgets have nothing to say about them, and for the
+ *              fixtures that are here for their keystroke alone.
  */
 export type OpenPolicy =
   { kind: 'hard' } | { kind: 'linear'; reference: string } | { kind: 'measured' };
@@ -44,6 +53,13 @@ export interface FloorFixture {
   /** What the per-unit cost is measured against for a linearity comparison. */
   unit: 'lines' | 'bytes';
   openPolicy: OpenPolicy;
+  /** Where the keystrokes land. Default: wherever the open left the caret. */
+  typeInto?: KeystrokeTarget;
+  /**
+   * Hold this fixture's per-keystroke node walk to `reference`'s (same
+   * generator, smaller note) within `keystrokeWalkFactor`.
+   */
+  keystrokeWalk?: { reference: string };
   build(): string;
 }
 
@@ -55,10 +71,26 @@ export interface PerformanceResult {
   openSynchronousMs: number;
   keystrokeSynchronousP95Ms: number;
   keystrokeSettledToPaintP95Ms: number;
+  /** Document nodes walked per keystroke, p95 — see `KeystrokeMeasurement`. */
+  keystrokeNodeVisitsP95?: number;
+  /**
+   * Measured only, never gated: how long replacing THIS fixture's document with
+   * an empty one took, on the page that opened it. It is the cost the previous
+   * fixture used to leak into the next one's open time (FB-10 refute: replacing
+   * the 50,000-line document cost 2.7-3.8 s), and it is reported so that cost
+   * stays visible now that each fixture opens on a fresh page. No budget reads
+   * it (M15).
+   */
+  replaceAwayMs?: number;
 }
 
 export type FloorViolationKind =
-  'open-budget' | 'open-cliff' | 'keystroke-budget' | 'missing-reference' | 'missing-measurement';
+  | 'open-budget'
+  | 'open-cliff'
+  | 'keystroke-budget'
+  | 'keystroke-walk'
+  | 'missing-reference'
+  | 'missing-measurement';
 
 export interface FloorViolation {
   fixture: string;
@@ -127,6 +159,55 @@ function adversarialFixture(targetBytes: number): string {
 }
 
 /**
+ * One highlighted fence of `chars` characters, with a `MIDDLE` comment halfway
+ * down for the keystrokes to land after.
+ *
+ * RC-46: every token of a fence is a decoration on the same textblock, and a
+ * keystroke inside it rebuilds all of them. Removing the old ones used to cost
+ * k(k+1)/2 comparisons, so a 10k-character fence spent 64 ms a key. 93 notes
+ * in the 31k-note corpus hold a fence of 5k characters or more in a highlighted
+ * language, and 28 hold one of 10k.
+ */
+function highlightedFenceFixture(chars: number): string {
+  const lines: string[] = [];
+  for (let index = 0, length = 0; length < chars; index += 1) {
+    const line = `const value${index} = compute(${index}, "label ${index}", [true, null]); // ${index}`;
+    lines.push(line);
+    length += line.length + 1;
+  }
+  lines.splice(lines.length >> 1, 0, '// MIDDLE');
+  return ['A note with one long fence.', '', '```js', ...lines, '```', '', 'After the fence.'].join(
+    '\n',
+  );
+}
+
+/**
+ * A flat task list: every checkbox is a widget in the same node of the
+ * decoration tree, and a keystroke in any item rebuilds the whole list's
+ * (RC-46; 2,000 items cost 35 ms a key).
+ */
+function taskListFixture(items: number): string {
+  return Array.from(
+    { length: items },
+    (_, index) => `- [${index % 3 === 0 ? 'x' : ' '}] task ${index + 1}`,
+  ).join('\n');
+}
+
+/**
+ * FB-17's note shape, `sections` heading + paragraph pairs, with a tag in each
+ * paragraph the way real notes carry them (1,000 is 62 KB, 20,000 is 1.3 MB).
+ * RC-80 was measured on it: without the tags a keystroke walked the whole
+ * document; with them it also looked up every block's decorations by a scan.
+ */
+function sectionsFixture(sections: number): string {
+  return Array.from(
+    { length: sections },
+    (_, index) =>
+      `## Section ${index}\n\nBody line ${index} with some **bold** text #tag${index % 7}`,
+  ).join('\n\n');
+}
+
+/**
  * The performance ladder, per docs/plan/milkdown-transition.md §5: hard budgets at
  * sizes real notes actually reach, and "scales linearly, no cliff" above them.
  *
@@ -162,6 +243,43 @@ export const MILKDOWN_FLOOR_FIXTURES: FloorFixture[] = [
     build: () => lineFixture(50_000),
   },
   {
+    name: '10k-char-js-fence',
+    unit: 'bytes',
+    openPolicy: { kind: 'measured' },
+    typeInto: { text: '// MIDDLE', ready: 'pre .tok-keyword' },
+    build: () => highlightedFenceFixture(10_000),
+  },
+  {
+    name: '2000-item-task-list',
+    unit: 'lines',
+    openPolicy: { kind: 'measured' },
+    typeInto: { text: 'task 1000' },
+    build: () => taskListFixture(2_000),
+  },
+  {
+    name: '1000-sections',
+    unit: 'lines',
+    openPolicy: { kind: 'measured' },
+    typeInto: { text: 'Body line 10 ', loaded: true },
+    build: () => sectionsFixture(1_000),
+  },
+  {
+    name: '5000-sections',
+    unit: 'lines',
+    openPolicy: { kind: 'linear', reference: '1000-sections' },
+    typeInto: { text: 'Body line 10 ', loaded: true },
+    keystrokeWalk: { reference: '1000-sections' },
+    build: () => sectionsFixture(5_000),
+  },
+  {
+    name: '20000-sections',
+    unit: 'lines',
+    openPolicy: { kind: 'linear', reference: '1000-sections' },
+    typeInto: { text: 'Body line 10 ', loaded: true },
+    keystrokeWalk: { reference: '1000-sections' },
+    build: () => sectionsFixture(20_000),
+  },
+  {
     name: '1mb-adversarial',
     unit: 'bytes',
     openPolicy: { kind: 'measured' },
@@ -178,6 +296,40 @@ export const MILKDOWN_FLOOR_FIXTURES: FloorFixture[] = [
 function perUnitMs(result: PerformanceResult, unit: FloorFixture['unit']): number {
   const size = unit === 'lines' ? result.lines : result.bytes;
   return size > 0 ? result.openMs / size : Infinity;
+}
+
+function keystrokeWalkViolation(
+  fixture: FloorFixture,
+  result: PerformanceResult,
+  byName: Map<string, PerformanceResult>,
+): FloorViolation | null {
+  const referenceName = fixture.keystrokeWalk!.reference;
+  const reference = byName.get(referenceName);
+  if (!reference) {
+    return {
+      fixture: fixture.name,
+      kind: 'missing-reference',
+      detail: `no ${referenceName} measurement to compare its keystroke walk against`,
+    };
+  }
+  const visits = result.keystrokeNodeVisitsP95;
+  const referenceVisits = reference.keystrokeNodeVisitsP95;
+  if (visits === undefined || referenceVisits === undefined) {
+    return {
+      fixture: fixture.name,
+      kind: 'missing-measurement',
+      detail: `no keystroke node-walk count for ${visits === undefined ? fixture.name : referenceName}`,
+    };
+  }
+  const ratio = visits / Math.max(1, referenceVisits);
+  if (ratio <= PERFORMANCE_BUDGET.keystrokeWalkFactor) return null;
+  return {
+    fixture: fixture.name,
+    kind: 'keystroke-walk',
+    detail:
+      `a keystroke walks ${visits} document nodes, ${ratio.toFixed(1)}x ${referenceName}'s ` +
+      `${referenceVisits}, past the ${PERFORMANCE_BUDGET.keystrokeWalkFactor}x factor`,
+  };
 }
 
 /** Every budget the run missed, in fixture order. Empty means the floor held. */
@@ -207,6 +359,11 @@ export function evaluatePerformanceFloor(
           `synchronous keystroke p95 ${Math.round(result.keystrokeSynchronousP95Ms)}ms ` +
           `is not under the ${PERFORMANCE_BUDGET.keystrokeP95Ms}ms budget`,
       });
+    }
+
+    if (fixture.keystrokeWalk) {
+      const walkViolation = keystrokeWalkViolation(fixture, result, byName);
+      if (walkViolation) violations.push(walkViolation);
     }
 
     if (fixture.openPolicy.kind === 'measured') continue;
@@ -250,15 +407,28 @@ export function evaluatePerformanceFloor(
   return violations;
 }
 
+/**
+ * Every fixture opens on a page of its own. Sharing one page made a fixture's
+ * open time include the teardown of the fixture before it (the two measured
+ * fixtures that follow the 50,000-line document read 2.7-3.8 s where a fresh
+ * page reads ~90 ms), so a measurement that gated nothing real. The replace
+ * cost of the document is measured before the page is thrown away instead, as
+ * `replaceAwayMs`.
+ */
 export async function runPerformanceFloor(
   adapter: EditorGauntletAdapter,
   fixtures: FloorFixture[],
 ): Promise<PerformanceResult[]> {
+  if (!adapter.freshPage) {
+    throw new Error(`${adapter.name}: the performance floor needs an adapter with freshPage()`);
+  }
   const results: PerformanceResult[] = [];
-  await adapter.open('', 'performance-floor');
   for (const fixture of fixtures) {
+    await adapter.freshPage();
+    await adapter.open('', 'performance-floor');
     const opened = await adapter.measureOpen(fixture.build());
-    const typed = await adapter.measureKeystrokes(25);
+    const typed = await adapter.measureKeystrokes(25, fixture.typeInto);
+    const replaced = await adapter.measureOpen('');
     results.push({
       fixture: fixture.name,
       lines: opened.lines,
@@ -267,6 +437,8 @@ export async function runPerformanceFloor(
       openSynchronousMs: opened.synchronousMs,
       keystrokeSynchronousP95Ms: percentile95(typed.synchronousSamplesMs),
       keystrokeSettledToPaintP95Ms: percentile95(typed.settledToPaintSamplesMs),
+      keystrokeNodeVisitsP95: typed.nodeVisitSamples && percentile95(typed.nodeVisitSamples),
+      replaceAwayMs: replaced.settledMs,
     });
   }
   return results;

@@ -52,6 +52,8 @@ export interface LocalNoteMutation {
   folders: string[];
   finalId: string | null;
   finalFolder: string | null;
+  /** Final ids whose body the workflow's backlink rewrite changed on disk. */
+  relinked: string[];
   warnings: string[];
 }
 

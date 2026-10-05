@@ -106,15 +106,9 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
       summary.updatedIds.includes(openId);
     if (!isAffected) return syncResult;
 
-    // A flush can park and synchronously ask the external-change coordinator
-    // to adopt the peer version. Settle it before entering that coordinator's
-    // own serial queue, or the nested post-park reconciliation deadlocks
-    // behind the operation that is awaiting the flush.
-    if (dependencies.session.savePending) {
-      await dependencies.session.flushSave();
-      if (dependencies.session.originalId !== openId) return syncResult;
-    }
-
+    // No flush here: the coordinator settles a pending save itself, outside its
+    // queue, and only once any reported rename has been followed — flushing
+    // first addressed the save to the id the note just left.
     let currentId = openId;
     const seenIds = new Set<string>();
     // A cycle can contribute at most one fresh source per reported rename,

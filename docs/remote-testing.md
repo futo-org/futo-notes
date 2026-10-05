@@ -8,7 +8,7 @@ app.
 node scripts/remote-test.mjs --doctor        # is the box ready? what needs a human with sudo?
 node scripts/remote-test.mjs check           # the pre-merge umbrella (== a Mac `just check`)
 node scripts/remote-test.mjs test-rust-full  # cargo test --workspace
-just remote-sync                              # cross-platform E2EE sync
+just remote-sync                              # cross-platform E2EE sync — NEEDS A DISPLAY, see below
 node scripts/remote-test.mjs build-android-native \
   && node scripts/remote-test.mjs test-android-native   # Rust .so + bindings + both flavors' debug APKs + JVM unit tests
 node scripts/remote-test.mjs test-unit        # any other portable recipe
@@ -101,7 +101,9 @@ prove Windows WebView2): a passing run on the wrong engine is not evidence about
    aliases first, so `node scripts/remote-test.mjs in` is refused as `ios-native`.
 2. **Caveated** — allowed, but a `CAVEAT:` line names what a green run leaves uncovered, and the
    footer repeats it. `test-e2e*` (Linux Chromium/WebKit builds),
-   `test-cross-platform` (WebKitGTK Tauri app), and `prepush`.
+   `test-cross-platform` (WebKitGTK Tauri app — and it needs a Wayland/X display, which a bare
+   `ssh` shell does not have: see "Suites that need a display" below), and `prepush` (which
+   includes that same leg).
 3. **Clean** — everything else, including `check`. `just check` is tsc, eslint, prettier,
    svelte-check, vitest under jsdom, the arch gates, the Rust conformance tests and a vite build.
    None of them start a real web engine, so a remote `check` is a true substitute for a Mac `check`
@@ -172,6 +174,49 @@ Three defences, in order of how much they can actually promise:
 Bookkeeping (the `pnpm install` stamp) lives in `~/.cache/futo-remote-test/`, never inside the
 checkout, so it cannot dirty the tree or confuse a `git status` check.
 
+## Suites that need a display (`test-cross-platform`, `remote-sync`, `prepush`)
+
+`test-cross-platform` boots real Tauri desktop clients (WebKitGTK), and its setup gate
+(`scripts/setup-worktree.mjs desktop`, run by `build-desktop-test`) refuses to start without
+`DISPLAY` or `WAYLAND_DISPLAY`. An `ssh host cmd` shell has neither, so the documented one-liner
+
+```bash
+node scripts/remote-test.mjs test-cross-platform   # or `just remote-sync`, or `prepush`
+```
+
+is **not** a non-interactive-ssh-only workflow: on a bare shell it dies in about nine seconds with
+`no DISPLAY or WAYLAND_DISPLAY` and zero scenarios run (L1-004). It is a hard failure, not a
+silent skip, so nothing is mis-reported green. `check`, `test-rust*`, `test-unit`, the Android
+build/JVM legs and the Playwright suites (`test-e2e*`, the editor-embed specs — headless Chromium)
+do not need a display and work over plain ssh.
+
+The workaround the hardening lanes used is a private, headless Wayland compositor on the box.
+`kwin_wayland --virtual` is a real compositor (WebKitGTK renders through the same Wayland path as on
+a desktop session) with no monitor and nothing to look at, so unlike an Xvfb framebuffer it does not
+change the compositing the clients are exercised under:
+
+```bash
+ssh jfedora
+export XDG_RUNTIME_DIR=/run/user/$(id -u)                 # ssh shells do not set it
+SOCK=wayland-mine                                         # unique per run: other lanes use wayland-l1, -l6d, ...
+kwin_wayland --virtual --socket "$SOCK" --width 1600 --height 1000 >/tmp/$SOCK.log 2>&1 &
+KWIN=$!                                                   # kill THIS pid when done (never by process name)
+export WAYLAND_DISPLAY=$SOCK
+# ... then run the suite from the same shell, e.g. inside the runner's worktree:
+systemd-run --user --scope -p MemoryMax=24G node tests/cross-platform-sync.mjs --no-android
+kill $KWIN
+```
+
+- Give every run its **own** socket name and kill it by PID. A shared socket, or a kill by process name, takes
+  down another lane's clients (and the box's own desktop session if it has one).
+- `remote-test.mjs` does not start a compositor for you; when driving through it, export
+  `WAYLAND_DISPLAY`/`XDG_RUNTIME_DIR` in the environment that runs it on the box (or run the
+  harness directly as above). `--no-android` skips the Android-only scenarios, which need an
+  emulator the box does not boot (see "Known gaps").
+- Heavy jobs go under `systemd-run --user --scope -p MemoryMax=24G` so a runaway build cannot take
+  the box down for everyone else.
+- A run under `kwin_wayland --virtual` last measured 33/33 to 36/36 scenarios passing, ~190s.
+
 ## Android
 
 Compile and JVM-unit legs (`node scripts/remote-test.mjs build-android-native` +
@@ -199,6 +244,9 @@ scenarios and 51s is the single `large sync` case).
 
 - The Android instrumentation and storage legs (`test-android-native-ui`, `test-android-storage`)
   need an emulator booted on the box; nothing here boots one yet.
-- The box has no display, so a suite that needs one must go in the refused tier, not be "fixed" with
-  a virtual framebuffer that then reports different compositing behaviour than either shipped
-  engine.
+- The box has no display in an ssh shell. `test-cross-platform` needs one and stays in the
+  caveated tier rather than the refused one, because a private `kwin_wayland --virtual` compositor
+  (see "Suites that need a display") gives it the real Wayland path. A bare Xvfb framebuffer is
+  still not a substitute: it reports different compositing behaviour than either shipped engine.
+  Wiring the compositor into `remote-test.mjs` itself (start on a unique socket, export the env,
+  kill by PID in the existing exit trap) is the obvious follow-up and has not been done.

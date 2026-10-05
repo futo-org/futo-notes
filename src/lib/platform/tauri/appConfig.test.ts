@@ -34,7 +34,13 @@ vi.mock('@tauri-apps/api/app', () => ({
 }));
 
 import { invoke } from '@tauri-apps/api/core';
-import { getConfig, saveConfig, setNotesDir, loadOpenFoldersConfig } from '../tauri';
+import {
+  flushAppConfigWrites,
+  getConfig,
+  saveConfig,
+  setNotesDir,
+  loadOpenFoldersConfig,
+} from '../tauri';
 
 const mockInvoke = vi.mocked(invoke);
 
@@ -118,6 +124,28 @@ describe('getConfig', () => {
 });
 
 describe('saveConfig', () => {
+  // RC-101: a close 0.1-0.3 s after a click raced this write and left a
+  // `.sf-tmp-*` in the vault; the exit now waits on this.
+  it('flushAppConfigWrites resolves only after every queued write has been renamed into place', async () => {
+    setupInvokeMock();
+    const { writeTextFile, rename } = await import('@tauri-apps/plugin-fs');
+    let releaseWrite!: () => void;
+    vi.mocked(writeTextFile).mockImplementationOnce(
+      () => new Promise<void>((resolve) => (releaseWrite = resolve)),
+    );
+
+    void saveConfig({ sidebarWidth: 300 });
+    let flushed = false;
+    const flush = flushAppConfigWrites().then(() => (flushed = true));
+    await vi.waitFor(() => expect(writeTextFile).toHaveBeenCalledTimes(1));
+    expect(flushed).toBe(false);
+    expect(rename).not.toHaveBeenCalled();
+
+    releaseWrite();
+    await flush;
+    expect(rename).toHaveBeenCalledTimes(1);
+  });
+
   it('merges sidebarWidth into existing config', async () => {
     setupInvokeMock();
     const { readTextFile, writeTextFile, rename, exists } = await import('@tauri-apps/plugin-fs');

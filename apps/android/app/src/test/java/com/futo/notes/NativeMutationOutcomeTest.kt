@@ -7,6 +7,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -81,5 +82,43 @@ class NativeMutationOutcomeTest {
                 outcome = NoteMutationOutcome.Committed(Unit),
             ),
         )
+    }
+
+    // RC-71: the engine saved the draft, then relinked the note's own link. The
+    // baseline is the relinked file; a baseline left at the draft made the next
+    // save read the relink as a peer's edit and park a conflict copy.
+    @Test
+    fun `an untouched editor adopts the relinked body as content and baseline`() {
+        val rebase = rebasedOnRelink(
+            flushed = "back to [[Old]]",
+            live = "back to [[Old]]",
+            relinkedBody = "back to [[New]]",
+        )
+
+        assertEquals(RelinkRebase("back to [[New]]", "back to [[New]]", adoptIntoEditor = true), rebase)
+        assertNull(derivePendingDraft(true, "New", rebase.savedContent, rebase.content))
+    }
+
+    @Test
+    fun `a draft typed during the commit is kept over the relinked baseline`() {
+        val rebase = rebasedOnRelink(
+            flushed = "back to [[Old]]",
+            live = "back to [[Old]] more",
+            relinkedBody = "back to [[New]]",
+        )
+
+        assertEquals("back to [[New]]", rebase.savedContent)
+        assertEquals("back to [[Old]] more", rebase.content)
+        assertFalse(rebase.adoptIntoEditor)
+    }
+
+    @Test
+    fun `a rename that rewrote nothing leaves the baseline at the saved draft`() {
+        listOf<String?>(null, "same").forEach { body ->
+            assertEquals(
+                RelinkRebase("same", "same", adoptIntoEditor = false),
+                rebasedOnRelink(flushed = "same", live = "same", relinkedBody = body),
+            )
+        }
     }
 }
