@@ -3,6 +3,20 @@ import Testing
 
 @testable import FutoNotesNative
 
+private final class LicenseFixtureBundleToken {}
+
+private struct LinkOutCase: Decodable {
+    let name: String
+    let platform: String
+    let storefrontCountry: String?
+    let buildAllows: Bool
+    let expected: Bool
+}
+
+private struct LinkOutFixture: Decodable {
+    let linkOut: [LinkOutCase]
+}
+
 @Suite("License surface")
 struct LicenseSurfaceTests {
     /// The scheme is registered at BUILD time, in `Info.plist`, where no test
@@ -15,6 +29,30 @@ struct LicenseSurfaceTests {
         let schemes = types.flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
 
         #expect(schemes.contains(licenseDeepLinkScheme()))
+    }
+
+    @Test("the storefront starts key-only and follows the shared cases")
+    @MainActor func storefrontCases() throws {
+        let storefront = LicenseStorefront()
+        #expect(!storefront.linkOut)
+        let url = try #require(Bundle(for: LicenseFixtureBundleToken.self)
+            .url(forResource: "license", withExtension: "json"))
+        let fixture = try JSONDecoder().decode(LinkOutFixture.self, from: Data(contentsOf: url))
+        #expect(fixture.linkOut.count == 10)
+        for testCase in fixture.linkOut {
+            let platform: LicensePlatform = switch testCase.platform {
+            case "ios": .ios
+            case "android": .android
+            default: .desktop
+            }
+            #expect(licenseLinkOut(platform: platform,
+                storefrontCountry: testCase.storefrontCountry,
+                buildAllows: testCase.buildAllows) == testCase.expected, "\(testCase.name)")
+        }
+        #if FUTO_DEBUG_BUILD
+        #expect(LicenseStorefront.debugCountryOverride(["app", "-FUTOLicenseStorefront", "none"])! == nil)
+        #expect(LicenseStorefront.debugCountryOverride(["app", "-FUTOLicenseStorefront", "USA"])! == "USA")
+        #endif
     }
 
     /// The card's Key row, at the seam the view renders from: masked by
@@ -57,13 +95,23 @@ struct LicenseSurfaceTests {
 
     /// The plate's yes/no answers for the one state no UI test can reach:
     /// `LicensePlateTests` walks Unlicensed and Licensed on the real app, but a
-    /// simulator has no clock control to render Expired
-    /// (docs/spec/license.md § States and copy).
+    /// simulator has no clock control to render Expired — plus the key-only
+    /// copy switch (docs/spec/license.md § States and copy).
     @Test("an expired license keeps the letterhead and the key, not the well")
     func expiredPlateShape() {
         let localization = Localization.system(
             requestedLanguageTags: ["en"], regionalLanguageTag: "en-US")
         let key = "AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV"
+
+        // Key-only (a non-US or unknown storefront): Unlicensed drops the
+        // payment headline and both unpaid states read the key-only
+        // explanation; the paid shape is unchanged.
+        let unlicensed = licenseCardModel(
+            LicenseView(status: .unlicensed, issuedAtMillis: nil, expiresAtMillis: nil, key: nil),
+            localization)
+        #expect(!licensePlateShape(unlicensed, linkOut: false).headline)
+        #expect(licenseExplanationPath(status: .unlicensed, linkOut: false) == "license.keyOnlyExplanation")
+        #expect(licenseExplanationPath(status: .unlicensed, linkOut: true) == "license.explanation")
 
         // Expired has paid once: it keeps the letterhead and the key, wears its
         // badge, and has no coin in the well it no longer reserves.
@@ -73,10 +121,12 @@ struct LicenseSurfaceTests {
                 expiresAtMillis: 1_735_819_200_000, key: key),
             localization)
         #expect(
-            licensePlateShape(expired)
+            licensePlateShape(expired, linkOut: true)
                 == LicensePlateShape(
                     well: false, letterhead: true, keyRow: true, headline: false))
         #expect(expired.badge != nil)
+        #expect(licenseExplanationPath(status: .expired, linkOut: false) == "license.keyOnlyExplanation")
+        #expect(licenseExplanationPath(status: .licensed, linkOut: false) == "license.explanationLicensed")
     }
 
     /// Before the stored pair has been read there is no state to claim, so the
@@ -84,7 +134,7 @@ struct LicenseSurfaceTests {
     @Test("an unread license puts nothing on the plate")
     func plateShapeBeforeLoad() {
         #expect(
-            licensePlateShape(nil)
+            licensePlateShape(nil, linkOut: false)
                 == LicensePlateShape(
                     well: false, letterhead: false, keyRow: false, headline: false))
     }

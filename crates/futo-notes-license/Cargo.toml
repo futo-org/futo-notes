@@ -27,3 +27,6 @@ ring = "0.17"
 # a DER reader for a security boundary is exactly the custom-over-library trade
 # AGENTS.md tells us not to make.
 spki = "0.7"
+
+[lints]
+workspace = true

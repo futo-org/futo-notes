@@ -295,7 +295,9 @@ fn apply_deep_link(app: &AppHandle, url: &str) -> Option<LicenseActionResult> {
     match accept_input(app, url) {
         Ok(result) => Some(result),
         Err(error) => {
-            eprintln!("[license] could not store a license from a link: {error}");
+            futo_notes_core::log_to_stderr!(
+                "[license] could not store a license from a link: {error}"
+            );
             Some(LicenseActionResult {
                 outcome: OUTCOME_INVALID,
                 view: current_view(app).unwrap_or_else(|_| unlicensed_view()),
@@ -325,7 +327,9 @@ pub(crate) fn install(app: &AppHandle) {
     // unregistered AppImage) still has to answer its own scheme.
     #[cfg(any(windows, target_os = "linux"))]
     if let Err(error) = app.deep_link().register_all() {
-        eprintln!("[license] could not register the futonotes scheme: {error}");
+        futo_notes_core::log_to_stderr!(
+            "[license] could not register the futonotes scheme: {error}"
+        );
     }
 
     let handle = app.clone();

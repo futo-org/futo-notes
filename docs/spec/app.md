@@ -377,9 +377,12 @@ Behaviors and constraints that hold across every surface and platform.
 - The native shells run the same pipeline: an uncaught-exception handler
   (Android `Thread.setDefaultUncaughtExceptionHandler`; iOS
   `NSSetUncaughtExceptionHandler` plus fatal-signal handlers with
-  pre-rendered, write-only signal paths) persists a desktop-schema JSON
-  report to `<vault>/.crashlogs/` on the way down; the next launch scans the
-  folder in the background (never gating render) and shows the same dialog,
+  pre-rendered, write-only signal paths; the stack is the crashing thread's
+  frames as `<image> <offset>`, each image's UUID, and any `__crash_info`
+  message such as a `try!`/`fatalError` text, symbolicated against the
+  per-tag `FUTO-Notes-<version>-dSYMs.zip` release package) persists a
+  desktop-schema JSON report to `<vault>/.crashlogs/` on the way down; the
+  next launch scans the folder in the background (never gating render) and shows the same dialog,
   honoring the Settings toggle and Always-send; Send POSTs to the crash
   collector (`/api/crashes` batch, `/api/crash` fallback; dev builds target
   the local collector) and deletes the files. Verified end-to-end on

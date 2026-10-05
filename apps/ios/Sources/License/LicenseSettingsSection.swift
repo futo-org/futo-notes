@@ -37,7 +37,7 @@ struct LicensePlateShape: Equatable {
 
 /// `nil` while the stored pair is still being read: the plate renders its frame
 /// and claims nothing (M1).
-func licensePlateShape(_ card: LicenseCardModel?) -> LicensePlateShape {
+func licensePlateShape(_ card: LicenseCardModel?, linkOut: Bool) -> LicensePlateShape {
     guard let card else {
         return LicensePlateShape(well: false, letterhead: false, keyRow: false, headline: false)
     }
@@ -46,7 +46,12 @@ func licensePlateShape(_ card: LicenseCardModel?) -> LicensePlateShape {
         well: card.status == .licensed,
         letterhead: stored,
         keyRow: stored,
-        headline: !stored)
+        headline: !stored && linkOut)
+}
+
+func licenseExplanationPath(status: LicenseStatus, linkOut: Bool) -> String {
+    if status == .licensed { return "license.explanationLicensed" }
+    return linkOut ? "license.explanation" : "license.keyOnlyExplanation"
 }
 
 /// The License card — the FIRST section of Settings on mobile, and the only
@@ -78,17 +83,12 @@ func licensePlateShape(_ card: LicenseCardModel?) -> LicensePlateShape {
 /// Nothing in the app is gated on a license: this card is the only difference a
 /// purchase makes. Which controls each state offers is Rust's answer
 /// (`licenseRowActions`), and how each state reads is the shared card model
-/// (`licenseCardModel`), so iOS and Android render the same thing and the
-/// `LICENSE_LINK_OUT` flag means the same thing on both.
+/// (`licenseCardModel`), so iOS and Android render the same thing. The
+/// storefront decision is shared by copy and actions.
 struct LicenseSettingsSection: View {
     @ObservedObject var license: LicenseModel
-    /// The build-time store-posture flag. A parameter rather than a direct
-    /// read of the constant so callers can inject either value. The
-    /// linkOut=false row-action table is owned by the Rust contract test
-    /// (`link_out_false_hides_every_way_out_of_the_app_and_nothing_else` in
-    /// `crates/futo-notes-ffi/src/license/contract.rs`) and by Android's
-    /// LicenseSurfaceTest; iOS no longer has a test for that value.
-    var linkOut: Bool = LicenseLinkOut.isEnabled
+    /// The observed storefront decision, shared by copy and actions.
+    let linkOut: Bool
 
     @Environment(\.localization) private var localization
     @Environment(\.openURL) private var openURL
@@ -120,7 +120,7 @@ struct LicenseSettingsSection: View {
         license.view.map { licenseCardModel($0, localization) }
     }
 
-    private var shape: LicensePlateShape { licensePlateShape(card) }
+    private var shape: LicensePlateShape { licensePlateShape(card, linkOut: linkOut) }
 
     var body: some View {
         Section(localization.localizedText("license.sectionTitle")) {
@@ -190,16 +190,16 @@ struct LicenseSettingsSection: View {
         } else if entering {
             keyField
         } else if status == .licensed {
-            Text(localization.localizedText("license.explanationLicensed"))
+            Text(localization.localizedText(licenseExplanationPath(status: .licensed, linkOut: linkOut)))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("license-explanation")
-        } else {
+        } else if let status {
             // The mission paragraph is the ONLY paragraph, and it sits above
             // the button it argues for: an argument printed under its own
             // button is a footnote (@justin 2026-09-18).
-            Text(localization.localizedText("license.explanation"))
+            Text(localization.localizedText(licenseExplanationPath(status: status, linkOut: linkOut)))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -323,8 +323,7 @@ struct LicenseSettingsSection: View {
     }
 
     /// Buy/Renew is the one filled button; everything else is a text button.
-    /// The list itself is Rust's (`licenseRowActions`), including what
-    /// `LICENSE_LINK_OUT` hides.
+    /// The list itself is Rust's (`licenseRowActions`).
     private var primaryActions: [LicenseAction] {
         guard let view = license.view, !entering else { return [] }
         return licenseRowActions(status: view.status, linkOut: linkOut).filter(Self.isPrimary)
