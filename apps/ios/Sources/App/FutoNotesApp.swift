@@ -5,6 +5,7 @@ struct FutoNotesApp: App {
     @StateObject private var store = NotesStore()
     @StateObject private var sync = SyncManager()
     @StateObject private var license = LicenseModel()
+    @StateObject private var licenseStorefront = LicenseStorefront()
     @ObservedObject private var crash = CrashReporter.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var localization = Localization.system()
@@ -30,6 +31,8 @@ struct FutoNotesApp: App {
                 .environmentObject(store)
                 .environmentObject(sync)
                 .environmentObject(license)
+                .environmentObject(licenseStorefront)
+                .task { await licenseStorefront.observe() }
                 .environment(\.localization, localization)
                 .tint(Theme.primary)
                 .appearanceOverride(ThemeMode.resolve(themeMode))

@@ -114,6 +114,8 @@ android-native: _preflight-android
   apps/android/run.sh
 
 # Build + run the native iOS app on the booted SIMULATOR (no signing).
+# FUTO_LICENSE_ENV=production|staging (any build, any platform) forces the
+# license org regardless of bundle id, e.g. a .dev app doing a real prod purchase.
 ios-native: _preflight-ios
   apps/ios/run.sh
 

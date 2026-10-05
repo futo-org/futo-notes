@@ -1,4 +1,5 @@
 import XCTest
+import StoreKit
 
 /// The License plate, driven in the real app.
 ///
@@ -20,9 +21,41 @@ final class LicensePlateTests: XCTestCase {
     /// there is no fourth copy of it to keep in step.
     private var deepLink: URL { URL(string: LicenseFixture.deepLink)! }
 
+    #if DEBUG
+    @MainActor
+    func testNonUSAndUnknownStorefrontsKeepKeyActivation() {
+        for country in ["FRA", "none"] {
+            let app = makeIsolatedApplication()
+            app.launchArguments += ["-FUTOLicenseStorefront", country]
+            app.launch()
+            let settings = app.buttons["nav-settings"]
+            XCTAssertTrue(settings.waitForExistence(timeout: 20))
+            settings.tap()
+
+            let remove = app.buttons["license-remove"]
+            if remove.waitForExistence(timeout: 5) { remove.tap() }
+
+            let explanation = app.staticTexts["license-explanation"]
+            XCTAssertTrue(explanation.waitForExistence(timeout: 10))
+            XCTAssertEqual(
+                explanation.label,
+                "Have a FUTO Notes license? Enter your key to activate it on this device.")
+            XCTAssertFalse(app.staticTexts["license-headline"].exists)
+            XCTAssertFalse(app.buttons["license-buy"].exists)
+            XCTAssertFalse(app.buttons["license-renew"].exists)
+            XCTAssertFalse(app.buttons["license-lost-key"].exists)
+            XCTAssertTrue(app.buttons["license-enter-key"].exists)
+
+            XCUIDevice.shared.system.open(deepLink)
+            XCTAssertTrue(app.buttons["license-remove"].waitForExistence(timeout: 15))
+            app.terminate()
+        }
+    }
+
     @MainActor
     func testUnlicensedIsAnAskAndActivatingItMakesACard() {
         let app = makeIsolatedApplication()
+        app.launchArguments += ["-FUTOLicenseStorefront", "USA"]
         app.launch()
 
         let settings = app.buttons["nav-settings"]
@@ -61,6 +94,11 @@ final class LicensePlateTests: XCTestCase {
         XCTAssertTrue(app.buttons["license-enter-key"].exists)
         XCTAssertTrue(app.buttons["license-lost-key"].exists)
         attach(app, named: "unlicensed")
+
+        buy.tap()
+        let browser = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        XCTAssertTrue(browser.wait(for: .runningForeground, timeout: 15))
+        app.activate()
 
         // ── Activation: the OS hands over the link, exactly as FUTOpay's
         //    activate-redirect page does after a purchase ──────────────────────
@@ -127,6 +165,33 @@ final class LicensePlateTests: XCTestCase {
         // it: the license is this app's only cross-run state.
         app.buttons["license-remove"].tap()
         XCTAssertTrue(app.staticTexts["license-headline"].waitForExistence(timeout: 10))
+    }
+    #endif
+
+    @MainActor
+    func testUnforcedSurfaceFollowsCurrentStorefront() async {
+        let country = await Storefront.current?.countryCode
+        let app = makeIsolatedApplication()
+        app.launch()
+        let settings = app.buttons["nav-settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 20))
+        settings.tap()
+
+        let remove = app.buttons["license-remove"]
+        if remove.waitForExistence(timeout: 5) { remove.tap() }
+
+        let explanation = app.staticTexts["license-explanation"]
+        XCTAssertTrue(explanation.waitForExistence(timeout: 10))
+        if country == "USA" {
+            XCTAssertTrue(app.staticTexts["license-headline"].waitForExistence(timeout: 10))
+            XCTAssertTrue(app.buttons["license-buy"].exists)
+        } else {
+            XCTAssertEqual(
+                explanation.label,
+                "Have a FUTO Notes license? Enter your key to activate it on this device.")
+            XCTAssertFalse(app.staticTexts["license-headline"].exists)
+            XCTAssertFalse(app.buttons["license-buy"].exists)
+        }
     }
 
     @MainActor

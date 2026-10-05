@@ -1,5 +1,9 @@
 # Every platform links out to buy — no in-app purchase anywhere
 
+> **Partly superseded 2026-09-24** by [ADR-0005](0005-license-purchase-follows-store-rules.md):
+> the link no longer ships worldwide. iOS links out only on the US storefront, Android `play`
+> is key-only, Android `direct` opens a Custom Tab. The rest of this record stands.
+
 We planned to buy in-app on mobile, copying FUTO Music, which uses the FUTOpay Android client's
 slide-up sheet. Reading that client showed its payment step is a WebView on Polar's hosted
 checkout (`create-checkout` → `checkout_url` → watch for `success_url`), not a native card form
