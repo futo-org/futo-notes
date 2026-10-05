@@ -64,7 +64,14 @@ interface MicromarkEffects {
   /** Runs `construct` from the current point and REWINDS either way. */
   check(construct: MicromarkConstruct, ok: MicromarkState, nok: MicromarkState): MicromarkState;
 }
+/** The tokenizer's `this`: where it is, and which parse it belongs to. */
+interface MicromarkTokenizeContext {
+  now(): { offset: number };
+  /** One object per `parse()` of a document. */
+  parser: object;
+}
 type MicromarkTokenizer = (
+  this: MicromarkTokenizeContext,
   effects: MicromarkEffects,
   ok: MicromarkState,
   nok: MicromarkState,
@@ -75,10 +82,26 @@ function endsTheLine(code: number | null): boolean {
   return code === null || code === -5 || code === -4 || code === -3;
 }
 
-const tokenizeWikilink: MicromarkTokenizer = (effects, ok, nok) => {
+/**
+ * The stretch of the current line, per parse, already proven to hold no `]]`:
+ * an attempt that started at `from` read its target up to the line ending at
+ * `to` without finding one. Every `[[` in between would read the same
+ * characters to the same line ending and fail the same way, so it fails at
+ * once instead. Without this, micromark retries the construct at EVERY `[`,
+ * and a long line of unclosed `[[` cost O(n²) to open — measured at 2.7 s for
+ * a 40k-character line against 32 ms for plain text (hardening L6e-7).
+ * Keyed on the parser, so no two documents (or two parses of one) share it.
+ */
+const lineWithoutCloser = new WeakMap<object, { from: number; to: number }>();
+
+const tokenizeWikilink: MicromarkTokenizer = function tokenizeWikilink(effects, ok, nok) {
+  const parser = this.parser;
+  const offset = (): number => this.now().offset;
   /* Characters accepted into the target so far. `WIKILINK_RE` needs one or
    * more, so `[[]]` is literal text, not an empty wikilink. */
   let size = 0;
+  /* Where this attempt's `[[` began. */
+  let from = 0;
 
   /**
    * ONE token spans the whole `[[target]]`. The target is read back in
@@ -102,6 +125,9 @@ const tokenizeWikilink: MicromarkTokenizer = (effects, ok, nok) => {
    */
   function start(code: number | null): MicromarkState | undefined {
     if (code !== LEFT_SQUARE_BRACKET) return nok(code);
+    from = offset();
+    const known = lineWithoutCloser.get(parser);
+    if (known && from > known.from && from < known.to) return nok(code);
     effects.enter('wikilink');
     effects.consume(code);
     return afterFirstBracket;
@@ -114,7 +140,10 @@ const tokenizeWikilink: MicromarkTokenizer = (effects, ok, nok) => {
   }
 
   function inTarget(code: number | null): MicromarkState | undefined {
-    if (endsTheLine(code)) return nok(code);
+    if (endsTheLine(code)) {
+      lineWithoutCloser.set(parser, { from, to: offset() });
+      return nok(code);
+    }
     if (code === RIGHT_SQUARE_BRACKET) {
       effects.consume(code);
       return afterFirstClosingBracket;
@@ -189,6 +218,33 @@ interface FromMarkdownContext {
   exit(token: unknown): void;
   sliceSerialize(token: unknown): string;
   stack: WikilinkMdastNode[];
+  /** `mdast-util-gfm-table` sets `inTable` for the rows of a table. */
+  data: { inTable?: boolean };
+}
+
+/*
+ * A pipe inside a GFM table cell. The row is split on every unescaped `|`
+ * BEFORE any inline parsing, so a wikilink whose target holds one — `[[a|b]]`,
+ * typed by hand or written by Obsidian — has to be spelled `[[a\|b]]` there,
+ * or the next open splits the cell in two and the link with it. The pair below
+ * is `mdast-util-gfm-table`'s own rule for inline code, restated for this node:
+ * `\|` reads back as `|` inside a table, and `|` is written as `\|` in a cell.
+ * No rule outcome moves: `|` is a forbidden note-title character, so a target
+ * holding one never resolves and no rename ever rewrites it.
+ */
+function unescapeCellPipes(target: string): string {
+  // Pipes work, backslashes do not (but cannot escape pipes) — upstream's rule.
+  return target.replace(/\\([\\|])/g, (escape, character: string) =>
+    character === '|' ? character : escape,
+  );
+}
+
+function escapeCellPipes(target: string): string {
+  // A pipe after an odd run of backslashes gets one more, so the run reads back
+  // as escaped backslashes and never as a cell boundary.
+  return target.replace(/(\\*)\|/g, (_pipe, run: string) =>
+    run.length % 2 === 1 ? `${run}\\\\|` : `${run}\\|`,
+  );
 }
 
 export const wikilinkFromMarkdownExtension = {
@@ -201,7 +257,8 @@ export const wikilinkFromMarkdownExtension = {
     wikilink(this: FromMarkdownContext, token: unknown): void {
       const node = this.stack[this.stack.length - 1];
       // The token spans `[[` + target + `]]`; the target is what is between.
-      node.target = this.sliceSerialize(token).slice(2, -2);
+      const target = this.sliceSerialize(token).slice(2, -2);
+      node.target = this.data.inTable ? unescapeCellPipes(target) : target;
       this.exit(token);
     },
   },
@@ -213,11 +270,17 @@ export const wikilinkFromMarkdownExtension = {
  * as `\[\[x]]` and every link in the note stops resolving. The handler returns
  * the target verbatim — no `safe()`, no escaping — so a round trip is
  * byte-identical, and no `unsafe` pattern is registered, so neighbouring text
- * is not escaped on our account either.
+ * is not escaped on our account either. The one exception is a `|` in a table
+ * cell ({@link escapeCellPipes}).
  */
 export const wikilinkToMarkdownExtension = {
   handlers: {
-    [WIKILINK_MDAST_TYPE]: (node: WikilinkMdastNode): string => `[[${node.target}]]`,
+    [WIKILINK_MDAST_TYPE]: (
+      node: WikilinkMdastNode,
+      _parent: unknown,
+      state: { stack: readonly string[] },
+    ): string =>
+      `[[${state.stack.includes('tableCell') ? escapeCellPipes(node.target) : node.target}]]`,
   },
 };
 

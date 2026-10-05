@@ -1,5 +1,6 @@
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import { hasFileSystem } from '$lib/platform';
+import { idLeaf } from '$lib/platform/pathSafety';
 import { sanitizeFilename, validateTitle } from '$lib/rules';
 import type { LocalizedMessage } from '$shared/localization';
 
@@ -36,6 +37,9 @@ type IsLoading = () => boolean;
 interface SavedNoteState {
   content: string;
   id: string;
+  /** The save left the note at `savedOriginalId` in place (a park): only this
+   * editor moves to `id`, never other tabs holding the original. */
+  keepsOriginal?: boolean;
   savedOriginalId: string | null;
   requestedTitle: string;
   title: string;
@@ -116,6 +120,32 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
       if (result.unappliedMutation) _applyLocalMutation(result.unappliedMutation);
       if (result.disposition === 'parked') {
         await options.reconcileOpenNote(result.id, { content: newContent, title: state.title });
+        // The reconcile adopts the peer's original only when it may interrupt
+        // (an unfocused editor on an unchanged draft). Otherwise the editor is
+        // still on the original id with its pre-park baseline, which no longer
+        // describes that id's disk: every later save would park another copy.
+        // Follow the copy and advance the baseline to the parked draft in the
+        // same step (the native shells' rule), so the continuing edit is an
+        // ordinary save of the one copy.
+        const after = options.getState();
+        if (
+          result.parkedId !== undefined &&
+          after.originalId === state.originalId &&
+          after.savedContent === state.savedContent
+        ) {
+          const parkedId = result.parkedId;
+          const parkedNote = result.unappliedMutation?.upserted.find(
+            ({ note }) => note.id === parkedId,
+          )?.note;
+          options.onSaved({
+            id: parkedId,
+            title: parkedNote?.title ?? idLeaf(parkedId),
+            requestedTitle: state.title,
+            content: newContent,
+            savedOriginalId: state.originalId,
+            keepsOriginal: true,
+          });
+        }
         return false;
       }
 

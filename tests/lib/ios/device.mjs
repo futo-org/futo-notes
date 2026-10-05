@@ -259,6 +259,7 @@ export function createIosDevice({ udid = process.env.SIM } = {}) {
     seedNote,
     readNote,
     launch: client.launch,
+    pressHome: client.pressHome,
     restartSimulator: client.restartSimulator,
     terminate: client.terminate,
     screenshot: client.screenshot,

@@ -194,6 +194,39 @@ test.describe('slash menu', () => {
     expect(await editorMarkdown(page)).not.toContain('/code');
   });
 
+  /*
+   * RC-57 — picking ANY item deletes the typed `/query`, even when the item has
+   * nothing to do here (Text on a paragraph, Bullet inside a bullet, Code block
+   * inside a list item, Quote inside a quote, Heading 1 inside a Heading 1). The
+   * pick used to decline and `combineDeleteAndCommand` dropped the delete with
+   * it, leaving `/query` in the note. Removing the query and doing nothing else
+   * is the specified outcome, and one Undo brings the query back.
+   */
+  for (const [name, setup, query, container] of [
+    ['Text on a plain paragraph', '', '/text', 'p'],
+    ['Bullet list inside a bullet', '- ', '/bullet', 'ul > li'],
+    ['Code block inside a list item', '- ', '/code', 'ul > li'],
+    ['Quote inside a quote', '> ', '/quote', 'blockquote'],
+    ['Heading 1 inside a Heading 1', '# ', '/heading', 'h1'],
+  ] as const) {
+    test(`a declined pick still removes the typed query: ${name}`, async ({ page }) => {
+      await typeSlash(page, setup + query);
+      await expectMenuOpen(page);
+      // Past the history plugin's grouping window, so the pick's delete is its
+      // own undo step rather than folding into the typing before it.
+      await page.waitForTimeout(700);
+      await page.keyboard.press('Enter');
+      await expectMenuClosed(page);
+
+      expect(await editorMarkdown(page)).not.toContain('/');
+      await expect(page.locator(`${EDITOR} ${container}`)).toHaveCount(1);
+      await expect(page.locator(`${EDITOR} pre`)).toHaveCount(0);
+      // ONE Undo takes the whole pick back, query included.
+      await page.keyboard.press('ControlOrMeta+z');
+      expect(await editorMarkdown(page)).toContain(query);
+    });
+  }
+
   test('a / inside a code block does not open the menu', async ({ page }) => {
     await typeSlash(page, '/code');
     await page.keyboard.press('Enter');

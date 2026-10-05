@@ -128,6 +128,17 @@ refuse and tell you the command; they never run it for you. Three independent fi
 this same papercut landed on parallel MR stacks (mr-298, mr-318, mr-320) — kept all three
 rather than dropping any.
 
+`check-node-modules` (scripts/check-node-modules.mjs) also guards RC-69: for every entry in
+`patchedDependencies` it verifies the patch is APPLIED in every installed copy the app
+resolves (`node_modules/<pkg>`, each workspace package's link, and every `.pnpm/*/node_modules/<pkg>`
+link). An INCREMENTAL `pnpm install` over an existing `node_modules` can link a
+`<pkg>_patch_hash=<hash>` directory holding the unpatched package, or keep an older patch when
+a patch file is extended, so a dev or agent checkout silently runs unpatched code; CI installs
+fresh and never sees it. It is a pure-JS, read-only check (each hunk's post-image must be present
+in the installed file, the question `git apply --check --reverse` answers, without needing git or
+`patch`), ~50 ms. It runs from `check` (so `prepush` and the pre-push hook) and after `just install`.
+Recovery it prints: `rm -rf node_modules && pnpm install`.
+
 ## release-notes-check
 
 What App Store and Google Play users read. The tag pipeline submits both stores by itself,

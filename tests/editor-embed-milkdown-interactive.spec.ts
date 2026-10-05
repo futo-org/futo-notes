@@ -326,6 +326,168 @@ test('Tab at the very last cell appends a row instead of dropping focus', async 
   ]);
 });
 
+/**
+ * A paste carrying an HTML `<table>` (a spreadsheet or web-table copy) while
+ * the caret sits in a table cell. Nothing in Playwright or CDP can put HTML on
+ * the OS clipboard, so this is a dispatched `ClipboardEvent` with a real
+ * `DataTransfer` — it still goes through ProseMirror's own paste handling.
+ */
+async function pasteHtml(page: Page, html: string, text: string): Promise<void> {
+  await page.evaluate(
+    ([h, t]) => {
+      const transfer = new DataTransfer();
+      transfer.setData('text/html', h);
+      transfer.setData('text/plain', t);
+      document
+        .querySelector('.ProseMirror')!
+        .dispatchEvent(
+          new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }),
+        );
+    },
+    [html, text],
+  );
+  await flushFrames(page);
+}
+
+test('pasting an HTML table into a table cell throws nothing and pastes the cells', async ({
+  page,
+}) => {
+  // prosemirror-tables' paste path built a row with an extra header cell and
+  // died in `TableMap.positionAt` (RC-53): the paste was dropped with a pageerror.
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r1a');
+  await pasteHtml(page, '<table><tr><td>X</td><td>Y</td></tr></table>', 'X\tY');
+  await settled(page);
+  expect(errors).toEqual([]);
+  expect(tableRows(await getContent(page))).toEqual([
+    ['a', 'b'],
+    ['X', 'Y'],
+    ['r2a', 'r2b'],
+  ]);
+});
+
+/*
+ * Plain-text pastes into a table cell and a list item (R10-FB13-1/-2, RC-81).
+ * `text/html` is left empty, so ProseMirror takes its plain-text route — the one
+ * `plainTextBlockPaste.ts` touches — and only the clipboard event is synthetic.
+ */
+test('multi-line plain text pasted into a cell stays in that cell and spares the next (RC-81)', async ({
+  page,
+}) => {
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r1a');
+  await pasteHtml(page, '', 'P\n\nQ');
+  await settled(page);
+  expect(tableRows(await getContent(page))).toEqual([
+    ['a', 'b'],
+    ['r1aP Q', 'r1b'],
+    ['r2a', 'r2b'],
+  ]);
+});
+
+/*
+ * RC-83: the HTML twin of RC-81. `text/html` with several blocks, caret in a
+ * cell: ProseMirror wrapped each `<p>` in a new cell and prosemirror-tables
+ * pasted them over the caret's cell and the next (`c1`, `r1b` both lost). A
+ * pasted `<table>` is a spreadsheet paste and overwrites by design.
+ */
+test('several HTML blocks pasted into a cell join in that cell and spare the next (RC-83)', async ({
+  page,
+}) => {
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r1a');
+  await pasteHtml(page, '<p>P <b>bold</b></p><p>Q</p>', 'P bold\n\nQ');
+  await settled(page);
+  const content = await getContent(page);
+  expect(tableRows(content)).toEqual([
+    ['a', 'b'],
+    ['r1aP **bold** Q', 'r1b'],
+    ['r2a', 'r2b'],
+  ]);
+});
+
+test('an inline run meeting a block keeps its words apart when pasted into a cell (RC-83)', async ({
+  page,
+}) => {
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r1a');
+  await pasteHtml(page, '<span>Kn1 a</span><div>Kn2 b</div>', 'Kn1 a\nKn2 b');
+  await settled(page);
+  expect(tableRows(await getContent(page))).toEqual([
+    ['a', 'b'],
+    ['r1aKn1 a Kn2 b', 'r1b'],
+    ['r2a', 'r2b'],
+  ]);
+});
+
+test('a pasted HTML table still overwrites cell by cell, spreadsheet-style', async ({ page }) => {
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r1a');
+  await pasteHtml(page, '<table><tr><td>X</td><td>Y</td></tr></table>', 'X\tY');
+  await settled(page);
+  expect(tableRows(await getContent(page))).toEqual([
+    ['a', 'b'],
+    ['X', 'Y'],
+    ['r2a', 'r2b'],
+  ]);
+});
+
+test('a lone heading pasted into an empty table cell does not split the table', async ({
+  page,
+}) => {
+  await open(page, '| a | b |\n| --- | --- |\n|   | y |\n');
+  await withCaretObserved(page, () => page.locator('.ProseMirror tbody td').first().click());
+  await pasteHtml(page, '', '# x');
+  await settled(page);
+  const content = await getContent(page);
+  expect(content.match(/^\|\s*a\s*\|/gm)).toHaveLength(1);
+  expect(tableRows(content)).toEqual([
+    ['a', 'b'],
+    ['x', 'y'],
+  ]);
+});
+
+test('a list pasted into an empty list item becomes siblings, not a nested list', async ({
+  page,
+}) => {
+  await open(page, '- a\n- b\n');
+  await caretAtEndOf(page, 'b');
+  await page.keyboard.press('Enter');
+  await pasteHtml(page, '', '- x\n- y');
+  await settled(page);
+  const content = await getContent(page);
+  expect(content).not.toMatch(/-\s+-\s/);
+  expect(content.match(/^\s*[-*+]\s/gm)).toHaveLength(4);
+});
+
+test('pasting an HTML table into the header row, and a <th> table into a body row, both land', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'a');
+  await pasteHtml(page, '<table><tr><td>X</td><td>Y</td></tr></table>', 'X\tY');
+  await settled(page);
+  await caretAtEndOf(page, 'r2a');
+  await pasteHtml(
+    page,
+    '<table><tr><th>H1</th><th>H2</th></tr><tr><td>v1</td></tr></table>',
+    'H1\tH2\nv1',
+  );
+  await settled(page);
+  expect(errors).toEqual([]);
+  // Cells take the type of the row they land in; a ragged pasted row is squared up.
+  expect(tableRows(await getContent(page))).toEqual([
+    ['X', 'Y'],
+    ['r1a', 'r1b'],
+    ['H1', 'H2'],
+    ['v1', ''],
+  ]);
+});
+
 // ============================================================
 // External links — hit area (spec: "Only the link's own glyphs open it")
 // ============================================================
@@ -490,4 +652,447 @@ test('Escape then Tab releases the code-block claim for the next Tab only', asyn
   await page.keyboard.press('Tab');
   await settled(page);
   expect(await getContent(page)).toContain('  xcode');
+});
+
+// ============================================================
+// Typed text saves with the escapes it needs (hardening L6e-1/13/14). Each
+// case types, saves, re-opens what was saved, and checks the note still MEANS
+// what was typed — the serializer's escaping is only visible on the reopen.
+// ============================================================
+
+/** Open `markdown` as a different note, the way the host re-opens a saved one. */
+async function reopen(page: Page, markdown: string): Promise<void> {
+  // Through another note first, so a same-bytes reopen is never deduped away.
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.setContent('-'));
+  await page.evaluate(
+    (m) => (window as unknown as FakeHostWindow).FutoEditor.setContent(m),
+    markdown,
+  );
+  await flushFrames(page);
+}
+
+/** The cell texts of table row `index` (0 = header) in the rendered document. */
+function renderedRow(page: Page, index: number): Promise<string[]> {
+  return page.locator('.ProseMirror tr').nth(index).locator('td, th').allTextContents();
+}
+
+const SMALL_TABLE = '| a | b |\n| - | - |\n| c | d |\n';
+
+test('a pipe typed in a table cell before bold stays in its cell', async ({ page }) => {
+  // Milkdown writes a text run that ends in whitespace raw, so the run before
+  // a mark lost its `\|` and the next open split the row.
+  await open(page, SMALL_TABLE);
+  await caretAtEndOf(page, 'c');
+  await page.keyboard.type(' x | y ');
+  await page.keyboard.press('ControlOrMeta+b');
+  await page.keyboard.type('bold');
+  await settled(page);
+  const saved = await getContent(page);
+  await reopen(page, saved);
+  expect(await renderedRow(page, 1), saved).toEqual(['c x | y bold', 'd']);
+});
+
+test('a pipe typed in a table cell survives a pause after a trailing space', async ({ page }) => {
+  // No mark at all: the cell's last run ends in a space, which is what the
+  // autosave sees whenever the user pauses after one.
+  await open(page, SMALL_TABLE);
+  await caretAtEndOf(page, 'c');
+  await page.keyboard.type(' x | y ');
+  await settled(page);
+  const saved = await getContent(page);
+  await reopen(page, saved);
+  expect(
+    (await renderedRow(page, 1)).map((cell) => cell.trim()),
+    saved,
+  ).toEqual(['c x | y', 'd']);
+});
+
+test('a line typed after Shift+Enter that starts with "# " stays in the paragraph', async ({
+  page,
+}) => {
+  await open(page, 'Notes');
+  await caretAtEndOf(page, 'Notes');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('# not a heading ');
+  await page.keyboard.press('ControlOrMeta+b');
+  await page.keyboard.type('bold');
+  await settled(page);
+  const saved = await getContent(page);
+  await reopen(page, saved);
+  expect(await page.locator('.ProseMirror h1').count(), saved).toBe(0);
+  expect(await page.locator('.ProseMirror p').first().textContent(), saved).toBe(
+    'Notes# not a heading bold',
+  );
+});
+
+test('"&amp;" typed before bold is still "&amp;" after a reopen', async ({ page }) => {
+  await open(page, 'Notes');
+  await caretAtEndOf(page, 'Notes');
+  await page.keyboard.type(' write &amp; for & ');
+  await page.keyboard.press('ControlOrMeta+b');
+  await page.keyboard.type('bold');
+  await settled(page);
+  const saved = await getContent(page);
+  await reopen(page, saved);
+  expect(await page.locator('.ProseMirror p').first().textContent(), saved).toBe(
+    'Notes write &amp; for & bold',
+  );
+});
+
+test('Shift+Enter in an H4 never adds a backslash to the heading', async ({ page }) => {
+  // An ATX heading is one line. The break handler wrote `\` + newline there,
+  // which ended the heading: it reopened as `Plan\` plus a paragraph.
+  await open(page, '#### Plan');
+  await caretAtEndOf(page, 'Plan');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('next');
+  await settled(page);
+  const saved = await getContent(page);
+  expect(saved).not.toContain('\\');
+  await reopen(page, saved);
+  expect(await page.locator('.ProseMirror h4').allTextContents(), saved).toEqual(['Plan next']);
+  expect(await page.locator('.ProseMirror p').count(), saved).toBe(0);
+});
+
+test('Shift+Enter directly before inline HTML keeps the break and adds no backslash', async ({
+  page,
+}) => {
+  await open(page, 'Press <kbd>Ctrl</kbd> now');
+  // Only the caret is placed through the DOM (directly before the `<kbd>`
+  // atom, which no click can target); the break itself is a real Shift+Enter.
+  await withCaretObserved(page, () =>
+    page.evaluate(() => {
+      const text = document.querySelector('.ProseMirror p')?.firstChild;
+      if (!text) throw new Error('no text node');
+      const range = document.createRange();
+      range.setStart(text, 'Press '.length);
+      range.collapse(true);
+      getSelection()?.removeAllRanges();
+      getSelection()?.addRange(range);
+    }),
+  );
+  await page.keyboard.press('Shift+Enter');
+  await settled(page);
+  const saved = await getContent(page);
+  // `\` + space is a literal backslash on one line; `<br>` is the break.
+  expect(saved).toBe('Press <br><kbd>Ctrl</kbd> now\n');
+});
+
+/** Select the first `length` characters of the first paragraph, as a mouse drag would. */
+async function selectParagraphStart(page: Page, length: number): Promise<void> {
+  await page.locator('.ProseMirror p').first().click();
+  await withCaretObserved(page, () =>
+    page.evaluate((selected) => {
+      const text = document.querySelector('.ProseMirror p')?.firstChild;
+      if (!text) throw new Error('no text node');
+      const range = document.createRange();
+      range.setStart(text, 0);
+      range.setEnd(text, selected);
+      getSelection()?.removeAllRanges();
+      getSelection()?.addRange(range);
+    }, length),
+  );
+}
+
+for (const [name, text, length, key, tag] of [
+  ['Mod+B on "Note:" before a letter', 'Note:bar', 5, 'b', 'strong'],
+  ['Mod+I on "Note:" before a letter', 'Note:bar', 5, 'i', 'em'],
+  ['Mod+Alt+X on "Note:" before a letter', 'Note:bar', 5, 'Alt+x', 'del'],
+  // CJK: bold on a phrase ending in a full-width colon, before the next ideograph.
+  ['Mod+B on a CJK phrase ending in a full-width colon', '重要：这是', 3, 'b', 'strong'],
+] as const) {
+  test(`${name} is still formatted after a reopen`, async ({ page }) => {
+    await open(page, text);
+    await selectParagraphStart(page, length);
+    await page.keyboard.press(`ControlOrMeta+${key}`);
+    await settled(page);
+    const saved = await getContent(page);
+    await reopen(page, saved);
+    expect(await page.locator(`.ProseMirror p ${tag}`).allTextContents(), saved).toEqual([
+      text.slice(0, length),
+    ]);
+  });
+}
+
+test('a letter typed before an underscore emphasis followed by a `*` run keeps both italic', async ({
+  page,
+}) => {
+  // FB-4a round 2: the dropped `_` to `*` re-spelling saved `a Z*b**c*`, which
+  // reopens with two literal `**` in the text.
+  await open(page, 'a _b_*c*');
+  await withCaretObserved(page, () =>
+    page.evaluate(() => {
+      const text = document.querySelector('.ProseMirror p')?.firstChild;
+      if (!text) throw new Error('no text node');
+      const range = document.createRange();
+      range.setStart(text, 'a '.length);
+      range.collapse(true);
+      getSelection()?.removeAllRanges();
+      getSelection()?.addRange(range);
+    }),
+  );
+  await page.keyboard.type('Z');
+  await settled(page);
+  const saved = await getContent(page);
+  expect(saved).not.toContain('**');
+  await reopen(page, saved);
+  expect(await page.locator('.ProseMirror p em').allTextContents(), saved).toEqual(['b', 'c']);
+});
+
+// ============================================================
+// Typed `![alt](src)` becomes an image as the closing `)` is typed (RC-56,
+// docs/spec/editor.md "Formatting is reachable by typing Markdown"). The
+// vault filename, an external https/http URL, a URL with a query string, the
+// `<…>` form and a title all convert, render, and save back as the same bytes.
+// ============================================================
+
+const IMAGE_BASE = 'file:///vault/';
+
+/** Rendered images — ProseMirror adds its own `img.ProseMirror-separator` after a trailing inline atom. */
+const IMAGES = '.ProseMirror img:not(.ProseMirror-separator)';
+
+/** Type `typed` on a new line after "Notes" in a note whose host registered a base URL. */
+async function typeAfterNotes(page: Page, typed: string): Promise<void> {
+  await open(page, 'Notes');
+  await page.evaluate(
+    (base) => (window as unknown as FakeHostWindow).FutoEditor.setImageBaseUrl(base),
+    IMAGE_BASE,
+  );
+  await caretAtEndOf(page, 'Notes');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type(typed);
+  await settled(page);
+}
+
+for (const [name, typed, src, alt, title, rendered] of [
+  [
+    'a vault filename',
+    '![alt](image-123.png)',
+    'image-123.png',
+    'alt',
+    null,
+    IMAGE_BASE + 'image-123.png',
+  ],
+  [
+    'an empty alt and a vault filename',
+    '![](image-123.png)',
+    'image-123.png',
+    '',
+    null,
+    IMAGE_BASE + 'image-123.png',
+  ],
+  [
+    'an external https URL',
+    '![alt](https://example.com/a.png)',
+    'https://example.com/a.png',
+    'alt',
+    null,
+    'https://example.com/a.png',
+  ],
+  [
+    'an external http URL with an empty alt',
+    '![](http://example.com/b.png)',
+    'http://example.com/b.png',
+    '',
+    null,
+    'http://example.com/b.png',
+  ],
+  [
+    'an external URL with a query string',
+    '![alt](https://example.com/a.png?w=100)',
+    'https://example.com/a.png?w=100',
+    'alt',
+    null,
+    'https://example.com/a.png?w=100',
+  ],
+  [
+    'a `<…>` destination with a space',
+    '![alt](<my photo.png>)',
+    'my photo.png',
+    'alt',
+    null,
+    IMAGE_BASE + 'my%20photo.png',
+  ],
+  [
+    'a title',
+    '![alt](https://example.com/a.png "the title")',
+    'https://example.com/a.png',
+    'alt',
+    'the title',
+    'https://example.com/a.png',
+  ],
+] as const) {
+  test(`typing ${name} as ![alt](…) becomes a rendered image that saves as typed`, async ({
+    page,
+  }) => {
+    await typeAfterNotes(page, typed);
+    const image = page.locator(`.ProseMirror img[data-futo-src="${src}"]`);
+    await expect(image).toHaveCount(1);
+    await expect(image).toHaveAttribute('src', rendered);
+    await expect(image).toHaveAttribute('alt', alt);
+    if (title) await expect(image).toHaveAttribute('title', title);
+    const saved = await getContent(page);
+    expect(saved).toBe(`Notes\n\n${typed}\n`);
+    // And the saved bytes reopen as the same image.
+    await reopen(page, saved);
+    await expect(page.locator(`.ProseMirror img[data-futo-src="${src}"]`)).toHaveCount(1);
+    expect(await getContent(page)).toBe(saved);
+  });
+}
+
+test('a typed external URL keeping its `&` reopens as the same image', async ({ page }) => {
+  // The serializer writes `&` in a destination as `\&` (an entity guard — the
+  // same for a link, and for any note opened and edited); it means the same
+  // URL, so what must hold is that the image still points at it after a save.
+  const url = 'https://example.com/a.png?w=100&h=50';
+  await typeAfterNotes(page, `![alt](${url})`);
+  await expect(page.locator(`.ProseMirror img[data-futo-src="${url}"]`)).toHaveCount(1);
+  await reopen(page, await getContent(page));
+  await expect(page.locator(`.ProseMirror img[data-futo-src="${url}"]`)).toHaveCount(1);
+});
+
+test('a typed image converts in the middle of a sentence and keeps the text around it', async ({
+  page,
+}) => {
+  await typeAfterNotes(page, 'see ![alt](https://example.com/a.png) here');
+  await expect(page.locator(IMAGES)).toHaveCount(1);
+  expect(await getContent(page)).toBe('Notes\n\nsee ![alt](https://example.com/a.png) here\n');
+});
+
+test('one Ctrl+Z after the typed image converts undoes it, like another rule does', async ({
+  page,
+}) => {
+  // The rule replaces the run without ever inserting the `)` that triggered it,
+  // so undoing it gives back the text as it stood before that keystroke — the
+  // same as `**bold**`. The pause keeps the conversion out of the typing's own
+  // undo group (prosemirror-history merges edits closer than 500 ms).
+  await open(page, 'Notes');
+  await caretAtEndOf(page, 'Notes');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('![alt](https://example.com/a.png');
+  await page.waitForTimeout(700);
+  await page.keyboard.type(')');
+  await expect(page.locator(IMAGES)).toHaveCount(1);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(page.locator(IMAGES)).toHaveCount(0);
+  expect(await page.locator('.ProseMirror p').last().textContent()).toBe(
+    '![alt](https://example.com/a.png',
+  );
+
+  // Control: the strong rule, same shape.
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('**bold*');
+  await page.waitForTimeout(700);
+  await page.keyboard.type('*');
+  await expect(page.locator('.ProseMirror p strong')).toHaveText('bold');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(page.locator('.ProseMirror p strong')).toHaveCount(0);
+  expect(await page.locator('.ProseMirror p').last().textContent()).toBe('**bold*');
+});
+
+test('a typed image does not convert inside inline code', async ({ page }) => {
+  await typeAfterNotes(page, '`![alt](https://example.com/a.png)`');
+  await expect(page.locator(IMAGES)).toHaveCount(0);
+  await expect(page.locator('.ProseMirror p code').last()).toHaveText(
+    '![alt](https://example.com/a.png)',
+  );
+  expect(await getContent(page)).toBe('Notes\n\n`![alt](https://example.com/a.png)`\n');
+});
+
+test('a typed image does not convert inside an existing code span', async ({ page }) => {
+  await open(page, '`ab`');
+  // Only the caret is placed through the DOM (between the `a` and the `b`);
+  // the typing itself is real.
+  await withCaretObserved(page, () =>
+    page.evaluate(() => {
+      const text = document.querySelector('.ProseMirror p code')?.firstChild;
+      if (!text) throw new Error('no code text node');
+      const range = document.createRange();
+      range.setStart(text, 1);
+      range.collapse(true);
+      getSelection()?.removeAllRanges();
+      getSelection()?.addRange(range);
+    }),
+  );
+  await page.keyboard.type('![x](https://example.com/a.png)');
+  await settled(page);
+  await expect(page.locator(IMAGES)).toHaveCount(0);
+  await expect(page.locator('.ProseMirror p code')).toHaveText('a![x](https://example.com/a.png)b');
+});
+
+test('a typed image does not convert inside a code block', async ({ page }) => {
+  await open(page, '```\n\n```\n');
+  await page.locator('.ProseMirror pre').click();
+  await page.keyboard.type('![alt](https://example.com/a.png)');
+  await settled(page);
+  await expect(page.locator(IMAGES)).toHaveCount(0);
+  expect(await getContent(page)).toContain('![alt](https://example.com/a.png)');
+  expect(await getContent(page)).toMatch(/^```\n!\[alt\]\(https:\/\/example.com\/a.png\)\n```/);
+});
+
+test('an escaped `\\![alt](…)` typed in a paragraph stays text', async ({ page }) => {
+  await typeAfterNotes(page, '\\![alt](https://example.com/a.png)');
+  await expect(page.locator(IMAGES)).toHaveCount(0);
+  const saved = await getContent(page);
+  await reopen(page, saved);
+  await expect(page.locator(IMAGES)).toHaveCount(0);
+  expect(await page.locator('.ProseMirror p').last().textContent(), saved).toBe(
+    '\\![alt](https://example.com/a.png)',
+  );
+});
+
+test('a typed plain link `[a](b)` is not turned into an image or a link', async ({ page }) => {
+  await typeAfterNotes(page, '[a](https://example.com)');
+  await expect(page.locator(IMAGES)).toHaveCount(0);
+  expect(await page.locator('.ProseMirror p').last().textContent()).toBe(
+    '[a](https://example.com)',
+  );
+});
+
+// ============================================================
+// A nested list made by typing saves TIGHT (RC-102). Items the editor creates
+// used to carry `spread: true`, so the moment Tab gave one a child list the item
+// text and the list were separated by a blank line — where the same list opened
+// from a tight file and edited stayed tight. Two spellings of one list, and the
+// loose one reads as a different document to any other Markdown renderer.
+// ============================================================
+
+/** Presses `Enter` / `Tab` for those exact entries and types everything else. */
+async function typeAndPress(page: Page, steps: string[]): Promise<void> {
+  for (const step of steps) {
+    if (step === 'Enter' || step === 'Tab') await page.keyboard.press(step);
+    else await page.keyboard.type(step);
+  }
+}
+
+test('a bullet list nested by typing Enter then Tab saves tight', async ({ page }) => {
+  await open(page, '');
+  await page.locator('.ProseMirror').click();
+  await typeAndPress(page, ['- item a', 'Enter', 'item b', 'Enter', 'Tab', 'nested c']);
+  await settled(page);
+  expect(await getContent(page)).toBe('- item a\n- item b\n  - nested c\n');
+});
+
+test('an ordered list nested by typing Enter then Tab saves tight', async ({ page }) => {
+  await open(page, '');
+  await page.locator('.ProseMirror').click();
+  await typeAndPress(page, ['1. one', 'Enter', 'two', 'Enter', 'Tab', 'nested']);
+  await settled(page);
+  expect(await getContent(page)).toBe('1. one\n2. two\n   1. nested\n');
+});
+
+test('the same list opened from a tight file and edited saves the same bytes', async ({ page }) => {
+  await open(page, '- item a\n- item b\n  - nested c\n');
+  await caretAtEndOf(page, 'nested c');
+  await page.keyboard.type('!');
+  await settled(page);
+  expect(await getContent(page)).toBe('- item a\n- item b\n  - nested c!\n');
+});
+
+test('a LOOSE file keeps its blank lines after the same edit', async ({ page }) => {
+  await open(page, '- item a\n\n- item b\n\n  - nested c\n');
+  await caretAtEndOf(page, 'nested c');
+  await page.keyboard.type('!');
+  await settled(page);
+  expect(await getContent(page)).toBe('- item a\n\n- item b\n\n  - nested c!\n');
 });

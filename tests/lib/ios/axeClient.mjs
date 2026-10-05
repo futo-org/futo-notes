@@ -51,6 +51,10 @@ export function createAxeClient({ udid, bundleId = DEFAULT_BUNDLE_ID } = {}) {
 
   const typeText = (text) => axe('type', text, '--udid', udid);
 
+  // The Home button: the app goes `.inactive` then `.background`, as it does
+  // for the app switcher.
+  const pressHome = () => axe('button', 'home', '--udid', udid);
+
   const appDataContainer = () => simctl('get_app_container', udid, bundleId, 'data').trim();
 
   const launch = () => simctl('launch', udid, bundleId);
@@ -98,6 +102,7 @@ export function createAxeClient({ udid, bundleId = DEFAULT_BUNDLE_ID } = {}) {
     tapPoint,
     touchPoint,
     typeText,
+    pressHome,
     appDataContainer,
     launch,
     restartSimulator,

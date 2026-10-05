@@ -125,16 +125,20 @@ fn adopt_remote_conflict_winner(
     Ok(Some(settled_name))
 }
 
+/// The copy holds `local`, but the file moved on before the remote text could
+/// replace it. The newer text descends from `existing`, not from the remote
+/// revision, so `existing` stays its recorded base: the next cycle meets the
+/// remote revision as a conflict again instead of overwriting it (RC-82).
 fn preserve_changed_source(
     context: &mut PushContext<'_>,
     file: &LocalFile,
     copy: &str,
-    remote: &RemoteNote,
+    existing: &ObjectState,
 ) -> (String, ObjectState) {
     context.summary.local_writes_applied += 1;
     context.summary.conflicts += 1;
     context.summary.updated_ids.push(note_id(copy));
-    let mut entry = state_from_remote(remote);
+    let mut entry = existing.clone();
     entry.mtime_ms = None;
     (file.name.clone(), entry)
 }
@@ -142,6 +146,7 @@ fn preserve_changed_source(
 pub(super) async fn write_conflict_pair(
     context: &mut PushContext<'_>,
     file: &LocalFile,
+    existing: &ObjectState,
     local: &str,
     remote: &RemoteNote,
     remote_name: String,
@@ -161,7 +166,9 @@ pub(super) async fn write_conflict_pair(
         local_hash,
     ) {
         Ok(Some(settled_name)) => Ok(Some((settled_name, state_from_remote(remote)))),
-        Ok(None) => Ok(Some(preserve_changed_source(context, file, &copy, remote))),
+        Ok(None) => Ok(Some(preserve_changed_source(
+            context, file, &copy, existing,
+        ))),
         Err(error) => {
             context.summary.failures.push(SyncFailure {
                 filename: file.name.clone(),

@@ -13,9 +13,17 @@ export interface MdastNode {
   value?: string;
   children?: MdastNode[];
   url?: string;
+  /** A definition's, and a reference's, normalized label. */
+  identifier?: string;
+  title?: string | null;
+  alt?: string | null;
+  checked?: boolean | null;
   data?: { isInline?: boolean };
-  /** Source lines (1-based), as mdast-util-from-markdown records them. */
-  position?: { start: { line: number }; end: { line: number } };
+  /** Source lines (1-based) and offsets, as mdast-util-from-markdown records them. */
+  position?: {
+    start: { line: number; offset?: number };
+    end: { line: number; offset?: number };
+  };
 }
 
 /** Depth-first walk that hands each node its immediate parent. */

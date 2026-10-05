@@ -9,6 +9,7 @@ import type {
   EditorIntentAction,
   EditorSnapshot,
   KeystrokeMeasurement,
+  KeystrokeTarget,
   OpenMeasurement,
   RichTextPoint,
   SourceSelection,
@@ -121,6 +122,11 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
     await this.context?.close();
     this.context = null;
     this.livePage = null;
+  }
+
+  /** Close the live page so the next `open` builds a new one (see the interface). */
+  async freshPage(): Promise<void> {
+    await this.dispose();
   }
 
   async open(source: string, _caseId: string): Promise<void> {
@@ -373,22 +379,91 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
    * unit the 16 ms budget was written against. Real key presses would fold in
    * Playwright's round trip and the browser's own input handling.
    */
-  async measureKeystrokes(count: number): Promise<KeystrokeMeasurement> {
-    return this.requirePage().evaluate(async (sampleCount) => {
-      const testWindow = window as unknown as MilkdownWindow;
-      const view = testWindow.__futoProseMirrorView?.();
-      if (!view) throw new Error('milkdown gauntlet: no ProseMirror view');
-      const synchronousSamplesMs: number[] = [];
-      const settledToPaintSamplesMs: number[] = [];
-      for (let index = 0; index < sampleCount; index += 1) {
-        const startedAt = performance.now();
-        view.dispatch(view.state.tr.insertText('x'));
-        synchronousSamplesMs.push(performance.now() - startedAt);
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        settledToPaintSamplesMs.push(performance.now() - startedAt);
-      }
-      return { synchronousSamplesMs, settledToPaintSamplesMs };
-    }, count);
+  async measureKeystrokes(count: number, target?: KeystrokeTarget): Promise<KeystrokeMeasurement> {
+    if (target?.loaded) {
+      // progressiveLoad.ts records this measure when the last chunk lands.
+      await this.requirePage().waitForFunction(
+        () => performance.getEntriesByName('futo:editor-open-complete', 'measure').length > 0,
+        null,
+        { timeout: 120_000 },
+      );
+    }
+    if (target?.ready) {
+      await this.requirePage().waitForSelector(`.ProseMirror ${target.ready}`, {
+        state: 'attached',
+      });
+    }
+    return this.requirePage().evaluate(
+      async ({ sampleCount, text }) => {
+        const testWindow = window as unknown as MilkdownWindow;
+        const view = testWindow.__futoProseMirrorView?.();
+        if (!view) throw new Error('milkdown gauntlet: no ProseMirror view');
+        let at: number | undefined;
+        if (text !== undefined) {
+          const walker = document.createTreeWalker(view.dom, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const index = node.textContent?.indexOf(text) ?? -1;
+            if (index >= 0) {
+              at = view.posAtDOM(node, index + text.length);
+              break;
+            }
+          }
+          if (at === undefined)
+            throw new Error(`milkdown gauntlet: no rendered "${text}" to type after`);
+        }
+        const synchronousSamplesMs: number[] = [];
+        const settledToPaintSamplesMs: number[] = [];
+        const nodeVisitSamples: number[] = [];
+        // Every `descendants`/`nodesBetween` walk ends in Fragment's
+        // `nodesBetween`, so counting its callbacks counts the nodes any
+        // plugin or the view walked. Only the outermost call wraps the
+        // callback; the recursion passes the wrapped one down.
+        type NodesBetween = (
+          from: number,
+          to: number,
+          f: (...args: unknown[]) => unknown,
+          ...rest: unknown[]
+        ) => void;
+        const fragment = Object.getPrototypeOf(
+          (view.state.doc as unknown as { content: object }).content,
+        ) as { nodesBetween: NodesBetween };
+        const nodesBetween = fragment.nodesBetween;
+        let visits = 0;
+        let depth = 0;
+        fragment.nodesBetween = function (this: unknown, from, to, f, ...rest) {
+          if (depth > 0) return nodesBetween.call(this, from, to, f, ...rest);
+          depth += 1;
+          try {
+            const counted = (...args: unknown[]): unknown => {
+              visits += 1;
+              return f(...args);
+            };
+            return nodesBetween.call(this, from, to, counted, ...rest);
+          } finally {
+            depth -= 1;
+          }
+        };
+        try {
+          for (let index = 0; index < sampleCount; index += 1) {
+            visits = 0;
+            const startedAt = performance.now();
+            view.dispatch(
+              at === undefined
+                ? view.state.tr.insertText('x')
+                : view.state.tr.insertText('x', at + index),
+            );
+            synchronousSamplesMs.push(performance.now() - startedAt);
+            nodeVisitSamples.push(visits);
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            settledToPaintSamplesMs.push(performance.now() - startedAt);
+          }
+        } finally {
+          fragment.nodesBetween = nodesBetween;
+        }
+        return { synchronousSamplesMs, settledToPaintSamplesMs, nodeVisitSamples };
+      },
+      { sampleCount: count, text: target?.text },
+    );
   }
 
   async captureFeelState(): Promise<DriverState> {
