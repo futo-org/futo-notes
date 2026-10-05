@@ -289,7 +289,13 @@ class LicenseSurfaceTest {
     @Test
     fun unlicensedLeadsWithTheAskAndCarriesNoCardChrome() {
         val localization = Localization.fromGeneratedCatalogs(listOf("en"), "en-US")
-        val license = LicenseModel(LicenseStorage(preferences), LicenseFixture.DEV_APPLICATION_ID)
+        // Link-out pinned on: this asserts the Buy surface, which the Play
+        // flavor hides by design (covered by linkOutFalseKeepsTheKeyField...).
+        val license = LicenseModel(
+            LicenseStorage(preferences),
+            LicenseFixture.DEV_APPLICATION_ID,
+            buildAllowsLinkOut = true,
+        )
         license.showMessage = {}
         license.applyEvaluated(licenseEvaluate(null, LicenseFixture.DEV_APPLICATION_ID))
 
