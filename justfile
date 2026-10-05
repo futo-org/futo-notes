@@ -551,6 +551,13 @@ test-search *args:
 bench-search *args:
   cargo bench -p futo-notes-search --bench search -- "$@"
 
+# Vault-open cost (bootstrap_with_search, bootstrap, startup_listing) over a
+# realistic synthetic vault; see crates/futo-notes-store/benches/vault_open.rs.
+# Override VAULT_BENCH_NOTES for a different corpus size.
+[positional-arguments]
+bench-vault *args:
+  cargo bench -p futo-notes-store --bench vault_open -- "$@"
+
 # ── Remote (Linux) test execution over Tailscale; mechanism: scripts/remote-test.mjs ──
 # `node scripts/remote-test.mjs --doctor|--help|<recipe>` runs any other portable recipe
 # remotely (`--doctor` reports what jfedora has; `<recipe>` accepts `--rsync`/flags — see

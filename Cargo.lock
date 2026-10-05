@@ -1986,6 +1986,7 @@ dependencies = [
  "pbkdf2",
  "proptest",
  "rand 0.8.5",
+ "rayon",
  "rustix",
  "serde",
  "serde_json",
@@ -2031,6 +2032,7 @@ version = "0.1.0"
 dependencies = [
  "fancy-regex",
  "futo-notes-core",
+ "memchr",
  "serde",
  "serde_json",
 ]
@@ -2052,12 +2054,17 @@ dependencies = [
 name = "futo-notes-store"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
+ "criterion",
  "futo-notes-core",
  "futo-notes-model",
  "futo-notes-search",
  "rayon",
+ "rustix",
  "serde",
  "sha2",
+ "simdutf8",
+ "tempfile",
  "walkdir",
 ]
 
@@ -5937,6 +5944,12 @@ name = "simd-adler32"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "703d5c7ef118737c72f1af64ad2f6f8c5e1921f818cdcb97b8fe6fc69bf66214"
+
+[[package]]
+name = "simdutf8"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "siphasher"

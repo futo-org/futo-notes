@@ -1,6 +1,7 @@
 //! One durable owner for the local Markdown vault and its derived search index.
 
 mod editor_draft;
+mod list_cache;
 mod paths;
 mod search;
 mod vault;
@@ -215,6 +216,7 @@ pub struct LocalNoteStore {
     gate: Mutex<()>,
     sort_order: Mutex<NoteSortOrder>,
     search: StoreSearch,
+    list_cache: list_cache::ListCache,
     /// Fault injection fired between id allocation and no-replace installation
     /// to simulate a concurrent writer landing at the chosen id.
     #[cfg(test)]
@@ -237,6 +239,7 @@ impl LocalNoteStore {
             before_write,
             gate: Mutex::new(()),
             sort_order: Mutex::new(NoteSortOrder::default()),
+            list_cache: list_cache::ListCache::new(),
             #[cfg(test)]
             install_window_hook: Mutex::new(None),
             #[cfg(test)]
@@ -265,7 +268,11 @@ impl LocalNoteStore {
     pub fn set_sort_order(&self, order: NoteSortOrder) -> Result<Snapshot, String> {
         let _gate = self.lock_gate()?;
         self.install_sort_order(order);
-        Ok(vault::snapshot(&self.root, order))
+        Ok(vault::snapshot_with_cache(
+            &self.root,
+            &self.list_cache,
+            order,
+        ))
     }
 
     /// Independent of the active sort order; stat-only, never reads a body.
@@ -322,12 +329,24 @@ impl LocalNoteStore {
     }
 
     pub fn bootstrap(&self) -> Result<BootstrapResult, String> {
+        self.bootstrap_loading(None)
+    }
+
+    /// `cache`, when given, is the (canonical root, index dir) of the persisted
+    /// list cache, loaded while crash recovery runs: entries are stat-checked,
+    /// so a concurrent recovery rename can only cost a miss.
+    fn bootstrap_loading(&self, cache: Option<(&Path, &Path)>) -> Result<BootstrapResult, String> {
         let _gate = self.lock_gate()?;
-        let (migrated, mut warnings) = self.prepare_bootstrap()?;
-        let mut snapshot = vault::snapshot(&self.root, self.sort_order());
+        let (migrated, mut warnings) = std::thread::scope(|scope| {
+            if let Some((root, index_dir)) = cache {
+                scope.spawn(|| self.list_cache.ensure_disk_loaded(root, index_dir));
+            }
+            self.prepare_bootstrap()
+        })?;
+        let mut snapshot = self.snapshot();
         let seeded = self.seed_empty_vault(snapshot.notes.is_empty(), &mut warnings);
         if seeded == 1 {
-            snapshot = vault::snapshot(&self.root, self.sort_order());
+            snapshot = self.snapshot();
         }
         Ok(BootstrapResult {
             snapshot,
@@ -385,7 +404,8 @@ impl LocalNoteStore {
         index_dir: PathBuf,
         on_status: StatusObserver,
     ) -> Result<BootstrapResult, String> {
-        let mut result = self.bootstrap()?;
+        let root = list_cache::canonicalize_or(&self.root);
+        let mut result = self.bootstrap_loading(Some((&root, &index_dir)))?;
         if let Err(error) = self.start_search(index_dir, on_status) {
             result.warnings.push(format!("search startup: {error}"));
         }
@@ -403,7 +423,7 @@ impl LocalNoteStore {
     }
 
     pub fn snapshot(&self) -> Snapshot {
-        vault::snapshot(&self.root, self.sort_order())
+        vault::snapshot_with_cache(&self.root, &self.list_cache, self.sort_order())
     }
 
     pub fn inventory(&self) -> Vec<VaultFile> {
