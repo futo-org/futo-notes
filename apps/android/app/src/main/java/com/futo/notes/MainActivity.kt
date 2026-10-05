@@ -203,6 +203,11 @@ class MainActivity : ComponentActivity() {
         }
 
         super.onCreate(savedInstanceState)
+        lifecycleScope.launch {
+            val icons = com.futo.notes.ui.settings.appicon.AppIconController(this@MainActivity)
+            icons.refresh()
+            if (icons.failed) android.util.Log.w("AppIcon", "Launcher icon reconciliation failed")
+        }
 
         // Edge-to-edge; Compose Scaffold/TopAppBar handle the system-bar insets.
         // enableEdgeToEdge() (androidx.activity) is the non-deprecated path: on

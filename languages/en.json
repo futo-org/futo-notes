@@ -188,6 +188,26 @@
         "installedRestart": "Update installed. Restart to finish.",
         "currentVersion": "Currently running v{version}.",
         "failed": "Update failed"
+      },
+      "appIcon": {
+        "heading": "App icon",
+        "choices": {
+          "lightStandard": "Standard",
+          "lightReversed": "Reversed",
+          "darkStandard": "Dark",
+          "darkReversed": "Dark, Reversed",
+          "futo": "FUTO",
+          "website": "Scanlines"
+        },
+        "confirm": {
+          "title": "Change app icon to \"{iconName}\"?",
+          "body": "FUTO Notes may close to apply the new icon. You can reopen it from your launcher.",
+          "action": "Change"
+        },
+        "failed": "Could not change the app icon. Please try again.",
+        "resetFailed": "Your notes were reset, but the app icon could not be restored. Please choose Standard in Settings.",
+        "unavailable": "Changing app icons is unavailable on this device.",
+        "changing": "Changing app icon…"
       }
     },
     "notes": {

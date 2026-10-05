@@ -934,6 +934,39 @@
           "pattern": "static func directions"
         }
       ]
+    },
+    {
+      "concept": "mobile-app-icon-identities",
+      "description": "Permanent manual icon IDs map to iOS alternate catalogs and Android launcher aliases. Both native definitions and bundled resources must stay aligned; the packaging test checks every choice and its iPhone/iPad/Android outputs.",
+      "lockStatus": "locked",
+      "copies": [
+        {
+          "location": "apps/ios/Sources/Settings/AppIcon/AppIcon.swift",
+          "pattern": "case lightStandard"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/ui/settings/appicon/AppIcon.kt",
+          "pattern": "LIGHT_STANDARD"
+        },
+        {
+          "location": "scripts/generate-app-icons.mjs",
+          "pattern": "LightStandard"
+        },
+        {
+          "location": "apps/android/app/src/main/AndroidManifest.xml",
+          "pattern": "LauncherLightStandard"
+        },
+        {
+          "location": "apps/ios/project.yml",
+          "pattern": "ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES"
+        }
+      ],
+      "locks": [
+        {
+          "path": "scripts/generate-app-icons.test.mjs",
+          "kind": "test"
+        }
+      ]
     }
   ]
 }

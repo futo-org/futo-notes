@@ -3,7 +3,8 @@ func performFullReset(
     beginStoreReset: () -> Void = {},
     disconnectSync: () async -> Void,
     resetStore: () async throws -> Void,
-    clearLicense: () -> Void
+    clearLicense: () -> Void,
+    resetIcon: () async -> Void = {}
 ) async throws {
     // Disconnect joins the live task and clears the saved credential before
     // the vault disappears, so an in-flight cycle cannot restore deleted data.
@@ -15,4 +16,5 @@ func performFullReset(
     // two steps above depend on, and it cannot fail. A throwing resetStore
     // skips it: the reset did not happen, so the preferences it wipes stay.
     clearLicense()
+    await resetIcon()
 }
