@@ -47,7 +47,8 @@ just sim-udid                      # $SIM if set, else the single booted UDID
 
 All `sim-*` recipes and `apps/ios/run.sh` honor `$SIM`. With more than one
 booted simulator, bare `booted` targeting is ambiguous — always pin `SIM`.
-Release the claim with `just qa-release` when the session is done.
+Release the claim with `just qa-release ios` when the session is done — a bare
+`just qa-release` also frees any Android emulator this worktree claimed.
 
 ## 2. Build, install, launch
 
@@ -235,8 +236,13 @@ launch — `log stream` alone misses it:
 ```bash
 xcrun simctl terminate "$SIM" com.futo.notes.dev 2>/dev/null
 xcrun simctl launch --console-pty "$SIM" com.futo.notes.dev   # stdout incl. print() (blocks; use run_in_background)
-xcrun simctl spawn "$SIM" log stream --level=debug --predicate 'process == "FutoNotesNative"'   # os_log/WebKit stream for the app process
+xcrun simctl spawn "$SIM" log show --last 2m --debug --predicate 'process == "FutoNotesNative"'   # os_log/WebKit, bounded: exits
 ```
+
+`log stream` never exits on its own, so a foreground call hangs a
+non-interactive shell until it is interrupted. Use the bounded `log show --last`
+above to read what already happened; when you need `log stream`, start it with
+`run_in_background` and redirect it to a file.
 
 ## 5. App data: seeding and verification
 

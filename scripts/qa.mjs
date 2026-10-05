@@ -16,7 +16,7 @@
 //
 //   node scripts/qa.mjs claim [ios|android|all] [--reboot]   # ensure+boot devices, print exports
 //   node scripts/qa.mjs status                    # pool devices + servers, owners, state
-//   node scripts/qa.mjs release [ios|android] [--shutdown] # release selected device claims
+//   node scripts/qa.mjs release [ios|android] [--shutdown]  # release this worktree's claims
 //   node scripts/qa.mjs gc                        # reap devices/servers of deleted worktrees
 //   node scripts/qa.mjs server-start              # per-slot sync server (own SQLite DB + blobs)
 //   node scripts/qa.mjs server-stop [--drop]      # stop it; --drop also deletes its DB + blobs
@@ -454,6 +454,9 @@ function shutdownDevice(platform, name) {
   }
 }
 
+// A named platform releases only that platform's claims: two agents QA-ing iOS
+// and Android from one worktree must not tear down each other's device. The
+// server stops only once the worktree holds no device at all.
 function cmdRelease(flags) {
   let options;
   try {
@@ -470,7 +473,7 @@ function cmdRelease(flags) {
     fs.rmSync(ownerPath(claimedPlatform, name), { force: true });
     info(`released ${claimedPlatform} ${name}`);
   }
-  if (!options.platform) serverStop(root, false); // preserve server lifecycle for platform-scoped releases
+  if (!myDevices(root).length) serverStop(root, false); // never leave an orphaned server running
 }
 
 function cmdGc() {
@@ -793,6 +796,6 @@ switch (cmd) {
     break;
   default:
     die(
-      'usage: qa.mjs claim [ios|android|all] [--reboot] | status | release [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline',
+      'usage: qa.mjs claim [ios|android|all] [--reboot] | status | release [ios|android] [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline',
     );
 }

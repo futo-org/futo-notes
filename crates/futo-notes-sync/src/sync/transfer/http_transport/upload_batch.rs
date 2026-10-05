@@ -47,7 +47,7 @@ async fn request_batch(
                     return None;
                 }
                 BatchErrorAction::Retry(backoff) => {
-                    eprintln!(
+                    futo_notes_core::log_to_stderr!(
                         "[sync] batch upload attempt {} failed: {error}",
                         attempt + 1
                     );
@@ -55,7 +55,7 @@ async fn request_batch(
                     attempt += 1;
                 }
                 BatchErrorAction::Degrade => {
-                    eprintln!("[sync] batch upload failed: {error}");
+                    futo_notes_core::log_to_stderr!("[sync] batch upload failed: {error}");
                     return None;
                 }
             },

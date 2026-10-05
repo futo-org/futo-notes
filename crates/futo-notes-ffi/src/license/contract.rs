@@ -279,7 +279,9 @@ pub async fn license_enter_key(
         // network failure. The user still gets the fail-safe outcome (nothing
         // was stored, entering again is free), but it must leave a trace
         // rather than masquerade silently as "offline" (M11).
-        eprintln!("[license] the activation worker stopped before it answered");
+        futo_notes_core::log_to_stderr!(
+            "[license] the activation worker stopped before it answered"
+        );
         Err(LicenseError::Offline {
             reason: "the activation worker stopped before it answered".to_string(),
         })

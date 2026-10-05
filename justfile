@@ -54,6 +54,11 @@ rust-format:
 rust-format-check:
   cargo fmt --all --check
 
+# Clippy the workspace; fails on a panicking print macro in shipped Rust.
+rust-lint:
+  mkdir -p dist
+  cargo clippy --workspace
+
 # Lint hand-written Swift sources with swift-format (excludes generated bindings).
 lint-swift:
   #!/usr/bin/env bash
@@ -288,7 +293,7 @@ qa-status:
 ports:
   @node scripts/lib/slot.mjs
 
-# Release this worktree's devices (add --shutdown to also power them off).
+# Release this worktree's devices; `ios`/`android` limits it to one (--shutdown powers them off).
 [positional-arguments]
 qa-release *flags:
   @node scripts/qa.mjs release "$@"
@@ -769,7 +774,7 @@ _require-install:
   @[ -d node_modules ] || { echo 'node_modules is missing in this worktree — run: just install' >&2; exit 1; }
 
 # The normal pre-merge umbrella: specs, arch gates, Rust conformance, lint, tests, build.
-check: check-node-modules check-node-version _require-install _require-node-modules toolbar-spec-check title-spec-check coin-check arch-gate lint-swift test-rust rust-format-check
+check: check-node-modules check-node-version _require-install _require-node-modules toolbar-spec-check title-spec-check coin-check arch-gate lint-swift test-rust rust-format-check rust-lint
   #!/usr/bin/env bash
   # pipefail: see `build:` above — a failing tsc/vite build must not hide behind `| tail`.
   set -euo pipefail

@@ -43,7 +43,7 @@ pub(crate) fn configure_app(app: &tauri::AppHandle) -> Result<(), Box<dyn std::e
         let app = app.clone();
         crate::background_tasks::spawn("futo-linux-desktop-settings", move || {
             if let Err(error) = crate::desktop_settings::watch(app) {
-                eprintln!("Linux desktop settings watcher stopped: {error}");
+                futo_notes_core::log_to_stderr!("Linux desktop settings watcher stopped: {error}");
             }
         })?;
     }

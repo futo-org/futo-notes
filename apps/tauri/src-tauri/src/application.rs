@@ -36,6 +36,8 @@ fn mcp_bridge_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
 }
 
 pub(crate) fn run() {
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    crate::dev_app_name::relaunch_under_dev_app_name();
     crate::platform_integration::prepare_process();
 
     let builder = tauri::Builder::default()
@@ -88,7 +90,9 @@ pub(crate) fn run() {
             #[cfg(target_os = "macos")]
             if let Err(error) = crate::macos_terminate::install(handle) {
                 // Dock/AppleScript quit then end the old way (no save flush).
-                eprintln!("[quit] cannot route terminate: through the close handler: {error}");
+                futo_notes_core::log_to_stderr!(
+                    "[quit] cannot route terminate: through the close handler: {error}"
+                );
             }
             crate::window_reveal::install(handle)?;
             crate::instance_journal::install(handle);

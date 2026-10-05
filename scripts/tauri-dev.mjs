@@ -12,13 +12,26 @@
  *   - Isolates app data to {worktree}/.tauri-data/ so the real vault is untouched
  *   - Seeds a small test vault on first launch
  *
+ * Either way, the current git branch names the instance so parallel dev
+ * instances are distinguishable: the window title and sidebar through
+ * VITE_DEV_BRANCH, the macOS Dock and Cmd-Tab through FUTO_DEV_APP_FILE_NAME
+ * (see devAppFileName). A detached HEAD keeps the plain dev names.
+ *
  * Sync is not started here — `just qa-server` runs this worktree's own server.
  */
 import { execSync, spawn } from 'child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import { devBundleId, portsFor, slotOf } from './lib/slot.mjs';
+import { devAppFileName, devBundleId, portsFor, slotOf, staleDevAppNames } from './lib/slot.mjs';
 import { claimTauriSlot } from './tauri/slot-lease.mjs';
 
 const repoRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim();
@@ -44,6 +57,20 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 
 // Worktrees have .git as a file; the main repo has it as a directory.
 const isWorktree = statSync(join(repoRoot, '.git')).isFile();
+
+const branch = execSync('git branch --show-current', { encoding: 'utf8' }).trim();
+const BRANCH_ENV = branch
+  ? { VITE_DEV_BRANCH: branch, FUTO_DEV_APP_FILE_NAME: devAppFileName(branch) }
+  : {};
+
+// The binary links itself under its branch's name on every launch; drop the
+// links earlier branches left beside it so they stop pinning old binaries.
+const cargoOutputDir = join(repoRoot, 'target', 'debug');
+if (existsSync(cargoOutputDir)) {
+  for (const name of staleDevAppNames(readdirSync(cargoOutputDir), branch ? [branch] : [])) {
+    rmSync(join(cargoOutputDir, name));
+  }
+}
 
 const WAYLAND_ENV = {
   WINIT_UNIX_BACKEND: 'wayland',
@@ -104,6 +131,7 @@ if (fakeUpdate)
         ...process.env,
         ...WAYLAND_ENV,
         ...FAKE_ENV,
+        ...BRANCH_ENV,
         FUTO_NOTES_DATA_DIR: dataDir,
         // Disjoint per-slot band for the debug MCP/QA bridge (see application.rs).
         FUTO_MCP_BASE_PORT: String(portsFor(repoRoot).mcp),
@@ -170,6 +198,7 @@ if (fakeUpdate)
           ...process.env,
           ...WAYLAND_ENV,
           ...FAKE_ENV,
+          ...BRANCH_ENV,
           FUTO_NOTES_DATA_DIR: dataDir,
           FUTO_MCP_BASE_PORT: String(portsFor(repoRoot).mcp),
         },

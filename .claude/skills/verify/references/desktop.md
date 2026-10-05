@@ -169,7 +169,9 @@ automation when switching sync servers.
 Fresh sessions and background jobs often don't have the Tauri MCP tools
 registered. The bridge is a plain WebSocket server on the port you discovered
 above — send `{"id":"r1","command":"…","args":{…}}`, receive
-`{"id","success","data"}`. Commands: `execute_js` (`args:{script}`; async
+`{"id","success","data"}`. The id must be a **string**: the plugin echoes a
+string id but answers a numeric one with `"id":""`, so a client matching
+replies on `id: 1` waits forever. Commands: `execute_js` (`args:{script}`; async
 IIFEs are awaited), `capture_native_screenshot` (returns a base64 data URL),
 `list_windows`, `invoke_tauri`. Node ≥21's built-in WebSocket needs no deps:
 

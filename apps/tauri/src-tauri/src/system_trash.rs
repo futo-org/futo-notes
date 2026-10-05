@@ -38,7 +38,9 @@ pub(crate) fn delete(path: &Path, label: &str) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     if crate::platform_integration::is_flatpak() {
         if let Err(error) = portal_trash(path) {
-            eprintln!("[{label}] portal trash failed: {error}; falling back to hard delete");
+            futo_notes_core::log_to_stderr!(
+                "[{label}] portal trash failed: {error}; falling back to hard delete"
+            );
             hard_delete(path)?;
         }
         return Ok(());
@@ -46,7 +48,9 @@ pub(crate) fn delete(path: &Path, label: &str) -> Result<(), String> {
 
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     if let Err(error) = trash::delete(path) {
-        eprintln!("[{label}] trash::delete failed: {error}; falling back to hard delete");
+        futo_notes_core::log_to_stderr!(
+            "[{label}] trash::delete failed: {error}; falling back to hard delete"
+        );
         hard_delete(path)?;
     }
 

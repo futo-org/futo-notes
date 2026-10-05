@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import {
   ENV_NAMES,
   PORT_BASES,
+  devAppFileName,
+  staleDevAppNames,
   devBundleId,
   PROBE_BAND,
   XPLAT_SYNC_BAND,
@@ -342,5 +344,24 @@ describe('worktree dev bundle id', () => {
 
   it('gives two different worktrees different ids', () => {
     expect(devBundleId(ROOTS[0])).not.toBe(devBundleId(ROOTS[1]));
+  });
+});
+
+describe('dev app file name', () => {
+  it('keeps the branch verbatim, writing `/` as the `:` macOS displays as `/`', () => {
+    expect(devAppFileName('claude/dev-app-names')).toBe('FUTO Notes (Dev) · claude:dev-app-names');
+  });
+
+  it('is stale once no live branch owns it, and never names anything unprefixed', () => {
+    const names = [
+      'FUTO Notes (Dev) · claude:live',
+      'FUTO Notes (Dev) · claude:gone',
+      'futo-notes-tauri',
+      'com.futo.notes',
+    ];
+    expect(staleDevAppNames(names, ['claude/live', 'main'])).toEqual([
+      'FUTO Notes (Dev) · claude:gone',
+    ]);
+    expect(staleDevAppNames(names, [])).toEqual(names.slice(0, 2));
   });
 });

@@ -71,9 +71,9 @@ pub(crate) fn install(app: &AppHandle) {
             );
             let state: State<'_, AppState> = app.state();
             state.sync.set_journal(journal);
-            println!("[journal] recording to {}", directory.display());
+            futo_notes_core::log_to_stderr!("[journal] recording to {}", directory.display());
         }
-        Err(error) => eprintln!("[journal] disabled: {error}"),
+        Err(error) => futo_notes_core::log_to_stderr!("[journal] disabled: {error}"),
     }
 }
 
