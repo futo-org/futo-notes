@@ -1032,6 +1032,7 @@
     "license": {
       "sectionTitle": "License",
       "explanation": "FUTO's mission is for open-source software and non-malicious software business practices to become a sustainable income source for projects and their developers. That is why FUTO Notes asks you to pay for it, rather than serving you ads or selling your data.",
+      "keyOnlyExplanation": "Have a FUTO Notes license? Enter your key to activate it on this device.",
       "unlicensedHeadline": "Pay for FUTO Notes",
       "explanationLicensed": "Thank you for purchasing FUTO Notes.",
       "unlicensed": "Unlicensed",

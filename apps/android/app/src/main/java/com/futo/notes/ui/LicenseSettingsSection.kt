@@ -42,6 +42,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import com.futo.notes.license.LICENSE_LOG_TAG
+import com.futo.notes.browser.openInCustomTab
 import com.futo.notes.license.LicenseCardModel
 import com.futo.notes.license.LicenseModel
 import com.futo.notes.license.catalogPath
@@ -62,6 +63,12 @@ import uniffi.futo_notes_ffi.LicenseStatus
  *  rather than as "no license". */
 private val WELL_DIAMETER = 184.dp
 private val COIN_DIAMETER = 160.dp
+
+internal fun licenseExplanationPath(status: LicenseStatus, linkOut: Boolean): String = when {
+    status == LicenseStatus.LICENSED -> "license.explanationLicensed"
+    linkOut -> "license.explanation"
+    else -> "license.keyOnlyExplanation"
+}
 
 /**
  * The License plate — the FIRST group of Settings on mobile, and the only place
@@ -92,7 +99,7 @@ private val COIN_DIAMETER = 160.dp
  *
  * Which controls each state offers is Rust's answer (`licenseRowActions` via
  * [LicenseModel.actions]), so Android and iOS render the same table and the
- * `LICENSE_LINK_OUT` flag means the same thing on both.
+ * `licenseLinkOut` gives both shells the same storefront policy.
  */
 @Composable
 fun LicenseSettingsSection(license: LicenseModel) {
@@ -116,12 +123,14 @@ fun LicenseSettingsSection(license: LicenseModel) {
     // revealed key can never carry over into another license.
     var revealed by remember(view?.key) { mutableStateOf(false) }
 
-    /** Buy, Renew and Lost-your-key all leave the app: an ACTION_VIEW intent
-     *  hands the destination to the SYSTEM browser (or mail client), never an
-     *  in-app WebView (docs/spec/license.md § Getting a license). */
-    fun open(destination: String) {
+    fun openMail(destination: String) {
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(destination))) }
             .onFailure { Log.w(LICENSE_LOG_TAG, "nothing on this device opens $destination", it) }
+    }
+
+    fun openBuy() {
+        runCatching { openInCustomTab(context, license.links.buy) }
+            .onFailure { Log.w(LICENSE_LOG_TAG, "nothing on this device opens checkout", it) }
     }
 
     fun cancelEntry() {
@@ -138,8 +147,8 @@ fun LicenseSettingsSection(license: LicenseModel) {
 
     fun act(action: LicenseAction) {
         when (action) {
-            LicenseAction.BUY, LicenseAction.RENEW -> open(license.links.buy)
-            LicenseAction.LOST_KEY -> open(license.links.support)
+            LicenseAction.BUY, LicenseAction.RENEW -> openBuy()
+            LicenseAction.LOST_KEY -> openMail(license.links.support)
             LicenseAction.ENTER_KEY -> {
                 draft = ""
                 entering = true
@@ -224,7 +233,7 @@ fun LicenseSettingsSection(license: LicenseModel) {
                         revealed = revealed,
                         onReveal = { revealed = true },
                     )
-                } else if (card != null) {
+                } else if (card != null && license.linkOut) {
                     Text(
                         localization.localizedText("license.unlicensedHeadline"),
                         style = FutoType.plateAsk,
@@ -248,7 +257,7 @@ fun LicenseSettingsSection(license: LicenseModel) {
                     // printed under its own button is a footnote.
                     Text(
                         localization.localizedText(
-                            if (licensed) "license.explanationLicensed" else "license.explanation",
+                            licenseExplanationPath(card.status, license.linkOut),
                         ),
                         style = FutoType.caption,
                         color = c.textMuted,

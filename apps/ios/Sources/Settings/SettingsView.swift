@@ -11,6 +11,7 @@ struct SettingsView: View {
     @EnvironmentObject private var store: NotesStore
     @EnvironmentObject private var sync: SyncManager
     @EnvironmentObject private var license: LicenseModel
+    @EnvironmentObject private var licenseStorefront: LicenseStorefront
     @Environment(\.dismiss) private var dismiss
     @Environment(\.localization) private var localization
 
@@ -38,7 +39,7 @@ struct SettingsView: View {
                 // there is no ambient label anywhere else on this platform, so
                 // this row's status text IS the label (docs/spec/license.md
                 // § States and copy).
-                LicenseSettingsSection(license: license)
+                LicenseSettingsSection(license: license, linkOut: licenseStorefront.linkOut)
 
                 // The whole Sync surface is one "Sync" row: cloud
                 // icon, connected-vs-local status, SYNCED/LOCAL badge. No

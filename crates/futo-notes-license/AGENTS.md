@@ -62,6 +62,11 @@ plain strings; where they live is the shell's business.
   reintroduce a `cfg!(debug_assertions)` version: the native shells compile the FFI with
   `release-ffi` for their dev apps too, so a compile-profile test silently puts a `.dev` phone build
   on the production key. The mapping is pinned as fixture data, not just as a doc comment.
+- **`FUTO_LICENSE_ENV=staging|production` is the one override**, read at compile time
+  (`LICENSE_ENV_OVERRIDE`) and applied inside `for_bundle_id`, so every shell honors it with no
+  shell code. It exists so a real purchase can be run against either org from any build. CI and
+  store builds never set it; an unknown value fails the build. Do not add a second override or
+  a runtime switch.
 - **The org prefix is not ours to constrain.** The spec does not bound it and lib-polar takes it
   from server config, so the client's only bar is that the key stays one whitespace-free token. A
   length cap or an alphabet here means refusing a license the server really minted.

@@ -3,9 +3,8 @@ package com.futo.notes.sync.hosted
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.net.Uri
-import androidx.browser.customtabs.CustomTabsClient
-import androidx.browser.customtabs.CustomTabsIntent
+import com.futo.notes.browser.hasCustomTabsProvider
+import com.futo.notes.browser.openInCustomTab
 
 /**
  * The browser surface for hosted sign-in, checkout, and the customer portal
@@ -43,23 +42,14 @@ class CustomTabsAuthSheet(private val activity: Activity) {
 
     /** True when this device has no Custom Tabs provider, so [open] uses `ACTION_VIEW`. */
     fun hasCustomTabsProvider(): Boolean =
-        CustomTabsClient.getPackageName(activity, /* packages = */ null) != null
+        hasCustomTabsProvider(activity)
 
     @Throws(ActivityNotFoundException::class)
     fun open(url: String, onDismiss: () -> Unit) {
-        val uri = Uri.parse(url)
         this.onDismiss = onDismiss
         phase = Phase.LAUNCHED
         try {
-            if (hasCustomTabsProvider()) {
-                CustomTabsIntent.Builder()
-                    .setShowTitle(true)
-                    .setUrlBarHidingEnabled(false)
-                    .build()
-                    .launchUrl(activity, uri)
-            } else {
-                activity.startActivity(Intent(Intent.ACTION_VIEW, uri))
-            }
+            openInCustomTab(activity, url)
         } catch (e: ActivityNotFoundException) {
             phase = Phase.IDLE
             this.onDismiss = null
