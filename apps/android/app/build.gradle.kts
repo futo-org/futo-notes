@@ -99,15 +99,9 @@ android {
     // which CI and `just build-android-native` do.
     //
     // LICENSE_LINK_OUT is the store-posture flag (docs/spec/license.md § Store
-    // posture), `true` on BOTH flavors at launch: the app ships the full
-    // surface worldwide — key field, deep link, and the Buy link out to the
-    // system browser. If Google ever objects, the answer is flipping the `play`
-    // line to false, not a redesign: that hides Buy, Renew and Lost-your-key
-    // and keeps the key field and the deep link (the consumption-only shape
-    // Play explicitly permits). WHICH controls each value produces is decided
-    // once in Rust (`licenseRowActions`), so this flag cannot come to mean
-    // something different here than it does on iOS. It is a build-time
-    // constant, never a preference — a user must not be able to flip it.
+    // posture): direct offers checkout worldwide; play accepts keys and deep
+    // links only. Rust's licenseLinkOut and licenseRowActions own the resulting
+    // controls. This is a build constant, never a user preference.
     flavorDimensions += "distribution"
     productFlavors {
         create("direct") {
@@ -118,7 +112,7 @@ android {
         create("play") {
             dimension = "distribution"
             buildConfigField("boolean", "IS_PLAY_BUILD", "true")
-            buildConfigField("boolean", "LICENSE_LINK_OUT", "true")
+            buildConfigField("boolean", "LICENSE_LINK_OUT", "false")
         }
     }
 
@@ -233,6 +227,7 @@ android {
         }
         getByName("androidTest") {
             assets.srcDir(repositoryRootDirectory.resolve("tests/localization"))
+            assets.srcDir(repositoryRootDirectory.resolve("tests/conformance"))
         }
     }
     // libfuto_notes_ffi.so per-ABI is staged by scripts/build-rust-android.sh.

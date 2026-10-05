@@ -2000,6 +2000,7 @@ dependencies = [
 name = "futo-notes-ffi"
 version = "0.1.0"
 dependencies = [
+ "futo-notes-core",
  "futo-notes-license",
  "futo-notes-model",
  "futo-notes-store",
@@ -2039,6 +2040,7 @@ name = "futo-notes-search"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "futo-notes-core",
  "serde",
  "tantivy",
  "tempfile",

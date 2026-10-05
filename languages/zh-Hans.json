@@ -185,6 +185,16 @@
     },
     "notes": {
       "heading": "笔记",
+      "sort": {
+        "heading": "排序方式",
+        "orderHeading": "顺序",
+        "name": "名称",
+        "lastModified": "最近修改",
+        "aToZ": "升序",
+        "zToA": "降序",
+        "newest": "最新优先",
+        "oldest": "最早优先"
+      },
       "forYou": {
         "heading": "为你推荐",
         "empty": "从侧边栏创建第一篇笔记即可开始使用。"

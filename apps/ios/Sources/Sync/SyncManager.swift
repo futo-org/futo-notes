@@ -104,8 +104,9 @@ final class SyncManager: ObservableObject {
     /// Single reporter for a completed cycle's outcome (docs/spec/sync.md):
     /// clean → just "Sync complete" (never uploaded/downloaded/deleted/conflict
     /// counts); per-item failures → the red error line, using
-    /// `failureMessage` (computed once in the Rust core so every shell shows
-    /// identical wording). Cleared by the next clean cycle.
+    /// `failureMessage` (computed in Rust as a diagnostic) selects the error
+    /// state; the visible wording comes from the shared language catalog.
+    /// Cleared by the next clean cycle.
     ///
     /// A refused write is the one failure that is not a fault: nothing is
     /// broken, the account simply may not write, so the status line says so in
@@ -119,11 +120,38 @@ final class SyncManager: ObservableObject {
             lastErrorMessage = LocalizedMessage(Self.writeRefusalExplanation(refusal))
         } else if s.failureMessage != nil {
             statusMessage = LocalizedMessage("sync.status.error")
-            lastErrorMessage = LocalizedMessage("sync.errors.completedWithErrors")
+            lastErrorMessage =
+                Self.specificFileFailure(s.failures)
+                ?? LocalizedMessage("sync.errors.completedWithErrors")
         } else {
             statusMessage = LocalizedMessage("sync.status.complete")
             lastErrorMessage = nil
         }
+    }
+
+    static func specificFileFailure(_ failures: [SyncFailure]) -> LocalizedMessage? {
+        let oversized = failures.filter { $0.kind == "upload" && $0.statusCode == 413 }
+            .map(\.filename)
+        let rejected = failures.filter { $0.kind == "rejected" }.map(\.filename)
+        if !oversized.isEmpty && !rejected.isEmpty {
+            return LocalizedMessage(
+                "sync.errors.uploadsTooLargeAndUnsupported",
+                arguments: [
+                    "oversized": oversized.joined(separator: ", "),
+                    "unsupported": rejected.joined(separator: ", "),
+                ])
+        }
+        if !oversized.isEmpty {
+            return LocalizedMessage(
+                "sync.errors.uploadsTooLarge",
+                arguments: ["filenames": oversized.joined(separator: ", ")])
+        }
+        if !rejected.isEmpty {
+            return LocalizedMessage(
+                "sync.errors.unsupportedPaths",
+                arguments: ["filenames": rejected.joined(separator: ", ")])
+        }
+        return nil
     }
 
     /// The short form, for the Settings row that shows sync status at a glance.

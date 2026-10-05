@@ -13,8 +13,7 @@ export const FORBIDDEN_TITLE_CHARS_VISIBLE = '<>:"/\\|?*';
 
 // Unicode general category Cc: C0, DEL, and C1. This is the same set Rust's
 // `char::is_control()` rejects. Exported as data so the native title-spec
-// generator derives Android's ranges and verifies Swift's Foundation shortcut
-// represents the same set.
+// generator derives both native shells' ranges from it.
 export const FORBIDDEN_TITLE_CONTROL_RANGES = [
   [0x0000, 0x001f],
   [0x007f, 0x009f],

@@ -42,8 +42,8 @@ module, so a plain `pnpm run dev` or `playwright test` already lands on
 |---|---|---|
 | Tauri Vite (per worktree) | 5200–5249 | `just ports` (avoids 5173/5180–5182) |
 | Web Vite (per worktree) | 5250–5299 | `just ports`; config-derived, no flags needed |
-| MCP bridge (desktop) | 9223–9322 | loopback-only; per-worktree base (`just ports`), scans up; discover after launch |
-| Android CDP forward | 9330–9379 | `just cdp-forward` prints `export CDP_PORT=…` |
+| MCP bridge (desktop) | 9223–14222 | loopback-only; each slot owns a disjoint 100-port band; discover actual bound port after launch |
+| Android CDP forward | 15000–15049 | `just cdp-forward` prints `export CDP_PORT=…` |
 | Sync server | 3100–3149 + own SQLite DB | `just qa-server` (see sync section) |
 | Rust sync-integration servers | 3150–3199 (dev mode) and 3200–3249 (stand-in mode), each with its own SQLite DB | `just test-sync-integration` starts both, runs `server_integration` + `sse_live` against them, and stops both by PID |
 | Cross-platform sync harness | 21000–25999, a band of 100 per worktree; each server gets its own SQLite DB in a temp dir | `pnpm run test:cross-platform`; it allocates from its own band and refuses a port someone else holds rather than adopting it |
@@ -56,7 +56,8 @@ device — creating and booting it on first use — and prints the export lines.
 Set `SIM` / `ANDROID_SERIAL` in every Bash block that drives a device: all
 `sim-*` recipes and `apps/ios/run.sh` honor `$SIM`, and `adb` honors
 `$ANDROID_SERIAL` natively. `just qa-status` shows who owns what,
-`just qa-release` frees your claims when done, `just qa-gc` reaps devices
+`just qa-release [ios|android]` frees your claims when done (name the platform
+when another agent shares the worktree), `just qa-gc` reaps devices
 whose worktrees were deleted. Personal (non-pool) simulators/AVDs are never
 touched. Driving a device you didn't claim is how two sessions end up
 install-thrashing one emulator — don't.
@@ -85,8 +86,10 @@ Both were learned by damaging the user's real data. Brief every leg on both.
    (a prior QA ledger did, which is how this happened). Every build shares the
    process name `futo-notes-tauri`, so a lookup by process name or unix id
    resolves to whatever instance the OS picked — it resolved to the installed
-   production app, and a Cmd+Z landed in the user's live vault. OS-level input
-   has no way to name which app it is talking to; the bridge does. Prefer
+   production app, and a Cmd+Z landed in the user's live vault. (A macOS
+   `just tauri-dev` build runs under its branch name instead; that names no
+   single instance either.) OS-level input has no way to name which app it is
+   talking to; the bridge does. Prefer
    in-page instrumentation (`webview_execute_js`, `window.__notesShellTest`,
    `window.__testSync` — `src/features/sync/testSync.ts`) to screen capture
    wherever the state is readable from the page. When a check genuinely needs

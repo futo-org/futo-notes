@@ -87,6 +87,10 @@ const NOT_COVERED = [
     why: 'the proof would have to compile the desktop Tauri crate (GTK/webkit link, minutes per run) — far outside this harness’s seconds-scale budget. It is exercised by the Rust workspace job instead.',
   },
   {
+    gate: 'rust-lint (cargo clippy --workspace, print macros denied by [workspace.lints])',
+    why: 'the proof would have to clippy-check the whole workspace, desktop Tauri crate included, from a cold target dir in the throwaway worktree (minutes per run). The Rust workspace job runs the gate; a seeded println! in apps/tauri/src-tauri/src/instance_journal.rs fails it naming "use of `println!`" and the file.',
+  },
+  {
     gate: 'lint:platform (package.json git-grep one-liner)',
     why: 'not a script with its own failure reporting — it is a negated `git grep`, so a red run prints grep output and nothing else. The boundary it half-guards is red-proved by the platform-discipline proofs above.',
   },
@@ -562,17 +566,14 @@ const PROOFS = [
   },
   {
     gate: 'title-spec',
-    id: 'swift-control-range-lock',
-    seeded: 'expanded the canonical title-control range beyond Foundation’s shortcut',
-    claim:
-      'a canonical control-range change must not leave the generated Swift filter silently green',
+    id: 'control-range-reaches-both-shells',
+    seeded: 'expanded the canonical title-control range',
+    claim: 'a canonical control-range change must regenerate both native title filters',
     inject: (wt) =>
       seed.replace(wt, 'packages/editor/src/filename.ts', '[0x007f, 0x009f],', '[0x007f, 0x00a0],'),
-    expect: [
-      'TitleSpec.swift uses Foundation .controlCharacters; update its template for the changed canonical control ranges.',
-    ],
+    expect: [`${TITLE_SWIFT} is STALE`, `${TITLE_KOTLIN} is STALE`],
     marker: 'claim',
-    fix: 'the Swift title filter is no longer locked to FORBIDDEN_TITLE_CONTROL_RANGES; restore the generator’s Foundation-range assertion or derive the Swift set directly.',
+    fix: 'a native title filter no longer derives its control ranges from FORBIDDEN_TITLE_CONTROL_RANGES — check swiftControlRanges/kotlinRegexControlRanges in scripts/gen-title-spec.ts.',
   },
   {
     gate: 'bridge-spec',

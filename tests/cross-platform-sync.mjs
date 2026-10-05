@@ -432,6 +432,30 @@ async function threeWayMerge(a, b, server) {
   assertEqual(conflictFiles.length, 0, 'clean merge should produce no conflict copies');
 }
 
+async function backlinkRewritePropagation(a, b, server) {
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
+
+  await a.writeNote('recieve', 'body');
+  await a.writeNote('hub', 'see [[recieve]]');
+  await a.syncNow();
+  await b.syncNow();
+  assert(
+    (await b.readNote('hub')).includes('[[recieve]]'),
+    'B should start out holding the misspelled link',
+  );
+
+  // Same length on purpose: the rewritten hub keeps both its mtime and its size.
+  await a.moveNote('recieve', 'receive');
+  await a.syncNow();
+  await b.syncNow();
+
+  const hub = await b.readNote('hub');
+  assert(hub.includes('[[receive]]'), `B's hub must follow the rewrite, got: ${hub}`);
+}
+
 async function renamePropagation(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
@@ -595,6 +619,31 @@ async function collisionPlacementFollowsOpenNote(a, b, server) {
   );
   assertEqual(await a.readNote('shared'), '# from A', 'A canonical should hold A’s content');
   assertEqual(await a.readNote(conflictId), '# from B', 'A conflict copy should hold B’s content');
+}
+
+async function collisionNameUsesFullObjectIdentity(a, b, server) {
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
+
+  await a.writeNote('old/shared', 'older object');
+  await a.syncNow();
+  await b.syncNow();
+  await b.writeNote('shared', 'later object');
+  await b.syncNow();
+  await a.moveNote('old/shared', 'shared');
+  await a.syncNow();
+  await b.syncNow();
+
+  const bFiles = (await b.listNotes()).map((file) => file.filename || file.name || file);
+  const copy = bFiles.find((name) => /^shared \(conflict [0-9a-f]{32}\)\.md$/.test(name));
+  assert(copy, `collision copy should carry all UUID bits, got ${JSON.stringify(bFiles)}`);
+  assertEqual(await b.readNote('shared'), 'older object', 'winner body');
+  assertEqual(await b.readNote(copy.replace(/\.md$/, '')), 'later object', 'loser body');
+  await a.syncNow();
+  const aFiles = (await a.listNotes()).map((file) => file.filename || file.name || file);
+  assert(aFiles.includes(copy), 'both clients should converge on the same collision name');
 }
 
 async function focusedOpenNoteDefersPeerEditUntilBlur(a, b, server) {
@@ -1805,6 +1854,32 @@ async function unportableNameNeverSyncsAndIsLeftAlone(a, b, server) {
   assert(
     readFileSync(stillThere, 'utf8').includes('3 hours at 160C'),
     'the unportable file is left byte-for-byte alone',
+  );
+}
+
+async function overdeepLocalPathIsReportedBeforeUpload(a, b, server) {
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+
+  const overdeep = `${'folder/'.repeat(11)}note`;
+  mkdirSync(join(a.notesDir, 'folder/'.repeat(11)), { recursive: true });
+  await a.externalWriteNote(overdeep, '# Too deep');
+  await a.writeNote('portable control', '# Control note');
+
+  const pushed = await a.syncNow();
+  const failures = pushed?.summary?.failures ?? [];
+  assert(
+    failures.some(
+      (failure) => failure.filename === `${overdeep}.md` && failure.kind === 'rejected',
+    ),
+    `sender must report the path peers reject: ${JSON.stringify(failures)}`,
+  );
+  const received = await b.syncNow();
+  assert(await b.noteExists('portable control'), 'a valid neighbour must still sync');
+  assert(!(await b.noteExists(overdeep)), 'the rejected path must never reach a peer');
+  assert(
+    !received?.summary?.failures?.length,
+    'the receiver should have no rejected-path failure because it was never uploaded',
   );
 }
 
@@ -3344,8 +3419,18 @@ const scenarios = [
   { name: 'three way merge', fn: threeWayMerge, matrices: ['desktop-desktop'] },
   { name: 'rename propagation', fn: renamePropagation, matrices: ['desktop-desktop'] },
   {
+    name: 'backlink rewrite propagation',
+    fn: backlinkRewritePropagation,
+    matrices: ['desktop-desktop'],
+  },
+  {
     name: 'collision placement follows open note',
     fn: collisionPlacementFollowsOpenNote,
+    matrices: ['desktop-desktop'],
+  },
+  {
+    name: 'collision name uses full object identity',
+    fn: collisionNameUsesFullObjectIdentity,
     matrices: ['desktop-desktop'],
   },
   {
@@ -3431,6 +3516,11 @@ const scenarios = [
   {
     name: 'unportable name never syncs and is left alone',
     fn: unportableNameNeverSyncsAndIsLeftAlone,
+    matrices: ['desktop-desktop'],
+  },
+  {
+    name: 'overdeep local path is reported before upload',
+    fn: overdeepLocalPathIsReportedBeforeUpload,
     matrices: ['desktop-desktop'],
   },
   // TODO(justin): both external-watcher scenarios race under Docker/xvfb.

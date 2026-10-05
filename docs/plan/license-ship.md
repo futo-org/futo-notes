@@ -23,7 +23,7 @@ commit in `type(scope): imperative summary` form with a `Verified:` line.
 | D6 | Unlicensed/Expired paragraph | Unchanged: `license.explanation` (the FUTO mission sentence). |
 | D7 | Licensed paragraph | `license.explanationLicensed` = **"Thank you for paying for FUTO Notes."** (one sentence; the second sentence is removed). |
 | D8 | Buy button | Unchanged: "Buy a license"; Expired says "Renew". |
-| D9 | Store posture | Unchanged from 2026-09-09: Buy link ships worldwide on iOS and both Android flavors, `LICENSE_LINK_OUT` true. |
+| D9 | Store posture | ~~Unchanged from 2026-09-09: Buy link ships worldwide on iOS and both Android flavors, `LICENSE_LINK_OUT` true.~~ **Superseded 2026-09-24** by ADR-0005 and `docs/plan/license-store-compliance.md`. |
 | D10 | Fonts | No new font files. Barlow 400/500/600/700 are bundled (`src/styles/fonts.css`); the mock's Barlow Condensed becomes Barlow 700 uppercase with tracking, and the mock's JetBrains Mono key value uses the platform's system monospace stack. |
 | D11 | Rows on the card | **Key**, **Licensed since**, **Term**. The mock's "Verified · ED25519" row is dropped (it is wrong: verification is RSA-SHA256, and the spec forbids the client describing the mechanism). |
 

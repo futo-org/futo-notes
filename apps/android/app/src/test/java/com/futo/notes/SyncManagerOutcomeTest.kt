@@ -11,8 +11,8 @@ import uniffi.futo_notes_ffi.WriteRefusal
  * Pins [SyncManager.applyOutcome], the single reporter for a completed
  * cycle's outcome [sync.md]: a clean cycle reports "Sync complete" and clears
  * the error line; a cycle with per-item failures routes the Rust-computed
- * `failureMessage` to the error line VERBATIM — the shell must not re-derive
- * or reword it, that's what keeps all three apps' wording identical.
+ * `failureMessage` selects the error state; catalog messages provide the
+ * visible wording, including file-specific failures.
  */
 class SyncManagerOutcomeTest {
     private fun summary(
@@ -24,6 +24,24 @@ class SyncManagerOutcomeTest {
         failureMessage = failureMessage,
         writeRefusal = writeRefusal,
     )
+
+    @Test
+    fun oversizedAndRejectedFilesHaveCatalogMessagesWithNames() {
+        val mgr = SyncManager()
+        mgr.applyOutcome(summary(
+            failures = listOf(SyncFailure("photos/large.png", "upload", 413u.toUShort())),
+            failureMessage = "HTTP 413",
+        ))
+        assertEquals("sync.errors.uploadsTooLarge", mgr.errorMessage?.path)
+        assertEquals("photos/large.png", mgr.errorMessage?.arguments?.get("filenames"))
+
+        mgr.applyOutcome(summary(
+            failures = listOf(SyncFailure("deep/note.md", "rejected", null)),
+            failureMessage = "unsupported name",
+        ))
+        assertEquals("sync.errors.unsupportedPaths", mgr.errorMessage?.path)
+        assertEquals("deep/note.md", mgr.errorMessage?.arguments?.get("filenames"))
+    }
 
     @Test
     fun cleanCycleReportsSyncCompleteAndClearsError() {

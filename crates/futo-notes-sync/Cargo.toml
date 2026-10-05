@@ -47,3 +47,6 @@ rustix = { version = "1", features = ["fs"] }
 [dev-dependencies.futo-notes-core]
 path = "../futo-notes-core"
 features = ["test-support"]
+
+[lints]
+workspace = true
