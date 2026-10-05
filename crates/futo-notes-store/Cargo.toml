@@ -14,3 +14,6 @@ rayon = "1"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
 walkdir = "2.5"
+
+[lints]
+workspace = true

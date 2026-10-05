@@ -42,6 +42,11 @@ The home screen: the vault root's folders and notes, folder browsing, and search
   futo-notes-store `vault::note_list_order` / `place_upserted`;
   notes.svelte.ts `_applyLocalMutation`, NotesStore.swift / NotesStore.kt
   `applyMutation`
+- Every note id appears in the list exactly once, because every list keys its
+  rows by id. A file is a note only when its id names that exact file: a Unix
+  filename holding `\` or a filename that is not UTF-8 is not a note, since it
+  would alias another note's id. A directory read that returns a name twice
+  still yields one note. → futo-notes-store `vault::note_id_of` / `walk`
 - On the native shells the editor is a full-screen push (the list isn't
   visible while editing), so the splice that re-ranks an edited row happens
   while the list is off-screen; the list re-appears already in engine order —

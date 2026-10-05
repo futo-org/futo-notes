@@ -63,5 +63,6 @@ the full matrix (new note, existing note, toolbar, scroll-during-IME). Drive the
 automation reports "nothing happened", suspect the tool before the app and follow the AXe playbook.
 
 `xcrun simctl spawn "$SIM" log stream --level=debug --predicate 'process == "FutoNotesNative"'`
-streams os_log, but the app logs mostly via `print()`, which os_log does not capture — for stdout
-use `xcrun simctl launch --console-pty booted com.futo.notes.dev`.
+streams os_log and never exits (run it in the background to a file, or read the past with
+`log show --last 2m`), but the app logs mostly via `print()`, which os_log does not capture —
+for stdout use `xcrun simctl launch --console-pty booted com.futo.notes.dev`.

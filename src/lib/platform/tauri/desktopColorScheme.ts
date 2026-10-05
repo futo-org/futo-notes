@@ -5,8 +5,8 @@ import { invoke } from './invoke';
  *
  * Read from the xdg desktop portal (`org.freedesktop.appearance` /
  * `color-scheme`) on Linux, where it is the only light/dark signal this app
- * cannot overwrite; `null` on every other platform, whose `auto` leaves the
- * window following the OS and so keeps `prefers-color-scheme` trustworthy.
+ * cannot overwrite; `null` on every other platform, where the released
+ * window's own theme is the answer instead (windowAppearance.ts).
  */
 export function readDesktopColorScheme(): Promise<'dark' | 'light' | null> {
   return invoke<'dark' | 'light' | null>('read_desktop_color_scheme');

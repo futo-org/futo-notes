@@ -78,6 +78,34 @@ export function devBundleId(root) {
   return `com.futo.notes.wt${slotOf(root)}.dev`;
 }
 
+/**
+ * The executable file name `just tauri-dev` gives this branch's instance.
+ *
+ * The macOS Dock names an unbundled process by its executable's file name —
+ * not productName, the embedded Info.plist, or the LaunchServices display name
+ * (each measured 2026-09-25) — so the debug binary re-executes itself from a
+ * hard link with this name (apps/tauri/src-tauri/src/dev_app_name.rs). `/`
+ * cannot appear in a file name, but Finder and the Dock show `:` as `/`, so the
+ * branch still reads verbatim. scripts/qa-target.mjs enumerates by the prefix.
+ */
+export const DEV_APP_FILE_NAME_PREFIX = 'FUTO Notes (Dev) · ';
+
+export function devAppFileName(branch) {
+  return `${DEV_APP_FILE_NAME_PREFIX}${branch.replaceAll('/', ':')}`;
+}
+
+/**
+ * The dev-app names among `names` that belong to none of `liveBranches`.
+ *
+ * The same name keys what that instance leaves behind: its hard link in
+ * target/debug (swept by tauri-dev.mjs) and, since an unbundled process has no
+ * bundle id, its WebKit and Caches folders in ~/Library (swept by `just wt gc`).
+ */
+export function staleDevAppNames(names, liveBranches) {
+  const live = new Set(liveBranches.map(devAppFileName));
+  return names.filter((name) => name.startsWith(DEV_APP_FILE_NAME_PREFIX) && !live.has(name));
+}
+
 /** The port band tests/cross-platform-sync.mjs may allocate from. */
 export function xplatSyncBand(root) {
   const slot = slotOf(root ?? worktreeRoot());

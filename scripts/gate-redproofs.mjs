@@ -87,6 +87,10 @@ const NOT_COVERED = [
     why: 'the proof would have to compile the desktop Tauri crate (GTK/webkit link, minutes per run) — far outside this harness’s seconds-scale budget. It is exercised by the Rust workspace job instead.',
   },
   {
+    gate: 'rust-lint (cargo clippy --workspace, print macros denied by [workspace.lints])',
+    why: 'the proof would have to clippy-check the whole workspace, desktop Tauri crate included, from a cold target dir in the throwaway worktree (minutes per run). The Rust workspace job runs the gate; a seeded println! in apps/tauri/src-tauri/src/instance_journal.rs fails it naming "use of `println!`" and the file.',
+  },
+  {
     gate: 'lint:platform (package.json git-grep one-liner)',
     why: 'not a script with its own failure reporting — it is a negated `git grep`, so a red run prints grep output and nothing else. The boundary it half-guards is red-proved by the platform-discipline proofs above.',
   },
