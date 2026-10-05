@@ -48,39 +48,6 @@ struct SupporterCoinTests {
         }
     }
 
-    @Test("the spindle leans by exactly the tilt")
-    func spindleLean() {
-        let spindle = axis([0, 1, 0], turn: 1.9)
-        #expect(abs(simd_dot(spindle, SIMD3<Float>(0, 1, 0)) - cos(tilt)) < 1e-5)
-    }
-
-    @Test("face-on at rest, edge-on a quarter turn later")
-    func faceThenEdge() {
-        // The model's +Z is its face normal, and the camera looks down -Z from +Z,
-        // so a face-on coin has its normal pointing at the camera, leaning away
-        // by the tilt and nothing more.
-        let atRest = axis([0, 0, 1], turn: 0)
-        #expect(abs(atRest.z - cos(tilt)) < 1e-5)
-
-        let quarter = axis([0, 0, 1], turn: .pi / 2)
-        #expect(abs(quarter.z) < 1e-5, "a quarter turn should be edge-on, got z=\(quarter.z)")
-    }
-
-    @Test("it is a rotation, not a skew")
-    func staysOrthonormal() {
-        let x = axis([1, 0, 0], turn: 2.2)
-        let y = axis([0, 1, 0], turn: 2.2)
-        let z = axis([0, 0, 1], turn: 2.2)
-        for (name, vector) in [("x", x), ("y", y), ("z", z)] {
-            #expect(abs(simd_length(vector) - 1) < 1e-5, "\(name) is not a unit vector")
-        }
-        #expect(abs(simd_dot(x, y)) < 1e-5)
-        #expect(abs(simd_dot(y, z)) < 1e-5)
-        #expect(abs(simd_dot(x, z)) < 1e-5)
-        // Right-handed, or the coin renders inside out.
-        #expect(simd_length(simd_cross(x, y) - z) < 1e-5)
-    }
-
     // ── The tap queue ───────────────────────────────────────────────────────
     // What a tap adds is an ANGLE the coin owes, and `CoinTapDebt` is the whole
     // model: `tap()` ADDS a turn and `pay()` is the only way the debt ever

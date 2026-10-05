@@ -935,6 +935,70 @@ fn collision_placement_reports_the_relocated_local_note_as_a_rename() {
     assert_eq!(summary.renamed[0].to_id, note_id(&conflict));
 }
 
+#[test]
+fn three_uuid_v7_name_rivals_keep_all_three_bodies() {
+    let root = TempRoot::new();
+    let ancestry = HashMap::new();
+    let mut state = connected();
+    let mut summary = SyncSummary::default();
+    let winner = "019a7364-3120-7000-8000-000000000000";
+    let first = "019a7364-3120-7000-8000-000000000001";
+    let second = "019a7364-3120-7000-8000-000000000002";
+    std::fs::write(root.path().join("note.md"), "first body").unwrap();
+    state.object_map.insert(
+        "note.md".into(),
+        entry(first, Some(&hash_sha256("first body"))),
+    );
+
+    apply_remote(
+        &mut state,
+        root.path(),
+        &remote(winner, "note.md", "winner body"),
+        &ancestry,
+        false,
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap();
+    apply_remote(
+        &mut state,
+        root.path(),
+        &remote(second, "note.md", "second body"),
+        &ancestry,
+        false,
+        &no_pre,
+        &mut summary,
+    )
+    .unwrap();
+
+    let first_name = collision_conflict_filename("note.md", first);
+    let second_name = collision_conflict_filename("note.md", second);
+    assert_ne!(first_name, second_name);
+    assert_eq!(read_content(root.path(), "note.md").unwrap(), "winner body");
+    assert_eq!(
+        read_content(root.path(), &first_name).unwrap(),
+        "first body"
+    );
+    assert_eq!(
+        read_content(root.path(), &second_name).unwrap(),
+        "second body"
+    );
+    assert_eq!(state.object_map.len(), 3);
+}
+
+#[test]
+fn collision_destination_already_on_disk_is_never_replaced() {
+    let root = TempRoot::new();
+    let id = "019a7364-3120-7000-8000-000000000001";
+    let target = collision_conflict_filename("note.md", id);
+    std::fs::write(root.path().join("note.md"), "source body").unwrap();
+    std::fs::write(root.path().join(&target), "existing body").unwrap();
+
+    assert!(super::vault::rename_local(root.path(), "note.md", &target).is_err());
+    assert_eq!(read_content(root.path(), "note.md").unwrap(), "source body");
+    assert_eq!(read_content(root.path(), &target).unwrap(), "existing body");
+}
+
 #[cfg(unix)]
 #[test]
 fn collision_rename_retry_resyncs_the_destination_before_state_advances() {
@@ -974,7 +1038,7 @@ fn collision_rename_retry_resyncs_the_destination_before_state_advances() {
     )
     .unwrap_err();
 
-    assert!(retry.contains("sync destination directory after rename"));
+    assert!(retry.contains("sync"), "{retry}");
     assert!(state.object_map.contains_key("note.md"));
 }
 

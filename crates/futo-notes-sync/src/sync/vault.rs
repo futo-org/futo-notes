@@ -186,12 +186,7 @@ pub(super) fn write_content_if_changed(
     } else {
         vault_fs::sync_parent(root, name)?;
     }
-    if modified_ms > 0 {
-        if changed {
-            pre_write(name);
-        }
-        let _ = vault_fs::set_mtime_ms(root, name, modified_ms);
-    }
+    let _ = vault_fs::set_mtime_ms(root, name, modified_ms);
     Ok(if changed {
         PulledWrite::Written
     } else {
@@ -211,7 +206,12 @@ pub(super) fn path_exists(root: &Path, name: &str) -> Result<bool, String> {
 
 pub(super) fn rename_local(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
     let _vault_mutation = vault_mutation_guard()?;
-    vault_fs::rename(root, source, destination)
+    if vault_fs::exists(root, destination)? {
+        return Err(format!(
+            "collision destination already exists: {destination}"
+        ));
+    }
+    vault_fs::move_no_replace_strict(root, source, destination)
 }
 
 pub(super) fn conflict_date() -> String {
@@ -363,67 +363,34 @@ mod tests {
     }
 
     #[test]
-    fn scan_reports_root_directory_failure() {
-        let root = TempRoot::new();
-        let error = local_files_with(
-            &root.0,
-            &FaultingScanner {
-                fault: Fault::ReadDirectory(root.0.clone()),
-            },
-        )
-        .unwrap_err();
-
-        assert!(error.contains("read directory"));
-        assert!(error.contains(root.0.to_string_lossy().as_ref()));
-    }
-
-    #[test]
-    fn scan_reports_nested_directory_failure() {
+    fn scan_reports_each_failure_with_the_path_that_failed() {
         let root = TempRoot::new();
         let nested = root.0.join("nested");
-        std::fs::create_dir(&nested).unwrap();
-        let error = local_files_with(
-            &root.0,
-            &FaultingScanner {
-                fault: Fault::ReadDirectory(nested.clone()),
-            },
-        )
-        .unwrap_err();
-
-        assert!(error.contains("read directory"));
-        assert!(error.contains(nested.to_string_lossy().as_ref()));
-    }
-
-    #[test]
-    fn scan_reports_directory_entry_failure() {
-        let root = TempRoot::new();
-        let error = local_files_with(
-            &root.0,
-            &FaultingScanner {
-                fault: Fault::ReadEntry(root.0.clone()),
-            },
-        )
-        .unwrap_err();
-
-        assert!(error.contains("read entry"));
-        assert!(error.contains(root.0.to_string_lossy().as_ref()));
-    }
-
-    #[test]
-    fn scan_reports_metadata_failure() {
-        let root = TempRoot::new();
         let note = root.0.join("note.md");
+        std::fs::create_dir(&nested).unwrap();
         std::fs::write(&note, "body").unwrap();
-        let error = local_files_with(
-            &root.0,
-            &FaultingScanner {
-                fault: Fault::Metadata(note.clone()),
-            },
-        )
-        .unwrap_err();
 
-        assert!(error.contains("read metadata"));
-        assert!(error.contains(note.to_string_lossy().as_ref()));
+        for (fault, phrase, path) in [
+            (
+                Fault::ReadDirectory(root.0.clone()),
+                "read directory",
+                &root.0,
+            ),
+            (
+                Fault::ReadDirectory(nested.clone()),
+                "read directory",
+                &nested,
+            ),
+            (Fault::ReadEntry(root.0.clone()), "read entry", &root.0),
+            (Fault::Metadata(note.clone()), "read metadata", &note),
+        ] {
+            let error = local_files_with(&root.0, &FaultingScanner { fault }).unwrap_err();
+            assert!(error.contains(phrase), "expected {phrase:?} in {error:?}");
+            assert!(
+                error.contains(path.to_string_lossy().as_ref()),
+                "expected {path:?} in {error:?}"
+            );
+        }
     }
 
     #[cfg(unix)]

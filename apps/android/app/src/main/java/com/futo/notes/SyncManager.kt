@@ -59,7 +59,8 @@ class SyncManager(
         private set
     var lastErrorDiagnostic: String? = null
         private set
-    private var errorMessage by mutableStateOf<LocalizedMessage?>(null)
+    internal var errorMessage by mutableStateOf<LocalizedMessage?>(null)
+        private set
 
     /** Whether the LAST completed cycle's writes were refused, and which way
      *  (`futo_notes_sync::WriteRefusal`). Held here because this object
@@ -435,8 +436,9 @@ class SyncManager(
 
     /** Single reporter for a completed cycle's outcome [sync.md]: clean →
      *  "Sync complete" (no counts); per-item failures → the red error line,
-     *  using `failureMessage` (computed once in the Rust core so every shell
-     *  shows identical wording). Cleared by the next clean cycle. */
+     *  using `failureMessage` (computed in Rust as a diagnostic) to select the
+     *  error state; visible wording comes from the shared catalog. Cleared by
+     *  the next clean cycle. */
     internal fun applyOutcome(summary: SyncSummary) {
         lastWriteRefusal = summary.writeRefusal
         val message = summary.failureMessage
@@ -454,12 +456,30 @@ class SyncManager(
         } else if (message != null) {
             lastErrorDiagnostic = message
             statusMessage = LocalizedMessage("sync.status.error")
-            errorMessage = LocalizedMessage("sync.errors.completedWithErrors")
+            errorMessage = specificFileFailure(summary)
+                ?: LocalizedMessage("sync.errors.completedWithErrors")
         } else {
             lastErrorDiagnostic = null
             statusMessage = LocalizedMessage("sync.status.complete")
             errorMessage = null
         }
+    }
+
+    private fun specificFileFailure(summary: SyncSummary): LocalizedMessage? {
+        val oversized = summary.failures.filter { it.kind == "upload" && it.statusCode == 413u.toUShort() }
+            .map { it.filename }
+        val rejected = summary.failures.filter { it.kind == "rejected" }.map { it.filename }
+        if (oversized.isNotEmpty() && rejected.isNotEmpty()) return LocalizedMessage(
+            "sync.errors.uploadsTooLargeAndUnsupported",
+            mapOf("oversized" to oversized.joinToString(", "), "unsupported" to rejected.joinToString(", ")),
+        )
+        if (oversized.isNotEmpty()) return LocalizedMessage(
+            "sync.errors.uploadsTooLarge", mapOf("filenames" to oversized.joinToString(", ")),
+        )
+        if (rejected.isNotEmpty()) return LocalizedMessage(
+            "sync.errors.unsupportedPaths", mapOf("filenames" to rejected.joinToString(", ")),
+        )
+        return null
     }
 
     /** Signal Rust that a local note changed so the live loop debounces and

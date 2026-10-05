@@ -131,38 +131,14 @@ describe('open', () => {
     expect(getFindState(view.state).query).toBe('cat');
     expect(getFindState(view.state).matches).toHaveLength(2);
   });
-
-  it('reports 0 for a query that matches nothing', async () => {
-    const { view, reports } = mount(['cat dog']);
-    openFind(view);
-    await query(view, 'zebra');
-
-    expect(reports.at(-1)).toEqual({ query: 'zebra', current: 0, total: 0, label: '0' });
-  });
 });
 
-describe('decorations', () => {
-  it('marks every match and distinguishes the current one', async () => {
-    const { view } = mount(['cat dog CAT']);
-    openFind(view);
-    await query(view, 'cat');
-
-    const decorated = decoratedText(view);
-    expect(decorated.all).toEqual(['cat', 'CAT']);
-    expect(decorated.current).toEqual(['cat']);
-  });
-
-  it('clears every decoration on close', async () => {
-    const { view } = mount(['cat cat']);
-    openFind(view);
-    await query(view, 'cat');
-    expect(decoratedText(view).all).toHaveLength(2);
-
-    closeFind(view);
-
-    expect(decoratedText(view).all).toEqual([]);
-  });
-});
+// A zero-match report and decoration marking/clearing are the same real
+// engine, driven over the futoBridge calls, in
+// tests/editor-embed-milkdown-find.spec.ts ("the engine answers the native
+// find calls..." covers marking/clearing and the zero-match report; "a query
+// that matches nothing..." covers the zero-match report a second time end to
+// end). That removed this file's direct duplicates.
 
 describe('stepping', () => {
   it('steps forward and wraps past the last match', async () => {
@@ -201,13 +177,8 @@ describe('stepping', () => {
     expect(selectionText(view)).toBe('cat');
   });
 
-  it('is a no-op with zero matches', async () => {
-    const { view } = mount(['cat']);
-    openFind(view);
-    await query(view, 'zebra');
-
-    expect(stepFind(view, 1)).toBe(false);
-  });
+  // Zero-match no-op: tests/editor-embed-milkdown-find.spec.ts's "a query
+  // that matches nothing reports 0 and every step is a no-op".
 
   it('does nothing while find is closed', async () => {
     const { view } = mount(['cat']);
@@ -217,21 +188,9 @@ describe('stepping', () => {
 });
 
 describe('editing while find is open', () => {
-  it('rescans without moving the selection', async () => {
-    const { view } = mount(['cat dog']);
-    openFind(view);
-    await query(view, 'cat');
-
-    // The user clicks into the body past the match and types.
-    placeCaret(view, 8);
-    view.dispatch(view.state.tr.insertText(' cat', 8));
-    const caret = view.state.selection.from;
-    await settle();
-
-    expect(getFindState(view.state).matches).toHaveLength(2);
-    expect(view.state.selection.from).toBe(caret);
-    expect(view.state.selection.empty).toBe(true);
-  });
+  // Rescan-without-moving-the-caret: tests/editor-embed-milkdown-find.spec.ts's
+  // "editing while find is open recounts without moving the caret", driven
+  // as real typing rather than a synthetic transaction.
 
   it('keeps highlights on the matches an edit moved', async () => {
     const { view } = mount(['cat']);

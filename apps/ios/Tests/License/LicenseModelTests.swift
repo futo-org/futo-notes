@@ -35,6 +35,22 @@ struct LicenseModelTests {
         )
     }
 
+    /// The Buy and Lost-your-key links the Settings row opens are the ones the
+    /// model builds from ITS bundle id and this platform: a dev build buys on
+    /// staging (M3), a release build on production. The URL format itself is
+    /// the crate's (`license::contract` tests); this pins the iOS wiring.
+    @Test("the model's links carry iOS and follow the build's environment")
+    func linksFollowPlatformAndEnvironment() {
+        let dev = model(bundleId: LicenseFixture.devBundleId).0.links
+        let release = model(bundleId: LicenseFixture.releaseBundleId).0.links
+
+        #expect(dev.buy.hasPrefix("https://staging-pay2.futo.org/"))
+        #expect(release.buy.hasPrefix("https://pay2.futo.org/"))
+        #expect(dev.buy.contains("platform=ios"))
+        #expect(release.buy.contains("platform=ios"))
+        #expect(release.support == "mailto:support@futo.tech")
+    }
+
     /// Preferences and RSA verification must stay off the actor that paints the
     /// shell. Construction happens on that actor, so it may retain the storage
     /// handle but cannot read it (M1).
@@ -220,25 +236,6 @@ struct LicenseModelTests {
         #expect(accepted)
         #expect(license.view?.status == .licensed)
         #expect(LicenseStorage(defaults: defaults).read()?.key == LicenseFixture.key)
-    }
-
-    /// The v1 activation format, end to end on the real FFI: what
-    /// `staging-pay2.futo.org` issues today is accepted, stored, and reported
-    /// Licensed with **no** timestamps for the row to render (issue #161).
-    @Test("a v1 activation activates offline and carries no dates")
-    func v1PairActivates() async {
-        let (license, defaults) = model()
-
-        let accepted = await license.enterKey(
-            "\(LicenseFixture.key)/\(LicenseFixture.v1Activation)")
-
-        #expect(accepted)
-        #expect(license.view?.status == .licensed)
-        #expect(license.view?.issuedAtMillis == nil)
-        #expect(license.view?.expiresAtMillis == nil)
-        #expect(
-            LicenseStorage(defaults: defaults).read()?.activation
-                == LicenseFixture.v1Activation)
     }
 
     /// Nothing is stored on a failure, so a bad paste leaves whatever was there

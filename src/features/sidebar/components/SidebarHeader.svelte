@@ -27,7 +27,7 @@
   </div>
   <div class="sidebar-header-actions">
     <button
-      class="sidebar-settings-btn"
+      class="sidebar-icon-btn sidebar-settings-btn"
       aria-label={localizedText('settings.openAccessibilityLabel')}
       onclick={onsettings}
     >
@@ -35,7 +35,7 @@
     </button>
     {#if showCollapse}
       <button
-        class="sidebar-collapse-btn"
+        class="sidebar-icon-btn sidebar-collapse-btn"
         aria-label={localizedText('sidebar.collapseAccessibilityLabel')}
         onclick={oncollapse}
       >

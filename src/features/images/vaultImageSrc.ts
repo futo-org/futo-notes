@@ -57,7 +57,7 @@ function notify(): void {
 }
 
 /** Whether a source is already loadable as-is and must not be rewritten. */
-export function isRemoteImageSource(source: string): boolean {
+function isRemoteImageSource(source: string): boolean {
   return (
     source.startsWith('http://') || source.startsWith('https://') || source.startsWith('data:')
   );
@@ -73,15 +73,6 @@ export function resolveVaultImageSrc(source: string): string {
   const registered = vaultImageUrls.get(source);
   if (registered !== undefined) return registered;
   return vaultImageBaseUrl ? vaultImageBaseUrl + encodeURIComponent(source) : '';
-}
-
-/**
- * The URL registered for one filename, if any — the base URL is deliberately
- * NOT consulted. CodeMirror's preloader needs the distinction: a filename with
- * nothing registered is the only case worth an async `getImageUrl` round trip.
- */
-export function registeredVaultImageUrl(filename: string): string | undefined {
-  return vaultImageUrls.get(filename);
 }
 
 /** Register the URL a single vault filename resolves to (Tauri desktop). */

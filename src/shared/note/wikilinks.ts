@@ -4,11 +4,6 @@ function components(id: string): string[] {
   return id.split('/');
 }
 
-export function noteIdLeaf(id: string): string {
-  const parts = components(id);
-  return parts[parts.length - 1];
-}
-
 export function shortestUniqueSuffix(targetId: string, allIds: Iterable<string>): string {
   const target = components(targetId);
   const others: string[][] = [];

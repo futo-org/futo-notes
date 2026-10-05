@@ -12,7 +12,11 @@ import { execFileSync } from 'node:child_process';
 /** Marks the boundary between batched commands' output. */
 const BATCH_DELIMITER = '__futo_adb_batch__';
 
-export function createAdbClient({ pkg, serial = process.env.ANDROID_SERIAL ?? null } = {}) {
+export function createAdbClient({
+  pkg,
+  serial = process.env.ANDROID_SERIAL ?? null,
+  execFile = execFileSync,
+} = {}) {
   if (!pkg) throw new Error('createAdbClient requires the app package id');
 
   /** Every invocation goes through here so the device selection cannot drift
@@ -21,7 +25,7 @@ export function createAdbClient({ pkg, serial = process.env.ANDROID_SERIAL ?? nu
 
   function adb(args, { allowFailure = false, input } = {}) {
     try {
-      const output = execFileSync('adb', argv(args), {
+      const output = execFile('adb', argv(args), {
         encoding: 'utf8',
         input,
         maxBuffer: 64 * 1024 * 1024,
@@ -133,13 +137,22 @@ export function createAdbClient({ pkg, serial = process.env.ANDROID_SERIAL ?? nu
    *  and had to rule the app out first. uiautomator's dump caps node text at
    *  250 chars too, so the a11y tree cannot confirm a long field either
    *  (pc_0235e3301770). 200 leaves room for the %s expansion of spaces. */
-  const TYPE_TEXT_CHUNK = 200;
+  const TYPE_TEXT_COMMAND_LIMIT = 200;
   const typeText = (text) => {
     let last;
-    for (let i = 0; i < text.length; i += TYPE_TEXT_CHUNK) {
-      const chunk = text.slice(i, i + TYPE_TEXT_CHUNK);
+    let chunk = '';
+    const sendChunk = () => {
+      if (!chunk) return;
       last = shell(`input text ${quote(chunk.replaceAll(' ', '%s'))}`);
+      chunk = '';
+    };
+    for (const character of text) {
+      const candidate = chunk + character;
+      const command = `input text ${quote(candidate.replaceAll(' ', '%s'))}`;
+      if (chunk && Buffer.byteLength(command, 'utf8') > TYPE_TEXT_COMMAND_LIMIT) sendChunk();
+      chunk += character;
     }
+    sendChunk();
     return last;
   };
 
@@ -155,7 +168,7 @@ export function createAdbClient({ pkg, serial = process.env.ANDROID_SERIAL ?? nu
 
   /** Raw bytes, so this cannot go through `adb()`, which decodes as UTF-8. */
   const screencapPng = () =>
-    execFileSync('adb', argv(['exec-out', 'screencap', '-p']), {
+    execFile('adb', argv(['exec-out', 'screencap', '-p']), {
       maxBuffer: 64 * 1024 * 1024,
     });
 

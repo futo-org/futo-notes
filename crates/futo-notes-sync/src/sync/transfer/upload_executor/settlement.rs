@@ -53,6 +53,12 @@ fn record_upload_success(context: &mut PushContext<'_>, candidate: &UploadCandid
 
 fn record_oversize_skip(context: &mut PushContext<'_>, candidate: &UploadCandidate) {
     context.summary.conflicts += 1;
+    context.summary.failures.push(SyncFailure {
+        filename: candidate.file.name.clone(),
+        kind: FailureKind::Upload,
+        status_code: Some(413),
+        detail: Some("server rejected upload as too large".into()),
+    });
     context.summary.decide(
         SyncPhase::Push,
         &candidate.file.name,

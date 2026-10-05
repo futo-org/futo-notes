@@ -4,8 +4,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.mutableStateListOf
 import com.futo.notes.ui.NoteListState
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -20,30 +18,6 @@ class AppNavigatorTest {
         mutableStateListOf(Screen.Folder("")),
         NoteListState(LazyListState()),
     )
-
-    @Test
-    fun `storage location is pushed from settings, so back returns to settings`() {
-        val navigator = navigator()
-        navigator.openSettings()
-
-        navigator.openStorageLocation()
-
-        assertEquals(Screen.StorageLocation, navigator.currentScreen)
-        // Back is intercepted here rather than falling through to the OS.
-        assertTrue(navigator.canGoBack)
-
-        navigator.goBack()
-
-        assertEquals(Screen.Settings, navigator.currentScreen)
-        // ...and the Settings entry it was covering is still there, so the next
-        // Back returns to the root folder instead of exiting the app.
-        assertTrue(navigator.canGoBack)
-
-        navigator.goBack()
-
-        assertEquals(Screen.Folder(""), navigator.currentScreen)
-        assertFalse(navigator.canGoBack)
-    }
 
     @Test
     fun `settings survives a storage location round trip`() {

@@ -13,10 +13,11 @@ import Testing
 @Suite("Restoring a sync session at launch")
 @MainActor
 struct SyncManagerRestoreTests {
-    /// Rust's hosted state machine, as far as the manager can tell. The wizard
-    /// tests already own one; a second copy here would be the same stand-in
-    /// written twice.
-    private typealias StandInSetup = HostedSetupModelTests.StandInSetup
+    /// Rust's hosted state machine, as far as the manager can tell. The
+    /// Kotlin wizard suite (test-reduction lever C) owns the wizard's own
+    /// scenarios; this reuses the same stand-in rather than writing a second
+    /// copy.
+    private typealias StandInSetup = StandInHostedSetupClient
 
     private func manager(_ hosted: StandInSetup) -> SyncManager {
         let manager = SyncManager()
@@ -64,7 +65,8 @@ struct SyncManagerRestoreTests {
         #expect(hosted.calls.contains("hasSavedVault"))
         #expect(
             hosted.calls.contains("connectSync"),
-            "a stranded device went back to its old server instead of resuming hosted: \(hosted.calls)")
+            "a stranded device went back to its old server instead of resuming hosted: \(hosted.calls)"
+        )
     }
 
     /// The other half of the same rule, and the reason this is not simply

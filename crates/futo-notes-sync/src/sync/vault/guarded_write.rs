@@ -38,9 +38,7 @@ pub(in crate::sync) fn replace_content_if_hash_matches(
     if source != target && !vault_fs::remove(root, source)? {
         return Err(format!("replace source disappeared: {source}"));
     }
-    if modified_ms > 0 {
-        let _ = vault_fs::set_mtime_ms(root, target, modified_ms);
-    }
+    let _ = vault_fs::set_mtime_ms(root, target, modified_ms);
     Ok(GuardedWriteOutcome::Applied)
 }
 
@@ -62,9 +60,7 @@ pub(in crate::sync) fn write_content_if_source_and_target_absent(
     }
     pre_write(target);
     vault_fs::write_atomic(root, target, &bytes)?;
-    if modified_ms > 0 {
-        let _ = vault_fs::set_mtime_ms(root, target, modified_ms);
-    }
+    let _ = vault_fs::set_mtime_ms(root, target, modified_ms);
     Ok(GuardedWriteOutcome::Applied)
 }
 

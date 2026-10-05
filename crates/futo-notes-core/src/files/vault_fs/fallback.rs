@@ -146,6 +146,13 @@ pub(super) fn move_no_replace(
         &checked_path(root, destination, true).map_err(OpenParentError::message)?,
     )
 }
+pub(super) fn move_no_replace_strict(
+    root: &Path,
+    source: &str,
+    destination: &str,
+) -> Result<bool, String> {
+    move_no_replace(root, source, destination)
+}
 pub(super) fn rename_case(root: &Path, source: &str, destination: &str) -> Result<(), String> {
     crate::files::rename_through_temp(
         &checked_path(root, source, false).map_err(OpenParentError::message)?,

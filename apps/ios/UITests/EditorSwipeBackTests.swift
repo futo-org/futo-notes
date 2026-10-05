@@ -62,7 +62,8 @@ private func createNote(in app: XCUIApplication, title: String, body: String) {
     titleField.tap()
     titleField.typeText(title)
     tapBack(in: app)
-    XCTAssertTrue(row(in: app, title: title).waitForExistence(timeout: 10), "\(title) was not saved")
+    XCTAssertTrue(
+        row(in: app, title: title).waitForExistence(timeout: 10), "\(title) was not saved")
 }
 
 @MainActor
