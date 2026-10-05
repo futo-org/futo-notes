@@ -26,6 +26,7 @@ import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import {
   DEFAULT_LONG_PRESS_MS,
   MobileBlockDndView,
+  dropBlockDndFocusGuards,
   type MobileBlockDndOptions,
 } from './mobileBlockDnd';
 import { testSchema } from './__fixtures__/schema';
@@ -62,8 +63,8 @@ function rectAt(top: number, bottom: number): DOMRect {
  * to its `ownerDocument`, so it has to be something the DOM can actually
  * dispatch through.
  */
-function makeView(hasFocus: boolean) {
-  const doc = s.nodes.doc.create(null, [paragraph('a')]);
+function makeView(hasFocus: boolean, empty = false) {
+  const doc = s.nodes.doc.create(null, [empty ? s.nodes.paragraph.create() : paragraph('a')]);
   let state = EditorState.create({ doc });
   const dispatched: Transaction[] = [];
 
@@ -252,6 +253,82 @@ describe('MobileBlockDndView — focus arbitration (QA #001)', () => {
     document.dispatchEvent(pointerEvent('pointerup', {}));
     pluginView.destroy();
     dom.remove();
+  });
+
+  // RC-84: the native click that focuses the editable after a released hold is
+  // a separate task, and under load whole frames run before it. The guard that
+  // absorbs it used to last one requestAnimationFrame, so a slow click left the
+  // editor focused and the NEXT press (which never arms over a focused editor)
+  // silently did nothing.
+  describe('the release-time focus guard outlives frames, not presses', () => {
+    // The empty paragraph is the release that ends in a native click and never
+    // lifts; a lifted drag is covered separately below.
+    function holdAndRelease() {
+      const rig = makeView(/* hasFocus */ false, /* empty */ true);
+      rig.dom.tabIndex = -1; // focusable in jsdom
+      const pluginView = new MobileBlockDndView(rig.view, makeOptions().options);
+      rig.dom.dispatchEvent(
+        pointerEvent('pointerdown', { clientX: rig.pointA.x, clientY: rig.pointA.y }),
+      );
+      vi.advanceTimersByTime(DEFAULT_LONG_PRESS_MS + 150);
+      document.dispatchEvent(pointerEvent('pointerup', {}));
+      return { ...rig, pluginView };
+    }
+
+    it('still blurs a native-click focus that arrives after several animation frames', () => {
+      const { dom, pluginView } = holdAndRelease();
+      vi.advanceTimersByTime(200); // many frames under load
+      dom.focus();
+      expect(document.activeElement).not.toBe(dom);
+      pluginView.destroy();
+      dom.remove();
+    });
+
+    it('is gone once the next press starts, so a tap still places the caret', () => {
+      const { dom, pointA, pluginView } = holdAndRelease();
+      dom.dispatchEvent(pointerEvent('pointerdown', { clientX: pointA.x, clientY: pointA.y }));
+      document.dispatchEvent(pointerEvent('pointerup', {}));
+      dom.focus();
+      expect(document.activeElement).toBe(dom);
+      pluginView.destroy();
+      dom.remove();
+    });
+
+    it('expires, so it never swallows a later programmatic focus', () => {
+      const { dom, pluginView } = holdAndRelease();
+      vi.advanceTimersByTime(1500);
+      dom.focus();
+      expect(document.activeElement).toBe(dom);
+      pluginView.destroy();
+      dom.remove();
+    });
+
+    // R10-FB20-1: the host's own focus() is intentional and must get through.
+    it('lets a host focus() through once the editor drops the guard', () => {
+      const { dom, pluginView } = holdAndRelease();
+      vi.advanceTimersByTime(100);
+      dropBlockDndFocusGuards();
+      dom.focus();
+      expect(document.activeElement).toBe(dom);
+      pluginView.destroy();
+      dom.remove();
+    });
+
+    it('a lifted drag release keeps only the one-frame guard (a moved touch emits no click)', () => {
+      const rig = makeView(/* hasFocus */ false);
+      rig.dom.tabIndex = -1;
+      const pluginView = new MobileBlockDndView(rig.view, makeOptions().options);
+      rig.dom.dispatchEvent(
+        pointerEvent('pointerdown', { clientX: rig.pointA.x, clientY: rig.pointA.y }),
+      );
+      vi.advanceTimersByTime(DEFAULT_LONG_PRESS_MS + 10); // lifted
+      document.dispatchEvent(pointerEvent('pointerup', {}));
+      vi.advanceTimersByTime(100); // frames later, well inside the 1 s window
+      rig.dom.focus();
+      expect(document.activeElement).toBe(rig.dom);
+      pluginView.destroy();
+      rig.dom.remove();
+    });
   });
 
   it('a plain tap while unfocused (armed but released before the lift timer) never calls view.focus', () => {

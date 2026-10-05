@@ -278,6 +278,20 @@ about.
   keyboard; wrapped-line taps remain on the tapped visual row. On-text and
   off-text placement alike are the platform's own contenteditable behavior.
   _(native shells)_
+- A caret the keyboard rises over is scrolled back into view as the keyboard
+  lands: tap the last word of a note that fills the screen and that word ends up
+  above the keyboard and its toolbar straight away, not on the first keystroke.
+  ProseMirror only scrolls on its own transactions and a tap is not one, so the
+  embed re-reveals the selection whenever the shell resizes the web view under a
+  focused editor. On Android the editor column's `imePadding` really does resize
+  the web view (a window `resize` for each frame of the keyboard animation), and
+  the System WebView also scrolls the focused caret into view by itself: with the
+  embed's reveal suppressed the tapped line still ended up above the toolbar.
+  The embed's reveal is what iOS needs and is harmless there. Verified on the
+  emulator (API 36, System WebView 133.0.6943.137) 2026-09-23. _(native
+  shells)_ → src/editor-embed/main.ts `resize` listener,
+  src/features/editor/milkdown/MilkdownEditor.svelte `revealSelection`
+
 - The editor reserves a tail below the last line — `max(40vh, 280px)` of bottom
   padding on the editable — so the final line can be scrolled clear of the
   keyboard. The tail scales with the viewport, so a note that does not fill the
@@ -568,6 +582,23 @@ about.
   apps/ios/Sources/Editor/EditorWebView.swift `applyTextInteractionLevel`,
   packages/editor/src/bridge.ts `BlockDragMessage`
   _(native shells, iOS)_
+- Moving an airborne block sideways never starts a back-swipe, and a block is
+  never left lifted once the finger is up. On iOS 26+ the navigation
+  controller's content pop takes a horizontal drag from anywhere on screen, so
+  it used to win a sideways block move: the editor started sliding away, and the
+  page never heard the touch end, which left the block stuck in its lifted state
+  with no finger on it. The airborne suspension therefore also disables the
+  interactive pop recognisers (the leading-edge swipe and the full-width content
+  swipe) and restores them when the gesture resolves. Android needs nothing
+  extra: its back gesture only starts at the screen edge, so a drag that began
+  mid-screen is never taken for one, even when the lifted block is carried to
+  either edge and held there. A touch the platform cancels (an injected
+  `ACTION_CANCEL`, or the notification shade pulled down mid-drag) drops the
+  block too. Verified on the emulator with gesture navigation (API 36, System
+  WebView 133.0.6943.137) 2026-09-23, on a fresh one-block note and a
+  five-block one. → apps/ios/Sources/Editor/EditorWebView.swift
+  `navigationPopGestures`, src/features/editor/milkdown/mobileBlockDnd.ts
+  `onPointerCancel` _(native shells)_
 
 ## Markdown elements (rendered / decorated)
 
@@ -631,6 +662,20 @@ about.
   wide as the rendered marker. →
   src/features/editor/milkdown/MilkdownEditor.svelte,
   tests/bullet-glyphs.spec.ts
+- An empty list item shows its marker. A bullet or number started from the
+  toolbar appears the moment the button is tapped, not after the first
+  keystroke. iOS WebKit draws no marker for an item whose only line is
+  ProseMirror's trailing `<br>`, though desktop WebKit does, so that line gets a
+  zero-width `::before` box to hang the marker on. It is CSS only, so nothing
+  reaches the saved Markdown. Verified 2026-09-23 on desktop (macOS WKWebView,
+  typing `- ` / `1. `) and on the Android emulator (API 36, System WebView
+  133.0.6943.137, from the toolbar): the marker shows before any typing, the
+  first character lands at the item's text edge with no gap, and the file reads
+  `- X` / `1. y` with no zero-width character in it. Not yet checked on Linux
+  WebKitGTK or Windows WebView2. → src/features/editor/milkdown/MilkdownEditor.svelte
+  `li > p:first-child:has(> br.ProseMirror-trailingBreak:only-child)::before`,
+  tests/editor-embed-milkdown-toolbar.spec.ts "gives the empty item a
+  zero-width marker anchor"
 - Tables (GFM), horizontal rules, and images render as themselves. A table
   scrolls sideways inside its own box rather than widening the note; an image is
   capped at the column width and 300px tall. →
@@ -1252,18 +1297,30 @@ EditorWebView.swift, EditorWebView.kt
   commands mutate the doc and autosave; Indent/Outdent appear inside a list or
   quote; pickers open natively; chevron blurs). → EditorToolbar.swift,
   EditorWebView.swift `futo_overrideInputAccessoryView`
-- iOS native: the accessory takes its BACKDROP from the system, never from the
-  app palette — the container is a `UIInputView` with `inputViewStyle`
-  `.keyboard` and every subview is transparent, so the strip renders the OS's
-  own accessory backdrop and follows light/dark, Increase Contrast, and
-  `keyboardAppearance` without app code. The buttons float on it in Liquid
-  Glass capsules (`glassEffect` on iOS 26+, `.regularMaterial` below), one for
-  the scrolling formatting items and one for the dismiss chevron, with no fill
-  or hairline behind the band. Verified against Safari's own accessory on the
-  iOS 26.5 simulator 2026-08-26: Apple's band background matches the PAGE
-  behind it (242,242,247) rather than the keyboard slab (223,224,230), which
-  is why a bar painted an app color reads as pasted onto the keyboard.
-  → EditorToolbar.swift `ToolbarMetrics`, `futoToolbarGlass`
+- The toolbar band behind the buttons is the EDITOR's own background colour, so
+  the bar reads as the bottom edge of the note rather than a strip pasted onto
+  the keyboard. Nothing between the note and the band shows a colour step, in
+  light or dark. _(native shells)_
+- iOS native: the accessory is a `UIInputView` (`inputViewStyle` `.default`)
+  painted `Theme.background`, and the buttons float on it in Liquid Glass
+  capsules (`glassEffect` on iOS 26+, `.regularMaterial` below), one for the
+  scrolling formatting items and one for the dismiss chevron, with no hairline
+  behind the band. The system's `.keyboard` backdrop, used until 2026-09-23, is a
+  translucent material that came out a near miss of the editor colour right
+  where the two meet, a difference a user saw on a device. `Theme.surface`
+  (#F2F2F2/#171717) before that was a visible slab. Apple's own accessory in
+  Safari matches the PAGE behind it (242,242,247 on the iOS 26.5 simulator,
+  2026-08-26), not the keyboard slab (223,224,230). → EditorToolbar.swift
+  `FutoKeyboardAccessory`, `ToolbarMetrics`, `futoToolbarGlass`
+
+- Android native: the bar and both of its edge fades paint `c.surface`, and so
+  does the editor screen's `Scaffold`, which is what shows through the
+  transparent editor page. The note and the band are therefore one colour by
+  construction: #FFFFFF in light and #1F1C19 in dark, sampled on the pixels
+  either side of the bar's top edge. A 1 dp `c.border` hairline marks that edge,
+  where iOS deliberately draws none. Verified on the emulator (API 36)
+  2026-09-23. → EditorToolbar.kt, NoteEditorScreen.kt `Scaffold`
+  `containerColor`
 - Android native: the toolbar is a Compose bar (generated ToolbarSpec.kt
   rendered by EditorToolbar.kt) docked above the soft keyboard via the editor
   screen's `imePadding`, shown only while the editor is focused (bridge
@@ -1289,6 +1346,26 @@ EditorWebView.swift, EditorWebView.kt
   caret survives a view-level clearFocus. (iOS can't hit this: keyboard and
   first-responder caret are coupled.) → MainActivity.kt,
   ui/components/ImeDismiss.kt, EditorImeDismissBlurTest.kt
+- Dismissing the keyboard ends the editing session on the page, not only the
+  keyboard: no caret, no highlighted text range, no cell selection, no
+  selection handles, and no table row/column grips left where a tap put them.
+  A bare DOM blur kept all of those. A selection survives a blur, and so do its
+  decorations and handles. The grips come from the emulated mouse events a tap
+  sends, and a tap never sends the `mouseleave` that would hide them. So the
+  bridge `blur()` collapses the selection to its head, hides the grips, then
+  blurs and clears the DOM selection. Every native dismissal goes through it:
+  the chevron on both shells and Android's back-gesture dismissal. Desktop never
+  calls it. On Android both dismissal paths clear a double-tapped word range
+  (handles and callout included), the grips a tap showed, and the cell selection
+  a grip menu leaves behind; tapping back in edits normally and brings the grips
+  back. A touch drag across cells makes no cell selection on Android (Chromium
+  sends a touch drag no mouse drag), so the grip menu is the touch route to one.
+  Verified on the emulator (API 36, System WebView 133.0.6943.137) 2026-09-23.
+  _(native shells)_ → src/features/editor/milkdown/MilkdownEditor.svelte
+  `blur`, src/features/editor/milkdown/table/tableGrips.ts `hideTableGrips`,
+  tests/editor-embed-milkdown.spec.ts "blur() drops a highlighted range",
+  tests/editor-embed-milkdown-table-grips.spec.ts "the bridge blur ends the
+  table editing session"
 - **Toolbar docking + height (both native shells).** The bar is exactly
   **44 pt** tall on iOS / **44 dp** on Android, its 36 pt/dp icons centered
   with ~4 pt top/bottom, and it sits **FLUSH against the top of the on-screen
@@ -1319,9 +1396,13 @@ EditorWebView.swift, EditorWebView.kt
   softens the clipped icon (and the leading edge once scrolled). Verified on the
   iOS simulator (iPhone 17 Pro 402 pt + Pro Max 440 pt) and the Android emulator
   2026-06-30 — a different edge icon is clipped per width, always to ~half. iOS
-  derives the geometry from `onScrollGeometryChange`; Android from
+  measures the outer slot independently of scroll offset; Android from
   `onGloballyPositioned` (`positionInWindow`) + a measure-tick. → EditorToolbar.swift
   `computeSnap`, EditorToolbar.kt `computeToolbarSnapPx`
+- _(iOS)_ Scrolling or bouncing at either toolbar edge never changes its viewport
+  width; the peek inset follows only the outer slot, button layout, and display
+  scale. Edge fades animate independently, preserving native scroll bounce. →
+  EditorToolbar.swift, EditorToolbarLayoutTests.swift
 - Camera inserts a photo from the device camera or photo library; Image opens
   a file picker. Both save the image into the vault and insert `![](file)`.
   On the native shells the toolbar's Camera/Image buttons reach the host
@@ -1823,18 +1904,54 @@ unchanged by it.
   > all: `planMarkdownChunks` declines `no-boundary` in ~41 ms and the whole
   > document goes through a single parse/dispatch of one `<p>` with tens of
   > thousands of inline children, with correct content once it lands. The
-  > cost is entirely engine-specific (M22). Same fixture, 50,000 lines / one
-  > paragraph / 2,543,891 chars (~2.5 MB): measured live in the shipped Linux
-  > Tauri debug app (WebKitGTK, normal window, GPU compositor) via its own
-  > `futo:editor-open-complete` mark, **desktop opens it in about 41 s**
-  > (41,014 / 41,221 / 41,321 ms across three runs); the identical bundle in
-  > desktop Chromium opens it in **0.93–1.06 s**, which is why the embed
-  > spec's 20,000-line budget stays green — Playwright never runs this suite
-  > on WebKitGTK (M22). CodeMirror on `main` opens the same file instantly at
-  > any size (virtualized DOM). _(desktop, Linux/WebKitGTK)_ →
-  > milkdown/markdownChunks.ts `planMarkdownChunks`,
+  > cost is engine-specific (M22) and super-linear, and the JS thread is
+  > blocked for all of it. Measured 2026-09-29 in the shipped Linux Tauri
+  > debug app (WebKitGTK, private virtual KWin, box load average 1–5):
+  > 20,000 lines / ~1.0 MB opens in ~0.5 s with no block; 50,000 lines /
+  > 2,538,890 chars (~2.5 MB) blocks the JS thread for ~11.6 s; 100,000 lines /
+  > ~5.1 MB blocks it for ~82 s. The `futo:editor-open-complete` mark fires
+  > BEFORE most of that (1.2 s at 50,000 lines): the long task follows it, so
+  > the mark understates the freeze. Load multiplies it: the same 2.5 MB file
+  > measured 61–62 s at load average 10–17 (2026-09-28), and ~41 s on an
+  > earlier build. Desktop Chromium returns from `initialize` in ~1 s but a
+  > ~12 s main-thread task follows at 2.5 MB, so the embed spec's 20,000-line
+  > budget, which stays green, does not see it. CodeMirror on `main` opens the
+  > same file instantly at any size (virtualized DOM). _(desktop,
+  > Linux/WebKitGTK)_ → milkdown/markdownChunks.ts `planMarkdownChunks`,
   > milkdown/progressiveLoad.ts, tests/editor-embed-milkdown.spec.ts
   > `oneParagraphNote`
+
+  The desktop window can still be closed during that freeze (RC-37): the close
+  is JS-mediated (`startNativeShell.ts` `onCloseRequested`), so before
+  2026-09-30 a close request made 8 s into a 100,000-line block was ignored
+  for 70 s (until the parse ended). `close_deadline.rs` now arms on the first
+  `CloseRequested`; if the app is still alive 5 s later (the JS handler's own
+  3 s flush race plus 2 s margin) AND the page reports nothing unsaved, Rust
+  waits for any in-flight vault write (the process-wide `vault_mutation_guard`,
+  at most 5 s more) and exits without the JS thread. A note open is not an unsaved
+  edit (a note switch awaits the outgoing save before the next note is read, and
+  the page cannot be typed into while it parses), so the open case is exactly
+  what the deadline cuts. A page that does hold an unsaved edit is not cut at the
+  deadline, however long its JS thread stalls (an 8 s task, a 2.5 MB paste): the
+  page tells Rust on every clean/dirty transition, reports at once from the
+  editor's own transaction dispatch (any document-changing transaction, so
+  keymap commands, toolbar and checkbox clicks count as well as typing; sidebar
+  clicks do not) and on `beforeinput`, `paste`, `cut` and `drop` (before the
+  stalling work begins, since the save queue only learns of an edit after the
+  editor's own 200 ms debounce), and Rust waits for the JS handler. That wait
+  ends early when the page that set the flag is gone (WebKitGTK's
+  `web-process-terminated`, or a new page load; WKWebView and WebView2 are not
+  hooked) and is capped at 60 s from the first close request, because a window
+  must always be closable: a stall longer than that with an unsaved edit (a
+  ~5 MB paste on WebKitGTK takes ~80 s) loses it, with one log line. Measured: exit 5.4 s after the request with the
+  giant note's bytes unchanged; 8 s busy loop, 2.5 MB paste and 2.5 MB replace
+  each exit when the stall ends with the edit on disk; a responsive page with an
+  unsaved edit still drains it through the JS handler and exits in 0.1 s. The
+  JS handler also no longer abandons a write that is still running after its 3 s
+  race (up to 15 s), which on a slow disk used to lose the edit and leave a
+  `.sf-tmp-*` file. The freeze itself remains the gap. →
+  apps/tauri/src-tauri/src/close_deadline.rs, closeDeadlineDirty.ts,
+  startNativeShell.ts, tests/desktop-close-deadline.mjs
 
   > **Gap (Android):** the same giant-paragraph parse cost blocks LEAVING such
   > a note too: `EditorWebView.kt`'s navigation-exit capture holds
@@ -1848,6 +1965,32 @@ unchanged by it.
   > does not swap until its synchronous parse completes. →
   > EditorWebView.kt `captureContentAndWait`, `CAPTURE_DEADLINE_MS`,
   > EditorSession.kt `isInteractionLocked`
+
+  > **Gap (iOS and Android, one unsplittable block in a streamed note):** the
+  > exit's liveness probe (`captureWithinDeadline`) tells "busy" from "wedged"
+  > by whether a trivial `1` evaluated ahead of the capture comes back inside
+  > the 6 s deadline, which assumes every idle slice is short. A chunk cannot
+  > be smaller than one block, so a note of ordinary prose around a single
+  > unsplittable block streams that block as ONE idle slice. Longest main-thread
+  > task measured while such a note opens (desktop Chromium embed, 300 short
+  > paragraphs either side; CPU throttled 6× to approximate a phone): 20,000-item
+  > list 0.8 s / 4.8 s; 20,000 nested items 2.6 s / 15.7 s; 20,000-item
+  > checklist 5.5 s / 6.7 s; 1 MB paragraph 0.4 s / 2.3 s; 2.5 MB paragraph
+  > 12.2 s / 5.4 s; a 20,000-line fence 0.07 s / 0.3 s. Where a slice outlasts
+  > the deadline the probe does not return, the outcome is `noLiveDocument`, and
+  > the exit commits the shell's own copy (`editorExitBody`) instead of refusing:
+  > it WAITS at most 6 s and then leaves, and loses exactly the edits typed in
+  > the streaming window before that slice began (the editor withholds `change`
+  > until the stream ends, so the shell never saw them). The window is the gap
+  > between `initialized` and the start of the long slice, so the loss needs a
+  > keystroke within a fraction of a second of the open plus a Back tap inside
+  > the freeze. Capping the chunk size cannot close it, since the slice is one
+  > block. Closing it needs the bundle to tell the shell "edited while
+  > streaming" so the exit can refuse. → EditorWebView.swift
+  > `captureWithinDeadline` / `editorExitBody` / `captureDeadlineSeconds`,
+  > EditorNavigationCommit.kt `editorExitBody` / `captureWithinDeadline`,
+  > EditorWebView.kt `captureContentAndWait` / `CAPTURE_DEADLINE_MS`,
+  > milkdown/progressiveLoad.ts
 
 - While the tail is still streaming, content cannot leave the editor as a
   PREFIX: `change` is suppressed, and `getContent()` either returns the host's
@@ -2162,6 +2305,22 @@ EditorSessionTest.kt, EditorSessionTests.swift
   every latch that exit set, and reports which step failed so the shell can word
   the message. A failed delete un-latches so the editor stays usable, and a
   failed draft write never deletes. _(iOS/Android)_
+- The one exception is iOS's system Back button and edge swipe. They are the
+  native interactive pop, which cannot be refused once it starts (hiding the
+  system button to keep a veto also disables the finger-tracked gesture). So that
+  exit runs the same drain and title-then-body commit **after** the editor has
+  left. A pending debounced rename commits immediately, a timed-out capture is
+  retried (the first attempt makes a streaming editor finish its load), and any
+  capture that still cannot answer commits the shell's copy. The capture reads
+  the shared WebView only while it still shows the popped note. On a wikilink pop
+  the parent re-attaches first, and reading then would write the parent's body
+  over the linked note. A rename that cannot commit is reported and the body
+  still commits under the id the note kept. The typed title is not kept, which is
+  the cost of an exit that cannot stay. Whatever else fails to commit goes to the
+  retained-draft flush, so it stays eligible for lifecycle retry. _(iOS)_
+  → NoteEditorView.swift `finishLeave`, EditorWebView.swift
+  `captureContent(leftBy:)` / `editorLeaveBody`, EditorExitBodyTests,
+  EditorBackAffordanceTests, EditorSwipeBackTests (UI)
 - "The editor did not answer" is only a failed capture when the answer would have
   been for **another note**. An editor holding NO live document — the bundle has
   not reported `initialized`, its renderer process died, it answered with no

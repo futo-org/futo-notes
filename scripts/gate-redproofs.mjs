@@ -1,6 +1,6 @@
 // Targeted gate red-proof harness — proves changed gates work.
 //
-//   node scripts/gate-redproofs.mjs                (just gate-redproofs)
+//   node scripts/gate-redproofs.mjs
 //   node scripts/gate-redproofs.mjs --self-test    (only the harness self-test)
 //   node scripts/gate-redproofs.mjs --include-cargo  (adds the cargo-dependent proof)
 //
@@ -75,8 +75,8 @@ const GATES = {
 };
 
 // Gates whose proof needs a Rust toolchain. Kept out of the default run so the
-// default command stays usable on machines and CI images without cargo. The
-// `just gate-redproofs` recipe opts into these proofs explicitly.
+// default command stays usable on machines and CI images without cargo.
+// `--include-cargo` opts into these proofs explicitly.
 const CARGO_GATES = new Set(['rust-dependency-boundaries']);
 
 // Gates this harness deliberately does NOT cover, printed on every run so the
@@ -951,7 +951,7 @@ function main() {
       if (CARGO_GATES.has(name) && !includeCargo) {
         skipped.push({
           gate: name,
-          why: 'needs a Rust toolchain, so the default portable command omits it. Re-run with --include-cargo (`just gate-redproofs` does).',
+          why: 'needs a Rust toolchain, so the default portable command omits it. Re-run with --include-cargo.',
         });
         return false;
       }

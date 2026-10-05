@@ -70,6 +70,13 @@ pub(crate) fn run() {
     );
 
     builder
+        .on_window_event(crate::close_deadline::on_window_event)
+        .on_page_load(|_webview, payload| {
+            // A new page has not reported anything yet; the old one's dirty flag is void.
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+                crate::close_deadline::mark_clean();
+            }
+        })
         .setup(|app| {
             let handle = app.handle();
             if let Ok(root) = crate::vault_location::root(handle) {
@@ -77,15 +84,23 @@ pub(crate) fn run() {
             }
             crate::platform_integration::configure_app(handle)?;
             crate::app_menu::install(handle)?;
+            #[cfg(target_os = "macos")]
+            if let Err(error) = crate::macos_terminate::install(handle) {
+                // Dock/AppleScript quit then end the old way (no save flush).
+                eprintln!("[quit] cannot route terminate: through the close handler: {error}");
+            }
             crate::window_reveal::install(handle)?;
             crate::instance_journal::install(handle);
+            crate::close_deadline::watch_web_process(handle);
             crate::license::install(handle);
             crate::local_notes::init_on_startup(handle);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             crate::image_commands::fs_paste_clipboard_image,
+            crate::close_deadline::close_deadline_set_dirty,
             crate::app_menu::app_menu_set_labels,
+            crate::app_menu::app_menu_dispatch_for_test,
             crate::platform_integration::read_desktop_color_scheme,
             crate::filesystem_watcher::fs_start_watcher,
             crate::vault_location::notes_dir_override_load,
@@ -93,6 +108,9 @@ pub(crate) fn run() {
             crate::vault_location::resolve_default_notes_root,
             crate::vault_location::vault_status,
             crate::vault_location::vault_display_path,
+            crate::desktop_settings::linux_desktop_settings,
+            crate::window_controls::window_controls_layout,
+            crate::external_file_open::external_file_open_requests,
             crate::updater_commands::app_self_update_supported,
             crate::license::license_status,
             crate::license::license_enter_key,
@@ -141,6 +159,7 @@ pub(crate) fn run() {
             crate::local_notes::local_notes_inventory,
             crate::local_notes::local_notes_read,
             crate::local_notes::local_notes_exists,
+            crate::local_notes::local_notes_import_external,
             crate::local_notes::local_notes_save,
             crate::local_notes::local_notes_flush_draft,
             crate::local_notes::local_notes_delete,
@@ -155,6 +174,13 @@ pub(crate) fn run() {
             crate::local_notes::local_notes_rescan,
             crate::local_notes::local_notes_refresh_external_changes,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            // Every exit, however it was reached, ends a terminate: that AppKit is waiting on.
+            #[cfg(target_os = "macos")]
+            if matches!(_event, tauri::RunEvent::ExitRequested { .. }) {
+                crate::macos_terminate::reply_to_pending_terminate();
+            }
+        });
 }

@@ -10,8 +10,9 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, AskUserQuestion
 time cost. This skill turns the historical failure classes into a triage procedure so a red
 pipeline costs minutes, not an afternoon of push-and-watch.
 
-Project: `futo-notes/futo-notes` on `gitlab.futo.org`. `$GITLAB_TOKEN` is in the shell; `glab` is
-also available and authenticated.
+Project: `futo-notes/futo-notes` on `gitlab.futo.org`. The curl calls below use `$GITLAB_TOKEN`,
+which always works. `glab` is usually also present, but whether it can authenticate is per-machine
+and per-shell — see the auth gotcha in `docs/agents/issue-tracker.md` before blaming a read.
 
 ## Step 1 — Get the facts (never guess from the commit diff alone)
 
@@ -85,8 +86,8 @@ Apply the rule for the class; do not just patch the symptom:
      `scripts/*.py|mjs|sh` — they run outside CI).
   2. Push a temp branch with a one-commit rule override making the job run on that branch
      (`rules: - if: $CI_COMMIT_BRANCH == "ci-dryrun-x"`); revert before merge.
-  3. For the updater path specifically: `just updater-localdev` rehearses build→sign→serve→verify
-     end-to-end with localdev keys.
+  3. For the updater path specifically: `node scripts/release-build.mjs e2e` rehearses
+     build→sign→serve→verify end-to-end with localdev keys.
 - **After a failed tag**: fix on main first. Then ask the user before any retag/new tag
   (publishing is an ask-first action). Repo convention favors bumping the patch version over
   deleting tags; release creation is retag-safe but partially-published artifacts from the failed

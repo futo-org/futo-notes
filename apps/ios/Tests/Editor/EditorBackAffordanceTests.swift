@@ -4,18 +4,15 @@ import Testing
 /// Anchors `Bundle(for:)` to the test bundle (see ServerUrlConformanceTests).
 private final class BundleToken {}
 
-/// Guards the invariant that actually broke: `NoteEditorView` hides the system
-/// back button so every exit runs through `requestNavigation`, and hiding it
-/// ALSO disables UIKit's interactive pop gesture — which silently removed
+/// Guards the invariant that broke once already: hiding the system back button
+/// ALSO disables UIKit's finger-tracked interactive pop, which silently removed
 /// swipe-back from the editor (0/2 edge swipes popped, vs 3/3 with the system
-/// button restored).
+/// button shown). The editor keeps the system button and commits on the way out
+/// in `finishLeave` instead of vetoing the exit.
 ///
-/// The gesture classifier has its own unit tests, but those pass whether or not
-/// the gesture is wired into the view. This is a SOURCE SCAN (same shape as
-/// `BridgeCallSurfaceTests`): it reads `NoteEditorView.swift` and asserts that
-/// hiding the back button and providing our own back-swipe travel together, so
-/// deleting the overlay fails here instead of shipping a note you cannot swipe
-/// out of.
+/// This is a SOURCE SCAN (same shape as `BridgeCallSurfaceTests`): it reads
+/// `NoteEditorView.swift`, so hiding the button again fails here instead of
+/// shipping a note you cannot swipe out of.
 @Suite("Editor back affordance")
 struct EditorBackAffordanceTests {
     /// `NoteEditorView.swift`, bundled as a resource by the test target's
@@ -29,44 +26,26 @@ struct EditorBackAffordanceTests {
         return try String(contentsOf: url, encoding: .utf8)
     }
 
-    @Test("hiding the system back button comes with our own back-swipe")
-    func hiddenBackButtonHasSwipeAffordance() throws {
+    @Test("the editor keeps the system back button, and with it the native swipe")
+    func systemBackButtonIsShown() throws {
         let source = try editorViewSource()
-
-        // Precondition. If this stops matching, the editor has stopped hiding the
-        // system back button — the native interactive pop is then back and the
-        // strip may be redundant (issue #69). Re-read this suite's doc comment
-        // rather than deleting the assertion below.
         #expect(
-            source.contains(".navigationBarBackButtonHidden(true)"),
-            "Editor no longer hides the system back button — revisit the swipe strip (issue #69)"
-        )
-
-        // Matches the CONSTRUCTION, not the name: a passing mention in a comment
-        // must not satisfy this (it did, the first time this test was written).
-        #expect(
-            source.contains("EditorEdgeSwipeBack {"),
-            "Hiding the back button disables the interactive pop gesture, so the editor MUST supply its own leading-edge back-swipe"
+            !source.contains(".navigationBarBackButtonHidden("),
+            "Hiding the back button disables the finger-tracked interactive pop gesture"
         )
     }
 
-    @Test("the back-swipe uses the same gated exit as the Back button")
-    func swipeRoutesThroughTheGatedExit() throws {
+    @Test("a system pop commits through the session's navigate exit")
+    func systemPopCommits() throws {
         let source = try editorViewSource()
+        // The system pop never asks requestNavigation, so onDisappear must hand
+        // it to finishLeave — which drains rename/move/adopt work and commits
+        // the title and body exactly as requestNavigation does.
+        let disappear = try #require(source.range(of: ".onDisappear {"))
+        #expect(source[disappear.upperBound...].prefix(900).contains("finishLeave()"))
 
-        // The swipe must not become the one exit that skips requestNavigation:
-        // that verb drains in-flight rename/move/adopt work and captures the live
-        // body out of the WebView before leaving.
-        let overlay = try #require(
-            source.range(of: "EditorEdgeSwipeBack {"),
-            "Expected the swipe overlay to be built with a trailing closure"
-        )
-        let closureTail = source[overlay.upperBound...].prefix(200)
-
-        #expect(
-            closureTail.contains("requestNavigation"),
-            "The back-swipe must route through requestNavigation, not pop navPath directly"
-        )
+        let leave = try #require(source.range(of: "private func finishLeave()"))
+        #expect(source[leave.upperBound...].prefix(400).contains(".navigate,"))
     }
 
     @Test("the visible find close control always closes the shared engine")

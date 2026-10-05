@@ -1,6 +1,6 @@
 # Contributing / Setup
 
-New-hire setup for FUTO Notes. For *how the codebase is organized* and the
+New-hire setup for FUTO Notes. For _how the codebase is organized_ and the
 day-to-day rules, read [AGENTS.md](./AGENTS.md) next — this doc only gets your
 machine ready.
 
@@ -20,11 +20,26 @@ machine ready.
 
 ## 2. First build
 
+For a fresh task, fetch main and create a sibling worktree, then run `just orient` there.
+`just orient --json` provides the same inventory for tools; `--base <ref>` changes the
+comparison base (default `origin/main`). It includes the entire branch since the merge base,
+staged/unstaged changes and untracked files. It reports installed tool paths, missing dependencies,
+and worktrees sharing a slot; presence alone does not prove a working build or a safe QA target.
+
 ```bash
-just install      # install all workspace dependencies
+just setup        # check tools and install pinned workspace dependencies
 just tauri-dev    # run the desktop app (Wayland-first, port 5180)
-just check        # lint + tests + build sanity — run this before pushing
+just verify-run check  # lint + tests + build sanity, with a retained evidence bundle
 ```
+
+Working alongside another session? `just wt new <name>` makes a sibling worktree
+with deps installed and a warm Rust cache; `just wt gc` reaps stale ones. `just
+orient` says where you are.
+
+If a fresh worktree or SSH shell cannot find Node/just, start with
+`bash scripts/dev-env.sh --install just setup`. Wrap later SSH commands with
+`bash scripts/dev-env.sh` too. See [worktree setup and verification](docs/agents/verification-runs.md)
+for platform preflight, Mac usage, real-app journeys and evidence retention.
 
 > Dev/debug builds isolate their notes from production. Desktop/iOS use
 > `com.futo.notes.dev` and `fake-notes`; Android isolates package storage by
@@ -50,7 +65,12 @@ This repo ships shared Claude Code config under `.claude/`:
   `GITLAB_TOKEN` / `ZULIP_API_KEY` (see step 3).
 - **Workflows** (`.claude/workflows/`) — multi-agent flows like `sync-adversarial`.
 - **Shared settings** (`.claude/settings.json`) — a small project permission
-  allowlist. Personal overrides go in `.claude/settings.local.json` (gitignored).
+  allowlist plus the repo's hooks. Personal overrides go in
+  `.claude/settings.local.json` (gitignored).
+- **Hooks** (`scripts/hooks/`, wired from `.claude/settings.json`) — deny
+  process-name kills, `git stash` in a linked worktree, and OS-level input;
+  print `just orient` at session start; give each subagent a private scratch
+  directory. A denial names the sanctioned alternative.
 
 ### Third-party skills (optional)
 

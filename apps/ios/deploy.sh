@@ -34,7 +34,10 @@ fi
 echo "==> Signing team: $TEAM"
 
 echo "==> JS deps"
-[ -d node_modules ] || pnpm install
+# Presence-only ([ -d node_modules ]) is not enough: a stale install loses the
+# vite binary and used to die only AFTER the Rust build. One owner:
+# scripts/editor-deps.sh.
+bash scripts/editor-deps.sh
 
 echo "==> Building Rust note + sync core (UniFFI) -> FutoNotesFfi.xcframework"
 bash "$ROOT/scripts/build-rust-ios.sh"

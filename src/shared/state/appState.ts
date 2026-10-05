@@ -322,6 +322,11 @@ export function getAppState(): AppState {
 // post-confirm scrub, restoring the plaintext as the final on-disk state.
 let writeChain: Promise<void> = Promise.resolve();
 
+/** Resolves once every queued app-state write has landed (never rejects). */
+export function flushAppStateWrites(): Promise<void> {
+  return writeChain;
+}
+
 export async function saveAppState(state: AppState): Promise<void> {
   cached = state;
   if (!hasFileSystem) return;
@@ -411,7 +416,9 @@ export interface AppPreferences {
 function stateToPrefs(): AppPreferences {
   const s = getAppState();
   return {
-    appearance: { theme: s.preferences.theme },
+    appearance: {
+      theme: s.preferences.theme,
+    },
     language: { selectedLanguageTag: s.preferences.selectedLanguageTag },
     crashReporting: { ...s.crashReporting },
     updates: { ...s.updates },

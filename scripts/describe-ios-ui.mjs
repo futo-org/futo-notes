@@ -325,7 +325,7 @@ export function parseArgs(argv) {
   return options;
 }
 
-function captureTree({ file, udid }) {
+export function captureTree({ file, udid }) {
   if (file) return JSON.parse(readFileSync(file, 'utf8'));
   if (!udid) {
     throw new Error('no simulator: pass --udid or export SIM (see `just qa-claim ios`)');
@@ -333,12 +333,23 @@ function captureTree({ file, udid }) {
   // `axe` is not installed system-wide on every machine; honor an explicit
   // path so a tarball checkout works without touching Homebrew.
   const axe = process.env.AXE_BIN || 'axe';
-  return JSON.parse(
-    execFileSync(axe, ['describe-ui', '--udid', udid], {
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
-    }),
-  );
+  try {
+    return JSON.parse(
+      execFileSync(axe, ['describe-ui', '--udid', udid], {
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+      }),
+    );
+  } catch (error) {
+    // A bare `spawnSync axe ENOENT` reads as "the UI is unreadable" and has
+    // sent a session off looking for another way in. It means one thing only:
+    // the binary is not on PATH (pc_d6d02599daa0).
+    if (error.code !== 'ENOENT') throw error;
+    throw new Error(
+      `'${axe}' not found — install AXe, or set AXE_BIN to its path. ` +
+        'Both are in .claude/skills/verify/references/ios.md ("Toolchain").',
+    );
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -2,8 +2,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const menuHandlers: Array<(command: string) => void> = [];
+const closeAppWindow = vi.hoisted(() => vi.fn());
 
 vi.mock('$lib/platform', () => ({
+  closeAppWindow,
   onAppMenuCommand: (handler: (command: string) => void) => {
     menuHandlers.push(handler);
     return () => {
@@ -41,6 +43,7 @@ describe('registerNotesShellShortcuts', () => {
   beforeEach(() => {
     menuHandlers.length = 0;
     tabsStore.__resetForTests();
+    closeAppWindow.mockClear();
     deps = {
       openSearch: vi.fn(),
       createNote: vi.fn(),
@@ -65,6 +68,13 @@ describe('registerNotesShellShortcuts', () => {
   it('toggles the sidebar on the primary modifier + backslash', () => {
     const event = press('\\', { ctrlKey: true });
     expect(deps.toggleSidebar).toHaveBeenCalledTimes(1);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('closes the desktop window on Ctrl+Q so the close handler can flush saves', () => {
+    const event = press('q', { ctrlKey: true });
+
+    expect(closeAppWindow).toHaveBeenCalledTimes(1);
     expect(event.defaultPrevented).toBe(true);
   });
 

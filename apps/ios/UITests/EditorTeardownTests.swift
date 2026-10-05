@@ -50,9 +50,9 @@ private func reopenASeededNote(in app: XCUIApplication) {
     let create = app.buttons["nav-create"]
     XCTAssertTrue(create.waitForExistence(timeout: 5))
     create.tap()
-    // The editor's leading chevron reports as "Back", so its presence is also
-    // the signal that the editor screen is up.
-    XCTAssertTrue(app.buttons["Back"].waitForExistence(timeout: 5))
+    // The system back button's presence is also the signal that the editor
+    // screen is up.
+    XCTAssertTrue(backButton(in: app).waitForExistence(timeout: 5))
 
     let titleField = app.textFields.firstMatch
     XCTAssertTrue(titleField.waitForExistence(timeout: 5))
@@ -65,9 +65,8 @@ private func reopenASeededNote(in app: XCUIApplication) {
         "seeding the note never returned to the list"
     )
 
-    // The debounced rename is cancelled on leave (Android parity), so the row
-    // usually still reads "Untitled" with the typed title only in the editor —
-    // match either spelling rather than depending on that race.
+    // Leaving commits the typed title, but match "Untitled" too so this test
+    // stays about teardown rather than the rename.
     let row = app.buttons
         .matching(
             NSPredicate(
@@ -78,14 +77,21 @@ private func reopenASeededNote(in app: XCUIApplication) {
         .firstMatch
     XCTAssertTrue(row.waitForExistence(timeout: 5), "the seeded note is not in the list")
     row.tap()
-    XCTAssertTrue(app.buttons["Back"].waitForExistence(timeout: 5), "the note did not reopen")
+    XCTAssertTrue(backButton(in: app).waitForExistence(timeout: 5), "the note did not reopen")
 }
 
 private let seededNoteTitle = "QA Teardown"
 
+/// The editor shows the SYSTEM back button, labelled with the previous
+/// screen's title rather than "Back"; UIKit identifies it as "BackButton".
+@MainActor
+private func backButton(in app: XCUIApplication) -> XCUIElement {
+    app.navigationBars.buttons["BackButton"]
+}
+
 @MainActor
 private func tapBack(in app: XCUIApplication) {
-    let back = app.buttons["Back"]
+    let back = backButton(in: app)
     XCTAssertTrue(back.waitForExistence(timeout: 5))
     back.tap()
 }

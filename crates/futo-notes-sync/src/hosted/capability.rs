@@ -1,7 +1,7 @@
 //! Which sign-in a server wants, read from its capability document.
 
 use super::HostedError;
-use crate::server::Http;
+use crate::server::HttpClients;
 
 /// How the app should log in to a given server.
 ///
@@ -24,7 +24,9 @@ pub enum SignInFlow {
 
 /// Reads `GET /` and says how to log in.
 pub async fn probe_sign_in_flow(server: &str) -> Result<SignInFlow, HostedError> {
-    let http = Http::new(server).map_err(|error| HostedError::Network(error.message))?;
+    let http = HttpClients::new()
+        .and_then(|clients| clients.for_base(server))
+        .map_err(|error| HostedError::Network(error.message))?;
     let capabilities = http
         .capabilities()
         .await

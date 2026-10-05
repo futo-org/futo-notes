@@ -1,7 +1,9 @@
 <script lang="ts">
   import TabsStrip from '$features/tabs/TabsStrip.svelte';
   import { localizedText } from '$shared/localization';
+  import { getWindowControlsLayout, type WindowControlsLayout } from '$lib/platform';
   import type { NotePreview } from '$shared/types/note';
+  import WindowControls from './WindowControls.svelte';
 
   interface Props {
     sidebarCollapsed: boolean;
@@ -10,6 +12,19 @@
   }
 
   let { sidebarCollapsed, ontoggle, notes = [] }: Props = $props();
+  let windowControls: WindowControlsLayout | null = $state(null);
+
+  $effect(() => {
+    let disposed = false;
+    void getWindowControlsLayout()
+      .then((layout) => {
+        if (!disposed) windowControls = layout;
+      })
+      .catch((error) => console.warn('Failed to load window controls:', error));
+    return () => {
+      disposed = true;
+    };
+  });
 </script>
 
 <!-- Full-width desktop top band: chrome column (mirrors the sidebar, holds the
@@ -17,6 +32,9 @@
      The band is a drag region so the window moves from its empty areas. -->
 <div class="desktop-topband" data-tauri-drag-region>
   <div class="topband-chrome" data-tauri-drag-region>
+    {#if windowControls?.left.length}
+      <WindowControls side="left" buttons={windowControls.left} />
+    {/if}
     <button
       class="sidebar-toggle-btn"
       aria-label={sidebarCollapsed
@@ -42,4 +60,7 @@
     </button>
   </div>
   <TabsStrip {notes} />
+  {#if windowControls?.right.length}
+    <WindowControls side="right" buttons={windowControls.right} />
+  {/if}
 </div>

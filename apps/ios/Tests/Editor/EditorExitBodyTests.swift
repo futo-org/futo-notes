@@ -49,4 +49,19 @@ struct EditorExitBodyTests {
         // a capture failure: reading would answer for the wrong document.
         #expect(editorExitBody(.notOurs, shellCopy: "ours") == nil)
     }
+
+    @Test("an exit that already left commits the capture when there is one")
+    func leaveCommitsTheCapture() {
+        #expect(editorLeaveBody(.captured("live"), shellCopy: "stale") == "live")
+        #expect(editorLeaveBody(.captured(""), shellCopy: "old text") == "")
+    }
+
+    @Test("an exit that already left falls back to the shell's copy instead of refusing")
+    func leaveNeverRefuses() {
+        // System Back and the edge swipe pop before the exit runs, so there is
+        // no screen left to stay on; the shell's copy is the best commit left.
+        #expect(editorLeaveBody(.notOurs, shellCopy: "ours") == "ours")
+        #expect(editorLeaveBody(.timedOut, shellCopy: "ours") == "ours")
+        #expect(editorLeaveBody(.noLiveDocument, shellCopy: "from disk") == "from disk")
+    }
 }

@@ -103,6 +103,17 @@
   cursor: progress;
 }
 
+.modal-btn-warning {
+  background: var(--color-danger, #dc2626);
+  border-color: var(--color-danger, #dc2626);
+}
+
+.confirm-dialog-message {
+  margin: 0;
+  color: var(--color-text);
+  line-height: 1.5;
+}
+
 /* Hover affordances only where a real pointer exists — a touch shell would
    otherwise keep the last-tapped button stuck in its hover state. */
 @media (hover: hover) and (pointer: fine) {
@@ -114,5 +125,10 @@
   .modal-btn-primary:hover:not(:disabled) {
     background: var(--color-primary-hover, #d9550f);
     border-color: var(--color-primary-hover, #d9550f);
+  }
+
+  .modal-btn-warning:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-danger) 84%, var(--color-text));
+    border-color: color-mix(in srgb, var(--color-danger) 84%, var(--color-text));
   }
 }

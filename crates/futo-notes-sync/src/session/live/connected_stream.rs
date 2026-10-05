@@ -8,6 +8,7 @@ use tokio::time::{interval, Instant, MissedTickBehavior};
 
 use crate::checkpoint::ConnectedState;
 use crate::journal::{SyncRunJournal, SyncTrigger};
+use crate::server::HttpClients;
 use crate::sync::{PreWrite, SyncErrorKind};
 
 use super::super::{cycle, SyncSessionListener};
@@ -42,6 +43,7 @@ pub(super) struct LiveCycle<'a> {
     listener: &'a dyn SyncSessionListener,
     pre_write: &'a PreWrite,
     journal: &'a Journal,
+    clients: &'a HttpClients,
 }
 
 impl<'a> LiveCycle<'a> {
@@ -52,6 +54,7 @@ impl<'a> LiveCycle<'a> {
         listener: &'a dyn SyncSessionListener,
         pre_write: &'a PreWrite,
         journal: &'a Journal,
+        clients: &'a HttpClients,
     ) -> Self {
         Self {
             state,
@@ -60,6 +63,7 @@ impl<'a> LiveCycle<'a> {
             listener,
             pre_write,
             journal,
+            clients,
         }
     }
 }
@@ -140,6 +144,7 @@ async fn run_cycle_and_notify(live_cycle: &LiveCycle<'_>, trigger: SyncTrigger) 
         &no_progress,
         live_cycle.pre_write,
         &SyncRunJournal::new(live_cycle.journal.clone(), trigger),
+        live_cycle.clients,
     )
     .await
     {

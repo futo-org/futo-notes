@@ -15,6 +15,8 @@ mod sync;
 
 use std::path::Path;
 
+use server::HttpClients;
+
 pub use checkpoint::{ConnectedState, ObjectState as E2eeObjectMapEntry};
 pub use hosted::{
     hosted_server, probe_sign_in_flow, BillingStatus, Checkout, EntitlementOutcome, HostedError,
@@ -42,7 +44,8 @@ pub async fn authenticate(
     server: &str,
     password: &str,
 ) -> Result<AuthenticatedSession, SyncErrorKind> {
-    session::connect::authenticate(server, password).await
+    let clients = HttpClients::new().map_err(session::connect::http_error)?;
+    session::connect::authenticate(&clients, server, password).await
 }
 
 /// Turns an authenticated session into the 32-byte vault key by unwrapping the
@@ -63,7 +66,8 @@ pub async fn connect(
     server: &str,
     password: &str,
 ) -> Result<(ConnectedState, ConnectInfo), SyncErrorKind> {
-    session::connect::connect(root, server, password).await
+    let clients = server::HttpClients::new().map_err(session::connect::http_error)?;
+    session::connect::connect(&clients, root, server, password).await
 }
 
 #[doc(hidden)]
@@ -75,7 +79,17 @@ pub async fn resume(
     collection_id: &str,
     password: &str,
 ) -> Result<ConnectedState, SyncErrorKind> {
-    session::connect::resume(root, server, token, user_id, collection_id, password).await
+    let clients = server::HttpClients::new().map_err(session::connect::http_error)?;
+    session::connect::resume(
+        &clients,
+        root,
+        server,
+        token,
+        user_id,
+        collection_id,
+        password,
+    )
+    .await
 }
 
 #[doc(hidden)]

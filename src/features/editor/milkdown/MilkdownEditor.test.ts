@@ -19,6 +19,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, tick, unmount } from 'svelte';
 import { undo } from '@milkdown/kit/prose/history';
 import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
+import { guardEditorTimers } from './__fixtures__/editorTimerGuard';
+
+// RC-66: no native timer may outlive a test (see the guard's header).
+guardEditorTimers();
 
 vi.mock('$lib/platform', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -52,6 +56,7 @@ interface EditorHandle {
   openNote: (text: string) => void;
   setContent: (text: string) => void;
   applyEdit: (text: string) => void;
+  insertMarkdown: (text: string) => void;
   getContent: () => string | undefined;
   hasFocus: () => boolean;
   getProseMirrorView: () => import('@milkdown/kit/prose/view').EditorView | null;
@@ -359,5 +364,83 @@ describe('the focus signal the external-change coordinator reads', () => {
     document.body.appendChild(outside);
     outside.focus();
     expect(handle.hasFocus()).toBe(false);
+  });
+});
+
+/**
+ * RC-38: micromark strips a leading U+FEFF, so Milkdown's remarkMarker read the
+ * character BEFORE each `*`/`_` run and re-spelled every emphasis in the note.
+ * `openNote` goes through parseNote, but the desktop tag bar's `applyEdit`
+ * called Milkdown's own `replaceAll`, which did not — and reports the result
+ * to the host synchronously, so the corruption was saved.
+ */
+describe('a note that starts with a byte order mark', () => {
+  const BODY = 'Intro **b** and _it_ x**y**z\n';
+
+  it('keeps its emphasis when the tag bar rewrites the document', () => {
+    handle.openNote(`\ufeff${BODY}`);
+    expect(handle.getContent()).toBe(`\ufeff${BODY}`);
+
+    handle.applyEdit(`${handle.getContent()}\n#tag\n`);
+
+    expect(changes.at(-1)).toBe(`${BODY}\n#tag\n`);
+    expect(handle.getContent()).toBe(`${BODY}\n#tag\n`);
+  });
+
+  it('keeps its emphasis when the BOM is doubled, and echoes the host bytes on open', () => {
+    const note = `\ufeff\ufeff${BODY}`;
+    handle.openNote(note);
+    expect(handle.getContent()).toBe(note);
+
+    handle.applyEdit(`${note}\n#tag\n`);
+
+    expect(changes.at(-1)).toBe(`${BODY}\n#tag\n`);
+  });
+});
+
+/**
+ * The other two doors a string reaches the parser through without `parseNote`
+ * (FB-8 follow-up): Milkdown's own `insert` action, and the `defaultValueCtx`
+ * the engine is created with. Each strips the leading BOM itself
+ * (`stripLeadingBoms`); nothing else pins either call, so removing one strip
+ * would have kept the whole suite green while re-opening RC-38 through it.
+ */
+describe('the BOM strip on the parser doors other than openNote', () => {
+  const BODY = 'Intro **b** and _it_ x**y**z\n';
+
+  it('insertMarkdown keeps the emphasis of markdown that starts with a BOM', () => {
+    handle.openNote('');
+    handle.insertMarkdown(`\ufeff${BODY}`);
+
+    expect(handle.getContent()).toBe(BODY);
+  });
+
+  it('a note handed to the engine as its initial value keeps its emphasis', async () => {
+    const mounted = document.createElement('div');
+    document.body.appendChild(mounted);
+    /* `applyExternal` replaces this document with a parseNote'd copy the moment
+     * the engine is up, so only the instant BEFORE that — `onenginemounted` —
+     * shows what `defaultValueCtx` built. Every mark's source spelling: `*` or `_`. */
+    let markers: string[] | null = null;
+    let initial!: EditorHandle;
+    await withoutLeakedCtxTimers(async () => {
+      initial = mount(MilkdownEditor, {
+        target: mounted,
+        props: {
+          content: `\ufeff${BODY}`,
+          onchange: () => {},
+          onenginemounted: () => {
+            const found: string[] = [];
+            initial.getProseMirrorView()!.state.doc.descendants((node) => {
+              for (const mark of node.marks) found.push(`${mark.type.name}:${mark.attrs.marker}`);
+            });
+            markers = found;
+          },
+        },
+      }) as unknown as EditorHandle;
+      await vi.waitFor(() => expect(markers).not.toBeNull());
+    });
+
+    expect(markers).toEqual(['strong:*', 'emphasis:_', 'strong:*']);
   });
 });
