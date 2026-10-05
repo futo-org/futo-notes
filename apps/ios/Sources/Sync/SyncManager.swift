@@ -600,18 +600,22 @@ final class SyncManager: ObservableObject {
         }
     }
 
-    /// Sink for the Rust live loop's per-reconnect errors. Connect/stream
-    /// failures (`connect:` / `stream:` — the loop is retrying, the safety poll
-    /// still runs) are live-stream health and go to the muted live error line.
-    /// Anything else is a genuine failure and gets the red sync error line.
-    fileprivate func setLastError(_ m: String) {
+    /// Sink for the Rust live loop's per-reconnect errors. A certificate
+    /// rejection is reported as such whichever kind it arrives as (sync.md).
+    /// Other connect/stream failures (`connect:` / `stream:` — the loop is
+    /// retrying, the safety poll still runs) are live-stream health and go to
+    /// the muted live error line. Anything else is a genuine failure and gets
+    /// the red sync error line. `internal` so the unit tests can pin it.
+    func setLastError(_ m: String) {
         // Auth expiry and collection-gone are terminal for the old live loop,
         // but recoverable from the securely stored password.
         if m.contains("collection-gone") || m.hasPrefix("auth:") {
             healSession()
             return
         }
-        if m.hasPrefix("connect:") || m.hasPrefix("stream:") {
+        if Self.isCertificateRejection(m) {
+            lastErrorMessage = LocalizedMessage("sync.errors.certificateNotTrusted")
+        } else if m.hasPrefix("connect:") || m.hasPrefix("stream:") {
             liveErrorMessage = LocalizedMessage("sync.errors.liveUnavailable")
         } else {
             lastErrorMessage = LocalizedMessage("sync.errors.syncFailed")
@@ -661,9 +665,15 @@ final class SyncManager: ObservableObject {
     }
 
     func failureMessage(_ error: Error, fallback: String) -> LocalizedMessage {
-        describe(error).contains("invalid peer certificate")
+        Self.isCertificateRejection(describe(error))
             ? LocalizedMessage("sync.errors.certificateNotTrusted")
             : LocalizedMessage(fallback)
+    }
+
+    /// rustls prefixes every certificate rejection this way, whatever the
+    /// verifier's reason (sync.md).
+    private static func isCertificateRejection(_ message: String) -> Bool {
+        message.contains("invalid peer certificate")
     }
 
     private func describe(_ error: Error) -> String {
