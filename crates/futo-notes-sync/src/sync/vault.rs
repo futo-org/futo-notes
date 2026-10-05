@@ -75,12 +75,21 @@ fn scan_error(operation: &str, path: &Path, error: std::io::Error) -> String {
     )
 }
 
-fn local_files_with(root: &Path, scanner: &impl FileScanner) -> Result<Vec<LocalFile>, String> {
+/// Every file sync can name, plus the display names of the syncable files it
+/// cannot (a filename that is not UTF-8), which push journals instead of
+/// dropping them silently.
+#[derive(Debug, Default)]
+pub(super) struct LocalScan {
+    pub(super) files: Vec<LocalFile>,
+    pub(super) unnamed: Vec<String>,
+}
+
+fn local_files_with(root: &Path, scanner: &impl FileScanner) -> Result<LocalScan, String> {
     fn walk(
         root: &Path,
         dir: &Path,
         scanner: &impl FileScanner,
-        files: &mut Vec<LocalFile>,
+        scan: &mut LocalScan,
     ) -> Result<(), String> {
         let entries = scanner
             .entries(dir)
@@ -98,7 +107,7 @@ fn local_files_with(root: &Path, scanner: &impl FileScanner) -> Result<Vec<Local
                 continue;
             }
             if metadata.is_dir {
-                walk(root, &entry.path, scanner, files)?;
+                walk(root, &entry.path, scanner, scan)?;
                 continue;
             }
             let relative = entry.path.strip_prefix(root).map_err(|error| {
@@ -108,11 +117,20 @@ fn local_files_with(root: &Path, scanner: &impl FileScanner) -> Result<Vec<Local
                     entry.path.display()
                 )
             })?;
-            let name = relative.to_string_lossy().replace('\\', "/");
+            // The name vault_fs resolves back to this file. A lossy one (a Unix
+            // `\` read as a separator, bytes that are not UTF-8) named another
+            // file or none, and failing to read it failed every push.
+            let Some(name) = vault_fs::relative_name(root, &entry.path) else {
+                let lossy = relative.to_string_lossy().into_owned();
+                if is_syncable_filename(&lossy) {
+                    scan.unnamed.push(lossy);
+                }
+                continue;
+            };
             if !is_syncable_filename(&name) {
                 continue;
             }
-            files.push(LocalFile {
+            scan.files.push(LocalFile {
                 name,
                 mtime: metadata.mtime,
                 size: metadata.size,
@@ -120,14 +138,18 @@ fn local_files_with(root: &Path, scanner: &impl FileScanner) -> Result<Vec<Local
         }
         Ok(())
     }
-    let mut files = Vec::new();
-    walk(root, root, scanner, &mut files)?;
-    files.sort_by(|left, right| left.name.cmp(&right.name));
-    Ok(files)
+    let mut scan = LocalScan::default();
+    walk(root, root, scanner, &mut scan)?;
+    scan.files.sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(scan)
+}
+
+pub(super) fn local_scan(root: &Path) -> Result<LocalScan, String> {
+    local_files_with(root, &RealFileScanner)
 }
 
 pub(super) fn local_files(root: &Path) -> Result<Vec<LocalFile>, String> {
-    local_files_with(root, &RealFileScanner)
+    local_scan(root).map(|scan| scan.files)
 }
 
 pub(super) fn read_content(root: &Path, name: &str) -> Result<String, String> {

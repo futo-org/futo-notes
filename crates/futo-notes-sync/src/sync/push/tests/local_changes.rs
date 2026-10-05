@@ -125,7 +125,7 @@ fn an_unportable_name_is_never_uploaded_and_is_journaled_not_failed() {
     assert_eq!(files.len(), 2, "the local scan still sees both files");
     let mut summary = SyncSummary::default();
 
-    let uploadable = uploadable_files(files, &mut summary);
+    let uploadable = uploadable_files(files, &[], &mut summary);
 
     assert_eq!(
         uploadable
@@ -180,6 +180,100 @@ fn an_unportable_name_is_not_mistaken_for_a_local_delete() {
     );
 }
 
+/// Linux and macOS allow `\` inside a filename. The scan once read it as a
+/// folder separator, so `a\b.md` answered to `a/b.md`: a file that does not
+/// exist, whose read failed the whole push, every cycle. It is scanned under
+/// its own name now, and never uploaded, because Windows reads `\` as a folder.
+#[cfg(unix)]
+#[test]
+fn a_backslash_filename_is_scanned_as_itself_and_never_uploaded() {
+    let root = TempRoot::new();
+    std::fs::write(root.path().join("a\\b.md"), "literal backslash").unwrap();
+    std::fs::write(root.path().join("plain.md"), "body").unwrap();
+    let files = local_files(root.path()).unwrap();
+    let names: Vec<&str> = files.iter().map(|file| file.name.as_str()).collect();
+    assert_eq!(names, ["a\\b.md", "plain.md"]);
+    let mut state = connected();
+    let mut summary = SyncSummary::default();
+
+    let renames = detect_local_renames(&mut state, root.path(), &files, &[], &mut summary);
+    let uploadable = uploadable_files(files, &[], &mut summary);
+
+    assert!(renames.is_ok(), "{renames:?}");
+    let uploaded: Vec<&str> = uploadable.iter().map(|file| file.name.as_str()).collect();
+    assert_eq!(uploaded, ["plain.md"]);
+    assert!(summary.failures.is_empty(), "{:?}", summary.failures);
+}
+
+/// A backslash filename never tombstones anything: neither the real `a/b.md`
+/// beside it, nor a note a peer once synced under the name `a\b.md` itself,
+/// which this device holds as that literal file.
+#[cfg(unix)]
+#[test]
+fn a_backslash_filename_is_never_mistaken_for_a_local_delete() {
+    let root = TempRoot::new();
+    std::fs::create_dir(root.path().join("a")).unwrap();
+    std::fs::write(root.path().join("a/b.md"), "real").unwrap();
+    std::fs::write(root.path().join("a\\b.md"), "literal backslash").unwrap();
+    let mut state = connected();
+    for (name, body) in [("a/b.md", "real"), ("a\\b.md", "literal backslash")] {
+        state.object_map.insert(
+            name.into(),
+            ObjectState {
+                object_id: format!("object for {name}"),
+                version: 1,
+                blob_key: "blob".into(),
+                hash: Some(hash_sha256(body)),
+                mtime_ms: None,
+                size_bytes: Some(body.len() as u64),
+            },
+        );
+    }
+
+    let missing = missing_local_files(&state, &local_files(root.path()).unwrap());
+
+    assert!(missing.is_empty(), "both files are on disk: {missing:?}");
+}
+
+/// Linux filenames are bytes. A name that is not UTF-8 has no vault name at
+/// all: the lossy one (`caf\u{FFFD}.md`) addresses no file, so reading it
+/// failed the whole push, every cycle. It is left out of the scan, which can
+/// never read as a delete: a synced name is a string, so it is always UTF-8.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_non_utf8_filename_is_not_scanned_and_does_not_fail_the_push() {
+    use std::os::unix::ffi::OsStrExt;
+    let root = TempRoot::new();
+    let latin1 = std::ffi::OsStr::from_bytes(b"caf\xe9.md");
+    std::fs::write(root.path().join(latin1), "latin-1").unwrap();
+    std::fs::write(root.path().join("plain.md"), "body").unwrap();
+    let files = local_files(root.path()).unwrap();
+    let names: Vec<&str> = files.iter().map(|file| file.name.as_str()).collect();
+    let mut state = connected();
+    let mut summary = SyncSummary::default();
+
+    let renames = detect_local_renames(&mut state, root.path(), &files, &[], &mut summary);
+
+    assert!(renames.is_ok(), "{renames:?}");
+    assert_eq!(names, ["plain.md"]);
+    let unnamed = crate::sync::vault::local_scan(root.path()).unwrap().unnamed;
+    assert_eq!(unnamed, ["caf\u{FFFD}.md"]);
+
+    uploadable_files(files, &unnamed, &mut summary);
+
+    let journaled = summary
+        .decisions()
+        .iter()
+        .filter(|d| d.decision == decision::IGNORED && d.reason == reason::NAME_NOT_UTF8)
+        .map(|d| d.filename.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        journaled,
+        ["caf\u{FFFD}.md"],
+        "push journals what the scan skips"
+    );
+}
+
 #[test]
 fn local_paths_rejected_by_receivers_are_skipped_and_reported() {
     let deep = format!("{}note.md", "folder/".repeat(11));
@@ -219,7 +313,7 @@ fn local_paths_rejected_by_receivers_are_skipped_and_reported() {
     );
     let mut summary = SyncSummary::default();
 
-    let uploadable = uploadable_files(files, &mut summary);
+    let uploadable = uploadable_files(files, &[], &mut summary);
 
     assert_eq!(
         uploadable
@@ -237,4 +331,27 @@ fn local_paths_rejected_by_receivers_are_skipped_and_reported() {
         .failure_message()
         .unwrap()
         .contains("unsupported names"));
+}
+
+/// The push-only `\` rule wins over the receiver-rejection screen: the
+/// classifier reads `\` as a separator, so `\leading.md` would otherwise look
+/// like a leading-slash path and be reported as a failure. It is an
+/// unportable name, journaled and never surfaced.
+#[test]
+fn a_backslash_name_is_unportable_even_where_the_classifier_would_reject_it() {
+    let files = vec![LocalFile {
+        name: "\\leading.md".into(),
+        mtime: 1,
+        size: 4,
+    }];
+    let mut summary = SyncSummary::default();
+
+    let uploadable = uploadable_files(files, &[], &mut summary);
+
+    assert!(uploadable.is_empty());
+    assert!(summary.failures.is_empty(), "{:?}", summary.failures);
+    assert!(summary
+        .decisions()
+        .iter()
+        .any(|d| d.decision == decision::IGNORED && d.reason == reason::UNPORTABLE_NAME));
 }

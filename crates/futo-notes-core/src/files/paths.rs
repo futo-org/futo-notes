@@ -161,9 +161,11 @@ pub fn note_id_from_filename(name: &str) -> Option<String> {
     (!id.is_empty()).then(|| id.to_owned())
 }
 
+/// The note id of a vault name (`vault_fs::relative_name`): the name without
+/// `.md`, when that is a safe id. A `\` is never a separator here, so a Unix
+/// file named `a\b.md` is not a note rather than an alias of `a/b.md`.
 pub fn note_id_from_relative_path(relative: &str) -> Option<String> {
-    let normalized = relative.replace('\\', "/");
-    let id = normalized.strip_suffix(".md")?;
+    let id = relative.strip_suffix(".md")?;
     ensure_safe_note_id(id).ok()?;
     Some(id.to_owned())
 }
@@ -289,9 +291,10 @@ mod tests {
         assert_eq!(note_id_from_filename("note.MD"), None);
         assert_eq!(note_id_from_filename(".md"), None);
         assert_eq!(
-            note_id_from_relative_path("Folder\\note.md"),
+            note_id_from_relative_path("Folder/note.md"),
             Some("Folder/note".to_owned())
         );
+        assert_eq!(note_id_from_relative_path("Folder\\note.md"), None);
         assert_eq!(note_id_from_relative_path("../note.md"), None);
     }
 
@@ -505,11 +508,8 @@ mod property_tests {
         fn note_ids_round_trip_through_their_vault_path(id in accepted_note_id()) {
             prop_assume!(ensure_safe_note_id(&id).is_ok());
             let path = safe_note_path(vault_root(), &id).expect("accepted id");
-            let relative = path
-                .strip_prefix(vault_root())
-                .expect("path is inside the vault")
-                .to_string_lossy()
-                .replace(std::path::MAIN_SEPARATOR, "/");
+            let relative = crate::files::vault_fs::relative_name(vault_root(), &path)
+                .expect("path is inside the vault");
             prop_assert_eq!(note_id_from_relative_path(&relative), Some(id));
         }
 

@@ -146,10 +146,6 @@ pub(crate) fn collision_candidates(root: &Path, wanted: &str) -> Vec<String> {
     let prefix_keys: Vec<String> = (1..note_depth)
         .map(|depth| collision_key(&components[..depth].join("/")))
         .collect();
-    let relative_of = |entry: &DirEntry| -> Option<String> {
-        let relative = entry.path().strip_prefix(root).ok()?;
-        Some(relative.to_string_lossy().replace('\\', "/"))
-    };
     let mut ids = Vec::new();
     let entries = WalkDir::new(root)
         .follow_links(false)
@@ -165,7 +161,7 @@ pub(crate) fn collision_candidates(root: &Path, wanted: &str) -> Vec<String> {
             }
             if entry.file_type().is_dir() {
                 return depth < note_depth
-                    && relative_of(entry).is_some_and(|relative| {
+                    && vault_fs::relative_name(root, entry.path()).is_some_and(|relative| {
                         collision_key(&relative) == prefix_keys[depth - 1]
                     });
             }
@@ -257,10 +253,13 @@ fn walk(root: &Path) -> (Vec<(String, PathBuf)>, BTreeSet<String>) {
             continue;
         }
         if entry.file_type().is_dir() {
-            let Ok(relative) = entry.path().strip_prefix(root) else {
-                continue;
-            };
-            register_ancestors(&relative.to_string_lossy().replace('\\', "/"), &mut folders);
+            // A Unix `\` is part of a folder's name, and no folder path can
+            // hold one, so that folder is not listed (never `x` and `x/y`).
+            if let Some(folder) =
+                vault_fs::relative_name(root, entry.path()).filter(|folder| !folder.contains('\\'))
+            {
+                register_ancestors(&folder, &mut folders);
+            }
         } else if entry.file_type().is_file() {
             // A directory listing can repeat a name that a concurrent atomic
             // save replaced mid-read (seen on tmpfs); the note list is a set.
@@ -274,13 +273,10 @@ fn walk(root: &Path) -> (Vec<(String, PathBuf)>, BTreeSet<String>) {
     (notes, folders)
 }
 
-/// The note id a vault file answers to, but only when that id addresses this
-/// very file. Otherwise two files would share one id: a Unix name holding `\`
-/// reads as a folder separator (`a\b.md` would be `a/b`), and a name that is
-/// not UTF-8 decodes lossily (every invalid byte becomes U+FFFD).
+/// The note id of a vault file: its vault name (`vault_fs::relative_name`) as
+/// a note id, so two files can never share one.
 fn note_id_of(root: &Path, path: &Path) -> Option<String> {
-    let id = note_id_from_relative_path(path.strip_prefix(root).ok()?.to_str()?)?;
-    (safe_note_path(root, &id).ok()? == path).then_some(id)
+    note_id_from_relative_path(&vault_fs::relative_name(root, path)?)
 }
 
 fn visible(entry: &DirEntry) -> bool {

@@ -1266,8 +1266,7 @@ impl LocalNoteStore {
         let folder = recovered
             .backup
             .parent()
-            .and_then(|parent| parent.strip_prefix(&self.root).ok())
-            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+            .and_then(|parent| vault_fs::relative_name(&self.root, parent))
             .unwrap_or_default();
         let title = futo_notes_core::files::note_id_from_filename(&recovered.leaf)
             .unwrap_or_else(|| recovered.leaf.clone());
@@ -1281,12 +1280,7 @@ impl LocalNoteStore {
         // landed; just finish the interrupted cleanup. (Content identity, not
         // inode nlink, so it holds on Windows too; mirrors the Swift
         // parkConflictCopyIfAbsent guard.)
-        let backup_relative = recovered
-            .backup
-            .strip_prefix(&self.root)
-            .map_err(|e| e.to_string())?
-            .to_string_lossy()
-            .into_owned();
+        let backup_relative = vault_name(&self.root, &recovered.backup)?;
         let backup_content = String::from_utf8(vault_fs::read(&self.root, &backup_relative)?)
             .map_err(|e| e.to_string())?;
         let already_parked = vault::note_paths(&self.root).into_iter().any(|(id, _)| {
@@ -1531,22 +1525,21 @@ fn move_remaining_folder_files_up(root: &Path, folder: &Path) -> Result<(), Stri
     }
     files.sort();
     for source in files {
+        // A file no vault name can address (not UTF-8) cannot move; the error
+        // leaves the folder in place for manual recovery.
+        let source_relative = vault_name(root, &source)?;
         let tail = source
             .strip_prefix(folder)
             .map_err(|error| error.to_string())?;
         let wanted = parent.join(tail);
         let name = wanted
             .file_name()
-            .ok_or("attachment has no filename")?
-            .to_string_lossy();
+            .and_then(|name| name.to_str())
+            .ok_or("attachment has no filename")?;
         let (stem, extension) = match name.rsplit_once('.') {
             Some((stem, extension)) if !stem.is_empty() => (stem, format!(".{extension}")),
-            _ => (name.as_ref(), String::new()),
+            _ => (name, String::new()),
         };
-        let source_relative = source
-            .strip_prefix(root)
-            .map_err(|error| error.to_string())?;
-        let source_relative = source_relative.to_string_lossy();
         for attempt in 1.. {
             let destination = if attempt == 1 {
                 wanted.clone()
@@ -1558,10 +1551,7 @@ fn move_remaining_folder_files_up(root: &Path, folder: &Path) -> Result<(), Stri
                 }
                 wanted.with_file_name(format!("{}{suffix}", &stem[..end]))
             };
-            let relative = destination
-                .strip_prefix(root)
-                .map_err(|error| error.to_string())?;
-            let relative = relative.to_string_lossy();
+            let relative = vault_name(root, &destination)?;
             if vault_fs::exists(root, &relative)? {
                 continue;
             }
@@ -1589,12 +1579,16 @@ fn remove_empty_folder_tree(root: &Path, folder: &Path) -> Result<(), String> {
         .collect::<Result<Vec<_>, _>>()?;
     directories.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
     for directory in directories {
-        let relative = directory
-            .strip_prefix(root)
-            .map_err(|error| error.to_string())?;
-        vault_fs::remove_dir(root, &relative.to_string_lossy(), false)?;
+        vault_fs::remove_dir(root, &vault_name(root, &directory)?, false)?;
     }
     Ok(())
+}
+
+/// `path`'s vault name (`vault_fs::relative_name`), or an error naming the
+/// path when it has none.
+fn vault_name(root: &Path, path: &Path) -> Result<String, String> {
+    vault_fs::relative_name(root, path)
+        .ok_or_else(|| format!("no vault name for {}", path.display()))
 }
 
 /// The backlink rewrite a rename plans before it moves anything.
@@ -1723,14 +1717,10 @@ fn prune_empty_parents(root: &Path, note_path: &Path) {
             .ok()
             .and_then(|mut entries| entries.next())
             .is_none();
-        if !empty
-            || vault_fs::remove_dir(
-                root,
-                &directory.strip_prefix(root).unwrap().to_string_lossy(),
-                false,
-            )
-            .is_err()
-        {
+        let removed = empty
+            && vault_fs::relative_name(root, &directory)
+                .is_some_and(|relative| vault_fs::remove_dir(root, &relative, false).is_ok());
+        if !removed {
             return;
         }
         let Some(parent) = directory.parent() else {

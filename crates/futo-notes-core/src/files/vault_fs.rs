@@ -15,6 +15,23 @@ fn relative_components(relative: &str) -> Result<Vec<&std::ffi::OsStr>, String> 
     Ok(components)
 }
 
+/// The vault-relative name that resolves back to `path` (the inverse of
+/// `relative_components`): its components joined with `/`. On Unix a `\` is an
+/// ordinary character inside a component, so `a\b.md` is named `a\b.md`, never
+/// `a/b.md`. `None` when a component is not UTF-8, which no name can address.
+pub fn relative_name(root: &Path, path: &Path) -> Option<String> {
+    let components = path
+        .strip_prefix(root)
+        .ok()?
+        .components()
+        .map(|component| match component {
+            Component::Normal(component) => component.to_str(),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(components.join("/"))
+}
+
 /// Why a vault-relative path could not be resolved to its parent directory.
 ///
 /// `NotFound` is ABSENCE, not a fault: a leaf cannot be there if the folder

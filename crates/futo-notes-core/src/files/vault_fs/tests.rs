@@ -232,3 +232,23 @@ fn native_recursive_delete_does_not_follow_links() {
     clear(root.path()).unwrap();
     assert!(outside.path().join("keep.md").exists());
 }
+
+#[test]
+fn relative_name_is_the_name_that_resolves_back_to_the_path() {
+    let root = Path::new("/vault");
+    assert_eq!(
+        relative_name(root, &root.join("Folder").join("note.md")).as_deref(),
+        Some("Folder/note.md")
+    );
+    assert_eq!(relative_name(root, Path::new("/elsewhere/note.md")), None);
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        assert_eq!(
+            relative_name(root, &root.join("a\\b.md")).as_deref(),
+            Some("a\\b.md")
+        );
+        let latin1 = root.join(std::ffi::OsStr::from_bytes(b"caf\xe9.md"));
+        assert_eq!(relative_name(root, &latin1), None);
+    }
+}

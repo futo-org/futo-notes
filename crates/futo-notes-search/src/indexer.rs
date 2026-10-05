@@ -333,7 +333,22 @@ fn walk_md_files(notes_root: &Path) -> Vec<(String, PathBuf, i64)> {
         let Ok(rel) = abs.strip_prefix(notes_root) else {
             continue;
         };
-        let note_id = rel_to_note_id(&rel.to_string_lossy());
+        // The note id's folders are the path's components. A component that is
+        // not UTF-8, or that holds a Unix `\`, names no note (the store skips
+        // it too); folding it would index its text under another note's id.
+        let Some(components) = rel
+            .components()
+            .map(|component| {
+                component
+                    .as_os_str()
+                    .to_str()
+                    .filter(|name| !name.contains('\\'))
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            continue;
+        };
+        let note_id = rel_to_note_id(&components.join("/"));
         let mtime_ms = mtime_ms_of(&abs).unwrap_or(0);
         out.push((note_id, abs, mtime_ms));
     }
@@ -350,15 +365,13 @@ fn mtime_ms_of(path: &Path) -> Option<i64> {
     Some(dur)
 }
 
+/// `rel` is a `/`-separated vault name: the walk joins components, and the
+/// store's change notifications carry note filenames.
 fn rel_to_note_id(rel: &str) -> String {
-    let r = rel.replace('\\', "/");
-    if let Some(stripped) = r.strip_suffix(".md") {
-        stripped.to_string()
-    } else if let Some(stripped) = r.strip_suffix(".txt") {
-        stripped.to_string()
-    } else {
-        r
-    }
+    rel.strip_suffix(".md")
+        .or_else(|| rel.strip_suffix(".txt"))
+        .unwrap_or(rel)
+        .to_string()
 }
 
 fn note_title(note_id: &str) -> String {
@@ -407,6 +420,24 @@ mod tests {
     use super::*;
     use crate::test_support::ScopedTempDir;
     use std::time::SystemTime;
+
+    // On Unix `\` is part of a filename, so `a\b.md` is no note: indexing it as
+    // `a/b` would return its text as a hit for the real note `a/b`.
+    #[cfg(unix)]
+    #[test]
+    fn walk_skips_a_backslash_filename_instead_of_indexing_it_as_a_folder_note() {
+        let root = ScopedTempDir::new("backslash");
+        std::fs::create_dir(root.path().join("a")).unwrap();
+        std::fs::write(root.path().join("a/b.md"), "real").unwrap();
+        std::fs::write(root.path().join("a\\b.md"), "alias").unwrap();
+
+        let ids: Vec<String> = walk_md_files(root.path())
+            .into_iter()
+            .map(|(id, _, _)| id)
+            .collect();
+
+        assert_eq!(ids, ["a/b"]);
+    }
 
     fn make_state(
         index_root: &Path,

@@ -598,7 +598,7 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   `an_unportable_remote_name_is_ignored_without_a_failure`
 - **A local file whose name no portable filesystem can hold is never uploaded,
   and never mistaken for a deletion.** The same classifier screens the push
-  side, so one rule answers portability in both directions: the file is dropped
+  side (plus the push-only `\` rule in the next bullet): the file is dropped
   from the upload list and journaled (`ignored` / `unportable_local_name`), with
   no failure and no user-facing signal. It MUST remain in the local scan
   (`local_files`) while it is dropped, because `missing_local_files` reads "in
@@ -611,6 +611,27 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   → futo-notes-sync `sync/push/mod.rs` `uploadable_files`; guarded by
   `an_unportable_name_is_never_uploaded_and_is_journaled_not_failed` +
   `an_unportable_name_is_not_mistaken_for_a_local_delete`
+- **The local scan names each file by the path that resolves back to it.** On
+  Unix a `\` is an ordinary character inside a filename, so `a\b.md` is
+  scanned as `a\b.md`, never as `a/b.md`: that lossy name read another file or
+  none, and failing to read it failed every push. Such a file's content is never
+  uploaded (a Windows peer would read the `\` as a folder) and is journaled
+  like any unportable name, but it stays in the scan, so neither it nor a note
+  synced under that name is mistaken for a local delete. Pull still accepts a
+  server name holding `\`; for a note already synced under one, local edits
+  stay on this device while a local delete still reaches the server. A
+  filename that is not UTF-8 has no name: it is left out of the scan and
+  journaled (`ignored` / `local_name_not_utf8`), and that can never read as a
+  delete, because every synced name is UTF-8. → futo-notes-core
+  `files::vault_fs::relative_name`, applied in futo-notes-sync `sync/vault.rs`
+  `local_scan` and `sync/push/mod.rs` `uploadable_files`; guarded by
+  `a_backslash_filename_is_scanned_as_itself_and_never_uploaded`,
+  `a_backslash_filename_is_never_mistaken_for_a_local_delete` +
+  `a_non_utf8_filename_is_not_scanned_and_does_not_fail_the_push`
+  > **Gap:** _(Windows)_ pull writes a server name holding `\` as folders, so
+  > the scan names that file `a/b.md` and reads `a\b.md` as a local delete:
+  > the note is re-created as `a/b.md` and tombstoned under its old name. Only
+  > a legacy or foreign client can upload such a name.
 - **A local path a receiver rejects for excess folder depth or a component
   beyond 255 bytes is never uploaded.** It remains in the local scan so an
   older uploaded copy is not mistaken for a deletion. Each skipped file enters
