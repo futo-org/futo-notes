@@ -36,6 +36,7 @@
           "searchNotes": "Search Notes…",
           "closeTab": "Close Tab",
           "closeWindow": "Close Window",
+          "quit": "Quit {appName}",
           "toggleSidebar": "Toggle Sidebar"
         }
       }

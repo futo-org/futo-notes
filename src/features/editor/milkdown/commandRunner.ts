@@ -31,8 +31,11 @@ import { editorView } from './caretContext';
  * real dispatch below still runs every plugin's `appendTransaction` against
  * the actual final document, same as any other transaction.
  *
- * Returns false — dispatching nothing, including the delete — when `command`
- * declines on the post-delete state.
+ * A `command` that DECLINES on the post-delete state (Text on a paragraph,
+ * Bullet inside a bullet, Code block in a list item) still gets the delete
+ * dispatched, as its own single undo step: the spec is that picking any `/`
+ * item removes the typed `/query`, whether or not the item then has anything
+ * to do (docs/spec/editor.md, RC-57). Returns whether `command` itself ran.
  */
 function combineDeleteAndCommand(
   view: ProseView,
@@ -61,10 +64,8 @@ function combineDeleteAndCommand(
     },
     view,
   );
-  if (!ok) return false;
-
   const combined = deleteTr;
-  if (holder.tr) {
+  if (ok && holder.tr) {
     const produced = holder.tr;
     for (const step of produced.steps) combined.step(step);
     // `produced.selection` is bound to `produced.doc` — a DIFFERENT Node
@@ -82,7 +83,7 @@ function combineDeleteAndCommand(
   }
   view.dispatch(combined);
   view.focus();
-  return true;
+  return ok;
 }
 
 /** Commands from either registry keep the editor focused after execution. */

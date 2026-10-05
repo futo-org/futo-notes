@@ -43,6 +43,16 @@ pub(crate) const FRONTEND_COMMANDS: &[&str] = &[
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 const CLOSE_WINDOW: &str = "close-window";
 
+/// The application menu's Quit, handled in Rust like [`CLOSE_WINDOW`]: it closes
+/// the main window so the quit goes through the page's close handler, which
+/// drains the pending save (startNativeShell.ts). `PredefinedMenuItem::quit`
+/// binds AppKit's `terminate:`, and tao 0.34 answers that with only
+/// `applicationWillTerminate:`, so no `CloseRequested` and no
+/// `RunEvent::ExitRequested` ever fired and ⌘Q within the save debounce lost the
+/// edit (RC-85, 19 of 20 runs on macOS).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const QUIT: &str = "quit";
+
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -58,6 +68,7 @@ pub(crate) struct ApplicationMenuLabels {
     search_notes: String,
     close_tab: String,
     close_window: String,
+    quit: String,
     toggle_sidebar: String,
 }
 
@@ -94,6 +105,7 @@ impl ApplicationMenuLabels {
             search_notes: text("app.desktop.menu.searchNotes")?,
             close_tab: text("app.desktop.menu.closeTab")?,
             close_window: text("app.desktop.menu.closeWindow")?,
+            quit: text("app.desktop.menu.quit")?,
             toggle_sidebar: text("app.desktop.menu.toggleSidebar")?,
         })
     }
@@ -140,6 +152,12 @@ fn apply_labels(
     let close_window = MenuItemBuilder::with_id(CLOSE_WINDOW, labels.close_window.as_str())
         .accelerator("Shift+CmdOrCtrl+W")
         .build(app)?;
+    let quit = MenuItemBuilder::with_id(
+        QUIT,
+        labels.quit.replace("{appName}", package.name.as_str()),
+    )
+    .accelerator("CmdOrCtrl+Q")
+    .build(app)?;
     let toggle_sidebar = MenuItemBuilder::with_id("toggle-sidebar", labels.toggle_sidebar.as_str())
         .accelerator("CmdOrCtrl+Backslash")
         .build(app)?;
@@ -155,7 +173,7 @@ fn apply_labels(
         .hide_others()
         .show_all()
         .separator()
-        .quit()
+        .item(&quit)
         .build()?;
 
     let file_menu = SubmenuBuilder::new(app, labels.file.as_str())
@@ -205,23 +223,46 @@ fn apply_labels(
     Ok(())
 }
 
+/// What choosing a menu item does. One function for the menu's own event and the
+/// debug-build dispatch command below, so a check that drives the command
+/// exercises exactly the code the menu item runs.
 #[cfg(target_os = "macos")]
-pub(crate) fn install(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_menu_command(app: &tauri::AppHandle, id: &str) {
     use tauri::{Emitter, Manager};
 
-    apply_labels(app, &ApplicationMenuLabels::english()?)?;
-    app.on_menu_event(|app, event| {
-        let id = event.id.0.as_str();
-        if id == CLOSE_WINDOW {
-            if let Some(window) = app.get_webview_window("main") {
+    if id == CLOSE_WINDOW || id == QUIT {
+        // Window close, not `app.exit`: the page's close handler flushes the
+        // pending save and then exits. With no window there is nothing to flush.
+        match app.get_webview_window("main") {
+            Some(window) => {
                 let _ = window.close();
             }
-            return;
+            None if id == QUIT => app.exit(0),
+            None => {}
         }
-        if FRONTEND_COMMANDS.contains(&id) {
-            let _ = app.emit(MENU_EVENT, id);
-        }
-    });
+        return;
+    }
+    if FRONTEND_COMMANDS.contains(&id) {
+        let _ = app.emit(MENU_EVENT, id);
+    }
+}
+
+/// Debug builds only: choose a menu item without OS input, for
+/// tests/macos-quit-flush.mjs (the Cmd-Q accelerator itself needs keystrokes).
+#[cfg(all(target_os = "macos", debug_assertions))]
+#[tauri::command]
+pub(crate) fn app_menu_dispatch_for_test(app: tauri::AppHandle, id: String) {
+    handle_menu_command(&app, &id);
+}
+
+#[cfg(not(all(target_os = "macos", debug_assertions)))]
+#[tauri::command]
+pub(crate) fn app_menu_dispatch_for_test(_id: String) {}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn install(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    apply_labels(app, &ApplicationMenuLabels::english()?)?;
+    app.on_menu_event(|app, event| handle_menu_command(app, event.id.0.as_str()));
 
     Ok(())
 }
@@ -273,6 +314,29 @@ mod tests {
     #[test]
     fn close_window_is_not_forwarded_to_the_frontend() {
         assert!(!FRONTEND_COMMANDS.contains(&CLOSE_WINDOW));
+    }
+
+    #[test]
+    fn quit_is_not_forwarded_to_the_frontend() {
+        assert!(!FRONTEND_COMMANDS.contains(&QUIT));
+    }
+
+    /// RC-85: the predefined Quit item is AppKit's `terminate:`, which tao does
+    /// not route through `CloseRequested`, so it skips the page's save flush.
+    /// Quit must be the custom item whose handler closes the window.
+    #[test]
+    fn quit_goes_through_the_window_close_path_not_the_predefined_item() {
+        let source = include_str!("app_menu.rs");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("the file has a production half");
+        assert!(
+            !production.contains(concat!(".quit", "()")),
+            "the predefined Quit item bypasses the save flush (RC-85)"
+        );
+        assert!(production.contains("MenuItemBuilder::with_id(\n        QUIT,"));
+        assert!(production.contains("id == CLOSE_WINDOW || id == QUIT"));
     }
 
     #[test]

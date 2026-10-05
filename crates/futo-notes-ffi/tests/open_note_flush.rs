@@ -82,7 +82,7 @@ fn a_diverged_draft_parks_and_the_peer_edit_survives() {
     // stake, and naming it first makes a regression report the data loss
     // instead of an enum name.
     assert_eq!(
-        store.read(NOTE_ID.to_owned()),
+        store.read(NOTE_ID.to_owned()).unwrap(),
         PEER,
         "the peer's edit must survive at the note's own id"
     );
@@ -97,7 +97,7 @@ fn a_diverged_draft_parks_and_the_peer_edit_survives() {
         "the conflict copy must be a different note, not the original id"
     );
     assert_eq!(
-        store.read(parked_id),
+        store.read(parked_id).unwrap(),
         DRAFT,
         "the draft must survive as the conflict copy"
     );
@@ -132,7 +132,7 @@ fn a_draft_edited_back_to_its_base_during_a_cycle_never_fast_forwards_over_the_p
         .expect("the flush must not fail on a readable vault");
 
     assert_eq!(
-        store.read(NOTE_ID.to_owned()),
+        store.read(NOTE_ID.to_owned()).unwrap(),
         PEER,
         "the peer's edit must survive at the note's own id"
     );
@@ -174,7 +174,7 @@ fn a_converged_draft_rebases_onto_disk_and_the_flush_writes_nothing() {
         FlushDisposition::Converged,
         "nothing changed on disk, so the flush must not rewrite the note"
     );
-    assert_eq!(store.read(NOTE_ID.to_owned()), DRAFT);
+    assert_eq!(store.read(NOTE_ID.to_owned()).unwrap(), DRAFT);
 }
 
 /// The third arm, unchanged by #89 and asserted here so the seam test covers
@@ -199,5 +199,5 @@ fn a_peer_deleted_draft_is_recreated_at_its_original_id() {
         .expect("the flush must not fail on a readable vault");
 
     assert_eq!(result.disposition, FlushDisposition::Recreated);
-    assert_eq!(store.read(NOTE_ID.to_owned()), DRAFT);
+    assert_eq!(store.read(NOTE_ID.to_owned()).unwrap(), DRAFT);
 }

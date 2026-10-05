@@ -430,6 +430,40 @@ class AndroidNativeSyncClient {
     );
   }
 
+  /** Type into the focused editor through the browser's own editing command,
+   *  so ProseMirror handles it as input — an edit the editor itself decides
+   *  when to report (contrast replaceOpenEditorContent, which posts the
+   *  `change` by hand). Call focusOpenEditor first. */
+  async typeIntoOpenEditor(text) {
+    const typed = await this.#evaluateInEditor(
+      `document.execCommand('insertText', false, ${JSON.stringify(text)})`,
+    );
+    if (typed !== true) throw new Error(`${this.name}: the editor refused typed input`);
+  }
+
+  /** Is the open note still streaming its tail ("Loading the rest…")? While it
+   *  is, the editor withholds `change` (the save lock). */
+  async isOpenEditorStreaming() {
+    return this.#evaluateInEditor(`document.querySelector('.milkdown-stream-tail') !== null`);
+  }
+
+  /** Rename the open note the way a user does: focus the inline title field
+   *  (its own text is the node label), replace the title, and let the editor's
+   *  debounce commit it. Returns once the note exists under `newId` on disk. */
+  async renameOpenNote(currentId, newId) {
+    const field = await this.device.waitFor(`the title field of ${currentId}`, UI_TIMEOUT_MS, () =>
+      this.device.findNode(currentId),
+    );
+    this.device.tapPoint(field.x, field.y);
+    await this.device.waitFor(`the title field to accept input`, UI_TIMEOUT_MS, () =>
+      this.device.isImeInputActive(),
+    );
+    this.device.typeReplacingSelection(newId);
+    await this.device.waitFor(`${currentId} to be renamed to ${newId}`, SAVE_TIMEOUT_MS, () =>
+      this.noteExists(newId),
+    );
+  }
+
   async waitForOpenEditorTitle(title, timeoutMs = LIVE_TIMEOUT_MS) {
     await this.device.waitFor(`"${title}" as ${this.name}'s open-note title`, timeoutMs, () =>
       this.device.isVisible(title),
