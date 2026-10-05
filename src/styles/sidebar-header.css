@@ -11,8 +11,10 @@
 
 .sidebar-brand {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 4px;
+  min-width: 0;
   padding: 0 4px;
 }
 
@@ -40,6 +42,16 @@
   line-height: 1;
   margin-left: 1em;
   vertical-align: 2px;
+}
+
+.dev-branch {
+  max-width: 100%;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 11px;
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sidebar-settings-btn {
