@@ -341,7 +341,9 @@ replaced the "Report an issue" link to the GitHub issue tracker.
 
 - _(native shells)_ An **App icon** section directly after Appearance shows the current icon thumbnail and localized name; tapping opens a native picker sheet. → apps/ios/Sources/Settings/AppIcon/, apps/android/app/src/main/java/com/futo/notes/ui/settings/appicon/
 - _(native shells)_ The six permanent choices are **Standard**, **Reversed**, **Dark**, **Dark, Reversed**, **FUTO**, and **Scanlines** (the orange gradient, stripes, and white mole); the choice belongs to this installation and is independent of theme and sync.
-- _(native shells)_ Selecting a choice requests an immediate OS change, keeps the sheet open, disables further choices while pending, and marks the actual OS selection only after readback; selecting the current choice is a no-op.
+- _(native shells)_ Selecting a different choice requests an OS change, disables further choices while pending, and marks the actual OS selection only after readback; selecting the current choice is a no-op. The sheet stays open unless the OS closes the app (Android).
+- _(Android)_ A change first asks `Change app icon to "<name>"?` with **Change** / **Cancel**; Cancel changes nothing. The body says FUTO Notes may close: disabling the launcher alias that started the task makes Android finish that task, while a task started another way survives.
+- _(Android)_ Full reset requests Standard without this prompt; the reset confirmation already covered it.
 - _(native shells)_ A failed request retains the actual icon and shows a localized error; dismissing the sheet does not undo a completed change.
 - _(iOS)_ Icon choices show the artwork, name, and selection checkmark without container boxes, on a theme-aware surface background (light gray in light mode).
 - _(iOS)_ The picker shows no spinner or changing-icon status text while a request is pending; the Scanlines artwork has no outer outline.

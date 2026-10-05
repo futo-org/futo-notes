@@ -45,20 +45,40 @@ class AppIconSheetTest {
         compose.onNodeWithText("App icon").assertIsDisplayed()
     }
 
-    @Test fun selectionStaysOpenAndBackReturnsToSettings() {
+    @Test fun confirmedSelectionStaysOpenAndBackReturnsToSettings() {
         showSheet()
-        compose.onNodeWithText("Light / Standard").performClick()
+        compose.onNodeWithText("Standard").performClick()
         compose.waitForIdle()
+        compose.onNodeWithText("Change app icon to \"Standard\"?").assertDoesNotExist()
         assertEquals(0, icons.calls)
         compose.onNodeWithText("FUTO").performScrollTo().performClick()
+        compose.onNodeWithText("Change app icon to \"FUTO\"?").assertIsDisplayed()
+        compose.onNodeWithText("FUTO Notes may close to apply the new icon.", substring = true).assertIsDisplayed()
+        assertEquals(0, icons.calls)
+        compose.onNodeWithText("Change").performClick()
         compose.waitUntil(5000) { icons.active == AppIcon.FUTO }
+        compose.onNodeWithText("Change app icon to \"FUTO\"?").assertDoesNotExist()
         compose.onNodeWithText("App icon").assertIsDisplayed()
         compose.onNodeWithText("FUTO").assertIsSelected()
         compose.onNodeWithContentDescription("Back").performClick()
         compose.onNodeWithText("App icon").assertDoesNotExist()
         compose.onNodeWithTag("settings").assertIsDisplayed()
         assertEquals(AppIcon.FUTO, icons.active)
+        assertEquals(1, icons.calls)
         assertFalse(compose.activity.isFinishing)
+    }
+
+    @Test fun cancelledSelectionChangesNothing() {
+        showSheet()
+        compose.onNodeWithText("FUTO").performScrollTo().performClick()
+        compose.onNodeWithText("Change app icon to \"FUTO\"?").assertIsDisplayed()
+        compose.onNodeWithText("Cancel").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Change app icon to \"FUTO\"?").assertDoesNotExist()
+        compose.onNodeWithText("App icon").assertIsDisplayed()
+        assertEquals(0, icons.calls)
+        assertEquals(AppIcon.LIGHT_STANDARD, icons.active)
+        compose.onNodeWithText("Standard").assertIsSelected()
     }
 
     @Test fun systemBackDismissesOnlyTheModalSheet() {

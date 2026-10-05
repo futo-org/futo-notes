@@ -13,6 +13,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.painterResource
@@ -20,6 +24,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.unit.dp
 import com.futo.notes.localization.LocalLocalization
+import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.TopBar
 import com.futo.notes.ui.theme.FutoTheme
 
@@ -28,6 +33,10 @@ import com.futo.notes.ui.theme.FutoTheme
 fun AppIconSheet(controller: AppIconController, onSelect: (AppIcon) -> Unit, onDismiss: () -> Unit) {
     val localization = LocalLocalization.current
     val colors = FutoTheme.colors
+    // Disabling the launcher alias that rooted the task makes Android finish
+    // that task, so a change is confirmed first (Signal's convention). Full
+    // reset calls controller.reset() directly and never passes through here.
+    var pending by rememberSaveable { mutableStateOf<AppIcon?>(null) }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -67,7 +76,7 @@ fun AppIconSheet(controller: AppIconController, onSelect: (AppIcon) -> Unit, onD
                     Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .clickable(enabled = !controller.changing) { onSelect(icon) }
+                        .clickable(enabled = !controller.changing) { if (icon != controller.selected) pending = icon }
                         .semantics { selected = isSelected }
                         .padding(12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -81,5 +90,16 @@ fun AppIconSheet(controller: AppIconController, onSelect: (AppIcon) -> Unit, onD
                 }
             }
         }
+    }
+    pending?.let { icon ->
+        ConfirmDialog(
+            title = localization.localizedText("settings.appIcon.confirm.title",
+                mapOf("iconName" to localization.localizedText(icon.labelKey))),
+            body = localization.localizedText("settings.appIcon.confirm.body"),
+            confirmLabel = localization.localizedText("settings.appIcon.confirm.action"),
+            destructive = false,
+            onConfirm = { pending = null; onSelect(icon) },
+            onDismiss = { pending = null },
+        )
     }
 }

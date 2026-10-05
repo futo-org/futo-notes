@@ -41,6 +41,18 @@ class AppIconControllerTest {
         controller.reset()
         assertEquals(setOf(AppIcon.LIGHT_STANDARD), icons.active)
     }
+    // Full reset confirms once itself; the controller applies Standard directly
+    // with no further prompt (the picker's confirm lives in AppIconSheet).
+    @Test fun resetRestoresStandardInOneRequest() = runBlocking {
+        val icons = Icons()
+        val controller = AppIconController(icons)
+        controller.select(AppIcon.WEBSITE)
+        icons.calls.clear()
+        controller.reset()
+        assertEquals(setOf(AppIcon.LIGHT_STANDARD), icons.active)
+        assertEquals(AppIcon.LIGHT_STANDARD, controller.selected)
+        assertEquals(AppIcon.LIGHT_STANDARD to true, icons.calls.single().first())
+    }
     @Test fun restoresPriorAfterPartialFailure() = runBlocking {
         val icons = Icons()
         val controller = AppIconController(icons)
