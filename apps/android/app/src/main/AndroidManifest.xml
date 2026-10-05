@@ -57,6 +57,7 @@
          genuinely round. Do not re-add roundIcon without also adding an adaptive
          mipmap-anydpi-v26/ic_launcher_round.xml. -->
     <application
+        android:name=".FutoNotesApplication"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="${appLabel}"

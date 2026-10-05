@@ -446,6 +446,47 @@ describe('sync error escalation policy', () => {
     expect(toasts).toEqual([{ path: 'sync.errors.liveUnavailable' }]);
   });
 
+  // The connect form reports a certificate rejection through
+  // createSyncSettings' failureMessage; the live loop and background cycles
+  // reach this manager instead, and the same promise holds (sync.md).
+  describe('a certificate rejection', () => {
+    const rejection =
+      'error sending request for url (https://notes.example.com/api/sync/events): ' +
+      'client error (Connect): invalid peer certificate: UnknownIssuer';
+
+    it('from the live stream reconnect is reported as such, immediately', () => {
+      const { manager, toasts } = makeManager();
+
+      manager.handleLiveState({
+        live: false,
+        status: 'reconnecting',
+        message: `connect: ${rejection}`,
+      });
+
+      expect(manager.reconnecting).toBe(false);
+      expect(manager.syncErrorMessage).toContain("This server's certificate isn't trusted");
+      expect(toasts).toEqual([{ path: 'sync.errors.certificateNotTrusted' }]);
+    });
+
+    it('from a live cycle is reported as such', () => {
+      const { manager, toasts } = makeManager();
+
+      manager.handleLiveState({ live: true, status: 'cycle-error', message: rejection });
+
+      expect(toasts).toEqual([{ path: 'sync.errors.certificateNotTrusted' }]);
+    });
+
+    it('from a background poll is reported as such', () => {
+      const { manager, toasts } = makeManager();
+      manager.start();
+
+      autoSyncCallbacks!.onSyncError(new Error(rejection), 'poll');
+
+      expect(manager.reconnecting).toBe(false);
+      expect(toasts).toEqual([{ path: 'sync.errors.certificateNotTrusted' }]);
+    });
+  });
+
   it('surfaces completed-cycle per-item failures immediately', async () => {
     const { manager, toasts } = makeManager();
 

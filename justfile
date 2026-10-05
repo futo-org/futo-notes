@@ -419,7 +419,7 @@ emu-screenshot name="emu":
 # Tag-scoped logcat for the native Android app's stable log tags.
 emu-logs:
   # `adb logcat -c` first for a clean slate; crashes land under AndroidRuntime.
-  adb logcat -s FutoStartup FutoSearch NotesStore FutoLicense FutoTestHook FutoToolbarDBG FutoBridgeDBG AndroidRuntime
+  adb logcat -s FutoStartup FutoSearch NotesStore FutoLicense SyncManager PlatformTrust FutoTestHook FutoToolbarDBG FutoBridgeDBG AndroidRuntime
 
 # Forward the Android app's WebView DevTools socket for cdp-invoke.mjs.
 cdp-forward:

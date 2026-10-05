@@ -20,6 +20,10 @@
 -keep class uniffi.futo_notes_ffi.** { *; }
 -keepclassmembers class uniffi.futo_notes_ffi.** { *; }
 
+# ── rustls-platform-verifier (TLS trust) ──────────────────────────────────
+-keep class org.rustls.platformverifier.** { *; }
+-keepclasseswithmembernames class com.futo.notes.PlatformTrust { native <methods>; }
+
 # ── WebView JS bridge ─────────────────────────────────────────────────────
 # Methods annotated @JavascriptInterface are invoked by name from editor.html
 # (window.futoBridge.*). R8 would otherwise rename/strip them.

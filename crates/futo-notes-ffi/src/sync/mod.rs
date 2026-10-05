@@ -2,6 +2,8 @@ mod client;
 mod contract;
 mod events;
 mod hosted;
+#[cfg(target_os = "android")]
+mod platform_trust;
 
 pub use client::SyncClient;
 pub use contract::{

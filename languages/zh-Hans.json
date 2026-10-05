@@ -582,6 +582,8 @@
         "enterServerUrl": "请输入服务器 URL。",
         "addServerScheme": "请在服务器 URL 开头添加 http:// 或 https://。",
         "connectFailed": "无法连接或同步。请检查服务器 URL 和密码。",
+        "certificateNotTrusted": "此设备不信任该服务器的证书。如果该服务器使用私有证书颁发机构，请在设备设置中安装该机构的证书，然后重试。",
+        "secureConnectionUnavailable": "此设备无法建立安全连接。请重新启动 FUTO 笔记后重试。",
         "syncFailed": "同步失败。请重试。",
         "previousFailure": "上次同步失败。请重试。",
         "completedWithErrors": "同步已完成，但出现错误。部分更改无法发送到服务器。",

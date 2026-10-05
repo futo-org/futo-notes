@@ -31,3 +31,6 @@ thiserror = "1"
 
 [lints]
 workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"

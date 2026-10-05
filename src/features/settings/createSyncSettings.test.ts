@@ -48,7 +48,7 @@ vi.mock('$shared/notifications/toastBus.svelte', () => ({
   showGlobalToast: (...args: unknown[]) => showGlobalToast(...args),
 }));
 
-import { createSyncSettings } from './createSyncSettings.svelte';
+import { createSyncSettings, failureMessage } from './createSyncSettings.svelte';
 
 beforeEach(() => {
   appStateMock.e2eeServerUrl = '';
@@ -231,5 +231,25 @@ describe('createSyncSettings', () => {
     expect(sync.password).toBe('');
     expect(sync.passwordSaved).toBe(true);
     expect(sync.connected).toBe(true);
+  });
+
+  it('names an untrusted certificate instead of blaming the URL or password', () => {
+    expect(
+      failureMessage(
+        new Error('error sending request: invalid peer certificate: UnknownIssuer'),
+        'sync.errors.connectFailed',
+      ),
+    ).toEqual({ path: 'sync.errors.certificateNotTrusted' });
+    expect(
+      failureMessage(
+        new Error(
+          'error sending request: invalid peer certificate: Other(OtherError("\u201cprivate ca\u201d certificate is not trusted: -67843"))',
+        ),
+        'sync.errors.connectFailed',
+      ),
+    ).toEqual({ path: 'sync.errors.certificateNotTrusted' });
+    expect(failureMessage(new Error('connection refused'), 'sync.errors.connectFailed')).toEqual({
+      path: 'sync.errors.connectFailed',
+    });
   });
 });
