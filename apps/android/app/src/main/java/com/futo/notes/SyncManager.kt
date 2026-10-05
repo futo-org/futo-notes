@@ -59,7 +59,8 @@ class SyncManager(
         private set
     var lastErrorDiagnostic: String? = null
         private set
-    private var errorMessage by mutableStateOf<LocalizedMessage?>(null)
+    internal var errorMessage by mutableStateOf<LocalizedMessage?>(null)
+        private set
 
     /** Whether the LAST completed cycle's writes were refused, and which way
      *  (`futo_notes_sync::WriteRefusal`). Held here because this object
@@ -378,11 +379,16 @@ class SyncManager(
         e is SyncException.Auth || e is SyncException.CollectionGone
 
     internal fun failureMessage(e: Exception, fallbackPath: String): LocalizedMessage =
-        if (describe(e).contains("invalid peer certificate")) {
+        if (isCertificateRejection(describe(e))) {
             LocalizedMessage("sync.errors.certificateNotTrusted")
         } else {
             LocalizedMessage(fallbackPath)
         }
+
+    /** rustls prefixes every certificate rejection this way, whatever the
+     *  verifier's reason [sync.md]. */
+    private fun isCertificateRejection(message: String): Boolean =
+        message.contains("invalid peer certificate")
 
     /** Re-login with the stored password to recover an expired session or
      *  collapsed vault without deleting state. Guarded against re-entry;
@@ -435,7 +441,15 @@ class SyncManager(
             healSession(message)
         } else {
             lastErrorDiagnostic = message
-            errorMessage = LocalizedMessage("sync.errors.liveUnavailable")
+            // A certificate rejection is reported as such whichever kind it
+            // arrives as (connect, stream or cycle) [sync.md].
+            errorMessage = LocalizedMessage(
+                if (isCertificateRejection(message)) {
+                    "sync.errors.certificateNotTrusted"
+                } else {
+                    "sync.errors.liveUnavailable"
+                },
+            )
         }
     }
 

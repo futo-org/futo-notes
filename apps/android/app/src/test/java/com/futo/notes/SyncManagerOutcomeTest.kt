@@ -143,4 +143,31 @@ class SyncManagerOutcomeTest {
             mgr.failureMessage(SyncException.Http("connection refused"), "sync.errors.connectFailed").path,
         )
     }
+
+    /**
+     * The live loop reports through [SyncManager.handleLiveError], not
+     * `failureMessage`: the Rust runner prefixes an event-stream connect failure
+     * with `connect:`, and a background cycle's failure arrives unprefixed.
+     * Either way a certificate rejection is reported as such [sync.md].
+     */
+    @Test
+    fun aLiveLoopCertificateRejectionGetsTheCertificateMessage() {
+        val connect = SyncManager()
+        connect.handleLiveError(
+            "connect: error sending request for url (https://notes.example.com/api/sync/events): " +
+                "client error (Connect): invalid peer certificate: UnknownIssuer",
+        )
+        assertEquals("sync.errors.certificateNotTrusted", connect.errorMessage?.path)
+
+        val cycle = SyncManager()
+        cycle.handleLiveError(
+            "error sending request for url (https://notes.example.com/api/sync/changes): " +
+                "client error (Connect): invalid peer certificate: UnknownIssuer",
+        )
+        assertEquals("sync.errors.certificateNotTrusted", cycle.errorMessage?.path)
+
+        val refused = SyncManager()
+        refused.handleLiveError("connect: error sending request: connection refused")
+        assertEquals("sync.errors.liveUnavailable", refused.errorMessage?.path)
+    }
 }
