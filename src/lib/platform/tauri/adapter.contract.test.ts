@@ -76,6 +76,20 @@ beforeEach(() => {
   native.writeTextFile.mockResolvedValue(undefined);
 });
 
+describe('Tauri adapter plugin calls', () => {
+  // RC-95: raw plugin calls (not `invoke`) hang on WebKitGTK when their JSON
+  // carries a lone surrogate, so their string arguments are repaired first.
+  it('sends the plugins only well-formed strings', async () => {
+    const { tauriFS } = await import('../tauri');
+
+    await tauriFS.writeClipboardText('copy \uD83D me \uD83D\uDE00');
+    expect(native.writeClipboardText).toHaveBeenCalledWith('copy \uFFFD me \uD83D\uDE00');
+
+    await tauriFS.readAppData('.bad\uDC00name.json');
+    expect(native.exists).toHaveBeenCalledWith(`${DEFAULT_ROOT}/.bad\uFFFDname.json`);
+  });
+});
+
 describe('Tauri adapter public contract', () => {
   it('writes text through the native clipboard plugin', async () => {
     const { tauriFS } = await import('../tauri');
@@ -322,11 +336,10 @@ describe('Tauri adapter app-data writes', () => {
 
     await tauriFS.writeAppData('.crashlogs/crash.json', 'durable');
 
-    expect(native.invoke).toHaveBeenCalledWith(
-      'app_data_write',
-      { path: '.crashlogs/crash.json', content: 'durable' },
-      undefined,
-    );
+    expect(native.invoke).toHaveBeenCalledWith('app_data_write', {
+      path: '.crashlogs/crash.json',
+      content: 'durable',
+    });
     expect(native.writeTextFile).not.toHaveBeenCalled();
     expect(native.mkdir).not.toHaveBeenCalled();
   });

@@ -293,6 +293,7 @@
   const stopNativeShell = startNativeShell({
     enqueueFileChange: sync.enqueueFileChange,
     flushSave: session.flushSave,
+    isSavePending: () => session.savePending,
   });
   const stopExternalFileOpen = startExternalFileOpen({
     whenReady: whenNotesReady,

@@ -16,9 +16,11 @@ const MARKER = /^\[( |x|X)\]$/;
  * `- [ ]` for it (`./listItemFiller`), and this is the other half: the same bytes
  * read back as the empty task item they came from.
  *
- * An item whose text really is just `[ ]` cannot be told apart from this, so it
- * becomes an empty task item too; that is what such a line means to every
- * markdown reader that supports task lists.
+ * An item whose text really is a literal `[ ]` becomes an empty task item too;
+ * that is what such a line means to every markdown reader that supports task
+ * lists. The user's explicit escape, `\[ \]`, is NOT that: it resolves to the
+ * same text but spans five source characters, and stays the literal text they
+ * wrote.
  */
 export function markEmptyTaskItems(tree: MdastNode): void {
   walk(tree, (node) => {
@@ -31,6 +33,13 @@ export function markEmptyTaskItems(tree: MdastNode): void {
     if (!text || more.length > 0 || text.type !== 'text') return;
     const marker = MARKER.exec(text.value ?? '');
     if (!marker) return;
+    // The parser resolves escapes, so `\[ \]` yields the same text value as a
+    // literal `[ ]`. Only the source span tells them apart: a literal marker
+    // is exactly three characters wide. A hand-built node with no offsets
+    // (no source to consult) keeps the value-only reading.
+    const start = text.position?.start.offset;
+    const end = text.position?.end.offset;
+    if (start != null && end != null && end - start !== 3) return;
     node.checked = marker[1] !== ' ';
     only.children = [];
   });

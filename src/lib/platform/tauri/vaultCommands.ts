@@ -1,4 +1,6 @@
-import { invoke, type InvokeArgs, type InvokeOptions } from '@tauri-apps/api/core';
+import type { InvokeArgs, InvokeOptions } from '@tauri-apps/api/core';
+
+import { invoke } from './invoke';
 
 let vaultCommandFailed: () => void = () => {};
 

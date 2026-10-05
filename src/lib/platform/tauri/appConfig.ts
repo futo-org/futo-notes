@@ -115,5 +115,10 @@ export function createAppConfigStore({ storage, invalidateNotesRoot }: AppConfig
     invalidateNotesRoot();
   }
 
-  return { getConfig, saveConfig, loadOpenFoldersConfig, setNotesDir };
+  /** Resolves once every config write queued so far has landed (never rejects). */
+  function flushWrites(): Promise<void> {
+    return saveConfigQueue;
+  }
+
+  return { getConfig, saveConfig, flushWrites, loadOpenFoldersConfig, setNotesDir };
 }

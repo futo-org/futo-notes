@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use futo_notes_core::files::vault_fs;
+use futo_notes_core::files::{vault_fs, vault_mutation_guard};
 use tauri::ipc::InvokeBody;
 use tauri::AppHandle;
 
@@ -30,11 +30,15 @@ fn validate_extension(extension: &str) -> Result<String, String> {
 /// Saved by the vault engine like a note, so a folder that refuses the write marks
 /// the vault unusable (`vault_fs::access_refused`). The random part keeps two
 /// devices that add an image in the same millisecond from syncing one name, and
-/// `create_new` never replaces a file.
+/// `create_new` never replaces a file. It is atomic (tmp + install) and runs under
+/// the process-wide vault guard, like every note write, so an exit landing inside
+/// it (the close deadline, a crash) leaves no torn image and the deadline waits
+/// for it (RC-89).
 fn write_image(root: &Path, bytes: &[u8], extension: &str, now_ms: i64) -> Result<String, String> {
     let extension = validate_extension(extension)?;
     let suffix = hex::encode(rand::random::<[u8; 6]>());
     let filename = format!("image-{now_ms}-{suffix}.{extension}");
+    let _vault_mutation = vault_mutation_guard()?;
     if vault_fs::create_new(root, &filename, bytes)? {
         Ok(filename)
     } else {
@@ -174,5 +178,30 @@ mod tests {
         assert!(image_bytes(&InvokeBody::Json(serde_json::json!([256]))).is_err());
         assert!(image_bytes(&InvokeBody::Json(serde_json::json!(["1"]))).is_err());
         assert!(image_bytes(&InvokeBody::Json(serde_json::json!({ "bytes": [1] }))).is_err());
+    }
+
+    /// RC-89: an image lands whole (no torn file, no temp left) and only while the
+    /// process-wide vault guard is free, so the close deadline waits for it.
+    #[test]
+    fn image_write_is_atomic_and_waits_for_the_vault_guard() {
+        let root = temp_dir();
+        let held = vault_mutation_guard().unwrap();
+        let writer_root = root.clone();
+        let writer =
+            std::thread::spawn(move || write_image(&writer_root, b"image", "png", 42).unwrap());
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(
+            !writer.is_finished(),
+            "the write must wait for the vault guard"
+        );
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+        drop(held);
+        let filename = writer.join().unwrap();
+        let names: Vec<_> = fs::read_dir(&root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(names, vec![filename]);
+        fs::remove_dir_all(root).unwrap();
     }
 }

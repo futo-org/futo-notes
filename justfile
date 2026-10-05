@@ -318,7 +318,7 @@ qa-server-stop *flags:
 
 # ── Agent developer experience (worktrees, orientation, waiting; docs/plan/agent-dx.md) ──
 
-# Create a sibling worktree with warm caches, list worktrees, or reap stale ones.
+# Create with `just wt <name>` (or `new <name>`), list worktrees, or reap stale ones.
 wt *args:
   #!/usr/bin/env bash
   exec node scripts/worktree.mjs "$@"
@@ -497,6 +497,17 @@ build-desktop-test:
 # Complete user journeys with a synthetic vault and real process restarts.
 test-desktop-journeys: build-desktop-test
   node tests/desktop-journeys.mjs
+
+# Window close with the webview's JS thread stalled (RC-37): the giant-note open must not trap the
+# window, and a stall with an unsaved edit in it must not lose the edit. Linux: it asks a headless
+# KWin to close the window. Not in CI: the desktop jobs run xvfb-run with no window manager.
+test-desktop-close-deadline:
+  bash scripts/run-under-virtual-kwin.sh bash -c 'just build-desktop-test && node tests/desktop-close-deadline.mjs'
+
+# A lone UTF-16 surrogate in a note (RC-48): the save settles, the file holds U+FFFD, the note can be
+# left. Linux, under a private compositor (WebKitGTK is the engine that never answered). Not in CI.
+test-desktop-lone-surrogate:
+  bash scripts/run-under-virtual-kwin.sh bash -c 'just build-desktop-test && node tests/desktop-lone-surrogate.mjs'
 
 # Rust conformance goldens + the TS↔Rust title-rules differential.
 test-rust:

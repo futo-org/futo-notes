@@ -14,8 +14,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('$lib/platform', () => ({ isTauri: true }));
 vi.mock('$lib/platform/tauri', () => ({
+  flushAppConfigWrites: vi.fn(async () => undefined),
   onFileChange: mocks.onFileChange,
   onVaultCommandFailed: mocks.onVaultCommandFailed,
+  sweepStaleTemps: vi.fn(async () => undefined),
+  reportUnsavedEdits: vi.fn(async () => undefined),
 }));
 vi.mock('$features/storage/vaultAvailability.svelte', () => ({
   loadVaultAvailability: mocks.loadVaultAvailability,
@@ -60,6 +63,7 @@ describe('startNativeShell', () => {
       });
       startNativeShell({
         enqueueFileChange: vi.fn(),
+        isSavePending: () => false,
         flushSave: vi.fn(() => new Promise<void>(() => {})),
       });
       await vi.waitFor(() => expect(mocks.onCloseRequested).toHaveBeenCalledOnce());
@@ -83,6 +87,7 @@ describe('startNativeShell', () => {
     });
     startNativeShell({
       enqueueFileChange: vi.fn(),
+      isSavePending: () => false,
       flushSave: vi.fn(async () => {
         throw new Error('disk full');
       }),
@@ -98,6 +103,7 @@ describe('startNativeShell', () => {
   it('disposes handlers that finish registering after teardown', async () => {
     const stop = startNativeShell({
       enqueueFileChange: vi.fn(),
+      isSavePending: () => false,
       flushSave: vi.fn(async () => undefined),
     });
 
@@ -112,7 +118,11 @@ describe('startNativeShell', () => {
   });
 
   it('tells the user when the watcher never started', async () => {
-    startNativeShell({ enqueueFileChange: vi.fn(), flushSave: vi.fn(async () => undefined) });
+    startNativeShell({
+      enqueueFileChange: vi.fn(),
+      flushSave: vi.fn(async () => undefined),
+      isSavePending: () => false,
+    });
     await vi.waitFor(() => expect(mocks.onFileChange).toHaveBeenCalledOnce());
 
     // A watcher that failed to start looks exactly like a vault nobody is
@@ -127,7 +137,11 @@ describe('startNativeShell', () => {
 
   it('leaves the watcher failure to the vault banner when the vault is why it failed', async () => {
     mocks.loadVaultAvailability.mockResolvedValue(vaultStatus({ available: false }));
-    startNativeShell({ enqueueFileChange: vi.fn(), flushSave: vi.fn(async () => undefined) });
+    startNativeShell({
+      enqueueFileChange: vi.fn(),
+      flushSave: vi.fn(async () => undefined),
+      isSavePending: () => false,
+    });
     await vi.waitFor(() => expect(mocks.onFileChange).toHaveBeenCalledOnce());
 
     // The decision is the typed vault status, not the failure message's prose —
@@ -141,9 +155,68 @@ describe('startNativeShell', () => {
   });
 
   it('re-checks the vault whenever a vault command fails', () => {
-    startNativeShell({ enqueueFileChange: vi.fn(), flushSave: vi.fn(async () => undefined) });
+    startNativeShell({
+      enqueueFileChange: vi.fn(),
+      flushSave: vi.fn(async () => undefined),
+      isSavePending: () => false,
+    });
     const onFailed = mocks.onVaultCommandFailed.mock.calls[0][0] as () => void;
     onFailed();
     expect(mocks.recheckVaultAvailability).toHaveBeenCalledOnce();
+  });
+});
+
+describe('startNativeShell close handler, slow disk', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.onFileChange.mockReturnValue(mocks.fileCleanup);
+    mocks.onCloseRequested.mockResolvedValue(mocks.closeCleanup);
+    mocks.loadVaultAvailability.mockResolvedValue(vaultStatus());
+  });
+
+  it('waits past the 3 s race for a write that is still running, up to its cap', async () => {
+    vi.useFakeTimers();
+    try {
+      let closeHandler!: (event: { preventDefault: () => void }) => Promise<void>;
+      mocks.onCloseRequested.mockImplementation(async (handler) => {
+        closeHandler = handler;
+        return mocks.closeCleanup;
+      });
+      let finishWrite!: () => void;
+      let writing = true;
+      startNativeShell({
+        enqueueFileChange: vi.fn(),
+        isSavePending: () => writing,
+        flushSave: vi.fn(
+          () =>
+            new Promise<void>((resolve) => {
+              finishWrite = () => {
+                writing = false;
+                resolve();
+              };
+            }),
+        ),
+      });
+      await vi.waitFor(() => expect(mocks.onCloseRequested).toHaveBeenCalledOnce());
+      const { exit } = await import('@tauri-apps/plugin-process');
+      vi.mocked(exit).mockClear();
+
+      const closed = closeHandler({ preventDefault: vi.fn() });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(exit).not.toHaveBeenCalled();
+      finishWrite();
+      await closed;
+      expect(exit).toHaveBeenCalledWith(0);
+
+      // A write that never finishes cannot trap the window for ever.
+      vi.mocked(exit).mockClear();
+      writing = true;
+      const stuck = closeHandler({ preventDefault: vi.fn() });
+      await vi.advanceTimersByTimeAsync(15_000);
+      await stuck;
+      expect(exit).toHaveBeenCalledWith(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

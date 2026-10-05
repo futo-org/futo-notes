@@ -1,5 +1,6 @@
 package com.futo.notes.ui
 
+import com.futo.notes.CommittedNote
 import com.futo.notes.NoteMutationOutcome
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -18,12 +19,26 @@ class EditorNavigationCommitTest {
             targetId = "Folder/New title",
         ) { oldId, targetId ->
             renamed = oldId to targetId
-            NoteMutationOutcome.Committed(targetId)
+            NoteMutationOutcome.Committed(CommittedNote(targetId, relinkedBody = null))
         }
 
         assertEquals("Folder/New title", result.id)
         assertTrue(result.isCommitted)
         assertEquals("Folder/Old title" to "Folder/New title", renamed)
+    }
+
+    @Test
+    fun `a committed title rename hands the relinked body to the editor`() = runBlocking {
+        val result = commitEditorTitleSnapshot(
+            currentId = "Old",
+            targetId = "New",
+        ) { _, targetId ->
+            NoteMutationOutcome.Committed(CommittedNote(targetId, "back to [[New]]"))
+        }
+
+        assertEquals("New", result.id)
+        assertTrue(result.isCommitted)
+        assertEquals("back to [[New]]", result.relinkedBody)
     }
 
     @Test

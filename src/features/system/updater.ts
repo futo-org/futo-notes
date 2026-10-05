@@ -1,4 +1,5 @@
 import { isTauri } from '$lib/platform';
+import { flushPendingSaveBeforeExit } from '$shared/lifecycle/flushBeforeExit';
 
 export interface PendingUpdate {
   version: string;
@@ -26,13 +27,19 @@ export async function selfUpdateSupported(): Promise<boolean> {
   }
 }
 
+/** Every relaunch drains the open note's pending save first: `relaunch` ends the process without a CloseRequested. */
+async function relaunchAfterFlush(): Promise<void> {
+  await flushPendingSaveBeforeExit();
+  const { relaunch } = await import('@tauri-apps/plugin-process');
+  await relaunch();
+}
+
 export async function relaunchApp(): Promise<void> {
   if (import.meta.env.DEV) {
     const { fakeVersion } = await import('./updater.fake');
     if (fakeVersion()) return;
   }
-  const { relaunch } = await import('@tauri-apps/plugin-process');
-  await relaunch();
+  await relaunchAfterFlush();
 }
 
 export async function checkForUpdate(timeoutMs = 30_000): Promise<PendingUpdate | null> {
@@ -67,7 +74,9 @@ export async function installUpdate(
   let received = 0;
   let total: number | null = null;
 
-  await update.handle.downloadAndInstall((event) => {
+  // download, flush, install: on Windows the installer ends the process as it starts,
+  // so the flush has to land between the two, not after `downloadAndInstall` returns.
+  await update.handle.download((event) => {
     switch (event.event) {
       case 'Started':
         total = event.data.contentLength ?? null;
@@ -85,6 +94,7 @@ export async function installUpdate(
     }
   });
 
-  const { relaunch } = await import('@tauri-apps/plugin-process');
-  await relaunch();
+  await flushPendingSaveBeforeExit();
+  await update.handle.install();
+  await relaunchAfterFlush();
 }

@@ -1,6 +1,7 @@
 import { isTauri } from '$lib/platform';
 import { setNotesDir, vaultDisplayPath } from '$lib/platform/tauri';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
+import { flushPendingSaveBeforeExit } from '$shared/lifecycle/flushBeforeExit';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import { localizedText } from '$shared/localization';
 
@@ -47,6 +48,8 @@ export async function resetNotesDirectory(): Promise<void> {
 // root once at startup, so only a full process restart rebinds it to the new
 // vault. A webview reload would leave the watcher on the old root. See sync.md.
 async function restartForNewVault(): Promise<void> {
+  // A relaunch is not a window close, so it drains the pending save itself (RC-87).
+  await flushPendingSaveBeforeExit();
   const { relaunch } = await import('@tauri-apps/plugin-process');
   await relaunch();
 }

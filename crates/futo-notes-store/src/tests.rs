@@ -1944,6 +1944,35 @@ fn a_note_that_is_not_utf8_fails_to_read_instead_of_reading_empty() {
     assert_eq!(fs::read(root.0.join("Latin.md")).unwrap(), latin);
 }
 
+// The read side of RC-48. A file holding a lone UTF-16 surrogate as WTF-8 bytes
+// (ED A0 80: what a UTF-16 program writes without repairing) is not UTF-8, so it
+// is refused exactly like the Latin-1 note above: an error, never an editor
+// document carrying a surrogate, and the bytes stay as they are. The editor
+// writes such a surrogate as U+FFFD on the way out (decision 16A), so a save
+// never produces these bytes and a read never has to repair them.
+#[test]
+fn a_note_holding_wtf8_surrogate_bytes_fails_to_read_and_is_left_alone() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    let wtf8: &[u8] = b"lone \xed\xa0\x80 high, lone \xed\xb8\x80 low";
+    fs::write(root.0.join("Wtf8.md"), wtf8).unwrap();
+    assert!(store.read("Wtf8").is_err());
+    assert_eq!(fs::read(root.0.join("Wtf8.md")).unwrap(), wtf8);
+
+    // What the editor sends for the same text: U+FFFD, three valid bytes each.
+    store
+        .write("Fixed", "lone \u{FFFD} high, lone \u{FFFD} low", None)
+        .unwrap();
+    assert_eq!(
+        fs::read(root.0.join("Fixed.md")).unwrap(),
+        "lone \u{FFFD} high, lone \u{FFFD} low".as_bytes()
+    );
+    assert_eq!(
+        store.read("Fixed").unwrap(),
+        "lone \u{FFFD} high, lone \u{FFFD} low"
+    );
+}
+
 // A relink rewrites notes nobody asked to change, one of which may be open in
 // an editor that still holds the pre-rename bytes. The mutation names every
 // note whose body it rewrote — by final id, including the renamed note's own

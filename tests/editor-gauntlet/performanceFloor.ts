@@ -22,6 +22,14 @@ export const PERFORMANCE_BUDGET = {
    * to absorb GC and cache effects across a 5x size step.
    */
   openCliffFactor: 2.5,
+  /**
+   * How many times more document nodes a keystroke may walk in a large note
+   * than in its small reference. The count is the editor's own work, not the
+   * clock's, so it holds on any machine: a keystroke should touch the block it
+   * edits, not the note. RC-80: two whole-document walks per keystroke grew
+   * this ~20x from 1,000 to 20,000 sections.
+   */
+  keystrokeWalkFactor: 2,
 } as const;
 
 /**
@@ -47,6 +55,11 @@ export interface FloorFixture {
   openPolicy: OpenPolicy;
   /** Where the keystrokes land. Default: wherever the open left the caret. */
   typeInto?: KeystrokeTarget;
+  /**
+   * Hold this fixture's per-keystroke node walk to `reference`'s (same
+   * generator, smaller note) within `keystrokeWalkFactor`.
+   */
+  keystrokeWalk?: { reference: string };
   build(): string;
 }
 
@@ -58,6 +71,8 @@ export interface PerformanceResult {
   openSynchronousMs: number;
   keystrokeSynchronousP95Ms: number;
   keystrokeSettledToPaintP95Ms: number;
+  /** Document nodes walked per keystroke, p95 — see `KeystrokeMeasurement`. */
+  keystrokeNodeVisitsP95?: number;
   /**
    * Measured only, never gated: how long replacing THIS fixture's document with
    * an empty one took, on the page that opened it. It is the cost the previous
@@ -70,7 +85,12 @@ export interface PerformanceResult {
 }
 
 export type FloorViolationKind =
-  'open-budget' | 'open-cliff' | 'keystroke-budget' | 'missing-reference' | 'missing-measurement';
+  | 'open-budget'
+  | 'open-cliff'
+  | 'keystroke-budget'
+  | 'keystroke-walk'
+  | 'missing-reference'
+  | 'missing-measurement';
 
 export interface FloorViolation {
   fixture: string;
@@ -174,6 +194,20 @@ function taskListFixture(items: number): string {
 }
 
 /**
+ * FB-17's note shape, `sections` heading + paragraph pairs, with a tag in each
+ * paragraph the way real notes carry them (1,000 is 62 KB, 20,000 is 1.3 MB).
+ * RC-80 was measured on it: without the tags a keystroke walked the whole
+ * document; with them it also looked up every block's decorations by a scan.
+ */
+function sectionsFixture(sections: number): string {
+  return Array.from(
+    { length: sections },
+    (_, index) =>
+      `## Section ${index}\n\nBody line ${index} with some **bold** text #tag${index % 7}`,
+  ).join('\n\n');
+}
+
+/**
  * The performance ladder, per docs/plan/milkdown-transition.md §5: hard budgets at
  * sizes real notes actually reach, and "scales linearly, no cliff" above them.
  *
@@ -223,6 +257,29 @@ export const MILKDOWN_FLOOR_FIXTURES: FloorFixture[] = [
     build: () => taskListFixture(2_000),
   },
   {
+    name: '1000-sections',
+    unit: 'lines',
+    openPolicy: { kind: 'measured' },
+    typeInto: { text: 'Body line 10 ', loaded: true },
+    build: () => sectionsFixture(1_000),
+  },
+  {
+    name: '5000-sections',
+    unit: 'lines',
+    openPolicy: { kind: 'linear', reference: '1000-sections' },
+    typeInto: { text: 'Body line 10 ', loaded: true },
+    keystrokeWalk: { reference: '1000-sections' },
+    build: () => sectionsFixture(5_000),
+  },
+  {
+    name: '20000-sections',
+    unit: 'lines',
+    openPolicy: { kind: 'linear', reference: '1000-sections' },
+    typeInto: { text: 'Body line 10 ', loaded: true },
+    keystrokeWalk: { reference: '1000-sections' },
+    build: () => sectionsFixture(20_000),
+  },
+  {
     name: '1mb-adversarial',
     unit: 'bytes',
     openPolicy: { kind: 'measured' },
@@ -239,6 +296,40 @@ export const MILKDOWN_FLOOR_FIXTURES: FloorFixture[] = [
 function perUnitMs(result: PerformanceResult, unit: FloorFixture['unit']): number {
   const size = unit === 'lines' ? result.lines : result.bytes;
   return size > 0 ? result.openMs / size : Infinity;
+}
+
+function keystrokeWalkViolation(
+  fixture: FloorFixture,
+  result: PerformanceResult,
+  byName: Map<string, PerformanceResult>,
+): FloorViolation | null {
+  const referenceName = fixture.keystrokeWalk!.reference;
+  const reference = byName.get(referenceName);
+  if (!reference) {
+    return {
+      fixture: fixture.name,
+      kind: 'missing-reference',
+      detail: `no ${referenceName} measurement to compare its keystroke walk against`,
+    };
+  }
+  const visits = result.keystrokeNodeVisitsP95;
+  const referenceVisits = reference.keystrokeNodeVisitsP95;
+  if (visits === undefined || referenceVisits === undefined) {
+    return {
+      fixture: fixture.name,
+      kind: 'missing-measurement',
+      detail: `no keystroke node-walk count for ${visits === undefined ? fixture.name : referenceName}`,
+    };
+  }
+  const ratio = visits / Math.max(1, referenceVisits);
+  if (ratio <= PERFORMANCE_BUDGET.keystrokeWalkFactor) return null;
+  return {
+    fixture: fixture.name,
+    kind: 'keystroke-walk',
+    detail:
+      `a keystroke walks ${visits} document nodes, ${ratio.toFixed(1)}x ${referenceName}'s ` +
+      `${referenceVisits}, past the ${PERFORMANCE_BUDGET.keystrokeWalkFactor}x factor`,
+  };
 }
 
 /** Every budget the run missed, in fixture order. Empty means the floor held. */
@@ -268,6 +359,11 @@ export function evaluatePerformanceFloor(
           `synchronous keystroke p95 ${Math.round(result.keystrokeSynchronousP95Ms)}ms ` +
           `is not under the ${PERFORMANCE_BUDGET.keystrokeP95Ms}ms budget`,
       });
+    }
+
+    if (fixture.keystrokeWalk) {
+      const walkViolation = keystrokeWalkViolation(fixture, result, byName);
+      if (walkViolation) violations.push(walkViolation);
     }
 
     if (fixture.openPolicy.kind === 'measured') continue;
@@ -341,6 +437,7 @@ export async function runPerformanceFloor(
       openSynchronousMs: opened.synchronousMs,
       keystrokeSynchronousP95Ms: percentile95(typed.synchronousSamplesMs),
       keystrokeSettledToPaintP95Ms: percentile95(typed.settledToPaintSamplesMs),
+      keystrokeNodeVisitsP95: typed.nodeVisitSamples && percentile95(typed.nodeVisitSamples),
       replaceAwayMs: replaced.settledMs,
     });
   }

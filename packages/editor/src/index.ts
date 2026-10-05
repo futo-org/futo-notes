@@ -22,6 +22,9 @@ export * from './tags';
 export * from './preview';
 export * from './images';
 
+// Text leaving the editor for disk or a host is well-formed UTF-16 (RC-48, decision 16A).
+export * from './wellFormed';
+
 // Milkdown/remark implementation adapters (docs/plan/milkdown-transition.md
 // §3). Not note rules — §3.7's M6 carve-out — but shared for the same reason:
 // one copy for both native hosts and the round-trip corpus harness.

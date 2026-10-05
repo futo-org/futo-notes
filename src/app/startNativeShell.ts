@@ -1,17 +1,31 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import { isTauri } from '$lib/platform';
-import { onFileChange, onVaultCommandFailed } from '$lib/platform/tauri';
+import {
+  flushAppConfigWrites,
+  onFileChange,
+  onVaultCommandFailed,
+  sweepStaleTemps,
+} from '$lib/platform/tauri';
 import type { FileChangeEvent } from '$lib/platform/types';
 import {
   loadVaultAvailability,
   recheckVaultAvailability,
 } from '$features/storage/vaultAvailability.svelte';
+import {
+  flushPendingSaveBeforeExit,
+  registerExitFlushSource,
+  registerExitTask,
+} from '$shared/lifecycle/flushBeforeExit';
+import { flushAppStateWrites } from '$shared/state/appState';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
+import { startCloseDirtyReporter } from './closeDeadlineDirty';
 
 export interface NativeShellDeps {
   enqueueFileChange: (event: FileChangeEvent) => void;
   flushSave: () => Promise<void>;
+  /** A save is pending or in flight (the session's own signal). */
+  isSavePending: () => boolean;
 }
 
 // Wires the Tauri window/file-watcher glue on desktop. Registration of the
@@ -56,17 +70,26 @@ export function startNativeShell(deps: NativeShellDeps): () => void {
     );
   });
 
+  track(startCloseDirtyReporter({ isSavePending: deps.isSavePending }));
+  track(registerExitFlushSource({ flushSave: deps.flushSave, isSavePending: deps.isSavePending }));
+  track(registerExitTask(flushAppConfigWrites));
+  track(registerExitTask(flushAppStateWrites));
+  // An exit that beat an older build's TS atomic rewrite left its temp file
+  // behind; clear the stale ones (ours by name, and old) now.
+  void sweepStaleTemps();
+
   const appWindow = getCurrentWindow();
   void appWindow
     .onCloseRequested(async (event) => {
       event.preventDefault();
       // Drain any pending save before teardown so a fast quit never drops the
-      // last keystrokes — but never let a hung or failed save trap shutdown:
-      // after 3s the app exits regardless.
-      await Promise.race([
-        deps.flushSave().catch(() => {}),
-        new Promise((resolve) => setTimeout(resolve, 3000)),
-      ]);
+      // last keystrokes (flushBeforeExit.ts: bounded, so a hung or failed save
+      // cannot trap shutdown). That drain needs this JS thread, which a giant-note
+      // open can block for a minute, so Rust backstops the handler: close_deadline.rs
+      // exits the app 5s after the first close request (keep it above the 3s race in
+      // flushBeforeExit.ts), but only while the page reports nothing unsaved
+      // (closeDeadlineDirty.ts). A page with an edit in it is waited for, here.
+      await flushPendingSaveBeforeExit();
       try {
         const { exit } = await import('@tauri-apps/plugin-process');
         await exit(0);

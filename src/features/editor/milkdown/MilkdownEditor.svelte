@@ -62,8 +62,15 @@
     type Schema as ProseSchema,
   } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
-  import { imageReferenceMarkdown, withNarrowedEscapes } from '@futo-notes/editor';
-  import { FRONTMATTER_NODE } from '@futo-notes/editor/milkdown-compat';
+  import {
+    imageReferenceMarkdown,
+    toWellFormedText,
+    withNarrowedEscapes,
+  } from '@futo-notes/editor';
+  import {
+    FRONTMATTER_NODE,
+    hasSurplusTrailingEmptyParagraphs,
+  } from '@futo-notes/editor/milkdown-compat';
   import {
     installVaultImageUrlResolver,
     uninstallVaultImageUrlResolver,
@@ -90,9 +97,14 @@
   import { editorView, enclosingListItem } from './caretContext';
   import { inIndentableContainer } from './blockCommands';
   import { dividerCaretFix } from './dividerCaret';
+  import { plainTextBlockPaste } from './plainTextBlockPaste';
   import { computeActiveFormats, computeDisabledFormats } from './formatState';
   import { handleIndentShortcut, handleParityKeyDown } from './keyboardParity';
-  import { createMobileBlockDndPlugin, type MobileDndHapticKind } from './mobileBlockDnd';
+  import {
+    createMobileBlockDndPlugin,
+    dropBlockDndFocusGuards,
+    type MobileDndHapticKind,
+  } from './mobileBlockDnd';
   import { codeHighlight } from './codeHighlight';
   import { createSelectionToolbarPlugin, resolveSelectionToolbar } from './selectionToolbar';
   import { createSlashMenuPlugin, resolveSlashMenu } from './slash';
@@ -132,6 +144,7 @@
   import { CHECKBOX_SIZE_PX, taskCheckbox } from './taskCheckbox';
   import { hideTableGrips, tableGrips } from './table/tableGrips';
   import { createToolbarExec } from './toolbarExec';
+  import { imageInputRule } from './imageInputRule';
   import { vaultImageView } from './vaultImageView';
   import { refreshWikilinkViews, wikilink, WIKILINK_TARGET_ATTR } from './wikilink';
   import { WIKILINK_BROKEN_CLASS } from './wikilink/display';
@@ -706,10 +719,13 @@
         .use(gfmWithCompat())
         .use(wikilink)
         .use(vaultImageView)
+        .use(imageInputRule)
         .use(history)
         .use(listener)
         .use(documentChanges(documentEdited))
         .use(readOnlyGuard(() => readonly))
+        // BEFORE clipboard: its handlePaste must see a plain-text block first.
+        .use(plainTextBlockPaste)
         .use(clipboard)
         .use(gapCursorPlugin)
         .use(trailing)
@@ -1143,7 +1159,12 @@
     const doc = view.state.doc;
     if (liveDoc === doc && liveMarkdown !== null) return liveMarkdown;
     try {
-      const markdown = blockSerializer.serialize(doc);
+      /* The one place the live document becomes text (`getContent`, the
+       * `change` report): a lone surrogate — a Backspace that split an emoji, a
+       * paste that carried half of one — is written as U+FFFD (RC-48, decision
+       * 16A). Unfixed it reached the Tauri IPC as a `\ud800` JSON escape and the
+       * save never settled. */
+      const markdown = toWellFormedText(blockSerializer.serialize(doc));
       liveDoc = doc;
       liveMarkdown = markdown;
       return markdown;
@@ -1189,8 +1210,21 @@
    * `EXTERNAL_CONTENT_OPTS` did. It also means documentChanges.ts never reports
    * the load itself — correct, since a load is never an edit.
    * → docs/spec/editor.md "Saving & rename", tests/editor-embed-milkdown.spec.ts
+   *
+   * A focused editable's DOM caret is let go first; ProseMirror puts it back
+   * once the new document's DOM exists. Left in place, it sits in the block
+   * being rewritten, and WebKit pays for every child written or removed
+   * around it: the Selection's live range is re-indexed per removal, and the
+   * writing-suggestions pass walks to the caret's child index per element
+   * built — O(n²) in a block's inline children. Measured on WebKit, a 100 KB
+   * paragraph dense with marks opened in 9 s with the caret in place and in
+   * 1.4 s without. (ProseMirror's own measuring Range is the other boundary
+   * that used to sit there; patches/prosemirror-view parks it.)
+   * → tests/editor-open-large-paragraph.spec.ts
    */
   function loadParsedDocument(view: ProseView, parsed: ProseNode): void {
+    if (view.hasFocus() && !view.composing)
+      view.dom.ownerDocument.getSelection()?.removeAllRanges();
     const { state } = view;
     view.dispatch(
       state.tr
@@ -1640,6 +1674,12 @@
       return text === hostMarkdown && (loadFailed || !editedSinceLoadStart());
     }
     if (hostMarkdown !== null && unchangedSinceLoad()) return text === hostMarkdown;
+    /* Equal bytes are not an equal document: trailing empty paragraphs are not
+     * written (RC-22), so a document the user stacked blank paragraphs onto
+     * serializes like one without them, and skipping would leave those on
+     * screen under the next note. Such a document is reloaded. */
+    const view = pmView();
+    if (view && hasSurplusTrailingEmptyParagraphs(view.state.doc)) return false;
     return text === readSerialized();
   }
 
@@ -1667,6 +1707,13 @@
   }
 
   export function getContent(): string | undefined {
+    const text = readContent();
+    /* Every answer passes here, the host's own bytes included: nothing that
+     * leaves the editor may carry a lone surrogate (RC-48, decision 16A). */
+    return text === undefined ? text : toWellFormedText(text);
+  }
+
+  function readContent(): string | undefined {
     /* NOT THIS NOTE (CRITICAL — 2026-09-03 data loss, docs/spec/editor.md).
      * Two ways this component ends up holding an empty document for a note that
      * has bytes, both of which used to serialize back as "the user deleted
@@ -1722,6 +1769,7 @@
   }
 
   export function focus(): void {
+    dropBlockDndFocusGuards(); // a host focus is intentional (R10-FB20-1)
     pmView()?.focus();
   }
 
