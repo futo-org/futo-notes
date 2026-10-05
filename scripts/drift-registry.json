@@ -823,7 +823,7 @@
       "lockStatus": "unlocked",
       "copies": [
         {
-          "location": "src/features/settings/createSyncSettings.svelte.ts",
+          "location": "src/features/sync/syncErrorClassification.ts",
           "pattern": "invalid peer certificate"
         },
         {
@@ -836,6 +836,14 @@
         },
         {
           "location": "src/features/settings/createSyncSettings.test.ts",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "src/features/sync/syncErrorClassification.test.ts",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "src/features/sync/syncManager.test.ts",
           "pattern": "invalid peer certificate"
         },
         {

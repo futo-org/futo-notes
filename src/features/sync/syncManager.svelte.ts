@@ -12,6 +12,7 @@ import {
 } from './createExternalChangeCoordinator';
 import {
   classifySyncError,
+  isCertificateRejection,
   syncErrorDedupeKey,
   type SyncErrorClass,
 } from './syncErrorClassification';
@@ -79,15 +80,18 @@ const RECONNECTING_GRACE_MS = 180_000;
  * — not "Sync completed with errors", which sent people looking for a server
  * problem (ADR 0003 decision 8). Which refusal it is was decided in Rust
  * (`futo_notes_sync::WriteRefusal`); this only chooses the sentence, the way
- * the iOS and Android status lines choose theirs.
+ * the iOS and Android status lines choose theirs. A certificate rejection is
+ * reported as such from either source (sync.md).
  */
 function syncErrorForSource(
   source: SyncErrorSource,
   writeRefusal: WriteRefusalOutput | null = null,
+  message = '',
 ): LocalizedMessage {
   if (writeRefusal === 'subscriptionRequired')
     return { path: 'sync.errors.writePausedSubscription' };
   if (writeRefusal === 'quotaExceeded') return { path: 'sync.errors.writePausedQuota' };
+  if (isCertificateRejection(message)) return { path: 'sync.errors.certificateNotTrusted' };
   return source === 'stream'
     ? { path: 'sync.errors.liveUnavailable' }
     : { path: 'sync.errors.completedWithErrors' };
@@ -119,7 +123,7 @@ function createSyncFailureState(showToast: (message: ToastMessage) => void) {
   ): void {
     const changed = message !== syncErrorDiagnostic;
     syncError = true;
-    syncErrorMessage = syncErrorForSource(source, writeRefusal);
+    syncErrorMessage = syncErrorForSource(source, writeRefusal, message);
     syncErrorDiagnostic = message;
     syncErrors[source] = message;
     syncRefusals[source] = writeRefusal;
@@ -141,7 +145,11 @@ function createSyncFailureState(showToast: (message: ToastMessage) => void) {
     );
     if (remainingSource) {
       syncError = true;
-      syncErrorMessage = syncErrorForSource(remainingSource, syncRefusals[remainingSource] ?? null);
+      syncErrorMessage = syncErrorForSource(
+        remainingSource,
+        syncRefusals[remainingSource] ?? null,
+        syncErrors[remainingSource],
+      );
       syncErrorDiagnostic = syncErrors[remainingSource] ?? '';
     } else {
       syncError = false;

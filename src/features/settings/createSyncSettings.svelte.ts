@@ -1,5 +1,6 @@
 import { getAppState, getCachedPreferences } from '$shared/state/appState';
 import { requestSync, wasSyncErrorReported } from '$features/sync/autoSync';
+import { isCertificateRejection } from '$features/sync/syncErrorClassification';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
 import {
   localizedText,
@@ -28,8 +29,7 @@ function syncProgressMessage(progress: SyncProgress): LocalizedMessage {
 }
 
 export function failureMessage(error: unknown, fallbackPath: string): LocalizedMessage {
-  const text = error instanceof Error ? error.message : String(error);
-  return text.includes('invalid peer certificate')
+  return isCertificateRejection(error)
     ? { path: 'sync.errors.certificateNotTrusted' }
     : { path: fallbackPath };
 }
