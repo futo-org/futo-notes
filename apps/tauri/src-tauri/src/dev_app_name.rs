@@ -30,7 +30,10 @@ pub(crate) fn relaunch_under_dev_app_name() {
     // Every rebuild replaces the binary, so relink rather than reuse the old one.
     let _ = std::fs::remove_file(&link);
     if let Err(error) = std::fs::hard_link(&executable, &link) {
-        eprintln!("[dev-app-name] could not link {}: {error}", link.display());
+        futo_notes_core::log_to_stderr!(
+            "[dev-app-name] could not link {}: {error}",
+            link.display()
+        );
         return;
     }
     // Removing the variable is what makes this run once: the relaunched
@@ -39,7 +42,7 @@ pub(crate) fn relaunch_under_dev_app_name() {
         .args(std::env::args_os().skip(1))
         .env_remove("FUTO_DEV_APP_FILE_NAME")
         .exec();
-    eprintln!(
+    futo_notes_core::log_to_stderr!(
         "[dev-app-name] could not relaunch as {}: {error}",
         link.display()
     );

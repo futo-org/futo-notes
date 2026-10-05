@@ -71,10 +71,10 @@ pub(crate) fn spawn(
         match inner.await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
-                eprintln!("[search/indexer] run_loop returned error: {e}");
+                futo_notes_core::log_to_stderr!("[search/indexer] run_loop returned error: {e}");
             }
             Err(je) => {
-                eprintln!("[search/indexer] run_loop panicked: {je}");
+                futo_notes_core::log_to_stderr!("[search/indexer] run_loop panicked: {je}");
             }
         }
         let snap = status_for_supervisor
@@ -250,7 +250,9 @@ fn reconcile_bm25(
         let indexed_mtimes = match idx.bm25_note_mtimes() {
             Ok(m) => m,
             Err(e) => {
-                eprintln!("[search/indexer] bm25_note_mtimes failed (full reindex): {e}");
+                futo_notes_core::log_to_stderr!(
+                    "[search/indexer] bm25_note_mtimes failed (full reindex): {e}"
+                );
                 HashMap::new()
             }
         };
@@ -278,13 +280,15 @@ fn reconcile_bm25(
             reindexed += 1;
         }
         if let Err(e) = idx.commit_bm25() {
-            eprintln!("[search/indexer] bm25 commit failed: {e}");
+            futo_notes_core::log_to_stderr!("[search/indexer] bm25 commit failed: {e}");
         }
     }
     if deleted > 0 {
-        eprintln!("[search/indexer] reconciled {deleted} deletion(s) detected at startup");
+        futo_notes_core::log_to_stderr!(
+            "[search/indexer] reconciled {deleted} deletion(s) detected at startup"
+        );
     }
-    eprintln!(
+    futo_notes_core::log_to_stderr!(
         "[search/indexer] BM25 reconcile: {reindexed} new/changed of {total} total ({} skipped via mtime gate)",
         total.saturating_sub(reindexed)
     );

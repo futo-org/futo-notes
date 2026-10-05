@@ -65,7 +65,7 @@ impl EngineState {
                 };
                 let on_status = on_status.clone();
                 if let Err(error) = self.start(config, on_status) {
-                    eprintln!("[store/search] retry failed: {error}");
+                    futo_notes_core::log_to_stderr!("[store/search] retry failed: {error}");
                 }
             }
         }
