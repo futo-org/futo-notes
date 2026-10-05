@@ -13,6 +13,7 @@
     setApplicationMenuLabels,
     setApplicationWindowTitle,
   } from '$lib/platform';
+  import { developmentBranch } from '$shared/developmentBranch';
   import { desktopLocalization, localizedText } from '$shared/localization';
   import { currentToastMessage, showGlobalToast } from '$shared/notifications/toastBus.svelte';
   import ConfirmDialogHost from '$shared/dialogs/ConfirmDialogHost.svelte';
@@ -46,9 +47,11 @@
 
   $effect(() => {
     desktopLocalization.effectiveLanguage.tag;
-    const applicationTitle = import.meta.env.DEV
-      ? localizedText('app.desktop.debugDisplayName')
-      : localizedText('app.name');
+    const applicationTitle = developmentBranch
+      ? localizedText('app.desktop.debugDisplayNameWithBranch', { branch: developmentBranch })
+      : import.meta.env.DEV
+        ? localizedText('app.desktop.debugDisplayName')
+        : localizedText('app.name');
     document.title = applicationTitle;
     setApplicationWindowTitle(applicationTitle);
     setApplicationMenuLabels({

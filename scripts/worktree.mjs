@@ -17,12 +17,15 @@
 //       commit in --idle-days AND a clean tree. NEVER the primary checkout, the
 //       worktree you are standing in, or anything with uncommitted changes —
 //       `git worktree remove` without --force is the second lock on that door.
+//       On macOS it also sweeps the ~/Library/{WebKit,Caches} folders of
+//       `just tauri-dev` branches no worktree has checked out (lib/dev-app-storage.mjs).
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { sweepDevAppStorage } from './lib/dev-app-storage.mjs';
 import { envLines } from './lib/slot.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -285,7 +288,13 @@ function cmdGc(flags) {
     }
   }
 
-  if (!apply) return;
+  if (!apply) {
+    sweepDevAppStorage(
+      decided.filter((d) => !d.candidate && d.branch).map((d) => d.branch),
+      { apply: false },
+    );
+    return;
+  }
   let removed = 0;
   for (const d of candidates) {
     try {
@@ -304,6 +313,8 @@ function cmdGc(flags) {
     }
   }
   info(`removed ${removed} of ${candidates.length}; devices they owned: just qa-gc`);
+  const remaining = parseWorktrees(git(['worktree', 'list', '--porcelain'], primary));
+  sweepDevAppStorage(remaining.map((wt) => wt.branch).filter(Boolean), { apply: true });
 }
 
 function duHuman(p) {

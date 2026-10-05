@@ -35,12 +35,21 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { DEV_APP_FILE_NAME_PREFIX } from './lib/slot.mjs';
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 // The desktop binary name every build shares — the whole reason this file
 // exists. Used ONLY to enumerate candidates for classification, never to decide
 // that a candidate is safe.
 export const DESKTOP_BIN_NAME = 'futo-notes-tauri';
+
+// `just tauri-dev` on macOS re-executes the debug binary from a hard link named
+// for its branch (see devAppFileName), so that name enumerates too. Like the
+// bin name, it only makes a candidate; the path checks below decide.
+export function isDesktopExecutableName(fileName) {
+  return fileName === DESKTOP_BIN_NAME || fileName.startsWith(DEV_APP_FILE_NAME_PREFIX);
+}
 
 // The release app's default vault (M3). Never a QA target, and the single most
 // important string in this file.
@@ -257,7 +266,13 @@ export function verifyTarget(candidate, context) {
 // ---------------------------------------------------------------------------
 
 function run(command, args) {
-  const result = spawnSync(command, args, { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+  const result = spawnSync(command, args, {
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+    // Without a UTF-8 locale, macOS ps escapes non-ASCII in paths (`·` prints as
+    // `M-BM-7`), and the branch-named tauri-dev link would never enumerate.
+    env: command === 'ps' ? { ...process.env, LC_ALL: 'en_US.UTF-8' } : process.env,
+  });
   return result.status === 0 ? (result.stdout ?? '') : '';
 }
 
@@ -392,7 +407,7 @@ export function allCandidatePids() {
     for (const entry of fs.readdirSync('/proc')) {
       if (!/^\d+$/.test(entry)) continue;
       try {
-        if (path.basename(fs.realpathSync(`/proc/${entry}/exe`)) === DESKTOP_BIN_NAME) {
+        if (isDesktopExecutableName(path.basename(fs.realpathSync(`/proc/${entry}/exe`)))) {
           pids.push(Number(entry));
         }
       } catch {
@@ -406,7 +421,7 @@ export function allCandidatePids() {
   for (const line of run('ps', ['-axww', '-o', 'pid=,comm=']).split('\n')) {
     const match = /^\s*(\d+)\s+(.+)$/.exec(line);
     if (!match) continue;
-    if (path.basename(match[2].trim()) === DESKTOP_BIN_NAME) pids.push(Number(match[1]));
+    if (isDesktopExecutableName(path.basename(match[2].trim()))) pids.push(Number(match[1]));
   }
   return pids;
 }
@@ -483,7 +498,7 @@ function main(argv) {
   if (command === 'list') {
     const candidates = allCandidatePids().map(candidateFor);
     if (candidates.length === 0) {
-      console.log('no running process named futo-notes-tauri.');
+      console.log('no running desktop FUTO Notes process.');
       return 0;
     }
     for (const candidate of candidates) {
