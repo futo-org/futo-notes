@@ -560,8 +560,10 @@ test('a typed link is exactly what reopening the note would link', async ({ page
     ['https://a.com/x_y', 'https://a.com/x_y'],
   ]);
   await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
+  // The plain-text `https://` gets the serializer's stock `\:` (remark-gfm
+  // escapes a `:` between `s` and `/`, so it cannot start a literal).
   expect(await getContent(page)).toBe(
-    'go to www.example.com. or https://a.com/x_y, not https:// \n',
+    'go to www.example.com. or https://a.com/x_y, not https\\:// \n',
   );
 });
 
