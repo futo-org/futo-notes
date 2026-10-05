@@ -1,6 +1,75 @@
 use super::*;
 use crate::checkpoint::PendingCreate;
+use crate::sync::push::local_changes::prepare_upload;
 use crate::sync::SyncSummary;
+
+fn push_context<'a>(
+    http: &'a Http,
+    state: &'a mut ConnectedState,
+    root: &'a Path,
+    summary: &'a mut SyncSummary,
+) -> PushContext<'a> {
+    PushContext {
+        http,
+        state,
+        root,
+        summary,
+        pre_write: &no_pre_write,
+        save_checkpoint: &|_, _| Ok(()),
+    }
+}
+
+fn recorded(hash: &str, file: &LocalFile) -> ObjectState {
+    ObjectState {
+        object_id: "obj".into(),
+        version: 1,
+        blob_key: "blob".into(),
+        hash: Some(hash.to_owned()),
+        mtime_ms: Some(file.mtime),
+        size_bytes: Some(file.size),
+    }
+}
+
+#[test]
+fn a_same_length_rewrite_that_kept_its_mtime_still_uploads() {
+    let root = TempRoot::new();
+    std::fs::write(root.path().join("hub.md"), "see [[receive]]").unwrap();
+    let files = local_files(root.path()).unwrap();
+    let file = files[0].clone();
+    let mut state = connected();
+    state.object_map.insert(
+        "hub.md".into(),
+        recorded(&hash_sha256("see [[recieve]]"), &file),
+    );
+    let http = Http::new("http://127.0.0.1:1").unwrap();
+    let mut summary = SyncSummary::default();
+    let mut context = push_context(&http, &mut state, root.path(), &mut summary);
+
+    let candidate = prepare_upload(&mut context, &file, false);
+
+    assert!(
+        candidate.is_some(),
+        "a rewrite the filesystem never timestamped must still reach the peer"
+    );
+}
+
+#[test]
+fn a_genuinely_unchanged_file_is_still_not_uploaded() {
+    let root = TempRoot::new();
+    std::fs::write(root.path().join("hub.md"), "see [[receive]]").unwrap();
+    let files = local_files(root.path()).unwrap();
+    let file = files[0].clone();
+    let mut state = connected();
+    state.object_map.insert(
+        "hub.md".into(),
+        recorded(&hash_sha256("see [[receive]]"), &file),
+    );
+    let http = Http::new("http://127.0.0.1:1").unwrap();
+    let mut summary = SyncSummary::default();
+    let mut context = push_context(&http, &mut state, root.path(), &mut summary);
+
+    assert!(prepare_upload(&mut context, &file, false).is_none());
+}
 
 #[test]
 fn rename_detection_does_not_claim_a_pending_create_file() {

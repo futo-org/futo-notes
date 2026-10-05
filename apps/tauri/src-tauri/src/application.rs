@@ -160,6 +160,8 @@ pub(crate) fn run() {
             crate::sync::password_store::e2ee_password_delete,
             crate::local_notes::local_notes_bootstrap,
             crate::local_notes::local_notes_startup_listing,
+            crate::local_notes::local_notes_set_sort_order,
+            crate::local_notes::local_notes_recent_ids,
             crate::local_notes::local_notes_snapshot,
             crate::local_notes::local_notes_inventory,
             crate::local_notes::local_notes_read,
