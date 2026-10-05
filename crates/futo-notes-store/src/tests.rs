@@ -52,11 +52,11 @@ fn create_never_clobbers_a_concurrent_writer_at_the_chosen_id() {
         "create must re-suffix away from the taken id"
     );
     assert_eq!(
-        store.read("Note"),
+        store.read("Note").unwrap(),
         "peer wrote here",
         "the concurrent writer's file must not be clobbered"
     );
-    assert_eq!(store.read(&final_id), "my new note");
+    assert_eq!(store.read(&final_id).unwrap(), "my new note");
 }
 
 // The create path registers NO watcher suppression (D2, two-strikes redesign):
@@ -79,6 +79,45 @@ fn the_create_path_registers_no_watcher_suppression() {
     );
 }
 
+#[test]
+fn importing_markdown_preserves_the_filename_and_never_clobbers() {
+    let vault = TestRoot::new();
+    let external = TestRoot::new();
+    let source = external.0.join("grocery list.markdown");
+    fs::write(&source, "- milk\n").unwrap();
+    let store = store(&vault);
+
+    let first = store.import_markdown(&source).unwrap();
+    let second = store.import_markdown(&source).unwrap();
+
+    assert_eq!(first.final_id.as_deref(), Some("grocery list"));
+    assert_eq!(second.final_id.as_deref(), Some("grocery list-2"));
+    assert_eq!(store.read("grocery list").unwrap(), "- milk\n");
+    assert_eq!(store.read("grocery list-2").unwrap(), "- milk\n");
+    assert_eq!(fs::read_to_string(source).unwrap(), "- milk\n");
+}
+
+#[test]
+fn importing_rejects_non_markdown_files() {
+    let vault = TestRoot::new();
+    let external = TestRoot::new();
+    let source = external.0.join("grocery list.txt");
+    fs::write(&source, "not Markdown").unwrap();
+
+    let error = store(&vault).import_markdown(&source).unwrap_err();
+
+    assert_eq!(error, "only .md and .markdown files can be imported");
+    assert!(vault.0.read_dir().unwrap().next().is_none());
+}
+
+#[test]
+fn markdown_path_policy_accepts_both_extensions_case_insensitively() {
+    assert!(is_markdown_path(Path::new("note.md")));
+    assert!(is_markdown_path(Path::new("note.MARKDOWN")));
+    assert!(!is_markdown_path(Path::new("note.txt")));
+    assert!(!is_markdown_path(Path::new("note")));
+}
+
 // A divergent parked backup (install-complete crash boundary: old backup bytes
 // ≠ live) must be parked as a VISIBLE recovered note, never left eligible for a
 // canonical restore that would resurrect the note if the user later deletes the
@@ -93,7 +132,11 @@ fn a_divergent_backup_is_parked_visibly_and_never_resurrects_a_deleted_note() {
 
     store.bootstrap().unwrap();
 
-    assert_eq!(store.read("Welcome"), "installed", "live note untouched");
+    assert_eq!(
+        store.read("Welcome").unwrap(),
+        "installed",
+        "live note untouched"
+    );
     let recovered: Vec<_> = store
         .snapshot()
         .notes
@@ -105,7 +148,7 @@ fn a_divergent_backup_is_parked_visibly_and_never_resurrects_a_deleted_note() {
         1,
         "the divergent backup surfaced as a visible note"
     );
-    assert_eq!(store.read(&recovered[0].id), "old superseded");
+    assert_eq!(store.read(&recovered[0].id).unwrap(), "old superseded");
     assert!(
         !root.0.join(".sf-bak-1-1-1").exists(),
         "backup renamed into the recovered note"
@@ -138,15 +181,19 @@ fn parking_a_recovered_backup_never_clobbers_a_concurrent_writer() {
 
     store.bootstrap().unwrap();
 
-    assert_eq!(store.read("Welcome"), "live", "live note untouched");
+    assert_eq!(
+        store.read("Welcome").unwrap(),
+        "live",
+        "live note untouched"
+    );
     // The planted note at the first-chosen recovered name is intact...
     assert_eq!(
-        store.read("Welcome (recovered)"),
+        store.read("Welcome (recovered)").unwrap(),
         "peer at recovered name",
         "the concurrent writer at the recovered name must not be clobbered"
     );
     // ...and the recovered content re-suffixed to the next name.
-    assert_eq!(store.read("Welcome (recovered)-2"), "stranded");
+    assert_eq!(store.read("Welcome (recovered)-2").unwrap(), "stranded");
 }
 
 // A crash after the park hard_link but before the backup unlink leaves the
@@ -176,7 +223,7 @@ fn re_parking_after_a_crash_does_not_duplicate_the_recovered_note() {
         1,
         "re-sweep must not duplicate the recovered note"
     );
-    assert_eq!(store.read("Welcome (recovered)"), "old superseded");
+    assert_eq!(store.read("Welcome (recovered)").unwrap(), "old superseded");
     assert!(!root.0.join(".sf-bak-1-1-1").exists(), "backup cleaned up");
     assert!(
         !root.0.join(".sf-bak-1-1-1.path").exists(),
@@ -201,12 +248,12 @@ fn the_park_guard_does_not_confuse_a_similarly_named_note() {
     store.bootstrap().unwrap();
 
     assert_eq!(
-        store.read("Welcome (recovered)"),
+        store.read("Welcome (recovered)").unwrap(),
         "stranded",
         "the backup must still be parked as a NEW recovered note"
     );
     assert_eq!(
-        store.read("Welcome (recovered) draft"),
+        store.read("Welcome (recovered) draft").unwrap(),
         "stranded",
         "the user's similarly-named note is untouched"
     );
@@ -275,7 +322,7 @@ fn a_recovered_note_keeps_its_subfolder() {
         "recovered note stays in its folder"
     );
     assert!(recovered[0].id.starts_with("Projects/"));
-    assert_eq!(store.read(&recovered[0].id), "stranded");
+    assert_eq!(store.read(&recovered[0].id).unwrap(), "stranded");
 }
 
 #[test]
@@ -288,8 +335,8 @@ fn bootstrap_migrates_txt_collisions_once_before_returning_the_snapshot() {
     let result = store.bootstrap().unwrap();
     assert_eq!(result.migrated, 1);
     assert_eq!(result.seeded, 0);
-    assert_eq!(store.read("note"), "markdown");
-    assert_eq!(store.read("note (imported)"), "legacy");
+    assert_eq!(store.read("note").unwrap(), "markdown");
+    assert_eq!(store.read("note (imported)").unwrap(), "legacy");
     assert!(!root.0.join("note.txt").exists());
     assert!(root.0.join(".txt-migration-done").is_file());
 
@@ -807,10 +854,10 @@ fn rename_is_one_operation_that_moves_content_and_rewrites_resolvable_links() {
         .unwrap();
     assert_eq!(mutation.renamed[0].to, "Archive/groceries");
     assert_eq!(
-        store.read("Archive/groceries"),
+        store.read("Archive/groceries").unwrap(),
         "self [[Archive/groceries]]"
     );
-    assert_eq!(store.read("pointer"), "see [[Archive/groceries]]");
+    assert_eq!(store.read("pointer").unwrap(), "see [[Archive/groceries]]");
     assert!(!store.exists("Lists/groceries"));
 }
 
@@ -845,8 +892,8 @@ fn collision_check_sees_folded_twins_behind_variant_folders_at_any_depth() {
             .is_ok(),
         "a same-named note one level down is a different id"
     );
-    assert_eq!(store.read("Docs/Plans/roadmap"), "one");
-    assert_eq!(store.read("Caf\u{00E9}/menu"), "nfc");
+    assert_eq!(store.read("Docs/Plans/roadmap").unwrap(), "one");
+    assert_eq!(store.read("Caf\u{00E9}/menu").unwrap(), "nfc");
 
     // Unique-id allocation consults the same candidates: a create whose folded
     // id is taken behind variant folders gets the next suffix, never a shadow.
@@ -866,15 +913,15 @@ fn rename_never_overwrites_a_case_or_unicode_colliding_destination() {
     if store.write("Note", "other", None).is_err() {
         // A case-insensitive filesystem cannot hold both directory entries;
         // rejecting the second identity is the safe outcome there.
-        assert_eq!(store.read("note"), "mine");
+        assert_eq!(store.read("note").unwrap(), "mine");
         return;
     }
 
     let mutation = store.rename("note", "Note").unwrap();
     let final_id = mutation.final_id.clone().unwrap();
     assert_ne!(final_id, "Note");
-    assert_eq!(store.read("Note"), "other");
-    assert_eq!(store.read(&final_id), "mine");
+    assert_eq!(store.read("Note").unwrap(), "other");
+    assert_eq!(store.read(&final_id).unwrap(), "mine");
 }
 
 // Bootstrap must render the vault even when the search index can't open — a
@@ -936,7 +983,7 @@ fn a_failed_source_removal_during_rename_leaves_no_duplicate() {
         "rename must fail when the source can't be removed"
     );
     assert_eq!(
-        store.read("Src/note"),
+        store.read("Src/note").unwrap(),
         "the content",
         "source note preserved"
     );
@@ -957,10 +1004,10 @@ fn deleting_a_folder_moves_notes_up_with_collisions_before_removing_the_tree() {
 
     let mutation = store.delete_folder("A/B").unwrap();
     assert_eq!(mutation.renamed.len(), 2);
-    assert_eq!(store.read("A/note"), "existing");
-    assert_eq!(store.read("A/note-2"), "moved");
-    assert_eq!(store.read("A/C/deep"), "deep");
-    assert_eq!(store.read("pointer"), "[[A/note-2]]");
+    assert_eq!(store.read("A/note").unwrap(), "existing");
+    assert_eq!(store.read("A/note-2").unwrap(), "moved");
+    assert_eq!(store.read("A/C/deep").unwrap(), "deep");
+    assert_eq!(store.read("pointer").unwrap(), "[[A/note-2]]");
     assert!(!root.0.join("A/B").exists());
 }
 
@@ -988,7 +1035,7 @@ fn create_folder_and_move_note_commits_both_changes() {
 
     assert_eq!(mutation.final_id.as_deref(), Some("Projects/note"));
     assert!(root.0.join("Projects").is_dir());
-    assert_eq!(store.read("Projects/note"), "body");
+    assert_eq!(store.read("Projects/note").unwrap(), "body");
     assert!(!store.exists("note"));
 }
 
@@ -1014,8 +1061,11 @@ fn moving_a_folder_is_one_collision_safe_workflow_and_rewrites_links() {
             to: "Archive/Plans-2/roadmap".to_owned(),
         }]
     );
-    assert_eq!(store.read("Archive/Plans-2/roadmap"), "body");
-    assert_eq!(store.read("pointer"), "[[Archive/Plans-2/roadmap]]");
+    assert_eq!(store.read("Archive/Plans-2/roadmap").unwrap(), "body");
+    assert_eq!(
+        store.read("pointer").unwrap(),
+        "[[Archive/Plans-2/roadmap]]"
+    );
     assert!(!root.0.join("Projects/Plans").exists());
 }
 
@@ -1032,7 +1082,7 @@ fn moving_a_folder_refuses_itself_or_a_descendant_without_changing_the_vault() {
         );
     }
 
-    assert_eq!(store.read("Projects/Plans/roadmap"), "body");
+    assert_eq!(store.read("Projects/Plans/roadmap").unwrap(), "body");
     assert_eq!(store.snapshot().folders, ["Projects", "Projects/Plans"]);
 }
 
@@ -1047,7 +1097,7 @@ fn destructive_operations_refuse_the_vault_root_and_traversal() {
             "accepted {unsafe_path:?}"
         );
     }
-    assert_eq!(store.read("keep"), "body");
+    assert_eq!(store.read("keep").unwrap(), "body");
     assert!(!root.0.parent().unwrap().join("outside").exists());
 }
 
@@ -1374,7 +1424,7 @@ fn flush_draft_writes_when_the_note_still_holds_the_base() {
     let mutation = result.mutation.expect("a write projects a mutation");
     assert_eq!(mutation.final_id.as_deref(), Some("note"));
     assert_eq!(mutation.upserted[0].note.id, "note");
-    assert_eq!(store.read("note"), "draft text");
+    assert_eq!(store.read("note").unwrap(), "draft text");
 }
 
 // `vault_mutation_guard` is ONE process-wide mutex, so every test in this
@@ -1452,7 +1502,7 @@ fn flush_draft_serializes_its_check_and_write_against_sync_mutations() {
     );
     sync_write.join().unwrap();
     assert_eq!(
-        store.read("note"),
+        store.read("note").unwrap(),
         "peer text",
         "the later sync mutation wins instead of being clobbered by a stale flush"
     );
@@ -1499,11 +1549,11 @@ fn flush_draft_parks_a_diverged_draft_as_a_dated_conflict_copy() {
     assert_eq!(mutation.final_id.as_deref(), Some(expected_copy.as_str()));
     assert_eq!(mutation.upserted[0].note.id, expected_copy);
     assert_eq!(
-        store.read("note"),
+        store.read("note").unwrap(),
         "peer version",
         "diverged note untouched"
     );
-    assert_eq!(store.read(&expected_copy), "my draft");
+    assert_eq!(store.read(&expected_copy).unwrap(), "my draft");
 }
 
 #[test]
@@ -1516,7 +1566,7 @@ fn flush_draft_recreates_a_peer_deleted_note_at_the_original_id() {
         .unwrap();
 
     assert_eq!(result.disposition, FlushDisposition::Recreated);
-    assert_eq!(store.read("Gone"), "surviving draft");
+    assert_eq!(store.read("Gone").unwrap(), "surviving draft");
     let mutation = result.mutation.expect("a recreate projects a mutation");
     assert_eq!(mutation.final_id.as_deref(), Some("Gone"));
     assert_eq!(mutation.upserted[0].note.id, "Gone");
@@ -1563,11 +1613,11 @@ fn flush_draft_parks_when_the_id_reappears_inside_the_recreate_window() {
         }
     );
     assert_eq!(
-        store.read("Gone"),
+        store.read("Gone").unwrap(),
         "peer recreated",
         "the reappeared note must not be clobbered"
     );
-    assert_eq!(store.read(&expected_copy), "my draft");
+    assert_eq!(store.read(&expected_copy).unwrap(), "my draft");
 }
 
 #[test]
@@ -1638,9 +1688,12 @@ fn each_distinct_diverged_draft_gets_its_own_counter_suffixed_copy() {
             parked_id: format!("note (conflict {date} 2)")
         }
     );
-    assert_eq!(store.read(&format!("note (conflict {date})")), "draft one");
     assert_eq!(
-        store.read(&format!("note (conflict {date} 2)")),
+        store.read(&format!("note (conflict {date})")).unwrap(),
+        "draft one"
+    );
+    assert_eq!(
+        store.read(&format!("note (conflict {date} 2)")).unwrap(),
         "draft two"
     );
 }
@@ -1666,7 +1719,10 @@ fn the_park_guard_ignores_a_similarly_named_note_with_identical_content() {
             parked_id: format!("note (conflict {date})")
         }
     );
-    assert_eq!(store.read(&format!("note (conflict {date})")), "my draft");
+    assert_eq!(
+        store.read(&format!("note (conflict {date})")).unwrap(),
+        "my draft"
+    );
 }
 
 // The engine's naming rule peels an existing conflict suffix instead of
@@ -1711,12 +1767,12 @@ fn flush_draft_recreate_parks_instead_of_shadowing_a_case_colliding_note() {
         other => panic!("expected the draft parked, not a shadow install: {other:?}"),
     };
     assert_eq!(
-        store.read("note"),
+        store.read("note").unwrap(),
         "surviving peer",
         "the case-colliding sibling must be untouched"
     );
     assert_eq!(
-        store.read(&parked_id),
+        store.read(&parked_id).unwrap(),
         "my draft",
         "the draft survives as a non-shadowing conflict copy"
     );
@@ -1750,9 +1806,9 @@ fn flush_draft_park_skips_a_case_colliding_conflict_id() {
         format!("note (conflict {date} 2)"),
         "the park must skip the case-colliding first candidate, not shadow it"
     );
-    assert_eq!(store.read(&parked_id), "my draft");
+    assert_eq!(store.read(&parked_id).unwrap(), "my draft");
     assert_eq!(
-        store.read(&format!("Note (conflict {date})")),
+        store.read(&format!("Note (conflict {date})")).unwrap(),
         "unrelated copy",
         "the case-colliding sibling must be untouched"
     );
@@ -1775,7 +1831,7 @@ fn flush_draft_parks_inside_the_notes_folder() {
             parked_id: expected_copy.clone()
         }
     );
-    assert_eq!(store.read(&expected_copy), "my draft");
+    assert_eq!(store.read(&expected_copy).unwrap(), "my draft");
 }
 
 // A writer outside the store's serialization landing on the chosen copy name
@@ -1798,11 +1854,14 @@ fn flush_draft_never_clobbers_a_concurrent_writer_at_the_parked_name() {
         }
     );
     assert_eq!(
-        store.read(&format!("note (conflict {date})")),
+        store.read(&format!("note (conflict {date})")).unwrap(),
         "peer at copy name",
         "the concurrent writer's copy must not be clobbered"
     );
-    assert_eq!(store.read(&format!("note (conflict {date} 2)")), "my draft");
+    assert_eq!(
+        store.read(&format!("note (conflict {date} 2)")).unwrap(),
+        "my draft"
+    );
 }
 
 #[test]
@@ -1922,7 +1981,7 @@ fn vault_migration_refuses_a_different_destination_without_changing_either_vault
 
     assert!(store.stage_vault_migration(&destination.0).is_err());
 
-    assert_eq!(store.read("note"), "source");
+    assert_eq!(store.read("note").unwrap(), "source");
     assert_eq!(
         fs::read_to_string(destination.0.join("note.md")).unwrap(),
         "destination"
@@ -1945,7 +2004,7 @@ fn vault_migration_finalize_refuses_to_delete_a_changed_source() {
         VaultMigrationFinalization::DestinationChanged
     );
     assert!(source.0.exists());
-    assert_eq!(store.read("late"), "new edit");
+    assert_eq!(store.read("late").unwrap(), "new edit");
 }
 
 #[cfg(unix)]
@@ -1988,7 +2047,7 @@ fn vault_migration_retains_a_shared_source_that_external_writers_can_reach() {
             .unwrap(),
         VaultMigrationFinalization::SourceRetained
     );
-    assert_eq!(store.read("note"), "source");
+    assert_eq!(store.read("note").unwrap(), "source");
 }
 
 #[test]
@@ -2048,10 +2107,10 @@ fn editor_rename_preserves_peer_changes_and_parks_the_draft() {
     let mutation = store
         .save_draft_as("Original", "Renamed", "base", "my draft")
         .unwrap();
-    assert_eq!(store.read("Original"), "peer edit");
+    assert_eq!(store.read("Original").unwrap(), "peer edit");
     let final_id = mutation.final_id.unwrap();
     assert!(final_id.starts_with("Renamed (conflict "));
-    assert_eq!(store.read(&final_id), "my draft");
+    assert_eq!(store.read(&final_id).unwrap(), "my draft");
     assert!(mutation.renamed.is_empty());
 }
 
@@ -2066,8 +2125,8 @@ fn editor_move_saves_and_relinks_in_one_workflow() {
         .unwrap();
     assert_eq!(mutation.final_id.as_deref(), Some("Folder/Original"));
     assert!(!store.exists("Original"));
-    assert_eq!(store.read("Folder/Original"), "my draft");
-    assert_eq!(store.read("Link"), "[[Folder/Original]]");
+    assert_eq!(store.read("Folder/Original").unwrap(), "my draft");
+    assert_eq!(store.read("Link").unwrap(), "[[Folder/Original]]");
 }
 
 #[cfg(unix)]
@@ -2133,4 +2192,133 @@ fn a_parent_swapped_after_validation_cannot_redirect_a_write() {
         fs::read_to_string(root.0.join("original-folder/note.md")).unwrap(),
         "base"
     );
+}
+
+// A relink rewrites other notes' bodies, so it must never re-encode one: a
+// note that is not valid UTF-8 (a Latin-1 file another editor left in the
+// vault) is skipped byte-for-byte, and the skip is reported. Decoding it
+// lossily and writing it back destroyed every such byte irrecoverably, and the
+// now-valid file then synced to every device. Both relink entry points: a
+// note rename and a folder rename.
+#[test]
+fn a_relink_never_rewrites_a_note_that_is_not_utf8() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("Target", "target body", None).unwrap();
+    store.write("Box/Filed", "filed body", None).unwrap();
+    store.write("Linker", "see [[Target]]", None).unwrap();
+    // "caf\xe9 [[Target]] [[Box/Filed]]": a Latin-1 e-acute, invalid as UTF-8.
+    let latin: &[u8] = b"caf\xe9 [[Target]] [[Box/Filed]]";
+    fs::write(root.0.join("Latin.md"), latin).unwrap();
+
+    let renamed = store.rename("Target", "Target moved").unwrap();
+    assert_eq!(fs::read(root.0.join("Latin.md")).unwrap(), latin);
+    assert_eq!(store.read("Linker").unwrap(), "see [[Target moved]]");
+    assert_eq!(renamed.relinked, vec!["Linker".to_owned()]);
+    assert!(
+        renamed
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("Latin")),
+        "the skipped note is reported: {:?}",
+        renamed.warnings
+    );
+
+    store.rename_folder("Box", "Crate").unwrap();
+    assert_eq!(fs::read(root.0.join("Latin.md")).unwrap(), latin);
+}
+
+// A note that exists but cannot be decoded is a read FAILURE, never an empty
+// note: the desktop loader turns a failed read into "go home, create nothing",
+// while an empty answer opened the note as a blank page whose every save then
+// failed. A missing note still reads as empty (a broken wikilink opens through
+// the ordinary path and is created on its first save).
+#[test]
+fn a_note_that_is_not_utf8_fails_to_read_instead_of_reading_empty() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    let latin: &[u8] = b"caf\xe9 au lait";
+    fs::write(root.0.join("Latin.md"), latin).unwrap();
+    assert!(store.exists("Latin"));
+    let read = store.read("Latin");
+    assert!(
+        read.is_err(),
+        "an existing, non-empty note read as {read:?}"
+    );
+    assert_eq!(store.read("Missing").unwrap(), "");
+    assert_eq!(fs::read(root.0.join("Latin.md")).unwrap(), latin);
+}
+
+// The read side of RC-48. A file holding a lone UTF-16 surrogate as WTF-8 bytes
+// (ED A0 80: what a UTF-16 program writes without repairing) is not UTF-8, so it
+// is refused exactly like the Latin-1 note above: an error, never an editor
+// document carrying a surrogate, and the bytes stay as they are. The editor
+// writes such a surrogate as U+FFFD on the way out (decision 16A), so a save
+// never produces these bytes and a read never has to repair them.
+#[test]
+fn a_note_holding_wtf8_surrogate_bytes_fails_to_read_and_is_left_alone() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    let wtf8: &[u8] = b"lone \xed\xa0\x80 high, lone \xed\xb8\x80 low";
+    fs::write(root.0.join("Wtf8.md"), wtf8).unwrap();
+    assert!(store.read("Wtf8").is_err());
+    assert_eq!(fs::read(root.0.join("Wtf8.md")).unwrap(), wtf8);
+
+    // What the editor sends for the same text: U+FFFD, three valid bytes each.
+    store
+        .write("Fixed", "lone \u{FFFD} high, lone \u{FFFD} low", None)
+        .unwrap();
+    assert_eq!(
+        fs::read(root.0.join("Fixed.md")).unwrap(),
+        "lone \u{FFFD} high, lone \u{FFFD} low".as_bytes()
+    );
+    assert_eq!(
+        store.read("Fixed").unwrap(),
+        "lone \u{FFFD} high, lone \u{FFFD} low"
+    );
+}
+
+// A relink rewrites notes nobody asked to change, one of which may be open in
+// an editor that still holds the pre-rename bytes. The mutation names every
+// note whose body it rewrote — by final id, including the renamed note's own
+// self-link — so the editor adopts those bytes instead of reading the
+// difference as a peer's edit and parking a conflict copy on its next save.
+#[test]
+fn a_relink_reports_every_note_whose_body_it_rewrote() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("Target", "target body", None).unwrap();
+    store.write("Hub", "see [[Target]] here", None).unwrap();
+    store.write("Bystander", "no links", None).unwrap();
+
+    // Renaming ANOTHER note: the linking note is reported, the moved one and a
+    // note without a matching link are not.
+    let renamed = store.rename("Target", "Target moved").unwrap();
+    assert_eq!(store.read("Hub").unwrap(), "see [[Target moved]] here");
+    assert_eq!(renamed.relinked, vec!["Hub".to_owned()]);
+
+    // A folder rename reports the note OUTSIDE the folder that links into it.
+    store.write("Box/Filed", "filed", None).unwrap();
+    store.write("Index", "[[Box/Filed]]", None).unwrap();
+    let folder = store.rename_folder("Box", "Crate").unwrap();
+    assert_eq!(store.read("Index").unwrap(), "[[Crate/Filed]]");
+    assert_eq!(folder.relinked, vec!["Index".to_owned()]);
+
+    // The editor's own title rename rewrites the note's self-link: reported at
+    // the final id, next to the draft the editor sent.
+    store.write("Journal", "back to [[Journal]]", None).unwrap();
+    let retitled = store
+        .save_draft_as(
+            "Journal",
+            "Diary",
+            "back to [[Journal]]",
+            "back to [[Journal]] today",
+        )
+        .unwrap();
+    assert_eq!(store.read("Diary").unwrap(), "back to [[Diary]] today");
+    assert_eq!(retitled.relinked, vec!["Diary".to_owned()]);
+
+    // A rename that rewrites no link reports nothing.
+    let plain = store.rename("Bystander", "Bystander moved").unwrap();
+    assert!(plain.relinked.is_empty(), "{:?}", plain.relinked);
 }

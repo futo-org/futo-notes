@@ -1,3 +1,4 @@
 {
-  "_comment": "Tauri commands registered in apps/tauri/src-tauri/src/application.rs's generate_handler![...] with no invoke() caller anywhere in src/ today (architecture-hardening.md F24 / L1-2 / L2-4 gate 1). Checked by scripts/check-command-reachability.mjs. Remove an entry the moment it gets a caller (or gets deleted from Rust) \u2014 a lingering entry either way is a stale allowlist and fails the gate."
+  "_comment": "Tauri commands registered in apps/tauri/src-tauri/src/application.rs's generate_handler![...] with no invoke() caller anywhere in src/ today (architecture-hardening.md F24 / L1-2 / L2-4 gate 1). Checked by scripts/check-command-reachability.mjs. Remove an entry the moment it gets a caller (or gets deleted from Rust) \u2014 a lingering entry either way is a stale allowlist and fails the gate.",
+  "app_menu_dispatch_for_test": "Debug-build-only: tests/macos-quit-flush.mjs drives the Quit menu item's handler through the dev MCP bridge (execute_js), not from src/. A no-op in release builds."
 }

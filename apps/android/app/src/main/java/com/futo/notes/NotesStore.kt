@@ -16,6 +16,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import com.futo.notes.storage.NotesStorage
 import com.futo.notes.storage.StorageDestination
@@ -66,6 +67,45 @@ data class PendingDraft(val id: String, val base: String, val content: String)
 sealed interface NoteMutationOutcome<out T> {
     data class Committed<T>(val value: T) : NoteMutationOutcome<T>
     data object Failed : NoteMutationOutcome<Nothing>
+}
+
+/**
+ * A committed rename or move: the note's final id, and — only when the
+ * engine's relink rewrote the note's OWN links (a self-link) — the body it left
+ * on disk. The editor saved a draft carrying the old link text and the relink
+ * then changed it, so the editor's baseline must become this body, not the
+ * draft (RC-71: the pre-relink baseline made the next save read the relink as a
+ * peer's edit and park a conflict copy). Mirrors iOS `CommittedNote`.
+ */
+data class CommittedNote(val id: String, val relinkedBody: String?)
+
+/** What the editor holds after a rename/move whose relink rewrote its own body. */
+data class RelinkRebase(
+    /** The baseline: what the file now holds. */
+    val savedContent: String,
+    /** The editor's text. */
+    val content: String,
+    /** Push [content] into the live editor (selection-preserving adopt). */
+    val adoptIntoEditor: Boolean,
+)
+
+/**
+ * [flushed] is the draft the engine saved before it relinked; [live] is what
+ * the editor holds now; [relinkedBody] is the file after the relink.
+ *
+ * The file is the baseline whatever the editor holds. When nothing was typed
+ * since the snapshot the editor adopts the file, so it shows the relinked link
+ * text. A draft typed while the workflow committed is kept (the same
+ * rebase-and-keep the desktop session applies): it still carries the old link
+ * text and is saved over the file without a conflict copy (RC-70). Mirrors iOS
+ * `rebasedOnRelink`.
+ */
+internal fun rebasedOnRelink(flushed: String, live: String, relinkedBody: String?): RelinkRebase {
+    if (relinkedBody == null || relinkedBody == flushed) {
+        return RelinkRebase(flushed, live, adoptIntoEditor = false)
+    }
+    if (live != flushed) return RelinkRebase(relinkedBody, live, adoptIntoEditor = false)
+    return RelinkRebase(relinkedBody, relinkedBody, adoptIntoEditor = true)
 }
 
 /**
@@ -196,12 +236,18 @@ internal fun derivePendingDraft(
  * Idempotent, and a no-op when every open editor is clean / closed. Mirrors iOS
  * `NotesStore.pendingDraft` + `flushPendingEditor` [editor.md].
  */
+/** The longest a leave-foreground flush waits on the editors' reads: three
+ *  6 s capture deadlines and the autosave in flight. */
+internal const val LIVE_FLUSH_BUDGET_MS = 40_000L
+
 internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> Unit) {
     private var seq: Long = 0
     private var retiredThrough = 0L
-    fun reset() { retiredThrough = seq; providers.clear(); retained.clear() }
+    fun reset() { retiredThrough = seq; providers.clear(); retained.clear(); refreshers.clear() }
     fun owns(token: Long): Boolean = token > retiredThrough && token <= seq
     private val providers = LinkedHashMap<Long, () -> PendingDraft?>()
+    private val refreshers = LinkedHashMap<Long, suspend () -> Unit>()
+    private var liveFlushes = 0
     private val retained = LinkedHashMap<Long, PendingDraft>()
 
     /** A newly-composed editor claims an entry; returns its unique generation
@@ -218,6 +264,7 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
     /** The editor left composition. Keep its last dirty value until a storage
      *  operation proves that exact draft durable. */
     fun release(token: Long) {
+        refreshers.remove(token)
         providers.remove(token)?.invoke()?.let { retained[token] = it }
     }
 
@@ -260,7 +307,54 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
      *  LAST-registered provider's draft (LinkedHashMap insertion order): the
      *  incoming editor is the user's current view, so its content wins. */
     fun flush() {
+        // A live flush is reading the editor first; writing the older
+        // change-fed draft now would leave the newer text a stale base.
+        if (liveFlushes > 0) return
         currentDrafts().forEach { persist(it) }
+    }
+
+    /** The editor registers how to bring its draft up to date with the LIVE
+     *  editor — the read a leave-foreground flush makes first ([flushLive]). */
+    fun setRefresher(token: Long, refresher: suspend () -> Unit) {
+        if (token > retiredThrough) refreshers[token] = refresher
+    }
+
+    /** The leave-foreground flush (RC-92): every open editor first reads its
+     *  live document into its draft, THEN [flush] persists the drafts.
+     *
+     *  The plain [flush] saves only what the editor has already reported, and a
+     *  note that is still streaming its tail reports nothing at all, so an edit
+     *  typed into it was lost to backgrounding. The change-fed flush is held
+     *  back for the duration of the read rather than raced against it: two
+     *  writes of different text over the same base would park the newer one as
+     *  a conflict copy. A read that cannot answer leaves its draft as it was,
+     *  so the flush still persists what the editor had reported. */
+    suspend fun flushLive(budgetMs: Long = LIVE_FLUSH_BUDGET_MS) {
+        val readers = refreshers.values.toList()
+        if (readers.isEmpty()) {
+            flush()
+            return
+        }
+        liveFlushes += 1
+        try {
+            // Bounded as a whole: a read that never returns must not hold the
+            // change-fed flush back for good.
+            withTimeoutOrNull(budgetMs) {
+                readers.forEach { refresh ->
+                    try {
+                        refresh()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // The refresher logs its own failure; this draft is
+                        // flushed as the editor last reported it.
+                    }
+                }
+            }
+        } finally {
+            liveFlushes -= 1
+            flush()
+        }
     }
 
     /** Snapshot and coalesce the live drafts for an exclusive vault operation. */
@@ -389,7 +483,18 @@ class NotesStore(
         }
     }
 
-    suspend fun read(id: String): String = withCore { core.read(id) }
+
+    /** A missing note reads as empty; null means the note exists but cannot be
+     *  read (bytes that are not UTF-8), so it must never open as a blank page. */
+    suspend fun read(id: String): String? =
+        try {
+            withCore { core.read(id) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e("NotesStore", "read note failed for $id", e)
+            null
+        }
     suspend fun readIfExists(id: String): String? = withCore { core.readIfExists(id) }
 
     /** Save an editor image and consume its filename while holding the same
@@ -481,6 +586,11 @@ class NotesStore(
      *  asynchronous flush proves it durable. */
     fun releaseDraftOwnership(token: Long) = pendingEditor.release(token)
 
+    /** The editor registers how to read its LIVE document into its draft, for
+     *  [flushPendingEditorLive]. Released with the draft provider. */
+    fun setEditorRefresher(token: Long, refresher: suspend () -> Unit) =
+        pendingEditor.setRefresher(token, refresher)
+
     /** Flush the open editor's pending draft to disk if it has unsaved edits.
      *  Called from MainActivity.onPause (the first leave-foreground signal).
      *  Fire-and-forget via [flushAsync], which uses persist-or-park semantics.
@@ -488,6 +598,14 @@ class NotesStore(
      *  Best-effort: the write is fire-and-forget, so an immediate process death
      *  can still beat it (same on iOS). */
     fun flushPendingEditor() = pendingEditor.flush()
+
+    /** [flushPendingEditor] after reading the live editor (RC-92): what a note
+     *  still streaming its tail holds is known only to the editor. Returns at
+     *  once — the read is asynchronous, so the caller (`onPause`) never waits
+     *  on the renderer. */
+    fun flushPendingEditorLive() {
+        scope.launch { pendingEditor.flushLive() }
+    }
 
     suspend fun settlePendingEditorDrafts(): Boolean =
         settlePendingDrafts(
@@ -673,7 +791,7 @@ class NotesStore(
         scope.launch { delete(id, ownerToken = ownerToken) }
     }
 
-    suspend fun rename(oldId: String, newId: String, draft: PendingDraft? = null, ownerToken: Long? = null): NoteMutationOutcome<String> {
+    suspend fun rename(oldId: String, newId: String, draft: PendingDraft? = null, ownerToken: Long? = null): NoteMutationOutcome<CommittedNote> {
         if (ownerToken != null && !pendingEditor.owns(ownerToken)) return NoteMutationOutcome.Failed
         currentCoroutineContext().ensureActive()
         val identity = editorDraftCoordinator.beginIdentityMutation(oldId)
@@ -692,7 +810,7 @@ class NotesStore(
                 editorDraftCoordinator.finishIdentityMutation(identity, committed = true)
                 editorDraftCoordinator.reopen(finalId)
                 signalLocalChange()
-                NoteMutationOutcome.Committed(finalId)
+                NoteMutationOutcome.Committed(CommittedNote(finalId, mutation.finalBody))
             }
         } catch (e: CancellationException) {
             editorDraftCoordinator.finishIdentityMutation(identity, committed = false)
@@ -710,7 +828,7 @@ class NotesStore(
         createFolder: Boolean = false,
         draft: PendingDraft? = null,
         ownerToken: Long? = null,
-    ): NoteMutationOutcome<String> {
+    ): NoteMutationOutcome<CommittedNote> {
         if (ownerToken != null && !pendingEditor.owns(ownerToken)) return NoteMutationOutcome.Failed
         currentCoroutineContext().ensureActive()
         val identity = editorDraftCoordinator.beginIdentityMutation(id)
@@ -734,7 +852,7 @@ class NotesStore(
                 editorDraftCoordinator.finishIdentityMutation(identity, committed = true)
                 editorDraftCoordinator.reopen(finalId)
                 signalLocalChange()
-                NoteMutationOutcome.Committed(finalId)
+                NoteMutationOutcome.Committed(CommittedNote(finalId, mutation.finalBody))
             }
         } catch (e: CancellationException) {
             editorDraftCoordinator.finishIdentityMutation(identity, committed = false)

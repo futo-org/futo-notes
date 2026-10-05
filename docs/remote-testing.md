@@ -5,17 +5,21 @@ stays free for the work only it can do: Xcode builds, the iOS simulator, and the
 app.
 
 ```bash
-just remote-doctor        # is the box ready? what needs a human with sudo?
-just remote-check         # the pre-merge umbrella (== a Mac `just check`)
-just remote-rust          # cargo test --workspace
-just remote-sync          # cross-platform E2EE sync
-just remote-android       # Rust .so + bindings + both flavors' debug APKs + JVM unit tests
-just remote test-full     # any other portable recipe
-just remote --rsync test-unit   # ...against your dirty working tree
+node scripts/remote-test.mjs --doctor        # is the box ready? what needs a human with sudo?
+node scripts/remote-test.mjs check           # the pre-merge umbrella (== a Mac `just check`)
+node scripts/remote-test.mjs test-rust-full  # cargo test --workspace
+just remote-sync                              # cross-platform E2EE sync — NEEDS A DISPLAY, see below
+node scripts/remote-test.mjs build-android-native \
+  && node scripts/remote-test.mjs test-android-native   # Rust .so + bindings + both flavors' debug APKs + JVM unit tests
+node scripts/remote-test.mjs test-unit        # any other portable recipe
+node scripts/remote-test.mjs --rsync test-unit   # ...against your dirty working tree
 ```
 
-The mechanism is `scripts/remote-test.mjs`; the recipes are thin wrappers. `node
-scripts/remote-test.mjs --help` prints the full flag list.
+The mechanism is `scripts/remote-test.mjs`, called directly for everything except cross-platform
+sync — `just remote-sync` is the one wrapper kept as a `just` recipe (removed 2026-09: `remote`,
+`remote-doctor`, `remote-check`, `remote-rust`, `remote-android` — zero invocations in 30 days; see
+`docs/agents/justfile-notes.md` "Removed recipes"). `node scripts/remote-test.mjs --help` prints the
+full flag list.
 
 ## The default box
 
@@ -28,14 +32,15 @@ scripts/remote-test.mjs --help` prints the full flag list.
 | cargo target | `~/ci/futo-main/target` — repo-local and warm across runs; `CARGO_TARGET_DIR` is deliberately NOT set (see below) |
 
 Override with `$FUTO_REMOTE_HOST` / `$FUTO_REMOTE_USER` (or `--host` / `--user`), and
-`$FUTO_REMOTE_DIR` / `$FUTO_REMOTE_REPO` for the paths. `just remote-doctor` on a fresh box tells
-you what is missing and prints the exact commands for anything needing root, so a second Linux box
-is cheap to add.
+`$FUTO_REMOTE_DIR` / `$FUTO_REMOTE_REPO` for the paths. `node scripts/remote-test.mjs --doctor` on a
+fresh box tells you what is missing and prints the exact commands for anything needing root, so a
+second Linux box is cheap to add.
 
 Every invocation re-establishes the environment, because `ssh host cmd` gets a non-interactive shell
 that reads no profile: the fnm environment is loaded (node is otherwise **absent from `PATH`**), and
 the exact version in `.nvmrc` is activated once the worktree is checked out. The box needs `fnm`
-installed once — `just remote-doctor` reports it as required and prints the command. `~/.local/bin` and
+installed once — `node scripts/remote-test.mjs --doctor` reports it as required and prints the
+command. `~/.local/bin` and
 `~/.cargo/bin` are prepended,
 `ANDROID_NDK_HOME` is pinned, and a repo-root `dist/` is created (M20 — `cargo build` needs it to
 exist).
@@ -61,7 +66,7 @@ And one is pinned rather than cleared: **`JAVA_HOME`**. Fedora's default JDK is 
 Gradle 8.14.3 cannot run on — and it says so only as `What went wrong: 25.0.4`, naming neither Java
 nor the constraint, _after_ the Rust `.so` and Kotlin bindings have built fine. `remote-test` picks
 the first installed JDK 21 (then 17) from `GRADLE_JDK_CANDIDATES`; override with
-`$FUTO_REMOTE_JAVA_HOME`, and `just remote-doctor` reports the selection.
+`$FUTO_REMOTE_JAVA_HOME`, and `node scripts/remote-test.mjs --doctor` reports the selection.
 
 `ANDROID_NDK_HOME` is pinned to the `ndkVersion` in `apps/android/app/build.gradle.kts`, read from
 the checkout rather than defaulting to "newest installed". A mismatch between the NDK AGP uses and
@@ -90,13 +95,15 @@ prove Windows WebView2): a passing run on the wrong engine is not evidence about
    swift-format (`build-rust-ios`, `build-ios-native`, `test-ios-native`, `ios-native*`,
    `deploy-ios`, `lint-swift`, every `sim-*`), recipes whose _purpose_ is the shipped desktop engine
    (`test-desktop-smoke`), interactive dev/QA commands
-   (`tauri-dev`, `test-headed`, `test-ui`, `android-drive`, …), recipes needing root
+   (`tauri-dev`, `android-drive`, …), recipes needing root
    (`deploy-deb`, `deploy-rpm`), and ones that manage the machine you are sitting at (`qa-claim`,
    `qa-release`, `qa-clone-target` — the last is APFS `cp -Rc`). Refusal resolves the justfile's
-   aliases first, so `just remote in` is refused as `ios-native`.
+   aliases first, so `node scripts/remote-test.mjs in` is refused as `ios-native`.
 2. **Caveated** — allowed, but a `CAVEAT:` line names what a green run leaves uncovered, and the
    footer repeats it. `test-e2e*` (Linux Chromium/WebKit builds),
-   `test-cross-platform` (WebKitGTK Tauri app), and `prepush`.
+   `test-cross-platform` (WebKitGTK Tauri app — and it needs a Wayland/X display, which a bare
+   `ssh` shell does not have: see "Suites that need a display" below), and `prepush` (which
+   includes that same leg).
 3. **Clean** — everything else, including `check`. `just check` is tsc, eslint, prettier,
    svelte-check, vitest under jsdom, the arch gates, the Rust conformance tests and a vite build.
    None of them start a real web engine, so a remote `check` is a true substitute for a Mac `check`
@@ -167,10 +174,54 @@ Three defences, in order of how much they can actually promise:
 Bookkeeping (the `pnpm install` stamp) lives in `~/.cache/futo-remote-test/`, never inside the
 checkout, so it cannot dirty the tree or confuse a `git status` check.
 
+## Suites that need a display (`test-cross-platform`, `remote-sync`, `prepush`)
+
+`test-cross-platform` boots real Tauri desktop clients (WebKitGTK), and its setup gate
+(`scripts/setup-worktree.mjs desktop`, run by `build-desktop-test`) refuses to start without
+`DISPLAY` or `WAYLAND_DISPLAY`. An `ssh host cmd` shell has neither, so the documented one-liner
+
+```bash
+node scripts/remote-test.mjs test-cross-platform   # or `just remote-sync`, or `prepush`
+```
+
+is **not** a non-interactive-ssh-only workflow: on a bare shell it dies in about nine seconds with
+`no DISPLAY or WAYLAND_DISPLAY` and zero scenarios run (L1-004). It is a hard failure, not a
+silent skip, so nothing is mis-reported green. `check`, `test-rust*`, `test-unit`, the Android
+build/JVM legs and the Playwright suites (`test-e2e*`, the editor-embed specs — headless Chromium)
+do not need a display and work over plain ssh.
+
+The workaround the hardening lanes used is a private, headless Wayland compositor on the box.
+`kwin_wayland --virtual` is a real compositor (WebKitGTK renders through the same Wayland path as on
+a desktop session) with no monitor and nothing to look at, so unlike an Xvfb framebuffer it does not
+change the compositing the clients are exercised under:
+
+```bash
+ssh jfedora
+export XDG_RUNTIME_DIR=/run/user/$(id -u)                 # ssh shells do not set it
+SOCK=wayland-mine                                         # unique per run: other lanes use wayland-l1, -l6d, ...
+kwin_wayland --virtual --socket "$SOCK" --width 1600 --height 1000 >/tmp/$SOCK.log 2>&1 &
+KWIN=$!                                                   # kill THIS pid when done (never by process name)
+export WAYLAND_DISPLAY=$SOCK
+# ... then run the suite from the same shell, e.g. inside the runner's worktree:
+systemd-run --user --scope -p MemoryMax=24G node tests/cross-platform-sync.mjs --no-android
+kill $KWIN
+```
+
+- Give every run its **own** socket name and kill it by PID. A shared socket, or a kill by process name, takes
+  down another lane's clients (and the box's own desktop session if it has one).
+- `remote-test.mjs` does not start a compositor for you; when driving through it, export
+  `WAYLAND_DISPLAY`/`XDG_RUNTIME_DIR` in the environment that runs it on the box (or run the
+  harness directly as above). `--no-android` skips the Android-only scenarios, which need an
+  emulator the box does not boot (see "Known gaps").
+- Heavy jobs go under `systemd-run --user --scope -p MemoryMax=24G` so a runaway build cannot take
+  the box down for everyone else.
+- A run under `kwin_wayland --virtual` last measured 33/33 to 36/36 scenarios passing, ~190s.
+
 ## Android
 
-Compile and JVM-unit legs (`just remote-android`) belong here now: 32 cores build the four-ABI Rust
-`.so` far faster than the Mac, and nothing about them needs macOS.
+Compile and JVM-unit legs (`node scripts/remote-test.mjs build-android-native` +
+`node scripts/remote-test.mjs test-android-native`) belong here now: 32 cores build the four-ABI
+Rust `.so` far faster than the Mac, and nothing about them needs macOS.
 
 Interactive Android **device QA** should also move here eventually — `/dev/kvm` makes the box's
 emulators dramatically faster than the Mac's, where x86 images are emulated. It has not moved yet
@@ -191,8 +242,11 @@ scenarios and 51s is the single `large sync` case).
 
 ## Known gaps
 
-- `just remote-android`'s instrumentation and storage legs (`test-android-native-ui`,
-  `test-android-storage`) need an emulator booted on the box; nothing here boots one yet.
-- The box has no display, so a suite that needs one must go in the refused tier, not be "fixed" with
-  a virtual framebuffer that then reports different compositing behaviour than either shipped
-  engine.
+- The Android instrumentation and storage legs (`test-android-native-ui`, `test-android-storage`)
+  need an emulator booted on the box; nothing here boots one yet.
+- The box has no display in an ssh shell. `test-cross-platform` needs one and stays in the
+  caveated tier rather than the refused one, because a private `kwin_wayland --virtual` compositor
+  (see "Suites that need a display") gives it the real Wayland path. A bare Xvfb framebuffer is
+  still not a substitute: it reports different compositing behaviour than either shipped engine.
+  Wiring the compositor into `remote-test.mjs` itself (start on a unique socket, export the env,
+  kill by PID in the existing exit trap) is the obvious follow-up and has not been done.

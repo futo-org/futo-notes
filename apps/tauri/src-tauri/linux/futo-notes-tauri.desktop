@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=FUTO Notes
+Exec=futo-notes-tauri %F
+Icon=futo-notes-tauri
+StartupWMClass=futo-notes-tauri
+NoDisplay=true

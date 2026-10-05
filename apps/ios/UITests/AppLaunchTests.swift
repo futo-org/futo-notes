@@ -35,8 +35,8 @@ final class AppLaunchTests: XCTestCase {
         // phantom frame is what produced "132.0 is not less than 24.0": the distance
         // to a keyboard that was not on screen at all. So branch on whether the
         // keyboard is really presented and assert only what each case can prove.
-        // scripts/qa.mjs pins ConnectHardwareKeyboard=false on pool simulators so the
-        // keyboard-avoidance branch below is the one that runs in this repo's QA.
+        // scripts/qa.mjs disconnects the hardware keyboard on pool simulators after each
+        // boot so the keyboard-avoidance branch below is the one that runs in this repo's QA.
         let window = app.windows.firstMatch
         let keyboard = app.keyboards.firstMatch
         if waitForSoftwareKeyboard(keyboard, in: window, timeout: 5) {

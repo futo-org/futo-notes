@@ -35,6 +35,7 @@
           "searchNotes": "搜索笔记…",
           "closeTab": "关闭标签页",
           "closeWindow": "关闭窗口",
+          "quit": "退出 {appName}",
           "toggleSidebar": "切换边栏"
         }
       }

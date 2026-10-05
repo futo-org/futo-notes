@@ -302,6 +302,7 @@ class WebLocalNoteStore implements LocalNoteStore {
       folders: this.folderPaths(),
       finalId: input.finalId ?? null,
       finalFolder: input.finalFolder ?? null,
+      relinked: [],
       warnings: [],
     };
   }

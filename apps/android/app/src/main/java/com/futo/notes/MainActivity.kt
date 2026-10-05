@@ -174,7 +174,10 @@ class MainActivity : ComponentActivity() {
         // parity with iOS FutoNotesApp scenePhase `.inactive`. Idempotent and a
         // no-op when the draft is clean; the write is fire-and-forget so it never
         // blocks the main thread. `store` is null while the first-run picker is up.
-        store.value?.flushPendingEditor()
+        // The open editor is read first (RC-92): a note still streaming its tail
+        // reports no `change`, so its typed edit reaches the register only by
+        // asking the editor. The read is asynchronous — nothing waits here.
+        store.value?.flushPendingEditorLive()
     }
 
     override fun onStop() {

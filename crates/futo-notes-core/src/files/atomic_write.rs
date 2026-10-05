@@ -294,6 +294,10 @@ pub fn rename_through_temp(source: &Path, destination: &Path) -> Result<(), Stri
     Ok(())
 }
 
+// CI runs in a container whose /tmp is a real filesystem, so fsync costs real time there;
+// a fsync-sensitive test that passes locally on ~free tmpfs can fail only on CI
+// (pc_4f9a9539ecfe). Reproduce that I/O profile locally with
+// `TMPDIR="$PWD/.futo/tmp" cargo test --workspace` (real disk instead of tmpfs).
 #[cfg(test)]
 mod tests {
     use super::*;

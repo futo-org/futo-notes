@@ -1,41 +1,55 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
-
-const askMock = vi.fn();
-vi.mock('@tauri-apps/plugin-dialog', () => ({ ask: askMock }));
+import { afterEach, describe, expect, it } from 'vitest';
+import { confirmDialog } from './confirmDialog';
+import {
+  currentConfirmDialog,
+  resetConfirmDialogsForTest,
+  resolveConfirmDialog,
+} from './confirmDialogState.svelte';
 
 afterEach(() => {
-  vi.resetModules();
-  vi.doUnmock('$lib/platform');
+  resetConfirmDialogsForTest();
 });
 
 describe('confirmDialog', () => {
-  it('uses window.confirm outside Tauri and never touches plugin-dialog', async () => {
-    vi.doMock('$lib/platform', () => ({ isTauri: false }));
-    const { confirmDialog } = await import('./confirmDialog');
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+  it('queues an app-owned confirmation and resolves it from the host', async () => {
+    const result = confirmDialog('Delete?', { title: 'Delete', kind: 'warning' });
 
-    await expect(confirmDialog('Delete?', { title: 'Delete' })).resolves.toBe(true);
-    confirmSpy.mockReturnValue(false);
-    await expect(confirmDialog('Delete?', { title: 'Delete' })).resolves.toBe(false);
-
-    expect(confirmSpy).toHaveBeenCalledWith('Delete?');
-    expect(askMock).not.toHaveBeenCalled();
-  });
-
-  it('uses plugin-dialog ask() under Tauri', async () => {
-    vi.doMock('$lib/platform', () => ({ isTauri: true }));
-    const { confirmDialog } = await import('./confirmDialog');
-    askMock.mockResolvedValue(true);
-
-    await expect(
-      confirmDialog('Delete this folder?', { title: 'Delete folder', kind: 'warning' }),
-    ).resolves.toBe(true);
-
-    expect(askMock).toHaveBeenCalledWith('Delete this folder?', {
-      title: 'Delete folder',
+    expect(currentConfirmDialog()).toEqual({
+      message: 'Delete?',
+      title: 'Delete',
       kind: 'warning',
     });
+    resolveConfirmDialog(true);
+    await expect(result).resolves.toBe(true);
+  });
+
+  it('shows concurrent confirmations one at a time', async () => {
+    const first = confirmDialog('First?', { title: 'First' });
+    const second = confirmDialog('Second?', { title: 'Second' });
+
+    expect(currentConfirmDialog()?.title).toBe('First');
+    resolveConfirmDialog(false);
+    await expect(first).resolves.toBe(false);
+    expect(currentConfirmDialog()?.title).toBe('Second');
+
+    resolveConfirmDialog(true);
+    await expect(second).resolves.toBe(true);
+  });
+
+  it('carries action-specific button labels to the modal host', async () => {
+    const result = confirmDialog('Copy this file?', {
+      title: 'Open Markdown File',
+      confirmLabel: 'Copy into notes',
+      cancelLabel: 'Leave unchanged',
+    });
+
+    expect(currentConfirmDialog()).toMatchObject({
+      confirmLabel: 'Copy into notes',
+      cancelLabel: 'Leave unchanged',
+    });
+    resolveConfirmDialog(false);
+    await expect(result).resolves.toBe(false);
   });
 });

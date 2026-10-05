@@ -184,12 +184,15 @@ pub(crate) fn collision_candidates(root: &Path, wanted: &str) -> Vec<String> {
     ids
 }
 
-pub(crate) fn bodies(root: &Path) -> HashMap<String, String> {
+/// Every readable note's raw bytes, keyed by id. Raw on purpose: a caller that
+/// rewrites a body must decode it losslessly first, and must leave alone a
+/// note it cannot (see `prepare_relinks`).
+pub(crate) fn bodies(root: &Path) -> HashMap<String, Vec<u8>> {
     note_paths(root)
         .into_iter()
         .filter_map(|(id, _)| {
             let bytes = vault_fs::read(root, &format!("{id}.md")).ok()?;
-            Some((id, String::from_utf8_lossy(&bytes).into_owned()))
+            Some((id, bytes))
         })
         .collect()
 }

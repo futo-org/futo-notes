@@ -27,7 +27,9 @@ actor NoteVault {
     }
 
     func scan() -> NoteSnapshot { core.scan() }
-    func read(_ id: String) -> String { core.read(id: id) }
+    /// A missing note reads as empty; one that exists but cannot be decoded
+    /// throws, so it never opens as a blank page.
+    func read(_ id: String) throws -> String { try core.read(id: id) }
     func exists(_ id: String) -> Bool { core.exists(id: id) }
     func readIfExists(_ id: String) throws -> String? {
         return try core.readIfExists(id: id)
@@ -159,6 +161,45 @@ struct PendingDraft: Equatable {
 enum NoteMutationOutcome<Value> {
     case committed(Value)
     case failed
+}
+
+/// A committed rename or move: the note's final id, and — only when the
+/// engine's relink rewrote the note's OWN links (a self-link) — the body it
+/// left on disk. The editor saved a draft carrying the old link text and the
+/// relink then changed it, so the editor's baseline must become this body, not
+/// the draft (RC-71: the pre-relink baseline made the next save read the
+/// relink as a peer's edit and park a conflict copy).
+struct CommittedNote: Equatable {
+    let id: String
+    let relinkedBody: String?
+}
+
+/// What the editor holds after a rename/move whose relink rewrote its own body.
+struct RelinkRebase: Equatable {
+    /// The baseline: what the file now holds.
+    let savedContent: String
+    /// The editor's text.
+    let content: String
+    /// Push `content` into the live editor (selection-preserving adopt).
+    let adoptIntoEditor: Bool
+}
+
+/// `flushed` is the draft the engine saved before it relinked; `live` is what
+/// the editor holds now; `relinkedBody` is the file after the relink.
+///
+/// The file is the baseline whatever the editor holds. When nothing was typed
+/// since the snapshot the editor adopts the file, so it shows the relinked link
+/// text. A draft typed while the workflow committed is kept (the same
+/// rebase-and-keep the desktop session applies): it still carries the old link
+/// text and is saved over the file without a conflict copy (RC-70).
+func rebasedOnRelink(flushed: String, live: String, relinkedBody: String?) -> RelinkRebase {
+    guard let body = relinkedBody, body != flushed else {
+        return RelinkRebase(savedContent: flushed, content: live, adoptIntoEditor: false)
+    }
+    guard live == flushed else {
+        return RelinkRebase(savedContent: body, content: live, adoptIntoEditor: false)
+    }
+    return RelinkRebase(savedContent: body, content: body, adoptIntoEditor: true)
 }
 
 func confirmedSavedContent(
@@ -331,11 +372,13 @@ final class NotesStore: ObservableObject {
     func releaseDraftOwnership(token: UInt64) {
         draftRegister[token] = nil
         oneShotDraftTokens.remove(token)
+        liveEditorFlush.release(token: token)
     }
 
     /// Keep a leaving editor's final dirty snapshot registered until its
     /// asynchronous flush has durably written or parked the draft.
     func retainDraftUntilFlushed(token: UInt64) {
+        liveEditorFlush.release(token: token)
         guard draftRegister[token] != nil else { return }
         oneShotDraftTokens.insert(token)
     }
@@ -411,6 +454,9 @@ final class NotesStore: ObservableObject {
     /// closed; safe at every leave-active signal.
     func flushPendingEditor() {
         guard !resetting, !draftRegister.isEmpty else { return }
+        // A live flush is reading the editor first; the register as it stands
+        // is the older text. See ``LiveEditorFlush``.
+        guard !liveEditorFlush.isHolding else { return }
         var byId: [String: (token: UInt64, draft: PendingDraft)] = [:]
         for (token, draft) in draftRegister {
             if let existing = byId[draft.id], existing.token >= token { continue }
@@ -431,6 +477,33 @@ final class NotesStore: ObservableObject {
     /// the next backgrounding flushes afresh.
     func rearmBackgroundFlush() {
         flushedThisEpisode.removeAll()
+        liveEditorFlush.rearm()
+    }
+
+    /// The visible editor registers how to read its LIVE document into its
+    /// draft — the read ``flushPendingEditorLive()`` makes before it flushes.
+    func setDraftRefresher(
+        token: UInt64, _ refresh: @escaping @MainActor () async -> Void
+    ) {
+        guard !resetting, token > retiredDraftTokensThrough else { return }
+        liveEditorFlush.register(token: token, refresh: refresh)
+    }
+
+    private let liveEditorFlush = LiveEditorFlush()
+
+    /// ``flushPendingEditor()`` after reading the live editor (RC-92): what a
+    /// note still streaming its tail holds is known only to the editor. The
+    /// reads and the writes run inside a background task, so the OS keeps the
+    /// process until they finish. Falls back to the plain flush when there is
+    /// no editor to read.
+    func flushPendingEditorLive() {
+        guard !resetting else { return }
+        let flushed = liveEditorFlush.run { [weak self] in
+            guard let self else { return }
+            self.flushPendingEditor()
+            await self.editorDraftTail?.value
+        }
+        if flushed == nil { flushPendingEditor() }
     }
 
     /// The off-main owner of the Rust vault. The single source of truth for the
@@ -538,7 +611,14 @@ final class NotesStore: ObservableObject {
         }
     }
 
-    func read(_ id: String) async -> String { await vault.read(id) }
+    func read(_ id: String) async throws -> String {
+        do {
+            return try await vault.read(id)
+        } catch {
+            print("read note failed for \(id): \(error)")
+            throw error
+        }
+    }
     func readIfExists(_ id: String) async throws -> String? {
         do {
             return try await vault.readIfExists(id)
@@ -615,7 +695,7 @@ final class NotesStore: ObservableObject {
     @discardableResult
     func rename(
         oldId: String, newId: String, draft: PendingDraft? = nil, ownerToken: UInt64? = nil
-    ) async -> NoteMutationOutcome<String> {
+    ) async -> NoteMutationOutcome<CommittedNote> {
         let epoch = resetEpoch
         guard ownsDraft(ownerToken) else { return .failed }
         let identity = editorDraftCoordinator.beginIdentityMutation(oldId)
@@ -635,7 +715,7 @@ final class NotesStore: ObservableObject {
             editorDraftCoordinator.finishIdentityMutation(identity, committed: true)
             editorDraftCoordinator.reopen(finalId)
             onLocalChange?()
-            return .committed(finalId)
+            return .committed(CommittedNote(id: finalId, relinkedBody: mutation.finalBody))
         } catch {
             editorDraftCoordinator.finishIdentityMutation(identity, committed: false)
             print("rename failed \(oldId) -> \(newId): \(error)")
@@ -698,7 +778,7 @@ final class NotesStore: ObservableObject {
 
     func moveNote(
         _ id: String, toFolder folder: String, draft: PendingDraft? = nil, ownerToken: UInt64? = nil
-    ) async -> NoteMutationOutcome<String> {
+    ) async -> NoteMutationOutcome<CommittedNote> {
         let epoch = resetEpoch
         guard ownsDraft(ownerToken) else { return .failed }
         let identity = editorDraftCoordinator.beginIdentityMutation(id)
@@ -718,7 +798,7 @@ final class NotesStore: ObservableObject {
             editorDraftCoordinator.finishIdentityMutation(identity, committed: true)
             editorDraftCoordinator.reopen(finalId)
             onLocalChange?()
-            return .committed(finalId)
+            return .committed(CommittedNote(id: finalId, relinkedBody: mutation.finalBody))
         } catch {
             editorDraftCoordinator.finishIdentityMutation(identity, committed: false)
             print("moveNote failed \(id) -> \(folder): \(error)")
@@ -870,6 +950,7 @@ final class NotesStore: ObservableObject {
         draftRegister.removeAll()
         oneShotDraftTokens.removeAll()
         flushedThisEpisode.removeAll()
+        liveEditorFlush.removeAll()
     }
 
     func fullReset() async throws {

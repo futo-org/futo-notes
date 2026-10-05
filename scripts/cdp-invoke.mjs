@@ -71,9 +71,13 @@ ws.on('open', async () => {
       console.error(JSON.stringify(r.exceptionDetails, null, 2));
       process.exit(3);
     }
-    console.log(JSON.stringify(r.result.value ?? r.result, null, 2));
     ws.close();
-    process.exit(0);
+    // Exit only once stdout has drained: `process.exit` right after a write to
+    // a PIPE drops everything past the first 64 KiB, so a whole large note
+    // read back through here arrived as unparseable, truncated JSON.
+    process.stdout.write(JSON.stringify(r.result.value ?? r.result, null, 2) + '\n', () =>
+      process.exit(0),
+    );
   } catch (e) {
     console.error('CDP error:', e.message || e);
     process.exit(4);
