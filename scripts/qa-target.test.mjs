@@ -4,6 +4,7 @@ import {
   classifyDataDir,
   classifyExecPath,
   classifyVault,
+  isDesktopExecutableName,
   parseWorktreeRoots,
   verifyTarget,
 } from './qa-target.mjs';
@@ -34,6 +35,21 @@ describe('parseWorktreeRoots', () => {
       '',
     ].join('\n');
     expect(parseWorktreeRoots(porcelain)).toEqual(['/repo', SELF]);
+  });
+});
+
+describe('isDesktopExecutableName', () => {
+  it('enumerates the cargo bin name and the branch-named tauri-dev link', () => {
+    expect(isDesktopExecutableName('futo-notes-tauri')).toBe(true);
+    expect(isDesktopExecutableName('FUTO Notes (Dev) · claude:dev-app-names')).toBe(true);
+    expect(isDesktopExecutableName('FUTO Notes')).toBe(false);
+  });
+
+  it('only makes a candidate — a branch-named link is still judged by its path', () => {
+    const name = 'FUTO Notes (Dev) · claude:dev-app-names';
+    expect(classifyExecPath(`${SELF}/target/debug/${name}`, CONTEXT).ok).toBe(true);
+    expect(classifyExecPath(`${OTHER}/target/debug/${name}`, CONTEXT).code).toBe('other-worktree');
+    expect(classifyExecPath(`/Applications/${name}`, CONTEXT).code).toBe('production-bundle');
   });
 });
 
