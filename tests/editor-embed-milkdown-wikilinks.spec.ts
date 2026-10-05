@@ -298,6 +298,14 @@ test('clicking a resolved wikilink posts openNote', async ({ page }) => {
   expect(openNote.id).toBe('work/notes/ideas');
 });
 
+test('middle-clicking a resolved wikilink posts openNote', async ({ page }) => {
+  await open(page, '[[ideas]]\n');
+  await clearMessages(page);
+  await chip(page).click({ button: 'middle' });
+  const [openNote] = await waitForMessages(page, 'openNote');
+  expect(openNote.id).toBe('work/notes/ideas');
+});
+
 test('tapping a broken wikilink posts nothing', async ({ page }) => {
   // The recorded native Gap: the embed posts openNote only for a resolved link.
   await open(page, '[[no such note]]\n');

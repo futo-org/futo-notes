@@ -8,6 +8,7 @@ import {
   getContent,
   installFakeAndroidHost,
   messagesOfType,
+  waitForMessages,
   withCaretObserved,
   type FakeHostWindow,
 } from './lib/editorEmbedHost';
@@ -505,6 +506,102 @@ test('clicking blank space past a link places the caret instead of opening it', 
   await link.click();
   await flushFrames(page);
   expect(await messagesOfType(page, 'openUrl')).toHaveLength(1);
+});
+
+test('two immediate modifier clicks open two different links', async ({ page }) => {
+  await open(page, '[first](https://example.com/one)\n\n[second](https://example.com/two)');
+  await page
+    .locator('.ProseMirror a')
+    .nth(0)
+    .click({ modifiers: ['Meta'] });
+  await page
+    .locator('.ProseMirror a')
+    .nth(1)
+    .click({ modifiers: ['Meta'] });
+  expect((await messagesOfType(page, 'openUrl')).map((message) => message.url)).toEqual([
+    'https://example.com/one',
+    'https://example.com/two',
+  ]);
+});
+
+test('scrolling from an external link does not open it', async ({ page }) => {
+  await open(
+    page,
+    'before\n\nbefore again\n\n[site](https://example.com)\n\n' +
+      Array.from({ length: 100 }, (_, i) => `paragraph ${i}`).join('\n\n'),
+  );
+  const box = await page.locator('.ProseMirror a').first().boundingBox();
+  if (!box) throw new Error('link has no geometry');
+  const cdp = await page.context().newCDPSession(page);
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+  for (let step = 1; step <= 8; step++) {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x, y: y - step * 8 }],
+    });
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect
+    .poll(() => page.locator('.ProseMirror').evaluate((el) => el.scrollTop))
+    .toBeGreaterThan(0);
+  expect(await messagesOfType(page, 'openUrl')).toHaveLength(0);
+});
+
+test('holding a link through the block long press does not open it', async ({ page }) => {
+  await open(page, '[site](https://example.com)\n\nnext');
+  const box = await page.locator('.ProseMirror a').first().boundingBox();
+  if (!box) throw new Error('link has no geometry');
+  const cdp = await page.context().newCDPSession(page);
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+  const [drag] = await waitForMessages(page, 'blockDrag');
+  expect(drag.active).toBe(true);
+  await expect(page.locator('.futo-mobile-dnd-ghost')).toBeVisible();
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await flushFrames(page);
+  expect(await messagesOfType(page, 'openUrl')).toHaveLength(0);
+});
+
+test('releasing a link while another finger remains down does not open it', async ({ page }) => {
+  await open(page, '[site](https://example.com)\n\nnext');
+  const box = await page.locator('.ProseMirror a').first().boundingBox();
+  if (!box) throw new Error('link has no geometry');
+  // The second finger starts outside the editor, so its touchstart cannot
+  // reset the editor's tracked first touch by bubbling through the container.
+  const other = await page.evaluate(() => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText =
+      'position:fixed;inset:0 0 auto auto;width:80px;height:80px;z-index:99999';
+    document.body.appendChild(overlay);
+    document.addEventListener(
+      'touchend',
+      (event) => {
+        if (Array.from(event.changedTouches).some((touch) => touch.identifier === 1)) {
+          (window as unknown as { __remainingTouches?: number }).__remainingTouches =
+            event.touches.length;
+        }
+      },
+      true,
+    );
+    return { x: innerWidth - 30, y: 30 };
+  });
+  const cdp = await page.context().newCDPSession(page);
+  const first = { id: 1, x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const second = { id: 2, ...other };
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [first] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [first, second] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [second] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await flushFrames(page);
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { __remainingTouches?: number }).__remainingTouches,
+    ),
+  ).toBe(1);
+  expect(await messagesOfType(page, 'openUrl')).toHaveLength(0);
 });
 
 // ============================================================
