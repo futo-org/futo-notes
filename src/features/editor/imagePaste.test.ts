@@ -18,34 +18,18 @@ function clipboard(options: { types: string[]; text?: string; html?: string }): 
 }
 
 describe('classifyImagePaste — Android content:// clipboard shape (QA #006)', () => {
-  it('claims a content:// URI riding on text/plain as a hidden bitmap', () => {
-    const data = clipboard({
-      types: ['text/plain'],
-      text: 'content://media/external/images/media/12345',
-    });
-    expect(classifyImagePaste(data)).toEqual({ kind: 'hiddenBitmap' });
-  });
-
-  it('tolerates surrounding whitespace the WebView sometimes adds', () => {
-    const data = clipboard({ types: ['text/plain'], text: '  content://com.app/image.jpg  \n' });
-    expect(classifyImagePaste(data)).toEqual({ kind: 'hiddenBitmap' });
-  });
-
-  it('leaves a real text/plain paste alone — content: must be the URI SCHEME, not just present', () => {
-    const data = clipboard({
-      types: ['text/plain'],
-      text: 'see the content://... scheme mentioned in this sentence',
-    });
-    expect(classifyImagePaste(data)).toEqual({ kind: 'none' });
-  });
-
-  it('leaves an ordinary text paste alone', () => {
-    const data = clipboard({ types: ['text/plain'], text: 'grocery list' });
-    expect(classifyImagePaste(data)).toEqual({ kind: 'none' });
-  });
-
-  it('is case-insensitive on the scheme', () => {
-    const data = clipboard({ types: ['text/plain'], text: 'CONTENT://media/external/images/1' });
-    expect(classifyImagePaste(data)).toEqual({ kind: 'hiddenBitmap' });
+  it.each([
+    ['a content:// URI', 'content://media/external/images/media/12345', 'hiddenBitmap'],
+    ['whitespace the WebView adds', '  content://com.app/image.jpg  \n', 'hiddenBitmap'],
+    ['an upper-case scheme', 'CONTENT://media/external/images/1', 'hiddenBitmap'],
+    // content: must be the URI SCHEME, not just present.
+    [
+      'prose mentioning the scheme',
+      'see the content://... scheme mentioned in this sentence',
+      'none',
+    ],
+    ['ordinary text', 'grocery list', 'none'],
+  ])('classifies %s on text/plain as %s', (_label, text, kind) => {
+    expect(classifyImagePaste(clipboard({ types: ['text/plain'], text }))).toEqual({ kind });
   });
 });

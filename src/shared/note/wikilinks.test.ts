@@ -5,16 +5,8 @@ import {
   resolveWikilink,
   findWikilinks,
   rewriteWikilinks,
-  noteIdLeaf,
 } from './wikilinks';
 import conformance from '@/tests/conformance/wikilinks.json';
-
-describe('noteIdLeaf', () => {
-  it('returns leaf component', () => {
-    expect(noteIdLeaf('foo')).toBe('foo');
-    expect(noteIdLeaf('a/b/foo')).toBe('foo');
-  });
-});
 
 describe('shortestUniqueSuffix', () => {
   it('returns leaf when leaf is unique', () => {

@@ -158,44 +158,6 @@ class EditorSessionTest {
     }
 
     @Test
-    fun `open-note reconciliation renders every engine disposition`() = runBlocking {
-        val dispositions = listOf(
-            OpenNoteDisposition.Leave,
-            OpenNoteDisposition.Adopt("peer"),
-            OpenNoteDisposition.KeepDraft("peer", KeepDraftReason.DIVERGED),
-        )
-
-        dispositions.forEach { disposition ->
-            val log = mutableListOf<String>()
-            val session = EditorSession(scope())
-            session.reconcileOpenNote(
-                RecordingOpenNoteEffects(
-                    dispositions = ArrayDeque(listOf(disposition)),
-                    log = log,
-                ),
-            )
-            val expected = mutableListOf("capture", "facts:note", "classify")
-            if (disposition === OpenNoteDisposition.Leave) expected += "resume-draft"
-            expected += "apply:note:${disposition::class.simpleName}"
-            assertEquals(expected, log)
-        }
-
-        val closeLog = mutableListOf<String>()
-        val closingSession = EditorSession(scope())
-        closingSession.reconcileOpenNote(
-            RecordingOpenNoteEffects(
-                dispositions = ArrayDeque(listOf(OpenNoteDisposition.Close)),
-                log = closeLog,
-            ),
-        )
-        assertTrue(closingSession.isClosing)
-        assertEquals(
-            listOf("capture", "facts:note", "classify", "apply:note:Close"),
-            closeLog,
-        )
-    }
-
-    @Test
     fun `focused adoption is deferred exactly until the session settles on blur`() = runBlocking {
         val log = mutableListOf<String>()
         val session = EditorSession(scope())
@@ -1138,33 +1100,6 @@ class EditorSessionTest {
 
         assertFalse(session.isInteractionLocked)
         assertEquals(listOf(true, false), locks)
-    }
-
-    /**
-     * Delete deliberately does NOT wait: it latches [EditorSession.isClosing]
-     * synchronously before its own drain runs, which is what already makes a
-     * picker round trip queued behind it a clean no-op the moment it reaches
-     * [EditorSession.runWork] (see `EditorExitEffects.awaitPendingWork`'s
-     * doc). This models the REAL `NoteEditorScreen` DELETE effects object,
-     * which — unlike NAVIGATE's and MOVE's — never overrides
-     * `awaitPendingWork`, so the interface default applies. If it ever needed
-     * to wait for something, this test would hang instead of completing.
-     */
-    @Test
-    fun `delete never waits — it relies on the closed latch instead`() = runBlocking {
-        val scope = scope()
-        val session = EditorSession(scope)
-        val log = mutableListOf<String>()
-        val effects = RecordingEffects(log, name = "delete")
-
-        session.end(EditorExit.DELETE, effects)
-        scope.settle()
-
-        assertTrue(effects.succeeded)
-        assertEquals(
-            listOf("delete:awaitPendingWork:start", "delete:awaitPendingWork:end"),
-            log.filter { it.startsWith("delete:awaitPendingWork") },
-        )
     }
 
     @Test

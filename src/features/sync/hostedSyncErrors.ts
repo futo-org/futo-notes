@@ -83,8 +83,3 @@ export function hostedErrorVariant(error: unknown): HostedErrorOutput | null {
   const kind = (error as { kind?: unknown }).kind;
   return typeof kind === 'string' ? (error as HostedErrorOutput) : null;
 }
-
-/** True when the only way forward is a trip to the browser. */
-export function needsSignInAgain(error: unknown): boolean {
-  return hostedErrorVariant(error)?.kind === 'signInAgain';
-}

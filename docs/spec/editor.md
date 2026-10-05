@@ -1000,7 +1000,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   reopen. → src/features/editor/milkdown/keyboardParity.ts
   `insertLineBreakInTableCell`,
   src/features/editor/milkdown/table/tableLineBreak.ts (markdown round trip),
-  src/features/editor/milkdown/keyboardParity.test.ts
+  src/features/editor/milkdown/table/tableLineBreak.test.ts
 
   > **Gap:** a cell holding ONLY a manual break and no other text collapses to
   > a genuinely empty cell on reload — that shape is indistinguishable on disk
@@ -1018,7 +1018,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   alignment correct for the columns that survive. Tapping a grip on touch
   does the same as clicking it. → src/features/editor/milkdown/table/tableGrips.ts,
   src/features/editor/milkdown/table/tableCommands.ts,
-  src/features/editor/milkdown/table/tableCommands.test.ts,
+  tests/editor-embed-milkdown-table-grips.spec.ts,
   src/features/editor/milkdown/table/tableCommands.roundtrip.test.ts
 
   > **Gap:** the grips are a fixed ~18px square, well under a comfortable

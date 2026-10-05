@@ -131,7 +131,7 @@ suites, `#expect`/`#require`, parameterized; never XCTest):
 - [ ] **`Keychain`** — round-trip + dev/prod service separation
   (`com.futo.notes.dev.sync` vs `com.futo.notes.sync`).
 - [x] **`NoteVault`** — seeding / CRUD / relink through the Rust core
-  (`FlushDraftVerbTests` drives write/read/scan/flushDraft against a temp vault;
+  (`FlushDraftVerbTests` drives write/read/reset/flushDraft against a temp vault;
   `SearchReadinessWaitTests` covers the readiness path).
 
 The target is wired into `project.yml` (`type: bundle.unit-test`) and runs via

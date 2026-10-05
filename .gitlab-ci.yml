@@ -1153,8 +1153,13 @@ test:cross-platform-sync:
       changes: &sync-critical-changes
         - crates/futo-notes-sync/**/*
         - crates/futo-notes-core/**/*
-        - src/features/sync/syncServiceE2ee.ts
-        - src/features/sync/sync*
+        # The whole desktop sync + note-session layer, not just sync*: this
+        # suite is the e2e owner of the open-note reconciliation, peer-delete
+        # and dirty-draft behavior whose unit replays were removed from
+        # syncManager.test.ts, and that code spans noteSession.svelte.ts,
+        # createExternalChangeCoordinator.ts, watcherBatch.ts and autoSync.ts.
+        - src/features/notes/**/*
+        - src/features/sync/**/*
         - tests/cross-platform-sync.mjs
         - tests/lib/**/*
         # Which server the suite runs against, and how it is resolved. A pin

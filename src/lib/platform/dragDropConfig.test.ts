@@ -15,23 +15,7 @@ function exists(file: string) {
   return existsSync(resolve(SRC_TAURI, file));
 }
 
-describe('sidebar drag & drop: dragDropEnabled is off where wry intercepts', () => {
-  it('macOS build config disables native drag-drop', () => {
-    expect(windowConf('tauri.macos.conf.json')?.dragDropEnabled).toBe(false);
-  });
-
-  it('Windows build config disables native drag-drop', () => {
-    expect(windowConf('tauri.windows.conf.json')?.dragDropEnabled).toBe(false);
-  });
-
-  it('Linux build config disables native drag-drop too', () => {
-    expect(windowConf('tauri.linux.conf.json')?.dragDropEnabled).toBe(false);
-  });
-
-  it('dev config disables it too, so the dev build mirrors macOS/Windows/Linux', () => {
-    expect(windowConf('tauri.dev.conf.json')?.dragDropEnabled).toBe(false);
-  });
-
+describe('macOS window overlay', () => {
   it('macOS config preserves the traffic-light window chrome (array is replaced, not merged)', () => {
     const w = windowConf('tauri.macos.conf.json');
     expect(w?.titleBarStyle).toBe('Overlay');

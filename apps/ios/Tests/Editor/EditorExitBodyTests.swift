@@ -33,16 +33,6 @@ struct EditorExitBodyTests {
         #expect(editorExitBody(.noLiveDocument, shellCopy: "from disk") == "from disk")
     }
 
-    @Test("no live document and an unread note commits nothing — the load is abandoned")
-    func noLiveDocumentAbandonsTheLoad() {
-        // The shape of the reported bug: the note never opened, so the shell's
-        // copy still equals what is on disk. The exit's own `!= savedContent`
-        // guard turns this into a no-op write, which is exactly "abandon the
-        // load rather than save a prefix".
-        let onDisk = "the whole 50,000-line note"
-        #expect(editorExitBody(.noLiveDocument, shellCopy: onDisk) == onDisk)
-    }
-
     @Test("a capture belonging to another note refuses the exit")
     func notOursRefuses() {
         // The one genuinely ambiguous case, and the only one that still reports

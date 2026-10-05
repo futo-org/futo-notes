@@ -179,3 +179,62 @@ fn an_unportable_name_is_not_mistaken_for_a_local_delete() {
          it on the server and every peer: {missing:?}",
     );
 }
+
+#[test]
+fn local_paths_rejected_by_receivers_are_skipped_and_reported() {
+    let deep = format!("{}note.md", "folder/".repeat(11));
+    let long = format!("{}.md", "a".repeat(253));
+    let files = vec![
+        LocalFile {
+            name: deep.clone(),
+            mtime: 1,
+            size: 4,
+        },
+        LocalFile {
+            name: long.clone(),
+            mtime: 1,
+            size: 4,
+        },
+        LocalFile {
+            name: "valid.md".into(),
+            mtime: 1,
+            size: 4,
+        },
+    ];
+    let mut previous = connected();
+    previous.object_map.insert(
+        deep.clone(),
+        ObjectState {
+            object_id: "older-upload".into(),
+            version: 1,
+            blob_key: "older-blob".into(),
+            hash: None,
+            mtime_ms: None,
+            size_bytes: None,
+        },
+    );
+    assert!(
+        missing_local_files(&previous, &files).is_empty(),
+        "a skipped local path must never become a remote tombstone"
+    );
+    let mut summary = SyncSummary::default();
+
+    let uploadable = uploadable_files(files, &mut summary);
+
+    assert_eq!(
+        uploadable
+            .iter()
+            .map(|file| file.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["valid.md"]
+    );
+    assert_eq!(summary.failures.len(), 2);
+    assert!(summary
+        .failures
+        .iter()
+        .all(|failure| failure.kind == FailureKind::Rejected));
+    assert!(summary
+        .failure_message()
+        .unwrap()
+        .contains("unsupported names"));
+}

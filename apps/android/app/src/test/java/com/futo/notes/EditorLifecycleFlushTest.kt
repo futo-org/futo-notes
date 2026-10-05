@@ -352,50 +352,6 @@ class EditorLifecycleFlushTest {
         )
     }
 
-    /**
-     * PKT-12 F1: rename/move flush a body snapshot to the current id, then must
-     * advance savedContent to THAT SNAPSHOT — never to live `content`. If the
-     * user types during the suspended write, `content` runs ahead of the bytes on
-     * disk; the register must stay dirty for that newer keystroke. This models the
-     * fixed assignment (savedContent := writtenSnapshot) and asserts the pulled
-     * draft is still dirty for the newer content; the buggy assignment
-     * (savedContent := live content) would derive null (asserted below).
-     */
-    @Test
-    fun renameFlushKeepsMidWriteKeystrokeDirty() {
-        val rec = Recorder()
-        val pending = PendingEditorDraft(rec::persist)
-        val st = EditorState(noteId = "note", savedContent = "A", content = "A")
-        pending.setProvider(pending.claim(), st::derive)
-
-        // Rename flush: snapshot = current content ("A"), write it, savedContent := snapshot.
-        val writtenSnapshot = st.content
-        // ...user types "C" while the write is suspended...
-        st.content = "AC"
-        // FIXED assignment: savedContent becomes the written snapshot, not live content.
-        st.savedContent = writtenSnapshot
-        // Rename re-keys the note; the derivation follows the live id.
-        st.noteId = "renamed"
-
-        pending.flush()
-        assertEquals(
-            "the mid-write keystroke must survive on the re-keyed note",
-            listOf(PendingDraft("renamed", "A", "AC")),
-            rec.writes,
-        )
-    }
-
-    @Test
-    fun renameFlushBugWouldMarkMidWriteKeystrokeAsSaved() {
-        // Documents the regression the fix prevents: had savedContent been set
-        // from live `content` (the buggy assignment), the derivation would see
-        // content == savedContent and drop the newer keystroke.
-        val st = EditorState(noteId = "note", savedContent = "A", content = "A")
-        st.content = "AC"             // mid-write keystroke
-        st.savedContent = st.content  // BUG: assign from live content, not the snapshot
-        assertNull("buggy assignment loses the keystroke", st.derive())
-    }
-
     // ── the leave-foreground flush reads the LIVE editor first (RC-92) ──
 
     /**

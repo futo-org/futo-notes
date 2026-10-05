@@ -567,6 +567,11 @@
       range.setStart(text, start);
       range.setEnd(text, start + 1);
       const line = range.getClientRects()[0];
+      // Park it outside the editor: a Range stays live until collected, and
+      // one left in a block makes the next open rewrite DOM under it — the
+      // WebKit O(n²) of tests/editor-open-large-paragraph.spec.ts.
+      range.setEnd(document, 0);
+      range.setStart(document, 0);
       if (line && line.height > 0) return new DOMRect(box.left, line.top, box.width, line.height);
     }
     if (box.height <= BLOCK_HANDLE_HEIGHT_PX) return box;
