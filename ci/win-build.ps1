@@ -173,7 +173,7 @@ Invoke-Step "Building frontend" {
 
 Set-Location apps\tauri
 Invoke-Step "Building Tauri (Windows)" {
-    cargo tauri build
+    cargo tauri build --bundles nsis
 }
 
 Invoke-Step "Verifying the binary has no dynamic VC++ runtime dependency" {

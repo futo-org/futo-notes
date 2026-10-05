@@ -40,7 +40,7 @@ against spec. Written so the **next** run is faster. Append freely.
   `FUTO_NOTES_DATA_DIR` is safe to drive **through its webview bridge**. Never
   through OS-level input: keystrokes and clicks go to the focused window, which
   during parallel QA has been the production app. Bridge ports are per-instance
-  (9223–9322), so `:9223` is not "the dev app" — vet the owner with
+  (9223–14222), so `:9223` is not "the dev app" — vet the owner with
   `qa-target.mjs port`.
 
 ## How to run each surface

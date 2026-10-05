@@ -53,6 +53,12 @@ describe('fresh-worktree install guard', () => {
     expect(guard).toContain('node_modules');
     expect(guard).toContain('just install');
   });
+
+  it('installs workspace dependencies before the cross-platform harness imports them', () => {
+    // pc_435a08c1b731: in an uninstalled worktree, Node fell through to an
+    // incompatible system `ws` package instead of installing the locked one.
+    expect(dependencies('test-cross-platform')).toContain('editor-deps');
+  });
 });
 
 describe('argument passing', () => {
