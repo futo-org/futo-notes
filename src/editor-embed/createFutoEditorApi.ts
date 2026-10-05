@@ -28,6 +28,7 @@ export interface EmbeddedEditorHandle {
   resetHistory: () => void;
   openFind: () => void;
   setContent: (noteId: string, text: string) => void;
+  retarget: (fromId: string, toId: string) => void;
   setFindOverlayInset: (bottomOverlayPx: number) => void;
   setFindQuery: (query: string) => void;
   stepFind: (direction: 1 | -1) => void;
@@ -120,6 +121,9 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
     },
     setContent(noteId: string, markdown: string): void {
       boot.setContent(noteId, markdown);
+    },
+    retarget(fromId: string, toId: string): void {
+      editor.retarget(fromId, toId);
     },
     flush(token: string): void {
       editor.flush(token);

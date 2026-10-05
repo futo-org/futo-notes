@@ -272,6 +272,7 @@ fun NoteEditorScreen(
             }
         }
         host.prepareLoad(id)
+        host.retarget(oldId, id)
         noteId = id
     }
 

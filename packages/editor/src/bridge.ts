@@ -62,7 +62,8 @@
  *      it gets overlay 0, correct for non-overlaying bars (Android's sibling
  *      layout).
  * - 9: BREAKING — document identity and flush replace native reads (#194/#244/#245).
- *      setContent/applyExternalContent name the note; getContent is removed.
+ *      setContent/applyExternalContent name the note; getContent is removed;
+ *      retarget relabels the open note in place.
  *      See docs/plan/editor-owns-the-document.md.
  *
  * `formatState` (Notion-style toolbar active-state — see
@@ -161,6 +162,13 @@ export interface FutoEditorApi {
   initialize(configJson: string): void;
   /** Replace the entire document. A load, not a sync — selection is reset. */
   setContent(noteId: string, markdown: string): void;
+  /**
+   * The open note `fromId` now lives at `toId` (rename, parked conflict copy, a
+   * peer's rename): relabel the live document — caret, undo history and any
+   * edit the host has not yet received kept — and report it through change
+   * under `toId`. Ignored unless the editor holds `fromId`.
+   */
+  retarget(fromId: string, toId: string): void;
   /** Report the current document through change, echoing the request token. */
   flush(token: string): void;
   /** Focus the editor (and raise the soft keyboard where the host allows it). */

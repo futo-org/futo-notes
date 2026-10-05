@@ -1668,6 +1668,19 @@
     resetHistory();
   }
 
+  /**
+   * The open note was renamed (or parked, or renamed by a peer): relabel the
+   * live document and report it under the new identity. Never a load — the
+   * shell's copy can lag a keystroke typed after its flush, and replacing the
+   * document with it dropped that keystroke and the undo history.
+   */
+  export function retarget(fromId: string, toId: string): void {
+    if (currentNoteId !== fromId || fromId === toId) return;
+    currentNoteId = toId;
+    documentGeneration += 1;
+    flush();
+  }
+
   export function applyExternalContent(
     noteId: string,
     text: string,

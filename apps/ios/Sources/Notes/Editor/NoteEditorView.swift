@@ -669,6 +669,7 @@ struct NoteEditorView: View {
             }
         }
         EditorHost.shared.prepareLoad(id)
+        EditorHost.shared.retarget(from: oldId, to: id)
         noteId = id
     }
 

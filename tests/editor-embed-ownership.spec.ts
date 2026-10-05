@@ -230,3 +230,41 @@ test('retargeting an acknowledged live document preserves the typed tail, caret 
   );
   await context.close();
 });
+
+test('a keystroke between the flush and a rename retarget survives under the new identity', async ({
+  browser,
+}) => {
+  const { context, page } = await openEmbed(browser, EDITOR_URL);
+  await page.evaluate(() =>
+    (window as unknown as FakeHostWindow).FutoEditor.setContent('old', 'base'),
+  );
+  await expect(page.locator('.ProseMirror')).toContainText('base');
+  await focusEditor(page);
+  await page.keyboard.press('End');
+  await page.keyboard.type(' tail');
+  await page.evaluate(() =>
+    (window as unknown as FakeHostWindow).FutoEditor.flush('before-retarget'),
+  );
+  // The rename's commit window: the shell holds the flushed bytes, the user keeps typing.
+  await page.keyboard.type(' late');
+  await clearMessages(page);
+  await page.evaluate(() =>
+    (window as unknown as FakeHostWindow).FutoEditor.retarget('old', 'new'),
+  );
+  await expect(page.locator('.ProseMirror')).toHaveText('base tail late');
+  expect((await messages(page)).filter((m) => m.type === 'change')).toEqual([
+    expect.objectContaining({ noteId: 'new', content: 'base tail late\n' }),
+  ]);
+  // A retarget naming a document the editor no longer holds changes nothing.
+  await page.evaluate(() =>
+    (window as unknown as FakeHostWindow).FutoEditor.retarget('old', 'other'),
+  );
+  expect(
+    await page.evaluate(
+      () => (window as unknown as FakeHostWindow).__futoTest.documentRef().noteId,
+    ),
+  ).toBe('new');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ControlOrMeta+z');
+  await expect(page.locator('.ProseMirror')).toHaveText('base');
+  await context.close();
+});

@@ -967,6 +967,19 @@ class EditorHost private constructor(appContext: Context) {
 
     internal fun prepareLoad(noteId: String) { mailbox.prepareLoad(noteId) }
 
+    /** Relabel the open note without pushing this shell's copy, which can lag a
+     *  keystroke typed after the flush: the bundle reports its live document as
+     *  [toId] through `change`. */
+    internal fun retarget(fromId: String, toId: String) {
+        mailbox.retarget(fromId, toId)
+        if (desiredNoteId != fromId) return
+        desiredNoteId = toId
+        pushed[fromId]?.let { pushed[toId] = it }
+        if (!isReady || lastPushedNoteId != fromId) return
+        lastPushedNoteId = toId
+        eval("window.FutoEditor && window.FutoEditor.retarget(${JSONObject.quote(fromId)}, ${JSONObject.quote(toId)});")
+    }
+
     internal suspend fun awaitLoaded(noteId: String, content: String): EditorCurrent =
         mailbox.awaitLoaded(noteId) { setContent(noteId, content) }
 

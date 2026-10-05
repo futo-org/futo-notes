@@ -152,4 +152,22 @@ class EditorMailboxTest {
         assertNull(mailbox.current("dirty").latest)
     }
 
+    @Test fun retargetHandsTheOpenNotesBindingToItsNewIdentity(): Unit = runBlocking {
+        val mailbox = EditorMailbox()
+        val reports = mutableListOf<String>()
+        mailbox.bind(1, "old") { reports.add(it) }
+        mailbox.loaded("old", 1, "base")
+        mailbox.change("old", 2, "base tail")
+        // A keystroke lands after the rename's flush was answered.
+        mailbox.edited("old", 3)
+        mailbox.prepareLoad("new")
+        mailbox.retarget("old", "new")
+        // The editor reports its live document under the new id, which can beat
+        // the composition's re-attach; the open note must still receive it.
+        mailbox.change("new", 4, "base tail late")
+        mailbox.change("old", 3, "late report under the old id")
+        assertEquals(listOf("base tail", "base tail late"), reports)
+        val current = mailbox.awaitCurrent("new") { fail("the report made the new id current") }
+        assertEquals("base tail late", current.latest?.content)
+    }
 }

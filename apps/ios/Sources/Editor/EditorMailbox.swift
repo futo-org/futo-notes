@@ -28,6 +28,12 @@ final class EditorMailbox {
     }
     func isBound(_ owner: Int) -> Bool { bindings[owner] != nil }
     func detach(_ owner: Int) { bindings.removeValue(forKey: owner) }
+    /// A rename: the editor's next report for `from`'s document arrives as `to`.
+    func retarget(_ from: String, to: String) {
+        for (owner, binding) in bindings where binding.id == from {
+            bindings[owner] = (to, binding.change)
+        }
+    }
     func retainUnflushed(_ id: String, deliver: @escaping (String) -> Void) {
         if !current(id).canProceed { retained[id] = deliver }
     }

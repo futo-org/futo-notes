@@ -22,6 +22,7 @@ export interface FakeHostWindow extends Window {
   FutoEditor: {
     initialize(configJson: string): void;
     setContent(noteId: string, markdown: string): void;
+    retarget(fromId: string, toId: string): void;
     flush(token: string): void;
     focus(): void;
     blur(): void;

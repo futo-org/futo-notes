@@ -158,4 +158,24 @@ struct EditorMailboxTests {
         #expect(mailbox.current("dirty").latest == nil)
     }
 
+    @Test func retargetHandsTheOpenNotesBindingToItsNewIdentity() async {
+        let mailbox = EditorMailbox()
+        var reports: [String] = []
+        mailbox.bind(1, id: "old") { reports.append($0) }
+        mailbox.loaded("old", generation: 1, content: "base")
+        mailbox.change("old", generation: 2, content: "base tail")
+        // A keystroke lands after the rename's flush was answered.
+        mailbox.edited("old", generation: 3)
+        mailbox.prepareLoad("new")
+        mailbox.retarget("old", to: "new")
+        // The editor reports its live document under the new id, which can beat
+        // SwiftUI's rebind; the open note must still receive it.
+        mailbox.change("new", generation: 4, content: "base tail late")
+        mailbox.change("old", generation: 3, content: "late report under the old id")
+        #expect(reports == ["base tail", "base tail late"])
+        let current = await mailbox.awaitCurrent("new") { _ in
+            Issue.record("the report made the new id current")
+        }
+        #expect(current.latest?.content == "base tail late")
+    }
 }

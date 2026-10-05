@@ -22,6 +22,10 @@ internal class EditorMailbox {
     private val retained = mutableMapOf<String, (String) -> Unit>()
     fun bind(owner: Long, id: String, change: (String) -> Unit) { bindings[owner] = id to change }
     fun detach(owner: Long) { bindings.remove(owner) }
+    /** A rename: the editor's next report for [from]'s document arrives as [to]. */
+    fun retarget(from: String, to: String) {
+        bindings.entries.filter { it.value.first == from }.forEach { it.setValue(to to it.value.second) }
+    }
     fun retainUnflushed(id: String, deliver: (String) -> Unit) {
         if (!current(id).canProceed) retained[id] = deliver
     }

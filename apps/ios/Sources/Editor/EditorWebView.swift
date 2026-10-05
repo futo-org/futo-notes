@@ -757,6 +757,21 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     func prepareLoad(_ noteId: String) { mailbox.prepareLoad(noteId) }
 
+    /// Relabel the open note without pushing this shell's copy, which can lag a
+    /// keystroke typed after the flush: the bundle reports its live document as
+    /// `toId` through `change`.
+    func retarget(from fromId: String, to toId: String) {
+        mailbox.retarget(fromId, to: toId)
+        guard desiredNoteId == fromId else { return }
+        desiredNoteId = toId
+        if let text = pushed[fromId] { pushed[toId] = text }
+        guard isReady, lastPushedNoteId == fromId else { return }
+        lastPushedNoteId = toId
+        webView.evaluateJavaScript(
+            "window.FutoEditor && window.FutoEditor.retarget(\(jsLiteral(fromId)), \(jsLiteral(toId)));",
+            completionHandler: nil)
+    }
+
     func latest(_ noteId: String) -> EditorCurrent { mailbox.current(noteId) }
 
     func awaitLoaded(_ noteId: String, content: String) async -> EditorCurrent {
