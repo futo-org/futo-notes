@@ -191,7 +191,6 @@ about.
   [localization.md](localization.md), packages/editor/src/toolbar.ts,
   scripts/gen-toolbar-spec.ts
 
-
 ## Cursor
 
 ### Placement
@@ -402,7 +401,7 @@ about.
   `GHOST_MAX_HEIGHT_FRACTION`, tests/editor-embed-milkdown.spec.ts
   _(native shells)_
 - On desktop a ⠿ handle appears in the left gutter beside the block under the
-  pointer — in the GUTTER, 8px left of the text column, at every nesting depth:
+  pointer — in the GUTTER, 4px left of the text column, at every nesting depth:
   a list item's own box starts at its text, so an offset from that box would
   put the handle over the bullet, and over the parent's text for a nested item
   — and dragging it with a mouse reorders blocks. Where there is no
@@ -809,7 +808,9 @@ native shells edit tags as text in the body, which is not a gap.
   src/features/editor/milkdown/wikilink/syntax.test.ts,
   tests/editor-embed-milkdown-wikilinks.spec.ts
 - Clicking/tapping a wikilink navigates to the target note (desktop:
-  Cmd/Ctrl+click opens it in a new tab). → NotesShell.svelte onopenlink
+  Cmd/Ctrl+click opens it in a new tab; middle-click opens it in a background
+  tab). Rapid clicks on separate links each navigate. → NotesShell.svelte
+  onopenlink, MilkdownEditor.svelte `handleLinkClick`
 - A wikilink displays the **shortest unique path suffix** (`[[Projects/Roadmap]]`
   renders as "Roadmap" while unambiguous). The native shells feed the vault
   note list into the shared editor WebView over the bridge (`setNotes`), so
@@ -859,6 +860,9 @@ native shells edit tags as text in the body, which is not a gap.
   wikilink still
   focuses, so it can be edited). The editor consumes a tap on a NAVIGABLE link
   (`consumesTap`) and deliberately leaves a broken one to ProseMirror.
+  Scrolling, dragging, cancelling, or holding through the block long-press
+  threshold does not follow the touched link; a completed short tap follows it
+  once, even if the WebView also emits a synthetic click.
   Android already follows on the first tap (verified emulator 2026-07-08). Each pushed iOS
   editor needs an explicit `.id(noteId)` identity or SwiftUI would share one
   view's @State across the chain. Because the editor WebView is a single shared
@@ -936,6 +940,8 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   `EditorNavigationDecisionTests.swift`. Verified emulator + simulator
   2026-07-08 (tapping a rendered link opens Safari / Chrome to the target; iOS
   `openUrl` case and Android `ACTION_VIEW` intent both fire).
+  Scrolling from a link or holding it for a block drag does not open it;
+  separate rapid mouse clicks on links each open their URL.
   → platform/openExternalUrl.ts,
   src/features/editor/milkdown/MilkdownEditor.svelte `linkAt` / `activateLink`,
   editor-embed/main.ts, packages/editor bridge v6 `openUrl`,
@@ -948,13 +954,17 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   that wraps onto several visual lines — places the caret instead of opening the
   URL. → src/features/editor/milkdown/MilkdownEditor.svelte `linkAt`
 
-  > **Gap:** typing a bare URL does not turn it into a link. GFM autolink
-  > literals are recognised when a note is PARSED, so a URL already in the file
-  > renders as a link and a URL you just typed becomes one only after the note is
-  > saved and reopened. The CodeMirror editor linkified it as you typed
-  > (`links/autolinks.ts`, deleted with it); the WYSIWYG editor has no
-  > equivalent input rule. → `@milkdown/preset-gfm` (remark-gfm),
-  > src/features/editor/milkdown/MilkdownEditor.svelte
+- Typing a bare URL links it the moment its word ends — Space, Enter, or a
+  hard break — with exactly the extent and href reopening the note would give
+  it (GFM's autolink literal: trailing punctuation left out, `http://` added
+  for `www.`), because the word is read by the editor's own markdown parser.
+  A URL inside inline code or a code block stays text. The note keeps the URL
+  as typed: a bare URL is saved bare, not as `<url>` or `[www.…](http://…)`,
+  and editing a note leaves the bare URLs already in it bare, unless a bare
+  spelling would not read back as the same link. →
+  src/features/editor/milkdown/autolink.ts,
+  packages/editor/src/milkdown-compat/bareUrl.ts,
+  tests/editor-embed-milkdown-parity.spec.ts
 
 ## Interactive elements
 
@@ -990,7 +1000,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   reopen. → src/features/editor/milkdown/keyboardParity.ts
   `insertLineBreakInTableCell`,
   src/features/editor/milkdown/table/tableLineBreak.ts (markdown round trip),
-  src/features/editor/milkdown/keyboardParity.test.ts
+  src/features/editor/milkdown/table/tableLineBreak.test.ts
 
   > **Gap:** a cell holding ONLY a manual break and no other text collapses to
   > a genuinely empty cell on reload — that shape is indistinguishable on disk
@@ -1008,7 +1018,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   alignment correct for the columns that survive. Tapping a grip on touch
   does the same as clicking it. → src/features/editor/milkdown/table/tableGrips.ts,
   src/features/editor/milkdown/table/tableCommands.ts,
-  src/features/editor/milkdown/table/tableCommands.test.ts,
+  tests/editor-embed-milkdown-table-grips.spec.ts,
   src/features/editor/milkdown/table/tableCommands.roundtrip.test.ts
 
   > **Gap:** the grips are a fixed ~18px square, well under a comfortable
@@ -1483,6 +1493,7 @@ unchanged by it.
   > serialization of the document and mapping markdown offsets back to
   > positions, which is a different feature from the one #26 asked for.
   > _(all platforms)_ → src/features/editor/milkdown/find/findMatches.ts
+
 - Find searches the note **body** only. The title is the filename — a native
   field on the native shells, not part of the document text — and titles are
   cross-note search's job (search.md indexes them).
@@ -1552,6 +1563,7 @@ unchanged by it.
   > up, the 2nd took the keyboard down, the 3rd dismissed the bar, the 4th left
   > the note. Closing the bar with its X is unaffected (one Back leaves the note
   > after it). → NoteEditorScreen.kt `FindQueryEditText.onKeyPreIme`
+
 - _(Android)_ Closing the bar takes the soft keyboard down with it whenever the
   bar's own query field owned the keyboard, so the next Back leaves the note.
   The field is a native `EditText`, and Android leaves the IME shown when the
@@ -2017,8 +2029,9 @@ unchanged by it.
   `DEVICE_BUDGET.firstFocusMs`, tests/lib/editorDevicePerfSnippets.mjs,
   tests/android-editor-perf.mjs
 - Decoration repaints are bounded to the textblocks a transaction changed, never
-  the document: tag decorations and fenced-code highlighting both re-derive only
-  the blocks that moved. A fence over 20,000 characters is left uncoloured
+  the document: tag decorations and fenced-code highlighting re-derive only
+  the blocks that moved, and a task checkbox edit rebuilds only the affected
+  item even inside a long nested list. A fence over 20,000 characters is left uncoloured
   rather than paying for it. → milkdown/blockDecorations.ts,
   milkdown/tagDecorations.ts, milkdown/codeHighlight.ts
 - Per-keystroke work does not scale with the number of links on screen times the

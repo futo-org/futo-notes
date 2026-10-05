@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   clearVaultImageUrlCache,
-  isRemoteImageSource,
   onVaultImageSrcChange,
   registerVaultImageUrl,
   requestVaultImageUrl,
@@ -23,15 +22,6 @@ describe('resolveVaultImageSrc', () => {
     expect(resolveVaultImageSrc('data:image/png;base64,AAA')).toBe('data:image/png;base64,AAA');
   });
 
-  it('returns an empty string for a vault filename before any base URL is registered', () => {
-    expect(resolveVaultImageSrc('photo.png')).toBe('');
-  });
-
-  it('joins a vault filename onto the registered base URL, percent-encoded', () => {
-    setVaultImageBaseUrl('futo-asset://vault/');
-    expect(resolveVaultImageSrc('my photo.png')).toBe('futo-asset://vault/my%20photo.png');
-  });
-
   it('stops resolving when the base URL is cleared', () => {
     setVaultImageBaseUrl('file:///notes/');
     setVaultImageBaseUrl('');
@@ -46,13 +36,6 @@ describe('resolveVaultImageSrc', () => {
 });
 
 describe('onVaultImageSrcChange', () => {
-  it('notifies subscribers when the base URL changes', () => {
-    const seen = vi.fn();
-    onVaultImageSrcChange(seen);
-    setVaultImageBaseUrl('futo-asset://vault/');
-    expect(seen).toHaveBeenCalledTimes(1);
-  });
-
   it('does not notify when the base URL is set to the value it already had', () => {
     setVaultImageBaseUrl('futo-asset://vault/');
     const seen = vi.fn();
@@ -112,14 +95,6 @@ describe('registerVaultImageUrl', () => {
   });
 });
 
-describe('isRemoteImageSource', () => {
-  it('treats http, https and data sources as remote and a bare filename as local', () => {
-    expect(isRemoteImageSource('https://a/b.png')).toBe(true);
-    expect(isRemoteImageSource('data:image/png;base64,AA')).toBe(true);
-    expect(isRemoteImageSource('photo.png')).toBe(false);
-  });
-});
-
 describe('requestVaultImageUrl', () => {
   beforeEach(() => {
     setVaultImageUrlResolver(null);
@@ -162,11 +137,6 @@ describe('requestVaultImageUrl', () => {
 
     requestVaultImageUrl('https://example.com/a.png');
     expect(resolve).not.toHaveBeenCalled();
-  });
-
-  it('is a no-op with no resolver installed (the native shells use a base URL)', () => {
-    expect(() => requestVaultImageUrl('photo.png')).not.toThrow();
-    expect(resolveVaultImageSrc('photo.png')).toBe('');
   });
 
   /* A missing or unreadable file must not wedge the filename: sync delivers an

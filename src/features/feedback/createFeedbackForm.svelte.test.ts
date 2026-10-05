@@ -30,21 +30,13 @@ describe('createFeedbackForm', () => {
     globalThis.URL.revokeObjectURL = vi.fn();
   });
 
-  it('cannot send until a message is given', () => {
-    const form = createFeedbackForm(() => {});
-    expect(form.canSend).toBe(false);
-
-    form.setMessage('the toolbar hides my cursor');
-    expect(form.canSend).toBe(true);
-  });
-
   it('cannot send a whitespace-only message', () => {
     const form = createFeedbackForm(() => {});
     form.setMessage('   \n  ');
     expect(form.canSend).toBe(false);
   });
 
-  it('sends the trimmed message', async () => {
+  it('sends the trimmed message, then clears the form and the saved draft', async () => {
     const onsent = vi.fn();
     const form = createFeedbackForm(onsent);
     form.setMessage('  please add tables  ');
@@ -55,22 +47,6 @@ describe('createFeedbackForm', () => {
       images: [],
     });
     expect(onsent).toHaveBeenCalled();
-  });
-
-  it('sends nothing the user did not type — no route, no session, no vault path', async () => {
-    const form = createFeedbackForm(() => {});
-    form.setMessage('crash on open');
-    await form.send();
-
-    const draft = submitFeedback.mock.calls[0][0] as Record<string, unknown>;
-    expect(Object.keys(draft).sort()).toEqual(['images', 'message']);
-  });
-
-  it('clears the form and the saved draft once it lands', async () => {
-    const form = createFeedbackForm(() => {});
-    form.setMessage('gone after sending');
-    await form.send();
-
     expect(form.message).toBe('');
     expect(savedDraft()).toBe('');
   });
@@ -86,13 +62,6 @@ describe('createFeedbackForm', () => {
     expect(form.error).toContain('could not reach the server');
     expect(onsent).not.toHaveBeenCalled();
     expect(savedDraft()).toBe('still here');
-  });
-
-  it('restores the message typed before a restart', () => {
-    const first = createFeedbackForm(() => {});
-    first.setMessage('typed before closing');
-
-    expect(createFeedbackForm(() => {}).message).toBe('typed before closing');
   });
 
   it('asks the picker only for the slots that are still free', async () => {

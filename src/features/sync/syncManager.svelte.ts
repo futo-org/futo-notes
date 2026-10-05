@@ -12,6 +12,7 @@ import {
 } from './createExternalChangeCoordinator';
 import {
   classifySyncError,
+  isCertificateRejection,
   syncErrorDedupeKey,
   type SyncErrorClass,
 } from './syncErrorClassification';
@@ -79,18 +80,43 @@ const RECONNECTING_GRACE_MS = 180_000;
  * — not "Sync completed with errors", which sent people looking for a server
  * problem (ADR 0003 decision 8). Which refusal it is was decided in Rust
  * (`futo_notes_sync::WriteRefusal`); this only chooses the sentence, the way
- * the iOS and Android status lines choose theirs.
+ * the iOS and Android status lines choose theirs. A certificate rejection is
+ * reported as such from either source (sync.md).
  */
 function syncErrorForSource(
   source: SyncErrorSource,
   writeRefusal: WriteRefusalOutput | null = null,
+  message = '',
 ): LocalizedMessage {
   if (writeRefusal === 'subscriptionRequired')
     return { path: 'sync.errors.writePausedSubscription' };
   if (writeRefusal === 'quotaExceeded') return { path: 'sync.errors.writePausedQuota' };
+  if (isCertificateRejection(message)) return { path: 'sync.errors.certificateNotTrusted' };
   return source === 'stream'
     ? { path: 'sync.errors.liveUnavailable' }
     : { path: 'sync.errors.completedWithErrors' };
+}
+
+function specificFileFailure(summary: SyncSummary): LocalizedMessage | null {
+  const oversized = summary.failures
+    .filter((failure) => failure.kind === 'upload' && failure.statusCode === 413)
+    .map((failure) => failure.filename);
+  const rejected = summary.failures
+    .filter((failure) => failure.kind === 'rejected')
+    .map((failure) => failure.filename);
+  if (oversized.length && rejected.length)
+    return {
+      path: 'sync.errors.uploadsTooLargeAndUnsupported',
+      arguments: {
+        oversized: oversized.join(', '),
+        unsupported: rejected.join(', '),
+      },
+    };
+  if (oversized.length)
+    return { path: 'sync.errors.uploadsTooLarge', arguments: { filenames: oversized.join(', ') } };
+  if (rejected.length)
+    return { path: 'sync.errors.unsupportedPaths', arguments: { filenames: rejected.join(', ') } };
+  return null;
 }
 
 function createSyncFailureState(showToast: (message: ToastMessage) => void) {
@@ -103,6 +129,7 @@ function createSyncFailureState(showToast: (message: ToastMessage) => void) {
   // source's sentence with the refusal it was raised with, rather than
   // silently demoting a paused sync back to "completed with errors".
   const syncRefusals: Partial<Record<SyncErrorSource, WriteRefusalOutput | null>> = {};
+  const syncSpecificMessages: Partial<Record<SyncErrorSource, LocalizedMessage | null>> = {};
   const reconnectingSince: Record<SyncErrorSource, number | null> = {
     sync: null,
     stream: null,
@@ -116,13 +143,19 @@ function createSyncFailureState(showToast: (message: ToastMessage) => void) {
     message: string,
     source: SyncErrorSource = 'sync',
     writeRefusal: WriteRefusalOutput | null = null,
+    specificMessage: LocalizedMessage | null = null,
   ): void {
-    const changed = message !== syncErrorDiagnostic;
+    const changed =
+      message !== syncErrorDiagnostic ||
+      JSON.stringify(specificMessage) !== JSON.stringify(syncSpecificMessages[source] ?? null);
     syncError = true;
-    syncErrorMessage = syncErrorForSource(source, writeRefusal);
+    syncErrorMessage = writeRefusal
+      ? syncErrorForSource(source, writeRefusal, message)
+      : (specificMessage ?? syncErrorForSource(source, writeRefusal, message));
     syncErrorDiagnostic = message;
     syncErrors[source] = message;
     syncRefusals[source] = writeRefusal;
+    syncSpecificMessages[source] = specificMessage;
     if (changed) showToast(syncErrorMessage);
   }
 
@@ -132,16 +165,25 @@ function createSyncFailureState(showToast: (message: ToastMessage) => void) {
       delete syncErrors.stream;
       delete syncRefusals.sync;
       delete syncRefusals.stream;
+      delete syncSpecificMessages.sync;
+      delete syncSpecificMessages.stream;
     } else {
       delete syncErrors[source];
       delete syncRefusals[source];
+      delete syncSpecificMessages[source];
     }
     const remainingSource = (['stream', 'sync'] as const).find(
       (candidate) => syncErrors[candidate] !== undefined,
     );
     if (remainingSource) {
       syncError = true;
-      syncErrorMessage = syncErrorForSource(remainingSource, syncRefusals[remainingSource] ?? null);
+      syncErrorMessage =
+        syncSpecificMessages[remainingSource] ??
+        syncErrorForSource(
+          remainingSource,
+          syncRefusals[remainingSource] ?? null,
+          syncErrors[remainingSource],
+        );
       syncErrorDiagnostic = syncErrors[remainingSource] ?? '';
     } else {
       syncError = false;
@@ -173,6 +215,7 @@ function createSyncFailureState(showToast: (message: ToastMessage) => void) {
       class: SyncErrorClass;
       immediate?: boolean;
       writeRefusal?: WriteRefusalOutput | null;
+      specificMessage?: LocalizedMessage | null;
     },
   ): void {
     const { source } = options;
@@ -180,17 +223,17 @@ function createSyncFailureState(showToast: (message: ToastMessage) => void) {
     if (options.immediate || options.class === 'actionable') {
       clearReconnecting(source);
       if (options.class === 'transient') transientEscalated[source] = true;
-      raiseSyncError(message, source, refusal);
+      raiseSyncError(message, source, refusal, options.specificMessage);
       return;
     }
 
     if (transientEscalated[source]) {
-      raiseSyncError(message, source, refusal);
+      raiseSyncError(message, source, refusal, options.specificMessage);
       return;
     }
 
     if (syncErrors[source] !== undefined) {
-      raiseSyncError(message, source, refusal);
+      raiseSyncError(message, source, refusal, options.specificMessage);
       return;
     }
 
@@ -203,19 +246,21 @@ function createSyncFailureState(showToast: (message: ToastMessage) => void) {
     if (Date.now() - startedAt >= RECONNECTING_GRACE_MS) {
       clearReconnecting(source);
       transientEscalated[source] = true;
-      raiseSyncError(message, source, refusal);
+      raiseSyncError(message, source, refusal, options.specificMessage);
     }
   }
 
   function reportActionableSyncFailure(
     message: string,
     writeRefusal: WriteRefusalOutput | null = null,
+    summary?: SyncSummary,
   ): void {
     reportFailure(message, {
       source: 'sync',
       class: 'actionable',
       immediate: true,
       writeRefusal,
+      specificMessage: summary && !writeRefusal ? specificFileFailure(summary) : null,
     });
   }
 

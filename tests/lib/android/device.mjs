@@ -33,6 +33,33 @@ const DEFAULT_POLL_INTERVAL_MS = 250;
 /** A hook body returns promptly — it starts work, it does not finish it. */
 const HOOK_ACK_TIMEOUT_MS = 10_000;
 const HOOK_ACK_POLL_MS = 100;
+const TAP_INSET_PROBE_THRESHOLD = 100;
+const TAP_INSET_MARGIN = 4;
+
+export function statusBarTopInsetFromDump(dump) {
+  let foundStatusBar = false;
+  let visibleInset = 0;
+  for (const line of dump.split(/\r?\n/)) {
+    if (!line.includes('type=statusBars')) continue;
+    const match = /frame=\[(\d+),(\d+)\]\[(\d+),(\d+)\] visible=(true|false)/.exec(line);
+    if (!match) continue;
+    foundStatusBar = true;
+    const [, , top, , bottom, visible] = match;
+    if (visible === 'true' && Number(top) === 0) {
+      visibleInset = Math.max(visibleInset, Number(bottom));
+    }
+  }
+  return foundStatusBar ? visibleInset : null;
+}
+
+export const tapTargetNeedsInsetCheck = (node) => node.y <= TAP_INSET_PROBE_THRESHOLD;
+
+export const tapTargetNeedsMoveDown = (node, topInset) => node.y <= topInset + TAP_INSET_MARGIN;
+
+export function tapTargetContentDownSwipe({ width, height }) {
+  const x = Math.round(width / 2);
+  return { x, startY: Math.round(height * 0.3), endY: Math.round(height * 0.75) };
+}
 
 export function createAndroidDevice({
   pkg = DEFAULT_PACKAGE,
@@ -40,8 +67,9 @@ export function createAndroidDevice({
   timeoutMs = DEFAULT_ACTIVITY_TIMEOUT_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   screenshotDir = 'test-screenshots',
+  adbClientFactory = createAdbClient,
 } = {}) {
-  const adb = createAdbClient({ pkg, serial });
+  const adb = adbClientFactory({ pkg, serial });
   const nextToken = createTokenSource();
 
   let cachedNodes = null;
@@ -203,7 +231,7 @@ export function createAndroidDevice({
    * ended up hitting the Settings screen's Danger zone.
    */
   async function tap(label, { scroll = true, timeoutMs: limit } = {}) {
-    const node = await waitFor(
+    let node = await waitFor(
       `"${label}" to appear`,
       () => {
         const hit = findLabel(label, { refresh: true });
@@ -213,6 +241,30 @@ export function createAndroidDevice({
       },
       { timeoutMs: limit, describeFailure: () => `on screen: ${describeUiNodes(uiNodes())}` },
     );
+    const topInset = statusBarTopInsetFromDump(
+      adb.shell('dumpsys window displays', { allowFailure: true }),
+    );
+    if (topInset === null && tapTargetNeedsInsetCheck(node)) {
+      throw new Error(
+        `could not determine the status bar inset; refusing to tap "${label}" near the top`,
+      );
+    }
+    if (topInset !== null) {
+      if (tapTargetNeedsMoveDown(node, topInset)) {
+        const swipe = tapTargetContentDownSwipe(screenSize());
+        // Finger-down moves list content down, clearing a row from the status bar.
+        adb.swipe(swipe.x, swipe.startY, swipe.x, swipe.endY);
+        invalidateUi();
+        const relocated = findLabel(label, { refresh: true });
+        if (!relocated || tapTargetNeedsMoveDown(relocated, topInset)) {
+          throw new Error(
+            `refusing to tap "${label}" under the status bar (${topInset}px): ` +
+              `after moving content down, its center is ${relocated ? `y=${relocated.y}` : 'not visible'}`,
+          );
+        }
+        node = relocated;
+      }
+    }
     adb.tapPoint(node.x, node.y);
     invalidateUi();
     return node;

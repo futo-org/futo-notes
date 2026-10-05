@@ -60,16 +60,9 @@ describe('appendChunkContent', () => {
     expect(topLevelText(dispatched[0].doc)).toEqual(['a', 'b']);
   });
 
-  it('keeps the append out of history — which also hides it from the host', () => {
-    // documentChanges.ts skips `addToHistory: false` transactions, so this one
-    // flag is both "Ctrl-Z cannot un-load a chunk" and "a chunk append never
-    // reaches the change notification".
-    const { view, dispatched } = stubView(doc(paragraph('a')));
-
-    appendChunkContent(view, doc(paragraph('b')));
-
-    expect(dispatched[0].getMeta('addToHistory')).toBe(false);
-  });
+  // The `addToHistory: false` flag itself — "Ctrl-Z cannot un-load a chunk" —
+  // is proven end to end by tests/editor-embed-milkdown.spec.ts's "streamed
+  // appends are not undoable — Ctrl-Z after an open keeps the note".
 
   it('dispatches nothing for an empty chunk', () => {
     const { view, dispatched } = stubView(doc(paragraph('a')));
@@ -226,7 +219,7 @@ describe('startProgressiveLoad', () => {
     expect(idleQueue).toHaveLength(0);
   });
 
-  it('finishNow applies every remaining chunk synchronously', () => {
+  it('finishNow applies every remaining chunk synchronously, and no chunk lands twice', () => {
     const applied: string[] = [];
     const onComplete = vi.fn();
 
@@ -242,22 +235,11 @@ describe('startProgressiveLoad', () => {
     expect(applied).toEqual(['one', 'two', 'three']);
     expect(load.loading).toBe(false);
     expect(onComplete).toHaveBeenCalledTimes(1);
-  });
 
-  it('finishNow cancels the pending idle slice so no chunk lands twice', () => {
-    const applied: string[] = [];
-
-    const load = startProgressiveLoad({
-      chunks: ['one', 'two', 'three'],
-      applyChunk: (md) => applied.push(md),
-      scheduleIdle,
-      onComplete: () => {},
-    });
-
-    load.finishNow();
+    // The idle slice that was pending is cancelled, not run as well.
     drainIdle();
-
     expect(applied).toEqual(['one', 'two', 'three']);
+    expect(onComplete).toHaveBeenCalledTimes(1);
   });
 
   it('finishNow on an already-finished load is a no-op', () => {

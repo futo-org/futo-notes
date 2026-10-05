@@ -1,5 +1,6 @@
 import { getAppState, getCachedPreferences } from '$shared/state/appState';
 import { requestSync, wasSyncErrorReported } from '$features/sync/autoSync';
+import { isCertificateRejection } from '$features/sync/syncErrorClassification';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
 import {
   localizedText,
@@ -27,10 +28,16 @@ function syncProgressMessage(progress: SyncProgress): LocalizedMessage {
   return { path: 'sync.progress.downloading', arguments: argumentsMap };
 }
 
+export function failureMessage(error: unknown, fallbackPath: string): LocalizedMessage {
+  return isCertificateRejection(error)
+    ? { path: 'sync.errors.certificateNotTrusted' }
+    : { path: fallbackPath };
+}
+
 export function createSyncSettings() {
   const appState = getAppState();
   const preferences = getCachedPreferences();
-  const defaultUrl = import.meta.env.DEV && !appState.e2eeAuthToken ? 'http://127.0.0.1:3100' : '';
+  const defaultUrl = import.meta.env.DEV && !appState.e2eeServerUrl ? 'http://127.0.0.1:3100' : '';
   let url = $state(appState.e2eeServerUrl || defaultUrl);
   let password = $state('');
   let busy = $state(false);
@@ -39,7 +46,7 @@ export function createSyncSettings() {
     lastError ? { path: 'sync.errors.previousFailure' } : null,
   );
   let lastSyncedAt = $state<number | null>(preferences.sync.lastSyncedAt);
-  let connected = $state(Boolean(appState.e2eeAuthToken));
+  let connected = $state(Boolean(appState.e2eeServerUrl && appState.e2eeCollectionId));
   let passwordSaved = $state(hasStoredSyncPassword());
   let connecting = $state(false);
   let connectPhase = $state<LocalizedMessage | null>(null);
@@ -67,14 +74,15 @@ export function createSyncSettings() {
       status = null;
     } catch (error) {
       console.error('[e2ee] connect/sync failed:', error);
-      connectError = connected
-        ? { path: 'sync.errors.syncFailed' }
-        : { path: 'sync.errors.connectFailed' };
+      connectError = failureMessage(
+        error,
+        connected ? 'sync.errors.syncFailed' : 'sync.errors.connectFailed',
+      );
       status = !connected
-        ? { path: 'sync.errors.connectFailed' }
+        ? failureMessage(error, 'sync.errors.connectFailed')
         : wasSyncErrorReported(error)
           ? null
-          : { path: 'sync.errors.syncFailed' };
+          : failureMessage(error, 'sync.errors.syncFailed');
     } finally {
       busy = false;
     }
@@ -123,12 +131,12 @@ export function createSyncSettings() {
         connected = true;
       }
       await requestSync();
-      connected = Boolean(getAppState().e2eeAuthToken);
+      connected = Boolean(getAppState().e2eeServerUrl && getAppState().e2eeCollectionId);
       lastSyncedAt = getCachedPreferences().sync.lastSyncedAt;
       status = null;
     } catch (error) {
       console.error('[e2ee] manual sync failed');
-      status = wasSyncErrorReported(error) ? null : { path: 'sync.errors.syncFailed' };
+      status = wasSyncErrorReported(error) ? null : failureMessage(error, 'sync.errors.syncFailed');
     } finally {
       busy = false;
     }

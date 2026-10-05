@@ -411,6 +411,158 @@ fn read_existing_distinguishes_an_empty_note_from_a_missing_note() {
 }
 
 #[test]
+fn a_write_stamps_the_modified_time_it_reports() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("note", "first", None).unwrap();
+    set_file_mtime_ms(&root.0.join("note.md"), 1_000).unwrap();
+
+    let reported = store.write("note", "second", None).unwrap().upserted[0]
+        .note
+        .modified_ms;
+
+    let on_disk = fs::metadata(root.0.join("note.md"))
+        .and_then(|meta| meta.modified())
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap();
+    assert_eq!(reported, on_disk.as_millis() as i64);
+    assert!(reported > 1_000);
+    assert_eq!(
+        on_disk.subsec_nanos() % 1_000_000,
+        0,
+        "the store must set the note's mtime itself, not inherit whatever the \
+         filesystem left behind: a device whose rename does not advance the \
+         timestamp otherwise reports a modified time the note does not have"
+    );
+}
+
+#[test]
+fn both_write_paths_honor_an_explicitly_supplied_modified_time() {
+    let root = TestRoot::new();
+    let store = store(&root);
+
+    let installed = store
+        .save(None, "fresh", "body", Some(1_600_000_000_000))
+        .unwrap();
+    let overwritten = store
+        .write("fresh", "more", Some(1_700_000_000_000))
+        .unwrap();
+
+    assert_eq!(installed.upserted[0].note.modified_ms, 1_600_000_000_000);
+    assert_eq!(overwritten.upserted[0].note.modified_ms, 1_700_000_000_000);
+    assert_eq!(
+        file_mtime_ms(&fs::metadata(root.0.join("fresh.md")).unwrap()),
+        1_700_000_000_000
+    );
+}
+
+#[test]
+fn recent_note_ids_ignores_the_active_sort_order() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("apple", "a", Some(3_000)).unwrap();
+    store.write("banana", "b", Some(1_000)).unwrap();
+    store.write("Cherry", "c", Some(2_000)).unwrap();
+    store
+        .set_sort_order(NoteSortOrder {
+            key: NoteSortKey::Name,
+            direction: SortDirection::Ascending,
+        })
+        .unwrap();
+
+    assert_eq!(
+        store.recent_note_ids(2),
+        vec!["apple".to_owned(), "Cherry".to_owned()]
+    );
+}
+
+#[test]
+fn a_title_change_moves_the_note_to_the_top_under_last_modified() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("old", "body", None).unwrap();
+    set_file_mtime_ms(&root.0.join("old.md"), 1_000).unwrap();
+
+    let renamed = store.rename("old", "new").unwrap();
+
+    let reported = renamed
+        .upserted
+        .iter()
+        .find(|entry| entry.note.id == "new")
+        .expect("the renamed note is part of the mutation")
+        .note
+        .modified_ms;
+    assert!(
+        reported > 1_000,
+        "a title change is a change [list.md]; rename alone never advances an \
+         mtime, so the store has to"
+    );
+    assert_eq!(
+        file_mtime_ms(&fs::metadata(root.0.join("new.md")).unwrap()),
+        reported
+    );
+}
+
+#[test]
+fn moving_a_note_between_folders_keeps_its_modified_time() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("note", "body", None).unwrap();
+    set_file_mtime_ms(&root.0.join("note.md"), 1_000).unwrap();
+
+    let moved = store.move_note("note", "Archive").unwrap();
+
+    assert_eq!(
+        file_mtime_ms(&fs::metadata(root.0.join("Archive/note.md")).unwrap()),
+        1_000,
+        "a move keeps the note's title, so it is not a change to the note \
+         [list.md] — only the folder it lives in moved"
+    );
+    assert_eq!(
+        moved
+            .upserted
+            .iter()
+            .find(|entry| entry.note.id == "Archive/note")
+            .expect("the moved note is part of the mutation")
+            .note
+            .modified_ms,
+        1_000
+    );
+}
+
+#[test]
+fn a_backlink_rewrite_keeps_the_rewritten_notes_own_modified_time() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("target", "body", None).unwrap();
+    store.write("hub", "see [[target]]", None).unwrap();
+    set_file_mtime_ms(&root.0.join("hub.md"), 1_000).unwrap();
+
+    let renamed = store.rename("target", "renamed").unwrap();
+
+    assert!(fs::read_to_string(root.0.join("hub.md"))
+        .unwrap()
+        .contains("[[renamed]]"));
+    assert_eq!(
+        file_mtime_ms(&fs::metadata(root.0.join("hub.md")).unwrap()),
+        1_000,
+        "nobody edited the hub note; rewriting its links must not move it to \
+         the top [list.md]"
+    );
+    assert_eq!(
+        renamed
+            .upserted
+            .iter()
+            .find(|entry| entry.note.id == "hub")
+            .expect("the relinked note is part of the mutation")
+            .note
+            .modified_ms,
+        1_000
+    );
+}
+
+#[test]
 fn reported_external_changes_form_a_complete_authoritative_projection() {
     let root = TestRoot::new();
     let store = store(&root);
@@ -860,6 +1012,51 @@ fn deleting_a_folder_moves_notes_up_with_collisions_before_removing_the_tree() {
 }
 
 #[test]
+fn native_folder_delete_preserves_nested_attachments_and_name_collisions() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("A/B/C/note", "body", None).unwrap();
+    std::fs::write(root.0.join("A/B/C/photo.png"), b"moved image").unwrap();
+    std::fs::create_dir_all(root.0.join("A/C")).unwrap();
+    std::fs::write(root.0.join("A/C/photo.png"), b"existing image").unwrap();
+
+    store.delete_folder("A/B").unwrap();
+
+    assert_eq!(store.read("A/C/note").unwrap(), "body");
+    assert_eq!(
+        std::fs::read(root.0.join("A/C/photo.png")).unwrap(),
+        b"existing image"
+    );
+    assert_eq!(
+        std::fs::read(root.0.join("A/C/photo-2.png")).unwrap(),
+        b"moved image"
+    );
+    assert!(!root.0.join("A/B").exists());
+}
+
+#[test]
+fn native_folder_delete_numbers_a_near_limit_unicode_attachment() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create_folder("A/B").unwrap();
+    let name = format!("{}.png", "é".repeat(125));
+    std::fs::write(root.0.join("A/B").join(&name), b"moved").unwrap();
+    std::fs::write(root.0.join("A").join(&name), b"existing").unwrap();
+
+    store.delete_folder("A/B").unwrap();
+
+    assert_eq!(
+        std::fs::read(root.0.join("A").join(&name)).unwrap(),
+        b"existing"
+    );
+    let moved = format!("{}-2.png", "é".repeat(124));
+    assert_eq!(
+        std::fs::read(root.0.join("A").join(moved)).unwrap(),
+        b"moved"
+    );
+}
+
+#[test]
 fn create_folder_and_move_note_rolls_back_the_folder_when_move_fails() {
     let root = TestRoot::new();
     let store = store(&root);
@@ -1027,6 +1224,159 @@ fn the_id_tiebreak_compares_utf8_bytes_across_the_surrogate_range() {
     store.write("\u{1F600}", "", Some(5_000)).unwrap();
     store.write("\u{FDFD}", "", Some(5_000)).unwrap();
     assert_eq!(ids_in_order(&store), ["\u{FDFD}", "\u{1F600}"]);
+}
+
+fn name_order(direction: SortDirection) -> NoteSortOrder {
+    NoteSortOrder {
+        key: NoteSortKey::Name,
+        direction,
+    }
+}
+
+#[test]
+fn the_default_sort_order_is_last_modified_newest_first() {
+    assert_eq!(
+        NoteSortOrder::default(),
+        NoteSortOrder {
+            key: NoteSortKey::LastModified,
+            direction: SortDirection::Descending,
+        }
+    );
+    let root = TestRoot::new();
+    let store = store(&root);
+    assert_eq!(store.sort_order(), NoteSortOrder::default());
+}
+
+#[test]
+fn oldest_first_reverses_modified_time_and_keeps_the_id_tiebreak_ascending() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("z", "", Some(5_000)).unwrap();
+    store.write("a", "", Some(5_000)).unwrap();
+    store.write("old", "", Some(1_000)).unwrap();
+    store.write("new", "", Some(9_000)).unwrap();
+    store
+        .set_sort_order(NoteSortOrder {
+            key: NoteSortKey::LastModified,
+            direction: SortDirection::Ascending,
+        })
+        .unwrap();
+    assert_eq!(ids_in_order(&store), ["old", "a", "z", "new"]);
+}
+
+#[test]
+fn name_order_is_case_insensitive_on_the_title_with_the_id_tiebreak() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("banana", "", Some(9_000)).unwrap();
+    store.write("Cherry", "", Some(8_000)).unwrap();
+    store.write("Sub/apple", "", Some(7_000)).unwrap();
+    store.write("Apple", "", Some(1_000)).unwrap();
+
+    store
+        .set_sort_order(name_order(SortDirection::Ascending))
+        .unwrap();
+    assert_eq!(
+        ids_in_order(&store),
+        ["Apple", "Sub/apple", "banana", "Cherry"]
+    );
+    assert_eq!(
+        store
+            .startup_listing()
+            .notes
+            .iter()
+            .map(|note| note.id.as_str())
+            .collect::<Vec<_>>(),
+        ["Apple", "Sub/apple", "banana", "Cherry"]
+    );
+
+    store
+        .set_sort_order(name_order(SortDirection::Descending))
+        .unwrap();
+    assert_eq!(
+        ids_in_order(&store),
+        ["Cherry", "banana", "Apple", "Sub/apple"]
+    );
+}
+
+#[test]
+fn mutation_positions_follow_the_active_sort_order() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store
+        .set_sort_order(name_order(SortDirection::Ascending))
+        .unwrap();
+    store.write("b", "", Some(1_000)).unwrap();
+    store.write("a", "", Some(2_000)).unwrap();
+    store.write("c", "", Some(3_000)).unwrap();
+
+    let before = ids_in_order(&store);
+    let inserted = store.write("Ab", "", Some(9_000)).unwrap();
+    assert_eq!(inserted.upserted[0].position, 1);
+    assert_eq!(apply_as_shell(&before, &inserted), ids_in_order(&store));
+
+    let before = ids_in_order(&store);
+    let edited = store.write("c", "edited", Some(10_000)).unwrap();
+    assert_eq!(edited.upserted[0].position, 3);
+    assert_eq!(apply_as_shell(&before, &edited), ids_in_order(&store));
+
+    let before = ids_in_order(&store);
+    let renamed = store.rename("c", "0first").unwrap();
+    assert_eq!(apply_as_shell(&before, &renamed), ids_in_order(&store));
+    assert_eq!(ids_in_order(&store), ["0first", "a", "Ab", "b"]);
+}
+
+#[test]
+fn a_cached_listing_is_resorted_into_the_startup_order() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("b", "", Some(2_000)).unwrap();
+    store.write("a", "", Some(1_000)).unwrap();
+    let cached = store.startup_listing();
+    let listing = store
+        .startup_listing_in_order(name_order(SortDirection::Ascending), Some(cached))
+        .unwrap();
+    assert_eq!(
+        listing
+            .notes
+            .iter()
+            .map(|note| note.id.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b"]
+    );
+    assert_eq!(store.sort_order(), name_order(SortDirection::Ascending));
+}
+
+#[test]
+fn setting_the_sort_order_returns_the_vault_in_that_order() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("b", "", Some(2_000)).unwrap();
+    store.write("a", "", Some(1_000)).unwrap();
+    let snapshot = store
+        .set_sort_order(name_order(SortDirection::Ascending))
+        .unwrap();
+    assert_eq!(
+        snapshot
+            .notes
+            .iter()
+            .map(|note| note.id.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b"]
+    );
+    assert_eq!(ids_in_order(&store), ["a", "b"]);
+}
+
+#[test]
+fn name_order_folds_titles_with_the_collision_rule() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("e\u{301}", "", Some(1_000)).unwrap();
+    store.write("f", "", Some(2_000)).unwrap();
+    store
+        .set_sort_order(name_order(SortDirection::Ascending))
+        .unwrap();
+    assert_eq!(ids_in_order(&store), ["f", "e\u{301}"]);
 }
 
 #[test]
@@ -1887,6 +2237,67 @@ fn a_parent_swapped_after_validation_cannot_redirect_a_write() {
         fs::read_to_string(root.0.join("original-folder/note.md")).unwrap(),
         "base"
     );
+}
+
+fn listed_ids(store: &LocalNoteStore) -> (Vec<String>, Vec<String>) {
+    let listing = store
+        .startup_listing()
+        .notes
+        .into_iter()
+        .map(|note| note.id)
+        .collect();
+    (listing, ids_in_order(store))
+}
+
+// Linux and macOS allow `\` inside a filename; it must not read as a folder
+// separator, or `a\b.md` becomes a second `a/b` beside the real `a/b.md`.
+#[cfg(unix)]
+#[test]
+fn a_backslash_filename_does_not_alias_a_folder_note() {
+    let root = TestRoot::new();
+    fs::create_dir_all(root.0.join("a")).unwrap();
+    fs::write(root.0.join("a/b.md"), "real").unwrap();
+    fs::write(root.0.join("a\\b.md"), "alias").unwrap();
+    let only_the_real_note = vec!["a/b".to_owned()];
+    assert_eq!(
+        listed_ids(&store(&root)),
+        (only_the_real_note.clone(), only_the_real_note)
+    );
+}
+
+// Linux filenames are bytes. A name that is not UTF-8 has no note id: a lossy
+// decode would turn every invalid byte into U+FFFD, so two names shared one.
+#[cfg(target_os = "linux")]
+#[test]
+fn non_utf8_filenames_are_not_notes() {
+    use std::os::unix::ffi::OsStrExt;
+    let root = TestRoot::new();
+    for name in [b"caf\xe9.md".as_slice(), b"caf\xe8.md".as_slice()] {
+        fs::write(
+            root.0.join(std::ffi::OsStr::from_bytes(name)),
+            "latin-1 name",
+        )
+        .unwrap();
+    }
+    fs::write(root.0.join("plain.md"), "utf-8 name").unwrap();
+    let only_the_utf8_note = vec!["plain".to_owned()];
+    assert_eq!(
+        listed_ids(&store(&root)),
+        (only_the_utf8_note.clone(), only_the_utf8_note)
+    );
+}
+
+// A Unix folder named `x\y` is not listed: it is not the folders `x` and `x/y`
+// (which do not exist), and no folder path can hold a `\`. Other empty
+// folders, even ones the app would not create (`Misc.`, `Aux`), still list.
+#[cfg(unix)]
+#[test]
+fn a_backslash_folder_name_is_not_listed_or_split() {
+    let root = TestRoot::new();
+    for folder in ["x\\y", "Misc.", "Aux"] {
+        fs::create_dir_all(root.0.join(folder)).unwrap();
+    }
+    assert_eq!(store(&root).snapshot().folders, ["Aux", "Misc."]);
 }
 
 // A relink rewrites other notes' bodies, so it must never re-encode one: a

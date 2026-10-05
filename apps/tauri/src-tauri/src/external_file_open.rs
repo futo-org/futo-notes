@@ -7,7 +7,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use futo_notes_core::files::{note_id_from_relative_path, safe_note_path};
+use futo_notes_core::files::{note_id_from_relative_path, vault_fs};
 use futo_notes_store::is_markdown_path;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -42,14 +42,12 @@ fn classify_one(vault_root: &Path, candidate: &Path) -> Option<ExternalFileOpenR
     }
     let root = vault_root.canonicalize().ok()?;
 
-    if let Ok(relative) = source.strip_prefix(&root) {
-        let relative = relative.to_string_lossy().replace('\\', "/");
-        if let Some(id) = note_id_from_relative_path(&relative) {
-            let expected = safe_note_path(&root, &id).ok()?.canonicalize().ok()?;
-            if expected == source {
-                return Some(ExternalFileOpenRequest::InsideVault { id });
-            }
-        }
+    // Both paths are canonical, so a note id from the vault name addresses
+    // exactly `source`. Anything that is not a note is opened as external.
+    if let Some(id) = vault_fs::relative_name(&root, &source)
+        .and_then(|relative| note_id_from_relative_path(&relative))
+    {
+        return Some(ExternalFileOpenRequest::InsideVault { id });
     }
 
     Some(ExternalFileOpenRequest::OutsideVault {
@@ -83,7 +81,9 @@ pub(crate) fn emit_arguments(app: &AppHandle, arguments: Vec<String>, cwd: Strin
     let root = match crate::vault_location::root(app) {
         Ok(root) => root,
         Err(error) => {
-            eprintln!("Could not route externally opened Markdown file: {error}");
+            futo_notes_core::log_to_stderr!(
+                "Could not route externally opened Markdown file: {error}"
+            );
             return;
         }
     };
@@ -94,7 +94,9 @@ pub(crate) fn emit_arguments(app: &AppHandle, arguments: Vec<String>, cwd: Strin
     );
     for request in requests {
         if let Err(error) = app.emit(OPEN_NOTE_REQUEST_EVENT, request) {
-            eprintln!("Could not emit external Markdown open request: {error}");
+            futo_notes_core::log_to_stderr!(
+                "Could not emit external Markdown open request: {error}"
+            );
         }
     }
 }
@@ -159,6 +161,26 @@ mod tests {
                     name: "grocery list.markdown".to_owned()
                 }
             ]
+        );
+    }
+
+    /// On Unix `\` is part of a filename, so `a\b.md` in the vault is no note
+    /// (no id holds `\`) and opens as an external file, never as `a/b`.
+    #[cfg(unix)]
+    #[test]
+    fn a_backslash_filename_in_the_vault_opens_as_external() {
+        let vault = TempRoot::new("backslash");
+        let file = vault.0.join("a\\b.md");
+        std::fs::write(&file, "literal backslash").unwrap();
+
+        let requests = classify_arguments(&vault.0, &vault.0, [file.clone().into_os_string()]);
+
+        assert_eq!(
+            requests,
+            [ExternalFileOpenRequest::OutsideVault {
+                path: file.canonicalize().unwrap().to_string_lossy().into_owned(),
+                name: "a\\b.md".to_owned()
+            }]
         );
     }
 

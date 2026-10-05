@@ -326,6 +326,36 @@ test('the checkbox stays clear of the screen edge iOS reserves', async ({ page }
   expect(box.x).toBeGreaterThanOrEqual(20);
 });
 
+/* An empty task item is checkbox widget + ProseMirror's separator <img> +
+ * trailing <br>. The global `img { display: block }` reset made the separator a
+ * block, which split the line and drew the caret ABOVE it — "cursor is too high
+ * when no text is entered". Headless engines do not paint a caret, so this
+ * holds the thing the caret is drawn against: the separator sits on the line,
+ * not at its top edge. */
+test('the caret in an empty task item sits on the line, not above it', async ({ page }) => {
+  await open(page, '- [ ] tasks\n');
+  // Enter at the end of a task item makes the empty one, as a user would.
+  // Control+End would land in the trailing paragraph after the list instead.
+  const { x, y } = await centerOf(page, '.ProseMirror li p');
+  await page.mouse.click(x, y);
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.ProseMirror li')).toHaveCount(2);
+  await flushFrames(page);
+  const geometry = await page.evaluate(() => {
+    const item = document.querySelectorAll('.ProseMirror li')[1];
+    const separator = item.querySelector('img.ProseMirror-separator');
+    const line = item.getBoundingClientRect();
+    return {
+      display: separator ? getComputedStyle(separator).display : null,
+      offset: separator ? separator.getBoundingClientRect().top - line.top : null,
+      height: line.height,
+    };
+  });
+  expect(geometry.display).toBe('inline');
+  expect(geometry.offset).toBeGreaterThan(geometry.height * 0.3);
+});
+
 test('clicking the item text places the caret instead of toggling', async ({ page }) => {
   await open(page, '- [ ] todo\n');
   const { x, y } = await centerOf(page, '.ProseMirror li p');
@@ -478,4 +508,94 @@ test('tags and checkboxes and fences all survive one round trip together', async
   expect(saved).toContain('[ ] todo');
   expect(saved).toContain('[x] done');
   expect(saved).toContain('```js\nconst a = 1;\n```');
+});
+
+// ============================================================
+// Bare URLs — linked as they are typed, and saved as typed
+// ============================================================
+
+/* GFM autolink literals were recognised only when a note was PARSED: a typed
+ * URL stayed plain text until the note was reopened (reported: "it should
+ * become a hyperlink once i hit space or enter"). autolink.ts. */
+
+/** The links in the document, as [text, href]. */
+function links(page: Page): Promise<string[][]> {
+  return page.evaluate(() =>
+    [...document.querySelectorAll('.ProseMirror a')].map((a) => [
+      a.textContent ?? '',
+      a.getAttribute('href') ?? '',
+    ]),
+  );
+}
+
+async function typeIntoEmptyNote(page: Page, text: string): Promise<void> {
+  await open(page, '');
+  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+  await page.keyboard.type(text);
+}
+
+test('a typed URL becomes a link when Space ends it', async ({ page }) => {
+  await typeIntoEmptyNote(page, 'see https://youtube.com');
+  expect(await links(page)).toEqual([]);
+  await page.keyboard.type(' ok');
+  expect(await links(page)).toEqual([['https://youtube.com', 'https://youtube.com']]);
+  await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
+  // Saved as typed: bare, not `<https://youtube.com>`, and the text typed
+  // after it is not part of the link.
+  expect(await getContent(page)).toBe('see https://youtube.com ok\n');
+});
+
+test('a typed URL becomes a link when Enter ends it', async ({ page }) => {
+  await typeIntoEmptyNote(page, 'https://youtube.com');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('next');
+  expect(await links(page)).toEqual([['https://youtube.com', 'https://youtube.com']]);
+  await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
+  expect(await getContent(page)).toBe('https://youtube.com\n\nnext\n');
+});
+
+test('a typed link is exactly what reopening the note would link', async ({ page }) => {
+  // The trailing period is GFM's to trim, `www.` gains its `http://`, and a
+  // word that merely mentions a scheme is not a link.
+  await typeIntoEmptyNote(page, 'go to www.example.com. or https://a.com/x_y, not https:// ');
+  expect(await links(page)).toEqual([
+    ['www.example.com', 'http://www.example.com'],
+    ['https://a.com/x_y', 'https://a.com/x_y'],
+  ]);
+  await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
+  // The plain-text `https://` gets the serializer's stock `\:` (remark-gfm
+  // escapes a `:` between `s` and `/`, so it cannot start a literal).
+  expect(await getContent(page)).toBe(
+    'go to www.example.com. or https://a.com/x_y, not https\\:// \n',
+  );
+});
+
+test('a URL typed inside inline code stays code', async ({ page }) => {
+  await open(page, '`https://youtube.com`\n');
+  await page.locator('.ProseMirror code').click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.type(' ');
+  expect(await links(page)).toEqual([]);
+});
+
+/* The serializer half. mdast-util-to-markdown writes a link whose text is its
+ * URL as `<url>` and a `www.` literal as `[text](http://…)`, so ANY edit used to
+ * rewrite every bare URL in the note. bareUrl.ts. */
+test('editing a note leaves its bare URLs bare', async ({ page }) => {
+  const note = 'see https://youtube.com ok\n\nand www.example.com, or (https://a.com/b).\n';
+  await open(page, note);
+  await typeAtEnd(page, ' X');
+  expect(await getContent(page)).toBe(note.replace(/\n$/, ' X\n'));
+});
+
+test('a URL that bare would not read back as the same link keeps its brackets', async ({
+  page,
+}) => {
+  // Bare, `https://a.com` followed straight by `x` would read back as the
+  // longer link `https://a.comx`.
+  const note = '<https://a.com>x\n';
+  await open(page, note);
+  await typeAtEnd(page, ' X');
+  expect(await getContent(page)).toBe('<https://a.com>x X\n');
 });

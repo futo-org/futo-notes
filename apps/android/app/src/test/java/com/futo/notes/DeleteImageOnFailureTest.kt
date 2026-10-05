@@ -3,6 +3,7 @@ package com.futo.notes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -29,28 +30,21 @@ class DeleteImageOnFailureTest {
     }
 
     @Test
-    fun `a consumer that throws deletes the file and still propagates`() = runBlocking {
-        val file = tmp.newFile("image-2.png")
-        val boom = IllegalStateException("insertion unavailable")
+    fun `a failing or cancelled consumer deletes the file and rethrows`() = runBlocking {
+        listOf(
+            IllegalStateException("insertion unavailable"),
+            // Catching `Exception` also catches cancellation; it must still
+            // clean up and propagate rather than be swallowed.
+            CancellationException("session closed"),
+        ).forEachIndexed { index, failure ->
+            val file = tmp.newFile("image-failed-$index.png")
 
-        val caught = runCatching {
-            deleteImageOnFailure(file) { throw boom }
-        }.exceptionOrNull()
+            val caught = runCatching {
+                deleteImageOnFailure(file) { throw failure }
+            }.exceptionOrNull()
 
-        assertFalse(file.exists())
-        org.junit.Assert.assertSame(boom, caught)
-    }
-
-    @Test
-    fun `a cancelled consumer deletes the file and rethrows cancellation`() = runBlocking {
-        val file = tmp.newFile("image-3.png")
-        val cancellation = CancellationException("session closed")
-
-        val caught = runCatching {
-            deleteImageOnFailure(file) { throw cancellation }
-        }.exceptionOrNull()
-
-        assertFalse(file.exists())
-        org.junit.Assert.assertSame(cancellation, caught)
+            assertFalse(file.exists())
+            assertSame(failure, caught)
+        }
     }
 }

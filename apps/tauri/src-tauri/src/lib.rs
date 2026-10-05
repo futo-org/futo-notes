@@ -10,6 +10,8 @@ mod application_state;
 mod background_tasks;
 mod close_deadline;
 mod desktop_settings;
+#[cfg(all(target_os = "macos", debug_assertions))]
+mod dev_app_name;
 mod external_file_open;
 mod filesystem_watcher;
 mod image_commands;

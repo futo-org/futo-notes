@@ -23,6 +23,16 @@ formatting recipes — so Rust changes had no sanctioned way to be formatted or 
 rustfmt is pinned by `rust-toolchain.toml` (1.89.0), so both recipes are reproducible
 across machines and CI.
 
+## rust-lint
+
+The lint levels live in the root `Cargo.toml`'s `[workspace.lints]`: the print macros and
+`dbg!` are denied because `println!`/`eprintln!` panic once stdout/stderr is gone (the
+launching terminal closed: EPIPE/EIO) and the desktop release profile aborts on panic, so
+shipped code logs through `futo_notes_core::log_to_stderr!`. Only lib/bin targets are linted,
+and only for the host target, so code behind another platform's cfg goes unchecked. Other
+clippy findings are warnings and do not fail it. CI's `test:rust:workspace` runs the same
+command (Linux).
+
 ## tauri-build
 
 `NO_STRIP=true`: linuxdeploy ships an old `strip` that can't read `.relr.dyn` sections
@@ -59,7 +69,7 @@ and an `adb install` issued in that window fails with `cmd: Can't find service: 
 ## cdp-forward
 
 Debug builds only; re-run after every app restart (the WebView pid changes). `adb forward`
-host ports are machine-global, so the port is per-worktree (9330 + slot; override with
+host ports are machine-global, so the port is per-worktree (15000 + slot; override with
 `$CDP_PORT`). `scripts/cdp-invoke.mjs` honors `$CDP_PORT`.
 
 ## prepush (--retries=1)

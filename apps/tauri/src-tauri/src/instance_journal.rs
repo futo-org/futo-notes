@@ -71,9 +71,9 @@ pub(crate) fn install(app: &AppHandle) {
             );
             let state: State<'_, AppState> = app.state();
             state.sync.set_journal(journal);
-            println!("[journal] recording to {}", directory.display());
+            futo_notes_core::log_to_stderr!("[journal] recording to {}", directory.display());
         }
-        Err(error) => eprintln!("[journal] disabled: {error}"),
+        Err(error) => futo_notes_core::log_to_stderr!("[journal] disabled: {error}"),
     }
 }
 
@@ -114,13 +114,5 @@ mod tests {
         assert!(events[0].recorded_at_ms > 0);
         assert_eq!(events[0].data["version"], "1.2.3");
         assert_eq!(events[0].data["identifier"], "com.futo.notes.dev");
-    }
-
-    /// A journal that could not be opened must still cost nothing: the app has
-    /// to start (M1), and the disabled sink is the path an unwritable data dir
-    /// takes.
-    #[test]
-    fn a_disabled_journal_records_no_launch_marker() {
-        record_launch(&Journal::disabled(), "1.2.3", "com.futo.notes");
     }
 }

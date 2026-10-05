@@ -14,6 +14,8 @@ use notify::{
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use futo_notes_core::files::{note_id_from_relative_path, vault_fs};
+
 use crate::application_state::AppState;
 use crate::background_tasks::blocking;
 
@@ -179,26 +181,23 @@ fn path_exists(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok()
 }
 
+/// The vault name of a changed note file (`.md`, or legacy `.txt`), or `None`
+/// for anything that names no note: a hidden path, another extension, or a name
+/// no note id can hold (a Unix `\`, bytes that are not UTF-8).
 fn relative_note_path(base: &Path, path: &Path) -> Option<String> {
-    relative_note_path_stripped(path.strip_prefix(base).ok()?)
+    let name = vault_fs::relative_name(base, path)?;
+    if name.split('/').any(|component| component.starts_with('.')) {
+        return None;
+    }
+    let stem = name
+        .strip_suffix(".md")
+        .or_else(|| name.strip_suffix(".txt"))?;
+    note_id_from_relative_path(&format!("{stem}.md"))?;
+    Some(name)
 }
 
 fn relative_note_path_any(bases: &[PathBuf], path: &Path) -> Option<String> {
     bases.iter().find_map(|base| relative_note_path(base, path))
-}
-
-fn relative_note_path_stripped(path: &Path) -> Option<String> {
-    let path = path.to_str()?;
-    if !path.ends_with(".md") && !path.ends_with(".txt") {
-        return None;
-    }
-    if path
-        .split(['/', '\\'])
-        .any(|component| component.starts_with('.'))
-    {
-        return None;
-    }
-    Some(path.replace('\\', "/"))
 }
 
 /// Where the processor reports normalized vault changes: the app's
@@ -720,13 +719,17 @@ mod tests {
     }
 
     #[test]
-    fn paths_are_normalized_and_hidden_paths_are_rejected() {
-        assert_eq!(
-            relative_note_path_stripped(Path::new("Folder\\note.md")),
-            Some("Folder/note.md".to_owned())
-        );
-        assert_eq!(relative_note_path_stripped(Path::new(".git/note.md")), None);
-        assert_eq!(relative_note_path_stripped(Path::new("image.png")), None);
+    fn only_note_names_are_reported_and_hidden_paths_are_rejected() {
+        let base = Path::new("/vault");
+        let name = |relative: &str| relative_note_path(base, &base.join(relative));
+        assert_eq!(name("Folder/note.md"), Some("Folder/note.md".to_owned()));
+        assert_eq!(name("legacy.txt"), Some("legacy.txt".to_owned()));
+        assert_eq!(name(".git/note.md"), None);
+        assert_eq!(name("image.png"), None);
+        // On Unix `\` is part of the name, and no note id holds one: reporting
+        // it would point the change at the real `Folder/note`.
+        #[cfg(unix)]
+        assert_eq!(name("Folder\\note.md"), None);
     }
 
     #[test]

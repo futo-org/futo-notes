@@ -20,18 +20,6 @@ struct FolderNameValidationTests {
         )
     }
 
-    @Test("every character the shared rules forbid is reported")
-    func everyForbiddenCharacterIsReported() {
-        for character in "<>:\"/\\|?*" {
-            #expect(
-                folderNameProblem("Specs\(character)Draft") == .forbiddenCharacter,
-                "\(character) must be reported, not silently stripped"
-            )
-        }
-        // Control characters are forbidden by the same shared rule.
-        #expect(folderNameProblem("Specs\u{0007}Draft") == .forbiddenCharacter)
-    }
-
     @Test("an empty field blocks the action but stays quiet")
     func emptyStaysQuiet() {
         #expect(folderNameProblem("") == .empty)

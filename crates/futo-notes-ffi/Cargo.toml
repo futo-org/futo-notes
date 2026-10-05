@@ -16,6 +16,7 @@ path = "src/bin/uniffi-bindgen.rs"
 # `tokio` exports async methods; `cli` builds the bundled binding generator.
 uniffi = { version = "0.28", features = ["tokio", "cli"] }
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
+futo-notes-core = { path = "../futo-notes-core" }
 futo-notes-license = { path = "../futo-notes-license" }
 futo-notes-model = { path = "../futo-notes-model" }
 futo-notes-store = { path = "../futo-notes-store" }
@@ -27,3 +28,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 icu_locale = { version = "=2.2.0", features = ["compiled_data"] }
 icu_plurals = { version = "=2.2.0", features = ["compiled_data"] }
 thiserror = "1"
+
+[lints]
+workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"

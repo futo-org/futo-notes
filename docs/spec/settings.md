@@ -4,9 +4,10 @@
 
 - **Theme**: Light / Dark / Auto. Auto follows the system setting; selecting a
   theme applies immediately (no restart) and persists across restarts. On
-  desktop, Auto tracks the OS theme via the window/portal theme-change event and
-  the event's reported value wins — the webview's own `matchMedia` cannot observe
-  the Linux desktop theme, so it is not the source of truth for Auto. →
+  desktop, Auto asks the OS directly (the desktop portal on Linux, the released
+  window on macOS and Windows) and tracks later changes via the window/portal
+  theme-change event — the webview's own `matchMedia` echoes the app's own last
+  pin, so it is never the source of truth for Auto. →
   SettingsScreen.kt (SharedPreferences `theme_mode`) _(Android)_;
   theme.ts / createAppBootstrap.svelte.ts / SettingsScreen.svelte _(Tauri)_
 - **Language** follows [localization.md](localization.md). Desktop and Android
@@ -104,7 +105,11 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   is never merged into or deleted. Leaving the editor captures and
   persists-or-parks its latest live body before Settings can open; the migration
   then flushes any retained draft under the vault gate before staging. The
-  blocking overlay never depends on an attached editor WebView.
+  blocking overlay never depends on an attached editor WebView. Every copied
+  file keeps its modified time wherever the destination filesystem can carry
+  one, so a storage change leaves Last Modified ordering and each note's
+  displayed age unchanged; the copy is never failed over a timestamp.
+  → `vault_migration::copy_file`
   Changing location and moving notes are separate operations, decided by what the
   target already holds: an **empty** target gets the whole-vault copy above, while
   a target that **already holds files** is opened as a vault — nothing is copied,

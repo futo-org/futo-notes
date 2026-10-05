@@ -388,7 +388,11 @@ impl Http {
     /// `POST /api/auth/logout` — destroys this session server-side. It answers
     /// `204`, so there is no body to read.
     pub(crate) async fn logout(&self) -> Result<(), HostedError> {
-        let response = send(self.request(Method::POST, "/api/auth/logout")).await?;
+        let response = send(
+            self.request(Method::POST, "/api/auth/logout")
+                .timeout(PROBE_TIMEOUT),
+        )
+        .await?;
         if response.status().is_success() {
             return Ok(());
         }

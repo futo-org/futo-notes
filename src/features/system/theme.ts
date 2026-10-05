@@ -1,9 +1,4 @@
-import {
-  isLinux,
-  readDesktopColorScheme,
-  readLinuxDesktopSettings,
-  setNativeWindowAppearance,
-} from '$lib/platform';
+import { isLinux, readSystemTheme, setNativeWindowAppearance } from '$lib/platform';
 
 export type ThemePreference = 'auto' | 'dark' | 'light';
 export type ResolvedTheme = 'dark' | 'light';
@@ -55,8 +50,8 @@ export function applyResolvedTheme(theme: ResolvedTheme): void {
  * - Nothing is lost by pinning, because the page was never the signal: tao
  *   emits no ThemeChanged on Linux at all, and `prefers-color-scheme` there
  *   only reads back the pin. The desktop's own answer reaches the app through
- *   the portal — the `linux-theme-changed` event `watchSystemThemeTauri`
- *   listens for, and the `readDesktopColorScheme` read `resolveAutoTheme` does.
+ *   the portal — the `linux-theme-changed` event `watchSystemTheme` listens
+ *   for, and the `readSystemTheme` read `resolveAutoTheme` does.
  */
 export function windowAppearanceFor(
   preference: ThemePreference,
@@ -70,27 +65,20 @@ export function windowAppearanceFor(
 /**
  * What `auto` resolves to right now.
  *
- * Off Linux this is the reported system appearance, or the page's own
- * `prefers-color-scheme` — a signal macOS and Windows never overwrite, because
- * their `auto` hands the window back to the OS (see `windowAppearanceFor`).
- *
- * On Linux the page is NOT that signal. `auto` has to pin the window there, and
- * any pin writes `gtk-application-prefer-dark-theme`, which is the same property
- * WebKitGTK answers `prefers-color-scheme` from — so the query reads back the
- * app's own last choice. Measured on Fedora 44 / KDE Plasma 6.7.4: on a dark
- * desktop, choosing Light and then Auto left the app light, because `auto`
- * believed the value Light had just written. The xdg portal's
- * `org.freedesktop.appearance` / `color-scheme` is the desktop's answer and
- * nothing this app does can overwrite it, so on Linux that comes first, with the
- * reported change and then the media query as fallbacks for a desktop that has
- * no portal to ask.
+ * The page's `prefers-color-scheme` is NOT the system's answer once the app has
+ * pinned an appearance: the webview answers it from the window, so right after
+ * an explicit choice the query reads back that choice. Measured on Fedora 44 /
+ * KDE Plasma 6.7.4, choosing Light and then Auto on a dark desktop left the app
+ * light; measured on macOS 26, choosing Dark and then Auto on a light desktop
+ * left it dark, and tao emits no ThemeChanged for the app's own unpin that
+ * would have corrected it. So the OS is asked directly — the xdg portal on
+ * Linux, the released window's theme on macOS and Windows — with the reported
+ * change and then the media query as fallbacks where nothing answers.
  */
 export async function resolveAutoTheme(
   systemThemeOverride?: ResolvedTheme,
-  linux: boolean = isLinux,
 ): Promise<ResolvedTheme> {
-  if (!linux) return systemThemeOverride ?? resolveTheme('auto');
-  return (await readDesktopColorScheme()) ?? systemThemeOverride ?? resolveTheme('auto');
+  return (await readSystemTheme()) ?? systemThemeOverride ?? resolveTheme('auto');
 }
 
 // Serialises overlapping applies. One desktop theme change is a BURST of portal
@@ -111,81 +99,4 @@ export async function applyThemePreference(
   applyResolvedTheme(resolved);
   setNativeWindowAppearance(windowAppearanceFor(preference, resolved));
   return resolved;
-}
-
-export function watchSystemTheme(onChange: () => void): () => void {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-    return () => {};
-  }
-
-  const media = window.matchMedia(SYSTEM_DARK_MEDIA);
-  const handler = () => onChange();
-  media.addEventListener('change', handler);
-  return () => media.removeEventListener('change', handler);
-}
-
-export function watchSystemThemeTauri(onChange: (theme?: ResolvedTheme) => void): () => void {
-  let tauriUnlisten: (() => void) | null = null;
-  let portalUnlisten: (() => void) | null = null;
-  let fallbackUnlisten: (() => void) | null = null;
-  let disposed = false;
-
-  import('@tauri-apps/api/window')
-    .then(({ getCurrentWindow }) => {
-      if (disposed) return;
-      void getCurrentWindow()
-        .onThemeChanged(({ payload: theme }) => {
-          onChange(theme as ResolvedTheme);
-        })
-        .then((unlisten) => {
-          if (disposed) {
-            unlisten();
-            return;
-          }
-          tauriUnlisten = unlisten;
-        });
-
-      import('@tauri-apps/api/event')
-        .then(({ listen }) => {
-          if (disposed) return;
-          void listen<string>('linux-theme-changed', (event) => {
-            onChange(event.payload as ResolvedTheme);
-          }).then((unlisten) => {
-            if (disposed) {
-              unlisten();
-              return;
-            }
-            portalUnlisten = unlisten;
-
-            if (isLinux) {
-              void readLinuxDesktopSettings()
-                .then((snapshot) => {
-                  if (!disposed && snapshot) onChange(snapshot.theme);
-                })
-                .catch((error) =>
-                  console.warn('Failed to read the current Linux desktop theme:', error),
-                );
-            }
-          });
-        })
-        .catch(() => {});
-    })
-    .catch(() => {
-      if (disposed) return;
-      fallbackUnlisten = watchSystemTheme(onChange);
-    });
-
-  return () => {
-    if (disposed) return;
-    disposed = true;
-    const t = tauriUnlisten;
-    tauriUnlisten = null;
-    const p = portalUnlisten;
-    portalUnlisten = null;
-    const f = fallbackUnlisten;
-    fallbackUnlisten = null;
-    t?.();
-    p?.();
-    f?.();
-  };
 }

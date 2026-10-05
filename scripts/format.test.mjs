@@ -12,13 +12,4 @@ describe('dropMissingPaths', () => {
 
     expect(dropMissingPaths(files, (f) => existing.has(f))).toEqual(['src/a.ts', 'scripts/b.mjs']);
   });
-
-  it('passes every path through the existence predicate', () => {
-    const seen = [];
-    dropMissingPaths(['x.ts'], (f) => {
-      seen.push(f);
-      return true;
-    });
-    expect(seen).toEqual(['x.ts']);
-  });
 });

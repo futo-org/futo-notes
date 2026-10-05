@@ -34,7 +34,11 @@ interface SyncCompletionOptions {
   /** The engine's failure sentence, plus this cycle's refusal when the server
    *  would not take the writes at all — a 402 or 507 says "Sync paused" /
    *  "Vault is full" rather than "Sync completed with errors". */
-  raiseSyncError: (message: string, writeRefusal: WriteRefusalOutput | null) => void;
+  raiseSyncError: (
+    message: string,
+    writeRefusal: WriteRefusalOutput | null,
+    summary: SyncSummary,
+  ) => void;
   setCompletionStatus: (message: LocalizedMessage, durationMilliseconds: number) => void;
   setSyncStatusMessage: (message: LocalizedMessage | null) => void;
   writeSuppressor: WriteSuppressor;
@@ -131,7 +135,7 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
     syncStartEditVersion: number,
   ): Promise<void> {
     if (summary.failureMessage) {
-      options.raiseSyncError(summary.failureMessage, summary.writeRefusal);
+      options.raiseSyncError(summary.failureMessage, summary.writeRefusal, summary);
     } else {
       options.clearSyncError();
       if (trigger === 'manual') dependencies.showToast({ path: 'sync.status.complete' });

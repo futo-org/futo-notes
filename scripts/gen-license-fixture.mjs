@@ -126,8 +126,8 @@ const STAGING_V1 = { format: 'v1', key: STAGING_FIXTURE_KEY };
 
 const STAGING_CONSUMERS = [
   'crates/futo-notes-ffi/src/license/contract.rs (all three constants)',
-  'apps/ios/Tests/License/LicenseFixture.swift (ACTIVATION + V1_ACTIVATION)',
-  'apps/android/app/src/androidTest/java/com/futo/notes/license/LicenseFixture.kt (ACTIVATION + V1_ACTIVATION)',
+  'apps/ios/Tests/License/LicenseFixture.swift (ACTIVATION)',
+  'apps/android/app/src/androidTest/java/com/futo/notes/license/LicenseFixture.kt (ACTIVATION)',
 ];
 
 /** The staging public key exactly as the app bakes it in. Read out of the Rust

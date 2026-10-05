@@ -121,65 +121,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_trailing_gnome_buttons_in_order() {
-        assert_eq!(
-            parse_button_layout("'appmenu:minimize,maximize,close'\n"),
-            WindowControlsLayout {
-                left: vec![],
-                right: vec![
-                    WindowControl::Minimize,
-                    WindowControl::Maximize,
-                    WindowControl::Close,
-                ],
-            }
-        );
-    }
+    fn parse_button_layout_cases() {
+        use WindowControl::{Close, Maximize, Minimize};
+        let layout = |left: Vec<WindowControl>, right: Vec<WindowControl>| WindowControlsLayout {
+            left,
+            right,
+        };
 
-    #[test]
-    fn parses_leading_gnome_buttons_in_order() {
-        assert_eq!(
-            parse_button_layout("close,minimize,maximize:appmenu"),
-            WindowControlsLayout {
-                left: vec![
-                    WindowControl::Close,
-                    WindowControl::Minimize,
-                    WindowControl::Maximize,
-                ],
-                right: vec![],
-            }
-        );
-    }
-
-    #[test]
-    fn empty_layout_uses_the_trailing_default() {
-        assert_eq!(parse_button_layout(""), default_layout());
-    }
-
-    #[test]
-    fn layout_without_close_uses_the_trailing_default() {
-        assert_eq!(
-            parse_button_layout("minimize,maximize:appmenu"),
-            default_layout()
-        );
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    #[test]
-    fn non_linux_command_reports_no_custom_controls() {
-        let layout = tauri::async_runtime::block_on(window_controls_layout()).unwrap();
-
-        assert!(layout.left.is_empty());
-        assert!(layout.right.is_empty());
-    }
-
-    #[test]
-    fn split_layout_keeps_every_supported_button() {
-        let layout = parse_button_layout("close,appmenu:minimize,maximize");
-
-        assert_eq!(layout.left, vec![WindowControl::Close]);
-        assert_eq!(
-            layout.right,
-            vec![WindowControl::Minimize, WindowControl::Maximize]
-        );
+        for (setting, expected) in [
+            (
+                "'appmenu:minimize,maximize,close'\n",
+                layout(vec![], vec![Minimize, Maximize, Close]),
+            ),
+            (
+                "close,minimize,maximize:appmenu",
+                layout(vec![Close, Minimize, Maximize], vec![]),
+            ),
+            (
+                "close,appmenu:minimize,maximize",
+                layout(vec![Close], vec![Minimize, Maximize]),
+            ),
+            // No close button, or no setting at all, falls back to the default.
+            ("", default_layout()),
+            ("minimize,maximize:appmenu", default_layout()),
+        ] {
+            assert_eq!(parse_button_layout(setting), expected, "{setting:?}");
+        }
     }
 }

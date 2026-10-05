@@ -15,6 +15,23 @@ fn relative_components(relative: &str) -> Result<Vec<&std::ffi::OsStr>, String> 
     Ok(components)
 }
 
+/// The vault-relative name that resolves back to `path` (the inverse of
+/// `relative_components`): its components joined with `/`. On Unix a `\` is an
+/// ordinary character inside a component, so `a\b.md` is named `a\b.md`, never
+/// `a/b.md`. `None` when a component is not UTF-8, which no name can address.
+pub fn relative_name(root: &Path, path: &Path) -> Option<String> {
+    let components = path
+        .strip_prefix(root)
+        .ok()?
+        .components()
+        .map(|component| match component {
+            Component::Normal(component) => component.to_str(),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(components.join("/"))
+}
+
 /// Why a vault-relative path could not be resolved to its parent directory.
 ///
 /// `NotFound` is ABSENCE, not a fault: a leaf cannot be there if the folder
@@ -117,6 +134,10 @@ pub fn exists(root: &Path, relative: &str) -> Result<bool, String> {
 }
 
 pub fn set_mtime_ms(root: &Path, relative: &str, modified_at_ms: i64) -> Result<(), String> {
+    // An `updated_at` that failed to parse arrives as 0; never stamp 1970.
+    if modified_at_ms <= 0 {
+        return Ok(());
+    }
     platform::set_mtime_ms(root, relative, modified_at_ms)
 }
 
@@ -152,6 +173,13 @@ pub fn create_new(root: &Path, relative: &str, bytes: &[u8]) -> Result<bool, Str
 }
 pub fn move_no_replace(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
     platform::move_no_replace(root, source, destination)
+}
+pub fn move_no_replace_strict(
+    root: &Path,
+    source: &str,
+    destination: &str,
+) -> Result<bool, String> {
+    platform::move_no_replace_strict(root, source, destination)
 }
 pub fn create_dir_all(root: &Path, relative: &str) -> Result<(), String> {
     platform::create_dir_all(root, relative)

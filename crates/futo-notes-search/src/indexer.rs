@@ -71,10 +71,10 @@ pub(crate) fn spawn(
         match inner.await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
-                eprintln!("[search/indexer] run_loop returned error: {e}");
+                futo_notes_core::log_to_stderr!("[search/indexer] run_loop returned error: {e}");
             }
             Err(je) => {
-                eprintln!("[search/indexer] run_loop panicked: {je}");
+                futo_notes_core::log_to_stderr!("[search/indexer] run_loop panicked: {je}");
             }
         }
         let snap = status_for_supervisor
@@ -250,7 +250,9 @@ fn reconcile_bm25(
         let indexed_mtimes = match idx.bm25_note_mtimes() {
             Ok(m) => m,
             Err(e) => {
-                eprintln!("[search/indexer] bm25_note_mtimes failed (full reindex): {e}");
+                futo_notes_core::log_to_stderr!(
+                    "[search/indexer] bm25_note_mtimes failed (full reindex): {e}"
+                );
                 HashMap::new()
             }
         };
@@ -278,13 +280,15 @@ fn reconcile_bm25(
             reindexed += 1;
         }
         if let Err(e) = idx.commit_bm25() {
-            eprintln!("[search/indexer] bm25 commit failed: {e}");
+            futo_notes_core::log_to_stderr!("[search/indexer] bm25 commit failed: {e}");
         }
     }
     if deleted > 0 {
-        eprintln!("[search/indexer] reconciled {deleted} deletion(s) detected at startup");
+        futo_notes_core::log_to_stderr!(
+            "[search/indexer] reconciled {deleted} deletion(s) detected at startup"
+        );
     }
-    eprintln!(
+    futo_notes_core::log_to_stderr!(
         "[search/indexer] BM25 reconcile: {reindexed} new/changed of {total} total ({} skipped via mtime gate)",
         total.saturating_sub(reindexed)
     );
@@ -329,7 +333,22 @@ fn walk_md_files(notes_root: &Path) -> Vec<(String, PathBuf, i64)> {
         let Ok(rel) = abs.strip_prefix(notes_root) else {
             continue;
         };
-        let note_id = rel_to_note_id(&rel.to_string_lossy());
+        // The note id's folders are the path's components. A component that is
+        // not UTF-8, or that holds a Unix `\`, names no note (the store skips
+        // it too); folding it would index its text under another note's id.
+        let Some(components) = rel
+            .components()
+            .map(|component| {
+                component
+                    .as_os_str()
+                    .to_str()
+                    .filter(|name| !name.contains('\\'))
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            continue;
+        };
+        let note_id = rel_to_note_id(&components.join("/"));
         let mtime_ms = mtime_ms_of(&abs).unwrap_or(0);
         out.push((note_id, abs, mtime_ms));
     }
@@ -346,15 +365,13 @@ fn mtime_ms_of(path: &Path) -> Option<i64> {
     Some(dur)
 }
 
+/// `rel` is a `/`-separated vault name: the walk joins components, and the
+/// store's change notifications carry note filenames.
 fn rel_to_note_id(rel: &str) -> String {
-    let r = rel.replace('\\', "/");
-    if let Some(stripped) = r.strip_suffix(".md") {
-        stripped.to_string()
-    } else if let Some(stripped) = r.strip_suffix(".txt") {
-        stripped.to_string()
-    } else {
-        r
-    }
+    rel.strip_suffix(".md")
+        .or_else(|| rel.strip_suffix(".txt"))
+        .unwrap_or(rel)
+        .to_string()
 }
 
 fn note_title(note_id: &str) -> String {
@@ -401,30 +418,25 @@ fn cleanup_legacy(notes_root: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use crate::test_support::ScopedTempDir;
+    use std::time::SystemTime;
 
-    struct ScopedTempDir(PathBuf);
-    impl ScopedTempDir {
-        fn new(tag: &str) -> Self {
-            static COUNTER: AtomicU32 = AtomicU32::new(0);
-            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-            let ms = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            let dir = std::env::temp_dir().join(format!("futo-search-reconcile-{tag}-{ms}-{n}"));
-            std::fs::create_dir_all(&dir).expect("create temp dir");
-            Self(dir)
-        }
-        fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-    impl Drop for ScopedTempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
+    // On Unix `\` is part of a filename, so `a\b.md` is no note: indexing it as
+    // `a/b` would return its text as a hit for the real note `a/b`.
+    #[cfg(unix)]
+    #[test]
+    fn walk_skips_a_backslash_filename_instead_of_indexing_it_as_a_folder_note() {
+        let root = ScopedTempDir::new("backslash");
+        std::fs::create_dir(root.path().join("a")).unwrap();
+        std::fs::write(root.path().join("a/b.md"), "real").unwrap();
+        std::fs::write(root.path().join("a\\b.md"), "alias").unwrap();
+
+        let ids: Vec<String> = walk_md_files(root.path())
+            .into_iter()
+            .map(|(id, _, _)| id)
+            .collect();
+
+        assert_eq!(ids, ["a/b"]);
     }
 
     fn make_state(

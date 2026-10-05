@@ -9,7 +9,7 @@ import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 
 /**
- * Destructive confirm dialog [list.md:62] — Cancel + a danger-colored confirm
+ * Destructive confirm dialog [list.md] — Cancel + a danger-colored confirm
  * action. Shared by note delete (list row + editor menu) and folder delete.
  */
 @Composable

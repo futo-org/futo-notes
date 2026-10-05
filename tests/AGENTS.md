@@ -31,6 +31,9 @@ pnpm exec playwright test -g 'partial test title'   # one test
 `test-e2e-full` is plain `playwright test` under the default config, which `testIgnore`s
 `editor-embed-*.spec.ts` — so "run everything" leaves the native editor's bridge contract and the
 Milkdown round-trip suites untested unless you also run `pnpm run test:e2e:editor-embed`.
+That run always starts with a production Vite build of the editor bundle (its globalSetup,
+`tests/editorEmbedBundle.ts`, rebuilds so a stale `editor.html` cannot pass), so it counts as a
+build when a task rules builds out.
 
 `just test-one` is **Vitest**, not Playwright — use it for the co-located unit tests and the
 harness helpers under `lib/`, not for a `.spec.ts` here.

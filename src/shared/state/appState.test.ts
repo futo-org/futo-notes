@@ -119,4 +119,18 @@ describe('appearance preferences', () => {
 
     expect(getCachedPreferences().appearance).toEqual({ theme: 'auto' });
   });
+
+  it('drops a legacy preference field when loading persisted state', async () => {
+    const platform = await import('$lib/platform');
+    await platform.testFS.writeAppData(
+      '.app-state.json',
+      JSON.stringify({
+        deviceId: 'existing-device',
+        preferences: { theme: 'dark', interfaceFont: 'system' },
+      }),
+    );
+    const { loadPreferences } = await fresh();
+
+    expect((await loadPreferences()).appearance).toEqual({ theme: 'dark' });
+  });
 });

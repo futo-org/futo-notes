@@ -71,6 +71,7 @@ import com.futo.notes.license.LicenseModel
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.Localization
 import com.futo.notes.ui.components.ConfirmDialog
+import com.futo.notes.ui.components.FutoMenu
 import com.futo.notes.ui.components.MicroLabel
 import com.futo.notes.ui.components.TopBar
 import com.futo.notes.ui.theme.FutoRadius
@@ -438,7 +439,7 @@ private fun LanguageMenu(
                 modifier = Modifier.size(20.dp),
             )
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        FutoMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             for ((languageTag, name) in options) {
                 DropdownMenuItem(
                     text = { Text(name) },

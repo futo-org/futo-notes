@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -9,23 +9,56 @@ use futo_notes_model::{make_preview, make_rich_preview, note_tags, split_id};
 use rayon::prelude::*;
 use walkdir::{DirEntry, WalkDir};
 
-use crate::{ListingSnapshot, NoteListingMetadata, NoteMetadata, Snapshot, VaultFile};
+use crate::{
+    ListingSnapshot, NoteListingMetadata, NoteMetadata, NoteSortKey, NoteSortOrder, Snapshot,
+    SortDirection, VaultFile,
+};
 
-/// THE note-list sort rule (modified desc, id asc). Canonical for every shell:
-/// snapshots are emitted in this order and mutations carry each upserted note's
-/// position in it, so no shell holds a sort rule of its own (ADR-0001).
-pub(crate) fn note_list_order(left: (i64, &str), right: (i64, &str)) -> std::cmp::Ordering {
-    right.0.cmp(&left.0).then_with(|| left.1.cmp(right.1))
+/// THE note-list sort rule (chosen key in the chosen direction, id asc). Canonical
+/// for every shell: snapshots are emitted in this order and mutations carry each
+/// upserted note's position in it, so no shell holds a sort rule of its own (ADR-0001).
+pub(crate) fn note_list_order(
+    order: NoteSortOrder,
+    left: (i64, &str),
+    right: (i64, &str),
+) -> std::cmp::Ordering {
+    let primary = match order.key {
+        NoteSortKey::LastModified => left.0.cmp(&right.0),
+        NoteSortKey::Name => collision_key(title_of(left.1)).cmp(&collision_key(title_of(right.1))),
+    };
+    let directed = match order.direction {
+        SortDirection::Ascending => primary,
+        SortDirection::Descending => primary.reverse(),
+    };
+    directed.then_with(|| left.1.cmp(right.1))
 }
 
-pub(crate) fn snapshot(root: &Path) -> Snapshot {
+fn title_of(id: &str) -> &str {
+    id.rsplit_once('/').map_or(id, |(_, title)| title)
+}
+
+pub(crate) fn sort_listing(order: NoteSortOrder, notes: &mut [NoteListingMetadata]) {
+    notes.sort_by(|left, right| {
+        note_list_order(
+            order,
+            (left.modified_ms, &left.id),
+            (right.modified_ms, &right.id),
+        )
+    });
+}
+
+pub(crate) fn snapshot(root: &Path, order: NoteSortOrder) -> Snapshot {
     let (paths, folders) = walk(root);
     let mut notes: Vec<NoteMetadata> = paths
         .into_par_iter()
         .filter_map(|(id, path)| metadata_at(root, &id, &path))
         .collect();
     notes.sort_by(|left, right| {
-        note_list_order((left.modified_ms, &left.id), (right.modified_ms, &right.id))
+        note_list_order(
+            order,
+            (left.modified_ms, &left.id),
+            (right.modified_ms, &right.id),
+        )
     });
     Snapshot {
         notes,
@@ -33,7 +66,7 @@ pub(crate) fn snapshot(root: &Path) -> Snapshot {
     }
 }
 
-pub(crate) fn listing(root: &Path) -> ListingSnapshot {
+pub(crate) fn listing(root: &Path, order: NoteSortOrder) -> ListingSnapshot {
     let (paths, folders) = walk(root);
     let mut notes = paths
         .into_iter()
@@ -51,9 +84,7 @@ pub(crate) fn listing(root: &Path) -> ListingSnapshot {
             })
         })
         .collect::<Vec<_>>();
-    notes.sort_by(|left, right| {
-        note_list_order((left.modified_ms, &left.id), (right.modified_ms, &right.id))
-    });
+    sort_listing(order, &mut notes);
     ListingSnapshot {
         notes,
         folders: folders.into_iter().collect(),
@@ -62,7 +93,10 @@ pub(crate) fn listing(root: &Path) -> ListingSnapshot {
 
 /// Stat-only post-mutation projection used to assign note positions and return
 /// the same folder state to every shell.
-pub(crate) fn note_order_and_folders(root: &Path) -> (Vec<String>, Vec<String>) {
+pub(crate) fn note_order_and_folders(
+    root: &Path,
+    order: NoteSortOrder,
+) -> (Vec<String>, Vec<String>) {
     let (paths, folders) = walk(root);
     let mut entries: Vec<(i64, String)> = paths
         .into_iter()
@@ -71,11 +105,15 @@ pub(crate) fn note_order_and_folders(root: &Path) -> (Vec<String>, Vec<String>) 
             metadata.is_file().then(|| (file_mtime_ms(&metadata), id))
         })
         .collect();
-    entries.sort_by(|left, right| note_list_order((left.0, &left.1), (right.0, &right.1)));
+    entries.sort_by(|left, right| note_list_order(order, (left.0, &left.1), (right.0, &right.1)));
     (
         entries.into_iter().map(|(_, id)| id).collect(),
         folders.into_iter().collect(),
     )
+}
+
+pub(crate) fn folders(root: &Path) -> Vec<String> {
+    walk(root).1.into_iter().collect()
 }
 
 pub(crate) fn note_paths(root: &Path) -> Vec<(String, PathBuf)> {
@@ -108,10 +146,6 @@ pub(crate) fn collision_candidates(root: &Path, wanted: &str) -> Vec<String> {
     let prefix_keys: Vec<String> = (1..note_depth)
         .map(|depth| collision_key(&components[..depth].join("/")))
         .collect();
-    let relative_of = |entry: &DirEntry| -> Option<String> {
-        let relative = entry.path().strip_prefix(root).ok()?;
-        Some(relative.to_string_lossy().replace('\\', "/"))
-    };
     let mut ids = Vec::new();
     let entries = WalkDir::new(root)
         .follow_links(false)
@@ -127,7 +161,7 @@ pub(crate) fn collision_candidates(root: &Path, wanted: &str) -> Vec<String> {
             }
             if entry.file_type().is_dir() {
                 return depth < note_depth
-                    && relative_of(entry).is_some_and(|relative| {
+                    && vault_fs::relative_name(root, entry.path()).is_some_and(|relative| {
                         collision_key(&relative) == prefix_keys[depth - 1]
                     });
             }
@@ -137,9 +171,7 @@ pub(crate) fn collision_candidates(root: &Path, wanted: &str) -> Vec<String> {
         if entry.depth() != note_depth || !entry.file_type().is_file() {
             continue;
         }
-        if let Some(id) =
-            relative_of(&entry).and_then(|relative| note_id_from_relative_path(&relative))
-        {
+        if let Some(id) = note_id_of(root, entry.path()) {
             ids.push(id);
         }
     }
@@ -209,6 +241,7 @@ fn walk(root: &Path) -> (Vec<(String, PathBuf)>, BTreeSet<String>) {
         return (Vec::new(), BTreeSet::new());
     }
     let mut notes = Vec::new();
+    let mut seen = HashSet::new();
     let mut folders = BTreeSet::new();
     let entries = WalkDir::new(root)
         .follow_links(false)
@@ -219,14 +252,18 @@ fn walk(root: &Path) -> (Vec<(String, PathBuf)>, BTreeSet<String>) {
         if entry.depth() == 0 {
             continue;
         }
-        let Ok(relative) = entry.path().strip_prefix(root) else {
-            continue;
-        };
-        let relative = relative.to_string_lossy().replace('\\', "/");
         if entry.file_type().is_dir() {
-            register_ancestors(&relative, &mut folders);
+            // A Unix `\` is part of a folder's name, and no folder path can
+            // hold one, so that folder is not listed (never `x` and `x/y`).
+            if let Some(folder) =
+                vault_fs::relative_name(root, entry.path()).filter(|folder| !folder.contains('\\'))
+            {
+                register_ancestors(&folder, &mut folders);
+            }
         } else if entry.file_type().is_file() {
-            if let Some(id) = note_id_from_relative_path(&relative) {
+            // A directory listing can repeat a name that a concurrent atomic
+            // save replaced mid-read (seen on tmpfs); the note list is a set.
+            if let Some(id) = note_id_of(root, entry.path()).filter(|id| seen.insert(id.clone())) {
                 let (folder, _) = split_id(&id);
                 register_ancestors(&folder, &mut folders);
                 notes.push((id, entry.path().to_owned()));
@@ -234,6 +271,12 @@ fn walk(root: &Path) -> (Vec<(String, PathBuf)>, BTreeSet<String>) {
         }
     }
     (notes, folders)
+}
+
+/// The note id of a vault file: its vault name (`vault_fs::relative_name`) as
+/// a note id, so two files can never share one.
+fn note_id_of(root: &Path, path: &Path) -> Option<String> {
+    note_id_from_relative_path(&vault_fs::relative_name(root, path)?)
 }
 
 fn visible(entry: &DirEntry) -> bool {

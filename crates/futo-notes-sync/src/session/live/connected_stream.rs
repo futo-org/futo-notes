@@ -14,13 +14,13 @@ use crate::sync::{PreWrite, SyncErrorKind};
 use super::super::{cycle, SyncSessionListener};
 use super::event_stream::EventStream;
 
-const SAFETY_POLL: Duration = Duration::from_secs(45);
+pub(super) const SAFETY_POLL: Duration = Duration::from_secs(45);
 const READ_IDLE: Duration = Duration::from_secs(90);
 const REMOTE_CHANGE_DEBOUNCE: Duration = Duration::from_millis(300);
 const LOCAL_CHANGE_DEBOUNCE: Duration = Duration::from_secs(1);
 
 pub(super) struct LiveSchedule {
-    safety_poll: tokio::time::Interval,
+    pub(super) safety_poll: tokio::time::Interval,
     local_push_at: Option<Instant>,
 }
 
@@ -69,7 +69,7 @@ impl<'a> LiveCycle<'a> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum CycleOutcome {
+pub(super) enum CycleOutcome {
     Continue,
     Stop,
 }
@@ -81,7 +81,7 @@ pub(super) enum StreamOutcome {
 
 pub(super) async fn run_connected_stream(
     mut response: reqwest::Response,
-    live_cycle: LiveCycle<'_>,
+    live_cycle: &LiveCycle<'_>,
     cancel: &mut mpsc::Receiver<()>,
     note_changed: &mut mpsc::Receiver<()>,
     schedule: &mut LiveSchedule,
@@ -135,7 +135,10 @@ pub(super) async fn run_connected_stream(
 /// The four `select!` arms above are the live loop's whole trigger taxonomy, and
 /// each one passes its own — "which of these fired" is otherwise lost at the
 /// call, and it is the first question every live-sync investigation asks.
-async fn run_cycle_and_notify(live_cycle: &LiveCycle<'_>, trigger: SyncTrigger) -> CycleOutcome {
+pub(super) async fn run_cycle_and_notify(
+    live_cycle: &LiveCycle<'_>,
+    trigger: SyncTrigger,
+) -> CycleOutcome {
     let no_progress = |_: crate::sync::SyncProgress| {};
     match cycle::run(
         live_cycle.state,

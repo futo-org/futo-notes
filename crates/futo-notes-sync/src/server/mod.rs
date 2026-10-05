@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use futo_notes_core::e2ee::KeyMaterial;
@@ -206,21 +207,57 @@ impl From<WriteBody> for Write {
 /// The two connection pools owned by one sync session. Cloned `Http` values
 /// keep these pools warm across connect, push, pull, and SSE reconnects without
 /// sharing sockets with another session.
+///
+/// The TLS trust store is resolved once here, before any base URL is known —
+/// `HttpClients::new()` is reached from `SyncSession::default()`, ahead of
+/// `connect`/`resume`. A store that fails to build (an unparsable extra root,
+/// a broken crypto provider) is not fatal here: only an `https://` base
+/// actually needs it, and that check happens in [`Http::with_clients`], the one
+/// place a base URL and this store meet. An `http://` base still works with
+/// pooled, unencrypted connections.
 #[derive(Clone)]
 pub(crate) struct HttpClients {
     request: reqwest::Client,
     event: reqwest::Client,
+    tls_error: Option<HttpError>,
 }
 
 impl HttpClients {
     pub(crate) fn new() -> Result<Self, HttpError> {
-        let builder = || reqwest::Client::builder().connect_timeout(CONNECT_TIMEOUT);
+        Self::with_tls(None)
+    }
+
+    /// `tls`: `None` builds the OS-trust-store config used in production;
+    /// `Some` lets tests pin an exact `rustls::ClientConfig` (an untrusted
+    /// private CA, a `ReloadingVerifier`, …) onto both pooled clients.
+    pub(crate) fn with_tls(tls: Option<Arc<rustls::ClientConfig>>) -> Result<Self, HttpError> {
+        let (tls, tls_error) = match tls {
+            Some(tls) => (Some(tls), None),
+            None => match crate::tls::shared_client_config() {
+                Ok(tls) => (Some(tls), None),
+                Err(message) => (
+                    None,
+                    Some(HttpError {
+                        status: None,
+                        message,
+                    }),
+                ),
+            },
+        };
+        let builder = || {
+            let builder = reqwest::Client::builder().connect_timeout(CONNECT_TIMEOUT);
+            match &tls {
+                Some(tls) => builder.use_preconfigured_tls((**tls).clone()),
+                None => builder,
+            }
+        };
         Ok(Self {
             request: builder()
                 .timeout(REQUEST_TIMEOUT)
                 .build()
                 .map_err(transport_error)?,
             event: builder().build().map_err(transport_error)?,
+            tls_error,
         })
     }
 
@@ -235,6 +272,14 @@ impl Http {
         HttpClients::new()?.for_base(base)
     }
 
+    #[cfg(test)]
+    pub(crate) fn with_tls(
+        base: &str,
+        tls: Option<Arc<rustls::ClientConfig>>,
+    ) -> Result<Self, HttpError> {
+        HttpClients::with_tls(tls)?.for_base(base)
+    }
+
     fn with_clients(base: &str, clients: &HttpClients) -> Result<Self, HttpError> {
         let base = base.trim().trim_end_matches('/');
         let url = url::Url::parse(base).map_err(|e| HttpError {
@@ -246,6 +291,15 @@ impl Http {
                 status: None,
                 message: "server URL must use http or https".into(),
             });
+        }
+        // An http:// base tolerates a trust store that failed to build — it
+        // never needs one. An https:// base cannot: refuse it here, before any
+        // request, exactly as it would have if the store had failed while
+        // building this base's own client.
+        if url.scheme() == "https" {
+            if let Some(error) = &clients.tls_error {
+                return Err(error.clone());
+            }
         }
         Ok(Self {
             base: base.to_owned(),

@@ -19,7 +19,6 @@
   {ondragover}
   {ondrop}
   data-folder-path={node.parentPath}
-  data-testid="folder-empty-state"
 >
   {localizedText('folders.empty')}
 </div>

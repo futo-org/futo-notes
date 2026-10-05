@@ -48,6 +48,17 @@ vi.mock('@tauri-apps/api/core', () => ({
         if (kr.fail.delete) throw new Error('keyring delete failed');
         kr.store.delete('pw');
         return undefined;
+      case 'e2ee_session_token_set':
+        if (kr.fail.set) throw new Error('keyring set failed');
+        kr.store.set('token', args!.token as string);
+        return undefined;
+      case 'e2ee_session_token_get':
+        if (kr.fail.get) throw new Error('keyring get failed');
+        return kr.store.get('token') ?? null;
+      case 'e2ee_session_token_delete':
+        if (kr.fail.delete) throw new Error('keyring delete failed');
+        kr.store.delete('token');
+        return undefined;
       case 'e2ee_start_live':
         kr.liveStarts += 1;
         return undefined;
@@ -132,6 +143,85 @@ beforeEach(async () => {
   kr.hostedVault = false;
   kr.liveStarts = 0;
   toastMock.messages = [];
+});
+
+it('moves a legacy bearer token into the keyring and scrubs the vault file', async () => {
+  const { platform, svc } = await fresh();
+  await platform.testFS.writeAppData(
+    '.app-state.json',
+    seedAppState({ e2eeAuthToken: 'legacy-token' }),
+  );
+  kr.store.set('pw', 'vault-password');
+
+  await svc.initSyncPassword();
+
+  expect(kr.store.get('token')).toBe('legacy-token');
+  const raw = await platform.testFS.readAppData('.app-state.json');
+  expect(JSON.parse(raw!).e2eeAuthToken).toBeUndefined();
+  expect(svc.isE2eeConfigured()).toBe(true);
+});
+
+it('never persists a newly issued bearer token in the vault file', async () => {
+  const { platform, svc } = await fresh();
+  await svc.connectE2ee('http://server', 'vault-password');
+
+  const raw = await platform.testFS.readAppData('.app-state.json');
+  expect(JSON.parse(raw!).e2eeAuthToken).toBeUndefined();
+  expect(kr.store.get('token')).toBe('t');
+});
+
+it('resumes with the keyring token after restart', async () => {
+  const { svc } = await fresh();
+  await svc.connectE2ee('http://server', 'vault-password');
+
+  const b = await reboot();
+  await b.svc.initSyncPassword();
+  const { invoke } = await import('@tauri-apps/api/core');
+  vi.mocked(invoke).mockClear();
+  await b.svc.syncE2eeAuto();
+
+  expect(invoke).toHaveBeenCalledWith('e2ee_resume', {
+    input: {
+      serverUrl: 'http://server',
+      token: 't',
+      userId: 'u',
+      collectionId: 'c',
+      password: 'vault-password',
+    },
+  });
+});
+
+it('reauthenticates from the saved password when the keyring token is missing', async () => {
+  const { svc } = await fresh();
+  await svc.connectE2ee('http://server', 'vault-password');
+  kr.store.delete('token');
+
+  const b = await reboot();
+  await b.svc.initSyncPassword();
+  const { invoke } = await import('@tauri-apps/api/core');
+  vi.mocked(invoke).mockClear();
+  await b.svc.syncE2eeAuto();
+
+  expect(invoke).toHaveBeenCalledWith('e2ee_connect', {
+    input: { serverUrl: 'http://server', password: 'vault-password' },
+  });
+});
+
+it('does not resurrect a legacy token after a pending credential deletion', async () => {
+  const { platform, svc } = await fresh();
+  await platform.testFS.writeAppData(
+    '.app-state.json',
+    seedAppState({ e2eeAuthToken: 'legacy-token', pendingKeyringDeletion: true }),
+  );
+  kr.store.set('pw', 'old-password');
+  kr.store.set('token', 'legacy-token');
+
+  await svc.initSyncPassword();
+
+  expect(kr.store.has('token')).toBe(false);
+  expect(kr.store.has('pw')).toBe(false);
+  const raw = await platform.testFS.readAppData('.app-state.json');
+  expect(JSON.parse(raw!).e2eeAuthToken).toBeUndefined();
 });
 
 /** How many times `e2ee_start_live` reached the (mocked) engine. */

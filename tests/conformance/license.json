@@ -50,6 +50,18 @@
     }
   },
   "testPayBaseUrl": "https://pay2.example.test",
+  "linkOut": [
+    {"name": "US iOS", "platform": "ios", "storefrontCountry": "USA", "buildAllows": true, "expected": true},
+    {"name": "non-US iOS", "platform": "ios", "storefrontCountry": "FRA", "buildAllows": true, "expected": false},
+    {"name": "Japan iOS", "platform": "ios", "storefrontCountry": "JPN", "buildAllows": true, "expected": false},
+    {"name": "empty iOS", "platform": "ios", "storefrontCountry": "", "buildAllows": true, "expected": false},
+    {"name": "unknown iOS", "platform": "ios", "storefrontCountry": null, "buildAllows": true, "expected": false},
+    {"name": "disabled US iOS", "platform": "ios", "storefrontCountry": "USA", "buildAllows": false, "expected": false},
+    {"name": "direct Android", "platform": "android", "storefrontCountry": null, "buildAllows": true, "expected": true},
+    {"name": "Play Android", "platform": "android", "storefrontCountry": null, "buildAllows": false, "expected": false},
+    {"name": "Android ignores country", "platform": "android", "storefrontCountry": "FRA", "buildAllows": true, "expected": true},
+    {"name": "desktop unchanged", "platform": "desktop", "storefrontCountry": null, "buildAllows": false, "expected": true}
+  ],
   "licenseKey": [
     {
       "name": "the spec's example key",

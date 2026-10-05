@@ -288,18 +288,8 @@ its pipeline.
 
 ## Local commands can have real side effects
 
-Run full suites with the triage-bot credentials scrubbed:
-
-```bash
-env -u ZULIP_TRIAGE_BOT_EMAIL -u ZULIP_TRIAGE_BOT_KEY just check
-```
-
-`scripts/issue-triage/zulipAlerts.test.mjs` calls the real `postAlert` to assert
-it rejects when credentials are absent — so on a shell that exports them, it
-POSTs to the live `futo-notes-alerts` channel instead. If a message does go out,
-say so immediately and delete it
-(`curl -X DELETE -u "$ZULIP_TRIAGE_BOT_EMAIL:$ZULIP_TRIAGE_BOT_KEY" https://zulip.futo.org/api/v1/messages/<id>`).
-Assume other suites can have side effects too.
+Assume suites can have side effects; if a message or other live action does go
+out, say so immediately and clean it up.
 
 ## Context discipline
 

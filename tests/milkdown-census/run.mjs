@@ -21,7 +21,6 @@
 import { createReadStream } from 'node:fs';
 import { mkdirSync, readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
-import readline from 'node:readline';
 import { createGunzip } from 'node:zlib';
 
 import { chromium } from 'playwright';
@@ -92,11 +91,24 @@ function parseArgs(argv) {
   return args;
 }
 
+/** JSONL lines, split on `\n` alone. NOT `readline`: it also breaks lines at
+ * U+2028/U+2029, which JSON allows raw inside a string, and the corpus has
+ * notes that contain them — the run died with a JSON parse error at the first. */
+async function* jsonlLines(stream) {
+  stream.setEncoding('utf8');
+  let pending = '';
+  for await (const chunk of stream) {
+    const parts = (pending + chunk).split('\n');
+    pending = parts.pop();
+    yield* parts;
+  }
+  if (pending) yield pending;
+}
+
 async function* readCorpus(file, limit) {
   const stream = createReadStream(file).pipe(createGunzip());
-  const lines = readline.createInterface({ input: stream, crlfDelay: Infinity });
   let idx = 0;
-  for await (const line of lines) {
+  for await (const line of jsonlLines(stream)) {
     if (idx >= limit) break;
     if (!line.trim()) continue;
     const note = JSON.parse(line);

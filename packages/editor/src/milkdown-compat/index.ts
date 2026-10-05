@@ -113,6 +113,7 @@ import { remarkPadTableRowsPlugin } from './tableWidth';
 import { trailingParagraphDocSchema } from './trailingParagraph';
 
 export * from './atxEscape';
+export * from './bareUrl';
 export * from './stringifyHandlers';
 export * from './underscoreEscape';
 export { expandEmptyLinks } from './emptyLink';
