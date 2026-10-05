@@ -24,6 +24,8 @@ in `futo-notes-store`'s `search.rs`, which is the only crate that should constru
 
 ## Dependencies
 
+It depends on `futo-notes-core` only for `log_to_stderr!`, the non-panicking diagnostic line.
+
 Tantivy stops at this crate's boundary. `scripts/check-rust-dependency-boundaries.mjs` fails if
 `tantivy` reaches `futo-notes-core`, `futo-notes-model`, or `futo-notes-sync`, and if the ONNX
 runtime (`ort`, `ort-sys`) reaches `futo-notes-ffi`. It runs only in CI's Rust workspace job — no

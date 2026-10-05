@@ -58,7 +58,7 @@ async fn request_batch(
                     return Err(objects.to_vec());
                 }
                 BatchErrorAction::Retry(backoff) => {
-                    eprintln!(
+                    futo_notes_core::log_to_stderr!(
                         "[sync] batch download attempt {} failed: {error}",
                         attempt + 1
                     );
@@ -66,7 +66,7 @@ async fn request_batch(
                     attempt += 1;
                 }
                 BatchErrorAction::Degrade => {
-                    eprintln!("[sync] batch download failed: {error}");
+                    futo_notes_core::log_to_stderr!("[sync] batch download failed: {error}");
                     return Err(objects.to_vec());
                 }
             },
@@ -94,7 +94,7 @@ fn classify_batch_response(
     let mut omitted = Vec::new();
     for entry in entries {
         let Some(&object) = by_key.get(entry.key.as_str()) else {
-            eprintln!(
+            futo_notes_core::log_to_stderr!(
                 "[sync] batch download response contained unrequested key {}",
                 entry.key
             );

@@ -16,7 +16,7 @@
 //
 //   node scripts/qa.mjs claim [ios|android|all] [--reboot]   # ensure+boot devices, print exports
 //   node scripts/qa.mjs status                    # pool devices + servers, owners, state
-//   node scripts/qa.mjs release [--shutdown]      # release this worktree's claims
+//   node scripts/qa.mjs release [ios|android] [--shutdown]  # release this worktree's claims
 //   node scripts/qa.mjs gc                        # reap devices/servers of deleted worktrees
 //   node scripts/qa.mjs server-start              # per-slot sync server (own SQLite DB + blobs)
 //   node scripts/qa.mjs server-stop [--drop]      # stop it; --drop also deletes its DB + blobs
@@ -445,14 +445,20 @@ function shutdownDevice(platform, name) {
   }
 }
 
+// A named platform releases only that platform's claims: two agents QA-ing iOS
+// and Android from one worktree must not tear down each other's device. The
+// server stops only once the worktree holds no device at all.
 function cmdRelease(flags) {
+  const only = flags.find((f) => !f.startsWith('--'));
+  if (only && only !== 'ios' && only !== 'android') die(`unknown platform '${only}' (ios|android)`);
   const root = worktreeRoot();
   for (const { platform, name } of myDevices(root)) {
+    if (only && platform !== only) continue;
     if (flags.includes('--shutdown')) shutdownDevice(platform, name);
     fs.rmSync(ownerPath(platform, name), { force: true });
     info(`released ${platform} ${name}`);
   }
-  serverStop(root, false); // never leave an orphaned server running
+  if (!myDevices(root).length) serverStop(root, false); // never leave an orphaned server running
 }
 
 function cmdGc() {
@@ -697,6 +703,6 @@ switch (cmd) {
     break;
   default:
     die(
-      'usage: qa.mjs claim [ios|android|all] [--reboot] | status | release [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline',
+      'usage: qa.mjs claim [ios|android|all] [--reboot] | status | release [ios|android] [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline',
     );
 }

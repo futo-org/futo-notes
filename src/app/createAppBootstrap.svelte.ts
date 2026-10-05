@@ -1,4 +1,4 @@
-import { getPlatformFS } from '$lib/platform';
+import { getPlatformFS, watchSystemTheme } from '$lib/platform';
 import { recordPerfEvent } from '$shared/perf/perfEvents';
 import { desktopLocalization } from '$shared/localization';
 import type { ToastMessage } from '$shared/notifications/toastBus.svelte';
@@ -9,11 +9,7 @@ import {
 } from '$shared/state/appState';
 import { initNotes } from '$features/notes/notes.svelte';
 import { initSyncPassword } from '$features/sync/syncServiceE2ee';
-import {
-  applyThemePreference,
-  watchSystemThemeTauri,
-  type ResolvedTheme,
-} from '$features/system/theme';
+import { applyThemePreference, type ResolvedTheme } from '$features/system/theme';
 import { updateChecker } from '$features/system/updateChecker.svelte';
 
 export interface AppBootstrapDeps {
@@ -24,6 +20,7 @@ export interface AppBootstrapDeps {
 
 export interface AppBootstrap {
   readonly initialized: boolean;
+  readonly themeApplied: boolean;
   start: () => () => void;
 }
 
@@ -40,11 +37,11 @@ function watchDesktopSystemLanguage(): () => void {
 // sandbox where plugin-fs hangs can never blank first paint.
 export function createAppBootstrap(deps: AppBootstrapDeps): AppBootstrap {
   let initialized = $state(false);
+  let themeApplied = $state(false);
 
   function start(): () => void {
     initialized = true;
 
-    let disposeThemeWatch = () => {};
     const disposeLanguageWatch = watchDesktopSystemLanguage();
     const initialLanguageSelectionRevision = desktopLocalization.selectionRevision;
 
@@ -52,9 +49,11 @@ export function createAppBootstrap(deps: AppBootstrapDeps): AppBootstrap {
     // Forward the OS-reported theme: on Linux the webview's matchMedia can't see
     // the desktop theme, so the portal event's value must win for `auto`.
     const applyCurrentTheme = (systemTheme?: ResolvedTheme) =>
-      void applyThemePreference(getCachedPreferences().appearance.theme, systemTheme);
-    applyCurrentTheme();
-    disposeThemeWatch = watchSystemThemeTauri(applyCurrentTheme);
+      applyThemePreference(getCachedPreferences().appearance.theme, systemTheme);
+    void applyCurrentTheme();
+    const disposeThemeWatch = watchSystemTheme(
+      (systemTheme) => void applyCurrentTheme(systemTheme),
+    );
 
     void initNotes((label) => {
       const elapsed = performance.now();
@@ -89,7 +88,10 @@ export function createAppBootstrap(deps: AppBootstrapDeps): AppBootstrap {
           }
           await themeApplication;
         })
-        .catch((error) => console.warn('Failed to load preferences:', error));
+        .catch((error) => console.warn('Failed to load preferences:', error))
+        // The stored preference is now applied (or cannot be): App.svelte may
+        // reveal the window without painting the default theme first.
+        .finally(() => (themeApplied = true));
       void getPlatformFS().catch((error) => console.warn('Platform FS unavailable:', error));
       void deps
         .initializeCrashReporting()
@@ -108,6 +110,9 @@ export function createAppBootstrap(deps: AppBootstrapDeps): AppBootstrap {
   return {
     get initialized() {
       return initialized;
+    },
+    get themeApplied() {
+      return themeApplied;
     },
     start,
   };
