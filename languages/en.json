@@ -282,14 +282,13 @@
       },
       "navigation": {
         "renamePending": "Couldn't rename note. Navigation is paused while your title remains pending.",
-        "captureFailed": "Couldn't read the latest note. Navigation is paused while your changes remain pending.",
-        "saveFailed": "Couldn't save note. Navigation is paused while your changes remain pending."
+        "saveFailed": "Couldn't save note. Navigation is paused while your changes remain pending.",
+        "unflushed": "The editor hasn't delivered your latest changes. Try again to leave the note."
       },
       "move": {
         "createAndMove": "Create & Move",
         "createFolderPrompt": "Create a folder and move the note into it.",
         "createFolderInPrompt": "Create a folder in {folderName} and move the note into it.",
-        "captureFailed": "Couldn't read the latest note. Move is paused while your changes remain pending.",
         "saveFailed": "Couldn't save note. Move is paused while your changes remain pending."
       },
       "errors": {
@@ -313,8 +312,7 @@
         "namedNoteRecoverableConfirmation": "Delete note “{noteTitle}”? This action cannot be undone.",
         "namedNotePermanentConfirmation": "Delete note “{noteTitle}”? This deletes the file for good — it does not go to the trash.",
         "recoverableWarning": "This action cannot be undone.",
-        "savePending": "Couldn't save note. Delete is paused while your changes remain pending.",
-        "captureFailed": "Couldn't read the latest note. Delete is paused while your changes remain pending."
+        "savePending": "Couldn't save note. Delete is paused while your changes remain pending."
       }
     },
     "folders": {

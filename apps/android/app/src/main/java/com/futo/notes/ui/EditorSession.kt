@@ -18,7 +18,7 @@ import uniffi.futo_notes_ffi.OpenNoteFacts
 /**
  * The shell boundary for one open-note reconciliation pass. The session owns
  * serialization, deferred-adoption lifetime, and identity/attachment
- * revalidation; the screen owns gathering its live editor/disk facts and
+ * revalidation; the screen owns gathering its mailbox/disk facts and
  * rendering the Rust engine's disposition.
  */
 internal interface OpenNoteEffects {
@@ -27,13 +27,11 @@ internal interface OpenNoteEffects {
     /** This screen still owns the app-lifetime editor WebView. */
     fun isCurrentEditor(): Boolean
 
-    /**
-     * Read the live editor into the screen's draft WITHOUT ending the editing
-     * session, and say what the read came back with. The draft `change`
-     * messages delivered lags the editor (a streaming note withholds them; an
-     * edit spends 200 ms in the debounce), and [gatherFacts] reads that draft.
-     */
-    suspend fun captureEditor(): EditorCaptureOutcome
+    /** Await the latest posted change when the editor has announced an unreported edit. */
+    suspend fun awaitCurrent(): EditorCurrent
+
+    /** Complete the background write and baseline record under the autosave lock. */
+    suspend fun persistDraft() {}
 
     suspend fun gatherFacts(noteId: String): OpenNoteFacts
 
@@ -42,7 +40,7 @@ internal interface OpenNoteEffects {
     /** Re-arm a dirty draft after fact gathering cancelled its debounce. */
     fun resumeDraftPersistence()
 
-    fun apply(noteId: String, disposition: OpenNoteDisposition)
+    suspend fun apply(noteId: String, disposition: OpenNoteDisposition)
 }
 
 /**
@@ -71,9 +69,9 @@ internal interface OpenNoteEffects {
  *
  * | exit | latches (synchronous) | drain | commit | own effect |
  * | --- | --- | --- | --- | --- |
- * | [EditorExit.NAVIGATE] | interaction lock (one exit at a time) | serialize | capture → body → title | after the drain |
- * | [EditorExit.MOVE] | — | serialize | capture → body | inside the drain |
- * | [EditorExit.DELETE] | closed (one-way) | serialize, destructive | capture → body | inside the drain |
+ * | [EditorExit.NAVIGATE] | interaction lock (one exit at a time) | serialize | mailbox → body → title | after the drain |
+ * | [EditorExit.MOVE] | — | serialize | mailbox → body | inside the drain |
+ * | [EditorExit.DELETE] | closed (one-way) | serialize, destructive | mailbox → body | inside the drain |
  *
  * "Serialize" is the whole drain on Android: every tracked workflow runs inside
  * [runWork], so taking the same lock IS waiting for the in-flight one. A
@@ -100,7 +98,7 @@ internal enum class EditorExit {
 /** Where an exit stopped short of leaving, so the shell can word the message. */
 internal enum class EditorExitFailure {
     /** The editor could not hand back its current body. */
-    CAPTURE,
+    UNFLUSHED,
 
     /** The body could not be persisted or parked. */
     BODY,
@@ -117,7 +115,7 @@ internal enum class EditorExitFailure {
 
 /**
  * Everything an exit needs from the shell. Split this way so the session owns
- * the ORDER and the shell owns the note state: `captureBody` is a WebView
+ * the ORDER and the shell owns the note state: `awaitCurrentBody` is a WebView
  * round-trip for [EditorExit.NAVIGATE] but the live buffer for the other two,
  * and `commitBody` is persist-or-park for navigation but a plain write for move
  * and delete — both differences are the shell's, not the ordering's.
@@ -180,7 +178,7 @@ internal interface EditorExitEffects {
     suspend fun cancelPendingSave() {}
 
     /** The freshest body, or null when the editor could not answer. */
-    suspend fun captureBody(): String?
+    suspend fun awaitCurrentBody(): String?
 
     /** Persist or park exactly [body]. False = still pending, do not leave. */
     suspend fun commitBody(body: String): Boolean
@@ -242,10 +240,6 @@ private val EXIT_PLANS = mapOf(
     ),
 )
 
-/** Reads a background flush makes of a page that is busy finishing a load; see
- *  [EditorSession.refreshFromLiveEditor]. iOS's exit retries twice (3 in all). */
-internal const val LIFECYCLE_READ_ATTEMPTS = 3
-
 internal class EditorSession(
     private val scope: CoroutineScope,
     private val onInteractionLockChanged: (Boolean) -> Unit = {},
@@ -256,10 +250,10 @@ internal class EditorSession(
     private var closed = false
 
     private var exiting = false
-    /** The open-note reconcile's editor read, while it is in flight. */
-    private var reconcileRead: Job? = null
-    private var reconcileRetry: (suspend () -> Unit)? = null
-    private var reconcileRetryInFlight = false
+    /** The open-note reconcile's mailbox wait, while it is in flight. */
+    private var reconcileWait: Job? = null
+    private var interruptedReconciliation: (suspend () -> Unit)? = null
+    private var restartingReconciliation = false
 
     /** The focused note whose clean peer update waits for blur before adoption. */
     private var deferredAdoptionId: String? = null
@@ -313,7 +307,7 @@ internal class EditorSession(
      * workflow. A same-cycle rename target gets its next pass under this lock.
      */
     suspend fun reconcileOpenNote(effects: OpenNoteEffects): OpenNoteDisposition? {
-        if (!readEditorAheadOfAnExit(effects) { reconcileOpenNote(effects) }) return null
+        if (!awaitEditorAheadOfAnExit(effects) { reconcileOpenNote(effects) }) return null
         return runWork {
             if (exiting) return@runWork null
             var expectedId = effects.currentNoteId()
@@ -335,43 +329,10 @@ internal class EditorSession(
         }
     }
 
-    /**
-     * The app is leaving the foreground: read the LIVE editor into the screen's
-     * draft so the flush that follows saves what the user typed, not what the
-     * editor last reported (RC-92).
-     *
-     * A note that is still streaming its tail reports no `change` at all — it
-     * never reports a prefix (O6) — and a typed edit spends 200 ms in the
-     * bundle's debounce, so the register the lifecycle flush pulls lags the
-     * editor by exactly the text most likely to be lost. This is the exit's
-     * bounded, single-outstanding read ([readEditorAheadOfAnExit]): an answer
-     * of no live document, another note's document, or a busy renderer leaves
-     * the draft as it is, and the flush that follows saves only what the
-     * editor already reported — never `''`, never a prefix. An exit that
-     * starts meanwhile cancels the read; its own read is the one that counts.
-     *
-     * Ends by taking the session lock once: an autosave already writing has
-     * then advanced the baseline, so the flush that follows does not write a
-     * stale base over its own note and mint a conflict copy.
-     */
-    suspend fun refreshFromLiveEditor(effects: OpenNoteEffects) {
-        var outcome = readEditor(effects) {}
-        // A big note edited while it streams settles its tail INSIDE the first
-        // read, which can outlast the capture deadline. That read is still
-        // outstanding in the page and answers in time, so ask again: the retry
-        // joins it (one read at a time) instead of queueing another. An exit
-        // retries the same way. Anything still unanswered after the last
-        // attempt keeps the stored bytes; the read's own `change` reaches the
-        // ordinary save if the process lives to hear it.
-        var attempts = 1
-        while (outcome == EditorCaptureOutcome.TimedOut && attempts < LIFECYCLE_READ_ATTEMPTS) {
-            attempts += 1
-            outcome = readEditor(effects) {}
-        }
-        when (outcome) {
-            is EditorCaptureOutcome.Captured, EditorCaptureOutcome.NoLiveDocument -> runWork {}
-            EditorCaptureOutcome.NotOurs, EditorCaptureOutcome.TimedOut, null -> Unit
-        }
+    suspend fun flushPendingEditor(effects: OpenNoteEffects) {
+        effects.awaitCurrent()
+        // Wait for any admitted durable save to advance its baseline.
+        runAutosave { effects.persistDraft() }
     }
 
     /**
@@ -400,70 +361,29 @@ internal class EditorSession(
                 else -> deferredId
             }
         } ?: return null
-        if (!readEditorAheadOfAnExit(effects) { settleDeferredAdoption(effects) }) return null
+        if (!awaitEditorAheadOfAnExit(effects) { settleDeferredAdoption(effects) }) return null
         return runWork {
             if (exiting || deferredAdoptionId != deferredId) null
             else reconcilePass(deferredId, effects)
         }
     }
 
-    /**
-     * Read the editor BEFORE the facts (RC-08), OUTSIDE the session lock, and
-     * give way to an exit.
-     *
-     * The draft is kept current by `change` messages, and the editor withholds
-     * those while a large note streams and for the change debounce: classified
-     * on that draft, an edit only the editor knew about read as "nothing to
-     * lose", and a peer edit was adopted over it or a peer delete closed the
-     * note. The outcomes mean what they mean to an exit ([editorExitBody]): no
-     * live document leaves the draft as the freshest body; a busy renderer or
-     * another note's document cannot answer for this one, so no verdict is
-     * taken — and the read is not retried.
-     *
-     * The read runs under the capture deadline, against a page that may be
-     * busy or wedged, so it must not hold the lock every exit drains: Back
-     * waited it out before starting its own read (FB-5 refute: 15.2 s against
-     * 9.3 s). An exit that starts meanwhile cancels it ([end]); its own read
-     * is the one that counts. `false` means: take no verdict. An exit that
-     * then stops short of leaving runs [retry], so the peer's change it
-     * interrupted is not left unapplied until the next sync.
-     */
-    private suspend fun readEditorAheadOfAnExit(
-        effects: OpenNoteEffects,
-        retry: suspend () -> Unit,
-    ): Boolean =
-        when (readEditor(effects, retry)) {
-            is EditorCaptureOutcome.Captured, EditorCaptureOutcome.NoLiveDocument -> true
-            EditorCaptureOutcome.NotOurs, EditorCaptureOutcome.TimedOut, null -> false
-        }
+    // The mailbox wait runs outside the save lock and gives way to navigation.
+    private suspend fun awaitEditorAheadOfAnExit(effects: OpenNoteEffects, retry: suspend () -> Unit): Boolean {
+        return awaitEditor(effects, retry)?.canProceed == true
+    }
 
-    /** The read itself: what the editor answered, or `null` when an exit took
-     *  over (or the session is already leaving). */
-    private suspend fun readEditor(
-        effects: OpenNoteEffects,
-        retry: suspend () -> Unit,
-    ): EditorCaptureOutcome? {
+    private suspend fun awaitEditor(effects: OpenNoteEffects, retry: suspend () -> Unit): EditorCurrent? {
         if (exiting || closed) return null
         val outcome = coroutineScope {
-            val read = async { effects.captureEditor() }
-            reconcileRead = read
-            reconcileRetry = retry
-            try {
-                read.await()
-            } catch (e: CancellationException) {
-                // Our own cancellation propagates; an exit's cancel of the
-                // read alone is an answer: no verdict.
-                currentCoroutineContext().ensureActive()
-                null
-            } finally {
-                if (reconcileRead === read) {
-                    reconcileRead = null
-                    reconcileRetry = null
-                }
-            }
+            val wait = async { effects.awaitCurrent() }
+            reconcileWait = wait
+            interruptedReconciliation = retry
+            try { wait.await() }
+            catch (e: CancellationException) { currentCoroutineContext().ensureActive(); null }
+            finally { if (reconcileWait === wait) { reconcileWait = null; interruptedReconciliation = null } }
         }
-        if (exiting || closed) return null
-        return outcome
+        return if (exiting || closed) null else outcome
     }
 
     private suspend fun reconcilePass(
@@ -489,7 +409,18 @@ internal class EditorSession(
             if (disposition === OpenNoteDisposition.DeferAdopt) expectedId else null
         if (disposition === OpenNoteDisposition.Close) closed = true
         if (disposition === OpenNoteDisposition.Leave) effects.resumeDraftPersistence()
-        effects.apply(expectedId, disposition)
+        val applied = coroutineScope {
+            val wait = async { effects.apply(expectedId, disposition); true }
+            reconcileWait = wait
+            interruptedReconciliation = { reconcileOpenNote(effects) }
+            try { wait.await() }
+            catch (e: CancellationException) { currentCoroutineContext().ensureActive(); false }
+            finally { if (reconcileWait === wait) { reconcileWait = null; interruptedReconciliation = null } }
+        }
+        if (!applied) {
+            effects.resumeDraftPersistence()
+            return null
+        }
         return disposition
     }
 
@@ -518,11 +449,10 @@ internal class EditorSession(
             if (closed) return
             closed = true
         }
-        // This exit reads the editor itself; a reconcile's read must not make
-        // it wait (see readEditorAheadOfAnExit).
-        val read = reconcileRead
-        val interrupted = if (read != null) reconcileRetry else null
-        read?.cancel()
+        // This exit takes over the mailbox wait; cancel the competing reconciliation.
+        val wait = reconcileWait
+        val interrupted = if (wait != null) interruptedReconciliation else null
+        wait?.cancel()
         effects.prepare()
 
         scope.launch {
@@ -531,7 +461,7 @@ internal class EditorSession(
             // screen is going away), so only an exit that did NOT leave
             // resets them. The `finally` — not just the old refusal branch —
             // is what makes that reset run when an effect THROWS instead of
-            // returning false: `perform()`/`captureBody()`/`commitBody()` are
+            // returning false: `perform()`/`awaitCurrentBody()`/`commitBody()` are
             // arbitrary suspend calls into the shell, and an uncaught
             // exception from any of them used to skip straight past the
             // unlatch code, leaving `isInteractionLocked` true forever — Back,
@@ -544,9 +474,9 @@ internal class EditorSession(
                 val outcome = drain(destructive = plan.closes) {
                     if (!effects.isAttached()) return@drain false
                     effects.cancelPendingSave()
-                    val body = effects.captureBody()
+                    val body = effects.awaitCurrentBody()
                     if (body == null) {
-                        failure = EditorExitFailure.CAPTURE
+                        failure = EditorExitFailure.UNFLUSHED
                         return@drain false
                     }
                     if (!effects.commitBody(body)) {
@@ -591,13 +521,13 @@ internal class EditorSession(
                     // interrupted — once. Back pressed again and again against
                     // a busy page refuses again and again, and each refusal
                     // must not stack up another reconcile behind the last.
-                    if (interrupted != null && !reconcileRetryInFlight) {
-                        reconcileRetryInFlight = true
+                    if (interrupted != null && !restartingReconciliation) {
+                        restartingReconciliation = true
                         scope.launch {
                             try {
                                 interrupted()
                             } finally {
-                                reconcileRetryInFlight = false
+                                restartingReconciliation = false
                             }
                         }
                     }

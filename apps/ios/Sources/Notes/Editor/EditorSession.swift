@@ -14,9 +14,6 @@ enum EditorWork: CaseIterable {
     case adopt
     /// Presenting and committing a folder move.
     case move
-    /// The app leaving the foreground: reading the live editor into the draft
-    /// so the flush that follows saves what was typed (RC-92).
-    case lifecycle
 }
 
 /// Every way an open note ends.
@@ -35,7 +32,7 @@ enum EditorExit {
 /// Where an exit stopped short of leaving, so the shell can word the message.
 enum EditorExitFailure {
     /// The editor could not hand back its current body.
-    case capture
+    case unflushed
     /// The body could not be persisted or parked.
     case body
     /// A pending rename could not commit.
@@ -55,7 +52,7 @@ struct EditorExitEffects {
     /// blurring the editor, dismissing a sheet. Runs after the latches.
     var prepare: @MainActor () -> Void = {}
     /// The freshest body, or nil when the editor could not answer.
-    var captureBody: @MainActor () async -> String? = { nil }
+    var awaitCurrentBody: @MainActor () async -> String? = { nil }
     /// Persist or park exactly this snapshot. False = still pending; do not leave.
     var commitBody: @MainActor (String) async -> Bool = { _ in true }
     /// Commit a pending title rename that the drain reported as uncommitted.
@@ -93,7 +90,7 @@ private struct EditorExitPlan {
     /// The exit registers its own task under this workflow, so a later exit
     /// draining that workflow waits for this one too.
     var registersAs: EditorWork? = nil
-    /// Cancel + await the debounced save, capture the body, commit it.
+    /// Cancel + await the debounced save, await the mailbox, commit it.
     var commitsBody = false
     /// Use the rename drain's result, retrying once when it did not commit.
     var commitsTitle = false
@@ -108,12 +105,11 @@ private struct EditorExitPlan {
         switch exit {
         case .navigate:
             // The adopt is CANCELLED, not only awaited: an open-note reconcile
-            // may be reading the editor (up to the capture deadline against a
-            // busy or wedged page), and this exit is about to read it itself.
-            // Its own read is the one that counts (FB-5).
+            // may be waiting for a posted change (up to the flush deadline against a
+            // busy page). This exit takes over the mailbox wait before committing.
             return EditorExitPlan(
                 admitsOne: true,
-                cancelsBeforeDrain: [.adopt, .lifecycle],
+                cancelsBeforeDrain: [.adopt],
                 drains: [.adopt, .move, .rename],
                 commitsBody: true,
                 commitsTitle: true,
@@ -121,13 +117,13 @@ private struct EditorExitPlan {
             )
         case .prepareMove:
             return EditorExitPlan(
-                cancelsBeforeDrain: [.adopt, .move, .lifecycle],
+                cancelsBeforeDrain: [.adopt, .move],
                 drains: [.adopt, .move, .rename],
                 registersAs: .move
             )
         case .move:
             return EditorExitPlan(
-                cancelsBeforeDrain: [.adopt, .move, .lifecycle],
+                cancelsBeforeDrain: [.adopt, .move],
                 drains: [.adopt, .move, .rename],
                 registersAs: .move,
                 commitsBody: true,
@@ -170,7 +166,7 @@ private struct EditorExitPlan {
 /// | `.delete` | one-way | all four | all four | body (+ late changes) | closed |
 ///
 /// The body commit is always the same three steps: cancel the debounced save,
-/// await it, capture the live body, then hand that exact snapshot to the engine.
+/// await it, await the current mailbox, then hand that snapshot to the engine.
 ///
 /// Cancelling BEFORE draining is what makes delete safe: the cancels and the
 /// closed latch both land synchronously, in the window between the confirm tap
@@ -245,57 +241,6 @@ final class EditorSession {
         _ = await pending?.value
     }
 
-    /// Reads a background flush makes of a page that is busy finishing a load
-    /// (an exit's `finishLeave` asks three times too).
-    static let lifecycleReadAttempts = 3
-
-    /// The app is leaving the foreground: read the LIVE editor into the draft,
-    /// so the flush that follows saves what the user typed and not what the
-    /// editor last reported (RC-92).
-    ///
-    /// A note still streaming its tail reports no `change` at all — it never
-    /// reports a prefix — and a typed edit spends 200 ms in the bundle's
-    /// debounce. `capture` is the exit's bounded, single-outstanding read: an
-    /// answer of no live document, another note's document, or a busy renderer
-    /// leaves the draft as it is, so the flush saves only what the editor had
-    /// already reported — never `""`, never a prefix. An exit that starts
-    /// meanwhile cancels this; its own read is the one that counts.
-    ///
-    /// After a live answer the debounced save is drained: an autosave already
-    /// writing has then advanced the baseline, so the flush does not write a
-    /// stale base over its own note and mint a conflict copy. `settled` then
-    /// republishes the draft and re-arms the debounced save, which the drain
-    /// cancelled.
-    func refreshFromLiveEditor(
-        capture: @escaping @MainActor () async -> EditorCaptureOutcome,
-        settled: @escaping @MainActor () -> Void
-    ) async {
-        let task = schedule(.lifecycle) { [weak self] in
-            // A big note edited while it streams settles its tail INSIDE the
-            // first read, which can outlast the capture deadline; the retry
-            // hears the answer, as an exit's does (`finishLeave`).
-            var outcome = await capture()
-            for _ in 1..<Self.lifecycleReadAttempts where outcome == .timedOut {
-                outcome = await capture()
-            }
-            switch outcome {
-            case .captured, .noLiveDocument: break
-            case .notOurs, .timedOut: return false
-            }
-            guard let self, self.isActive else { return false }
-            await self.cancelAndDrain(.save)
-            guard self.isActive else { return false }
-            settled()
-            return true
-        }
-        _ = await task.value
-    }
-
-    /// The fifth way a note ends: it was deleted underneath us. A peer delete
-    /// adopted by live sync leaves nothing to drain and nothing to commit — the
-    /// file is already gone — so the session only has to make sure no pending
-    /// workflow resurrects it. Latching closed does that for everything queued;
-    /// the two workflows that WRITE are cancelled outright.
     func closeForExternalDelete() {
         cancel(.save)
         cancel(.rename)
@@ -390,21 +335,21 @@ final class EditorSession {
             if plan.commitsBody {
                 // The debounced save is neutralised HERE, not at admission: a
                 // save already running has to finish (and be projected) before
-                // the exit captures, or the capture races the write it is
+                // the exit waits for its mailbox, or it races the write it is
                 // supposed to supersede.
                 let pendingSave = self.work[.save]
                 pendingSave?.cancel()
                 _ = await pendingSave?.value
 
-                guard let captured = await effects.captureBody() else {
+                guard let currentBody = await effects.awaitCurrentBody() else {
                     let late = self.takeQuarantined()
                     self.release(plan, left: false)
-                    effects.onFailed(.capture, late, nil)
+                    effects.onFailed(.unflushed, late, nil)
                     return false
                 }
-                // A change that landed while the capture was in flight is newer
-                // than the capture, so it wins.
-                var body = captured
+                // A change that landed while the mailbox wait was in flight is newer
+                // than that snapshot, so it wins.
+                var body = currentBody
                 if plan.drainsQuarantine, let late = self.takeQuarantined() { body = late }
                 while true {
                     guard await effects.commitBody(body) else {

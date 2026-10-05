@@ -135,7 +135,7 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
     this.consoleErrors = [];
     await page.evaluate(async (markdown) => {
       const testWindow = window as unknown as MilkdownWindow;
-      testWindow.FutoEditor.setContent(markdown);
+      testWindow.FutoEditor.setContent('test-note', markdown);
       const view = testWindow.__futoProseMirrorView?.();
       if (!view) throw new Error('milkdown gauntlet: no ProseMirror view');
       // Right after a load the selection is ProseMirror's default TextSelection,
@@ -357,7 +357,7 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
     const measurement = await this.requirePage().evaluate(async (markdown) => {
       const testWindow = window as unknown as MilkdownWindow;
       const startedAt = performance.now();
-      testWindow.FutoEditor.setContent(markdown);
+      testWindow.FutoEditor.setContent('test-note', markdown);
       const synchronousMs = performance.now() - startedAt;
       await new Promise<void>((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
@@ -554,7 +554,7 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
 
   private readContent(): Promise<string> {
     return this.requirePage().evaluate(() =>
-      (window as unknown as MilkdownWindow).FutoEditor.getContent(),
+      (window as unknown as MilkdownWindow).__futoTest.readDocument(),
     );
   }
 
@@ -651,7 +651,7 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
       const selection = view?.state.selection;
       const point = (pos: number) => ({ line: 0, ch: 0, pos });
       return {
-        doc: testWindow.FutoEditor.getContent(),
+        doc: testWindow.__futoTest.readDocument(),
         cursor: point(selection?.from ?? 0),
         selection: { anchor: point(selection?.from ?? 0), head: point(selection?.to ?? 0) },
         decorations,

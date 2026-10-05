@@ -32,7 +32,7 @@ vi.mock('$lib/platform', async (importOriginal) => ({
 }));
 
 interface EditorHandle {
-  openNote: (text: string) => void;
+  openNote: (noteId: string, text: string) => void;
   getContent: () => string | undefined;
   getProseMirrorView: () => EditorView | null;
 }
@@ -99,7 +99,7 @@ describe('pasting a block as plain text into an empty paragraph (RC-59)', () => 
 
   it('a heading and a list into the empty line between two paragraphs replace that line', async () => {
     const handle = await mountEditor('');
-    handle.openNote('alpha\n\nbeta\n');
+    handle.openNote('test-note', 'alpha\n\nbeta\n');
     const view = handle.getProseMirrorView()!;
     // The empty line: split `alpha` at its end.
     view.dispatch(view.state.tr.split(view.state.doc.child(0).nodeSize - 1));
@@ -134,7 +134,7 @@ describe('pasting a block as plain text into an empty paragraph (RC-59)', () => 
 
   it('a table pasted into a paragraph that has text is not touched', async () => {
     const handle = await mountEditor('');
-    handle.openNote('keep me');
+    handle.openNote('test-note', 'keep me');
     const view = handle.getProseMirrorView()!;
     view.dispatch(
       view.state.tr.setSelection(
@@ -175,7 +175,7 @@ describe('an empty paragraph that is not a document or quote child is left to th
 
   it('a list pasted into an empty list item becomes siblings, not a nested list', async () => {
     const handle = await mountEditor('');
-    handle.openNote('- a\n- b\n');
+    handle.openNote('test-note', '- a\n- b\n');
     const view = handle.getProseMirrorView()!;
     // Enter at the end of `b`: a new, empty item.
     let endOfB = -1;
@@ -195,7 +195,7 @@ describe('an empty paragraph that is not a document or quote child is left to th
 
   it('a lone heading pasted into an empty table cell does not split the table', async () => {
     const handle = await mountEditor('');
-    handle.openNote('| a | b |\n| --- | --- |\n| | y |\n');
+    handle.openNote('test-note', '| a | b |\n| --- | --- |\n| | y |\n');
     const view = handle.getProseMirrorView()!;
     let cell = -1;
     view.state.doc.descendants((node, pos) => {
@@ -225,7 +225,7 @@ describe('an empty paragraph that is not a document or quote child is left to th
 describe('multi-line plain text pasted into a table cell keeps the neighbouring cell (RC-81)', () => {
   async function pasteIntoEmptyCell(text: string): Promise<string> {
     const handle = await mountEditor('');
-    handle.openNote('| a | b |\n| --- | --- |\n| | y |\n');
+    handle.openNote('test-note', '| a | b |\n| --- | --- |\n| | y |\n');
     const view = handle.getProseMirrorView()!;
     let cell = -1;
     view.state.doc.descendants((node, pos) => {

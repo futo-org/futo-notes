@@ -62,8 +62,8 @@ struct EditorSessionTests {
     ) -> EditorExitEffects {
         EditorExitEffects(
             prepare: { recorder.append("\(name):prepare") },
-            captureBody: {
-                recorder.append("\(name):captureBody")
+            awaitCurrentBody: {
+                recorder.append("\(name):awaitCurrentBody")
                 return await body()
             },
             commitBody: { _ in
@@ -205,7 +205,7 @@ struct EditorSessionTests {
             recorder.events == [
                 "delete:prepare",
                 "adopt",
-                "delete:captureBody",
+                "delete:awaitCurrentBody",
                 "delete:commitBody",
                 "delete:perform",
                 "delete:onSucceeded",
@@ -239,7 +239,7 @@ struct EditorSessionTests {
         let exit = session.end(
             .delete,
             effects: EditorExitEffects(
-                captureBody: { "captured" },
+                awaitCurrentBody: { "captured" },
                 commitBody: { body in
                     committed.append(body)
                     // A bridge change delivered while the first write was in
@@ -297,39 +297,6 @@ struct EditorSessionTests {
         #expect(!session.isClosing)
     }
 
-    /// FB-5: an open-note reconcile reads the editor under the capture
-    /// deadline, and Back used to wait that read out before starting its own
-    /// (against a busy or wedged page: the full deadline twice, and more when
-    /// the reconcile retried). The exit cancels it; its own read counts.
-    @Test("navigation cancels an in-flight reconcile read instead of waiting it out")
-    func navigationPreemptsTheReconcileRead() async {
-        let session = EditorSession()
-        let recorder = Recorder()
-        let started = ContinuousClock.now
-        var reconcileRead: EditorCaptureOutcome?
-        var reading = false
-        session.schedule(.adopt) {
-            // The reconcile's read against a page that never answers.
-            reading = true
-            reconcileRead = await captureWithinDeadline(
-                deadlineSeconds: 30,
-                startLivenessProbe: {},
-                rendererAnswered: { true },
-                start: { _ in }
-            )
-            return true
-        }
-        while !reading { await Task.yield() }
-
-        let exit = session.end(.navigate, effects: effects(recorder, name: "nav"))
-        let left = await exit?.value
-
-        #expect(left == true)
-        #expect(reconcileRead == .notOurs)
-        #expect(ContinuousClock.now - started < .seconds(5))
-        #expect(recorder.events.last == "nav:onSucceeded")
-    }
-
     @Test("navigation commits the title before the body, then leaves")
     func navigationCommitOrder() async {
         let session = EditorSession()
@@ -346,7 +313,7 @@ struct EditorSessionTests {
             recorder.events == [
                 "nav:prepare",
                 "nav:commitTitle",
-                "nav:captureBody",
+                "nav:awaitCurrentBody",
                 "nav:commitBody",
                 "nav:perform",
                 "nav:onSucceeded",
@@ -382,7 +349,7 @@ struct EditorSessionTests {
         _ = await exit?.value
 
         #expect(recorder.failure == .title)
-        #expect(!recorder.events.contains("nav:captureBody"))
+        #expect(!recorder.events.contains("nav:awaitCurrentBody"))
     }
 
     @Test("navigation stops when the editor cannot hand back its body")
@@ -396,7 +363,7 @@ struct EditorSessionTests {
         )
         _ = await exit?.value
 
-        #expect(recorder.failure == .capture)
+        #expect(recorder.failure == .unflushed)
         #expect(!recorder.events.contains("nav:commitBody"))
     }
 
@@ -447,10 +414,10 @@ struct EditorSessionTests {
         session.end(
             .move,
             effects: EditorExitEffects(
-                captureBody: {
+                awaitCurrentBody: {
                     started.set()
                     await release.wait()
-                    recorder.append("move:captureBody")
+                    recorder.append("move:awaitCurrentBody")
                     return "body"
                 },
                 perform: { _ in
@@ -524,124 +491,36 @@ struct EditorSessionTests {
         #expect(!session.shouldFlushOnLeave(loaded: true, content: "same", savedContent: "same"))
     }
 
-    // MARK: - Backgrounding reads the live editor (RC-92)
-
-    @Test("backgrounding adopts what the live editor holds, then settles the draft")
-    func backgroundingReadsTheLiveEditor() async {
-        let session = EditorSession()
-        let recorder = Recorder()
-
-        await session.refreshFromLiveEditor(
-            capture: {
-                recorder.append("capture")
-                return .captured("base + typed while the tail streamed")
-            },
-            settled: { recorder.append("settled") }
-        )
-
-        #expect(recorder.events == ["capture", "settled"])
-    }
-
-    @Test("an editor that cannot answer leaves the draft as it was")
-    func backgroundingAnUnansweringEditorSettlesNothing() async {
-        // A busy page is asked again, as an exit is, and then given up on.
-        let cases: [(EditorCaptureOutcome, Int)] = [
-            (.notOurs, 1), (.timedOut, EditorSession.lifecycleReadAttempts),
-        ]
-        for (outcome, reads) in cases {
-            let session = EditorSession()
-            let recorder = Recorder()
-            await session.refreshFromLiveEditor(
-                capture: {
-                    recorder.append("capture")
-                    return outcome
-                },
-                settled: { recorder.append("settled") }
-            )
-            #expect(recorder.events == Array(repeating: "capture", count: reads))
+    @Test func everyExitUsesLatestMailboxBytesOrRefusesWhileBehind() async {
+        for exit in [EditorExit.navigate, .move, .delete] {
+            for gone in [false, true] {
+                let mailbox = EditorMailbox()
+                mailbox.loaded("note", generation: 1, content: "base")
+                mailbox.edited("note", generation: 2)
+                if gone { mailbox.rendererGone() }
+                let session = EditorSession()
+                var committed: String?
+                var locked = false
+                session.onInteractionLockChanged = { locked = $0 }
+                let task = session.end(
+                    exit,
+                    effects: EditorExitEffects(
+                        awaitCurrentBody: {
+                            let current = await mailbox.awaitCurrent("note") {
+                                mailbox.failed("note", token: $0)
+                            }
+                            return current.canProceed ? current.latest?.content : nil
+                        },
+                        commitBody: {
+                            committed = $0
+                            return true
+                        }
+                    ))
+                _ = await task?.value
+                #expect(committed == (gone ? "base" : nil))
+                if !gone { #expect(!session.isClosing && !locked) }
+            }
         }
     }
 
-    @Test("a busy editor is asked again and the second read is what is settled")
-    func backgroundingAsksABusyEditorAgain() async {
-        let session = EditorSession()
-        let recorder = Recorder()
-        var reads = 0
-        await session.refreshFromLiveEditor(
-            capture: {
-                reads += 1
-                recorder.append("capture")
-                return reads == 1 ? .timedOut : .captured("live")
-            },
-            settled: { recorder.append("settled") }
-        )
-        #expect(recorder.events == ["capture", "capture", "settled"])
-    }
-
-    @Test("an editor with no live document is settled without a read of anything")
-    func backgroundingAnEditorWithNoDocument() async {
-        let session = EditorSession()
-        let recorder = Recorder()
-        await session.refreshFromLiveEditor(
-            capture: { .noLiveDocument },
-            settled: { recorder.append("settled") }
-        )
-        #expect(recorder.events == ["settled"])
-    }
-
-    @Test("an autosave already writing finishes before the draft is settled")
-    func backgroundingWaitsForAnAutosaveInFlight() async {
-        let session = EditorSession()
-        let recorder = Recorder()
-        let writing = Signal()
-        let finishWrite = Signal()
-        let save = session.schedule(.save) {
-            writing.set()
-            await finishWrite.wait()
-            recorder.append("autosave-done")
-            return true
-        }
-        await writing.wait()
-
-        let refresh = Task { @MainActor in
-            await session.refreshFromLiveEditor(
-                capture: { .captured("live") },
-                settled: { recorder.append("settled") }
-            )
-        }
-        await Task.yield()
-        #expect(recorder.events.isEmpty)
-
-        finishWrite.set()
-        _ = await save.value
-        await refresh.value
-        #expect(recorder.events == ["autosave-done", "settled"])
-    }
-
-    @Test("Back cancels the background read: the exit's own read is the one that counts")
-    func anExitCancelsTheBackgroundRead() async {
-        let session = EditorSession()
-        let recorder = Recorder()
-        let reading = Signal()
-        let answer = Signal()
-        let refresh = Task { @MainActor in
-            await session.refreshFromLiveEditor(
-                capture: {
-                    reading.set()
-                    await answer.wait()
-                    return .captured("live")
-                },
-                settled: { recorder.append("settled") }
-            )
-        }
-        await reading.wait()
-
-        let exit = session.end(.navigate, effects: effects(recorder, name: "nav"))
-        answer.set()
-        _ = await exit?.value
-        await refresh.value
-
-        #expect(!recorder.events.contains("settled"))
-        #expect(recorder.succeeded)
-    }
 }

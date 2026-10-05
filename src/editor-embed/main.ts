@@ -20,6 +20,8 @@ import {
   hasNativeBridgeHost,
   postToHost,
   type FutoEditorApi,
+  type DocumentRef,
+  type FlushFailureReason,
 } from '@futo-notes/editor';
 import { getAllNotes } from '../features/notes/notes.svelte';
 import { resolveWikilink } from '$shared/note/wikilinks';
@@ -79,13 +81,14 @@ const editor = mount(MilkdownEditor, {
   props: {
     content: '',
     nativeShell: true,
-    onchange: (_content: string) => {
-      // `undefined` is an editor that holds no note at all — there is nothing
-      // to report, and posting '' would tell the shell to empty a file.
-      const content = editor.getContent();
-      if (content === undefined) return;
-      post({ type: 'change', content });
-    },
+    onchange: (content: string, ref: DocumentRef, flushToken?: string) =>
+      post({ type: 'change', ...ref, content, flushToken }),
+    onedited: (ref: DocumentRef) => post({ type: 'edited', ...ref }),
+    ondocumentloaded: (ref: DocumentRef, source: 'load' | 'external') =>
+      post({ type: 'documentLoaded', ...ref, source }),
+    onflushfailed: (ref: DocumentRef, flushToken: string, reason: FlushFailureReason) =>
+      post({ type: 'flushFailed', ...ref, flushToken, reason }),
+    onexternalrefused: (ref: DocumentRef) => post({ type: 'externalRefused', ...ref }),
     onfocuschange: (focused: boolean) => {
       if (!nativeToolbar) toolbar?.setFocused(focused);
       post({ type: 'focus', focused });
@@ -144,8 +147,8 @@ const editor = mount(MilkdownEditor, {
     // Find in note: the engine's own {query, current, total, label} report,
     // which the native find bars render verbatim (bridge.ts FindMatchesMessage).
     // They never count or word a count themselves.
-    onfindmatches: (report: FindMatchReport) => {
-      post({ type: 'findMatches', ...report });
+    onfindmatches: (report: FindMatchReport, ref: DocumentRef) => {
+      post({ type: 'findMatches', ...report, ...ref });
     },
     onenginemounted: () => {
       window.__futoEditorMounted = true;
@@ -183,6 +186,22 @@ const futoEditor = createFutoEditorApi({
 });
 window.FutoEditor = futoEditor;
 
+// Release URLs carry no query. Debug/test reads never enter the host contract.
+if (query.has('test') || query.has('census')) {
+  (
+    window as unknown as {
+      __futoTest: {
+        readDocument: () => string | undefined;
+        documentRef: () => DocumentRef;
+        replaceDocument: (text: string) => void;
+      };
+    }
+  ).__futoTest = {
+    readDocument: () => editor.getContent(),
+    replaceDocument: (text: string) => editor.applyEdit(text),
+    documentRef: () => editor.getDocumentRef(),
+  };
+}
 warmEditorFonts();
 
 /* The shells resize the web view to sit above the keyboard. When that happens

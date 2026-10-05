@@ -4,9 +4,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-class EditorContentCaptureTest {
+class JavascriptStringDecodeTest {
     @Test
-    fun `javascript content snapshots decode escaped markdown exactly`() {
+    fun `javascript results decode escaped strings exactly`() {
         assertEquals(
             "line one\n\"quoted\"",
             decodeJavascriptString("\"line one\\n\\\"quoted\\\"\""),
@@ -14,7 +14,7 @@ class EditorContentCaptureTest {
     }
 
     @Test
-    fun `missing javascript result aborts capture`() {
+    fun `missing javascript result decodes as absence`() {
         assertNull(decodeJavascriptString(null))
         assertNull(decodeJavascriptString("null"))
     }

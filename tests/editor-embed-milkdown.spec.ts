@@ -130,6 +130,7 @@ const test = base.extend<{ page: Page }>({
 function hostConfig(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
     bridgeVersion: BRIDGE_VERSION,
+    noteId: 'test-note',
     theme: 'light',
     content: '',
     nativeToolbar: true,
@@ -148,7 +149,7 @@ async function initialize(page: Page, configJson: string): Promise<void> {
 
 async function hostSetContent(page: Page, markdown: string): Promise<void> {
   await page.evaluate(
-    (md) => (window as unknown as FakeHostWindow).FutoEditor.setContent(md),
+    (md) => (window as unknown as FakeHostWindow).FutoEditor.setContent('test-note', md),
     markdown,
   );
   await settleChangeDebounce(page);
@@ -554,7 +555,11 @@ test('applyExternalContent adopts differing content without a change echo', asyn
   await clearMessages(page);
 
   await page.evaluate(() =>
-    (window as unknown as FakeHostWindow).FutoEditor.applyExternalContent('adopted from a peer'),
+    (window as unknown as FakeHostWindow).FutoEditor.applyExternalContent(
+      'test-note',
+      'adopted from a peer',
+      (window as unknown as FakeHostWindow).__futoTest.documentRef().generation,
+    ),
   );
   await settleChangeDebounce(page);
 
@@ -597,7 +602,11 @@ test('applyExternalContent with unchanged content preserves the selection', asyn
 
   // No-op adopt (content identical): must not reset the caret to 0 or the end.
   await page.evaluate(() =>
-    (window as unknown as FakeHostWindow).FutoEditor.applyExternalContent('abcdef'),
+    (window as unknown as FakeHostWindow).FutoEditor.applyExternalContent(
+      'test-note',
+      'abcdef',
+      (window as unknown as FakeHostWindow).__futoTest.documentRef().generation,
+    ),
   );
   await flushFrames(page);
   await page.keyboard.type('Z');
@@ -705,7 +714,9 @@ test('undoing everything after an adopt, a later edit and a keystroke over a div
   await hostSetContent(page, 'first\n\n***\n\nlast\n');
   await page.evaluate(() =>
     (window as unknown as FakeHostWindow).FutoEditor.applyExternalContent(
+      'test-note',
       'first peer\n\n***\n\nlast\n',
+      (window as unknown as FakeHostWindow).__futoTest.documentRef().generation,
     ),
   );
   await flushFrames(page);
@@ -762,7 +773,11 @@ test('a version adopted from outside the editor is not something undo can revive
   await waitForMessages(page, 'change');
 
   await page.evaluate(() =>
-    (window as unknown as FakeHostWindow).FutoEditor.applyExternalContent('theirs\n'),
+    (window as unknown as FakeHostWindow).FutoEditor.applyExternalContent(
+      'test-note',
+      'theirs\n',
+      (window as unknown as FakeHostWindow).__futoTest.documentRef().generation,
+    ),
   );
   await settleChangeDebounce(page);
   expect(await getContent(page)).toBe('theirs\n');
@@ -807,12 +822,13 @@ async function changesAfterSwitch(page: Page): Promise<string[]> {
 }
 
 /** The shell's exit read of the outgoing note, after which it listens for the next one. */
-async function captureOutgoingNote(page: Page): Promise<{ body: string; streaming: boolean }> {
+async function flushOutgoingNote(page: Page): Promise<{ body: string; streaming: boolean }> {
   return page.evaluate(() => {
     const w = window as unknown as FakeHostWindow;
     const streaming = document.querySelector('.milkdown-stream-tail') !== null;
     w.FutoEditor.blur();
-    const body = w.FutoEditor.getContent();
+    w.FutoEditor.flush('exit');
+    const body = String(w.__msgs.filter((m) => m.type === 'change').at(-1)?.content);
     w.__msgs.push({ type: '__switch' });
     return { body, streaming };
   });
@@ -827,7 +843,7 @@ async function openLinkedNoteAndType(page: Page, linked: string, typed: string):
   await initialize(page, hostConfig({ content: LINKING_NOTE }));
   await page.evaluate((md) => {
     const w = window as unknown as FakeHostWindow;
-    w.FutoEditor.setContent(md);
+    w.FutoEditor.setContent('test-note', md);
     w.__msgs.length = 0;
     w.FutoEditor.focus();
   }, linked);
@@ -837,7 +853,7 @@ async function openLinkedNoteAndType(page: Page, linked: string, typed: string):
 
 const STILL_STREAMING = 'the linked note must still be streaming for this case to mean anything';
 
-test('switching notes posts nothing for the outgoing note, even one edited while it streams', async ({
+test('switching notes reports the edited streaming document under its outgoing identity', async ({
   page,
 }) => {
   // RC-04: the switch's own "is this already on screen?" read used to settle
@@ -850,20 +866,22 @@ test('switching notes posts nothing for the outgoing note, even one edited while
     const w = window as unknown as FakeHostWindow;
     const tail = document.querySelector('.milkdown-stream-tail') !== null;
     w.__msgs.push({ type: '__switch' });
-    w.FutoEditor.setContent(md);
+    w.FutoEditor.setContent('parent', md);
     return tail;
   }, LINKING_NOTE);
   await settleChangeDebounce(page);
 
   expect(streaming, STILL_STREAMING).toBe(true);
-  expect(await changesAfterSwitch(page), 'this would be saved into the linking note').toEqual([]);
+  expect((await messagesOfType(page, 'change')).at(-1)).toEqual(
+    expect.objectContaining({ noteId: 'test-note', content: expect.stringContaining('EDITED ') }),
+  );
   expect(await getContent(page)).toBe(LINKING_NOTE);
 });
 
-test('the exit read of a streaming, edited note is its last word', async ({ page }) => {
+test('an exit flush reports the complete edited streaming document', async ({ page }) => {
   await openLinkedNoteAndType(page, largeNote(4000), 'EDITED ');
 
-  const captured = await captureOutgoingNote(page);
+  const captured = await flushOutgoingNote(page);
   await hostSetContent(page, LINKING_NOTE);
 
   expect(captured.streaming, STILL_STREAMING).toBe(true);
@@ -874,16 +892,14 @@ test('the exit read of a streaming, edited note is its last word', async ({ page
   expect(await getContent(page)).toBe(LINKING_NOTE);
 });
 
-test('the exit read reports the pending change itself, so none arrives after the switch', async ({
-  page,
-}) => {
+test('an exit flush reports the pending change once before the switch', async ({ page }) => {
   // RC-09 / L6c-3: typing, then leaving inside the change debounce. The read
   // carries the typed words, and so does a report posted INSIDE it, to the
   // binding that is still the outgoing note's. The debounce armed by the last
   // keystroke must not fire afterwards, however late the next note's push.
   await openLinkedNoteAndType(page, LINKED_NOTE, ' plus typed words');
 
-  const captured = await captureOutgoingNote(page);
+  const captured = await flushOutgoingNote(page);
   await settleChangeDebounce(page);
   await hostSetContent(page, LINKING_NOTE);
 
@@ -896,7 +912,7 @@ test('the exit read reports the pending change itself, so none arrives after the
     )
     .filter((m) => m.type === 'change')
     .map((m) => m.content);
-  expect(beforeSwitch).toEqual([captured.body]);
+  expect(beforeSwitch).toEqual([captured.body, captured.body]);
   expect(await changesAfterSwitch(page)).toEqual([]);
   expect(await getContent(page)).toBe(LINKING_NOTE);
 });
@@ -916,14 +932,19 @@ test('a switch inside the change debounce shows the next note, even with the sam
     const w = window as unknown as FakeHostWindow;
     const before = w.__msgs.filter((m) => m.type === 'change').length;
     w.__msgs.push({ type: '__switch' });
-    w.FutoEditor.setContent('');
+    w.FutoEditor.setContent('next-note', '');
     return before;
   });
   expect(changesBeforeSwitch, 'the switch must land inside the debounce').toBe(0);
   await settleChangeDebounce(page);
 
   expect(await getContent(page)).toBe('');
-  expect(await changesAfterSwitch(page)).toEqual([]);
+  expect((await messagesOfType(page, 'change')).at(-1)).toEqual(
+    expect.objectContaining({
+      noteId: 'test-note',
+      content: expect.stringContaining('typed into the first note'),
+    }),
+  );
 });
 
 test('a host re-sending the note on screen leaves the caret where it was', async ({ page }) => {
@@ -931,7 +952,9 @@ test('a host re-sending the note on screen leaves the caret where it was', async
   await focusEditor(page);
   await clickCaretInto(page, 3);
 
-  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.setContent('abcdef'));
+  await page.evaluate(() =>
+    (window as unknown as FakeHostWindow).FutoEditor.setContent('test-note', 'abcdef'),
+  );
   await flushFrames(page);
   await page.keyboard.type('Z');
 
@@ -1187,7 +1210,7 @@ const gutterHandleTest = base.extend<{ page: Page }>({
     const context = await browser.newContext();
     await context.addInitScript(installFakeAndroidHost);
     const page = await context.newPage();
-    await page.goto(`${EDITOR_URL}?blockDragMode=gutter-handle`);
+    await page.goto(`${EDITOR_URL}&blockDragMode=gutter-handle`);
     await page.waitForFunction(() =>
       (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
     );
@@ -1431,7 +1454,7 @@ gutterHandleTest(
 
     // Release back over the source: a no-op, not a commit.
     await drag.drop(alpha.x, alpha.top + 2);
-    expect(await messagesOfType(page, 'change')).toHaveLength(0);
+    expect(await messagesOfType(page, 'edited')).toHaveLength(0);
   },
 );
 
@@ -1514,7 +1537,16 @@ gutterHandleTest(
     handle = await surfaceHandle(page, 'alpha', { item: true });
     drag = await startHandleDrag(page, handle);
     await drag.drop(charlie.x, charlie.bottom - 3);
-    changes = await waitForMessages(page, 'change');
+    await expect.poll(() => getContent(page)).toBe('- bravo\n\ncharlie\n\n- alpha\n');
+    const generation = await page.evaluate(
+      () => (window as unknown as FakeHostWindow).__futoTest.documentRef().generation,
+    );
+    await expect
+      .poll(async () =>
+        (await messagesOfType(page, 'change')).some((m) => m.generation === generation),
+      )
+      .toBe(true);
+    changes = await messagesOfType(page, 'change');
     expect(listOnly(changes[changes.length - 1].content as string)).toBe(
       '- bravo\n\ncharlie\n\n- alpha\n',
     );
@@ -1775,7 +1807,7 @@ mobileDndTest(
     await longPressDrag(page, cdp, alpha, { x: alpha.x, y: alpha.y + 4 });
     await settleChangeDebounce(page);
 
-    expect(await messagesOfType(page, 'change')).toHaveLength(0);
+    expect(await messagesOfType(page, 'edited')).toHaveLength(0);
     /* Lift only: no `drop` (nothing was committed) and no `move` either — the
      * finger never left the gap the block already sat in, so there was no new
      * place to tell the thumb about. */
@@ -2758,7 +2790,7 @@ async function initializeAndPeekMidStream(page: Page, content: string) {
     w.__msgs.length = 0;
     w.FutoEditor.initialize(json);
     return {
-      contentDuringStream: w.FutoEditor.getContent(),
+      contentDuringStream: w.__futoTest.readDocument(),
       messageTypes: w.__msgs.map((m) => m.type),
       mountedBlocks: document.querySelectorAll('.ProseMirror > *').length,
     };
@@ -2927,9 +2959,7 @@ test('an edit made while the tail streams is released against the COMPLETE note'
   expect(await getContent(page)).toBe(saved);
 });
 
-test('getContent mid-stream after an edit finishes the load rather than answering short', async ({
-  page,
-}) => {
+test('a flush mid-stream after an edit settles the complete document', async ({ page }) => {
   // The other half of the save lock. With nothing typed, `getContent` can
   // answer with the host's own bytes for free; once the user has edited, the
   // only answer carrying BOTH the edit and the tail costs the rest of the
@@ -2954,7 +2984,7 @@ test('getContent mid-stream after an edit finishes the load rather than answerin
     const w = window as unknown as FakeHostWindow;
     return {
       streaming: document.querySelectorAll('.milkdown-stream-tail').length,
-      content: w.FutoEditor.getContent(),
+      content: w.__futoTest.readDocument(),
     };
   });
 
@@ -3031,7 +3061,11 @@ async function caretBefore(page: Page, marker: string): Promise<void> {
 async function adoptStreaming(page: Page, note: string): Promise<boolean> {
   return page.evaluate((md) => {
     const w = window as unknown as FakeHostWindow;
-    w.FutoEditor.applyExternalContent(md);
+    w.FutoEditor.applyExternalContent(
+      'test-note',
+      md,
+      (window as unknown as FakeHostWindow).__futoTest.documentRef().generation,
+    );
     w.__msgs.length = 0;
     // The tail affordance is Svelte state, painted after this task; the block
     // count is synchronous. Only chunk 0 is mounted yet.
@@ -3116,8 +3150,8 @@ async function reconcileRead(page: Page) {
     const w = window as unknown as FakeHostWindow;
     const before = w.__msgs.length;
     const streaming = document.querySelectorAll('.milkdown-stream-tail').length > 0;
-    // The shells' reconcile read (EditorHost.readScript / READ_SCRIPT).
-    const content = w.FutoEditor.getContent();
+    w.FutoEditor.flush('reconcile');
+    const content = String(w.__msgs.filter((m) => m.type === 'change').at(-1)?.content);
     const posted = w.__msgs.slice(before);
     return {
       streaming,
@@ -3129,7 +3163,7 @@ async function reconcileRead(page: Page) {
   });
 }
 
-test('applyExternalContent over an unreported edit: the read the host takes first reports an edit made while the tail streams', async ({
+test('external adoption after a flush uses the reported streaming edit generation', async ({
   page,
 }) => {
   const note = largeNote(4000);
@@ -3156,7 +3190,7 @@ test('applyExternalContent over an unreported edit: the read the host takes firs
   expect(read.focused).toBe(true);
 });
 
-test('applyExternalContent over an unreported edit: the read the host takes first reports an edit still inside the change debounce', async ({
+test('applyExternalContent over an unreported edit: the flush the host requests reports an edit still inside the change debounce', async ({
   page,
 }) => {
   await initialize(page, hostConfig({ content: 'the note\n' }));
@@ -3630,7 +3664,7 @@ const CHUNK_AGREEMENT_CASES: Array<{ name: string; note: string }> = [
 /** The whole-document parse's serialization, from the same bundle's `?census` door. */
 async function wholeDocumentSerialization(page: Page, note: string): Promise<string> {
   const census = await page.context().newPage();
-  await census.goto(`${EDITOR_URL}?census`);
+  await census.goto(`${EDITOR_URL}&census`);
   await census.waitForFunction(
     () =>
       typeof (window as unknown as { __futoSerializeCensus?: unknown }).__futoSerializeCensus ===

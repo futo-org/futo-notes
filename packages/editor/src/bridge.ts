@@ -1,6 +1,6 @@
 /**
  * The futoBridge contract — the versioned interface between the embedded
- * CodeMirror editor (`editor.html`, built from `src/editor-embed/main.ts`) and
+ * Milkdown editor (`editor.html`, built from `src/editor-embed/main.ts`) and
  * the two native WebView hosts that load it:
  *
  *   - iOS    — WKWebView, `loadFileURL(editor.html)`, calls `window.FutoEditor`
@@ -11,7 +11,7 @@
  *              through a `@JavascriptInterface` named `futoBridge`.
  *
  * The Tauri desktop app does NOT use this bridge: it edits with
- * `MarkdownEditor.svelte` (CodeMirror in Svelte) directly, no embedded
+ * `MilkdownEditor.svelte` directly, no embedded
  * `editor.html`. Only the native iOS/Android shells load the bundle.
  *
  * This file is the SINGLE SOURCE OF TRUTH for that contract. Both WebView hosts
@@ -61,6 +61,10 @@
  *      narrower v8 exists. Optional even within v8 — a host that never calls
  *      it gets overlay 0, correct for non-overlaying bars (Android's sibling
  *      layout).
+ * - 9: BREAKING — document identity and flush replace native reads (#194/#244/#245).
+ *      setContent/applyExternalContent name the note; getContent is removed;
+ *      retarget relabels the open note in place.
+ *      See docs/plan/editor-owns-the-document.md.
  *
  * `formatState` (Notion-style toolbar active-state — see
  * {@link FormatStateMessage}) is additive and ships WITHOUT a version bump: it
@@ -122,7 +126,7 @@
  * today's behavior, and both native hosts fall back to `onListLine` when
  * `inContainer` is absent — an older bundle meeting a newer host.
  */
-export const BRIDGE_VERSION = 8 as const;
+export const BRIDGE_VERSION = 9 as const;
 
 /** Editor color theme. */
 export type EditorTheme = 'light' | 'dark';
@@ -157,9 +161,16 @@ export interface FutoEditorApi {
    */
   initialize(configJson: string): void;
   /** Replace the entire document. A load, not a sync — selection is reset. */
-  setContent(markdown: string): void;
-  /** Read the current document text. */
-  getContent(): string;
+  setContent(noteId: string, markdown: string): void;
+  /**
+   * The open note `fromId` now lives at `toId` (rename, parked conflict copy, a
+   * peer's rename): relabel the live document — caret, undo history and any
+   * edit the host has not yet received kept — and report it through change
+   * under `toId`. Ignored unless the editor holds `fromId`.
+   */
+  retarget(fromId: string, toId: string): void;
+  /** Report the current document through change, echoing the request token. */
+  flush(token: string): void;
   /** Focus the editor (and raise the soft keyboard where the host allows it). */
   focus(): void;
   /** Switch the editor theme. */
@@ -177,7 +188,7 @@ export interface FutoEditorApi {
    * scroll-preserving, history-suppressed — a sync, not a load (contrast
    * {@link setContent}).
    */
-  applyExternalContent(markdown: string): void;
+  applyExternalContent(noteId: string, markdown: string, expectedGeneration: number): void;
   /**
    * Insert `![](filename)\n` at the cursor. The host calls this after a
    * `pickImage` round-trip, once the picked image bytes are saved into the
@@ -280,10 +291,33 @@ export interface BridgeVersionMismatchMessage {
   bundleVersion: number;
 }
 
-/** Emitted when the document changes (already rAF-coalesced by the editor). */
-export interface ChangeMessage {
+/** A page-monotonic revision of a vault-relative document. */
+export interface DocumentRef {
+  noteId: string;
+  generation: number;
+}
+export interface DocumentLoadedMessage extends DocumentRef {
+  type: 'documentLoaded';
+  source: 'load' | 'external';
+}
+export interface EditedMessage extends DocumentRef {
+  type: 'edited';
+}
+export type FlushFailureReason = 'noDocument' | 'loadFailed' | 'serializer';
+export interface FlushFailedMessage extends DocumentRef {
+  type: 'flushFailed';
+  flushToken: string;
+  reason: FlushFailureReason;
+}
+export interface ExternalRefusedMessage extends DocumentRef {
+  type: 'externalRefused';
+}
+
+/** The serialized revision, debounced while typing and immediate on flush. */
+export interface ChangeMessage extends DocumentRef {
   type: 'change';
   content: string;
+  flushToken?: string;
 }
 
 /**
@@ -514,7 +548,7 @@ export interface BlockPressMessage {
  * (zero only when there are no matches); `label` is the canonical display text
  * native bars render verbatim so count wording cannot drift across shells.
  */
-export interface FindMatchesMessage {
+export interface FindMatchesMessage extends DocumentRef {
   type: 'findMatches';
   /** Canonical active query, including a selection-seeded query on open. */
   query: string;
@@ -531,6 +565,10 @@ export type FutoEditorOutboundMessage =
   | ReadyMessage
   | InitializedMessage
   | BridgeVersionMismatchMessage
+  | DocumentLoadedMessage
+  | EditedMessage
+  | FlushFailedMessage
+  | ExternalRefusedMessage
   | ChangeMessage
   | FocusMessage
   | OpenNoteMessage
@@ -558,6 +596,10 @@ export const OUTBOUND_MESSAGE_TYPES = [
   'ready',
   'initialized',
   'bridgeVersionMismatch',
+  'documentLoaded',
+  'edited',
+  'flushFailed',
+  'externalRefused',
   'change',
   'focus',
   'openNote',

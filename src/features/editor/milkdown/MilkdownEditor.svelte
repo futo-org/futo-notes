@@ -157,9 +157,15 @@
   import { refreshWikilinkViews, wikilink, WIKILINK_TARGET_ATTR } from './wikilink';
   import { WIKILINK_BROKEN_CLASS } from './wikilink/display';
 
+  import type { DocumentRef, FlushFailureReason } from '@futo-notes/editor';
+
   interface Props {
     content?: string;
-    onchange?: (content: string) => void;
+    onchange?: (content: string, ref: DocumentRef, flushToken?: string) => void;
+    onedited?: (ref: DocumentRef) => void;
+    ondocumentloaded?: (ref: DocumentRef, source: 'load' | 'external') => void;
+    onflushfailed?: (ref: DocumentRef, token: string, reason: FlushFailureReason) => void;
+    onexternalrefused?: (ref: DocumentRef) => void;
     onfocuschange?: (focused: boolean) => void;
     oncompositionend?: () => void;
     oncursorcontext?: (ctx: { onListLine: boolean; inContainer: boolean }) => void;
@@ -187,7 +193,7 @@
     /* Find in note's `{query, current, total, label}` report, for the native
      * bars (bridge.ts FindMatchesMessage). Deduped by the engine, and posted
      * whether or not this build renders the desktop panel. */
-    onfindmatches?: (report: FindMatchReport) => void;
+    onfindmatches?: (report: FindMatchReport, ref: DocumentRef) => void;
     /* Everything a find bar renders, deduped. The desktop shell draws its bar
      * from this; the native shells ignore it and read `onfindmatches`. */
     onfindstate?: (state: FindBarState) => void;
@@ -206,6 +212,10 @@
   let {
     content = '',
     onchange,
+    onedited,
+    ondocumentloaded,
+    onflushfailed,
+    onexternalrefused,
     onfocuschange,
     oncompositionend,
     oncursorcontext,
@@ -315,32 +325,15 @@
   /* Drives the loading affordance over the streaming tail. `$state` because it
    * is read by the template. */
   let streamingTail = $state(false);
-  /* Whether the user has edited since the current progressive load started —
-   * the answer to "did the user type while the tail was streaming?". Set by
-   * every reportable transaction (documentChanges.ts), cleared when a load
-   * starts, and nothing else moves it.
-   *
-   * It used to be derived from the undo depth (`undoDepth > depth at load
-   * start`), and undo depth is not a count of edits (RC-11): a sync adopt
-   * keeps the user's history, an Undo LOWERS the depth, and prosemirror-history
-   * trims its stack from 120 events back to 100. An Undo during a streamed
-   * adopt followed by one word, or one word typed with the stack full, netted
-   * to "not edited" — no `change`, and `getContent()` answered the peer's bytes
-   * while the word sat on screen. */
-  let editedDuringLoad = false;
+  let unreported = false;
+  let currentNoteId: string | null = null;
+  let settlingForFlush = false;
+  let pendingLoadSource: 'load' | 'external' = 'load';
   /* The pending debounced change notification (documentChanges.ts). */
   let changeTimer: number | null = null;
   /* When the first edit the pending notification holds was made: the anchor
    * for `DOCUMENT_CHANGE_MAX_WAIT_MS`. */
   let changePendingSince: number | null = null;
-  /* The loaded document a host READ handed an edit of out, before any `change`
-   * said so (`getContent` inside the debounce — RC-28). An Undo back to that
-   * document is then a change the host has to hear, not the load's echo. */
-  let editReadOutOf: ProseNode | null = null;
-  /* A change notification the debounce already handed to the idle priming
-   * loop (`reportDocumentChange`, still-cold document): as unreported as one
-   * still sitting in `changeTimer`. */
-  let reportAwaitsPriming = false;
   /* Whether the last load gave up on chunking mid-flight and reloaded the note
    * whole. Reported by `censusLoad` so the equivalence census cannot score a
    * fallback as proof that a chunked parse matched a whole one — it would be
@@ -424,20 +417,9 @@
    * desktop), so the teardown removes exactly what the mount added. */
   let ownsImageUrlResolver = false;
 
-  /* WHICH note this editor is holding, as a counter that ticks every time it
-   * adopts a different one — `openNote` is the shell's single note-switch
-   * door (features/notes/createNoteLoader.ts) and there is exactly one of
-   * these components for the whole desktop shell, tabs included.
-   *
-   * It exists for the asynchronous image entry points: saving an image takes
-   * long enough for the user to open another note, and a completion that
-   * inserts into "whatever is open now" puts the picture in a note nobody
-   * dropped it on (imageInsertTarget.ts). Teardown ticks it too — a completion
-   * outliving the component belongs to nothing.
-   *
-   * Deliberately NOT ticked by `setContent`: that is the SAME note arriving
-   * with new bytes (a sync adopt), where the pending image still belongs
-   * exactly where it was going. */
+  // Async images and link editing belong to a loaded document, across ordinary edits.
+  let documentIdentity = 0;
+  // Page-monotonic bridge revision: advances on loads, adoptions and user transactions.
   let documentGeneration = 0;
 
   /* The note every asynchronous image completion belongs to. ONE target for
@@ -446,7 +428,7 @@
    * component scope because the `/` menu plugin is built earlier in the mount
    * than the paste handler and both need it. */
   const imageTarget = createImageInsertTarget({
-    documentToken: () => documentGeneration,
+    documentToken: () => documentIdentity,
     insert: (filename) => insertMarkdown(imageReferenceMarkdown(filename)),
     discard: deleteImage,
   });
@@ -634,6 +616,11 @@
       hostMarkdown = content;
       liveMarkdown = content;
     }
+    const visibility = (): void => {
+      if (nativeShell && document.visibilityState === 'hidden') flush();
+    };
+    document.addEventListener('visibilitychange', visibility);
+    window.addEventListener('pagehide', flushOnPageHide);
     container.addEventListener('click', handleClick);
     container.addEventListener('auxclick', handleAuxClick);
     container.addEventListener('pointerdown', handlePointerDown);
@@ -775,7 +762,10 @@
 
           const listeners = ctx.get(listenerCtx);
           listeners.focus(() => onfocuschange?.(true));
-          listeners.blur(() => onfocuschange?.(false));
+          listeners.blur(() => {
+            if (nativeShell) flush();
+            onfocuschange?.(false);
+          });
           listeners.selectionUpdated((_ctx, selection) => {
             const view = pmView();
             // Pass `selection` explicitly — see emitFormatState's doc comment
@@ -818,7 +808,10 @@
         .use(dividerCaretFix)
         .use(
           findEngine({
-            onMatches: (report) => onfindmatches?.(report),
+            onMatches: (report) => {
+              if (currentNoteId !== null)
+                onfindmatches?.(report, { noteId: currentNoteId, generation: documentGeneration });
+            },
             onStateChange: (find) => {
               emitFindState({
                 open: find.open,
@@ -878,7 +871,7 @@
       if (useSelectionToolbar) {
         const selectionToolbar = createSelectionToolbarPlugin(
           () => editor,
-          () => documentGeneration,
+          () => documentIdentity,
         );
         builder = builder.config(selectionToolbar.config).use(selectionToolbar.plugins);
       }
@@ -905,7 +898,7 @@
       // engine", and tying it to a parse would make a big note look like an
       // unsupported WebView on a slow phone (the host's boot grace is 10 s).
       onenginemounted?.();
-      if (pendingContent !== null && pendingContent !== '') {
+      if (pendingContent !== null) {
         applyExternal(pendingContent);
       }
       pendingContent = null;
@@ -1041,7 +1034,11 @@
       disposed = true;
       // No document to belong to any more, so a pending image completion is
       // abandoned rather than inserted into a destroyed editor.
+      documentIdentity += 1;
       documentGeneration += 1;
+      currentNoteId = null;
+      document.removeEventListener('visibilitychange', visibility);
+      window.removeEventListener('pagehide', flushOnPageHide);
       dismissLinkPrompt();
       // Same teardown `openNote`/`applyExternal` use for a pending progressive
       // load: discard rather than settle, since there is no document left to
@@ -1156,12 +1153,15 @@
   function stopPriming(): void {
     primeCancelIdle?.();
     primeCancelIdle = null;
-    reportAwaitsPriming = false;
   }
 
   /** A user edit (documentChanges.ts): remember it, and report it once the document settles. */
   function documentEdited(): void {
-    editedDuringLoad = true;
+    documentGeneration += 1;
+    if (!unreported) {
+      unreported = true;
+      onedited?.(documentRef());
+    }
     scheduleChangeNotification();
   }
 
@@ -1205,14 +1205,10 @@
      * document, not the note. */
     if (loadFailed) return;
 
-    // The debounced echo of host content we just loaded — not an edit, and
-    // decided without serializing anything. Unless a host read already took
-    // an edit of this document away (RC-28): then coming back to it is news.
+    if (!unreported) return;
     if (unchangedSinceLoad()) {
-      if (editReadOutOf === null || editReadOutOf !== loadedDoc) return;
-      editReadOutOf = null;
       const loaded = hostMarkdown ?? readSerialized();
-      if (loaded !== null) onchange?.(loaded);
+      if (loaded !== null) postChange(loaded);
       return;
     }
 
@@ -1241,10 +1237,8 @@
         // two more cache misses, absorbed by the sync budget on that next
         // pass.
         startPriming(() => {
-          reportAwaitsPriming = false;
           scheduleChangeNotification();
         });
-        reportAwaitsPriming = true;
         return;
       }
     }
@@ -1256,8 +1250,7 @@
     // A genuine user edit: the host's copy is no longer authoritative.
     loadedDoc = null;
     hostMarkdown = null;
-    editReadOutOf = null;
-    onchange?.(markdown);
+    postChange(markdown);
   }
 
   /**
@@ -1458,7 +1451,7 @@
    * knocks on.
    */
   function editedSinceLoadStart(): boolean {
-    return editedDuringLoad;
+    return unreported;
   }
 
   /**
@@ -1490,7 +1483,7 @@
     // This fills every cache miss synchronously, so the document is already
     // fully primed by the time startPriming() below gets to run it.
     const complete = readSerialized();
-    if (complete !== null) onchange?.(complete);
+    if (complete !== null && !settlingForFlush) postChange(complete);
     startPriming();
   }
 
@@ -1548,6 +1541,8 @@
    */
   function applyExternal(text: string, chunkOptions?: MarkdownChunkOptions): void {
     if (!editor) return;
+    cancelChangeNotification();
+    unreported = false;
     /* A Link URL prompt left floating from before this call holds THAT
      * document's positions; submitting it after would write into this one.
      * `openNote` is not the only door — the native shells switch notes
@@ -1591,6 +1586,7 @@
       if (!applyWholeDocument(text)) recordFailedLoad();
       measureOpen(OPEN_INTERACTIVE_MEASURE);
       measureOpen(OPEN_COMPLETE_MEASURE);
+      if (!loadFailed) ondocumentloaded?.(documentRef(), pendingLoadSource);
       return;
     }
 
@@ -1647,7 +1643,8 @@
     streamingTail = load.loading;
     // After chunk 0, which is not an edit (`loadParsedDocument`): whatever
     // the user does from here on is.
-    editedDuringLoad = false;
+    unreported = false;
+    ondocumentloaded?.(documentRef(), pendingLoadSource);
     measureOpen(OPEN_INTERACTIVE_MEASURE);
   }
 
@@ -1838,14 +1835,77 @@
 
   // ---- handle consumed by src/editor-embed ------------------------------- //
 
-  export function setContent(text: string): void {
+  function flushOnPageHide(): void {
+    if (nativeShell) flush();
+  }
+
+  export function getDocumentRef(): DocumentRef {
+    return documentRef();
+  }
+
+  function documentRef(): DocumentRef {
+    return { noteId: currentNoteId ?? '', generation: documentGeneration };
+  }
+
+  function postChange(text: string, token?: string): void {
+    unreported = false;
+    onchange?.(toWellFormedText(text), documentRef(), token);
+  }
+
+  export function setContent(noteId: string, text: string): void {
+    if (editor && holdsExactly(text)) {
+      if (currentNoteId === noteId) return;
+      if (unreported && nativeShell) flush();
+      currentNoteId = noteId;
+      documentGeneration += 1;
+      ondocumentloaded?.(documentRef(), 'load');
+      return;
+    }
+    // A streaming edited departure pays the remaining parse before changing identity.
+    if (currentNoteId !== null && currentNoteId !== noteId && unreported && nativeShell) flush();
+    documentIdentity += 1;
+    currentNoteId = noteId;
+    documentGeneration += 1;
+    pendingLoadSource = 'load';
     if (!editor) {
       pendingContent = text;
       hostMarkdown = text;
       return;
     }
-    if (holdsExactly(text)) return;
     applyExternal(text);
+    resetHistory();
+  }
+
+  /**
+   * The open note was renamed (or parked, or renamed by a peer): relabel the
+   * live document and report it under the new identity. Never a load — the
+   * shell's copy can lag a keystroke typed after its flush, and replacing the
+   * document with it dropped that keystroke and the undo history.
+   */
+  export function retarget(fromId: string, toId: string): void {
+    if (currentNoteId !== fromId || fromId === toId) return;
+    currentNoteId = toId;
+    documentGeneration += 1;
+    flush();
+  }
+
+  export function applyExternalContent(
+    noteId: string,
+    text: string,
+    expectedGeneration: number,
+  ): void {
+    if (currentNoteId !== noteId || documentGeneration !== expectedGeneration || unreported) {
+      onexternalrefused?.(documentRef());
+      return;
+    }
+    const identical = holdsExactly(text);
+    documentGeneration += 1;
+    pendingLoadSource = 'external';
+    if (identical) ondocumentloaded?.(documentRef(), 'external');
+    else {
+      documentIdentity += 1;
+      applyExternal(text);
+    }
   }
 
   /**
@@ -1860,12 +1920,9 @@
    * used to be swallowed by that bookkeeping, leaving the previous note's text
    * on screen to be reported as the next note's (L6a-1).
    *
-   * Side-effect free, which is the other half of the point: a note switch asks
-   * this of the OUTGOING document, so it must not settle a streaming load or
-   * post anything — a `change` posted from here would be saved into the note
-   * being switched TO (RC-04). A streaming document is compared without
-   * finishing it: untouched, it is the host's bytes; edited, it is not them,
-   * and nothing a host could send equals an edit it has never been told of.
+   * Comparing stays side-effect free. The load caller flushes an outgoing
+   * unreported edit before changing identity. Untouched streaming documents
+   * can be compared against the complete host bytes without parsing the tail.
    */
   function holdsExactly(text: string): boolean {
     if (loadFailed || progressive?.loading) {
@@ -1881,27 +1938,38 @@
     return text === readSerialized();
   }
 
-  /**
-   * The host's exit read of this note (`FutoEditor.getContent`): the answer
-   * `getContent()` gives, and the LAST word on this document.
-   *
-   * A `change` carries no note identity, so the shell saves each one into
-   * whichever note it has bound when the message arrives. Once a shell has
-   * read the document it is leaving, it moves on, and a report from the old
-   * document arriving after that lands in the next note (L6c-3). So the
-   * report the debounce is still holding goes out NOW, inside the read, rather
-   * than 200 ms later into a binding it was never meant for: a shell that
-   * reads before it rebinds (both do on a vetoable exit) hears it as the
-   * outgoing note's, and the bytes are exactly the ones this returns.
-   */
-  export function captureContent(): string | undefined {
-    const text = getContent();
-    if (changeTimer !== null || reportAwaitsPriming) {
-      cancelChangeNotification();
-      if (reportAwaitsPriming) startPriming();
-      reportDocumentChange();
+  export function flush(token?: string): void {
+    const fail = (reason: FlushFailureReason): void => {
+      if (token !== undefined) onflushfailed?.(documentRef(), token, reason);
+    };
+    if (currentNoteId === null || !editor) {
+      fail('noDocument');
+      return;
     }
-    return text;
+    if (loadFailed) {
+      fail('loadFailed');
+      return;
+    }
+    cancelChangeNotification();
+    stopPriming();
+    // Settling may itself report the complete document. The token still needs its answer.
+    if (progressive?.loading && unreported) {
+      settlingForFlush = true;
+      try {
+        endPendingLoad('settle');
+      } finally {
+        settlingForFlush = false;
+      }
+    }
+    const text =
+      hostMarkdown !== null && (progressive?.loading || unchangedSinceLoad())
+        ? hostMarkdown
+        : readSerialized();
+    if (text === null) {
+      fail('serializer');
+      return;
+    }
+    postChange(text, token);
   }
 
   export function getContent(): string | undefined {
@@ -1961,8 +2029,6 @@
      * and `''` here was indistinguishable from the user clearing the note. No
      * answer is the honest one: every caller treats `undefined` as unsaveable. */
     if (live === null) return hostMarkdown ?? liveMarkdown ?? undefined;
-    // Handed out before any `change` said so: the host may persist it.
-    if (loadedDoc !== null && !unchangedSinceLoad()) editReadOutOf = loadedDoc;
     return live;
   }
 
@@ -2038,22 +2104,12 @@
    * note switch replays the PREVIOUS note's steps into this document, and the
    * save that follows writes them to THIS note's file. See `resetHistory`.
    *
-   * There is no note id here, and no per-note undo stash: the CodeMirror
+   * There is no per-note undo stash: the CodeMirror
    * editor kept one (`noteHistory.ts`, keyed by note id) and this engine does
    * not. Recorded as a Gap in docs/spec/editor.md.
    */
-  export function openNote(text: string): void {
-    documentGeneration += 1;
-    // A stale Link prompt is dismissed inside `applyExternal` below — the one
-    // place every door that replaces the document passes through (F2).
-    if (!editor) {
-      pendingContent = text;
-      hostMarkdown = text;
-      liveMarkdown = text;
-      return;
-    }
-    applyExternal(text);
-    resetHistory();
+  export function openNote(noteId: string | null, text: string): void {
+    setContent(noteId ?? '', text);
   }
 
   /**
@@ -2088,7 +2144,7 @@
     loadedDoc = pmView()?.state.doc ?? null;
     liveDoc = null;
     liveMarkdown = null;
-    onchange?.(readSerialized() ?? text);
+    postChange(readSerialized() ?? text);
   }
 
   /** The editable element itself, for shell chrome that measures against it. */

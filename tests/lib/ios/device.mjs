@@ -44,8 +44,11 @@ function claimedSimulatorOwner(name) {
   }
 }
 
-export function createIosDevice({ udid = process.env.SIM } = {}) {
-  const client = createAxeClient({ udid });
+export function createIosDevice({
+  udid = process.env.SIM,
+  textInput = process.env.IOS_TEXT_INPUT ?? 'hid',
+} = {}) {
+  const client = createAxeClient({ udid, textInput });
   const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 
   async function waitFor(description, predicate, options = {}) {
@@ -135,6 +138,7 @@ export function createIosDevice({ udid = process.env.SIM } = {}) {
   }
 
   async function focusEditorBody() {
+    await waitForLabel('BackButton');
     const title = await waitFor(
       'the native title field',
       () =>

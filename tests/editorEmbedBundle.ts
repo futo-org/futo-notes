@@ -6,7 +6,7 @@ import path from 'node:path';
 // `vite.editor.config.ts`, staged into the gitignored native asset dirs). The
 // harness drives these exact bytes over `file://`.
 export const EDITOR_BUNDLE_PATH = path.resolve(process.cwd(), 'build/native-editor/editor.html');
-export const EDITOR_URL = `file://${EDITOR_BUNDLE_PATH}`;
+export const EDITOR_URL = `file://${EDITOR_BUNDLE_PATH}?test`;
 
 // Playwright globalSetup: rebuild the bundle every run so a stale editor.html
 // can never produce a false green. Mirrors the justfile's

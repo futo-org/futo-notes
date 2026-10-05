@@ -125,7 +125,7 @@ function makeTitleDeps() {
     setEditorContent: vi.fn((text: string) => {
       titleEditorContent = text;
     }),
-    openEditorNote: vi.fn((text: string) => {
+    openEditorNote: vi.fn((_noteId: string | null, text: string) => {
       titleEditorContent = text;
     }),
     focusEditor: vi.fn(),
@@ -141,6 +141,16 @@ function makeTitleDeps() {
     navigate: vi.fn(),
   } satisfies NoteSessionDeps;
 }
+
+it('seeds and reattaches the editor with the session identity while the route lags', () => {
+  const deps = makeTitleDeps();
+  const session = createNoteSession(deps);
+  session.seedOpenNote('created-id', 'body');
+  expect(deps.openEditorNote).toHaveBeenLastCalledWith('created-id', 'body');
+  session.applyRemoteRename('renamed-id', 'renamed-id');
+  session.reattachEditor();
+  expect(deps.openEditorNote).toHaveBeenLastCalledWith('renamed-id', 'body');
+});
 
 function typeTitle(session: ReturnType<typeof createNoteSession>, fullTitle: string): void {
   for (let i = 1; i <= fullTitle.length; i++) {
@@ -362,7 +372,7 @@ describe('external unlink during an in-flight save', () => {
       setEditorContent: vi.fn((text: string) => {
         editorContent = text;
       }),
-      openEditorNote: vi.fn((text: string) => {
+      openEditorNote: vi.fn((_noteId: string | null, text: string) => {
         editorContent = text;
       }),
       focusEditor: vi.fn(),
@@ -456,7 +466,7 @@ describe('stale first-save completion after navigation', () => {
       setEditorContent: vi.fn((text: string) => {
         editorContent = text;
       }),
-      openEditorNote: vi.fn((text: string) => {
+      openEditorNote: vi.fn((_noteId: string | null, text: string) => {
         editorContent = text;
       }),
       focusEditor: vi.fn(),
@@ -660,7 +670,7 @@ describe('loadNote focus routing', () => {
     const session = createNoteSession(deps);
     await session.loadNote('missing note');
     expect(createNote).not.toHaveBeenCalled();
-    expect(deps.openEditorNote).toHaveBeenCalledWith('');
+    expect(deps.openEditorNote).toHaveBeenCalledWith('missing note', '');
     expect(session.originalId).toBe('missing note');
     expect(deps.focusEditor).not.toHaveBeenCalled();
   });
@@ -710,7 +720,7 @@ describe('loadNote focus routing', () => {
     expect(session.content).toBe('');
     expect(session.originalId).toBeNull();
     expect(session.loading).toBe(false);
-    expect(deps.openEditorNote).not.toHaveBeenCalledWith('late content');
+    expect(deps.openEditorNote).not.toHaveBeenCalledWith(expect.anything(), 'late content');
     expect(deps.navigate).toHaveBeenLastCalledWith('/');
   });
 
@@ -722,7 +732,7 @@ describe('loadNote focus routing', () => {
 
     session.cancelAndClear();
 
-    expect(deps.openEditorNote).toHaveBeenCalledWith('');
+    expect(deps.openEditorNote).toHaveBeenCalledWith(null, '');
   });
 });
 
@@ -735,7 +745,7 @@ describe('opening a note is read-only (no autosave on line-ending normalization)
       setEditorContent: vi.fn((text: string) => {
         editorDoc = text.replace(/\r\n?/g, '\n');
       }),
-      openEditorNote: vi.fn((text: string) => {
+      openEditorNote: vi.fn((_noteId: string | null, text: string) => {
         editorDoc = text.replace(/\r\n?/g, '\n');
       }),
       focusEditor: vi.fn(),
@@ -822,7 +832,7 @@ describe('an editor that lost the note never empties it on disk', () => {
       setEditorContent: vi.fn((text: string) => {
         if (editorTakesContent) editorDoc = text;
       }),
-      openEditorNote: vi.fn((text: string) => {
+      openEditorNote: vi.fn((_noteId: string | null, text: string) => {
         if (editorTakesContent) editorDoc = text;
       }),
       focusEditor: vi.fn(),
