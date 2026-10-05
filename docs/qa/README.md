@@ -25,7 +25,8 @@ divergence records it as a `> **Gap:**` note in the owning spec file, not here.
 
 ## Stories
 
-| Story | Surface |
-|---|---|
-| [hosted-sync-android.md](hosted-sync-android.md) | Log in with FUTO on Android: both wizard shapes, both pairing sides, the account card |
-| [hosted-sync-ios.md](hosted-sync-ios.md) | Log in with FUTO on iOS: both wizard shapes, both pairing sides, the account card |
+| Story                                                                  | Surface                                                                                                                     |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| [hosted-sync-android.md](hosted-sync-android.md)                       | Log in with FUTO on Android: both wizard shapes, both pairing sides, the account card                                       |
+| [hosted-sync-ios.md](hosted-sync-ios.md)                               | Log in with FUTO on iOS: both wizard shapes, both pairing sides, the account card                                           |
+| [wikilink-pop-large-edited-note.md](wikilink-pop-large-edited-note.md) | iOS system pop from a large linked note edited while it streams: the edit stays in that note, the linking note is untouched |

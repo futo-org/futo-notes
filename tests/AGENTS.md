@@ -22,7 +22,7 @@ over `file://`) and `*.test.mjs` (Vitest files, whose matcher runtime conflicts 
 ```bash
 just test-e2e          # the P0 regression spec — the smoke run
 just test-e2e-rest     # exactly what CI's test:e2e:rest job runs
-just test-e2e-full     # every dev-server spec — NOT the editor-embed one
+pnpm run test:e2e:full # every dev-server spec — NOT the editor-embed one
 pnpm run test:e2e:editor-embed    # the only way to run the embed spec
 pnpm exec playwright test tests/search.spec.ts      # one spec
 pnpm exec playwright test -g 'partial test title'   # one test
@@ -88,7 +88,8 @@ Two things this layer adds:
 - **A bug fix gets a regression test that fails before the fix.** Not a test written after the fix
   that happens to pass.
 - **Portable suites belong on the Linux box**, not on the Mac, which is needed for the work only it
-  can do: `just remote test-full`, `just remote-check`, `just remote-sync`.
+  can do: `node scripts/remote-test.mjs test-unit`, `node scripts/remote-test.mjs check`,
+  `just remote-sync`.
   `scripts/remote-test.mjs` refuses macOS-only recipes by name and propagates the remote exit
   status verbatim. What a Linux run cannot prove — the WebKitGTK/WKWebView boundary — is in
   `docs/remote-testing.md`.

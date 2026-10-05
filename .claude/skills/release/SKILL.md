@@ -126,7 +126,31 @@ Parse messages. Identify any that requested features or reported bugs addressed 
 - Improved search performance
 ```
 
-Present both versions to the user for review/editing before proceeding.
+**Store version** — what App Store and Google Play users read. This is NOT the
+same audience: cut anything that only means something to someone who has read
+the diff, and lead with what a user would notice.
+
+Present all three versions to the user for review/editing before proceeding.
+
+### 4d. Commit the store release notes
+
+The tag pipeline submits both app stores by itself, and `release-notes/<tag>.md`
+is the only source of that copy — there is no console step left to fix it in.
+The file must be on the TAGGED commit, so it goes in THIS MR; committing it
+later means re-tagging.
+
+Write `release-notes/v<version>.md` in the format `release-notes/README.md`
+documents (body = App Store, ≤4000 chars; an optional `## Short` section =
+Google Play, ≤500 chars), then verify and commit it:
+
+```bash
+just release-notes-check v<version>
+git add release-notes/v<version>.md
+git commit -m "docs(release): store release notes for v<version>"
+```
+
+`check:release-notes` fails the tag pipeline in its first minute if this is
+missing or too long, so do not skip it.
 
 ## Step 5: Copy Changelog to Clipboard
 
@@ -190,6 +214,18 @@ glab ci status
 - If any job fails, report details (`glab ci view`) and **STOP**. Ask the user how to proceed. Do NOT post to Zulip.
 - Only continue to Step 8 after confirming pipeline passed.
 
+The two store-submission jobs are the slow tail, and both are safe to retry:
+
+- `publish:android` uploads the AAB and **releases it to the Play production
+  track**. Play has no review queue for an update, so this is live once it
+  commits.
+- `publish:ios:appstore` waits for Apple to finish processing the TestFlight
+  build (5-30 minutes is normal, 60m timeout) and then submits for review.
+  A timeout here is NOT a failed release — the binary is already in TestFlight.
+  Retry the job once App Store Connect shows the build as processed; no rebuild
+  is needed. Apple's review itself then takes a day or two, and the version goes
+  live by itself on approval (`releaseType: AFTER_APPROVAL`).
+
 ## Step 8: Post to Zulip
 
 **Pre-flight check**: Confirm with the user via AskUserQuestion that they're ready to announce. Show them the Zulip changelog one more time.
@@ -215,5 +251,7 @@ Report success. If it fails, remind the user the changelog is still on their cli
 |------|-----------|--------|
 | 1 | Tests fail | **STOP**. Report failures. Do not continue. |
 | 3 | MR creation fails | Check `glab auth status`. Report error. |
+| 4d | `just release-notes-check` fails | Fix `release-notes/v<version>.md` before merging — after the tag it costs a re-tag. |
 | 7c | Pipeline fails | Show job logs. Ask user how to proceed. |
+| 7c | `publish:ios:appstore` times out | Not a failed release. Retry the job once the build finishes processing. |
 | 8 | Zulip post fails | Changelog is on clipboard — suggest manual post. |

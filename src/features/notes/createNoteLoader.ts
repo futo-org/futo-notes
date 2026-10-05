@@ -22,6 +22,8 @@ interface CreateNoteLoaderOptions {
   getEditorContent: () => string | undefined;
   getNoteBody: () => HTMLElement | undefined;
   getNotes: () => NotePreview[];
+  /** A save of the open note is armed, running or queued. */
+  isSavePending: () => boolean;
   navigate: (path: string) => void;
   patchState: (patch: NoteLoadPatch) => void;
   resetState: () => void;
@@ -56,10 +58,45 @@ export function createNoteLoader(options: CreateNoteLoaderOptions) {
     });
   }
 
+  /**
+   * Reads the incoming note while the outgoing one is still the session's.
+   *
+   * The outgoing note stays mounted, visible and focused for as long as the
+   * read takes, so a keystroke typed now is ITS edit (RC-10: a keyboard tab
+   * switch, then typing). The session keeps saving it as usual, and whenever
+   * the read let an edit in, the outgoing note is flushed again and the
+   * incoming one re-read, so the replace that follows discards nothing. The
+   * last read's resolution and that replace then run in one task: no keystroke
+   * can land between them.
+   */
+  async function readIncoming(
+    id: string,
+    version: number,
+  ): Promise<{ content: string } | { error: unknown } | null> {
+    for (;;) {
+      const outgoing = options.getEditorContent();
+      let result: { content: string } | { error: unknown };
+      try {
+        markNoteSwitch('readStarted');
+        result = { content: await readNote(id) };
+        markNoteSwitch('noteRead');
+      } catch (error) {
+        result = { error };
+      }
+      if (version !== loadVersion) return null;
+      if (!options.isSavePending() && options.getEditorContent() === outgoing) return result;
+      await options.flushSave();
+      if (version !== loadVersion) return null;
+    }
+  }
+
   async function load(id: string | null): Promise<void> {
     const version = ++loadVersion;
     await options.flushSave();
     markNoteSwitch('saveFlushed');
+    if (version !== loadVersion) return;
+
+    const read = id && id !== 'new' && hasFileSystem ? await readIncoming(id, version) : null;
     if (version !== loadVersion) return;
 
     options.patchState({ loading: true });
@@ -78,16 +115,14 @@ export function createNoteLoader(options: CreateNoteLoaderOptions) {
       finishNewNote(version, getNextUntitledTitle(options.getNotes()));
       return;
     }
-    if (!hasFileSystem) {
+    if (!hasFileSystem || !read) {
       options.patchState({ loading: false });
       return;
     }
 
     try {
-      markNoteSwitch('readStarted');
-      const loadedContent = await readNote(id);
-      markNoteSwitch('noteRead');
-      if (version !== loadVersion) return;
+      if ('error' in read) throw read.error;
+      const loadedContent = read.content;
       const slash = id.lastIndexOf('/');
       const fallbackTitle = slash === -1 ? id : id.slice(slash + 1);
       const title = getNoteById(id)?.title || fallbackTitle;

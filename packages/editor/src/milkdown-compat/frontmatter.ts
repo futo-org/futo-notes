@@ -58,11 +58,13 @@
  * missing feature, not a bug, and `remark-frontmatter` is the sanctioned way to
  * add it.
  */
-import { nodesCtx } from '@milkdown/kit/core';
+import { nodesCtx, parserCtx } from '@milkdown/kit/core';
 import { $node, $prose, $remark } from '@milkdown/kit/utils';
 import { Plugin as ProsePlugin, Selection } from '@milkdown/kit/prose/state';
+import type { EditorState } from '@milkdown/kit/prose/state';
 import type { NodeSchema } from '@milkdown/kit/transformer';
 import type { MarkdownNode, ParserState, SerializerState } from '@milkdown/kit/transformer';
+import { Fragment, Slice } from '@milkdown/kit/prose/model';
 import type { Node as ProseNode, NodeType } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import remarkFrontmatter from 'remark-frontmatter';
@@ -91,9 +93,100 @@ const FRONTMATTER_DOM_ATTR = 'data-frontmatter';
  * already round-trips as the paragraph CommonMark reads it as, so adding it
  * would take an untested construct out of a safe path.
  */
-export const remarkFrontmatterPlugin = $remark('futo-frontmatter', () => remarkFrontmatter, [
+export const remarkFrontmatterPlugin = $remark('futo-frontmatter', () => remarkClosedFrontmatter, [
   'yaml',
 ]);
+
+/** A first line that opens front matter, line ending included. */
+const OPENING_FENCE = /^\uFEFF?---[ \t]*(?:\r\n|\r|\n)/;
+
+/**
+ * Whether `markdown` has a closing fence for the front matter its first line
+ * would open: a later line that is `---` at column 0 followed by nothing but
+ * spaces or tabs. The rules are `micromark-extension-frontmatter`'s own: its
+ * preprocessor drops a leading byte-order mark, the opening line must end in a
+ * line ending (a lone `---` at the end of the file is a thematic break), and
+ * any of CR, LF or CRLF ends a line. A document whose first line is not an
+ * opening fence answers `true`, because the construct refuses it anyway.
+ */
+export function hasClosingFrontmatterFence(markdown: string): boolean {
+  const opening = OPENING_FENCE.exec(markdown);
+  if (!opening) return true;
+  return /(?:^|\r\n|\r|\n)---[ \t]*(?:\r\n|\r|\n|$)/.test(markdown.slice(opening[0].length));
+}
+
+/** A micromark state; the construct only ever hands its own states around. */
+type MicromarkState = (code: number | null) => unknown;
+
+/** A micromark flow construct, as far as the guard below needs one. */
+interface FlowConstruct {
+  tokenize: (
+    this: unknown,
+    effects: unknown,
+    ok: MicromarkState,
+    nok: MicromarkState,
+  ) => MicromarkState;
+}
+
+/** What a remark plugin's `this` is, as far as {@link remarkClosedFrontmatter} reads it. */
+interface RemarkProcessorLike {
+  data(): { micromarkExtensions?: unknown[] };
+  parser?: (document: string, file: never) => unknown;
+}
+
+/**
+ * `remark-frontmatter`, with its construct refused outright when the note has
+ * no closing fence.
+ *
+ * `micromark-extension-frontmatter@2.0.0` marks the construct `concrete`, which
+ * tells micromark's document tokenizer to check for NO container (list item,
+ * blockquote, footnote definition) at the start of any line while the construct
+ * is being attempted — right for YAML, whose `- a` lines are not a list. But
+ * the attempt only fails once it reaches the end of the file without a closing
+ * fence, and the lines are then replayed as flow content with no container ever
+ * opened: every later list, task, quote and footnote of a note that merely
+ * starts with a `---` rule came back as escaped text on its first save, nesting
+ * flattened (census idx 7383; the spec says that `---` is a thematic break).
+ *
+ * No state inside a tokenizer can see past the line it is on, so the question
+ * is asked of the whole source before micromark starts: the parser remark-parse
+ * installed is wrapped, and the construct answers `nok` at once for a document
+ * {@link hasClosingFrontmatterFence} rejects. A note WITH a closing fence
+ * parses exactly as before. Unit-tested, with the upstream canary, in
+ * `frontmatter.test.ts`.
+ */
+function remarkClosedFrontmatter(this: RemarkProcessorLike, options: 'yaml'[]): void {
+  (remarkFrontmatter as (this: unknown, settings: unknown) => void).call(this, options);
+  const extensions = this.data().micromarkExtensions;
+  const upstream = extensions?.pop() as { flow?: Record<number, FlowConstruct[]> } | undefined;
+  const parse = this.parser;
+  if (!extensions || !upstream?.flow || typeof parse !== 'function') {
+    throw new Error(
+      'milkdown-compat: remark-frontmatter no longer registers one flow extension after ' +
+        'remark-parse. Re-check remark-frontmatter against frontmatter.ts.',
+    );
+  }
+  let closed = true;
+  const flow: Record<number, FlowConstruct[]> = {};
+  for (const [code, constructs] of Object.entries(upstream.flow)) {
+    flow[Number(code)] = constructs.map((construct) => ({
+      ...construct,
+      tokenize(effects, ok, nok) {
+        return closed ? construct.tokenize.call(this, effects, ok, nok) : nok;
+      },
+    }));
+  }
+  extensions.push({ flow });
+  this.parser = (document, file) => {
+    const outer = closed;
+    closed = hasClosingFrontmatterFence(document);
+    try {
+      return parse(document, file);
+    } finally {
+      closed = outer;
+    }
+  };
+}
 
 /**
  * The front matter block itself.
@@ -130,6 +223,12 @@ export const frontmatterSchema = $node(FRONTMATTER_NODE, () => ({
   parseDOM: [
     {
       tag: `pre[${FRONTMATTER_DOM_ATTR}]`,
+      /* Above the preset code block's bare `pre` rule (default priority 50),
+       * which is registered first and so won the tie: every paste of this
+       * block — our own copy, and a plain-text paste, which Milkdown's
+       * clipboard plugin parses to DOM and back — landed as a fenced code
+       * block, and the metadata was no longer metadata on disk. */
+      priority: 60,
       preserveWhitespace: 'full' as const,
       getAttrs: (dom: HTMLElement | string) => ({
         value: typeof dom === 'string' ? '' : (dom.textContent ?? ''),
@@ -199,6 +298,91 @@ export const frontmatterClickPlugin = $prose(
     }),
 );
 
+/** How many front matter nodes `fragment` holds, at any depth. */
+function countFrontmatter(fragment: Fragment): number {
+  let count = 0;
+  fragment.descendants((node) => {
+    if (node.type.name === FRONTMATTER_NODE) count += 1;
+  });
+  return count;
+}
+
+/** `fragment` with every front matter node replaced by a code block of its body. */
+function frontmatterAsCodeBlocks(fragment: Fragment, state: EditorState): Fragment {
+  const codeBlock = state.schema.nodes.code_block;
+  const children: ProseNode[] = [];
+  fragment.forEach((node) => {
+    if (node.type.name === FRONTMATTER_NODE && codeBlock) {
+      const value = node.attrs.value as string;
+      children.push(codeBlock.create(null, value ? state.schema.text(value) : null));
+    } else {
+      children.push(node.isLeaf ? node : node.copy(frontmatterAsCodeBlocks(node.content, state)));
+    }
+  });
+  return Fragment.fromArray(children);
+}
+
+/**
+ * `slice`, as a paste over the current selection may insert it.
+ *
+ * Front matter can only sit at the top of the document, and ProseMirror's paste
+ * DROPS a node that fits nowhere, so front matter pasted anywhere else — mid
+ * note, or above a note that keeps its own — would vanish, metadata and all.
+ * The replacement is tried first: when every pasted block would land (a
+ * whole-note paste, a paste into an empty note), the slice goes in as it is;
+ * otherwise each block becomes a code block of the same text, which is how
+ * every paste of front matter landed before its parse rule outranked the code
+ * block's.
+ */
+export function withLandableFrontmatter(slice: Slice, state: EditorState): Slice {
+  const pasted = countFrontmatter(slice.content);
+  if (pasted === 0) return slice;
+  const { doc, selection } = state;
+  const first = doc.firstChild;
+  const kept = first?.type.name === FRONTMATTER_NODE && selection.from >= first.nodeSize ? 1 : 0;
+  const after = countFrontmatter(state.tr.replaceSelection(slice).doc.content);
+  if (after === kept + pasted) return slice;
+  return new Slice(frontmatterAsCodeBlocks(slice.content, state), slice.openStart, slice.openEnd);
+}
+
+/**
+ * Applies {@link withLandableFrontmatter} to both of a paste's routes.
+ *
+ * `transformPasted` covers HTML (our own copy writes `<pre data-frontmatter>`).
+ * Plain text needs `handlePaste`: Milkdown's clipboard plugin ignores the slice
+ * ProseMirror prepared and builds its own from the parsed markdown, which no
+ * `transformPasted` sees. This handler is registered ahead of that plugin (it
+ * is part of the preset) and claims only a plain-text paste whose front matter
+ * would otherwise be dropped; every other paste falls through untouched.
+ */
+export const frontmatterPastePlugin = $prose(
+  (ctx) =>
+    new ProsePlugin({
+      props: {
+        transformPasted: (slice: Slice, view: ProseView): Slice =>
+          withLandableFrontmatter(slice, view.state),
+        handlePaste: (view: ProseView, event: ClipboardEvent): boolean => {
+          const data = event.clipboardData;
+          if (!data || data.getData('text/html') || data.getData('vscode-editor-data')) {
+            return false;
+          }
+          const text = data.getData('text/plain');
+          if (!OPENING_FENCE.test(text)) return false;
+          if (view.state.selection.$from.parent.type.spec.code) return false;
+          const parsed = ctx.get(parserCtx)(text);
+          if (!parsed || typeof parsed === 'string') return false;
+          const slice = new Slice(parsed.content, 0, 0);
+          const landable = withLandableFrontmatter(slice, view.state);
+          if (landable === slice) return false;
+          view.dispatch(
+            view.state.tr.replaceSelection(landable).scrollIntoView().setMeta('uiEvent', 'paste'),
+          );
+          return true;
+        },
+      },
+    }),
+);
+
 const DOC_NODE = 'doc';
 
 /** The content expression `@milkdown/preset-commonmark@7.22.1`'s doc ships. */
@@ -249,5 +433,6 @@ export const frontmatterPlugins = [
   ...remarkFrontmatterPlugin,
   frontmatterSchema,
   frontmatterClickPlugin,
+  frontmatterPastePlugin,
   frontmatterDocSchema,
 ];

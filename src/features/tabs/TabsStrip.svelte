@@ -3,6 +3,7 @@
   import type { NotePreview } from '$shared/types/note';
   import { idLeaf } from '$lib/platform/pathSafety';
   import { localizedText } from '$shared/localization';
+  import { setAppWindowTitle } from '$lib/platform';
   import './tabsStrip.css';
 
   interface Props {
@@ -25,6 +26,11 @@
     if (title) return title.split('/').pop() || title;
     return idLeaf(id);
   }
+
+  $effect(() => {
+    const activeTab = tabsStore.activeTab;
+    setAppWindowTitle(activeTab.noteId === null ? undefined : titleFor(activeTab));
+  });
 
   // HTML5 drag reorder: the tabs move live under the cursor (moveTab on
   // midpoint crossing), so the reordering strip itself is the drop feedback.

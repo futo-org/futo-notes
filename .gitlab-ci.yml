@@ -229,7 +229,9 @@ collect-secrets-from-op:
         export PATH="$CARGO_HOME/bin:$PATH"
       fi
     - |
-      if rustup toolchain list | grep -q '^1.89.0'; then
+      # No `grep -q`: under pipefail its early exit can SIGPIPE `rustup` (which
+      # writes a line at a time) and read as "toolchain missing" (RC-65 shape).
+      if rustup toolchain list | grep '^1.89.0' >/dev/null; then
         echo "Rust 1.89.0 already present in the image"
       else
         rustup toolchain install 1.89.0 --profile minimal --component rustfmt --component clippy
@@ -514,6 +516,7 @@ test:
   cache:
     - !reference [.cache-pnpm, cache]
   script:
+    - sh "$CI_PROJECT_DIR/ci/install-just.sh"
     - pnpm install --frozen-lockfile --prefer-offline
     - pnpm exec tsx scripts/gen-toolbar-spec.ts --check
     - pnpm exec tsx "$CI_PROJECT_DIR/scripts/gen-title-spec.ts" --check
@@ -533,6 +536,37 @@ test:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Store release notes must exist, and fit, BEFORE anything is built.
+#
+# The tag pipeline now submits both stores by itself (publish:ios:appstore,
+# publish:android), so release-notes/v<X.Y.Z>.md is the ONLY source of the copy
+# users read — there is no console step left to fix it in. The notes have to be
+# on the tagged commit, so the only remedy for a missing file is a re-tag:
+# failing here, in the first minute, is what keeps that from costing a full
+# build first. Non-stable tags publish to no store and pass trivially, so
+# release:gate can list this job unconditionally (M14).
+check:release-notes:
+  stage: test
+  needs: []
+  script:
+    - node scripts/release-notes.mjs --tag "$CI_COMMIT_TAG" --check
+  rules:
+    - if: $CI_COMMIT_TAG
+
+# The same validation on the MR that WRITES the notes, where a fix is an edit
+# rather than a re-tag. Checks every committed file, not just the new one.
+check:release-notes:mr:
+  stage: test
+  needs: []
+  script:
+    - node scripts/release-notes.mjs --all
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - release-notes/**/*
+        - scripts/release-notes.mjs
+        - scripts/lib/release-notes.mjs
 
 # ── Dependency vulnerability scan ──
 # NON-BLOCKING BY DESIGN — do not "fix" this into a hard gate (docs/architecture-gates.md).
@@ -574,7 +608,7 @@ test:audit:
         rm -f "$CARGO_HOME/bin/cargo-audit"
         echo "AUDIT-DID-NOT-RUN: cargo-audit could not be installed; the Rust half was not scanned."
       fi
-    # The pinned image has no `just`, so the script is the shared entry point with `just audit`.
+    # node scripts/audit.mjs is the shared entry point for both CI and a local run.
     - node "$CI_PROJECT_DIR/scripts/audit.mjs"
   rules:
     - if: $CI_COMMIT_TAG
@@ -613,6 +647,61 @@ test:localization-audit:
         - package.json
         - pnpm-lock.yaml
         - .gitlab-ci.yml
+
+# Code-quality ratchet (big-code-analysis): a new or WORSENED complexity
+# offender fails `bca check` (exit 2) against the committed .bca-baseline.toml;
+# existing debt is invisible until its baseline row is deleted, so the MR Code
+# Quality widget (gl-code-quality-report.json) annotates only what a diff
+# introduced. scripts/bca-quality.mjs owns the pin and the commands; `just
+# quality` runs the same script locally.
+#
+# Every main pipeline runs it, whatever changed: the MR widget diffs an MR's
+# report against its base commit's, and a main commit with no report (a
+# docs-only push) made every MR list the whole backlog as new. The gate itself
+# is scoped to the MR's changed files (scripts/bca-quality.mjs gateArgs).
+#
+# Non-blocking by design, deliberately absent from release:gate.needs (a
+# documented M14 exception, docs/architecture-gates.md): phase 1 of the
+# adoption plan, so thresholds and the artifact/cache behave can be observed
+# on real pipelines first. Promotion is two same-commit edits: drop
+# allow_failure and enter release:gate.needs. Exit 1 + BCA-DID-NOT-RUN means
+# the tool never ran (M11); exit 2 means findings.
+test:quality-report:
+  stage: test
+  needs: []
+  allow_failure: true
+  cache:
+    # Keyed on version AND sha256: rotating the published checksum without a
+    # version bump must not serve a stale binary that then skips the script's
+    # own sha256 verification (which only runs on a fresh download).
+    key: bca-bin-2.2.0-870a0c43
+    paths:
+      - .bca-cache/
+    when: always
+  script:
+    - node "$CI_PROJECT_DIR/scripts/bca-quality.mjs"
+  artifacts:
+    when: always
+    paths:
+      - bca-report.md
+      - gl-code-quality-report.json
+    # An MR's base report must outlive the MR, not just a week of it.
+    expire_in: 30 days
+    reports:
+      codequality: gl-code-quality-report.json
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - src/**/*
+        - packages/**/*
+        - crates/**/*
+        - apps/**/*
+        - scripts/bca-quality.mjs
+        - bca.toml
+        - .bca-baseline.toml
+        - .gitlab-ci.yml
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 test:e2e:smoke:
   stage: test
@@ -716,6 +805,22 @@ test:e2e:editor-embed:
         - packages/editor/**/*
         - editor.html
         - vite.editor.config.ts
+        # The rest of editor.html's import graph (vite build of
+        # vite.editor.config.ts, listed via rollup getModuleIds; RC-21 / L1-005).
+        # An MR touching only these still changes the shipped bundle, and used
+        # to fall through to manual+allow_failure here (M11). Directory globs,
+        # not the per-file graph, so a new import in these dirs stays covered.
+        # Kept in sync with test:ios-native's `changes:` (premerge-test-parity
+        # test asserts both carry these).
+        - src/lib/platform/**/*
+        - src/lib/localNoteStore.ts
+        - src/lib/rules.ts
+        - src/shared/**/*
+        - src/features/sync/**/*
+        - src/features/notes/**/*
+        - src/features/folders/**/*
+        - languages/**/*
+        - svelte.config.js
         # One glob, not a per-file list: the list missed the T10/T11 additions
         # (webview-floor, milkdown-interactive), silently dropping this job to
         # manual+allow_failure on MRs touching only them (M11). The playwright
@@ -827,6 +932,8 @@ test:rust:macos:
   before_script:
     - env | grep -E '^(CI_)' > "$CI_PROJECT_DIR/.cienv"
   script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
     - cirrus run testRustMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   rules:
     - if: $CI_COMMIT_TAG
@@ -966,6 +1073,7 @@ test:cross-platform-sync:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-sync, cache]
   script:
+    - sh "$CI_PROJECT_DIR/ci/install-just.sh"
     - pnpm install --frozen-lockfile
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
@@ -1114,6 +1222,7 @@ test:cross-platform-sync:android:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-sync, cache]
   script:
+    - sh "$CI_PROJECT_DIR/ci/install-just.sh"
     - pnpm install --frozen-lockfile
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
@@ -1173,6 +1282,8 @@ test:desktop-smoke:macos:
   before_script:
     - env | grep -E '^(CI_)' > "$CI_PROJECT_DIR/.cienv"
   script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
     - cirrus run testDesktopSmokeMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   artifacts:
     when: always
@@ -1440,6 +1551,8 @@ build:desktop-internal:macos:
   before_script:
     - env | grep -E '^(CI_)' > "$CI_PROJECT_DIR/.cienv"
   script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
     - cirrus run buildFutoNotesMacOSInternal --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   artifacts:
     paths:
@@ -1536,6 +1649,8 @@ build:macos:
     # through to the Cirrus macOS task, which builds the signed .app.tar.gz.
     - env | grep -E '^(CI_|MACOS_|ASC_|TAURI_)' > "$CI_PROJECT_DIR/.cienv"
   script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
     - cirrus run buildFutoNotesMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   artifacts:
     paths:
@@ -1684,7 +1799,11 @@ build:android-native:
     - |
       for UNIT_TASK in testDirectDebugUnitTest testPlayDebugUnitTest; do
         RESULTS_DIR="$CI_PROJECT_DIR/apps/android/app/build/test-results/$UNIT_TASK"
-        if ! find "$RESULTS_DIR" -name 'TEST-*.xml' -type f 2>/dev/null | grep -q .; then
+        # Pipe-free on purpose (RC-65): GitLab runs with pipefail, and
+        # `find | grep -q .` lets grep exit on the first path, SIGPIPE-ing find
+        # (141) once it has more than one buffer of results — the guard then
+        # fired falsely (MR !359, 59 files). -quit stops find itself.
+        if [ -z "$(find "$RESULTS_DIR" -name 'TEST-*.xml' -type f -print -quit 2>/dev/null)" ]; then
           echo "ERROR: no JVM unit-test result XML under $RESULTS_DIR — $UNIT_TASK did not execute" >&2
           exit 1
         fi
@@ -1778,6 +1897,8 @@ build:ios-native:
     # password and "MAC verification failed during PKCS12 import".
     - env | grep -E '^(CI_|IOS_)' > "$CI_PROJECT_DIR/.cienv"
   script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
     - cirrus run buildFutoNotesIOSNative --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   artifacts:
     paths:
@@ -1811,6 +1932,8 @@ test:ios-native:
   before_script:
     - env | grep -E '^(CI_|IOS_)' > "$CI_PROJECT_DIR/.cienv"
   script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
     - cirrus run testFutoNotesIOSNative --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   artifacts:
     when: always
@@ -1830,6 +1953,25 @@ test:ios-native:
         - scripts/generate-native-language-resources.mjs
         - tests/conformance/**/*
         - packages/editor/src/bridge.ts
+        # .cirrus.yml builds editor.html (vite.editor.config.ts) and the Swift
+        # bridge tests run against it, so every input of that bundle counts —
+        # not just bridge.ts (RC-21 / L1-005). Same set as
+        # test:e2e:editor-embed's MR `changes:` (parity-tested).
+        - src/editor-embed/**/*
+        - src/features/editor/**/*
+        - src/styles/**/*
+        - src/features/images/**/*
+        - packages/editor/**/*
+        - editor.html
+        - vite.editor.config.ts
+        - src/lib/platform/**/*
+        - src/lib/localNoteStore.ts
+        - src/lib/rules.ts
+        - src/shared/**/*
+        - src/features/sync/**/*
+        - src/features/notes/**/*
+        - src/features/folders/**/*
+        - svelte.config.js
         - scripts/build-rust-ios.sh
         - .cirrus.yml
         - .gitlab-ci.yml
@@ -2470,6 +2612,7 @@ release:gate:
     # nearly shipped v1.4.0 twice: once past a failed test:e2e:rest, once
     # past a failed test:cross-platform-sync).
     - job: test
+    - job: check:release-notes
     - job: test:e2e:smoke
     - job: test:e2e:rest
     - job: test:e2e:editor-embed
@@ -2557,6 +2700,8 @@ publish:ios:
   before_script:
     - env | grep -E '^(CI_|IOS_|ASC_)' > "$CI_PROJECT_DIR/.cienv"
   script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
     - cirrus run publishFutoNotesIOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   rules:
     # STABLE tags only — same guard as `release:`. A bare $CI_COMMIT_TAG rule
@@ -2587,6 +2732,8 @@ publish:ios:main:
   before_script:
     - env | grep -E '^(CI_|IOS_|ASC_)' > "$CI_PROJECT_DIR/.cienv"
   script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
     - cirrus run publishFutoNotesIOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -2602,8 +2749,10 @@ publish:ios:main:
 #     "Release to testing tracks" access (the API cannot create the app listing)
 #   - KEYSTORE_BASE64/KEYSTORE_PASSWORD/KEY_ALIAS set so build:android-native
 #     produced a SIGNED AAB (Play rejects unsigned uploads)
-# To go live to production later, change --track internal → --track production
-# (and optionally --status inProgress --rollout 0.1 for a staged rollout).
+# Publishes to the PRODUCTION track by default. $PLAY_TRACK and $PLAY_ROLLOUT
+# override that from the GitLab UI without editing this file: set PLAY_TRACK to
+# internal/alpha/beta to hold a release back, or PLAY_ROLLOUT to a fraction
+# (0.1) for a staged rollout instead of all users at once.
 publish:android:
   stage: release
   interruptible: false
@@ -2622,6 +2771,21 @@ publish:android:
     # PLAY flavor only — the direct flavor never reaches Google Play.
     - AAB=$(find apps/android/app/build/outputs/bundle/playRelease -name "*.aab" -type f | head -1)
     - test -n "$AAB" || { echo "No play-flavor release AAB found from build:android-native" >&2; exit 1; }
+    # The release notes users read on the Play listing. check:release-notes
+    # already proved this file exists and fits, so a failure here is a bug in
+    # the gate, not a missing file.
+    - NOTES=$(mktemp)
+    - node scripts/release-notes.mjs --tag "$CI_COMMIT_TAG" --target play > "$NOTES"
+    - PLAY_TRACK="${PLAY_TRACK:-production}"
+    # A staged rollout needs BOTH the inProgress status and the fraction; Play
+    # rejects either alone, so they are set together or not at all.
+    - |
+      if [ -n "${PLAY_ROLLOUT:-}" ]; then
+        ROLLOUT_ARGS="--status inProgress --rollout $PLAY_ROLLOUT"
+        echo "Staged rollout: $PLAY_ROLLOUT of the $PLAY_TRACK track"
+      else
+        ROLLOUT_ARGS="--status completed"
+      fi
     # The CI android image ships python3 without the venv module / ensurepip;
     # install python3-venv (+pip) so scripts/venv-playstore.sh can build the
     # google-api-python-client venv.
@@ -2631,7 +2795,9 @@ publish:android:
     - . .venv-playstore/bin/activate
     - |
       set +e
-      python scripts/publish_playstore.py --sa /tmp/play-sa.json --package com.futo.notes --aab "$AAB" --track internal --status completed > playstore-publish.log 2>&1
+      python scripts/publish_playstore.py --sa /tmp/play-sa.json --package com.futo.notes \
+        --aab "$AAB" --track "$PLAY_TRACK" $ROLLOUT_ARGS \
+        --release-notes-file "$NOTES" > playstore-publish.log 2>&1
       PUBLISH_STATUS=$?
       set -e
       cat playstore-publish.log
@@ -2647,7 +2813,63 @@ publish:android:
       fi
   rules:
     # STABLE tags only — same guard as `release:`. A bare $CI_COMMIT_TAG rule
-    # would ship an -rc or throwaway tag straight to the Play internal track.
+    # would ship an -rc or throwaway tag straight to Play production.
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
+
+# Submit the uploaded build to App Store review — the App Store Connect
+# clicking that used to follow every publish:ios upload: create the version,
+# attach the build, paste "What's New", press Submit.
+#
+# Runs on LINUX, not the macOS runner: only the IPA upload needs Xcode
+# (publish:ios → xcrun altool), and everything after it is the App Store
+# Connect REST API. Keeping it here leaves the single macscript runner free and
+# lets the job poll for half an hour without holding it.
+#
+# needs publish:ios because the build must be UPLOADED before it can be found;
+# Apple then processes it for 5-30 minutes, which is what this job waits out.
+# Timing out is not a failure of the release — the binary is already in
+# TestFlight — so the job says so and is safe to retry without a rebuild.
+#
+# Requires, beyond what publish:ios already needs:
+#   - the ASC API key to have App Manager access (TestFlight upload alone is a
+#     weaker role and cannot create an App Store version)
+#   - the listing itself complete in App Store Connect: screenshots, description,
+#     age rating, pricing, App Privacy. This job deliberately does not touch
+#     them (docs/release/store-submission.md).
+publish:ios:appstore:
+  stage: release
+  interruptible: false
+  needs:
+    - job: release:gate
+    - job: publish:ios
+      artifacts: false
+  # Apple processes one build at a time per app and the review submission is
+  # per-app; two of these at once would race over the same version row.
+  resource_group: ios-appstore
+  # Build processing dominates: 45m of polling plus slack.
+  timeout: 60m
+  script:
+    # The same ASC API key publish:ios uses, from GitLab secure files. If this
+    # installer ever fails on this image, the fallback is a masked CI variable
+    # ASC_PRIVATE_KEY holding the .p8 contents — submit-appstore.mjs reads it
+    # when --key-file is omitted.
+    - curl --silent "https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/download-secure-files/-/raw/main/installer" | bash
+    # `|| true`: under set -e a non-matching glob would kill the job on the
+    # assignment itself, so the explanatory message below never printed.
+    - KEY=$(ls .secure_files/AuthKey*.p8 2>/dev/null | head -1 || true)
+    - test -n "$KEY" || { echo "No AuthKey*.p8 in secure files — the ASC API key is missing." >&2; exit 1; }
+    # build:ios-native stamps MARKETING_VERSION from the tag and
+    # CURRENT_PROJECT_VERSION from the pipeline IID. Both pipelines are the
+    # same one, so CI_PIPELINE_IID here names exactly the build just uploaded.
+    - node scripts/submit-appstore.mjs
+        --bundle-id com.futo.notes
+        --version "${CI_COMMIT_TAG#v}"
+        --build-number "$CI_PIPELINE_IID"
+        --notes-file "release-notes/${CI_COMMIT_TAG}.md"
+        --key-file "$KEY"
+  rules:
+    # STABLE tags only — same guard as `release:`. A bare $CI_COMMIT_TAG rule
+    # would submit an -rc or throwaway tag to Apple for review.
     - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
 
 release:

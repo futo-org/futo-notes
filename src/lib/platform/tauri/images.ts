@@ -1,4 +1,4 @@
-import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { readFile, writeFile } from '@tauri-apps/plugin-fs';
 import { IMAGE_EXTENSIONS } from '@futo-notes/editor';
 
@@ -8,7 +8,10 @@ import {
   validateImageExtension,
 } from '$shared/media/imageFiles';
 
+import { ensureSafeRelativePath } from '../pathSafety';
 import type { PickedImage, PlatformFS } from '../types';
+
+import { invoke } from './invoke';
 
 type TauriImages = Pick<
   PlatformFS,
@@ -58,11 +61,11 @@ function extensionOf(path: string): string {
   return dot > 0 ? basename.slice(dot + 1) : 'jpg';
 }
 
-function validateImageFilename(filename: string): void {
-  if (!isImageFilename(filename)) throw new Error('not an image filename');
-  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
-    throw new Error('invalid filename');
-  }
+/** Images live wherever the note that shows them does, so the path may name a
+ * folder (`trip/photo.png`) — it just may not leave the vault. */
+function validateImagePath(path: string): void {
+  if (!isImageFilename(path)) throw new Error('not an image filename');
+  ensureSafeRelativePath(path);
 }
 
 export function createTauriImages({ getNotesRoot }: TauriImageDependencies): TauriImages {
@@ -83,7 +86,7 @@ export function createTauriImages({ getNotesRoot }: TauriImageDependencies): Tau
     saveImageBytes,
 
     async getImageUrl(filename) {
-      validateImageFilename(filename);
+      validateImagePath(filename);
       const path = `${await getNotesRoot()}/${filename}`;
       const assetUrl = convertFileSrc(path);
       if (await canUseAssetProtocol(assetUrl)) return assetUrl;

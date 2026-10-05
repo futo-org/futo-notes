@@ -2,6 +2,7 @@
   import { isTauri } from '$lib/platform';
   import { setNotesDir, vaultDisplayPath, vaultStatus } from '$lib/platform/tauri';
   import { applyThemePreference } from '$features/system/theme';
+  import { flushPendingSaveBeforeExit } from '$shared/lifecycle/flushBeforeExit';
   import { getAppVersion } from '$features/system/crashHandler';
   import { updateChecker } from '$features/system/updateChecker.svelte';
   import { selfUpdateSupported, updaterSupported } from '$features/system/updater';
@@ -196,6 +197,8 @@
   // root once at startup, so only a full process restart rebinds it to the new
   // vault. A webview reload would leave the watcher on the old root. See sync.md.
   async function restartForNewVault(): Promise<void> {
+    // A relaunch is not a window close, so it drains the pending save itself (RC-87).
+    await flushPendingSaveBeforeExit();
     const { relaunch } = await import('@tauri-apps/plugin-process');
     await relaunch();
   }

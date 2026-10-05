@@ -8,16 +8,22 @@ import {
   stat,
   writeTextFile,
 } from '@tauri-apps/plugin-fs';
+import { toWellFormedText } from '@futo-notes/editor';
 
-import { writeAtomicText, type AtomicWriteFS } from '../atomicWrite';
+import { sweepStaleAtomicTemps, writeAtomicText, type AtomicWriteFS } from '../atomicWrite';
 import { isNotFound } from '../fsErrors';
-import { safeAppdataPath } from '../pathSafety';
+import { ensureSafeRelativePath, safeAppdataPath } from '../pathSafety';
 import type { DirFileEntry, PlatformFS } from '../types';
 
 type TauriStorage = Pick<
   PlatformFS,
-  'readAppData' | 'writeAppData' | 'deleteAppData' | 'listAppData' | 'listDirFiles' | 'deleteFile'
+  'readAppData' | 'writeAppData' | 'deleteAppData' | 'listAppData' | 'listVaultFiles' | 'deleteFile'
 >;
+
+export type TauriStorageWithSweep = TauriStorage & {
+  /** Removes stale `writeAtomicText` temps left in the vault by an interrupted write. */
+  sweepStaleTemps(): Promise<void>;
+};
 
 interface TauriStorageDependencies {
   getNotesRoot: () => Promise<string>;
@@ -49,16 +55,29 @@ function dateToMs(date: Date | null | undefined): number {
   return date?.getTime() ?? Date.now();
 }
 
-function validateRootFilename(filename: string): void {
-  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
-    throw new Error('invalid filename');
-  }
-}
+// The directories `writeAppData` targets: the vault root (.app-config.json,
+// .app-state.json) and the crash-log folder.
+const APP_DATA_DIRS = ['', '.crashlogs'];
 
-export function createTauriStorage({ getNotesRoot }: TauriStorageDependencies): TauriStorage {
+export function createTauriStorage({
+  getNotesRoot,
+}: TauriStorageDependencies): TauriStorageWithSweep {
   return {
+    async sweepStaleTemps() {
+      try {
+        const root = await getNotesRoot();
+        for (const dir of APP_DATA_DIRS) {
+          await sweepStaleAtomicTemps(dir ? `${root}/${dir}` : root, { readDir, remove });
+        }
+      } catch {
+        /* Best-effort: an unreachable vault is reported elsewhere. */
+      }
+    },
+
     async readAppData(path) {
-      const fullPath = safeAppdataPath(await getNotesRoot(), path);
+      // `exists` and `readTextFile` are raw plugin calls: a lone surrogate in the
+      // path would leave them pending for ever on WebKitGTK (RC-95).
+      const fullPath = toWellFormedText(safeAppdataPath(await getNotesRoot(), path));
       try {
         if (!(await withTimeout(`exists(${path})`, exists(fullPath)))) return null;
         return await withTimeout(`readAppData(${path})`, readTextFile(fullPath));
@@ -92,29 +111,47 @@ export function createTauriStorage({ getNotesRoot }: TauriStorageDependencies): 
       }
     },
 
-    async listDirFiles() {
+    async listVaultFiles(include) {
       const root = await getNotesRoot();
-      const files = (await readDir(root)).filter((entry) => entry.isFile && entry.name);
-      const entries = await Promise.all(
-        files.map(async (entry): Promise<DirFileEntry | null> => {
-          try {
-            const metadata = await stat(`${root}/${entry.name}`);
-            return {
-              name: entry.name!,
-              size: metadata.size,
-              mtime: dateToMs(metadata.mtime),
-            };
-          } catch {
-            return null;
-          }
-        }),
-      );
-      return entries.filter((entry): entry is DirFileEntry => entry !== null);
+
+      // Folders are part of the vault: a note can sit in one, and so can the
+      // image it shows. Listing only the top level is why the desktop images
+      // tab showed one picture for a vault that had several (reported
+      // 2026-09-16). Dot-directories hold app data, not user files, and a
+      // symlinked directory could point anywhere or back at the vault itself.
+      async function walk(prefix: string): Promise<DirFileEntry[]> {
+        const directory = prefix ? `${root}/${prefix}` : root;
+        let entries: Awaited<ReturnType<typeof readDir>>;
+        try {
+          entries = await readDir(directory);
+        } catch {
+          return [];
+        }
+        const collected = await Promise.all(
+          entries.map(async (entry): Promise<DirFileEntry[]> => {
+            if (!entry.name || entry.name.startsWith('.')) return [];
+            const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+            if (entry.isDirectory) return entry.isSymlink ? [] : walk(path);
+            if (!entry.isFile || !include(path)) return [];
+            try {
+              const metadata = await stat(`${root}/${path}`);
+              return [{ name: path, size: metadata.size, mtime: dateToMs(metadata.mtime) }];
+            } catch {
+              // Skip what cannot be read (a broken symlink, a race with a
+              // delete) — matches the Rust scan's `filter_map(Result::ok)`.
+              return [];
+            }
+          }),
+        );
+        return collected.flat();
+      }
+
+      return walk('');
     },
 
-    async deleteFile(filename) {
-      validateRootFilename(filename);
-      await remove(`${await getNotesRoot()}/${filename}`);
+    async deleteFile(path) {
+      ensureSafeRelativePath(path);
+      await remove(`${await getNotesRoot()}/${path}`);
     },
   };
 }

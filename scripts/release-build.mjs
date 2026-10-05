@@ -51,6 +51,13 @@ import { verifyArtifactFile } from './verify-updater-signature.mjs';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TAURI_DIR = join(ROOT, 'apps', 'tauri');
 const SRC_TAURI = join(TAURI_DIR, 'src-tauri');
+// The localdev updater server's port. Deliberately NOT slot-derived like the
+// sync/dev/MCP ports: the app under test reads its endpoint from
+// tauri.updater-localdev.conf.json, which pins http://localhost:8787, so the
+// server and that baked-in endpoint must agree. Two worktrees on one machine
+// therefore collide here — serveDir explains that instead of serving the other
+// worktree's manifest (pc_ce0dda06ddf6). Moving this onto scripts/lib/slot.mjs
+// means generating that overlay too, not just changing the constant.
 const DEFAULT_PORT = 8787;
 
 const log = (m) => process.stdout.write(`[release-build] ${m}\n`);
@@ -347,6 +354,17 @@ function serveDir(dir, port) {
     });
     log(`200 ${urlPath}`);
     createReadStream(file).pipe(res);
+  });
+  server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      log(`ERROR: port ${port} is already in use.`);
+      log('  Another worktree is probably serving its localdev update on this');
+      log('  port. The localdev app config pins this endpoint, so it cannot be');
+      log('  slot-derived — stop that server (Ctrl-C) and re-run.');
+    } else {
+      log(`ERROR: cannot serve ${dir} on port ${port}: ${error.message}`);
+    }
+    process.exit(1);
   });
   server.listen(port, 'localhost', () =>
     log(`serving ${dir} at http://localhost:${port} (manifest: /latest.json)`),

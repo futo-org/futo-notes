@@ -62,5 +62,6 @@ the full matrix (new note, existing note, toolbar, scroll-during-IME). Drive the
 **iOS 26 nav-bar toolbar items are invisible to idb's shallow a11y tree but visible to AXe**. When
 automation reports "nothing happened", suspect the tool before the app and follow the AXe playbook.
 
-`just sim-logs` streams os_log, but the app logs mostly via `print()`, which os_log does not
-capture — for stdout use `xcrun simctl launch --console-pty booted com.futo.notes.dev`.
+`xcrun simctl spawn "$SIM" log stream --level=debug --predicate 'process == "FutoNotesNative"'`
+streams os_log, but the app logs mostly via `print()`, which os_log does not capture — for stdout
+use `xcrun simctl launch --console-pty booted com.futo.notes.dev`.

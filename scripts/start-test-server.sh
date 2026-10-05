@@ -6,7 +6,8 @@
 # (SQLite database + blobs) lives in a directory you can delete.
 #
 # Defaults:
-#   AUTH_MODE=password, password "testing123", port 3100.
+#   AUTH_MODE=password, password "testing123", port 3100 + worktree slot
+#   (scripts/lib/slot.mjs), so two worktrees can run this side by side.
 #
 # Overrides:
 #   FUTO_NOTES_TEST_PASSWORD     server password
@@ -19,12 +20,14 @@
 #   ./scripts/start-test-server.sh            # foreground
 #
 # The client connects with:
-#   await window.__testSync.connect('http://127.0.0.1:3100', 'testing123')
+#   await window.__testSync.connect('http://127.0.0.1:<port printed below>', 'testing123')
 set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 PASSWORD="${FUTO_NOTES_TEST_PASSWORD:-testing123}"
-PORT="${FUTO_NOTES_SERVER_PORT:-3100}"
+# Slot-derived like every other per-worktree port (see scripts/lib/slot.mjs),
+# so two worktrees do not collide on one hardcoded 3100 (pc_ce0dda06ddf6).
+PORT="${FUTO_NOTES_SERVER_PORT:-$(node "$REPO_ROOT/scripts/lib/slot.mjs" sync)}"
 DATA_DIR="${FUTO_NOTES_SERVER_DATA:-$REPO_ROOT/.tauri-data/test-sync-server}"
 
 # One owner for "where is the sync server" — see scripts/lib/sync-server.mjs.

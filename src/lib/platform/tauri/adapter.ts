@@ -1,7 +1,8 @@
 import { getVersion } from '@tauri-apps/api/app';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './invoke';
 import { listen } from '@tauri-apps/api/event';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { toWellFormedText } from '@futo-notes/editor';
 
 import type { FileChangeEvent, PlatformFS } from '../types';
 
@@ -64,7 +65,8 @@ export function createTauriAdapter() {
     ...images,
 
     getAppVersion: getVersion,
-    writeClipboardText: writeText,
+    // Raw plugin call, not `invoke`: made well-formed here (RC-95, WebKitGTK).
+    writeClipboardText: (text) => writeText(toWellFormedText(text)),
   };
 
   // A watcher that never started is indistinguishable from a vault nobody is
@@ -82,5 +84,5 @@ export function createTauriAdapter() {
     return subscribe('fs:change', callback);
   }
 
-  return { fs, invalidateNotesRoot, onFileChange };
+  return { fs, invalidateNotesRoot, onFileChange, sweepStaleTemps: storage.sweepStaleTemps };
 }

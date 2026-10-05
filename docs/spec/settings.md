@@ -14,8 +14,14 @@
   provides a row that opens the app's system Settings instead of an in-app
   dropdown. Both native rows carry a globe icon. The selection is local to the
   device and never syncs.
-
-
+- On Linux desktop the current theme and later theme changes come from
+  `org.freedesktop.portal.Settings`; startup uses `ReadOne` with a `Read`
+  fallback, so Auto starts in the desktop's current appearance rather than
+  waiting for a later signal. → desktop_settings.rs, theme.ts
+- The app never follows the desktop accent color: `--color-primary` and the
+  tokens derived from it stay FUTO brand orange on every platform, so only the
+  light/dark choice is shared with the desktop. → theme.css,
+  AppearanceSettingsSection.svelte
 - The app version is shown.
 - **License**: the License card (Unlicensed / Licensed / Expired, Buy, Enter
   license key, Remove) follows [license.md](license.md). On the native shells it
@@ -171,14 +177,20 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   old root). →
   `src/lib/platform/tauri/appConfig.ts`, `notesRoot.ts`, SettingsScreen.svelte,
   `apps/tauri/src-tauri/src/vault_location.rs`
-- **Storage in a sandbox:** **Change directory** works in sandboxed (Flatpak)
-  builds too. The folder picker routes through the FileChooser portal, so the chosen
+- **Storage chooser:** **Change directory** uses the XDG FileChooser portal on
+  Linux, so GNOME and Plasma show their own desktop chooser; macOS and Windows
+  keep their native dialog backends. It works in sandboxed (Flatpak) builds too,
+  where the chosen
   directory arrives as an XDG document-portal path, which is stored **verbatim**. The
   app registers nothing: the portal already grants a picked directory
   `PERSISTENT | REUSE_EXISTING` with `read,write,grant-permissions`, so the grant
   outlives the process and re-picking the same folder returns the same document id —
   no accumulation, and a stable vault path. →
   `apps/tauri/src-tauri/src/portal_vault.rs`, `vault_location::write_override_file`
+- Confirmations are app modals rather than native message boxes, because the
+  Linux portal backend has no message-box portal and optional `zenity`/`kdialog`
+  helpers cannot be assumed installed. → confirmDialog.ts,
+  ConfirmDialogHost.svelte
 - Nothing may re-register a picked vault to "make it persistent": the document portal
   refuses a descriptor pointing into its own FUSE mount
   (`org.freedesktop.portal.Error.InvalidArgument: Invalid fd passed`), so the attempt
