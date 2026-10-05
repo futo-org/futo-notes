@@ -338,6 +338,7 @@ test('the caret in an empty task item sits on the line, not above it', async ({ 
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
   await page.keyboard.press('Control+End');
   await page.keyboard.press('Enter');
+  await expect(page.locator('.ProseMirror li')).toHaveCount(2);
   await flushFrames(page);
   const geometry = await page.evaluate(() => {
     const item = document.querySelectorAll('.ProseMirror li')[1];
