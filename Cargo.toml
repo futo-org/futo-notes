@@ -11,6 +11,17 @@ members = [
   "apps/tauri/src-tauri",
 ]
 
+# Shipped code logs through `futo_notes_core::log_to_stderr!`: `println!`/`eprintln!`
+# panic once stdout/stderr is gone (the launching terminal closed: EPIPE/EIO) and the
+# desktop release profile aborts on panic. clippy.toml still lets tests print. Every
+# member opts in with `[lints] workspace = true`, which forbids per-crate `[lints]`
+# tables, so the Tauri crate's `too_many_lines` lives here too.
+[workspace.lints.clippy]
+print_stdout = "deny"
+print_stderr = "deny"
+dbg_macro = "deny"
+too_many_lines = "warn"
+
 # Tighten release builds. `lto = "thin"` keeps link times tolerable while
 # still letting LLVM see across crate boundaries; `codegen-units = 1` lets
 # the optimizer reason about the whole crate; `panic = "abort"` removes

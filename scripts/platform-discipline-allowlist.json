@@ -6,7 +6,6 @@
     "src/features/sync/autoSync.ts",
     "src/features/sync/syncManager.svelte.ts",
     "src/features/sync/syncServiceE2ee.ts",
-    "src/features/system/theme.ts",
     "src/features/system/updater.ts"
   ]
 }

@@ -72,10 +72,7 @@ export function buildFolderTree(
     }
   }
 
-  const seenNoteIds = new Set<string>();
   for (const note of notes) {
-    if (seenNoteIds.has(note.id)) continue;
-    seenNoteIds.add(note.id);
     const components = note.id.split('/');
     let parent: FolderNode | null = null;
 

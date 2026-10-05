@@ -52,16 +52,23 @@ pub const DEV_BUNDLE_ID_SUFFIX: &str = ".dev";
 const PRODUCTION_PAY2_BASE_URL: &str = "https://pay2.futo.org";
 const STAGING_PAY2_BASE_URL: &str = "https://staging-pay2.futo.org";
 
-/// PLACEHOLDER — **not** the real FUTO Notes production key.
+/// The real FUTO Notes **production** org public key (SHA-256 of this DER
+/// SubjectPublicKeyInfo is `2034d795…aa68`, pinned by
+/// `the_production_key_is_the_real_production_org_key` below).
 ///
-/// There is no production FUTOpay org for this product yet (product decision
-/// 2026-09-10: staging first), so this stays a throwaway 2048-bit RSA public
-/// key generated 2026-09-09 whose private half was never written down. A
-/// release build therefore fails closed: nothing verifies, every user is
-/// Unlicensed, and no license can be minted for it by anyone — including us.
-/// Dropping the real key in is a one-line change to this constant, the same
-/// one [`STAGING_PUBLIC_KEY_BASE64`] has already had.
-pub const PRODUCTION_PUBLIC_KEY_BASE64: &str = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3tL0DeuTWvGfzvamMzbJf6BbdjhiWMh8Dvi7ufKpSP8RRnhgRbNWUsrCCBdnF2mQk1Yw9vtUH4OemiU+Gik2io0KKK+4aj0qiP5h9cdEpCVDzFQPeagBftAu7RM7LF1/M+I5BjnugdOoi91R7l8HFmIIoYNTqPEV09VGBayEoTuMfmQJtcZumn8fmzZUtwJFdMzvubuCBIsSeq2U5s+Dz+umZHNhZ+0174P0KBjTCmOEZyyz88BTFysTeXOY/ZTgA4GtLGSntbCeEhtD7bRBrGL8n0UH8eISjlK/lEDvIzWRDRNyiIvfjTvnMtyj2A9ngJGP+dyRB8AS4DetI46eqQIDAQAB";
+/// Read from the live endpoint
+/// `GET https://pay2.futo.org/checkout/polar/futo-notes/activation/public-key`
+/// on 2026-09-22 — the authority, for the same reason as the staging key below:
+/// FUTOpay generates an org's pair at org creation and never replaces it. On
+/// that date the 1Password `prod-polar-orgs-futo-notes-pubk` / `-privk` pair
+/// matched the endpoint byte for byte, unlike staging's. Its private half
+/// lives only in the FUTOpay production deployment and 1Password — never in
+/// this repo, and no production-signed activation is ever committed: a v1
+/// activation is a working license for anyone who holds it.
+///
+/// Until 2026-09-22 this was a fail-closed placeholder whose private half was
+/// never written down, because production had no `futo-notes` org.
+pub const PRODUCTION_PUBLIC_KEY_BASE64: &str = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAme5jXh33xk7PYAysQF3ZeV49wjOdsQktbGdTaLUQFJWMNYnZsL//0Z9vxSZ9GiuljUMJG7kUmcmNyxcIf8WWs2CbPfz/VEf32n65zXAr76kxVx730Bcr3CWBTiK8bO5E8XXGOLpkHWl0KMNOYe6u4IFX29CKQbnOBrbBcc661y1uaiRHqaocf4O0W8sLX2qLHD/UcRyJZk6Ink3wGAcZmP176YT6K9hvMIsrCSQHTv8g5+zq0rFN3qqUKWYC80N2u/GDXbmybP/UsVReAped5pnoYmy0Af/pIAzE8735DU4Y1P/jM0I3AYAtzdQsST/ycjZRLQloaEN5ED2gFse87QIDAQAB";
 
 /// The real FUTO Notes **staging** org public key (SHA-256 of this DER
 /// SubjectPublicKeyInfo is `fca4b6a4…29a23`, pinned by
@@ -92,6 +99,28 @@ pub const PRODUCTION_PUBLIC_KEY_BASE64: &str = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
 /// `node scripts/gen-license-fixture.mjs --staging`.
 pub const STAGING_PUBLIC_KEY_BASE64: &str = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1ojmpH9aYrzxzMqzkxHhTzxT4ZKmZTCy6kamwvDRGWKD6mRhbrAfD0d4HoiKPMDif5U2s4kKmJcbBk5PkqhbIdT7gIo/EUwCQpcd0waE8aRE0jS9+U+AWn0GaKQb/86/lrVBpSWHspSeJURxMP0PDDw86NUOPhJmgAxg93P+N/zIUoZ6flJFarIDM57FVgraS9OyH6zu9V3uDpKwKysDnTYZoLHevF9vCuQffoGYOh0s95XPyzQxzcLqkD1lrfAZcp0yInzPnmLAtJ/l6/CFkcb11tWcUZ7zBOUa6GdpBfccbF2PF79gjr4lvaQMZH4ObrAqycwqrfcLyrQYOQaDwQIDAQAB";
 
+/// The `FUTO_LICENSE_ENV` build flag: `staging` or `production` (`prod`),
+/// read at **compile time**, so it has to be set on the build that compiles
+/// this crate (the FFI build for iOS/Android, the Tauri build for desktop):
+///
+/// ```sh
+/// FUTO_LICENSE_ENV=production just ios-native   # a .dev app on the prod org
+/// FUTO_LICENSE_ENV=staging just tauri-build     # a release bundle on staging
+/// ```
+///
+/// When set it beats the bundle id, which is the whole point: it lets any
+/// build — a `.dev` app with its separate data root, or a release bundle —
+/// run a real purchase against either org. Unset (every CI and store build),
+/// the bundle-id split below decides, exactly as before. Any other value
+/// fails the build rather than silently picking one.
+pub const LICENSE_ENV_OVERRIDE: Option<Environment> = match option_env!("FUTO_LICENSE_ENV") {
+    None => None,
+    Some(value) => match Environment::parse_flag(value) {
+        Some(environment) => Some(environment),
+        None => panic!("FUTO_LICENSE_ENV must be `staging` or `production`"),
+    },
+};
+
 /// Which FUTOpay org this build talks to and verifies against.
 ///
 /// A dev build can never verify or fetch a production license, and vice versa
@@ -106,21 +135,37 @@ pub enum Environment {
 }
 
 impl Environment {
-    /// The environment a build's bundle/package id puts it in.
+    /// The environment this build talks to: the [`LICENSE_ENV_OVERRIDE`] flag
+    /// when the build set one, otherwise whatever its bundle/package id says.
     ///
-    /// The `.dev` suffix IS the dev/prod split on all three platforms (M3), so
-    /// this is the one selector every shell can use. It deliberately replaced a
-    /// `cfg!(debug_assertions)` version: the native shells build the FFI with
-    /// `release-ffi` for their dev apps too, so a compile-profile test would
-    /// have quietly put a `.dev` phone build on the production key.
+    /// The `.dev` suffix IS the default dev/prod split on all three platforms
+    /// (M3), so this is the one selector every shell can use. It deliberately
+    /// replaced a `cfg!(debug_assertions)` version: the native shells build
+    /// the FFI with `release-ffi` for their dev apps too, so a compile-profile
+    /// test would have quietly put a `.dev` phone build on the production key.
     ///
     /// An id this crate does not recognise is Production — the fail-safe
     /// direction, since the production key cannot verify a staging license.
     pub fn for_bundle_id(bundle_id: &str) -> Self {
+        LICENSE_ENV_OVERRIDE.unwrap_or_else(|| Self::from_bundle_suffix(bundle_id))
+    }
+
+    /// The bundle-id split alone, without the build flag — what
+    /// [`Environment::for_bundle_id`] falls back to, and what the conformance
+    /// fixture's bundle-id mapping pins.
+    pub fn from_bundle_suffix(bundle_id: &str) -> Self {
         if bundle_id.trim().ends_with(DEV_BUNDLE_ID_SUFFIX) {
             Environment::Staging
         } else {
             Environment::Production
+        }
+    }
+
+    const fn parse_flag(value: &str) -> Option<Self> {
+        match value.as_bytes() {
+            b"staging" => Some(Environment::Staging),
+            b"production" | b"prod" => Some(Environment::Production),
+            _ => None,
         }
     }
 
@@ -172,8 +217,22 @@ impl Platform {
     }
 }
 
+/// Whether this distribution may offer checkout in the current storefront.
+/// An unknown iOS storefront cannot offer an external purchase link.
+pub fn license_link_out(
+    platform: Platform,
+    storefront_country: Option<&str>,
+    build_allows: bool,
+) -> bool {
+    match platform {
+        Platform::Ios => build_allows && storefront_country == Some("USA"),
+        Platform::Android => build_allows,
+        Platform::Desktop => true,
+    }
+}
+
 /// The Buy / Renew destination: this environment's **generated checkout**,
-/// opened in the **system browser** and never in an in-app WebView.
+/// opened in the browser surface permitted by the distribution.
 ///
 /// There is no `pay.futo.tech/futo-notes` landing page and there will not be
 /// one (product decision 2026-09-10). The one-segment product URL exists only
@@ -249,6 +308,18 @@ fn percent_encode_path_segment(segment: &str) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn checkout_availability_follows_storefront_and_distribution() {
+        for country in [None, Some("FRA"), Some("JPN"), Some(""), Some("usa")] {
+            assert!(!license_link_out(Platform::Ios, country, true));
+        }
+        assert!(license_link_out(Platform::Ios, Some("USA"), true));
+        assert!(!license_link_out(Platform::Ios, Some("USA"), false));
+        assert!(license_link_out(Platform::Android, None, true));
+        assert!(!license_link_out(Platform::Android, Some("USA"), false));
+        assert!(license_link_out(Platform::Desktop, None, false));
+    }
+
     /// CRITICAL. The staging constant is the real FUTO Notes staging org key,
     /// and this is its identity: SHA-256 over the DER SubjectPublicKeyInfo.
     ///
@@ -278,25 +349,70 @@ mod tests {
         );
     }
 
+    /// CRITICAL. The production constant is the real FUTO Notes production org
+    /// key — the one every shipped release build verifies against. Unlike the
+    /// staging key, nothing in the repo is signed by it (no production-signed
+    /// activation is ever committed), so without this pin a wrong key would
+    /// pass every test and show every paying user Unlicensed.
+    #[test]
+    fn the_production_key_is_the_real_production_org_key() {
+        use base64::Engine as _;
+
+        let der = base64::engine::general_purpose::STANDARD
+            .decode(PRODUCTION_PUBLIC_KEY_BASE64)
+            .expect("the production constant is standard base64");
+        let digest = ring::digest::digest(&ring::digest::SHA256, &der);
+        let fingerprint: String = digest.as_ref().iter().map(|b| format!("{b:02x}")).collect();
+
+        assert_eq!(
+            fingerprint, "2034d795d4c4201da026791017ef12be4b8834372af8bf46cf064371b7f6aa68",
+            "PRODUCTION_PUBLIC_KEY_BASE64 is not the FUTO Notes production org key \
+             served by pay2.futo.org/checkout/polar/futo-notes/activation/public-key"
+        );
+    }
+
     #[test]
     fn a_dev_bundle_id_never_lands_on_the_production_key() {
         assert_eq!(
-            Environment::for_bundle_id("com.futo.notes.dev"),
+            Environment::from_bundle_suffix("com.futo.notes.dev"),
             Environment::Staging
         );
         assert_eq!(
-            Environment::for_bundle_id("com.futo.notes"),
+            Environment::from_bundle_suffix("com.futo.notes"),
             Environment::Production
         );
         // Not a suffix match on the word, and not fooled by stray whitespace.
         assert_eq!(
-            Environment::for_bundle_id("com.futo.notes.development"),
+            Environment::from_bundle_suffix("com.futo.notes.development"),
             Environment::Production
         );
         assert_eq!(
-            Environment::for_bundle_id(" com.futo.notes.dev "),
+            Environment::from_bundle_suffix(" com.futo.notes.dev "),
             Environment::Staging
         );
+    }
+
+    #[test]
+    fn the_build_flag_beats_the_bundle_id_and_only_when_set() {
+        let expected =
+            |bundle_id| LICENSE_ENV_OVERRIDE.unwrap_or(Environment::from_bundle_suffix(bundle_id));
+        for bundle_id in ["com.futo.notes", "com.futo.notes.dev"] {
+            assert_eq!(Environment::for_bundle_id(bundle_id), expected(bundle_id));
+        }
+        assert_eq!(
+            Environment::parse_flag("staging"),
+            Some(Environment::Staging)
+        );
+        assert_eq!(
+            Environment::parse_flag("production"),
+            Some(Environment::Production)
+        );
+        assert_eq!(
+            Environment::parse_flag("prod"),
+            Some(Environment::Production)
+        );
+        assert_eq!(Environment::parse_flag("Production"), None);
+        assert_eq!(Environment::parse_flag(""), None);
     }
 
     /// The literal URL, written out rather than assembled from the constants

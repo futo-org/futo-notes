@@ -34,3 +34,6 @@ time = { version = "0.3", features = ["formatting"] }
 [dev-dependencies.futo-notes-core]
 path = "../futo-notes-core"
 features = ["test-support"]
+
+[lints]
+workspace = true
