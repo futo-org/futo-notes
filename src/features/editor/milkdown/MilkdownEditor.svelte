@@ -2867,7 +2867,6 @@
     pointer-events: none;
     transition:
       opacity 0.12s ease,
-      color 0.12s ease,
       background-color 0.12s ease;
     /* iOS/WKWebView native HTML5 drag on a plain draggable div: touch-action
      * stops the browser eating the long-press-drag gesture as a scroll, and
