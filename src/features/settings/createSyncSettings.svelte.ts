@@ -1,5 +1,6 @@
 import { getAppState, getCachedPreferences } from '$shared/state/appState';
 import { requestSync, wasSyncErrorReported } from '$features/sync/autoSync';
+import { isCertificateRejection } from '$features/sync/syncErrorClassification';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
 import {
   localizedText,
@@ -25,6 +26,12 @@ function syncProgressMessage(progress: SyncProgress): LocalizedMessage {
     return { path: 'sync.progress.uploading', arguments: argumentsMap };
   }
   return { path: 'sync.progress.downloading', arguments: argumentsMap };
+}
+
+export function failureMessage(error: unknown, fallbackPath: string): LocalizedMessage {
+  return isCertificateRejection(error)
+    ? { path: 'sync.errors.certificateNotTrusted' }
+    : { path: fallbackPath };
 }
 
 export function createSyncSettings() {
@@ -67,14 +74,15 @@ export function createSyncSettings() {
       status = null;
     } catch (error) {
       console.error('[e2ee] connect/sync failed:', error);
-      connectError = connected
-        ? { path: 'sync.errors.syncFailed' }
-        : { path: 'sync.errors.connectFailed' };
+      connectError = failureMessage(
+        error,
+        connected ? 'sync.errors.syncFailed' : 'sync.errors.connectFailed',
+      );
       status = !connected
-        ? { path: 'sync.errors.connectFailed' }
+        ? failureMessage(error, 'sync.errors.connectFailed')
         : wasSyncErrorReported(error)
           ? null
-          : { path: 'sync.errors.syncFailed' };
+          : failureMessage(error, 'sync.errors.syncFailed');
     } finally {
       busy = false;
     }
@@ -128,7 +136,7 @@ export function createSyncSettings() {
       status = null;
     } catch (error) {
       console.error('[e2ee] manual sync failed');
-      status = wasSyncErrorReported(error) ? null : { path: 'sync.errors.syncFailed' };
+      status = wasSyncErrorReported(error) ? null : failureMessage(error, 'sync.errors.syncFailed');
     } finally {
       busy = false;
     }

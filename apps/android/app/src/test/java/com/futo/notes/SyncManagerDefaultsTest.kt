@@ -45,6 +45,14 @@ class SyncManagerDefaultsTest {
     }
 
     @Test
+    fun onlyHttpsServersNeedThePlatformTrustBinding() {
+        assertTrue(SyncManager.needsPlatformTrust("https://notes.example.org"))
+        assertTrue(SyncManager.needsPlatformTrust("  HTTPS://notes.example.org  "))
+        assertFalse(SyncManager.needsPlatformTrust("http://192.168.1.10:3000"))
+        assertFalse(SyncManager.needsPlatformTrust("http://10.0.2.2:3005"))
+    }
+
+    @Test
     fun terminalLiveSessionErrorsTriggerHealing() {
         assertTrue(SyncManager.shouldHealLiveError("auth: HTTP 401: invalid session"))
         assertTrue(SyncManager.shouldHealLiveError("collection-gone: HTTP 404"))

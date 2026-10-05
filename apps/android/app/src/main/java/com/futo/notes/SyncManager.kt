@@ -162,6 +162,11 @@ class SyncManager(
             }
             return
         }
+        if (needsPlatformTrust(url) && !PlatformTrust.isBound) {
+            statusMessage = LocalizedMessage("sync.status.error")
+            errorMessage = LocalizedMessage("sync.errors.secureConnectionUnavailable")
+            return
+        }
         busy = true
         lastErrorDiagnostic = null
         errorMessage = null
@@ -188,7 +193,7 @@ class SyncManager(
             connected = client != null
             lastErrorDiagnostic = describe(e)
             statusMessage = LocalizedMessage("sync.status.error")
-            errorMessage = LocalizedMessage("sync.errors.connectFailed")
+            errorMessage = failureMessage(e, "sync.errors.connectFailed")
         } finally {
             busy = false
         }
@@ -362,7 +367,7 @@ class SyncManager(
                 } else {
                     lastErrorDiagnostic = describe(e)
                     statusMessage = LocalizedMessage("sync.status.error")
-                    errorMessage = LocalizedMessage("sync.errors.syncFailed")
+                    errorMessage = failureMessage(e, "sync.errors.syncFailed")
                 }
             } finally {
                 busy = false
@@ -372,6 +377,18 @@ class SyncManager(
 
     private fun isRecoverableSessionError(e: Exception): Boolean =
         e is SyncException.Auth || e is SyncException.CollectionGone
+
+    internal fun failureMessage(e: Exception, fallbackPath: String): LocalizedMessage =
+        if (isCertificateRejection(describe(e))) {
+            LocalizedMessage("sync.errors.certificateNotTrusted")
+        } else {
+            LocalizedMessage(fallbackPath)
+        }
+
+    /** rustls prefixes every certificate rejection this way, whatever the
+     *  verifier's reason [sync.md]. */
+    private fun isCertificateRejection(message: String): Boolean =
+        message.contains("invalid peer certificate")
 
     /** Re-login with the stored password to recover an expired session or
      *  collapsed vault without deleting state. Guarded against re-entry;
@@ -424,7 +441,15 @@ class SyncManager(
             healSession(message)
         } else {
             lastErrorDiagnostic = message
-            errorMessage = LocalizedMessage("sync.errors.liveUnavailable")
+            // A certificate rejection is reported as such whichever kind it
+            // arrives as (connect, stream or cycle) [sync.md].
+            errorMessage = LocalizedMessage(
+                if (isCertificateRejection(message)) {
+                    "sync.errors.certificateNotTrusted"
+                } else {
+                    "sync.errors.liveUnavailable"
+                },
+            )
         }
     }
 
@@ -613,12 +638,12 @@ class SyncManager(
         errorMessage = null
     }
 
-    private fun describe(e: Exception): String = when (e) {
-        is SyncException.Http -> "HTTP: ${e.message}"
-        is SyncException.Crypto -> "Crypto: ${e.message}"
-        is SyncException.Io -> "IO: ${e.message}"
-        is SyncException.Auth -> "Auth: ${e.message}"
-        is SyncException.CollectionGone -> e.message ?: "collection-gone"
+    internal fun describe(e: Exception): String = when (e) {
+        is SyncException.Http -> "HTTP: ${e.v1}"
+        is SyncException.Crypto -> "Crypto: ${e.v1}"
+        is SyncException.Io -> "IO: ${e.v1}"
+        is SyncException.Auth -> "Auth: ${e.v1}"
+        is SyncException.CollectionGone -> e.v1
         is SyncException.NotConnected -> "Not connected"
         else -> e.message ?: e.toString()
     }
@@ -741,6 +766,9 @@ class SyncManager(
             }
             return null
         }
+
+        internal fun needsPlatformTrust(url: String): Boolean =
+            url.trim().lowercase().startsWith("https://")
 
         /** Live-loop auth errors and collection-gone are terminal for the old
          *  bearer session but recoverable with the securely stored password. */

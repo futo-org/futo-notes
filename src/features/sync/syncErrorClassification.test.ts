@@ -59,6 +59,16 @@ describe('classifySyncError — real server/auth errors stay actionable', () => 
   });
 });
 
+describe('classifySyncError — a certificate rejection is not a transport blip', () => {
+  it('is actionable and keeps its own dedupe key so it can be named', () => {
+    const rejection =
+      'connect: error sending request for url (https://notes.example.com/api/sync/events): ' +
+      'client error (Connect): invalid peer certificate: UnknownIssuer';
+    expect(classifySyncError(rejection)).toBe('actionable');
+    expect(syncErrorDedupeKey(rejection)).toBe(rejection);
+  });
+});
+
 describe('syncErrorDedupeKey', () => {
   it('collapses every transport variant onto one key so a flapping outage toasts once', () => {
     expect(syncErrorDedupeKey(new TypeError('Failed to fetch'))).toBe('transport');

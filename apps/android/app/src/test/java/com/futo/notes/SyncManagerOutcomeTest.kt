@@ -3,6 +3,7 @@ package com.futo.notes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import uniffi.futo_notes_ffi.SyncException
 import uniffi.futo_notes_ffi.SyncFailure
 import uniffi.futo_notes_ffi.WriteRefusal
 
@@ -123,5 +124,68 @@ class SyncManagerOutcomeTest {
             "sync.errors.writePausedQuota",
             SyncManager.writeRefusalExplanation(WriteRefusal.QUOTA_EXCEEDED),
         )
+    }
+
+    @Test
+    fun describeReportsTheErrorPayloadRatherThanUniffisRendering() {
+        val mgr = SyncManager()
+        val payload = "error sending request: invalid peer certificate: UnknownIssuer"
+        assertEquals("HTTP: $payload", mgr.describe(SyncException.Http(payload)))
+        assertEquals("Crypto: $payload", mgr.describe(SyncException.Crypto(payload)))
+        assertEquals("IO: $payload", mgr.describe(SyncException.Io(payload)))
+        assertEquals("Auth: $payload", mgr.describe(SyncException.Auth(payload)))
+        assertEquals("collection-gone", mgr.describe(SyncException.CollectionGone("collection-gone")))
+    }
+
+    @Test
+    fun anUntrustedCertificateGetsItsOwnMessageRatherThanTheGenericOne() {
+        val mgr = SyncManager()
+        val untrusted = SyncException.Http(
+            "error sending request: invalid peer certificate: UnknownIssuer",
+        )
+
+        assertEquals(
+            "sync.errors.certificateNotTrusted",
+            mgr.failureMessage(untrusted, "sync.errors.connectFailed").path,
+        )
+        val platformRejected = SyncException.Http(
+            "error sending request: invalid peer certificate: " +
+                "Other(OtherError(\"private ca certificate is not trusted: -67843\"))",
+        )
+        assertEquals(
+            "sync.errors.certificateNotTrusted",
+            mgr.failureMessage(platformRejected, "sync.errors.connectFailed").path,
+        )
+        assertEquals(
+            "sync.errors.connectFailed",
+            mgr.failureMessage(SyncException.Http("connection refused"), "sync.errors.connectFailed").path,
+        )
+    }
+
+    /**
+     * The live loop reports through [SyncManager.handleLiveError], not
+     * `failureMessage`: the Rust runner prefixes an event-stream connect failure
+     * with `connect:`, and a background cycle's failure arrives unprefixed.
+     * Either way a certificate rejection is reported as such [sync.md].
+     */
+    @Test
+    fun aLiveLoopCertificateRejectionGetsTheCertificateMessage() {
+        val connect = SyncManager()
+        connect.handleLiveError(
+            "connect: error sending request for url (https://notes.example.com/api/sync/events): " +
+                "client error (Connect): invalid peer certificate: UnknownIssuer",
+        )
+        assertEquals("sync.errors.certificateNotTrusted", connect.errorMessage?.path)
+
+        val cycle = SyncManager()
+        cycle.handleLiveError(
+            "error sending request for url (https://notes.example.com/api/sync/changes): " +
+                "client error (Connect): invalid peer certificate: UnknownIssuer",
+        )
+        assertEquals("sync.errors.certificateNotTrusted", cycle.errorMessage?.path)
+
+        val refused = SyncManager()
+        refused.handleLiveError("connect: error sending request: connection refused")
+        assertEquals("sync.errors.liveUnavailable", refused.errorMessage?.path)
     }
 }
