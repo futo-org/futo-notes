@@ -24,13 +24,26 @@ desktop CPU cannot fail the way the ticket cares about — and it is deliberatel
 out of `check`/CI, which has no device.
 
 For app-only Kotlin iteration, `./gradlew :app:installDirectDebug` from here is
-enough **in a warm checkout**. In a FRESH worktree it is not, and both failures look
+enough **in a warm checkout**. In a FRESH worktree it is not, and the failures look
 unrelated to what you changed:
 
 - `SDK location not found` — a new worktree has no `local.properties` and a
   plain shell has no `ANDROID_HOME`. Either export `ANDROID_HOME`
   (`~/Library/Android/sdk` on this Mac) or run `just android-native` once, which
-  resolves the SDK for you.
+  resolves the SDK and writes `local.properties` for you.
+- `IllegalArgumentException: 25.0.2` — the calling shell's `java` (often Android
+  Studio's bundled JBR after a Studio update) is JDK 25+, which Gradle 8.14.3's
+  Kotlin DSL cannot parse; the whole error is the version string. Gradle's own
+  daemon JVM is pinned to JDK 21 by the gradle-daemon-jvm.properties file under
+  apps/android/gradle/ — that pin is the fix, and Gradle auto-provisions/auto-detects JDK 21 for the
+  daemon from it regardless of the calling shell's `java`. **Never fix this by
+  exporting `JAVA_HOME`** — that fights the pin and leaks a stale JDK 21 into
+  every other tool the shell later runs. Every Gradle entry point (`just
+  *-android*` recipes, `apps/android/run.sh`) checks up front via
+  `scripts/android-env.sh`, which only warns if no JDK 21 is discoverable
+  anywhere on the machine (so the pin has nothing to provision from) — it never
+  exports or alters `JAVA_HOME` itself — BEFORE the 10-25 minute Rust build, not
+  after it.
 - a Kotlin compile error on a missing UniFFI symbol — the generated Kotlin
   bindings are gitignored, so they simply do not exist yet. Run
   `just build-rust-android` first.
@@ -38,6 +51,14 @@ unrelated to what you changed:
 Running `just android-native` once in a new worktree gets you past both; after
 that, direct gradle invocations work. (Cost two dead-end builds before it was
 written down.)
+
+The JDK is **not** one of these traps any more, and must not become one again.
+`apps/android/gradle/gradle-daemon-jvm.properties` pins the Gradle daemon to 21,
+so gradle runs correctly whatever `java` your PATH resolves to — do not "fix" a
+gradle failure by exporting `JAVA_HOME` in a script, a recipe, or your shell.
+Gradle 8.14.3 cannot run on 25 and says so only as the bare text `25.0.2`; if you
+see that, the pin was bypassed. `scripts/gradle-jdk-pin.test.mjs` fails if an
+entry point re-adds a JAVA_HOME export.
 
 After changing `futo-notes-ffi` or a crate it re-exports, rebuild the bindings
 first (`just build-rust-android`) or you are testing yesterday's Rust (M9) — the

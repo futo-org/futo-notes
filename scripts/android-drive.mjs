@@ -165,7 +165,10 @@ async function run(command, args, device) {
 const [command, ...args] = process.argv.slice(2);
 if (!command) {
   console.log(USAGE);
-  process.exit(2);
+  // Bare `just android-drive` is documented (justfile + apps/android/
+  // AGENTS.md) as "print the commands" — a help request, not an error, so it
+  // must exit 0 or scripted usage checks read it as broken (pc_6f29ac57ecb9).
+  process.exit(0);
 }
 
 const device = createAndroidDevice();

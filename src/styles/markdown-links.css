@@ -15,22 +15,10 @@
   text-decoration-color: rgba(var(--primary-rgb), 0.5);
 }
 
-/* Wikilinks — dashed underline to distinguish from regular links */
-.cm-md-link.cm-md-wikilink {
-  text-decoration-style: dashed;
-}
-
-/* Broken/ambiguous wikilinks — muted, so a dead link is identifiable before
-   tapping, not only by its no-op (editor.md "Wikilinks"). The class comes
-   from wikilink/display.ts when resolveWikilink returns null. */
-.cm-md-link.cm-md-wikilink.cm-md-wikilink-broken {
-  color: var(--color-muted);
-  text-decoration-color: currentColor;
-}
-
-.cm-md-link.cm-md-wikilink.cm-md-wikilink-broken:hover {
-  color: var(--color-muted);
-}
+/* Wikilink chips (dashed underline, muted when broken) are NOT here: this file
+   is imported under `@layer components`, which loses to the editor's unlayered
+   `.futo-milkdown .ProseMirror a` rule, so rules for them here never applied
+   (RC-58). They live in MilkdownEditor.svelte's <style>. */
 
 /* Wikilink autocomplete popup.
    Fixed-positioned on the viewport by autocomplete.ts, so it stays put whichever

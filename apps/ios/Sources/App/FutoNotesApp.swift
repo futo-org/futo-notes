@@ -112,12 +112,15 @@ struct FutoNotesApp: App {
                 // `.background`, so flushing here gives the write the most time to
                 // land. Idempotent: a no-op when the draft is clean. Live sync is
                 // left alone (a brief inactive — banner / control center — must
-                // not tear down the SSE stream).
-                store.flushPendingEditor()
+                // not tear down the SSE stream). The open editor is read first
+                // (RC-92), inside a background task: a note still streaming its
+                // tail reports no `change`, so its typed edit reaches the
+                // register only by asking the editor.
+                store.flushPendingEditorLive()
             case .background:
                 // Belt-and-suspenders flush (a phase can jump straight to
                 // background), then pause the SSE stream.
-                store.flushPendingEditor()
+                store.flushPendingEditorLive()
                 sync.pauseLive()
             @unknown default:
                 break

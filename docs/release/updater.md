@@ -21,7 +21,7 @@ only to the final signer after patching:
   written to `--out` for CI to upload.
 - **localdev** — `tauri.updater-localdev.conf.json` (localhost endpoint +
   committed throwaway pubkey + insecure transport), signed by
-  `keys/localdev-updater.key`. `just updater-localdev` runs the full local E2E
+  `keys/localdev-updater.key`. `node scripts/release-build.mjs e2e` runs the full local E2E
   (build OLD+NEW signed AppImages → serve → run prior app → verify swap).
 
 The localdev↔prod trust boundary (why the localdev key is safe to commit) is in
@@ -105,7 +105,7 @@ The CI release path is wired + adversarially reviewed but never run through a
 real tag pipeline. The signature verification above proves key↔sig↔artifact
 correctness before publish, but the actual download→swap→relaunch on a client is
 still first proven only by the **second** stable release (an existing install
-auto-updating to it). `scripts/release-build.mjs` (`just updater-localdev`) is
+auto-updating to it). `scripts/release-build.mjs e2e` is
 the local mirror that IS validated.
 
 ## Tested by
@@ -122,4 +122,4 @@ verifies; prod pubkey / tampered bytes / corrupted key → rejected), and
 tag/MR signing-environment checks. All run in
 `test:unit:minimal` (so CI gates them). The real download→verify→swap→relaunch
 is a per-release manual smoke per OS (an OS-level op, not unit-testable) —
-`just updater-localdev` is the closest automated rehearsal.
+`node scripts/release-build.mjs e2e` is the closest automated rehearsal.

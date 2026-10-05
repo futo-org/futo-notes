@@ -62,6 +62,14 @@ pub struct NoteMutation {
     pub folders: Vec<String>,
     pub final_id: Option<String>,
     pub final_folder: Option<String>,
+    /// Final ids of the notes whose body this workflow's backlink rewrite
+    /// changed on disk (the renamed note's own self-link included).
+    pub relinked: Vec<String>,
+    /// The final note's body as the relink left it, present only when
+    /// `final_id` is in `relinked`. An open editor holds the pre-relink text:
+    /// it adopts this as its baseline so its next save is not read as a peer's
+    /// edit and parked as a conflict copy.
+    pub final_body: Option<String>,
     pub warnings: Vec<String>,
 }
 
@@ -73,6 +81,8 @@ impl From<store::MutationResult> for NoteMutation {
             folders: mutation.folders,
             final_id: mutation.final_id,
             final_folder: mutation.final_folder,
+            relinked: mutation.relinked,
+            final_body: None,
             warnings: mutation.warnings,
         }
     }

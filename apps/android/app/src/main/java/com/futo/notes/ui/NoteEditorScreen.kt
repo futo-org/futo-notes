@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
@@ -63,14 +62,12 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -79,6 +76,7 @@ import androidx.core.view.WindowInsetsCompat
 import com.futo.notes.ImagePicker
 import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NotesStore
+import com.futo.notes.rebasedOnRelink
 import com.futo.notes.PendingDraft
 import com.futo.notes.clipboardImageUri
 import com.futo.notes.confirmedSavedContent
@@ -298,6 +296,86 @@ fun NoteEditorScreen(
         }
     }
 
+    /**
+     * An editor `change` — or a read of the live editor that found text no
+     * `change` had delivered yet ([OpenNoteEffects.captureEditor]). Both are the
+     * editor telling this screen what the note now holds, so both take this one
+     * path.
+     */
+    fun receiveEditorChange(newContent: String) {
+        // Data-loss guard: ignore editor change events until the off-main
+        // initial read has landed (`loaded`). The WebView mounts with "" and can
+        // emit a setContent echo before the real body loads; saving that empty
+        // echo would clobber the note on disk. Once loaded, all edits flow
+        // through.
+        if (
+            session.acceptsEditorChange(
+                loaded = loaded,
+                storageMigrationStarted = store.isVaultMigrationStarted,
+            )
+        ) {
+            // Just update the buffer state. The unsaved-draft register follows
+            // from the snapshotFlow derivation (content != savedContent) — no
+            // manual publish; the register goes clean the instant the debounced
+            // save sets savedContent (PKT-12 R5). F8 jetsam guard.
+            content = newContent
+            editVersion += 1
+            scheduleBodySave(newContent)
+        }
+    }
+
+    /**
+     * A rename or move whose relink rewrote THIS note's own links (a self-link)
+     * left a file that differs from the draft the engine saved first. The file is
+     * the baseline; the editor shows it unless the user has typed since (see
+     * [rebasedOnRelink]). Without this the next save reads the relink as a peer's
+     * edit and parks a conflict copy (RC-71).
+     */
+    suspend fun settleRelink(flushed: String, relinkedBody: String?) {
+        val body = relinkedBody ?: return
+        if (body == flushed) return
+        savedContent = body
+        // What the page held when it was read: the text the adopt below is
+        // conditional on. null = the page holds no document of ours to compare.
+        var readText: String? = null
+        var ownsPage = false
+        val attachment = editorAttachment
+        if (content == flushed && attachment != null) {
+            // A keystroke the editor has not reported yet must not be replaced:
+            // read the document itself, without blurring it.
+            when (val outcome = host.readContentAndWait(attachment, shellCopy = content)) {
+                is EditorCaptureOutcome.Captured -> {
+                    if (outcome.text != content) receiveEditorChange(outcome.text)
+                    readText = outcome.text
+                    ownsPage = true
+                }
+                EditorCaptureOutcome.NoLiveDocument -> ownsPage = true
+                // Cannot tell: keep the draft (rebased onto the file above).
+                EditorCaptureOutcome.NotOurs, EditorCaptureOutcome.TimedOut -> return
+            }
+        }
+        val rebase = rebasedOnRelink(flushed, content, body)
+        savedContent = rebase.savedContent
+        if (!rebase.adoptIntoEditor) return
+        if (attachment != null && ownsPage && readText != null) {
+            // The read above and this adopt are two renderer round trips; a
+            // keystroke can land between them and a plain replace destroys it.
+            // Compare and replace inside ONE script instead: the page is
+            // single-threaded, so it either still holds what was read (replace)
+            // or holds a newer edit (keep it as the draft, RC-70 path).
+            when (val adoption = host.applyExternalContentIfUnchanged(attachment, readText, rebase.content)) {
+                ExternalAdoption.Applied -> content = rebase.content
+                is ExternalAdoption.Kept -> if (adoption.liveText != content) receiveEditorChange(adoption.liveText)
+                ExternalAdoption.Unavailable -> Unit
+            }
+            return
+        }
+        // The page holds no editable document of ours (never presented, or no
+        // attachment): nothing typed can be lost by replacing it.
+        if (attachment != null && ownsPage) host.applyExternalContent(rebase.content)
+        content = rebase.content
+    }
+
     fun dismissFind() {
         // Take the soft keyboard down with the bar. The query field is a native
         // EditText, and Android does NOT hide the IME when the view serving it
@@ -325,6 +403,21 @@ fun NoteEditorScreen(
 
             override fun isCurrentEditor(): Boolean =
                 editorAttachment?.let(host::isCurrentAttachment) == true
+
+            // The draft `change` messages delivered can lag the editor. Read the
+            // document itself — without blurring it, which would take the
+            // keyboard from a typist — and hear anything it holds that no
+            // `change` said. The bundle also posts that `change` inside the
+            // read, but the bridge hands it to the main looper on its own, so
+            // it can land after this reply: the read is not left waiting on it.
+            override suspend fun captureEditor(): EditorCaptureOutcome {
+                val attachment = editorAttachment ?: return EditorCaptureOutcome.NotOurs
+                val outcome = host.readContentAndWait(attachment, shellCopy = content)
+                if (outcome is EditorCaptureOutcome.Captured && outcome.text != content) {
+                    receiveEditorChange(outcome.text)
+                }
+                return outcome
+            }
 
             override suspend fun gatherFacts(noteId: String): OpenNoteFacts {
                 // The reconciliation owns the debounce now. If it was already
@@ -504,6 +597,7 @@ fun NoteEditorScreen(
                     if (titleCommit.isCommitted && titleValue.text == requestedTitle) {
                         titleValue = TextFieldValue(splitId(noteId).title)
                     }
+                    if (titleCommit.isCommitted) settleRelink(flushed, titleCommit.relinkedBody)
                     return titleCommit.isCommitted
                 }
 
@@ -605,7 +699,14 @@ fun NoteEditorScreen(
     // which gates the live-sync adopt + onChange save so an empty placeholder is
     // never written back over the real note (data-loss guard).
     LaunchedEffect(initialNoteId) {
+        // A note that exists but cannot be read never opens as a blank page
+        // (desktop loader parity): `loaded` stays false, so nothing can save
+        // over it, and the editor leaves without writing.
         val disk = store.read(initialNoteId)
+        if (disk == null) {
+            onBack()
+            return@LaunchedEffect
+        }
         content = disk
         savedContent = disk
         loaded = true
@@ -633,6 +734,14 @@ fun NoteEditorScreen(
     DisposableEffect(initialNoteId) {
         store.setDraftProvider(ownerToken) {
             derivePendingDraft(loaded, noteId, savedContent, content)
+        }
+        // The leave-foreground flush reads the live editor first (RC-92): a note
+        // still streaming its tail has reported nothing typed into it, so the
+        // provider above would derive a clean draft and the edit would be lost.
+        store.setEditorRefresher(ownerToken) {
+            session.refreshFromLiveEditor(
+                openNoteEffects(summary = null, reconciliationStartEditVersion = editVersion),
+            )
         }
         onDispose { store.releaseDraftOwnership(ownerToken) }
     }
@@ -753,8 +862,9 @@ fun NoteEditorScreen(
                 )
                 noteId = titleCommit.id
                 if (titleCommit.isCommitted && titleValue.text == next) {
-                    titleValue = TextFieldValue(splitId(noteId).title)
+                    titleValue = titleFieldAfterRename(titleValue, splitId(noteId).title)
                 }
+                if (titleCommit.isCommitted) settleRelink(flushed, titleCommit.relinkedBody)
                 if (!titleCommit.isCommitted) {
                     Toast.makeText(
                         context,
@@ -936,9 +1046,13 @@ fun NoteEditorScreen(
                 .fillMaxSize()
                 .imePadding(),
         ) {
-            BasicTextField(
+            NoteTitleField(
                 enabled = !interactionLocked,
                 value = titleValue,
+                placeholder = localization.localizedText("notes.untitledPlaceholder"),
+                // The same native-then-page focus a new note opens with, so the
+                // keyboard stays up and typing carries on into the body. [list.md]
+                onReturn = { host.focusEditor() },
                 onValueChange = { v ->
                     // Strip forbidden filesystem chars in-place (desktop parity —
                     // the illegal char never persists) + cap at the length limit.
@@ -968,21 +1082,8 @@ fun NoteEditorScreen(
                             ?: if (dup) LocalizedMessage("notes.title.duplicate") else null
                     }
                 },
-                singleLine = true,
-                textStyle = FutoType.h3.copy(fontWeight = FontWeight.SemiBold, color = c.textPrimary),
-                cursorBrush = SolidColor(c.accent),
                 modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 4.dp)
                     .onFocusChanged { titleFocused = it.isFocused },
-                decorationBox = { inner ->
-                    if (titleValue.text.isEmpty()) {
-                        Text(
-                            localization.localizedText("notes.untitledPlaceholder"),
-                            style = FutoType.h3.copy(fontWeight = FontWeight.SemiBold),
-                            color = c.textMuted,
-                        )
-                    }
-                    inner()
-                },
             )
             titleWarning?.let { warning ->
                 Text(
@@ -1031,28 +1132,7 @@ fun NoteEditorScreen(
                                 findTotal = report.total
                             }
                         },
-                        onChange = { newContent ->
-                            // Data-loss guard: ignore editor change events until the
-                            // off-main initial read has landed (`loaded`). The WebView
-                            // mounts with "" and can emit a setContent echo before the
-                            // real body loads; saving that empty echo would clobber the
-                            // note on disk. Once loaded, all edits flow through.
-                            if (
-                                session.acceptsEditorChange(
-                                    loaded = loaded,
-                                    storageMigrationStarted = store.isVaultMigrationStarted,
-                                )
-                            ) {
-                                // Just update the buffer state. The unsaved-draft
-                                // register follows from the snapshotFlow derivation
-                                // (content != savedContent) — no manual publish; the
-                                // register goes clean the instant the debounced save
-                                // sets savedContent (PKT-12 R5). F8 jetsam guard.
-                                content = newContent
-                                editVersion += 1
-                                scheduleBodySave(newContent)
-                            }
-                        },
+                        onChange = { newContent -> receiveEditorChange(newContent) },
                     )
                 }
             }
@@ -1249,10 +1329,11 @@ fun NoteEditorScreen(
                             // delete already waiting behind this move must
                             // target the final id.
                             savedContent = flushed
-                            noteId = moveOutcome.value
+                            noteId = moveOutcome.value.id
                             if (titleValue.text == requestedTitle) {
                                 titleValue = TextFieldValue(splitId(noteId).title)
                             }
+                            settleRelink(flushed, moveOutcome.value.relinkedBody)
                             return true
                         }
 

@@ -7,7 +7,7 @@ vi.mock('$lib/platform', async () => {
   const mod = await vi.importActual<typeof import('$lib/platform/__mocks__/index')>(
     '$lib/platform/__mocks__/index',
   );
-  return { ...mod, isTauri: true };
+  return { ...mod, isLinux: false, isTauri: true };
 });
 
 // Capture toasts (K3 surfaces delete failures through showGlobalToast).
@@ -114,7 +114,9 @@ function seedAppState(extra: Record<string, unknown>): string {
 }
 
 const PREFS = {
-  appearance: { theme: 'dark' as const },
+  appearance: {
+    theme: 'dark' as const,
+  },
   language: { selectedLanguageTag: null },
   crashReporting: { enabled: true, alwaysSend: false },
   updates: { enabled: true },

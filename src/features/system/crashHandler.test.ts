@@ -240,4 +240,23 @@ describe('installGlobalHandlers', () => {
     expect(queued[0].error).toBe('TypeError: cannot read properties of undefined');
     expect(mockWriteAppData).toHaveBeenCalledTimes(1);
   });
+
+  it('reports a fault that repeats in one session once', async () => {
+    vi.resetModules();
+    const { installGlobalHandlers } = await import('./crashHandler');
+    installGlobalHandlers();
+
+    const loopError = new Error('thrown every frame');
+    for (let i = 0; i < 200; i++) {
+      window.onerror!(loopError.message, 'app.js', 1, 1, loopError);
+    }
+    window.onerror!('a different fault', 'app.js', 2, 1, new Error('a different fault'));
+
+    const queued = JSON.parse(window.localStorage.getItem(LS_QUEUE_KEY)!);
+    expect(queued.map((report: { error: string }) => report.error)).toEqual([
+      'thrown every frame',
+      'a different fault',
+    ]);
+    expect(mockWriteAppData).toHaveBeenCalledTimes(2);
+  });
 });

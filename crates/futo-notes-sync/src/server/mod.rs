@@ -36,7 +36,7 @@ fn download_timeout(expected_bytes: u64) -> Duration {
     transfer_timeout(expected_bytes.min(MAX_TRANSFER_BYTES))
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 #[error("{message}")]
 pub(crate) struct HttpError {
     pub status: Option<u16>,
@@ -203,8 +203,39 @@ impl From<WriteBody> for Write {
     }
 }
 
+/// The two connection pools owned by one sync session. Cloned `Http` values
+/// keep these pools warm across connect, push, pull, and SSE reconnects without
+/// sharing sockets with another session.
+#[derive(Clone)]
+pub(crate) struct HttpClients {
+    request: reqwest::Client,
+    event: reqwest::Client,
+}
+
+impl HttpClients {
+    pub(crate) fn new() -> Result<Self, HttpError> {
+        let builder = || reqwest::Client::builder().connect_timeout(CONNECT_TIMEOUT);
+        Ok(Self {
+            request: builder()
+                .timeout(REQUEST_TIMEOUT)
+                .build()
+                .map_err(transport_error)?,
+            event: builder().build().map_err(transport_error)?,
+        })
+    }
+
+    pub(crate) fn for_base(&self, base: &str) -> Result<Http, HttpError> {
+        Http::with_clients(base, self)
+    }
+}
+
 impl Http {
+    #[cfg(test)]
     pub fn new(base: &str) -> Result<Self, HttpError> {
+        HttpClients::new()?.for_base(base)
+    }
+
+    fn with_clients(base: &str, clients: &HttpClients) -> Result<Self, HttpError> {
         let base = base.trim().trim_end_matches('/');
         let url = url::Url::parse(base).map_err(|e| HttpError {
             status: None,
@@ -216,20 +247,11 @@ impl Http {
                 message: "server URL must use http or https".into(),
             });
         }
-        let request_client = reqwest::Client::builder()
-            .connect_timeout(CONNECT_TIMEOUT)
-            .timeout(REQUEST_TIMEOUT)
-            .build()
-            .map_err(transport_error)?;
-        let event_client = reqwest::Client::builder()
-            .connect_timeout(CONNECT_TIMEOUT)
-            .build()
-            .map_err(transport_error)?;
         Ok(Self {
             base: base.to_owned(),
             token: None,
-            request_client,
-            event_client,
+            request_client: clients.request.clone(),
+            event_client: clients.event.clone(),
         })
     }
 

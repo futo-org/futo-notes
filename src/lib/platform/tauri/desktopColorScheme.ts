@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './invoke';
 
 /**
  * The DESKTOP's light/dark preference — not the window's, and not the page's.

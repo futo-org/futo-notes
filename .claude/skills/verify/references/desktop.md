@@ -51,7 +51,9 @@ contenteditable natively, and annotates screenshots. Run `agent-browser` with
 no args for the full command reference.
 
 ```bash
-pnpm run dev -- --port $WEB_VITE_PORT --strictPort &   # use Bash run_in_background
+# `pnpm run dev -- --port N` does NOT work: pnpm hands vite the literal `--`,
+# vite ignores the flags, and you get the slot default port instead.
+pnpm exec vite --port $WEB_VITE_PORT --strictPort &   # use Bash run_in_background
 sleep 4
 agent-browser open http://localhost:$WEB_VITE_PORT
 
@@ -261,7 +263,8 @@ build: a capture reads pixels, and the release app's window shows the user's
 real vault (M24).
 
 `just sim-boot` no longer foregrounds Simulator.app. Pass `SHOW=1` when a human
-wants to watch, or for the frame-dependent case below.
+wants to watch, or for the frame-dependent case below. On Xcode 27, which ships
+no Simulator.app, `SHOW=1` refuses rather than opening DeviceHub.
 
 ### Frame-dependent measurements need a VISIBLE window
 

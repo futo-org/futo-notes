@@ -8,3 +8,12 @@
   --z-update-banner: 260;
   --z-toast: 300;
 }
+
+/* An open overlay (context menu, modal) must cover the app — including the
+ * scrollbars. WebKit paints overlay scrollbars after the rest of the page, so
+ * z-index alone loses to them; `src/shared/dom/portal.ts` sets this attribute
+ * while a portalled overlay is mounted, and only on platforms whose scrollbars
+ * take no layout width, so nothing reflows. */
+:root[data-overlay-open] * {
+  scrollbar-width: none;
+}

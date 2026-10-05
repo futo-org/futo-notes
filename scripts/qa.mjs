@@ -28,6 +28,7 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { disconnectHardwareKeyboard } from './lib/simulator-keyboard.mjs';
 import { portsFor, slotOf } from './lib/slot.mjs';
 import {
   REPORTED_AUTH_MODE,
@@ -180,26 +181,6 @@ function simDevices() {
 
 const findSim = (name) => simDevices().find((d) => d.name === name && d.isAvailable !== false);
 
-const SIM_PREFS = path.join(HOME, 'Library/Preferences/com.apple.iphonesimulator.plist');
-
-// A device with no ConnectHardwareKeyboard entry inherits the machine default —
-// hardware keyboard CONNECTED — which suppresses the software keyboard entirely.
-// XCUITest's `app.keyboards.firstMatch` still "exists" there, as a hidden element
-// parked at the window's bottom edge, so a keyboard-avoidance assertion measures
-// the distance to a keyboard that is not on screen: that is how the find-bar UI
-// test failed with "132.0 is not less than 24.0" on futo-qa-5. Pin it off, POOL
-// DEVICES ONLY (never the developer's own simulators). Read at boot, so a device
-// already running picks it up on its next boot — claim does not reboot for it.
-function pinSoftwareKeyboard(udid, name) {
-  if (!fs.existsSync(SIM_PREFS)) return;
-  const plistBuddy = (cmd) => tryRun('/usr/libexec/PlistBuddy', ['-c', cmd, SIM_PREFS]);
-  const key = `:DevicePreferences:${udid}:ConnectHardwareKeyboard`;
-  plistBuddy(`Add :DevicePreferences:${udid} dict`); // fails harmlessly if present
-  if (plistBuddy(`Add ${key} bool false`) === null) plistBuddy(`Set ${key} false`);
-  const now = (plistBuddy(`Print ${key}`) || '').trim();
-  if (now !== 'false') info(`warning: could not pin software keyboard on ${name} (read ${now})`);
-}
-
 // `reboot: true` forces a full shutdown -> boot -> attach cycle.
 //
 // A simulator booted without a Simulator.app window in the CURRENT WindowServer
@@ -218,7 +199,6 @@ async function ensureSim(name, { reboot = false } = {}) {
     sim = findSim(name);
     if (!sim) die(`simctl create ${name} did not produce a device`);
   }
-  pinSoftwareKeyboard(sim.udid, name);
   if (reboot && sim.state === 'Booted') {
     info(`rebooting simulator ${name} (${sim.udid}) to re-attach a window`);
     tryRun('xcrun', ['simctl', 'shutdown', sim.udid]);
@@ -240,7 +220,26 @@ async function ensureSim(name, { reboot = false } = {}) {
   // the documented repair for a booted device whose UI reads as a 0x0 root.
   // Quitting Simulator.app is deliberately NOT done: sibling worktrees' claimed
   // devices share the one app instance.
-  tryRun('open', ['-a', 'Simulator', '--args', '-CurrentDeviceUDID', findSim(name).udid]);
+  //
+  // Xcode 27 ships no Simulator.app, so this fails there and the device runs
+  // headless, which QA handles. Its replacement, DeviceHub, is deliberately NOT
+  // opened: while it runs it takes the touchscreen of EVERY booted simulator,
+  // and backboardd then rejects each `axe tap` ("already have a main display
+  // digitizer") while AXe reports success.
+  if (tryRun('open', ['-a', 'Simulator', '--args', '-CurrentDeviceUDID', sim.udid]) === null) {
+    info(`note: no Simulator.app to open (Xcode 27+); ${name} runs headless`);
+  }
+  // A connected hardware keyboard hides the software keyboard (XCUITest's
+  // `app.keyboards.firstMatch` still "exists" there, parked at the window's
+  // bottom edge: the find-bar UI test's "132.0 is not less than 24.0" on
+  // futo-qa-5). Every boot re-attaches it, so this repeats on every claim (and
+  // after the `open` above, which on Xcode <=26 applies Simulator.app's own
+  // default: connected). POOL DEVICES ONLY — never the developer's own simulators.
+  try {
+    disconnectHardwareKeyboard(sim.udid);
+  } catch (error) {
+    info(`warning: could not disconnect the hardware keyboard on ${name}: ${error.message}`);
+  }
   return findSim(name).udid;
 }
 

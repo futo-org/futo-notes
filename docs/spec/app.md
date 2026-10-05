@@ -237,9 +237,13 @@ Behaviors and constraints that hold across every surface and platform.
   packages follow the system GTK backend selection. →
   `scripts/patch-appimage.mjs`, `scripts/patch-appimage.test.mjs`
 - The AppImage strips its bundled `libwayland-client.so.0` so native Wayland
-  uses the host library that matches host Mesa. WebKitGTK DMA-BUF rendering
-  remains disabled through `WEBKIT_DISABLE_DMABUF_RENDERER=1` in the desktop
-  process setup. Diagnosis verified 2026-07-21 on CachyOS/niri: the unpatched
+  uses the host library that matches host Mesa. WebKitGTK DMA-BUF rendering is
+  disabled automatically when an NVIDIA DRM device or loaded NVIDIA kernel
+  module is detected; Intel and AMD use the GPU renderer. An existing
+  `WEBKIT_DISABLE_DMABUF_RENDERER` value is preserved, and
+  `FUTO_NOTES_SOFTWARE_RENDER=1` forces the workaround when automatic detection
+  misses while `FUTO_NOTES_SOFTWARE_RENDER=0` forces the GPU path despite NVIDIA
+  detection. Diagnosis verified 2026-07-21 on CachyOS/niri: the unpatched
   AppImage connected through XWayland while the unpackaged binary connected to
   `wayland-1`. The hook rewrite, user override, and X11 fallback policy are
   guarded by `scripts/patch-appimage.test.mjs`. Packaged runtime verified
@@ -247,7 +251,8 @@ Behaviors and constraints that hold across every surface and platform.
   `@/tmp/.X11-unix/X1` (XWayland); patched AppImage → `/run/user/1000/wayland-1`
   with no EGL abort; `GDK_BACKEND=x11` override honored; with `WAYLAND_DISPLAY`
   unset the `wayland,x11` list falls back to X11 and launches. →
-  `scripts/patch-appimage.mjs`, `apps/tauri/src-tauri/src/main.rs`
+  `scripts/patch-appimage.mjs`, `apps/tauri/src-tauri/src/main.rs`,
+  `apps/tauri/src-tauri/src/platform_integration.rs`
 
 ## Soft keyboard _(Android)_
 
@@ -294,6 +299,14 @@ Behaviors and constraints that hold across every surface and platform.
   returns focus to the trigger; the press itself never moves focus, so the
   listbox cannot close on press and reopen on release. Pressing elsewhere
   leaves focus where the user put it. → features/settings/LanguageSettingsSection.svelte
+- **An open overlay covers the scrollbars too.** A context menu or modal that
+  straddles a scrolling surface is drawn over its scrollbar, not under it: while
+  a portalled overlay is mounted, overlay-style scrollbars (ones that reserve no
+  layout width — WebKitGTK, macOS) are hidden, because WebKit paints them after
+  the rest of the page and no z-index outranks that pass. Scrollbars that
+  reserve width are left alone, so nothing reflows when a menu opens. Reported
+  on Ubuntu 2026-09-16: the sidebar scrollbar striped an open note context menu.
+  → shared/dom/portal.ts, styles/stacking.css, shared/dom/portal.test.ts
 - A standard modal is `role="dialog" aria-modal="true"`, named by its title,
   traps Tab inside the card, dismisses on a backdrop click, and returns focus to
   whatever was focused when it opened. → shared/dialogs/Modal.svelte
@@ -301,11 +314,11 @@ Behaviors and constraints that hold across every surface and platform.
   `@media (hover: hover) and (pointer: fine)` so a touch shell never leaves a
   button stuck in its hover state. → shared/dialogs/modal.css,
   crashReportDialog.css, settingsBlockingOverlay.css
-- `window.confirm()` / `window.alert()` don't block in Tauri's webview — use
-  `ask()` / `message()` from `@tauri-apps/plugin-dialog`. → apps/tauri/AGENTS.md
-- Confirmation prompts go through `confirmDialog()` (`src/shared/dialogs/confirmDialog.ts`):
-  `ask()` under Tauri, `window.confirm()` in the plain web shell (dev server,
-  Playwright) where plugin-dialog has no backend and would reject. → confirmDialog.ts
+- Confirmation prompts go through `confirmDialog()` (`src/shared/dialogs/confirmDialog.ts`),
+  a shared in-app modal host used on every shell — `window.confirm()` /
+  `window.alert()` are not application UI and do not block reliably in Tauri's
+  webview; concurrent requests queue so prompts cannot overlap. → confirmDialog.ts,
+  confirmDialogState.svelte.ts, ConfirmDialogHost.svelte
 
 ## Updates _(desktop self-update)_
 
@@ -356,6 +369,10 @@ Behaviors and constraints that hold across every surface and platform.
   the dialog. Rust-side panics persist the same schema under `.crashlogs`
   before the next-launch scan. → CrashReportDialog.svelte, crashHandler.ts,
   `apps/tauri/src-tauri/src/panic_reporter.rs` _(Tauri)_
+- A fault that repeats within a session (same type, message, and stack) is
+  reported once, not once per occurrence. An uncaught NSException does not
+  also file the SIGABRT that follows it _(iOS)_. → crashHandler.ts,
+  CrashReporter.swift
 - The native shells run the same pipeline: an uncaught-exception handler
   (Android `Thread.setDefaultUncaughtExceptionHandler`; iOS
   `NSSetUncaughtExceptionHandler` plus fatal-signal handlers with
