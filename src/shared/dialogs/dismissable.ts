@@ -109,8 +109,3 @@ export function dismissable(node: HTMLElement, options: DismissableOptions) {
     },
   };
 }
-
-/** Test-only: how many overlays are currently registered for dismissal. */
-export function _dismissableStackDepth(): number {
-  return stack.length;
-}

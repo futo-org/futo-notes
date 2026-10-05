@@ -19,6 +19,7 @@
       },
       "desktop": {
         "debugDisplayName": "FUTO Notes (Dev)",
+        "debugDisplayNameWithBranch": "FUTO Notes (Dev) · {branch}",
         "developmentBadge": "DEV",
         "versionShort": "v{version}",
         "minimizeWindowAccessibilityLabel": "Minimize window",
@@ -188,6 +189,16 @@
     },
     "notes": {
       "heading": "Notes",
+      "sort": {
+        "heading": "Sort by",
+        "orderHeading": "Order",
+        "name": "Name",
+        "lastModified": "Last Modified",
+        "aToZ": "A-Z",
+        "zToA": "Z-A",
+        "newest": "Recent first",
+        "oldest": "Oldest first"
+      },
       "forYou": {
         "heading": "For You",
         "empty": "Create your first note from the sidebar to get started."
@@ -337,7 +348,9 @@
         "heading": "Delete folder",
         "thisFolderQuestion": "Delete this folder?",
         "moveNotesWarning": "Notes inside it will be moved to the parent folder.",
+        "moveContentsWarning": "Notes and other files inside it will be moved to the parent folder. A file with the same name gets a numbered copy.",
         "recoverableConfirmation": "Delete this folder? Notes inside it will be moved to the parent folder.",
+        "preservingContentsConfirmation": "Delete this folder? Notes and other files inside it will be moved to the parent folder. A file with the same name gets a numbered copy.",
         "permanentConfirmation": "Delete this folder? Notes inside it will be moved to the parent folder. Anything else inside it is deleted for good.",
         "movedNotes": {
           "plural": "count",
@@ -614,6 +627,9 @@
         "syncFailed": "Sync failed. Try again.",
         "previousFailure": "The last sync failed. Try again.",
         "completedWithErrors": "Sync completed with errors. Some changes could not reach the server.",
+        "uploadsTooLarge": "These files could not sync because the server or proxy rejected them as too large: {filenames}",
+        "uploadsTooLargeAndUnsupported": "Some files were too large for the server or proxy: {oversized}. Other files have unsupported paths or names: {unsupported}.",
+        "unsupportedPaths": "These files could not sync because their paths or names are unsupported: {filenames}",
         "writePausedSubscription": "Sync paused. Your subscription has lapsed, so changes made here are not uploaded. Notes from your other devices still arrive.",
         "writePausedQuota": "Vault is full. You have used all of your storage, so changes made here are not uploaded.",
         "liveUnavailable": "Live sync is temporarily unavailable. FUTO Notes will keep retrying.",
@@ -1031,6 +1047,7 @@
     "license": {
       "sectionTitle": "License",
       "explanation": "FUTO's mission is for open-source software and non-malicious software business practices to become a sustainable income source for projects and their developers. That is why FUTO Notes asks you to pay for it, rather than serving you ads or selling your data.",
+      "keyOnlyExplanation": "Have a FUTO Notes license? Enter your key to activate it on this device.",
       "unlicensedHeadline": "Pay for FUTO Notes",
       "explanationLicensed": "Thank you for purchasing FUTO Notes.",
       "unlicensed": "Unlicensed",

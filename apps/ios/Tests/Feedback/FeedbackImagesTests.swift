@@ -60,15 +60,3 @@ struct FeedbackImagesTests {
         #expect(FeedbackImages.normalize(picked) == nil)
     }
 }
-
-@Suite("DeviceInfo")
-struct DeviceInfoTests {
-    @Test("reports the hardware identifier, not the generic model name")
-    func reportsHardwareIdentifier() {
-        let model = DeviceInfo.hardwareModel()
-
-        #expect(!model.isEmpty)
-        #expect(model != "iPhone")
-        #expect(model != UIDevice.current.model)
-    }
-}

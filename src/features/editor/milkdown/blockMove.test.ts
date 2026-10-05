@@ -84,26 +84,14 @@ function topLevelText(doc: ProseNode): string[] {
 }
 
 describe('isNoOpDrop', () => {
-  const range = { from: 10, to: 20 };
-
-  it('is true at the "from" boundary', () => {
-    expect(isNoOpDrop(range, 10)).toBe(true);
-  });
-
-  it('is true at the "to" boundary', () => {
-    expect(isNoOpDrop(range, 20)).toBe(true);
-  });
-
-  it('is true strictly inside the range', () => {
-    expect(isNoOpDrop(range, 15)).toBe(true);
-  });
-
-  it('is false just outside the "from" side', () => {
-    expect(isNoOpDrop(range, 9)).toBe(false);
-  });
-
-  it('is false just outside the "to" side', () => {
-    expect(isNoOpDrop(range, 21)).toBe(false);
+  it.each([
+    [10, true], // the "from" boundary
+    [20, true], // the "to" boundary
+    [15, true], // strictly inside
+    [9, false], // just outside the "from" side
+    [21, false], // just outside the "to" side
+  ])('a drop at %i over the block at [10, 20] is a no-op: %s', (target, expected) => {
+    expect(isNoOpDrop({ from: 10, to: 20 }, target)).toBe(expected);
   });
 });
 

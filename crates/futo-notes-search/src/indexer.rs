@@ -71,10 +71,10 @@ pub(crate) fn spawn(
         match inner.await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
-                eprintln!("[search/indexer] run_loop returned error: {e}");
+                futo_notes_core::log_to_stderr!("[search/indexer] run_loop returned error: {e}");
             }
             Err(je) => {
-                eprintln!("[search/indexer] run_loop panicked: {je}");
+                futo_notes_core::log_to_stderr!("[search/indexer] run_loop panicked: {je}");
             }
         }
         let snap = status_for_supervisor
@@ -250,7 +250,9 @@ fn reconcile_bm25(
         let indexed_mtimes = match idx.bm25_note_mtimes() {
             Ok(m) => m,
             Err(e) => {
-                eprintln!("[search/indexer] bm25_note_mtimes failed (full reindex): {e}");
+                futo_notes_core::log_to_stderr!(
+                    "[search/indexer] bm25_note_mtimes failed (full reindex): {e}"
+                );
                 HashMap::new()
             }
         };
@@ -278,13 +280,15 @@ fn reconcile_bm25(
             reindexed += 1;
         }
         if let Err(e) = idx.commit_bm25() {
-            eprintln!("[search/indexer] bm25 commit failed: {e}");
+            futo_notes_core::log_to_stderr!("[search/indexer] bm25 commit failed: {e}");
         }
     }
     if deleted > 0 {
-        eprintln!("[search/indexer] reconciled {deleted} deletion(s) detected at startup");
+        futo_notes_core::log_to_stderr!(
+            "[search/indexer] reconciled {deleted} deletion(s) detected at startup"
+        );
     }
-    eprintln!(
+    futo_notes_core::log_to_stderr!(
         "[search/indexer] BM25 reconcile: {reindexed} new/changed of {total} total ({} skipped via mtime gate)",
         total.saturating_sub(reindexed)
     );
@@ -414,31 +418,8 @@ fn cleanup_legacy(notes_root: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    struct ScopedTempDir(PathBuf);
-    impl ScopedTempDir {
-        fn new(tag: &str) -> Self {
-            static COUNTER: AtomicU32 = AtomicU32::new(0);
-            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-            let ms = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            let dir = std::env::temp_dir().join(format!("futo-search-reconcile-{tag}-{ms}-{n}"));
-            std::fs::create_dir_all(&dir).expect("create temp dir");
-            Self(dir)
-        }
-        fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-    impl Drop for ScopedTempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
+    use crate::test_support::ScopedTempDir;
+    use std::time::SystemTime;
 
     // On Unix `\` is part of a filename, so `a\b.md` is no note: indexing it as
     // `a/b` would return its text as a hit for the real note `a/b`.

@@ -187,12 +187,12 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   line as a whole-cycle failure. Previously these returned `Ok` and were
   swallowed to stderr — invisible in packaged builds — so a server rejecting
   every upload (the 2026-06-29 EACCES/HTTP-500 incident) showed **no** client
-  signal for days. **The user-facing message is computed ONCE, in the Rust
-  core** (`SyncSummary::failure_message`) and rendered verbatim by all three
-  shells.
+  signal for days. The Rust core computes `SyncSummary::failure_message` as a
+  diagnostic. Shells render catalog messages for the visible status line and
+  use structured failures to name 413 and rejected-path files.
 
-  > **Gap:** _(desktop)_ the core message is NOT rendered verbatim — the
-  > desktop shell discards it. `raiseSyncError` sets the user-facing
+  > **Gap:** _(desktop)_ for other failure kinds, the core message is NOT
+  > rendered verbatim — the desktop shell discards it. `raiseSyncError` sets the user-facing
   > `syncErrorMessage` to `syncErrorForSource(source)`, a fixed catalog string
   > per source (`sync.errors.completedWithErrors`, or
   > `sync.errors.liveUnavailable` for the stream), and stores the core's own
@@ -234,8 +234,11 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   reach the server — so it gets its own clause ("sync state couldn't be
   saved locally"), never the server wording, and is recorded at most once
   per cycle even when the interim and final persists both fail.
-  413-oversize and unresolved-merge outcomes stay in `conflicts`, NOT
-  `failures`. Partial cycles report honestly — a cycle can have both
+  An HTTP 413 upload stays in `conflicts` for existing accounting and also
+  enters `failures` (with filename and status), including cycles that skip the
+  unchanged file after the original rejection. Every shell shows a catalog
+  message naming the affected files and the server or proxy size limit.
+  Unresolved-merge outcomes stay in `conflicts`, not `failures`. Partial cycles report honestly — a cycle can have both
   `uploaded > 0` and failures.
   → futo-notes-sync (`SyncFailure`, `FailureKind`,
   `SyncSummary::failure_message`, push/pull cycle),
@@ -291,6 +294,18 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   `completed_batch_is_applied_and_checkpointed_before_a_slow_single_finishes`,
   and F-series `f_batch_download_first_sync`; server: futo-notes-server
   `src/blobs/routes.ts` (`POST /api/blobs/batch`)
+- **Whether a local file needs uploading is decided by its content hash, never
+  by its modified time or size.** Push reads every candidate and compares
+  SHA-256 against the recorded object state; a match settles as unchanged
+  without an upload. It must not shortcut that read on matching mtime+size,
+  because two ordinary cases change neither: the engine keeps a note's own
+  modified time when only its backlinks were rewritten by someone else's
+  rename (`list.md`), and a same-length edit on a filesystem that does not
+  advance mtime (Samsung f2fs/FUSE) moves nothing observable either. Skipping
+  those leaves the peer holding different bytes under one server hash until an
+  unrelated edit dislodges it. → `push::local_changes::prepare_upload`, guarded
+  by `a_same_length_rewrite_that_kept_its_mtime_still_uploads` and the
+  `backlink rewrite propagation` cross-platform scenario
 - **Push batches small encrypted blob creates and updates; a 1-file push stays
   on the classic path.** Pending ciphertext is ordered smallest-first and packed
   into `POST /api/collections/:id/blob-objects/batch` requests of ≤8 MiB / ≤100
@@ -549,6 +564,14 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   > the scan names that file `a/b.md` and reads `a\b.md` as a local delete:
   > the note is re-created as `a/b.md` and tombstoned under its old name. Only
   > a legacy or foreign client can upload such a name.
+- **A local path a receiver rejects for excess folder depth or a component
+  beyond 255 bytes is never uploaded.** It remains in the local scan so an
+  older uploaded copy is not mistaken for a deletion. Each skipped file enters
+  `failures` as `rejected`, and the shell names the file. Other valid files in
+  the same cycle still sync. → futo-notes-sync `sync/push/mod.rs`
+  `uploadable_files`; guarded by
+  `local_paths_rejected_by_receivers_are_skipped_and_reported` and the
+  `overdeep local path is reported before upload` cross-platform scenario.
 - **A healed incoming name is a LOCAL alias, not pushed back to the server.**
   The healing client writes + maps the object under the safe name but does not
   re-upload it, so the server object keeps its original path until someone edits
@@ -674,8 +697,9 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   when there is no vault — whether the account may write. Quitting halfway and
   reopening therefore lands on the right screen by construction; no shell keeps
   a wizard position, and none may start. → `hosted/vault.rs` `current_step`,
-  `createHostedSyncSettings.svelte.ts`; guarded by "the wizard position is
-  Rust's, not the shell's" in `createHostedSyncSettings.svelte.test.ts`
+  `createHostedSyncSettings.svelte.ts`; guarded by "the step is read from the
+  state machine, never remembered here" in `HostedSetupModelTest.kt` (Android),
+  the surviving reference shell suite for the hosted wizard
 - **Two shapes.** No vault yet: sign in → subscribe → choose a vault password →
   save the recovery key → sync. Vault exists: sign in → unlock → sync. Subscribe
   cannot be skipped in the first shape because writing the vault key is
@@ -1131,10 +1155,14 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   content); the client always pulls from its persisted `max_version` cursor, so
   it is robust to missed/duplicated events.
 - The stream is lossy across disconnects (the server replays nothing), so the
-  client also runs a ~45 s safety poll and reconnects with exponential backoff;
+  client also runs a ~45 s safety poll while connected, during reconnect
+  backoff, and while a new stream handshake is pending. It reconnects with exponential backoff;
   a fresh `ready` drives a catch-up pull. This safety poll is also the only path
   that catches mutations the server emits no event for (collection
-  create/delete, key rotation).
+  create/delete, key rotation). The same Rust task runs on iOS and Android,
+  so a proxy that never establishes SSE cannot strand native sync after launch.
+  → `session/live/runner.rs`, guarded by
+  `hung_event_handshake_still_runs_the_safety_poll`.
 - **Every finite server request has a total deadline.** The auth-mode probe
   times out after 5 s; login, collection/key/object requests, deletes, and blob
   transfers with no known size use a 30 s total-request timeout. Known-size
@@ -1322,7 +1350,7 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   When a peer's tombstone arrives and the local file has diverged from the
   deleted version (the body autosave landed after this cycle's push phase, so
   push-first had nothing to send), the pull parks the local content in a
-  `name (conflict <oid8>)` copy and reports the move in `SyncSummary.renamed`
+  `name (conflict <oid32>)` copy and reports the move in `SyncSummary.renamed`
   alongside the deletion — which ghost-stripping then removes from
   `deletedIds`/`peerDeletedIds`, because the note moved rather than vanished.
   Reporting only the deletion stranded the shell: a draft that had just reached
@@ -1341,7 +1369,7 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   src/features/sync/syncManager.test.ts
 - Pull-side filename collisions between byte-identical objects adopt silently
   (smallest object id stays canonical; the identical loser mints NO
-  `(conflict <oid8>)` copy and its map entry is dropped without tombstoning
+  `(conflict <oid32>)` copy and its map entry is dropped without tombstoning
   the live server object) — only genuinely divergent content is parked. →
   futo-notes-sync sync module
 - Renames are paired — a rename is not seen as delete + create. → migration plan
@@ -1349,7 +1377,7 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
 - **Sync reports rename intent; shells never infer renames from id patterns.**
   Every relocation the sync engine performs — paired local moves, mapping
   relocations, merge-target moves, and collision placements that relocate a
-  locally-mapped note (the loser's move to `name (conflict <oid8>)`) — is
+  locally-mapped note (the loser's move to `name (conflict <oid32>)`) — is
   reported in the locally-computed `SyncSummary.renamed` (no sync payload or
   protocol change; a byte-identical collision loser adopts silently and
   reports no rename). The desktop follows the open tab/editor through a
@@ -1359,9 +1387,8 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   `collision_placement_reports_the_relocated_local_note_as_a_rename` and
   `identical_content_collision_dedup_reports_no_rename` in
   `sync/behavior_tests.rs`); desktop `reconcileSyncCompletion.ts` (guarded by
-  "follows a reported collision-placement rename before pruning deletions" in
-  src/features/sync/syncManager.test.ts and the cross-platform scenario
-  "collision placement follows open note" in tests/cross-platform-sync.mjs)
+  the cross-platform scenario "collision placement follows open note" in
+  tests/cross-platform-sync.mjs)
 - **Following a reported rename is one atomic retarget of route AND editor**
   _(desktop)_. A single helper moves the tab/route and — while the session is
   still bound to the old id — the open editor's id and title, whether the
@@ -1373,8 +1400,8 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   verdict cannot disagree with the engine: a reported rename outranks every
   other fact and always yields `FollowRename`. →
   src/features/sync/syncManager.svelte.ts `applyReportedRename` (guarded by
-  "moves route and title together when the open note cannot be classified" in
-  src/features/sync/syncManager.test.ts + tests/remote-rename.spec.ts; the
+  tests/remote-rename.spec.ts "open note stays open when sync reports a
+  rename", which runs on the browser lane that has no classifier; the
   engine side by "a reported rename outranks …" in
   `every_reachable_fact_combination_has_one_verdict`)
 - **Every shell family is handed the same cycle report.** The desktop IPC
@@ -1566,22 +1593,24 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   over the UNION of this pull's downloads, the persisted object_map, and on-disk
   files sharing the collision key (`nfc(name).to_lowercase()`). The object with the
   lexicographically smallest `object_id` keeps the canonical name; every other
-  colliding object is materialized as `name (conflict <oid8>).md`, where
-  `<oid8>` is the first 8 chars of the loser's globally-unique object_id. The
+  colliding object is materialized as `name (conflict <oid32>).md`, where
+  `<oid32>` is the full 32 hexadecimal digits of the loser's UUID object_id. The
   winner key (`object_id`) and the loser name are pure functions of immutable,
   globally-unique inputs that every union member carries — so resolution is
   idempotent (editing the winner can't flip it), convergent (every client mints
   the identical loser name and the fleet lands on `{canonical, name (conflict
-<oid8>)}`), and safe even when the rival is already on disk / in the map and
+<oid32>)}`), and safe even when the rival is already on disk / in the map and
   is NOT in the current incremental batch (F4 same-name; F5 NFC-vs-NFD). →
   futo-notes-sync sync module, futo-notes-core
   `files::collision_key` and
   `conflict_names::collision_conflict_filename`; regression tests
+  `three_uuid_v7_name_rivals_keep_all_three_bodies`,
+  `collision_destination_already_on_disk_is_never_replaced`,
   `f4_same_filename_two_clients_no_note_lost`,
   `f5_nfc_nfd_collision_no_note_lost`, the `collision_*` unit tests
 - Conflict-copy naming remains a fixed point for defensive non-server object-id
   shapes too: a short token that would not be recognizable as the normal
-  `<oid8>` form is namespaced as `object-<short>`, and stripping a generated
+  `<oid32>` form is namespaced as `object-<short>`, and stripping a generated
   suffix that leaves an empty stem substitutes `Untitled`. Re-parking therefore
   replaces one generated suffix rather than stacking suffixes or returning the
   input name unchanged. → futo-notes-core
@@ -1591,7 +1620,7 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   unseen remote.** When a local file diverges from a server object on a fresh
   empty map (no common ancestor ⇒ no safe 3-way merge), the remote is adopted on
   the canonical name and the local edits are parked in a deterministic `name
-(conflict <remote-oid8>).md` copy that the next push uploads as its own new
+(conflict <remote-oid32>).md` copy that the next push uploads as its own new
   object — instead of recording a divergence entry that the next push pushed
   over the never-reconciled remote (F6). → futo-notes-sync `sync/mod.rs`
   (`pull::pull_with_checkpoint(state, root, 0, ...)`) +
@@ -1615,7 +1644,7 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   ancestry (fresh install, notes copied in without dotfiles) ⇒ the conservative
   F6 park above. This closes the July 2026 incident where a
   password re-login on a device that had been disconnected for days parked a
-  stale `(conflict <oid8>)` copy of every note edited elsewhere in the
+  stale `(conflict <oid32>)` copy of every note edited elsewhere in the
   meantime and synced the copies to the whole fleet. → futo-notes-sync store +
   sync modules; reconnect scenarios in the server integration suite
 - **A reconnect honors peer deletes made while this device was disconnected —
@@ -1624,7 +1653,7 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   matches the ancestry (object_id → last-synced filename + hash): if the local
   file is unchanged since the last sync it is deleted (the peer's delete wins);
   if it diverged (edited while disconnected) the local edit is preserved in a
-  deterministic `name (conflict <oid8>).md` copy that push re-uploads as its own
+  deterministic `name (conflict <oid32>).md` copy that push re-uploads as its own
   new object, and the tombstoned name is removed; a tombstone with no ancestry
   entry is left alone. Before the fix the `live`-only filter dropped every
   tombstone, so the local file survived and the next push re-POSTed it as a
@@ -1661,7 +1690,10 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   content-identical local touch (editor re-save, relink rewrite, `touch`) is
   corrected back to the recorded server timestamp on the next sync rather
   than adopted. The bootstrap pull from cursor 0 likewise converges
-  matching-content files to the server timestamp. (Observed 2026-06-05: a
+  matching-content files to the server timestamp. An `updated_at` the client
+  cannot parse stamps nothing: the file keeps its current time rather than
+  becoming 1970 (→ `vault_fs::set_mtime_ms`, the one stamping owner).
+  (Observed 2026-06-05: a
   content-identical rewrite on the Mac left `Markdown demo` sorted minutes
   newer than on Android/iOS.) → futo-notes-sync sync module
 
@@ -1673,7 +1705,7 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   **both** objects, deleting the note from every client) is replaced by the
   deterministic conflict-copy policy above: winner = smallest `object_id` keeps
   the canonical name, every other colliding object is materialized at `name
-(conflict <oid8>).md`. The collision detector ranks the union of the current
+(conflict <oid32>).md`. The collision detector ranks the union of the current
   pull batch, the persisted object_map, and on-disk files, so the rival being
   already-present (not in the incremental batch) is handled — the exact
   double-tombstone path is gone. → futo-notes-sync sync module; F4/F5
@@ -1732,8 +1764,8 @@ journal --dir` has nothing to read from a phone.
 - Desktop auto-sync poll interval is intentionally short (the SSE live stream is
   the push replacement; the poll remains the desktop fallback) — don't lengthen
   it. → project decision
-- Native shells do not run a foreground poll loop; the SSE live stream plus its
-  ~45 s safety poll cover liveness (see "Live sync (SSE)"). → futo-notes-sync
+- Native shells do not run a foreground poll loop; the SSE live task's
+  ~45 s safety poll covers liveness even when the stream is down (see "Live sync (SSE)"). → futo-notes-sync
   `session/`
 - **An idle cycle is cheap.** A cycle that finds nothing to push or pull opens
   no new connection (one connection pool belongs to the `SyncSession` and
@@ -1748,8 +1780,8 @@ journal --dir` has nothing to read from a phone.
   Regression-guarded by `one_http_owner_reuses_its_connection`,
   `independent_http_owners_do_not_share_connections`, and
   `save_leaves_an_identical_checkpoint_untouched_and_rewrites_any_difference`.
-  → futo-notes-sync `server/mod.rs` (`HttpClients`), `checkpoint.rs`, harness
-  `tests/perf_cycle.rs`
+  → futo-notes-sync `server/mod.rs` (`HttpClients`), `checkpoint.rs`; historical
+  measurement in `docs/perf/sync-cycle-and-save-baseline.md`
 
 - **External filesystem changes to the open note mirror disk, IDE-style
   _(desktop)_.** A watcher `change` whose disk content differs from the

@@ -17,10 +17,11 @@ use crate::application_state::AppState;
 ///   clients actually dial makes the scan see what they see, so a squatter
 ///   pushes the bridge to the next free port instead of aliasing it.
 ///
-/// * **Per-worktree base port.** `FUTO_MCP_BASE_PORT` is set by
+/// * **Disjoint per-worktree scan band.** `FUTO_MCP_BASE_PORT` is set by
 ///   `scripts/tauri-dev.mjs` from the worktree slot (`scripts/lib/slot.mjs`,
-///   the single owner of slot derivation — do not re-derive it here). Parallel
-///   worktrees then never contend for one 9223 like they used to.
+///   the single owner of slot derivation — do not re-derive it here). Each slot
+///   gets 100 ports because the plugin scans base..base+99; adjacent bases would
+///   still overlap and a restart could move one worktree onto another's bridge.
 #[cfg(debug_assertions)]
 fn mcp_bridge_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     let mut builder = tauri_plugin_mcp_bridge::Builder::new().bind_address("127.0.0.1");
@@ -35,6 +36,8 @@ fn mcp_bridge_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
 }
 
 pub(crate) fn run() {
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    crate::dev_app_name::relaunch_under_dev_app_name();
     crate::platform_integration::prepare_process();
 
     let builder = tauri::Builder::default()
@@ -87,7 +90,9 @@ pub(crate) fn run() {
             #[cfg(target_os = "macos")]
             if let Err(error) = crate::macos_terminate::install(handle) {
                 // Dock/AppleScript quit then end the old way (no save flush).
-                eprintln!("[quit] cannot route terminate: through the close handler: {error}");
+                futo_notes_core::log_to_stderr!(
+                    "[quit] cannot route terminate: through the close handler: {error}"
+                );
             }
             crate::window_reveal::install(handle)?;
             crate::instance_journal::install(handle);
@@ -155,6 +160,8 @@ pub(crate) fn run() {
             crate::sync::password_store::e2ee_password_delete,
             crate::local_notes::local_notes_bootstrap,
             crate::local_notes::local_notes_startup_listing,
+            crate::local_notes::local_notes_set_sort_order,
+            crate::local_notes::local_notes_recent_ids,
             crate::local_notes::local_notes_snapshot,
             crate::local_notes::local_notes_inventory,
             crate::local_notes::local_notes_read,

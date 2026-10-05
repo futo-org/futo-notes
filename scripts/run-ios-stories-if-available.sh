@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Local-only native iOS story gate shared by `just prepush` and the pre-push
-# hook. A missing environment is a visible boundary, never a silent green.
+# Local-only native iOS story gate run by `just prepush` (the git pre-push hook
+# that also ran it was removed: it made every iOS/editor/core push wait on a
+# simulator build + story run). A missing environment is a visible boundary,
+# never a silent green.
 set -euo pipefail
 
 if [ "${FUTO_SKIP_IOS_STORIES:-0}" = "1" ]; then

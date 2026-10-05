@@ -49,10 +49,3 @@ export function resolveConfirmDialog(confirmed: boolean): void {
   pending.resolve(confirmed);
   showNext();
 }
-
-export function resetConfirmDialogsForTest(): void {
-  if (current) current.resolve(false);
-  for (const pending of queued) pending.resolve(false);
-  current = null;
-  queued.length = 0;
-}

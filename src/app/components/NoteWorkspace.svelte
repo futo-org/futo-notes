@@ -11,7 +11,7 @@
   import { localizedText } from '$shared/localization';
 
   import type { createCurrentNoteActions } from '../createCurrentNoteActions.svelte';
-  import NoteActionsMenu from './NoteActionsMenu.svelte';
+  import DropdownMenu, { type DropdownMenuEntry } from '$shared/dialogs/DropdownMenu.svelte';
 
   // The subset of the editor's imperative API the shell drives.
   export interface EditorApi {
@@ -59,6 +59,20 @@
     noteBodyEl = $bindable(),
     titleEl = $bindable(),
   }: Props = $props();
+
+  const noteMenuEntries: DropdownMenuEntry[] = [
+    { label: { path: 'notes.actions.copyFilePath' }, onclick: () => void actions.copyFilePath() },
+    {
+      label: { path: 'notes.actions.moveToFolder' },
+      onclick: () => actions.openMovePicker(),
+      testId: 'note-menu-move',
+    },
+    {
+      label: { path: 'notes.actions.deleteNote' },
+      onclick: () => void actions.deleteCurrentNote(),
+      destructive: true,
+    },
+  ];
 
   let editorFocused = $state(false);
   let tagBarEl: HTMLElement | undefined = $state(undefined);
@@ -171,14 +185,22 @@
 </div>
 
 {#if active}
-  <NoteActionsMenu
-    open={actions.menuOpen}
-    ontoggle={actions.toggleMenu}
-    onclose={actions.closeMenu}
-    oncopypath={actions.copyFilePath}
-    onmove={actions.openMovePicker}
-    ondelete={actions.deleteCurrentNote}
-  />
+  <div class="note-menu-anchor">
+    <DropdownMenu
+      open={actions.menuOpen}
+      ontoggle={actions.toggleMenu}
+      onclose={actions.closeMenu}
+      entries={noteMenuEntries}
+      label={localizedText('notes.actions.optionsAccessibilityLabel')}
+      toggleClass="note-menu-toggle"
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <circle cx="12" cy="5" r="1.6" />
+        <circle cx="12" cy="12" r="1.6" />
+        <circle cx="12" cy="19" r="1.6" />
+      </svg>
+    </DropdownMenu>
+  </div>
 {/if}
 
 {#if active && actions.movePickerOpen}

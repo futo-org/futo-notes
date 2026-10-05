@@ -26,30 +26,40 @@ vi.mock('$shared/state/appState', () => ({
 vi.mock('$features/notes/notes.svelte', () => ({
   initNotes: vi.fn(() => new Promise(() => {})),
 }));
-vi.mock('$lib/platform', () => ({
-  getPlatformFS: vi.fn(() => new Promise(() => {})),
-  hasFileSystem: true,
-}));
 const themeMocks = vi.hoisted(() => {
   let capturedOnChange: ((theme?: string) => void) | undefined;
   return {
     applyThemePreference: vi.fn(() => Promise.resolve('light')),
-    watchSystemThemeTauri: vi.fn((onChange: (theme?: string) => void) => {
+    watchSystemTheme: vi.fn((onChange: (theme?: string) => void) => {
       capturedOnChange = onChange;
       return () => {};
     }),
     fireSystemThemeChange: (theme?: string) => capturedOnChange?.(theme),
   };
 });
+vi.mock('$lib/platform', () => ({
+  getPlatformFS: vi.fn(() => new Promise(() => {})),
+  hasFileSystem: true,
+  watchSystemTheme: themeMocks.watchSystemTheme,
+}));
 vi.mock('$features/system/theme', () => ({
   applyThemePreference: themeMocks.applyThemePreference,
-  watchSystemThemeTauri: themeMocks.watchSystemThemeTauri,
 }));
 
 import { desktopLocalization } from '$shared/localization';
 import { createAppBootstrap } from './createAppBootstrap.svelte';
 
 const never = () => new Promise<never>(() => {});
+const storedPreferences = (
+  theme: AppPreferences['appearance']['theme'],
+  selectedLanguageTag: string | null,
+): AppPreferences => ({
+  appearance: { theme },
+  language: { selectedLanguageTag },
+  crashReporting: { enabled: true, alwaysSend: false },
+  updates: { enabled: true },
+  sync: { serverUrl: '', token: '', lastSyncedAt: null, lastError: '' },
+});
 
 describe('createAppBootstrap (M1 render gate)', () => {
   it('flips initialized synchronously even when every init call never resolves', () => {
@@ -106,6 +116,53 @@ describe('createAppBootstrap (M1 render gate)', () => {
     stop();
   });
 
+  it('reports the theme applied only once the stored preference is applied, so the reveal can wait', async () => {
+    let resolvePreferences = (_preferences: AppPreferences) => {};
+    preferenceMocks.loadPreferences.mockImplementationOnce(
+      () => new Promise<AppPreferences>((resolve) => (resolvePreferences = resolve)),
+    );
+    let resolveApply = (_theme: string) => {};
+    themeMocks.applyThemePreference
+      .mockImplementationOnce(() => Promise.resolve('light'))
+      .mockImplementationOnce(() => new Promise<string>((resolve) => (resolveApply = resolve)));
+    const bootstrap = createAppBootstrap({
+      initializeCrashReporting: vi.fn(never),
+      installDevelopmentHooks: vi.fn(),
+      showToast: vi.fn(),
+    });
+
+    const stop = bootstrap.start();
+    expect(bootstrap.initialized).toBe(true);
+    await vi.waitFor(() => expect(preferenceMocks.loadPreferences).toHaveBeenCalled());
+    // The cached-default apply settled; the stored preference has not landed.
+    expect(bootstrap.themeApplied).toBe(false);
+
+    resolvePreferences(storedPreferences('dark', null));
+    await vi.waitFor(() =>
+      expect(themeMocks.applyThemePreference).toHaveBeenLastCalledWith('dark'),
+    );
+    expect(bootstrap.themeApplied).toBe(false);
+
+    resolveApply('dark');
+    await vi.waitFor(() => expect(bootstrap.themeApplied).toBe(true));
+    stop();
+  });
+
+  it('still reveals when preferences cannot be loaded', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    preferenceMocks.loadPreferences.mockRejectedValueOnce(new Error('disk unavailable'));
+    const bootstrap = createAppBootstrap({
+      initializeCrashReporting: vi.fn(never),
+      installDevelopmentHooks: vi.fn(),
+      showToast: vi.fn(),
+    });
+
+    const stop = bootstrap.start();
+    await vi.waitFor(() => expect(bootstrap.themeApplied).toBe(true));
+    stop();
+    warn.mockRestore();
+  });
+
   it('refreshes System language when the window returns to the foreground', () => {
     const refreshSystemLanguage = vi.spyOn(desktopLocalization, 'refreshSystemLanguage');
     const bootstrap = createAppBootstrap({
@@ -143,13 +200,7 @@ describe('createAppBootstrap (M1 render gate)', () => {
     const stop = bootstrap.start();
     await vi.waitFor(() => expect(preferenceMocks.loadPreferences).toHaveBeenCalled());
     desktopLocalization.setSelectedLanguageTag('zh-Hans');
-    resolvePreferences({
-      appearance: { theme: 'auto' },
-      language: { selectedLanguageTag: 'en' },
-      crashReporting: { enabled: true, alwaysSend: false },
-      updates: { enabled: true },
-      sync: { serverUrl: '', token: '', lastSyncedAt: null, lastError: '' },
-    });
+    resolvePreferences(storedPreferences('auto', 'en'));
     await Promise.resolve();
     await Promise.resolve();
 
@@ -162,13 +213,7 @@ describe('createAppBootstrap (M1 render gate)', () => {
   });
 
   it('corrects an unavailable stored language to System and reports save failure', async () => {
-    preferenceMocks.loadPreferences.mockResolvedValueOnce({
-      appearance: { theme: 'auto' },
-      language: { selectedLanguageTag: 'fr' },
-      crashReporting: { enabled: true, alwaysSend: false },
-      updates: { enabled: true },
-      sync: { serverUrl: '', token: '', lastSyncedAt: null, lastError: '' },
-    });
+    preferenceMocks.loadPreferences.mockResolvedValueOnce(storedPreferences('auto', 'fr'));
     preferenceMocks.saveSelectedLanguageTag.mockRejectedValueOnce(new Error('disk unavailable'));
     const showToast = vi.fn();
     const bootstrap = createAppBootstrap({

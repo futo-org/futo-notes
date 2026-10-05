@@ -3,7 +3,7 @@
 //! Behavioral truth is `docs/spec/license.md`. FUTO Notes asks you to pay for
 //! it and enforces nothing; a license unlocks nothing functional. It removes
 //! the ambient "Unlicensed" label and fills the License card's well with the
-//! FUTO coin, above a "Licensed since {date}" row. Nothing in this crate gates
+//! FUTO coin and stored key. Nothing in this crate gates
 //! a feature, and nothing ever should.
 //!
 //! # What this crate owns
@@ -71,9 +71,10 @@ mod key;
 mod state;
 
 pub use config::{
-    activation_url, buy_url, Environment, LicenseConfig, Platform, CHECKOUT_PRODUCT_SLUG,
-    DEEP_LINK_HOST, DEEP_LINK_SCHEME, DEV_BUNDLE_ID_SUFFIX, KEY_ALPHABET, ORG_SLUG,
-    PRODUCTION_PUBLIC_KEY_BASE64, PRODUCT_SLUG, STAGING_PUBLIC_KEY_BASE64, SUPPORT_MAILTO,
+    activation_url, buy_url, license_link_out, Environment, LicenseConfig, Platform,
+    CHECKOUT_PRODUCT_SLUG, DEEP_LINK_HOST, DEEP_LINK_SCHEME, DEV_BUNDLE_ID_SUFFIX, KEY_ALPHABET,
+    ORG_SLUG, PRODUCTION_PUBLIC_KEY_BASE64, PRODUCT_SLUG, STAGING_PUBLIC_KEY_BASE64,
+    SUPPORT_MAILTO,
 };
 pub use enter::{
     enter_license_key, AcceptedLicense, ActivationTransport, EnterKeyError, HttpResponse,

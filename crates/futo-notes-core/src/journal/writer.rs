@@ -61,7 +61,7 @@ impl FailureReporter {
         if let Err(error) = result {
             if !self.reported {
                 self.reported = true;
-                eprintln!("[journal] writing stopped being possible: {error}");
+                crate::log_to_stderr!("[journal] writing stopped being possible: {error}");
             }
         }
     }

@@ -183,7 +183,7 @@ fn constants_match_the_fixture() {
         {
             let bundle_id = bundle_id.as_str().expect("bundle id");
             assert_eq!(
-                Environment::for_bundle_id(bundle_id),
+                Environment::from_bundle_suffix(bundle_id),
                 environment,
                 "{bundle_id} must resolve to the {name} environment"
             );

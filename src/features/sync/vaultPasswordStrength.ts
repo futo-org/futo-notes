@@ -8,7 +8,10 @@
  * zxcvbn and its ports carry a multi-hundred-kilobyte dictionary, and this is
  * the only screen in the app that would ever ask. What it has to get right is
  * narrow — reward variety and length, refuse to call a repeated character
- * strong — and that is checkable, which `vaultPasswordStrength.test.ts` does.
+ * strong — and that is checkable. Kotlin's `VaultPasswordStrengthTest.kt` is
+ * the surviving suite for the shared `hosted-sync-shell-presentation` drift
+ * entry (test-reduction lever C, 2026-09-24); this copy has no test of its
+ * own any more.
  */
 
 export type VaultPasswordStrength = 'tooShort' | 'weak' | 'fair' | 'strong';

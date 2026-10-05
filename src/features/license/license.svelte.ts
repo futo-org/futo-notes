@@ -44,7 +44,7 @@ class LicenseModel {
   /// the supporter coin can mark the occasion. Deliberately driven from
   /// `#replaceView` and not from the startup read: launching an app that was
   /// already licensed is not an activation, and should not set anything off.
-  activations = $state(0);
+  #activations = $state(0);
   /// How many of those have been marked. A celebration is a MOMENT, not a
   /// state: before this existed, the plate celebrated whenever it was mounted
   /// with `activations > 0`, so clicking the sidebar's Unlicensed label threw
@@ -56,12 +56,12 @@ class LicenseModel {
   /// that arrives by deep link while Settings is closed still gets its moment
   /// the first time the plate is opened — and gets it exactly once.
   get activationToCelebrate(): boolean {
-    return this.activations > this.#celebrated;
+    return this.#activations > this.#celebrated;
   }
 
   /// Spends the debt above. Idempotent.
   celebrated(): void {
-    this.#celebrated = this.activations;
+    this.#celebrated = this.#activations;
   }
 
   #started = false;
@@ -172,7 +172,7 @@ class LicenseModel {
     this.#stateRevision += 1;
     // Only the crossing counts. Re-entering a key you already hold leaves the
     // state at licensed and is not a second activation.
-    if (view.state === 'licensed' && this.view.state !== 'licensed') this.activations += 1;
+    if (view.state === 'licensed' && this.view.state !== 'licensed') this.#activations += 1;
     this.view = view;
   }
 }

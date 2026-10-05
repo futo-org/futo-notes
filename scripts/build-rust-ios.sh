@@ -33,6 +33,13 @@ TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
 # target to match the app's floor so device links succeed.
 export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-14.0}"
 
+# FUTO_LICENSE_ENV=staging|production overrides which FUTOpay org the license
+# crate verifies and buys against (default: the bundle id's `.dev` split).
+# It is compiled in, so it must be set on THIS build; say so loudly.
+if [[ -n "${FUTO_LICENSE_ENV:-}" ]]; then
+  echo "==> FUTO_LICENSE_ENV=$FUTO_LICENSE_ENV — license org forced for this build (overrides the bundle id)"
+fi
+
 APP="apps/ios"
 GEN="$APP/Sources/Generated"
 XCF="$APP/FutoNotesFfi.xcframework"

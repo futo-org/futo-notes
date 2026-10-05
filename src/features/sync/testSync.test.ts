@@ -45,7 +45,11 @@ describe('testSync', () => {
 
     const status = await testSync.testConnectSync('http://new-server', 'testing123');
 
+    expect(e2eeMocks.disconnectE2ee).toHaveBeenCalledTimes(1);
     expect(e2eeMocks.connectE2ee).toHaveBeenCalledWith('http://new-server', 'testing123');
+    expect(e2eeMocks.disconnectE2ee.mock.invocationCallOrder[0]).toBeLessThan(
+      e2eeMocks.connectE2ee.mock.invocationCallOrder[0]!,
+    );
     expect(typeof status.preferences).toBe('object');
   });
 

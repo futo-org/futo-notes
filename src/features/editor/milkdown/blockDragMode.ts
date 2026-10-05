@@ -31,18 +31,14 @@ function asMode(value: string | null | undefined): BlockDragMode | null {
  * TEST-ONLY escape hatch, and it must be able to force EITHER mode. The one
  * page a headless harness can load is `editor.html`, whose host flag is a
  * hard-coded `nativeShell: true`, so the long-press path is the only one a
- * Playwright run reaches by default. Its only current caller is this module's
- * own unit test: the e2e case that forced `gutter-handle` went away with the
- * handle's touch/pen drag on 2026-09-02, and the mouse drag it left behind has
- * no e2e coverage. `editor.html?blockDragMode=gutter-handle` (or
- * `=long-press`), or `window.__futoBlockDragMode`; never set by production
- * hosts, and the sole extra input to the one gate below rather than a second
- * ad-hoc platform check. An unrecognised value is ignored, not obeyed.
+ * Playwright run reaches by default; the gutter-handle cases in
+ * `tests/editor-embed-milkdown.spec.ts` load
+ * `editor.html?blockDragMode=gutter-handle` (or `=long-press`). Never set by
+ * production hosts, and the sole extra input to the one gate below rather than
+ * a second ad-hoc platform check. An unrecognised value is ignored, not obeyed.
  */
 function forcedByTest(): BlockDragMode | null {
   if (typeof window === 'undefined') return null;
-  const flag = asMode((window as unknown as { __futoBlockDragMode?: string }).__futoBlockDragMode);
-  if (flag) return flag;
   try {
     return asMode(new URLSearchParams(window.location.search).get('blockDragMode'));
   } catch {

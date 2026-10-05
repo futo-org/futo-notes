@@ -63,35 +63,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn v2_round_trip_basic() {
-        let blob = pack_note_v2("hello.md", "world");
-        let note = unpack_note(&blob).unwrap();
-        assert_eq!(note.path, "hello.md");
-        assert_eq!(note.content, "world");
-    }
-
-    #[test]
-    fn v2_round_trip_nested_path() {
-        let blob = pack_note_v2("Specs/folder/note.md", "# Heading\n\nbody");
-        let note = unpack_note(&blob).unwrap();
-        assert_eq!(note.path, "Specs/folder/note.md");
-        assert_eq!(note.content, "# Heading\n\nbody");
-    }
-
-    #[test]
-    fn v2_round_trip_unicode_in_path_and_content() {
-        let blob = pack_note_v2("カフェ.md", "café\n☕️");
-        let note = unpack_note(&blob).unwrap();
-        assert_eq!(note.path, "カフェ.md");
-        assert_eq!(note.content, "café\n☕️");
-    }
-
-    #[test]
-    fn v2_round_trip_empty_content() {
-        let blob = pack_note_v2("empty.md", "");
-        let note = unpack_note(&blob).unwrap();
-        assert_eq!(note.path, "empty.md");
-        assert_eq!(note.content, "");
+    fn v2_round_trip() {
+        for (path, content) in [
+            ("hello.md", "world"),
+            ("Specs/folder/note.md", "# Heading\n\nbody"),
+            ("カフェ.md", "café\n☕️"),
+            ("empty.md", ""),
+        ] {
+            let note = unpack_note(&pack_note_v2(path, content)).unwrap();
+            assert_eq!(note.path, path);
+            assert_eq!(note.content, content);
+        }
     }
 
     #[test]

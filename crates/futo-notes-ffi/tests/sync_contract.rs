@@ -10,54 +10,51 @@ mod support;
 
 use support::{path_string, TempTree};
 
+/// Compile-time only: every record is built and destructured without `..`, so
+/// adding, removing or renaming a field on the mobile wire shape breaks this
+/// file. `SyncSummary`'s values are proven from a real engine summary by
+/// `projection_carries_every_engine_field` (src/sync/contract.rs) and
+/// `SyncStatus`'s by the disconnected-client test below.
 #[test]
-fn sync_records_errors_callbacks_and_threading_keep_the_full_semantic_shape() {
+fn sync_records_callbacks_and_threading_keep_the_full_semantic_shape() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<SyncClient>();
     assert_send_sync::<ContractListener>();
 
     let ConnectInfo {
-        user_id,
-        collection_id,
-        auth_mode,
+        user_id: _,
+        collection_id: _,
+        auth_mode: _,
     } = ConnectInfo {
         user_id: "user".to_owned(),
         collection_id: "collection".to_owned(),
         auth_mode: "password".to_owned(),
     };
-    assert_eq!(
-        (user_id.as_str(), collection_id.as_str(), auth_mode.as_str()),
-        ("user", "collection", "password")
-    );
 
     let SyncFailure {
-        filename,
-        kind,
-        status_code,
+        filename: _,
+        kind: _,
+        status_code: _,
     } = SyncFailure {
         filename: "note.md".to_owned(),
         kind: "upload".to_owned(),
         status_code: Some(409),
     };
-    assert_eq!(
-        (filename.as_str(), kind.as_str(), status_code),
-        ("note.md", "upload", Some(409))
-    );
 
     let SyncSummary {
-        uploaded,
-        downloaded,
-        deleted,
-        conflicts,
-        local_writes_applied,
-        failures,
-        failure_message,
-        updated_ids,
-        deleted_ids,
-        peer_updated_ids,
-        peer_deleted_ids,
-        renamed,
-        write_refusal,
+        uploaded: _,
+        downloaded: _,
+        deleted: _,
+        conflicts: _,
+        local_writes_applied: _,
+        failures: _,
+        failure_message: _,
+        updated_ids: _,
+        deleted_ids: _,
+        peer_updated_ids: _,
+        peer_deleted_ids: _,
+        renamed: _,
+        write_refusal: _,
     } = SyncSummary {
         uploaded: 1,
         downloaded: 2,
@@ -76,43 +73,14 @@ fn sync_records_errors_callbacks_and_threading_keep_the_full_semantic_shape() {
         }],
         write_refusal: Some(WriteRefusal::SubscriptionRequired),
     };
-    assert_eq!(
-        (
-            uploaded,
-            downloaded,
-            deleted,
-            conflicts,
-            local_writes_applied,
-            failures.len(),
-            failure_message.as_deref(),
-        ),
-        (1, 2, 3, 4, 5, 0, Some("failure"))
-    );
-    // A refused write reaches the native shells as a named fact, not as a
-    // status code they would each have to read out of `failures` (M6).
-    assert!(matches!(
-        write_refusal,
-        Some(WriteRefusal::SubscriptionRequired)
-    ));
-    // The per-id delta and rename intent are part of the native shells' wire
-    // shape, not desktop-only: a shell scopes its refresh and follows reported
-    // renames from these, never from the counters above.
-    assert_eq!(updated_ids, ["updated"]);
-    assert_eq!(deleted_ids, ["deleted"]);
-    assert_eq!(peer_updated_ids, ["peer-updated"]);
-    assert_eq!(peer_deleted_ids, ["peer-deleted"]);
-    let [RenamePair { from_id, to_id }] = renamed.as_slice() else {
-        panic!("expected exactly one reported rename");
-    };
-    assert_eq!((from_id.as_str(), to_id.as_str()), ("old", "new"));
 
     let SyncStatus {
-        connected,
-        server_url,
-        user_id,
-        collection_id,
-        max_version,
-        object_count,
+        connected: _,
+        server_url: _,
+        user_id: _,
+        collection_id: _,
+        max_version: _,
+        object_count: _,
     } = SyncStatus {
         connected: true,
         server_url: Some("https://sync.example".to_owned()),
@@ -121,24 +89,6 @@ fn sync_records_errors_callbacks_and_threading_keep_the_full_semantic_shape() {
         max_version: 9,
         object_count: 10,
     };
-    assert!(connected);
-    assert_eq!(server_url.as_deref(), Some("https://sync.example"));
-    assert_eq!(user_id.as_deref(), Some("user"));
-    assert_eq!(collection_id.as_deref(), Some("collection"));
-    assert_eq!((max_version, object_count), (9, 10));
-
-    assert_eq!(SyncError::Http("x".to_owned()).to_string(), "HTTP error: x");
-    assert_eq!(
-        SyncError::Crypto("x".to_owned()).to_string(),
-        "crypto error: x"
-    );
-    assert_eq!(SyncError::Io("x".to_owned()).to_string(), "I/O error: x");
-    assert_eq!(SyncError::Auth("x".to_owned()).to_string(), "auth error: x");
-    assert_eq!(
-        SyncError::CollectionGone("collection-gone: x".to_owned()).to_string(),
-        "collection-gone: x"
-    );
-    assert_eq!(SyncError::NotConnected.to_string(), "not connected");
 }
 
 /// The open-note verb is reachable over the FFI and projects every arm of the

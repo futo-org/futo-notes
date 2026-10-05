@@ -42,32 +42,18 @@ describe('syncCoordinator', () => {
   });
 
   describe('shouldDeferSync', () => {
-    it('defers when a save is pending', () => {
-      const deps = makeDeps({ isSavePending: () => true });
-      const coord = createSyncCoordinator(deps, makeUI());
-      expect(coord.shouldDeferSync()).toBe(true);
-      coord.destroy();
-    });
-
-    it('defers when the editor is composing (IME)', () => {
-      const deps = makeDeps({ isComposing: () => true });
-      const coord = createSyncCoordinator(deps, makeUI());
-      expect(coord.shouldDeferSync()).toBe(true);
-      coord.destroy();
-    });
-
-    it('defers when the last edit was less than 1 second ago', () => {
-      const now = Date.now();
-      const deps = makeDeps({ getLastEditTime: () => now - 500 });
-      const coord = createSyncCoordinator(deps, makeUI());
-      expect(coord.shouldDeferSync()).toBe(true);
-      coord.destroy();
-    });
-
-    it('does not defer when idle', () => {
-      const deps = makeDeps({ getLastEditTime: () => Date.now() - 2000 });
-      const coord = createSyncCoordinator(deps, makeUI());
-      expect(coord.shouldDeferSync()).toBe(false);
+    it.each<[string, Partial<SyncCoordinatorDeps>, boolean]>([
+      ['defers when a save is pending', { isSavePending: () => true }, true],
+      ['defers when the editor is composing (IME)', { isComposing: () => true }, true],
+      [
+        'defers when the last edit was less than 1 second ago',
+        { getLastEditTime: () => Date.now() - 500 },
+        true,
+      ],
+      ['does not defer when idle', { getLastEditTime: () => Date.now() - 2000 }, false],
+    ])('%s', (_name, overrides, expected) => {
+      const coord = createSyncCoordinator(makeDeps(overrides), makeUI());
+      expect(coord.shouldDeferSync()).toBe(expected);
       coord.destroy();
     });
   });

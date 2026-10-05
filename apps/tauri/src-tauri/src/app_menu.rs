@@ -312,11 +312,6 @@ mod tests {
     }
 
     #[test]
-    fn close_window_is_not_forwarded_to_the_frontend() {
-        assert!(!FRONTEND_COMMANDS.contains(&CLOSE_WINDOW));
-    }
-
-    #[test]
     fn quit_is_not_forwarded_to_the_frontend() {
         assert!(!FRONTEND_COMMANDS.contains(&QUIT));
     }
@@ -339,11 +334,14 @@ mod tests {
         assert!(production.contains("id == CLOSE_WINDOW || id == QUIT"));
     }
 
+    /// `english()` is only exercised on macOS builds in CI (`install`'s only
+    /// caller is `#[cfg(target_os = "macos")]`), so this call — which is not
+    /// cfg-gated — is the one MR-blocking check that a catalog key rename
+    /// under `app.desktop.menu.*` doesn't leave `install()` returning `Err`
+    /// on every macOS launch. Not asserting exact copy: that's `en.json`'s
+    /// job, not this struct's.
     #[test]
-    fn initial_menu_labels_come_from_the_english_catalog() {
-        let labels = ApplicationMenuLabels::english().expect("English menu labels are valid");
-        assert_eq!(labels.settings, "Settings…");
-        assert_eq!(labels.new_note, "New Note");
-        assert_eq!(labels.toggle_sidebar, "Toggle Sidebar");
+    fn english_menu_labels_resolve_every_catalog_key() {
+        ApplicationMenuLabels::english().expect("every app.desktop.menu.* key resolves");
     }
 }

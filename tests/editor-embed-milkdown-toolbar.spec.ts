@@ -634,6 +634,22 @@ test('making a nested item a task leaves it nested', async ({ page }) => {
   expect((await getContent(page)).trimEnd()).toBe('- a\n  - [ ] b');
 });
 
+// A nested list is a list of its own: Ordered or Bullet tapped on its item
+// changes that list alone, and removing the bullet lifts the item clear of
+// every list rather than leaving it half-nested.
+for (const [id, expected] of [
+  ['ordered-list', '- a\n- b\n  1. c'],
+  ['bullet-list', '- a\n- b\n\nc'],
+] as const) {
+  test(`${id} on a nested item changes only that item's list`, async ({ page }) => {
+    await hostSetContent(page, '- a\n- b\n  - c');
+    await focusEditor(page);
+    await caretIn(page, 'c');
+    await exec(page, id);
+    expect((await getContent(page)).trimEnd()).toBe(expected);
+  });
+}
+
 // ============================================================
 // A selection spanning several blocks
 // ============================================================
@@ -680,6 +696,14 @@ test('tapping Ordered across a whole list converts every item', async ({ page })
 
 test('a heading choice applies the same level across mixed blocks', async ({ page }) => {
   expect(await afterExecAcross(page, '# a\n\nb', 'a', 'b', 'heading-1')).toBe('# a\n\n# b');
+});
+
+test('several selected paragraphs become ONE blockquote', async ({ page }) => {
+  expect(await afterExecAcross(page, 'a\n\nb', 'a', 'b', 'quote')).toBe('> a\n>\n> b');
+});
+
+test('Bullet across a list item and a paragraph toggles each separately', async ({ page }) => {
+  expect(await afterExecAcross(page, '- a\n\nb', 'a', 'b', 'bullet-list')).toBe('a\n\n- b');
 });
 
 // A wikilink is an ATOM node inside the paragraph (#101). A block command has
@@ -742,33 +766,33 @@ async function caretInFence(page: Page): Promise<void> {
 
 const BLOCK_IDS = ['heading-1', 'quote', 'bullet-list', 'ordered-list', 'task-list'];
 
-for (const id of [...BLOCK_IDS, 'indent', 'outdent']) {
-  test(`${id} inside a fenced code block leaves the note untouched`, async ({ page }) => {
-    await hostSetContent(page, FENCE);
-    await focusEditor(page);
-    await caretInFence(page);
-    const before = await getContent(page);
-    expect(before).toContain('```');
-
-    await exec(page, id);
-    expect(await getContent(page)).toBe(before);
-  });
-}
-
 // Indent/Outdent are the preset's list commands, so a fence INDENTED UNDER a
 // list item is the case where they could still restructure the list while the
-// caret sits on a code line.
-for (const id of [...BLOCK_IDS, 'indent', 'outdent']) {
-  test(`${id} inside a fence nested in a list item leaves the note untouched`, async ({ page }) => {
-    await hostSetContent(page, '- one\n- two\n\n  ```\n  nested code\n  ```');
-    await focusEditor(page);
-    await caretInFence(page);
-    const before = await getContent(page);
-    expect(before).toContain('nested code');
+// caret sits on a code line. A GFM table cell holds one line of inline
+// content, so no block prefix can apply there either.
+const UNTOUCHED: Array<[string, string, (page: Page) => Promise<void>, string[]]> = [
+  ['a fenced code block', FENCE, caretInFence, [...BLOCK_IDS, 'indent', 'outdent']],
+  [
+    'a fence nested in a list item',
+    '- one\n- two\n\n  ```\n  nested code\n  ```',
+    caretInFence,
+    [...BLOCK_IDS, 'indent', 'outdent'],
+  ],
+  ['a table cell', '| head |\n| ---- |\n| body |', (page) => caretIn(page, 'body'), BLOCK_IDS],
+];
 
-    await exec(page, id);
-    expect(await getContent(page)).toBe(before);
-  });
+for (const [where, markdown, placeCaret, ids] of UNTOUCHED) {
+  for (const id of ids) {
+    test(`${id} inside ${where} leaves the note untouched`, async ({ page }) => {
+      await hostSetContent(page, markdown);
+      await focusEditor(page);
+      await placeCaret(page);
+      const before = await getContent(page);
+
+      await exec(page, id);
+      expect(await getContent(page)).toBe(before);
+    });
+  }
 }
 
 // The toolbar highlight has to agree with what the button DID: nothing. The
@@ -786,26 +810,16 @@ test('a tap inside a fence never lights a block button up', async ({ page }) => 
   expect(posted.flatMap((message) => (message.active as string[] | undefined) ?? [])).toEqual([]);
 });
 
-test('quote across a fence formats the prose around it and skips the fence', async ({ page }) => {
-  await hostSetContent(page, 'before\n\n```\ncode\n```\n\nafter');
-  await focusEditor(page);
-  await selectAll(page);
-  await exec(page, 'quote');
-  expect((await getContent(page)).trimEnd()).toBe('> before\n\n```\ncode\n```\n\n> after');
-});
-
-// A GFM table cell holds one line of inline content, so no block prefix can
-// apply there either.
-for (const id of BLOCK_IDS) {
-  test(`${id} inside a table cell leaves the note untouched`, async ({ page }) => {
-    await hostSetContent(page, '| head |\n| ---- |\n| body |');
+for (const [id, expected] of [
+  ['quote', '> before\n\n```\ncode\n```\n\n> after'],
+  ['bullet-list', '- before\n\n```\ncode\n```\n\n- after'],
+] as const) {
+  test(`${id} across a fence formats the prose around it and skips the fence`, async ({ page }) => {
+    await hostSetContent(page, 'before\n\n```\ncode\n```\n\nafter');
     await focusEditor(page);
-    await caretIn(page, 'body');
-    const before = await getContent(page);
-    expect(before).toContain('body');
-
+    await selectAll(page);
     await exec(page, id);
-    expect(await getContent(page)).toBe(before);
+    expect((await getContent(page)).trimEnd()).toBe(expected);
   });
 }
 

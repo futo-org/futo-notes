@@ -9,7 +9,7 @@ use crate::server::Http;
 use crate::session::connect::client;
 
 use super::outcome::decision;
-use super::outcome::{append_derived_renames, record_checkpoint_failure};
+use super::outcome::{append_derived_renames, record_checkpoint_failure, FailureKind, SyncFailure};
 use super::tombstones::recover_stale_claims;
 use super::vault::{local_scan, LocalFile};
 use super::{
@@ -30,6 +30,7 @@ pub(in crate::sync) mod reason {
     pub(in crate::sync) const NOT_ON_SERVER: &str = "not_on_server";
     pub(in crate::sync) const UNPORTABLE_NAME: &str = "unportable_local_name";
     pub(in crate::sync) const NAME_NOT_UTF8: &str = "local_name_not_utf8";
+    pub(in crate::sync) const REJECTED_LOCAL_PATH: &str = "rejected_local_path";
     pub(in crate::sync) const REMOTE_OBJECT_DELETED: &str = "remote_object_was_deleted";
     pub(in crate::sync) const LOCAL_CONTENT_CHANGED: &str = "local_content_changed";
     pub(in crate::sync) const SERVER_REJECTED_413: &str = "server_rejected_413";
@@ -65,23 +66,42 @@ fn uploadable_files(
     }
     files
         .into_iter()
-        .filter(|file| {
+        .filter(|file| match classify_incoming_sync_path(&file.name) {
             // A `\` inside a Unix name reads as a folder separator on Windows,
-            // so a peer there would hold the note under another name.
-            let unportable = file.name.contains('\\')
-                || matches!(
-                    classify_incoming_sync_path(&file.name),
-                    IncomingSyncPath::Ignore(why) if why == IGNORE_UNPORTABLE_NAME
-                );
-            if unportable {
+            // so a peer there would hold the note under another name. It is
+            // unportable, never a rejected path, whatever the classifier makes
+            // of the `\`.
+            classified
+                if file.name.contains('\\')
+                    || matches!(
+                        classified,
+                        IncomingSyncPath::Ignore(why) if why == IGNORE_UNPORTABLE_NAME
+                    ) =>
+            {
                 summary.decide(
                     SyncPhase::Push,
                     &file.name,
                     decision::IGNORED,
                     reason::UNPORTABLE_NAME,
                 );
+                false
             }
-            !unportable
+            IncomingSyncPath::Reject(why) => {
+                summary.failures.push(SyncFailure {
+                    filename: file.name.clone(),
+                    kind: FailureKind::Rejected,
+                    status_code: None,
+                    detail: Some(why.into()),
+                });
+                summary.decide(
+                    SyncPhase::Push,
+                    &file.name,
+                    decision::FAILED,
+                    reason::REJECTED_LOCAL_PATH,
+                );
+                false
+            }
+            _ => true,
         })
         .collect()
 }

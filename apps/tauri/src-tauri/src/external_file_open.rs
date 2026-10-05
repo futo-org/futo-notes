@@ -81,7 +81,9 @@ pub(crate) fn emit_arguments(app: &AppHandle, arguments: Vec<String>, cwd: Strin
     let root = match crate::vault_location::root(app) {
         Ok(root) => root,
         Err(error) => {
-            eprintln!("Could not route externally opened Markdown file: {error}");
+            futo_notes_core::log_to_stderr!(
+                "Could not route externally opened Markdown file: {error}"
+            );
             return;
         }
     };
@@ -92,7 +94,9 @@ pub(crate) fn emit_arguments(app: &AppHandle, arguments: Vec<String>, cwd: Strin
     );
     for request in requests {
         if let Err(error) = app.emit(OPEN_NOTE_REQUEST_EVENT, request) {
-            eprintln!("Could not emit external Markdown open request: {error}");
+            futo_notes_core::log_to_stderr!(
+                "Could not emit external Markdown open request: {error}"
+            );
         }
     }
 }

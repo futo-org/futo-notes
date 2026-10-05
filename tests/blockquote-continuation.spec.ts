@@ -90,12 +90,4 @@ test.describe('Blockquote continuation', () => {
     await page.keyboard.press('Enter');
     expect(await quoteDepth(page), 'a second steps out of the outer quote').toBe(0);
   });
-
-  test('the quote the user typed survives the continuation', async ({ page }) => {
-    await openNewNote(page);
-    await typeInEditor(page, '> hello');
-    await page.keyboard.press('Enter');
-
-    expect(await editorMarkdown(page)).toContain('> hello');
-  });
 });

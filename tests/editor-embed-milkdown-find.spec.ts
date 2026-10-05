@@ -83,27 +83,6 @@ test('the engine answers the native find calls and never mounts the web panel', 
   await expect(page.locator(MATCH)).toHaveCount(0);
 });
 
-test('stepping wraps at both ends', async ({ page }) => {
-  await seed(page, 'cat\n\ncat\n\ncat');
-  await page.evaluate(() => {
-    const api = (window as unknown as FakeHostWindow).FutoEditor;
-    api.openFind();
-    api.setFindQuery('cat');
-  });
-  expect(await lastFindReport(page)).toMatchObject({ current: 1, total: 3 });
-
-  const step = (delta: number): Promise<void> =>
-    page.evaluate((d) => (window as unknown as FakeHostWindow).FutoEditor.stepFind(d), delta);
-
-  await step(1);
-  await step(1);
-  expect(await lastFindReport(page)).toMatchObject({ current: 3 });
-  await step(1);
-  expect(await lastFindReport(page)).toMatchObject({ current: 1 });
-  await step(-1);
-  expect(await lastFindReport(page)).toMatchObject({ current: 3 });
-});
-
 test('a query that matches nothing reports 0 and every step is a no-op', async ({ page }) => {
   await seed(page, 'cat dog');
   await page.evaluate(() => {

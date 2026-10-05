@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
@@ -22,6 +23,26 @@ describe('Linux desktop packaging identity', () => {
     expect(fields.NoDisplay).toBe('true');
     for (const format of ['deb', 'rpm']) {
       expect(config.bundle.linux[format].files[desktopDestination]).toBe(desktopSource);
+    }
+  });
+
+  it('overlays package versions without changing the tracked Tauri config', () => {
+    const justfile = readFileSync(new URL('../justfile', import.meta.url), 'utf8');
+    for (const [name, bundle] of [
+      ['deploy-deb', 'deb'],
+      ['deploy-rpm', 'rpm'],
+    ]) {
+      const start = justfile.indexOf(`${name}:`);
+      const tail = justfile.slice(start + name.length);
+      const nextRecipe = tail.search(/^[a-z][\w-]*(?: [^\n]*)?:/m);
+      const end = nextRecipe < 0 ? -1 : start + name.length + nextRecipe;
+      const recipe = justfile.slice(start, end < 0 ? undefined : end);
+
+      expect(recipe).toContain('VERSION_CONFIG_DIR=$(mktemp -d)');
+      expect(recipe).toContain('printf \'{"version":"%s"}\\n\' "$VERSION" > "$VERSION_CONFIG"');
+      expect(recipe).toContain(`cargo tauri build --bundles ${bundle} --config "$VERSION_CONFIG"`);
+      expect(recipe).not.toContain('git checkout');
+      expect(recipe).not.toContain('tauri.conf.json');
     }
   });
 });

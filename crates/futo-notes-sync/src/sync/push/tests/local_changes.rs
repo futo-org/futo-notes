@@ -1,6 +1,75 @@
 use super::*;
 use crate::checkpoint::PendingCreate;
+use crate::sync::push::local_changes::prepare_upload;
 use crate::sync::SyncSummary;
+
+fn push_context<'a>(
+    http: &'a Http,
+    state: &'a mut ConnectedState,
+    root: &'a Path,
+    summary: &'a mut SyncSummary,
+) -> PushContext<'a> {
+    PushContext {
+        http,
+        state,
+        root,
+        summary,
+        pre_write: &no_pre_write,
+        save_checkpoint: &|_, _| Ok(()),
+    }
+}
+
+fn recorded(hash: &str, file: &LocalFile) -> ObjectState {
+    ObjectState {
+        object_id: "obj".into(),
+        version: 1,
+        blob_key: "blob".into(),
+        hash: Some(hash.to_owned()),
+        mtime_ms: Some(file.mtime),
+        size_bytes: Some(file.size),
+    }
+}
+
+#[test]
+fn a_same_length_rewrite_that_kept_its_mtime_still_uploads() {
+    let root = TempRoot::new();
+    std::fs::write(root.path().join("hub.md"), "see [[receive]]").unwrap();
+    let files = local_files(root.path()).unwrap();
+    let file = files[0].clone();
+    let mut state = connected();
+    state.object_map.insert(
+        "hub.md".into(),
+        recorded(&hash_sha256("see [[recieve]]"), &file),
+    );
+    let http = Http::new("http://127.0.0.1:1").unwrap();
+    let mut summary = SyncSummary::default();
+    let mut context = push_context(&http, &mut state, root.path(), &mut summary);
+
+    let candidate = prepare_upload(&mut context, &file, false);
+
+    assert!(
+        candidate.is_some(),
+        "a rewrite the filesystem never timestamped must still reach the peer"
+    );
+}
+
+#[test]
+fn a_genuinely_unchanged_file_is_still_not_uploaded() {
+    let root = TempRoot::new();
+    std::fs::write(root.path().join("hub.md"), "see [[receive]]").unwrap();
+    let files = local_files(root.path()).unwrap();
+    let file = files[0].clone();
+    let mut state = connected();
+    state.object_map.insert(
+        "hub.md".into(),
+        recorded(&hash_sha256("see [[receive]]"), &file),
+    );
+    let http = Http::new("http://127.0.0.1:1").unwrap();
+    let mut summary = SyncSummary::default();
+    let mut context = push_context(&http, &mut state, root.path(), &mut summary);
+
+    assert!(prepare_upload(&mut context, &file, false).is_none());
+}
 
 #[test]
 fn rename_detection_does_not_claim_a_pending_create_file() {
@@ -203,4 +272,86 @@ fn a_non_utf8_filename_is_not_scanned_and_does_not_fail_the_push() {
         ["caf\u{FFFD}.md"],
         "push journals what the scan skips"
     );
+}
+
+#[test]
+fn local_paths_rejected_by_receivers_are_skipped_and_reported() {
+    let deep = format!("{}note.md", "folder/".repeat(11));
+    let long = format!("{}.md", "a".repeat(253));
+    let files = vec![
+        LocalFile {
+            name: deep.clone(),
+            mtime: 1,
+            size: 4,
+        },
+        LocalFile {
+            name: long.clone(),
+            mtime: 1,
+            size: 4,
+        },
+        LocalFile {
+            name: "valid.md".into(),
+            mtime: 1,
+            size: 4,
+        },
+    ];
+    let mut previous = connected();
+    previous.object_map.insert(
+        deep.clone(),
+        ObjectState {
+            object_id: "older-upload".into(),
+            version: 1,
+            blob_key: "older-blob".into(),
+            hash: None,
+            mtime_ms: None,
+            size_bytes: None,
+        },
+    );
+    assert!(
+        missing_local_files(&previous, &files).is_empty(),
+        "a skipped local path must never become a remote tombstone"
+    );
+    let mut summary = SyncSummary::default();
+
+    let uploadable = uploadable_files(files, &[], &mut summary);
+
+    assert_eq!(
+        uploadable
+            .iter()
+            .map(|file| file.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["valid.md"]
+    );
+    assert_eq!(summary.failures.len(), 2);
+    assert!(summary
+        .failures
+        .iter()
+        .all(|failure| failure.kind == FailureKind::Rejected));
+    assert!(summary
+        .failure_message()
+        .unwrap()
+        .contains("unsupported names"));
+}
+
+/// The push-only `\` rule wins over the receiver-rejection screen: the
+/// classifier reads `\` as a separator, so `\leading.md` would otherwise look
+/// like a leading-slash path and be reported as a failure. It is an
+/// unportable name, journaled and never surfaced.
+#[test]
+fn a_backslash_name_is_unportable_even_where_the_classifier_would_reject_it() {
+    let files = vec![LocalFile {
+        name: "\\leading.md".into(),
+        mtime: 1,
+        size: 4,
+    }];
+    let mut summary = SyncSummary::default();
+
+    let uploadable = uploadable_files(files, &[], &mut summary);
+
+    assert!(uploadable.is_empty());
+    assert!(summary.failures.is_empty(), "{:?}", summary.failures);
+    assert!(summary
+        .decisions()
+        .iter()
+        .any(|d| d.decision == decision::IGNORED && d.reason == reason::UNPORTABLE_NAME));
 }

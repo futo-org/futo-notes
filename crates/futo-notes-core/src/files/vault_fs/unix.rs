@@ -315,7 +315,7 @@ pub(super) fn read_optional(root: &Path, relative: &str) -> Result<Option<Vec<u8
 // journal-facing operations retain strict directory durability and retry rules.
 fn report_local_sync(result: Result<(), String>) {
     if let Err(error) = result {
-        eprintln!("local vault directory durability: {error}");
+        crate::log_to_stderr!("local vault directory durability: {error}");
     }
 }
 
@@ -439,19 +439,36 @@ pub(super) fn move_no_replace(
     source: &str,
     destination: &str,
 ) -> Result<bool, String> {
+    move_no_replace_with_policy(root, source, destination, false)
+}
+
+pub(super) fn move_no_replace_strict(
+    root: &Path,
+    source: &str,
+    destination: &str,
+) -> Result<bool, String> {
+    move_no_replace_with_policy(root, source, destination, true)
+}
+
+fn move_no_replace_with_policy(
+    root: &Path,
+    source: &str,
+    destination: &str,
+    strict: bool,
+) -> Result<bool, String> {
     let from = open_parent(root, source, false).map_err(OpenParentError::message)?;
-    let to = open_parent_with_policy(root, destination, true, false)
+    let to = open_parent_with_policy(root, destination, true, strict)
         .map_err(OpenParentError::message)?;
     reject_symlink(&from, "move source", source)?;
     reject_symlink(&to, "move destination", destination)?;
     let result = install_no_replace(&from.directory, &from.leaf, &to.directory, &to.leaf)?;
     if result {
-        report_local_sync(sync_rename_directories(
-            from.directory,
-            to.directory,
-            source,
-            destination,
-        ));
+        let sync = sync_rename_directories(from.directory, to.directory, source, destination);
+        if strict {
+            sync?;
+        } else {
+            report_local_sync(sync);
+        }
     }
     Ok(result)
 }

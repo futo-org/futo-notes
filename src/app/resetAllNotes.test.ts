@@ -15,6 +15,7 @@ vi.mock('$lib/platform');
 const resetVault = vi.hoisted(() => vi.fn());
 vi.mock('$lib/localNoteStore', () => ({
   getLocalNoteStoreSync: vi.fn(() => ({ reset: resetVault })),
+  DEFAULT_NOTE_SORT_ORDER: { key: 'lastModified', direction: 'descending' },
 }));
 vi.mock('$features/sync/autoSync', () => ({
   pauseSync: vi.fn(),

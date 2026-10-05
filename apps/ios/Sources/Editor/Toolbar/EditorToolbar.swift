@@ -333,30 +333,30 @@ struct EditorToolbarView: View {
                     Image(systemName: item.sfSymbol)
                 }
             }
-                .font(.system(size: 17, weight: .medium))
-                // Theme.primary, not Color.accentColor: there is no AccentColor
-                // asset, so accentColor falls back to iOS system blue — and a
-                // view-root `.tint()` does not retarget an explicit
-                // Color.accentColor reference.
-                // The dimmed opacity is baked into the COLOR's own alpha
-                // (`.opacity()` on the Color, not a separate view `.opacity()`
-                // modifier) — measured on an iOS 26.5 simulator: a view-level
-                // `.opacity()` on this label renders at full strength once
-                // composited through the capsule's `.glassEffect()` (Liquid
-                // Glass), while the identical foreground-highlight `.background`
-                // wash right below renders correctly. Baking the alpha into the
-                // paint color sidesteps whatever the glass material's
-                // compositing does to a child view's own opacity layer.
-                .foregroundStyle((isActive ? Theme.primary : foreground).opacity(isDisabled ? 0.35 : 1))
-                .frame(width: ToolbarMetrics.buttonWidth, height: ToolbarMetrics.buttonHeight)
-                .background {
-                    if isActive {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Theme.primary.opacity(0.15))
-                            .padding(4)
-                    }
+            .font(.system(size: 17, weight: .medium))
+            // Theme.primary, not Color.accentColor: there is no AccentColor
+            // asset, so accentColor falls back to iOS system blue — and a
+            // view-root `.tint()` does not retarget an explicit
+            // Color.accentColor reference.
+            // The dimmed opacity is baked into the COLOR's own alpha
+            // (`.opacity()` on the Color, not a separate view `.opacity()`
+            // modifier) — measured on an iOS 26.5 simulator: a view-level
+            // `.opacity()` on this label renders at full strength once
+            // composited through the capsule's `.glassEffect()` (Liquid
+            // Glass), while the identical foreground-highlight `.background`
+            // wash right below renders correctly. Baking the alpha into the
+            // paint color sidesteps whatever the glass material's
+            // compositing does to a child view's own opacity layer.
+            .foregroundStyle((isActive ? Theme.primary : foreground).opacity(isDisabled ? 0.35 : 1))
+            .frame(width: ToolbarMetrics.buttonWidth, height: ToolbarMetrics.buttonHeight)
+            .background {
+                if isActive {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Theme.primary.opacity(0.15))
+                        .padding(4)
                 }
-                .contentShape(Rectangle())
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         // Undo/Redo with an empty prosemirror-history stack (bridge

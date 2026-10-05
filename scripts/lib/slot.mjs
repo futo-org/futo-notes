@@ -17,11 +17,9 @@ export const PORT_BASES = {
   // one for the hosted scenarios — so it needs two disjoint bands, not one.
   syncIntegration: 3150,
   syncIntegrationHosted: 3200,
-  cdp: 9330,
-  // The debug MCP/QA bridge's BASE port. The plugin scans upward from it, so
-  // this band is 100 wide per the plugin's scan range — but a slot only ever
-  // needs its own base to be free, and a stride of 1 kept two worktrees fighting
-  // over 9223. Kept clear of cdp (9330+).
+  cdp: 15000,
+  // Each bridge scans base..base+99. A disjoint 100-port band per slot keeps
+  // its bound port stable across restarts, even when another slot's base is busy.
   mcp: 9223,
   // `just coin-tuner`'s static server. Clear of web (5250+) so the tuner and a
   // dev server can be up at once, which is the normal case: you tune the coin
@@ -78,6 +76,34 @@ export function devBundleId(root) {
   return `com.futo.notes.wt${slotOf(root)}.dev`;
 }
 
+/**
+ * The executable file name `just tauri-dev` gives this branch's instance.
+ *
+ * The macOS Dock names an unbundled process by its executable's file name —
+ * not productName, the embedded Info.plist, or the LaunchServices display name
+ * (each measured 2026-09-25) — so the debug binary re-executes itself from a
+ * hard link with this name (apps/tauri/src-tauri/src/dev_app_name.rs). `/`
+ * cannot appear in a file name, but Finder and the Dock show `:` as `/`, so the
+ * branch still reads verbatim. scripts/qa-target.mjs enumerates by the prefix.
+ */
+export const DEV_APP_FILE_NAME_PREFIX = 'FUTO Notes (Dev) · ';
+
+export function devAppFileName(branch) {
+  return `${DEV_APP_FILE_NAME_PREFIX}${branch.replaceAll('/', ':')}`;
+}
+
+/**
+ * The dev-app names among `names` that belong to none of `liveBranches`.
+ *
+ * The same name keys what that instance leaves behind: its hard link in
+ * target/debug (swept by tauri-dev.mjs) and, since an unbundled process has no
+ * bundle id, its WebKit and Caches folders in ~/Library (swept by `just wt gc`).
+ */
+export function staleDevAppNames(names, liveBranches) {
+  const live = new Set(liveBranches.map(devAppFileName));
+  return names.filter((name) => name.startsWith(DEV_APP_FILE_NAME_PREFIX) && !live.has(name));
+}
+
 /** The port band tests/cross-platform-sync.mjs may allocate from. */
 export function xplatSyncBand(root) {
   const slot = slotOf(root ?? worktreeRoot());
@@ -94,7 +120,12 @@ export function probeBand(root) {
 
 export function portsFor(root) {
   const slot = slotOf(root);
-  return Object.fromEntries(Object.entries(PORT_BASES).map(([name, base]) => [name, base + slot]));
+  return Object.fromEntries(
+    Object.entries(PORT_BASES).map(([name, base]) => [
+      name,
+      base + slot * (name === 'mcp' ? 100 : 1),
+    ]),
+  );
 }
 
 // From this file's path, not the cwd: shell callers run the CLI from anywhere,

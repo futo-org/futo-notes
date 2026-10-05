@@ -8,7 +8,7 @@ use crate::checkpoint::{ConnectedState, ObjectState};
 
 use super::encrypted_note::RemoteNote;
 use super::outcome::note_id;
-use super::vault::{path_exists, rename_local};
+use super::vault::{content_hash, path_exists, rename_local};
 use super::{decision, PreWrite, RenamePair, SyncPhase, SyncSummary};
 
 fn collision_rivals(
@@ -53,10 +53,20 @@ fn move_collision_loser(
         return Ok(());
     }
     let target = collision_conflict_filename(context.requested, &entry.object_id);
-    (context.pre_write)(&name);
-    (context.pre_write)(&target);
-    if !rename_local(context.root, &name, &target)? {
-        return Ok(());
+    if path_exists(context.root, &target)? && !path_exists(context.root, &name)? {
+        // A prior attempt can move the bytes but fail directory fsync before
+        // checkpointing. Verify the parked bytes, then resync before advancing.
+        if entry.hash.as_ref() != content_hash(context.root, &target).as_ref() {
+            return Err(format!("collision destination already exists: {target}"));
+        }
+        futo_notes_core::files::vault_fs::sync_parent(context.root, &name)?;
+        futo_notes_core::files::vault_fs::sync_parent(context.root, &target)?;
+    } else {
+        (context.pre_write)(&name);
+        (context.pre_write)(&target);
+        if !rename_local(context.root, &name, &target)? {
+            return Ok(());
+        }
     }
     context.state.object_map.remove(&name);
     context.state.object_map.insert(target.clone(), entry);
