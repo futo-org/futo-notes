@@ -65,12 +65,6 @@ cargo ndk --platform 24 --target "$ABIS" --output-dir "$JNI" \
 echo "==> Building host lib (for binding generation metadata)"
 cargo build -p futo-notes-ffi
 
-# The host dylib lives under cargo's target dir, which CARGO_TARGET_DIR can
-# relocate (e.g. to share one warm target/ across worktrees) — the binding
-# generation then failed with 'failed to open file target/debug/…' after a
-# successful build (pc_2439ab43fc9b).
-TARGET_DIR="${CARGO_TARGET_DIR:-target}"
-
 echo "==> Generating Kotlin bindings"
 # Host dylib extension differs by OS: macOS .dylib, Linux .so.
 # Honour a relocated cargo target dir: with CARGO_TARGET_DIR set, the build

@@ -17,10 +17,11 @@ use crate::application_state::AppState;
 ///   clients actually dial makes the scan see what they see, so a squatter
 ///   pushes the bridge to the next free port instead of aliasing it.
 ///
-/// * **Per-worktree base port.** `FUTO_MCP_BASE_PORT` is set by
+/// * **Disjoint per-worktree scan band.** `FUTO_MCP_BASE_PORT` is set by
 ///   `scripts/tauri-dev.mjs` from the worktree slot (`scripts/lib/slot.mjs`,
-///   the single owner of slot derivation — do not re-derive it here). Parallel
-///   worktrees then never contend for one 9223 like they used to.
+///   the single owner of slot derivation — do not re-derive it here). Each slot
+///   gets 100 ports because the plugin scans base..base+99; adjacent bases would
+///   still overlap and a restart could move one worktree onto another's bridge.
 #[cfg(debug_assertions)]
 fn mcp_bridge_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
     let mut builder = tauri_plugin_mcp_bridge::Builder::new().bind_address("127.0.0.1");
