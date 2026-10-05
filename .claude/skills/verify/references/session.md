@@ -56,7 +56,8 @@ device — creating and booting it on first use — and prints the export lines.
 Set `SIM` / `ANDROID_SERIAL` in every Bash block that drives a device: all
 `sim-*` recipes and `apps/ios/run.sh` honor `$SIM`, and `adb` honors
 `$ANDROID_SERIAL` natively. `just qa-status` shows who owns what,
-`just qa-release` frees your claims when done, `just qa-gc` reaps devices
+`just qa-release [ios|android]` frees your claims when done (name the platform
+when another agent shares the worktree), `just qa-gc` reaps devices
 whose worktrees were deleted. Personal (non-pool) simulators/AVDs are never
 touched. Driving a device you didn't claim is how two sessions end up
 install-thrashing one emulator — don't.
