@@ -4,10 +4,9 @@
  * handling — mirroring `tableCommands.roundtrip.test.ts`'s reasoning: what
  * matters is what the real filter plugin and the real remark
  * serializer/parser do, not what a hand-built schema says they should do.
- * `keyboardParity.test.ts` already covers the command in isolation against
- * the fixture schema; this file is the one that can actually reproduce the
- * reported bug (`hardbreakFilterPlugin` only exists in the real preset) and
- * prove the full markdown round trip.
+ * This file is the owner: only it can reproduce the reported bug
+ * (`hardbreakFilterPlugin` only exists in the real preset) and prove the full
+ * markdown round trip.
  */
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';

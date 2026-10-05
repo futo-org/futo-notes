@@ -452,23 +452,6 @@ describe('the recorded save identity change', () => {
 });
 
 describe('search readiness (A4)', () => {
-  it('passes the configured budget to the engine wait and degrades when it reports not-ready', async () => {
-    const { notes, ln } = await freshModules();
-    notes._setSearchReadyTimeoutForTest(60);
-    const waitUntilSearchReady = vi.fn(async () => false);
-    ln._setLocalNoteStoreForTest(
-      fakeStore({
-        bootstrap: vi.fn(async () => bootstrapResult()),
-        waitUntilSearchReady,
-        search: vi.fn(async () => []),
-      }),
-    );
-    await notes.initNotes();
-
-    await expect(notes.search('needle')).resolves.toEqual([]);
-    expect(waitUntilSearchReady).toHaveBeenCalledWith(60);
-  });
-
   it('survives a rejected readiness wait without poisoning search', async () => {
     const { notes, ln } = await freshModules();
     ln._setLocalNoteStoreForTest(

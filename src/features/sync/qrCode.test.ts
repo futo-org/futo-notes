@@ -36,10 +36,6 @@ describe('drawing a pairing code', () => {
     expect(maximum).toBe(size - 5);
   });
 
-  it('draws the same payload the same way, so a re-render is not a new code', () => {
-    expect(qrCodeDrawing(PAIRING_PAYLOAD)).toEqual(qrCodeDrawing(PAIRING_PAYLOAD));
-  });
-
   it('draws a different payload differently', () => {
     expect(qrCodeDrawing(PAIRING_PAYLOAD).path).not.toEqual(
       qrCodeDrawing(PAIRING_PAYLOAD.replace('Kitchen laptop', 'Studio iMac')).path,

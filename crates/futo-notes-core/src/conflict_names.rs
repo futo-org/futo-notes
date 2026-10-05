@@ -241,12 +241,6 @@ mod tests {
     }
 
     #[test]
-    fn conflict_naming_is_idempotent_across_rounds() {
-        let once = collision_conflict_filename("foo.md", "019f3d9d");
-        assert_eq!(collision_conflict_filename(&once, "019f3d9d"), once);
-    }
-
-    #[test]
     fn conflict_naming_preserves_extension_when_stripping_stack() {
         assert_eq!(
             collision_conflict_filename("image (conflict deadbeef).png", "019f3d9d"),

@@ -33,12 +33,7 @@ let projectionRevision = 0;
 /** Upper bound on how long a search waits for the index to become ready before
  * degrading to whatever the store returns (empty until ready). Prevents a
  * never-ready engine from hanging every search forever (A4). */
-let searchReadyTimeoutMs = 4000;
-
-/** Test seam: shorten the bounded search-readiness wait. */
-export function _setSearchReadyTimeoutForTest(ms: number): void {
-  searchReadyTimeoutMs = ms;
-}
+const searchReadyTimeoutMs = 4000;
 
 function preview(note: LocalNoteMetadata): NotePreview {
   return {

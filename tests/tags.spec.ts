@@ -109,45 +109,23 @@ test.describe('Tag System', () => {
     await expect(addBtn).toBeVisible();
   });
 
-  test('Can add a tag via the tag bar input', async ({ page }) => {
-    await openNewNote(page);
-    await seedNote(page, 'add tag test', 'Some note content here.');
+  for (const [key, label] of [
+    ['Enter', 'Enter'],
+    [',', 'Comma'],
+  ]) {
+    test(`${label} commits a tag from the tag bar input`, async ({ page }) => {
+      await openNewNote(page);
+      await seedNote(page, `${label} tag test`, 'Some note content here.');
 
-    // Click "+ Tag" button
-    await page.locator('.tag-add-btn').click();
+      await page.locator('.tag-add-btn').click();
+      const input = page.locator('.tag-input');
+      await input.fill('recipes');
+      await input.press(key);
 
-    // Input should appear
-    const input = page.locator('.tag-input');
-    await expect(input).toBeVisible({ timeout: 3000 });
-
-    // Type a tag name and press Enter
-    await input.fill('recipes');
-    await input.press('Enter');
-
-    // Wait for the editor dispatch + re-render
-    await page.waitForTimeout(500);
-
-    // Should now show one tag pill
-    const pills = page.locator('.tag-pill');
-    await expect(pills).toHaveCount(1, { timeout: 5000 });
-
-    // Verify the editor content was updated
-    const content = await getEditorContent(page);
-    expect(content).toContain('#recipes');
-  });
-
-  test('Comma commits a tag from the tag bar input', async ({ page }) => {
-    await openNewNote(page);
-    await seedNote(page, 'comma tag test', 'Some note content here.');
-
-    await page.locator('.tag-add-btn').click();
-    const input = page.locator('.tag-input');
-    await input.fill('recipes');
-    await input.press(',');
-
-    await expect(page.locator('.tag-pill-name')).toHaveText(['recipes']);
-    expect(await getEditorContent(page)).toContain('#recipes');
-  });
+      await expect(page.locator('.tag-pill-name')).toHaveText(['recipes']);
+      expect(await getEditorContent(page)).toContain('#recipes');
+    });
+  }
 
   // The underscore is the load-bearing half of this test. The tag bar commits
   // through `EditorApi.applyEdit`, which re-SERIALIZES the whole document, and

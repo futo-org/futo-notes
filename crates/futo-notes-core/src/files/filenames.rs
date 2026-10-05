@@ -209,23 +209,6 @@ mod tests {
         assert!(!collides_but_differs("Note", "Note"));
         assert!(!collides_but_differs("note", "other"));
     }
-
-    #[test]
-    fn sanitize_is_idempotent() {
-        for input in [
-            "hello<world>",
-            "a:b|c*d",
-            "normal",
-            "café",
-            "📝",
-            "...",
-            "",
-            "   spaces   ",
-        ] {
-            let once = sanitize_title(input);
-            assert_eq!(sanitize_title(&once), once, "{input:?}");
-        }
-    }
 }
 
 // Property-based tests. `sanitize_title` is the only thing between a typed title

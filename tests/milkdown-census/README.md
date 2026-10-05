@@ -26,7 +26,6 @@ numbers are a scorecard, not a release gate.
 | `build.mjs` | esbuild bundle + page, also used by `tests/editor-embed-milkdown-compat.spec.ts` |
 | `detectors.mjs` | what counts as a flag |
 | `run.mjs` | the driver: corpus in, `results.jsonl` + `summary.json` out |
-| `probe.mjs` | prints a handful of cases through both variants — the fastest way to see what a change does |
 
 `entry.ts` imports the compat plugins from source, so the census can never drift
 from what the app ships. It mounts commonmark + gfm only — not the wikilink

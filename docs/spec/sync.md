@@ -676,8 +676,9 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   when there is no vault — whether the account may write. Quitting halfway and
   reopening therefore lands on the right screen by construction; no shell keeps
   a wizard position, and none may start. → `hosted/vault.rs` `current_step`,
-  `createHostedSyncSettings.svelte.ts`; guarded by "the wizard position is
-  Rust's, not the shell's" in `createHostedSyncSettings.svelte.test.ts`
+  `createHostedSyncSettings.svelte.ts`; guarded by "the step is read from the
+  state machine, never remembered here" in `HostedSetupModelTest.kt` (Android),
+  the surviving reference shell suite for the hosted wizard
 - **Two shapes.** No vault yet: sign in → subscribe → choose a vault password →
   save the recovery key → sync. Vault exists: sign in → unlock → sync. Subscribe
   cannot be skipped in the first shape because writing the vault key is
@@ -1372,9 +1373,8 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   `collision_placement_reports_the_relocated_local_note_as_a_rename` and
   `identical_content_collision_dedup_reports_no_rename` in
   `sync/behavior_tests.rs`); desktop `reconcileSyncCompletion.ts` (guarded by
-  "follows a reported collision-placement rename before pruning deletions" in
-  src/features/sync/syncManager.test.ts and the cross-platform scenario
-  "collision placement follows open note" in tests/cross-platform-sync.mjs)
+  the cross-platform scenario "collision placement follows open note" in
+  tests/cross-platform-sync.mjs)
 - **Following a reported rename is one atomic retarget of route AND editor**
   _(desktop)_. A single helper moves the tab/route and — while the session is
   still bound to the old id — the open editor's id and title, whether the
@@ -1386,8 +1386,8 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   verdict cannot disagree with the engine: a reported rename outranks every
   other fact and always yields `FollowRename`. →
   src/features/sync/syncManager.svelte.ts `applyReportedRename` (guarded by
-  "moves route and title together when the open note cannot be classified" in
-  src/features/sync/syncManager.test.ts + tests/remote-rename.spec.ts; the
+  tests/remote-rename.spec.ts "open note stays open when sync reports a
+  rename", which runs on the browser lane that has no classifier; the
   engine side by "a reported rename outranks …" in
   `every_reachable_fact_combination_has_one_verdict`)
 - **Every shell family is handed the same cycle report.** The desktop IPC
@@ -1772,8 +1772,8 @@ journal --dir` has nothing to read from a phone.
   Regression-guarded by `one_http_owner_reuses_its_connection`,
   `independent_http_owners_do_not_share_connections`, and
   `save_leaves_an_identical_checkpoint_untouched_and_rewrites_any_difference`.
-  → futo-notes-sync `server/mod.rs` (`HttpClients`), `checkpoint.rs`, harness
-  `tests/perf_cycle.rs`
+  → futo-notes-sync `server/mod.rs` (`HttpClients`), `checkpoint.rs`; historical
+  measurement in `docs/perf/sync-cycle-and-save-baseline.md`
 
 - **External filesystem changes to the open note mirror disk, IDE-style
   _(desktop)_.** A watcher `change` whose disk content differs from the

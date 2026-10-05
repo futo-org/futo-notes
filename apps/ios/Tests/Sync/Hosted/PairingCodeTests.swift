@@ -39,45 +39,11 @@ struct PairingCodeTests {
     }
 }
 
-@Suite("Pairing countdown")
-struct PairingCountdownTests {
-    private let now = Date(timeIntervalSince1970: 1_800_000_000)
-
-    @Test("whole seconds until the relay's own deadline")
-    func secondsUntil() {
-        #expect(
-            pairingSecondsRemaining(until: "2027-01-15T12:00:00Z", now: expiry(minus: 90)) == 90)
-        #expect(
-            pairingSecondsRemaining(until: "2027-01-15T12:00:00.500Z", now: expiry(minus: 10)) == 11
-        )
-    }
-
-    /// The safe way to be wrong: a code that is shown as spent, never one that
-    /// is promised time it may not have.
-    @Test("a deadline that has passed, or that cannot be read, is no time at all")
-    func nothingLeft() {
-        #expect(
-            pairingSecondsRemaining(until: "2027-01-15T12:00:00Z", now: expiry(minus: -30)) == 0)
-        #expect(pairingSecondsRemaining(until: "not a timestamp", now: now) == 0)
-        #expect(pairingSecondsRemaining(until: "", now: now) == 0)
-    }
-
-    @Test("m:ss is the shape a countdown is read in")
-    func theShapeOnScreen() {
-        #expect(formatPairingCountdown(300) == "5:00")
-        #expect(formatPairingCountdown(61) == "1:01")
-        #expect(formatPairingCountdown(9) == "0:09")
-        #expect(formatPairingCountdown(0) == "0:00")
-        #expect(formatPairingCountdown(-5) == "0:00")
-    }
-
-    /// 2027-01-15T12:00:00Z, moved by `minus` seconds.
-    private func expiry(minus seconds: TimeInterval) -> Date {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: "2027-01-15T12:00:00Z")!.addingTimeInterval(-seconds)
-    }
-}
+// Pairing-countdown coverage (secondsUntil / format) is the Kotlin copy now
+// (PairingCountdownTest.kt) plus TS's pairingCountdown.ts, which share the
+// exact same inputs (drift-registry "hosted-sync-pairing-countdown") — the
+// logic here is a straight port, not a distinct rendering risk the way the QR
+// drawing and camera-permission mapping below are.
 
 @Suite("Pairing camera access")
 struct PairingCameraAccessTests {

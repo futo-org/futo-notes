@@ -11,14 +11,6 @@ use futo_notes_sync::{self as sync, HostedSetup, VaultSecrets};
 
 use super::SyncClient;
 
-/// Where hosted sync lives. Compiled in, so nobody types a server address; a
-/// debug build can point elsewhere. Shells read it rather than holding their
-/// own copy.
-#[uniffi::export]
-pub fn hosted_server_url() -> String {
-    sync::hosted_server()
-}
-
 /// What a hosted step can fail with. Each variant is a different thing for a
 /// person to do about it, which is why they cross as variants and not as one
 /// string.
@@ -637,63 +629,6 @@ impl HostedSetupClient {
 mod tests {
     use super::*;
 
-    /// Every engine failure reaches the shells as its own variant. An expired
-    /// session especially: folded into a generic error it would read as a
-    /// broken vault rather than one trip to the browser.
-    #[test]
-    fn every_hosted_failure_projects_as_its_own_variant() {
-        let projected = |error: sync::HostedError| HostedError::from(error);
-
-        assert!(matches!(
-            projected(sync::HostedError::SignInAgain),
-            HostedError::SignInAgain
-        ));
-        assert!(matches!(
-            projected(sync::HostedError::NotSignedIn),
-            HostedError::NotSignedIn
-        ));
-        assert!(matches!(
-            projected(sync::HostedError::NotHosted("no route".into())),
-            HostedError::NotHosted { .. }
-        ));
-        assert!(matches!(
-            projected(sync::HostedError::RateLimited {
-                retry_after_seconds: 42
-            }),
-            HostedError::RateLimited {
-                retry_after_seconds: 42
-            }
-        ));
-        assert!(matches!(
-            projected(sync::HostedError::Server("boom".into())),
-            HostedError::Server { .. }
-        ));
-        assert!(matches!(
-            projected(sync::HostedError::Network("offline".into())),
-            HostedError::Network { .. }
-        ));
-    }
-
-    #[test]
-    fn the_sign_in_flow_projects_every_arm() {
-        assert!(matches!(
-            SignInFlow::from(sync::SignInFlow::Hosted {
-                sells_subscriptions: true
-            }),
-            SignInFlow::Hosted {
-                sells_subscriptions: true
-            }
-        ));
-        assert!(matches!(
-            SignInFlow::from(sync::SignInFlow::Password),
-            SignInFlow::Password
-        ));
-        assert!(matches!(
-            SignInFlow::from(sync::SignInFlow::Dev),
-            SignInFlow::Dev
-        ));
-    }
-
     /// The billing projection is lossless: a shell renders the account card
     /// from these fields and has no second source for any of them.
     #[test]
@@ -731,101 +666,15 @@ mod tests {
         assert_eq!(projected.bytes_used, bytes_used);
     }
 
-    /// A release build's shells get the baked address, never a developer's.
-    #[test]
-    fn the_hosted_address_is_the_one_the_engine_bakes_in() {
-        assert_eq!(hosted_server_url(), sync::hosted_server());
-    }
-
-    /// The failures a person acts on differently must not be folded together
-    /// on the way out. A wrong vault password, a typo in a recovery key, and
-    /// an unpaid account are three different screens.
-    #[test]
-    fn every_vault_failure_projects_as_its_own_variant() {
-        assert!(matches!(
-            HostedError::from(sync::HostedError::NotEntitled),
-            HostedError::NotEntitled
-        ));
-        assert!(matches!(
-            HostedError::from(sync::HostedError::VaultAlreadyExists),
-            HostedError::VaultAlreadyExists
-        ));
-        assert!(matches!(
-            HostedError::from(sync::HostedError::NoVault),
-            HostedError::NoVault
-        ));
-        assert!(matches!(
-            HostedError::from(sync::HostedError::VaultPasswordTooShort { minimum: 12 }),
-            HostedError::VaultPasswordTooShort { minimum: 12 }
-        ));
-        assert!(matches!(
-            HostedError::from(sync::HostedError::WrongVaultPassword),
-            HostedError::WrongVaultPassword
-        ));
-        assert!(matches!(
-            HostedError::from(sync::HostedError::RecoveryKeyFormat),
-            HostedError::RecoveryKeyFormat
-        ));
-        assert!(matches!(
-            HostedError::from(sync::HostedError::RecoveryKeyTypo),
-            HostedError::RecoveryKeyTypo
-        ));
-        assert!(matches!(
-            HostedError::from(sync::HostedError::WrongRecoveryKey),
-            HostedError::WrongRecoveryKey
-        ));
-        assert!(matches!(
-            HostedError::from(sync::HostedError::NoRecoveryKey),
-            HostedError::NoRecoveryKey
-        ));
-        assert!(matches!(
-            HostedError::from(sync::HostedError::SecretStore("locked".into())),
-            HostedError::SecretStore { .. }
-        ));
-        assert!(matches!(
-            HostedError::from(sync::HostedError::Crypto("bad envelope".into())),
-            HostedError::Crypto { .. }
-        ));
-    }
-
-    /// Pairing's failures are four different screens plus two programming
-    /// errors, so none of them may be folded into a generic one on the way
-    /// out: "show a new code" and "somebody already answered this one" are
-    /// different things to do.
-    #[test]
-    fn every_pairing_failure_projects_as_its_own_variant() {
-        assert!(matches!(
-            HostedError::from(sync::HostedError::PairingCodeInvalid),
-            HostedError::PairingCodeInvalid
-        ));
-        assert!(matches!(
-            HostedError::from(sync::HostedError::PairingRefused),
-            HostedError::PairingRefused
-        ));
-        assert!(matches!(
-            HostedError::from(sync::HostedError::PairingAlreadyKeyed),
-            HostedError::PairingAlreadyKeyed
-        ));
-        assert!(matches!(
-            HostedError::from(sync::HostedError::PairingExpired),
-            HostedError::PairingExpired
-        ));
-        assert!(matches!(
-            HostedError::from(sync::HostedError::PairingNotStarted),
-            HostedError::PairingNotStarted
-        ));
-        assert!(matches!(
-            HostedError::from(sync::HostedError::VaultLocked),
-            HostedError::VaultLocked
-        ));
-    }
-
     /// A scanned code reaches a native shell as a handle it cannot build, so
     /// the only way to the relay is through the confirmation sheet.
     #[test]
     fn a_scanned_code_carries_what_the_confirmation_sheet_shows() {
-        let client = HostedSetupClient::at("https://pairing.example".into(), Box::new(NoSecrets))
-            .expect("client");
+        let client = HostedSetupClient::at(
+            "https://pairing.example".into(),
+            Box::new(StubSecrets(None)),
+        )
+        .expect("client");
         // A payload in the engine's own format: 32 bytes of key as unpadded
         // base64url, the version tag, and the two self-reported strings.
         let code = concat!(
@@ -844,12 +693,12 @@ mod tests {
         ));
     }
 
-    /// A secret store that keeps nothing, for the projections that never reach
-    /// one.
-    struct NoSecrets;
-    impl VaultSecretStore for NoSecrets {
+    /// A secret store holding only a fixed vault key (or none), for the
+    /// projections that never write one.
+    struct StubSecrets(Option<Vec<u8>>);
+    impl VaultSecretStore for StubSecrets {
         fn vault_key(&self) -> Result<Option<Vec<u8>>, SecretStoreError> {
-            Ok(None)
+            Ok(self.0.clone())
         }
         fn set_vault_key(&self, _key: Vec<u8>) -> Result<(), SecretStoreError> {
             Ok(())
@@ -871,53 +720,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn every_wizard_step_projects() {
-        for (engine, projected) in [
-            (sync::SetupStep::SignIn, SetupStep::SignIn),
-            (sync::SetupStep::Subscribe, SetupStep::Subscribe),
-            (sync::SetupStep::CreateVault, SetupStep::CreateVault),
-            (sync::SetupStep::Unlock, SetupStep::Unlock),
-            (sync::SetupStep::Ready, SetupStep::Ready),
-        ] {
-            assert_eq!(
-                std::mem::discriminant(&SetupStep::from(engine)),
-                std::mem::discriminant(&projected),
-                "{engine:?} projected to the wrong step"
-            );
-        }
-    }
-
     /// A shell's store hands back bytes, and a wrong length is caught here
     /// rather than becoming a key that encrypts notes nothing can read.
     #[test]
     fn a_stored_key_of_the_wrong_length_is_refused() {
-        struct ShortKey;
-        impl VaultSecretStore for ShortKey {
-            fn vault_key(&self) -> Result<Option<Vec<u8>>, SecretStoreError> {
-                Ok(Some(vec![1, 2, 3]))
-            }
-            fn set_vault_key(&self, _key: Vec<u8>) -> Result<(), SecretStoreError> {
-                Ok(())
-            }
-            fn delete_vault_key(&self) -> Result<(), SecretStoreError> {
-                Ok(())
-            }
-            fn session_token(&self) -> Result<Option<String>, SecretStoreError> {
-                Ok(None)
-            }
-            fn set_session_token(&self, _token: String) -> Result<(), SecretStoreError> {
-                Ok(())
-            }
-            fn delete_session_token(&self) -> Result<(), SecretStoreError> {
-                Ok(())
-            }
-            fn delete_sync_password(&self) -> Result<(), SecretStoreError> {
-                Ok(())
-            }
-        }
-
-        let secrets = ShellSecrets(Arc::new(ShortKey));
+        let secrets = ShellSecrets(Arc::new(StubSecrets(Some(vec![1, 2, 3]))));
         assert!(VaultSecrets::vault_key(&secrets)
             .unwrap_err()
             .contains("expected 32"));

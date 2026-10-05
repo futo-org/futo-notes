@@ -7,7 +7,7 @@ export interface FeedbackDraft {
   images: ArrayBuffer[];
 }
 
-export function toBase64(bytes: ArrayBuffer): string {
+function toBase64(bytes: ArrayBuffer): string {
   const view = new Uint8Array(bytes);
   let binary = '';
   for (let index = 0; index < view.length; index++) binary += String.fromCharCode(view[index]);

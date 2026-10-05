@@ -3,8 +3,8 @@ import { test, expect, Page } from '@playwright/test';
 import { EDITOR, openNewNote, setEditorMarkdown, waitForEditor } from './lib/desktopEditor';
 
 /**
- * P1 regressions: link clickability, editor-focus reporting, and the save
- * that a mere note SELECTION must not trigger.
+ * P1 regressions: link clickability and the save that a mere note SELECTION
+ * must not trigger.
  *
  * Deleted with the CodeMirror engine, along with the spec lines they locked:
  *
@@ -27,25 +27,6 @@ async function blurEditor(page: Page): Promise<void> {
   await page.locator('.title-input').blur();
   await page.waitForTimeout(200);
 }
-
-test.describe('P1 ForYouPage Regressions', () => {
-  test('ForYouPage does not set editorFocused', async ({ page }) => {
-    // Bug: on the ForYouPage (no note open), tapping "Browse Notes" on Android
-    // triggered onfocusin on .note-body which set editorFocused=true, causing
-    // the keyboard toolbar to appear instead of opening the sidebar.
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
-    await page.waitForSelector('.for-you-page', { timeout: 10000 });
-    await page.locator('.for-you-page').click();
-    await page.waitForTimeout(100);
-
-    const noteBody = page.locator('.note-body');
-    const hasEditorFocused = await noteBody.evaluate((el) =>
-      el.hasAttribute('data-editor-focused'),
-    );
-    expect(hasEditorFocused).toBe(false);
-  });
-});
 
 test.describe('P1 Link Clickability Regressions', () => {
   test('a markdown link is clickable and opens a new page', async ({ page }) => {

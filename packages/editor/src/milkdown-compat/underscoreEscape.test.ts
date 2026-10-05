@@ -134,9 +134,32 @@ describe('withNarrowedEscapes', () => {
     },
   );
 
-  it('keeps the line-leading `#` narrowing from atxEscape', () => {
+  it('keeps a leading tag intact, so the header tag block survives a save', () => {
     expect(patched('#alpha #beta')).toBe('#alpha #beta\n');
-    expect(patched('# Heading')).toBe('\\# Heading\n');
+  });
+
+  it.each([
+    ['#5 on the list', '#5 on the list\n'],
+    ['#######x', '#######x\n'],
+    ['#tag-with-dashes', '#tag-with-dashes\n'],
+  ])('leaves the line-leading `#` of %j alone', (input, expected) => {
+    expect(patched(input)).toBe(expected);
+  });
+
+  it.each([
+    ['# Heading', '\\# Heading\n'],
+    ['###### Six', '\\###### Six\n'],
+    ['#\ttab', '\\#\ttab\n'],
+    ['#', '\\#\n'],
+  ])('still escapes %j, which CommonMark would read as a heading', (input, expected) => {
+    expect(patched(input)).toBe(expected);
+  });
+
+  it('escapes a heading on a later line of the same text node', () => {
+    // mdast keeps a hard break's two lines in separate text nodes, but a
+    // handler must not assume its value is single-line.
+    expect(patched('body\n# Heading')).toContain('\\# Heading');
+    expect(patched('body\n#tag')).toContain('\n#tag');
   });
 
   it('does not disturb any other escape', () => {

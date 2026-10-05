@@ -84,28 +84,11 @@ struct EditorNavigationDecisionTests {
         )
     }
 
-    @Test("opens HTTP and HTTPS main-frame navigations externally")
-    func opensHttpAndHttpsMainFramesExternally() throws {
+    @Test("opens web, mail and telephone main-frame navigations externally")
+    func opensExternalSchemesExternally() throws {
         let externalUrls = [
             try #require(URL(string: "http://example.com/note")),
             try #require(URL(string: "https://example.com/note")),
-        ]
-
-        for url in externalUrls {
-            #expect(
-                editorNavigationDecision(
-                    for: url,
-                    isMainFrame: true,
-                    permittedFileURL: nil
-                )
-                    == .openExternally(url)
-            )
-        }
-    }
-
-    @Test("opens mail and telephone links externally")
-    func opensMailAndTelephoneLinksExternally() throws {
-        let externalUrls = [
             try #require(URL(string: "mailto:notes@example.com")),
             try #require(URL(string: "tel:+15551234567")),
         ]

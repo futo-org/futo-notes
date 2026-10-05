@@ -544,7 +544,7 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   its vault-relative path (`trip/photo.png`); dot-directories hold app data and
   are skipped. Listing only the top level is why a vault with several pictures
   showed one (reported 2026-09-16). → features/images/imageFiles.ts,
-  lib/platform/tauri/storage.ts, features/images/imageFiles.test.ts
+  lib/platform/tauri/storage.ts, lib/platform/tauri/adapter.contract.test.ts
 - The grid fills whether or not the images tab is the one the app reopens on:
   it waits for the platform layer instead of reporting an empty vault when it
   mounts first. → features/images/imageFiles.ts,

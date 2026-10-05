@@ -1,16 +1,19 @@
 import Foundation
 import Testing
+import UIKit
 
 @testable import FutoNotesNative
 
 @Suite("CrashReporter device info")
 struct CrashReporterDeviceInfoTests {
-    @Test("hardware model is a non-empty, NUL-free machine string")
+    @Test("hardware model is a non-empty, NUL-free machine string, not the generic model name")
     func hardwareModelIsUsable() {
         let hardware = DeviceInfo.hardwareModel()
         #expect(!hardware.isEmpty)
         #expect(!hardware.contains("\0"))
         #expect(hardware.trimmingCharacters(in: .whitespaces) == hardware)
+        #expect(hardware != "iPhone")
+        #expect(hardware != UIDevice.current.model)
     }
 
     @Test("device info is the hardware model, then the OS, matching Android's shape")

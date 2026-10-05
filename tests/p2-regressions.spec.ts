@@ -137,37 +137,27 @@ test.describe('P2 Header + Formatting Regressions', () => {
     await page.locator('.title-input').click();
   }
 
-  test('pressing Enter in the title commits the rename to the sidebar', async ({ page }) => {
-    await openNoteForRetitle(page, 'Enter Note');
-    await page.locator('.title-input').fill('Enter Renamed');
-    await page.keyboard.press('Enter');
+  const commits: Array<[string, string, (page: Page) => Promise<void>]> = [
+    ['pressing Enter in the title', 'Enter', (page) => page.keyboard.press('Enter')],
+    ['clicking out of the title', 'Click', (page) => page.locator(EDITOR).click()],
+    [
+      'clicking off the title onto inert chrome',
+      'Inert',
+      (page) => page.locator('.drawer-search-area').click(),
+    ],
+  ];
+  for (const [how, name, commit] of commits) {
+    test(`${how} commits the rename to the sidebar`, async ({ page }) => {
+      await openNoteForRetitle(page, `${name} Note`);
+      await page.locator('.title-input').fill(`${name} Renamed`);
+      await commit(page);
 
-    await expect(page.locator('.note-row[data-note-id="Enter Renamed"]')).toHaveText(
-      'Enter Renamed',
-    );
-    await expect(page.locator('.note-row[data-note-id="Enter Note"]')).toHaveCount(0);
-  });
-
-  test('clicking out of the title commits the rename to the sidebar', async ({ page }) => {
-    await openNoteForRetitle(page, 'Click Note');
-    await page.locator('.title-input').fill('Click Renamed');
-    await page.locator(EDITOR).click();
-
-    await expect(page.locator('.note-row[data-note-id="Click Renamed"]')).toHaveText(
-      'Click Renamed',
-    );
-    await expect(page.locator('.note-row[data-note-id="Click Note"]')).toHaveCount(0);
-  });
-
-  test('clicking off the title onto inert chrome commits the rename', async ({ page }) => {
-    await openNoteForRetitle(page, 'Inert Note');
-    await page.locator('.title-input').fill('Inert Renamed');
-
-    await page.locator('.drawer-search-area').click();
-
-    await expect(page.locator('.note-row[data-note-id="Inert Renamed"]')).toHaveCount(1);
-    await expect(page.locator('.note-row[data-note-id="Inert Note"]')).toHaveCount(0);
-  });
+      await expect(page.locator(`.note-row[data-note-id="${name} Renamed"]`)).toHaveText(
+        `${name} Renamed`,
+      );
+      await expect(page.locator(`.note-row[data-note-id="${name} Note"]`)).toHaveCount(0);
+    });
+  }
 
   test('the open note never loses its selection while the rename re-sorts', async ({ page }) => {
     await openNoteForRetitle(page, 'Alpha');

@@ -510,103 +510,69 @@ mod tests {
         assert_eq!(loaded, None);
     }
 
-    /// "Licensed since {date}" and "Valid until {date}" both come from the
-    /// payload, so the card cannot render unless both timestamps cross the IPC
-    /// boundary in a form the frontend can parse.
+    /// Each verdict projects into exactly what the row renders. Dates cross as
+    /// RFC 3339 so the card can render "Licensed since" and "Valid until"; an
+    /// expired license is kept, so it keeps both dates and its key; a perpetual
+    /// license has no expiry and the row must not invent one. A v1 activation
+    /// carries neither date, and handing the frontend a stand-in (`now`, the
+    /// fetch time) is how a date nobody bought anything on ends up in "Licensed
+    /// since" (issue #161). The key crosses in the crate's normalized form, the
+    /// exact string `write_pair` stored, because the card has no other route to
+    /// it (§4). `InvalidReason` is diagnostic only: a stored pair that stopped
+    /// verifying looks exactly like no license and never leaks its key.
     #[test]
-    fn a_licensed_state_carries_both_timestamps() {
-        let view = view_of(&LicenseState::Licensed(details()));
-
-        assert_eq!(view.state, "licensed");
-        assert_eq!(view.issued_at.as_deref(), Some("2026-01-15T10:30:00Z"));
-        assert_eq!(view.expires_at.as_deref(), Some("2029-01-15T10:30:00Z"));
-    }
-
-    /// An expired license is kept and still shows its "Licensed since" date, so
-    /// it must keep its dates too — the Expired card renders both.
-    #[test]
-    fn an_expired_state_keeps_its_dates() {
-        let view = view_of(&LicenseState::Expired(details()));
-
-        assert_eq!(view.state, "expired");
-        assert_eq!(view.issued_at.as_deref(), Some("2026-01-15T10:30:00Z"));
-        assert_eq!(view.expires_at.as_deref(), Some("2029-01-15T10:30:00Z"));
-    }
-
-    /// A perpetual license has no expiry, and the row must not invent one.
-    #[test]
-    fn a_perpetual_license_reports_no_expiry() {
-        let mut perpetual = details();
-        perpetual.expires_at = None;
-
-        let view = view_of(&LicenseState::Licensed(perpetual));
-
-        assert_eq!(view.state, "licensed");
-        assert_eq!(view.expires_at, None);
-    }
-
-    /// A v1 activation carries no purchase time and no expiry, so the view the
-    /// frontend receives must have BOTH absent. Handing it a stand-in — `now`,
-    /// the fetch time, anything — is how a date nobody bought anything on ends
-    /// up in "Licensed since" (issue #161).
-    #[test]
-    fn a_v1_license_carries_no_dates_for_the_row_to_render() {
-        let undated = LicenseDetails {
-            key: "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78".to_string(),
+    fn view_of_projects_state_dates_and_key() {
+        const KEY: &str = "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78";
+        const ISSUED: &str = "2026-01-15T10:30:00Z";
+        const EXPIRES: &str = "2029-01-15T10:30:00Z";
+        let view = |state: &'static str,
+                    issued_at: Option<&str>,
+                    expires_at: Option<&str>,
+                    key: Option<&str>| LicenseView {
+            state,
+            issued_at: issued_at.map(str::to_owned),
+            expires_at: expires_at.map(str::to_owned),
+            key: key.map(str::to_owned),
+        };
+        let perpetual = LicenseDetails {
+            expires_at: None,
+            ..details()
+        };
+        let v1 = LicenseDetails {
             product: None,
             issued_at: None,
             expires_at: None,
+            ..details()
         };
 
-        let view = view_of(&LicenseState::Licensed(undated));
-
-        assert_eq!(view.state, "licensed");
-        assert_eq!(view.issued_at, None);
-        assert_eq!(view.expires_at, None);
-    }
-
-    /// The card renders the stored key, so it has to cross the boundary —
-    /// there is no other desktop route to it, and a shell that reached past
-    /// this record into the license file would be re-deciding storage (§4).
-    /// It crosses in the crate's **normalized** form (`LicenseDetails::key`),
-    /// which is the exact string `write_pair` put on disk, so the row can
-    /// never disagree with what would be re-sent to the activation endpoint.
-    /// An expired license is still stored and still shows its key.
-    #[test]
-    fn a_licensed_state_carries_the_normalized_key() {
-        let licensed = view_of(&LicenseState::Licensed(details()));
-        let expired = view_of(&LicenseState::Expired(details()));
-
-        assert_eq!(
-            licensed.key.as_deref(),
-            Some("FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78")
-        );
-        assert_eq!(
-            expired.key.as_deref(),
-            Some("FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78")
-        );
-    }
-
-    /// Unlicensed has no key to show, and neither does a stored pair that
-    /// stopped verifying: leaking the key it was minted for would make the
-    /// card render a license the app just refused.
-    #[test]
-    fn an_unlicensed_view_carries_no_key() {
-        assert_eq!(unlicensed_view().key, None);
-        assert_eq!(
-            view_of(&LicenseState::Invalid(InvalidReason::KeyMismatch)).key,
-            None
-        );
-    }
-
-    /// `InvalidReason` is diagnostic only: a stored pair that no longer
-    /// verifies must look exactly like no license, never leak a reason.
-    #[test]
-    fn an_invalid_state_is_indistinguishable_from_unlicensed() {
-        let view = view_of(&LicenseState::Invalid(InvalidReason::SignatureMismatch));
-
-        assert_eq!(view, unlicensed_view());
-        assert_eq!(view.state, "unlicensed");
+        for (state, expected) in [
+            (
+                LicenseState::Licensed(details()),
+                view("licensed", Some(ISSUED), Some(EXPIRES), Some(KEY)),
+            ),
+            (
+                LicenseState::Expired(details()),
+                view("expired", Some(ISSUED), Some(EXPIRES), Some(KEY)),
+            ),
+            (
+                LicenseState::Licensed(perpetual),
+                view("licensed", Some(ISSUED), None, Some(KEY)),
+            ),
+            (
+                LicenseState::Licensed(v1),
+                view("licensed", None, None, Some(KEY)),
+            ),
+            (
+                LicenseState::Invalid(InvalidReason::KeyMismatch),
+                view("unlicensed", None, None, None),
+            ),
+            (
+                LicenseState::Invalid(InvalidReason::SignatureMismatch),
+                unlicensed_view(),
+            ),
+        ] {
+            assert_eq!(view_of(&state), expected, "{state:?}");
+        }
     }
 
     /// These strings are the IPC contract: the shell switches on them to pick a
@@ -644,6 +610,9 @@ mod tests {
 
     /// The inbox exists so a cold-start link is toasted exactly once. Two
     /// drains returning the same outcome would double-toast; zero would lose it.
+    /// Draining is the only read: a link handled while the app was running used
+    /// to stay parked after its toast, so the next launch showed it again (an
+    /// "isn't valid" toast on a licensed app, QA 2026-09-09).
     #[test]
     fn a_parked_link_outcome_is_delivered_exactly_once() {
         let inbox = LicenseLinkInbox::default();
@@ -655,25 +624,6 @@ mod tests {
         assert_eq!(inbox.take(), None);
         inbox.park(result.clone());
         assert_eq!(inbox.take(), Some(result));
-        assert_eq!(inbox.take(), None);
-    }
-
-    /// The regression this pins: a link handled while the app was RUNNING used
-    /// to stay parked after its toast, so the next launch drained it and showed
-    /// the same message again — an "isn't valid" toast on a licensed app
-    /// (observed in QA 2026-09-09). Draining is the only read, so one link can
-    /// only ever be reported once.
-    #[test]
-    fn a_drained_outcome_does_not_survive_to_the_next_launch() {
-        let inbox = LicenseLinkInbox::default();
-        inbox.park(LicenseActionResult {
-            outcome: OUTCOME_INVALID,
-            view: unlicensed_view(),
-        });
-
-        assert!(inbox.take().is_some(), "the shell drains the outcome once");
-
-        // What a relaunch would see.
         assert_eq!(inbox.take(), None);
     }
 
