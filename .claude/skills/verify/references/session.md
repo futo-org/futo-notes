@@ -56,7 +56,8 @@ device — creating and booting it on first use — and prints the export lines.
 Set `SIM` / `ANDROID_SERIAL` in every Bash block that drives a device: all
 `sim-*` recipes and `apps/ios/run.sh` honor `$SIM`, and `adb` honors
 `$ANDROID_SERIAL` natively. `just qa-status` shows who owns what,
-`just qa-release` frees your claims when done, `just qa-gc` reaps devices
+`just qa-release [ios|android]` frees your claims when done (name the platform
+when another agent shares the worktree), `just qa-gc` reaps devices
 whose worktrees were deleted. Personal (non-pool) simulators/AVDs are never
 touched. Driving a device you didn't claim is how two sessions end up
 install-thrashing one emulator — don't.
@@ -85,8 +86,10 @@ Both were learned by damaging the user's real data. Brief every leg on both.
    (a prior QA ledger did, which is how this happened). Every build shares the
    process name `futo-notes-tauri`, so a lookup by process name or unix id
    resolves to whatever instance the OS picked — it resolved to the installed
-   production app, and a Cmd+Z landed in the user's live vault. OS-level input
-   has no way to name which app it is talking to; the bridge does. Prefer
+   production app, and a Cmd+Z landed in the user's live vault. (A macOS
+   `just tauri-dev` build runs under its branch name instead; that names no
+   single instance either.) OS-level input has no way to name which app it is
+   talking to; the bridge does. Prefer
    in-page instrumentation (`webview_execute_js`, `window.__notesShellTest`,
    `window.__testSync` — `src/features/sync/testSync.ts`) to screen capture
    wherever the state is readable from the page. When a check genuinely needs

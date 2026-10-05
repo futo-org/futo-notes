@@ -35,6 +35,8 @@ fn mcp_bridge_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
 }
 
 pub(crate) fn run() {
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    crate::dev_app_name::relaunch_under_dev_app_name();
     crate::platform_integration::prepare_process();
 
     let builder = tauri::Builder::default()
