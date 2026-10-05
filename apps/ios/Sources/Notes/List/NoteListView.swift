@@ -460,7 +460,9 @@ struct FolderContentsView: View {
                 set: { if !$0 { setFolderDeleteTarget(nil) } })
         ) {
             DestructiveConfirmDialog(
-                message: localization.localizedText("folders.delete.recoverableConfirmation"),
+                message: localization.localizedText(
+                    "folders.delete.preservingContentsConfirmation"
+                ),
                 destructiveLabel: localization.localizedText("folders.actions.deleteFolder"),
                 onCancel: { setFolderDeleteTarget(nil) },
                 onDestructive: {

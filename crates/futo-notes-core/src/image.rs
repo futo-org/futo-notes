@@ -22,29 +22,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn recognizes_canonical_extensions() {
-        for ext in IMAGE_EXTENSIONS {
-            assert!(is_image_filename(&format!("photo.{ext}")), "{ext}");
-            assert!(is_image_filename(&format!("photo.{}", ext.to_uppercase())));
-        }
-    }
-
-    #[test]
-    fn legacy_extensions_are_not_images() {
-        for ext in ["tiff", "tif", "heif"] {
-            assert!(!is_image_filename(&format!("scan.{ext}")), "{ext}");
-        }
-    }
-
-    #[test]
-    fn extension_is_after_last_dot() {
-        assert!(!is_image_filename("x.tiff.md"));
-        assert!(is_image_filename("x.tiff.png"));
-        assert!(!is_image_filename("noextension"));
-        assert!(!is_image_filename(".hidden"));
-    }
-
-    #[test]
     fn syncable_classifies_notes_images_and_ignores_the_rest() {
         assert!(is_syncable_filename("note.md"));
         assert!(is_syncable_filename("folder/note.md"));

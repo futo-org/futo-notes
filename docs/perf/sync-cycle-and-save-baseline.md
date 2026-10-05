@@ -1,16 +1,16 @@
 # Sync cycle and note save — baseline and first climb
 
-Measured 2026-09-05 on `perf/hill-climb` (off `main` at `6d59965d`). Two
-harnesses reproduce every number here:
-
-- `crates/futo-notes-sync/tests/perf_cycle.rs` — idle sync cycles against a
-  live isolated server: wall time, TCP connections opened per cycle, checkpoint
-  rewrites. `FUTO_TEST_SERVER=http://127.0.0.1:3055 cargo test -p futo-notes-sync
---test perf_cycle -- --ignored --nocapture`
-- `crates/futo-notes-store/tests/perf_save.rs` — `LocalNoteStore::save` /
-  `create` / `startup_listing` / `bootstrap` on a synthetic vault.
-  `FUTO_PERF_NOTES=10000 cargo test --release -p futo-notes-store --test
-perf_save -- --ignored --nocapture`
+Measured 2026-09-05 on `perf/hill-climb` (off `main` at `6d59965d`), using two
+one-off harnesses (`crates/futo-notes-sync/tests/perf_cycle.rs` — idle sync
+cycles against a live isolated server: wall time, TCP connections opened per
+cycle, checkpoint rewrites; `crates/futo-notes-store/tests/perf_save.rs` —
+`LocalNoteStore::save` / `create` / `startup_listing` / `bootstrap` on a
+synthetic vault). Both harnesses were removed after this investigation
+(reduction lever G, 2026-09-24) since they were `#[ignore]`d manual probes with
+no CI runner and no other reference; the numbers below stand as the historical
+record and the actual regressions from causes 1 and 2 stay guarded by the
+inline unit tests named in each section. Re-add a similar harness ad hoc if a
+future investigation needs to reproduce cycle/save cost under load.
 
 ## Where the numbers came from
 

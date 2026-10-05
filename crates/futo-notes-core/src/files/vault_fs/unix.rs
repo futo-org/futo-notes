@@ -439,19 +439,36 @@ pub(super) fn move_no_replace(
     source: &str,
     destination: &str,
 ) -> Result<bool, String> {
+    move_no_replace_with_policy(root, source, destination, false)
+}
+
+pub(super) fn move_no_replace_strict(
+    root: &Path,
+    source: &str,
+    destination: &str,
+) -> Result<bool, String> {
+    move_no_replace_with_policy(root, source, destination, true)
+}
+
+fn move_no_replace_with_policy(
+    root: &Path,
+    source: &str,
+    destination: &str,
+    strict: bool,
+) -> Result<bool, String> {
     let from = open_parent(root, source, false).map_err(OpenParentError::message)?;
-    let to = open_parent_with_policy(root, destination, true, false)
+    let to = open_parent_with_policy(root, destination, true, strict)
         .map_err(OpenParentError::message)?;
     reject_symlink(&from, "move source", source)?;
     reject_symlink(&to, "move destination", destination)?;
     let result = install_no_replace(&from.directory, &from.leaf, &to.directory, &to.leaf)?;
     if result {
-        report_local_sync(sync_rename_directories(
-            from.directory,
-            to.directory,
-            source,
-            destination,
-        ));
+        let sync = sync_rename_directories(from.directory, to.directory, source, destination);
+        if strict {
+            sync?;
+        } else {
+            report_local_sync(sync);
+        }
     }
     Ok(result)
 }

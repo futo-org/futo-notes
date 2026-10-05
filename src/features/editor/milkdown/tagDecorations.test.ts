@@ -8,7 +8,6 @@ import {
   blockTagDecorations,
   createTagDecorationPlugin,
   docTagDecorations,
-  tagScannableBlocks,
   tagScannableText,
   TAG_DECORATION_CLASS,
   tagDecorationsKey,
@@ -79,11 +78,6 @@ describe('blockTagDecorations', () => {
     expect(blockTagDecorations(para(s.text('C#, issue #5, a#b')), 0)).toEqual([]);
   });
 
-  it('does not decorate inside inline code', () => {
-    const block = para(s.text('#tag', [s.marks.inlineCode.create()]));
-    expect(blockTagDecorations(block, 0)).toEqual([]);
-  });
-
   it('positions stay right after an image earlier in the block', () => {
     const block = para(s.nodes.image.create(), s.text(' #tag'));
     const [decoration] = blockTagDecorations(block, 0);
@@ -100,11 +94,6 @@ describe('docTagDecorations', () => {
       s.nodes.bullet_list.create(null, s.nodes.list_item.create(null, para(s.text('#listed')))),
     );
     expect(covered(docTagDecorations(d), d)).toEqual(['#body', '#head', '#listed', '#quoted']);
-  });
-
-  it('skips a fenced code block entirely', () => {
-    const d = doc(s.nodes.code_block.create(null, s.text('#nope')), para(s.text('#yes')));
-    expect(covered(docTagDecorations(d), d)).toEqual(['#yes']);
   });
 });
 

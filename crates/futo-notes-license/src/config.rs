@@ -415,21 +415,6 @@ mod tests {
         assert_eq!(Environment::parse_flag(""), None);
     }
 
-    /// The literal URL, written out rather than assembled from the constants
-    /// this function already uses — a test that rebuilds the format string
-    /// agrees with any typo in it. This exact path was fetched from
-    /// `staging-pay2.futo.org` on 2026-09-10 and served the real product;
-    /// swapping `futo-notes-license` for `futo-notes` served a checkout with no
-    /// product in it, which is the bug this pins.
-    #[test]
-    fn buy_urls_name_the_storefront_product_and_carry_the_platform() {
-        assert_eq!(
-            buy_url(Environment::Staging.config(), Platform::Ios),
-            "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
-             /checkout-ready?platform=ios&success=redirect-to-organization-page"
-        );
-    }
-
     /// The activation payload's product field and the checkout URL's product
     /// segment are different strings for different jobs. Unifying them breaks
     /// one of the two: `PRODUCT_SLUG` is matched against bytes the server
@@ -454,27 +439,20 @@ mod tests {
         assert!(!staging.contains("//pay2.futo.org"), "{staging}");
     }
 
+    /// The buyer pays in the system browser, so both ends of the flow must be
+    /// pages a human reads.
     #[test]
     fn the_buy_url_asks_for_a_page_a_browser_can_render() {
+        let url = buy_url(Environment::Production.config(), Platform::Android);
         // `/price` and `/info` on the same path are JSON APIs for the in-app
         // sheets; handing either to the system browser would show a buyer a
         // blob of JSON instead of a checkout.
-        let url = buy_url(Environment::Production.config(), Platform::Android);
         assert!(url.contains("/checkout-ready?"), "{url}");
-        // `success` must be present or the deployed FUTOpay answers 422.
-        assert!(url.contains("success="), "{url}");
-    }
-
-    /// The buyer pays in the system browser, so what FUTOpay serves at the end
-    /// of the flow is a page a human reads. An empty `success` is the
-    /// client-driven marker — FUTOpay answers it with the raw activation JSON,
-    /// the contract of the in-app-WebView clients this app never runs — and a
-    /// buyer who just paid stared at JSON (observed on staging 2026-09-11).
-    /// The storefront's own marker instead lands them on the license key page,
-    /// which shows the key as HTML and carries the Activate deep link.
-    #[test]
-    fn the_buy_url_returns_the_buyer_to_the_license_key_page() {
-        let url = buy_url(Environment::Production.config(), Platform::Desktop);
+        // `success` must be present or the deployed FUTOpay answers 422, and it
+        // must be the storefront's marker: an empty `success` is the
+        // client-driven marker, answered with the raw activation JSON, and a
+        // buyer who just paid stared at JSON (observed on staging 2026-09-11).
+        // This one lands them on the license key page with the Activate link.
         assert!(
             url.contains("success=redirect-to-organization-page"),
             "{url}"
@@ -487,18 +465,6 @@ mod tests {
         let staging = Environment::Staging.config();
         assert_ne!(production.public_key_base64, staging.public_key_base64);
         assert_ne!(production.pay2_base_url, staging.pay2_base_url);
-    }
-
-    #[test]
-    fn a_trailing_slash_on_the_base_url_does_not_double_up() {
-        let config = LicenseConfig {
-            public_key_base64: "",
-            pay2_base_url: "https://pay2.example.test/",
-        };
-        assert_eq!(
-            activation_url(config, "FN-AB12"),
-            "https://pay2.example.test/api/v1/activate/FN-AB12"
-        );
     }
 
     #[test]

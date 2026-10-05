@@ -1012,6 +1012,51 @@ fn deleting_a_folder_moves_notes_up_with_collisions_before_removing_the_tree() {
 }
 
 #[test]
+fn native_folder_delete_preserves_nested_attachments_and_name_collisions() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("A/B/C/note", "body", None).unwrap();
+    std::fs::write(root.0.join("A/B/C/photo.png"), b"moved image").unwrap();
+    std::fs::create_dir_all(root.0.join("A/C")).unwrap();
+    std::fs::write(root.0.join("A/C/photo.png"), b"existing image").unwrap();
+
+    store.delete_folder("A/B").unwrap();
+
+    assert_eq!(store.read("A/C/note").unwrap(), "body");
+    assert_eq!(
+        std::fs::read(root.0.join("A/C/photo.png")).unwrap(),
+        b"existing image"
+    );
+    assert_eq!(
+        std::fs::read(root.0.join("A/C/photo-2.png")).unwrap(),
+        b"moved image"
+    );
+    assert!(!root.0.join("A/B").exists());
+}
+
+#[test]
+fn native_folder_delete_numbers_a_near_limit_unicode_attachment() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create_folder("A/B").unwrap();
+    let name = format!("{}.png", "é".repeat(125));
+    std::fs::write(root.0.join("A/B").join(&name), b"moved").unwrap();
+    std::fs::write(root.0.join("A").join(&name), b"existing").unwrap();
+
+    store.delete_folder("A/B").unwrap();
+
+    assert_eq!(
+        std::fs::read(root.0.join("A").join(&name)).unwrap(),
+        b"existing"
+    );
+    let moved = format!("{}-2.png", "é".repeat(124));
+    assert_eq!(
+        std::fs::read(root.0.join("A").join(moved)).unwrap(),
+        b"moved"
+    );
+}
+
+#[test]
 fn create_folder_and_move_note_rolls_back_the_folder_when_move_fails() {
     let root = TestRoot::new();
     let store = store(&root);

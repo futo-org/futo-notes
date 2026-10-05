@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { LicenseView } from '$lib/platform/license';
 
-import { licenseAmbientLabel, licenseCardModel } from './licenseCopy';
+import { licenseCardModel } from './licenseCopy';
 
 // Mid-year, midday UTC: the *year* these render is the same in every time zone,
 // so the assertions below cannot flake on the runner's TZ. Assertions that would
@@ -37,61 +37,7 @@ const licensedV1: LicenseView = {
   key: KEY,
 };
 
-describe('the ambient label', () => {
-  it('reads Unlicensed with no license', () => {
-    expect(licenseAmbientLabel(unlicensed)).toBe('Unlicensed');
-  });
-
-  // A paid license says nothing outside Settings (@justin 2026-09-21). This
-  // corner used to read "Licensed since {date}", which made the reward for
-  // paying a permanent line of chrome about having paid — and only for a v2
-  // license, so the v1 that production mints already showed nothing.
-  it('has nothing to show once licensed', () => {
-    expect(licenseAmbientLabel(licensed)).toBeNull();
-  });
-
-  // The regression that matters is a date leaking back in, not the null: a
-  // reintroduced "Licensed since" line would pass a bare `toBeNull` written
-  // against the wrong fixture, so assert on the licensed view that HAS a date.
-  it('never shows the purchase date it holds', () => {
-    expect(licensed.issuedAt).not.toBeNull();
-
-    // `?? ''` so this stays an assertion about the TEXT: if the line is ever
-    // reintroduced the label becomes a string and these fail, rather than the
-    // matcher throwing on null and passing for the wrong reason.
-    const label = licenseAmbientLabel(licensed) ?? '';
-
-    expect(label).not.toContain('Licensed since');
-    expect(label).not.toContain('2026');
-  });
-
-  // The ambient label is the thing a purchase removes — and an expired license
-  // no longer removes it. Showing "Licensed since" here would mean an expired
-  // license looks exactly like a current one everywhere outside Settings.
-  it('goes back to Unlicensed when the license has expired', () => {
-    expect(licenseAmbientLabel(expired)).toBe('Unlicensed');
-  });
-
-  // A v1 license has no date, and there is no dateless "Licensed since"
-  // variant to fall back to. `null` means the footer renders nothing at all —
-  // dropping "Unlicensed" is the whole visible reward, and that still happens.
-  it('has nothing to show when a license carries no purchase date', () => {
-    expect(licenseAmbientLabel(licensedV1)).toBeNull();
-    expect(licenseAmbientLabel(licensedV1)).not.toBe('Unlicensed');
-  });
-});
-
 describe('the license card', () => {
-  it('shows the Unlicensed badge and no license of any kind with no license', () => {
-    const card = licenseCardModel(unlicensed);
-
-    expect(card.status).toBe('unlicensed');
-    expect(card.badge).toBe('Unlicensed');
-    expect(card.since).toBeNull();
-    expect(card.term).toBe('');
-    expect(card.maskedKey).toBeNull();
-  });
-
   it('names the purchase date and the expiry when licensed', () => {
     const card = licenseCardModel(licensed);
 
@@ -143,41 +89,32 @@ describe('the license card', () => {
     expect(card.maskedKey).toBe(MASKED);
   });
 
+  // No license shows the Unlicensed badge and no license of any kind.
   // Defensive: an Expired state can only come from a v2 activation whose
   // expiry passed, so it always has both dates. One arriving without them must
   // fall back to the whole Unlicensed card rather than render "since NaN".
-  it('falls back to Unlicensed when an expired state arrives without its dates', () => {
-    for (const view of [
-      { ...expired, expiresAt: null },
-      { ...expired, issuedAt: null },
-    ]) {
-      const card = licenseCardModel(view);
-
-      expect(card.status).toBe('unlicensed');
-      expect(card.badge).toBe('Unlicensed');
-      expect(card.since).toBeNull();
-      expect(card.term).toBe('');
-      expect(card.maskedKey).toBeNull();
-    }
+  it.each([
+    ['no license', unlicensed],
+    ['an expired state without its expiry', { ...expired, expiresAt: null }],
+    ['an expired state without its issue date', { ...expired, issuedAt: null }],
+  ])('renders the Unlicensed card for %s', (_name, view) => {
+    expect(licenseCardModel(view)).toEqual({
+      status: 'unlicensed',
+      badge: 'Unlicensed',
+      since: null,
+      term: '',
+      maskedKey: null,
+    });
   });
 
   // The whole point of the mask: the real last group and nothing else, so a
   // support conversation can name a key without the screen showing it.
-  it('masks every group of the key but the last', () => {
-    const masked = licenseCardModel(licensed).maskedKey ?? '';
-
-    expect(masked).toBe(MASKED);
-    expect(masked.endsWith('6UJV')).toBe(true);
-    expect(masked).not.toContain('AB12');
-    expect(masked).not.toContain('RS3T');
-  });
-
   // What makes revealing the key an IN-PLACE swap rather than a jump: the mask
   // is the key's own length and keeps its hyphens in the same columns, so in a
   // monospace face every dot is replaced by the character that was under it.
   // The mask this replaced was a fixed 39 characters joined by spaces, so an
   // org-prefixed 42-character key slid three cells right as it appeared.
-  it('masks a key to its own length, hyphens included', () => {
+  it("masks every group but the last, to the key's own length, hyphens included", () => {
     for (const key of [
       'AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV',
       'FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78',

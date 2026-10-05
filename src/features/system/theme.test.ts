@@ -98,15 +98,13 @@ describe('applyThemePreference — native window appearance', () => {
   // desktop — where a dark-appearance window gets white@20% (rgb 66,66,66),
   // the same subtle edge every native dark app has. An explicit preference
   // therefore has to reach the window, not just the DOM.
-  it('pushes an explicit dark preference down to the native window', async () => {
-    await applyThemePreference('dark');
-    expect(nativeAppearance).toHaveBeenCalledWith('dark');
-  });
-
-  it('pushes an explicit light preference down to the native window', async () => {
-    await applyThemePreference('light');
-    expect(nativeAppearance).toHaveBeenCalledWith('light');
-  });
+  it.each(['dark', 'light'] as const)(
+    'pushes an explicit %s preference down to the native window',
+    async (preference) => {
+      await applyThemePreference(preference);
+      expect(nativeAppearance).toHaveBeenCalledWith(preference);
+    },
+  );
 
   // `auto` must leave the window following the OS. Pinning it would silence the
   // system-appearance change `auto` exists to follow: tao decides whether to

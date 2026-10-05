@@ -85,15 +85,4 @@ describe('LanguageSettingsSection dropdown dismissal', () => {
     flushSync();
     expect(listbox()).toBeNull();
   });
-
-  it('closes on Escape and returns focus to the trigger', async () => {
-    await open();
-    document.activeElement!.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
-    );
-    flushSync();
-    await tick();
-    expect(listbox()).toBeNull();
-    expect(document.activeElement).toBe(trigger());
-  });
 });

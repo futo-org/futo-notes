@@ -157,6 +157,13 @@ pub fn create_new(root: &Path, relative: &str, bytes: &[u8]) -> Result<bool, Str
 pub fn move_no_replace(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
     platform::move_no_replace(root, source, destination)
 }
+pub fn move_no_replace_strict(
+    root: &Path,
+    source: &str,
+    destination: &str,
+) -> Result<bool, String> {
+    platform::move_no_replace_strict(root, source, destination)
+}
 pub fn create_dir_all(root: &Path, relative: &str) -> Result<(), String> {
     platform::create_dir_all(root, relative)
 }

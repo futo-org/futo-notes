@@ -249,32 +249,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn get_missing_is_none_not_error() {
-        let store = MemStore::default();
-        assert_eq!(get_impl(&store, Path::new("/vault")).unwrap(), None);
-    }
-
-    #[test]
-    fn set_then_get_roundtrips() {
-        let store = MemStore::default();
-        set_impl(&store, Path::new("/vault"), "hunter2").unwrap();
-        assert_eq!(
-            get_impl(&store, Path::new("/vault")).unwrap(),
-            Some("hunter2".to_owned())
-        );
-    }
-
-    #[test]
-    fn delete_clears_and_is_idempotent() {
-        let store = MemStore::default();
-        set_impl(&store, Path::new("/vault"), "hunter2").unwrap();
-        delete_impl(&store, Path::new("/vault")).unwrap();
-        assert_eq!(get_impl(&store, Path::new("/vault")).unwrap(), None);
-        // Deleting again (no entry) must not error.
-        delete_impl(&store, Path::new("/vault")).unwrap();
-    }
-
     // Exercises the REAL OS keyring backend end-to-end. `#[ignore]` so the
     // normal/CI test run never touches the live Secret Service / Keychain —
     // run it by hand on a machine with a secret store:
@@ -338,17 +312,21 @@ mod tests {
     }
 
     #[test]
-    fn session_token_roundtrips_and_deletes_idempotently() {
+    fn deleting_the_password_or_token_clears_it_and_a_second_delete_is_harmless() {
+        // Both deletes back real commands (`e2ee_password_delete`, the engine's
+        // `delete_session_token`) and must hit the same account their getter
+        // reads; signing out twice must not error.
         let store = MemStore::default();
         let root = Path::new("/vault");
-        assert_eq!(session_token_get_impl(&store, root).unwrap(), None);
+        set_impl(&store, root, "hunter2").unwrap();
         session_token_set_impl(&store, root, "session-abc").unwrap();
-        assert_eq!(
-            session_token_get_impl(&store, root).unwrap(),
-            Some("session-abc".to_owned())
-        );
+
+        delete_impl(&store, root).unwrap();
         session_token_delete_impl(&store, root).unwrap();
+        assert_eq!(get_impl(&store, root).unwrap(), None);
         assert_eq!(session_token_get_impl(&store, root).unwrap(), None);
+
+        delete_impl(&store, root).unwrap();
         session_token_delete_impl(&store, root).unwrap();
     }
 

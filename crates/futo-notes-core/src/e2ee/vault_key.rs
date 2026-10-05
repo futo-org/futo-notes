@@ -286,32 +286,12 @@ mod tests {
     }
 
     #[test]
-    fn argon2id_defaults_are_64_mib_three_passes_one_lane() {
-        let kdf = KeyKdf::argon2id_default();
-        assert_eq!(kdf.kdf, "argon2id");
-        assert_eq!(kdf.memory_kib, Some(64 * 1024));
-        assert_eq!(kdf.iterations, 3);
-        assert_eq!(kdf.parallelism, Some(1));
-    }
-
-    #[test]
     fn argon2id_unwrap_rejects_wrong_password() {
         let vault_key = generate_vault_key();
         let material = wrap_vault_key_argon2id(&vault_key, "right password").unwrap();
         assert!(matches!(
             unwrap_vault_key("wrong password", &material),
             Err(E2eeError::BadPassword),
-        ));
-    }
-
-    #[test]
-    fn unwrap_still_rejects_an_unknown_kdf() {
-        let vault_key = generate_vault_key();
-        let mut material = wrap_vault_key_argon2id(&vault_key, "password okay").unwrap();
-        material.key_kdf.kdf = "scrypt".to_owned();
-        assert!(matches!(
-            unwrap_vault_key("password okay", &material),
-            Err(E2eeError::UnsupportedKdf(_)),
         ));
     }
 

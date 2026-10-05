@@ -19,40 +19,21 @@ import Testing
 /// this signature is the regression.
 @Suite("Settled flush")
 struct SettledFlushTests {
-    @Test("a write advances the baseline to the bytes that landed")
-    func wroteRecords() {
-        #expect(
-            settledFlush(
-                disposition: .wrote,
-                writtenContent: "typed",
-                flushedId: "note",
-                currentId: "note",
-                sessionIsClosing: false
-            ) == .record(savedContent: "typed"))
-    }
-
-    @Test("a converged flush advances the baseline — disk already holds the draft")
-    func convergedRecords() {
-        #expect(
-            settledFlush(
-                disposition: .converged,
-                writtenContent: "typed",
-                flushedId: "note",
-                currentId: "note",
-                sessionIsClosing: false
-            ) == .record(savedContent: "typed"))
-    }
-
-    @Test("a recreated note advances the baseline at its original id")
-    func recreatedRecords() {
-        #expect(
-            settledFlush(
-                disposition: .recreated,
-                writtenContent: "typed",
-                flushedId: "note",
-                currentId: "note",
-                sessionIsClosing: false
-            ) == .record(savedContent: "typed"))
+    // A converged flush found the draft already on disk; a recreated one wrote
+    // it back at its original id. Either way the bytes landed.
+    @Test("a write, a converged flush and a recreated note all advance the baseline")
+    func durableFlushRecords() {
+        for disposition: FlushDisposition in [.wrote, .converged, .recreated] {
+            #expect(
+                settledFlush(
+                    disposition: disposition,
+                    writtenContent: "typed",
+                    flushedId: "note",
+                    currentId: "note",
+                    sessionIsClosing: false
+                ) == .record(savedContent: "typed"),
+                "\(disposition) must advance the baseline to the bytes that landed")
+        }
     }
 
     // Without the baseline advance on the parked arm the editor would sit on the

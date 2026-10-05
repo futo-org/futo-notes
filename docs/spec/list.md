@@ -330,8 +330,8 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   sandbox the host trash directory is unreachable, so a delete inside the vault the
   sandbox was granted routes through the `org.freedesktop.portal.Trash` portal
   instead, with the same permanent-delete fallback. _(iOS, Android)_ delete
-  permanently; there
-  is no trash in the native UI flow. Sync is unaffected either way — the file
+  notes permanently; there is no trash in the native note-delete UI flow.
+  Sync is unaffected either way — the file
   leaving the vault tombstones the note on the next sync exactly as a
   permanent delete would. Deleting the only note in a folder prunes now-empty
   ancestor folders on every platform. Desktop supplies the trash policy to the
@@ -497,9 +497,10 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   A forbidden filesystem char (`< > : " / \ | ? *` or a control char) is stripped
   in place as you type, with a transient (~2 s) warning "That character can't be
   used in a note title"; a leading/trailing dot or a >200-char title shows a
-  persistent warning and blocks the rename; a title that duplicates another note
-  in the same folder shows "A note with this name already exists" and blocks the
-  rename; an empty title is left un-renamed. The rules + messages come from the
+  persistent warning and blocks the rename (*(native shells)* title input is
+  capped at 200 characters instead, a paste trimmed to fit); a title that
+  duplicates another note in the same folder shows "A note with this name
+  already exists" and blocks the rename; an empty title is left un-renamed. The rules + messages come from the
   shared `validate_title` exposed over FFI (futo-notes-ffi) — the same
   conformance-locked source as desktop's `validateTitle`; only the forbidden-char
   input filter is mirrored locally per shell. → futo-notes-ffi `validate_title`,
@@ -543,7 +544,7 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   its vault-relative path (`trip/photo.png`); dot-directories hold app data and
   are skipped. Listing only the top level is why a vault with several pictures
   showed one (reported 2026-09-16). → features/images/imageFiles.ts,
-  lib/platform/tauri/storage.ts, features/images/imageFiles.test.ts
+  lib/platform/tauri/storage.ts, lib/platform/tauri/adapter.contract.test.ts
 - The grid fills whether or not the images tab is the one the app reopens on:
   it waits for the platform layer instead of reporting an empty vault when it
   mounts first. → features/images/imageFiles.ts,
@@ -656,5 +657,14 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
     NoteListScreen.kt, FolderDeleteToastTest.kt
   - The native shells share the Rust primitive (rejects the vault root and
     path traversal; a missing folder is a no-op; relinks each moved note).
+    Remaining images and other files move up with their relative subfolder
+    paths. An existing destination is never replaced; a numbered filename
+    preserves the moved file instead. A collision may require a manual update
+    to a Markdown image link that names the original file. If a file cannot
+    move, the source folder remains with those bytes and the mutation reports
+    a cleanup warning. This gives app-private Android and iOS vault files a
+    recoverable location without relying on a platform trash service. →
+    `futo-notes-store::LocalNoteStore::delete_folder`,
+    `native_folder_delete_preserves_nested_attachments_and_name_collisions`
     → futo-notes-store `LocalNoteStore::delete_folder`, futo-notes-ffi
     `NoteStore::delete_folder`

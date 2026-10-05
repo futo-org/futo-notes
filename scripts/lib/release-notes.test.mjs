@@ -63,29 +63,26 @@ describe('validateReleaseNotes', () => {
     expect(problems.join('\n')).toContain('release-notes/v1.0.0.md has no App Store text');
   });
 
-  it('rejects an App Store body over the 4000-character limit', () => {
-    const notes = parseReleaseNotes(
+  it.each([
+    [
+      'an App Store body over the 4000-character limit',
       `# v1.0.0\n\n${'x'.repeat(APP_STORE_LIMIT + 1)}\n\n## Short\n\nok\n`,
-    );
-    const problems = validateReleaseNotes(notes, { tag: 'v1.0.0' });
-    expect(problems).toHaveLength(1);
-    expect(problems[0]).toContain(`at most ${APP_STORE_LIMIT}`);
-  });
-
-  it('rejects a long body with no Short section and says to add one', () => {
-    const notes = parseReleaseNotes(`# v1.0.0\n\n${'x'.repeat(PLAY_LIMIT + 1)}\n`);
-    const problems = validateReleaseNotes(notes, { tag: 'v1.0.0' });
-    expect(problems).toHaveLength(1);
-    expect(problems[0]).toContain('add a `## Short` section');
-  });
-
-  it('rejects a Short section that is itself too long and says to shorten it', () => {
-    const notes = parseReleaseNotes(
+      `at most ${APP_STORE_LIMIT}`,
+    ],
+    [
+      'a long body with no Short section, saying to add one',
+      `# v1.0.0\n\n${'x'.repeat(PLAY_LIMIT + 1)}\n`,
+      'add a `## Short` section',
+    ],
+    [
+      'a Short section that is itself too long, saying to shorten it',
       `# v1.0.0\n\nFine.\n\n## Short\n\n${'x'.repeat(PLAY_LIMIT + 1)}\n`,
-    );
-    const problems = validateReleaseNotes(notes, { tag: 'v1.0.0' });
+      'shorten the `## Short` section',
+    ],
+  ])('rejects %s', (_label, markdown, message) => {
+    const problems = validateReleaseNotes(parseReleaseNotes(markdown), { tag: 'v1.0.0' });
     expect(problems).toHaveLength(1);
-    expect(problems[0]).toContain('shorten the `## Short` section');
+    expect(problems[0]).toContain(message);
   });
 
   it('reports every problem at once rather than one per run', () => {

@@ -600,10 +600,10 @@ one catalog entry, `license.enterKey`, so all three shells moved together
   fetched or stored, the reveal lasts only while the card is mounted, and
   leaving Settings re-masks it. The key reaches every shell already normalized,
   on the license view itself, so no shell reads it back out of its own storage
-  to display it. → `licenseCopy.test.ts` "masks every group of the key but the
-  last", `tests/license-card.spec.ts` "the masked key reveals the full key, with
-  no copy button"; _(ios)_ `LicenseSurfaceTests` "the card shows the masked key and
-  reveals on tap"; _(android)_ `LicenseSurfaceTest`
+  to display it. → `licenseCopy.test.ts` "masks every group but the last, to
+  the key's own length, hyphens included", `tests/license-card.spec.ts` "the
+  masked key reveals the full key, with no copy button"; _(ios)_
+  `LicenseSurfaceTests` "the card shows the masked key and reveals on tap"; _(android)_ `LicenseSurfaceTest`
   "theCardMasksTheStoredKeyAndRevealsItOnTap" +
   "revealingTheKeyMovesNothingOnThePlate", `LicenseKeyFontTest`
   "everyCharacterTheKeyCanContainIsTheSameWidth"
@@ -641,8 +641,8 @@ one catalog entry, `license.enterKey`, so all three shells moved together
     the button's word differs. The app still never calls itself free to use; it
     asks to be paid and declines to force the issue. →
     `tests/license-card.spec.ts` "unlicensed: the ask, no card chrome, Buy as
-    the only filled button"; _(ios)_ `LicenseSurfaceTests` "the well, the
-    letterhead and the ledger all belong to a stored license"; _(android)_
+    the only filled button"; _(ios)_ `LicensePlateTests`
+    `testUnlicensedIsAnAskAndActivatingItMakesACard`; _(android)_
     `LicenseSurfaceTest` "unlicensedLeadsWithTheAskAndCarriesNoCardChrome",
     which reads the two elements' geometry rather than trusting source order
   - Licensed (`license.explanationLicensed`), verbatim after FUTO Keyboard's
@@ -818,7 +818,8 @@ one catalog entry, `license.enterKey`, so all three shells moved together
     three platforms in the same place. →
     `src/features/license/SidebarLicenseFooter.svelte`,
     `DrawerSidebar.svelte`, `SettingsScreen.svelte` (`initialSection`),
-    `licenseCopy.ts` (`licenseAmbientLabel`) + `licenseCopy.test.ts`
+    `licenseCopy.ts` (`licenseAmbientLabel`) + `tests/license-card.spec.ts`
+    "Sidebar ambient license label"
   - _(native shells)_ Mobile has no ambient label outside Settings; the License
     card is the **first thing at the top of Settings**, and in the Licensed
     state nothing on screen names the state at all — the coin in the well says

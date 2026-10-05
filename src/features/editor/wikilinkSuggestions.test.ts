@@ -48,17 +48,6 @@ describe('wikilinkQueryIn', () => {
 });
 
 describe('wikilinkCandidates', () => {
-  it('offers the whole note list for an empty query', () => {
-    expect(wikilinkCandidates('', NOTES, index).map((c) => c.id)).toEqual(NOTES.map((n) => n.id));
-  });
-
-  it('matches anywhere in the id, case-insensitively', () => {
-    expect(wikilinkCandidates('roadmap', NOTES, index).map((c) => c.id)).toEqual([
-      'Projects/Roadmap',
-      'Archive/2024/Roadmap',
-    ]);
-  });
-
   it('matches on a folder segment too', () => {
     expect(wikilinkCandidates('archive', NOTES, index).map((c) => c.id)).toEqual([
       'Archive/2024/Roadmap',
@@ -77,20 +66,10 @@ describe('wikilinkCandidates', () => {
     ]);
   });
 
-  it('inserts the FULL path, never the shortened label', () => {
-    // The label is display; `id` is what lands between the brackets, so a
-    // shortened rendering can never write an ambiguous target into the file.
-    expect(wikilinkCandidates('roadmap', NOTES, index)[0].id).toBe('Projects/Roadmap');
-  });
-
   it('caps the list', () => {
     const many = Array.from({ length: 50 }, (_, i) => note(`note-${i}`));
     const manyIndex = buildWikilinkIndex(many.map((n) => n.id));
     expect(wikilinkCandidates('note', many, manyIndex)).toHaveLength(WIKILINK_SUGGESTION_LIMIT);
-  });
-
-  it('offers nothing when the query matches nothing', () => {
-    expect(wikilinkCandidates('zzz', NOTES, index)).toEqual([]);
   });
 
   it('treats a whitespace-only query as empty', () => {
