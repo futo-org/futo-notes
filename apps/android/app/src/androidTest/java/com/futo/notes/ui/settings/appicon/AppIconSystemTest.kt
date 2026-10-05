@@ -40,7 +40,7 @@ class AppIconSystemTest {
                     Intent(Intent.ACTION_VIEW, android.net.Uri.parse("futonotes://license/test/test"))
                         .addCategory(Intent.CATEGORY_BROWSABLE).setPackage(context.packageName), 0,
                 )
-                assertTrue(deepLinks.any { it.activityInfo.name == "com.futo.notes.MainActivity" })
+                assertTrue(deepLinks.any { it.activityInfo.name == "com.futo.notes.license.LicenseLinkActivity" })
             }
         } finally { controller.reset() }
     }

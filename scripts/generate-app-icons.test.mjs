@@ -83,11 +83,15 @@ describe('packaged selectable mobile icons', () => {
   });
   it('keeps MainActivity enabled and binds all six permanent launcher aliases to real assets', async () => {
     const manifest = read('apps/android/app/src/main/AndroidManifest.xml');
-    const activity = manifest.match(/<activity\s[\s\S]*?<\/activity>/)[0];
+    const activities = manifest.match(/<activity\s[\s\S]*?<\/activity>/g);
+    const activity = activities.find((block) => block.includes('android:name=".MainActivity"'));
     expect(activity).toContain('android:launchMode="singleTop"');
-    expect(activity).toContain('android:scheme="futonotes"');
     expect(activity).not.toContain('android.intent.category.LAUNCHER');
     expect(activity).not.toContain('android:enabled="false"');
+    // License links arrive on their own activity, which no icon choice disables.
+    const licenseLinks = activities.find((block) => block.includes('android:scheme="futonotes"'));
+    expect(licenseLinks).toContain('android:name=".license.LicenseLinkActivity"');
+    expect(licenseLinks).not.toContain('android:enabled="false"');
     const aliases = manifest.match(/<activity-alias\s[\s\S]*?<\/activity-alias>/g);
     expect(aliases).toHaveLength(6);
     const mapping = read(

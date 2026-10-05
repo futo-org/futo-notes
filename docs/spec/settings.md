@@ -354,6 +354,6 @@ replaced the "Report an issue" link to the GitHub issue tracker.
 - _(iOS)_ The picker shows no spinner or changing-icon status text while a request is pending; the Scanlines artwork has no outer outline.
 - _(iOS)_ The OS alternate-icon name is authoritative; the default uses nil, unsupported devices show the current preview and an unavailable message, and Apple's icon-change notification remains enabled.
 - _(Android)_ PackageManager alias state is authoritative; API 33+ changes all aliases in one atomic batch with DONT_KILL_APP, older APIs enable the requested alias before disabling others and attempt to restore the prior icon after failure.
-- _(Android)_ Startup and picker observation reconcile an interrupted transition with multiple enabled aliases while preserving a valid single selection; MainActivity remains enabled for editor lifecycle and license links.
+- _(Android)_ Startup and picker observation reconcile an interrupted transition with multiple enabled aliases while preserving a valid single selection; MainActivity remains enabled for editor lifecycle, and LicenseLinkActivity keeps receiving license links.
 - _(Android)_ Launcher refresh may lag the request; system themed icons may recolor the artwork and suppress color/texture differences.
 - _(native shells)_ After a confirmed full reset wipes the vault and preferences, request Standard; an icon-reset failure is reported separately because the notes have already been reset, preserving stop-sync-before-wipe ordering.
