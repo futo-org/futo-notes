@@ -2,7 +2,12 @@ import { execFileSync } from 'node:child_process';
 
 import { describe, expect, it } from 'vitest';
 
-import { parseDirListing, quoteForDeviceShell, splitBatchOutput } from './adbClient.mjs';
+import {
+  createAdbClient,
+  parseDirListing,
+  quoteForDeviceShell,
+  splitBatchOutput,
+} from './adbClient.mjs';
 
 const DELIMITER = '__futo_adb_batch__';
 /** What the device shell streams back for `cmd; echo DELIM` per command. */
@@ -94,5 +99,30 @@ describe('parseDirListing', () => {
 
   it('returns nothing for a missing directory', () => {
     expect(parseDirListing('')).toEqual([]);
+  });
+});
+
+describe('typeText', () => {
+  it('caps the shell command length after spaces expand to %s', () => {
+    const commands = [];
+    const adb = createAdbClient({
+      pkg: 'com.futo.notes.dev',
+      serial: 'test-device',
+      execFile: (_command, args) => {
+        commands.push(args.at(-1));
+        return '';
+      },
+    });
+
+    const text = (' '.repeat(10) + 'é💩').repeat(45);
+    adb.typeText(text);
+
+    expect(commands.length).toBeGreaterThan(3);
+    expect(commands.every((command) => Buffer.byteLength(command, 'utf8') <= 200)).toBe(true);
+    expect(
+      commands
+        .map((command) => command.slice("input text '".length, -1).replaceAll('%s', ' '))
+        .join(''),
+    ).toBe(text);
   });
 });

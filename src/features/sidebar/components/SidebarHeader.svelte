@@ -1,5 +1,6 @@
 <script lang="ts">
   import { PanelLeftClose, Settings } from '@lucide/svelte';
+  import { developmentBranch } from '$shared/developmentBranch';
   import { localizedText } from '$shared/localization';
 
   interface Props {
@@ -20,10 +21,13 @@
           >{localizedText('app.desktop.developmentBadge')}</span
         >{/if}</button
     >
+    {#if developmentBranch}
+      <span class="dev-branch" title={developmentBranch}>{developmentBranch}</span>
+    {/if}
   </div>
   <div class="sidebar-header-actions">
     <button
-      class="sidebar-settings-btn"
+      class="sidebar-icon-btn sidebar-settings-btn"
       aria-label={localizedText('settings.openAccessibilityLabel')}
       onclick={onsettings}
     >
@@ -31,7 +35,7 @@
     </button>
     {#if showCollapse}
       <button
-        class="sidebar-collapse-btn"
+        class="sidebar-icon-btn sidebar-collapse-btn"
         aria-label={localizedText('sidebar.collapseAccessibilityLabel')}
         onclick={oncollapse}
       >

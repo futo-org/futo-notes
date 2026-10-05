@@ -30,6 +30,19 @@ impl Drop for TempRoot {
 }
 
 #[test]
+fn a_non_positive_timestamp_never_stamps_the_file_to_1970() {
+    let root = TempRoot::new();
+    write_atomic(root.path(), "note.md", b"body").unwrap();
+    let path = root.path().join("note.md");
+    crate::files::set_file_mtime_ms(&path, 1_700_000_000_000).unwrap();
+
+    set_mtime_ms(root.path(), "note.md", 0).unwrap();
+
+    let metadata = std::fs::metadata(&path).unwrap();
+    assert_eq!(crate::files::file_mtime_ms(&metadata), 1_700_000_000_000);
+}
+
+#[test]
 fn write_reports_directory_sync_failure() {
     let root = TempRoot::new();
     platform::fail_directory_sync_on_call(1);

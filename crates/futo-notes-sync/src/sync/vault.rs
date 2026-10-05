@@ -186,12 +186,7 @@ pub(super) fn write_content_if_changed(
     } else {
         vault_fs::sync_parent(root, name)?;
     }
-    if modified_ms > 0 {
-        if changed {
-            pre_write(name);
-        }
-        let _ = vault_fs::set_mtime_ms(root, name, modified_ms);
-    }
+    let _ = vault_fs::set_mtime_ms(root, name, modified_ms);
     Ok(if changed {
         PulledWrite::Written
     } else {

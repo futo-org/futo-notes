@@ -294,6 +294,18 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   `completed_batch_is_applied_and_checkpointed_before_a_slow_single_finishes`,
   and F-series `f_batch_download_first_sync`; server: futo-notes-server
   `src/blobs/routes.ts` (`POST /api/blobs/batch`)
+- **Whether a local file needs uploading is decided by its content hash, never
+  by its modified time or size.** Push reads every candidate and compares
+  SHA-256 against the recorded object state; a match settles as unchanged
+  without an upload. It must not shortcut that read on matching mtime+size,
+  because two ordinary cases change neither: the engine keeps a note's own
+  modified time when only its backlinks were rewritten by someone else's
+  rename (`list.md`), and a same-length edit on a filesystem that does not
+  advance mtime (Samsung f2fs/FUSE) moves nothing observable either. Skipping
+  those leaves the peer holding different bytes under one server hash until an
+  unrelated edit dislodges it. → `push::local_changes::prepare_upload`, guarded
+  by `a_same_length_rewrite_that_kept_its_mtime_still_uploads` and the
+  `backlink rewrite propagation` cross-platform scenario
 - **Push batches small encrypted blob creates and updates; a 1-file push stays
   on the classic path.** Pending ciphertext is ordered smallest-first and packed
   into `POST /api/collections/:id/blob-objects/batch` requests of ≤8 MiB / ≤100
@@ -1670,7 +1682,10 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   content-identical local touch (editor re-save, relink rewrite, `touch`) is
   corrected back to the recorded server timestamp on the next sync rather
   than adopted. The bootstrap pull from cursor 0 likewise converges
-  matching-content files to the server timestamp. (Observed 2026-06-05: a
+  matching-content files to the server timestamp. An `updated_at` the client
+  cannot parse stamps nothing: the file keeps its current time rather than
+  becoming 1970 (→ `vault_fs::set_mtime_ms`, the one stamping owner).
+  (Observed 2026-06-05: a
   content-identical rewrite on the Mac left `Markdown demo` sorted minutes
   newer than on Android/iOS.) → futo-notes-sync sync module
 

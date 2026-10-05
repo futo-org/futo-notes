@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import {
   ENV_NAMES,
   PORT_BASES,
+  devAppFileName,
+  staleDevAppNames,
   devBundleId,
   PROBE_BAND,
   XPLAT_SYNC_BAND,
@@ -64,7 +66,7 @@ describe('portsFor', () => {
       syncIntegration: PORT_BASES.syncIntegration + slot,
       syncIntegrationHosted: PORT_BASES.syncIntegrationHosted + slot,
       cdp: PORT_BASES.cdp + slot,
-      mcp: PORT_BASES.mcp + slot,
+      mcp: PORT_BASES.mcp + slot * 100,
       coinTuner: PORT_BASES.coinTuner + slot,
     });
   });
@@ -77,7 +79,7 @@ describe('portsFor', () => {
       sync: 3100,
       syncIntegration: 3150,
       syncIntegrationHosted: 3200,
-      cdp: 9330,
+      cdp: 15000,
       mcp: 9223,
       coinTuner: 5300,
     });
@@ -295,18 +297,25 @@ describe('webPort', () => {
 describe('mcp bridge base port', () => {
   it('gives every slot a base disjoint from every other service base', () => {
     const slots = Array.from({ length: 50 }, (_, i) => i);
-    const mcp = slots.map((s) => PORT_BASES.mcp + s);
+    const mcp = slots.map((s) => PORT_BASES.mcp + s * 100);
     expect(Math.min(...mcp)).toBe(9223);
-    expect(Math.max(...mcp)).toBe(9272);
-    for (const other of ['tauriVite', 'web', 'sync', 'cdp']) {
+    expect(Math.max(...mcp)).toBe(14123);
+    expect(mcp.every((base, i) => base + 99 < (mcp[i + 1] ?? Infinity))).toBe(true);
+    for (const other of [
+      'tauriVite',
+      'web',
+      'sync',
+      'syncIntegration',
+      'syncIntegrationHosted',
+      'cdp',
+      'coinTuner',
+    ]) {
       const theirs = slots.map((s) => PORT_BASES[other] + s);
-      expect(mcp.filter((p) => theirs.includes(p))).toEqual([]);
+      expect(theirs.every((port) => mcp.every((base) => port < base || port > base + 99))).toBe(
+        true,
+      );
     }
-    // NOTE the honest limit: the plugin scans 100 ports UP from its base, so a
-    // heavily contended high slot could in principle walk into the cdp range
-    // (9330+). Only the BASES are guaranteed disjoint — that is what keeps two
-    // idle worktrees off each other. Reaching cdp would take ~107 consecutive
-    // occupied ports, and the bridge logs the port it settled on.
+    expect(mcp.at(-1) + 99).toBeLessThan(PORT_BASES.cdp);
   });
 
   it('gives two different worktrees different bases', () => {
@@ -335,5 +344,24 @@ describe('worktree dev bundle id', () => {
 
   it('gives two different worktrees different ids', () => {
     expect(devBundleId(ROOTS[0])).not.toBe(devBundleId(ROOTS[1]));
+  });
+});
+
+describe('dev app file name', () => {
+  it('keeps the branch verbatim, writing `/` as the `:` macOS displays as `/`', () => {
+    expect(devAppFileName('claude/dev-app-names')).toBe('FUTO Notes (Dev) · claude:dev-app-names');
+  });
+
+  it('is stale once no live branch owns it, and never names anything unprefixed', () => {
+    const names = [
+      'FUTO Notes (Dev) · claude:live',
+      'FUTO Notes (Dev) · claude:gone',
+      'futo-notes-tauri',
+      'com.futo.notes',
+    ];
+    expect(staleDevAppNames(names, ['claude/live', 'main'])).toEqual([
+      'FUTO Notes (Dev) · claude:gone',
+    ]);
+    expect(staleDevAppNames(names, [])).toEqual(names.slice(0, 2));
   });
 });

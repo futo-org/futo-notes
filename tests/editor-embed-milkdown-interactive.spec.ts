@@ -75,15 +75,26 @@ async function settled(page: Page): Promise<void> {
 }
 
 /**
- * Click at the START of the first text run equal to `text` (see
- * `caretAtEndOf`). `Home` moves the caret through the browser's own native
- * contenteditable handling too, so it needs the same `selectionchange` wait
- * the click does — without it, the Backspace that follows sees the
- * PRE-`Home` caret and misreads the item as one whose text is not at offset 0.
+ * Click at the left edge of the first text run equal to `text` (see
+ * `caretAtEndOf`). This places the caret at offset zero directly. Sending Home
+ * afterward is a no-op on some hosts and produces no `selectionchange`, which
+ * made the caret observer wait until timeout despite a correct selection.
  */
 async function caretAtStartOf(page: Page, text: string): Promise<void> {
-  await withCaretObserved(page, () => page.getByText(text, { exact: true }).first().click());
-  await withCaretObserved(page, () => page.keyboard.press('Home'));
+  await withCaretObserved(page, () =>
+    page
+      .getByText(text, { exact: true })
+      .first()
+      .click({ position: { x: 0, y: 0 } }),
+  );
+  await page.waitForFunction((expectedText) => {
+    const selection = document.getSelection();
+    return (
+      selection?.isCollapsed === true &&
+      selection.anchorNode?.textContent === expectedText &&
+      selection.anchorOffset === 0
+    );
+  }, text);
 }
 
 /** The serialized table as trimmed cell texts per row, delimiter row dropped. */
@@ -594,12 +605,32 @@ test('Tab over a multi-line selection in a code block indents every touched line
 }) => {
   await open(page, '```\none\ntwo\nthree\n```');
   // `caretAtStartOf` matches a text node EXACTLY, which a multi-line code
-  // block's single text node ("one\ntwo\nthree") never does — a plain,
-  // non-exact match is unambiguous here instead.
-  await withCaretObserved(page, () => page.getByText('one').first().click());
-  await withCaretObserved(page, () => page.keyboard.press('Home'));
-  await withCaretObserved(page, () => page.keyboard.press('Shift+ArrowDown')); // start of "two"
-  await withCaretObserved(page, () => page.keyboard.press('Shift+End')); // end of "two"
+  // block's single text node ("one\ntwo\nthree") never does. Place the caret
+  // at that node's start. Select the intended lines directly because browser
+  // vertical movement through a code block depends on font and line layout.
+  await withCaretObserved(page, () =>
+    page
+      .locator('.ProseMirror pre')
+      .first()
+      .evaluate((pre) => {
+        const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+        const text = walker.nextNode();
+        if (!text) throw new Error('code block has no text node');
+        document.getSelection()?.collapse(text, 0);
+      }),
+  );
+  await withCaretObserved(page, () =>
+    page
+      .locator('.ProseMirror pre')
+      .first()
+      .evaluate((pre) => {
+        const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+        const text = walker.nextNode();
+        if (!text) throw new Error('code block text node is missing');
+        document.getSelection()?.setBaseAndExtent(text, 0, text, 'one\ntwo'.length);
+      }),
+  );
+  expect(await page.evaluate(() => document.getSelection()?.toString())).toBe('one\ntwo');
   await page.keyboard.press('Tab');
   await settled(page);
   expect(await getContent(page)).toContain('```\n  one\n  two\nthree\n```');
@@ -617,7 +648,7 @@ test('Escape then Tab releases the code-block claim for the next Tab only', asyn
   await page.locator('.ProseMirror').click();
   await caretAtStartOf(page, 'code');
   await page.keyboard.type('x'); // re-arms the claim
-  await withCaretObserved(page, () => page.keyboard.press('Home'));
+  await withCaretObserved(page, () => page.keyboard.press('ArrowLeft'));
   await page.keyboard.press('Tab');
   await settled(page);
   expect(await getContent(page)).toContain('  xcode');

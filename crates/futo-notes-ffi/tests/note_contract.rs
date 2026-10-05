@@ -3,13 +3,20 @@ use std::fs;
 use futo_notes_ffi::{
     extract_tags, extract_wikilinks, image_extensions, make_id, make_preview, make_rich_preview,
     sanitize_title, split_id, validate_title, FlushDisposition, FlushDraftResult, NoteBootstrap,
-    NoteError, NoteIdParts, NoteMetadata, NoteMutation, NoteSnapshot, NoteStore, RenamePair,
-    SearchHit, TitleIssue,
+    NoteError, NoteIdParts, NoteMetadata, NoteMutation, NoteSnapshot, NoteSortKey, NoteSortOrder,
+    NoteStore, RenamePair, SearchHit, SortDirection, TitleIssue,
 };
 
 mod support;
 
 use support::{path_string, TempTree};
+
+fn default_sort_order() -> NoteSortOrder {
+    NoteSortOrder {
+        key: NoteSortKey::LastModified,
+        direction: SortDirection::Descending,
+    }
+}
 
 #[test]
 fn deterministic_rules_are_thin_projections_of_the_canonical_model() {
@@ -84,7 +91,9 @@ fn note_store_projects_complete_workflow_results() {
         seeded,
         migrated,
         warnings: _,
-    } = store.bootstrap(path_string(&index_root)).unwrap();
+    } = store
+        .bootstrap(path_string(&index_root), default_sort_order())
+        .unwrap();
     assert_eq!(seeded, 0);
     assert_eq!(migrated, 0);
     let alpha = snapshot
@@ -449,7 +458,9 @@ fn bootstrap_makes_existing_note_content_searchable_through_bm25() {
     .unwrap();
 
     let store = NoteStore::new(path_string(&notes_root));
-    store.bootstrap(path_string(&index_root)).unwrap();
+    store
+        .bootstrap(path_string(&index_root), default_sort_order())
+        .unwrap();
 
     // 60s, not 10s: this waits for the background Tantivy indexer thread to
     // finish its first reconcile+commit, and on a contended CI runner (the
@@ -600,4 +611,45 @@ fn note_records_errors_and_threading_keep_the_full_semantic_shape() {
 
     assert!(matches!(NoteError::Io("io".to_owned()), NoteError::Io(_)));
     assert_eq!(NoteError::Io("io".to_owned()).to_string(), "io");
+}
+
+#[test]
+fn the_shell_hands_its_persisted_order_to_bootstrap_and_can_change_it_afterwards() {
+    let temp = TempTree::new();
+    let notes_root = temp.path("vault");
+    let index_root = temp.path("index");
+
+    fs::create_dir_all(&notes_root).unwrap();
+    for leaf in ["beta.md", "alpha.md"] {
+        fs::write(notes_root.join(leaf), "body").unwrap();
+    }
+
+    let store = NoteStore::new(path_string(&notes_root));
+    let bootstrap = store
+        .bootstrap(
+            path_string(&index_root),
+            NoteSortOrder {
+                key: NoteSortKey::Name,
+                direction: SortDirection::Ascending,
+            },
+        )
+        .unwrap();
+    let titles = |snapshot: &NoteSnapshot| {
+        snapshot
+            .notes
+            .iter()
+            .map(|note| note.title.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(titles(&bootstrap.snapshot), ["alpha", "beta"]);
+    assert_eq!(titles(&store.scan()), ["alpha", "beta"]);
+
+    let flipped = store
+        .set_sort_order(NoteSortOrder {
+            key: NoteSortKey::Name,
+            direction: SortDirection::Descending,
+        })
+        .unwrap();
+    assert_eq!(titles(&flipped), ["beta", "alpha"]);
+    assert_eq!(titles(&store.scan()), ["beta", "alpha"]);
 }

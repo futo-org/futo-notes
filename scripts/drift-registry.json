@@ -245,7 +245,7 @@
       "concept": "title-validation-constants",
       "description": "MAX_TITLE_LENGTH (200), the visible forbidden-character set, and the full C0/DEL/C1 control ranges shared by packages/editor/src/filename.ts and Rust, then generated into both native shells as a live-input-filter fast path (apps/ios/Sources/Editor/GeneratedContracts/TitleSpec.swift, apps/android/.../TitleSpec.kt) via scripts/gen-title-spec.ts.",
       "lockStatus": "locked",
-      "note": "LOCKED: constants.json pins MAX_TITLE_LENGTH in TS+Rust; the reviewed filename fixture and batched differential pin title behavior; gen-title-spec derives both native filters from the TS manifest; Android's TitleSpecTest executes the generated C0/DEL/C1 regex. Swift uses Foundation's matching `.controlCharacters` category and title-spec-check locks the generated source.",
+      "note": "LOCKED: constants.json pins MAX_TITLE_LENGTH in TS+Rust; the reviewed filename fixture and batched differential pin title behavior; gen-title-spec derives both native filters from the TS manifest; Android's TitleSpecTest executes the generated C0/DEL/C1 regex. Swift's generated CharacterSet uses the same explicit C0/DEL/C1 ranges (TitleSpecTests executes it) and title-spec-check locks the generated source.",
       "copies": [
         {
           "location": "packages/editor/src/filename.ts",
@@ -814,6 +814,52 @@
         {
           "path": "scripts/check-coin-assets.mjs",
           "kind": "gate"
+        }
+      ]
+    },
+    {
+      "concept": "note-list-order-web-harness",
+      "description": "The note-list sort rule (key in direction, then id ascending by code point; Name folds the title with the filename collision rule). Canonical in the Rust store; the browser-mode web harness mirrors it so Playwright and web dev see the same order the engine produces (ADR-0001 keeps every shipping shell comparator-free).",
+      "lockStatus": "partial",
+      "copies": [
+        {
+          "location": "crates/futo-notes-store/src/vault.rs",
+          "pattern": "pub\\(crate\\) fn note_list_order"
+        },
+        {
+          "location": "src/lib/platform/webLocalNoteStore.ts",
+          "pattern": "function compareNotes"
+        }
+      ],
+      "locks": [
+        {
+          "path": "crates/futo-notes-store/src/tests.rs",
+          "kind": "test"
+        },
+        {
+          "path": "src/lib/platform/webLocalNoteStore.test.ts",
+          "kind": "test"
+        }
+      ],
+      "note": "Partial: both sides pin the same surrogate-range tiebreak fixture (U+FDFD before U+1F600) and the same case-insensitive Name ordering, but no shared fixture file drives both. The harness is not a shipping shell; a shipping shell must never grow a comparator (AGENTS.md §12)."
+    },
+    {
+      "concept": "sort-menu-presentation",
+      "description": "How a chosen sort key pairs with a direction, and which catalog path each (key, direction) label reads from — written once per shell because each menu is native. The ORDER ITSELF is not duplicated: every shell asks the Rust store (ADR-0001, vault::note_list_order) and splices engine-reported positions verbatim.",
+      "lockStatus": "unlocked",
+      "note": "Three copies of a two-row table, each with its own unit test asserting the same pairs. Nothing keeps them identical — change one and change all three in the same commit. Collapse candidate: a fourth generated spec alongside gen-title-spec.ts / gen-toolbar-spec.ts, which already emit exactly this class of constant into TitleSpec.swift/.kt. Better still, delete two of the four functions by having the shells send a delta (set the key / set the direction) and letting the store compose it against its own current order.",
+      "copies": [
+        {
+          "location": "src/features/notes/noteSortOrder.ts",
+          "pattern": "sortDirections"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/NoteSortPreference.kt",
+          "pattern": "fun directions"
+        },
+        {
+          "location": "apps/ios/Sources/Notes/Storage/NoteSortPreference.swift",
+          "pattern": "static func directions"
         }
       ]
     }

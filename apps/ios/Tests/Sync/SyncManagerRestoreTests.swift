@@ -64,7 +64,8 @@ struct SyncManagerRestoreTests {
         #expect(hosted.calls.contains("hasSavedVault"))
         #expect(
             hosted.calls.contains("connectSync"),
-            "a stranded device went back to its old server instead of resuming hosted: \(hosted.calls)")
+            "a stranded device went back to its old server instead of resuming hosted: \(hosted.calls)"
+        )
     }
 
     /// The other half of the same rule, and the reason this is not simply

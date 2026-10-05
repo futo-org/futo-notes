@@ -20,6 +20,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# FUTO_LICENSE_ENV=staging|production overrides which FUTOpay org the license
+# crate verifies and buys against (default: the bundle id's `.dev` split).
+# It is compiled in, so it must be set on THIS build; say so loudly.
+if [[ -n "${FUTO_LICENSE_ENV:-}" ]]; then
+  echo "==> FUTO_LICENSE_ENV=$FUTO_LICENSE_ENV — license org forced for this build (overrides the bundle id)"
+fi
+
 # ── Early environment checks with actionable errors ──────────────────────
 # ANDROID_NDK_HOME is often not exported even when the NDK is installed —
 # fall back to the newest NDK under the SDK before giving up.
@@ -57,12 +64,6 @@ cargo ndk --platform 24 --target "$ABIS" --output-dir "$JNI" \
 
 echo "==> Building host lib (for binding generation metadata)"
 cargo build -p futo-notes-ffi
-
-# The host dylib lives under cargo's target dir, which CARGO_TARGET_DIR can
-# relocate (e.g. to share one warm target/ across worktrees) — the binding
-# generation then failed with 'failed to open file target/debug/…' after a
-# successful build (pc_2439ab43fc9b).
-TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 
 echo "==> Generating Kotlin bindings"
 # Host dylib extension differs by OS: macOS .dylib, Linux .so.

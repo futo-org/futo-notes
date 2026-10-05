@@ -12,8 +12,8 @@ Unpaid is a fully working app, but the product never calls itself "free to use"
 product is a separate, later product with no shared semantics; see
 [Out of scope](#out-of-scope).
 
-Design decisions recorded 2026-09-09 (spec-first). All three clients implement
-the whole surface as of 2026-09-09, each driven on its own dev build against a
+Design decisions recorded 2026-09-09 (spec-first). All three clients implemented
+the original full surface as of 2026-09-09, each driven on its own dev build against a
 staging-signed fixture license: all three states, all three input shapes (the
 bare key only as far as its 404 — see the Gaps), the deep link, Buy, Remove and
 Full reset. _(android)_ Both distribution flavors were driven, and the
@@ -296,16 +296,7 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   `/price` answered `Product not found: futo-notes`), so Buy led nowhere on
   every client. → `CHECKOUT_PRODUCT_SLUG` and `PRODUCT_SLUG`,
   `the_checkout_slug_is_not_the_activation_payloads_product`
-- **Every surface links out; no client renders checkout itself.** Desktop, iOS
-  and Android — both flavors, wherever `LICENSE_LINK_OUT` permits a link at all
-  — hand that same generated checkout to the OS browser, and the buyer comes
-  back through the `futonotes://license/{key}/{activation}` deep link. There is
-  no in-app purchase sheet on any platform and none is planned (decision
-  2026-09-10): a WKWebView checkout is an App Store rejection, because Apple
-  requires an external purchase link to open in the default browser, and a
-  bespoke Android-only sheet was declined rather than let the platforms
-  diverge. This is what keeps "price lives only in Polar" literally true — no
-  client ever has a price to display.
+- **Checkout availability follows the distribution and storefront.** Desktop links out as before. _(ios)_ Only the US StoreKit storefront offers Buy or Renew, opened by `openURL` in the default browser; another or unknown storefront has the key field and deep link, with no checkout link. _(android)_ `direct` offers Buy or Renew worldwide in a Custom Tab (falling back to `ACTION_VIEW` when no provider exists); `play` has the key field and deep link only. No shell renders checkout in a WebView. The return path is the `futonotes://license/{key}/{activation}` deep link. → `license_link_out`, `license_row_actions`, `LicenseStorefront.swift`, `browser/CustomTabs.kt`, `license/LicenseLinkActivity.kt`
 - The Buy destination is **per environment**, like the verification key and the
   activation host (AGENTS.md M3): `{pay2}` is `https://pay2.futo.org` for
   `com.futo.notes` and `https://staging-pay2.futo.org` for `com.futo.notes.dev`,
@@ -330,13 +321,13 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   `src/lib/platform/openExternalUrl.ts`, `LicenseSettingsSection.svelte`
   _(ios)_ The URL comes from the same crate constants through
   `licenseLinks(platform: .ios, bundleId:)` and opens with SwiftUI's `openURL`, which hands
-  an `https` URL to the system browser. →
-  `apps/ios/Sources/License/LicenseSettingsSection.swift`, `LicenseSurfaceTests`
-  _(android)_ The same crate call, `licenseLinks(LicensePlatform.ANDROID, bundleId)`,
-  opened with an `ACTION_VIEW` intent, which the OS routes to the browser — never
-  a WebView. →
-  `apps/android/app/src/main/java/com/futo/notes/ui/LicenseSettingsSection.kt`,
-  `LicenseSurfaceTest` "theBuyLinkIsThisPlatforms"
+  an `https` URL to the default browser, only for a US StoreKit storefront. →
+  `apps/ios/Sources/License/LicenseStorefront.swift`, `LicenseSettingsSection.swift`
+  _(android, direct)_ The same crate call opens in a Custom Tab, or a plain browser
+  when no Custom Tabs provider exists. The activate link returns to the existing
+  `MainActivity` through `LicenseLinkActivity`. →
+  `apps/android/app/src/main/java/com/futo/notes/browser/CustomTabs.kt`,
+  `license/LicenseLinkActivity.kt`
 - After checkout, FUTOpay's activate-redirect page opens
   `futonotes://license/{key}/{activation}`; the app handles it per
   [Deep link](#deep-link). The page also shows the key and activation as text,
@@ -523,6 +514,15 @@ drift-registered concept, `license-card-copy`
 | **Licensed**   | none         | masked, revealable | "{date}", blank with no `issued_at` | "Perpetual" or "Valid until {date}" | Remove license                                      |
 | **Expired**    | "Expired"    | masked, revealable | "{date}"                            | "Expired {date}"                    | **Renew** · I already paid · Lost your key?         |
 
+The actions above are the full checkout surface. _(ios, non-US or unknown storefront;
+android, `play`)_ Unlicensed and Expired offer only **I already paid**; Licensed
+still offers Remove. The key-only Unlicensed plate has no payment headline.
+Unlicensed and Expired use `license.keyOnlyExplanation` ("Have a FUTO Notes
+license? Enter your key to activate it on this device.") rather than the
+payment explanation. The same `license_link_out` answer controls both copy and
+actions. → `license_row_actions`, `LicenseSettingsSection.swift`,
+`LicenseSettingsSection.kt`
+
 The Key column is the whole table on every platform: the row is absent rather
 than blank when Unlicensed, and the two date columns do not exist anywhere.
 **Unlicensed wears no badge either** — the section heading says "License", and on
@@ -535,11 +535,9 @@ both call it: it names the person's situation rather than the mechanism. It is
 one catalog entry, `license.enterKey`, so all three shells moved together
 (@justin 2026-09-18).
 
-- Bold is the one action the state leads with, and on every platform it is the
-  **only filled button on the card**: Buy/Renew. Enter license key, Lost your
-  key? and Remove license are text links beside it — two filled slabs of equal
-  weight read as two equally likely choices, and they are not. Availability is
-  unchanged; this is emphasis, not gating. _(native shells)_ Which controls
+- When checkout is available, Buy/Renew is the **only filled button on the
+  card**. Enter license key, Lost your key? and Remove license are text links
+  beside it. The key-only surface has no filled button. _(native shells)_ Which controls
   exist at all is Rust's answer, `license_row_actions`, which also owns what
   `LICENSE_LINK_OUT` hides; _(desktop)_ the plate still derives its two buttons
   inline, because desktop has no `LICENSE_LINK_OUT` to obey (drift concept
@@ -831,17 +829,22 @@ one catalog entry, `license.enterKey`, so all three shells moved together
     `apps/android/app/src/main/java/com/futo/notes/ui/LicenseSettingsSection.kt`,
     `LicenseCopyTest`
 
-## Store posture (deliberate, recorded 2026-09-09)
+## Store posture (deliberate, recorded 2026-09-09, revised 2026-09-24)
 
-Research summary as of 2026-09-09; this area changes monthly and the decision,
-not the rules, is what this section records.
+Research summary as of 2026-09-09, re-read 2026-09-24; this area changes monthly
+and the decision, not the rules, is what this section records.
 
 - **Apple.** Guideline 3.1.1 names license keys as a forbidden unlock mechanism
   worldwide; 3.1.3(b) permits recognising a web-bought license only if the same
   thing is also sold as IAP. Linking out is legal in the US (no entitlement, 0%
   today, rate pending in court), in the EU and Japan at 15% with Apple's
   disclosure sheet and an IAP twin, in Brazil, and banned elsewhere. Immich
-  ships a free iOS app with a key field and no IAP twin today.
+  ships a free iOS app with a key field and no IAP twin today. Re-read
+  2026-09-24: outside the US, 3.1.1(a) bans "buttons, external links, or other
+  calls to action" to non-IAP purchase, so text naming our website is banned as
+  firmly as a link; the EU entitlement no longer requires an IAP twin (15% on
+  sales within 7 days of a tap, monthly reports), Japan's still does; a US
+  link reportedly must open in the default browser, not an embedded one.
 - **Google.** A Play build that only accepts a pasted key with no clickable
   path to checkout is explicitly permitted (consumption-only, 0%, no
   enrollment). Any link requires the External Content Links / billing choice
@@ -849,38 +852,14 @@ not the rules, is what this section records.
   2026 and worldwide coverage not before September 2027. Google enforces after
   publication (removals, strikes) and has enforced against external payment
   links in 2026.
-- **Decision.** All three platforms ship the full surface — key field, deep
-  link, and the Buy link to the system browser — **worldwide**, with no region
-  gating and no IAP or Play Billing twin. FUTO accepts the review risk and will
-  respond if a store objects. If it does, the answer is a flag flip, not a
-  redesign:
-  - one build-time constant, `LICENSE_LINK_OUT`, exists on iOS and Android and
-    is `true` at launch. `false` hides Buy, Renew and Lost-your-key and keeps
-    the key field and deep link (the consumption-only shape). Which controls
-    each value produces is decided once in Rust, so the two shells cannot drift
-    on what the flag means. → `license_row_actions`,
-    `crates/futo-notes-ffi/src/license/contract.rs` "link_out false hides every
-    way out of the app and nothing else"; _(ios)_
-    `apps/ios/Sources/License/LicenseLinkOut.swift`, flipped by the
-    `LICENSE_LINK_OUT_DISABLED` compile condition (`apps/ios/project.yml` names
-    it where the build is configured); _(android)_ a `buildConfigField` on each
-    product flavor in `apps/android/app/build.gradle.kts`, read once as
-    `BuildConfig.LICENSE_LINK_OUT` and passed to `licenseRowActions`, so `play`
-    alone can be flipped. `LicenseLinkOutTest` runs under both flavors and
-    fails the one whose constant is false — the lock that makes "true at
-    launch" a fact rather than an intention. Building `play` with `false` was
-    driven on the emulator: Buy, Renew and Lost-your-key disappeared while the
-    key field and the deep link kept working. The iOS fallback
-    beyond that is a non-renewing-subscription IAP twin at the same price to
-    fit 3.1.3(b); a 3-year expiring license cannot be a non-consumable IAP.
-  - _(Android)_ the app gains **`play` and `direct` product flavors now**, same
-    `applicationId` (`com.futo.notes`, `.dev` suffix unchanged) and same signing,
-    so a user can move between Play and a direct APK. At launch the flavors
-    differ in nothing license-related — `LICENSE_LINK_OUT` is `true` on both —
-    and it can be flipped for `play` alone. Other Play-only behavior (e.g. in-app review prompts) also
-    belongs in the `play` flavor. F-Droid builds `direct`.
-  - _(Android, F-Droid)_ offline verification adds no anti-feature; the single
-    activation request to pay2 may earn a Tethered/NonFreeNet label. Accepted.
+- **Decision 2026-09-24 — follow each store's rules** (@justin; ADR-0005,
+  plan `docs/plan/license-store-compliance.md`):
+  - _(ios)_ One binary reads `Storefront.current` and `Storefront.updates`. The **US** storefront offers the full surface, with Buy in the default browser. Every other or unknown storefront has the key field and deep link only; it has no Buy, Renew, Lost-your-key, payment headline, or payment explanation. The initial answer is key-only until StoreKit responds. EU and Japan are not special-cased. → `license_link_out`, `LicenseStorefront.swift`
+  - _(android)_ `direct` offers the full surface worldwide and opens Buy in a Custom Tab; `play` accepts keys and deep links only, worldwide. Both flavors keep the same app identity and signing, so installing one over the other preserves notes. → `BuildConfig.LICENSE_LINK_OUT`, `LicenseModel.kt`, `browser/CustomTabs.kt`
+  - _(desktop)_ Unchanged.
+  - If Apple rejects the key field outside the US (3.1.1), the fallback is a non-consumable IAP at the same price (3.1.3(b)), not built here.
+  - _(Android, F-Droid)_ Offline verification adds no anti-feature; the single activation request to pay2 may earn a Tethered/NonFreeNet label. Accepted.
+- **Verification 2026-09-24.** _(ios)_ Debug UI tests drove USA (Buy opened Safari), FRA and `none` (key-only copy and deep-link activation). A Release UI test compared the unforced surface with `Storefront.current`; Release contained no `-FUTOLicenseStorefront` string. On the claimed simulator, StoreKit reported a US storefront without a signed-in App Store account, so the US purchase surface appeared. An absent account is not proof of `nil`; only `nil` itself fails closed. _(android)_ The pooled emulator showed direct checkout in Chrome's Custom Tab, a deep link returning to one existing `MainActivity`, Back returning to Settings, and Play's key-only surface activating both a pasted pair and a cold-start deep link. → `LicenseSurfaceTests`, `LicensePlateTests`, `LicenseSurfaceTest`, `LicenseLinkActivity.kt`
 - **Never** frame the purchase as a donation in the app or the store listing
   (see Principles).
 
@@ -903,23 +882,8 @@ not the rules, is what this section records.
 > (observed 2026-09-10). Nothing about the purchase depends on it, so this
 > closes when lib-polar deploys, with no client change.
 
-> **Gap:** No in-Play purchase path — Play users must reach FUTOpay checkout via
-> the Buy link or on their own. A Play Billing SKU or companion app (the FUTO
+> **Gap:** No in-Play purchase path — Play users must obtain a license outside the app. A Play Billing SKU or companion app (the FUTO
 > Keyboard pattern) is deliberately not built.
-
-> **Gap:** No region gating — the Buy link shows worldwide on iOS and Android
-> regardless of storefront country; StoreKit `Storefront`-based gating is the
-> fallback if Apple objects, alongside the `LICENSE_LINK_OUT` flag. Confirmed at
-> runtime on the simulator 2026-09-10 (#160): the installed iOS binary links no
-> StoreKit framework at all, and Buy appears in the Unlicensed row with no App
-> Store account signed in. The only input to the row's actions besides status is
-> `link_out`, which is a **build-time** constant on both native shells
-> (`LicenseLinkOut.swift`'s `#if LICENSE_LINK_OUT_DISABLED`, Android's
-> `BuildConfig.LICENSE_LINK_OUT` per flavor) — so a single worldwide binary
-> cannot show Buy in the US and hide it elsewhere; the flag is all-or-nothing.
-> ADR-0003 listed storefront gating as a shipped consequence until 2026-09-10;
-> it was never implemented, and the ADR now points here instead. →
-> `crates/futo-notes-ffi/src/license/contract.rs` `license_row_actions`
 
 > **Gap:** No in-app restore by e-mail — lost keys go to support@futo.tech; the
 > newer futopay Android library's restore page is not adopted.
@@ -1028,46 +992,53 @@ activation` lingers in UserDefaults for a few seconds after `futo.license.key`
 > An opportunistic re-check on explicit user action only would be the
 > compatible way to add one.
 
-> **Gap:** The **production** org public key is a placeholder. There is no
-> production FUTOpay org for this product yet (product decision 2026-09-10:
-> staging first), so `PRODUCTION_PUBLIC_KEY_BASE64` is a throwaway key whose
-> private half was discarded — a release build therefore reports every user
-> Unlicensed, which is fail-closed, and no license can be minted for it by
-> anyone. Dropping the real key in is a one-line change to that constant.
-> `STAGING_PUBLIC_KEY_BASE64` is **no longer** a placeholder: since 2026-09-11 it
-> is the key the staging deployment actually signs with (DER SPKI SHA-256
-> `fca4b6a4…29a23`, pinned by `the_staging_key_is_the_real_staging_org_key`), and
-> the fixture license every dev build is driven with is signed by it rather than
-> by the conformance pair. → `crates/futo-notes-license/src/config.rs`
+> **Closed 2026-09-22:** the **production** org public key is real.
+> `PRODUCTION_PUBLIC_KEY_BASE64` is the key
+> `GET pay2.futo.org/checkout/polar/futo-notes/activation/public-key` serves (DER
+> SPKI SHA-256 `2034d795…aa68`, pinned by
+> `the_production_key_is_the_real_production_org_key`); on that date the 1Password
+> `prod-polar-orgs-futo-notes-pubk`/`-privk` pair matched it, unlike staging's. No
+> production-signed activation is committed anywhere — a v1 activation is a working
+> license. The production org and product exist too: `/info` and `/price` on
+> `pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/` answer with
+> "FUTO Notes License", non-recurring. → `crates/futo-notes-license/src/config.rs`
 >
-> From 2026-09-10 to 2026-09-11 it was a _different_ real key (`ca4a8698…31514`,
-> the 1Password `staging-polar-orgs-futo-notes-privk` pair), which **no
-> deployment has ever held** — so every license staging minted verified as
-> Invalid. FUTOpay generates an org's pair itself in `initialize_organizations`
-> when the org row is first inserted and never replaces it
-> (`auto_upsert_organization` omits both key columns from its `ON CONFLICT`), and
-> although `manifest-inventory` injects
-> `POLAR__ORGS__FUTO_NOTES__PRIVATE_KEY` from 1Password, no branch of lib-polar
-> reads that variable outside its test suite (lib-polar issue #1). **The
-> authority for either environment's key is therefore the live endpoint**, `GET
-{pay2}/checkout/polar/futo-notes/activation/public-key` — which is what FUTO
-> Music bakes for both of its environments too. Re-mint the staging-signed
-> fixtures whenever it moves.
+> `FUTO_LICENSE_ENV=staging|production`, set on the build that compiles the
+> license crate, forces either org regardless of bundle id (a `.dev` app can buy on
+> production, a release bundle on staging); unset, the `.dev` split decides. It is
+> a QA knob, never set by CI or a store build, and the FFI contract tests that pin
+> the bundle-id split fail under it by design — run the test suites unflagged.
 >
-> **The production Buy destination does not exist either, and that is the wider
-> half of the same gap.** Verified 2026-09-10 (#160):
-> `GET pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/info` answers
-> 404 `{"detail":"Organization not found"}` and `/price` answers
-> `Organization not found: futo-notes` — there is no `futo-notes` org in
-> production, so no product and no price. The URL a release build would open,
-> `.../futo-notes-license/checkout-ready?platform=…`, nonetheless returns
-> **HTTP 200** and renders a checkout shell with no product in it — the same
-> silent, un-buyable page that #157b fixed for staging by correcting the product
-> slug. A 200 on that URL therefore proves nothing, and no later check of it
-> should be read as the product existing; ask `/info` or `/price`. So a
-> production release today would report every user Unlicensed **and** point Buy
-> at a checkout that cannot take money. Both halves — the org/product and the
-> key — must land before any production release carries this surface.
+> `STAGING_PUBLIC_KEY_BASE64` is the key the staging deployment actually signs
+> with (DER SPKI SHA-256 `fca4b6a4…29a23`, pinned by
+> `the_staging_key_is_the_real_staging_org_key`), and the fixture license every
+> dev build is driven with is signed by it. From 2026-09-10 to 2026-09-11 it was a
+> _different_ real key (`ca4a8698…31514`, the 1Password
+> `staging-polar-orgs-futo-notes-privk` pair), which **no deployment has ever
+> held**. FUTOpay generates an org's pair itself in `initialize_organizations` when
+> the org row is first inserted and never replaces it, and no branch of lib-polar
+> reads `manifest-inventory`'s `POLAR__ORGS__FUTO_NOTES__PRIVATE_KEY` outside its
+> test suite (lib-polar issue #1). **The authority for either environment's key is
+> therefore the live endpoint** — which is what FUTO Music bakes for both of its
+> environments too. Re-mint the staging-signed fixtures whenever it moves.
+
+> **Closed 2026-09-24:** a production purchase delivers a key end to end. Driven on
+> the iOS simulator with a fresh Release install (`com.futo.notes`, no
+> `FUTO_LICENSE_ENV`): Buy → `pay2.futo.org` checkout in Safari → Polar, coupon
+> `TESTINPROD` ($14.99 → $0) → "Get for free" → FUTOpay's key page after ~20 s of
+> "Waiting confirmation" → ACTIVATE → "Open in FUTO Notes" → the card reads
+> Licensed ("License activated" toast), and still does after a force-quit and
+> relaunch. On 2026-09-22 the same flow ended on raw JSON (`Too many benefit grant
+> check attempts`) because the production Polar benefit was `visibility: private`,
+> which Polar omits from a checkout's `product.benefits` and lib-polar's
+> `checkout_session_check` then refuses. A 200 from `checkout-ready` or a
+> `succeeded` Polar checkout still proves nothing about delivery; only the key page
+> does.
+>
+> FUTOpay's key page itself is not laid out for a phone: on a 402 pt viewport it
+> scrolls sideways, clips the key and the instruction text at the right edge, and
+> shows a blank logo box and a broken-image `?`. The key and ACTIVATE still work.
+> That page belongs to FUTOpay, not this client.
 
 > **Gap:** _(ios, android)_ The card has a fourth, unspecified state: _not yet
 > known_. The spec gives it three, while desktop initializes to Unlicensed before

@@ -315,7 +315,7 @@ pub(super) fn read_optional(root: &Path, relative: &str) -> Result<Option<Vec<u8
 // journal-facing operations retain strict directory durability and retry rules.
 fn report_local_sync(result: Result<(), String>) {
     if let Err(error) = result {
-        eprintln!("local vault directory durability: {error}");
+        crate::log_to_stderr!("local vault directory durability: {error}");
     }
 }
 

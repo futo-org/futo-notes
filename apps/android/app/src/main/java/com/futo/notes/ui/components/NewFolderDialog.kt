@@ -25,7 +25,7 @@ import uniffi.futo_notes_ffi.sanitizeTitle
 import uniffi.futo_notes_ffi.validateTitle
 
 /**
- * Name dialog for a new folder under [parent] ("" = root) [list.md:78]. The
+ * Name dialog for a new folder under [parent] ("" = root) [list.md]. The
  * name is sanitized by the SAME Rust filename rules as a note title (a folder
  * name is a path segment); empty names, case-insensitive-duplicate siblings and
  * names carrying a forbidden character can't be created — [folderNameVerdict]
@@ -95,7 +95,7 @@ fun NewFolderDialog(
             }
         },
         confirmButton = {
-            // Disabled visual must match the disabled behavior [list.md:182]: a
+            // Disabled visual must match the disabled behavior [list.md]: a
             // hardcoded accent color would override TextButton's disabled
             // content color and make an inert Create look tappable.
             val canCreate = verdict.canConfirm
