@@ -215,7 +215,7 @@ export function createSlashMenuPlugin(
             }
           },
         },
-        view: () => {
+        view: (ownerView) => {
           const menu = new SlashMenu((index) => {
             const view = editorView(getEditor());
             if (!view || !open) return;
@@ -256,7 +256,10 @@ export function createSlashMenuPlugin(
               } else menusOpen.delete(view);
               provider.update(view);
             },
+            // The editor view can outlive this plugin view (a reconfigure that
+            // drops the plugin); an entry left behind would keep Enter from it.
             destroy: () => {
+              menusOpen.delete(ownerView);
               provider.destroy();
               menu.destroy();
             },
