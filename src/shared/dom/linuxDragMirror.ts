@@ -1,7 +1,17 @@
-import { isLinux } from '$lib/platform';
-
+/*
+ * WebKitGTK's native drag image comes out the wrong size on a scaled Linux
+ * desktop (too big at KDE Wayland's 1.6x), and no ratio read from the page
+ * undoes it. So on Linux, callers hand the drag here: the native image becomes
+ * a blank pixel and the preview is a copy of the dragged element on the page,
+ * following the pointer.
+ */
 export interface LinuxDragMirror {
-  setDragImage: (event: DragEvent) => void;
+  /**
+   * `source` defaults to the element the drag started on; `grab` is where the
+   * pointer holds the preview, in CSS pixels from its top-left corner
+   * (default: its center).
+   */
+  setDragImage: (event: DragEvent, source?: HTMLElement, grab?: { x: number; y: number }) => void;
   teardown: () => void;
 }
 
@@ -33,9 +43,11 @@ export function createLinuxDragMirror(): LinuxDragMirror {
     }
   }
 
-  function setDragImage(event: DragEvent): void {
-    if (!isLinux) return;
-    const source = event.currentTarget as HTMLElement | null;
+  function setDragImage(
+    event: DragEvent,
+    source = event.currentTarget as HTMLElement | null,
+    grab?: { x: number; y: number },
+  ): void {
     if (!source) return;
 
     suppressSystemDragImage(event);
@@ -43,6 +55,8 @@ export function createLinuxDragMirror(): LinuxDragMirror {
       teardown();
       const rect = source.getBoundingClientRect();
       const computed = getComputedStyle(source);
+      const grabX = grab?.x ?? rect.width / 2;
+      const grabY = grab?.y ?? rect.height / 2;
       const mirror = source.cloneNode(true) as HTMLElement;
       mirror.style.cssText = [
         'position:fixed',
@@ -60,7 +74,7 @@ export function createLinuxDragMirror(): LinuxDragMirror {
         'box-shadow:0 4px 14px rgba(0, 0, 0, 0.22)',
         'will-change:transform',
       ].join(';');
-      mirror.style.transform = `translate(${event.clientX - rect.width / 2}px, ${event.clientY - rect.height / 2}px)`;
+      mirror.style.transform = `translate(${event.clientX - grabX}px, ${event.clientY - grabY}px)`;
       document.body.appendChild(mirror);
       mirrorElement = mirror;
 
@@ -74,7 +88,7 @@ export function createLinuxDragMirror(): LinuxDragMirror {
         requestAnimationFrame(() => {
           animationPending = false;
           if (!lastEvent) return;
-          mirror.style.transform = `translate(${lastEvent.clientX - rect.width / 2}px, ${lastEvent.clientY - rect.height / 2}px)`;
+          mirror.style.transform = `translate(${lastEvent.clientX - grabX}px, ${lastEvent.clientY - grabY}px)`;
         });
       };
       document.addEventListener('dragover', handleDragOver, { capture: true });

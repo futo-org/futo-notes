@@ -20,7 +20,7 @@ import {
   settleSelectionAfterHandlePress,
 } from './handlePressSelection';
 import { retargetListDragToItem } from './listItemHandleDrag';
-import { setDprCorrectedDragImage } from './blockDragGeometry';
+import { endBlockDragImage, setBlockDragImage } from './blockDragGeometry';
 import { createMobileBlockDndPlugin, type MobileBlockDndOptions } from './mobileBlockDnd';
 
 /* The ⠿ handle lives in the editor's left GUTTER, 8px left of the text
@@ -191,6 +191,7 @@ export function createBlockDrag(pmView: () => ProseView | null) {
     // `drop` (the same guard @milkdown/plugin-block's own dragend uses),
     // where settling now would take the NodeSelection the drop still needs.
     handleEl.addEventListener('dragend', () => {
+      endBlockDragImage();
       window.setTimeout(endHandlePress, 50);
     });
     // AFTER the provider's own dragstart listener on the same element, so
@@ -199,16 +200,16 @@ export function createBlockDrag(pmView: () => ProseView | null) {
     handleEl.addEventListener('dragstart', (event) => {
       const view = created.ctx.get(editorViewCtx);
       const retargeted = retargetListDragToItem(view, event);
-      // `retargetListDragToItem` already set a DPR-corrected ghost
-      // (blockDragGeometry.ts, QA #012) for the list-item case; every
-      // OTHER block drag still carries the plugin's own uncorrected
-      // `setDragImage(activeEl, 0, 0)` from @milkdown/plugin-block, so it
-      // needs the same correction here, read off whatever node the
-      // plugin selected.
+      // `retargetListDragToItem` already set the drag image for the
+      // list-item case; every OTHER block drag still carries the plugin's
+      // own `setDragImage(activeEl, 0, 0)` from @milkdown/plugin-block,
+      // which is the wrong size on a scaled display (blockDragGeometry.ts
+      // `setBlockDragImage`), so it is replaced here, read off whatever
+      // node the plugin selected.
       if (!retargeted) {
         const selection = view.state.selection;
         const dom = selection instanceof NodeSelection ? view.nodeDOM(selection.from) : null;
-        if (dom instanceof HTMLElement) setDprCorrectedDragImage(event, dom);
+        if (dom instanceof HTMLElement) setBlockDragImage(event, dom);
       }
     });
     // On `document`, in the CAPTURE phase, because scroll events do not

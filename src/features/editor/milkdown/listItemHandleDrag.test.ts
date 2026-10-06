@@ -7,6 +7,10 @@ import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { retargetListDragToItem } from './listItemHandleDrag';
 import { testSchema } from './__fixtures__/schema';
 
+// The drag image's non-Linux path (Linux: blockDragGeometry.test.ts). jsdom's
+// own user agent says "linux" on a Linux host, so it is pinned here.
+vi.mock('$lib/platform/userAgent', () => ({ isLinux: false }));
+
 const s = testSchema;
 
 function paragraph(text: string): ProseNode {
