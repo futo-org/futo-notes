@@ -21,6 +21,8 @@ import {
   type NodeJson,
 } from '@futo-notes/editor/markdown';
 import goldens from '../../../../tests/conformance/markdown-house-style.json';
+// The serializer's own comparison: its parse checks accept a spelling only when this agrees.
+import { canonical } from '../../../../packages/editor/src/markdown/normalize';
 import { houseDocument } from '../../../../tests/milkdown-census/detectors.mjs';
 import { createShippingParser, type ShippingParser } from './__fixtures__/shippingParser';
 
@@ -72,21 +74,30 @@ describe('markdown house style goldens', () => {
   }
 });
 
-describe('the content_loss gate (houseDocument) on whitespace at a line start', () => {
+/*
+ * Both copies of the house normalizations (normalize.ts `canonical`, which the
+ * serializer's parse checks compare through, and the census `houseDocument`,
+ * the content_loss gate) forgive whitespace at a line's start only where a
+ * read drops it anyway.
+ */
+describe('the comparisons on whitespace at a line start', () => {
   const gate = (markdown: string) => houseDocument(parser.parse(markdown));
+  const serializerReading = (doc: NodeJson) => canonical(doc.content ?? []);
 
-  // Each pair: what the parser keeps, and a save that dropped it. The gate
-  // forgives line-start whitespace only where a read drops it anyway.
+  // Each pair: what the parser keeps, and a save that dropped it.
   it.each([
     ['after a task item checkbox', '- [ ]  x', '- [ ] x'],
     ['after a checked task box, before bold', '1. [x]   **a**', '1. [x] **a**'],
     ['inside a link at the line start', '[ a](u)', '[a](u)'],
     ['inside a code span at the line start', '` c`', '`c`'],
-  ])('flags a save that drops the space %s', (_where, kept, dropped) => {
-    expect(gate(dropped)).not.toBe(gate(kept));
+  ])('flag a save that drops the space %s', (_where, kept, dropped) => {
+    expect(gate(dropped), 'houseDocument').not.toBe(gate(kept));
+    expect(serializerReading(parser.parse(dropped)), 'canonical').not.toBe(
+      serializerReading(parser.parse(kept)),
+    );
   });
 
-  it('forgives line-start whitespace the parser drops on read', () => {
+  it('forgive line-start whitespace the parser drops on read', () => {
     const typed: NodeJson = {
       type: 'doc',
       content: [
@@ -101,6 +112,7 @@ describe('the content_loss gate (houseDocument) on whitespace at a line start', 
       ],
     };
     expect(houseDocument(typed)).toBe(gate('**a**\nb'));
+    expect(serializerReading(typed)).toBe(serializerReading(parser.parse('**a**\nb')));
   });
 });
 
