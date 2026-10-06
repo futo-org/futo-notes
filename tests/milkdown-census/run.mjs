@@ -8,9 +8,11 @@
  *   node tests/milkdown-census/run.mjs --vault ~/Documents/futo-notes   # local leg
  *   node tests/milkdown-census/run.mjs --diff build/milkdown-census/baseline
  *
- * `--variant baseline` runs the unpatched upstream preset, which is how the
- * "did anything regress" comparison is produced from this same harness rather
- * than from a set of numbers nobody can re-derive.
+ * `--variant compat` (the default) is what the app ships: the compat presets,
+ * writing with the editor's own serializer. `--variant baseline` runs the
+ * unpatched upstream preset, which is how the "did anything regress"
+ * comparison is produced from this same harness rather than from a set of
+ * numbers nobody can re-derive.
  *
  * Output (default `build/milkdown-census/<variant>/`, gitignored):
  *   results.jsonl  one record per note; flagged notes also carry round1/round2
@@ -84,8 +86,8 @@ function parseArgs(argv) {
         throw new Error(`unknown argument: ${flag}`);
     }
   }
-  if (!['compat', 'baseline', 'owned'].includes(args.variant)) {
-    throw new Error(`--variant must be compat, baseline or owned, got ${args.variant}`);
+  if (!['compat', 'baseline'].includes(args.variant)) {
+    throw new Error(`--variant must be compat or baseline, got ${args.variant}`);
   }
   args.out ??= path.join('build/milkdown-census', args.variant);
   return args;

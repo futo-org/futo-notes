@@ -21,19 +21,9 @@
  * THE FIX has two halves that both have to hold, since a GFM table cell is
  * one line of markdown and cannot contain a literal newline:
  *
- * 1. Save — {@link tableCellLineBreakSerializer}. `mdast-util-gfm-table`
- *    marks `\n`/`\r` "unsafe" inside a `tableCell` construct, and
- *    `mdast-util-to-markdown`'s default `hardBreak` handler
- *    (`lib/handle/break.js`) reacts to that by writing a bare space — or
- *    nothing at all when the preceding character is already whitespace —
- *    instead of a real break. That IS the `r1a`+Shift+Enter+`second`
- *    fusion, if the break had reached the document unfiltered but still hit
- *    the default serializer. `<br>` is the standard, and only legal, way to
- *    spell a line break inside a single-line GFM table cell, so this
- *    installs a `break` node handler that writes it literally whenever the
- *    serializer is inside a `tableCell` construct, and reproduces the plain
- *    `\` + newline spelling everywhere else (see that function's own doc for
- *    why this can't wrap the library's real default instead).
+ * 1. Save — the serializer writes a line break inside a table cell as `<br>`
+ *    (docs/spec/editor.md "Markdown house style"), the standard, and only
+ *    legal, way to spell one inside a single-line GFM table cell.
  * 2. Load — {@link restoreTableCellLineBreaks}. A `<br>` beside other content
  *    inside a table cell parses back through remark as an inert mdast `html`
  *    node — `packages/editor/src/milkdown-compat/emptyLine.ts`'s
@@ -55,14 +45,12 @@
  * (`insertLineBreakInTableCell`) — it never sets the `hardbreak` transaction
  * meta, so `hardbreakFilterPlugin` never sees a reason to reject it.
  *
- * Both halves here are bundled into `tableGrips.ts`'s exported plugin array
+ * The load half is bundled into `tableGrips.ts`'s exported plugin array
  * (mounted with the feature's one `.use(tableGrips)` in editorPlugins.ts)
  * rather than adding a second `.use()` call there.
  */
 import { $remark } from '@milkdown/kit/utils';
-import type { MilkdownPlugin } from '@milkdown/kit/ctx';
-import { remarkStringifyOptionsCtx } from '@milkdown/kit/core';
-import { appliesIn, type MdastNode, type UnsafePattern } from '@futo-notes/editor/milkdown-compat';
+import type { MdastNode } from '@futo-notes/editor/milkdown-compat';
 
 /** Depth-first walk over the slice of mdast this module reads/writes — a
  * five-line local copy of `packages/editor/src/milkdown-compat/mdast.ts`'s
@@ -99,66 +87,10 @@ export function restoreTableCellLineBreaks(tree: MdastNode): void {
   });
 }
 
-/** The load half: mounted as one `$remark` plugin alongside the save half
- * below. */
+/** The load half, as a `$remark` plugin. */
 export const tableCellLineBreakRemark = $remark(
   'remark-futo-table-cell-linebreak',
   () => () => (tree: MdastNode) => {
     restoreTableCellLineBreaks(tree);
   },
 );
-
-/**
- * The save half: installs a `break`-node handler into the serializer that
- * writes literal `<br>` whenever the current construct stack is inside a
- * `tableCell`, and otherwise reproduces the plain hard break spelling
- * (`\` + newline) unchanged.
- *
- * UNLIKE `editorPlugins.ts`'s own `remarkStringifyOptionsCtx` update for
- * the tag-escaping fix, this cannot WRAP an existing handler — Milkdown's
- * core only pre-registers `text`/`strong`/`emphasis` into
- * `remarkStringifyOptionsCtx`'s default `handlers` map
- * (`@milkdown/core`'s own `remark-handlers.ts`); `break` reaches
- * `mdast-util-to-markdown` purely as ITS OWN built-in default
- * (`defaultHandlers.break`, `mdast-util-to-markdown/lib/handle/break.js`),
- * which is not exposed anywhere this module could import — that package is
- * only a devDependency of `@futo-notes/editor` (types for tests), and
- * importing its runtime code here would be exactly the phantom-dependency
- * problem `stringifyHandlers.ts` documents avoiding. So the non-table branches
- * below restate upstream's `hardBreak` (`lib/handle/break.js`) directly, and
- * all of it: `mdast-util-gfm-table`'s `tableCell` is NOT the only construct
- * that registers `\n` as unsafe — `mdast-util-to-markdown` itself does for an
- * ATX heading (and for fence info/meta and a `<…>` destination), and there
- * upstream writes a space. Writing `\` + newline inside `### Title` ended the
- * heading: the note reopened as heading `Title\` plus a paragraph, a stray
- * backslash the user never typed.
- *
- * The one case upstream gets wrong is a break directly before inline HTML:
- * `containerPhrasing` refuses an eol in front of an `html` node (it could open
- * an HTML block, syntax-tree/mdast-util-to-markdown#15) and swaps it for a
- * space, which strands the `\` mid-line — `Press \ <kbd>` on one line, the
- * break gone and a backslash added. `<br>` is the spelling that needs no eol,
- * the same one a table cell uses.
- */
-export const tableCellLineBreakSerializer: MilkdownPlugin = (ctx) => {
-  ctx.update(remarkStringifyOptionsCtx, (options) => ({
-    ...options,
-    handlers: {
-      ...options.handlers,
-      break: (_node, parent, state, info) => {
-        if (state.stack.includes('tableCell')) return '<br>';
-        if (state.unsafe.some((pattern) => isUnsafeNewlineHere(pattern, state.stack))) {
-          return /[ \t]/.test(info.before) ? '' : ' ';
-        }
-        const next = parent?.children[(state.indexStack[state.indexStack.length - 1] ?? -1) + 1];
-        return next?.type === 'html' ? '<br>' : '\\\n';
-      },
-    },
-  }));
-  return () => {};
-};
-
-/** Whether `pattern` forbids a line ending in the construct being written. */
-function isUnsafeNewlineHere(pattern: UnsafePattern, stack: readonly string[]): boolean {
-  return pattern.character === '\n' && appliesIn(pattern, stack);
-}

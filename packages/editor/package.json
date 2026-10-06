@@ -15,7 +15,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "mdast-util-to-markdown": "2.1.2",
     "remark-frontmatter": "5.0.0"
   },
   "devDependencies": {

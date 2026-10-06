@@ -40,7 +40,7 @@
  *     composed over a selected chip replaces it instead of losing the commit
  *     and sticking `view.composing` (RC-97; not the gap, but the same symptom).
  *
- * `milkdown-compat.canary.spec.ts`-style canary: the `baseline` half of
+ * Canary: the `baseline` half of
  * `tests/editor-embed-milkdown-compat.spec.ts` shows the upstream plugin still
  * leaves `view.composing` set; when upstream fixes it, delete this file.
  */

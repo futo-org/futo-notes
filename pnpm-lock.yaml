@@ -208,9 +208,6 @@ importers:
 
   packages/editor:
     dependencies:
-      mdast-util-to-markdown:
-        specifier: 2.1.2
-        version: 2.1.2
       remark-frontmatter:
         specifier: 5.0.0
         version: 5.0.0

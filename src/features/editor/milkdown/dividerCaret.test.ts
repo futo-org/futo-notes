@@ -235,6 +235,19 @@ describe('opening a note must never move a divider or its caret (regression)', (
     '>\n' +
     '> quoted tail.\n\n' +
     'tail paragraph.\n';
+  /* The same note as a save writes it: the house style spells both rules `---`. */
+  const SAVED =
+    'Intro paragraph.\n\n' +
+    '---\n\n' +
+    'Body text after the first divider.\n\n' +
+    '- one\n' +
+    '- two\n\n' +
+    '> quoted intro.\n' +
+    '>\n' +
+    '> ---\n' +
+    '>\n' +
+    '> quoted tail.\n\n' +
+    'tail paragraph.\n';
 
   it('a plain open (below the chunking threshold) leaves the note byte-identical', async () => {
     const handle = await mountEditorHandle('');
@@ -256,7 +269,7 @@ describe('opening a note must never move a divider or its caret (regression)', (
     // A test that never took the chunked path would prove nothing.
     expect(result.chunked).toBe(true);
     expect(result.aborted).toBe(false);
-    expect(result.markdown).toBe(NOTE_WITH_MID_DOCUMENT_DIVIDERS);
+    expect(result.markdown).toBe(SAVED);
   });
 });
 

@@ -72,8 +72,7 @@ const INLINE_CASES = [
   '[[unclosed',
   '[[multi\nline]]',
 
-  // `!` in front is ordinary text to both implementations (see the escape note
-  // in the round-trip block below).
+  // `!` in front is ordinary text to both implementations.
   '![[embed]]',
   '! [[a]]',
   '![[a]] and ![[b]]',
@@ -96,12 +95,13 @@ const FRAMES = [
   (link: string) => `before ${link} after`,
   (link: string) => `${link}${link}`,
   (link: string) => `**${link}**`,
-  // `*`, not `-`: the preset normalizes the bullet marker, which is list work
-  // (pinned below), not wikilink work.
-  (link: string) => `* ${link}`,
+  // The house style's own spellings (`-`, `*`), so every frame round-trips
+  // byte for byte: re-spelling a marker is list and emphasis work (pinned
+  // below), not wikilink work.
+  (link: string) => `- ${link}`,
   (link: string) => `# ${link}`,
   (link: string) => `> ${link}`,
-  (link: string) => `_${link}_ and *x*`,
+  (link: string) => `*${link}* and *x*`,
 ];
 const GENERATED_CASES = TARGETS.flatMap((target) => FRAMES.map((frame) => frame(`[[${target}]]`)));
 
@@ -140,10 +140,8 @@ describe('wikilink tokenizing', () => {
  * note (`|` is a forbidden title character), so no rename outcome differs.
  */
 describe('a wikilink holding `|` inside a table cell (hardening L6e-15)', () => {
-  const row = (inner: string) => `| x ${inner} | d |`;
-  // The header is as wide as the row, so the stock table serializer pads nothing.
-  const cell = (inner: string) =>
-    `| ${'a'.padEnd(inner.length + 2)} | b |\n| ${'-'.repeat(inner.length + 2)} | - |\n${row(inner)}\n`;
+  // The house style pads no column, so the row is written as it stands.
+  const cell = (inner: string) => `| a | b |\n| --- | --- |\n| x ${inner} | d |\n`;
 
   it('reads the escaped pipe as part of the target, in one cell', async () => {
     const { targets, markdown } = await roundTrip(cell('[[note\\|alias]]'));
@@ -165,9 +163,9 @@ describe('a wikilink holding `|` inside a table cell (hardening L6e-15)', () => 
 
 describe('wikilink serialization', () => {
   /**
-   * THE acceptance criterion. Without the `toMarkdown` handler, remark's text
-   * escaping turns every `[[x]]` into `\[\[x]]` on the first real edit and the
-   * whole vault's link graph stops resolving.
+   * THE acceptance criterion. A serializer that escaped the wikilink's `[` as
+   * text would turn every `[[x]]` into `\[\[x]]` on the first real edit and the
+   * whole vault's link graph would stop resolving.
    */
   it.each(INLINE_CASES.filter((source) => conformanceTargets(`${source}\n`).length > 0))(
     'never backslash-escapes the wikilink in %j',
@@ -190,28 +188,15 @@ describe('wikilink serialization', () => {
 });
 
 /**
- * Sources Milkdown re-spells, pinned so a change to any of them is a decision
- * rather than a surprise. All three are ADR-0002 normalization: no content is
- * lost, no wikilink is touched, and each is idempotent (asserted below).
+ * Sources a save re-spells, pinned so a change to any of them is a decision
+ * rather than a surprise. Neither is wikilink work: the house style writes `-`
+ * bullets and `*` italics (docs/spec/editor.md "Markdown house style"). No
+ * content is lost, no wikilink is touched, and each is idempotent (asserted
+ * below).
  */
 const NORMALIZATIONS: Array<[source: string, normalized: string]> = [
-  // A `!` immediately before a wikilink gains a backslash, because
-  // mdast-util-to-markdown escapes `!` whenever a `[` follows it and cannot be
-  // told otherwise (its `unsafe` list only grows). The wikilink itself is
-  // untouched and still resolves; `\!` renders as `!`. The alternative — having
-  // the wikilink handler's `peek` lie about its first character — would suppress
-  // this escape by suppressing every `after`-keyed escape next to a wikilink,
-  // trading a cosmetic byte for a class of under-escaping bugs.
-  ['![[embed]]', '\\![[embed]]'],
-  ['![[a]] and ![[b]]', '\\![[a]] and \\![[b]]'],
-  // Literal `[[` that is NOT a wikilink is escaped, exactly as Milkdown already
-  // escapes a bare `[`. Neither implementation reads these as links.
-  ['[[]]', '\\[\\[]]'],
-  ['[[unclosed', '\\[\\[unclosed'],
-  ['[[multi\nline]]', '\\[\\[multi\nline]]'],
-  // Not wikilink work at all: list-marker and table normalization the preset
-  // does to every note (docs/adr/0002-roundtrip-normalization-accepted.md).
-  ['- item [[g/d]]', '* item [[g/d]]'],
+  ['* item [[g/d]]', '- item [[g/d]]'],
+  ['_[[a]]_ and *x*', '*[[a]]* and *x*'],
 ];
 const NORMALIZES = new Set(NORMALIZATIONS.map(([source]) => source));
 

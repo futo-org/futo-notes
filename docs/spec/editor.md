@@ -150,8 +150,9 @@ about.
   then `1)`) so the blank line does not merge them into one list; the empty
   paragraph the schema itself puts in front of a list item whose content is a
   block (`- > quote`) is never written. →
-  packages/editor/src/milkdown-compat/emptyLine.ts,
-  packages/editor/src/milkdown-compat/listItemFiller.ts,
+  packages/editor/src/milkdown-compat/emptyLine.ts (load),
+  packages/editor/src/markdown/serializer.ts `joinDocument`/`planDocument`,
+  packages/editor/src/markdown/blocks.ts `writeItem`,
   tests/editor-embed-milkdown-compat.spec.ts
 - Progressive open preserves those gaps across chunk seams: the blank run a cut
   leaves at the end of one chunk is counted by the loader and re-inserted as
@@ -848,11 +849,11 @@ native shells edit tags as text in the body, which is not a gap.
 - An underscore INSIDE a word survives a save unescaped: `#dog_problems`,
   `snake_case_word` and `file_name.txt` are written back exactly, on every
   platform, whether the edit came from the keyboard or from the desktop tag bar
-  (which commits through a full re-serialization). Only a `_` that CommonMark
-  could read as an emphasis delimiter — one not flanked by a word character on
-  the relevant side — is escaped, so `_em_` still round-trips as emphasis and a
-  lone `_` still gets its backslash. →
-  packages/editor/src/milkdown-compat/underscoreEscape.ts,
+  (which commits through a full re-serialization). Only a `_` the parser would
+  read as an emphasis delimiter is escaped (`\_not em_`), so `_em_` still
+  round-trips as emphasis (written `*em*`) and a `_` between spaces stays bare
+  (see "Markdown house style"). →
+  packages/editor/src/markdown/choose.ts,
   tests/editor-embed-milkdown-parity.spec.ts, tests/tags.spec.ts
 
 ## Wikilinks — navigation & integrity
@@ -1016,7 +1017,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   and editing a note leaves the bare URLs already in it bare, unless a bare
   spelling would not read back as the same link. →
   src/features/editor/milkdown/autolink.ts,
-  packages/editor/src/milkdown-compat/bareUrl.ts,
+  packages/editor/src/markdown/inline.ts,
   tests/editor-embed-milkdown-parity.spec.ts
 
 ## Interactive elements
@@ -1052,7 +1053,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   newline would corrupt the row) and parses back into the same break on
   reopen. → src/features/editor/milkdown/keyboardParity.ts
   `insertLineBreakInTableCell`,
-  src/features/editor/milkdown/table/tableLineBreak.ts (markdown round trip),
+  src/features/editor/milkdown/table/tableLineBreak.ts (reading the `<br>` back),
   src/features/editor/milkdown/table/tableLineBreak.test.ts
 
 - Hovering a column shows a small grip above it; hovering a row shows one at
@@ -1839,11 +1840,12 @@ unchanged by it.
 - The debounced `change` notification and `getContent()` serialize the note per
   top-level block, cached on ProseMirror node identity, so a settled edit costs
   the blocks it touched rather than the whole note; the bytes are identical to
-  Milkdown's whole-document serializer (`just chunk-census --serialize`,
-  docs/evidence/milkdown-serialize-census.md). A document whose cache is still
-  cold primes it in idle slices and reports the change once primed, instead of
-  serializing the whole note on the main thread. → milkdown/blockSerializer.ts,
-  milkdown/serializationLoop.ts `readSerialized`
+  the serializer writing the whole document, which is also what `getMarkdown()`
+  and a copy's plain text use (`just chunk-census --serialize`). A document
+  whose cache is still cold primes it in idle slices and reports the change
+  once primed, instead of serializing the whole note on the main thread. →
+  packages/editor/src/markdown/cache.ts,
+  milkdown/serializationLoop.ts `createDocumentSerializer`/`readSerialized`
 - A note of 400 lines or more is opened PROGRESSIVELY: the first ~80 lines are
   parsed and mounted synchronously so the first viewport is interactive, and the
   rest stream in idle slices. Chunk boundaries are only ever taken where a chunk

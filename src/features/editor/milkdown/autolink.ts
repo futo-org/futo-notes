@@ -10,7 +10,7 @@
  * whatever link that parse finds — its extent, with GFM's trailing-punctuation
  * trim, and its href, `http://` added for `www.` — is the link applied. So
  * "a link now" and "a link after reopening" cannot disagree, and the file keeps
- * the bare URL the user typed (packages/editor/src/milkdown-compat/bareUrl.ts).
+ * the bare URL the user typed (docs/spec/editor.md "Markdown house style").
  *
  * An `appendTransaction` rather than a Space input rule and an Enter keymap:
  * it sees the result of the edit however it arrived — a key, a phone keyboard's
@@ -28,7 +28,7 @@ import {
 } from '@milkdown/kit/prose/state';
 import { $prose } from '@milkdown/kit/utils';
 
-import type { ParsedNode, ParseMarkdown } from '@futo-notes/editor';
+import type { MdastNode } from '@futo-notes/editor/milkdown-compat';
 
 export const autolinkKey = new PluginKey('FUTO_AUTOLINK');
 
@@ -64,8 +64,11 @@ function endedWordAt(state: EditorState, previous: EditorState): number | null {
   return lineEnd.empty && lineEnd.from < $caret.pos ? lineEnd.from : null;
 }
 
+/** Markdown in, mdast out — the editor's own remark processor's `parse`. */
+type ParseMarkdown = (markdown: string) => MdastNode;
+
 /** The first link in a parsed tree, with its source offsets. */
-function firstLink(node: ParsedNode): { url: string; start: number; end: number } | null {
+function firstLink(node: MdastNode): { url: string; start: number; end: number } | null {
   if (node.type === 'link') {
     const start = node.position?.start.offset;
     const end = node.position?.end.offset;

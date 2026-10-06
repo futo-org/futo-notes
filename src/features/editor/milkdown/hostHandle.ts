@@ -9,7 +9,7 @@
  * and the harness probes no shell calls. The document state they share is the
  * editor's DocumentSession.
  */
-import { schemaCtx, serializerCtx, type Editor } from '@milkdown/kit/core';
+import { serializerCtx, type Editor } from '@milkdown/kit/core';
 import { insert, replaceAll } from '@milkdown/kit/utils';
 import { history as proseHistory, redoDepth, undoDepth } from '@milkdown/kit/prose/history';
 import { EditorState, TextSelection, type PluginKey } from '@milkdown/kit/prose/state';
@@ -17,7 +17,6 @@ import type { Schema as ProseSchema } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { toWellFormedText, type DocumentRef, type FlushFailureReason } from '@futo-notes/editor';
 import { hasSurplusTrailingEmptyParagraphs } from '@futo-notes/editor/milkdown-compat';
-import { createBlockSerializer } from './blockSerializer';
 import { WHOLE as CENSUS_WHOLE } from './chunkCensusHook';
 import type { DocumentLoad } from './documentLoad';
 import type { DocumentSession } from './documentSession.svelte';
@@ -33,7 +32,7 @@ import { planMarkdownChunks, type MarkdownChunkOptions } from './markdownChunks'
 import { dropBlockDndFocusGuards } from './mobileBlockDnd';
 import { endsWithUnwrittenLine } from './paragraphLines';
 import { stripLeadingBoms } from './parseNote';
-import type { SerializationLoop } from './serializationLoop';
+import { createDocumentSerializer, type SerializationLoop } from './serializationLoop';
 import { hideTableGrips } from './table/tableGrips';
 import { createToolbarExec } from './toolbarExec';
 import { refreshWikilinkViews } from './wikilink';
@@ -624,7 +623,7 @@ function createHarnessProbes(
   const { applyExternal, endPendingLoad } = documentLoad;
 
   /**
-   * Loads `text` with explicit chunk options and returns Milkdown's
+   * Loads `text` with explicit chunk options and returns the editor's
    * serialization of the resulting document, plus the plan that produced it.
    *
    * The ONLY consumer is the chunk-equivalence census
@@ -654,20 +653,18 @@ function createHarnessProbes(
   }
 
   /**
-   * Loads `text` as a whole document and reports Milkdown's OWN serialization
-   * of the result next to a FRESH `BlockSerializer`'s serialization of the
-   * SAME document — the equivalence the block-serialization census
-   * (blockSerializer.ts, `scripts/milkdown-chunk-census.mjs --serialize`)
-   * exists to measure.
+   * Loads `text` as a whole document and reports the whole-document
+   * serialization Milkdown's `serializerCtx` now holds (the owned serializer,
+   * what `getMarkdown()` writes) next to a FRESH per-block cache's
+   * serialization of the SAME document (`createDocumentSerializer`,
+   * serializationLoop.ts) — the equivalence the block-serialization census
+   * (`scripts/milkdown-chunk-census.mjs --serialize`) exists to measure.
    *
-   * A fresh serializer rather than the component's own `blockSerializer`
-   * (serializationLoop.ts),
-   * because the claim under test is "the cache computes the same bytes as the
-   * direct call", and the component's cache may already hold entries from
-   * whatever this instance loaded before — reusing it would let a STALE cache
-   * entry pass unnoticed. `whole` bypasses `blockSerializer` entirely by
-   * calling the ctx-provided serializer directly, so it is unaffected by any
-   * bug this module might have.
+   * A fresh cache rather than the component's own, because the claim under
+   * test is "the cache computes the same bytes as the direct call", and the
+   * component's cache may already hold entries from whatever this instance
+   * loaded before — reusing it would let a STALE cache entry pass unnoticed.
+   * `whole` bypasses the cache entirely, so it is unaffected by any bug in it.
    *
    * Same door as `censusLoad`: read-only with respect to the host, never
    * posts a message, and installed only behind `editor.html?census`
@@ -680,14 +677,8 @@ function createHarnessProbes(
     const view = pmView();
     if (!editor || !view) return { whole: null, blocks: null };
     try {
-      const schema = editor.ctx.get(schemaCtx);
-      const rawSerialize = editor.ctx.get(serializerCtx);
-      const whole = rawSerialize(view.state.doc);
-      const fresh = createBlockSerializer({
-        serializeDoc: (doc) => rawSerialize(doc),
-        createDoc: (nodes) => schema.topNodeType.create(null, nodes),
-      });
-      return { whole, blocks: fresh.serialize(view.state.doc) };
+      const whole = editor.ctx.get(serializerCtx)(view.state.doc);
+      return { whole, blocks: createDocumentSerializer(editor).serialize(view.state.doc) };
     } catch {
       return { whole: null, blocks: null };
     }

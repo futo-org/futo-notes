@@ -28,22 +28,12 @@
  * block, keyed on the block's identity plus that context, and re-serialize only
  * the blocks that changed — `./cache.ts` is that cache.
  *
- * INTEGRATION (after #265 lands; nothing calls this yet):
- *
- *   const serializer = createMarkdownSerializer({
- *     parse: (markdown) => ctx.get(parserCtx)(markdown).toJSON(),
- *   });
- *   // The save path (replaces src/features/editor/milkdown/blockSerializer.ts):
- *   const cached = createCachedSerializer(serializer, {
- *     children: (doc) => { const nodes = []; doc.forEach((n) => nodes.push(n)); return nodes; },
- *     toJSON: (node) => node.toJSON(),
- *   });
- *   cached.serialize(view.state.doc)   // and cached.prime / cached.isPrimed as today
- *   // Everything else that asks Milkdown for markdown (getMarkdown, the
- *   // clipboard's text/plain), set once SerializerReady has run:
- *   ctx.set(serializerCtx, (doc) => serializer.serialize(doc.toJSON()));
- *
- * after which the remark-stringify compat plugins listed in #266 are deleted.
+ * WHERE IT RUNS. It is the only serializer in the product. The save path keeps
+ * a `./cache.ts` over it (src/features/editor/milkdown/serializationLoop.ts);
+ * everything else that asks Milkdown for markdown — `getMarkdown()`, the
+ * clipboard's text/plain — reaches it through `serializerCtx`, which
+ * `../milkdown-compat/ownedSerializer.ts` replaces. Both are handed the
+ * editor's own `parserCtx` as `parse`.
  */
 import { DEFAULT_MARKER, alternateMarker, listKind, writeBlock, type ListMarker } from './blocks';
 import { chooseSpelling, DEFAULT_CHECK_BUDGET, type CheckBudget, type Reader } from './choose';

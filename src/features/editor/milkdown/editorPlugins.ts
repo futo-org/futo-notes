@@ -8,14 +8,7 @@
  * through `EditorAssembly`, and every value that can change is a getter, read
  * when the plugin asks — never a snapshot taken at mount.
  */
-import {
-  Editor,
-  defaultValueCtx,
-  editorViewOptionsCtx,
-  remarkCtx,
-  remarkStringifyOptionsCtx,
-  rootCtx,
-} from '@milkdown/kit/core';
+import { Editor, defaultValueCtx, editorViewOptionsCtx, rootCtx } from '@milkdown/kit/core';
 import type { Ctx } from '@milkdown/kit/ctx';
 import { codeBlockAttr, inlineCodeAttr } from '@milkdown/kit/preset/commonmark';
 import { commonmarkWithCompat, gfmWithCompat } from '@futo-notes/editor/milkdown-compat';
@@ -29,7 +22,7 @@ import { gapCursorPlugin } from '@milkdown/kit/plugin/cursor';
 import { trailing } from '@milkdown/kit/plugin/trailing';
 import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
-import { bareUrlLinkHandler, withNarrowedEscapes, type DocumentRef } from '@futo-notes/editor';
+import type { DocumentRef } from '@futo-notes/editor';
 import type { ImageInsertTarget } from '../imageInsertTarget';
 import { readOnlyGuard } from './readOnlyGuard';
 import { useBlockDragPlugins } from './blockDrag.svelte';
@@ -102,7 +95,7 @@ export interface EditorAssembly {
   documentEdited: () => void;
 }
 
-/** The ctx settings: serializer options, the editable's view props, code IME traits, listeners. */
+/** The ctx settings: the editable's view props, code IME traits, listeners. */
 function configureEditor(ctx: Ctx, assembly: EditorAssembly): void {
   const {
     container,
@@ -120,46 +113,6 @@ function configureEditor(ctx: Ctx, assembly: EditorAssembly): void {
   } = assembly;
   ctx.set(rootCtx, container);
   ctx.set(defaultValueCtx, stripLeadingBoms(getPendingContent() ?? ''));
-  /* Stop remark-stringify turning a note's leading `#tag` into `\#tag`
-   * on save, which silently un-tags it, and `snake_case` into
-   * `snake\_case` (which also un-tags `#dog_problems`). See
-   * packages/editor/src/milkdown-compat/atxEscape.ts and
-   * underscoreEscape.ts — Milkdown's own `text` handler is what gets
-   * wrapped, so its behavior is preserved and only the escape
-   * conditions narrow. */
-  ctx.update(remarkStringifyOptionsCtx, (options) => {
-    // Milkdown always installs its own `text` handler, and this wraps
-    // that one rather than replacing it. If it ever stops, leaving the
-    // serializer alone is the safe answer here — and the regression is
-    // not silent: `editor-embed-milkdown-parity.spec.ts` asserts that
-    // saving a note does not escape its tags.
-    const text = options.handlers?.text;
-    if (!text) return options;
-    return {
-      ...options,
-      handlers: { ...options.handlers, text: withNarrowedEscapes(text) },
-    };
-  });
-
-  /* Write a bare URL back bare instead of as `<url>` (or, for `www.`,
-   * a full `[text](url)`) — see packages/editor/src/milkdown-compat/
-   * bareUrl.ts. The processor is read at serialize time: it only has
-   * the gfm preset's plugins once the editor has been created. */
-  ctx.update(remarkStringifyOptionsCtx, (options) => ({
-    ...options,
-    handlers: {
-      ...options.handlers,
-      link: bareUrlLinkHandler((markdown) => ctx.get(remarkCtx).parse(markdown)),
-    },
-  }));
-
-  /* `-` for bullet markers, not remark-stringify's default `*`.
-   * The manifest's Bullet/Task buttons emit `- `, and so does the
-   * overwhelming majority of the corpus, so `*` would make every
-   * edited note churn its list markers on the first save for no reason
-   * (ADR-0002 normalize-once). */
-  ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: '-' as const }));
-
   /* The editable's IME behavior.
    *
    * Red squiggles off, iOS autocorrect ON. Those are separate

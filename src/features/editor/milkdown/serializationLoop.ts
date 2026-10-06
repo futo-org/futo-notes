@@ -12,14 +12,19 @@
  * load matches the pristine empty document that baseline is still sitting on.
  *
  * Every serialization goes through ONE function, `serialize` below. The
- * per-block cache behind it (blockSerializer.ts) is what the idle priming here
- * warms.
+ * per-block cache behind it (`createDocumentSerializer`) is what the idle
+ * priming here warms.
  */
-import { schemaCtx, serializerCtx, type Editor } from '@milkdown/kit/core';
+import type { Editor } from '@milkdown/kit/core';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { toWellFormedText, type DocumentRef } from '@futo-notes/editor';
-import { createBlockSerializer, type BlockSerializer } from './blockSerializer';
+import {
+  createCachedSerializer,
+  type CachedSerializer,
+  type NodeJson,
+} from '@futo-notes/editor/markdown';
+import { editorMarkdownSerializer } from '@futo-notes/editor/milkdown-compat';
 import { DOCUMENT_CHANGE_DEBOUNCE_MS, DOCUMENT_CHANGE_MAX_WAIT_MS } from './documentChanges';
 import type { DocumentSession } from './documentSession.svelte';
 import { scheduleIdleSlice } from './progressiveLoad';
@@ -47,13 +52,28 @@ export interface SerializationLoopDeps {
 
 export type SerializationLoop = ReturnType<typeof createSerializationLoop>;
 
+/**
+ * The editor's own serializer (`@futo-notes/editor/markdown`, #266) behind a
+ * per-top-level-block cache: a save re-serializes only the blocks that changed,
+ * and the bytes equal the serializer's whole-document `serialize` — what
+ * `getMarkdown()` writes (`just chunk-census --serialize` holds the two equal
+ * over the corpus). An unchanged block is the same ProseMirror node across
+ * transactions, which is the identity the cache keys on.
+ */
+export function createDocumentSerializer(editor: Editor): CachedSerializer<ProseNode> {
+  return createCachedSerializer(editorMarkdownSerializer(editor.ctx), {
+    children: (doc: ProseNode) => doc.content.content,
+    toJSON: (block: ProseNode) => block.toJSON() as NodeJson,
+  });
+}
+
 export function createSerializationLoop(session: DocumentSession, deps: SerializationLoopDeps) {
   const { getEditor, pmView, emitFormatState, props } = deps;
 
-  /* The per-top-level-block serialization cache (blockSerializer.ts). One
-   * instance per editor, built once `serializerCtx`/`schemaCtx` exist. */
-  let blockSerializer: BlockSerializer | null = null;
-  /* The in-flight idle priming loop over `blockSerializer`, if any — see
+  /* The per-top-level-block serialization cache (`createDocumentSerializer`).
+   * One instance per editor, built once the editor exists. */
+  let documentSerializer: CachedSerializer<ProseNode> | null = null;
+  /* The in-flight idle priming loop over `documentSerializer`, if any — see
    * `startPriming`/`stopPriming`. */
   let primeCancelIdle: (() => void) | null = null;
   /* The pending debounced change notification (documentChanges.ts). */
@@ -62,45 +82,39 @@ export function createSerializationLoop(session: DocumentSession, deps: Serializ
    * for `DOCUMENT_CHANGE_MAX_WAIT_MS`. */
   let changePendingSince: number | null = null;
 
-  /** Builds the editor `created`'s serializer, once its ctx slices exist. */
+  /** Builds the editor `created`'s serializer. */
   function attach(created: Editor): void {
-    const schema = created.ctx.get(schemaCtx);
-    const serializeDoc = created.ctx.get(serializerCtx);
-    blockSerializer = createBlockSerializer({
-      serializeDoc: (doc) => serializeDoc(doc),
-      createDoc: (nodes) => schema.topNodeType.create(null, nodes),
-    });
+    documentSerializer = createDocumentSerializer(created);
   }
 
   /** Drops the serializer of an editor that is being destroyed. */
   function detach(): void {
-    blockSerializer = null;
+    documentSerializer = null;
   }
 
   /**
    * THE serialize seam: a ProseMirror document in, its markdown out. Every
-   * serialization this editor reports passes through here (`readSerialized`).
-   * Today it is the per-top-level-block cache (blockSerializer.ts) over
-   * Milkdown's own `serializerCtx`, built by `attach`. The owned serializer
-   * (#266) replaces what is behind this function.
+   * serialization this editor reports passes through here (`readSerialized`):
+   * the per-top-level-block cache over the editor's own serializer, built by
+   * `attach`.
    *
    * Reached only through `readSerialized`, which returns before calling it
    * when there is no serializer.
    */
   function serialize(doc: ProseNode): string {
-    return blockSerializer!.serialize(doc);
+    return documentSerializer!.serialize(doc);
   }
 
   /**
-   * Runs `blockSerializer.prime()` in idle slices until `view.state.doc` is
+   * Runs `documentSerializer.prime()` in idle slices until `view.state.doc` is
    * fully cached, then calls `onDone` (if the editor and document are still
-   * around — `pmView()`/`blockSerializer` can go null on a race with destroy
+   * around — `pmView()`/`documentSerializer` can go null on a race with destroy
    * or a fresh load elsewhere in this file, and there is nothing to prime
    * against then).
    *
    * Safe to call while a priming loop is already running: it cancels that
    * loop's SCHEDULING first, but the cache itself (a `WeakMap` inside
-   * `blockSerializer`) is untouched, so nothing already primed is redone —
+   * `documentSerializer`) is untouched, so nothing already primed is redone —
    * only the "who to call when done" is replaced. That is also what makes it
    * safe to call from `reportDocumentChange` with no separate queue: the next
    * idle slice always primes whatever `view.state.doc` is AT THAT MOMENT, so
@@ -112,7 +126,7 @@ export function createSerializationLoop(session: DocumentSession, deps: Serializ
     const step = (deadline: IdleDeadline | undefined): void => {
       primeCancelIdle = null;
       const view = pmView();
-      if (!view || !blockSerializer) return;
+      if (!view || !documentSerializer) return;
       // A real deadline reports its own remaining time; the setTimeout
       // fallback (no requestIdleCallback — Safari/WKWebView) gets a fixed
       // ~6 ms slice budget instead, tracked from when this slice started.
@@ -122,7 +136,7 @@ export function createSerializationLoop(session: DocumentSession, deps: Serializ
             const sliceStart = performance.now();
             return (): number => 6 - (performance.now() - sliceStart);
           })();
-      const done = blockSerializer.prime(view.state.doc, timeRemainingMs);
+      const done = documentSerializer.prime(view.state.doc, timeRemainingMs);
       if (done) {
         onDone?.();
         return;
@@ -206,9 +220,9 @@ export function createSerializationLoop(session: DocumentSession, deps: Serializ
     // module replaces was unacceptable for
     // (docs/plan/milkdown-transition.md "Gate run, real app, 2026-09-06").
     const primingView = pmView();
-    if (primingView && blockSerializer && !blockSerializer.isPrimed(primingView.state.doc)) {
+    if (primingView && documentSerializer && !documentSerializer.isPrimed(primingView.state.doc)) {
       const budgetStart = performance.now();
-      const primed = blockSerializer.prime(
+      const primed = documentSerializer.prime(
         primingView.state.doc,
         () => SYNC_PRIME_BUDGET_MS - (performance.now() - budgetStart),
       );
@@ -237,14 +251,14 @@ export function createSerializationLoop(session: DocumentSession, deps: Serializ
   }
 
   /**
-   * Milkdown's serialization of the live document, cached against that
-   * document. Goes through `serialize`, the per-block cache, rather than
-   * `getMarkdown()`: byte-identical output, but proportional to what changed
-   * since the last serialization instead of to the whole document.
+   * The serialization of the live document, cached against that document.
+   * Goes through `serialize`, the per-block cache, rather than `getMarkdown()`:
+   * byte-identical output, but proportional to what changed since the last
+   * serialization instead of to the whole document.
    */
   function readSerialized(): string | null {
     const view = pmView();
-    if (!getEditor() || !view || !blockSerializer) return null;
+    if (!getEditor() || !view || !documentSerializer) return null;
     const doc = view.state.doc;
     if (session.liveDoc === doc && session.liveMarkdown !== null) return session.liveMarkdown;
     try {

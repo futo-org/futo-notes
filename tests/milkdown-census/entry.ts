@@ -14,21 +14,20 @@
  * difference is wikilink escaping therefore reads as a difference here that the
  * shipping editor does not have.
  *
- * Three variants share this file so the census can measure a change rather than
- * a snapshot: `compat` is what the app ships, `baseline` is the unpatched
- * upstream preset. `milkdown-compat.canary.spec.ts` uses `baseline` to prove
- * the upstream bugs are still there — the day one is fixed upstream, its canary
- * fails and the corresponding local fork should be deleted. `owned` reads a
- * note exactly as `compat` does and writes it with the editor's own serializer
- * (`@futo-notes/editor/markdown`, #266) instead of remark-stringify.
+ * Two variants share this file so the census can measure a change rather than
+ * a snapshot: `compat` is what the app ships — the compat presets, which read
+ * through the parse-side fixes and write through the editor's own serializer
+ * (`@futo-notes/editor/markdown`, #266) — and `baseline` is the unpatched
+ * upstream preset, reading and writing with remark.
+ * `tests/editor-embed-milkdown-compat.spec.ts` uses `baseline` to prove the
+ * upstream bugs are still there — the day one is fixed upstream, its canary
+ * fails and the corresponding local fork should be deleted.
  */
 import {
   Editor,
   defaultValueCtx,
   editorViewCtx,
   parserCtx,
-  remarkCtx,
-  remarkStringifyOptionsCtx,
   rootCtx,
   serializerCtx,
 } from '@milkdown/kit/core';
@@ -43,41 +42,9 @@ import { getMarkdown, replaceAll } from '@milkdown/kit/utils';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { Selection } from '@milkdown/kit/prose/state';
 
-import {
-  bareUrlLinkHandler,
-  commonmarkWithCompat,
-  gfmWithCompat,
-  withNarrowedEscapes,
-} from '@futo-notes/editor/milkdown-compat';
-import { createMarkdownSerializer, type NodeJson } from '@futo-notes/editor/markdown';
+import { commonmarkWithCompat, gfmWithCompat } from '@futo-notes/editor/milkdown-compat';
 
-export type CensusVariant = 'compat' | 'baseline' | 'owned';
-
-/**
- * The escape narrowing MilkdownEditor.svelte installs (`withNarrowedEscapes`:
- * the line-leading `#` and the intra-word `_`) and its bare-URL link handler
- * (`bareUrlLinkHandler`), applied to the `compat` variant
- * so a change to either is measured by this census the way the manual
- * requires. The `baseline` variant keeps remark-stringify's stock escapes.
- *
- * Deliberately NOT the app's `bullet: '-'`: the canary fixtures in
- * tests/editor-embed-milkdown-compat.spec.ts pin remark's stock `*` marker, and
- * the marker is spelling, not a loss class this census flags.
- */
-function configureSerializer(ctx: Parameters<Parameters<Editor['config']>[0]>[0]): void {
-  ctx.update(remarkStringifyOptionsCtx, (options) => {
-    const text = options.handlers?.text;
-    if (!text) return options;
-    return {
-      ...options,
-      handlers: {
-        ...options.handlers,
-        text: withNarrowedEscapes(text),
-        link: bareUrlLinkHandler((markdown) => ctx.get(remarkCtx).parse(markdown)),
-      },
-    };
-  });
-}
+export type CensusVariant = 'compat' | 'baseline';
 
 /** One pass of the editor over a note: what went in, what came back out. */
 export interface RoundTrip {
@@ -89,6 +56,8 @@ export interface RoundTrip {
   /** ProseMirror's own structural comparison needs the doc, which cannot cross
    *  the page boundary — so the JSON goes instead and the driver compares that. */
   docJson: unknown;
+  /** `markdown` parsed and written again: a second save (`second_pass_unstable`). */
+  secondPass: string;
 }
 
 function histogram(doc: ProseNode): Record<string, number> {
@@ -116,13 +85,11 @@ function visibleText(doc: ProseNode): string {
 async function loadOnce(variant: CensusVariant, markdown: string): Promise<RoundTrip> {
   const root = document.createElement('div');
   document.body.appendChild(root);
-  // `owned` READS exactly as `compat` does; only the writer differs.
-  const patched = variant !== 'baseline';
+  const patched = variant === 'compat';
   const editor = await Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, root);
       ctx.set(defaultValueCtx, markdown);
-      if (variant === 'compat') configureSerializer(ctx);
     })
     .use(patched ? commonmarkWithCompat() : commonmark)
     .use(patched ? gfmWithCompat() : gfm)
@@ -135,19 +102,8 @@ async function loadOnce(variant: CensusVariant, markdown: string): Promise<Round
   try {
     if (markdown !== '') editor.action(replaceAll(markdown));
     const doc = editor.ctx.get(editorViewCtx).state.doc;
-    const parse = editor.ctx.get(parserCtx);
-    let out: string;
-    let secondPass: string;
-    if (variant === 'owned') {
-      const owned = createMarkdownSerializer({
-        parse: (source) => parse(source).toJSON() as NodeJson,
-      });
-      out = owned.serialize(doc.toJSON() as NodeJson);
-      secondPass = owned.serialize(parse(out).toJSON() as NodeJson);
-    } else {
-      out = editor.action(getMarkdown());
-      secondPass = editor.ctx.get(serializerCtx)(parse(out));
-    }
+    const out = editor.action(getMarkdown());
+    const secondPass = editor.ctx.get(serializerCtx)(editor.ctx.get(parserCtx)(out));
     return {
       markdown: out,
       histogram: histogram(doc),
@@ -236,7 +192,6 @@ async function pastePlainText(variant: CensusVariant, markdown: string): Promise
   const editor = await Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, root);
-      if (variant === 'compat') configureSerializer(ctx);
     })
     .use(preset)
     .use(variant === 'compat' ? gfmWithCompat() : gfm)
