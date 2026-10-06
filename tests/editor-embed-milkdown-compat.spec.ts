@@ -1,18 +1,25 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { buildCensusPage } from './milkdown-census/build.mjs';
+import { houseDocument } from './milkdown-census/detectors.mjs';
 
 /**
- * Round-trip safety of the Milkdown compat plugins — executable.
+ * Round-trip safety of the Milkdown compat plugins and the editor's own
+ * serializer — executable.
  *
- * Every case runs twice against a real Milkdown editor built from the app's
- * plugin chain: once on `baseline` (the unpatched upstream preset) and once on
- * `compat` (what the app ships, `@futo-notes/editor/milkdown-compat`).
+ * Every case runs against a real Milkdown editor built from the app's plugin
+ * chain: on `baseline` (the unpatched upstream preset, read and written by
+ * remark) and on `compat` (what the app ships: `@futo-notes/editor/milkdown-
+ * compat` reading, the owned serializer writing in the house style of
+ * docs/spec/editor.md "Markdown house style").
  *
  * The `baseline` half is the CANARY. It asserts the upstream bugs are still
  * present in `@milkdown/kit` 7.22.1. When upstream fixes one, its canary fails
  * — and that failure is the signal to delete the corresponding local fork
- * rather than carry it forever. Do not "fix" a red canary by relaxing it.
+ * rather than carry it forever. Do not "fix" a red canary by relaxing it. The
+ * canaries of the remark-stringify patches went with the patches when the
+ * owned serializer replaced them (#266): what they guarded is now the
+ * serializer's, held by its goldens (tests/conformance/markdown-house-style.json).
  *
  * The `compat` half is the contract: the two loss classes the census measured
  * are gone, and an empty paragraph round-trips as a blank line — never as the
@@ -82,29 +89,27 @@ test.describe('an empty paragraph round-trips as a blank line, never as <br />',
   // paragraphs and save back as N blank lines (packages/editor/src/
   // milkdown-compat/emptyLine.ts). Each case is asserted twice — the first
   // save is allowed to re-spell (ADR-0002), the second must be a fixed point.
-  // Fixed points of the census harness's serializer. `*`/`| - |` are
-  // remark-stringify's defaults (the app sets `bullet: '-'` in its own config,
-  // the harness does not).
+  // Fixed points of the house style (docs/spec/editor.md "Markdown house
+  // style"): `-` bullets, `---` delimiter rows, one space either side of a cell.
   const STABLE: Record<string, string> = {
     'two blank lines between paragraphs': 'para one\n\n\npara two\n',
     'three blank lines between paragraphs': 'para one\n\n\n\npara two\n',
     'blank lines before the first block': '\n\npara\n',
     'two blank lines inside a blockquote': '> a\n>\n>\n> b\n',
-    'two blank lines inside a list item': '* a\n\n\n  b\n* c\n',
-    'an empty list item': '* a\n*\n* b\n',
+    'two blank lines inside a list item': '- a\n\n\n  b\n- c\n',
+    'an empty list item': '- a\n-\n- b\n',
     // The schema puts an empty paragraph in front of an item whose only content
-    // is a block; that filler is not the note's and is not written
-    // (packages/editor/src/milkdown-compat/listItemFiller.ts). Without that,
-    // these save as a bare `*` over an indented block, and the NEXT save escapes
-    // it to a literal `\*` — 60 census notes.
-    'a list item holding only a blockquote': '* > quote\n* b\n',
-    'a list item holding only a heading': '* # heading\n',
-    'a list item holding only a nested list': '* * nested\n  * deeper\n',
+    // is a block; that filler is not the note's and is not written. Written, it
+    // would save as a bare `-` over an indented block, and the NEXT save would
+    // escape it to a literal `\-` — 60 census notes before the fix.
+    'a list item holding only a blockquote': '- > quote\n- b\n',
+    'a list item holding only a heading': '- # heading\n',
+    'a list item holding only a nested list': '- - nested\n  - deeper\n',
     // Two lists with a gap between them: the second list alternates its marker
     // as if adjacent, or CommonMark would read the pair back as ONE list.
-    'two bullet lists with a blank line between them': '* a\n\n\n- b\n',
+    'two bullet lists with a blank line between them': '- a\n\n\n* b\n',
     'two ordered lists with a blank line between them': '1. a\n\n\n1) b\n',
-    'an empty table cell': '| a | b |\n| - | - |\n|   | x |\n',
+    'an empty table cell': '| a | b |\n| --- | --- |\n|  | x |\n',
   };
 
   for (const [name, markdown] of Object.entries(STABLE)) {
@@ -142,11 +147,11 @@ test.describe('an empty paragraph round-trips as a blank line, never as <br />',
     ],
     'an empty table cell': [
       '| a | b |\n| --- | --- |\n| <br /> | x |\n',
-      '| a | b |\n| - | - |\n|   | x |\n',
+      '| a | b |\n| --- | --- |\n|  | x |\n',
     ],
-    'an empty list item': ['- a\n- <br />\n- b\n', '* a\n*\n* b\n'],
+    'an empty list item': ['- a\n- <br />\n- b\n', '- a\n-\n- b\n'],
     'an empty blockquote line': ['> <br />\n', '>\n'],
-    'an empty footnote definition': ['ref[^4]\n\n[^4]: <br />\n', 'ref[^4]\n\n[^4]: \n'],
+    'an empty footnote definition': ['ref[^4]\n\n[^4]: <br />\n', 'ref[^4]\n\n[^4]:\n'],
   };
 
   for (const [name, [legacy, respelled]] of Object.entries(LEGACY)) {
@@ -161,20 +166,16 @@ test.describe('an empty paragraph round-trips as a blank line, never as <br />',
 
 test.describe('the parked end-of-document paragraph is not written', () => {
   // @milkdown/plugin-trailing parks an empty paragraph after a last block that
-  // is not a paragraph or heading, and the serializer wrote it as one more
+  // is not a paragraph or heading, and remark-stringify wrote it as one more
   // blank line: the first edit of every such note ended the file in `\n\n`
   // (RC-22). The spec drops a trailing empty paragraph on save.
-  test('canary: upstream still writes it as a blank line', async ({ page }) => {
-    expect(await roundTrip(page, 'baseline', '- a\n- b\n')).toBe('* a\n* b\n\n');
-  });
-
   const LAST_BLOCKS: Record<string, string> = {
-    'a list': '* a\n* b\n',
-    'a task list': '* [ ] a\n* [x] b\n',
+    'a list': '- a\n- b\n',
+    'a task list': '- [ ] a\n- [x] b\n',
     'a blockquote': '> quote\n',
-    'a table': '| a | b |\n| - | - |\n| 1 | 2 |\n',
+    'a table': '| a | b |\n| --- | --- |\n| 1 | 2 |\n',
     'a fence': '```\ncode\n```\n',
-    'a thematic break': 'a\n\n***\n',
+    'a thematic break': 'a\n\n---\n',
   };
   for (const [name, markdown] of Object.entries(LAST_BLOCKS)) {
     test(`compat ends a note whose last block is ${name} in one newline`, async ({ page }) => {
@@ -185,8 +186,8 @@ test.describe('the parked end-of-document paragraph is not written', () => {
   }
 
   test('compat still writes an empty paragraph that is not at the end', async ({ page }) => {
-    const { once, twice } = await twoSaves(page, 'compat', '* a\n\n\npara\n');
-    expect(once).toBe('* a\n\n\npara\n');
+    const { once, twice } = await twoSaves(page, 'compat', '- a\n\n\npara\n');
+    expect(once).toBe('- a\n\n\npara\n');
     expect(twice).toBe(once);
   });
 });
@@ -219,7 +220,7 @@ test.describe('a pasted table keeps the alignment it was written with', () => {
 
   test('compat keeps an explicit alignment through a paste', async ({ page }) => {
     const aligned = '| a | b | c |\n| :-- | :-: | --: |\n| 1 | 2 | 3 |\n';
-    expect(await pastePlain(page, 'compat', aligned)).toContain('| :- | :-: | -: |');
+    expect(await pastePlain(page, 'compat', aligned)).toContain('| :-- | :-: | --: |');
   });
 });
 
@@ -292,22 +293,23 @@ test.describe('a table row wider than the header keeps every value in its column
     expect(await roundTrip(page, 'baseline', WIDE_LAST)).toMatch(/^\| <br \/> \| apple +\|/m);
   });
 
+  // Written in the house style: no column padding, `---` delimiters.
   const CASES: Record<string, [string, string]> = {
     'a trailing empty cell on the last row': [
       WIDE_LAST,
-      'Prices\n\n| item  | price |   |\n| ----- | ----- | - |\n| apple | 3     |   |\n| pear  | 4     |   |\n\nend\n',
+      'Prices\n\n| item | price |  |\n| --- | --- | --- |\n| apple | 3 |  |\n| pear | 4 |  |\n\nend\n',
     ],
     'a wide middle row, alignment kept': [
       '| a | b |\n| :-: | -: |\n| 1 | 2 | 3 | 4 |\n| 5 | 6 |\n\nend\n',
-      '|  a  |  b |   |   |\n| :-: | -: | - | - |\n|  1  |  2 | 3 | 4 |\n|  5  |  6 |   |   |\n\nend\n',
+      '| a | b |  |  |\n| :-: | --: | --- | --- |\n| 1 | 2 | 3 | 4 |\n| 5 | 6 |  |  |\n\nend\n',
     ],
     'a row shorter than the header': [
       '| a | b | c |\n| - | - | - |\n| 1 |\n| 2 | 3 |\n\nend\n',
-      '| a | b | c |\n| - | - | - |\n| 1 |   |   |\n| 2 | 3 |   |\n\nend\n',
+      '| a | b | c |\n| --- | --- | --- |\n| 1 |  |  |\n| 2 | 3 |  |\n\nend\n',
     ],
     'a wide row in a blockquote': [
       '> | a | b |\n> | - | - |\n> | 1 | 2 | x |\n\nend\n',
-      '> | a | b |   |\n> | - | - | - |\n> | 1 | 2 | x |\n\nend\n',
+      '> | a | b |  |\n> | --- | --- | --- |\n> | 1 | 2 | x |\n\nend\n',
     ],
   };
   for (const [name, [markdown, expected]] of Object.entries(CASES)) {
@@ -339,12 +341,6 @@ test.describe('empty-label links keep their href', () => {
 
 test.describe('numbered-looking bullets follow CommonMark', () => {
   const BULLETS = '* 0. item one\n* 1. item two\n';
-
-  test('canary: upstream injects a literal <br /> and a nested list', async ({ page }) => {
-    const out = await roundTrip(page, 'baseline', BULLETS);
-    expect(out).toContain('<br />');
-    expect(out).toContain('  0. item one');
-  });
 
   test('compat preserves CommonMark nesting without injecting a filler', async ({ page }) => {
     const out = await roundTrip(page, 'compat', BULLETS);
@@ -504,16 +500,18 @@ test.describe('YAML front matter survives the round trip', () => {
 
   test('compat leaves a mid-document `---` a thematic break', async ({ page }) => {
     // Front matter is a document-start construct only. A horizontal rule
-    // further down is still a horizontal rule, and still normalizes to `***`
-    // the way it always did.
-    const out = await roundTrip(page, 'compat', 'intro\n\n---\n\nafter\n');
-    expect(out).toContain('***');
-    expect(out).not.toContain('---\n\nafter');
+    // further down is still a horizontal rule, written `---` (the house style),
+    // and reads back as one: the note is a fixed point.
+    const { once, twice } = await twoSaves(page, 'compat', 'intro\n\n---\n\nafter\n');
+    expect(once).toBe('intro\n\n---\n\nafter\n');
+    expect(twice).toBe(once);
   });
 
   test('compat leaves an opening thematic break alone', async ({ page }) => {
     // `---` followed by a blank line is not front matter (no closing fence),
     // and must keep parsing as the rule it is rather than swallowing the note.
+    // On the first line the house style writes it `***`, which cannot open
+    // front matter.
     const out = await roundTrip(page, 'compat', '---\n\nbody\n');
     expect(out).toContain('***');
     expect(out).toContain('body');
@@ -543,7 +541,7 @@ test.describe('YAML front matter survives the round trip', () => {
   }) => {
     const { once, twice } = await twoSaves(page, 'compat', UNCLOSED);
     expect(once).toBe(
-      '***\n\nShopping\n\n* milk\n  * skim\n* [ ] eggs\n\n> quoted\n\nx[^1]\n\n[^1]: a note\n\nend\n',
+      '***\n\nShopping\n\n- milk\n  - skim\n- [ ] eggs\n\n> quoted\n\nx[^1]\n\n[^1]: a note\n\nend\n',
     );
     expect(twice).toBe(once);
   });
@@ -561,7 +559,7 @@ test.describe('YAML front matter survives the round trip', () => {
     // stays front matter, YAML list included.
     const note = '---\ntags:\n\n  - a\n---\n\n- body\n\nend\n';
     expect(await roundTrip(page, 'compat', note)).toBe(
-      '---\ntags:\n\n  - a\n---\n\n* body\n\nend\n',
+      '---\ntags:\n\n  - a\n---\n\n- body\n\nend\n',
     );
   });
 });
@@ -573,13 +571,13 @@ async function twoSaves(page: Page, variant: 'compat' | 'baseline', markdown: st
 }
 
 test.describe('a text run that ends in whitespace keeps its escapes', () => {
-  // `@milkdown/core`'s `text` handler returns any run matching
+  // `@milkdown/core`'s `text` handler returned any run matching
   // /^[^*_\\]*\s+$/ RAW, before `safe()` (it exists to keep a trailing space
   // from being written as `&#x20;`). A run ends in whitespace whenever the
   // next inline sibling is not text — a mark, a link, an image, inline HTML —
   // so every escape CommonMark needs in that run was dropped: `\#` at a line
   // start reopened as a heading, `\|` in a cell split the row, `\&amp;`
-  // decoded to `&`.
+  // decoded to `&`. These shapes hold the owned serializer to keeping them.
   const SHAPES: Record<string, string> = {
     'an escaped # before bold': 'x\n\n\\# a **b**\n',
     'an escaped > before bold': 'x\n\n\\> a **b**\n',
@@ -587,21 +585,11 @@ test.describe('a text run that ends in whitespace keeps its escapes', () => {
     'an escaped 1. before code': 'x\n\n1\\. a `b`\n',
     'an escaped - on a soft-wrapped line': 'a\n\\- b **c**\n',
     'an escaped &amp; before bold': 'Tom \\&amp; Jerry **x**\n',
-    'escaped [[ before bold': '\\[\\[x]] **b**\n',
     'an escaped <div> before bold': '\\<div> **b**\n',
+    // `\[\[x]]` is the app's case, not this page's: the census page mounts no
+    // wikilink plugin, so `[[x]]` needs no escape here. The shipped parser's
+    // answer is a golden (tests/conformance/markdown-house-style.json).
   };
-
-  test('canary: upstream still writes the run unescaped', async ({ page }) => {
-    expect(await roundTrip(page, 'baseline', SHAPES['an escaped # before bold'])).toBe(
-      'x\n\n# a **b**\n',
-    );
-    expect(await roundTrip(page, 'baseline', SHAPES['an escaped &amp; before bold'])).toBe(
-      'Tom &amp; Jerry **x**\n',
-    );
-    expect(await roundTrip(page, 'baseline', SHAPES['an escaped - on a soft-wrapped line'])).toBe(
-      'a\n- b **c**\n',
-    );
-  });
 
   for (const [name, markdown] of Object.entries(SHAPES)) {
     test(`compat keeps ${name} byte-for-byte`, async ({ page }) => {
@@ -632,23 +620,13 @@ test.describe('a text run that ends in whitespace keeps its escapes', () => {
 
 test.describe('an autolink with a backslash is written verbatim', () => {
   // CommonMark processes no backslash escapes inside `<...>`, so the `\` is
-  // part of the URL. Upstream `safe()` still escapes a backslash that precedes
-  // punctuation, the next open reads both as literal, and the count doubles on
+  // part of the URL. remark's `safe()` escaped a backslash that precedes
+  // punctuation, the next open read both as literal, and the count doubled on
   // every save (2^n churn, census `unstable_persistent`).
-  test('canary: upstream still doubles the backslash every save', async ({ page }) => {
-    const { once, twice } = await twoSaves(
-      page,
-      'baseline',
-      'see <https://example.com/a\\.b> here\n',
-    );
-    expect(once).toBe('see <https://example.com/a\\\\.b> here\n');
-    expect(twice).toBe('see <https://example.com/a\\\\\\\\.b> here\n');
-  });
-
   // Either spelling keeps exactly the one backslash: an http(s) URL is written
-  // bare (packages/editor/src/milkdown-compat/bareUrl.ts — a GFM literal
-  // processes no escapes either, and the handler re-parses the bare spelling
-  // to prove it is the same link), anything else keeps its `<...>`.
+  // bare (a GFM literal processes no escapes either, and the serializer
+  // re-parses the bare spelling to prove it is the same link), anything else
+  // keeps its `<...>`.
   for (const [markdown, saved] of [
     ['see <https://example.com/a\\.b> here\n', 'see https://example.com/a\\.b here\n'],
     ['see <file:\\\\srv\\s> here\n', 'see <file:\\\\srv\\s> here\n'],
@@ -683,7 +661,7 @@ test.describe('a multi-line inline HTML tag keeps its continuation indent', () =
     ['a tag that starts the paragraph', TAG],
     ['a tag in mid-paragraph', MID],
     ['a tag inside a blockquote', "> text <span\n>     a='1'>t</span> end\n"],
-    ['a tag inside a list item', "* text <span\n      a='1'>t</span> end\n"],
+    ['a tag inside a list item', "- text <span\n      a='1'>t</span> end\n"],
   ] as const) {
     test(`compat keeps ${name} byte-for-byte`, async ({ page }) => {
       const { once, twice } = await twoSaves(page, 'compat', markdown);
@@ -700,28 +678,14 @@ test.describe('a multi-line inline HTML tag keeps its continuation indent', () =
   });
 });
 
-test.describe('a hard break directly before inline HTML', () => {
-  // mdast-util-to-markdown cannot write an eol directly before inline HTML (it
-  // could open an HTML block), so it replaces it with a space — which strands
-  // a hard break's backslash mid-line as a literal `\`. The app's `break`
-  // handler (src/features/editor/milkdown/table/tableLineBreak.ts) spells such
-  // a break `<br>` instead; that half is asserted on the shipped bundle in
-  // editor-embed-milkdown-interactive.spec.ts, because the census page does not
-  // mount the app's table feature.
-  test('canary: upstream still writes a literal backslash and joins the lines', async ({
-    page,
-  }) => {
-    expect(await roundTrip(page, 'baseline', 'a  \n<span>b</span>\n')).toBe('a\\ <span>b</span>\n');
-  });
-});
-
 test.describe('bold or italic whose edge is punctuation next to a letter', () => {
   // A `**` run next to punctuation on its inner side and a letter on its outer
   // side is not left-/right-flanking (CommonMark §6.2), so it does not open or
-  // close. Upstream mdast-util-to-markdown writes the outer letter as a
-  // character reference there (`encodeInfo`); `@milkdown/core` replaces its
-  // strong and emphasis handlers with ones that do not, so the formatting
-  // reopened as literal `**` and the next save escaped it for good.
+  // close. mdast-util-to-markdown writes the outer letter as a character
+  // reference there (`encodeInfo`); `@milkdown/core` replaced its strong and
+  // emphasis handlers with ones that did not, so the formatting reopened as
+  // literal `**` and the next save escaped it for good. The house style writes
+  // the reference wherever a parse says flanking needs one.
   const SHAPES: Record<string, string> = {
     'bold ending in a colon before a letter': '**Note:**&#x62;ar\n',
     'italic ending in a colon before a letter': '*Note:*&#x62;ar\n',
@@ -729,16 +693,6 @@ test.describe('bold or italic whose edge is punctuation next to a letter', () =>
     // CJK: bold ending in a full-width colon before the next ideograph.
     'CJK bold ending in a full-width colon': '**重要：**&#x8FD9;是\n',
   };
-
-  test('canary: upstream Milkdown still writes the run unencoded', async ({ page }) => {
-    const { once, twice } = await twoSaves(
-      page,
-      'baseline',
-      SHAPES['bold ending in a colon before a letter'],
-    );
-    expect(once).toBe('**Note:**bar\n');
-    expect(twice).toBe('\\*\\*Note:\\*\\*bar\n');
-  });
 
   for (const [name, markdown] of Object.entries(SHAPES)) {
     test(`compat keeps ${name} byte-for-byte`, async ({ page }) => {
@@ -749,9 +703,11 @@ test.describe('bold or italic whose edge is punctuation next to a letter', () =>
   }
 
   test('compat leaves a run that already opens and closes alone', async ({ page }) => {
-    for (const markdown of ['**Note:** bar\n', 'a **b** c\n', '__a__ b\n', '*x*y\n']) {
+    for (const markdown of ['**Note:** bar\n', 'a **b** c\n', '*x*y\n']) {
       expect(await roundTrip(page, 'compat', markdown)).toBe(markdown);
     }
+    // `__` is bold, written in the house style's `**`, and still needs no reference.
+    expect(await roundTrip(page, 'compat', '__a__ b\n')).toBe('**a** b\n');
   });
 });
 
@@ -761,12 +717,6 @@ test.describe('strikethrough whose edge is punctuation next to a letter', () => 
   // `delete` handler has no `encodeInfo` at all: `~~Note:~~bar` reopened as
   // literal tildes and the next save escaped them for good.
   const STRUCK = '~~Note:~~&#x62;ar\n';
-
-  test('canary: upstream still writes the run unencoded', async ({ page }) => {
-    const { once, twice } = await twoSaves(page, 'baseline', STRUCK);
-    expect(once).toBe('~~Note:~~bar\n');
-    expect(twice).toBe('\\~\\~Note:\\~\\~bar\n');
-  });
 
   test('compat keeps it byte-for-byte', async ({ page }) => {
     const { once, twice } = await twoSaves(page, 'compat', STRUCK);
@@ -779,12 +729,12 @@ test.describe('strikethrough whose edge is punctuation next to a letter', () => 
   });
 });
 
-test.describe('an underscore emphasis next to a `*` run is never re-spelled', () => {
+test.describe('an underscore emphasis next to a `*` run reopens as the same document', () => {
   // Guard for a dropped approach (FB-4a round 2): writing `*` in place of an
   // `_` run that could only flank encoded ignores a neighbouring or enclosing
-  // `*` run, so `Z*b**c*` reopened with two literal `**` in the text. The
-  // references are ugly but correct; the bytes must hold and no `*` may appear
-  // that the document did not have.
+  // `*` run, so `Z*b**c*` reopened with two literal `**` in the text. The house
+  // style writes `*` wherever a parse says the runs do not merge, and `_` where
+  // they would; either way the save reopens as the document it was.
   const SHAPES: Record<string, string> = {
     'an italic then a `*` italic': 'a &#x5A;_&#x62;_*c*\n',
     'a bold then a `*` italic': 'a &#x5A;__&#x62;__*c*\n',
@@ -795,19 +745,23 @@ test.describe('an underscore emphasis next to a `*` run is never re-spelled', ()
 
   for (const [name, markdown] of Object.entries(SHAPES)) {
     test(`compat holds ${name} and reopens to the same document`, async ({ page }) => {
-      const { once, twice } = await twoSaves(page, 'compat', markdown);
-      expect(twice).toBe(once);
-      // A switched marker would leave `**` behind; no shape here should.
-      expect(once).not.toContain('**');
+      const read = (m: string) => page.evaluate((md) => window.__futoCensus.load('compat', md), m);
+      const first = await read(markdown);
+      const second = await read(first.markdown);
+      expect(second.markdown).toBe(first.markdown);
+      // A switched marker would leave literal `**` behind: compared the way the
+      // census `content_loss` gate compares (only spelling taken out).
+      expect(houseDocument(second.docJson), first.markdown).toBe(houseDocument(first.docJson));
     });
   }
 });
 
 test.describe('an attention run never invents a character reference (RC-104)', () => {
   // Milkdown trims a mark's edge spaces out of the mark and leaves the emptied
-  // text node behind, so the first child of a link can be `''`. The container
-  // compared the empty neighbour with the empty previous result and wrote
-  // `&#xNAN;` into the note, on the first save of any note holding the shape.
+  // text node behind, so the first child of a link can be `''`. The remark-era
+  // encoder compared the empty neighbour with the empty previous result and
+  // wrote `&#xNAN;` into the note, on the first save of any note holding the
+  // shape. None of these needs a reference at all.
   const SHAPES: Record<string, string> = {
     // the reported repro; the bold hoisted out of the link is upstream's own
     // re-spelling (the baseline writes the same links) and is not asserted away
@@ -831,22 +785,14 @@ test.describe('an attention run never invents a character reference (RC-104)', (
     });
   }
 
-  test('canary: upstream never writes a reference for the reported shape', async ({ page }) => {
-    // The garbage is the compat wrapper's alone, so the unpatched preset is the control.
-    expect(
-      await roundTrip(page, 'baseline', SHAPES['a link over a bold run and a bold-italic run']),
-    ).not.toMatch(/&#/);
-  });
-
-  test('a single character whose two edges both want encoding is written once', async ({
-    page,
-  }) => {
+  test('a single character whose two edges both want encoding needs none', async ({ page }) => {
     // `x_a_y` is not emphasis; the entities make the intraword `_` run
-    // reachable. Encoding the tail of `&#x61;` as well cut the reference in two
-    // (`&#x61&#x3B;`), which reopened as text and gained a backslash.
+    // reachable. The remark-era encoder cut a reference in two here
+    // (`&#x61&#x3B;`), which reopened as text and gained a backslash. The house
+    // style writes the italic with `*`, which opens and closes inside a word.
     const markdown = '&#x78;_a_&#x79;\n';
     const { once, twice } = await twoSaves(page, 'compat', markdown);
-    expect(once).toBe('&#x78;_&#x61;_&#x79;\n');
+    expect(once).toBe('x*a*y\n');
     expect(twice).toBe(once);
   });
 });
@@ -902,7 +848,10 @@ const CONTAINERS: Record<string, (inline: string) => string> = {
 };
 
 test.describe('random mark runs inside every container never gain a reference (RC-104)', () => {
-  const PER_CONTAINER = 200;
+  // 400, not 200: the house style writes a reference only where a parse says
+  // flanking needs one, so it takes more draws to reach the encoder the
+  // handful of times the check below asks for.
+  const PER_CONTAINER = 400;
 
   for (const [name, wrap] of Object.entries(CONTAINERS)) {
     test(`compat: ${name}`, async ({ page }) => {
@@ -920,8 +869,7 @@ test.describe('random mark runs inside every container never gain a reference (R
           out.push({
             input,
             saved: c1.markdown,
-            docStable: JSON.stringify(c1.docJson) === JSON.stringify(c2.docJson),
-            baselineDocStable: JSON.stringify(b1.docJson) === JSON.stringify(b2.docJson),
+            docs: [c1.docJson, c2.docJson, b1.docJson, b2.docJson],
           });
         }
         return out;
@@ -954,11 +902,14 @@ test.describe('random mark runs inside every container never gain a reference (R
         expect(r.saved).not.toMatch(/NaN|undefined/);
         // parse(serialize(doc)) equals doc — at least whenever the unpatched
         // preset manages it, so the assertion is about what THIS layer adds.
-        if (r.baselineDocStable) {
+        // Compared the way the census `content_loss` gate compares: a mark's
+        // `*`/`_` marker is spelling, which the house style does not remember.
+        const [c1, c2, b1, b2] = r.docs.map(houseDocument);
+        if (b1 === b2) {
           expect(
-            r.docStable,
+            c2,
             `the document changed on reopen: ${JSON.stringify(r.input)} saved as ${JSON.stringify(r.saved)}`,
-          ).toBe(true);
+          ).toBe(c1);
         }
       }
     });

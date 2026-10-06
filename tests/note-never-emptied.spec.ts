@@ -131,9 +131,10 @@ test.describe('a note with content is never written back empty', () => {
     );
     await page.evaluate(() => (window as unknown as NotesHookWindow).__notesShellTest.flushSave());
 
-    // The one re-spelling a first edit is allowed (ADR-0002): `| --- |` -> `| - |`.
+    // The body is already in the house style (`| --- |` delimiters), so the
+    // keystroke is the only change a first edit makes.
     expect(await storedBody(page, 'ends in a table')).toBe(
-      BODY.replace('Great Work', 'Great WorkX').replace('| --- | --- |', '| - | - |'),
+      BODY.replace('Great Work', 'Great WorkX'),
     );
   });
 
@@ -498,8 +499,8 @@ test.describe('an edit the editor still holds is never dropped by the save queue
  * RC-17 (L6a-4). CRITICAL never-emptied, under a serializer that throws.
  *
  * No natural document is known to make serialization throw, so the throw is
- * injected into the served `blockSerializer.ts` for any document carrying a
- * synthetic marker. The tag bar replaces the whole note (`applyEdit`) and then
+ * injected into the served `serializationLoop.ts`'s `serialize` seam for any
+ * document carrying a synthetic marker. The tag bar replaces the whole note (`applyEdit`) and then
  * nothing can serialize it: `getContent()` used to fall back to `''`, which the
  * save pipeline could not tell from a real clear, and the note was written
  * empty.
@@ -509,7 +510,7 @@ test('a tag added to a note the serializer cannot handle never writes the note e
 }) => {
   const POISON = 'zqserializerfaultzq';
   let injected = false;
-  await page.route('**/src/features/editor/milkdown/blockSerializer.ts*', async (route) => {
+  await page.route('**/src/features/editor/milkdown/serializationLoop.ts*', async (route) => {
     const response = await route.fetch();
     const source = await response.text();
     const poisoned = source.replace(

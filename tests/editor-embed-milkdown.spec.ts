@@ -514,7 +514,7 @@ test('an edit beside a table with a wide row keeps every value in its column', a
   const changes = await waitForMessages(page, 'change');
   expect(changes).toHaveLength(1);
   expect(changes[0].content).toBe(
-    'Prices!\n\n| item  | price |   |\n| ----- | ----- | - |\n| apple | 3     |   |\n| pear  | 4     |   |\n\nend\n',
+    'Prices!\n\n| item | price |  |\n| --- | --- | --- |\n| apple | 3 |  |\n| pear | 4 |  |\n\nend\n',
   );
 });
 
@@ -525,7 +525,7 @@ test('an edit to a note that ends in a list adds no trailing blank line', async 
   for (const [note, edited] of [
     ['- a\n- b\n', '- aX\n- b\n'],
     ['> a\n', '> aX\n'],
-    ['| a | b |\n| - | - |\n| 1 | 2 |\n', '| aX | b |\n| -- | - |\n| 1  | 2 |\n'],
+    ['| a | b |\n| --- | --- |\n| 1 | 2 |\n', '| aX | b |\n| --- | --- |\n| 1 | 2 |\n'],
   ] as const) {
     await hostSetContent(page, note);
     await clearMessages(page);
@@ -547,7 +547,7 @@ test('a table pasted as plain text is written the way an opened one is', async (
   await pasteClipboard(page, { 'text/plain': '| a | b |\n| --- | --- |\n| 1 | 2 |\n' });
   await settleChangeDebounce(page);
 
-  expect(await getContent(page)).toBe('one\n\n| a | b |\n| - | - |\n| 1 | 2 |\n');
+  expect(await getContent(page)).toBe('one\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n');
 });
 
 test('applyExternalContent adopts differing content without a change echo', async ({ page }) => {
@@ -673,13 +673,14 @@ test('undo inside one note still works', async ({ page }) => {
 test('undoing a keystroke typed over a selected divider restores the note exactly', async ({
   page,
 }) => {
-  const note = 'first\n\n***\n\nlast\n';
+  // The house style's spelling of the rule, so an exact restore is the same bytes.
+  const note = 'first\n\n---\n\nlast\n';
   await hostSetContent(page, note);
   await page.locator('.ProseMirror hr').click();
   await page.keyboard.type('hello');
   await waitForMessages(page, 'change');
   expect(await getContent(page)).toContain('hello');
-  expect(await getContent(page)).not.toContain('***');
+  expect(await getContent(page)).not.toContain('---');
 
   for (let i = 0; i < 20; i++) await page.keyboard.press('ControlOrMeta+z');
   await settleChangeDebounce(page);
@@ -690,7 +691,7 @@ test('undoing a keystroke typed over a selected divider restores the note exactl
   await page.keyboard.press('ControlOrMeta+Shift+z');
   await settleChangeDebounce(page);
   expect(await getContent(page)).toContain('h');
-  expect(await getContent(page)).not.toContain('***');
+  expect(await getContent(page)).not.toContain('---');
   for (let i = 0; i < 20; i++) await page.keyboard.press('ControlOrMeta+z');
   await settleChangeDebounce(page);
   expect(await getContent(page)).toBe(note);
@@ -711,16 +712,17 @@ test('undoing everything after an adopt, a later edit and a keystroke over a div
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await hostSetContent(page, 'first\n\n***\n\nlast\n');
+  // The house style's spelling of the rule, so an exact undo is the same bytes.
+  await hostSetContent(page, 'first\n\n---\n\nlast\n');
   await page.evaluate(() =>
     (window as unknown as FakeHostWindow).FutoEditor.applyExternalContent(
       'test-note',
-      'first peer\n\n***\n\nlast\n',
+      'first peer\n\n---\n\nlast\n',
       (window as unknown as FakeHostWindow).__futoTest.documentRef().generation,
     ),
   );
   await flushFrames(page);
-  const adopted = 'first peer\n\n***\n\nlast\n';
+  const adopted = 'first peer\n\n---\n\nlast\n';
 
   // An edit BELOW the divider, then one over it.
   await page.getByText('last', { exact: true }).click();
@@ -746,7 +748,8 @@ test('undo and redo of a typed `---` leave the divider note byte-stable', async 
   await page.keyboard.type('---');
   await settleChangeDebounce(page);
   const made = await getContent(page);
-  expect(made).toContain('***');
+  // A rule, written `---`; typed text that stayed text would be `\---`.
+  expect(made).toMatch(/^---$/m);
 
   await page.keyboard.press('ControlOrMeta+z');
   await page.keyboard.press('ControlOrMeta+Shift+z');
@@ -873,7 +876,9 @@ test('switching notes reports the edited streaming document under its outgoing i
 
   expect(streaming, STILL_STREAMING).toBe(true);
   expect((await messagesOfType(page, 'change')).at(-1)).toEqual(
-    expect.objectContaining({ noteId: 'test-note', content: expect.stringContaining('EDITED ') }),
+    // `EDITED`, not `EDITED `: the caret ends a paragraph, and a save writes no
+    // whitespace at a line's end (docs/spec/editor.md "Markdown house style").
+    expect.objectContaining({ noteId: 'test-note', content: expect.stringContaining('EDITED') }),
   );
   expect(await getContent(page)).toBe(LINKING_NOTE);
 });
@@ -885,7 +890,8 @@ test('an exit flush reports the complete edited streaming document', async ({ pa
   await hostSetContent(page, LINKING_NOTE);
 
   expect(captured.streaming, STILL_STREAMING).toBe(true);
-  expect(captured.body).toContain('EDITED ');
+  // No trailing space: a save writes no whitespace at a line's end.
+  expect(captured.body).toContain('EDITED');
   expect(captured.body).toContain('Section 3999');
   // A `change` for the edit now would reach the next note's binding.
   expect(await changesAfterSwitch(page)).toEqual([]);
@@ -2921,13 +2927,13 @@ test('a large note with front matter survives the chunked path and an edit', asy
   // layout timing, so no keyboard shortcut puts the caret at a known offset. What matters is what the edit did to everything
   // ELSE, and that is pinned exactly.
   expect(written.startsWith('---\ntitle: Big\ntags: [a, b]\n---\n\n')).toBe(true);
-  // Exactly two `---` lines in the whole note: the front matter's own fences.
-  // A setext underline, or the block re-fenced anywhere, would break this.
-  expect(written.match(/^---$/gm)).toHaveLength(2);
-  // One character inserted, and otherwise only the normalization an unedited
-  // large note already gets: the mid-document rule spelled `***`.
-  const normalized = note.replace('\n\n---\n\ntail', '\n\n***\n\ntail');
-  expect(written.replace('X', '')).toBe(normalized);
+  // Exactly three `---` lines in the whole note: the front matter's own fences
+  // and the mid-document rule, which the house style writes `---` too. A
+  // setext underline, or the block re-fenced anywhere, would break this.
+  expect(written.match(/^---$/gm)).toHaveLength(3);
+  // One character inserted, and nothing else: the note is already in the
+  // house style.
+  expect(written.replace('X', '')).toBe(note);
 });
 
 test('streamed appends are not undoable — Ctrl-Z after an open keeps the note', async ({
@@ -2972,7 +2978,8 @@ test('an edit made while the tail streams is released against the COMPLETE note'
   expect(changes.length).toBeGreaterThan(0);
   const saved = changes[changes.length - 1].content as string;
 
-  expect(saved).toContain('EDITED ');
+  // No trailing space: a save writes no whitespace at a line's end.
+  expect(saved).toContain('EDITED');
   // The tail is all there: the last section of the note survived the edit.
   expect(saved).toContain('Section 599');
   expect(await getContent(page)).toBe(saved);
@@ -3008,7 +3015,8 @@ test('a flush mid-stream after an edit settles the complete document', async ({ 
   });
 
   expect(midStream.streaming).toBe(1);
-  expect(midStream.content).toContain('EDITED ');
+  // No trailing space: a save writes no whitespace at a line's end.
+  expect(midStream.content).toContain('EDITED');
   // The tail, which had not been parsed when the read started.
   expect(midStream.content).toContain('Section 3999');
 });
@@ -3200,7 +3208,8 @@ test('external adoption after a flush uses the reported streaming edit generatio
   const read = await reconcileRead(page);
 
   expect(read.streaming, 'the read must land while the tail streams (M11)').toBe(true);
-  expect(read.content).toContain('UNREPORTED ');
+  // No trailing space: a save writes no whitespace at a line's end.
+  expect(read.content).toContain('UNREPORTED');
   // Not a prefix (F3): the tail that had not been parsed when the read began.
   expect(read.content).toContain('Section 3999');
   // The shell's change-fed copy is level with the read before the read returns.
@@ -3770,7 +3779,9 @@ for (const { name, note } of CHUNK_AGREEMENT_CASES) {
 // unit short of `file.value`, and Milkdown's remarkMarker reads
 // `file.value.charAt(offset)` — the character BEFORE each `*`/`_` run — as the
 // strong/emphasis marker. The first edit re-spelled every emphasis in the note.
-// This is the ordinary whole-document open, not the progressive one.
+// This is the ordinary whole-document open, not the progressive one. The edit
+// writes the house style, whose italic is `*` (docs/spec/editor.md "Markdown
+// house style"): every mark kept, and spelled the way any note's would be.
 for (const where of ['in another block', 'in the same block'] as const) {
   test(`a BOM-leading note keeps its bold and italic markers on the first edit (${where})`, async ({
     page,
@@ -3792,7 +3803,7 @@ for (const where of ['in another block', 'in the same block'] as const) {
     ).toEqual({ strong: 2, em: 1 });
 
     const written = await typeInFrontOfAndReadChange(page, 'Intro');
-    expect(written).toBe(body.replace('Intro', 'ZIntro'));
+    expect(written).toBe(body.replace('Intro', 'ZIntro').replace('_it_', '*it*'));
   });
 }
 
@@ -3806,7 +3817,8 @@ test('a note with a DOUBLED leading BOM keeps its emphasis and echoes the host b
   expect(await messagesOfType(page, 'change')).toHaveLength(0);
 
   const written = await typeInFrontOfAndReadChange(page, 'Intro');
-  expect(written).toBe(body.replace('Intro', 'ZIntro'));
+  // The house style's italic is `*`.
+  expect(written).toBe(body.replace('Intro', 'ZIntro').replace('_it_', '*it*'));
 });
 
 test('a BOM-leading note that IS large still opens progressively and keeps its emphasis', async ({

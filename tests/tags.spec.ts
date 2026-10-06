@@ -130,7 +130,8 @@ test.describe('Tag System', () => {
   // through `EditorApi.applyEdit`, which re-SERIALIZES the whole document, and
   // remark-stringify used to escape every `_` — so `#dog_problems` came back
   // as `#dog\_problems`, which is no tag at all, and both pills disappeared.
-  // packages/editor/src/milkdown-compat/underscoreEscape.ts is the fix.
+  // The editor's own serializer escapes a `_` only where a parse says it
+  // would open emphasis (packages/editor/src/markdown/).
   test('Tag input normalizes case and spaces before creating', async ({ page }) => {
     await openNewNote(page);
     await seedNote(page, 'normalize tag test', '#Whale\n\nSome note content here.');

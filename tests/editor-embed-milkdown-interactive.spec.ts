@@ -662,7 +662,9 @@ test('Backspace on a nested item with a following sibling leaves the sibling nes
   await page.keyboard.press('Backspace');
   await settled(page);
   const content = (await getContent(page)).trimEnd();
-  expect(content).toBe('- a\n\n  b\n  - c');
+  // Two paragraphs in a row make the item loose, so its every block is spaced
+  // (docs/spec/editor.md "Markdown house style").
+  expect(content).toBe('- a\n\n  b\n\n  - c');
 });
 
 test('Backspace on a nested item with a PRECEDING sibling joins the sibling instead of "a"', async ({
@@ -849,14 +851,15 @@ test('Shift+Enter at the end of a heading starts a paragraph, as Enter does', as
   expect(saved).toBe('#### Plan\n\nnext\n');
 });
 
-// Fails until the editor owns its serializer (#266): remark-stringify will not
-// end a line in front of an inline HTML node (it could open an HTML block,
-// syntax-tree/mdast-util-to-markdown#15) and writes a space instead, so the
-// newline is lost. `<kbd>` cannot open a block that interrupts a paragraph.
+// remark-stringify would not end a line in front of an inline HTML node (it
+// could open an HTML block, syntax-tree/mdast-util-to-markdown#15) and wrote a
+// space instead, so the newline was lost. `<kbd>` cannot open a block that
+// interrupts a paragraph, and the editor's own serializer (#266) writes the
+// newline. The space before it is not written: whitespace at a line's end
+// never is.
 test('Enter directly before inline HTML keeps the newline and adds no backslash', async ({
   page,
 }) => {
-  test.fail();
   await open(page, 'Press <kbd>Ctrl</kbd> now');
   // Only the caret is placed through the DOM (directly before the `<kbd>`
   // atom, which no click can target); the break itself is a real Shift+Enter.
@@ -873,7 +876,7 @@ test('Enter directly before inline HTML keeps the newline and adds no backslash'
   );
   await page.keyboard.press('Enter');
   await settled(page);
-  expect(await getContent(page)).toBe('Press \n<kbd>Ctrl</kbd> now\n');
+  expect(await getContent(page)).toBe('Press\n<kbd>Ctrl</kbd> now\n');
 });
 
 /** Select the first `length` characters of the first paragraph, as a mouse drag would. */
@@ -934,7 +937,9 @@ test('a letter typed before an underscore emphasis followed by a `*` run keeps b
   const saved = await getContent(page);
   expect(saved).not.toContain('**');
   await reopen(page, saved);
-  expect(await page.locator('.ProseMirror p em').allTextContents(), saved).toEqual(['b', 'c']);
+  // Both letters stay italic. The two touching runs, `_` then `*`, are written
+  // as one (docs/spec/editor.md "Markdown house style").
+  expect(await page.locator('.ProseMirror p em').allTextContents(), saved).toEqual(['bc']);
 });
 
 // ============================================================
