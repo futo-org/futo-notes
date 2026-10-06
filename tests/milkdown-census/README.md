@@ -7,6 +7,7 @@ opening and re-saving each note would change.
 just milkdown-census --limit 200                        # ~4s smoke
 just milkdown-census --variant baseline                 # the UNPATCHED preset
 just milkdown-census --diff build/milkdown-census/baseline
+just milkdown-census --variant owned                    # the editor's own serializer (#266)
 just milkdown-census --vault ~/Documents/futo-notes     # your own notes
 ```
 
@@ -44,6 +45,11 @@ harness rather than from a set of numbers nobody can re-derive: run baseline,
 run compat with `--diff`, read the newly-raised flags. `--diff` exits non-zero
 if there are any.
 
+`--variant owned` reads every note exactly as `compat` does and writes it with
+the editor's own serializer (`packages/editor/src/markdown/`, #266) instead of
+remark-stringify. It is the variant the serializer's two hard gates are stated
+against (below).
+
 ## The flags
 
 Three are precise measurements. The acceptance criteria are stated against these:
@@ -55,6 +61,27 @@ Three are precise measurements. The acceptance criteria are stated against these
   note never contained. The serializer writes references on purpose (`**Note:**&#x62;ar`
   keeps a bold run), so only a bad or foreign one counts. Text GAINED is
   invisible to `text_loss`; this is the detector for it (RC-104). Must be 0.
+
+Two are the owned serializer's hard gates (#266): both must be 0 on the corpus
+and on the vault before it ships.
+
+- `content_loss` — the document the note reads as and the document its save
+  reads as differ, once everything the house style may change on purpose is
+  taken out (`houseDocument` in `detectors.mjs` lists each thing and why:
+  spelling-only attributes such as the `*`/`_` marker and a list item's label,
+  whitespace at a line end, a heading's line breaks, empty paragraphs no
+  spelling reaches, CR line endings, an HTML block's indentation). The save
+  lost or changed something the author wrote.
+- `second_pass_unstable` — write, parse with the bare parser, write again: the
+  bytes differ. A second save must be a no-op.
+
+Not a flag but a scorecard beside them: `first_save_churn` counts the notes
+whose bytes a first save changes, and `churn_lines` the written lines a note did
+not already hold. Both ignore whether the file ends in a newline: the corpus
+export stripped every note's final newline, so counting it would measure the
+dataset. A first save is allowed to re-spell (ADR-0002); the number shows by
+how much. The `compat` variant's census serializer writes `*` bullets, not the
+app's `-` (see `entry.ts`), so its churn is somewhat higher than the app's.
 
 The rest are broad signals, useful against a baseline rather than in isolation:
 `unstable` (`round1 ≠ round2`), `unstable_persistent` (`round2 ≠ round3`),
