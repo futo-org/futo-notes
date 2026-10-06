@@ -107,6 +107,18 @@ test('a query that matches nothing reports 0 and every step is a no-op', async (
   expect(await lastFindReport(page)).toMatchObject({ current: 0, total: 0 });
 });
 
+test('a match runs across a line break inside a paragraph, as across a soft wrap', async ({
+  page,
+}) => {
+  await seed(page, 'hey man\nyes');
+  await page.evaluate(() => {
+    const api = (window as unknown as FakeHostWindow).FutoEditor;
+    api.openFind();
+    api.setFindQuery('man yes');
+  });
+  expect(await lastFindReport(page)).toMatchObject({ current: 1, total: 1, label: '1 of 1' });
+});
+
 test('editing while find is open recounts without moving the caret', async ({ page }) => {
   await seed(page, 'cat dog');
   await page.evaluate(() => {

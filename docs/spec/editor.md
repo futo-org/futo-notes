@@ -1501,6 +1501,10 @@ unchanged by it.
 - **Matching runs over the editor's document text.** Results never depend on
   cursor position or on what is scrolled into view, and every match is a real
   range the selection (and any future replace) operates on.
+- A line break inside a paragraph reads as a space, so a match runs across it
+  exactly as across a soft wrap: `man yes` finds `hey man` / `yes` on two lines.
+  A match never runs across two blocks. → find/findMatches.ts `docTextSegments`,
+  tests/editor-embed-milkdown-find.spec.ts
 
 - Find searches the note **body** only. The title is the filename — a native
   field on the native shells, not part of the document text — and titles are

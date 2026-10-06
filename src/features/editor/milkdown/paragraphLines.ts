@@ -40,13 +40,16 @@ import {
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { $node } from '@milkdown/kit/utils';
 
+/** The preset's line-break node: both the inline kind and a `\` or two-space break. */
+const HARDBREAK_NODE = 'hardbreak';
+
 /**
  * A line break inside a paragraph. Enter only ever makes the inline kind (a
  * single newline in the file); a `\` or two-space break an older file holds is
  * a line boundary all the same.
  */
-function isLineBreak(node: ProseNode | null | undefined): boolean {
-  return node?.type.name === 'hardbreak';
+export function isLineBreak(node: ProseNode | null | undefined): boolean {
+  return node?.type.name === HARDBREAK_NODE;
 }
 
 /** Whether `$pos` is directly inside a top-level paragraph — the only block that holds typed lines. */
@@ -331,8 +334,6 @@ export function handleLineStartShortcut(
   if (!handled) view.dispatch(insert());
   return true;
 }
-
-const HARDBREAK_NODE = 'hardbreak';
 
 /**
  * The inline line break, rendered as the line break it is (`<br>`), where the
