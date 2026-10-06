@@ -12,6 +12,8 @@
  * closing delimiter), so they always change together.
  */
 
+import type { NodeJson } from './docJson';
+
 export interface SitePiece {
   readonly site: number;
   readonly options: readonly [string, string];
@@ -46,6 +48,25 @@ export interface InlineUnit {
   readonly standalone: (text: string) => string;
 }
 
+/**
+ * A top-level list item or table cell. Items and cells cannot change how
+ * another reads — what joins them (markers, numbers, row pipes, blank lines) is
+ * written by the block, not by their content — so each is checked against a
+ * document of its own: a one-item list, a one-cell table. A list or table block
+ * is then never parsed whole, which for a 2,000-item list is half a second.
+ */
+export interface BlockPart {
+  readonly lines: readonly Line[];
+  readonly first: number;
+  readonly end: number;
+  /** Whether anything in it could read differently, so it needs its parse at all. */
+  readonly needsCheck: boolean;
+  /** The part as a document of its own… */
+  readonly standalone: (text: string) => string;
+  /** …and what that document must read as. */
+  readonly expected: readonly NodeJson[];
+}
+
 /** Per-block writing state: hands out site numbers and records whether a parse check is needed. */
 export class Sites {
   count = 0;
@@ -55,6 +76,8 @@ export class Sites {
   readonly layout: number[] = [];
   /** The block's inline units, in document order. */
   readonly units: InlineUnit[] = [];
+  /** A top-level list's items or table's cells (`BlockPart`); empty for any other block. */
+  readonly parts: BlockPart[] = [];
   /** How many paragraphs, headings and cells have been written. */
   leaves = 0;
 
@@ -74,6 +97,31 @@ export class Sites {
   /** A blank line written only if a parse needs it. */
   optionalLine(): Line {
     return [this.layoutPiece([DROPPED_LINE, ''])];
+  }
+
+  /**
+   * Writes one part with `write`, recording it in `parts` with whether it
+   * needs a check of its own.
+   */
+  part(
+    write: () => Line[],
+    standalone: (text: string) => string,
+    expected: readonly NodeJson[],
+  ): Line[] {
+    const before = this.needsCheck;
+    this.needsCheck = false;
+    const first = this.count;
+    const lines = write();
+    this.parts.push({
+      lines,
+      first,
+      end: this.count,
+      needsCheck: this.needsCheck,
+      standalone,
+      expected,
+    });
+    this.needsCheck ||= before;
+    return lines;
   }
 
   /** One site shared by several pieces. Returns a function that makes each piece. */

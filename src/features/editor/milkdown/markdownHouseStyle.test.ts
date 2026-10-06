@@ -114,6 +114,26 @@ describe('the per-block save cache', () => {
     expect(writes).toBe(1);
   });
 
+  it('checks a list item by item and a table cell by cell, never the whole block', () => {
+    const parsed: string[] = [];
+    const watching = createMarkdownSerializer({
+      parse: (markdown) => {
+        parsed.push(markdown);
+        return parser.parse(markdown);
+      },
+    });
+    const items = Array.from({ length: 50 }, (_, index) => `- item ${index}`);
+    const list = parser.parse([...items.slice(0, 20), '- \\*not italic\\*', ...items].join('\n'));
+    const table = parser.parse('| a | b |\n| --- | --- |\n| x \\| y | z |');
+    expect(watching.serialize(list)).toBe(
+      `${[...items.slice(0, 20), '- \\*not italic*', ...items].join('\n')}\n`,
+    );
+    expect(watching.serialize(table)).toBe('| a | b |\n| --- | --- |\n| x \\| y | z |\n');
+    expect(parsed.length).toBeGreaterThan(0);
+    // Every parse is of one item or one cell (plus a one-cell table's delimiter row).
+    for (const markdown of parsed) expect(markdown.length).toBeLessThan(30);
+  });
+
   it('primes in slices and reports when it is done', () => {
     const cached = createCachedSerializer(serializer, adapter);
     const doc = parser.parse('a\n\nb\n\nc');

@@ -7,7 +7,9 @@
  * (`parse`, Milkdown's `parserCtx` in the app) and escapes a character only
  * when leaving it bare would read back as a different document (`./choose.ts`).
  * A cheap pre-filter skips the parse for a block with nothing in it that could
- * be syntax, which is most prose.
+ * be syntax, which is most prose; a list or a table is checked one item or
+ * cell at a time, never parsed whole (parsing a 2,000-item list costs half a
+ * second).
  *
  * COST IS PER BLOCK. A top-level block's text depends on the block itself and
  * on a small, cheaply computed context, nothing else:
@@ -210,16 +212,19 @@ export function createMarkdownSerializer(options: MarkdownSerializerOptions): Ma
       const sites = new Sites(scope);
       const lines = writeBlock(node, context, sites);
       return {
+        block: [node],
         lines,
         siteCount: sites.count,
         layout: sites.layout,
         units: sites.units,
+        parts: sites.parts,
         needsCheck: sites.needsCheck,
       };
     };
     const plausible = write('plausible');
     if (!plausible.needsCheck) return { text: render(plausible.lines), checked: false };
-    const expected = canonical([node, ...tail(context.references)]);
+    const definitions = tail(context.references);
+    const expected = (nodes: readonly NodeJson[]) => canonical([...nodes, ...definitions]);
     const text = chooseSpelling(plausible, write, reader(context.references), expected, budget);
     return { text, checked: true };
   }

@@ -68,15 +68,33 @@ function writeFrontmatter(node: NodeJson): Line[] {
   return [['---'], ...body, ['---']];
 }
 
-function writeTable(node: NodeJson, sites: Sites): Line[] {
+/** A cell on its own: a one-column table whose header is the cell (`BlockPart`). */
+function cellAlone(paragraph: NodeJson): NodeJson {
+  const header = { colspan: 1, rowspan: 1, colwidth: null, alignment: null };
+  return {
+    type: NODE.table,
+    content: [
+      {
+        type: NODE.tableHeaderRow,
+        content: [{ type: NODE.tableHeader, attrs: header, content: [paragraph] }],
+      },
+      { type: NODE.tableRow },
+    ],
+  };
+}
+
+function writeTable(node: NodeJson, sites: Sites, nested: boolean): Line[] {
   const [header, ...body] = node.content ?? [];
   if (!header) return [];
   const row = (rowNode: NodeJson): Line => {
     const line: Line = ['|'];
     for (const cell of rowNode.content ?? []) {
-      const paragraph = cell.content?.[0];
-      const content = oneLine(writeInline(paragraph?.content ?? [], 'cell', sites));
-      line.push(' ', ...content, ' |');
+      const paragraph = cell.content?.[0] ?? { type: NODE.paragraph };
+      const write = () => [oneLine(writeInline(paragraph.content ?? [], 'cell', sites))];
+      const [written] = nested
+        ? write()
+        : sites.part(write, (text) => `| ${text} |\n| --- |`, [cellAlone(paragraph)]);
+      line.push(' ', ...(written ?? []), ' |');
     }
     return line;
   };
@@ -247,7 +265,12 @@ function endsWithLooseList(node: NodeJson | undefined): boolean {
   return last !== undefined && listKind(last) !== null && endsWithLooseList(last);
 }
 
-function writeList(node: NodeJson, listMarker: ListMarker | null, sites: Sites): Line[] {
+function writeList(
+  node: NodeJson,
+  listMarker: ListMarker | null,
+  sites: Sites,
+  nested: boolean,
+): Line[] {
   const ordered = node.type === NODE.orderedList;
   const marker = listMarker ?? (ordered ? DEFAULT_MARKER.ordered : DEFAULT_MARKER.bullet);
   const start = ordered ? (attr<number>(node, 'order') ?? 1) : 0;
@@ -259,7 +282,18 @@ function writeList(node: NodeJson, listMarker: ListMarker | null, sites: Sites):
     if (index > 0 && !loose && endsWithLooseList(items[index - 1]))
       lines.push(sites.optionalLine());
     const prefix = ordered ? `${start + index}${marker} ` : `${marker} `;
-    lines.push(...writeItem(item, prefix, sites));
+    const write = () => writeItem(item, prefix, sites);
+    if (nested) {
+      lines.push(...write());
+      return;
+    }
+    // On its own, an item reads as a one-item list starting at its own number.
+    const alone: NodeJson = {
+      ...node,
+      attrs: { ...node.attrs, spread: false, ...(ordered ? { order: start + index } : {}) },
+      content: [item],
+    };
+    lines.push(...sites.part(write, (text) => text, [alone]));
   });
   return lines;
 }
@@ -291,9 +325,9 @@ export function writeBlock(
     }
     case NODE.bulletList:
     case NODE.orderedList:
-      return writeList(node, position.listMarker, sites);
+      return writeList(node, position.listMarker, sites, nested);
     case NODE.table:
-      return writeTable(node, sites);
+      return writeTable(node, sites, nested);
     case NODE.frontmatter:
       return writeFrontmatter(node);
     case NODE.footnoteDefinition: {

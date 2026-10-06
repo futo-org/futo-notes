@@ -1,9 +1,11 @@
 /**
  * Which sites a block really needs, decided by parsing.
  *
- * A block is written with every site in its house-style spelling first. If
- * that reads back as the block, it is the answer — the common case, one parse.
- * Otherwise the block's inline units (paragraphs, headings, cells) whose
+ * A list or a table is checked part by part: each item or cell that could
+ * read differently is parsed on its own (`BlockPart`), and the block never
+ * whole. Any other block is written with every site in its house-style
+ * spelling first. If that reads back as the block, it is the answer — the
+ * common case, one parse. Otherwise the block's inline units (paragraphs, headings, cells) whose
  * reading came out different are settled one by one, each against a parse of
  * that unit alone, and the block is parsed once more to confirm — so a big
  * list or table costs parses of the cells that need an escape, not of the
@@ -24,14 +26,18 @@
  * document still loses nothing more than it must, and the output carries no
  * backslash that changes nothing.
  */
-import { render, type InlineUnit, type Line, type SiteScope } from './pieces';
+import type { NodeJson } from './docJson';
+import { render, type BlockPart, type InlineUnit, type Line, type SiteScope } from './pieces';
 
 export interface Written {
+  /** The block, normalized, as it was written. */
+  readonly block: readonly NodeJson[];
   readonly lines: readonly Line[];
   readonly siteCount: number;
   /** The layout sites, in writing order; every other site is an escape. */
   readonly layout: readonly number[];
   readonly units: readonly InlineUnit[];
+  readonly parts: readonly BlockPart[];
 }
 
 /** Markdown in, a comparable reading out (`./normalize.ts` `canonical`), or null when it did not parse. */
@@ -74,8 +80,49 @@ export function chooseSpelling(
   plausible: Written,
   write: (scope: SiteScope) => Written,
   read: Reader,
-  expected: string,
+  expected: (nodes: readonly NodeJson[]) => string,
   budget: CheckBudget = DEFAULT_CHECK_BUDGET,
+): string {
+  const byPart = settleParts(plausible, read, expected, new Spending(UNIT_BUDGET));
+  if (byPart) return render(plausible.lines, byPart);
+  return chooseWhole(plausible, write, read, expected(plausible.block), budget);
+}
+
+/**
+ * A list's items or a table's cells each settled against a parse of that part
+ * alone and what it must read as (`BlockPart`). Null when the block has no
+ * parts, holds a layout site (its layout is not the parts' own), or a part
+ * cannot be made to read right on its own — then the whole block is checked.
+ */
+function settleParts(
+  written: Written,
+  read: Reader,
+  expected: (nodes: readonly NodeJson[]) => string,
+  spending: Spending,
+): number[] | null {
+  if (written.parts.length === 0 || written.layout.length > 0) return null;
+  const choice = new Array<number>(written.siteCount).fill(0);
+  for (const part of written.parts) {
+    if (!part.needsCheck) continue;
+    const target = expected(part.expected);
+    const readPart: Reader = (text) =>
+      spending.spend(text.length) ? read(part.standalone(text)) : null;
+    if (readPart(render(part.lines, choice)) === target) continue;
+    const sites = escapesOf(written, part.first, part.end);
+    for (const site of sites) choice[site] = 1;
+    if (sites.length === 0 || readPart(render(part.lines, choice)) !== target) return null;
+    const settled = takeBack(part.lines, sites, choice, readPart, target, spending);
+    for (const site of sites) choice[site] = settled[site] ?? 1;
+  }
+  return choice;
+}
+
+function chooseWhole(
+  plausible: Written,
+  write: (scope: SiteScope) => Written,
+  read: Reader,
+  expected: string,
+  budget: CheckBudget,
 ): string {
   const plain = render(plausible.lines);
   const plainReading = read(plain);
