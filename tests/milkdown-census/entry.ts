@@ -5,14 +5,14 @@
  * sequence, and exposes one function that reports what a note's bytes look like
  * after the editor has read and written them back.
  *
- * SCOPE: commonmark + gfm, which is what the compat plugins act on. It does NOT
- * mount the wikilink plugin the app also uses (#101): that reaches into
- * `$features/notes/notes.svelte` for the note index, so bundling it here would
- * mean pulling the Svelte app state into an esbuild browser bundle. Wikilink
- * round-tripping has its own differential and embed-seam coverage under
- * `src/features/editor/milkdown/wikilink/`; a note whose ONLY round-trip
- * difference is wikilink escaping therefore reads as a difference here that the
- * shipping editor does not have.
+ * SCOPE: on `compat`, every plugin of the app's chain (editorPlugins.ts) that
+ * changes what a note's bytes parse into or what a save writes — the compat
+ * presets (which install the owned serializer), the inline line-break node
+ * view, wikilinks, and a table cell's `<br>` read back as a line break — plus
+ * the core plugins below. Not what only renders, edits or decorates.
+ * Wikilinks need the app's note index, a Svelte runes module esbuild cannot
+ * bundle; `build.mjs` swaps in `noteIndexStub.ts`, an empty vault, which only
+ * changes how a link RENDERS (broken), never how it parses or saves.
  *
  * Two variants share this file so the census can measure a change rather than
  * a snapshot: `compat` is what the app ships — the compat presets, which read
@@ -42,7 +42,12 @@ import { getMarkdown, replaceAll } from '@milkdown/kit/utils';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { Selection } from '@milkdown/kit/prose/state';
 
+import type { MilkdownPlugin } from '@milkdown/kit/ctx';
+
 import { commonmarkWithCompat, gfmWithCompat } from '@futo-notes/editor/milkdown-compat';
+import { softBreakView } from '../../src/features/editor/milkdown/paragraphLines';
+import { tableCellLineBreakRemark } from '../../src/features/editor/milkdown/table/tableLineBreak';
+import { wikilink } from '../../src/features/editor/milkdown/wikilink';
 
 export type CensusVariant = 'compat' | 'baseline';
 
@@ -58,6 +63,22 @@ export interface RoundTrip {
   docJson: unknown;
   /** `markdown` parsed and written again: a second save (`second_pass_unstable`). */
   secondPass: string;
+}
+
+/**
+ * What a variant reads and writes markdown with. `compat` is the app's own
+ * (editorPlugins.ts, same order); `baseline` the unpatched upstream presets.
+ */
+function markdownPlugins(variant: CensusVariant): MilkdownPlugin[] {
+  if (variant === 'baseline') return [...commonmark, ...gfm];
+  return [
+    ...commonmarkWithCompat(),
+    // AFTER the preset, whose hardbreak node it re-registers (paragraphLines.ts).
+    softBreakView,
+    ...gfmWithCompat(),
+    ...wikilink,
+    tableCellLineBreakRemark,
+  ].flat();
 }
 
 function histogram(doc: ProseNode): Record<string, number> {
@@ -85,14 +106,12 @@ function visibleText(doc: ProseNode): string {
 async function loadOnce(variant: CensusVariant, markdown: string): Promise<RoundTrip> {
   const root = document.createElement('div');
   document.body.appendChild(root);
-  const patched = variant === 'compat';
   const editor = await Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, root);
       ctx.set(defaultValueCtx, markdown);
     })
-    .use(patched ? commonmarkWithCompat() : commonmark)
-    .use(patched ? gfmWithCompat() : gfm)
+    .use(markdownPlugins(variant))
     .use(history)
     .use(listener)
     .use(clipboard)
@@ -145,14 +164,12 @@ async function headingEditChurn(
 ): Promise<HeadingEditChurn> {
   const root = document.createElement('div');
   document.body.appendChild(root);
-  const preset = variant === 'compat' ? commonmarkWithCompat() : commonmark;
   const editor = await Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, root);
       ctx.set(defaultValueCtx, markdown);
     })
-    .use(preset)
-    .use(variant === 'compat' ? gfmWithCompat() : gfm)
+    .use(markdownPlugins(variant))
     .use(history)
     .use(listener)
     .use(clipboard)
@@ -188,13 +205,11 @@ async function headingEditChurn(
 async function pastePlainText(variant: CensusVariant, markdown: string): Promise<string> {
   const root = document.createElement('div');
   document.body.appendChild(root);
-  const preset = variant === 'compat' ? commonmarkWithCompat() : commonmark;
   const editor = await Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, root);
     })
-    .use(preset)
-    .use(variant === 'compat' ? gfmWithCompat() : gfm)
+    .use(markdownPlugins(variant))
     .use(history)
     .use(listener)
     .use(clipboard)
@@ -228,14 +243,12 @@ async function mountForIme(
 ): Promise<{ composing: () => boolean; destroy: () => Promise<void> }> {
   const root = document.createElement('div');
   document.body.appendChild(root);
-  const preset = variant === 'compat' ? commonmarkWithCompat() : commonmark;
   const editor = await Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, root);
       ctx.set(defaultValueCtx, markdown);
     })
-    .use(preset)
-    .use(variant === 'compat' ? gfmWithCompat() : gfm)
+    .use(markdownPlugins(variant))
     .use(history)
     .use(listener)
     .use(clipboard)

@@ -630,10 +630,8 @@ test.describe('a text run that ends in whitespace keeps its escapes', () => {
     'an escaped 1. before code': 'x\n\n1\\. a `b`\n',
     'an escaped - on a soft-wrapped line': 'a\n\\- b **c**\n',
     'an escaped &amp; before bold': 'Tom \\&amp; Jerry **x**\n',
+    'an escaped [[ before bold': '\\[[x]] **b**\n',
     'an escaped <div> before bold': '\\<div> **b**\n',
-    // `\[\[x]]` is the app's case, not this page's: the census page mounts no
-    // wikilink plugin, so `[[x]]` needs no escape here. The shipped parser's
-    // answer is a golden (tests/conformance/markdown-house-style.json).
   };
 
   for (const [name, markdown] of Object.entries(SHAPES)) {

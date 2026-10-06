@@ -11,11 +11,13 @@ report the transition plan's D4 asks for: **a scorecard, not a release gate.**
 
 - Harness: `tests/milkdown-census/` — `just milkdown-census`.
 - Editor: `@milkdown/kit` 7.22.1, the app's core plugin chain and load sequence
-  (`defaultValueCtx`, then `replaceAll`), headless Chromium. Commonmark + gfm —
-  not the wikilink plugin (#101), which needs the app's note index; see
-  `tests/milkdown-census/README.md`. So `[[wikilink]]` backslash-escaping still
-  counts as a difference in the tables below, where the shipping editor no
-  longer has it.
+  (`defaultValueCtx`, then `replaceAll`), headless Chromium. Since 2026-10-06
+  (#266) `compat` mounts every plugin of the app's chain that changes what a
+  note's bytes parse into or what a save writes, the wikilink plugin (#101) and
+  the table cell `<br>` reader included (`tests/milkdown-census/README.md`).
+  Every result dated before that was measured with commonmark + gfm only, so in
+  those tables `[[wikilink]]` backslash-escaping counts as a difference the
+  shipping editor did not have.
 - Corpora: `notes_corpus.jsonl.gz` (30,995 notes, not in this repo) and the
   maintainer's real vault (local only — its results are never committed).
 - `baseline` is the unpatched upstream preset; `compat` is what the app ships.
