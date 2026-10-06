@@ -283,7 +283,7 @@ describe('createBlockSerializer — prime', () => {
   });
 
   it('with a budget that reports time up immediately, still primes exactly one unit and reports incomplete when more remain', () => {
-    // The property MilkdownEditor.svelte's synchronous priming budget relies
+    // The property serializationLoop.ts's synchronous priming budget relies
     // on: even a budget function that never allows a SECOND unit still makes
     // forward progress (didWork-gated in createBlockSerializer, not a bare
     // "stop if time <= 0" check), and correctly reports it did not finish.

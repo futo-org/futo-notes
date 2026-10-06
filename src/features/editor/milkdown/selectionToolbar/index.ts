@@ -37,7 +37,7 @@ import { linkRunAt, selectionToolbarTarget, type SelectionToolbarTarget } from '
 
 export { resolveSelectionToolbar } from './target';
 
-/** Class on the floating element; styled in MilkdownEditor.svelte. */
+/** Class on the floating element; styled in milkdownEditor.css. */
 export const SELECTION_TOOLBAR_CLASS = 'futo-selection-toolbar';
 
 export interface SelectionToolbarPlugin {
@@ -50,7 +50,7 @@ export interface SelectionToolbarPlugin {
 /**
  * `documentToken` is WHICH note the editor is holding, as any value that
  * changes when it adopts a different one (documentSession.svelte.ts's
- * `documentGeneration`). The URL field is the one part of this bar that
+ * `documentIdentity`). The URL field is the one part of this bar that
  * outlives a single gesture: it stays open while the user types, and a
  * keyboard note switch moves no DOM focus and fires no pointerdown, so
  * neither dismissal path ran — submitting then applied the link to the caret

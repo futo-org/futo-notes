@@ -229,7 +229,7 @@ export const GHOST_PAD_Y_PX = 10;
  * Applied in JS, from `window.innerHeight`, NOT as `max-height: 40vh` in the
  * stylesheet. Both native hosts render this bundle in a web view whose INITIAL
  * CONTAINING BLOCK is zero-height — the same defect `editor.html` pins the body
- * against, and the reason `MilkdownEditor.svelte`'s bottom padding is written
+ * against, and the reason `milkdownEditor.css`'s bottom padding is written
  * `max(40vh, 280px)` — so `vh` resolves to 0 there while `window.innerHeight`
  * reports the real height. Measured on an Android 16 / Chromium 133 WebView:
  * a `40vh` probe measured 0px with `innerHeight` at 647. With
@@ -267,7 +267,7 @@ function ensureStyles(): void {
 
     /* Selection suppression for the WHOLE gesture — see the module doc's
      * "selection suppression is a whole-gesture job". !important because
-     * MilkdownEditor.svelte's own '.futo-milkdown .ProseMirror ::selection'
+     * milkdownEditor.css's own '.futo-milkdown .ProseMirror ::selection'
      * rule is equally specific and would otherwise win on source order. */
     .${ARMED_CLASS} {
       -webkit-user-select: none !important;

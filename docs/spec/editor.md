@@ -588,7 +588,7 @@ about.
   and the load-time viewport parked in the empty region. Ordinary one-to-three
   level lists are unchanged; past level eight the levels stop being told apart
   by their left edge, which is the deliberate half of the trade. Measured at
-  402x874. → src/features/editor/milkdown/MilkdownEditor.svelte,
+  402x874. → src/features/editor/milkdown/milkdownEditor.css,
   tests/editor-embed-milkdown-deep-nesting.spec.ts
 
 - A list item that wraps **hanging-indents** its continuation lines: wrapped
@@ -599,7 +599,7 @@ about.
   wrapped rows at the left margin). The list is a real `<ul>`/`<ol>`, so the
   hang is the browser's own list layout and the marker column is exactly as
   wide as the rendered marker. →
-  src/features/editor/milkdown/MilkdownEditor.svelte,
+  src/features/editor/milkdown/milkdownEditor.css,
   tests/bullet-glyphs.spec.ts
 - An empty list item shows its marker. A bullet or number started from the
   toolbar appears the moment the button is tapped, not after the first
@@ -611,14 +611,14 @@ about.
   133.0.6943.137, from the toolbar): the marker shows before any typing, the
   first character lands at the item's text edge with no gap, and the file reads
   `- X` / `1. y` with no zero-width character in it. Not yet checked on Linux
-  WebKitGTK or Windows WebView2. → src/features/editor/milkdown/MilkdownEditor.svelte
+  WebKitGTK or Windows WebView2. → src/features/editor/milkdown/milkdownEditor.css
   `li > p:first-child:has(> br.ProseMirror-trailingBreak:only-child)::before`,
   tests/editor-embed-milkdown-toolbar.spec.ts "gives the empty item a
   zero-width marker anchor"
 - Tables (GFM), horizontal rules, and images render as themselves. A table
   scrolls sideways inside its own box rather than widening the note; an image is
   capped at the column width and 300px tall. →
-  src/features/editor/milkdown/MilkdownEditor.svelte
+  src/features/editor/milkdown/milkdownEditor.css
 - On the native shells the embed page pins `body` to the web view with
   `position: fixed` plus the four offset longhands, and `#editor` fills that body
   the same way. Both rules live unlayered in `editor.html`, never as `inset` and
@@ -1660,7 +1660,7 @@ unchanged by it.
   abandoned drop leaves no blob nothing points at. Silent: there is no
   message, because the note the user is looking at is correct and untouched.
   _(desktop)_ → src/features/editor/imageInsertTarget.ts, imageInsert.ts,
-  imagePasteSink.ts, milkdown/documentSession.svelte.ts `documentGeneration`,
+  imagePasteSink.ts, milkdown/documentSession.svelte.ts `documentIdentity`,
   milkdown/imageInsertIdentity.test.ts
 - A delayed native picker/clipboard completion belongs to the editor attachment
   generation that started it. Detaching, deleting, or adopting another note
@@ -1766,7 +1766,7 @@ unchanged by it.
   app), focused typing was no faster, and open time was the same. Eager first
   focus is 176 / 202 / 379 / 810 ms at 500 / 1,000 / 2,000 / 5,000 blocks. The
   rule also painted holes on Apple WebKit, so all three engines now render
-  alike. → MilkdownEditor.svelte (the comment where the rule was),
+  alike. → milkdownEditor.css (the comment where the rule was),
   docs/plan/milkdown-transition.md §5 "Containment retired",
   tests/editor-embed-milkdown.spec.ts
 - The FIRST focus of an opened note — the tap that starts typing — is budgeted

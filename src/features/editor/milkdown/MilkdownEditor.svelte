@@ -628,7 +628,7 @@
      fires on ProseMirror-generated children, which the markup never sees. -->
 <!-- `mobile-dnd` is the ONE mechanism that tells the stylesheet the ⠿ gutter
      handle does not exist for this instance, so the left padding can drop back
-     to match the right (see the .ProseMirror padding rule below). It is driven
+     to match the right (see the .ProseMirror padding rule in milkdownEditor.css). It is driven
      by the SAME `useMobileBlockDnd` gate that swaps the plugin, so the gutter
      and the thing that needs the gutter can never disagree. -->
 <!-- `--futo-checkbox-slot` is set here, from taskCheckbox.ts's own constant, so

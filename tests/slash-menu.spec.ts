@@ -170,7 +170,7 @@ test.describe('slash menu', () => {
     await page.keyboard.press('Enter');
     await expect(page.locator(`${EDITOR} hr`)).toHaveCount(1);
     // `***`, not `---`: remark-stringify's default thematic-break marker. The
-    // editor pins `bullet: '-'` (MilkdownEditor.svelte) but not `rule`, so a
+    // editor pins `bullet: '-'` (editorPlugins.ts) but not `rule`, so a
     // note that ALREADY contains `---` is rewritten to `***` on its first
     // edit — a pre-existing round-trip normalization this menu only makes
     // easier to reach. Changing the marker is a serializer change and has to be

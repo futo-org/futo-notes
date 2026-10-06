@@ -11,7 +11,7 @@ import { installFakeAndroidHost, type FakeHostWindow } from './lib/editorEmbedHo
  * This began as a drift lock between two engines (the deleted
  * `editor-ime-attributes` registry entry) and is now a plain feature test: one
  * editable, `.ProseMirror`, configured through `editorViewOptionsCtx.attributes`
- * in MilkdownEditor.svelte.
+ * in editorPlugins.ts.
  *
  * The decision it locks: iOS autocorrect and sentence capitalisation ON, red
  * spellcheck squiggles and Apple's inline writing suggestions OFF. The Milkdown

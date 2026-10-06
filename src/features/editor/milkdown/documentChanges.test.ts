@@ -79,7 +79,7 @@ describe('createDocumentChangePlugin', () => {
 
   /* `trailing` answers a load with a transaction of its own that carries no
    * marker. It is still part of the load, and the editor reads this signal as
-   * "the user edited" (MilkdownEditor `editedSinceLoadStart`): calling it an
+   * "the user edited" (documentLoad.ts `editedSinceLoadStart`): calling it an
    * edit would rewrite every large note on open. */
   it("counts another plugin's reaction as part of what it reacted to", () => {
     function applyWithReaction(markAsLoad: boolean): number {

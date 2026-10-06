@@ -1,7 +1,7 @@
 /*
  * `bareUrlLinkHandler` (packages/editor/src/milkdown-compat/bareUrl.ts) writes
  * a link bare only when the bare spelling reads back as the same link. This
- * drives a REAL `Editor` with the serializer MilkdownEditor.svelte installs —
+ * drives a REAL `Editor` with the serializer editorPlugins.ts installs —
  * the narrowed `text` handler and the bare-URL `link` handler — because the
  * question is what the editor's own parser makes of the editor's own output,
  * in context: the characters after a URL include escapes and mark closers the
