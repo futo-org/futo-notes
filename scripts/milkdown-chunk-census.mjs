@@ -383,9 +383,9 @@ async function main() {
         'not an equivalence result, so those notes are excluded from the counts above.'
       : '',
     '',
-    'The equivalence claim is against the plugin chain THIS BUNDLE SHIPS. The compat plugin set ' +
-      '(issue #99) is not in it yet, so re-run this after #99 lands — the acceptance criterion for ' +
-      'issue #105 asks for equivalence under the final chain.',
+    'The equivalence claim is against the plugin chain THIS BUNDLE SHIPS: the compat presets ' +
+      '(issue #99), which read through the parse-side fixes and write with the editor’s own ' +
+      'serializer (#266). Re-run it after any change to that chain.',
     '',
   ].join('\n');
 

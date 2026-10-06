@@ -57,7 +57,8 @@ async function measurePasteMs(page: Page, itemCount: number, correctlyNumbered: 
 //
 // None of those paths exist any more: the paste is parsed into a single `<ol>`
 // and the numbers are the browser's own rendering, so the "renumber" is free
-// and only remark-stringify's serialize walks the list. The test is kept
+// and only the editor's serializer walks the list (item by item,
+// packages/editor/src/markdown/). The test is kept
 // because the PROPERTY is the product's, not the engine's — a big paste must
 // not freeze the app — and it is the only thing that would catch a new
 // quadratic arriving in the parse or the serialize. Both shapes are still
