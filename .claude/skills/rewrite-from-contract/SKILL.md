@@ -187,7 +187,7 @@ decision, never an agent decision.
 
 4. For each approved drop or simplification, before designing the replacement:
    - update the `docs/spec/<area>.md` line (delete it, or rewrite it to the
-     simpler behavior) in the same change, and regenerate gaps (M19);
+     simpler behavior) in the same change (M19);
    - delete the behavior's tests/fixtures/scenarios FIRST, then re-run the
      external gate so the baseline reflects the pruned contract — a dropped
      behavior whose test still passes is not dropped;

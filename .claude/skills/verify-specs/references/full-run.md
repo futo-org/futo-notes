@@ -9,9 +9,10 @@
 | extra-C | iOS + Android + desktop | group-C on iOS, Android, desktop |
 | main | iOS + Android + desktop + `qa-server` | sync mesh (all clients → one server) |
 
-Surface groups: **A** = `editor` + `app`; **B** = `list` +
+Surface groups: **A** = `editor` + `editor-visual` + `app`; **B** = `list` +
 `nav` + `tabs`; **C** = `search` + `settings` + `settings-visual` + `sync`
-(single-client).
+(single-client) + `license` + `localization`. `desktop-rust` rides the
+**desktop** C-leg only — it has no iOS or Android behavior.
 
 The editor dedup (SKILL.md Step 2) shapes group A: the **desktop** A-leg
 sweeps the full `editor` surface; the iOS/Android A-legs carry a `focus`

@@ -2,7 +2,7 @@
 
 Tauri v2 **desktop** shell. This is the **Tauri adapter**: a Rust backend that exposes the shared note domain (CRUD, rules, search, sync) to the Svelte UI via `#[tauri::command]`s, plus OS-level glue. The shared Svelte/TS layer (`src/`) owns the UI and reactive state and calls in. The Tauri mobile shell is retired — mobile ships as native SwiftUI/Compose in `apps/ios` / `apps/android`; see root AGENTS.md.
 
-**Stack**: Rust + Tauri v2 + serde. Plugins: dialog, process, clipboard-manager, opener, fs, single-instance (desktop), mcp-bridge (debug).
+**Stack**: Rust + Tauri v2 + serde. Plugins: dialog, process, clipboard-manager, opener, fs, deep-link, updater, window-state, single-instance (desktop), mcp-bridge (debug).
 
 From the monorepo root, prefer the `just` wrappers: `just tauri-dev`, `just tauri-build`, and `just test-rust`. (Mobile is native: `just ios-native` / `just android-native` / `just deploy-ios`.) Desktop dev pointed at production endpoints has no `just` wrapper any more — the command is preserved in `docs/agents/justfile-notes.md`'s "Removed recipes" section.
 
@@ -28,10 +28,10 @@ The desktop adapter is split by responsibility:
 - **`instance_journal.rs`**: installs the instance journal (`futo_notes_core::journal`) under the app data dir.
 - **`license.rs`**: the desktop projection of `futo-notes-license` — where the key/activation pair is stored, the single activation request, and `futonotes://` deep-link delivery. Owns no license rule; the crate owns every one.
 - **`system_trash.rs`**: recoverable desktop delete policy plus the headless hard-delete fallback.
-- **`platform_integration.rs`**: Linux log/theme/decorations, single-instance setup, and Unix file-descriptor preparation.
+- **`platform_integration.rs`**: Linux log/theme/decorations, the NVIDIA-only WebKitGTK software-render (DMA-BUF) workaround, single-instance setup, and Unix file-descriptor preparation.
 - **`updater_commands.rs`**, **`panic_reporter.rs`**: updater capability and Rust crash persistence.
 - **`background_tasks.rs`**: the shared `spawn_blocking`/thread boundary and uniform join/I/O error mapping.
-- **`main.rs`**: process entry point; disables WebKitGTK DMA-BUF on Linux before calling `run()`.
+- **`main.rs`**: process entry point; only calls `run()`.
 
 Unit tests live inline at the bottom of their owning module in a `#[cfg(test)] mod tests { ... }` block. Test adapter-specific mapping and behavior here; canonical note workflows are tested in their owning crate. Do not add forwarding `_impl` functions solely to repeat those tests.
 

@@ -49,7 +49,7 @@ ProseMirror re-dispatching that selection made Chromium drop the composition). T
 `editor-embed-milkdown-compat.spec.ts`, its real-IME tests in
 `editor-embed-milkdown-wikilinks.spec.ts`.
 
-Four more escaping repairs, from the 2026-09 release-hardening campaign (FB-4a):
+Escaping repairs:
 
 - `withNarrowedEscapes` also writes an autolink's text (`<https://…>`)
   VERBATIM — CommonMark reads no escapes inside `<…>`, and `safe()` doubled
@@ -85,7 +85,7 @@ Four more escaping repairs, from the 2026-09 release-hardening campaign (FB-4a):
   writes a space where `\n` is unsafe (an ATX heading) and `<br>` before inline
   HTML; the wikilink handler writes `|` as `\|` in a table cell.
 
-Five structural repairs from the same campaign (FB-4b/4c):
+Structural repairs:
 
 - `linkDefinitions.ts` replaces the preset's `remarkInlineLinkPlugin`: it
   inlines a USED link reference definition exactly as upstream did, but keeps

@@ -23,19 +23,22 @@ appears. This is exact where the spec names the file.
 
 ## Fallback table — files the spec doesn't name by basename
 
-Some source files aren't cited by basename (e.g. `searchEngine.ts`,
+Some source files aren't cited by basename (e.g. `searchPopupShortcuts.ts`,
 `appState.ts`). Map those by path/role:
 
 | Changed path (glob) | Surface(s) |
 |---|---|
-| `packages/editor/**`, `src/editor-embed/**`, `src/**/*Editor*`, `src/lib/markdownToolbar*`, `src/lib/wikilink*`, `src/lib/iosTapFocus*` | editor |
+| `packages/editor/**`, `src/editor-embed/**`, `src/features/editor/**`, `src/**/*Editor*` | editor |
 | `src/**/NoteList*`, `src/**/*List*` (list UI), `crates/futo-notes-model` scan/sort | list, app |
 | `src/**/*Sidebar*`, `src/**/*Drawer*`, `src/**/*Nav*` | nav |
 | `src/**/*Tab*` | tabs |
-| `crates/futo-notes-search`, `src/lib/searchEngine*`, `src/**/*Search*` | search |
-| `src/lib/appState*`, `src/lib/appPreferences*`, `src/**/*Settings*` | settings, settings-visual |
+| `crates/futo-notes-search`, `src/features/search/**`, `src/**/*Search*` | search |
+| `src/shared/state/appState*`, `src/features/settings/**`, `src/**/*Settings*` | settings, settings-visual |
 | `src/styles/**`, `*.css`, theme tokens | settings-visual (+ whatever surface the component belongs to) |
-| `crates/futo-notes-sync`, `src/lib/syncServiceE2ee*`, `src/lib/autoSync*` | sync |
+| `crates/futo-notes-sync`, `src/features/sync/**` | sync |
+| `crates/futo-notes-license`, `src/features/license/**` | license |
+| `languages/*.json` | localization |
+| `apps/tauri/src-tauri/**` | desktop-rust |
 | `src/App.svelte`, startup/scan/`initialized` paths, `src/features/notes/notes.svelte.ts` | app |
 
 When a change is broad shared infra (`src/lib/rules.ts`, `packages/editor`,
@@ -66,8 +69,9 @@ the editor — "a change that syncs wrong is worse than one that renders wrong"
 
 ## Turning scope into legs
 
-- One leg per (platform × surface-group). Keep the `/mr-qa` groups (A =
-  editor+app, B = list+nav+tabs, C = search+settings+settings-visual+sync) so
+- One leg per (platform × surface-group). Keep the surface groups from `references/full-run.md` (A =
+  editor+editor-visual+app, B = list+nav+tabs, C = search+settings+settings-visual+sync+license+localization,
+  with desktop-rust on the desktop C-leg only) so
   ledger ids stay comparable across runs; drop groups the scope doesn't touch.
 - Apply the **editor dedup** (SKILL.md Step 2): full `editor` sweep on the
   desktop leg only; mobile editor legs get a `focus` of the shell-integration

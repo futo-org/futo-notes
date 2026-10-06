@@ -59,7 +59,7 @@ Device/simulator QA of the changed flow is required; keyboard, safe-area, and sc
 the full matrix (new note, existing note, toolbar, scroll-during-IME). Drive the app with
 `xcrun simctl` + AXe; the full playbook is the `/verify` skill's `references/ios.md`.
 
-**iOS 26 nav-bar toolbar items are invisible to idb's shallow a11y tree but visible to AXe**. When
+**iOS 26 nav-bar toolbar items only show up in AXe's deep a11y tree.** When
 automation reports "nothing happened", suspect the tool before the app and follow the AXe playbook.
 
 `xcrun simctl spawn "$SIM" log stream --level=debug --predicate 'process == "FutoNotesNative"'`

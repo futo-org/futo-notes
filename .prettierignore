@@ -19,7 +19,6 @@ tests/conformance/*.json
 pnpm-lock.yaml
 
 # Fixtures (byte-exact test inputs)
-markdown-spec/cases/
 
 # Single-file editor bundle input (hand-tuned inline HTML)
 editor.html

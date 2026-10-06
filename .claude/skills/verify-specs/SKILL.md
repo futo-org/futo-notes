@@ -9,8 +9,8 @@ This runs `docs/spec/` as **stories against the running apps** and reports
 evidence-backed verdicts. It is not `just check` (that's the static chain);
 this is the device-driven behavioral pass. Two modes, chosen from the invocation:
 
-- **Full run** — `/verify-specs` (no scope) → every surface (`app`, `editor`,
-  `list`, `nav`, `search`, `settings`, `settings-visual`, `sync`, `tabs`) ×
+- **Full run** — `/verify-specs` (no scope) → every area file in `docs/spec/`
+  (excluding `README.md` and `AGENTS.md`) ×
   every platform + the cross-client sync mesh.
 - **Scoped run** — `/verify-specs since the last tagged release` (or "since
   <tag>", "just the editor", "what changed on this branch") → map the diff to
@@ -46,7 +46,7 @@ LAST_TAG=$(git describe --tags --abbrev=0)
 echo "last tag: $LAST_TAG"
 ```
 
-- **Full run** (no scope phrase): all 9 surfaces, all platforms this OS
+- **Full run** (no scope phrase): every spec surface, all platforms this OS
   supports (`uname -s`: Darwin → desktop+iOS+Android; Linux → desktop+Android),
   plus the sync mesh.
 - **Scoped run**: compute the diff (`git diff --name-only "$LAST_TAG"..HEAD`,
@@ -109,7 +109,6 @@ death) — one entry per leg:
 }
 ```
 
-`focus` is optional; when present the leg covers exactly those flows and stops.
 Ledger paths **must be absolute and inside each leg's own worktree** — that's
 where the app-qa agent runs and where a resume looks.
 
@@ -199,13 +198,10 @@ verdict }`. Use the shared session verdict format:
 Follow the shared session teardown protocol. Keep `run.json` until the report is
 delivered and the user is done; its presence is the resume signal.
 
-## Budgets (measured 2026-07, adjust with the effort experiment)
+## Budgets
 
-- Full spec, 3 platforms + mesh, prior high-effort topology: ~1.2–1.6M output
-  tokens, ~3.5–4h wall clock. **This skill's bet:** Sonnet-low sweeps + editor
-  dedup + the assertion-first evidence policy cut per-leg time and tokens
-  materially, targeting **≤1h** on a strong machine with a warm pool. Report
-  actuals so the bet can be judged.
+- Full spec, 3 platforms + mesh: target **≤1h** on a strong machine with a warm
+  pool. Report actual tokens and wall clock.
 - Scoped runs (the common case): a few 100k tokens, well under an hour.
 - Failures cost more than passes (the high-effort verify pass). A run with many
   FAILs will run longer and hotter than a clean one.

@@ -1,7 +1,7 @@
 ---
 name: ci-doctor
 description: Diagnose and fix GitLab CI/pipeline failures, and harden .gitlab-ci.yml against this repo's recurring failure classes. Use when the user says "pipeline failed", "CI is red", "the tag build failed", "publish:android/publish:ios failed", "check the pipeline", "why didn't the release go out", "harden CI", or before tagging a release ("pre-tag check"). Also load this BEFORE editing .gitlab-ci.yml for any reason — it encodes the hard rules that past pipeline breakage taught.
-allowed-tools: Bash, Read, Edit, Grep, Glob, AskUserQuestion
+allowed-tools: Bash, Read, Edit, Grep, Glob
 ---
 
 # CI Doctor
@@ -55,7 +55,7 @@ red pipelines here:
 | **First-contact tag job** | A publish/release job fails on its first real run at tag time | Job only executes on tags, so it was never exercised: secrets not propagated (especially into nested VMs like Cirrus), cold caches hitting timeouts, wrong artifact lookup paths |
 | **CWD/path assumption** | A step "succeeds" but its effect didn't happen; later step fails mysteriously | GitLab preserves `cd` across script lines; relative path resolved elsewhere; `-f`/`|| true` masked it |
 | **Silent green** | "Job succeeded" but nothing was published/uploaded | An error branch special-cased to `exit 0` |
-| **Missing release-gate wiring** | A test failed but the release published anyway | New test job absent from `release:gate.needs` (one deliberate exception: `test:audit`, see rule 3) |
+| **Missing release-gate wiring** | A test failed but the release published anyway | New test job absent from `release:gate.needs` (deliberate exceptions: `test:audit`, `test:localization-audit`, `test:quality-report` — see rule 3) |
 | **Artifact-path drift** | `No files to upload` / downstream job can't find inputs | Workspace layout changed; `artifacts:paths`/lookup globs didn't |
 | **Cache death spiral** | Retries keep timing out at the same wall | Caches upload only `on_success`, so every retry starts cold |
 | **Flake** | Same job passes on retry with no change | Fixed timeout or exact-string assertion in a cross-platform test |
@@ -74,9 +74,10 @@ Apply the rule for the class; do not just patch the symptom:
 3. **Every new test job goes into `release:gate.needs`** in the same commit. Publish jobs start as
    soon as their own `needs` succeed, so a red test job that is missing from that list does not
    hold anything back — that is how v1.4.0 twice came within one job of publishing past a failed
-   test (the `release:gate.needs` comment in `.gitlab-ci.yml` names both). ONE deliberate
-   exception: `test:audit` is `allow_failure: true` and left out on purpose
-   (docs/architecture-gates.md) — adding it would turn a reporter into a release blocker.
+   test (the `release:gate.needs` comment in `.gitlab-ci.yml` names both). Deliberate
+   exceptions: `test:audit`, `test:localization-audit`, and `test:quality-report` are
+   `allow_failure: true` and left out on purpose (docs/architecture-gates.md) — adding one would
+   turn a reporter into a release blocker.
 4. **Secrets into nested environments are passed explicitly** (Cirrus VM, docker-in-docker).
    Never assume a CI variable propagates one level down.
 5. **Caches upload `when: always`** so a timed-out job doesn't doom every retry to a cold start.
@@ -118,8 +119,8 @@ watch_pipeline() {
 - [ ] `.gitlab-ci.yml` diff since the last tag reviewed against the rules above (`git diff
       $(git describe --tags --abbrev=0) -- .gitlab-ci.yml`)
 - [ ] Any NEW tag-only job since the last tag has been exercised (Step 4)
-- [ ] `release:gate.needs` still lists every test job except `test:audit`, which is
-      non-blocking by design (`grep -A30 'release:gate' .gitlab-ci.yml`)
+- [ ] `release:gate.needs` still lists every test job except the three `allow_failure` reporters
+      (`test:audit`, `test:localization-audit`, `test:quality-report`), non-blocking by design (`grep -A30 'release:gate' .gitlab-ci.yml`)
 - [ ] `test:audit` was yellow because it FOUND something, not because it never ran — its log has
       no `AUDIT-DID-NOT-RUN` line (`allow_failure` renders both the same)
 - [ ] Updater artifacts: signing is the LAST touch on bytes (mesa patch / notarize / Authenticode

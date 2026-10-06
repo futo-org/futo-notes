@@ -28,7 +28,7 @@ pnpm exec playwright test tests/search.spec.ts      # one spec
 pnpm exec playwright test -g 'partial test title'   # one test
 ```
 
-`test-e2e-full` is plain `playwright test` under the default config, which `testIgnore`s
+`pnpm run test:e2e:full` is plain `playwright test` under the default config, which `testIgnore`s
 `editor-embed-*.spec.ts` — so "run everything" leaves the native editor's bridge contract and the
 Milkdown round-trip suites untested unless you also run `pnpm run test:e2e:editor-embed`.
 That run always starts with a production Vite build of the editor bundle (its globalSetup,
