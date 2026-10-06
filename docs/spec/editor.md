@@ -146,10 +146,10 @@ about.
   never written; one an older build wrote loads as the single empty paragraph it
   stood for and is re-spelled as blank lines on the note's first real edit
   (ADR-0002). An author's inline `<br>` beside text is untouched. Two lists with
-  an empty paragraph between them keep different markers (`*` then `-`, `1.`
+  an empty paragraph between them keep different markers (`-` then `*`, `1.`
   then `1)`) so the blank line does not merge them into one list; the empty
   paragraph the schema itself puts in front of a list item whose content is a
-  block (`* > quote`) is never written. →
+  block (`- > quote`) is never written. →
   packages/editor/src/milkdown-compat/emptyLine.ts,
   packages/editor/src/milkdown-compat/listItemFiller.ts,
   tests/editor-embed-milkdown-compat.spec.ts
@@ -198,6 +198,121 @@ about.
 - A newline at the very end of a note is not written (trailing whitespace is
   not content), so a note left ending in an empty line reloads without it. →
   paragraphLines.ts `endsWithUnwrittenLine`, MilkdownEditor.svelte `holdsExactly`
+
+## Markdown house style — what a save writes
+
+A save writes ONE fixed spelling, stated here line by line. A dispute about a
+byte is settled by these lines, not by the code. → packages/editor/src/markdown/
+(the serializer), tests/conformance/markdown-house-style.json (the
+hand-reviewed goldens, one or more per line below)
+
+- Opening a note never rewrites it; the first real edit re-spells the whole
+  note into this style, once (see "WYSIWYG rendering"). The style never
+  remembers how the file spelled something: not its list markers, its `_` or
+  `*`, its `1)` numbering, its padding, or its line endings.
+- Every device writes identical bytes for the same document, and a second save
+  is a no-op: writing a document, reading the result back, and writing again
+  gives the same bytes.
+- Line endings are LF. A non-empty file ends in exactly one newline; an empty
+  note is an empty file.
+- A save costs time in proportion to the blocks that changed, not to the
+  length of the note.
+
+### Text and escaping
+
+- A character is escaped only when the app's own parser would otherwise read
+  the line as a different document, and that is decided by parsing what would
+  be written, not by a list of risky characters. So `snake_case`, `$x_1$`,
+  `#tag` at the start of a line, `1.5` and `a * b` are written as typed,
+  while `\# not a heading`, `1\. not a list`, `\*not
+  italic*` and `\<div>` get the one backslash that keeps them text. When either
+  of two delimiters could carry the escape, the opening one does.
+- A character that cannot take a backslash is written as a character
+  reference (`&#x20;`) where the parser would otherwise drop or reinterpret
+  it: whitespace at the start of a line, an empty line inside a paragraph
+  (`&#x20;` alone on it), and the letter or space beside formatting that would
+  not otherwise open or close (`**Note:**&#x62;ar`). The formatting marker
+  itself never changes.
+- Whitespace at the end of a line is not written, and neither is a line break
+  at the very end of a paragraph, heading or table cell: the parser drops both
+  on every read, so writing them would only make the next save differ.
+
+### Paragraphs and line breaks
+
+- An inline line break (one Enter, or a single newline the file already had)
+  is written as one `\n`. A newline directly before inline HTML stays a newline.
+- An older file's hard break (`\` or two trailing spaces) is written as `\`
+  plus a newline in a paragraph, as `<br>` in a table cell, and as a space in a
+  heading, which is one line (a setext heading's line breaks become spaces too).
+- An empty paragraph is an extra blank line, never HTML: `N` empty paragraphs
+  between two blocks are `N + 1` blank lines, and `N` before the first block
+  are `N` blank lines at the top of the file. Empty paragraphs at the end of the
+  note, or at the start or end of a quote, list item or footnote, are not
+  written.
+
+### Blocks
+
+- Headings are ATX: one to six `#`, a space, the text. Never setext.
+- A thematic break is `---`. Where `---` would read as something else, it is
+  `***`: on the note's first line (where `---` opens front matter), right
+  under a list item's paragraph (a setext underline), and as the first thing
+  in a `-` item (a rule, not an item).
+- Bold is `**text**`, italic `*text*`, bold italic `***text***`, strikethrough
+  `~~text~~`. Inline code is a backtick run one longer than any run inside it
+  (`` `a` ``, ``` `` a`b `` ```), with one space of padding on each side when
+  the code starts or ends with a backtick, or starts and ends with a space.
+- Fenced code uses backticks — at least three, and one more than the longest
+  run of backticks that starts a line inside — then the language, the content
+  exactly as held, and the closing fence. A language that contains a backtick
+  gets a `~~~` fence instead.
+- A blockquote prefixes each line with `> `, and a blank line inside it with
+  `>`.
+- A front matter block is `---`, its body exactly as read (with LF line
+  endings), and `---`, followed by a blank line before the body.
+
+### Lists
+
+- Bullets are `-`. Ordered items are numbered as they appear on screen: the
+  list's start number, then one more per item, each followed by `.`.
+- A tight list stays tight (one newline between items) and a loose list stays
+  loose (a blank line between items). Inside an item, its blocks are separated
+  the same way the item itself was read: a newline when tight, a blank line
+  when loose.
+- An item's continuation lines are indented by the width of its own marker:
+  two spaces under `- `, three under `1. `, four under `10. `. A nested list
+  therefore parses back at the same depth.
+- Two lists of the same kind that touch, or that only empty paragraphs
+  separate, alternate markers — `-` then `*`, `1.` then `1)` — because
+  CommonMark would otherwise read them as one list.
+- A task item is `- [ ] text` or `- [x] text`; an empty task item is `- [ ]`,
+  never a bare `-`. An empty item is its marker alone (`-`, `1.`). An item
+  whose first block is not a paragraph writes that block on the marker line
+  (`- > quote`, `- # heading`).
+
+### Tables
+
+- Every cell has one space either side of its content and the columns are not
+  padded to a common width: `| a | b |`. An edit to one cell never re-spells
+  another row.
+- The delimiter row is `---` for a column with no alignment, `:--` left, `:-:`
+  center, `--:` right. A column the author never aligned stays unaligned.
+- A `|` inside a cell is written `\|`, in code and wikilinks too. A line break
+  inside a cell is `<br>`.
+
+### Links, images and the constructs the editor does not model
+
+- A link is `[text](url)` or `[text](url "title")`; a destination with a space
+  or a parenthesis in it is written `<url>`. A link whose text is its own URL
+  (`https://…`, `www.…`, an email address) is written bare whenever the bare
+  text reads back as the same link, and otherwise as `<url>` (as
+  `[www.…](http://www.…)` for a `www.` link, which has no `<…>` form).
+- An image is `![alt](src)`, with `"title"` only when it has one; a save never
+  adds a title.
+- A wikilink is `[[target]]` with the target exactly as held.
+- A footnote reference is `[^label]`; its definition is `[^label]: text`, with
+  continuation lines indented four spaces.
+- Inline HTML, HTML blocks, front matter bodies and unused link reference
+  definitions are written back exactly as read.
 
 ## Localization
 
@@ -653,7 +768,9 @@ about.
   but whitespace. `----`, ` ---`, and a `---` with no closing fence are a
   thematic break (and, with a line above it, a setext heading) exactly as
   CommonMark says — and a `---` anywhere but the first line of the note is
-  always a thematic break, which the editor still normalizes to `***`.
+  always a thematic break. A save writes a thematic break as `---` everywhere
+  except the note's first line, where it writes `***` (see "Markdown house
+  style").
   (`+++` TOML front matter is not recognised and round-trips as the paragraph
   CommonMark reads it as.)
 - The block is RENDERED, as one inert metadata panel above the body: muted, monospace, with a left rule, and no
@@ -661,11 +778,12 @@ about.
   editor has no YAML model, so it shows the bytes and refuses to edit them.
   Deleting the whole note still deletes it. →
   src/features/editor/milkdown/milkdownEditor.css `.futo-frontmatter`
-- A note whose ONLY content is front matter gains one trailing blank line the
-  first time it is really edited: the document's content is
-  `frontmatter? block+`, so it gets the empty body paragraph the schema
-  requires. That paragraph is what gives the caret somewhere to go that is not
-  a selection ON the metadata. Opening such a note still changes nothing.
+- A note whose ONLY content is front matter gets the empty body paragraph the
+  schema requires (the document's content is `frontmatter? block+`). That
+  paragraph is what gives the caret somewhere to go that is not a selection ON
+  the metadata. It is a trailing empty paragraph, so a save does not write it:
+  the file stays the front matter block and its newline. Opening such a note
+  still changes nothing.
   → packages/editor/src/milkdown-compat/frontmatter.ts `FRONTMATTER_DOC_CONTENT`
 - Progressive open never cuts a chunk boundary at a `---` fence, or anywhere
   inside the note's own front matter: each chunk is parsed as its own document,
@@ -1163,10 +1281,11 @@ EditorWebView.swift, EditorWebView.kt
   enclosing list is not restructured. →
   src/features/editor/milkdown/toolbarExec.ts,
   tests/editor-embed-milkdown-toolbar.spec.ts
-- Bullet and task markers are written as `-`, never `*` — the toolbar and the
-  editor's serializer agree on one marker so an edit never churns a note's list
-  markers. → src/features/editor/milkdown/MilkdownEditor.svelte
-  `remarkStringifyOptionsCtx`, tests/editor-embed-milkdown-toolbar.spec.ts
+- Bullet and task markers are written as `-` — the toolbar and the editor's
+  serializer agree on one marker so an edit never churns a note's list markers.
+  The one `*` a save writes is the second of two adjacent lists ("Markdown house
+  style"). → packages/editor/src/markdown/,
+  tests/editor-embed-milkdown-toolbar.spec.ts
 - Native shells, toolbar chrome is NATIVE, commands are shared (bridge v3):
   the host renders its own toolbar from a GENERATED copy of the manifest and
   drives the editor over the bridge — `exec(id)` runs the shared command,
