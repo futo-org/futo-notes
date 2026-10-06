@@ -135,6 +135,31 @@ Rules that do bind here:
   `just milkdown-census --diff build/milkdown-census/baseline`. Zero newly-raised
   flags over ~31k real notes. `tests/milkdown-census/README.md` owns the harness.
 
+## The markdown serializer — `src/markdown/` (#266)
+
+The editor's own serializer: a pure function from the document's JSON to the
+bytes a save writes, in the house style of docs/spec/editor.md "Markdown house
+style". It is built and gated but NOT wired in yet: the integration recipe is
+the header of `src/markdown/serializer.ts`, and on the day it ships the
+serializer-side compat plugins above (attention encoding, the escape narrowing
+and `stringifyHandlers.ts`, the list-item filler, `trailingParagraph.ts`, the
+write half of `emptyLine.ts`, `bareUrl.ts`, the table line-break handler) are
+deleted in the same change. Parse-side plugins stay.
+
+- Spec line first, then a golden in `tests/conformance/markdown-house-style.json`
+  (hand-reviewed; never pasted from output), then the code. The goldens run against
+  the shipping parser in `src/features/editor/milkdown/markdownHouseStyle.test.ts`.
+- No `@milkdown/*` or `prosemirror-*` import, ever: the parser is injected.
+- Escaping is decided by parsing the candidate output (`choose.ts`). A pattern may
+  only decide WHEN to parse (the `plausible` sites, `obviouslyFlanks`), never what
+  to write. A layout quirk of the parser is offered as a layout site, not hard-coded,
+  unless it is measured and stated (`touches` in `blocks.ts`).
+- Output depends only on the document and the parser — no clock, no randomness —
+  and only on the document's NORMALIZED form (`normalize.ts`), which is what makes a
+  second save a no-op.
+- Measured, not argued: `just milkdown-census --variant owned` over the corpus and
+  `--vault`; `content_loss` and `second_pass_unstable` are the gates.
+
 ## Rule-change chain
 
 The `tests/conformance/*.json` cases are hand-reviewed behavioral goldens, not output dumped from
