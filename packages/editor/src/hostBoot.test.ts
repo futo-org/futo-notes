@@ -29,7 +29,7 @@ function recordHost(): RecordedHost {
     applyTheme: (theme) => steps.push(`theme:${theme}`),
     applyImageBaseUrl: (base) => steps.push(`imageBaseUrl:${base}`),
     applyNotes: (json) => steps.push(`notes:${json}`),
-    applyContent: (markdown) => steps.push(`content:${markdown}`),
+    applyContent: (_noteId, markdown) => steps.push(`content:${markdown}`),
     post: (message) => posted.push(message),
   };
 
@@ -43,6 +43,7 @@ function recordHost(): RecordedHost {
 function config(overrides: Partial<EditorHostConfig> = {}): string {
   const base: EditorHostConfig = {
     bridgeVersion: BRIDGE_VERSION,
+    noteId: 'test-note',
     languageTag: 'zh-Hans',
     theme: 'light',
     content: '# note',
@@ -216,8 +217,8 @@ describe('incremental updates after boot', () => {
     host.steps.length = 0;
     host.posted.length = 0;
 
-    host.boot.setContent('unchanged');
-    host.boot.setContent('from disk');
+    host.boot.setContent('test-note', 'unchanged');
+    host.boot.setContent('test-note', 'from disk');
 
     expect(host.steps).toEqual(['content:unchanged', 'content:from disk']);
     expect(host.posted).toEqual([]);
@@ -229,6 +230,7 @@ describe('parseEditorHostConfig', () => {
     const parsed = parseEditorHostConfig(
       JSON.stringify({
         bridgeVersion: 7,
+        noteId: 'test-note',
         theme: 'dark',
         content: '',
         nativeToolbar: false,
@@ -238,6 +240,7 @@ describe('parseEditorHostConfig', () => {
 
     expect(parsed).toEqual({
       bridgeVersion: 7,
+      noteId: 'test-note',
       languageTag: undefined,
       theme: 'dark',
       content: '',

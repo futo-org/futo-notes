@@ -66,3 +66,5 @@ automation reports "nothing happened", suspect the tool before the app and follo
 streams os_log and never exits (run it in the background to a file, or read the past with
 `log show --last 2m`), but the app logs mostly via `print()`, which os_log does not capture —
 for stdout use `xcrun simctl launch --console-pty booted com.futo.notes.dev`.
+
+The native shell never evaluates JavaScript to learn the document. It reads its per-note mailbox; only a behind mailbox requests a bounded `flush`.

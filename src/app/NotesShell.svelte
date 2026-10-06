@@ -81,8 +81,8 @@
 
   const session = createNoteSession({
     getEditorContent: () => editor?.getContent(),
-    setEditorContent: (content) => editor?.setContent(content),
-    openEditorNote: (content) => editor?.openNote(content),
+    setEditorContent: (content) => editor?.setContent(session.originalId ?? '', content),
+    openEditorNote: (id, content) => editor?.openNote(id, content),
     focusEditor: () => editor?.focus(),
     isEditorFocused: () => testEditorFocused ?? editor?.hasFocus() ?? false,
     isComposing: () => editor?.isComposing() ?? false,

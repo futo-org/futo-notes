@@ -57,7 +57,7 @@ async function settle(page: Page): Promise<void> {
 
 async function hostSetContent(page: Page, markdown: string): Promise<void> {
   await page.evaluate(
-    (md) => (window as unknown as FakeHostWindow).FutoEditor.setContent(md),
+    (md) => (window as unknown as FakeHostWindow).FutoEditor.setContent('test-note', md),
     markdown,
   );
   await settle(page);
@@ -915,6 +915,7 @@ async function showEmbedToolbar(page: Page, markdown: string): Promise<void> {
     (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
     JSON.stringify({
       bridgeVersion: BRIDGE_VERSION,
+      noteId: 'test-note',
       theme: 'light',
       content: markdown,
       nativeToolbar: false,

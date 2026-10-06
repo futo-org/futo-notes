@@ -236,18 +236,16 @@ internal fun derivePendingDraft(
  * Idempotent, and a no-op when every open editor is clean / closed. Mirrors iOS
  * `NotesStore.pendingDraft` + `flushPendingEditor` [editor.md].
  */
-/** The longest a leave-foreground flush waits on the editors' reads: three
- *  6 s capture deadlines and the autosave in flight. */
-internal const val LIVE_FLUSH_BUDGET_MS = 40_000L
+/** Bound the system-background mailbox wait before flushing the last known draft. */
+internal const val EDITOR_FLUSH_BUDGET_MS = 2_000L
 
 internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> Unit) {
     private var seq: Long = 0
     private var retiredThrough = 0L
-    fun reset() { retiredThrough = seq; providers.clear(); retained.clear(); refreshers.clear() }
+    fun reset() { retiredThrough = seq; providers.clear(); retained.clear(); flushWaiters.clear() }
     fun owns(token: Long): Boolean = token > retiredThrough && token <= seq
     private val providers = LinkedHashMap<Long, () -> PendingDraft?>()
-    private val refreshers = LinkedHashMap<Long, suspend () -> Unit>()
-    private var liveFlushes = 0
+    private val flushWaiters = LinkedHashMap<Long, suspend () -> Unit>()
     private val retained = LinkedHashMap<Long, PendingDraft>()
 
     /** A newly-composed editor claims an entry; returns its unique generation
@@ -264,7 +262,7 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
     /** The editor left composition. Keep its last dirty value until a storage
      *  operation proves that exact draft durable. */
     fun release(token: Long) {
-        refreshers.remove(token)
+        flushWaiters.remove(token)
         providers.remove(token)?.invoke()?.let { retained[token] = it }
     }
 
@@ -294,8 +292,8 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
         }
     }
 
-    /** Persist every live editor's current draft by pulling each provider
-     *  SYNCHRONOUSLY (so the newest keystroke is always seen). Flushes all live
+    /** Persist the latest posted drafts by pulling each provider synchronously.
+     *  The lifecycle caller awaits mailboxes before this write. Flushes all live
      *  providers — at most two during a cross-fade — so an outgoing dirty editor
      *  is never dropped. No-op when every provider derives clean / closed; safe to
      *  call at every leave-foreground signal.
@@ -309,33 +307,21 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
     fun flush() {
         // A live flush is reading the editor first; writing the older
         // change-fed draft now would leave the newer text a stale base.
-        if (liveFlushes > 0) return
         currentDrafts().forEach { persist(it) }
     }
 
     /** The editor registers how to bring its draft up to date with the LIVE
-     *  editor — the read a leave-foreground flush makes first ([flushLive]). */
-    fun setRefresher(token: Long, refresher: suspend () -> Unit) {
-        if (token > retiredThrough) refreshers[token] = refresher
+     *  editor — the read a leave-foreground flush makes first ([flushAfterEditor]). */
+    fun setFlushWaiter(token: Long, refresher: suspend () -> Unit) {
+        if (token > retiredThrough) flushWaiters[token] = refresher
     }
 
-    /** The leave-foreground flush (RC-92): every open editor first reads its
-     *  live document into its draft, THEN [flush] persists the drafts.
-     *
-     *  The plain [flush] saves only what the editor has already reported, and a
-     *  note that is still streaming its tail reports nothing at all, so an edit
-     *  typed into it was lost to backgrounding. The change-fed flush is held
-     *  back for the duration of the read rather than raced against it: two
-     *  writes of different text over the same base would park the newer one as
-     *  a conflict copy. A read that cannot answer leaves its draft as it was,
-     *  so the flush still persists what the editor had reported. */
-    suspend fun flushLive(budgetMs: Long = LIVE_FLUSH_BUDGET_MS) {
-        val readers = refreshers.values.toList()
+    suspend fun flushAfterEditor(budgetMs: Long = EDITOR_FLUSH_BUDGET_MS) {
+        val readers = flushWaiters.values.toList()
         if (readers.isEmpty()) {
             flush()
             return
         }
-        liveFlushes += 1
         try {
             // Bounded as a whole: a read that never returns must not hold the
             // change-fed flush back for good.
@@ -352,7 +338,6 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
                 }
             }
         } finally {
-            liveFlushes -= 1
             flush()
         }
     }
@@ -529,14 +514,22 @@ class NotesStore(
      *
      *  Rust's one `flush_draft` workflow writes, converges, recreates, or parks
      *  the draft under the store's mutation gate. */
-    fun flushAsync(draft: PendingDraft, ownerToken: Long? = null) {
+    fun flushAsync(draft: PendingDraft, ownerToken: Long? = null, onSettled: () -> Unit = {}) {
         if (ownerToken != null && !pendingEditor.owns(ownerToken)) return
         val admission = editorDraftCoordinator.admit(draft.id) ?: return
         val previous = editorDraftTail
         editorDraftTail = scope.launch {
             previous?.join()
             if (!editorDraftCoordinator.permits(admission)) return@launch
-            if (flushDraftDirect(draft) != null) pendingEditor.complete(draft)
+            if (flushDraftDirect(draft) != null) { pendingEditor.complete(draft); onSettled() }
+        }
+    }
+
+    fun flushRetainedEditor(id: String, content: String, base: () -> String, ownerToken: Long) {
+        val previous = editorDraftTail
+        scope.launch {
+            previous?.join()
+            flushAsync(PendingDraft(id, base(), content), ownerToken)
         }
     }
 
@@ -587,9 +580,9 @@ class NotesStore(
     fun releaseDraftOwnership(token: Long) = pendingEditor.release(token)
 
     /** The editor registers how to read its LIVE document into its draft, for
-     *  [flushPendingEditorLive]. Released with the draft provider. */
-    fun setEditorRefresher(token: Long, refresher: suspend () -> Unit) =
-        pendingEditor.setRefresher(token, refresher)
+     *  [requestPendingEditorFlush]. Released with the draft provider. */
+    fun setEditorFlushWaiter(token: Long, refresher: suspend () -> Unit) =
+        pendingEditor.setFlushWaiter(token, refresher)
 
     /** Flush the open editor's pending draft to disk if it has unsaved edits.
      *  Called from MainActivity.onPause (the first leave-foreground signal).
@@ -599,12 +592,8 @@ class NotesStore(
      *  can still beat it (same on iOS). */
     fun flushPendingEditor() = pendingEditor.flush()
 
-    /** [flushPendingEditor] after reading the live editor (RC-92): what a note
-     *  still streaming its tail holds is known only to the editor. Returns at
-     *  once — the read is asynchronous, so the caller (`onPause`) never waits
-     *  on the renderer. */
-    fun flushPendingEditorLive() {
-        scope.launch { pendingEditor.flushLive() }
+    fun requestPendingEditorFlush() {
+        scope.launch { pendingEditor.flushAfterEditor() }
     }
 
     suspend fun settlePendingEditorDrafts(): Boolean =

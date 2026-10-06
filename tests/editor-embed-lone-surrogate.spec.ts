@@ -51,6 +51,7 @@ const test = base.extend<{ page: Page }>({
       (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
       JSON.stringify({
         bridgeVersion: BRIDGE_VERSION,
+        noteId: 'test-note',
         theme: 'light',
         content: '',
         nativeToolbar: true,
@@ -65,7 +66,7 @@ const test = base.extend<{ page: Page }>({
 
 async function hostSetContent(page: Page, markdown: string): Promise<void> {
   await page.evaluate(
-    (md) => (window as unknown as FakeHostWindow).FutoEditor.setContent(md),
+    (md) => (window as unknown as FakeHostWindow).FutoEditor.setContent('test-note', md),
     markdown,
   );
   await flushFrames(page);
@@ -154,7 +155,12 @@ test('a document the host hands over with a lone surrogate never reads back with
   await hostSetContent(page, `host ${HIGH} text`);
   expect(await getContent(page)).toBe(`host ${FFFD} text`);
   await page.evaluate(
-    (md) => (window as unknown as FakeHostWindow).FutoEditor.applyExternalContent(md),
+    (md) =>
+      (window as unknown as FakeHostWindow).FutoEditor.applyExternalContent(
+        'test-note',
+        md,
+        (window as unknown as FakeHostWindow).__futoTest.documentRef().generation,
+      ),
     `peer ${LOW} text`,
   );
   await flushFrames(page);

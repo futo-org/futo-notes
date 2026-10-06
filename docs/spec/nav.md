@@ -63,7 +63,7 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 - A folder route whose folder is renamed or moved rebases onto the new path; a
   folder route whose folder stops existing is dropped, popping to the nearest
   surviving ancestor. → AppNavigation.kt `rebaseFolderRoutes` /
-  `pruneFolderRoutes`, AppNavStackTest.kt *(Android)*
+  `pruneFolderRoutes`, AppNavStackTest.kt _(Android)_
 - The editor keeps the system back button, so the leading-edge swipe is the
   native, finger-tracked interactive pop, over the full-bleed editor WebView.
   The one exception is while a block is airborne in the long-press drag: both
@@ -75,7 +75,7 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   work drains, a pending title rename commits immediately rather than after its
   debounce, and the freshest body commits, falling back to the shell's copy when
   the editor cannot answer. A commit that fails leaves the draft retained for
-  lifecycle retry. Leaving is never blocked. *(iOS)* → NoteEditorView.swift
+  lifecycle retry. Leaving is never blocked. _(iOS)_ → NoteEditorView.swift
   `finishLeave`, docs/learnings/ios-swipe-back-over-webview.md
 - Leaving the editor waits for the editor's own answer. When that wait runs out
   on an editor that is still responding — a note editable from its first chunk
@@ -83,9 +83,9 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   the shell's copy, which can be missing the edit; the usual pending-changes
   message is shown and pressing Back again is the way out. An editor that
   responds to nothing at all is not holding anything, and leaving it always
-  works. *(iOS/Android)* On iOS this applies to the in-editor exits (a resolved
+  works. _(iOS/Android)_ On iOS this applies to the in-editor exits (a resolved
   wikilink). System Back and the edge swipe cannot stay, so they retry the capture
-  and then commit the shell's copy. *(iOS)*
+  and then commit the shell's copy. _(iOS)_
   → docs/spec/editor.md "Editor exits — every way an open note ends"
 - Creating a note pushes the editor focused for immediate typing (Android
   focuses the native title field; desktop and iOS focus the editor body/heading);
@@ -220,7 +220,7 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   on the same `SettingChanged` stream, and only an exact
   `org.freedesktop.appearance` / `color-scheme` namespace+key match re-resolves
   the theme — settings that merely look like a theme change, such as KDE's
-  `ColorScheme` scheme *name* signal (a different key entirely), are ignored.
+  `ColorScheme` scheme _name_ signal (a different key entirely), are ignored.
   Overlapping theme applies are serialized so the newest request wins, never
   whichever resolved last. → desktop_settings.rs (`read_snapshot`, filtered by
   exact namespace/key rather than string matching), theme.ts
@@ -298,3 +298,9 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   flushBeforeExit.ts, tests/macos-quit-flush.mjs
 - The system "Reduce Motion" setting removes the shell's transitions and
   animations. → desktop-native.css
+
+## Native app icon sheet
+
+- _(iOS)_ Settings opens App icon in a nested sheet with its own NavigationStack; Done or swipe dismisses only the picker and returns to Settings.
+- _(Android)_ The App icon ModalBottomSheet owns system/predictive Back and swipe dismissal; its Back button also dismisses only the sheet, leaving Settings and the navigation stack intact, without adding a global Screen route.
+- _(native shells)_ Sheet dismissal preserves completed icon changes.

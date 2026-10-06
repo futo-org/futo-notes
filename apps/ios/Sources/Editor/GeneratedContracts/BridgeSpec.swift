@@ -4,13 +4,17 @@
 // `just check`) fails when this file drifts from the contract.
 
 enum BridgeSpec {
-    static let version = 8
+    static let version = 9
 }
 
 enum BridgeMessageType: String {
     case ready
     case initialized
     case bridgeVersionMismatch
+    case documentLoaded
+    case edited
+    case flushFailed
+    case externalRefused
     case change
     case focus
     case openNote

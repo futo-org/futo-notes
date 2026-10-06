@@ -38,7 +38,7 @@ const CURRENT = '.futo-find-match-current';
 
 async function seed(page: Page, markdown: string): Promise<void> {
   await page.evaluate(
-    (text) => (window as unknown as FakeHostWindow).FutoEditor.setContent(text),
+    (text) => (window as unknown as FakeHostWindow).FutoEditor.setContent('test-note', text),
     markdown,
   );
   await flushFrames(page);
@@ -59,6 +59,8 @@ test('the engine answers the native find calls and never mounts the web panel', 
   await expect(page.locator(PANEL)).toHaveCount(0);
   expect(await lastFindReport(page)).toEqual({
     type: 'findMatches',
+    noteId: 'test-note',
+    generation: expect.any(Number),
     query: '',
     current: 0,
     total: 0,
@@ -68,6 +70,8 @@ test('the engine answers the native find calls and never mounts the web panel', 
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.setFindQuery('cat'));
   expect(await lastFindReport(page)).toEqual({
     type: 'findMatches',
+    noteId: 'test-note',
+    generation: expect.any(Number),
     query: 'cat',
     current: 1,
     total: 3,

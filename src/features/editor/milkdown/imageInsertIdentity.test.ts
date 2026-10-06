@@ -16,6 +16,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, tick } from 'svelte';
+import type { EditorView } from '@milkdown/kit/prose/view';
 
 import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
 import { guardEditorTimers } from './__fixtures__/editorTimerGuard';
@@ -51,8 +52,9 @@ vi.mock('$lib/platform', async (importOriginal) => ({
 }));
 
 interface EditorHandle {
-  openNote: (text: string) => void;
+  openNote: (noteId: string, text: string) => void;
   getContent: () => string | undefined;
+  getProseMirrorView: () => EditorView | null;
 }
 
 let target: HTMLElement;
@@ -131,10 +133,10 @@ describe('an image saved while the note changes', () => {
     const save = deferred<string>();
     fsMock.saveImagePath.mockReturnValue(save.promise);
 
-    handle.openNote('note A body');
+    handle.openNote('test-note', 'note A body');
     dropPath('/pics/holiday.png');
 
-    handle.openNote('note B body');
+    handle.openNote('test-note', 'note B body');
     save.resolve('image-holiday.png');
     await settle();
 
@@ -148,7 +150,7 @@ describe('an image saved while the note changes', () => {
     const save = deferred<string>();
     fsMock.saveImagePath.mockReturnValue(save.promise);
 
-    handle.openNote('note A body');
+    handle.openNote('test-note', 'note A body');
     dropPath('/pics/holiday.png');
 
     save.resolve('image-holiday.png');
@@ -165,10 +167,10 @@ describe('an image saved while the note changes', () => {
     const save = deferred<string>();
     fsMock.saveImageBytes.mockReturnValue(save.promise);
 
-    handle.openNote('note A body');
+    handle.openNote('test-note', 'note A body');
     pasteImage();
 
-    handle.openNote('note B body');
+    handle.openNote('test-note', 'note B body');
     save.resolve('image-pasted.png');
     await settle();
 
@@ -182,13 +184,63 @@ describe('an image saved while the note changes', () => {
     const save = deferred<string>();
     fsMock.saveImageBytes.mockReturnValue(save.promise);
 
-    handle.openNote('note A body');
+    handle.openNote('test-note', 'note A body');
     pasteImage();
 
     save.resolve('image-pasted.png');
     await settle();
 
     expect(handle.getContent()).toContain('![](image-pasted.png)');
+    expect(fsMock.deleteFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('image insertion keeps its identity through ordinary edits', () => {
+  it.each(['drop', 'paste'])(
+    'inserts both pending images via %s without deleting either file',
+    async (door) => {
+      handle.openNote('note-a', 'body');
+      if (door === 'drop') {
+        fsMock.saveImagePath
+          .mockResolvedValueOnce('image-one.png')
+          .mockResolvedValueOnce('image-two.png');
+        for (const listener of fileDropListeners)
+          listener({ paths: ['/pics/one.png', '/pics/two.png'], x: 0, y: 0 });
+      } else {
+        fsMock.saveImageBytes
+          .mockResolvedValueOnce('image-one.png')
+          .mockResolvedValueOnce('image-two.png');
+        const first = deferred<string>();
+        const second = deferred<string>();
+        fsMock.saveImageBytes.mockReset();
+        fsMock.saveImageBytes
+          .mockReturnValueOnce(first.promise)
+          .mockReturnValueOnce(second.promise);
+        pasteImage();
+        pasteImage();
+        await vi.waitFor(() => expect(fsMock.saveImageBytes).toHaveBeenCalledTimes(2));
+        first.resolve('image-one.png');
+        await vi.waitFor(() => expect(handle.getContent()).toContain('![](image-one.png)'));
+        second.resolve('image-two.png');
+      }
+      await vi.waitFor(() => {
+        expect(handle.getContent()).toContain('![](image-one.png)');
+        expect(handle.getContent()).toContain('![](image-two.png)');
+      });
+      expect(fsMock.deleteFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps a pasted image when the user types while its save is pending', async () => {
+    const save = deferred<string>();
+    fsMock.saveImageBytes.mockReturnValue(save.promise);
+    handle.openNote('note-a', 'body');
+    pasteImage();
+    const view = handle.getProseMirrorView()!;
+    view.dispatch(view.state.tr.insertText('typed tail', view.state.doc.content.size - 1));
+    save.resolve('image-pasted.png');
+    await vi.waitFor(() => expect(handle.getContent()).toContain('![](image-pasted.png)'));
+    expect(handle.getContent()).toContain('typed tail');
     expect(fsMock.deleteFile).not.toHaveBeenCalled();
   });
 });

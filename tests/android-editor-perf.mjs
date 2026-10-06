@@ -306,7 +306,7 @@ async function main() {
       async () =>
         cdp.evaluate(
           `Boolean(window.FutoEditor && window.__futoProseMirrorView?.()) &&
-             window.FutoEditor.getContent().includes(${JSON.stringify(NOTE_TITLE)})`,
+             window.__futoTest.readDocument().includes(${JSON.stringify(NOTE_TITLE)})`,
         ),
       { timeoutMs: 30_000 },
     );
@@ -338,7 +338,9 @@ async function main() {
         // The page's editor state is now whatever the failed parse left behind;
         // put a trivial document back so the next fixture starts from a known
         // one rather than inheriting the wreckage.
-        await cdp.evaluate(`window.FutoEditor.setContent(${JSON.stringify('# reset\n')})`);
+        await cdp.evaluate(
+          `window.FutoEditor.setContent('test-note', ${JSON.stringify('# reset\n')})`,
+        );
         continue;
       }
       const result = {

@@ -45,7 +45,7 @@ Each shell renders settings with its own native idioms. These differences are
 
 Regardless of how a platform draws its settings, the **set of controls, their
 copy, their behavior, and their underlying state are the same**. A user moving
-between desktop, Android, and iOS should find the same capabilities with the
+between desktop, Android, and iOS should find the same shared capabilities with the
 same meanings. This is the part that belongs to the app, not the shell.
 
 **Settings every shell should expose, and what each does:**
@@ -105,7 +105,7 @@ same meanings. This is the part that belongs to the app, not the shell.
   system theme.", "Permanently remove all notes and app data". Platforms should
   reuse this wording rather than inventing their own.
 
-**Platform-only items (NOT part of the shared model):** the desktop **Storage**
+**Platform-only items (NOT part of the shared model):** the native **App icon** section and picker (described below); the desktop **Storage**
 directory picker (desktop has a user-chosen notes folder; mobile uses a fixed
 sandbox) and the dev-only **Test crash** button. These are desktop conveniences
 and need not appear on mobile.
@@ -137,3 +137,10 @@ the system setting.
 > **Note:** This spec describes the desktop/Tauri presentation. Native iOS and
 > Android shells render their own settings UI and may diverge — record such
 > divergences as `> **Gap:**` notes in `settings.md`.
+
+## Native app icon picker
+
+- _(native shells)_ App icon appears directly after Appearance using the shell's existing section and row styling, with a thumbnail, selected name, and disclosure affordance.
+- _(native shells)_ The picker has an App icon title and a scrollable two-column grid of labeled preview buttons with rounded icon artwork and a selected checkmark; labels wrap for narrow screens and large text, and selected state is exposed to accessibility.
+- _(iOS)_ The picker is a sheet with its own NavigationStack, inline title, and trailing Done button.
+- _(Android)_ The picker is an initially expanded Material 3 ModalBottomSheet with the existing TopBar and a Back button.

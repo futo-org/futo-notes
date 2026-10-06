@@ -134,7 +134,7 @@ struct NativeMutationOutcomeTests {
         )
     }
 
-    // The capture/quarantine decision and the change disposition are now cases
+    // The mailbox/exit decision and the change disposition are now cases
     // of the session's one exit verb — see EditorSessionTests.
 
     @Test("async editor completion stays with the generation that started it")
@@ -149,9 +149,9 @@ struct NativeMutationOutcomeTests {
         )
     }
 
-    @Test("navigation capture waits for admitted editor completions")
+    @Test("navigation waits for admitted image insertions")
     @MainActor
-    func navigationWaitsForEditorCompletions() async {
+    func navigationWaitsForImageInsertions() async {
         let queue = EditorCompletionQueue()
         var events: [String] = []
 
@@ -162,9 +162,9 @@ struct NativeMutationOutcomeTests {
             }
         }
         await queue.waitForCurrent()
-        events.append("capture")
+        events.append("navigate")
 
-        #expect(events == ["save", "insert", "capture"])
+        #expect(events == ["save", "insert", "navigate"])
     }
 
     // The leave-flush, delete-cover, dirty-commit, and persist-or-park-completes

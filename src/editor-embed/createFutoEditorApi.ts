@@ -14,17 +14,21 @@ import type { NotePreview } from '$shared/types/note';
 import { desktopLocalization } from '$shared/localization';
 
 export interface EmbeddedEditorHandle {
+  applyEdit: (text: string) => void;
   blur: () => void;
-  captureContent: () => string | undefined;
+  flush: (token?: string) => void;
+  applyExternalContent: (noteId: string, text: string, expectedGeneration: number) => void;
   closeFind: () => void;
   focus: () => void;
   getContent: () => string;
+  getDocumentRef: () => import('@futo-notes/editor').DocumentRef;
   insertMarkdown: (text: string) => void;
   refreshDecorations: () => void;
   revealSelection: () => void;
   resetHistory: () => void;
   openFind: () => void;
-  setContent: (text: string) => void;
+  setContent: (noteId: string, text: string) => void;
+  retarget: (fromId: string, toId: string) => void;
   setFindOverlayInset: (bottomOverlayPx: number) => void;
   setFindQuery: (query: string) => void;
   stepFind: (direction: 1 | -1) => void;
@@ -103,8 +107,8 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
       setNotesUniverse(notes);
       editor.refreshDecorations();
     },
-    applyContent(markdown: string): void {
-      editor.setContent(markdown);
+    applyContent(noteId: string, markdown: string): void {
+      editor.setContent(noteId, markdown);
     },
     post: postToHost,
   };
@@ -112,31 +116,17 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
   const boot = createEditorHostBoot(effects);
 
   return {
-    // Outside `boot` because its guards skip a note holding the text already on screen —
-    // the reset has to run on every host open, not just the ones that change the document.
     initialize(configJson: string): void {
       boot.initialize(configJson);
-      editor.resetHistory();
     },
-    setContent(markdown: string): void {
-      boot.setContent(markdown);
-      editor.resetHistory();
+    setContent(noteId: string, markdown: string): void {
+      boot.setContent(noteId, markdown);
     },
-    getContent(): string {
-      /* The bridge contract types this `string` (bridge.ts). The component
-       * answers `undefined` before any note has ever reached it (every native
-       * host calls `initialize`/`setContent` before it reads) and — since the
-       * RC-17 hardening — when serializing an edited document throws. The
-       * second case is coerced to '' here, and the native shells have no guard
-       * against '' over a non-empty note: a known latent gap (RC-73 in
-       * docs/plan/editor-release-hardening.md). No natural serializer throw is
-       * known; closing it means answering `null` across the bridge. A note
-       * whose parse FAILED comes back as the host's own bytes, not as ''.
-       *
-       * Every host read is an exit's capture of the note it is about to leave,
-       * so it is the capturing read: nothing about this document is reported
-       * after it returns (MilkdownEditor `captureContent`). */
-      return editor.captureContent() ?? '';
+    retarget(fromId: string, toId: string): void {
+      editor.retarget(fromId, toId);
+    },
+    flush(token: string): void {
+      editor.flush(token);
     },
     focus(): void {
       editor.focus();
@@ -150,8 +140,8 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
     setNotes(notesJson: string): void {
       boot.setNotes(notesJson);
     },
-    applyExternalContent(markdown: string): void {
-      editor.setContent(markdown);
+    applyExternalContent(noteId: string, markdown: string, expectedGeneration: number): void {
+      editor.applyExternalContent(noteId, markdown, expectedGeneration);
     },
     insertImage(filename: string): void {
       editor.insertMarkdown(imageReferenceMarkdown(filename));

@@ -366,7 +366,7 @@ class AndroidNativeSyncClient {
 
   async readOpenEditorContent() {
     return this.#evaluateInEditor(
-      'typeof window.FutoEditor === "object" && window.FutoEditor.getContent()',
+      'typeof window.FutoEditor === "object" && window.__futoTest.readDocument()',
     );
   }
 
@@ -432,8 +432,7 @@ class AndroidNativeSyncClient {
 
   /** Type into the focused editor through the browser's own editing command,
    *  so ProseMirror handles it as input — an edit the editor itself decides
-   *  when to report (contrast replaceOpenEditorContent, which posts the
-   *  `change` by hand). Call focusOpenEditor first. */
+   *  when to report. Call focusOpenEditor first. */
   async typeIntoOpenEditor(text) {
     const typed = await this.#evaluateInEditor(
       `document.execCommand('insertText', false, ${JSON.stringify(text)})`,
@@ -500,14 +499,13 @@ class AndroidNativeSyncClient {
     );
   }
 
-  /** Post the same bridge message as a real editor change. `setContent` alone
-   *  repaints the WebView without reaching the native save pipeline. */
+  /** Exercise the shared component's whole-document user edit path through
+   *  the debug test hook. Identity and generation come from the real editor. */
   async replaceOpenEditorContent(content) {
     const payload = JSON.stringify(content);
     await this.#evaluateInEditor(
       `(() => {
-        window.FutoEditor.setContent(${payload});
-        window.futoBridge.postMessage(JSON.stringify({ type: 'change', content: ${payload} }));
+        window.__futoTest.replaceDocument(${payload});
         return 'sent';
       })()`,
     );
@@ -519,7 +517,7 @@ class AndroidNativeSyncClient {
     });
   }
 
-  /** Open `id`, replace its text through the shipping editor bridge, and
+  /** Open `id`, make a whole-document user edit through the debug hook, and
    *  return once the app has written it to disk. */
   async editNoteViaEditor(id, content) {
     await this.openNoteInEditor(id);

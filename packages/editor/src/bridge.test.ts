@@ -9,17 +9,17 @@ import {
 describe('futoBridge contract', () => {
   it('pins the contract version', () => {
     // Bumping this is a deliberate, breaking change — update all three hosts.
-    expect(BRIDGE_VERSION).toBe(8);
+    expect(BRIDGE_VERSION).toBe(9);
   });
 
   it('ready message carries the version', () => {
     const msg: FutoEditorOutboundMessage = { type: 'ready', version: BRIDGE_VERSION };
-    expect(msg).toEqual({ type: 'ready', version: 8 });
+    expect(msg).toEqual({ type: 'ready', version: 9 });
   });
 
   it('initialized message carries the version', () => {
     const msg: FutoEditorOutboundMessage = { type: 'initialized', version: BRIDGE_VERSION };
-    expect(msg).toEqual({ type: 'initialized', version: 8 });
+    expect(msg).toEqual({ type: 'initialized', version: 9 });
   });
 
   it('FutoEditorApi surface is the eighteen host-callable methods', () => {
@@ -28,7 +28,7 @@ describe('futoBridge contract', () => {
     const api: FutoEditorApi = {
       initialize: () => {},
       setContent: () => {},
-      getContent: () => '',
+      flush: () => {},
       focus: () => {},
       blur: () => {},
       setTheme: () => {},
@@ -50,8 +50,8 @@ describe('futoBridge contract', () => {
       'blur',
       'closeFind',
       'exec',
+      'flush',
       'focus',
-      'getContent',
       'initialize',
       'insertImage',
       'openFind',
@@ -100,6 +100,8 @@ describe('postToHost routing', () => {
   });
 
   it('is a no-op in a plain browser with no host', () => {
-    expect(() => postToHost({ type: 'change', content: 'x' })).not.toThrow();
+    expect(() =>
+      postToHost({ type: 'change', noteId: 'a', generation: 1, content: 'x' }),
+    ).not.toThrow();
   });
 });

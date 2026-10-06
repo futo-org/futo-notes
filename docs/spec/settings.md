@@ -27,12 +27,12 @@
 - **License**: the License card (Unlicensed / Licensed / Expired, Buy, Enter
   license key, Remove) follows [license.md](license.md). On the native shells it
   is the first thing at the top of Settings; on desktop the ambient label lives in
-  the list view and opens Settings here. *(desktop)* The License section sits
+  the list view and opens Settings here. _(desktop)_ The License section sits
   after Updates and before the Danger zone, and **Full reset** clears the stored
   license along with every other preference. →
   `src/features/license/LicenseSettingsSection.svelte`, SettingsScreen.svelte
   (`initialSection`), `deleteAllNotes` in `src/features/notes/notes.svelte.ts`
-  *(android)* The License group is the first group of `SettingsScreen`, and the
+  _(android)_ The License group is the first group of `SettingsScreen`, and the
   Danger-zone confirm clears the stored license with the vault. →
   `apps/android/app/src/main/java/com/futo/notes/ui/LicenseSettingsSection.kt`,
   `SettingsScreen.kt`, `license/LicenseModel.clearForFullReset`
@@ -400,3 +400,19 @@ replaced the "Report an issue" link to the GitHub issue tracker.
 
 > **Gap:** the desktop form is reached from Settings only; there is no
 > keyboard shortcut or command-palette entry for it.
+
+## Native app icons
+
+- _(native shells)_ An **App icon** section directly after Appearance shows the current icon thumbnail and localized name; tapping opens a native picker sheet. → apps/ios/Sources/Settings/AppIcon/, apps/android/app/src/main/java/com/futo/notes/ui/settings/appicon/
+- _(native shells)_ The six permanent choices are **Standard**, **Reversed**, **Dark**, **Dark, Reversed**, **FUTO**, and **Scanlines** (the orange gradient, stripes, and white mole); the choice belongs to this installation and is independent of theme and sync.
+- _(native shells)_ Selecting a different choice requests an OS change, disables further choices while pending, and marks the actual OS selection only after readback; selecting the current choice is a no-op. The sheet stays open unless the OS closes the app (Android).
+- _(Android)_ A change first asks `Change app icon to "<name>"?` with **Change** / **Cancel**; Cancel changes nothing. The body says FUTO Notes may close: disabling the launcher alias that started the task makes Android finish that task, while a task started another way survives.
+- _(Android)_ Full reset requests Standard without this prompt; the reset confirmation already covered it.
+- _(native shells)_ A failed request retains the actual icon and shows a localized error; dismissing the sheet does not undo a completed change.
+- _(iOS)_ Icon choices show the artwork, name, and selection checkmark without container boxes, on a theme-aware surface background (light gray in light mode).
+- _(iOS)_ The picker shows no spinner or changing-icon status text while a request is pending; the Scanlines artwork has no outer outline.
+- _(iOS)_ The OS alternate-icon name is authoritative; the default uses nil, unsupported devices show the current preview and an unavailable message, and Apple's icon-change notification remains enabled.
+- _(Android)_ PackageManager alias state is authoritative; API 33+ changes all aliases in one atomic batch with DONT_KILL_APP, older APIs enable the requested alias before disabling others and attempt to restore the prior icon after failure.
+- _(Android)_ Startup and picker observation reconcile an interrupted transition with multiple enabled aliases while preserving a valid single selection; MainActivity remains enabled for editor lifecycle, and LicenseLinkActivity keeps receiving license links.
+- _(Android)_ Launcher refresh may lag the request; system themed icons may recolor the artwork and suppress color/texture differences.
+- _(native shells)_ After a confirmed full reset wipes the vault and preferences, request Standard; an icon-reset failure is reported separately because the notes have already been reset, preserving stop-sync-before-wipe ordering.

@@ -1161,13 +1161,7 @@ Gap it closes so a later pass can grep for it.
 - **iOS swift-format debt.** `apps/ios/Sources/Editor/EditorWebView.swift` carries 11 pre-existing
   `swift-format` lint errors (`just lint-swift`); not introduced by this branch, not cleaned up by
   it either.
-- **Android bridge `"change"` has no attachment-generation check** (unlike `"findMatches"`'s
-  `isCurrentFindReportOwner`) — 9 live attempts in the title/body desync window found no corruption,
-  but the consequence is P0-shaped, not cosmetic: a `"change"` that lands late after an
-  `EditorCaptureOutcome.TimedOut` exit (`EditorNavigationCommit.kt`, `EditorWebView.kt:915`) has
-  nothing to say it belongs to the note the shell just left, so it can be applied as the NEXT note's
-  content and autosaved over it. Closing it for real means carrying the generation on `change` in
-  both shells (bridge payload change, needs maintainer sign-off).
+- ~~Android's anonymous late `change` could reach the next note (#194).~~ Superseded by bridge v9 in [editor-owns-the-document.md](editor-owns-the-document.md): both hosts route by note id and generation. Native device verification is recorded in that living plan.
 - **`dividerCaret.ts` runs two whole-document walks per doc-changing transaction.**
   `newlyCreatedDivider` (`dividerCaret.ts:87-118`) calls `hrPositions()` — a `doc.descendants` walk —
   once each on `oldState.doc` and `newState.doc`, inside `appendTransaction`, so it re-walks the
@@ -1184,4 +1178,4 @@ Gap it closes so a later pass can grep for it.
   queued `FutoEditor.insertImage(filename)` still runs after the deadline, so the note gains an
   `![](image-…)` reference to a file `deleteImageOnFailure` has already removed (a dangling
   reference instead of an orphaned blob). Fix: a generation on the insert call so the renderer
-  refuses a late insert; same family as the `change`-generation follow-up.
+  refuses a late insert; separate follow-up to the document mailbox migration.

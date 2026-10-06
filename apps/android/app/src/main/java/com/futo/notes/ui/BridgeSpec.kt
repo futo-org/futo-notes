@@ -10,7 +10,7 @@ object BridgeSpec {
      *  host config it sends to `FutoEditor.initialize`; the bundle compares
      *  it with its own and posts `bridgeVersionMismatch` when they differ.
      */
-    const val BRIDGE_VERSION: Int = 8
+    const val BRIDGE_VERSION: Int = 9
 
     /** Every `type` value FutoEditorOutboundMessage can carry
      *  (bridge.ts OUTBOUND_MESSAGE_TYPES). BridgeCoverageTest asserts
@@ -19,6 +19,10 @@ object BridgeSpec {
         "ready",
         "initialized",
         "bridgeVersionMismatch",
+        "documentLoaded",
+        "edited",
+        "flushFailed",
+        "externalRefused",
         "change",
         "focus",
         "openNote",

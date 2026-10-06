@@ -73,13 +73,11 @@ class FindInNoteStateTest {
     }
 
     @Test
-    fun `find report stays with the attachment that posted it`() {
-        val first = EditorAttachmentToken(1)
-        val second = EditorAttachmentToken(2)
-
-        assertTrue(isCurrentFindReportOwner(1, first))
-        assertFalse(isCurrentFindReportOwner(1, second))
-        assertFalse(isCurrentFindReportOwner(1, null))
+    fun `find report stays with the note named by the page`() {
+        assertTrue(isCurrentFindReportOwner("a", "a"))
+        assertFalse(isCurrentFindReportOwner("a", "b"))
+        assertFalse(isCurrentFindReportOwner("a", null))
+        assertFalse(isCurrentFindReportOwner(null, "a"))
     }
 
     @Test

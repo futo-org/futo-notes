@@ -42,6 +42,7 @@ export interface EditorHostConfig {
   /** Editor color theme. */
   theme: EditorTheme;
   /** The open note's markdown. */
+  noteId: string;
   content: string;
   /** JSON-serialized `BridgeNote[]`; omit when the host has no universe yet. */
   notesJson?: string;
@@ -75,11 +76,10 @@ export interface EditorHostEffects {
    * holds exactly that. The editor owns that guard, against its LIVE document:
    * a host that re-sends content the user has since edited must still
    * overwrite it, and re-sending exactly what is on screen must not disturb
-   * the caret. It must also be side-effect free: the document it is asked of
-   * is the one being switched AWAY from, and anything it reported would be
-   * saved into the note being switched to.
+   * the caret. A different note id flushes the outgoing edit before loading;
+   * its report is tagged with the outgoing identity.
    */
-  applyContent(markdown: string): void;
+  applyContent(noteId: string, markdown: string): void;
   post(message: FutoEditorOutboundMessage): void;
 }
 
@@ -94,7 +94,7 @@ export interface EditorHostBoot {
   initialize(configJson: string): void;
   setLanguage(languageTag: string): void;
   setTheme(theme: EditorTheme): void;
-  setContent(markdown: string): void;
+  setContent(noteId: string, markdown: string): void;
   setNotes(notesJson: string): void;
   setImageBaseUrl(base: string): void;
 }
@@ -124,6 +124,7 @@ export function parseEditorHostConfig(configJson: string): EditorHostConfig | nu
   const candidate = parsed as Record<string, unknown>;
   if (typeof candidate.bridgeVersion !== 'number') return null;
   if (!isEditorTheme(candidate.theme)) return null;
+  if (typeof candidate.noteId !== 'string') return null;
   if (typeof candidate.content !== 'string') return null;
   if (typeof candidate.nativeToolbar !== 'boolean') return null;
   if (typeof candidate.contentPaddingInlinePx !== 'number') return null;
@@ -135,6 +136,7 @@ export function parseEditorHostConfig(configJson: string): EditorHostConfig | nu
     bridgeVersion: candidate.bridgeVersion,
     languageTag: candidate.languageTag,
     theme: candidate.theme,
+    noteId: candidate.noteId,
     content: candidate.content,
     notesJson: candidate.notesJson,
     imageBaseUrl: candidate.imageBaseUrl,
@@ -185,7 +187,7 @@ export function createEditorHostBoot(effects: EditorHostEffects): EditorHostBoot
       effects.applyTheme(config.theme);
       if (config.imageBaseUrl !== undefined) effects.applyImageBaseUrl(config.imageBaseUrl);
       if (config.notesJson !== undefined) effects.applyNotes(config.notesJson);
-      effects.applyContent(config.content);
+      effects.applyContent(config.noteId, config.content);
 
       appliedTheme = config.theme;
       appliedLanguageTag = config.languageTag ?? null;
@@ -207,12 +209,12 @@ export function createEditorHostBoot(effects: EditorHostEffects): EditorHostBoot
       effects.applyTheme(theme);
     },
 
-    setContent(markdown: string): void {
+    setContent(noteId: string, markdown: string): void {
       // The live-document guard is `applyContent`'s own. Reading the document
       // from here to decide was RC-04: on an edited, streaming note the read
       // settled the load and posted the OUTGOING note's body inside the push
       // of the next one.
-      effects.applyContent(markdown);
+      effects.applyContent(noteId, markdown);
     },
 
     setNotes(notesJson: string): void {

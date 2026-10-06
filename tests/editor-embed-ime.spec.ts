@@ -48,6 +48,7 @@ async function imeAttributes<Name extends string>(
     (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
     JSON.stringify({
       bridgeVersion: BRIDGE_VERSION,
+      noteId: 'test-note',
       theme: 'light',
       content,
       nativeToolbar: true,

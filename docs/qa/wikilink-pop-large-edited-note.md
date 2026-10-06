@@ -2,27 +2,14 @@
 
 ## Why a person, not a test
 
-Both native shells share one editor WebView between every open note, and the editor's
-`change` message says nothing about which note it describes: the shell saves it into
-whichever note it has bound when the message arrives. What decides the outcome here is
-the order in which the OS runs two things during a **system** pop (the Back button or
-the edge swipe) from a note opened through a wikilink:
+Both native shells now route posted document changes by note id and generation. A
+switch flushes the outgoing edit before loading the incoming note. UIKit's
+adopt-before-exit order is the part nothing below the navigation stack reproduces:
+the parent reattaches the shared WebView before the child's exit finishes.
 
-- the linking note's view re-entering the window, whose adopt rebinds the WebView's
-  callbacks and pushes the linking note's text, and
-- the popped note's exit, which reads its document and commits it.
-
-UIKit runs the first one first. Nothing below the real navigation stack reproduces that
-order, so the automated seams each cover one half:
-
-- `tests/editor-embed-milkdown.spec.ts`, "Note switch": the bundle posts nothing for the
-  outgoing note once the shell has read it, and the switch itself posts nothing
-  (`npx playwright test --config playwright.editor-embed.config.ts tests/editor-embed-milkdown.spec.ts -g "switch|exit read"`);
-- `apps/ios/Tests/Editor/EditorDepartureCaptureTests.swift`: the read the adopt makes of
-  the outgoing note, the `change` fence while it is pending, and the popped exit
-  answering from it (`just test-ios-native`);
-- Android's exit reads the note before it navigates (`EditorSessionTest`, "navigation
-  commits the body before the title, then leaves"), so it has no pop-order window.
+The bundle ownership tests (`tests/editor-embed-ownership.spec.ts`) pin outgoing
+identity and flush ordering. Both native mailbox test suites pin routing, bounded
+waits and renderer death. This story verifies their composition with native Back.
 
 This story is the whole chain on a device.
 
@@ -77,16 +64,21 @@ iPhone 17 Pro), automated steps via `just test-ios-stories`:
 
 The finger-tracked edge swipe was not run by a person on this build.
 
+## Current implementation run
+
+2026-10-03, `step1-editor-ownership`, claimed iOS 27 iPhone 17 Pro simulator
+`futo-qa-0`, bridge v9: passed the automated wikilink-pop story on the warm
+simulator with `IOS_TEXT_INPUT=softwareKeyboard IOS_STORY_NO_RESTART=1`.
+The 40,000-section child retained the marker and final section; the parent's
+bytes remained exactly as seeded. Sustained typing also passed without extra
+notes or lost characters.
+
+The first HID-input run did not type. A separate unchanged-baseline probe
+confirmed that AXe HID events had no effect while a software-keyboard touch saved
+correctly. A cold-launch attempt also failed with simulator launch errors; the
+warm run establishes the document result, not cold-launch reliability.
+
 ## Not proven by this run
 
-- Android: the pop-order window does not exist there (the exit reads before it
-  navigates), so this story is iOS-only. A late `change` on Android after the exit's
-  read is covered by the bundle half, not by a device run.
-- A note so large that finishing its load outlasts the popped exit's three capture
-  attempts (about 18 s; 150000 sections on the simulator): the linking note stays
-  untouched, but the exit commits the shell's copy, so an edit made while the tail
-  streamed is lost. That is the specified bound for a capture that cannot answer, not
-  a cross-note write.
-- iOS 27: not run on this build; the original failure was confirmed there.
-- A WebContent process that dies while the read is pending: the host resolves the read
-  as "no document" and the exit falls back to the shell's copy. Not driven here.
+- Finger-tracked edge swipe, renderer termination and OS process kill require
+  separate evidence; the old three-read deadline is no longer shipped behavior.
