@@ -6,8 +6,12 @@
  *    whitespace at the end of a line and a line break at the end of a
  *    paragraph, heading or cell are dropped (the parser drops them on every
  *    read), a heading's line breaks become spaces (an ATX heading is one line),
- *    empty paragraphs at the start or end of a quote, list item or footnote
- *    are dropped (no markdown spelling reaches them), the CR or CRLF line
+ *    a paragraph is split at each empty line inside it (a blank line in the
+ *    file ends a paragraph: `splitAtEmptyLines`), empty paragraphs at the
+ *    start or end of a quote, list item or footnote are dropped (no markdown
+ *    spelling reaches them), as is a list item's empty first paragraph when a
+ *    paragraph follows it (the schema's filler, which only an item starting
+ *    with another block needs), the CR or CRLF line
  *    endings a code block, HTML or front matter kept from a CRLF file become
  *    LF (a save writes LF only), and an HTML block's indentation before its
  *    first tag is dropped: it is layout, not HTML, and kept it would put the
@@ -131,22 +135,89 @@ const INLINE_KIND: Partial<Record<string, InlineKind>> = {
 
 /**
  * Empty paragraphs at either end of a container's children, which no spelling
- * reaches. A list item's first child is always kept: it is the schema's filler
- * when empty, and the empty paragraphs after a filler are at the item's start
- * too. After a first paragraph that holds text they are blank lines inside the
- * item, and are written.
+ * reaches. A list item's empty first child is the schema's filler: it is kept
+ * when the item's first block is not a paragraph (`- > quote`), and dropped
+ * with the rest when it is — such an item is written `- text` and reads back
+ * with no filler. After a first paragraph that holds text, empty paragraphs
+ * are blank lines inside the item, and are written.
  */
 function trimContainer(node: NodeJson, children: NodeJson[]): NodeJson[] {
-  const keepFirst = node.type === NODE.listItem ? 1 : 0;
   const first = children[0];
-  const leading = keepFirst === 0 || (first !== undefined && isEmptyParagraph(first));
-  let start = keepFirst;
+  const leading = node.type !== NODE.listItem || (first !== undefined && isEmptyParagraph(first));
+  let start = 0;
   while (leading && start < children.length && isEmptyParagraph(children[start] as NodeJson)) {
     start += 1;
   }
   let end = children.length;
   while (end > start && isEmptyParagraph(children[end - 1] as NodeJson)) end -= 1;
-  return [...children.slice(0, keepFirst), ...children.slice(start, end)];
+  const kept = children.slice(start, end);
+  // The filler stays in front of an item that starts with another block, or is empty.
+  const filler = node.type === NODE.listItem && first !== undefined && start > 0;
+  return filler && kept[0]?.type !== NODE.paragraph ? [first, ...kept] : kept;
+}
+
+/** The links a node is part of, as `markKey`s. */
+const linksOf = (node: NodeJson | undefined): string =>
+  (node?.marks ?? [])
+    .filter((mark) => mark.type === MARK.link)
+    .map(markKey)
+    .sort()
+    .join('\u0001');
+
+/**
+ * Whether a link opens or closes between `previous` and `node`, so the line
+ * that ends at `node` holds the link's `[` or its `](…)`.
+ */
+const linkEdge = (node: NodeJson, previous: NodeJson | undefined): boolean =>
+  linksOf(node) !== linksOf(previous);
+
+/**
+ * A paragraph with empty lines in it, as the blocks the file reads it as. An
+ * empty line is a soft line break that ends a line holding nothing — at the
+ * paragraph's start, or right after another line break, and with no link
+ * opening or closing on it (`[` then a line break starts a link's text on the
+ * next line; a line break then `](…)` ends it on one of its own) — and it is
+ * written as an empty line, which ends the paragraph. So `n` empty lines between two
+ * lines of text are a paragraph break plus `n - 1` empty paragraphs, `n` at
+ * the start are `n` empty paragraphs before it, and the line break before an
+ * empty line is at the end of a paragraph, which is not written. A line that
+ * held only a hard break before an empty line is left with nothing, so it
+ * counts as nothing at all. `content` is already `normalizeInline`d, so a line
+ * holding only whitespace is empty.
+ */
+function splitAtEmptyLines(paragraph: NodeJson, content: NodeJson[]): NodeJson[] {
+  const blocks: NodeJson[] = [];
+  let run: NodeJson[] = [];
+  let split = false;
+  let emptyLines = 0;
+  let started = false;
+  let lineEmpty = true;
+  let previous: NodeJson | undefined;
+  const endRun = () => {
+    const text = normalizeInline(run, 'paragraph');
+    run = [];
+    if (text.length === 0) return;
+    const empties = started ? emptyLines - 1 : emptyLines;
+    for (let index = 0; index < empties; index += 1) blocks.push({ ...paragraph, content: [] });
+    blocks.push({ ...paragraph, content: text });
+    started = true;
+    emptyLines = 0;
+  };
+  for (const node of content) {
+    const empty = lineEmpty && isSoftBreak(node) && !linkEdge(node, previous);
+    previous = node;
+    if (empty) {
+      endRun();
+      split = true;
+      emptyLines += 1;
+      continue;
+    }
+    run.push(node);
+    lineEmpty = node.type === NODE.hardbreak;
+  }
+  if (!split) return [{ ...paragraph, content }];
+  endRun();
+  return blocks.length > 0 ? blocks : [{ ...paragraph, content: [] }];
 }
 
 const CONTAINERS = new Set<string>([NODE.blockquote, NODE.listItem, NODE.footnoteDefinition]);
@@ -175,25 +246,27 @@ function needsBlankLine(children: readonly NodeJson[]): boolean {
 }
 
 /**
- * `node` with the house style's structural normalizations, recursively. The
- * result is what the serializer writes and what a reparse must reproduce.
+ * `node` with the house style's structural normalizations, recursively: the
+ * blocks the serializer writes for it, which a reparse must reproduce. One
+ * block, except a paragraph with empty lines in it (`splitAtEmptyLines`).
  */
-export function normalizeBlock(node: NodeJson, inCell = false): NodeJson {
-  if (node.type === NODE.frontmatter) return withLfValue(node);
+export function normalizeBlock(node: NodeJson, inCell = false): NodeJson[] {
+  if (node.type === NODE.frontmatter) return [withLfValue(node)];
   if (node.type === NODE.codeBlock) {
     const text = (node.content ?? []).map((child) => child.text ?? '').join('');
-    return /\r/.test(text) ? { ...node, content: [{ type: NODE.text, text: lf(text) }] } : node;
+    return [/\r/.test(text) ? { ...node, content: [{ type: NODE.text, text: lf(text) }] } : node];
   }
-  if (!node.content) return node;
+  if (!node.content) return [node];
   const kind = inCell && node.type === NODE.paragraph ? 'cell' : INLINE_KIND[node.type];
-  if (kind) return { ...node, content: normalizeInline(node.content, kind) };
+  if (kind === 'paragraph') return splitAtEmptyLines(node, normalizeInline(node.content, kind));
+  if (kind) return [{ ...node, content: normalizeInline(node.content, kind) }];
   const cell = node.type === NODE.tableHeader || node.type === NODE.tableCell;
-  let children = node.content.map((child) => normalizeBlock(child, cell));
+  let children = node.content.flatMap((child) => normalizeBlock(child, cell));
   if (CONTAINERS.has(node.type)) children = trimContainer(node, children);
   if (node.type === NODE.listItem && node.attrs?.spread !== true && needsBlankLine(children)) {
-    return { ...node, attrs: { ...node.attrs, spread: true }, content: children };
+    return [{ ...node, attrs: { ...node.attrs, spread: true }, content: children }];
   }
-  return { ...node, content: children };
+  return [{ ...node, content: children }];
 }
 
 /** Attributes left out of a comparison, per node type (see the module header). */
@@ -243,5 +316,5 @@ function canonicalNode(node: NodeJson): Canon {
  * when these strings are equal.
  */
 export function canonical(blocks: readonly NodeJson[]): string {
-  return JSON.stringify(blocks.map((block) => canonicalNode(normalizeBlock(block))));
+  return JSON.stringify(blocks.flatMap((block) => normalizeBlock(block)).map(canonicalNode));
 }

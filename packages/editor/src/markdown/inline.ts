@@ -11,9 +11,9 @@
  *
  * Fixed, not decided by a parse (docs/spec/editor.md "Markdown house style"):
  * whitespace at the start of a line is a character reference, because the
- * parser strips it from every line; an empty line inside a paragraph is
- * `&#x20;`, because a blank line would end the paragraph; a code span's fence
- * is one backtick longer than the longest run inside it.
+ * parser strips it from every line; a code span's fence is one backtick longer
+ * than the longest run inside it. (A paragraph never reaches here with an
+ * empty line in it: `./normalize.ts` splits it there.)
  */
 import { MARK, NODE, UnknownNodeError, attr, type MarkJson, type NodeJson } from './docJson';
 import { markKey, type InlineKind } from './normalize';
@@ -513,8 +513,6 @@ function writeUnit(
         lineHasContent = true;
         return;
       case 'break':
-        // A blank line would end the paragraph: an empty line holds one reference.
-        if (token.soft && !lineHasContent) fixed('&#x20;');
         fixed(token.value);
         lineHasContent = !token.value.endsWith('\n');
         if (clean.has(index)) boundaries.push({ line: newlines, site: sites.count });

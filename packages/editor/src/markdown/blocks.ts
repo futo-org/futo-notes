@@ -174,7 +174,9 @@ function touches(previous: NodeJson, next: NodeJson, options: ChildrenOptions): 
 /**
  * A container's children, separated as the container reads them: a blank line
  * between blocks (a newline in a tight list item), plus one more blank line per
- * empty paragraph between them. Touching lists alternate markers here too.
+ * empty paragraph between them, and one per empty paragraph before the first
+ * (normalized containers have none; a split paragraph may, `writeTopLevel`).
+ * Touching lists alternate markers here too.
  */
 function writeChildren(
   children: readonly NodeJson[],
@@ -187,7 +189,7 @@ function writeChildren(
   let previousList: { kind: string; marker: ListMarker } | null = null;
   for (const child of children) {
     if (isEmptyParagraph(child)) {
-      if (previous) emptyBefore += 1;
+      emptyBefore += 1;
       continue;
     }
     const kind = listKind(child);
@@ -208,6 +210,8 @@ function writeChildren(
       lines.push(...blankLines(blank));
       if (blank === 0 && options.tight && mayRunOn(previous, child))
         lines.push(sites.optionalLine());
+    } else {
+      lines.push(...blankLines(emptyBefore));
     }
     const written = writeBlock(child, { firstLine: false, listMarker }, sites, true);
     if (options.tight && previous?.type === NODE.paragraph && isHtmlBlock(child) && written[0]) {
@@ -296,6 +300,22 @@ function writeList(
     lines.push(...sites.part(write, (text) => text, [alone]));
   });
   return lines;
+}
+
+/**
+ * A top-level block as lines, from its normalized form: one node, except a
+ * paragraph split at its empty lines (`./normalize.ts`), whose paragraphs are
+ * spaced as a note spaces blocks — and an empty paragraph before the first is
+ * a blank line at the block's top.
+ */
+export function writeTopLevel(
+  nodes: readonly NodeJson[],
+  position: BlockPosition,
+  sites: Sites,
+): Line[] {
+  const [only] = nodes;
+  if (nodes.length === 1 && only) return writeBlock(only, position, sites);
+  return writeChildren(nodes, { tight: false }, sites);
 }
 
 /** One block as lines. `nested` is true inside a quote, list item or footnote. */

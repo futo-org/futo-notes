@@ -35,7 +35,13 @@
  * `../milkdown-compat/ownedSerializer.ts` replaces. Both are handed the
  * editor's own `parserCtx` as `parse`.
  */
-import { DEFAULT_MARKER, alternateMarker, listKind, writeBlock, type ListMarker } from './blocks';
+import {
+  DEFAULT_MARKER,
+  alternateMarker,
+  listKind,
+  writeTopLevel,
+  type ListMarker,
+} from './blocks';
 import { chooseSpelling, DEFAULT_CHECK_BUDGET, type CheckBudget, type Reader } from './choose';
 import { NODE, isEmptyParagraph, type NodeJson, type ParseMarkdown } from './docJson';
 import { canonical, normalizeBlock } from './normalize';
@@ -96,11 +102,12 @@ function blockReferences(node: NodeJson, out: string[] = []): string[] {
 }
 
 export function summarizeBlock(block: NodeJson): BlockSummary {
-  const node = normalizeBlock(block);
+  const nodes = normalizeBlock(block);
+  const [first] = nodes;
   return {
-    empty: isEmptyParagraph(node),
-    listKind: listKind(node),
-    references: blockReferences(node),
+    empty: nodes.length === 1 && first !== undefined && isEmptyParagraph(first),
+    listKind: first ? listKind(first) : null,
+    references: nodes.flatMap((node) => blockReferences(node)),
   };
 }
 
@@ -197,12 +204,12 @@ export function createMarkdownSerializer(options: MarkdownSerializerOptions): Ma
   }
 
   function serializeBlock(block: NodeJson, context: BlockContext): WrittenBlock {
-    const node = normalizeBlock(block);
+    const nodes = normalizeBlock(block);
     const write = (scope: SiteScope) => {
       const sites = new Sites(scope);
-      const lines = writeBlock(node, context, sites);
+      const lines = writeTopLevel(nodes, context, sites);
       return {
-        block: [node],
+        block: nodes,
         lines,
         siteCount: sites.count,
         layout: sites.layout,

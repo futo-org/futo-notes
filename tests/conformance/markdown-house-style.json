@@ -798,9 +798,10 @@
       "expected": "&#x20;&#x20;a\n"
     },
     {
-      "name": "an empty line inside a paragraph",
+      "story": 7,
+      "name": "a line holding only a space reference is an empty line: a paragraph break",
       "source": "a\n&#x20;\nb",
-      "expected": "a\n&#x20;\nb\n"
+      "expected": "a\n\nb\n"
     },
     {
       "name": "footnotes, continuation indented four",
@@ -857,7 +858,8 @@
       "expected": "Press\n<kbd>Ctrl</kbd> now\n"
     },
     {
-      "name": "an empty line typed inside a paragraph is &#x20;",
+      "story": 7,
+      "name": "an empty line typed inside a paragraph is an empty line, which the file reads as a paragraph break (#263)",
       "doc": {
         "type": "doc",
         "content": [
@@ -888,7 +890,204 @@
           }
         ]
       },
-      "expected": "a\n&#x20;\nb\n"
+      "expected": "a\n\nb\n"
+    },
+    {
+      "story": 7,
+      "name": "two empty lines typed inside a paragraph are a paragraph break and one empty paragraph",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              },
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                }
+              },
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                }
+              },
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                }
+              },
+              {
+                "type": "text",
+                "text": "b"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "a\n\n\nb\n"
+    },
+    {
+      "story": 7,
+      "name": "a paragraph that starts with an empty line has an empty paragraph before it",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                }
+              },
+              {
+                "type": "text",
+                "text": "b"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "a\n\n\nb\n"
+    },
+    {
+      "story": 7,
+      "name": "a note whose first paragraph starts with an empty line starts with a blank line",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                }
+              },
+              {
+                "type": "text",
+                "text": "b"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "\nb\n"
+    },
+    {
+      "story": 7,
+      "name": "bold across an empty line closes before it and opens again after",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "strong",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ],
+                "text": "a"
+              },
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                },
+                "marks": [
+                  {
+                    "type": "strong",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                },
+                "marks": [
+                  {
+                    "type": "strong",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "strong",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ],
+                "text": "b"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "**a**\n\n**b**\n"
+    },
+    {
+      "story": 7,
+      "name": "a hard break before an empty line ends the paragraph and is not written",
+      "source": "a\\\n&#x20;\nb",
+      "expected": "a\n\nb\n"
+    },
+    {
+      "story": 7,
+      "name": "an empty line in a list item's paragraph makes two paragraphs and the item loose",
+      "source": "- a\n  &#x20;\n  b\n- c",
+      "expected": "- a\n\n  b\n- c\n"
+    },
+    {
+      "story": 7,
+      "name": "an empty line at the start of a list item is not written",
+      "source": "- &#x20;\n  b",
+      "expected": "- b\n"
+    },
+    {
+      "story": 7,
+      "name": "an empty line in a quoted paragraph is a blank > line",
+      "source": "> a\n> &#x20;\n> b",
+      "expected": "> a\n>\n> b\n"
+    },
+    {
+      "story": 7,
+      "name": "a link whose text starts or ends at a line break keeps it: that line holds the [ or the ](…)",
+      "source": "[\nb](u)\n\n- [\n  c](u)\n\n[d\n](u)\nx",
+      "expected": "[\nb](u)\n\n- [\n  c](u)\n\n[d\n](u)\nx\n"
     },
     {
       "name": "spaces typed at the start of a line are references, at the end are dropped",

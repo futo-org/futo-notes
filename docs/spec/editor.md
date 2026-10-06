@@ -225,17 +225,16 @@ hand-reviewed goldens, one or more per line below)
   the line as a different document, and that is decided by parsing what would
   be written, not by a list of risky characters. So `snake_case`, `$x_1$`,
   `#tag` at the start of a line, `1.5` and `a * b` are written as typed,
-  while `\# not a heading`, `1\. not a list`, `\*not
-  italic*` and `\<div>` get the one backslash that keeps them text. When either
-  of two delimiters could carry the escape, the opening one does.
+  while `\# not a heading`, `1\. not a list`, `\*not italic*` and `\<div>`
+  get the one backslash that keeps them text. When either of two delimiters
+  could carry the escape, the opening one does.
 - A character that cannot take a backslash is written as a character
   reference (`&#x20;`) where the parser would otherwise drop or reinterpret
-  it: whitespace at the start of a line, an empty line inside a paragraph
-  (`&#x20;` alone on it), and the letter or space beside formatting that would
-  not otherwise open or close (`**Note:**&#x62;ar`). The formatting marker
-  changes in one case only: an italic or bold run that starts exactly where
-  another `*` run ends is written with `_` if, and only if, a parse says the
-  two `*` runs would merge.
+  it: whitespace at the start of a line, and the letter or space beside
+  formatting that would not otherwise open or close (`**Note:**&#x62;ar`). The
+  formatting marker changes in one case only: an italic or bold run that
+  starts exactly where another `*` run ends is written with `_` if, and only
+  if, a parse says the two `*` runs would merge.
 - Whitespace at the end of a line is not written, and neither is a line break
   at the very end of a paragraph, heading or table cell: the parser drops both
   on every read, so writing them would only make the next save differ.
@@ -244,6 +243,17 @@ hand-reviewed goldens, one or more per line below)
 
 - An inline line break (one Enter, or a single newline the file already had)
   is written as one `\n`. A newline directly before inline HTML stays a newline.
+- An empty line inside a paragraph (two line breaks in a row, as Enter at the
+  end of a line with a line below it makes; a line holding only whitespace is
+  empty; one holding only a link's opening `[` or closing `](…)` is not) is
+  written as an empty line, never as a character reference, a backslash or a
+  space. In the file an empty line is a paragraph break, so `one`, two line
+  breaks, `two` is written `one\n\ntwo` and reads back as two paragraphs.
+- Each further empty line in the same run is one empty paragraph between the
+  two (`one\n\n\ntwo` for three line breaks), and empty lines at the start of
+  a paragraph are empty paragraphs before it.
+- The line break before an empty line ends a paragraph, so it is not written,
+  even an older file's hard break (`\`).
 - An older file's hard break (`\` or two trailing spaces) is written as `\`
   plus a newline in a paragraph, as `<br>` in a table cell, and as a space in a
   heading, which is one line (a setext heading's line breaks become spaces too).

@@ -200,11 +200,18 @@ export function countWikilinks(markdown) {
  *     heading or table cell, is dropped, then a line break at the very end of
  *     one (the parser drops both on every read);
  *   - a heading's line breaks are spaces (an ATX heading is one line);
+ *   - a paragraph is split at each empty line inside it — a soft line break
+ *     ending a line that holds nothing (whitespace counts as nothing; a line
+ *     where a link opens or closes holds its `[` or `](…)`) — since
+ *     an empty line in the file ends a paragraph: `n` empty lines between two
+ *     lines of text are a paragraph break and `n - 1` empty paragraphs, `n` at
+ *     its start are `n` empty paragraphs before it, and the line break before
+ *     an empty line ends a paragraph, so it goes like any break at the end;
  *   - empty paragraphs at the start or end of a quote, list item or footnote,
  *     and at the end of the note, are dropped (no spelling reaches them; a list
- *     item keeps its first child, the schema's filler, and the empty paragraphs
- *     after a first paragraph that holds text are inside the item, not at its
- *     start);
+ *     item's empty first child, the schema's filler, stays unless the item's
+ *     first block is a paragraph, and the empty paragraphs after a first
+ *     paragraph that holds text are inside the item, not at its start);
  *   - CR and CRLF inside code, HTML and front matter are LF;
  *   - an HTML block's indentation before its first tag is dropped (layout, not
  *     HTML; only a block's value can start with whitespace);
@@ -293,7 +300,61 @@ function houseInline(content, kind) {
   return nodes;
 }
 
-function houseNode(node, inCell = false) {
+/**
+ * A paragraph's house-normalized content split at its empty lines (see
+ * `houseDocument`): one content array per paragraph it reads as, `[]` for an
+ * empty one.
+ */
+function splitParagraph(content) {
+  const isSoft = (node) => node.type === 'hardbreak' && node.attrs?.isInline === true;
+  const links = (node) =>
+    (node?.marks ?? [])
+      .filter((mark) => mark.type === 'link')
+      .map(houseMarkKey)
+      .sort()
+      .join('\u0001');
+  const linkEdge = (node, previous) => links(node) !== links(previous);
+  const out = [];
+  let line = [];
+  let blanks = 0;
+  let lineEmpty = true;
+  let split = false;
+  let previous;
+  const close = () => {
+    const text = houseInline(line, 'paragraph');
+    line = [];
+    if (text.length === 0) return;
+    const empties = out.some((block) => block.length > 0) ? blanks - 1 : blanks;
+    for (let i = 0; i < empties; i += 1) out.push([]);
+    out.push(text);
+    blanks = 0;
+  };
+  for (const node of content) {
+    const empty = lineEmpty && isSoft(node) && !linkEdge(node, previous);
+    previous = node;
+    if (empty) {
+      close();
+      split = true;
+      blanks += 1;
+      continue;
+    }
+    line.push(node);
+    lineEmpty = node.type === 'hardbreak';
+  }
+  if (!split) return [content];
+  close();
+  return out.length > 0 ? out : [[]];
+}
+
+/** `node` house-normalized: one node, or several for a paragraph split at its empty lines. */
+function houseBlocks(node, inCell = false) {
+  if (node.type !== 'paragraph' || inCell || !node.content) return [houseNode(node, inCell)];
+  return splitParagraph(houseInline(node.content, 'paragraph')).map((content) =>
+    houseNode({ ...node, content }, false, true),
+  );
+}
+
+function houseNode(node, inCell = false, inlineDone = false) {
   const out = { type: node.type };
   if (node.attrs) {
     const dropped = SPELLING_ATTRS[node.type] ?? [];
@@ -315,20 +376,23 @@ function houseNode(node, inCell = false) {
   if (node.type === 'code_block') {
     const text = lf(content.map((child) => child.text ?? '').join(''));
     content = text ? [{ type: 'text', text }] : [];
-  } else if (node.type === 'paragraph' || node.type === 'heading') {
+  } else if ((node.type === 'paragraph' || node.type === 'heading') && !inlineDone) {
     content = houseInline(content, inCell ? 'cell' : node.type);
   }
   const cell = node.type === 'table_header' || node.type === 'table_cell';
-  content = content.map((child) => houseNode(child, cell));
+  content = content.flatMap((child) => houseBlocks(child, cell));
   if (CONTAINERS.has(node.type)) {
-    const keep = node.type === 'list_item' ? 1 : 0;
+    const item = node.type === 'list_item';
     // After an item's first paragraph that holds text, blank lines are inside the item.
-    const leading = keep === 0 || (content.length > 0 && isEmptyParagraph(content[0]));
-    let start = keep;
+    const leading = !item || (content.length > 0 && isEmptyParagraph(content[0]));
+    let start = 0;
     while (leading && start < content.length && isEmptyParagraph(content[start])) start += 1;
     let end = content.length;
     while (end > start && isEmptyParagraph(content[end - 1])) end -= 1;
-    content = [...content.slice(0, keep), ...content.slice(start, end)];
+    const kept = content.slice(start, end);
+    // The filler stays only in front of an item whose first block is not a paragraph.
+    const filler = item && start > 0 && kept[0]?.type !== 'paragraph';
+    content = filler ? [content[0], ...kept] : kept;
   }
   if (node.type === 'list_item' && out.attrs && needsBlankLine(content)) out.attrs.spread = true;
   if (node.type === 'doc') {
