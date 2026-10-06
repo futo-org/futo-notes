@@ -158,7 +158,15 @@ reads with the app's wikilink plugin and table cell `<br>` reader too
 The 3 corpus notes (8761, 9151, 9478) are one shape, a quoted ordered list
 whose nested items are tab-indented under a whitespace-only `> ` line: the
 parser reads one nested list as loose (mdast `spread`) only in the source
-spelling. Reported, not normalized away in the gate: the maintainer decides.
+spelling. The maintainer accepted them as a KNOWN EXCEPTION (decision 1,
+2026-10-06); the gate is not normalized to hide them. A `compat` run prints
+every note either gate flags and ends with a verdict that passes only when
+each is on the list (`tests/milkdown-census/knownExceptions.mjs`), exiting
+non-zero otherwise:
+
+| corpus note | flag | repro | why it is accepted |
+|---|---|---|---|
+| 8761, 9151, 9478 | `content_loss` | `> 1. A\n> \t- B\n> \t\t- C\n> \n>2. D` | the parser marks the one-item list `C` loose only through the tab indentation and the whitespace-only `> ` line; the save writes it with spaces, which reads tight, as CommonMark's own rule reads both spellings |
 
 **First-save churn (story 31)** — how many notes a first save re-spells, and
 how many written lines a note did not already hold (`first_save_churn`,

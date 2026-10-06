@@ -14,6 +14,10 @@
  * comparison is produced from this same harness rather than from a set of
  * numbers nobody can re-derive.
  *
+ * On `compat` it ends with the gate verdict (`./knownExceptions.mjs`): every
+ * note `content_loss` or `second_pass_unstable` flagged, and a non-zero exit
+ * unless each is a known exception.
+ *
  * Output (default `build/milkdown-census/<variant>/`, gitignored):
  *   results.jsonl  one record per note; flagged notes also carry round1/round2
  *   summary.json   the aggregate counters
@@ -29,6 +33,7 @@ import { chromium } from 'playwright';
 
 import { buildCensusPage } from './build.mjs';
 import { FLAG_ORDER, classify } from './detectors.mjs';
+import { describeVerdict, gateVerdict } from './knownExceptions.mjs';
 
 const DEFAULT_CORPUS = path.join(
   process.env.HOME ?? '',
@@ -298,9 +303,17 @@ async function main() {
   summary.variant = args.variant;
   summary.source = args.vault ? 'vault' : path.basename(args.corpus);
   summary.duration_s = Math.round((Date.now() - startedAt) / 1000);
+  // The hard gates are stated against what the app ships, not the baseline.
+  const verdict = args.variant === 'compat' ? gateVerdict(records, summary.source) : null;
+  if (verdict) summary.gate = verdict.pass ? 'pass' : 'fail';
   writeFileSync(path.join(args.out, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
 
   console.log(JSON.stringify(summary, null, 2));
+  if (verdict) {
+    console.log('');
+    for (const line of describeVerdict(verdict)) console.log(line);
+    if (!verdict.pass) process.exitCode = 1;
+  }
   if (args.diff) {
     const regressions = reportDiff(args.diff, args.out);
     if (regressions.length > 0) process.exitCode = 1;

@@ -30,6 +30,7 @@ the transition plan); two are hard gates since #266: `content_loss` and
 | `build.mjs` | esbuild bundle + page, also used by `tests/editor-embed-milkdown-compat.spec.ts` |
 | `noteIndexStub.ts` | the empty note index the wikilink plugin renders with on the census page (below) |
 | `detectors.mjs` | what counts as a flag |
+| `knownExceptions.mjs` | the gate notes the maintainer accepted, and the gate verdict |
 | `run.mjs` | the driver: corpus in, `results.jsonl` + `summary.json` out |
 
 `entry.ts` imports from source, so the census can never drift from what the app
@@ -87,6 +88,20 @@ must not raise either.
   lost or changed something the author wrote.
 - `second_pass_unstable` — write, parse with the bare parser, write again: the
   bytes differ. A second save must be a no-op.
+
+A `compat` run ends with the gate verdict (`knownExceptions.mjs`): it prints
+every note either gate flagged, then `gate verdict: PASS` only if each of them
+is on the known-exceptions list for that flag and every note was checked (a
+note the harness timed out on was never held to the gate), and exits non-zero
+on `FAIL`. An exception names one note of one corpus, never a pattern, so a
+new note of the same shape still fails; a listed note that is no longer
+flagged is printed so the list can shrink. The list today, all
+`notes_corpus.jsonl.gz`, all `content_loss`, accepted by the maintainer
+(decision 1, 2026-10-06):
+
+| note | repro | why it is accepted |
+|---|---|---|
+| 8761, 9151, 9478 | `> 1. A\n> \t- B\n> \t\t- C\n> \n>2. D` | the parser reads the one-item list `C` as loose (mdast `spread`) only through the tab indentation and the whitespace-only `> ` line; the save writes it with spaces, which reads tight, as CommonMark's own rule reads it in both spellings |
 
 Not a flag but a scorecard beside them: `first_save_churn` counts the notes
 whose bytes a first save changes, and `churn_lines` the written lines a note did
