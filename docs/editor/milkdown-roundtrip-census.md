@@ -6,8 +6,11 @@
 
 What opening and re-saving a note in the Milkdown editor does to its bytes,
 measured over 30,995 real notes plus the maintainer's own 2,511-note vault.
-This is the evidence behind `packages/editor/src/milkdown-compat/`, and the
-report the transition plan's D4 asks for: **a scorecard, not a release gate.**
+This is the evidence behind `packages/editor/src/milkdown-compat/` and the
+owned serializer (`packages/editor/src/markdown/`), and the report the
+transition plan's D4 asks for. Most numbers are a scorecard; since #266 two
+are hard gates the serializer ships under, `content_loss` and
+`second_pass_unstable` (see "2026-10-06 — the owned serializer" below).
 
 - Harness: `tests/milkdown-census/` — `just milkdown-census`.
 - Editor: `@milkdown/kit` 7.22.1, the app's core plugin chain and load sequence
@@ -136,6 +139,50 @@ preservation. The old pre-parser's second-pass reinterpretation is gone;
 Reproduce with `just milkdown-census --out <after> --diff <before>` using a
 baseline captured before this change. Results stayed in ignored local build
 outputs; no corpus documents were added to the repository.
+
+## 2026-10-06 — the owned serializer (#266)
+
+Every save is now written by the editor's own serializer in one house style
+(docs/spec/editor.md "Markdown house style"); remark-stringify and its patches
+are gone. The census `compat` variant writes with it, and since the same day
+reads with the app's wikilink plugin and table cell `<br>` reader too
+(`tests/milkdown-census/README.md`).
+
+**The two hard gates** — `compat`, run 2026-10-06 on the final #266 code:
+
+| | corpus (30,995 notes) | vault (2,570 notes) |
+|---|---:|---:|
+| `content_loss` — the save reads back as a different document, once the house style's deliberate changes are taken out | 3 | 0 |
+| `second_pass_unstable` — write, read, write again: the bytes differ | 0 | 0 |
+
+The 3 corpus notes (8761, 9151, 9478) are one shape, a quoted ordered list
+whose nested items are tab-indented under a whitespace-only `> ` line: the
+parser reads one nested list as loose (mdast `spread`) only in the source
+spelling. Reported, not normalized away in the gate: the maintainer decides.
+
+**First-save churn (story 31)** — how many notes a first save re-spells, and
+how many written lines a note did not already hold (`first_save_churn`,
+`churn_lines`; both ignore the final newline, which the corpus export
+stripped):
+
+| | old formatter | owned serializer |
+|---|---:|---:|
+| corpus notes churned | 23,569 | 20,977 |
+| corpus lines churned | 431,144 | 348,632 |
+| vault notes churned | 2,237 | 2,176 |
+| vault lines churned | 30,958 | 27,287 |
+
+Method. Owned: `node tests/milkdown-census/run.mjs --variant compat`, and the
+same with `--vault ~/Documents/futo-notes --out build/milkdown-census/<name>`,
+on the final #266 code (wikilink plugin and cell `<br>` reader mounted). Old
+formatter: the same harness at 12eb1e27, before the switch (3c40a09b),
+where `compat` was remark-stringify plus the compat patches; measured
+2026-10-06 in a scratch run with the census page's bullet set to the app's
+`-` (the page wrote `*`, which would have inflated the old number), not
+committed, and without the wikilink plugin, which that page could not mount.
+The owned serializer churns MORE table lines (corpus 17,747 against 12,313,
+same-day run before the plugins were mounted) because it never pads columns;
+everything else it re-spells less.
 
 ## What each fix bought
 
