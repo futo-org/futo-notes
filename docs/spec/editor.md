@@ -598,17 +598,12 @@ hand-reviewed goldens, one or more per line below)
   is in. → src/features/editor/milkdown/listItemHandleDrag.ts,
   src/features/editor/milkdown/listItemHandleDrag.test.ts,
   tests/editor-embed-milkdown.spec.ts _(desktop)_
-- The desktop ⠿ handle's drag ghost is the block at its on-screen size, held
-  at its top-left corner, at any display scale. On Linux it is a copy of the
-  block on the page that follows the pointer, and the webview's own drag
-  image is a blank pixel: WebKitGTK's image came out too big on scaled
-  desktops (about 200% on Hyprland; text too big at KDE Wayland's 1.6x, with
-  a `devicePixelRatio` counter-scale in place). Elsewhere, at 1x it is the
-  webview's own drag image, and at any other ratio a detached clone
-  counter-scaled by `1 / devicePixelRatio`. →
-  src/features/editor/milkdown/blockDragGeometry.ts `setBlockDragImage`,
-  src/shared/dom/linuxDragMirror.ts,
-  src/features/editor/milkdown/blockDragGeometry.test.ts
+- The desktop ⠿ handle's native drag ghost is corrected for the display's
+  `devicePixelRatio`: at 1x it is the browser/webview's own drag image,
+  unchanged; at any other ratio a detached, counter-scaled clone is dragged
+  instead of the live block, so the ghost matches the block's CSS size
+  regardless of scale factor. QA on a scaled Linux/Hyprland desktop reported
+  the ghost at roughly 200% size.
 - There is ONE drop slot per boundary, on both drag gestures — between
   top-level blocks, and between the items of a list for a list item. Below
   block A and above the block directly under it are the same

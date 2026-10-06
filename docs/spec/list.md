@@ -284,8 +284,7 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   it must NOT run on WKWebView: mutating the DOM during `dragstart` aborts the
   drag there (dragstart → dragend, zero dragover) — a separate failure from the
   wry interception above; both had to be fixed for macOS drag & drop to work
-  (2026-07-08). The editor's ⠿ handle drag uses the same mirror on Linux. →
-  src/shared/dom/linuxDragMirror.ts, createFolderTreeDrag.svelte.ts
+  (2026-07-08). → FolderTreeView.svelte `setControlledDragImage`
 
 ## New note
 

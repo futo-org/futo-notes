@@ -1,12 +1,11 @@
 import { idParent } from '$lib/platform/pathSafety';
-import { isLinux } from '$lib/platform';
-import { createLinuxDragMirror } from '$shared/dom/linuxDragMirror';
 
 import {
   clearDragHoverExpanded,
   isFolderOpen,
   setDragHoverExpanded,
 } from './folderExpansion.svelte';
+import { createLinuxDragMirror } from './linuxDragMirror';
 
 const NOTE_MIME = 'application/futo-note-id';
 const FOLDER_MIME = 'application/futo-folder-path';
@@ -67,7 +66,7 @@ export function createFolderTreeDrag(callbacks: FolderTreeDragCallbacks) {
     sourceParent = idParent(id);
     sourceFolderPath = null;
     sourceNoteId = id;
-    if (isLinux) dragMirror.setDragImage(event);
+    dragMirror.setDragImage(event);
     callbacks.onNoteDragStart(id, event);
   }
 
@@ -78,7 +77,7 @@ export function createFolderTreeDrag(callbacks: FolderTreeDragCallbacks) {
     sourceParent = idParent(path);
     sourceFolderPath = path;
     sourceNoteId = null;
-    if (isLinux) dragMirror.setDragImage(event);
+    dragMirror.setDragImage(event);
     callbacks.onFolderDragStart(path, event);
   }
 

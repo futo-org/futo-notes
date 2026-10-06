@@ -42,8 +42,6 @@
  */
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
-import { isLinux } from '$lib/platform/userAgent';
-import { createLinuxDragMirror } from '$shared/dom/linuxDragMirror';
 
 /** Same x BlockService's own hover detection uses (block-service.ts
  * `#mousemoveCallback`): the content column's horizontal center, so
@@ -293,20 +291,6 @@ export function setDprCorrectedDragImage(event: DragEvent, source: HTMLElement):
   requestAnimationFrame(() => clone.remove());
 }
 
-const blockDragMirror = createLinuxDragMirror();
-
-/**
- * The ⠿ handle's drag image for `source`, the block being dragged, held at
- * its top-left corner as the native image was. On Linux it is a copy of the
- * block on the page (`linuxDragMirror.ts`): the counter-scaled clone below
- * still came out too big at KDE Wayland's 1.6x, so WebKitGTK's drag image is
- * not scaled by `devicePixelRatio` alone there. Elsewhere it is that clone.
- */
-export function setBlockDragImage(event: DragEvent, source: HTMLElement): void {
-  if (isLinux) blockDragMirror.setDragImage(event, source, { x: 0, y: 0 });
-  else setDprCorrectedDragImage(event, source);
-}
-
 /**
  * The drop boundary for `source` under a pointer at `clientY`, with the point
  * clamped inside the editor box so a finger dragged past either end still
@@ -429,9 +413,4 @@ export function createDragAutoScroller(view: ProseView, onStep?: () => void): Dr
     },
     stop,
   };
-}
-
-/** Removes whatever `setBlockDragImage` left on the page for the drag. */
-export function endBlockDragImage(): void {
-  blockDragMirror.teardown();
 }

@@ -30,20 +30,11 @@ import {
   createDragAutoScroller,
   dragImageScale,
   resolveDropTarget,
-  endBlockDragImage,
-  setBlockDragImage,
   setDprCorrectedDragImage,
   type DragSource,
   type DropTarget,
 } from './blockDragGeometry';
 import { testSchema } from './__fixtures__/schema';
-
-const platformState = vi.hoisted(() => ({ isLinux: false }));
-vi.mock('$lib/platform/userAgent', () => ({
-  get isLinux() {
-    return platformState.isLinux;
-  },
-}));
 
 const VIEW_TOP = 100;
 const VIEW_BOTTOM = 700;
@@ -689,82 +680,5 @@ describe('setDprCorrectedDragImage', () => {
     const source = document.createElement('div');
     const event = { dataTransfer: null } as unknown as DragEvent;
     expect(() => setDprCorrectedDragImage(event, source)).not.toThrow();
-  });
-});
-
-/*
- * The ⠿ handle's drag preview showed its text too big on a KDE Wayland desktop
- * at 1.6x scale, with the counter-scaled clone above in place: WebKitGTK's
- * native drag image does not scale by `devicePixelRatio` alone at a
- * fractional scale, so no ratio read from the page can undo it. On Linux the
- * native image is a blank pixel and the preview is a page element instead,
- * sized in CSS pixels like the rest of the page — the sidebar's note and
- * folder drag has done this since it shipped.
- */
-describe('setBlockDragImage on Linux', () => {
-  const originalDpr = window.devicePixelRatio;
-
-  beforeEach(() => {
-    platformState.isLinux = true;
-    Object.defineProperty(window, 'devicePixelRatio', { value: 1.6, configurable: true });
-  });
-
-  afterEach(() => {
-    endBlockDragImage();
-    platformState.isLinux = false;
-    Object.defineProperty(window, 'devicePixelRatio', {
-      value: originalDpr,
-      configurable: true,
-    });
-  });
-
-  function block(): HTMLElement {
-    const source = document.createElement('p');
-    source.textContent = 'dragged';
-    source.getBoundingClientRect = () => ({ width: 300, height: 24 }) as DOMRect;
-    document.body.appendChild(source);
-    return source;
-  }
-
-  it('hands the webview a blank pixel, never the block or a scaled clone', () => {
-    const source = block();
-    const setDragImage = vi.fn();
-    const event = {
-      clientX: 40,
-      clientY: 60,
-      dataTransfer: { setDragImage },
-    } as unknown as DragEvent;
-
-    setBlockDragImage(event, source);
-
-    expect(setDragImage).toHaveBeenCalledTimes(1);
-    const [image] = setDragImage.mock.calls[0];
-    expect(image).toBeInstanceOf(HTMLCanvasElement);
-    expect((image as HTMLCanvasElement).width).toBe(1);
-    expect((image as HTMLCanvasElement).height).toBe(1);
-    source.remove();
-  });
-
-  it('shows the block as an unscaled page element under the pointer, gone on drag end', () => {
-    const source = block();
-    const event = {
-      clientX: 40,
-      clientY: 60,
-      dataTransfer: { setDragImage: vi.fn() },
-    } as unknown as DragEvent;
-
-    setBlockDragImage(event, source);
-
-    const mirror = [...document.body.children].find(
-      (el): el is HTMLElement => el !== source && el.textContent === 'dragged',
-    );
-    expect(mirror).toBeDefined();
-    expect(mirror!.style.width).toBe('300px');
-    expect(mirror!.style.height).toBe('24px');
-    expect(mirror!.style.transform).toBe('translate(40px, 60px)');
-
-    endBlockDragImage();
-    expect(mirror!.isConnected).toBe(false);
-    source.remove();
   });
 });

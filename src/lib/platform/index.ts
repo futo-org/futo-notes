@@ -1,7 +1,6 @@
 import type { FileDropEvent, PlatformFS, PlatformName } from './types';
 import type { ApplicationMenuLabels } from './tauri/appMenu';
 import type { LocalNoteMutation } from '../localNoteStore';
-import { isLinux } from './userAgent';
 export type {
   FileChangeEvent,
   FileDropEvent,
@@ -26,7 +25,7 @@ function detectPlatform(): PlatformName {
 
 export const platformName: PlatformName = detectPlatform();
 export const isTauri = platformName === 'tauri';
-export { isLinux };
+export const isLinux = typeof navigator !== 'undefined' && /\blinux\b/i.test(navigator.userAgent);
 // True on iOS hardware — the native-shell embed's WKWebView and iOS Safari.
 // iPads masquerade as "Macintosh" in modern WebKit UAs, so also treat
 // Mac-with-multitouch as iOS (desktop Macs report maxTouchPoints 0). This
