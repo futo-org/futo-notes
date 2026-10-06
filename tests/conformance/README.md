@@ -155,7 +155,7 @@ A differential that skips something quietly is worse than no differential (M11):
   state no file produces), asserted by `src/features/editor/milkdown/markdownHouseStyle.test.ts`
   with the shipping parser, together with two properties: `expected` reads back as the
   same document, and writes itself again unchanged. The corpus-wide gates are the
-  round-trip census (`tests/milkdown-census/`, `--variant owned`).
+  round-trip census (`tests/milkdown-census/`, the default `compat` variant).
 
 ## Recorded divergence
 

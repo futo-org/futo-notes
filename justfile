@@ -593,12 +593,12 @@ gauntlet-milkdown-foreign *args:
 # ── Milkdown round-trip census ──
 # Run a corpus of real notes through the real Milkdown editor and report what
 # the round trip changed. This is the measurement behind the compat plugin set
-# in packages/editor/src/milkdown-compat/ (docs/plan/milkdown-transition.md §3),
-# and the way to prove a change to it costs nothing:
+# in packages/editor/src/milkdown-compat/ (docs/plan/milkdown-transition.md §3)
+# and the editor's own serializer (#266; the default `compat` variant writes
+# with it), and the way to prove a change to either costs nothing:
 #
 #   just milkdown-census --variant baseline          # the UNPATCHED upstream preset
 #   just milkdown-census --diff build/milkdown-census/baseline
-#   just milkdown-census --variant owned             # the editor's own serializer (#266)
 #   just milkdown-census --vault ~/Documents/futo-notes   # your own notes, locally
 #   just milkdown-census --limit 200                 # quick smoke, ~4s
 #

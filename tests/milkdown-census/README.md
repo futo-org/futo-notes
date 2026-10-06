@@ -7,15 +7,17 @@ opening and re-saving each note would change.
 just milkdown-census --limit 200                        # ~4s smoke
 just milkdown-census --variant baseline                 # the UNPATCHED preset
 just milkdown-census --diff build/milkdown-census/baseline
-just milkdown-census --variant owned                    # the editor's own serializer (#266)
-just milkdown-census --vault ~/Documents/futo-notes     # your own notes
+just milkdown-census --vault ~/Documents/futo-notes --out build/milkdown-census/vault  # your own notes
 ```
 
 ## What it is for
 
 `packages/editor/src/milkdown-compat/` repairs three Milkdown round-trip
-defects. This harness is how they were found, how "fixed" was established, and
-how a future change to them is shown to cost nothing. The findings live in
+defects on the way in, and the editor's own serializer
+(`packages/editor/src/markdown/`, #266) writes every note on the way out. This
+harness is how the defects were found, how "fixed" was established, how the
+serializer's two hard gates are measured, and how a future change to either is
+shown to cost nothing. The findings live in
 `docs/editor/milkdown-roundtrip-census.md`; per D4 of the transition plan the
 numbers are a scorecard, not a release gate.
 
@@ -28,8 +30,8 @@ numbers are a scorecard, not a release gate.
 | `detectors.mjs` | what counts as a flag |
 | `run.mjs` | the driver: corpus in, `results.jsonl` + `summary.json` out |
 
-`entry.ts` imports the compat plugins from source, so the census can never drift
-from what the app ships. It mounts commonmark + gfm only — not the wikilink
+`entry.ts` imports the compat plugins (which install the serializer) from
+source, so the census can never drift from what the app ships. It mounts commonmark + gfm only — not the wikilink
 plugin (#101), which needs the app's note index and so cannot be bundled here;
 that plugin carries its own differential and embed-seam tests, and the effect on
 these numbers is that `[[wikilink]]` escaping still shows up as a difference. It mirrors `MilkdownEditor.svelte`'s load path exactly:
@@ -39,16 +41,16 @@ list/table/quote/fence note, because the `trailing` plugin has not settled.
 
 ## Variants
 
-`--variant compat` (default) is what the app ships. `--variant baseline` is the
-unpatched upstream preset, and it is how a comparison gets produced from this
-harness rather than from a set of numbers nobody can re-derive: run baseline,
-run compat with `--diff`, read the newly-raised flags. `--diff` exits non-zero
-if there are any.
+`--variant compat` (default) is what the app ships: the compat presets read
+the note and the editor's own serializer writes it. It is the variant the
+serializer's two hard gates are stated against (below). `--variant baseline` is
+the unpatched upstream preset, reading and writing with remark, and it is how a
+comparison gets produced from this harness rather than from a set of numbers
+nobody can re-derive: run baseline, run compat with `--diff`, read the
+newly-raised flags. `--diff` exits non-zero if there are any.
 
-`--variant owned` reads every note exactly as `compat` does and writes it with
-the editor's own serializer (`packages/editor/src/markdown/`, #266) instead of
-remark-stringify. It is the variant the serializer's two hard gates are stated
-against (below).
+There was an `owned` variant while the serializer was being built beside
+remark-stringify; it became `compat` the day the serializer shipped (#266).
 
 ## The flags
 
@@ -62,8 +64,9 @@ Three are precise measurements. The acceptance criteria are stated against these
   keeps a bold run), so only a bad or foreign one counts. Text GAINED is
   invisible to `text_loss`; this is the detector for it (RC-104). Must be 0.
 
-Two are the owned serializer's hard gates (#266): both must be 0 on the corpus
-and on the vault before it ships.
+Two are the serializer's hard gates (#266), measured on the `compat` variant
+over the corpus and the vault: a change to the serializer or to the compat set
+must not raise either.
 
 - `content_loss` — the document the note reads as and the document its save
   reads as differ, once everything the house style may change on purpose is
@@ -80,8 +83,7 @@ whose bytes a first save changes, and `churn_lines` the written lines a note did
 not already hold. Both ignore whether the file ends in a newline: the corpus
 export stripped every note's final newline, so counting it would measure the
 dataset. A first save is allowed to re-spell (ADR-0002); the number shows by
-how much. The `compat` variant's census serializer writes `*` bullets, not the
-app's `-` (see `entry.ts`), so its churn is somewhat higher than the app's.
+how much.
 
 The rest are broad signals, useful against a baseline rather than in isolation:
 `unstable` (`round1 ≠ round2`), `unstable_persistent` (`round2 ≠ round3`),
