@@ -64,7 +64,7 @@ function inLinedParagraph($pos: ResolvedPos): boolean {
  */
 function softBreak(state: EditorState, marks: readonly Mark[]): ProseNode | null {
   const kept = marks.filter((mark) => mark.type.spec.code !== true);
-  return state.schema.nodes.hardbreak?.create({ isInline: true }, null, kept) ?? null;
+  return state.schema.nodes[HARDBREAK_NODE]?.create({ isInline: true }, null, kept) ?? null;
 }
 
 /**
@@ -102,21 +102,6 @@ export const enterInParagraph: Command = (state, dispatch) => {
   dispatch(tr.scrollIntoView());
   return true;
 };
-
-/**
- * Whether the note's last written block is a paragraph ending in a line break
- * — an empty last line the file cannot hold (trailing whitespace is not
- * content), so the document serializes exactly like one without it. Trailing
- * empty paragraphs are skipped: those are not written either.
- */
-export function endsWithUnwrittenLine(doc: ProseNode): boolean {
-  for (let index = doc.childCount - 1; index >= 0; index -= 1) {
-    const block = doc.child(index);
-    if (block.type.name !== 'paragraph') return false;
-    if (block.content.size > 0) return isLineBreak(block.lastChild);
-  }
-  return false;
-}
 
 /**
  * Join the top-level paragraph ending at `boundary` with the one starting there

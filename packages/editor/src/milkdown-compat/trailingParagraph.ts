@@ -1,6 +1,15 @@
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 
 /**
+ * Does `doc` end in blank space its serialization does not hold — so a text
+ * equal to that serialization is still not the same document? Either more
+ * trailing empty paragraphs than a parse leaves, or an empty last line.
+ */
+export function endsInUnwrittenBlank(doc: ProseNode): boolean {
+  return hasSurplusTrailingEmptyParagraphs(doc) || endsWithUnwrittenLine(doc);
+}
+
+/**
  * Does `doc` end in more empty paragraphs than a fresh parse of its own
  * serialization would leave?
  *
@@ -27,6 +36,22 @@ export function hasSurplusTrailingEmptyParagraphs(doc: ProseNode): boolean {
   const parked =
     last === undefined || (last.type.name !== 'paragraph' && last.type.name !== 'heading');
   return trailing > (parked ? 1 : 0);
+}
+
+/**
+ * Whether the note's last written block is a paragraph ending in a line break
+ * — an empty last line (Enter at the end of the note, src/features/editor/
+ * milkdown/paragraphLines.ts) the file cannot hold: trailing whitespace is not
+ * content, so the document serializes exactly like one without it. Trailing
+ * empty paragraphs are skipped: those are not written either.
+ */
+export function endsWithUnwrittenLine(doc: ProseNode): boolean {
+  for (let index = doc.childCount - 1; index >= 0; index -= 1) {
+    const block = doc.child(index);
+    if (block.type.name !== 'paragraph') return false;
+    if (block.content.size > 0) return block.lastChild?.type.name === 'hardbreak';
+  }
+  return false;
 }
 
 function isEmptyParagraph(node: ProseNode): boolean {

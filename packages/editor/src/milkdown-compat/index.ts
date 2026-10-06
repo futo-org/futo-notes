@@ -112,7 +112,7 @@ export {
 } from './frontmatter';
 export type { MdastNode } from './mdast';
 export { editorMarkdownSerializer, ownedSerializerPlugin } from './ownedSerializer';
-export { hasSurplusTrailingEmptyParagraphs } from './trailingParagraph';
+export { endsInUnwrittenBlank } from './trailingParagraph';
 
 /** The two entries `remarkPreserveEmptyLinePlugin` contributes to the preset. */
 const UPSTREAM_EMPTY_LINE_ENTRIES: readonly unknown[] = [

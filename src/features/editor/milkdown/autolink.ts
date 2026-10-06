@@ -30,6 +30,8 @@ import { $prose } from '@milkdown/kit/utils';
 
 import type { MdastNode } from '@futo-notes/editor/milkdown-compat';
 
+import { isLineBreak } from './paragraphLines';
+
 export const autolinkKey = new PluginKey('FUTO_AUTOLINK');
 
 /** Cheap pre-filter: only a word that could be a literal is worth a parse. */
@@ -37,7 +39,7 @@ const URL_HINT = /https?:\/\/|www\./i;
 
 /** One character per inline leaf, so string offsets stay document offsets;
  * a hard break reads as the line break it is. */
-const leafText = (node: ProseNode): string => (node.type.name === 'hardbreak' ? '\n' : '￼');
+const leafText = (node: ProseNode): string => (isLineBreak(node) ? '\n' : '\ufffc');
 
 /**
  * Where the word that this edit ended stops, or null if it ended none: the

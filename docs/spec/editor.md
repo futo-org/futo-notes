@@ -200,7 +200,8 @@ about.
   long-press drag moves it whole.
 - A newline at the very end of a note is not written (trailing whitespace is
   not content), so a note left ending in an empty line reloads without it. →
-  paragraphLines.ts `endsWithUnwrittenLine`, milkdown/hostHandle.ts `holdsExactly`
+  packages/editor/src/milkdown-compat/trailingParagraph.ts `endsInUnwrittenBlank`,
+  milkdown/hostHandle.ts `holdsExactly`
 
 ## Markdown house style — what a save writes
 

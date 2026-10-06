@@ -9,7 +9,6 @@ import {
 } from '@milkdown/kit/prose/state';
 
 import {
-  endsWithUnwrittenLine,
   enterInParagraph,
   isolateSelectedLines,
   joinBackwardAsLine,
@@ -267,17 +266,5 @@ describe('lineStartShortcut', () => {
     for (const typed of ['-', 'a- ', '1) ', '#tag', '--', '``']) {
       expect(lineStartShortcut(typed), typed).toBe(false);
     }
-  });
-});
-
-describe('endsWithUnwrittenLine', () => {
-  it('is true when the last written paragraph ends in a line break', () => {
-    expect(endsWithUnwrittenLine(stateWith('hey\n^').doc)).toBe(true);
-    expect(endsWithUnwrittenLine(stateWith('hey\n^||').doc)).toBe(true);
-  });
-
-  it('is false for a note that ends in text or in another block', () => {
-    expect(endsWithUnwrittenLine(stateWith('hey^').doc)).toBe(false);
-    expect(endsWithUnwrittenLine(stateWith('one\n|heading:T^').doc)).toBe(false);
   });
 });

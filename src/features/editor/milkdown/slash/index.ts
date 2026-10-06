@@ -30,6 +30,7 @@ import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
 import { blockFormatAtPos } from '../blockCommands';
 import { editorView } from '../caretContext';
+import { isLineBreak } from '../paragraphLines';
 import type { ImageInsertTarget } from '../../imageInsertTarget';
 import { createSlashExec } from './exec';
 import { filterSlashItems, type SlashItem } from './items';
@@ -100,7 +101,7 @@ function readOpenRun(state: EditorState): OpenRun | null {
     // A leaf (a wikilink chip, an image) must occupy one character so the offset
     // arithmetic below still lands on the right document position; a line break
     // is a newline, because a typed line starts a run too (paragraphLines.ts).
-    (leaf) => (leaf.type.name === 'hardbreak' ? '\n' : '\ufffc'),
+    (leaf) => (isLineBreak(leaf) ? '\n' : '\ufffc'),
   );
   const found = SLASH_RUN.exec(textBefore.slice(textBefore.lastIndexOf('\n') + 1));
   if (!found) return null;

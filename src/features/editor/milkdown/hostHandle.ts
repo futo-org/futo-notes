@@ -16,7 +16,7 @@ import { EditorState, TextSelection, type PluginKey } from '@milkdown/kit/prose/
 import type { Schema as ProseSchema } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { toWellFormedText, type DocumentRef, type FlushFailureReason } from '@futo-notes/editor';
-import { hasSurplusTrailingEmptyParagraphs } from '@futo-notes/editor/milkdown-compat';
+import { endsInUnwrittenBlank } from '@futo-notes/editor/milkdown-compat';
 import { WHOLE as CENSUS_WHOLE } from './chunkCensusHook';
 import type { DocumentLoad } from './documentLoad';
 import type { DocumentSession } from './documentSession.svelte';
@@ -30,7 +30,6 @@ import {
 } from './find';
 import { planMarkdownChunks, type MarkdownChunkOptions } from './markdownChunks';
 import { dropBlockDndFocusGuards } from './mobileBlockDnd';
-import { endsWithUnwrittenLine } from './paragraphLines';
 import { stripLeadingBoms } from './parseNote';
 import { createDocumentSerializer, type SerializationLoop } from './serializationLoop';
 import { hideTableGrips } from './table/tableGrips';
@@ -327,12 +326,7 @@ function createNoteCommands(
      * them, and skipping would leave those on screen under the next note. Such
      * a document is reloaded. */
     const view = pmView();
-    if (
-      view &&
-      (hasSurplusTrailingEmptyParagraphs(view.state.doc) || endsWithUnwrittenLine(view.state.doc))
-    ) {
-      return false;
-    }
+    if (view && endsInUnwrittenBlank(view.state.doc)) return false;
     return text === readSerialized();
   }
 

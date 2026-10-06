@@ -78,9 +78,10 @@ From the 2026-09 release-hardening campaign (FB-4a/4b/4c), all on the parse side
   START and moved values under the wrong header.
 - `tableAlignment.ts` keeps a cell's missing alignment through the DOM
   (`data-align-unset`), so a pasted table is not written `| :-- |`.
-- `trailingParagraph.ts` answers whether a document ends in more empty
-  paragraphs than its own serialization would read back as (a host `setContent`
-  must still be applied then); the serializer does not write trailing ones.
+- `trailingParagraph.ts` answers whether a document ends in blank space its
+  own serialization does not hold — more empty paragraphs than a parse leaves,
+  or an empty last line (`endsInUnwrittenBlank`; a host `setContent` must still
+  be applied then); the serializer writes neither.
 - In `frontmatter.ts`: a parser wrapper refuses the front matter construct for
   a note with no closing fence (the construct is `concrete`, and a failed
   attempt at EOF had disabled every list and quote; canary in
