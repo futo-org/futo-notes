@@ -14,7 +14,6 @@
  * COST IS PER BLOCK. A top-level block's text depends on the block itself and
  * on a small, cheaply computed context, nothing else:
  *
- *   - `firstLine`  — it starts the file (a `---` there would open front matter);
  *   - `listMarker` — for a list, the marker it alternates to when it touches a
  *                    list of the same kind (`planDocument`);
  *   - `references` — the note's footnote and unused link-reference
@@ -26,7 +25,11 @@
  * and blocks are joined by a rule that only looks at which blocks are empty
  * paragraphs (`joinDocument`). So a cache can hold one string per top-level
  * block, keyed on the block's identity plus that context, and re-serialize only
- * the blocks that changed — `./cache.ts` is that cache.
+ * the blocks that changed — `./cache.ts` is that cache. The one spelling the
+ * rest of the note decides is a thematic break on the first line: `---` there
+ * opens front matter if any later line closes it, so `join` checks the joined
+ * file's later `---` lines and writes `***` only then — a scan of the text, and
+ * a parse of a three-line stand-in per distinct candidate line.
  *
  * WHERE IT RUNS. It is the only serializer in the product. The save path keeps
  * a `./cache.ts` over it (src/features/editor/milkdown/serializationLoop.ts);
@@ -44,7 +47,6 @@ import { render, Sites, type SiteScope } from './pieces';
 export type { ListMarker } from './blocks';
 
 export interface BlockContext {
-  readonly firstLine: boolean;
   readonly listMarker: ListMarker | null;
   /** `references(...)` of the whole document. */
   readonly references: string;
@@ -61,6 +63,8 @@ export interface BlockSummary {
   /** An empty paragraph: written as a blank line between blocks, never as text. */
   readonly empty: boolean;
   readonly listKind: 'bullet' | 'ordered' | null;
+  /** A thematic break, whose spelling on the note's first line the rest of the note decides (`join`). */
+  readonly rule: boolean;
   /** The definitions this block contributes to `references`. */
   readonly references: readonly string[];
 }
@@ -76,8 +80,14 @@ export interface MarkdownSerializer {
   serialize(doc: NodeJson): string;
   /** One top-level block's text, without the separator around it. */
   serializeBlock(block: NodeJson, context: BlockContext): WrittenBlock;
-  /** The facts about a top-level block the per-block API needs (`planDocument`, `references`). */
+  /** The facts about a top-level block the per-block API needs (`planDocument`, `references`, `join`). */
   summarize(block: NodeJson): BlockSummary;
+  /**
+   * The file from its top-level blocks' texts (null for an empty paragraph)
+   * and summaries: `joinDocument`, then a thematic break on the first line
+   * written `***` where `---` would open front matter.
+   */
+  join(texts: readonly (string | null)[], summaries: readonly BlockSummary[]): string;
 }
 
 /**
@@ -101,6 +111,7 @@ export function summarizeBlock(block: NodeJson): BlockSummary {
   return {
     empty: nodes.length === 1 && first !== undefined && isEmptyParagraph(first),
     listKind: first ? listKind(first) : null,
+    rule: nodes.length === 1 && first?.type === NODE.hr,
     references: nodes.flatMap((node) => blockReferences(node)),
   };
 }
@@ -111,28 +122,18 @@ export function references(summaries: readonly BlockSummary[]): string {
 }
 
 /**
- * Each top-level block's position: whether it starts the file, and the marker
- * each list is written with — `-`/`.` unless it touches a list of the same
- * kind (only empty paragraphs between), which makes it the other one. Null for
- * an empty paragraph, which is not written. Cheap: no block is serialized.
+ * Each top-level block's position: the marker each list is written with —
+ * `-`/`.` unless it touches a list of the same kind (only empty paragraphs
+ * between), which makes it the other one. Null for an empty paragraph, which
+ * is not written. Cheap: no block is serialized.
  */
 export function planDocument(
   summaries: readonly BlockSummary[],
-): ({ firstLine: boolean; listMarker: ListMarker | null } | null)[] {
-  let started = false;
-  let emptyBefore = 0;
+): ({ listMarker: ListMarker | null } | null)[] {
   const markerFor = listMarkers();
-  return summaries.map((summary) => {
-    if (summary.empty) {
-      emptyBefore += 1;
-      return null;
-    }
-    const listMarker = markerFor(summary.listKind);
-    const firstLine = !started && emptyBefore === 0;
-    started = true;
-    emptyBefore = 0;
-    return { firstLine, listMarker };
-  });
+  return summaries.map((summary) =>
+    summary.empty ? null : { listMarker: markerFor(summary.listKind) },
+  );
 }
 
 /**
@@ -212,18 +213,53 @@ export function createMarkdownSerializer(options: MarkdownSerializerOptions): Ma
     return { text, checked: true };
   }
 
+  /** Per candidate line: whether it closes front matter that a `---` on line 1 opens. */
+  const fences = new Map<string, boolean>();
+
+  /**
+   * Whether a line of `rest` (the file after its first line) would close the
+   * front matter a `---` first line opens. Lines starting `---` are the
+   * candidates; the parser decides each one, as the closing line of a
+   * stand-in front matter block. A parse that fails counts as closing: `***`
+   * is never front matter.
+   */
+  function closesFrontmatter(rest: string): boolean {
+    for (const [line] of rest.matchAll(/^---.*$/gm)) {
+      let closes = fences.get(line);
+      if (closes === undefined) {
+        try {
+          closes = parse(`---\nx\n${line}`).content?.[0]?.type === NODE.frontmatter;
+        } catch {
+          closes = true;
+        }
+        if (fences.size > 32) fences.clear();
+        fences.set(line, closes);
+      }
+      if (closes) return true;
+    }
+    return false;
+  }
+
+  function join(texts: readonly (string | null)[], summaries: readonly BlockSummary[]): string {
+    const file = joinDocument(texts);
+    // Only a rule with nothing before it is on the first line; its text is `---`.
+    if (texts[0] === null || texts[0] === undefined || summaries[0]?.rule !== true) return file;
+    return closesFrontmatter(file.slice('---\n'.length)) ? `***${file.slice('---'.length)}` : file;
+  }
+
   function serialize(doc: NodeJson): string {
     const blocks = doc.content ?? [];
     const summaries = blocks.map(summarizeBlock);
     const refs = references(summaries);
     const plan = planDocument(summaries);
-    return joinDocument(
+    return join(
       blocks.map((block, index) => {
         const position = plan[index];
         return position ? serializeBlock(block, { ...position, references: refs }).text : null;
       }),
+      summaries,
     );
   }
 
-  return { serialize, serializeBlock, summarize: summarizeBlock };
+  return { serialize, serializeBlock, summarize: summarizeBlock, join };
 }

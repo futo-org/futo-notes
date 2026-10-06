@@ -418,7 +418,7 @@ test('a note that opens with an unclosed --- rule keeps its lists and quotes', a
 
   const changes = await waitForMessages(page, 'change');
   expect(changes).toHaveLength(1);
-  expect(changes[0].content).toBe('***\n\nShopping\n\n- milk\n  - skim\n\n> quoted\n\nendX\n');
+  expect(changes[0].content).toBe('---\n\nShopping\n\n- milk\n  - skim\n\n> quoted\n\nendX\n');
 });
 
 // A paste reaches the document through the DOM: our own copy writes the block

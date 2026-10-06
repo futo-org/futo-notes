@@ -1,18 +1,25 @@
 import { describe, expect, it } from 'vitest';
 
-import { joinDocument, planDocument, type BlockSummary } from './serializer';
+import {
+  createMarkdownSerializer,
+  joinDocument,
+  planDocument,
+  type BlockSummary,
+} from './serializer';
 
 // The byte-level house style is locked by the goldens against the real parser
 // (tests/conformance/markdown-house-style.json, run from
-// src/features/editor/milkdown/markdownHouseStyle.test.ts). These pin the two
-// cross-block rules the save cache relies on, which need no parser at all.
+// src/features/editor/milkdown/markdownHouseStyle.test.ts). These pin the
+// cross-block rules the save cache relies on, with a stand-in parser where
+// one is needed at all.
 
 const block = (listKind: BlockSummary['listKind'] = null): BlockSummary => ({
   empty: false,
   listKind,
+  rule: false,
   references: [],
 });
-const empty: BlockSummary = { empty: true, listKind: null, references: [] };
+const empty: BlockSummary = { empty: true, listKind: null, rule: false, references: [] };
 
 describe('joinDocument', () => {
   it('separates blocks by a blank line, plus one per empty paragraph between them', () => {
@@ -45,12 +52,25 @@ describe('planDocument', () => {
     const plan = planDocument([block('bullet'), block(), block('bullet'), block('ordered')]);
     expect(plan.map((position) => position?.listMarker ?? null)).toEqual(['-', null, '-', '.']);
   });
+});
 
-  it('puts only a block with nothing before it on the first line', () => {
-    expect(planDocument([block(), block()]).map((position) => position?.firstLine)).toEqual([
-      true,
-      false,
-    ]);
-    expect(planDocument([empty, block()])[1]?.firstLine).toBe(false);
+describe('join', () => {
+  // A stand-in parser: `---` closes front matter, nothing else does.
+  const serializer = createMarkdownSerializer({
+    parse: (markdown) => ({
+      type: 'doc',
+      content: [{ type: /^---\nx\n---$/.test(markdown) ? 'frontmatter' : 'paragraph' }],
+    }),
+  });
+  const rule: BlockSummary = { ...block(), rule: true };
+
+  it('writes a first-line rule *** only when the parse says a later line closes front matter', () => {
+    expect(serializer.join(['---', 'a\n---'], [rule, block()])).toBe('***\n\na\n---\n');
+    expect(serializer.join(['---', 'a\n----'], [rule, block()])).toBe('---\n\na\n----\n');
+    expect(serializer.join(['---'], [rule])).toBe('---\n');
+  });
+
+  it('leaves a rule that is not on the first line alone', () => {
+    expect(serializer.join([null, '---', '---'], [empty, rule, rule])).toBe('\n---\n\n---\n');
   });
 });

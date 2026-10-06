@@ -555,11 +555,11 @@ test.describe('YAML front matter survives the round trip', () => {
   test('compat leaves an opening thematic break alone', async ({ page }) => {
     // `---` followed by a blank line is not front matter (no closing fence),
     // and must keep parsing as the rule it is rather than swallowing the note.
-    // On the first line the house style writes it `***`, which cannot open
-    // front matter.
+    // Nothing later would close front matter, so the house style writes `---`
+    // on the first line too; a later `---` line would make it `***`.
     const out = await roundTrip(page, 'compat', '---\n\nbody\n');
-    expect(out).toContain('***');
-    expect(out).toContain('body');
+    expect(out).toBe('---\n\nbody\n');
+    expect(await roundTrip(page, 'compat', '***\n\nbody\n\n***\n')).toBe('***\n\nbody\n\n---\n');
   });
 
   test('compat leaves an unterminated `---` block alone', async ({ page }) => {
@@ -586,7 +586,7 @@ test.describe('YAML front matter survives the round trip', () => {
   }) => {
     const { once, twice } = await twoSaves(page, 'compat', UNCLOSED);
     expect(once).toBe(
-      '***\n\nShopping\n\n- milk\n  - skim\n- [ ] eggs\n\n> quoted\n\nx[^1]\n\n[^1]: a note\n\nend\n',
+      '---\n\nShopping\n\n- milk\n  - skim\n- [ ] eggs\n\n> quoted\n\nx[^1]\n\n[^1]: a note\n\nend\n',
     );
     expect(twice).toBe(once);
   });

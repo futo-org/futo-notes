@@ -277,8 +277,10 @@ hand-reviewed goldens, one or more per line below)
 
 - Headings are ATX: one to six `#`, a space, the text. Never setext.
 - A thematic break is `---`.
-- A thematic break on the note's first line is `***`, because `---` there
-  opens front matter.
+- A thematic break on the note's first line is `---` too, unless a parse
+  shows `---` there would open front matter: a later line of the note would
+  close it (a later `---` rule, or a `---` line in a code block). Only then is
+  it `***`.
 - Inside a quote, list item or footnote, a thematic break is `***` wherever a
   parse reads `---` as something else: right under a paragraph (a setext
   underline), or as the first thing in a `-` item (a list item, not a rule).
@@ -825,10 +827,10 @@ hand-reviewed goldens, one or more per line below)
   but whitespace. `----`, ` ---`, and a `---` with no closing fence are a
   thematic break (and, with a line above it, a setext heading) exactly as
   CommonMark says — and a `---` anywhere but the first line of the note is
-  always a thematic break. A save never writes `---` for a thematic break on
-  the note's first line, where it would open front matter: it writes `***`
-  there (see "Markdown house style", which lists every place `***` is
-  written).
+  always a thematic break. A save writes a thematic break on the note's first
+  line as `***` only where `---` would open front matter there, because a
+  later line would close it (see "Markdown house style", which lists every
+  place `***` is written).
   (`+++` TOML front matter is not recognised and round-trips as the paragraph
   CommonMark reads it as.)
 - The block is RENDERED, as one inert metadata panel above the body: muted, monospace, with a left rule, and no

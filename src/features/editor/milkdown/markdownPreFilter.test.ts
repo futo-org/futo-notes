@@ -130,7 +130,6 @@ describe('the parse-or-not pre-filter', () => {
       const doc = nextDocument();
       const [block] = doc.content ?? [];
       const { checked } = serializer.serializeBlock(block as NodeJson, {
-        firstLine: true,
         listMarker: null,
         references: '',
       });

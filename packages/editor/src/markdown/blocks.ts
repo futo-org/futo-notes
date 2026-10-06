@@ -25,8 +25,6 @@ export type ListMarker = '-' | '*' | '.' | ')';
 
 /** What a block's spelling depends on outside the block itself. */
 export interface BlockPosition {
-  /** The block starts on the file's first line (no front matter or blank line before it). */
-  readonly firstLine: boolean;
   /** For a list: the marker to write it with (it alternates with a list it touches). */
   readonly listMarker: ListMarker | null;
 }
@@ -226,7 +224,7 @@ function writeChildren(
     } else {
       lines.push(...blankLines(emptyBefore));
     }
-    const written = writeBlock(child, { firstLine: false, listMarker }, sites, true);
+    const written = writeBlock(child, { listMarker }, sites, true);
     if (options.tight && previous?.type === NODE.paragraph && isHtmlBlock(child) && written[0]) {
       lazyLines.add(written[0]);
     }
@@ -345,9 +343,10 @@ export function writeBlock(
     case NODE.codeBlock:
       return writeCode(node);
     case NODE.hr:
-      // `---` opens front matter on line 1; inside a list item it can be read
-      // as a setext underline or as the item's own marker, so a parse decides.
-      if (position.firstLine) return [['***']];
+      // Inside a list item `---` can be read as a setext underline or as the
+      // item's own marker, so a parse decides. On the note's first line it may
+      // open front matter, which only the rest of the note can tell
+      // (`../serializer.ts` `join`).
       return [[nested ? sites.piece(['---', '***']) : '---']];
     case NODE.blockquote: {
       const children = node.content ?? [];

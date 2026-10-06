@@ -20,6 +20,30 @@
       "expected": "***\n\ntext\n\n---\n\nmore\n"
     },
     {
+      "story": 2,
+      "name": "a *** rule on the first line is written --- when no later line would close front matter",
+      "source": "***\n\ntext",
+      "expected": "---\n\ntext\n"
+    },
+    {
+      "story": 2,
+      "name": "a rule on the first line stays *** when a --- line in a later code block would close front matter",
+      "source": "***\n\n```\n---\n```",
+      "expected": "***\n\n```\n---\n```\n"
+    },
+    {
+      "story": 2,
+      "name": "a later ---- or --- x line is not a fence: the first-line rule is ---",
+      "source": "***\n\n```\n----\n--- x\n```",
+      "expected": "---\n\n```\n----\n--- x\n```\n"
+    },
+    {
+      "story": 2,
+      "name": "a rule after a blank first line is not on line 1: it and the rules after it are ---",
+      "source": "\n***\n\nx\n\n***\n***",
+      "expected": "\n---\n\nx\n\n---\n\n---\n"
+    },
+    {
       "story": 16,
       "name": "--- on line 1 closed by a later --- is front matter, blank lines in its body included",
       "source": "---\n\ntext\n\n---\n\nmore",
@@ -27,9 +51,9 @@
     },
     {
       "story": 2,
-      "name": "an unclosed --- on line 1 is a rule, written ***",
+      "name": "an unclosed --- on line 1 is a rule, written --- (nothing later would close front matter)",
       "source": "---\n\n- a\n\n> q",
-      "expected": "***\n\n- a\n\n> q\n"
+      "expected": "---\n\n- a\n\n> q\n"
     },
     {
       "story": 2,

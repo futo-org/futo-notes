@@ -7,12 +7,11 @@
  * JSON. An unchanged block is the same object across transactions, so a
  * WeakMap hit costs nothing; a changed block is a new object and is summarized
  * and written once. Nothing mirrors an outside library's joining rules any
- * more — the serializer owns the separator (`joinDocument`) and the only
+ * more — the serializer owns the separator (`join`) and the only
  * cross-block state, the list marker and the definitions (`planDocument`,
  * `references`), is recomputed from cached summaries on every call.
  */
 import {
-  joinDocument,
   planDocument,
   references,
   type BlockContext,
@@ -48,7 +47,6 @@ interface Entry {
 function fits(written: Entry['written'], context: BlockContext): boolean {
   return (
     written !== null &&
-    written.context.firstLine === context.firstLine &&
     written.context.listMarker === context.listMarker &&
     (!written.checked || written.context.references === context.references)
   );
@@ -100,10 +98,12 @@ export function createCachedSerializer<Block extends object, Doc>(
 
   return {
     serialize(doc) {
-      return joinDocument(
-        layout(doc).map(({ block, entry: found, context }) =>
+      const rows = layout(doc);
+      return serializer.join(
+        rows.map(({ block, entry: found, context }) =>
           context ? written(block, found, context) : null,
         ),
+        rows.map(({ entry: found }) => found.summary),
       );
     },
     isPrimed(doc) {
