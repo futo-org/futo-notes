@@ -736,7 +736,7 @@ native shells edit tags as text in the body, which is not a gap.
 - Clicking/tapping a wikilink navigates to the target note (desktop:
   Cmd/Ctrl+click opens it in a new tab; middle-click opens it in a background
   tab). Rapid clicks on separate links each navigate. → NotesShell.svelte
-  onopenlink, MilkdownEditor.svelte `handleLinkClick`
+  onopenlink, milkdown/linkTaps.ts `handleLinkClick`
 - A wikilink displays the **shortest unique path suffix** (`[[Projects/Roadmap]]`
   renders as "Roadmap" while unambiguous). The native shells feed the vault
   note list into the shared editor WebView over the bridge (`setNotes`), so
@@ -794,7 +794,7 @@ native shells edit tags as text in the body, which is not a gap.
   a time by construction. Verified emulator + simulator 2026-07-08 (A → wikilink
   → B → Back returns to A with A's content intact and the editor still
   interactive; Back again returns to the list). →
-  src/features/editor/milkdown/MilkdownEditor.svelte `handleTouchEnd`
+  src/features/editor/milkdown/linkTaps.ts `handleTouchEnd`
   `activateLink`, AppNavigation.kt `AppNavigator.openNote` (push),
   NoteEditorView.swift `openLinkedNote` + EditorWebView.swift `Coordinator.adopt`,
   tests/editor-embed-milkdown-wikilinks.spec.ts
@@ -858,7 +858,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   Scrolling from a link or holding it for a block drag does not open it;
   separate rapid mouse clicks on links each open their URL.
   → platform/openExternalUrl.ts,
-  src/features/editor/milkdown/MilkdownEditor.svelte `linkAt` / `activateLink`,
+  src/features/editor/milkdown/linkTaps.ts `linkAt` / `activateLink`,
   editor-embed/main.ts, packages/editor bridge v6 `openUrl`,
   EditorWebView.swift `openUrl` case, EditorWebView.kt `openExternalUrl` /
   `shouldOverrideUrlLoading` / `isInAppEditorNavigation`,
@@ -867,7 +867,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
 - Only the link's own glyphs open it: the hit is the anchor element under the
   pointer, so clicking the blank space past the end of a link — including a link
   that wraps onto several visual lines — places the caret instead of opening the
-  URL. → src/features/editor/milkdown/MilkdownEditor.svelte `linkAt`
+  URL. → src/features/editor/milkdown/linkTaps.ts `linkAt`
 
 - Typing a bare URL links it the moment its word ends — Space or Enter — with
   exactly the extent and href reopening the note would give
