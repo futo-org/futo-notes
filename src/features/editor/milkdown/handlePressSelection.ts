@@ -1,59 +1,39 @@
 /*
- * What pressing the ⠿ handle does to the user's selection: nothing.
+ * What moving a block with the ⠿ handle does to the user's selection: carries
+ * it along.
  *
- * @milkdown/plugin-block dispatches a NodeSelection over the hovered block on
- * mousedown on the handle. The drag needs it (it is what `view.dragging`
- * carries, and what blockDropIndicator.ts reads to know which block is
- * moving), but the plugin never gives the previous selection back.
- * ProseMirror hands a NodeSelection over a text block to the browser as a
- * native range over its text, so a click that did not drag, a drop back where
- * the block started, and a drag released outside the note all left the whole
- * block painted as selected text. Reported: "sometimes when I use it, text or
- * other items get selected".
- *
- * So the selection the user had is remembered on the press, BEFORE the plugin
- * replaces it, and handed back once the press is over:
- *
- *  - the block moved: carried through the move transaction, travelling with
- *    the block when it was inside it (`carryPressSelectionThroughMove`);
- *  - nothing changed: restored exactly (`settleSelectionAfterHandlePress`);
- *  - the document changed some other way, e.g. ProseMirror's own drop:
- *    collapsed, so nothing is left selected.
+ * The handle never SELECTS anything. It used to: @milkdown/plugin-block
+ * dispatched a NodeSelection over the hovered block on mousedown on the handle,
+ * ProseMirror hands a NodeSelection over a text block to the browser as a native
+ * range over its text, and nothing ever gave the user's own selection back — so
+ * a click, a drop back where the block started, and a drag released outside the
+ * note all left the whole block painted as selected text (reported: "sometimes
+ * when I use it, text or other items get selected"). The handle's drag is now
+ * pointer-driven (`handleBlockDrag.ts`), which cancels that mousedown, so the
+ * selection is simply never touched — until the block moves, where this puts the
+ * user's selection on the move transaction: travelling with the block when it
+ * was inside it.
  *
  * → tests/editor-embed-milkdown.spec.ts "USING THE ⠿ HANDLE NEVER SELECTS ANYTHING"
  */
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { Selection, TextSelection, type Transaction } from '@milkdown/kit/prose/state';
-import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
-interface Press {
+/** The user's document and selection at the moment the handle was pressed. */
+export interface PressSelection {
   doc: ProseNode;
   selection: Selection;
-  /** The move transaction already placed the selection. */
-  carried: boolean;
-}
-
-const presses = new WeakMap<ProseView, Press>();
-
-/** On mousedown on the handle, before plugin-block's own listener runs. */
-export function rememberSelectionBeforeHandlePress(view: ProseView): void {
-  presses.set(view, { doc: view.state.doc, selection: view.state.selection, carried: false });
 }
 
 /**
- * Puts the remembered selection onto `tr`, the transaction that moves the node
- * at `from..to` (in the pressed document) so it starts at `movedTo` (in
- * `tr.doc`). Does nothing when no handle press is outstanding, which is every
- * long-press drag.
+ * Puts the pressed selection onto `tr`, the transaction that moves the node at
+ * `from..to` (in the pressed document) so it starts at `movedTo` (in `tr.doc`).
  */
-export function carryPressSelectionThroughMove(
-  view: ProseView,
+export function carrySelectionThroughMove(
   tr: Transaction,
+  press: PressSelection,
   moved: { from: number; to: number; movedTo: number },
 ): void {
-  const press = presses.get(view);
-  if (!press || press.carried) return;
-  press.carried = true;
   // Something else edited the note mid-drag, so the remembered positions no
   // longer describe it: just don't leave the moved block selected.
   if (press.doc !== tr.before) {
@@ -69,32 +49,4 @@ export function carryPressSelectionThroughMove(
       ? TextSelection.between(tr.doc.resolve(map(anchor)), $head)
       : Selection.near($head),
   );
-}
-
-/**
- * Once the press is over — a click, or a drag that has ended — gives back
- * whatever the move above did not already, and refocuses the editor. Safe to
- * call more than once.
- *
- * THE FOCUS IS NOT OPTIONAL. The handle is a plain div, so the press's default
- * action blurs the editor straight after plugin-block focused it, and a
- * ProseMirror view without focus does not write its selection to the DOM: the
- * native range over the pressed block stays exactly where it is, painted,
- * whatever the state's selection says. Focusing writes it.
- */
-export function settleSelectionAfterHandlePress(view: ProseView): void {
-  const press = presses.get(view);
-  if (!press) return;
-  presses.delete(view);
-  const { state } = view;
-  if (press.carried) {
-    // Placed by the move.
-  } else if (state.doc === press.doc) {
-    if (!state.selection.eq(press.selection)) {
-      view.dispatch(state.tr.setSelection(press.selection));
-    }
-  } else if (!state.selection.empty) {
-    view.dispatch(state.tr.setSelection(Selection.near(state.selection.$to, -1)));
-  }
-  view.focus();
 }

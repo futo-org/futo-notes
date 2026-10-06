@@ -505,19 +505,8 @@
   background: var(--color-selection, #ffe4d1);
 }
 
-/* While the ⠿ handle is pressed the selection is plugin-block's NodeSelection
- * over the block, not anything the user chose; ProseMirror mirrors it as a
- * native range over the block's text, which must not paint. */
-.futo-milkdown.handle-pressed .ProseMirror ::selection {
-  background: transparent;
-}
-
-.futo-milkdown.handle-pressed .ProseMirror {
-  caret-color: transparent;
-}
-
 /* Table row/column grips (table/tableGrips.ts). `position: fixed` in
- * viewport coordinates, same contract as `.milkdown-drop-indicator` —
+ * viewport coordinates, same contract as `.futo-mobile-dnd-indicator` —
  * positioned in JS off the actual rendered table, appended OUTSIDE the
  * contenteditable so WebKit's DOMObserver cannot fight them (M-drag
  * handle's own comment, above). Hidden via the `hidden` attribute rather
@@ -613,11 +602,12 @@
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.12s ease;
-  /* iOS/WKWebView native HTML5 drag on a plain draggable div: touch-action
-   * stops the browser eating the long-press-drag gesture as a scroll, and
-   * -webkit-user-drag is WebKit's own opt-in for element drag sources. */
+  /* Never a native drag source: the drag is pointer-driven
+   * (handleBlockDrag.ts), and WebKit's `-webkit-user-drag: element` would make
+   * the engine start an HTML5 drag off this div regardless of `draggable`.
+   * touch-action keeps a touch from being eaten as a scroll. */
   touch-action: none;
-  -webkit-user-drag: element;
+  -webkit-user-drag: none;
   user-select: none;
   -webkit-user-select: none;
   z-index: 5;
@@ -645,26 +635,11 @@
   background: color-mix(in srgb, var(--color-text, #0f0f0f) 12%, transparent);
 }
 
-/* Drop indicator for the desktop ⠿ handle's HTML5 drag. The DOM and its
- * left/top/width come from `blockDropIndicator.ts` — which replaced
- * `.use(cursor)`'s prosemirror-drop-indicator precisely because that drew
- * TWO lines per top-level gap — and the paint is here, the same split the
- * long-press path's `.futo-mobile-dnd-indicator` uses. `top` is the line's
- * CENTRE (the gap's midpoint), hence the negative margin. */
-.milkdown-drop-indicator {
-  position: fixed;
-  height: 3px;
-  margin-top: -1.5px;
-  border-radius: 2px;
-  background: var(--color-primary, #f26b1f);
-  pointer-events: none;
-  z-index: 50;
-  opacity: 0;
-  transition: opacity 0.08s ease;
-}
-
-.milkdown-drop-indicator--visible {
-  opacity: 1;
+/* While the ⠿ handle lifts a block (handleBlockDrag.ts): the HTML5 drag this
+ * replaced drew the OS's own drag cursor, so the page supplies one. */
+html.futo-block-dragging,
+html.futo-block-dragging * {
+  cursor: grabbing !important;
 }
 
 /* Streaming-tail affordance. Pinned to the bottom of the editor rather than

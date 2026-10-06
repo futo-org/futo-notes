@@ -15,7 +15,7 @@
  * affordances is the point (Justin's scoping decision — full Obsidian
  * Advanced Tables parity is out, 2026-09).
  *
- * ARCHITECTURE: one `Plugin` view, mirroring `blockDropIndicator.ts` — DOM
+ * ARCHITECTURE: one `Plugin` view, mirroring `blockDragSession.ts`'s indicator — DOM
  * owned by this class, positioned `position: fixed` in viewport coordinates
  * (so no scroll compensation) and appended OUTSIDE the contenteditable
  * (`view.dom.parentNode`), for the same reason: WebKit's DOMObserver heals

@@ -573,10 +573,23 @@ hand-reviewed goldens, one or more per line below)
   put the handle over the bullet, and over the parent's text for a nested item
   — and dragging it with a mouse reorders blocks. Where there is no
   hover, the handle is still surfaced for the block that was just tapped or
-  that the caret moved into, but dragging it needs a mouse: the handle's drag
-  is @milkdown/plugin-block's HTML5 drag, which no touch or pen gesture
-  starts. → src/features/editor/milkdown/blockDrag.svelte.ts,
+  that the caret moved into, but dragging it needs a mouse: the drag starts on
+  a mouse's primary-button press and no touch or pen gesture starts it. →
+  src/features/editor/milkdown/blockDrag.svelte.ts,
+  src/features/editor/milkdown/handleBlockDrag.ts,
   src/features/editor/milkdown/blockMove.ts _(desktop)_
+- The desktop ⠿ handle's drag is POINTER-DRIVEN, never the browser's HTML5
+  drag: @milkdown/plugin-block still renders, positions and hover-tracks the
+  handle, but its own drag (`draggable`, `dragstart`, `setDragImage`) is cut
+  off before it can start, so no OS drag image is ever drawn on any platform.
+  Pressing the handle and moving the pointer a few pixels lifts the block
+  through the same drag the native long press uses after its lift; a click that
+  does not move changes neither the note nor the selection, and Escape
+  mid-drag cancels with no transaction. The handle is hidden for the length of
+  the lift. → src/features/editor/milkdown/handleBlockDrag.ts,
+  src/features/editor/milkdown/handleBlockDrag.test.ts,
+  src/features/editor/milkdown/blockDragSession.ts,
+  tests/editor-embed-milkdown.spec.ts _(desktop)_
 - A dragged block lands among its own kind. A top-level block sees only the
   gaps between top-level blocks: just below a blockquote is NOT "inside the
   blockquote", however the schema would read that position. A list item sees
@@ -594,16 +607,19 @@ hand-reviewed goldens, one or more per line below)
 - On desktop the ⠿ handle beside a list's FIRST item drags that item, like the
   handle beside every other item. @milkdown/plugin-block resolves a first child
   to its parent, so the handle it draws for a first bullet stands for the whole
-  list; the drag is re-targeted at `dragstart` to the item whose box the pointer
-  is in. → src/features/editor/milkdown/listItemHandleDrag.ts,
-  src/features/editor/milkdown/listItemHandleDrag.test.ts,
+  list; the press narrows that to the item whose box the pointer is in. →
+  src/features/editor/milkdown/handleSource.ts `handleSourceFor`,
+  src/features/editor/milkdown/handleSource.test.ts,
   tests/editor-embed-milkdown.spec.ts _(desktop)_
-- The desktop ⠿ handle's native drag ghost is corrected for the display's
-  `devicePixelRatio`: at 1x it is the browser/webview's own drag image,
-  unchanged; at any other ratio a detached, counter-scaled clone is dragged
-  instead of the live block, so the ghost matches the block's CSS size
-  regardless of scale factor. QA on a scaled Linux/Hyprland desktop reported
-  the ghost at roughly 200% size.
+- The desktop ⠿ handle's lifted block is a ghost card the page draws, at the
+  block's own on-screen size, never an OS drag image: a clone of the block over
+  the block itself (padded by the card's breathing room, like the long press's),
+  following the pointer by the distance moved since the lift, with the source
+  block dimmed in place. It cannot come out oversized on a scaled display, as
+  the OS-drawn drag image did on Linux (QA #012: roughly 200% size on a
+  fractionally scaled WebKitGTK display, which nothing the page did could fix).
+  → src/features/editor/milkdown/blockDragSession.ts,
+  tests/editor-embed-milkdown.spec.ts
 - There is ONE drop slot per boundary, on both drag gestures — between
   top-level blocks, and between the items of a list for a list item. Below
   block A and above the block directly under it are the same
@@ -618,7 +634,7 @@ hand-reviewed goldens, one or more per line below)
   @milkdown/kit/plugin/cursor ships (it draws a line on every block's top edge
   AND every block's bottom edge, so each gap had two). →
   src/features/editor/milkdown/blockDragGeometry.ts `resolveDropTarget`,
-  src/features/editor/milkdown/blockDropIndicator.ts,
+  src/features/editor/milkdown/blockDragSession.ts,
   src/features/editor/milkdown/blockDragGeometry.test.ts,
   tests/editor-embed-milkdown.spec.ts
 - The dragged block's own two boundaries draw no line and tick no haptic on
@@ -628,8 +644,7 @@ hand-reviewed goldens, one or more per line below)
   is drawn OVER the indicator line, with a translucent background, so the
   line — and the dimmed source block underneath at lift — stay visible
   through the card wherever it overlaps a boundary. → src/features/editor/milkdown/blockMove.ts
-  `isNoOpDrop`, src/features/editor/milkdown/mobileBlockDnd.ts,
-  src/features/editor/milkdown/blockDropIndicator.ts,
+  `isNoOpDrop`, src/features/editor/milkdown/blockDragSession.ts,
   src/features/editor/milkdown/blockMove.test.ts, tests/editor-embed-milkdown.spec.ts
 - A block drag is haptic three ways on both native shells: one firmer impact
   when the block lifts, a light tick each time the drop indicator lands on a
@@ -691,10 +706,11 @@ hand-reviewed goldens, one or more per line below)
   at the document's ends, and stops on every exit (commit, no-op release, cancel,
   editor destroy). The drop indicator is recomputed each frame from the boundary
   now under the stationary pointer. Both drag paths share it: the native shells'
-  long-press drag and the desktop ⠿ gutter handle's touch drag. Verified on an
+  long-press drag and the desktop ⠿ gutter handle's mouse drag. Verified on an
   Android device 2026-09-01 — a hold within the zone scrolls continuously and
   stops on release; a hold mid-viewport does not scroll. →
   src/features/editor/milkdown/blockDragGeometry.ts `createDragAutoScroller`,
+  src/features/editor/milkdown/blockDragSession.ts,
   src/features/editor/milkdown/blockDragGeometry.test.ts,
   tests/editor-embed-milkdown.spec.ts _(native shells)_
 - A finger landing on a block in the long-press block drag suspends the
@@ -1811,9 +1827,9 @@ unchanged by it.
   drop is to navigate the webview to that file, which would tear the running
   app down mid-edit — so a dropped `.md`, PDF or archive is swallowed and
   ignored rather than inserted, and never becomes an `![](…)`. A drop
-  carrying neither shape is left entirely alone, which is what the editor's
-  own block drag rides on: it sets `text/html` + `text/plain`, never
-  `text/uri-list`. _(desktop)_
+  carrying neither shape is left entirely alone, so an in-page drag is
+  unaffected. The editor's own block drag is pointer-driven and sends no drop
+  at all. _(desktop)_
   → src/features/editor/imageInsert.ts `dropCarriesFiles` / `imageFilesIn` /
   `filePathsFromDrop` / `imagePathsIn`, tests/image-drop.spec.ts
 - Which dropped or picked files count as images is `isImageFilename` — the same

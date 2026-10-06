@@ -16,8 +16,8 @@ import { history } from '@milkdown/kit/plugin/history';
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
 import { clipboard } from '@milkdown/kit/plugin/clipboard';
 /* `gapCursorPlugin` only — NOT the whole `cursor` bundle. Its drop-indicator
- * half draws two lines per top-level gap; `blockDropIndicator.ts` replaces it
- * and says why. */
+ * half draws two lines per top-level gap; the ⠿ handle's drag draws its own
+ * single line (`blockDragSession.ts`) and does not use it. */
 import { gapCursorPlugin } from '@milkdown/kit/plugin/cursor';
 import { trailing } from '@milkdown/kit/plugin/trailing';
 import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';

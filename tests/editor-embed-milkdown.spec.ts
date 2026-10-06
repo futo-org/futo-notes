@@ -6,10 +6,8 @@ import { expect, test as base, type CDPSession, type Page } from '@playwright/te
 
 import { BRIDGE_VERSION } from '@futo-notes/editor';
 
-import {
-  DEFAULT_LONG_PRESS_MS,
-  GHOST_PAD_Y_PX,
-} from '../src/features/editor/milkdown/mobileBlockDnd';
+import { GHOST_PAD_Y_PX } from '../src/features/editor/milkdown/blockDragSession';
+import { DEFAULT_LONG_PRESS_MS } from '../src/features/editor/milkdown/mobileBlockDnd';
 import { EDITOR_URL } from './editorEmbedBundle';
 import { PERFORMANCE_BUDGET } from './editor-gauntlet/performanceFloor';
 import {
@@ -1223,13 +1221,13 @@ async function longPressDrag(
 // explicit `?blockDragMode=gutter-handle` (blockDragMode.ts): its test-only
 // override is what keeps this path reachable at all from here.
 //
-// The drag itself is @milkdown/plugin-block's own HTML5 drag; nothing in this
-// repo implements it. This case exists because that is easy to break from the
+// The handle is rendered and positioned by @milkdown/plugin-block, but its drag
+// is OURS and pointer-driven (handleBlockDrag.ts): plain `page.mouse` events
+// drive it, there is no HTML5 drag to intercept. This is easy to break from the
 // outside without noticing: the handle is OUR element, positioned by OUR
-// getOffset, surfaced by OUR synthetic pointermove. Until 2026-09-02 a
-// 253-line touch/pen fallback (handleBlockDrag.ts) sat on the same handle and
-// owned the only test of this mode; when it went, the mouse drag it left
-// behind had no coverage at all. This is that coverage.
+// getOffset, surfaced by OUR synthetic pointermove, and the plugin's own drag
+// is cancelled by listeners that only win because they are registered before
+// its own.
 const gutterHandleTest = base.extend<{ page: Page }>({
   page: async ({ browser }, use) => {
     const context = await browser.newContext();
@@ -1245,34 +1243,28 @@ const gutterHandleTest = base.extend<{ page: Page }>({
 });
 
 /**
- * A genuine HTML5 drag off the ⠿ handle, driven ONE `dragover` at a time.
+ * A pointer-driven drag off the ⠿ handle (handleBlockDrag.ts), ONE move at a
+ * time so a gap can be SAMPLED at several y positions.
  *
  * `locator.dragTo()` cannot do this job: it moves the pointer to the target in
- * two hops, so a drag that must be SAMPLED at several y positions inside one
- * gap never reports the intermediate ones — the indicator only appears to move
- * once the pointer has already reached a different gap, which is exactly the
- * bug hiding itself.
+ * a single hop, so a drag that must be sampled at several y positions inside one
+ * gap never reports the intermediate ones.
  *
- * Individual `page.mouse.move` calls do report them, and the interception is a
- * real one over CDP: Playwright's own `DragManager` (playwright-core
- * `server/chromium/crDragDrop.js`) turns the first post-mousedown move into
- * `Input.setInterceptDrags` plus a real `dragstart` in the page — which is
- * where @milkdown/plugin-block sets `view.dragging` — and from then on EVERY
- * `mouse.move` is dispatched as an `Input.dispatchDragEvent` of type
- * `dragOver` at exactly that point, with `mouse.up()` dispatching `drop`.
- * Opening a second CDP session to drive this by hand does NOT work: Playwright
- * has already consumed `Input.dragIntercepted` and turned interception back
- * off before another listener could see it.
+ * Plain `page.mouse` calls are the whole driver: the page listens for
+ * `pointerdown` on the handle, lifts once the pointer has travelled a few
+ * pixels, follows every `pointermove`, and commits on `pointerup`. (This used to
+ * ride Playwright's HTML5 drag interception over CDP, which is why the helper
+ * once needed a long explanation of `Input.dispatchDragEvent`.)
  */
 async function startHandleDrag(page: Page, from: { x: number; y: number }) {
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
-  // Past the browser's own drag threshold. The FIRST move is the one that
-  // starts the drag, so it is spent here rather than on a boundary we assert.
+  // Past the page's lift distance. The FIRST move is the one that lifts the
+  // block, so it is spent here rather than on a boundary we assert.
   await page.mouse.move(from.x + 4, from.y + 8);
   await page.mouse.move(from.x + 8, from.y + 20);
 
-  /** The dragover handler writes the indicator synchronously; a frame is
+  /** The pointermove handler writes the indicator synchronously; a frame is
    * plenty for the assertion to read it back. */
   const settle = () => page.waitForTimeout(16);
 
@@ -1294,9 +1286,9 @@ async function startHandleDrag(page: Page, from: { x: number; y: number }) {
  * is about the resolved gap rather than about the 3px bar's own box. */
 function dropIndicatorTop(page: Page): Promise<number | null> {
   return page.evaluate(() => {
-    const el = document.querySelector('.milkdown-drop-indicator');
+    const el = document.querySelector('.futo-mobile-dnd-indicator');
     if (!(el instanceof HTMLElement)) return null;
-    if (!el.classList.contains('milkdown-drop-indicator--visible')) return null;
+    if (!el.classList.contains('futo-mobile-dnd-indicator--visible')) return null;
     const top = Number.parseFloat(el.style.top);
     return Number.isFinite(top) ? top : null;
   });
@@ -1390,10 +1382,6 @@ gutterHandleTest('a mouse drag on the ⠿ handle reorders the block', async ({ p
   const handle = page.locator('.milkdown-block-handle[data-show="true"]');
   await handle.waitFor({ state: 'attached' });
 
-  // plugin-block marks its own content draggable; if that ever stops being
-  // true the drag below is a no-op rather than a failure, so assert it.
-  await expect(handle).toHaveAttribute('draggable', 'true');
-
   // y=4 is charlie's UPPER half, so the drop lands above charlie rather than
   // after it — the same half-block rule the long-press path uses.
   const charlie = page.getByText('charlie', { exact: true }).first();
@@ -1406,6 +1394,126 @@ gutterHandleTest('a mouse drag on the ⠿ handle reorders the block', async ({ p
   expect(content).toBe('bravo\n\n# alpha\n\ncharlie\n');
 });
 
+/* The ⠿ handle's drag is POINTER-DRIVEN, the same ghost-card drag the native
+ * shells use after a long press (blockDragSession.ts) — never the browser's own
+ * HTML5 drag, whose OS-drawn drag image came out oversized on a fractionally
+ * scaled WebKitGTK display and cannot be fixed from the page. Nothing here can
+ * see an OS drag image, so the assertions are its absence (no `dragstart`, no
+ * `setDragImage`) and the page-drawn ghost that replaces it. */
+gutterHandleTest(
+  'a ⠿ handle drag starts no HTML5 drag, draws the ghost card at the block size, and commits on drop',
+  async ({ page }) => {
+    // A column narrower than the viewport, so the card's own clamp to the screen
+    // edges (a full-width block would hit it) cannot colour the size check.
+    await page.addStyleTag({ content: '.futo-milkdown { max-width: 600px; }' });
+    await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+    await clearMessages(page);
+    await page.evaluate(() => {
+      const probe = { dragstart: 0, setDragImage: 0 };
+      (window as unknown as { __html5Drag: typeof probe }).__html5Drag = probe;
+      document.addEventListener('dragstart', () => (probe.dragstart += 1), true);
+      const original = DataTransfer.prototype.setDragImage;
+      DataTransfer.prototype.setDragImage = function (...args) {
+        probe.setDragImage += 1;
+        return original.apply(this, args);
+      };
+    });
+
+    const block = (await page
+      .locator('.ProseMirror > *', { hasText: 'alpha' })
+      .first()
+      .boundingBox())!;
+    const charlie = await blockBox(page, 'charlie');
+    const handle = await surfaceHandle(page, 'alpha');
+    // The first lift move and the second one below (startHandleDrag): the ghost
+    // is drawn over the block at lift and then follows the pointer by the
+    // delta since.
+    const drag = await startHandleDrag(page, handle);
+    const delta = { x: 4, y: 12 };
+
+    const html5 = await page.evaluate(
+      () =>
+        (window as unknown as { __html5Drag: { dragstart: number; setDragImage: number } })
+          .__html5Drag,
+    );
+    expect(html5, 'an HTML5 drag started: the OS would draw its own drag image').toEqual({
+      dragstart: 0,
+      setDragImage: 0,
+    });
+
+    // The card is the block plus its padding (12px a side, GHOST_PAD_Y_PX above
+    // and below, 1px border) grown by the 1.04 lift scale. An OS drag image at a
+    // fractional display scale was ~2x; this is the "not scaled up" check.
+    const card = page.locator('.futo-mobile-dnd-ghost-card');
+    await expect
+      .poll(async () => (await card.boundingBox())?.width ?? 0, { message: 'ghost card width' })
+      .toBeGreaterThan(0);
+    const expectedWidth = (block.width + 24) * 1.04;
+    const expectedHeight = (block.height + 2 * GHOST_PAD_Y_PX + 2) * 1.04;
+    await expect
+      .poll(async () => Math.abs(((await card.boundingBox())?.width ?? 0) - expectedWidth) < 3, {
+        message: 'ghost card width never settled at the block width plus padding',
+      })
+      .toBe(true);
+    const box = (await card.boundingBox())!;
+    expect(Math.abs(box.height - expectedHeight)).toBeLessThan(3);
+    expect(Math.abs(box.x + box.width / 2 - (block.x + block.width / 2 + delta.x))).toBeLessThan(3);
+    expect(Math.abs(box.y + box.height / 2 - (block.y + block.height / 2 + delta.y))).toBeLessThan(
+      6,
+    );
+
+    await drag.drop(charlie.x, charlie.bottom - 3);
+    const changes = await waitForMessages(page, 'change');
+    expect(changes[changes.length - 1].content).toBe('bravo\n\ncharlie\n\nalpha\n');
+    await expect(page.locator('.futo-mobile-dnd-ghost')).toHaveCount(0);
+  },
+);
+
+gutterHandleTest(
+  'pressing and releasing the ⠿ handle without moving changes neither the document nor the selection',
+  async ({ page }) => {
+    await hostSetContent(page, 'alpha\n\nbravo');
+    await caretAtEndOf(page, 'bravo');
+    await clearMessages(page);
+    const handle = await surfaceHandle(page, 'alpha');
+    await page.mouse.move(handle.x, handle.y);
+    await page.mouse.down();
+    await page.mouse.up();
+    await page.waitForTimeout(50);
+
+    expect(await getContent(page)).toBe('alpha\n\nbravo');
+    expect(await messagesOfType(page, 'change')).toHaveLength(0);
+    expect(await domSelection(page)).toEqual({ collapsed: true, text: '', block: 'bravo' });
+    await expect(page.locator('.futo-mobile-dnd-ghost')).toHaveCount(0);
+  },
+);
+
+gutterHandleTest(
+  'Escape mid-drag cancels the ⠿ handle drag with no transaction',
+  async ({ page }) => {
+    await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+    await clearMessages(page);
+
+    const handle = await surfaceHandle(page, 'alpha');
+    const charlie = await blockBox(page, 'charlie');
+    const drag = await startHandleDrag(page, handle);
+    await drag.over(charlie.x, charlie.bottom - 3);
+    await expect(page.locator('.futo-mobile-dnd-ghost')).toHaveCount(1);
+    expect(await dropIndicatorTop(page)).not.toBeNull();
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.futo-mobile-dnd-ghost')).toHaveCount(0);
+    expect(await dropIndicatorTop(page)).toBeNull();
+    await expect(page.locator('.futo-mobile-dnd-source')).toHaveCount(0);
+
+    // The release that follows the Escape must not commit anything either.
+    await page.mouse.up();
+    await page.waitForTimeout(50);
+    expect(await getContent(page)).toBe('alpha\n\nbravo\n\ncharlie');
+    expect(await messagesOfType(page, 'change')).toHaveLength(0);
+  },
+);
+
 /* The DESKTOP half of "one boundary, one place to drop it".
  *
  * The indicator used to be @milkdown/kit/plugin/cursor's, which wraps
@@ -1413,8 +1521,8 @@ gutterHandleTest('a mouse drag on the ⠿ handle reorders the block', async ({ p
  * block's TOP edge AND another for its BOTTOM edge, then picks the nearest
  * LINE. Block A's bottom and block B's top are one document position drawn at
  * two different y values, so every gap offered two visible slots that meant the
- * same thing. `blockDropIndicator.ts` replaced it with the resolver the
- * long-press path already used. */
+ * same thing. The handle drag now draws the shared session's line
+ * (blockDragSession.ts), the one the long press draws. */
 gutterHandleTest(
   'the ⠿ handle draws ONE line per gap, in the gap, from either side',
   async ({ page }) => {
@@ -1451,8 +1559,8 @@ gutterHandleTest(
 
 // The desktop half of the same drop-line-over-the-ghost complaint the
 // long-press test above covers: dragging over the block's own two boundaries
-// must draw no line either, since `handleDrop` already refuses to commit
-// there (blockMove.ts isNoOpDrop).
+// must draw no line either, since the move already refuses to commit there
+// (blockMove.ts isNoOpDrop).
 gutterHandleTest(
   "the ⠿ handle's line hides while dragging over the block's own gaps",
   async ({ page }) => {
@@ -1520,8 +1628,8 @@ gutterHandleTest('the ⠿ handle moves a bullet to the end of its own list', asy
 
 /* plugin-block resolves a list's FIRST item to the list itself (the same rule
  * the gutter test above leans on), so the handle beside the first bullet
- * dragged every bullet. listItemHandleDrag.ts re-targets that drag to the
- * item under the handle. */
+ * stood for — and would have dragged — every bullet. handleSource.ts narrows
+ * that to the item under the handle. */
 gutterHandleTest(
   'the ⠿ handle on the FIRST bullet drags that bullet, not the whole list',
   async ({ page }) => {
@@ -1578,15 +1686,16 @@ gutterHandleTest(
   },
 );
 
-/* USING THE ⠿ HANDLE NEVER SELECTS ANYTHING. @milkdown/plugin-block dispatches
- * a NodeSelection over the block on mousedown — it is what the drag carries —
- * and nothing ever took it back: a click that did not drag, a drop back where
- * the block started, or a drag released outside the note all left the whole
- * block selected, and ProseMirror hands that selection to the browser as a
- * native range over the block's text, so it painted as highlighted text.
- * Reported: "sometimes when I use it, text or other items get selected".
- * The rule instead: the handle leaves the user's own selection where it was,
- * carried along with the block when it was inside the one that moved. */
+/* USING THE ⠿ HANDLE NEVER SELECTS ANYTHING. @milkdown/plugin-block used to
+ * dispatch a NodeSelection over the block on mousedown — it was what its HTML5
+ * drag carried — and nothing ever took it back: a click that did not drag, a
+ * drop back where the block started, or a drag released outside the note all
+ * left the whole block selected, and ProseMirror hands that selection to the
+ * browser as a native range over the block's text, so it painted as highlighted
+ * text. Reported: "sometimes when I use it, text or other items get selected".
+ * The handle's mousedown is now cancelled before the plugin sees it (the drag is
+ * pointer-driven), so the user's own selection is never touched, and is carried
+ * along with the block when it was inside the one that moved. */
 
 /** The DOM selection, reduced to what these tests assert on. */
 function domSelection(page: Page): Promise<{ collapsed: boolean; text: string; block: string }> {
@@ -1617,7 +1726,8 @@ gutterHandleTest('clicking the ⠿ handle leaves the caret where it was', async 
   await page.mouse.move(handle.x, handle.y);
   await page.mouse.down();
   await page.mouse.up();
-  // plugin-block refocuses the view a frame after mouseup.
+  // The old plugin-block refocused the view a frame after mouseup; leave it
+  // that long, so a regression of that kind shows.
   await page.waitForTimeout(50);
 
   expect(await domSelection(page)).toEqual({ collapsed: true, text: '', block: 'bravo' });
@@ -1679,19 +1789,18 @@ gutterHandleTest(
 );
 
 gutterHandleTest(
-  "pressing the ⠿ handle does not paint the block's text as selected",
+  'pressing the ⠿ handle selects nothing and leaves the caret alone',
   async ({ page }) => {
     await hostSetContent(page, 'alpha\n\nbravo');
+    await caretAtEndOf(page, 'bravo');
     const handle = await surfaceHandle(page, 'alpha');
     await page.mouse.move(handle.x, handle.y);
     await page.mouse.down();
 
-    const paint = await page.evaluate(() => {
-      const block = document.querySelector('.ProseMirror > p')!;
-      return getComputedStyle(block, '::selection').backgroundColor;
-    });
+    // Mid-press, before any release: the plugin's NodeSelection would be a range
+    // over alpha's text by now.
+    expect(await domSelection(page)).toEqual({ collapsed: true, text: '', block: 'bravo' });
     await page.mouse.up();
-    expect(paint).toBe('rgba(0, 0, 0, 0)');
   },
 );
 

@@ -1,10 +1,11 @@
 /*
  * The one place a block drag turns into a document change.
  *
- * Both drag paths — the iOS long-press plugin (`mobileBlockDnd.ts`) and the ⠿
- * gutter handle's own HTML5 drag — resolve a drop
- * target with `blockDragGeometry.ts` and then commit through here, so a guard
- * added for one path can never be missing from the other.
+ * Both drag gestures — the native shells' long press (`mobileBlockDnd.ts`) and
+ * the desktop ⠿ handle (`handleBlockDrag.ts`) — run through one drag session
+ * (`blockDragSession.ts`) that resolves a drop target with
+ * `blockDragGeometry.ts` and commits through here, so a guard added for one
+ * gesture can never be missing from the other.
  *
  * Every guard below is a failure that was actually observed on device:
  *
@@ -52,8 +53,8 @@ export interface BlockMoveRange {
  * True when dropping at `targetPos` would be a no-op for the block occupying
  * `range` — landing on or inside its own span, including exactly either edge
  * (which is where "dropped where it started" lands once mapped through the
- * deletion). `moveBlock` refuses it below; both drag paths' indicator/haptic
- * layer (`mobileBlockDnd.ts`, `blockDropIndicator.ts`) call this too, so a
+ * deletion). `moveBlock` refuses it below; the drag session's indicator/haptic
+ * layer (`blockDragSession.ts`) calls this too, so a
  * drop that would do nothing draws no line and ticks no haptic in the first
  * place, rather than only being silently refused on release.
  */

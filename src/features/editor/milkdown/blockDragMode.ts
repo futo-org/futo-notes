@@ -2,7 +2,7 @@
  * Which block-drag gesture this editor instance mounts.
  *
  * There are two, and they never coexist for one editor: a ⠿ gutter handle you
- * press and drag, which is @milkdown/plugin-block's own HTML5 drag, and a
+ * press and drag (pointer-driven — `handleBlockDrag.ts`), and a
  * Notion-style long press anywhere on the block, where the block itself is
  * the handle (`mobileBlockDnd.ts`). The long press is BOTH native shells'
  * gesture — iOS and Android alike; the pointer-precise desktop browser gets
@@ -16,7 +16,7 @@
  */
 
 export type BlockDragMode =
-  /** ⠿ handle in the left gutter, dragged with a mouse (@milkdown/plugin-block). */
+  /** ⠿ handle in the left gutter, dragged with a mouse (`handleBlockDrag.ts`). */
   | 'gutter-handle'
   /** Long-press the block itself; the native shells' gesture. */
   | 'long-press';

@@ -637,7 +637,6 @@
 <div
   class="futo-milkdown"
   class:mobile-dnd={useMobileBlockDnd}
-  class:handle-pressed={blockDrag.handlePress !== 'idle'}
   style="--futo-checkbox-slot: {CHECKBOX_SIZE_PX}px"
   bind:this={container}
   oncompositionend={() => oncompositionend?.()}

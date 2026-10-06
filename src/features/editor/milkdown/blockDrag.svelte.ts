@@ -1,26 +1,21 @@
 /*
- * Block drag, both mechanisms read together: the desktop ⠿ gutter handle
- * (@milkdown/plugin-block's BlockProvider, fed a DOM node here) and the native
- * shells' long-press drag (`mobileBlockDnd.ts`), plus the one choice between
- * them. Which one an editor gets is `blockDragMode.ts`'s decision, read once
- * by MilkdownEditor.svelte (`useMobileBlockDnd`).
+ * Block drag, both gestures read together: the desktop ⠿ gutter handle
+ * (@milkdown/plugin-block's BlockProvider renders and positions it, fed a DOM
+ * node here; the drag itself is `handleBlockDrag.ts`) and the native shells'
+ * long-press drag (`mobileBlockDnd.ts`), plus the one choice between them.
+ * Which one an editor gets is `blockDragMode.ts`'s decision, read once by
+ * MilkdownEditor.svelte (`useMobileBlockDnd`).
  *
- * What lives elsewhere: drop-target geometry (`blockDragGeometry.ts`), the
- * block move itself (`blockMove.ts`), the ⠿ handle's drop indicator and drop
- * (`blockDropIndicator.ts`; the drag mechanics themselves are
- * @milkdown/plugin-block's own HTML5 drag).
+ * What lives elsewhere: everything that happens once a block is lifted — ghost,
+ * drop line, auto-scroll, commit — is the shared `blockDragSession.ts`;
+ * drop-target geometry is `blockDragGeometry.ts`; the block move itself is
+ * `blockMove.ts`.
  */
-import { editorViewCtx, type Editor } from '@milkdown/kit/core';
+import type { Editor } from '@milkdown/kit/core';
 import { block, BlockProvider } from '@milkdown/kit/plugin/block';
-import { NodeSelection } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
-import { blockDropIndicator } from './blockDropIndicator';
-import {
-  rememberSelectionBeforeHandlePress,
-  settleSelectionAfterHandlePress,
-} from './handlePressSelection';
-import { retargetListDragToItem } from './listItemHandleDrag';
-import { setDprCorrectedDragImage } from './blockDragGeometry';
+import { blockDragSourcePlugin } from './blockDragSession';
+import { mountHandleBlockDrag } from './handleBlockDrag';
 import { createMobileBlockDndPlugin, type MobileBlockDndOptions } from './mobileBlockDnd';
 
 /* The ⠿ handle lives in the editor's left GUTTER, 8px left of the text
@@ -89,32 +84,31 @@ function blockHandleAnchor(blockDom: HTMLElement): DOMRect {
  * THE single native-shell gate (see `useMobileBlockDnd` in
  * MilkdownEditor.svelte): the Notion-style long-press-anywhere-on-the-block
  * path REPLACES the ⠿ gutter handle plugin entirely for this editor instance
- * — the two never coexist.
+ * — the two never coexist. Both share the one source-dim plugin
+ * (`blockDragSourcePlugin`), mounted once.
  */
 export function useBlockDragPlugins(
   builder: Editor,
   useMobileBlockDnd: boolean,
   mobile: MobileBlockDndOptions,
 ): Editor {
+  const withSource = builder.use(blockDragSourcePlugin);
   return useMobileBlockDnd
-    ? builder.use(createMobileBlockDndPlugin(mobile))
-    : /* The handle's HTML5 drag needs a drop indicator, and it is OURS:
-       * @milkdown/kit/plugin/cursor's draws two lines per gap
-       * (blockDropIndicator.ts). Mounted with `block`, so it lives and dies
-       * with the gesture it serves. */
-      builder.use(block).use(blockDropIndicator);
+    ? withSource.use(createMobileBlockDndPlugin(mobile))
+    : withSource.use(block);
 }
 
-/** One editor's desktop ⠿ gutter handle: its BlockProvider, the press on it, and the teardown. */
+/** One editor's desktop ⠿ gutter handle: its BlockProvider, the drag off it, and the teardown. */
 export function createBlockDrag(pmView: () => ProseView | null) {
   /* Notion-style block drag handle. BlockProvider (from Milkdown's block
-   * plugin) owns rendering/positioning the ⠿ handle and the native HTML5 drag
-   * mechanics; we just feed it a DOM node and, on touch where there is no
-   * hover, nudge it to show for the block under the cursor/tap by dispatching a
-   * synthetic pointermove — the SAME event the plugin's own hover detection
-   * listens for, so selection/tap and mouse-hover resolve to identical block
-   * boundaries. Dragging the handle is the block plugin's own HTML5 drag. */
+   * plugin) owns rendering/positioning the ⠿ handle; we feed it a DOM node and,
+   * on touch where there is no hover, nudge it to show for the block under the
+   * cursor/tap by dispatching a synthetic pointermove — the SAME event the
+   * plugin's own hover detection listens for, so selection/tap and mouse-hover
+   * resolve to identical block boundaries. Dragging the handle is OURS, not the
+   * plugin's HTML5 drag (handleBlockDrag.ts). */
   let blockProvider: BlockProvider | null = null;
+  let handleDrag: { destroy(): void } | null = null;
 
   /* Drives the block plugin's own hover-detection path (BlockService listens
    * for `pointermove` on the ProseMirror DOM) so tap/selection reuse the exact
@@ -133,23 +127,6 @@ export function createBlockDrag(pmView: () => ProseView | null) {
     view.dom.dispatchEvent(evt);
   }
 
-  /* Where a press on the ⠿ handle is, for the selection handback and for the
-   * `handle-pressed` class that stops the plugin's NodeSelection painting as
-   * selected text while the press lasts (handlePressSelection.ts). */
-  let handlePress = $state<'idle' | 'pressed' | 'dragging'>('idle');
-
-  function endHandlePress(): void {
-    handlePress = 'idle';
-    const view = pmView();
-    if (view) settleSelectionAfterHandlePress(view);
-  }
-
-  /** A mouseup that did not start a drag — a click. A drag never gets here:
-   * the engine swallows its mouseup, and `dragend` settles it instead. */
-  function endHandleClick(): void {
-    if (handlePress === 'pressed') endHandlePress();
-  }
-
   /* The handle's position is only recomputed when the plugin shows/hides it;
    * without this it would visually drift over the wrong block while the user
    * scrolls, whichever element is carrying the scroll. */
@@ -164,7 +141,7 @@ export function createBlockDrag(pmView: () => ProseView | null) {
     // A static string, no interpolation.
     handleEl.innerHTML = BLOCK_HANDLE_GRIP_SVG;
     handleEl.setAttribute('aria-hidden', 'true');
-    blockProvider = new BlockProvider({
+    const provider = new BlockProvider({
       ctx: created.ctx,
       content: handleEl,
       // `blockDom` in this context is the HANDLE element, not the block;
@@ -172,44 +149,16 @@ export function createBlockDrag(pmView: () => ProseView | null) {
       getOffset: ({ editorDom, active }) => blockHandleOffset(editorDom, active.el),
       getPosition: ({ active }) => blockHandleAnchor(active.el),
     });
-    blockProvider.update();
-    // The press never changes the user's selection (handlePressSelection.ts).
-    // Registered BEFORE the provider's own listeners — `update()` only
-    // attaches them on the next frame — so the selection remembered here
-    // is the user's, not the NodeSelection the plugin is about to dispatch.
-    handleEl.addEventListener('mousedown', () => {
-      rememberSelectionBeforeHandlePress(created.ctx.get(editorViewCtx));
-      handlePress = 'pressed';
-      window.addEventListener('mouseup', endHandleClick, { once: true });
-    });
-    handleEl.addEventListener('dragstart', () => {
-      handlePress = 'dragging';
-      window.removeEventListener('mouseup', endHandleClick);
-    });
-    // `drop` normally comes first and has already carried the selection
-    // through the move; the delay covers engines that fire `dragend` before
-    // `drop` (the same guard @milkdown/plugin-block's own dragend uses),
-    // where settling now would take the NodeSelection the drop still needs.
-    handleEl.addEventListener('dragend', () => {
-      window.setTimeout(endHandlePress, 50);
-    });
-    // AFTER the provider's own dragstart listener on the same element, so
-    // the plugin's list selection exists to be re-targeted
-    // (listItemHandleDrag.ts).
-    handleEl.addEventListener('dragstart', (event) => {
-      const view = created.ctx.get(editorViewCtx);
-      const retargeted = retargetListDragToItem(view, event);
-      // `retargetListDragToItem` already set a DPR-corrected ghost
-      // (blockDragGeometry.ts, QA #012) for the list-item case; every
-      // OTHER block drag still carries the plugin's own uncorrected
-      // `setDragImage(activeEl, 0, 0)` from @milkdown/plugin-block, so it
-      // needs the same correction here, read off whatever node the
-      // plugin selected.
-      if (!retargeted) {
-        const selection = view.state.selection;
-        const dom = selection instanceof NodeSelection ? view.nodeDOM(selection.from) : null;
-        if (dom instanceof HTMLElement) setDprCorrectedDragImage(event, dom);
-      }
+    blockProvider = provider;
+    provider.update();
+    // Registered NOW, so before the provider's own listeners (`update()` only
+    // attaches those on the next frame): the press, its drag and the
+    // cancelling of the plugin's own are all handleBlockDrag.ts.
+    handleDrag = mountHandleBlockDrag({
+      handleEl,
+      view: pmView,
+      active: () => provider.active,
+      hideHandle: () => provider.hide(),
     });
     // On `document`, in the CAPTURE phase, because scroll events do not
     // bubble and WHICH element scrolls depends on the host: the editable
@@ -226,15 +175,13 @@ export function createBlockDrag(pmView: () => ProseView | null) {
   /** Removes the handle and every listener `mountGutterHandle` added. */
   function destroy(): void {
     document.removeEventListener('scroll', handleBlockScroll, { capture: true });
-    window.removeEventListener('mouseup', endHandleClick);
+    handleDrag?.destroy();
+    handleDrag = null;
     blockProvider?.destroy();
     blockProvider = null;
   }
 
   return {
-    get handlePress() {
-      return handlePress;
-    },
     nudgeBlockHandle,
     mountGutterHandle,
     destroy,

@@ -137,10 +137,13 @@
  *    (not deleted as dead code) so a future change to this gate has to
  *    reckon with it rather than silently reopen the old race.
  *
- * Geometry and commit are both SHARED with the ⠿-handle drag path
- * (the desktop ⠿ handle): `blockDragGeometry.ts` resolves the target and
- * `blockMove.ts` performs the move, so the two paths can never disagree about
- * where a block may land or about which drops are refused.
+ * Everything after the lift — the dimmed source, the ghost card, the drop
+ * indicator, edge auto-scroll, target resolution and the commit — is the
+ * SHARED `BlockDragSession` (`blockDragSession.ts`), which the desktop ⠿ handle
+ * drives too (`handleBlockDrag.ts`), so the two gestures can never disagree
+ * about where a block may land or about which drops are refused. This file keeps
+ * what is specific to a finger on a phone: arming, selection suppression, the
+ * focus guards, the shell's press/drag messages and the long-press timer.
  *
  * Gating: this plugin is only ever constructed/`.use()`d for a native shell —
  * iOS and Android alike (`blockDragMode.ts`, read by MilkdownEditor.svelte) —
@@ -148,18 +151,10 @@
  * instance.
  */
 import { $prose } from '@milkdown/kit/utils';
-import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';
-import { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
+import { Plugin, TextSelection } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
-import {
-  createDragAutoScroller,
-  targetAtPointerY,
-  topLevelBlockAt,
-  type DragAutoScroller,
-  type DropTarget,
-  dragSourceAt,
-} from './blockDragGeometry';
-import { isNoOpDrop, moveBlock, type BlockMoveRange } from './blockMove';
+import { topLevelBlockAt } from './blockDragGeometry';
+import { BlockDragSession } from './blockDragSession';
 
 export type MobileDndHapticKind = 'lift' | 'move' | 'drop';
 
@@ -215,47 +210,12 @@ export function dropBlockDndFocusGuards(): void {
 }
 const DEFAULT_MOVE_CANCEL_PX = 10;
 
-/** Horizontal breathing room the ghost card adds around the block's own rect,
- * so the preview reads as a card the block sits inside rather than a crop of
- * it. Mirrored as the card's own padding so the text stays put under the
- * finger. */
-const GHOST_PAD_X_PX = 12;
-/** Exported so the ghost-geometry regression test can assert the card's
- * position and content height against the block's own rect without keeping a
- * second copy of the number (same reason as `DEFAULT_LONG_PRESS_MS`). */
-export const GHOST_PAD_Y_PX = 10;
-/** How much of the screen the card may cover before it is cropped.
- *
- * Applied in JS, from `window.innerHeight`, NOT as `max-height: 40vh` in the
- * stylesheet. Both native hosts render this bundle in a web view whose INITIAL
- * CONTAINING BLOCK is zero-height — the same defect `editor.html` pins the body
- * against, and the reason `milkdownEditor.css`'s bottom padding is written
- * `max(40vh, 280px)` — so `vh` resolves to 0 there while `window.innerHeight`
- * reports the real height. Measured on an Android 16 / Chromium 133 WebView:
- * a `40vh` probe measured 0px with `innerHeight` at 647. With
- * `overflow: hidden` above it, that collapsed the card to its own padding —
- * a 22px sliver of a 105px block, sitting above the drop indicator (MR !276).
- * `innerHeight` is the same number `createGhost` already trusts for the width
- * clamp. */
-const GHOST_MAX_HEIGHT_FRACTION = 0.4;
-/** How much the card grows on lift, so it reads as picked up off the page. */
-const GHOST_SCALE = 1.04;
-/** Keep the SCALED card off the screen edges. */
-const GHOST_VIEWPORT_MARGIN_PX = 4;
-
 /** Marks the ProseMirror root for the whole gesture (pointerdown -> release),
  * not just the drag: iOS's selection gesture starts long before our lift. */
 const ARMED_CLASS = 'futo-mobile-dnd-armed';
 
-interface MobileDndPluginState {
-  decorationSet: DecorationSet;
-}
-
-const mobileBlockDndKey = new PluginKey<MobileDndPluginState>('futo-mobile-block-dnd');
-
-/** Injected once per page (not per editor instance/mount) — the ghost and
- * indicator live outside the ProseMirror DOM (fixed-position), so their
- * styling can't ride along with the component's scoped `<style>` block. */
+/** Injected once per page (not per editor instance/mount). The ghost, indicator
+ * and source-dim styles are the shared session's (blockDragSession.ts). */
 let stylesInjected = false;
 function ensureStyles(): void {
   if (stylesInjected) return;
@@ -263,8 +223,6 @@ function ensureStyles(): void {
   const style = document.createElement('style');
   style.setAttribute('data-futo-mobile-block-dnd', '');
   style.textContent = `
-    .futo-mobile-dnd-source { opacity: 0.35; transition: opacity 0.12s ease; }
-
     /* Selection suppression for the WHOLE gesture — see the module doc's
      * "selection suppression is a whole-gesture job". !important because
      * milkdownEditor.css's own '.futo-milkdown .ProseMirror ::selection'
@@ -279,86 +237,6 @@ function ensureStyles(): void {
       background: transparent !important;
       color: inherit !important;
     }
-
-    .futo-mobile-dnd-ghost {
-      position: fixed;
-      left: 0;
-      top: 0;
-      margin: 0;
-      pointer-events: none;
-      z-index: 1000;
-      will-change: transform;
-    }
-    /* The card. Deliberately more specific (3 classes) than
-     * '.futo-milkdown .ProseMirror' so the ProseMirror class it also carries
-     * supplies the real content typography (headings, code, lists) while the
-     * editor's own box rules — full height, internal scroller, 54px gutter —
-     * are overridden here. */
-    .futo-milkdown .futo-mobile-dnd-ghost .futo-mobile-dnd-ghost-card.ProseMirror {
-      box-sizing: border-box;
-      width: 100%;
-      height: auto;
-      /* The cap itself is set inline from window.innerHeight — see
-       * GHOST_MAX_HEIGHT_FRACTION for why it must not be written in vh. */
-      overflow: hidden;
-      padding: ${GHOST_PAD_Y_PX}px ${GHOST_PAD_X_PX}px;
-      border-radius: 14px;
-      /* Translucent on purpose: the card is drawn over the drop indicator
-       * line and the dimmed source block, and both need to read through it.
-       * Only the background is see-through — text stays fully opaque. */
-      background: color-mix(in srgb, var(--color-surface, #f2f2f2) 80%, transparent);
-      border: 1px solid var(--color-border, #e5e5e5);
-      box-shadow:
-        0 1px 2px rgba(0, 0, 0, 0.12),
-        0 6px 14px rgba(0, 0, 0, 0.16),
-        0 20px 44px rgba(0, 0, 0, 0.24);
-      opacity: 0;
-      transform: scale(0.97);
-      transform-origin: 50% 40%;
-      transition:
-        transform 0.12s cubic-bezier(0.2, 0.9, 0.3, 1),
-        opacity 0.12s ease;
-    }
-    /* Added on the next frame after insertion, so the card visibly POPS up
-     * under the finger instead of appearing fully formed. */
-    .futo-milkdown .futo-mobile-dnd-ghost--lifted .futo-mobile-dnd-ghost-card.ProseMirror {
-      opacity: 1;
-      transform: scale(${GHOST_SCALE});
-    }
-    /* Only when the block genuinely exceeds the height cap — an unconditional
-     * mask would fade the bottom of every short block. */
-    .futo-milkdown .futo-mobile-dnd-ghost .futo-mobile-dnd-ghost-card--clipped {
-      -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 56px), transparent 100%);
-      mask-image: linear-gradient(to bottom, #000 calc(100% - 56px), transparent 100%);
-    }
-    /* The block's own leading margin belongs to the document flow, not to a
-     * card that is already padded. */
-    .futo-milkdown .futo-mobile-dnd-ghost .futo-mobile-dnd-ghost-card.ProseMirror > * {
-      margin-top: 0;
-      margin-bottom: 0;
-    }
-    /* The source dim is a decoration on the live block; a clone taken while it
-     * is applied would be a 35%-opacity ghost. Belt and braces on top of
-     * cloning before the decoration is dispatched. */
-    .futo-milkdown .futo-mobile-dnd-ghost .futo-mobile-dnd-source {
-      opacity: 1;
-    }
-
-    .futo-mobile-dnd-indicator {
-      position: fixed;
-      height: 3px;
-      margin-top: -1.5px;
-      border-radius: 2px;
-      background: var(--color-primary, #f26b1f);
-      pointer-events: none;
-      /* Drawn UNDER the ghost card (z-index 1000): the card's background is
-       * translucent (see .futo-mobile-dnd-ghost-card above), so the line
-       * still reads through it instead of being fully hidden. */
-      z-index: 999;
-      opacity: 0;
-      transition: opacity 0.08s ease;
-    }
-    .futo-mobile-dnd-indicator--visible { opacity: 1; }
   `;
   document.head.appendChild(style);
 }
@@ -405,21 +283,8 @@ export class MobileBlockDndView {
    * however it resolves (see `guardFocusBriefly`). */
   private heldPastThreshold = false;
 
-  /** The boundary the indicator is currently drawn at. `pos` IS the boundary's
-   * whole identity (blockDragGeometry.ts), so only a CHANGE of this fires a
-   * 'move' haptic: a finger travelling inside one gap is silent, and crossing
-   * from one block's lower half into the next block's upper half — the same
-   * gap — is silent too, because the bar did not move. */
-  private indicatorPos: number | null = null;
-
-  /** Continuous edge auto-scroll while dragging. Owned per editor view and
-   * stopped from `disarm()`, the one exit every gesture goes through. */
-  private readonly autoScroll: DragAutoScroller;
-
-  private ghostEl: HTMLDivElement | null = null;
-  private indicatorEl: HTMLDivElement | null = null;
-  private liftX = 0;
-  private liftY = 0;
+  /** The lifted half of the gesture: ghost, indicator, auto-scroll, commit. */
+  private readonly session: BlockDragSession;
 
   constructor(view: ProseView, options: MobileBlockDndOptions) {
     this.view = view;
@@ -431,7 +296,9 @@ export class MobileBlockDndView {
       longPressMs: options.longPressMs ?? DEFAULT_LONG_PRESS_MS,
       moveCancelPx: options.moveCancelPx ?? DEFAULT_MOVE_CANCEL_PX,
     };
-    this.autoScroll = createDragAutoScroller(view, this.onAutoScrollStep);
+    this.session = new BlockDragSession(view, {
+      onBoundaryChange: () => this.options.onHaptic('move'),
+    });
     ensureStyles();
     view.dom.addEventListener('pointerdown', this.onPointerDown);
     liveViews.add(this);
@@ -441,7 +308,7 @@ export class MobileBlockDndView {
     liveViews.delete(this);
     this.dropFocusGuard();
     this.disarm();
-    this.cleanupDragVisuals();
+    this.session.destroy();
     this.view.dom.removeEventListener('pointerdown', this.onPointerDown);
   }
 
@@ -497,12 +364,10 @@ export class MobileBlockDndView {
    * unselectable. */
   private disarm(): void {
     this.cancelTimer();
-    this.autoScroll.stop();
     this.removeGestureListeners();
     const wasArmed = this.pointerId !== null;
     this.pointerId = null;
     this.pressed = null;
-    this.indicatorPos = null;
     const wasDragging = this.dragging;
     this.dragging = false;
     this.heldPastThreshold = false;
@@ -689,58 +554,7 @@ export class MobileBlockDndView {
       return;
     }
 
-    this.updateGhostPosition(event.clientX, event.clientY);
-    this.syncIndicator(event.clientY, true);
-    this.autoScroll.update(event.clientY);
-  };
-
-  /** Redraws the drop indicator for `clientY`, ticking once per NEW boundary
-   * when `tick` is true.
-   *
-   * Auto-scroll passes false. The finger is holding still while the document
-   * sweeps past underneath it, and at auto-scroll speeds that is hundreds of
-   * boundaries a second: a tick each would be one continuous buzz, and would
-   * destroy the meaning of the tick, which is "you have put the bar somewhere
-   * new". The spec already says a hold ticks nothing, and an auto-scroll IS a
-   * hold. The key is still updated, so the first tick after the finger resumes
-   * moving belongs to a genuinely new boundary rather than to one the eye
-   * already saw slide by. */
-  private syncIndicator(clientY: number, tick: boolean): void {
-    const target = this.computeTarget(clientY);
-    if (!target || this.isNoOpTarget(target)) {
-      // A no-op target (either of the pressed block's own two boundaries, or
-      // nowhere resolvable) draws no line: `indicatorPos` is cleared rather
-      // than left pointing at the no-op boundary, so the first tick after the
-      // finger leaves this zone always belongs to the first genuinely new
-      // boundary it reaches — never a spurious one for re-entering here, and
-      // never one for the two no-op boundaries between each other.
-      this.hideIndicator();
-      this.indicatorPos = null;
-      return;
-    }
-    this.showIndicator(target);
-    if (target.pos === this.indicatorPos) return;
-    this.indicatorPos = target.pos;
-    if (tick) this.options.onHaptic('move');
-  }
-
-  /** True when `target` is a no-op for the block currently pressed — i.e. one
-   * of its own two boundaries (`isNoOpDrop`, shared with `moveBlock` and the
-   * desktop ⠿-handle path). Guards the indicator/haptic layer here; a release
-   * over a no-op target was already a silent no-op via `moveBlock`, this only
-   * stops the line being drawn (and the card overlapping it) while the finger
-   * is still over the block it just picked up. */
-  private isNoOpTarget(target: DropTarget): boolean {
-    return this.pressed !== null && isNoOpDrop(this.currentSourceRange(this.pressed), target.pos);
-  }
-
-  /** After every frame edge auto-scroll actually moved the scroller. The
-   * pointer has not moved, so the ghost stays put — but the boundary UNDER it
-   * has changed, and the indicator (and the position a release would commit to)
-   * must be recomputed from the new geometry rather than assumed. */
-  private onAutoScrollStep = (): void => {
-    if (!this.dragging) return;
-    this.syncIndicator(this.lastY, false);
+    this.session.move(event.clientX, event.clientY);
   };
 
   private onPointerUp = (event: PointerEvent): void => {
@@ -785,7 +599,6 @@ export class MobileBlockDndView {
     // like any other press, but is never liftable (module doc's "an empty
     // paragraph cannot be lifted"): no ghost, no haptic, no `blockDrag`.
     if (!this.pressed.liftable) return;
-    const view = this.view;
 
     // Belt and braces: the shell has been holding WKWebView's delayed text
     // interaction down since pointerdown (`onPressActive`), so there should be
@@ -793,25 +606,13 @@ export class MobileBlockDndView {
     // as the page's only defence.
     this.collapseSelection();
 
-    const decoration = Decoration.node(this.pressed.pos, this.pressed.pos + this.pressed.size, {
-      class: 'futo-mobile-dnd-source',
-    });
-    view.dispatch(
-      view.state.tr.setMeta(mobileBlockDndKey, {
-        decorationSet: DecorationSet.create(view.state.doc, [decoration]),
-      }),
+    const pressed = this.pressed;
+    this.session.start(
+      { from: pressed.pos, to: pressed.pos + pressed.size, dom: pressed.dom, clone: pressed.clone },
+      clientX,
+      clientY,
     );
-
     this.dragging = true;
-    /* Seeded from where the block already is, so the hold itself is silent: the
-     * first tick belongs to the first boundary the finger actually reaches.
-     * A resting target that is one of the block's own boundaries seeds null
-     * instead (isNoOpTarget), for the same reason `syncIndicator` clears it —
-     * that boundary draws no line to begin with. */
-    const restingTarget = this.computeTarget(clientY);
-    this.indicatorPos =
-      restingTarget && !this.isNoOpTarget(restingTarget) ? restingTarget.pos : null;
-    this.createGhost(clientX, clientY);
     // Escalates the shell from the press-level suspension it has held since
     // pointerdown to the full one (the whole text-interaction stack, plus the
     // `isTextInteractionEnabled` preference) — safe only now that the gesture
@@ -821,148 +622,11 @@ export class MobileBlockDndView {
     this.options.onHaptic('lift');
   }
 
-  /** The ghost host is the `.futo-milkdown` container (OUTSIDE the
-   * contenteditable, so no DOMObserver interference) rather than document.body:
-   * the card carries the `ProseMirror` class, and the component's scoped
-   * `.futo-milkdown .ProseMirror <element>` typography only applies inside
-   * that container. Under document.body the clone rendered with bare UA
-   * styling — the "too timid" preview. */
-  private ghostHost(): HTMLElement {
-    return this.view.dom.closest('.futo-milkdown') ?? this.doc.body;
-  }
-
-  private createGhost(clientX: number, clientY: number): void {
-    const pressed = this.pressed;
-    if (!pressed) return;
-    const rect = pressed.dom.getBoundingClientRect();
-
-    const clone = pressed.clone;
-    clone.classList.remove('futo-mobile-dnd-source');
-    for (const dimmed of Array.from(clone.querySelectorAll('.futo-mobile-dnd-source'))) {
-      dimmed.classList.remove('futo-mobile-dnd-source');
-    }
-
-    const card = this.doc.createElement('div');
-    // `ProseMirror` so the editor's own content typography applies to the
-    // clone; the card rules above override the editor's BOX rules.
-    card.className = 'futo-mobile-dnd-ghost-card ProseMirror';
-    // In pixels, never `vh` (GHOST_MAX_HEIGHT_FRACTION): the native hosts' web
-    // view resolves viewport units against a zero-height containing block.
-    const viewportHeight = window.innerHeight || this.doc.documentElement.clientHeight;
-    card.style.maxHeight = `${Math.round(viewportHeight * GHOST_MAX_HEIGHT_FRACTION)}px`;
-    card.appendChild(clone);
-
-    const ghost = this.doc.createElement('div');
-    ghost.className = 'futo-mobile-dnd-ghost';
-    ghost.setAttribute('aria-hidden', 'true');
-
-    // Essentially full block width, grown by the card's own padding so the
-    // content stays put under the finger, then clamped so the SCALED card
-    // still clears both screen edges (the scale grows it about its centre, so
-    // half the growth bleeds out of each side).
-    const viewportWidth = window.innerWidth || rect.width + GHOST_PAD_X_PX * 2;
-    const usable = viewportWidth - GHOST_VIEWPORT_MARGIN_PX * 2;
-    const width = Math.min(rect.width + GHOST_PAD_X_PX * 2, usable / GHOST_SCALE);
-    const bleed = (width * (GHOST_SCALE - 1)) / 2;
-    const minLeft = GHOST_VIEWPORT_MARGIN_PX + bleed;
-    const left = Math.min(
-      Math.max(minLeft, rect.left - GHOST_PAD_X_PX),
-      Math.max(minLeft, viewportWidth - GHOST_VIEWPORT_MARGIN_PX - bleed - width),
-    );
-    ghost.style.width = `${width}px`;
-    ghost.style.left = `${left}px`;
-    ghost.style.top = `${rect.top - GHOST_PAD_Y_PX}px`;
-    ghost.appendChild(card);
-
-    this.ghostHost().appendChild(ghost);
-    this.ghostEl = ghost;
-
-    // Fade the bottom out ONLY when the block actually overflows the cap.
-    if (card.scrollHeight - card.clientHeight > 1) {
-      card.classList.add('futo-mobile-dnd-ghost-card--clipped');
-    }
-    // Next frame, so the 120ms pop transition has a start state to run from.
-    requestAnimationFrame(() => ghost.classList.add('futo-mobile-dnd-ghost--lifted'));
-
-    this.liftX = clientX;
-    this.liftY = clientY;
-  }
-
-  private updateGhostPosition(clientX: number, clientY: number): void {
-    if (!this.ghostEl) return;
-    const dx = clientX - this.liftX;
-    const dy = clientY - this.liftY;
-    // Translation lives on the OUTER element and the pop scale on the inner
-    // card, so dragging is never animated through the card's 120ms transition.
-    this.ghostEl.style.transform = `translate(${dx}px, ${dy}px)`;
-  }
-
-  /** The pressed block's CURRENT position decides which gaps it may land in
-   * (blockDragGeometry.ts); a press always grabs a top-level block today, so
-   * those are the top-level gaps. */
-  private computeTarget(clientY: number, pressed = this.pressed): DropTarget | null {
-    if (!pressed) return null;
-    const source = dragSourceAt(this.view.state.doc, this.currentSourceRange(pressed).from);
-    return source ? targetAtPointerY(this.view, clientY, source) : null;
-  }
-
-  private ensureIndicator(): HTMLDivElement {
-    if (!this.indicatorEl) {
-      const el = this.doc.createElement('div');
-      el.className = 'futo-mobile-dnd-indicator';
-      el.setAttribute('aria-hidden', 'true');
-      this.doc.body.appendChild(el);
-      this.indicatorEl = el;
-    }
-    return this.indicatorEl;
-  }
-
-  /** One line per boundary, drawn IN the gap — the geometry is the target's, so
-   * a gap approached from either side puts the bar in exactly one place
-   * (blockDragGeometry.ts). The `margin-top` in the stylesheet re-centres the
-   * 3px bar on `top`. */
-  private showIndicator(target: DropTarget): void {
-    const el = this.ensureIndicator();
-    el.style.left = `${target.indicator.left}px`;
-    el.style.width = `${target.indicator.width}px`;
-    el.style.top = `${target.indicator.top}px`;
-    el.classList.add('futo-mobile-dnd-indicator--visible');
-  }
-
-  private hideIndicator(): void {
-    this.indicatorEl?.classList.remove('futo-mobile-dnd-indicator--visible');
-  }
-
-  private cleanupDragVisuals(): void {
-    this.ghostEl?.remove();
-    this.ghostEl = null;
-    this.indicatorEl?.remove();
-    this.indicatorEl = null;
-  }
-
-  private clearDecoration(): void {
-    const view = this.view;
-    view.dispatch(view.state.tr.setMeta(mobileBlockDndKey, { decorationSet: DecorationSet.empty }));
-  }
-
-  /** The source block's CURRENT range. The decoration set is mapped through
-   * every transaction (see the plugin's `apply`), so this survives anything
-   * that edited the doc between pointerdown and release — autocorrect, a host
-   * `setContent`, the trailing-paragraph plugin. The pointerdown-time
-   * positions are only the fallback. */
-  private currentSourceRange(pressed: PressedBlock): BlockMoveRange {
-    const decorations = mobileBlockDndKey.getState(this.view.state)?.decorationSet;
-    const found = decorations?.find();
-    if (found && found.length === 1) return { from: found[0].from, to: found[0].to };
-    return { from: pressed.pos, to: pressed.pos + pressed.size };
-  }
-
   /** Shared tail for release (`commit=true`) and cancel (`commit=false`, which
    * WILL happen — incoming calls, system gestures — and must clean up exactly
    * like a normal release with no transaction). */
   private finish(clientY: number, commit: boolean): void {
     const wasDragging = this.dragging;
-    const pressed = this.pressed;
     // Captured before `disarm()` resets both: a press that reached the hold
     // threshold — lifted or not (an empty paragraph never lifts) — while
     // starting unfocused must not end up focused either, however it resolves
@@ -973,59 +637,23 @@ export class MobileBlockDndView {
     this.disarm();
     if (guardFocusOnRelease) this.guardFocusBriefly(!wasDragging);
 
-    if (!wasDragging || !pressed) return; // a plain tap / short hold: nothing to undo
+    if (!wasDragging) return; // a plain tap / short hold: nothing to undo
 
-    this.cleanupDragVisuals();
-
-    // `pressed` explicitly: disarm() above has already cleared the field.
-    const target = commit ? this.computeTarget(clientY, pressed) : null;
-    if (!target) {
-      this.clearDecoration();
-      return;
-    }
-
-    const view = this.view;
-    const range = this.currentSourceRange(pressed);
-    // Every refusal case (stale range, a target that stopped being a top-level
-    // gap, a drop back at the source, a node ProseMirror would re-shape) lives
-    // in moveBlock, shared with the ⠿-handle drag path. A drop that
-    // commits nothing is silent: no transaction, no history entry, no
-    // 'change', and no drop haptic.
-    const committed = moveBlock(view, range, target.pos, (tr) =>
-      // Same transaction as the move, so the source block is never drawn
-      // dimmed for a frame at its new position.
-      tr.setMeta(mobileBlockDndKey, { decorationSet: DecorationSet.empty }),
-    );
-    if (committed) this.options.onHaptic('drop');
-    else this.clearDecoration();
+    // A drop that commits nothing is silent: no transaction, no history entry,
+    // no 'change', and no drop haptic.
+    if (this.session.finish(clientY, commit)) this.options.onHaptic('drop');
   }
 }
 
 /** The Milkdown plugin: `.use(createMobileBlockDndPlugin({ onHaptic }))`.
- * Owns a plugin-state `DecorationSet` (for the source-block dim) plus the
- * DOM-event-driven `MobileBlockDndView` above. Never combined with
- * `@milkdown/kit/plugin/block`'s gutter handle for one editor instance — see
- * MilkdownEditor.svelte's single iOS gate. */
+ * The DOM-event-driven `MobileBlockDndView` above; the source-block dim's state
+ * is `blockDragSourcePlugin`'s (blockDragSession.ts), mounted beside it. Never
+ * combined with `@milkdown/kit/plugin/block`'s gutter handle for one editor
+ * instance — see MilkdownEditor.svelte's single native-shell gate. */
 export function createMobileBlockDndPlugin(options: MobileBlockDndOptions) {
   return $prose(
     () =>
-      new Plugin<MobileDndPluginState>({
-        key: mobileBlockDndKey,
-        state: {
-          init: () => ({ decorationSet: DecorationSet.empty }),
-          apply(tr, value) {
-            const meta = tr.getMeta(mobileBlockDndKey) as MobileDndPluginState | undefined;
-            if (meta) return meta;
-            if (tr.docChanged)
-              return { decorationSet: value.decorationSet.map(tr.mapping, tr.doc) };
-            return value;
-          },
-        },
-        props: {
-          decorations(state) {
-            return mobileBlockDndKey.getState(state)?.decorationSet ?? null;
-          },
-        },
+      new Plugin({
         view(editorView) {
           return new MobileBlockDndView(editorView, options);
         },
