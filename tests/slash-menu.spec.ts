@@ -169,13 +169,9 @@ test.describe('slash menu', () => {
     await expectMenuOpen(page);
     await page.keyboard.press('Enter');
     await expect(page.locator(`${EDITOR} hr`)).toHaveCount(1);
-    // `***`, not `---`: remark-stringify's default thematic-break marker. The
-    // editor pins `bullet: '-'` (editorPlugins.ts) but not `rule`, so a
-    // note that ALREADY contains `---` is rewritten to `***` on its first
-    // edit — a pre-existing round-trip normalization this menu only makes
-    // easier to reach. Changing the marker is a serializer change and has to be
-    // measured against the corpus first (`just milkdown-census --diff`,
-    // packages/editor/AGENTS.md), so this asserts what the editor does today.
+    // `***`, not `---`: the rule is the note's first line, where `---` would
+    // open front matter, so the house style writes `***` there
+    // (docs/spec/editor.md "Markdown house style").
     await expect.poll(async () => await editorMarkdown(page)).toContain('***');
     // QA-013: the typed `/divider` run used to survive as literal text right
     // after the rule (the run's remembered position no longer described the
@@ -277,10 +273,10 @@ test.describe('slash menu', () => {
     await url.press('Enter');
 
     // Inserted with the URL as its own label — asserted on the DOM, not the
-    // markdown: remark-stringify shortens a link whose text equals its href
-    // to the autolink form (`<https://…>`), which is a serializer choice, not
-    // what this asserts. Typing right away replaces the label — proof the
-    // label text was left SELECTED, not just inserted after it.
+    // markdown: the house style writes a link whose text is its own URL as the
+    // bare URL, which is a serializer choice, not what this asserts. Typing
+    // right away replaces the label — proof the label text was left SELECTED,
+    // not just inserted after it.
     const link = page.locator(`${EDITOR} a[href="https://example.test/docs"]`);
     await expect(link).toHaveText('https://example.test/docs');
     await page.keyboard.type('the docs', { delay: TYPE_DELAY_MS });
