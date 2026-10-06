@@ -1432,6 +1432,23 @@ test('Shift+Enter in a list item continues the list, as Enter does', async ({ pa
   expect(await getContent(page)).toBe('- a\n- b\n');
 });
 
+test('Shift+Enter in a table cell is still a line break in that cell, and moves no row', async ({
+  page,
+}) => {
+  await open(page, SMALL_TABLE);
+  await caretAtEndOf(page, 'c');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('more');
+  await settled(page);
+  expect(await page.locator('.ProseMirror tr').count()).toBe(2);
+  expect(await page.locator('.ProseMirror tr').nth(1).locator('td').first().innerText()).toBe(
+    'c\nmore',
+  );
+  const saved = await getContent(page);
+  expect(saved.split('\n').filter((line) => line !== '')).toHaveLength(3);
+  expect(saved).toContain('| c<br>more | d |');
+});
+
 test('"- " typed at the start of a line starts a list from that line', async ({ page }) => {
   await openAtEnd(page, 'Shopping:');
   await page.keyboard.press('Enter');
