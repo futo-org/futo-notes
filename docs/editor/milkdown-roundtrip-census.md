@@ -212,6 +212,9 @@ own, in order, with `compat` over the corpus and the vault:
 Both gates held at every step: corpus `content_loss` 3 (the known
 exceptions above) and `second_pass_unstable` 0, vault 0 and 0, verdict PASS.
 
+- Two or more line breaks alone in a cell are written `<br>` each, a lone
+  one as an empty cell (a lone `<br>` reads back empty); neither set has such
+  a cell, so the numbers above do not move.
 - The four `br_loss` notes left are each a `<br>` alone on a line, the
   placeholder an older build wrote for an empty paragraph, which is now an
   empty paragraph by design; the vault's one is the same.
