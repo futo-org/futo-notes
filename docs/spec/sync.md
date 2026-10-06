@@ -1763,7 +1763,7 @@ production; a store build sets neither and keeps `notes-sync.futo.org`. →
   the open note and sync propagated the truncation to every connected device
   (observed 2026-06-04 via a dev HMR swap; the same teardown race exists on
   note-switch/quit). → NotesShell.svelte `getEditorContent`,
-  NoteWorkspace.svelte `EditorApi.getContent`, MilkdownEditor `getContent`
+  NoteWorkspace.svelte `EditorApi.getContent`, milkdown/hostHandle.ts `getContent`
 
 - A note's modified time is **server-authoritative** so note-list ordering is
   identical on every device: a real push restamps the local file to the
@@ -1984,7 +1984,7 @@ journal --dir` has nothing to read from a phone.
   > [editor.md](editor.md) "Interactive elements"). The CodeMirror editor
   > diffed and suppressed history (`editorContentSync.ts`, deleted with it).
   > Re-verify on device before treating the 2026-06-09 result as current. →
-  > src/features/editor/milkdown/MilkdownEditor.svelte `applyExternal`,
+  > src/features/editor/milkdown/documentLoad.ts `applyExternal`,
   > src/editor-embed/createFutoEditorApi.ts `applyExternalContent`
 
   Neither shell invokes that bridge
@@ -2000,7 +2000,7 @@ journal --dir` has nothing to read from a phone.
   meant the shell never saw a blur edge and the deferral was stranded
   indefinitely on superseded peer content (device-verified on
   emulator 2026-08-10). A deferral therefore always has an edge to settle on.
-  → packages/editor bridge v2; MilkdownEditor.svelte `hasFocus` (guarded by
+  → packages/editor bridge v2; milkdown/hostHandle.ts `hasFocus` (guarded by
   tests/editor-focus-signal.spec.ts); iOS `EditorWebView` /
   `OpenNoteReconciler`; Android
   `EditorSession.settleDeferredAdoption` / `NoteEditorScreen.kt`

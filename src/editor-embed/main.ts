@@ -218,7 +218,8 @@ if (query.has('census')) installChunkCensusHook(editor as unknown as ChunkCensus
 /* Harness probe for the editor gauntlet's Milkdown adapter
  * (tests/editor-gauntlet/milkdownAdapter.ts). It drives these exact bundle
  * bytes over file://, so a test-only build would not be the thing under test.
- * See MilkdownEditor.getProseMirrorView for why the gauntlet needs the view. */
+ * See getProseMirrorView (milkdown/hostHandle.ts) for why the gauntlet needs
+ * the view. */
 (window as unknown as { __futoProseMirrorView?: () => unknown }).__futoProseMirrorView = () =>
   editor.getProseMirrorView?.() ?? null;
 

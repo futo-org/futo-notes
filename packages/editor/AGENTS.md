@@ -13,7 +13,7 @@ This package owns the sanctioned synchronous TS mirrors of Rust note rules, the 
 - `src/bridge.ts` owns bridge messages and `BRIDGE_VERSION`. A new message requires both native
   hosts (`EditorWebView.swift` and `EditorWebView.kt`); ask before a version bump.
 - `src/wellFormed.ts` owns "no lone surrogate leaves the editor" (RC-48, decision 16A): `serializationLoop.ts`'s
-  `readSerialized`/the in-process desktop `getContent` and the desktop `invoke` wrapper (`src/lib/platform/tauri/invoke.ts`) write each
+  `readSerialized`/`hostHandle.ts`'s in-process desktop `getContent` and the desktop `invoke` wrapper (`src/lib/platform/tauri/invoke.ts`) write each
   one as U+FFFD. Never call `String.prototype.toWellFormed` directly: the Android WebView floor (Chromium 80)
   and iOS 15 lack it, and the helper carries the fallback.
 - `src/toolbar.ts` owns toolbar items; execution belongs in shared `TOOLBAR_EXEC`, never a shell.

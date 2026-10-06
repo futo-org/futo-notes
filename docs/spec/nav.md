@@ -94,7 +94,7 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   The shared editor never focuses itself on mount, on any surface — the
   pre-warmed native WebView stays unfocused until the host asks (bridge
   `focus`), and desktop focus comes from the shell's own new-note path. →
-  src/features/editor/milkdown/MilkdownEditor.svelte `focus`,
+  src/features/editor/milkdown/hostHandle.ts `focus`,
   noteSession.svelte.ts `focusEditor`
   iOS autofocus is confirmed on the simulator in both directions: opening an
   EXISTING note stays keyboard-less (2026-07-13 — no editor accessory toolbar

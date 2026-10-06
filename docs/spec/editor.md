@@ -127,7 +127,7 @@ about.
   document is still exactly what loaded, the editor hands the host back the
   bytes it was given rather than its own serialization; the FIRST real edit is
   what re-spells the note, and it re-spells the whole note (ADR-0002,
-  normalize-once). → MilkdownEditor.svelte `getContent`,
+  normalize-once). → milkdown/hostHandle.ts `getContent`,
   docs/adr/0002-roundtrip-normalization-accepted.md,
   tests/editor-embed-milkdown.spec.ts
 - A block with no text of its own — a thematic break, a wikilink chip, the front
@@ -197,7 +197,7 @@ about.
   long-press drag moves it whole.
 - A newline at the very end of a note is not written (trailing whitespace is
   not content), so a note left ending in an empty line reloads without it. →
-  paragraphLines.ts `endsWithUnwrittenLine`, MilkdownEditor.svelte `holdsExactly`
+  paragraphLines.ts `endsWithUnwrittenLine`, milkdown/hostHandle.ts `holdsExactly`
 
 ## Localization
 
@@ -251,7 +251,7 @@ about.
 - The tag bar's blank space reaches the first line of the editor at the
   pointer's column: pressing it focuses the editor and places the caret at that
   x on the first line. Tag controls and the title keep their own interactions.
-  → NoteWorkspace.svelte `reachFromTagBar`, MilkdownEditor.svelte
+  → NoteWorkspace.svelte `reachFromTagBar`, milkdown/hostHandle.ts
   `placeCaretAtCoords`
 - A primary press outside the desktop editor surface deselects the note without
   moving its caret and commits a pending title rename; movement during that
@@ -268,7 +268,7 @@ about.
   the same load-echo contract as an unedited note (ADR-0002), extended to the
   case where the document is not the note at all — emits no change, and refuses
   chrome edits (tag bar, toolbar insertions). The file is never rewritten. →
-  MilkdownEditor.svelte `getContent`, `applyEdit`, `insertMarkdown`
+  milkdown/hostHandle.ts `getContent`, `applyEdit`, `insertMarkdown`
 - The next note that parses clears the state completely: editable again, no
   message, its own content reported.
 - An editor instance that has never been handed a note reports "no content at
@@ -276,7 +276,7 @@ about.
   reload today, any `{#key}`/`{#if}` around the editor tomorrow — mounts empty
   under a session that still holds the note, and `''` there is what truncated
   three real notes on 2026-09-03. The desktop shell also re-hands the open note
-  to a new instance, so the reader gets it back. → MilkdownEditor.svelte
+  to a new instance, so the reader gets it back. → milkdown/hostHandle.ts
   `getContent`, NotesShell.svelte, noteSession.svelte.ts `reattachEditor`
 
 ### Native touch and focus
@@ -297,7 +297,7 @@ about.
   The embed's reveal is what iOS needs and is harmless there. Verified on the
   emulator (API 36, System WebView 133.0.6943.137) 2026-09-23. _(native
   shells)_ → src/editor-embed/main.ts `resize` listener,
-  src/features/editor/milkdown/MilkdownEditor.svelte `revealSelection`
+  src/features/editor/milkdown/hostHandle.ts `revealSelection`
 
 - The editor reserves a tail below the last line — `max(40vh, 280px)` of bottom
   padding on the editable — so the final line can be scrolled clear of the
@@ -945,18 +945,19 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   `syncListOrderPlugin`
 - Renumbering follows an edit, so the FILE's numbering is left exactly as
   written until you type in it — a hand-numbered `1. / 1. / 1.` list stays that
-  way on disk. → MilkdownEditor.svelte `getContent`
+  way on disk. → milkdown/hostHandle.ts `getContent`
 
 - Text that reaches the open note from outside it — a sync pull landing while
   you read, a host push of the note on screen — replaces the document and is not
   reported back to the host as a change of yours, so a peer's version is not
-  echoed straight back over theirs. → MilkdownEditor.svelte `setContent` /
-  `applyExternal`, editor-embed/createFutoEditorApi.ts `applyExternalContent`
+  echoed straight back over theirs. → milkdown/hostHandle.ts `setContent` /
+  milkdown/documentLoad.ts `applyExternal`,
+  editor-embed/createFutoEditorApi.ts `applyExternalContent`
 
 - Undo only ever reverses edits made in the note on screen — never text from
   another note — and opening a note is not itself something undo can reverse:
   the host clears the stack on every open, and a progressively streamed note's
-  chunk appends are not undoable. → MilkdownEditor.svelte `resetHistory`,
+  chunk appends are not undoable. → milkdown/hostHandle.ts `resetHistory`,
   src/features/editor/milkdown/progressiveLoad.ts,
   tests/editor-embed-milkdown.spec.ts "Undo history"
 - Opening a note starts its undo empty. Leaving a note and coming back does not
@@ -966,7 +967,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   host content push — is applied outside the undo history, so no Ctrl-Z can
   revive the version it superseded and hand that to autosave. The user's own
   earlier edits stay on the stack, rebased over the adopted document. →
-  MilkdownEditor.svelte `loadParsedDocument`,
+  milkdown/documentLoad.ts `loadParsedDocument`,
   editor-embed/createFutoEditorApi.ts `applyExternalContent`,
   tests/editor-embed-milkdown.spec.ts
 
@@ -1248,7 +1249,7 @@ EditorWebView.swift, EditorWebView.kt
   back. A touch drag across cells makes no cell selection on Android (Chromium
   sends a touch drag no mouse drag), so the grip menu is the touch route to one.
   Verified on the emulator (API 36, System WebView 133.0.6943.137) 2026-09-23.
-  _(native shells)_ → src/features/editor/milkdown/MilkdownEditor.svelte
+  _(native shells)_ → src/features/editor/milkdown/hostHandle.ts
   `blur`, src/features/editor/milkdown/table/tableGrips.ts `hideTableGrips`,
   tests/editor-embed-milkdown.spec.ts "blur() drops a highlighted range",
   tests/editor-embed-milkdown-table-grips.spec.ts "the bridge blur ends the
@@ -1754,7 +1755,7 @@ unchanged by it.
   original bytes when untouched, or settles the tail before reporting an edit.
   Desktop component reads use the same complete-document serialization. A pinned
   `role="status"` bar reads "Loading the rest of this note…" while it runs, and
-  the streamed appends are not undoable. → MilkdownEditor.svelte `flush`, `getContent`,
+  the streamed appends are not undoable. → milkdown/hostHandle.ts `flush`, `getContent`,
   milkdown/progressiveLoad.ts, tests/editor-embed-milkdown.spec.ts
 - Every top-level block is rendered eagerly; the editor applies no
   `content-visibility` containment. A Chromium-only containment rule ran from
@@ -2053,20 +2054,20 @@ EditorSessionTest.kt, EditorSessionTests.swift
   awaits its current mailbox, or the next commit races the write it supersedes. _(iOS/Android)_
 - While an existing note's disk read is pending, the visible placeholder has no note identity. It never seeds that note's mailbox. Starting a new open invalidates the previous clean snapshot; reconciliation waits for `documentLoaded` for the real note. Quick capture already owns the engine-created empty body and accepts edits immediately. _(native shells)_ → NoteEditorView.swift, NoteEditorScreen.kt, EditorMailbox.swift `prepareLoad`, EditorMailbox.kt `prepareLoad`
 - Every document report carries its vault-relative note id and a page-monotonic generation. A shell routes reports into the named note's mailbox even after another view attaches. _(native shells)_ → packages/editor/src/bridge.ts, EditorMailbox.kt, EditorMailbox.swift
-- A reportable user transaction advances the generation synchronously. The first transaction after a load or delivered change posts `edited`; subsequent transactions in that unreported run do not post another watermark. _(native shells)_ → MilkdownEditor.svelte `documentEdited`
+- A reportable user transaction advances the generation synchronously. The first transaction after a load or delivered change posts `edited`; subsequent transactions in that unreported run do not post another watermark. _(native shells)_ → milkdown/serializationLoop.ts `documentEdited`
 - A mailbox is current when its newest change generation is at least its edited watermark. Current exits use those bytes without WebView interaction; a behind exit asks for one flush and waits up to 6 seconds. A token-tagged failure or deadline while still behind refuses a user exit, releases its latches, and permits retry. _(native shells)_ → EditorMailbox.kt `awaitCurrent`, EditorMailbox.swift `awaitCurrent`
 - A renderer-death OS signal lets every exit proceed on the mailbox's latest bytes. A never-loaded, never-edited note leaves using the shell's disk copy with nothing to save. Silence alone never declares a renderer dead. _(native shells)_
 - The body an exit commits is the newest tagged change held by its mailbox after the flush wait. A destructive exit still folds in newer quarantined changes before completing. _(native shells)_ → EditorSession.kt, EditorSession.swift
 - A failed body flush or pending rename refuses a user exit and releases every latch it set. A failed delete leaves the editor usable. _(native shells)_
 - iOS system Back and edge swipe commit after the pop. They wait once when behind and proceed on the mailbox's latest bytes even if the wait fails; a later delivered change is handed to retained persistence. The parent may re-adopt first: loading it flushes the child's outgoing edit with the child's identity before loading the parent. _(iOS)_ → NoteEditorView.swift `finishLeave`, EditorMailboxTests.swift, docs/qa/wikilink-pop-large-edited-note.md
-- Streaming withholds content changes to protect against saving a prefix, but never withholds the synchronous `edited` signal. A flush settles an edited tail before reporting the complete document; a clean streamed flush echoes the host's full original bytes. A note switch reports an outgoing pending edit synchronously before replacing its identity. _(native shells)_ → MilkdownEditor.svelte `flush`, `setContent`, `finishProgressiveLoad`
+- Streaming withholds content changes to protect against saving a prefix, but never withholds the synchronous `edited` signal. A flush settles an edited tail before reporting the complete document; a clean streamed flush echoes the host's full original bytes. A note switch reports an outgoing pending edit synchronously before replacing its identity. _(native shells)_ → milkdown/hostHandle.ts `flush`, `setContent`, milkdown/documentLoad.ts `finishProgressiveLoad`
 - Blur, hidden visibility and pagehide flush the embedded editor immediately. Backgrounding explicitly waits for posted changes (2 seconds on Android, 6 seconds within iOS background time) and then flushes the draft register, including the mailbox's latest available bytes after a failed wait. A durable write advances the baseline before a later write. _(native shells)_ → BackgroundEditorFlush.swift, NotesStore.kt, EditorSession.kt
-- Renaming, moving or following a parked identity awaits the outgoing mailbox, then calls `retarget(fromId, toId)`: the editor relabels its live document and reports it through `change` under the new id, preserving caret, scroll, undo history and any keystroke after the flush. The shell does not re-push its copy, and a retarget naming another note is ignored. Ordinary edits do not invalidate asynchronous image insertion or selection-link editing. _(native shells)_ → MilkdownEditor.svelte `retarget`, EditorMailbox.kt `retarget`, EditorMailbox.swift `retarget`, NoteEditorView.swift `retargetNoteId`, NoteEditorScreen.kt `retargetNoteId`
+- Renaming, moving or following a parked identity awaits the outgoing mailbox, then calls `retarget(fromId, toId)`: the editor relabels its live document and reports it through `change` under the new id, preserving caret, scroll, undo history and any keystroke after the flush. The shell does not re-push its copy, and a retarget naming another note is ignored. Ordinary edits do not invalidate asynchronous image insertion or selection-link editing. _(native shells)_ → milkdown/hostHandle.ts `retarget`, EditorMailbox.kt `retarget`, EditorMailbox.swift `retarget`, NoteEditorView.swift `retargetNoteId`, NoteEditorScreen.kt `retargetNoteId`
 - A late iOS departure draft is published and retained until a durable write or park succeeds; a failed late write remains eligible for background retry. Only the newest bound view for a shared note id receives a change; covered views do not acquire another stale-base draft. _(iOS)_ → NotesStore.swift `flushRetainedEditor`, EditorMailbox.swift `change`
 - A native host releases unused clean mailbox bodies after detachment or document handoff. Pending flush waiters, active bindings and retained unreported drafts keep their entries until settled. _(native shells)_ → EditorMailbox.swift `prune`, EditorMailbox.kt `prune`
 - Debug native apps load the query-gated editor test hooks for device harnesses, including document replacement. Release URLs do not enable those hooks. _(native shells)_ → EditorWebView.swift `loadEditor`, EditorWebView.kt, src/editor-embed/main.ts
 - A rename or move invalidates an earlier clean snapshot for its target id. A self-link relink waits for `documentLoaded` under the new identity before offering a conditional replacement; an unanswered load never invents a generation. _(native shells)_ → EditorMailbox.swift `awaitLoaded`, EditorMailbox.kt `awaitLoaded`, NoteEditorView.swift `settleRelink`, NoteEditorScreen.kt `settleRelink`
-- External updates and relinks are conditional on the exact note id and generation held by the editor, with no unreported edit. Refusal keeps the draft; acknowledgment advances the shell baseline. Relinks rebase and retry at most three times. _(native shells)_ → MilkdownEditor.svelte `applyExternalContent`, EditorWebView.swift, EditorWebView.kt
+- External updates and relinks are conditional on the exact note id and generation held by the editor, with no unreported edit. Refusal keeps the draft; acknowledgment advances the shell baseline. Relinks rebase and retry at most three times. _(native shells)_ → milkdown/hostHandle.ts `applyExternalContent`, EditorWebView.swift, EditorWebView.kt
 - A **committed** delete's latch is one-way for that session: no pending
   workflow, queued bridge callback, title debounce, or in-flight adoption can
   touch the note afterwards. _(iOS/Android)_

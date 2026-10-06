@@ -61,7 +61,7 @@ export interface ChunkCensusWindow {
 
 /**
  * Forces a whole-document parse: no document has an infinite number of lines.
- * Exported so `MilkdownEditor.svelte`'s `censusSerialize` can force the same
+ * Exported so `hostHandle.ts`'s `censusSerialize` can force the same
  * whole-document load without a second, drifting definition of "whole".
  */
 export const WHOLE: MarkdownChunkOptions = { minLines: Number.POSITIVE_INFINITY };

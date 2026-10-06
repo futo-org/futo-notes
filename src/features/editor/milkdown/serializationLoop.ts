@@ -35,6 +35,7 @@ const SYNC_PRIME_BUDGET_MS = 8;
 /** The component props the loop reports through. A getter: each read is the CURRENT prop. */
 export interface SerializationLoopProps {
   readonly onchange?: (content: string, ref: DocumentRef, flushToken?: string) => void;
+  readonly onedited?: (ref: DocumentRef) => void;
 }
 
 export interface SerializationLoopDeps {
@@ -135,6 +136,16 @@ export function createSerializationLoop(session: DocumentSession, deps: Serializ
   function stopPriming(): void {
     primeCancelIdle?.();
     primeCancelIdle = null;
+  }
+
+  /** A user edit (documentChanges.ts): remember it, and report it once the document settles. */
+  function documentEdited(): void {
+    session.documentGeneration += 1;
+    if (!session.unreported) {
+      session.unreported = true;
+      props.onedited?.(session.documentRef());
+    }
+    scheduleChangeNotification();
   }
 
   /* A trailing debounce, capped: an edit is reported once the document has sat
@@ -273,7 +284,7 @@ export function createSerializationLoop(session: DocumentSession, deps: Serializ
     detach,
     startPriming,
     stopPriming,
-    scheduleChangeNotification,
+    documentEdited,
     cancelChangeNotification,
     readSerialized,
     unchangedSinceLoad,
