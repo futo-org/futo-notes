@@ -95,9 +95,11 @@ journal *args:
 
 # ── Native mobile shells (SwiftUI / Compose — the SHIPPING mobile apps; AGENTS.md M2) ──
 
-# Build futo-notes-ffi for all Android ABIs + Kotlin bindings (needs cargo-ndk).
-build-rust-android:
-  bash scripts/build-rust-android.sh
+# Every shipped ABI by default; `device` builds only the connected device's, as
+# the dev recipes do. An ABIS env var overrides both.
+# Build futo-notes-ffi + Kotlin bindings for Android (needs cargo-ndk).
+build-rust-android abis="":
+  ABIS="${ABIS:-{{abis}}}" bash scripts/build-rust-android.sh
 
 # Build the same Rust FFI xcframework for the native iOS app.
 build-rust-ios:
@@ -172,7 +174,7 @@ android-env-check:
 # or buildConfigField that only breaks one of them fails here rather than at
 # release time.
 # Compile-only sanity for the native Android app (both flavors, no install).
-build-android-native: _preflight-android android-env-check build-rust-android
+build-android-native: _preflight-android android-env-check (build-rust-android "device")
   #!/usr/bin/env bash
   set -euo pipefail
   node_modules/.bin/vite build --config vite.editor.config.ts
@@ -210,7 +212,7 @@ test-ios-native: _preflight-ios build-rust-ios
     CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-"
 
 # JVM unit tests for the native Android app, under BOTH flavors; see justfile-notes.md.
-test-android-native: _preflight-android android-env-check build-rust-android
+test-android-native: _preflight-android android-env-check (build-rust-android "device")
   # Stages the CURRENT editor.html into the assets, like every other native
   # recipe: a stale gitignored copy would otherwise be what gets tested (L1-008).
   node_modules/.bin/vite build --config vite.editor.config.ts
@@ -220,7 +222,7 @@ test-android-native: _preflight-android android-env-check build-rust-android
 # same applicationId, so running both would install one over the other for no
 # extra signal.
 # Runs Compose instrumentation tests on $ANDROID_SERIAL.
-test-android-native-ui: _preflight-android android-env-check build-rust-android
+test-android-native-ui: _preflight-android android-env-check (build-rust-android "device")
   # The Compose tests drive the bundled editor.html: rebuild it first (L1-008).
   node_modules/.bin/vite build --config vite.editor.config.ts
   cd apps/android && ./gradlew :app:connectedDirectDebugAndroidTest

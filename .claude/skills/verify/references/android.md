@@ -39,10 +39,13 @@ simulator this worktree claimed.
 ## 2. Build, install, launch
 
 ```bash
-just android-native         # full chain: Rust ffi (all ABIs) → editor bundle → gradle installDirectDebug → launch
+just android-native         # full chain: Rust ffi (device ABI) → editor bundle → gradle installDirectDebug → launch
 ```
 
-For app-only iteration (no Rust/editor changes), skip the Rust rebuild:
+For app-only iteration (no Rust/editor changes), skip the Rust rebuild. The APK
+carries only the ABI the last Rust build targeted (none if it failed or was
+stopped), so after switching to a device of another ABI, rerun
+`just android-native` first:
 
 ```bash
 cd apps/android && ./gradlew :app:installDirectDebug
@@ -65,7 +68,7 @@ they're missing.
   `adb shell pm uninstall com.futo.notes.dev` (and any old `com.futo.notes`
   debug variants).
 - The Rust/Kotlin bindings are generated and gitignored — a fresh checkout
-  must run `just android-native` (or `just build-rust-android`) once before
+  must run `just android-native` (or `just build-rust-android device`) once before
   any bare `gradlew` invocation will compile.
 - First Gradle run is slow (~2–3 min); warm rebuilds are fast.
 

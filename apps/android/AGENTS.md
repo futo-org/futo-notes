@@ -7,7 +7,7 @@ The shipping Android app: a Jetpack Compose shell over the shared Rust core
 WebView. There is no Tauri Android shell.
 
 ```bash
-just android-native            # Rust ffi (all ABIs) → editor bundle → installDirectDebug → launch
+just android-native            # Rust ffi (device ABI) → editor bundle → installDirectDebug → launch
 just build-android-native      # compile-only sanity (BOTH distribution flavors)
 just test-android-native       # JVM unit tests (BOTH distribution flavors)
 just test-android-native-ui    # Compose instrumentation tests on $ANDROID_SERIAL (direct)
@@ -61,12 +61,22 @@ see that, the pin was bypassed. `scripts/gradle-jdk-pin.test.mjs` fails if an
 entry point re-adds a JAVA_HOME export.
 
 After changing `futo-notes-ffi` or a crate it re-exports, rebuild the bindings
-first (`just build-rust-android`) or you are testing yesterday's Rust (M9) — the
+first (`just build-rust-android device`) or you are testing yesterday's Rust (M9) — the
 symptom is "my change did nothing" or a Kotlin compile error on a missing symbol.
 The `just *-native` recipes rebuild for you; a direct gradle invocation does not.
 The Android FFI build uses the `release-ffi` profile because the workspace
 release profile's `panic = "abort"` breaks UniFFI's `catch_unwind` — never switch
 it to plain release. `versionCode = MAJOR*1e6 + MINOR*1e3 + PATCH`.
+
+The dev recipes (`android-native`, `build-android-native`, `test-android-native*`)
+build the FFI only for the connected device's ABI, about a third of a cold Rust
+build; with no single device to ask they build all three. A plain
+`just build-rust-android`, `just deploy-android`, and CI build every shipped ABI.
+`ABIS=<abi>[,<abi>]` overrides any of them, so leave it unset for a release.
+Each build starts `jniLibs/` empty, so a later bare `./gradlew` install carries
+only the ABI it built — none if it failed or was stopped — and crashes at
+library load anywhere else. Rebuild for the device you test on. A release build refuses to
+start until every shipped ABI is staged (guard in `app/build.gradle.kts`).
 
 ## Distribution flavors — `direct` and `play`
 

@@ -48,7 +48,8 @@ if [ -n "${FUTO_HOSTED_SERVER:-}" ]; then
 fi
 
 echo "==> Building Rust core (UniFFI) -> jniLibs/<abi>/libfuto_notes_ffi.so + Kotlin bindings"
-bash scripts/build-rust-android.sh
+# Only the connected device's ABI unless ABIS says otherwise: see the script.
+ABIS="${ABIS:-device}" bash scripts/build-rust-android.sh
 
 echo "==> Building the SAME embedded editor bundle (single self-contained editor.html)"
 node_modules/.bin/vite build --config vite.editor.config.ts
