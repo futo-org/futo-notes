@@ -72,6 +72,38 @@ describe('markdown house style goldens', () => {
   }
 });
 
+describe('the content_loss gate (houseDocument) on whitespace at a line start', () => {
+  const gate = (markdown: string) => houseDocument(parser.parse(markdown));
+
+  // Each pair: what the parser keeps, and a save that dropped it. The gate
+  // forgives line-start whitespace only where a read drops it anyway.
+  it.each([
+    ['after a task item checkbox', '- [ ]  x', '- [ ] x'],
+    ['after a checked task box, before bold', '1. [x]   **a**', '1. [x] **a**'],
+    ['inside a link at the line start', '[ a](u)', '[a](u)'],
+    ['inside a code span at the line start', '` c`', '`c`'],
+  ])('flags a save that drops the space %s', (_where, kept, dropped) => {
+    expect(gate(dropped)).not.toBe(gate(kept));
+  });
+
+  it('forgives line-start whitespace the parser drops on read', () => {
+    const typed: NodeJson = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: '  a', marks: [{ type: 'strong', attrs: { marker: '*' } }] },
+            { type: 'hardbreak', attrs: { isInline: true } },
+            { type: 'text', text: '\tb' },
+          ],
+        },
+      ],
+    };
+    expect(houseDocument(typed)).toBe(gate('**a**\nb'));
+  });
+});
+
 describe('the per-block save cache', () => {
   /** A JSON document whose blocks keep their identity, as ProseMirror nodes do across a transaction. */
   const adapter = {

@@ -251,7 +251,8 @@ hand-reviewed goldens, one or more per line below)
   without it and the next save would differ. Inside a
   link's text or a code span it is kept, and so is whitespace after a task
   item's `[ ] `, which is not a line's start in the file: the parser keeps it
-  there (`[ a](u)`, `- [ ]  x`).
+  there (`[ a](u)`, `- [ ]  x`). Code, HTML and front matter lines keep
+  theirs too.
 - A line break at the very end of a paragraph or heading is not written, for
   the same reason.
 
