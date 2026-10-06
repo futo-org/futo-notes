@@ -22,34 +22,6 @@
 //! interruption/recovery ladder) stay in `tests.rs`, which is Unix-only
 //! because those are Unix mechanisms rather than shared contract.
 
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
-
-pub(super) struct TempRoot(PathBuf);
-
-impl TempRoot {
-    pub(super) fn new() -> Self {
-        static SEQUENCE: AtomicU32 = AtomicU32::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "futo-notes-vault-fs-contract-{}-{}",
-            std::process::id(),
-            SEQUENCE.fetch_add(1, Ordering::Relaxed),
-        ));
-        std::fs::create_dir_all(&path).expect("temp root");
-        Self(path)
-    }
-
-    pub(super) fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for TempRoot {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
 /// What counts as a refusal is decided from the error and where the create was,
 /// never from permissions on this host, so these rules hold as root (Linux CI)
 /// and on Windows alike.
@@ -84,7 +56,6 @@ fn only_a_permission_refusal_directly_in_the_root_counts() {
 macro_rules! vault_fs_contract {
     ($suite:ident, $implementation:ident) => {
         mod $suite {
-            use super::TempRoot;
             use crate::files::vault_fs::$implementation as vault_fs;
 
             /// Controlled Folder Access over an existing vault, or a read-only
@@ -94,7 +65,7 @@ macro_rules! vault_fs_contract {
             #[test]
             fn a_refused_create_in_the_root_marks_the_vault_access_refused() {
                 use crate::files::vault_fs::{refusal_count, refuse_next_create};
-                let root = TempRoot::new();
+                let root = tempfile::tempdir().unwrap();
                 let before = refusal_count();
 
                 refuse_next_create();
@@ -112,7 +83,7 @@ macro_rules! vault_fs_contract {
             #[test]
             fn a_refused_create_in_a_subfolder_leaves_the_vault_usable() {
                 use crate::files::vault_fs::{refusal_count, refuse_next_create};
-                let root = TempRoot::new();
+                let root = tempfile::tempdir().unwrap();
                 std::fs::create_dir(root.path().join("Archive")).unwrap();
                 let before = refusal_count();
 
@@ -133,7 +104,7 @@ macro_rules! vault_fs_contract {
             /// again rather than lost, and no temp is left behind.
             #[test]
             fn a_temp_file_taken_before_install_is_written_again() {
-                let root = TempRoot::new();
+                let root = tempfile::tempdir().unwrap();
                 vault_fs::take_next_temp();
                 vault_fs::write_atomic(root.path(), "note.md", b"body").unwrap();
                 vault_fs::take_next_temp();
@@ -162,7 +133,7 @@ macro_rules! vault_fs_contract {
             /// would have created the folder on its own.
             #[test]
             fn exists_is_false_when_the_parent_folder_is_missing() {
-                let root = TempRoot::new();
+                let root = tempfile::tempdir().unwrap();
                 assert_eq!(
                     vault_fs::exists(root.path(), "Work/Plan.md"),
                     Ok(false),
@@ -179,7 +150,7 @@ macro_rules! vault_fs_contract {
             /// have is already done, not a failure to carry out.
             #[test]
             fn remove_reports_nothing_to_do_when_the_parent_folder_is_missing() {
-                let root = TempRoot::new();
+                let root = tempfile::tempdir().unwrap();
                 assert_eq!(vault_fs::remove(root.path(), "Work/Plan.md"), Ok(false));
                 assert_eq!(
                     vault_fs::remove_local(root.path(), "Work/Docs/Alpha.md"),
@@ -191,7 +162,7 @@ macro_rules! vault_fs_contract {
             /// nothing at the source to move.
             #[test]
             fn rename_reports_nothing_moved_when_the_source_parent_folder_is_missing() {
-                let root = TempRoot::new();
+                let root = tempfile::tempdir().unwrap();
                 assert_eq!(
                     vault_fs::rename(root.path(), "Work/Plan.md", "Plan.md"),
                     Ok(false),
@@ -204,7 +175,7 @@ macro_rules! vault_fs_contract {
 
             #[test]
             fn read_optional_is_none_when_the_parent_folder_is_missing() {
-                let root = TempRoot::new();
+                let root = tempfile::tempdir().unwrap();
                 assert_eq!(
                     vault_fs::read_optional(root.path(), "Work/Plan.md"),
                     Ok(None)
@@ -217,7 +188,7 @@ macro_rules! vault_fs_contract {
             /// absent note that a later write would then try to create.
             #[test]
             fn a_file_where_a_parent_folder_belongs_is_an_error_not_absence() {
-                let root = TempRoot::new();
+                let root = tempfile::tempdir().unwrap();
                 std::fs::write(root.path().join("Work"), "not a folder").unwrap();
                 assert!(
                     vault_fs::exists(root.path(), "Work/Plan.md").is_err(),
@@ -232,7 +203,7 @@ macro_rules! vault_fs_contract {
             /// safe in the first place.
             #[test]
             fn writing_creates_the_missing_parent_folders() {
-                let root = TempRoot::new();
+                let root = tempfile::tempdir().unwrap();
                 vault_fs::write_atomic(root.path(), "Work/Docs/Alpha.md", b"body").unwrap();
                 assert_eq!(
                     vault_fs::exists(root.path(), "Work/Docs/Alpha.md"),
@@ -247,7 +218,7 @@ macro_rules! vault_fs_contract {
             /// Absence must not swallow a note that IS there.
             #[test]
             fn a_present_note_is_found_removed_and_then_absent() {
-                let root = TempRoot::new();
+                let root = tempfile::tempdir().unwrap();
                 vault_fs::write_atomic(root.path(), "Work/Plan.md", b"body").unwrap();
                 assert_eq!(vault_fs::exists(root.path(), "Work/Plan.md"), Ok(true));
                 assert_eq!(vault_fs::remove(root.path(), "Work/Plan.md"), Ok(true));
@@ -260,7 +231,7 @@ macro_rules! vault_fs_contract {
             /// parent cannot regress it.
             #[test]
             fn exists_is_false_for_a_missing_leaf_inside_a_folder_that_is_there() {
-                let root = TempRoot::new();
+                let root = tempfile::tempdir().unwrap();
                 std::fs::create_dir(root.path().join("Work")).unwrap();
                 assert_eq!(vault_fs::exists(root.path(), "Work/Plan.md"), Ok(false));
             }

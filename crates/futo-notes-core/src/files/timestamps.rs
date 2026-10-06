@@ -40,29 +40,16 @@ pub fn set_file_mtime_ms(path: &Path, modified_at_ms: i64) -> Result<(), String>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-    use std::sync::atomic::{AtomicU32, Ordering};
-
-    fn temp_dir() -> PathBuf {
-        static SEQUENCE: AtomicU32 = AtomicU32::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "futo-notes-timestamps-{}-{}",
-            std::process::id(),
-            SEQUENCE.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir_all(&path).unwrap();
-        path
-    }
 
     #[test]
     fn modification_time_round_trips_in_milliseconds() {
-        let root = temp_dir();
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
         let path = root.join("note.md");
         fs::write(&path, "body").unwrap();
         set_file_mtime_ms(&path, 1_700_000_123_000).unwrap();
         let actual = file_mtime_ms(&fs::metadata(path).unwrap());
         assert!((actual - 1_700_000_123_000).abs() < 2_000);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
