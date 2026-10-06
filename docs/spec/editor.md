@@ -232,18 +232,18 @@ about.
 - Blank space beside lines and below the final line is part of the editor: the
   editable element IS the scroller, and its gutters and its tail belong to it,
   so a press there places a caret rather than falling through to the shell. →
-  src/features/editor/milkdown/MilkdownEditor.svelte `.ProseMirror`
+  src/features/editor/milkdown/milkdownEditor.css `.ProseMirror`
 - The editable element fills the whole note area in BOTH axes, however little
   the note holds: it is never sized to its own content. A box sized to its
   content leaves the space it fails to reach owned by no one — the desktop
   shell's deselect zone ignores presses on a descendant — so that space would
   place no caret, take no focus, and swallow the press entirely. → src/features/
-  editor/milkdown/MilkdownEditor.svelte `.milkdown` / `.ProseMirror` _(desktop)_
+  editor/milkdown/milkdownEditor.css `.milkdown` / `.ProseMirror` _(desktop)_
 - The body's first character sits under the title's first character: the
   860px editor column is 60px wider than the 740px title column on each side,
   and the body's left padding is that 60px plus the title's 20px. The ⠿ handle
   floats inside that padding. _(desktop)_ → src/features/editor/milkdown/
-  MilkdownEditor.svelte `.desktop-layout .ProseMirror`, tests/p2-regressions.spec.ts
+  milkdownEditor.css `.desktop-layout .ProseMirror`, tests/p2-regressions.spec.ts
 - An empty note is therefore fully typeable: it holds one empty paragraph, and
   a press ANYWHERE in the note area places the caret in it. This is the state
   every new note starts in. → tests/p0-regressions.spec.ts "Empty-note caret",
@@ -303,7 +303,7 @@ about.
   padding on the editable — so the final line can be scrolled clear of the
   keyboard. The tail scales with the viewport, so a note that does not fill the
   screen still has nothing to scroll. →
-  src/features/editor/milkdown/MilkdownEditor.svelte `.ProseMirror` padding
+  src/features/editor/milkdown/milkdownEditor.css `.ProseMirror` padding
 
 - Native-shell policy comes from the host-provided `nativeShell` mode: it is
   what selects the long-press block drag over the ⠿ gutter handle, and what
@@ -562,7 +562,7 @@ about.
   muted left rule, whatever `>` characters and lazy continuations CommonMark
   read it from. No `>` marker is on screen at any depth, so no indent shifts
   when the caret enters a quote. → src/features/editor/milkdown/
-  MilkdownEditor.svelte `.ProseMirror blockquote`,
+  milkdownEditor.css `.ProseMirror blockquote`,
   tests/blockquote-continuation.spec.ts
 - Lists: ordered, unordered, nested, and task checkboxes (checked / unchecked /
   uppercase `X`).
@@ -634,7 +634,7 @@ about.
 - The editable element is the editor's own scroll container, and it keeps the
   platform's overscroll affordance (`overscroll-behavior: contain` — iOS bounce /
   Android stretch) rather than chaining scroll out to the host web view. →
-  src/features/editor/milkdown/MilkdownEditor.svelte `.ProseMirror`
+  src/features/editor/milkdown/milkdownEditor.css `.ProseMirror`
 - Wikilinks `[[Title]]`.
 
 ### YAML front matter
@@ -660,7 +660,7 @@ about.
   caret. It cannot be typed into, clicked into, dragged, or reordered — the
   editor has no YAML model, so it shows the bytes and refuses to edit them.
   Deleting the whole note still deletes it. →
-  src/features/editor/milkdown/MilkdownEditor.svelte `.futo-frontmatter`
+  src/features/editor/milkdown/milkdownEditor.css `.futo-frontmatter`
 - A note whose ONLY content is front matter gains one trailing blank line the
   first time it is really edited: the document's content is
   `frontmatter? block+`, so it gets the empty body paragraph the schema
@@ -894,7 +894,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   checkbox stays inside the list's own box, clear of the editor gutter and the
   20pt iOS back-swipe strip. An ordered task item
   keeps its number and carries the checkbox after it. →
-  src/features/editor/milkdown/MilkdownEditor.svelte `li[data-checked]`,
+  src/features/editor/milkdown/milkdownEditor.css `li[data-checked]`,
   tests/editor-embed-milkdown-parity.spec.ts
 - Table cells are individually editable in place; Tab/Shift+Tab move between
   cells (Tab in the last cell appends a row); Enter moves the caret down to

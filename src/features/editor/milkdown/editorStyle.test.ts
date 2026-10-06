@@ -13,25 +13,19 @@ import { describe, expect, it } from 'vitest';
  * the document (3,056 → 5,682 → … → 39,816) — twice per streamed chunk, and on
  * every Enter/Backspace that adds or removes a block. The 25k fixture never
  * completed the harness's 180 s budget at all (it used to finish in 36 s).
- * `MilkdownEditor.svelte` now spells this as two same-specificity rules
+ * `milkdownEditor.css` now spells this as two same-specificity rules
  * (`> *` plus a `:where(:first-child)` override) instead — this test is the
  * guard against that regressing, here or in any other editor selector scoped
  * under `.ProseMirror`/`.milkdown`/`.futo-milkdown`.
  */
 
-const MILKDOWN_EDITOR_SVELTE = path.resolve(
+const MILKDOWN_EDITOR_CSS = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  'MilkdownEditor.svelte',
+  'milkdownEditor.css',
 );
 
 /** A bare universal adjacent- or general-sibling combinator: `* + *` / `* ~ *`. */
 const UNIVERSAL_SIBLING_COMBINATOR_RE = /\*\s*[+~]\s*\*/;
-
-function extractStyleBlock(source: string): string {
-  const match = /<style[^>]*>([\s\S]*?)<\/style>/.exec(source);
-  if (!match) throw new Error('MilkdownEditor.svelte has no <style> block to check');
-  return match[1] ?? '';
-}
 
 /** Every selector text (the part before `{`), with CSS comments stripped first. */
 function extractSelectors(styleBlock: string): string[] {
@@ -39,10 +33,9 @@ function extractSelectors(styleBlock: string): string[] {
   return [...withoutComments.matchAll(/([^{}]+)\{/g)].map((m) => (m[1] ?? '').trim());
 }
 
-describe('MilkdownEditor.svelte style block', () => {
+describe('milkdownEditor.css', () => {
   it('never re-introduces a universal sibling combinator scoped to the editor', () => {
-    const source = readFileSync(MILKDOWN_EDITOR_SVELTE, 'utf8');
-    const selectors = extractSelectors(extractStyleBlock(source));
+    const selectors = extractSelectors(readFileSync(MILKDOWN_EDITOR_CSS, 'utf8'));
     const offenders = selectors.filter((selector) =>
       UNIVERSAL_SIBLING_COMBINATOR_RE.test(selector),
     );
