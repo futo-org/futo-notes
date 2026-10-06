@@ -175,10 +175,10 @@ stripped):
 
 | | old formatter | owned serializer |
 |---|---:|---:|
-| corpus notes churned | 23,569 | 20,977 |
-| corpus lines churned | 431,144 | 348,632 |
+| corpus notes churned | 23,569 | 20,972 |
+| corpus lines churned | 431,144 | 348,618 |
 | vault notes churned | 2,237 | 2,176 |
-| vault lines churned | 30,958 | 27,287 |
+| vault lines churned | 30,958 | 27,285 |
 
 Method. Owned: `node tests/milkdown-census/run.mjs --variant compat`, and the
 same with `--vault ~/Documents/futo-notes --out build/milkdown-census/<name>`,
@@ -190,7 +190,36 @@ where `compat` was remark-stringify plus the compat patches; measured
 committed, and without the wikilink plugin, which that page could not mount.
 The owned serializer churns MORE table lines (corpus 17,747 against 12,313,
 same-day run before the plugins were mounted) because it never pads columns;
-everything else it re-spells less.
+everything else it re-spells less. The owned column is the run after the
+Obsidian-shaped changes below.
+
+### 2026-10-06 — Obsidian-shaped, and a cell's last `<br>` kept
+
+Maintainer decision 2: the house style writes what Obsidian would, the bytes
+the user typed and no added character references, in four places
+(docs/spec/editor.md "Markdown house style"). Each change was measured on its
+own, in order, with `compat` over the corpus and the vault:
+
+| change | corpus churn (notes / lines) | vault churn (notes / lines) | other flags that moved |
+|---|---:|---:|---|
+| before | 20,977 / 348,632 | 2,176 / 27,287 | corpus `br_loss` 6, `html_loss` 6, `doc_mismatch` 2,930; vault `br_loss` 1, `html_loss` 1, `doc_mismatch` 15 |
+| a cell's last line break is written `<br>`, not dropped | 20,977 / 348,632 | 2,176 / 27,287 | corpus `br_loss` 6 → 4, `html_loss` 6 → 4, `doc_mismatch` 2,930 → 2,928 (notes 4278, 7481) |
+| a rule on line 1 is `---` unless `---` would open front matter | 20,972 / 348,625 | 2,176 / 27,287 | none |
+| front matter byte for byte, CRLF included | 20,972 / 348,625 | 2,176 / 27,287 | none: neither set has CRLF front matter |
+| two paragraphs in a tight item are two lines, `- a\n  b` | 20,972 / 348,625 | 2,176 / 27,287 | none: only the editor makes the shape |
+| no reference for whitespace at a line's start | 20,972 / 348,618 | 2,176 / 27,285 | corpus `doc_mismatch` 2,928 → 2,930 (notes 6371, 24446) |
+
+Both gates held at every step: corpus `content_loss` 3 (the known
+exceptions above) and `second_pass_unstable` 0, vault 0 and 0, verdict PASS.
+
+- The four `br_loss` notes left are each a `<br>` alone on a line, the
+  placeholder an older build wrote for an empty paragraph, which is now an
+  empty paragraph by design; the vault's one is the same.
+- The whitespace rule writes a task item's `- [ ]  x` back as typed (it was
+  `- [ ] &#x20;x`), which is the churn it saves. Its two new `doc_mismatch`
+  notes hold `a\n<br> b`, which the parser already reads as `a`, `<br>`, a
+  line break, then ` b`: the space after the `<br>` now starts a line in the
+  document, so a save drops it, where it used to be written `&#x20;`.
 
 ## What each fix bought
 
