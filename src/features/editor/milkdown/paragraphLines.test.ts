@@ -202,6 +202,17 @@ describe('joinBackwardAsLine', () => {
   it('only acts at the start of the paragraph', () => {
     expect(run(joinBackwardAsLine, stateWith('one|t^wo')).handled).toBe(false);
   });
+
+  it('adds no second line break when the paragraph above already ends in one', () => {
+    const { handled, state } = run(joinBackwardAsLine, stateWith('one\n|^two'));
+    expect(handled).toBe(true);
+    expect(show(state)).toBe('one\n^two');
+  });
+
+  it('adds no second line break when the paragraph already starts with one', () => {
+    const { state } = run(joinBackwardAsLine, stateWith('one|^\ntwo'));
+    expect(show(state)).toBe('one^\ntwo');
+  });
 });
 
 describe('joinForwardAsLine', () => {
@@ -209,6 +220,11 @@ describe('joinForwardAsLine', () => {
     const { handled, state } = run(joinForwardAsLine, stateWith('one^|two'));
     expect(handled).toBe(true);
     expect(show(state)).toBe('one^\ntwo');
+  });
+
+  it('adds no second line break when either side of the boundary already has one', () => {
+    expect(show(run(joinForwardAsLine, stateWith('one\n^|two')).state)).toBe('one\n^two');
+    expect(show(run(joinForwardAsLine, stateWith('one^|\ntwo')).state)).toBe('one^\ntwo');
   });
 });
 

@@ -120,6 +120,11 @@ export function endsWithUnwrittenLine(doc: ProseNode): boolean {
  * after the new line break (Backspace) or before it (Delete). The break carries
  * no marks, so the file loses exactly one newline: `**a**\n\n**b**` becomes
  * `**a**\n**b**`, not a re-spelled `**a\nb**`.
+ *
+ * When the first paragraph already ends in a line break (an Enter at its end)
+ * or the second already starts with one, that break is the line boundary: the
+ * two join with nothing added and the caret at the seam, so the join never
+ * leaves two breaks in a row — an empty line inside a paragraph.
  */
 function joinAsLines(
   state: EditorState,
@@ -133,13 +138,14 @@ function joinAsLines(
   const after = $boundary.nodeAfter;
   if (before?.type.name !== 'paragraph' || after?.type.name !== 'paragraph') return false;
   if (before.content.size === 0 || after.content.size === 0) return false;
-  const lineBreak = softBreak(state, []);
-  if (!lineBreak) return false;
+  const hasBreak = isLineBreak(before.lastChild) || isLineBreak(after.firstChild);
+  const lineBreak = hasBreak ? null : softBreak(state, []);
+  if (!hasBreak && !lineBreak) return false;
   if (!dispatch) return true;
   const tr = state.tr.join(boundary);
   const at = boundary - 1;
-  tr.insert(at, lineBreak);
-  tr.setSelection(TextSelection.create(tr.doc, caretAfter ? at + 1 : at));
+  if (lineBreak) tr.insert(at, lineBreak);
+  tr.setSelection(TextSelection.create(tr.doc, lineBreak && caretAfter ? at + 1 : at));
   dispatch(tr.scrollIntoView());
   return true;
 }

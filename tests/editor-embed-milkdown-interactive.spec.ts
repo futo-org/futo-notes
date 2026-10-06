@@ -1302,6 +1302,63 @@ test('Delete at the end of a paragraph joins the next one as a line', async ({ p
   expect(await getContent(page)).toBe('one\ntwo\n');
 });
 
+/**
+ * Puts the caret `offset` characters into the first text node that holds
+ * exactly `text` — a line of a paragraph, which `getByText` cannot address.
+ */
+async function caretInText(page: Page, text: string, offset: number): Promise<void> {
+  await withCaretObserved(page, () =>
+    page.evaluate(
+      ([wanted, at]) => {
+        const root = document.querySelector('.ProseMirror');
+        if (!root) throw new Error('no editor');
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          if (node.textContent === wanted) {
+            getSelection()?.collapse(node, at);
+            return;
+          }
+        }
+        throw new Error(`no text node "${wanted}"`);
+      },
+      [text, offset] as const,
+    ),
+  );
+}
+
+test('Enter at the end of a line with a line below leaves one blank line between them', async ({
+  page,
+}) => {
+  test.fail(true, 'an empty line inside a paragraph is written `&#x20;` until the #266 fix lands');
+  await open(page, 'one\ntwo');
+  await caretInText(page, 'one', 'one'.length);
+  await page.keyboard.press('Enter');
+  await settled(page);
+  expect(await paragraphLines(page)).toEqual(['one\n\ntwo']);
+  expect(await getContent(page)).toBe('one\n\ntwo\n');
+});
+
+test('Backspace under a line that ends in a newline takes back one newline', async ({ page }) => {
+  await open(page, 'one\n\ntwo');
+  await caretInText(page, 'one', 'one'.length);
+  await page.keyboard.press('Enter');
+  await caretInText(page, 'two', 0);
+  await page.keyboard.press('Backspace');
+  await settled(page);
+  expect(await paragraphLines(page)).toEqual(['one\ntwo']);
+  expect(await getContent(page)).toBe('one\ntwo\n');
+});
+
+test('Delete on an empty last line joins the next paragraph onto it', async ({ page }) => {
+  await open(page, 'one\n\ntwo');
+  await caretInText(page, 'one', 'one'.length);
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Delete');
+  await settled(page);
+  expect(await paragraphLines(page)).toEqual(['one\ntwo']);
+  expect(await getContent(page)).toBe('one\ntwo\n');
+});
+
 test('bold typed across an Enter stays one bold run', async ({ page }) => {
   await openAtEnd(page, 'start');
   await page.keyboard.type(' ');

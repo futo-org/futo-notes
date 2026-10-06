@@ -179,7 +179,9 @@ about.
 - Backspace at the start of a line joins it to the line above. At the start of
   a paragraph that follows another paragraph it removes ONE newline, so the two
   become lines of one paragraph again: Backspace takes back exactly one Enter.
-  Delete at the end of a paragraph does the same forwards. →
+  Delete at the end of a paragraph does the same forwards. When the paragraph
+  above already ends in an empty line (an Enter at its end), the next one joins
+  onto that line, so a join never leaves an empty line inside a paragraph. →
   paragraphLines.ts `joinBackwardAsLine` / `joinForwardAsLine`
 - Formatting typed across an Enter stays one run: bold carried over a newline
   saves as one `**…**` spanning both lines. Undo after an Enter takes back
