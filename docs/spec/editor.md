@@ -260,7 +260,9 @@ hand-reviewed goldens, one or more per line below)
   under a list item's paragraph (a setext underline), and as the first thing
   in a `-` item (a rule, not an item).
 - Bold is `**text**`, italic `*text*`, bold italic `***text***`, strikethrough
-  `~~text~~`. Inline code is a backtick run one longer than any run inside it
+  `~~text~~`. Marks over the same text nest strikethrough outermost, then bold,
+  then italic (`~~***text***~~`), and two italic (or two bold) runs that touch
+  are written as one. Inline code is a backtick run one longer than any run inside it
   (`` `a` ``, ``` `` a`b `` ```), with one space of padding on each side when
   the code starts or ends with a backtick, or starts and ends with a space.
 - Fenced code uses backticks — at least three, and one more than the longest
@@ -288,6 +290,9 @@ hand-reviewed goldens, one or more per line below)
   loose (a blank line between items). Inside an item, its blocks are separated
   the same way the item itself was read: a newline when tight, a blank line
   when loose.
+- An item whose blocks only a blank line keeps apart is written loose, because
+  no tight spelling exists for it: two paragraphs in a row (what Backspace at
+  the start of a nested item leaves), or an empty paragraph between two blocks.
 - An item's continuation lines are indented by the width of its own marker:
   two spaces under `- `, three under `1. `, four under `10. `. A nested list
   therefore parses back at the same depth.

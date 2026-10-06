@@ -56,6 +56,61 @@
       "expected": "~~one~~ and ~~two~~\n"
     },
     {
+      "story": 3,
+      "name": "marks over the same text nest strikethrough outermost, then bold, then italic",
+      "source": "***~~hello~~***",
+      "expected": "~~***hello***~~\n"
+    },
+    {
+      "story": 3,
+      "name": "an italic inside a word is written with *, which opens and closes there",
+      "source": "&#x78;_a_&#x79;",
+      "expected": "x*a*y\n"
+    },
+    {
+      "story": 3,
+      "name": "two italic runs that touch are one italic run (typing Z before _b_*c*)",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a Z"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "emphasis",
+                    "attrs": {
+                      "marker": "_"
+                    }
+                  }
+                ],
+                "text": "b"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "emphasis",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ],
+                "text": "c"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "a Z*bc*\n"
+    },
+    {
       "story": 4,
       "name": "underscores inside words and in math are not escaped",
       "source": "snake_case_word, $x_1$, file_name.txt and #dog_problems",
@@ -114,6 +169,12 @@
       "name": "bare URLs and www links are written bare",
       "source": "see https://example.com/a_b and www.example.com.",
       "expected": "see https://example.com/a_b and www.example.com.\n"
+    },
+    {
+      "story": 6,
+      "name": "a scheme with nothing after it is not a link and needs no escape",
+      "source": "not https:// ",
+      "expected": "not https://\n"
     },
     {
       "story": 6,
@@ -212,6 +273,12 @@
       "expected": "> a\n>\n>\n> b\n"
     },
     {
+      "story": 8,
+      "name": "an empty paragraph inside a list item, after its first paragraph",
+      "source": "- a\n\n\n  b\n- c",
+      "expected": "- a\n\n\n  b\n- c\n"
+    },
+    {
       "story": 9,
       "name": "a tight list stays tight",
       "source": "- a\n- b\n  - c",
@@ -228,6 +295,281 @@
       "name": "a loose item inside a tight list keeps its blank line",
       "source": "- a\n- b\n\n  c\n- d",
       "expected": "- a\n- b\n\n  c\n- d\n"
+    },
+    {
+      "story": 9,
+      "name": "two paragraphs in a tight item are written loose: no tight spelling keeps them two (Backspace at a nested item's start)",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "b"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n\n  b\n"
+    },
+    {
+      "story": 9,
+      "name": "a tight item made loose by two paragraphs spaces all its blocks",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "b"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "bullet_list",
+                    "attrs": {
+                      "spread": false
+                    },
+                    "content": [
+                      {
+                        "type": "list_item",
+                        "attrs": {
+                          "label": "•",
+                          "listType": "bullet",
+                          "spread": false,
+                          "checked": null
+                        },
+                        "content": [
+                          {
+                            "type": "paragraph",
+                            "content": [
+                              {
+                                "type": "text",
+                                "text": "c"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n\n  b\n\n  - c\n"
+    },
+    {
+      "story": 9,
+      "name": "two paragraphs in a tight nested item loosen that item only",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "bullet_list",
+                    "attrs": {
+                      "spread": false
+                    },
+                    "content": [
+                      {
+                        "type": "list_item",
+                        "attrs": {
+                          "label": "•",
+                          "listType": "bullet",
+                          "spread": false,
+                          "checked": null
+                        },
+                        "content": [
+                          {
+                            "type": "paragraph",
+                            "content": [
+                              {
+                                "type": "text",
+                                "text": "x"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "paragraph",
+                            "content": [
+                              {
+                                "type": "text",
+                                "text": "b"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n  - x\n\n    b\n"
+    },
+    {
+      "story": 9,
+      "name": "an empty paragraph between two blocks of a tight item makes it loose",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "bullet_list",
+                    "attrs": {
+                      "spread": false
+                    },
+                    "content": [
+                      {
+                        "type": "list_item",
+                        "attrs": {
+                          "label": "•",
+                          "listType": "bullet",
+                          "spread": false,
+                          "checked": null
+                        },
+                        "content": [
+                          {
+                            "type": "paragraph",
+                            "content": [
+                              {
+                                "type": "text",
+                                "text": "c"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph"
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "b"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n\n  - c\n\n\n  b\n"
     },
     {
       "story": 10,
@@ -354,6 +696,12 @@
       "name": "text that looks like a wikilink keeps its escape",
       "source": "\\[[not a link]]",
       "expected": "\\[[not a link]]\n"
+    },
+    {
+      "story": 17,
+      "name": "two escapes before [[ come back as one, on the opener",
+      "source": "\\[\\[x]] **b**",
+      "expected": "\\[[x]] **b**\n"
     },
     {
       "story": 18,
@@ -569,6 +917,16 @@
         ]
       },
       "expected": "&#x20;&#x20;indented\n&#x9;next\n"
+    },
+    {
+      "name": "a link whose text starts with a space keeps a plain space: after the bracket it is not the line's start",
+      "source": "[ _a_](u)",
+      "expected": "[ *a*](u)\n"
+    },
+    {
+      "name": "text right after an opening mark is not at the line's start: 1. and # stay bare",
+      "source": "**1. not a list** and *# not a heading*",
+      "expected": "**1. not a list** and *# not a heading*\n"
     },
     {
       "name": "a line break at the end of a paragraph is not written",

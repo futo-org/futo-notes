@@ -522,6 +522,8 @@ function writeUnit(
       default:
         if (!obviouslyFlanks(tokens, index)) sites.needsCheck = true;
         fixed(token.delim);
+        // What follows a mark's delimiter is not at the line's start.
+        lineHasContent = true;
     }
   });
   return { lines: splitLines(pieces), boundaries };

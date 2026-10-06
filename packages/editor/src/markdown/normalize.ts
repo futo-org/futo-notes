@@ -12,6 +12,8 @@
  *    LF (a save writes LF only), and an HTML block's indentation before its
  *    first tag is dropped: it is layout, not HTML, and kept it would put the
  *    block in a different container once list indentation is the house style's.
+ *    A list item whose blocks need a blank line between them is loose, however
+ *    the editor held it: no tight spelling keeps them apart (`needsBlankLine`).
  * 2. The spelling-only attributes, which a parse derives from HOW the file
  *    spelled something rather than from WHAT it holds, so they are left out of
  *    every comparison: `emphasis`/`strong` `marker` (`*` or `_`), `heading`
@@ -127,17 +129,50 @@ const INLINE_KIND: Partial<Record<string, InlineKind>> = {
   [NODE.heading]: 'heading',
 };
 
-/** Empty paragraphs at either end of a container's children, which no spelling reaches. */
+/**
+ * Empty paragraphs at either end of a container's children, which no spelling
+ * reaches. A list item's first child is always kept: it is the schema's filler
+ * when empty, and the empty paragraphs after a filler are at the item's start
+ * too. After a first paragraph that holds text they are blank lines inside the
+ * item, and are written.
+ */
 function trimContainer(node: NodeJson, children: NodeJson[]): NodeJson[] {
   const keepFirst = node.type === NODE.listItem ? 1 : 0;
+  const first = children[0];
+  const leading = keepFirst === 0 || (first !== undefined && isEmptyParagraph(first));
   let start = keepFirst;
-  while (start < children.length && isEmptyParagraph(children[start] as NodeJson)) start += 1;
+  while (leading && start < children.length && isEmptyParagraph(children[start] as NodeJson)) {
+    start += 1;
+  }
   let end = children.length;
   while (end > start && isEmptyParagraph(children[end - 1] as NodeJson)) end -= 1;
   return [...children.slice(0, keepFirst), ...children.slice(start, end)];
 }
 
 const CONTAINERS = new Set<string>([NODE.blockquote, NODE.listItem, NODE.footnoteDefinition]);
+
+/** A paragraph that is one block of HTML (the preset wraps HTML blocks in one). */
+const isHtmlBlock = (node: NodeJson): boolean =>
+  node.content?.length === 1 && node.content[0]?.type === NODE.html;
+
+/**
+ * Whether a list item's blocks (trimmed, `trimContainer`) can only be written
+ * with a blank line between two of them, which reads the item back loose: two
+ * paragraphs in a row (a paragraph cannot interrupt one; the editor makes the
+ * pair with Backspace at a nested item's start), or an empty paragraph between
+ * two blocks (written as extra blank lines). An HTML block after a paragraph is
+ * not such a pair: it may interrupt the paragraph, or sit on a lazy line
+ * (`./blocks.ts`). The first child may be the schema's empty filler, which is
+ * not written at all.
+ */
+function needsBlankLine(children: readonly NodeJson[]): boolean {
+  return children.some((child, index) => {
+    if (index === 0 || child.type !== NODE.paragraph) return false;
+    if (isEmptyParagraph(child)) return true;
+    const previous = children[index - 1] as NodeJson;
+    return previous.type === NODE.paragraph && !isEmptyParagraph(previous) && !isHtmlBlock(child);
+  });
+}
 
 /**
  * `node` with the house style's structural normalizations, recursively. The
@@ -155,6 +190,9 @@ export function normalizeBlock(node: NodeJson, inCell = false): NodeJson {
   const cell = node.type === NODE.tableHeader || node.type === NODE.tableCell;
   let children = node.content.map((child) => normalizeBlock(child, cell));
   if (CONTAINERS.has(node.type)) children = trimContainer(node, children);
+  if (node.type === NODE.listItem && node.attrs?.spread !== true && needsBlankLine(children)) {
+    return { ...node, attrs: { ...node.attrs, spread: true }, content: children };
+  }
   return { ...node, content: children };
 }
 

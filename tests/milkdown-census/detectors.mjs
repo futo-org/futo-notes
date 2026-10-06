@@ -202,10 +202,15 @@ export function countWikilinks(markdown) {
  *   - a heading's line breaks are spaces (an ATX heading is one line);
  *   - empty paragraphs at the start or end of a quote, list item or footnote,
  *     and at the end of the note, are dropped (no spelling reaches them; a list
- *     item keeps its first child, the schema's filler);
+ *     item keeps its first child, the schema's filler, and the empty paragraphs
+ *     after a first paragraph that holds text are inside the item, not at its
+ *     start);
  *   - CR and CRLF inside code, HTML and front matter are LF;
  *   - an HTML block's indentation before its first tag is dropped (layout, not
- *     HTML; only a block's value can start with whitespace).
+ *     HTML; only a block's value can start with whitespace);
+ *   - a list item whose blocks need a blank line between them — two paragraphs
+ *     in a row (a paragraph cannot interrupt one), or an empty paragraph
+ *     between two blocks — is loose: no tight spelling keeps them apart.
  * Text runs whose marks then agree are merged, and an emptied paragraph is an
  * empty paragraph.
  */
@@ -230,6 +235,17 @@ function houseMarks(marks) {
 
 function isEmptyParagraph(node) {
   return node.type === 'paragraph' && (node.content?.length ?? 0) === 0;
+}
+
+/** A list item's blocks (trimmed) that only a blank line keeps apart; its first may be the schema's filler. */
+function needsBlankLine(content) {
+  const htmlBlock = (node) => node.content?.length === 1 && node.content[0].type === 'html';
+  return content.some((child, i) => {
+    if (i === 0 || child.type !== 'paragraph') return false;
+    if (isEmptyParagraph(child)) return true;
+    const previous = content[i - 1];
+    return previous.type === 'paragraph' && !isEmptyParagraph(previous) && !htmlBlock(child);
+  });
 }
 
 function houseInline(content, kind) {
@@ -306,12 +322,15 @@ function houseNode(node, inCell = false) {
   content = content.map((child) => houseNode(child, cell));
   if (CONTAINERS.has(node.type)) {
     const keep = node.type === 'list_item' ? 1 : 0;
+    // After an item's first paragraph that holds text, blank lines are inside the item.
+    const leading = keep === 0 || (content.length > 0 && isEmptyParagraph(content[0]));
     let start = keep;
-    while (start < content.length && isEmptyParagraph(content[start])) start += 1;
+    while (leading && start < content.length && isEmptyParagraph(content[start])) start += 1;
     let end = content.length;
     while (end > start && isEmptyParagraph(content[end - 1])) end -= 1;
     content = [...content.slice(0, keep), ...content.slice(start, end)];
   }
+  if (node.type === 'list_item' && out.attrs && needsBlankLine(content)) out.attrs.spread = true;
   if (node.type === 'doc') {
     while (content.length > 0 && isEmptyParagraph(content[content.length - 1])) content.pop();
   }
