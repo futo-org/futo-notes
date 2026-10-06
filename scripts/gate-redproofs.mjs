@@ -268,7 +268,16 @@ const PROOFS = [
     inject: (wt) =>
       seed.append(wt, 'README.md', '\nSeeded: `just redproof-sentinel-no-such-recipe`.\n'),
     expect: ['README.md', 'just redproof-sentinel-no-such-recipe — no such justfile recipe'],
-    fix: 'parseJustRecipes()/extractReferences() in scripts/check-agent-docs.mjs stopped seeing inline-backtick just references — agents follow these files literally, so a stale command sends them down a dead end.',
+    fix: 'readJustCommands()/extractReferences() in scripts/check-agent-docs.mjs stopped seeing inline-backtick just references — agents follow these files literally, so a stale command sends them down a dead end.',
+  },
+  {
+    gate: 'agent-docs',
+    id: 'unreadable-justfile',
+    seeded: 'imported a missing justfile',
+    claim: 'a failed just metadata command must fail the gate rather than skip recipe validation',
+    inject: (wt) => seed.append(wt, 'justfile', "\nimport 'redproof-sentinel-missing.just'\n"),
+    expect: ['redproof-sentinel-missing.just', 'Could not find source file for import'],
+    fix: 'readJustCommands() must propagate just parsing failures; never fall back to an empty recipe list.',
   },
   {
     gate: 'agent-docs',
