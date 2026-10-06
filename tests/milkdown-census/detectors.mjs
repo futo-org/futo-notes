@@ -157,15 +157,171 @@ export function hasInsertedReference(input, output) {
       return true;
     }
     const codePoint = referenceCodePoint(reference);
+    /* A malformed one written bare is literal text again (`&#1F600;` is not a
+     * reference), which is how the owned serializer saves a note that spelled
+     * it `&amp;#1F600;` or `\&#1F600;`: fine while the note held that text. */
+    if (codePoint === null && heldAsText(input, reference)) continue;
     if (codePoint === null || !characters.has(codePoint)) return true;
   }
   return false;
+}
+
+/** Whether `input` spelled `reference` as literal text: with `&amp;` or a backslash. */
+function heldAsText(input, reference) {
+  return input.includes(`&amp;${reference.slice(1)}`) || input.includes(`\\${reference}`);
 }
 
 const WIKILINK_RE = /\\?\[\\?\[[^\]\n]+\]\\?\]/g;
 
 export function countWikilinks(markdown) {
   return (markdown.match(WIKILINK_RE) ?? []).length;
+}
+
+/**
+ * The document a note reads as, with everything a fixed house style may change
+ * taken out, so two readings compare equal exactly when the save lost or
+ * changed nothing the author wrote. Stated here, not imported from the
+ * serializer, so the gate does not trust the code it gates. Each rule is a line
+ * of docs/spec/editor.md "Markdown house style".
+ *
+ * Spelling-only attributes — what a parse derives from HOW the file spelled
+ * something, not from what it holds — are dropped:
+ *   - `emphasis.marker`, `strong.marker`: `*` or `_`, the file's choice.
+ *   - `heading.id`: a slug of the heading's text.
+ *   - `list_item.label`, `list_item.listType`: `•`/`3.` and bullet/ordered,
+ *     derived from the parent list and the item's position.
+ *   - `table_header.colwidth`, `table_cell.colwidth`: markdown has no widths.
+ *   - `table_cell.alignment` (body cells): the delimiter row sets a column's
+ *     alignment, read from the header cell, which keeps it.
+ *   - a link's `title` of `""` reads the same as none; an image's missing
+ *     title is the schema's `''`.
+ * Normalizations the house style makes on purpose:
+ *   - whitespace before a soft line break, and at the end of a paragraph,
+ *     heading or table cell, is dropped, then a line break at the very end of
+ *     one (the parser drops both on every read);
+ *   - a heading's line breaks are spaces (an ATX heading is one line);
+ *   - empty paragraphs at the start or end of a quote, list item or footnote,
+ *     and at the end of the note, are dropped (no spelling reaches them; a list
+ *     item keeps its first child, the schema's filler);
+ *   - CR and CRLF inside code, HTML and front matter are LF;
+ *   - an HTML block's indentation before its first tag is dropped (layout, not
+ *     HTML; only a block's value can start with whitespace).
+ * Text runs whose marks then agree are merged, and an emptied paragraph is an
+ * empty paragraph.
+ */
+const SPELLING_ATTRS = {
+  heading: ['id'],
+  list_item: ['label', 'listType'],
+  table_header: ['colwidth'],
+  table_cell: ['colwidth', 'alignment'],
+};
+const CONTAINERS = new Set(['blockquote', 'list_item', 'footnote_definition']);
+const lf = (value) => value.replace(/\r\n?/g, '\n');
+
+function houseMarkKey(mark) {
+  if (mark.type === 'link')
+    return `link\u0000${mark.attrs?.href ?? ''}\u0000${mark.attrs?.title || ''}`;
+  return mark.type;
+}
+
+function houseMarks(marks) {
+  return (marks ?? []).map(houseMarkKey).sort().join('\u0001');
+}
+
+function isEmptyParagraph(node) {
+  return node.type === 'paragraph' && (node.content?.length ?? 0) === 0;
+}
+
+function houseInline(content, kind) {
+  let nodes = content.map((node) => {
+    if (node.type === 'html') return node;
+    if (kind === 'heading' && node.type === 'hardbreak')
+      return { type: 'text', text: ' ', marks: node.marks };
+    return node;
+  });
+  const merge = (list) => {
+    const out = [];
+    for (const node of list) {
+      if (node.type === 'text' && !node.text) continue;
+      const last = out[out.length - 1];
+      if (
+        last?.type === 'text' &&
+        node.type === 'text' &&
+        houseMarks(last.marks) === houseMarks(node.marks)
+      ) {
+        out[out.length - 1] = { ...last, text: last.text + node.text };
+      } else out.push(node);
+    }
+    return out;
+  };
+  // Code is delimited, so its edge spaces survive a read: never trimmed.
+  const trimmable = (node) =>
+    node.type === 'text' && !(node.marks ?? []).some((mark) => mark.type === 'inlineCode');
+  const stripBefore = (list, end) => {
+    for (let i = end - 1; i >= 0 && trimmable(list[i]); i -= 1) {
+      const text = list[i].text.replace(/[ \t]+$/, '');
+      list[i] = { ...list[i], text };
+      if (text !== '') return;
+    }
+  };
+  nodes = merge(nodes);
+  for (let i = 0; i < nodes.length; i += 1) {
+    if (nodes[i].type === 'hardbreak' && nodes[i].attrs?.isInline === true) stripBefore(nodes, i);
+  }
+  for (;;) {
+    stripBefore(nodes, nodes.length);
+    nodes = merge(nodes);
+    if (nodes[nodes.length - 1]?.type !== 'hardbreak') break;
+    nodes.pop();
+  }
+  return nodes;
+}
+
+function houseNode(node, inCell = false) {
+  const out = { type: node.type };
+  if (node.attrs) {
+    const dropped = SPELLING_ATTRS[node.type] ?? [];
+    const attrs = {};
+    for (const key of Object.keys(node.attrs).sort()) {
+      if (dropped.includes(key)) continue;
+      let value = node.attrs[key];
+      if (node.type === 'image' && key === 'title') value = value ?? '';
+      if ((node.type === 'frontmatter' || node.type === 'html') && key === 'value')
+        value = lf(value);
+      if (node.type === 'html' && key === 'value') value = value.replace(/^[ \t]+/, '');
+      attrs[key] = value;
+    }
+    if (Object.keys(attrs).length > 0) out.attrs = attrs;
+  }
+  if (node.marks?.length) out.marks = houseMarks(node.marks);
+  if (node.text !== undefined) out.text = node.text;
+  let content = node.content ?? [];
+  if (node.type === 'code_block') {
+    const text = lf(content.map((child) => child.text ?? '').join(''));
+    content = text ? [{ type: 'text', text }] : [];
+  } else if (node.type === 'paragraph' || node.type === 'heading') {
+    content = houseInline(content, inCell ? 'cell' : node.type);
+  }
+  const cell = node.type === 'table_header' || node.type === 'table_cell';
+  content = content.map((child) => houseNode(child, cell));
+  if (CONTAINERS.has(node.type)) {
+    const keep = node.type === 'list_item' ? 1 : 0;
+    let start = keep;
+    while (start < content.length && isEmptyParagraph(content[start])) start += 1;
+    let end = content.length;
+    while (end > start && isEmptyParagraph(content[end - 1])) end -= 1;
+    content = [...content.slice(0, keep), ...content.slice(start, end)];
+  }
+  if (node.type === 'doc') {
+    while (content.length > 0 && isEmptyParagraph(content[content.length - 1])) content.pop();
+  }
+  if (content.length > 0) out.content = content;
+  return out;
+}
+
+/** The note as `houseNode` compares it: a string, so equality is `===`. */
+export function houseDocument(docJson) {
+  return JSON.stringify(houseNode(docJson));
 }
 
 /**
@@ -187,6 +343,16 @@ export function classify({ body, round1, round2, round3 }) {
   // round1 parsed to. Unequal means the editor changed the document, not just
   // its spelling.
   if (JSON.stringify(round1.docJson) !== JSON.stringify(round2.docJson)) flags.doc_mismatch = true;
+
+  /* The two hard gates of the owned serializer (#266). `content_loss` is
+   * `doc_mismatch` with only what the house style may change taken out
+   * (`houseDocument`): the save dropped or changed something the author wrote.
+   * `second_pass_unstable` is the serializer's own fixed point — write, parse
+   * with the bare parser, write again — without the editor's load sequence. */
+  if (houseDocument(round1.docJson) !== houseDocument(round2.docJson)) flags.content_loss = true;
+  if (round1.secondPass !== undefined && round1.secondPass !== round1.markdown) {
+    flags.second_pass_unstable = true;
+  }
   if (round1.text !== round2.text) flags.text_loss = true;
   if (JSON.stringify(round1.histogram) !== JSON.stringify(round2.histogram)) {
     flags.structural_diff = true;
@@ -229,6 +395,8 @@ export function classify({ body, round1, round2, round3 }) {
 }
 
 export const FLAG_ORDER = [
+  'content_loss',
+  'second_pass_unstable',
   'unstable',
   'unstable_persistent',
   'doc_mismatch',

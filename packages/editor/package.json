@@ -7,7 +7,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./bridge": "./src/bridge.ts",
-    "./milkdown-compat": "./src/milkdown-compat/index.ts"
+    "./milkdown-compat": "./src/milkdown-compat/index.ts",
+    "./markdown": "./src/markdown/index.ts"
   },
   "scripts": {
     "build:editor": "vite build --config ../../vite.editor.config.ts",

@@ -1010,6 +1010,13 @@ const FIXTURES_OUTSIDE_THE_DIFFERENTIAL = {
     'the case counts asserted in apps/ios/Tests/Sync/SyncSessionModeConformanceTests' +
     '.swift and apps/android/.../SyncSessionModeConformanceTest.kt, and re-running ' +
     'both native suites.',
+  'markdown-house-style.json':
+    "The editor's markdown serializer (packages/editor/src/markdown/, #266) exists " +
+    'ONCE, in TypeScript: it writes the editor document, which only the editor holds, ' +
+    "and its escaping is decided by parsing with the editor's own parser. There is no " +
+    'Rust implementation to differentiate against. Locked by this fixture plus ' +
+    'src/features/editor/milkdown/markdownHouseStyle.test.ts, which reads every source ' +
+    'with the shipping parser.',
 };
 
 // Divergences the two languages KNOWN-ship today. Each entry names the exact op
