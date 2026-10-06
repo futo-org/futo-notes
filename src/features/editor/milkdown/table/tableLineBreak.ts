@@ -56,7 +56,7 @@
  * meta, so `hardbreakFilterPlugin` never sees a reason to reject it.
  *
  * Both halves here are bundled into `tableGrips.ts`'s exported plugin array
- * (mounted with the feature's one `.use(tableGrips)` in MilkdownEditor.svelte)
+ * (mounted with the feature's one `.use(tableGrips)` in editorPlugins.ts)
  * rather than adding a second `.use()` call there.
  */
 import { $remark } from '@milkdown/kit/utils';
@@ -114,7 +114,7 @@ export const tableCellLineBreakRemark = $remark(
  * `tableCell`, and otherwise reproduces the plain hard break spelling
  * (`\` + newline) unchanged.
  *
- * UNLIKE `MilkdownEditor.svelte`'s own `remarkStringifyOptionsCtx` update for
+ * UNLIKE `editorPlugins.ts`'s own `remarkStringifyOptionsCtx` update for
  * the tag-escaping fix, this cannot WRAP an existing handler — Milkdown's
  * core only pre-registers `text`/`strong`/`emphasis` into
  * `remarkStringifyOptionsCtx`'s default `handlers` map

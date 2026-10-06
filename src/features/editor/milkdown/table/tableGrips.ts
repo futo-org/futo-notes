@@ -499,7 +499,7 @@ const tableGripsView = $prose(
 );
 
 /**
- * Everything `MilkdownEditor.svelte`'s one `.use(tableGrips)` needs to mount
+ * Everything `editorPlugins.ts`'s one `.use(tableGrips)` needs to mount
  * for GFM tables: the grips view above, plus the Shift+Enter line-break
  * round-trip fix (`tableLineBreak.ts` — a different bug in the same feature
  * area, bundled here rather than adding a second `.use()` call), and the

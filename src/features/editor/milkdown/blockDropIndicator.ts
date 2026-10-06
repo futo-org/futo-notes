@@ -183,7 +183,7 @@ class BlockDropIndicatorView {
 }
 
 /**
- * Desktop only, mounted alongside @milkdown/plugin-block (MilkdownEditor.svelte
+ * Desktop only, mounted alongside @milkdown/plugin-block (blockDrag.svelte.ts
  * mounts the long-press plugin instead on a native shell, and the two never
  * coexist for one editor instance).
  */

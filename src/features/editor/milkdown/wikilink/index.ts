@@ -16,7 +16,7 @@ import { wikilinkAutocomplete } from './autocomplete';
 
 export const wikilinkRemark = $remark('remark-futo-wikilink', () => remarkWikilink);
 
-/** Mounted as one `.use(...)` by `MilkdownEditor.svelte`. */
+/** Mounted as one `.use(...)` by `editorPlugins.ts`. */
 export const wikilink = [
   wikilinkRemark,
   wikilinkSchema,

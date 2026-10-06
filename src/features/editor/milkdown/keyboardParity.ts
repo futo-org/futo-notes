@@ -41,7 +41,7 @@
  * nested item; pinned in `tests/editor-embed-milkdown-interactive.spec.ts`.
  *
  * Wired as the ProseMirror `handleKeyDown` DIRECT view prop (via
- * `editorViewOptionsCtx` in MilkdownEditor.svelte) rather than a keymap
+ * `editorViewOptionsCtx` in editorPlugins.ts) rather than a keymap
  * plugin, for the same reason `handlePaste` is: direct props are consulted
  * before every plugin keymap, so this wins deterministically over the preset's
  * own Enter/Tab bindings without depending on plugin registration order.
@@ -384,7 +384,7 @@ export function handleParityKeyDown(view: ProseView, event: KeyboardEvent): bool
  * convention (Mod+] / Mod+[), and independent of the Tab decision above: Tab
  * stays plain focus navigation everywhere but a code fence, this claims two
  * keys Tab never touched. Wired from its own `handleKeyDown` slot in
- * MilkdownEditor.svelte (composed ahead of `handleParityKeyDown`, which bails
+ * editorPlugins.ts (composed ahead of `handleParityKeyDown`, which bails
  * out on any modifier key and so never sees these), not from inside
  * `handleParityKeyDown` above.
  */

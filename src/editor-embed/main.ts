@@ -125,7 +125,7 @@ const editor = mount(MilkdownEditor, {
       post({ type: 'formatState', active, disabled });
     },
     // The long-press block-drag path BOTH native shells mount (see
-    // MilkdownEditor.svelte / mobileBlockDnd.ts); the browser build never calls
+    // blockDrag.svelte.ts / mobileBlockDnd.ts); the browser build never calls
     // this prop — it keeps the ⠿ gutter handle.
     onhaptic: (kind: 'lift' | 'move' | 'drop') => {
       post({ type: 'haptic', kind });

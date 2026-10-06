@@ -16,7 +16,8 @@
    * loaded, so opening and closing a note can never rewrite it on disk.
    * `editor-embed-milkdown.spec.ts` locks that.
    *
-   * What lives elsewhere: block drag — the desktop ⠿ handle, the native
+   * What lives elsewhere: the plugin set and every ctx setting, in mount
+   * order (`editorPlugins.ts`), block drag — the desktop ⠿ handle, the native
    * shells' long-press drag and the one choice between them
    * (`blockDrag.svelte.ts`, whose header lists the drag modules behind it),
    * toolbar commands (`toolbarExec.ts`) and the native toolbar's active-state
@@ -25,27 +26,7 @@
   import { onMount } from 'svelte';
 
   import './milkdownEditor.css';
-  import {
-    Editor,
-    defaultValueCtx,
-    editorViewOptionsCtx,
-    remarkCtx,
-    remarkStringifyOptionsCtx,
-    rootCtx,
-    schemaCtx,
-    serializerCtx,
-  } from '@milkdown/kit/core';
-  import { codeBlockAttr, inlineCodeAttr } from '@milkdown/kit/preset/commonmark';
-
-  import { commonmarkWithCompat, gfmWithCompat } from '@futo-notes/editor/milkdown-compat';
-  import { history } from '@milkdown/kit/plugin/history';
-  import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
-  import { clipboard } from '@milkdown/kit/plugin/clipboard';
-  /* `gapCursorPlugin` only — NOT the whole `cursor` bundle. Its drop-indicator
-   * half draws two lines per top-level gap; `blockDropIndicator.ts` replaces it
-   * and says why. */
-  import { gapCursorPlugin } from '@milkdown/kit/plugin/cursor';
-  import { trailing } from '@milkdown/kit/plugin/trailing';
+  import { schemaCtx, serializerCtx, type Editor } from '@milkdown/kit/core';
   import { insert, replaceAll } from '@milkdown/kit/utils';
   import { history as proseHistory, redoDepth, undoDepth } from '@milkdown/kit/prose/history';
   import { EditorState, TextSelection, type PluginKey } from '@milkdown/kit/prose/state';
@@ -56,12 +37,7 @@
     type Schema as ProseSchema,
   } from '@milkdown/kit/prose/model';
   import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
-  import {
-    bareUrlLinkHandler,
-    imageReferenceMarkdown,
-    toWellFormedText,
-    withNarrowedEscapes,
-  } from '@futo-notes/editor';
+  import { imageReferenceMarkdown, toWellFormedText } from '@futo-notes/editor';
   import {
     FRONTMATTER_NODE,
     hasSurplusTrailingEmptyParagraphs,
@@ -71,7 +47,6 @@
     uninstallVaultImageUrlResolver,
   } from '$features/images/vaultImageUrlResolver';
   import { deleteImage } from '$features/images/imageFiles';
-  import { readOnlyGuard } from './readOnlyGuard';
   import { onFileDrop } from '$lib/platform';
   import { localizedText } from '$shared/localization';
   import { createImageInsertTarget } from '../imageInsertTarget';
@@ -86,23 +61,19 @@
   import { createImagePasteHandler, resolveImagePasteSink } from '../imagePasteSink';
   import type { EditorLinkGesture } from '../editorLinkGesture';
   import { resolveBlockDragMode } from './blockDragMode';
-  import { createBlockDrag, useBlockDragPlugins } from './blockDrag.svelte';
-  import { autolink } from './autolink';
+  import { createBlockDrag } from './blockDrag.svelte';
+  import { assembleEditor } from './editorPlugins';
   import { editorView, enclosingListItem } from './caretContext';
   import { inIndentableContainer } from './blockCommands';
-  import { dividerCaretFix } from './dividerCaret';
-  import { plainTextBlockPaste } from './plainTextBlockPaste';
   import { computeActiveFormats, computeDisabledFormats } from './formatState';
-  import { handleIndentShortcut, handleParityKeyDown } from './keyboardParity';
-  import { endsWithUnwrittenLine, handleLineStartShortcut, softBreakView } from './paragraphLines';
+  import { endsWithUnwrittenLine } from './paragraphLines';
   import {
     dropBlockDndFocusGuards,
     DEFAULT_LONG_PRESS_MS,
     type MobileDndHapticKind,
   } from './mobileBlockDnd';
-  import { codeHighlight } from './codeHighlight';
-  import { createSelectionToolbarPlugin, resolveSelectionToolbar } from './selectionToolbar';
-  import { createSlashMenuPlugin, resolveSlashMenu } from './slash';
+  import { resolveSelectionToolbar } from './selectionToolbar';
+  import { resolveSlashMenu } from './slash';
   import { planMarkdownChunks, type MarkdownChunkOptions } from './markdownChunks';
   import { parseNote, stripLeadingBoms } from './parseNote';
   import {
@@ -119,8 +90,6 @@
   } from './progressiveLoad';
   import {
     closeFind as closeFindIn,
-    createFindMatchReport,
-    findEngine,
     openFind as openFindIn,
     setFindOverlayInset as setFindOverlayInsetIn,
     setFindQuery as setFindQueryIn,
@@ -128,20 +97,13 @@
     type FindBarState,
     type FindMatchReport,
   } from './find';
-  import { tagDecorations } from './tagDecorations';
-  import {
-    DOCUMENT_CHANGE_DEBOUNCE_MS,
-    DOCUMENT_CHANGE_MAX_WAIT_MS,
-    documentChanges,
-  } from './documentChanges';
+  import { DOCUMENT_CHANGE_DEBOUNCE_MS, DOCUMENT_CHANGE_MAX_WAIT_MS } from './documentChanges';
   import { createBlockSerializer, type BlockSerializer } from './blockSerializer';
   import { WHOLE as CENSUS_WHOLE } from './chunkCensusHook';
-  import { CHECKBOX_SIZE_PX, taskCheckbox } from './taskCheckbox';
-  import { hideTableGrips, tableGrips } from './table/tableGrips';
+  import { CHECKBOX_SIZE_PX } from './taskCheckbox';
+  import { hideTableGrips } from './table/tableGrips';
   import { createToolbarExec } from './toolbarExec';
-  import { imageInputRule } from './imageInputRule';
-  import { vaultImageView } from './vaultImageView';
-  import { refreshWikilinkViews, wikilink, WIKILINK_TARGET_ATTR } from './wikilink';
+  import { refreshWikilinkViews, WIKILINK_TARGET_ATTR } from './wikilink';
   import { WIKILINK_BROKEN_CLASS } from './wikilink/display';
 
   import type { DocumentRef, FlushFailureReason } from '@futo-notes/editor';
@@ -219,6 +181,32 @@
     onenginemounted,
   }: Props = $props();
 
+  /* The props the editor's modules call back into, as getters: every call
+   * reads the CURRENT prop, never the value at mount (src/AGENTS.md). */
+  const liveProps = {
+    get nativeShell() {
+      return nativeShell;
+    },
+    get readonly() {
+      return readonly;
+    },
+    get onfocuschange() {
+      return onfocuschange;
+    },
+    get onfindmatches() {
+      return onfindmatches;
+    },
+    get onhaptic() {
+      return onhaptic;
+    },
+    get onblockdrag() {
+      return onblockdrag;
+    },
+    get onblockpress() {
+      return onblockpress;
+    },
+  };
+
   /* THE single gate: the Notion-style long-press-anywhere-on-the-block path
    * REPLACES the ⠿ gutter handle in the native shells — iOS and Android both —
    * and the two never coexist for one editor. `blockDragMode.ts` owns the
@@ -260,16 +248,6 @@
     findBar = { ...findBar, ...next };
     onfindstate?.(findBar);
   }
-
-  /** What the keyboard is told inside code, where its help is corruption.
-   * Deliberately the inverse of the editable root's set (see the
-   * `editorViewOptionsCtx` block below): squiggles stay off in both. */
-  const CODE_IME_ATTRIBUTES = {
-    autocorrect: 'off',
-    autocapitalize: 'off',
-    spellcheck: 'false',
-    writingsuggestions: 'false',
-  } as const;
 
   let container: HTMLDivElement;
   let editor: Editor | null = null;
@@ -512,246 +490,29 @@
     container.addEventListener('touchend', handleTouchEnd, { passive: false });
 
     (async () => {
-      let builder = Editor.make()
-        .config((ctx) => {
-          ctx.set(rootCtx, container);
-          ctx.set(defaultValueCtx, stripLeadingBoms(pendingContent ?? ''));
-          /* Stop remark-stringify turning a note's leading `#tag` into `\#tag`
-           * on save, which silently un-tags it, and `snake_case` into
-           * `snake\_case` (which also un-tags `#dog_problems`). See
-           * packages/editor/src/milkdown-compat/atxEscape.ts and
-           * underscoreEscape.ts — Milkdown's own `text` handler is what gets
-           * wrapped, so its behavior is preserved and only the escape
-           * conditions narrow. */
-          ctx.update(remarkStringifyOptionsCtx, (options) => {
-            // Milkdown always installs its own `text` handler, and this wraps
-            // that one rather than replacing it. If it ever stops, leaving the
-            // serializer alone is the safe answer here — and the regression is
-            // not silent: `editor-embed-milkdown-parity.spec.ts` asserts that
-            // saving a note does not escape its tags.
-            const text = options.handlers?.text;
-            if (!text) return options;
-            return {
-              ...options,
-              handlers: { ...options.handlers, text: withNarrowedEscapes(text) },
-            };
-          });
-
-          /* Write a bare URL back bare instead of as `<url>` (or, for `www.`,
-           * a full `[text](url)`) — see packages/editor/src/milkdown-compat/
-           * bareUrl.ts. The processor is read at serialize time: it only has
-           * the gfm preset's plugins once the editor has been created. */
-          ctx.update(remarkStringifyOptionsCtx, (options) => ({
-            ...options,
-            handlers: {
-              ...options.handlers,
-              link: bareUrlLinkHandler((markdown) => ctx.get(remarkCtx).parse(markdown)),
-            },
-          }));
-
-          /* `-` for bullet markers, not remark-stringify's default `*`.
-           * The manifest's Bullet/Task buttons emit `- `, and so does the
-           * overwhelming majority of the corpus, so `*` would make every
-           * edited note churn its list markers on the first save for no reason
-           * (ADR-0002 normalize-once). */
-          ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: '-' as const }));
-
-          /* The editable's IME behavior.
-           *
-           * Red squiggles off, iOS autocorrect ON. Those are separate
-           * attributes and the first version of this hook set both off, which
-           * silently took autocorrect and predictive text away from every note
-           * typed in the native shells — the swap's most-noticed regression
-           * ("can we get autocorrect back?", 2026-09-01). `spellcheck: false`
-           * is the one that drops the underlines; `autocorrect`/
-           * `autocapitalize` are what the keyboard reads.
-           *
-           * `editorViewOptionsCtx` is Milkdown's sanctioned hook into the
-           * ProseMirror `DirectEditorProps` (they are spread straight into
-           * `new EditorView(...)`), so the attributes land on the
-           * contenteditable through ProseMirror's own render instead of a DOM
-           * mutation WebKit's DOMObserver would fight. */
-          /* `handlePaste` rides the same hook. It has to be a DIRECT view prop
-           * rather than a plugin: ProseMirror consults direct props before
-           * plugin props, and `.use(clipboard)` below would otherwise claim an
-           * image paste as HTML content first. Returning true means "this was
-           * an image, do not paste it as text". */
-          /* `handleKeyDown` rides it for the same precedence reason: the
-           * CM6-parity Enter/Tab behaviors in keyboardParity.ts must win over
-           * the gfm preset's own table keymap (bare Enter there is
-           * `exitTable`) without depending on plugin registration order. */
-          ctx.update(editorViewOptionsCtx, (prev) => ({
-            ...prev,
-            attributes: {
-              ...(typeof prev.attributes === 'object' ? prev.attributes : {}),
-              spellcheck: 'false',
-              autocorrect: 'on',
-              autocapitalize: 'sentences',
-              /* Apple's inline Writing Tools suggestions stay off. */
-              writingsuggestions: 'false',
-              enterkeyhint: 'return',
-            },
-            handlePaste: (_view, event) => pasteHandler?.(event) ?? false,
-            /* `handleDrop` rides it for the same precedence reason as
-             * `handlePaste`: an OS file drop must be claimed before the
-             * preset's own drop handling turns the file into text. An INTERNAL
-             * block drag carries no files and is left entirely alone. */
-            handleDrop: (_view, event) => dropHandler?.(event as DragEvent) ?? false,
-            handleKeyDown: (view, event) =>
-              handleIndentShortcut(view, event) || handleParityKeyDown(view, event),
-            /* A block shortcut (`- `, `# `, …) typed at the start of a line
-             * inside a paragraph starts that block from the line, for the same
-             * precedence reason (paragraphLines.ts). */
-            handleTextInput: (view, from, to, text) =>
-              handleLineStartShortcut(view, from, to, text),
-            /* A note whose parse threw is shown read-only rather than as an
-             * empty editable page. Typing into a document that is not the note
-             * is the one gesture that could make the failure destructive.
-             * `refreshEditable()` is what re-asks this. */
-            editable: () => !loadFailed && !readonly,
-          }));
-
-          /* ...but not in code, as far as the engine will allow. Autocorrect
-           * belongs to prose: the first adversarial pass after turning it on
-           * caught the keyboard rewriting a fence's contents — `dont` became
-           * `don't` and `teh` became `Teh` inside a code block, which is silent
-           * corruption of the one kind of text a user most needs left alone.
-           *
-           * MEASURED, iOS 26 simulator, 2026-09-01: WKWebView IGNORES these.
-           * It reads the traits from the editing HOST (the contenteditable
-           * root), not from the element the caret is in, so typing `teh dont`
-           * inside a fence still lands `The don't` with these attributes set.
-           * They are declared anyway because they are what the HTML spec says
-           * (autocapitalize inherits down the tree), they cost nothing, and
-           * Blink — Android's WebView — is expected to honour them, though that
-           * is UNVERIFIED here: no Android device was available. Do not read
-           * this block as "autocorrect is scoped to prose on iOS"; it is not.
-           *
-           * Nor is it a matter of telling the shell. Four mechanisms were built
-           * and measured on the iOS 26 simulator on 2026-09-01, typing `teh
-           * dont` through the software keyboard into a fence, with the vault
-           * bytes as the oracle; all four still wrote `The don't`. The short version:
-           * the traits are latched when the input session begins, UIKit never
-           * asks the WKContentView for them, and a blur+refocus only appears to
-           * work because it dismisses the keyboard. Flipping the ROOT's
-           * attribute with the caret is therefore not just useless on iOS but
-           * HARMFUL — a note whose caret opens inside a fence loses autocorrect
-           * for the whole session, prose included (measured) — which is why the
-           * attributes here are per-element and static. */
-          ctx.set(codeBlockAttr.key, () => ({
-            pre: CODE_IME_ATTRIBUTES,
-            code: CODE_IME_ATTRIBUTES,
-          }));
-          ctx.set(inlineCodeAttr.key, () => ({ ...CODE_IME_ATTRIBUTES }));
-
-          const listeners = ctx.get(listenerCtx);
-          listeners.focus(() => onfocuschange?.(true));
-          listeners.blur(() => {
-            if (nativeShell) flush();
-            onfocuschange?.(false);
-          });
-          listeners.selectionUpdated((_ctx, selection) => {
-            const view = pmView();
-            // Pass `selection` explicitly — see emitFormatState's doc comment
-            // for why `pmView()!.state.selection` is one step stale here.
-            emitCursorContext(selection);
-            emitFormatState(selection);
-            // No hover on mobile — surface the handle for the block the
-            // cursor now sits in (covers both real cursor moves and a tap
-            // that placed the caret). Not applicable at all under the
-            // long-press path — there is no handle to surface.
-            if (!useMobileBlockDnd && view) {
-              try {
-                const coords = view.coordsAtPos(selection.from);
-                blockDrag.nudgeBlockHandle((coords.top + coords.bottom) / 2);
-              } catch {
-                // Position not currently measurable (e.g. mid-transaction); skip.
-              }
-            }
-          });
-          listeners.mounted(() => {
-            emitFormatState();
-          });
-        })
-        .use(commonmarkWithCompat())
-        // AFTER the preset, whose hardbreak node it re-registers (paragraphLines.ts).
-        .use(softBreakView)
-        .use(gfmWithCompat())
-        .use(wikilink)
-        .use(autolink)
-        .use(vaultImageView)
-        .use(imageInputRule)
-        .use(history)
-        .use(listener)
-        .use(documentChanges(documentEdited))
-        .use(readOnlyGuard(() => readonly))
-        // BEFORE clipboard: its handlePaste must see a plain-text block first.
-        .use(plainTextBlockPaste)
-        .use(clipboard)
-        .use(gapCursorPlugin)
-        .use(trailing)
-        // AFTER trailing (dividerCaret.ts's header comment says why).
-        .use(dividerCaretFix)
-        .use(
-          findEngine({
-            onMatches: (report) => {
-              if (currentNoteId !== null)
-                onfindmatches?.(report, { noteId: currentNoteId, generation: documentGeneration });
-            },
-            onStateChange: (find) => {
-              emitFindState({
-                open: find.open,
-                query: find.query,
-                hasMatches: find.matches.length > 0,
-                /* While a rescan is pending the match list is a frame stale, so
-                 * the previous label stands rather than flashing "0". */
-                ...(find.scanPending && find.open
-                  ? {}
-                  : {
-                      label: createFindMatchReport(
-                        find.query,
-                        find.currentIndex,
-                        find.matches.length,
-                      ).label,
-                    }),
-              });
-            },
-          }),
-        )
-        .use(tagDecorations)
-        .use(taskCheckbox)
-        .use(codeHighlight)
-        .use(tableGrips);
-
-      // The long-press drag or the ⠿ handle, never both (blockDrag.svelte.ts).
-      builder = useBlockDragPlugins(builder, useMobileBlockDnd, {
-        onHaptic: (kind) => onhaptic?.(kind),
-        onDragActive: (active) => onblockdrag?.(active),
-        onPressActive: (pressed) => onblockpress?.(pressed),
-      });
-
-      /* The `/` block menu (desktop only — slash/index.ts). Two steps because
-       * that is Milkdown's own shape for a slash plugin: `slashFactory` puts the
-       * ProseMirror plugin spec in a ctx slice, so the spec is installed in
-       * `.config()` and the plugin pair goes through `.use()`. */
-      if (useSlashMenu) {
-        const slashMenu = createSlashMenuPlugin(() => editor, imageTarget);
-        builder = builder.config(slashMenu.config).use(slashMenu.plugins);
-      }
-
-      /* The selection toolbar (desktop only — selectionToolbar/index.ts), the
-       * same two-step shape: `tooltipFactory` puts the ProseMirror plugin spec
-       * in a ctx slice, so the spec is installed in `.config()` and the plugin
-       * pair goes through `.use()`. */
-      if (useSelectionToolbar) {
-        const selectionToolbar = createSelectionToolbarPlugin(
-          () => editor,
-          () => documentIdentity,
-        );
-        builder = builder.config(selectionToolbar.config).use(selectionToolbar.plugins);
-      }
-
-      const created = await builder.create();
+      const created = await assembleEditor({
+        container,
+        props: liveProps,
+        useMobileBlockDnd: () => useMobileBlockDnd,
+        useSlashMenu: () => useSlashMenu,
+        useSelectionToolbar: () => useSelectionToolbar,
+        getEditor: () => editor,
+        getPendingContent: () => pendingContent,
+        getPasteHandler: () => pasteHandler,
+        getDropHandler: () => dropHandler,
+        isLoadFailed: () => loadFailed,
+        getCurrentNoteId: () => currentNoteId,
+        getDocumentGeneration: () => documentGeneration,
+        getDocumentIdentity: () => documentIdentity,
+        imageTarget,
+        pmView,
+        flush,
+        emitCursorContext,
+        emitFormatState,
+        emitFindState,
+        nudgeBlockHandle: blockDrag.nudgeBlockHandle,
+        documentEdited,
+      }).create();
 
       if (disposed) {
         void created.destroy();

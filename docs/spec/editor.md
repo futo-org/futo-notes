@@ -323,7 +323,7 @@ about.
   implementation detail of the engine: the editor first shipped with autocorrect
   off alongside the squiggle fix, and every note typed in the native shells lost
   autocorrect and predictive text until 2026-09-01. →
-  src/features/editor/milkdown/MilkdownEditor.svelte,
+  src/features/editor/milkdown/editorPlugins.ts,
   tests/editor-embed-ime.spec.ts
 
 ### Selection
@@ -375,7 +375,7 @@ about.
   hover, the handle is still surfaced for the block that was just tapped or
   that the caret moved into, but dragging it needs a mouse: the handle's drag
   is @milkdown/plugin-block's HTML5 drag, which no touch or pen gesture
-  starts. → MilkdownEditor.svelte,
+  starts. → src/features/editor/milkdown/blockDrag.svelte.ts,
   src/features/editor/milkdown/blockMove.ts _(desktop)_
 - A dragged block lands among its own kind. A top-level block sees only the
   gaps between top-level blocks: just below a blockquote is NOT "inside the
@@ -1165,7 +1165,7 @@ EditorWebView.swift, EditorWebView.kt
   tests/editor-embed-milkdown-toolbar.spec.ts
 - Bullet and task markers are written as `-`, never `*` — the toolbar and the
   editor's serializer agree on one marker so an edit never churns a note's list
-  markers. → src/features/editor/milkdown/MilkdownEditor.svelte
+  markers. → src/features/editor/milkdown/editorPlugins.ts
   `remarkStringifyOptionsCtx`, tests/editor-embed-milkdown-toolbar.spec.ts
 - Native shells, toolbar chrome is NATIVE, commands are shared (bridge v3):
   the host renders its own toolbar from a GENERATED copy of the manifest and
