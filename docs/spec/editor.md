@@ -135,7 +135,8 @@ about.
   replaced at all in an editor that shows no source. →
   src/features/editor/milkdown/wikilink/node.ts,
   packages/editor/src/milkdown-compat/frontmatter.ts
-- An empty paragraph — Enter pressed twice — is spelled in the file as an EXTRA
+- An empty paragraph — a third Enter, on the empty line the second one left —
+  is spelled in the file as an EXTRA
   blank line, never as HTML: `N` empty paragraphs between two blocks save as
   `N + 1` blank lines, and `N` blank lines between two blocks load as `N - 1`
   empty paragraphs, so the gap survives a reload and the second save is a fixed
@@ -157,6 +158,46 @@ about.
   empty paragraphs in front of the next, so a note opened in chunks is the same
   document as the note opened whole. →
   src/features/editor/milkdown/progressiveLoad.ts `seamEmptyParagraphs`
+
+## Paragraphs and lines
+
+- Enter is a newline. Inside a paragraph, Enter puts the caret on a new line and
+  writes exactly one newline to the file — no blank line, no trailing spaces, no
+  backslash, no HTML. Shift+Enter is the same key everywhere but a table cell,
+  and the on-screen keyboard's return key is the same key on iOS and Android. →
+  src/features/editor/milkdown/paragraphLines.ts `enterInParagraph`,
+  src/features/editor/milkdown/keyboardParity.ts,
+  tests/editor-embed-milkdown-interactive.spec.ts
+- Enter on an empty line ends the paragraph: two Enters write one blank line. A
+  third Enter leaves an empty paragraph, the extra blank line above. Enter at
+  the very start of a line splits the paragraph there the same way, because a
+  blank line inside a paragraph is a paragraph break in the file.
+- A file whose lines are separated by single newlines opens with those lines
+  shown one under the other, and opening it does not rewrite it. An older
+  note's `\` or two-space hard break also opens as a line break.
+- Backspace at the start of a line joins it to the line above. At the start of
+  a paragraph that follows another paragraph it removes ONE newline, so the two
+  become lines of one paragraph again: Backspace takes back exactly one Enter.
+  Delete at the end of a paragraph does the same forwards. →
+  paragraphLines.ts `joinBackwardAsLine` / `joinForwardAsLine`
+- Formatting typed across an Enter stays one run: bold carried over a newline
+  saves as one `**…**` spanning both lines. Undo after an Enter takes back
+  exactly that newline.
+- Lists, headings, blockquotes, code blocks and table cells keep their own
+  Enter: a list item continues the list, a heading starts a paragraph after it,
+  a quote or a code block takes the new line inside it, and a table cell moves
+  down a row (Shift+Enter there is an in-cell line break). Shift+Enter in any of
+  them does what Enter does.
+- A block shortcut typed at the start of a line — `- `, `1. `, `> `, `# `,
+  ` ``` `, `---` — starts that block from that line alone; the lines above stay
+  a paragraph. A block format from the toolbar or the `/` menu lands the same
+  way, on the lines the caret or selection touches, each becoming its own
+  block. → paragraphLines.ts `handleLineStartShortcut` / `isolateSelectedLines`
+- A paragraph is one block however many lines it has: the native shells'
+  long-press drag moves it whole.
+- A newline at the very end of a note is not written (trailing whitespace is
+  not content), so a note left ending in an empty line reloads without it. →
+  paragraphLines.ts `endsWithUnwrittenLine`, MilkdownEditor.svelte `holdsExactly`
 
 ## Localization
 
@@ -828,8 +869,8 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   that wraps onto several visual lines — places the caret instead of opening the
   URL. → src/features/editor/milkdown/MilkdownEditor.svelte `linkAt`
 
-- Typing a bare URL links it the moment its word ends — Space, Enter, or a
-  hard break — with exactly the extent and href reopening the note would give
+- Typing a bare URL links it the moment its word ends — Space or Enter — with
+  exactly the extent and href reopening the note would give
   it (GFM's autolink literal: trailing punctuation left out, `http://` added
   for `www.`), because the word is read by the editor's own markdown parser.
   A URL inside inline code or a code block stays text. The note keeps the URL
@@ -965,13 +1006,15 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   edges), and emptying the field unlinks it — the selection and the bar stay
   put, so an unlink can follow a URL change. → selectionToolbar/index.ts
   `applyLink`, selectionToolbar/target.ts `linkRunAt`
-- _(desktop)_ Typing `/` as the first character of a block opens a filterable
+- _(desktop)_ Typing `/` as the first character of a line opens a filterable
   menu: Text, Heading 1-3, Bullet list, Numbered list, Task list, Quote, Code
   block, Divider, Table, Link, Image. Typing narrows it (label prefix beats a
   keyword match); an unmatched query hides the menu rather than showing it
   empty; arrow keys move the highlight and Enter/Tab or a click picks the
   highlighted row; Escape closes it and leaves the typed text alone for as
-  long as that same `/` run is being typed. A `/` that is not the first
+  long as that same `/` run is being typed. A line is a block's first line or
+  any line after a newline in a paragraph, and the picked item lands on that
+  line alone (see "Paragraphs and lines"). A `/` that is not the first
   character on the line, or one inside a fenced code block, is just a
   character. → milkdown/slash/
 - _(desktop)_ Picking any `/` menu item deletes the typed `/query` and applies

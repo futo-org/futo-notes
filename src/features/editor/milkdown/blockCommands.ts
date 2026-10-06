@@ -10,6 +10,8 @@ import {
 } from '@milkdown/kit/prose/state';
 import { Mapping, type Step } from '@milkdown/kit/prose/transform';
 
+import { onSelectedLines } from './paragraphLines';
+
 /**
  * The block kinds a single line can be, plus
  * `code` for the one block whose lines can carry NO markdown prefix at all.
@@ -441,19 +443,27 @@ function transitionRuns(target: (current: BlockFormat) => BlockFormat): Command 
   };
 }
 
-/** List buttons toggle; heading levels, Text and Quote are explicit choices. */
+/**
+ * List buttons toggle; heading levels, Text and Quote are explicit choices.
+ * Each lands on the typed LINES the selection touches, not on every line of a
+ * multi-line paragraph (paragraphLines.ts `onSelectedLines`).
+ */
 export function blockCommand(command: BlockCommandId): Command {
+  return onSelectedLines(unscopedBlockCommand(command));
+}
+
+function unscopedBlockCommand(command: BlockCommandId): Command {
   switch (command) {
     case 'heading-1':
-      return setBlockFormat({ kind: 'heading', level: 1 });
+      return unscopedSetBlockFormat({ kind: 'heading', level: 1 });
     case 'heading-2':
-      return setBlockFormat({ kind: 'heading', level: 2 });
+      return unscopedSetBlockFormat({ kind: 'heading', level: 2 });
     case 'heading-3':
-      return setBlockFormat({ kind: 'heading', level: 3 });
+      return unscopedSetBlockFormat({ kind: 'heading', level: 3 });
     case 'paragraph':
-      return setBlockFormat({ kind: 'none' });
+      return unscopedSetBlockFormat({ kind: 'none' });
     case 'quote':
-      return setBlockFormat({ kind: 'quote' });
+      return unscopedSetBlockFormat({ kind: 'quote' });
     default:
       return transitionRuns((current) =>
         current.kind === 'code'
@@ -465,8 +475,12 @@ export function blockCommand(command: BlockCommandId): Command {
   }
 }
 
-/** Set a format; heading/Text changes leave enclosing quotes in place. */
+/** Set a format; heading/Text changes leave enclosing quotes in place. Line-scoped like `blockCommand`. */
 export function setBlockFormat(target: BlockFormat): Command {
+  return onSelectedLines(unscopedSetBlockFormat(target));
+}
+
+function unscopedSetBlockFormat(target: BlockFormat): Command {
   return transitionRuns((current) => (current.kind === 'code' ? current : target));
 }
 

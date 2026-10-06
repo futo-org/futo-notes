@@ -140,6 +140,21 @@ test.describe('slash menu', () => {
     expect(await editorMarkdown(page)).toContain('and/or');
   });
 
+  test('a / at the start of a line opens the menu, and the pick lands on that line', async ({
+    page,
+  }) => {
+    // Enter writes a newline inside the paragraph (docs/spec/editor.md
+    // "Paragraphs and lines"), so the second line is not a block of its own
+    // until the pick makes it one.
+    await typeSlash(page, 'first line');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('/head', { delay: TYPE_DELAY_MS });
+    await expectMenuOpen(page);
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('title', { delay: TYPE_DELAY_MS });
+    await expect.poll(async () => await editorMarkdown(page)).toContain('first line\n\n# title');
+  });
+
   test('a space after the / closes the menu', async ({ page }) => {
     await typeSlash(page, '/');
     await expectMenuOpen(page);

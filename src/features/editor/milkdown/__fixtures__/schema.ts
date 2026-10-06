@@ -75,7 +75,9 @@ export const testSchema = new Schema({
       atom: true,
       attrs: { src: { default: '' }, alt: { default: '' }, title: { default: '' } },
     },
-    hardbreak: { group: 'inline', inline: true },
+    // `isInline` mirrors the preset: true for the break a single newline in the
+    // file parses to (and Enter inserts), false for a `\` or two-space break.
+    hardbreak: { group: 'inline', inline: true, attrs: { isInline: { default: false } } },
     // GFM tables, shaped like the preset's: one header row, then body rows.
     table: { ...pmTableSpecs.table, content: 'table_header_row table_row+' },
     table_header_row: { ...pmTableSpecs.table_row, content: 'table_header*' },

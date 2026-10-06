@@ -4,6 +4,7 @@ import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { callCommand } from '@milkdown/kit/utils';
 
 import { editorView } from './caretContext';
+import { onSelectedLines } from './paragraphLines';
 
 /**
  * Deletes `[from, to)` and runs `command` against the state that results —
@@ -57,7 +58,9 @@ function combineDeleteAndCommand(
   // from inside a nested closure (the dispatch callback here), but a property
   // read like `holder.tr` narrows normally.
   const holder: { tr: Transaction | null } = { tr: null };
-  const ok = command(
+  // A `/` typed at the start of a line acts on that line, not on every line of
+  // its paragraph (paragraphLines.ts).
+  const ok = onSelectedLines(command)(
     midState,
     (tr) => {
       holder.tr = tr;
@@ -99,6 +102,17 @@ export function createCommandRunner(getEditor: () => Editor | null) {
       const view = editorView(getEditor());
       if (!view) return;
       command(view.state, view.dispatch.bind(view));
+      view.focus();
+    },
+    /** Like `run`, landing on the selected lines only (paragraphLines.ts `onSelectedLines`). */
+    runOnLines<T>(command: { key: CmdKey<T> }, payload?: T): void {
+      const editor = getEditor();
+      const view = editorView(editor);
+      if (!editor || !view) return;
+      editor.action((ctx) => {
+        const commandFn = ctx.get(commandsCtx).get(command.key)(payload) as Command;
+        onSelectedLines(commandFn)(view.state, view.dispatch.bind(view), view);
+      });
       view.focus();
     },
     /** Deletes `[from, to)` and returns focus, with no command to run. */

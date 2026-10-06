@@ -552,7 +552,7 @@ test('a typed URL becomes a link when Enter ends it', async ({ page }) => {
   await page.keyboard.type('next');
   expect(await links(page)).toEqual([['https://youtube.com', 'https://youtube.com']]);
   await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
-  expect(await getContent(page)).toBe('https://youtube.com\n\nnext\n');
+  expect(await getContent(page)).toBe('https://youtube.com\nnext\n');
 });
 
 test('a typed link is exactly what reopening the note would link', async ({ page }) => {

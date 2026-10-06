@@ -75,8 +75,16 @@ describe('handleParityKeyDown', () => {
     expect(handleParityKeyDown(view as never, key('a'))).toBe(false);
   });
 
-  it('leaves Enter in a paragraph to the editor', () => {
+  it('claims Enter in a top-level paragraph as a newline (paragraphLines.test.ts)', () => {
     const view = viewWithCaretIn(doc(p('plain')), 'plain');
+    expect(handleParityKeyDown(view as never, key('Enter'))).toBe(true);
+    const paragraph = view.state.doc.firstChild as ProseNode;
+    expect(paragraph.childCount).toBe(2);
+    expect(paragraph.lastChild?.type.name).toBe('hardbreak');
+  });
+
+  it('leaves Enter in a heading to the editor', () => {
+    const view = viewWithCaretIn(doc(s.nodes.heading.create(null, s.text('Title'))), 'Title');
     expect(handleParityKeyDown(view as never, key('Enter'))).toBe(false);
   });
 });

@@ -16,7 +16,7 @@ import { openLinkPrompt } from './linkPrompt';
 export type ToolbarExecMap = Record<string, () => void>;
 
 export function createToolbarExec(getEditor: () => Editor | null): ToolbarExecMap {
-  const { run, dispatch } = createCommandRunner(getEditor);
+  const { run, runOnLines, dispatch } = createCommandRunner(getEditor);
 
   const block = (id: BlockCommandId) => () => dispatch(blockCommand(id));
 
@@ -46,7 +46,7 @@ export function createToolbarExec(getEditor: () => Editor | null): ToolbarExecMa
     quote: block('quote'),
     // QA-009: one-way (see toolbar.ts's `code-block` item comment) — the same
     // command the `/` menu's Code block item runs (slash/exec.ts).
-    'code-block': () => run(createCodeBlockCommand),
+    'code-block': () => runOnLines(createCodeBlockCommand),
     'bullet-list': block('bullet'),
     'ordered-list': block('ordered'),
     'task-list': block('task'),

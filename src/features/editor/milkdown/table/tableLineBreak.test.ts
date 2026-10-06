@@ -136,14 +136,12 @@ describe('Shift+Enter inside a table cell — the r1asecond bug', () => {
     await second.destroy();
   });
 
-  it('outside a table, Shift+Enter keeps the ordinary hardbreak markdown spelling', async () => {
+  it('outside a table, Shift+Enter is Enter: one plain newline, no backslash', async () => {
     const { view, markdown, destroy } = await editorFor('hello\n');
     putCaretAfter(view, 'hello');
     expect(shiftEnter(view)).toBe(true);
     typeText(view, 'world');
-    const saved = markdown();
-    expect(saved).not.toContain('<br>');
-    expect(saved).toContain('hello\\\nworld');
+    expect(markdown()).toBe('hello\nworld\n');
     await destroy();
   });
 });

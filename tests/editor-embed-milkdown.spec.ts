@@ -986,13 +986,32 @@ test('a switch to the same text drops the blank paragraphs stacked under it', as
   await hostSetContent(page, 'hello\n');
   await focusEditor(page);
   await page.keyboard.press('ControlOrMeta+End');
-  for (let i = 0; i < 3; i++) await page.keyboard.press('Enter');
+  // The first Enter is a newline; each one after it is a paragraph.
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Enter');
   await settleChangeDebounce(page);
   expect(await page.locator('.ProseMirror > p').count()).toBe(4);
 
   await hostSetContent(page, 'hello\n');
 
   expect(await page.locator('.ProseMirror > p').count()).toBe(1);
+  expect(await getContent(page)).toBe('hello\n');
+});
+
+test('a switch to the same text drops an empty line typed at the end of the note', async ({
+  page,
+}) => {
+  // A newline at the very end of a paragraph is not written either, so the
+  // document serializes like the note without it.
+  await hostSetContent(page, 'hello\n');
+  await focusEditor(page);
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.press('Enter');
+  await settleChangeDebounce(page);
+  expect(await page.locator('.ProseMirror > p').first().innerText()).toBe('hello\n\n');
+
+  await hostSetContent(page, 'hello\n');
+
+  expect(await page.locator('.ProseMirror > p').first().innerText()).toBe('hello');
   expect(await getContent(page)).toBe('hello\n');
 });
 

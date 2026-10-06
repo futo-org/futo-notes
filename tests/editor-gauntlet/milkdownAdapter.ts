@@ -630,6 +630,13 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
         }
         return { line: 0, ch: 0, pos };
       };
+      /** An element's text with each `<br>` as the line break it renders. */
+      const textOf = (node: Node): string =>
+        node.nodeName === 'BR'
+          ? '\n'
+          : node.nodeType === Node.TEXT_NODE
+            ? (node.textContent ?? '')
+            : Array.from(node.childNodes).map(textOf).join('');
       const push = (element: Element, kind: DecoratedRange['kind']): void => {
         decorations.push({
           from: at(element, 0),
@@ -637,7 +644,7 @@ export class MilkdownGauntletAdapter implements EditorGauntletAdapter {
           kind,
           replaced: false,
           classes: Array.from(element.classList),
-          text: element.textContent ?? '',
+          text: textOf(element),
         });
       };
       for (const [selector, kind] of KIND_FOR_SELECTOR) {

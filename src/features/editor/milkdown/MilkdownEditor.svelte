@@ -107,6 +107,7 @@
   import { plainTextBlockPaste } from './plainTextBlockPaste';
   import { computeActiveFormats, computeDisabledFormats } from './formatState';
   import { handleIndentShortcut, handleParityKeyDown } from './keyboardParity';
+  import { endsWithUnwrittenLine, handleLineStartShortcut, softBreakView } from './paragraphLines';
   import {
     createMobileBlockDndPlugin,
     dropBlockDndFocusGuards,
@@ -718,6 +719,11 @@
             handleDrop: (_view, event) => dropHandler?.(event as DragEvent) ?? false,
             handleKeyDown: (view, event) =>
               handleIndentShortcut(view, event) || handleParityKeyDown(view, event),
+            /* A block shortcut (`- `, `# `, …) typed at the start of a line
+             * inside a paragraph starts that block from the line, for the same
+             * precedence reason (paragraphLines.ts). */
+            handleTextInput: (view, from, to, text) =>
+              handleLineStartShortcut(view, from, to, text),
             /* A note whose parse threw is shown read-only rather than as an
              * empty editable page. Typing into a document that is not the note
              * is the one gesture that could make the failure destructive.
@@ -788,6 +794,8 @@
           });
         })
         .use(commonmarkWithCompat())
+        // AFTER the preset, whose hardbreak node it re-registers (paragraphLines.ts).
+        .use(softBreakView)
         .use(gfmWithCompat())
         .use(wikilink)
         .use(autolink)
@@ -1928,11 +1936,17 @@
     }
     if (hostMarkdown !== null && unchangedSinceLoad()) return text === hostMarkdown;
     /* Equal bytes are not an equal document: trailing empty paragraphs are not
-     * written (RC-22), so a document the user stacked blank paragraphs onto
-     * serializes like one without them, and skipping would leave those on
-     * screen under the next note. Such a document is reloaded. */
+     * written (RC-22), nor is an empty last line (paragraphLines.ts), so a
+     * document the user stacked blank lines onto serializes like one without
+     * them, and skipping would leave those on screen under the next note. Such
+     * a document is reloaded. */
     const view = pmView();
-    if (view && hasSurplusTrailingEmptyParagraphs(view.state.doc)) return false;
+    if (
+      view &&
+      (hasSurplusTrailingEmptyParagraphs(view.state.doc) || endsWithUnwrittenLine(view.state.doc))
+    ) {
+      return false;
+    }
     return text === readSerialized();
   }
 
