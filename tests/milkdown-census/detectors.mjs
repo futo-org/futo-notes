@@ -222,9 +222,14 @@ export function countWikilinks(markdown) {
  *     for byte, line endings included);
  *   - an HTML block's indentation before its first tag is dropped (layout, not
  *     HTML; only a block's value can start with whitespace);
- *   - a list item whose blocks need a blank line between them — two paragraphs
- *     in a row (a paragraph cannot interrupt one), or an empty paragraph
- *     between two blocks — is loose: no tight spelling keeps them apart.
+ *   - in a tight list item, two paragraph children in a row are joined into
+ *     one, a soft line break between them (`- a\n  b` is one paragraph; only
+ *     the editor makes the pair, with Backspace at a nested item's start).
+ *     Not the paragraphs one child is split into at an empty line, and never
+ *     a paragraph that is one HTML block;
+ *   - a list item whose blocks still need a blank line between them — two
+ *     paragraphs in a row that were not joined, or an empty paragraph between
+ *     two blocks — is loose: no tight spelling keeps them apart.
  * Text runs whose marks then agree are merged, and an emptied paragraph is an
  * empty paragraph.
  */
@@ -251,9 +256,31 @@ function isEmptyParagraph(node) {
   return node.type === 'paragraph' && (node.content?.length ?? 0) === 0;
 }
 
+const htmlBlock = (node) => node.content?.length === 1 && node.content[0].type === 'html';
+
+/**
+ * A tight list item's children, each house-normalized into its blocks
+ * (`parts`), with two paragraph CHILDREN in a row joined as lines of one. The
+ * paragraphs one child was split into at an empty line stay apart.
+ */
+function joinParagraphs(parts) {
+  const joinable = (node) =>
+    node.type === 'paragraph' && !isEmptyParagraph(node) && !htmlBlock(node);
+  const out = [];
+  for (const [first, ...rest] of parts) {
+    if (!first) continue;
+    const last = out[out.length - 1];
+    if (last && joinable(last) && joinable(first)) {
+      const soft = { type: 'hardbreak', attrs: { isInline: true } };
+      out[out.length - 1] = { ...last, content: [...last.content, soft, ...first.content] };
+    } else out.push(first);
+    out.push(...rest);
+  }
+  return out;
+}
+
 /** A list item's blocks (trimmed) that only a blank line keeps apart; its first may be the schema's filler. */
 function needsBlankLine(content) {
-  const htmlBlock = (node) => node.content?.length === 1 && node.content[0].type === 'html';
   return content.some((child, i) => {
     if (i === 0 || child.type !== 'paragraph') return false;
     if (isEmptyParagraph(child)) return true;
@@ -388,7 +415,9 @@ function houseNode(node, inCell = false, inlineDone = false) {
     content = houseInline(content, inCell ? 'cell' : node.type);
   }
   const cell = node.type === 'table_header' || node.type === 'table_cell';
-  content = content.flatMap((child) => houseBlocks(child, cell));
+  const parts = content.map((child) => houseBlocks(child, cell));
+  const tightItem = node.type === 'list_item' && node.attrs?.spread !== true;
+  content = tightItem ? joinParagraphs(parts) : parts.flat();
   if (CONTAINERS.has(node.type)) {
     const item = node.type === 'list_item';
     // After an item's first paragraph that holds text, blank lines are inside the item.
@@ -402,7 +431,7 @@ function houseNode(node, inCell = false, inlineDone = false) {
     const filler = item && start > 0 && kept[0]?.type !== 'paragraph';
     content = filler ? [content[0], ...kept] : kept;
   }
-  if (node.type === 'list_item' && out.attrs && needsBlankLine(content)) out.attrs.spread = true;
+  if (tightItem && out.attrs && needsBlankLine(content)) out.attrs.spread = true;
   if (node.type === 'doc') {
     while (content.length > 0 && isEmptyParagraph(content[content.length - 1])) content.pop();
   }

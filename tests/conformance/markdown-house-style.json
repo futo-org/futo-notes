@@ -328,7 +328,7 @@
     },
     {
       "story": 9,
-      "name": "two paragraphs in a tight item are written loose: no tight spelling keeps them two (Backspace at a nested item's start)",
+      "name": "two paragraphs in a tight item are written tight, as two lines of one paragraph (Backspace at a nested item's start)",
       "doc": {
         "type": "doc",
         "content": [
@@ -371,11 +371,11 @@
           }
         ]
       },
-      "expected": "- a\n\n  b\n"
+      "expected": "- a\n  b\n"
     },
     {
       "story": 9,
-      "name": "a tight item made loose by two paragraphs spaces all its blocks",
+      "name": "two paragraphs and a nested list in a tight item stay tight",
       "doc": {
         "type": "doc",
         "content": [
@@ -446,11 +446,11 @@
           }
         ]
       },
-      "expected": "- a\n\n  b\n\n  - c\n"
+      "expected": "- a\n  b\n  - c\n"
     },
     {
       "story": 9,
-      "name": "two paragraphs in a tight nested item loosen that item only",
+      "name": "two paragraphs in a tight nested item are two lines of one paragraph",
       "doc": {
         "type": "doc",
         "content": [
@@ -521,7 +521,163 @@
           }
         ]
       },
-      "expected": "- a\n  - x\n\n    b\n"
+      "expected": "- a\n  - x\n    b\n"
+    },
+    {
+      "name": "the joined second line keeps the escape it needs: 1. there would start a list",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "1. b"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n  1\\. b\n"
+    },
+    {
+      "name": "a paragraph joined to the one before keeps its own empty line: the item turns loose there",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "b"
+                      },
+                      {
+                        "type": "hardbreak",
+                        "attrs": {
+                          "isInline": true
+                        }
+                      },
+                      {
+                        "type": "hardbreak",
+                        "attrs": {
+                          "isInline": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "c"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n  b\n\n  c\n"
+    },
+    {
+      "name": "a paragraph after an HTML block in a tight item keeps its blank line: the block would take the line",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "html",
+                        "attrs": {
+                          "value": "<div>x</div>"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "b"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- <div>x</div>\n\n  b\n"
     },
     {
       "story": 9,

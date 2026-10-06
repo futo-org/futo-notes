@@ -622,7 +622,9 @@ test('Backspace at the start of a nested item keeps its indentation', async ({ p
   await caretAtStartOf(page, 'b');
   await page.keyboard.press('Backspace');
   await settled(page);
-  expect((await getContent(page)).trimEnd()).toBe('- a\n\n  b');
+  // The item now holds two paragraphs, which the house style writes tight, as
+  // two lines of one paragraph (docs/spec/editor.md "Lists").
+  expect((await getContent(page)).trimEnd()).toBe('- a\n  b');
 });
 
 test('a second Backspace on that continuation paragraph joins it with the previous block', async ({
@@ -662,9 +664,9 @@ test('Backspace on a nested item with a following sibling leaves the sibling nes
   await page.keyboard.press('Backspace');
   await settled(page);
   const content = (await getContent(page)).trimEnd();
-  // Two paragraphs in a row make the item loose, so its every block is spaced
-  // (docs/spec/editor.md "Markdown house style").
-  expect(content).toBe('- a\n\n  b\n\n  - c');
+  // Two paragraphs in a row in a tight item are written as two lines of one
+  // paragraph, and the item stays tight (docs/spec/editor.md "Lists").
+  expect(content).toBe('- a\n  b\n  - c');
 });
 
 test('Backspace on a nested item with a PRECEDING sibling joins the sibling instead of "a"', async ({
@@ -677,7 +679,7 @@ test('Backspace on a nested item with a PRECEDING sibling joins the sibling inst
   await page.keyboard.press('Backspace');
   await settled(page);
   const content = (await getContent(page)).trimEnd();
-  expect(content).toBe('- a\n  - x\n\n    b');
+  expect(content).toBe('- a\n  - x\n    b');
 });
 
 // ============================================================

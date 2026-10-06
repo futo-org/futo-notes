@@ -19,8 +19,11 @@
  *    byte), and an HTML block's indentation before its
  *    first tag is dropped: it is layout, not HTML, and kept it would put the
  *    block in a different container once list indentation is the house style's.
- *    A list item whose blocks need a blank line between them is loose, however
- *    the editor held it: no tight spelling keeps them apart (`needsBlankLine`).
+ *    In a tight list item, two paragraph children in a row become lines of
+ *    one paragraph (`joinParagraphs`: what Backspace at a nested item's start
+ *    leaves, and no file holds). A list item whose blocks still need a blank
+ *    line between them is loose, however the editor held it: no tight spelling
+ *    keeps them apart (`needsBlankLine`).
  * 2. The spelling-only attributes, which a parse derives from HOW the file
  *    spelled something rather than from WHAT it holds, so they are left out of
  *    every comparison: `emphasis`/`strong` `marker` (`*` or `_`), `heading`
@@ -230,15 +233,48 @@ function splitAtEmptyLines(paragraph: NodeJson, content: NodeJson[]): NodeJson[]
 
 const CONTAINERS = new Set<string>([NODE.blockquote, NODE.listItem, NODE.footnoteDefinition]);
 
+/** A paragraph `joinParagraphs` may join: it holds text, and is not one HTML block. */
+const joinable = (node: NodeJson): boolean =>
+  node.type === NODE.paragraph && !isEmptyParagraph(node) && !isHtmlBlock(node);
+
+const SOFT_BREAK: NodeJson = { type: NODE.hardbreak, attrs: { isInline: true } };
+
+/**
+ * A tight list item's children, each already normalized into its blocks
+ * (`parts`), with two paragraph CHILDREN in a row joined into one, a line
+ * break between them. Only the editor makes the pair (Backspace at the start
+ * of a nested item); a file cannot, since a paragraph cannot interrupt one.
+ * `- a\n  b` reads back as the joined paragraph, which looks the same, and
+ * keeps the item tight. The paragraphs one child was split into at an empty
+ * line (`splitAtEmptyLines`) stay apart: that empty line is the author's. A
+ * paragraph that is one HTML block is never joined: the block would take the
+ * next line into itself.
+ */
+function joinParagraphs(parts: readonly (readonly NodeJson[])[]): NodeJson[] {
+  const out: NodeJson[] = [];
+  for (const [first, ...rest] of parts) {
+    if (!first) continue;
+    const last = out[out.length - 1];
+    if (last && joinable(last) && joinable(first)) {
+      const content = [...(last.content ?? []), SOFT_BREAK, ...(first.content ?? [])];
+      out[out.length - 1] = { ...last, content };
+    } else {
+      out.push(first);
+    }
+    out.push(...rest);
+  }
+  return out;
+}
+
 /**
  * Whether a list item's blocks (trimmed, `trimContainer`) can only be written
  * with a blank line between two of them, which reads the item back loose: two
- * paragraphs in a row (a paragraph cannot interrupt one; the editor makes the
- * pair with Backspace at a nested item's start), or an empty paragraph between
- * two blocks (written as extra blank lines). An HTML block after a paragraph is
- * not such a pair: it may interrupt the paragraph, or sit on a lazy line
- * (`./blocks.ts`). The first child may be the schema's empty filler, which is
- * not written at all.
+ * paragraphs in a row that `joinParagraphs` left apart (one child split at an
+ * empty line, or a paragraph after an HTML block), or an empty paragraph
+ * between two blocks (written as extra blank lines). An HTML block after a
+ * paragraph is not such a pair: it may interrupt the paragraph, or sit on a
+ * lazy line (`./blocks.ts`). The first child may be the schema's empty
+ * filler, which is not written at all.
  */
 function needsBlankLine(children: readonly NodeJson[]): boolean {
   return children.some((child, index) => {
@@ -266,9 +302,11 @@ export function normalizeBlock(node: NodeJson, inCell = false): NodeJson[] {
   if (kind === 'paragraph') return splitAtEmptyLines(node, normalizeInline(node.content, kind));
   if (kind) return [{ ...node, content: normalizeInline(node.content, kind) }];
   const cell = node.type === NODE.tableHeader || node.type === NODE.tableCell;
-  let children = node.content.flatMap((child) => normalizeBlock(child, cell));
+  const parts = node.content.map((child) => normalizeBlock(child, cell));
+  const tightItem = node.type === NODE.listItem && node.attrs?.spread !== true;
+  let children = tightItem ? joinParagraphs(parts) : parts.flat();
   if (CONTAINERS.has(node.type)) children = trimContainer(node, children);
-  if (node.type === NODE.listItem && node.attrs?.spread !== true && needsBlankLine(children)) {
+  if (tightItem && needsBlankLine(children)) {
     return [{ ...node, attrs: { ...node.attrs, spread: true }, content: children }];
   }
   return [{ ...node, content: children }];

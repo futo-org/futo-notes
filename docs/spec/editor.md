@@ -327,9 +327,16 @@ hand-reviewed goldens, one or more per line below)
   loose (a blank line between items).
 - Inside an item, its blocks are separated the same way the item itself was
   read: a newline when tight, a blank line when loose.
+- Two paragraphs in a row in a tight item (what Backspace at the start of a
+  nested item leaves) are written tight, as two lines of one paragraph:
+  `- a\n  b`. They read back as one paragraph with a line break, which looks
+  the same. A file never holds the shape, so only the editor's own document is
+  ever re-spelled this way; a paragraph that is one HTML block is not joined
+  (the block would take the next line into itself).
 - An item whose blocks only a blank line keeps apart is written loose, because
-  no tight spelling exists for it: two paragraphs in a row (what Backspace at
-  the start of a nested item leaves), or an empty paragraph between two blocks.
+  no tight spelling exists for it: an empty paragraph between two blocks, an
+  empty line inside one of its paragraphs (a paragraph break in the file), or
+  a paragraph after one that is an HTML block.
 - An item's continuation lines are indented by the width of its own marker:
   two spaces under `- `, three under `1. `, four under `10. `. A nested list
   therefore parses back at the same depth.
