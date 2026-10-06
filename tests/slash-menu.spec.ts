@@ -169,17 +169,17 @@ test.describe('slash menu', () => {
     await expectMenuOpen(page);
     await page.keyboard.press('Enter');
     await expect(page.locator(`${EDITOR} hr`)).toHaveCount(1);
-    // `***`, not `---`: the rule is the note's first line, where `---` would
-    // open front matter, so the house style writes `***` there
-    // (docs/spec/editor.md "Markdown house style").
-    await expect.poll(async () => await editorMarkdown(page)).toContain('***');
+    // `---`, the house style's rule, even on the note's first line: `***` is
+    // written there only when `---` would open front matter, and nothing below
+    // closes one here (docs/spec/editor.md "Markdown house style").
+    await expect.poll(async () => await editorMarkdown(page)).toContain('---');
     // QA-013: the typed `/divider` run used to survive as literal text right
     // after the rule (the run's remembered position no longer described the
     // post-command document, so the delete silently no-opped).
     expect(await editorMarkdown(page)).not.toContain('divider');
     // The caret is ready to type in an empty paragraph right after the rule.
     await page.keyboard.type('after', { delay: TYPE_DELAY_MS });
-    expect(await editorMarkdown(page)).toMatch(/\*\*\*\s*\n\s*after/);
+    expect(await editorMarkdown(page)).toMatch(/---\s*\n\s*after/);
   });
 
   test('picking Table inserts a header row plus two body rows', async ({ page }) => {

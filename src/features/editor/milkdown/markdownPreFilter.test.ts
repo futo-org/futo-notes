@@ -123,6 +123,8 @@ afterAll(async () => {
 });
 
 describe('the parse-or-not pre-filter', () => {
+  // CPU-bound: 1,500 documents through the real parser. 2.4 s alone, past the
+  // default 5 s under the full parallel suite, so it gets its own budget.
   it('writes nothing it skipped checking that reads back as a different document', () => {
     const nextDocument = generator(SEED);
     let unchecked = 0;
@@ -142,5 +144,5 @@ describe('the parse-or-not pre-filter', () => {
     }
     // The property is only about the filter if many blocks took the no-parse path.
     expect(unchecked).toBeGreaterThan(CASES / 4);
-  });
+  }, 30_000);
 });
