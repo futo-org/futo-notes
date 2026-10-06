@@ -316,7 +316,7 @@ test('middle-clicking a resolved wikilink posts openNote', async ({ page }) => {
 });
 
 test('tapping a broken wikilink posts nothing', async ({ page }) => {
-  // The recorded native Gap: the embed posts openNote only for a resolved link.
+  // The embed posts openNote only for a resolved link.
   await open(page, '[[no such note]]\n');
   await clearMessages(page);
   await chip(page).tap();

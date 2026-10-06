@@ -22,8 +22,8 @@ import { flushFrames, installFakeAndroidHost, type FakeHostWindow } from './lib/
  * list's indent AND the task item's own 28px checkbox slot, 52px in all, so
  * they collapsed by level 6 — a far more reachable note than a 20-deep bullet.
  * The slot is a minimum tap target and cannot taper, so capping the indent
- * moves that depth to 8 rather than removing it; the remainder is recorded as a
- * Gap in docs/spec/editor.md and locked here only at the depth people write.
+ * moves that depth to 8 rather than removing it; the remainder is locked here
+ * only at the depth people write.
  *
  * Geometry against the single-file `editor.html` the native shells ship, at the
  * viewport the report came from (iPhone 16/17 CSS pixels).
@@ -166,8 +166,8 @@ test('a nested task list at a realistic depth stays readable', async ({ page }) 
   expect(items).toHaveLength(4);
   // A task item pays its 28px checkbox slot on TOP of the list indent, so it
   // runs out of column sooner than a bullet list does — capping the indent
-  // moves that depth from 6 to 8 but does not remove it (see the Gap in
-  // docs/spec/editor.md). What must hold is the depth people actually write.
+  // moves that depth from 6 to 8 but does not remove it. What must hold is
+  // the depth people actually write.
   const tooNarrow = items.filter((item) => item.width < MIN_ITEM_WIDTH_PX);
   expect(tooNarrow, 'every task level keeps a readable content column').toEqual([]);
   const offRight = items.filter((item) => item.right > clientWidth);

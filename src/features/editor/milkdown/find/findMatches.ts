@@ -16,10 +16,9 @@
  * therefore never straddle two paragraphs, and offset `i` inside a run at
  * `from` is always document position `from + i`.
  *
- * > Gap against docs/spec/editor.md: CodeMirror searched the SOURCE markdown,
- * > so `**` and a link's URL were findable. Milkdown is WYSIWYG and holds no
- * > syntax characters in its document, so find matches the text the reader
- * > sees. Recorded under the spec's "Find in note" section.
+ * CodeMirror searched the SOURCE markdown, so `**` and a link's URL were
+ * findable. Milkdown is WYSIWYG and holds no syntax characters in its
+ * document, so find matches the text the reader sees.
  */
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 

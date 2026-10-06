@@ -82,8 +82,7 @@ export function createFutoEditorApi(options: CreateFutoEditorApiOptions): FutoEd
     applyContentPadding(px: number): void {
       // The shells only supply the value; nothing renders it today — no
       // stylesheet reads this variable since the CodeMirror editor was
-      // removed. Recorded as a Gap in docs/spec/editor.md, so the variable
-      // stays set and the bridge input keeps working.
+      // removed. The variable stays set so the bridge input keeps working.
       document.documentElement.style.setProperty('--futo-cm-pad-inline', `${px}px`);
     },
     applyNativeToolbar(enabled: boolean): void {

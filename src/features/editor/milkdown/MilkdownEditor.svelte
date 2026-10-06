@@ -744,9 +744,7 @@
            * Nor is it a matter of telling the shell. Four mechanisms were built
            * and measured on the iOS 26 simulator on 2026-09-01, typing `teh
            * dont` through the software keyboard into a fence, with the vault
-           * bytes as the oracle; all four still wrote `The don't`. The list, so
-           * nobody pays for it twice, is in docs/spec/editor.md under the
-           * "autocorrect still rewrites code on iOS" Gap. The short version:
+           * bytes as the oracle; all four still wrote `The don't`. The short version:
            * the traits are latched when the input session begins, UIKit never
            * asks the WKContentView for them, and a blur+refocus only appears to
            * work because it dismisses the keyboard. Flipping the ROOT's
@@ -1677,7 +1675,7 @@
   /**
    * A tap on a BROKEN wikilink must not be swallowed. The host may do nothing
    * with it — the native embed posts `openNote` only for a resolved link, a
-   * recorded spec Gap — and preventing the default as well would leave a dead
+   * known limitation — and preventing the default as well would leave a dead
    * chip that can be neither followed nor repaired, since an atom node is
    * fixed by SELECTING and replacing it, not by editing inside it. Letting
    * ProseMirror have the event keeps the spec's intent ("a broken wikilink
@@ -1712,7 +1710,7 @@
   function activateLink(link: EditorLink, gesture: EditorLinkGesture): void {
     /* Broken links are posted too: what happens next is the HOST's call —
      * desktop opens an empty editor bound to the target text, the native embed
-     * drops it (a recorded spec Gap). The editor does not resolve here. */
+     * drops it. The editor does not resolve here. */
     if (link.kind === 'wikilink') onopenlink?.(link.title, gesture);
     else onopenurl?.(link.url);
   }
@@ -2106,7 +2104,7 @@
    *
    * There is no per-note undo stash: the CodeMirror
    * editor kept one (`noteHistory.ts`, keyed by note id) and this engine does
-   * not. Recorded as a Gap in docs/spec/editor.md.
+   * not.
    */
   export function openNote(noteId: string | null, text: string): void {
     setContent(noteId ?? '', text);
@@ -2736,9 +2734,8 @@
    * checkbox slot per level (`li[data-checked]` below), and that slot is a
    * minimum tap target, so unlike indentation it cannot taper. Capping the
    * list indent moves the depth at which a nested task list runs out of column
-   * from 6 to 8; past that it still collapses. Recorded as a Gap in
-   * docs/spec/editor.md; closing it is a checkbox-layout decision, not an
-   * indentation one. */
+   * from 6 to 8; past that it still collapses. Closing that is a
+   * checkbox-layout decision, not an indentation one. */
   :global(.futo-milkdown .ProseMirror :is(ul, ol) :is(ul, ol) :is(ul, ol) :is(ul, ol) :is(ul, ol)) {
     padding-left: 0.7em;
   }

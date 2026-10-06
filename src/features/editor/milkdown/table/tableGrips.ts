@@ -13,7 +13,7 @@
  *
  * No edge "+" buttons: Insert after already covers that, and fewer
  * affordances is the point (Justin's scoping decision — full Obsidian
- * Advanced Tables parity is out, see the spec Gap line).
+ * Advanced Tables parity is out, 2026-09).
  *
  * ARCHITECTURE: one `Plugin` view, mirroring `blockDropIndicator.ts` — DOM
  * owned by this class, positioned `position: fixed` in viewport coordinates
@@ -86,7 +86,7 @@ const MENU_ITEM_CLASS = 'futo-table-grip-menu-item';
 
 /** CSS px. Small on purpose (desktop, mouse-first) — the brief for this lane
  * notes touch targets this size are a known rough edge for fingers rather
- * than something to redesign here; see docs/spec/editor.md's Gap line. */
+ * than something to redesign here. */
 const GRIP_SIZE = 18;
 const GRIP_GAP = 4;
 /** How far past a grip's own box the pointer may wander and still count as

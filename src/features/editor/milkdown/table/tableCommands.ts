@@ -2,7 +2,7 @@
  * GFM table structure commands (QA lane 7 / Zvonimir's "no way to add new
  * columns, no way to delete rows or columns" finding — docs/spec/editor.md
  * "Tables"): insert/delete a row or column. Full Obsidian Advanced Tables
- * parity is explicitly out of scope (Justin, see the spec Gap line) — this is
+ * parity is explicitly out of scope (Justin, 2026-09) — this is
  * only structural mutation, addressed by row/column index.
  *
  * Every command is POSITION-ADDRESSED rather than selection-addressed:

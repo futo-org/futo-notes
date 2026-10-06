@@ -26,9 +26,8 @@ import {
  *   `tests/editor-embed-milkdown-toolbar.spec.ts`.
  * - `clicking body of a note with header tags places cursor at the click
  *   point`. It depended on the header tag block being HIDDEN while the editor
- *   is blurred; the WYSIWYG editor renders it as ordinary text (a recorded Gap
- *   in docs/spec/editor.md), so the state the regression needed cannot be set
- *   up.
+ *   is blurred; the WYSIWYG editor renders it as ordinary text, so the state
+ *   the regression needed cannot be set up.
  */
 
 async function blurEditor(page: Page): Promise<void> {

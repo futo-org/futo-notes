@@ -11,8 +11,7 @@ import { EDITOR, openNewNote, setEditorMarkdown, waitForEditor } from './lib/des
  * - The three AUTOLINK cases (`plain URL is auto-detected, styled, and
  *   clickable`, and the two click-past-a-plain-URL cases). `links/autolinks.ts`
  *   is gone; a bare URL is only linkified when the note is PARSED, so one just
- *   typed is not a link until the note is reopened. Recorded as a Gap in
- *   docs/spec/editor.md.
+ *   typed is not a link until the note is reopened.
  * - `table cells surface markdown link source (editable, not rendered)`. That
  *   was the CodeMirror interactive table widget, whose cells were plain-text
  *   editing surfaces showing raw `[text](url)`. A WYSIWYG table cell holds a

@@ -1,5 +1,5 @@
 /*
- * Shift+Enter inside a GFM table cell (docs/spec/editor.md "Tables" Gap;
+ * Shift+Enter inside a GFM table cell (docs/spec/editor.md "Tables";
  * reported as `r1a`, Shift+Enter, `second` saving as `r1asecond` with no
  * separator at all).
  *
