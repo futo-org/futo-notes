@@ -1073,9 +1073,9 @@
       "expected": "AT&T and \\&copy;\n"
     },
     {
-      "name": "leading spaces from references are kept as references",
-      "source": "&#x20;&#x20;a",
-      "expected": "&#x20;&#x20;a\n"
+      "name": "spaces from references at a line's start are not written: the parser drops line-start whitespace",
+      "source": "&#x20;&#x20;a\n\n&#x20;&#x20;&#x20;&#x20;not code\n\nb\\\n&#x9;c",
+      "expected": "a\n\nnot code\n\nb\\\nc\n"
     },
     {
       "story": 7,
@@ -1370,7 +1370,7 @@
       "expected": "[\nb](u)\n\n- [\n  c](u)\n\n[d\n](u)\nx\n"
     },
     {
-      "name": "spaces typed at the start of a line are references, at the end are dropped",
+      "name": "spaces typed at the start or the end of a line are not written",
       "doc": {
         "type": "doc",
         "content": [
@@ -1395,7 +1395,79 @@
           }
         ]
       },
-      "expected": "&#x20;&#x20;indented\n&#x9;next\n"
+      "expected": "indented\nnext\n"
+    },
+    {
+      "name": "bold that starts with spaces at a line's start is written without them, never with a reference",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "  a",
+                "marks": [
+                  {
+                    "type": "strong",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "**a**\n"
+    },
+    {
+      "name": "a heading's and a cell's leading spaces are not written",
+      "source": "# &#x20;h\n\n| &#x20;x | **&#x20;y** |\n| --- | --- |",
+      "expected": "# h\n\n| x | **y** |\n| --- | --- |\n"
+    },
+    {
+      "name": "a space after formatting that opens mid-line stays a reference: that is flanking, not a line's start",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "x "
+              },
+              {
+                "type": "text",
+                "text": " a",
+                "marks": [
+                  {
+                    "type": "strong",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "x **&#x20;a**\n"
+    },
+    {
+      "name": "a link or code span at a line's start keeps its leading space: the parser keeps it there",
+      "source": "[ a](u) and\n[ b](u)\n\n` c`",
+      "expected": "[ a](u) and\n[ b](u)\n\n` c`\n"
+    },
+    {
+      "story": 12,
+      "name": "spaces after a task item's [ ] are written as typed: they follow the checkbox on the line, and the parser keeps them",
+      "source": "- [ ]  x\n- [x]   **a**\n  b",
+      "expected": "- [ ]  x\n- [x]   **a**\n  b\n"
     },
     {
       "name": "a link whose text starts with a space keeps a plain space: after the bracket it is not the line's start",

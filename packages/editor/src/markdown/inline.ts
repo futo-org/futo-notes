@@ -10,10 +10,10 @@
  * `./choose.ts` decides which of them really need it.
  *
  * Fixed, not decided by a parse (docs/spec/editor.md "Markdown house style"):
- * whitespace at the start of a line is a character reference, because the
- * parser strips it from every line; a code span's fence is one backtick longer
- * than the longest run inside it. (A paragraph never reaches here with an
- * empty line in it: `./normalize.ts` splits it there.)
+ * a code span's fence is one backtick longer than the longest run inside it.
+ * (A paragraph never reaches here with an empty line in it, or with whitespace
+ * at a line's start outside a link or code span: `./normalize.ts` splits it at
+ * the one and drops the other.)
  */
 import { MARK, NODE, UnknownNodeError, attr, type MarkJson, type NodeJson } from './docJson';
 import { markKey, type InlineKind } from './normalize';
@@ -309,13 +309,12 @@ interface TextContext {
 function plausible(
   characters: readonly string[],
   index: number,
-  start: number,
   context: TextContext & { kind: InlineKind; every: boolean },
 ): boolean {
   const character = characters[index] as string;
   if (!isAsciiPunctuation(character)) return false;
   if (context.every || ALWAYS.has(character)) return true;
-  const atLineStart = context.lineStart && index === start;
+  const atLineStart = context.lineStart && index === 0;
   if (atLineStart && LINE_START.has(character)) return true;
   if (character === '#' && context.kind === 'heading') return true;
   if (character === '_') return !(isWord(characters[index - 1]) && isWord(characters[index + 1]));
@@ -326,7 +325,7 @@ function plausible(
     return index === characters.length - 1 || REFERENCE_TAIL.test(rest);
   }
   if ((character === '.' || character === ')') && context.lineStart) {
-    return /^\d{1,9}$/.test(characters.slice(start, index).join(''));
+    return /^\d{1,9}$/.test(characters.slice(0, index).join(''));
   }
   return false;
 }
@@ -339,20 +338,13 @@ function textPieces(
   const characters = Array.from(value);
   const pieces: Piece[] = [];
   let fixed = '';
-  let start = 0;
-  if (context.lineStart) {
-    while (start < characters.length && /[ \t]/.test(characters[start] as string)) {
-      fixed += reference(characters[start] as string);
-      start += 1;
-    }
-  }
   const every = sites.scope === 'every';
-  for (let index = start; index < characters.length; index += 1) {
+  for (let index = 0; index < characters.length; index += 1) {
     const character = characters[index] as string;
     const edge =
       (index === 0 && context.afterDelimiter) ||
       (index === characters.length - 1 && context.beforeDelimiter);
-    const escapable = plausible(characters, index, start, { ...context, every });
+    const escapable = plausible(characters, index, { ...context, every });
     if (!edge && !escapable) {
       fixed += character;
       continue;

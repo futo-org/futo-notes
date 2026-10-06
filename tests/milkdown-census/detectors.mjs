@@ -199,6 +199,11 @@ export function countWikilinks(markdown) {
  *   - a link's `title` of `""` reads the same as none; an image's missing
  *     title is the schema's `''`.
  * Normalizations the house style makes on purpose:
+ *   - whitespace at the start of a line — a paragraph's, heading's or cell's
+ *     first, and in a paragraph each one after a line break — is dropped,
+ *     inside formatting too, but not inside a link's text or a code span, nor
+ *     on a task item's first line, which follows `[ ] ` in the file (the
+ *     parser keeps it there, and drops it everywhere else on every read);
  *   - whitespace before a soft line break, and at the end of a paragraph,
  *     heading or table cell, is dropped, then a line break at the very end of
  *     a paragraph or heading (the parser drops both on every read; a cell's
@@ -289,7 +294,7 @@ function needsBlankLine(content) {
   });
 }
 
-function houseInline(content, kind) {
+function houseInline(content, kind, afterCheckbox = false) {
   let nodes = content.map((node) => {
     if (node.type === 'html') return node;
     if (kind === 'heading' && node.type === 'hardbreak')
@@ -321,10 +326,24 @@ function houseInline(content, kind) {
       if (text !== '') return;
     }
   };
+  // A link's text and a code span keep their edge spaces on a read; nothing else at a line's start does.
+  const stripAfter = (list, start) => {
+    for (let i = start; i < list.length && trimmable(list[i]); i += 1) {
+      if ((list[i].marks ?? []).some((mark) => mark.type === 'link')) return;
+      const text = list[i].text.replace(/^[ \t]+/, '');
+      list[i] = { ...list[i], text };
+      if (text !== '') return;
+    }
+  };
   nodes = merge(nodes);
   for (let i = 0; i < nodes.length; i += 1) {
     if (nodes[i].type === 'hardbreak' && nodes[i].attrs?.isInline === true) stripBefore(nodes, i);
   }
+  if (!afterCheckbox) stripAfter(nodes, 0);
+  for (let i = 0; i < nodes.length; i += 1) {
+    if (kind === 'paragraph' && nodes[i].type === 'hardbreak') stripAfter(nodes, i + 1);
+  }
+  nodes = merge(nodes);
   for (;;) {
     stripBefore(nodes, nodes.length);
     nodes = merge(nodes);
@@ -341,7 +360,7 @@ function houseInline(content, kind) {
  * `houseDocument`): one content array per paragraph it reads as, `[]` for an
  * empty one.
  */
-function splitParagraph(content) {
+function splitParagraph(content, afterCheckbox = false) {
   const isSoft = (node) => node.type === 'hardbreak' && node.attrs?.isInline === true;
   const links = (node) =>
     (node?.marks ?? [])
@@ -357,7 +376,8 @@ function splitParagraph(content) {
   let split = false;
   let previous;
   const close = () => {
-    const text = houseInline(line, 'paragraph');
+    const first = afterCheckbox && !out.some((block) => block.length > 0) && blanks === 0;
+    const text = houseInline(line, 'paragraph', first);
     line = [];
     if (text.length === 0) return;
     const empties = out.some((block) => block.length > 0) ? blanks - 1 : blanks;
@@ -383,10 +403,11 @@ function splitParagraph(content) {
 }
 
 /** `node` house-normalized: one node, or several for a paragraph split at its empty lines. */
-function houseBlocks(node, inCell = false) {
+function houseBlocks(node, inCell = false, afterCheckbox = false) {
   if (node.type !== 'paragraph' || inCell || !node.content) return [houseNode(node, inCell)];
-  return splitParagraph(houseInline(node.content, 'paragraph')).map((content) =>
-    houseNode({ ...node, content }, false, true),
+  const content = houseInline(node.content, 'paragraph', afterCheckbox);
+  return splitParagraph(content, afterCheckbox).map((paragraph) =>
+    houseNode({ ...node, content: paragraph }, false, true),
   );
 }
 
@@ -415,7 +436,12 @@ function houseNode(node, inCell = false, inlineDone = false) {
     content = houseInline(content, inCell ? 'cell' : node.type);
   }
   const cell = node.type === 'table_header' || node.type === 'table_cell';
-  const parts = content.map((child) => houseBlocks(child, cell));
+  // A task item's first paragraph follows `[ ] ` on its line, so it keeps its leading whitespace.
+  const task = node.type === 'list_item' && typeof node.attrs?.checked === 'boolean';
+  const first = task ? content.findIndex((child) => !isEmptyParagraph(child)) : -1;
+  const parts = content.map((child, i) =>
+    houseBlocks(child, cell, i === first && child.type === 'paragraph'),
+  );
   const tightItem = node.type === 'list_item' && node.attrs?.spread !== true;
   content = tightItem ? joinParagraphs(parts) : parts.flat();
   if (CONTAINERS.has(node.type)) {

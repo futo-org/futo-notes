@@ -235,14 +235,23 @@ hand-reviewed goldens, one or more per line below)
   get the one backslash that keeps them text.
 - When either of two delimiters could carry the escape, the opening one does.
 - A character that cannot take a backslash is written as a character
-  reference (`&#x20;`) where the parser would otherwise drop or reinterpret
-  it: whitespace at the start of a line, and the letter or space beside
-  formatting that would not otherwise open or close (`**Note:**&#x62;ar`).
+  reference where the parser would otherwise reinterpret it: the letter or
+  space beside formatting that would not otherwise open or close
+  (`**Note:**&#x62;ar`, `x **&#x20;a**`).
 - The formatting marker changes in one case only: an italic or bold run that
   starts exactly where another `*` run ends is written with `_` if, and only
   if, a parse says the two `*` runs would merge.
 - Whitespace at the end of a line is not written: the parser drops it on every
   read, so writing it would only make the next save differ.
+- Whitespace at the start of a line of a paragraph, heading or table cell is
+  not written either, also where formatting opens the line (`**  a**` is
+  written `**a**`), and never as a character reference (`&#x20;`, `&#x9;`).
+  The parser drops it on every read, so it is not content (the census
+  content-loss gate does not count it): written as typed, it would read back
+  without it and the next save would differ. Inside a
+  link's text or a code span it is kept, and so is whitespace after a task
+  item's `[ ] `, which is not a line's start in the file: the parser keeps it
+  there (`[ a](u)`, `- [ ]  x`).
 - A line break at the very end of a paragraph or heading is not written, for
   the same reason.
 

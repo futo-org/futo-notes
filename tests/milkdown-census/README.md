@@ -83,9 +83,10 @@ must not raise either.
   reads as differ, once everything the house style may change on purpose is
   taken out (`houseDocument` in `detectors.mjs` lists each thing and why:
   spelling-only attributes such as the `*`/`_` marker and a list item's label,
-  whitespace at a line end, a heading's line breaks, empty paragraphs no
-  spelling reaches, CR line endings outside front matter, an HTML block's
-  indentation). The save lost or changed something the author wrote.
+  whitespace at a line's start or end, a heading's line breaks, empty
+  paragraphs no spelling reaches, CR line endings outside front matter, an
+  HTML block's indentation). The save lost or changed something the author
+  wrote.
 - `second_pass_unstable` — write, parse with the bare parser, write again: the
   bytes differ. A second save must be a no-op.
 
