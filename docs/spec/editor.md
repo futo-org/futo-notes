@@ -242,8 +242,8 @@ hand-reviewed goldens, one or more per line below)
   if, a parse says the two `*` runs would merge.
 - Whitespace at the end of a line is not written: the parser drops it on every
   read, so writing it would only make the next save differ.
-- A line break at the very end of a paragraph, heading or table cell is not
-  written, for the same reason.
+- A line break at the very end of a paragraph or heading is not written, for
+  the same reason.
 
 ### Paragraphs and line breaks
 
@@ -343,7 +343,10 @@ hand-reviewed goldens, one or more per line below)
   center, `--:` right. A column the author never aligned stays unaligned.
 - A `|` inside a cell is written `\|`, in code, wikilinks, and link and image
   destinations and titles too.
-- A line break inside a cell is `<br>`.
+- A line break inside a cell is `<br>`, at the end of the cell too: the
+  parser reads `x<br>` back as `x` and a line break.
+- A cell holding only line breaks is written empty: a lone `<br>` reads back
+  as an empty cell.
 
 ### Links, images and the constructs the editor does not model
 

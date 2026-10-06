@@ -4,8 +4,10 @@
  * 1. The house style's deliberate normalizations (docs/spec/editor.md
  *    "Markdown house style"), applied to a document before it is written:
  *    whitespace at the end of a line and a line break at the end of a
- *    paragraph, heading or cell are dropped (the parser drops them on every
- *    read), a heading's line breaks become spaces (an ATX heading is one line),
+ *    paragraph or heading are dropped (the parser drops them on every read; a
+ *    cell keeps its last `<br>`), a cell holding only line breaks is empty (a
+ *    lone `<br>` reads back as one), a heading's line breaks become spaces (an
+ *    ATX heading is one line),
  *    a paragraph is split at each empty line inside it (a blank line in the
  *    file ends a paragraph: `splitAtEmptyLines`), empty paragraphs at the
  *    start or end of a quote, list item or footnote are dropped (no markdown
@@ -122,11 +124,17 @@ export function normalizeInline(content: readonly NodeJson[], kind: InlineKind):
     stripLineEnd(nodes, nodes.length);
     nodes = mergeText(nodes);
     const last = nodes[nodes.length - 1];
-    if (last?.type !== NODE.hardbreak) break;
+    // A cell's last `<br>` reads back as a line break; a paragraph's does not.
+    if (last?.type !== NODE.hardbreak || kind === 'cell') break;
     nodes.pop();
   }
-  return nodes;
+  return kind === 'cell' && nodes.every(isBlank) ? [] : nodes;
 }
+
+/** A line break, or whitespace: a cell holding only these reads back empty. */
+const isBlank = (node: NodeJson): boolean =>
+  node.type === NODE.hardbreak ||
+  (isText(node) && !isCode(node) && /^[ \t]*$/.test(node.text ?? ''));
 
 const INLINE_KIND: Partial<Record<string, InlineKind>> = {
   [NODE.paragraph]: 'paragraph',

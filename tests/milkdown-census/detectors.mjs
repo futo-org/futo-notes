@@ -198,7 +198,10 @@ export function countWikilinks(markdown) {
  * Normalizations the house style makes on purpose:
  *   - whitespace before a soft line break, and at the end of a paragraph,
  *     heading or table cell, is dropped, then a line break at the very end of
- *     one (the parser drops both on every read);
+ *     a paragraph or heading (the parser drops both on every read; a cell's
+ *     last `<br>` reads back as a line break, so it stays);
+ *   - a table cell holding only line breaks and whitespace is empty (a lone
+ *     `<br>` in a cell reads back as an empty cell);
  *   - a heading's line breaks are spaces (an ATX heading is one line);
  *   - a paragraph is split at each empty line inside it — a soft line break
  *     ending a line that holds nothing (whitespace counts as nothing; a line
@@ -294,10 +297,12 @@ function houseInline(content, kind) {
   for (;;) {
     stripBefore(nodes, nodes.length);
     nodes = merge(nodes);
-    if (nodes[nodes.length - 1]?.type !== 'hardbreak') break;
+    if (nodes[nodes.length - 1]?.type !== 'hardbreak' || kind === 'cell') break;
     nodes.pop();
   }
-  return nodes;
+  const blank = (node) =>
+    node.type === 'hardbreak' || (trimmable(node) && /^[ \t]*$/.test(node.text));
+  return kind === 'cell' && nodes.every(blank) ? [] : nodes;
 }
 
 /**
