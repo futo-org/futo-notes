@@ -1329,7 +1329,6 @@ async function caretInText(page: Page, text: string, offset: number): Promise<vo
 test('Enter at the end of a line with a line below leaves one blank line between them', async ({
   page,
 }) => {
-  test.fail(true, 'an empty line inside a paragraph is written `&#x20;` until the #266 fix lands');
   await open(page, 'one\ntwo');
   await caretInText(page, 'one', 'one'.length);
   await page.keyboard.press('Enter');
