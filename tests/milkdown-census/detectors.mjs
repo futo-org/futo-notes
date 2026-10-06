@@ -208,8 +208,9 @@ export function countWikilinks(markdown) {
  *     heading or table cell, is dropped, then a line break at the very end of
  *     a paragraph or heading (the parser drops both on every read; a cell's
  *     last `<br>` reads back as a line break, so it stays);
- *   - a table cell holding only line breaks and whitespace is empty (a lone
- *     `<br>` in a cell reads back as an empty cell);
+ *   - a table cell holding one line break and nothing else (once its edge
+ *     whitespace is gone) is empty: a lone `<br>` in a cell reads back as an
+ *     empty cell, while two or more read back as line breaks;
  *   - a heading's line breaks are spaces (an ATX heading is one line);
  *   - a paragraph is split at each empty line inside it — a soft line break
  *     ending a line that holds nothing (whitespace counts as nothing; a line
@@ -350,9 +351,8 @@ function houseInline(content, kind, afterCheckbox = false) {
     if (nodes[nodes.length - 1]?.type !== 'hardbreak' || kind === 'cell') break;
     nodes.pop();
   }
-  const blank = (node) =>
-    node.type === 'hardbreak' || (trimmable(node) && /^[ \t]*$/.test(node.text));
-  return kind === 'cell' && nodes.every(blank) ? [] : nodes;
+  const lone = nodes.length === 1 && nodes[0].type === 'hardbreak';
+  return kind === 'cell' && lone ? [] : nodes;
 }
 
 /**

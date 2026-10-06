@@ -843,9 +843,126 @@
     },
     {
       "story": 14,
-      "name": "a cell holding only line breaks is written empty (a lone <br> reads back as an empty cell)",
-      "source": "| <br><br> | x |\n| --- | --- |\n| <br> | <br> <br> |",
-      "expected": "|  | x |\n| --- | --- |\n|  |  |\n"
+      "name": "a cell holding two or more line breaks and nothing else writes each as <br>",
+      "source": "| <br><br> | x |\n| --- | --- |\n| <br> <br> | <br><br><br> |",
+      "expected": "| <br><br> | x |\n| --- | --- |\n| <br> <br> | <br><br><br> |\n"
+    },
+    {
+      "story": 14,
+      "name": "a cell holding a single line break and nothing else is written empty: a lone <br> reads back as an empty cell",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "table",
+            "content": [
+              {
+                "type": "table_header_row",
+                "content": [
+                  {
+                    "type": "table_header",
+                    "attrs": {
+                      "colspan": 1,
+                      "rowspan": 1,
+                      "colwidth": null,
+                      "alignment": null
+                    },
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "a"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "table_header",
+                    "attrs": {
+                      "colspan": 1,
+                      "rowspan": 1,
+                      "colwidth": null,
+                      "alignment": null
+                    },
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "b"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "table_row",
+                "content": [
+                  {
+                    "type": "table_cell",
+                    "attrs": {
+                      "colspan": 1,
+                      "rowspan": 1,
+                      "colwidth": null,
+                      "alignment": null
+                    },
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "hardbreak",
+                            "attrs": {
+                              "isInline": false
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "table_cell",
+                    "attrs": {
+                      "colspan": 1,
+                      "rowspan": 1,
+                      "colwidth": null,
+                      "alignment": null
+                    },
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": " "
+                          },
+                          {
+                            "type": "hardbreak",
+                            "attrs": {
+                              "isInline": false
+                            }
+                          },
+                          {
+                            "type": "text",
+                            "text": " "
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "| a | b |\n| --- | --- |\n|  |  |\n"
     },
     {
       "name": "Shift+Enter at the end of a cell's text is a <br> the save keeps",

@@ -369,8 +369,10 @@ hand-reviewed goldens, one or more per line below)
   destinations and titles too.
 - A line break inside a cell is `<br>`, at the end of the cell too: the
   parser reads `x<br>` back as `x` and a line break.
-- A cell holding only line breaks is written empty: a lone `<br>` reads back
-  as an empty cell.
+- A cell holding two or more line breaks and nothing else writes each one as
+  `<br>`: `| <br><br> |` reads back as two line breaks.
+- A cell holding a single line break and nothing else is written empty: a
+  lone `<br>` in a cell reads back as an empty cell, so no spelling keeps it.
 
 ### Links, images and the constructs the editor does not model
 

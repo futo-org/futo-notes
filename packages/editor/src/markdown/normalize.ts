@@ -7,9 +7,9 @@
  *    a code span, nor right after a task item's `[ ] `, where the parser keeps
  *    it) and at the end of one, and a line break at the end of a
  *    paragraph or heading are dropped (the parser drops them on every read; a
- *    cell keeps its last `<br>`), a cell holding only line breaks is empty (a
- *    lone `<br>` reads back as one), a heading's line breaks become spaces (an
- *    ATX heading is one line),
+ *    cell keeps its last `<br>`), a cell holding one line break and nothing
+ *    else is empty (a lone `<br>` reads back as one), a heading's line breaks
+ *    become spaces (an ATX heading is one line),
  *    a paragraph is split at each empty line inside it (a blank line in the
  *    file ends a paragraph: `splitAtEmptyLines`), empty paragraphs at the
  *    start or end of a quote, list item or footnote are dropped (no markdown
@@ -168,13 +168,10 @@ export function normalizeInline(
     if (last?.type !== NODE.hardbreak || kind === 'cell') break;
     nodes.pop();
   }
-  return kind === 'cell' && nodes.every(isBlank) ? [] : nodes;
+  // A lone `<br>` in a cell reads back as an empty cell; two or more read back as breaks.
+  const lone = nodes.length === 1 && nodes[0]?.type === NODE.hardbreak;
+  return kind === 'cell' && lone ? [] : nodes;
 }
-
-/** A line break, or whitespace: a cell holding only these reads back empty. */
-const isBlank = (node: NodeJson): boolean =>
-  node.type === NODE.hardbreak ||
-  (isText(node) && !isCode(node) && /^[ \t]*$/.test(node.text ?? ''));
 
 const INLINE_KIND: Partial<Record<string, InlineKind>> = {
   [NODE.paragraph]: 'paragraph',
