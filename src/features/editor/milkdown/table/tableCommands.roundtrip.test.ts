@@ -149,10 +149,11 @@ describe('table mutations round-trip through markdown, alignment included', () =
     const oneRowOneCol = ['| a |', '| --- |', '| r1a |'].join('\n') + '\n';
     const { view, markdown, destroy } = await editorFor(oneRowOneCol);
     // Compare against a round-trip of the SAME pipeline, not the literal
-    // input string: remark-stringify pads a table's columns to a uniform
-    // width on every save regardless of edits (ADR-0002 normalize-on-save),
-    // so even an untouched table's re-serialization can add whitespace.
-    // What must hold is "the refused deletes changed nothing AT ALL".
+    // input string: a save writes a table in the house style whatever the
+    // input spelled (ADR-0002 normalize-on-save; docs/spec/editor.md
+    // "Markdown house style"), so a re-serialization need not match the
+    // input's bytes. What must hold is "the refused deletes changed nothing
+    // AT ALL".
     const before = markdown();
     const rowApplied = deleteRowAt(posInCell(view, 1, 0))(view.state, view.dispatch);
     const colApplied = deleteColumnAt(posInCell(view, 0, 0))(view.state, view.dispatch);

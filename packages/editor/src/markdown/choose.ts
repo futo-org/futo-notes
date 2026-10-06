@@ -26,7 +26,8 @@
  * document still loses nothing more than it must, and the output carries no
  * backslash that changes nothing.
  */
-import type { NodeJson } from './docJson';
+import { NODE, type NodeJson } from './docJson';
+import type { CanonicalNode } from './normalize';
 import { render, type BlockPart, type InlineUnit, type Line, type SiteScope } from './pieces';
 
 export interface Written {
@@ -171,29 +172,28 @@ function escapesOf(written: Written, first = 0, end = written.siteCount): number
  * units (`InlineUnit.segment`).
  */
 function leaves(reading: string): string[][] {
-  type Canon = { type: string; marks?: unknown; content?: Canon[] };
   const out: string[][] = [];
-  const segments = (content: readonly Canon[]): string[] => {
-    const runs: Canon[][] = [[]];
+  const segments = (content: readonly CanonicalNode[]): string[] => {
+    const runs: CanonicalNode[][] = [[]];
     for (const node of content) {
-      if (node.type === 'hardbreak' && !node.marks) runs.push([]);
-      else (runs[runs.length - 1] as Canon[]).push(node);
+      if (node.type === NODE.hardbreak && !node.marks) runs.push([]);
+      else (runs[runs.length - 1] as CanonicalNode[]).push(node);
     }
     return runs.map((run) => JSON.stringify(run));
   };
-  const walk = (node: Canon, inCell: boolean): void => {
-    if (node.type === 'heading' || inCell) {
+  const walk = (node: CanonicalNode, inCell: boolean): void => {
+    if (node.type === NODE.heading || inCell) {
       out.push([JSON.stringify(node)]);
       return;
     }
-    if (node.type === 'paragraph') {
+    if (node.type === NODE.paragraph) {
       if (node.content) out.push(segments(node.content));
       return;
     }
-    const cell = node.type === 'table_header' || node.type === 'table_cell';
+    const cell = node.type === NODE.tableHeader || node.type === NODE.tableCell;
     for (const child of node.content ?? []) walk(child, cell);
   };
-  for (const node of JSON.parse(reading) as Canon[]) walk(node, false);
+  for (const node of JSON.parse(reading) as CanonicalNode[]) walk(node, false);
   return out;
 }
 

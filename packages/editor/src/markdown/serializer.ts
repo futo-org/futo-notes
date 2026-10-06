@@ -35,7 +35,7 @@
  * `../milkdown-compat/ownedSerializer.ts` replaces. Both are handed the
  * editor's own `parserCtx` as `parse`.
  */
-import { DEFAULT_MARKER, alternateMarker, listKind, writeBlock, type ListMarker } from './blocks';
+import { listKind, listMarkers, writeTopLevel, type ListMarker } from './blocks';
 import { chooseSpelling, DEFAULT_CHECK_BUDGET, type CheckBudget, type Reader } from './choose';
 import { NODE, isEmptyParagraph, type NodeJson, type ParseMarkdown } from './docJson';
 import { canonical, normalizeBlock } from './normalize';
@@ -96,11 +96,12 @@ function blockReferences(node: NodeJson, out: string[] = []): string[] {
 }
 
 export function summarizeBlock(block: NodeJson): BlockSummary {
-  const node = normalizeBlock(block);
+  const nodes = normalizeBlock(block);
+  const [first] = nodes;
   return {
-    empty: isEmptyParagraph(node),
-    listKind: listKind(node),
-    references: blockReferences(node),
+    empty: nodes.length === 1 && first !== undefined && isEmptyParagraph(first),
+    listKind: first ? listKind(first) : null,
+    references: nodes.flatMap((node) => blockReferences(node)),
   };
 }
 
@@ -120,22 +121,14 @@ export function planDocument(
 ): ({ firstLine: boolean; listMarker: ListMarker | null } | null)[] {
   let started = false;
   let emptyBefore = 0;
-  let previous: { kind: string; marker: ListMarker } | null = null;
+  const markerFor = listMarkers();
   return summaries.map((summary) => {
     if (summary.empty) {
       emptyBefore += 1;
       return null;
     }
-    const kind = summary.listKind;
-    let listMarker: ListMarker | null = null;
-    if (kind) {
-      listMarker =
-        previous && previous.kind === kind
-          ? alternateMarker(previous.marker)
-          : DEFAULT_MARKER[kind];
-    }
+    const listMarker = markerFor(summary.listKind);
     const firstLine = !started && emptyBefore === 0;
-    previous = kind && listMarker ? { kind, marker: listMarker } : null;
     started = true;
     emptyBefore = 0;
     return { firstLine, listMarker };
@@ -197,12 +190,12 @@ export function createMarkdownSerializer(options: MarkdownSerializerOptions): Ma
   }
 
   function serializeBlock(block: NodeJson, context: BlockContext): WrittenBlock {
-    const node = normalizeBlock(block);
+    const nodes = normalizeBlock(block);
     const write = (scope: SiteScope) => {
       const sites = new Sites(scope);
-      const lines = writeBlock(node, context, sites);
+      const lines = writeTopLevel(nodes, context, sites);
       return {
-        block: [node],
+        block: nodes,
         lines,
         siteCount: sites.count,
         layout: sites.layout,

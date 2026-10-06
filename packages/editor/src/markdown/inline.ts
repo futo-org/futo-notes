@@ -11,9 +11,9 @@
  *
  * Fixed, not decided by a parse (docs/spec/editor.md "Markdown house style"):
  * whitespace at the start of a line is a character reference, because the
- * parser strips it from every line; an empty line inside a paragraph is
- * `&#x20;`, because a blank line would end the paragraph; a code span's fence
- * is one backtick longer than the longest run inside it.
+ * parser strips it from every line; a code span's fence is one backtick longer
+ * than the longest run inside it. (A paragraph never reaches here with an
+ * empty line in it: `./normalize.ts` splits it there.)
  */
 import { MARK, NODE, UnknownNodeError, attr, type MarkJson, type NodeJson } from './docJson';
 import { markKey, type InlineKind } from './normalize';
@@ -50,19 +50,19 @@ const reference = (character: string): string =>
 
 const isAsciiPunctuation = (character: string): boolean => /^[!-/:-@[-`{-~]$/.test(character);
 
+/** A `|` in a table cell, as `\|`: the row is split at every other one before anything is read. */
+const cellPipes = (text: string, inCell: boolean): string =>
+  inCell ? text.replace(/\|/g, '\\|') : text;
+
 /** A code span one backtick longer than the longest run inside, padded where CommonMark strips. */
 function codeSpan(value: string, inCell: boolean): string {
-  const content = inCell ? value.replace(/\|/g, '\\|') : value;
+  const content = cellPipes(value, inCell);
   const longest = Math.max(0, ...(content.match(/`+/g) ?? []).map((run) => run.length));
   const fence = '`'.repeat(longest + 1);
   const pad =
     /^`|`$/.test(content) || (/^ /.test(content) && / $/.test(content) && !/^ +$/.test(content));
   return pad ? `${fence} ${content} ${fence}` : `${fence}${content}${fence}`;
 }
-
-/** A `|` in a table cell, as `\|`: the row is split at every other one before anything is read. */
-const cellPipes = (text: string, inCell: boolean): string =>
-  inCell ? text.replace(/\|/g, '\\|') : text;
 
 /**
  * A link or image destination: bare when CommonMark reads it back unchanged (no
@@ -372,14 +372,17 @@ const isDelimiter = (token: Token | undefined): boolean =>
     ? true
     : token.kind === 'site' && /^[*_~]+$/.test(token.piece.options[0]));
 
-function lastCharacter(token: Token | undefined): string | undefined {
-  if (!token) return undefined;
-  if (token.kind === 'text' || token.kind === 'fixed' || token.kind === 'break') {
-    return token.value.slice(-1) || undefined;
-  }
-  if (token.kind === 'site') return token.piece.options[0].slice(-1);
-  return token.delim.slice(-1);
+/** What `token` writes in the house style. */
+function spelling(token: Token | undefined): string {
+  if (!token) return '';
+  if (token.kind === 'site') return token.piece.options[0];
+  return 'delim' in token ? token.delim : token.value;
 }
+
+const firstCharacter = (token: Token | undefined): string | undefined =>
+  spelling(token).charAt(0) || undefined;
+const lastCharacter = (token: Token | undefined): string | undefined =>
+  spelling(token).slice(-1) || undefined;
 
 /**
  * Whether an emphasis, strong or strikethrough delimiter at `index` opens or
@@ -396,15 +399,6 @@ function obviouslyFlanks(tokens: readonly Token[], index: number): boolean {
   const after = firstCharacter(tokens[index + 1]);
   if (token.kind === 'open') return isSpaceOrEdge(before) && isWord(after);
   return isWord(before) && (isSpaceOrEdge(after) || /^[.,;:!?)'"]$/.test(after ?? ''));
-}
-
-function firstCharacter(token: Token | undefined): string | undefined {
-  if (!token) return undefined;
-  if (token.kind === 'text' || token.kind === 'fixed' || token.kind === 'break') {
-    return token.value.charAt(0) || undefined;
-  }
-  if (token.kind === 'site') return token.piece.options[0].charAt(0);
-  return token.delim.charAt(0);
 }
 
 /** How a unit of each kind parses on its own (see `InlineUnit`). */
@@ -513,8 +507,6 @@ function writeUnit(
         lineHasContent = true;
         return;
       case 'break':
-        // A blank line would end the paragraph: an empty line holds one reference.
-        if (token.soft && !lineHasContent) fixed('&#x20;');
         fixed(token.value);
         lineHasContent = !token.value.endsWith('\n');
         if (clean.has(index)) boundaries.push({ line: newlines, site: sites.count });

@@ -67,7 +67,7 @@ function endedWordAt(state: EditorState, previous: EditorState): number | null {
 }
 
 /** Markdown in, mdast out — the editor's own remark processor's `parse`. */
-type ParseMarkdown = (markdown: string) => MdastNode;
+type ParseToMdast = (markdown: string) => MdastNode;
 
 /** The first link in a parsed tree, with its source offsets. */
 function firstLink(node: MdastNode): { url: string; start: number; end: number } | null {
@@ -89,7 +89,7 @@ function firstLink(node: MdastNode): { url: string; start: number; end: number }
 export function autolinkTransaction(
   state: EditorState,
   end: number,
-  parse: ParseMarkdown,
+  parse: ParseToMdast,
 ): Transaction | null {
   const { link, inlineCode } = state.schema.marks;
   if (!link) return null;

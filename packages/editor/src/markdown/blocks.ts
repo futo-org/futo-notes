@@ -8,7 +8,15 @@
  *
  * The input is already normalized (`./normalize.ts` `normalizeBlock`).
  */
-import { NODE, UnknownNodeError, attr, isEmptyParagraph, textOf, type NodeJson } from './docJson';
+import {
+  NODE,
+  UnknownNodeError,
+  attr,
+  isEmptyParagraph,
+  isHtmlBlock,
+  textOf,
+  type NodeJson,
+} from './docJson';
 import { writeInline } from './inline';
 import { blankLines, prefixLines, type Line, type Sites } from './pieces';
 
@@ -23,11 +31,32 @@ export interface BlockPosition {
   readonly listMarker: ListMarker | null;
 }
 
-export const DEFAULT_MARKER = { bullet: '-', ordered: '.' } as const;
+const DEFAULT_MARKER = { bullet: '-', ordered: '.' } as const;
 
 /** The marker a list uses after a touching list of the same kind that used `previous`. */
-export function alternateMarker(previous: ListMarker): ListMarker {
+function alternateMarker(previous: ListMarker): ListMarker {
   return ({ '-': '*', '*': '-', '.': ')', ')': '.' } as const)[previous];
+}
+
+/**
+ * The markers of a run of written blocks: call it with each one's `listKind`,
+ * in order, leaving out empty paragraphs (which do not keep two lists apart).
+ * A list is `-`/`.` unless it follows a list of the same kind, whose marker it
+ * then alternates (`-` then `*`, `.` then `)`); null for a block that is not a
+ * list.
+ */
+export function listMarkers(): (kind: 'bullet' | 'ordered' | null) => ListMarker | null {
+  let previous: { kind: string; marker: ListMarker } | null = null;
+  return (kind) => {
+    if (kind === null) {
+      previous = null;
+      return null;
+    }
+    const marker =
+      previous?.kind === kind ? alternateMarker(previous.marker) : DEFAULT_MARKER[kind];
+    previous = { kind, marker };
+    return marker;
+  };
 }
 
 export function listKind(node: NodeJson): 'bullet' | 'ordered' | null {
@@ -117,15 +146,6 @@ function writeTable(node: NodeJson, sites: Sites, nested: boolean): Line[] {
   return [row(header), delimiter, ...rows.map(row)];
 }
 
-/** A paragraph that is one block of HTML (the preset wraps HTML blocks in one). */
-function isHtmlBlock(node: NodeJson): boolean {
-  return (
-    node.type === NODE.paragraph &&
-    node.content?.length === 1 &&
-    node.content[0]?.type === NODE.html
-  );
-}
-
 /**
  * The first lines of blocks that may be written LAZILY — without their list
  * item's indent. An HTML block that cannot interrupt a paragraph (`</grid>`)
@@ -174,7 +194,9 @@ function touches(previous: NodeJson, next: NodeJson, options: ChildrenOptions): 
 /**
  * A container's children, separated as the container reads them: a blank line
  * between blocks (a newline in a tight list item), plus one more blank line per
- * empty paragraph between them. Touching lists alternate markers here too.
+ * empty paragraph between them, and one per empty paragraph before the first
+ * (normalized containers have none; a split paragraph may, `writeTopLevel`).
+ * Touching lists alternate markers here too.
  */
 function writeChildren(
   children: readonly NodeJson[],
@@ -184,20 +206,13 @@ function writeChildren(
   const lines: Line[] = [];
   let previous: NodeJson | null = null;
   let emptyBefore = 0;
-  let previousList: { kind: string; marker: ListMarker } | null = null;
+  const markerFor = listMarkers();
   for (const child of children) {
     if (isEmptyParagraph(child)) {
-      if (previous) emptyBefore += 1;
+      emptyBefore += 1;
       continue;
     }
-    const kind = listKind(child);
-    let listMarker: ListMarker | null = null;
-    if (kind) {
-      listMarker =
-        previousList && previousList.kind === kind
-          ? alternateMarker(previousList.marker)
-          : DEFAULT_MARKER[kind];
-    }
+    const listMarker = markerFor(listKind(child));
     if (previous) {
       const blank =
         emptyBefore > 0
@@ -208,13 +223,14 @@ function writeChildren(
       lines.push(...blankLines(blank));
       if (blank === 0 && options.tight && mayRunOn(previous, child))
         lines.push(sites.optionalLine());
+    } else {
+      lines.push(...blankLines(emptyBefore));
     }
     const written = writeBlock(child, { firstLine: false, listMarker }, sites, true);
     if (options.tight && previous?.type === NODE.paragraph && isHtmlBlock(child) && written[0]) {
       lazyLines.add(written[0]);
     }
     lines.push(...written);
-    previousList = kind && listMarker ? { kind, marker: listMarker } : null;
     previous = child;
     emptyBefore = 0;
   }
@@ -296,6 +312,22 @@ function writeList(
     lines.push(...sites.part(write, (text) => text, [alone]));
   });
   return lines;
+}
+
+/**
+ * A top-level block as lines, from its normalized form: one node, except a
+ * paragraph split at its empty lines (`./normalize.ts`), whose paragraphs are
+ * spaced as a note spaces blocks — and an empty paragraph before the first is
+ * a blank line at the block's top.
+ */
+export function writeTopLevel(
+  nodes: readonly NodeJson[],
+  position: BlockPosition,
+  sites: Sites,
+): Line[] {
+  const [only] = nodes;
+  if (nodes.length === 1 && only) return writeBlock(only, position, sites);
+  return writeChildren(nodes, { tight: false }, sites);
 }
 
 /** One block as lines. `nested` is true inside a quote, list item or footnote. */

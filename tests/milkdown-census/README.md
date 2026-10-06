@@ -18,8 +18,9 @@ defects on the way in, and the editor's own serializer
 harness is how the defects were found, how "fixed" was established, how the
 serializer's two hard gates are measured, and how a future change to either is
 shown to cost nothing. The findings live in
-`docs/editor/milkdown-roundtrip-census.md`; per D4 of the transition plan the
-numbers are a scorecard, not a release gate.
+`docs/editor/milkdown-roundtrip-census.md`. Most numbers are a scorecard (D4 of
+the transition plan); two are hard gates since #266: `content_loss` and
+`second_pass_unstable` (below).
 
 ## Layout
 
@@ -27,14 +28,23 @@ numbers are a scorecard, not a release gate.
 |---|---|
 | `entry.ts` | the browser side — a real editor with the app's plugin chain and load sequence, exposed as one `load(variant, markdown)` call |
 | `build.mjs` | esbuild bundle + page, also used by `tests/editor-embed-milkdown-compat.spec.ts` |
+| `noteIndexStub.ts` | the empty note index the wikilink plugin renders with on the census page (below) |
 | `detectors.mjs` | what counts as a flag |
 | `run.mjs` | the driver: corpus in, `results.jsonl` + `summary.json` out |
 
-`entry.ts` imports the compat plugins (which install the serializer) from
-source, so the census can never drift from what the app ships. It mounts commonmark + gfm only — not the wikilink
-plugin (#101), which needs the app's note index and so cannot be bundled here;
-that plugin carries its own differential and embed-seam tests, and the effect on
-these numbers is that `[[wikilink]]` escaping still shows up as a difference. It mirrors `MilkdownEditor.svelte`'s load path exactly:
+`entry.ts` imports from source, so the census can never drift from what the app
+ships. On `compat` it mounts every plugin of the app's chain
+(`src/features/editor/milkdown/editorPlugins.ts`, same order) that changes what a
+note's bytes parse into or what a save writes: the compat presets (which install
+the owned serializer), the inline line-break node view, the wikilink plugin
+(#101) and the table cell `<br>` reader (`table/tableLineBreak.ts`
+`tableCellLineBreakRemark`). So the gates cover `[[wikilinks]]` and in-cell line
+breaks exactly as the app reads and writes them. What only renders, edits or
+decorates is left out. The wikilink plugin reads the app's note index, a Svelte
+runes module esbuild cannot bundle; `build.mjs` resolves it to
+`noteIndexStub.ts`, an empty vault, so every link renders as broken and
+autocomplete offers nothing — neither changes a parse or a save. It mirrors
+the app's load path exactly:
 `defaultValueCtx` at creation followed by an immediate `replaceAll` of the same
 content. A `defaultValueCtx`-only reading manufactures instability on every
 list/table/quote/fence note, because the `trailing` plugin has not settled.
