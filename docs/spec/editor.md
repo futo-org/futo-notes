@@ -219,7 +219,8 @@ hand-reviewed goldens, one or more per line below)
 - Every device writes identical bytes for the same document.
 - A second save is a no-op: writing a document, reading the result back, and
   writing again gives the same bytes.
-- Line endings are LF.
+- Line endings are LF, except inside a front matter block, which is written
+  back byte for byte (story 16 wins over this line there).
 - A non-empty file ends in exactly one newline; an empty note is an empty file.
 - A save costs time in proportion to the blocks that changed, not to the
   length of the note.
@@ -309,8 +310,13 @@ hand-reviewed goldens, one or more per line below)
   block that followed a tight item's paragraph on an unindented line, that
   layout is written — decided by parsing, and only where it keeps the list as
   tight or loose as it was.
-- A front matter block is `---`, its body exactly as read (with LF line
-  endings), and `---`, followed by a blank line before the body.
+- A front matter block is written byte for byte: `---`, its body exactly as
+  read, CR and CRLF line endings included, and `---`, followed by a blank line
+  before the note's body (which is LF).
+- The two fence lines end the way the front matter body's first line does,
+  and with LF when the body is a single line: the parser keeps no line ending
+  that touches a fence, so a one-line body from a CRLF file is written with
+  LF fences.
 
 ### Lists
 
@@ -367,11 +373,12 @@ hand-reviewed goldens, one or more per line below)
 - A footnote definition is `[^label]: text`, with continuation lines indented
   four spaces.
 - Inline HTML, HTML blocks, front matter bodies and unused link reference
-  definitions are written back exactly as read, with two exceptions below.
+  definitions are written back exactly as read, with two exceptions below
+  that do not apply to front matter.
 - An HTML block's indentation before its first tag is not written: it is
   layout, not HTML, and kept it would put the block in a different container
   once list indentation is the house style's.
-- CR and CRLF line endings inside them are written LF.
+- CR and CRLF line endings inside them (front matter aside) are written LF.
 
 ## Localization
 

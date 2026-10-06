@@ -89,10 +89,17 @@ function writeCode(node: NodeJson): Line[] {
   return [[fence + language], ...body, [fence]];
 }
 
+/**
+ * Front matter byte for byte, CR and CRLF included. The parser keeps none of
+ * the line endings that touch a fence, so the fence lines end the way the
+ * body's first line does (LF for a one-line body). A line holding a CR stays
+ * one line: `render` joins lines with LF only.
+ */
 function writeFrontmatter(node: NodeJson): Line[] {
   const value = attr<string>(node, 'value') ?? '';
-  const body = value === '' ? [] : value.split('\n').map((line): Line => [line]);
-  return [['---'], ...body, ['---']];
+  const end = /\r\n?|\n/.exec(value)?.[0] ?? '\n';
+  const text = value === '' ? `---${end}---` : `---${end}${value}${end}---`;
+  return text.split('\n').map((line): Line => [line]);
 }
 
 /** A cell on its own: a one-column table whose header is the cell (`BlockPart`). */

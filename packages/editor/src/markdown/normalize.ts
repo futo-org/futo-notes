@@ -14,8 +14,9 @@
  *    spelling reaches them), as is a list item's empty first paragraph when a
  *    paragraph follows it (the schema's filler, which only an item starting
  *    with another block needs), the CR or CRLF line
- *    endings a code block, HTML or front matter kept from a CRLF file become
- *    LF (a save writes LF only), and an HTML block's indentation before its
+ *    endings a code block or HTML kept from a CRLF file become LF (a save
+ *    writes LF everywhere but in front matter, which it writes byte for
+ *    byte), and an HTML block's indentation before its
  *    first tag is dropped: it is layout, not HTML, and kept it would put the
  *    block in a different container once list indentation is the house style's.
  *    A list item whose blocks need a blank line between them is loose, however
@@ -59,15 +60,14 @@ const isText = (node: NodeJson | undefined): boolean => node?.type === NODE.text
 const lf = (value: string): string => value.replace(/\r\n?/g, '\n');
 
 /**
- * A node whose raw `value` attribute is written verbatim — with LF line endings,
+ * An HTML node, whose raw `value` is written verbatim — with LF line endings,
  * and without the indentation before an HTML block's first tag (only a block
  * can start with whitespace: inline HTML starts at its `<`).
  */
-function withLfValue(node: NodeJson): NodeJson {
+function normalizedHtml(node: NodeJson): NodeJson {
   const value = node.attrs?.value;
   if (typeof value !== 'string') return node;
-  let normalized = lf(value);
-  if (node.type === NODE.html) normalized = normalized.replace(/^[ \t]+/, '');
+  const normalized = lf(value).replace(/^[ \t]+/, '');
   return normalized === value ? node : { ...node, attrs: { ...node.attrs, value: normalized } };
 }
 
@@ -111,7 +111,7 @@ function stripLineEnd(nodes: NodeJson[], end: number): void {
 /** The house style's inline normalizations (see the module header). */
 export function normalizeInline(content: readonly NodeJson[], kind: InlineKind): NodeJson[] {
   let nodes = content.map((node) => {
-    if (node.type === NODE.html) return withLfValue(node);
+    if (node.type === NODE.html) return normalizedHtml(node);
     return kind === 'heading' && node.type === NODE.hardbreak
       ? { type: NODE.text, text: ' ', ...(node.marks ? { marks: node.marks } : {}) }
       : node;
@@ -255,7 +255,8 @@ function needsBlankLine(children: readonly NodeJson[]): boolean {
  * block, except a paragraph with empty lines in it (`splitAtEmptyLines`).
  */
 export function normalizeBlock(node: NodeJson, inCell = false): NodeJson[] {
-  if (node.type === NODE.frontmatter) return [withLfValue(node)];
+  // Front matter is written byte for byte, line endings included.
+  if (node.type === NODE.frontmatter) return [node];
   if (node.type === NODE.codeBlock) {
     const text = (node.content ?? []).map((child) => child.text ?? '').join('');
     return [/\r/.test(text) ? { ...node, content: [{ type: NODE.text, text: lf(text) }] } : node];

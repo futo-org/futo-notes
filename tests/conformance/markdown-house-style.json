@@ -859,9 +859,21 @@
     },
     {
       "story": 22,
-      "name": "CRLF and CR are written LF, code and front matter included",
-      "source": "---\r\na: 1\r\n---\r\n\r\nx\r\ny\r\n\r\n```\r\nc\r\n```",
-      "expected": "---\na: 1\n---\n\nx\ny\n\n```\nc\n```\n"
+      "name": "CRLF and CR are written LF, code included; front matter keeps its own line endings (story 16)",
+      "source": "---\r\na: 1\r\nb: 2\r\n---\r\n\r\nx\r\ny\r\n\r\n```\r\nc\r\n```",
+      "expected": "---\r\na: 1\r\nb: 2\r\n---\n\nx\ny\n\n```\nc\n```\n"
+    },
+    {
+      "story": 16,
+      "name": "front matter from a CR file keeps its CR line endings, fences included",
+      "source": "---\ra: 1\rb: 2\r---\r\rx",
+      "expected": "---\ra: 1\rb: 2\r---\n\nx\n"
+    },
+    {
+      "story": 16,
+      "name": "a one-line front matter body from a CRLF file gets LF fences: the parser keeps no line ending beside a fence",
+      "source": "---\r\na: 1\r\n---\r\n\r\nx",
+      "expected": "---\na: 1\n---\n\nx\n"
     },
     {
       "story": 22,

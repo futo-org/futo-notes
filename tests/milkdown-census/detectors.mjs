@@ -87,13 +87,16 @@ export function hasBulletBlockOpener(markdown) {
 }
 
 /**
- * A document-leading YAML front matter block, captured whole.
+ * A document-leading YAML front matter block, captured from its opening fence
+ * to the end of its closing one (the line ending after it belongs to what
+ * follows, which a save writes LF).
  *
  * Exactly the shape `micromark-extension-frontmatter` accepts: the opening and
  * closing fences are each exactly three dashes at column 0 with nothing but
- * whitespace after them (`----` and ` ---` are thematic breaks).
+ * whitespace after them (`----` and ` ---` are thematic breaks), and CR, LF or
+ * CRLF ends a line — a save keeps the block's own line endings.
  */
-const FRONT_MATTER_RE = /^---[ \t]*\n[\s\S]*?\n---[ \t]*(?:\n|$)/;
+const FRONT_MATTER_RE = /^---[ \t]*(?:\r\n?|\n)[\s\S]*?(?:\r\n?|\n)---[ \t]*(?=\r|\n|$)/;
 
 export function leadingFrontMatter(markdown) {
   return FRONT_MATTER_RE.exec(markdown)?.[0] ?? null;
@@ -215,7 +218,8 @@ export function countWikilinks(markdown) {
  *     item's empty first child, the schema's filler, stays unless the item's
  *     first block is a paragraph, and the empty paragraphs after a first
  *     paragraph that holds text are inside the item, not at its start);
- *   - CR and CRLF inside code, HTML and front matter are LF;
+ *   - CR and CRLF inside code and HTML are LF (front matter is written byte
+ *     for byte, line endings included);
  *   - an HTML block's indentation before its first tag is dropped (layout, not
  *     HTML; only a block's value can start with whitespace);
  *   - a list item whose blocks need a blank line between them — two paragraphs
@@ -368,8 +372,7 @@ function houseNode(node, inCell = false, inlineDone = false) {
       if (dropped.includes(key)) continue;
       let value = node.attrs[key];
       if (node.type === 'image' && key === 'title') value = value ?? '';
-      if ((node.type === 'frontmatter' || node.type === 'html') && key === 'value')
-        value = lf(value);
+      if (node.type === 'html' && key === 'value') value = lf(value);
       if (node.type === 'html' && key === 'value') value = value.replace(/^[ \t]+/, '');
       attrs[key] = value;
     }
