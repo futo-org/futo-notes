@@ -140,7 +140,7 @@
     <textarea
       class="title-input"
       bind:this={titleEl}
-      value={session.title}
+      value={session.fieldTitle}
       rows="1"
       spellcheck="false"
       placeholder={localizedText('notes.untitledPlaceholder')}

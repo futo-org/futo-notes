@@ -20,14 +20,34 @@ import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 
 /**
- * The title field once a debounced rename has committed [committed]. The rename
- * lands mid-typing whenever the user pauses for 500 ms, so a title it left as
- * typed keeps the field exactly as it is: caret, selection and the keyboard's
- * composing region. A title the rename changed (sanitized, say) puts the caret
- * at its end.
+ * What the note's title field shows [list.md]. While it is focused only the
+ * user's typing changes its text: a title the app commits meanwhile (a rename
+ * that trimmed or suffixed what was typed, a move, a sync rename, a conflict
+ * copy) waits in [titleOnBlur] and shows once the field loses focus. Typing
+ * first discards it — the typed text commits on its own debounce.
  */
-internal fun titleFieldAfterRename(field: TextFieldValue, committed: String): TextFieldValue =
-    if (field.text == committed) field else TextFieldValue(committed, TextRange(committed.length))
+internal data class TitleFieldState(
+    val value: TextFieldValue,
+    val isFocused: Boolean = false,
+    val titleOnBlur: String? = null,
+) {
+    fun afterTyping(edited: TextFieldValue) = copy(
+        value = edited,
+        titleOnBlur = titleOnBlur.takeIf { edited.text == value.text },
+    )
+
+    fun afterFocusChange(focused: Boolean): TitleFieldState {
+        val changed = copy(isFocused = focused)
+        if (focused || titleOnBlur == null) return changed
+        return changed.copy(titleOnBlur = null).afterCommit(titleOnBlur)
+    }
+
+    fun afterCommit(title: String): TitleFieldState = when {
+        isFocused -> copy(titleOnBlur = title)
+        value.text == title -> this
+        else -> copy(value = TextFieldValue(title, TextRange(title.length)))
+    }
+}
 
 /**
  * The note's inline title field [list.md]. Return moves on into the body: the
