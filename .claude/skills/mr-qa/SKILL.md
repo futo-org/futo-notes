@@ -34,6 +34,32 @@ caches on every switch, so the "saved" setup comes back as cold builds. A
 worktree is `git worktree add` plus `pnpm install`; a leg is one tool call.
 Neither is worth economizing on.
 
+## Keep the orchestrator's context small
+
+Put nearly everything in a subagent so the main thread is not polluted. One
+pass got to 414k tokens in the orchestrator, and its judgment at the end was
+worse for it. The orchestrator holds the plan, the ledger of MR states, and
+the verdicts. Everything tool-heavy goes to a subagent, **Sonnet by default,
+Opus only after a Sonnet attempt failed**:
+
+- reading CI job logs and tallying failures across pipelines
+- merge-conflict resolution, trivial ones included
+- static gates and builds
+- device QA
+- fixes
+- watching and landing pipelines — one subagent can run the wait-and-land loop
+  for a batch of MRs and report back only state changes
+- filing issues
+- teardown
+
+Subagents report a short summary: verdict, SHAs, counts, and paths to
+evidence. No raw logs. The orchestrator should almost never cat a CI trace, a
+diff or a test log into its own context.
+
+Long-lived subagents bloat too. If a leg has run very long, stop it and start
+a fresh one with a narrow brief that carries over its results from its ledger
+or evidence files. Don't let one agent keep going indefinitely.
+
 ## Session protocol
 
 Read `.claude/skills/verify/references/session.md` for provisioning, safety rules,
@@ -57,7 +83,7 @@ curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
   | jq -r '.[] | select(.draft == false) | "\(.iid)\t\(.source_branch)\t\(.title)"'
 ```
 
-Ordering governs the sequence you *start* legs in, not a serialization. If the
+Ordering governs the sequence you _start_ legs in, not a serialization. If the
 user names specific MRs, honor their list — still oldest-first, still flagging
 any draft among them. **Re-query at the start of every pass**: the open set
 drifts mid-session.
@@ -69,8 +95,11 @@ drifts mid-session.
   (always available). Map each MR to the platforms its diff actually needs and
   state impossible coverage explicitly per MR — never silently drop it. From
   Linux, probe Justin's Mac over Tailscale (`ssh -o ConnectTimeout=5 …
-  'xcrun -f xcodebuild'`) before writing iOS off; if it answers, work in a
+'xcrun -f xcodebuild'`) before writing iOS off; if it answers, work in a
   throwaway worktree there and say which iOS coverage was remote.
+- **Delete old worktrees, always.** Before starting, list `.claude/worktrees/mr-*`
+  and `git worktree list`. Stale ones from earlier passes are removed by the
+  teardown step's procedure, not left to pile up (the disk filled mid-pass once).
 - **Route static-only MRs away from device QA.** A docs- or CI-only MR (e.g.
   `.gitlab-ci.yml`) is verified by (a) a green pipeline on its head sha AND the
   specific job it fixes having actually run (not skipped by rules), and (b) a
@@ -81,7 +110,7 @@ drifts mid-session.
 1. **Static gate first, across all worktrees at once, before any device
    build**: `tsc --noEmit` + the MR's targeted unit tests. Dependency bump →
    duplicate-dependency check (`find node_modules/.pnpm -maxdepth 1 -name
-   '@milkdown+kit@*'` — M22's blank-editor failure). Editor change →
+'@milkdown+kit@*'` — M22's blank-editor failure). Editor change →
    `pnpm run test:e2e:editor-embed` is the key gate, but it runs in Chromium —
    the leg must still confirm rendering live in Tauri's WebKit.
 2. **Worktree**: resolve the MR's source branch, then
@@ -92,14 +121,16 @@ drifts mid-session.
 4. **Spawn the legs** — one `app-qa` agent per (MR × platform). Brief each:
    worktree path, claimed device ids, server port/password, diff summary → spec
    surfaces, that apps are pre-built, the shared session protocol, and any
-   carried-over ledger with what it does and does not settle. Hand fixes to `fixer` (Opus-pinned) rather than asking a QA leg to
-   fix what it found — a wrong fix is the most expensive thing this pipeline
+   carried-over ledger with what it does and does not settle. Hand fixes to `fixer` rather than asking a QA leg to
+   fix what it found. Pass `model: "sonnet"` on `fixer` agents — the agent's
+   frontmatter pins Opus — and escalate to Opus only after a Sonnet attempt
+   failed — a wrong fix is the most expensive thing this pipeline
    can emit.
 5. **Monitor — idle ≠ progress.** `idle_notification {reason: available}`
    fires both while an agent parks on a long cold build AND when it has
    stalled/died. On each idle (or on a timer) verify actual progress: a live
    build process (`pgrep -af "worktrees/mr-<iid>" | grep -E
-   'cargo|gradle|tauri|vite'`) plus ledger movement (`stat` + tail of
+'cargo|gradle|tauri|vite'`) plus ledger movement (`stat` + tail of
    `.qa-ledger.md`). Idle + neither = stalled → re-engage once via
    `SendMessage`; on a second stall (two strikes) take over the remaining
    checks yourself — the agent leaves its Tauri instances + qa-server running,
@@ -109,8 +140,28 @@ drifts mid-session.
    collision finding is a bug in the isolation layer — report it loudly).
 7. **Verdict + merge** — see the next section. The pass is not done until this
    step is.
-8. **Teardown** per the shared session protocol; preserve resources still needed
-   for user iteration or a resumed pass.
+8. **Teardown** per the shared session protocol (delegate it to a subagent).
+   Then **delete old worktrees, always** — see below.
+
+## Delete old worktrees, always
+
+At the end of every pass, remove **every** `.claude/worktrees/mr-*` worktree,
+including ones left behind by earlier passes and by QA legs (e.g.
+`mr-<iid>-main` comparison worktrees), and delete their local `qa/mr-*`
+branches. A previous pass left about 110 GB of stale build dirs from passes
+weeks old, and the disk hit 100% mid-pass.
+
+Before removing one, check for work that exists nowhere else:
+
+- uncommitted tracked changes (`git -C <wt> status --porcelain -uno`)
+- commits not on any remote branch (`git -C <wt> log HEAD --not --remotes`).
+  Rebased MR branches carry the same commits under new SHAs, so compare by
+  subject or patch (`git cherry`), not SHA.
+
+Rescue anything unique first — an un-upstreamed `.papercuts.jsonl` line goes
+into a commit. Then delete `target/`, `node_modules/` and build dirs so removal
+is fast, and `git worktree remove --force <wt>`. Only the user's explicit
+"keep it for iteration" overrides this.
 
 ## SHIP / NO SHIP — and merging is part of the verdict
 
@@ -159,10 +210,10 @@ open.
 
 **Nothing else is a hold.** Not an unrelated open incident. Not an unfinished
 sibling leg on another MR. Not wanting the user to confirm something else
-first. Not general caution. Ask one question: does this bear on whether *this*
-MR behaves correctly? If not, it does not gate *this* MR. This has already
+first. Not general caution. Ask one question: does this bear on whether _this_
+MR behaves correctly? If not, it does not gate _this_ MR. This has already
 been violated: an MR with nine passing stories and a green pipeline was held
-because a *different* leg had leaked keystrokes into the user's real vault and
+because a _different_ leg had leaked keystrokes into the user's real vault and
 the orchestrator wanted the data question settled before merging anything.
 Those were two threads, and only one of them was about the MR.
 
