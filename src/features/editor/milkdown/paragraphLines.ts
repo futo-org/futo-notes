@@ -31,14 +31,15 @@ import { nodesCtx } from '@milkdown/kit/core';
 import { hardbreakAttr } from '@milkdown/kit/preset/commonmark';
 import type { Mark, Node as ProseNode, ResolvedPos } from '@milkdown/kit/prose/model';
 import {
-  EditorState,
-  Selection,
   TextSelection,
   type Command,
+  type EditorState,
   type Transaction,
 } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { $node } from '@milkdown/kit/utils';
+
+import { foldCommandInto } from './foldCommand';
 
 /** The preset's line-break node: both the inline kind and a `\` or two-space break. */
 const HARDBREAK_NODE = 'hardbreak';
@@ -229,49 +230,19 @@ export const isolateSelectedLines: Command = (state, dispatch) => {
 
 /**
  * `command`, run on the selected lines only (`isolateSelectedLines`), as ONE
- * transaction. When `command` declines, nothing is dispatched — the cut is not
- * left behind on its own.
- *
- * The middle state is built with `EditorState.create`, never `apply`, for the
- * reason `commandRunner.ts` gives: `apply` runs every plugin's
- * `appendTransaction`, whose steps would then be missing from the combined
- * transaction.
+ * transaction (foldCommand.ts). When `command` declines, nothing is
+ * dispatched — the cut is not left behind on its own.
  */
 export function onSelectedLines(command: Command): Command {
   return (state, dispatch, view) => {
-    let cut: Transaction | null = null;
+    const holder: { cut: Transaction | null } = { cut: null };
     isolateSelectedLines(state, (tr) => {
-      cut = tr;
+      holder.cut = tr;
     });
-    if (cut === null) return command(state, dispatch, view);
-    const isolated: Transaction = cut;
-    const middle = EditorState.create({
-      schema: state.schema,
-      doc: isolated.doc,
-      selection: isolated.selection,
-      storedMarks: state.storedMarks,
-      plugins: state.plugins,
-    });
-    let produced: Transaction | null = null;
-    const ran = command(
-      middle,
-      (tr) => {
-        produced = tr;
-      },
-      view,
-    );
-    if (!ran) return false;
-    if (!dispatch) return true;
-    const combined = isolated;
-    const result = produced as Transaction | null;
-    if (result) {
-      for (const step of result.steps) combined.step(step);
-      if (result.selectionSet) {
-        combined.setSelection(Selection.fromJSON(combined.doc, result.selection.toJSON()));
-      }
-      if (result.storedMarks) combined.setStoredMarks(result.storedMarks);
-    }
-    dispatch(combined.scrollIntoView());
+    const cut = holder.cut;
+    if (!cut) return command(state, dispatch, view);
+    if (!foldCommandInto(state, cut, command, view)) return false;
+    dispatch?.(cut);
     return true;
   };
 }

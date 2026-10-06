@@ -455,15 +455,15 @@ export function blockCommand(command: BlockCommandId): Command {
 function unscopedBlockCommand(command: BlockCommandId): Command {
   switch (command) {
     case 'heading-1':
-      return unscopedSetBlockFormat({ kind: 'heading', level: 1 });
+      return setBlockFormat({ kind: 'heading', level: 1 });
     case 'heading-2':
-      return unscopedSetBlockFormat({ kind: 'heading', level: 2 });
+      return setBlockFormat({ kind: 'heading', level: 2 });
     case 'heading-3':
-      return unscopedSetBlockFormat({ kind: 'heading', level: 3 });
+      return setBlockFormat({ kind: 'heading', level: 3 });
     case 'paragraph':
-      return unscopedSetBlockFormat({ kind: 'none' });
+      return setBlockFormat({ kind: 'none' });
     case 'quote':
-      return unscopedSetBlockFormat({ kind: 'quote' });
+      return setBlockFormat({ kind: 'quote' });
     default:
       return transitionRuns((current) =>
         current.kind === 'code'
@@ -475,12 +475,12 @@ function unscopedBlockCommand(command: BlockCommandId): Command {
   }
 }
 
-/** Set a format; heading/Text changes leave enclosing quotes in place. Line-scoped like `blockCommand`. */
+/**
+ * Set a format; heading/Text changes leave enclosing quotes in place. Not
+ * line-scoped here: its one caller, the `/` menu, runs every pick through
+ * commandRunner.ts `runAfterDelete`, which scopes it to the selected lines.
+ */
 export function setBlockFormat(target: BlockFormat): Command {
-  return onSelectedLines(unscopedSetBlockFormat(target));
-}
-
-function unscopedSetBlockFormat(target: BlockFormat): Command {
   return transitionRuns((current) => (current.kind === 'code' ? current : target));
 }
 
