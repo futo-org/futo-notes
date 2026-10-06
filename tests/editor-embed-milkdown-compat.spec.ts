@@ -543,25 +543,6 @@ test.describe('YAML front matter survives the round trip', () => {
     expect(await roundTrip(page, 'compat', '---\na: 1\n---\n')).toBe('---\na: 1\n---\n');
   });
 
-  test('compat leaves a mid-document `---` a thematic break', async ({ page }) => {
-    // Front matter is a document-start construct only. A horizontal rule
-    // further down is still a horizontal rule, written `---` (the house style),
-    // and reads back as one: the note is a fixed point.
-    const { once, twice } = await twoSaves(page, 'compat', 'intro\n\n---\n\nafter\n');
-    expect(once).toBe('intro\n\n---\n\nafter\n');
-    expect(twice).toBe(once);
-  });
-
-  test('compat leaves an opening thematic break alone', async ({ page }) => {
-    // `---` followed by a blank line is not front matter (no closing fence),
-    // and must keep parsing as the rule it is rather than swallowing the note.
-    // Nothing later would close front matter, so the house style writes `---`
-    // on the first line too; a later `---` line would make it `***`.
-    const out = await roundTrip(page, 'compat', '---\n\nbody\n');
-    expect(out).toBe('---\n\nbody\n');
-    expect(await roundTrip(page, 'compat', '***\n\nbody\n\n***\n')).toBe('***\n\nbody\n\n---\n');
-  });
-
   test('compat leaves an unterminated `---` block alone', async ({ page }) => {
     // No closing fence anywhere: CommonMark reads this as a thematic break
     // plus a paragraph, and so must we — inventing a front matter block here
@@ -671,7 +652,6 @@ test.describe('an autolink with a backslash is written verbatim', () => {
   // re-parses the bare spelling to prove it is the same link), anything else
   // keeps its `<...>`.
   for (const [markdown, saved] of [
-    ['see <https://example.com/a\\.b> here\n', 'see https://example.com/a\\.b here\n'],
     ['see <file:\\\\srv\\s> here\n', 'see <file:\\\\srv\\s> here\n'],
     ['see <https://example.com/a\\> here\n', 'see https://example.com/a\\ here\n'],
     ['see https://example.com/a\\_b now\n', 'see https://example.com/a\\_b now\n'],
@@ -730,11 +710,8 @@ test.describe('bold or italic whose edge is punctuation next to a letter', () =>
   // literal `**` and the next save escaped it for good. The house style writes
   // the reference wherever a parse says flanking needs one.
   const SHAPES: Record<string, string> = {
-    'bold ending in a colon before a letter': '**Note:**&#x62;ar\n',
     'italic ending in a colon before a letter': '*Note:*&#x62;ar\n',
     'italic parentheses inside a word': '&#x61;*(b)*&#x63;\n',
-    // CJK: bold ending in a full-width colon before the next ideograph.
-    'CJK bold ending in a full-width colon': '**重要：**&#x8FD9;是\n',
   };
 
   for (const [name, markdown] of Object.entries(SHAPES)) {

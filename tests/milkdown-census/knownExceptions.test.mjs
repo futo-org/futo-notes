@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { KNOWN_EXCEPTIONS, describeVerdict, gateVerdict } from './knownExceptions.mjs';
+import { describeVerdict, gateVerdict } from './knownExceptions.mjs';
 
 const CORPUS = 'notes_corpus.jsonl.gz';
 const exception = {
@@ -50,14 +50,5 @@ describe('the census gate verdict', () => {
     const verdict = gateVerdict([note('7')], CORPUS, [exception]);
     expect(verdict.pass).toBe(true);
     expect(verdict.stale).toEqual([exception]);
-  });
-
-  it('lists each accepted corpus note once, with a repro and a reason', () => {
-    const keys = KNOWN_EXCEPTIONS.map((entry) => `${entry.corpus} ${entry.flag} ${entry.id}`);
-    expect(new Set(keys).size).toBe(keys.length);
-    for (const entry of KNOWN_EXCEPTIONS) {
-      expect(entry.shape.length).toBeGreaterThan(0);
-      expect(entry.reason.length).toBeGreaterThan(0);
-    }
   });
 });

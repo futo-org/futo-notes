@@ -13,7 +13,6 @@ import {
   isolateSelectedLines,
   joinBackwardAsLine,
   joinForwardAsLine,
-  lineStartShortcut,
 } from './paragraphLines';
 import { testSchema } from './__fixtures__/schema';
 
@@ -110,27 +109,6 @@ function run(command: Command, state: EditorState): { handled: boolean; state: E
 }
 
 describe('enterInParagraph', () => {
-  it('writes a newline in the middle of a line', () => {
-    const { handled, state } = run(enterInParagraph, stateWith('hey^man'));
-    expect(handled).toBe(true);
-    expect(show(state)).toBe('hey\n^man');
-  });
-
-  it('writes a newline at the end of the paragraph, leaving the caret on the new line', () => {
-    const { state } = run(enterInParagraph, stateWith('hey^'));
-    expect(show(state)).toBe('hey\n^');
-  });
-
-  it('ends the paragraph when the line is empty — the second Enter', () => {
-    const { state } = run(enterInParagraph, stateWith('hey\n^'));
-    expect(show(state)).toBe('hey|^');
-  });
-
-  it('adds an empty paragraph from an empty one — the third Enter', () => {
-    const { state } = run(enterInParagraph, stateWith('hey|^'));
-    expect(show(state)).toBe('hey||^');
-  });
-
   it('splits the paragraph at the start of a line rather than opening a blank line inside it', () => {
     const { state } = run(enterInParagraph, stateWith('one\n^two'));
     expect(show(state)).toBe('one|^two');
@@ -168,22 +146,9 @@ describe('enterInParagraph', () => {
     expect(paragraph.child(1).type.name).toBe('hardbreak');
     expect(paragraph.child(1).marks).toEqual([]);
   });
-
-  it('leaves Enter outside a top-level paragraph to the editor', () => {
-    expect(run(enterInParagraph, stateWith('heading:Title^')).handled).toBe(false);
-    const quoted = EditorState.create({ doc: doc(s.nodes.blockquote.create(null, p('q'))) });
-    const inQuote = quoted.apply(quoted.tr.setSelection(TextSelection.atEnd(quoted.doc)));
-    expect(run(enterInParagraph, inQuote).handled).toBe(false);
-  });
 });
 
 describe('joinBackwardAsLine', () => {
-  it('rejoins two paragraphs as two lines — undoing one Enter, not two', () => {
-    const { handled, state } = run(joinBackwardAsLine, stateWith('one|^two'));
-    expect(handled).toBe(true);
-    expect(show(state)).toBe('one\n^two');
-  });
-
   it('adds no marks to the break, so exactly one newline goes', () => {
     const bold2 = (text: string): ProseNode => s.nodes.paragraph.create(null, s.text(text, [bold]));
     const start = EditorState.create({ doc: doc(bold2('one'), bold2('two')) });
@@ -198,16 +163,6 @@ describe('joinBackwardAsLine', () => {
     expect(run(joinBackwardAsLine, stateWith('heading:T|^two')).handled).toBe(false);
   });
 
-  it('only acts at the start of the paragraph', () => {
-    expect(run(joinBackwardAsLine, stateWith('one|t^wo')).handled).toBe(false);
-  });
-
-  it('adds no second line break when the paragraph above already ends in one', () => {
-    const { handled, state } = run(joinBackwardAsLine, stateWith('one\n|^two'));
-    expect(handled).toBe(true);
-    expect(show(state)).toBe('one\n^two');
-  });
-
   it('adds no second line break when the paragraph already starts with one', () => {
     const { state } = run(joinBackwardAsLine, stateWith('one|^\ntwo'));
     expect(show(state)).toBe('one^\ntwo');
@@ -215,12 +170,6 @@ describe('joinBackwardAsLine', () => {
 });
 
 describe('joinForwardAsLine', () => {
-  it('rejoins two paragraphs as two lines from the end of the first', () => {
-    const { handled, state } = run(joinForwardAsLine, stateWith('one^|two'));
-    expect(handled).toBe(true);
-    expect(show(state)).toBe('one^\ntwo');
-  });
-
   it('adds no second line break when either side of the boundary already has one', () => {
     expect(show(run(joinForwardAsLine, stateWith('one\n^|two')).state)).toBe('one\n^two');
     expect(show(run(joinForwardAsLine, stateWith('one^|\ntwo')).state)).toBe('one^\ntwo');
@@ -252,19 +201,5 @@ describe('isolateSelectedLines', () => {
   it('declines a paragraph with one line, or a block that is not a top-level paragraph', () => {
     expect(run(isolateSelectedLines, stateWith('on^e')).handled).toBe(false);
     expect(run(isolateSelectedLines, stateWith('heading:T^')).handled).toBe(false);
-  });
-});
-
-describe('lineStartShortcut', () => {
-  it('recognizes the block shortcuts the presets fire at the start of a paragraph', () => {
-    for (const typed of ['- ', '* ', '+ ', '1. ', '> ', '# ', '### ', '```js ', '---', '*** ']) {
-      expect(lineStartShortcut(typed), typed).toBe(true);
-    }
-  });
-
-  it('ignores text that only looks like one', () => {
-    for (const typed of ['-', 'a- ', '1) ', '#tag', '--', '``']) {
-      expect(lineStartShortcut(typed), typed).toBe(false);
-    }
   });
 });

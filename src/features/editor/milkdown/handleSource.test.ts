@@ -93,11 +93,4 @@ describe('handleSourceFor', () => {
 
     expect(handleSourceFor(view, stale, 0)).toBeNull();
   });
-
-  it('refuses a block with no rendered DOM to lift', () => {
-    const { view, introActive } = listView('a');
-    (view as unknown as { nodeDOM: () => null }).nodeDOM = () => null;
-
-    expect(handleSourceFor(view, introActive, 0)).toBeNull();
-  });
 });

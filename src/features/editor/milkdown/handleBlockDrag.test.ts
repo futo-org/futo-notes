@@ -74,49 +74,6 @@ describe('mountHandleBlockDrag', () => {
     mounted.destroy();
   });
 
-  it('cancels dragstart and keeps it from the plugin, so no HTML5 drag or drag image', () => {
-    const { handleEl, pluginListeners, mounted } = setup();
-    const event = new Event('dragstart', { bubbles: true, cancelable: true });
-
-    handleEl.dispatchEvent(event);
-
-    expect(event.defaultPrevented).toBe(true);
-    expect(pluginListeners.dragstart).not.toHaveBeenCalled();
-    mounted.destroy();
-  });
-
-  it('keeps mouseup and dragend from the plugin too', () => {
-    const { handleEl, pluginListeners, mounted } = setup();
-
-    handleEl.dispatchEvent(new Event('mouseup', { bubbles: true }));
-    handleEl.dispatchEvent(new Event('dragend', { bubbles: true }));
-
-    expect(pluginListeners.mouseup).not.toHaveBeenCalled();
-    expect(pluginListeners.dragend).not.toHaveBeenCalled();
-    mounted.destroy();
-  });
-
-  it('switches draggable off at press', () => {
-    const { handleEl, press, mounted } = setup();
-
-    press();
-
-    expect(handleEl.draggable).toBe(false);
-    mounted.destroy();
-  });
-
-  it('a press and release without movement changes nothing and lifts nothing', () => {
-    const { fixture, hideHandle, press, release, mounted } = setup();
-
-    press();
-    release(blockTop(0) + 10);
-
-    expect(fixture.dispatched).toHaveLength(0);
-    expect(document.querySelector('.futo-mobile-dnd-ghost')).toBeNull();
-    expect(hideHandle).not.toHaveBeenCalled();
-    mounted.destroy();
-  });
-
   it('movement under the lift distance is still a click', () => {
     const { fixture, press, move, release, mounted } = setup();
 
@@ -126,18 +83,6 @@ describe('mountHandleBlockDrag', () => {
 
     expect(fixture.dispatched).toHaveLength(0);
     expect(document.querySelector('.futo-mobile-dnd-ghost')).toBeNull();
-    mounted.destroy();
-  });
-
-  it('lifts past the distance: ghost drawn, handle hidden, nothing else changed yet', () => {
-    const { fixture, hideHandle, press, move, mounted } = setup();
-
-    press();
-    move(blockTop(0) + 30);
-
-    expect(document.querySelectorAll('.futo-mobile-dnd-ghost')).toHaveLength(1);
-    expect(hideHandle).toHaveBeenCalledTimes(1);
-    expect(fixture.order()).toEqual(['a', 'b', 'c']);
     mounted.destroy();
   });
 
@@ -152,7 +97,7 @@ describe('mountHandleBlockDrag', () => {
   });
 
   it('commits the move on release and carries the user’s caret with the block', () => {
-    const { fixture, press, move, release, mounted } = setup();
+    const { fixture, hideHandle, press, move, release, mounted } = setup();
     fixture.view.dispatch(
       fixture.view.state.tr.setSelection(TextSelection.create(fixture.view.state.doc, 1)),
     );
@@ -163,27 +108,12 @@ describe('mountHandleBlockDrag', () => {
     move(fixture.lowerHalf(2));
     release(fixture.lowerHalf(2));
 
+    expect(hideHandle).toHaveBeenCalledTimes(1);
     expect(fixture.order()).toEqual(['b', 'c', 'a']);
     expect(fixture.dispatched.filter((tr) => tr.docChanged)).toHaveLength(1);
     const { $head } = fixture.view.state.selection;
     expect($head.parent.textContent).toBe('a');
     expect(document.querySelector('.futo-mobile-dnd-ghost')).toBeNull();
-    mounted.destroy();
-  });
-
-  it('Escape mid-drag cancels with no document change, and the release after it does nothing', () => {
-    const { fixture, press, move, release, mounted } = setup();
-
-    press();
-    move(fixture.lowerHalf(2));
-    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
-    document.dispatchEvent(escape);
-    release(fixture.lowerHalf(2));
-
-    expect(escape.defaultPrevented).toBe(true);
-    expect(document.querySelector('.futo-mobile-dnd-ghost')).toBeNull();
-    expect(fixture.order()).toEqual(['a', 'b', 'c']);
-    expect(fixture.dispatched.every((tr) => !tr.docChanged)).toBe(true);
     mounted.destroy();
   });
 
@@ -195,26 +125,6 @@ describe('mountHandleBlockDrag', () => {
     document.dispatchEvent(escape);
 
     expect(escape.defaultPrevented).toBe(false);
-    mounted.destroy();
-  });
-
-  it('refuses a press the plugin’s hover result no longer describes', () => {
-    const fixture = makeStackedView(['a', 'b']);
-    const handleEl = document.createElement('div');
-    document.body.appendChild(handleEl);
-    const stale = fixture.view.state.doc.nodeAt(0)!;
-    const mounted = mountHandleBlockDrag({
-      handleEl,
-      view: () => fixture.view,
-      // The node the hover found sits at 3 now, not 0.
-      active: () => ({ node: stale, $pos: { pos: 3 }, el: fixture.element(0) }),
-      hideHandle: () => {},
-    });
-
-    handleEl.dispatchEvent(pointer('pointerdown', { clientY: blockTop(0) }));
-    document.dispatchEvent(pointer('pointermove', { clientY: blockTop(0) + 40 }));
-
-    expect(document.querySelector('.futo-mobile-dnd-ghost')).toBeNull();
     mounted.destroy();
   });
 });

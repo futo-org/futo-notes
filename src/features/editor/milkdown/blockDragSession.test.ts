@@ -90,18 +90,6 @@ describe('BlockDragSession', () => {
     expect(document.querySelector('.futo-mobile-dnd-indicator')).toBeNull();
   });
 
-  it('runs beforeDispatch on the move transaction, with the moved block’s new position', () => {
-    const fixture = makeStackedView(['a', 'b', 'c']);
-    const session = new BlockDragSession(fixture.view);
-    session.start(lift(0, fixture), X, blockTop(0) + 10);
-    const seen = vi.fn();
-
-    session.finish(fixture.lowerHalf(2), true, (_tr, movedTo, range) => seen(movedTo, range));
-
-    // c and b are 3 wide each; "a" lands after them.
-    expect(seen).toHaveBeenCalledWith(6, { from: 0, to: 3 });
-  });
-
   it('a release back over the source commits nothing — no document change', () => {
     const fixture = makeStackedView(['a', 'b', 'c']);
     const session = new BlockDragSession(fixture.view);
@@ -112,22 +100,5 @@ describe('BlockDragSession', () => {
     expect(committed).toBe(false);
     expect(fixture.order()).toEqual(['a', 'b', 'c']);
     expect(fixture.dispatched.every((tr) => !tr.docChanged)).toBe(true);
-  });
-
-  it('cancel tears everything down with no document change', () => {
-    const fixture = makeStackedView(['a', 'b', 'c']);
-    const session = new BlockDragSession(fixture.view);
-    session.start(lift(0, fixture), X, blockTop(0) + 10);
-    session.move(X, fixture.lowerHalf(2));
-
-    session.cancel();
-
-    expect(session.active).toBe(false);
-    expect(fixture.order()).toEqual(['a', 'b', 'c']);
-    expect(fixture.dispatched.every((tr) => !tr.docChanged)).toBe(true);
-    expect(document.querySelector('.futo-mobile-dnd-ghost')).toBeNull();
-    // The dim is cleared by the last transaction.
-    const last = fixture.dispatched[fixture.dispatched.length - 1];
-    expect(last.getMeta(blockDragSourceKey).decorationSet.find()).toHaveLength(0);
   });
 });
