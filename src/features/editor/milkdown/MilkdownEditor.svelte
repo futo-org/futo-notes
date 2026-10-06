@@ -16,12 +16,17 @@
    * loaded, so opening and closing a note can never rewrite it on disk.
    * `editor-embed-milkdown.spec.ts` locks that.
    *
-   * What lives elsewhere: the plugin set and every ctx setting, in mount
-   * order (`editorPlugins.ts`), block drag — the desktop ⠿ handle, the native
-   * shells' long-press drag and the one choice between them
-   * (`blockDrag.svelte.ts`, whose header lists the drag modules behind it),
-   * toolbar commands (`toolbarExec.ts`) and the native toolbar's active-state
-   * (`formatState.ts`).
+   * What lives elsewhere:
+   *   - the plugin set and every ctx setting, in mount order
+   *     (`editorPlugins.ts`);
+   *   - block drag: the desktop ⠿ handle, the native shells' long-press drag
+   *     and the one choice between them (`blockDrag.svelte.ts`, whose header
+   *     lists the drag modules behind it);
+   *   - the document this editor holds for the host
+   *     (`documentSession.svelte.ts`) and how it becomes the markdown the host
+   *     hears (`serializationLoop.ts`, whose `serialize` is the one door);
+   *   - toolbar commands (`toolbarExec.ts`) and the native toolbar's
+   *     active-state (`formatState.ts`).
    */
   import { onMount } from 'svelte';
 
@@ -86,7 +91,6 @@
     measureOpen,
     scheduleIdleSlice,
     startProgressiveLoad,
-    type ProgressiveLoad,
   } from './progressiveLoad';
   import {
     closeFind as closeFindIn,
@@ -97,8 +101,9 @@
     type FindBarState,
     type FindMatchReport,
   } from './find';
-  import { DOCUMENT_CHANGE_DEBOUNCE_MS, DOCUMENT_CHANGE_MAX_WAIT_MS } from './documentChanges';
-  import { createBlockSerializer, type BlockSerializer } from './blockSerializer';
+  import { createBlockSerializer } from './blockSerializer';
+  import { DocumentSession } from './documentSession.svelte';
+  import { createSerializationLoop } from './serializationLoop';
   import { WHOLE as CENSUS_WHOLE } from './chunkCensusHook';
   import { CHECKBOX_SIZE_PX } from './taskCheckbox';
   import { hideTableGrips } from './table/tableGrips';
@@ -184,6 +189,9 @@
   /* The props the editor's modules call back into, as getters: every call
    * reads the CURRENT prop, never the value at mount (src/AGENTS.md). */
   const liveProps = {
+    get onchange() {
+      return onchange;
+    },
     get nativeShell() {
       return nativeShell;
     },
@@ -252,74 +260,11 @@
   let container: HTMLDivElement;
   let editor: Editor | null = null;
 
-  /* The markdown the HOST last handed us, kept verbatim while the document is
-   * still exactly what it loaded, so an open/close cycle cannot rewrite a note
-   * on disk in Milkdown's normalized syntax. */
-  let hostMarkdown: string | null = null;
-  /* The ProseMirror document exactly as it stood after that load. The load echo
-   * is decided by comparing DOCUMENTS (`unchangedSinceLoad`), never by
-   * serializing: the change notification is debounced by 200ms, so a
-   * synchronous "we are applying host content" flag cannot suppress the echo,
-   * and the string comparison that used to stand here cost a whole-document
-   * serialization on every open and on every `getContent()` of an untouched
-   * note (185 ms at 1,000 lines on the low-end Android reference phone). */
-  let loadedDoc: ProseNode | null = null;
-  /* Milkdown's most recent serialization and the document it describes — a
-   * cache for `readSerialized()`, so a burst of `getContent()` calls against
-   * one document pays once. `liveMarkdown` must NOT start as `''`: an empty
-   * string is also a legitimate serialization, so a placeholder `''` made
-   * `setContent('')` — a brand-new note — look like content we already held
-   * and skip `applyExternal`. */
-  let liveDoc: ProseNode | null = null;
-  let liveMarkdown: string | null = null;
-  let pendingContent: string | null = null;
+  /* The document this editor holds for the host (documentSession.svelte.ts). */
+  const session = new DocumentSession();
+
   let onListLine: boolean | null = null;
   let inContainer: boolean | null = null;
-
-  /* The per-top-level-block serialization cache (blockSerializer.ts). One
-   * instance per editor, built once `serializerCtx`/`schemaCtx` exist. */
-  let blockSerializer: BlockSerializer | null = null;
-  /* The in-flight idle priming loop over `blockSerializer`, if any — see
-   * `startPriming`/`stopPriming`. */
-  let primeCancelIdle: (() => void) | null = null;
-
-  /* The in-flight progressive open, if this note was large enough to stream
-   * (progressiveLoad.ts). Null the rest of the time, which is every note in an
-   * ordinary vault. */
-  let progressive: ProgressiveLoad | null = null;
-  /* Drives the loading affordance over the streaming tail. `$state` because it
-   * is read by the template. */
-  let streamingTail = $state(false);
-  let unreported = false;
-  let currentNoteId: string | null = null;
-  let settlingForFlush = false;
-  let pendingLoadSource: 'load' | 'external' = 'load';
-  /* The pending debounced change notification (documentChanges.ts). */
-  let changeTimer: number | null = null;
-  /* When the first edit the pending notification holds was made: the anchor
-   * for `DOCUMENT_CHANGE_MAX_WAIT_MS`. */
-  let changePendingSince: number | null = null;
-  /* Whether the last load gave up on chunking mid-flight and reloaded the note
-   * whole. Reported by `censusLoad` so the equivalence census cannot score a
-   * fallback as proof that a chunked parse matched a whole one — it would be
-   * comparing a whole parse against a whole parse. */
-  let abortedToWholeDocument = false;
-
-  /* CRITICAL — the load THREW and this document is not the note.
-   *
-   * remark/micromark parse errors are real (a table cell that opens a wikilink
-   * token it cannot close was one, fixed in d402d0aa), and the failure mode is
-   * silent: `replaceAll` throws, the editor keeps its empty document, and the
-   * host sees a blank editable page over a note that has bytes. On 2026-09-03
-   * that blank document was then serialized back and written: a 8,635-byte note
-   * became 0 bytes on disk.
-   *
-   * While this is set the component reports the HOST's bytes rather than its
-   * own document, emits no change, and refuses edits — the same load-echo
-   * contract as an untouched note, extended to the case where the document is
-   * not the note at all. Cleared by the next load that succeeds.
-   * → docs/spec/editor.md "A note the editor cannot parse" */
-  let loadFailed = $state(false);
 
   /* prosemirror-history keeps its PluginKey module-private, so take it off a
    * throwaway instance of the very same plugin factory Milkdown's history
@@ -332,6 +277,23 @@
   }
 
   const pmView = (): ProseView | null => editorView(editor);
+
+  /* How the live document becomes the markdown the host hears (serializationLoop.ts). */
+  const serialization = createSerializationLoop(session, {
+    getEditor: () => editor,
+    pmView,
+    emitFormatState,
+    props: liveProps,
+  });
+  const {
+    readSerialized,
+    unchangedSinceLoad,
+    postChange,
+    startPriming,
+    stopPriming,
+    scheduleChangeNotification,
+    cancelChangeNotification,
+  } = serialization;
 
   /* The desktop ⠿ gutter handle (blockDrag.svelte.ts). */
   const blockDrag = createBlockDrag(pmView);
@@ -376,18 +338,13 @@
    * desktop), so the teardown removes exactly what the mount added. */
   let ownsImageUrlResolver = false;
 
-  // Async images and link editing belong to a loaded document, across ordinary edits.
-  let documentIdentity = 0;
-  // Page-monotonic bridge revision: advances on loads, adoptions and user transactions.
-  let documentGeneration = 0;
-
   /* The note every asynchronous image completion belongs to. ONE target for
    * all three doors — clipboard paste, the `/` menu's Image item, an OS drop —
    * so the rule is stated once rather than remembered at each of them. At
    * component scope because the `/` menu plugin is built earlier in the mount
    * than the paste handler and both need it. */
   const imageTarget = createImageInsertTarget({
-    documentToken: () => documentIdentity,
+    documentToken: () => session.documentIdentity,
     insert: (filename) => insertMarkdown(imageReferenceMarkdown(filename)),
     discard: deleteImage,
   });
@@ -428,7 +385,7 @@
      * appends, and there is no toolbar tap behind any of it — recomputing
      * would be per-chunk work on the load path for a highlight nobody asked
      * for. The completion path emits once, for the finished document. */
-    if (progressive?.loading) return;
+    if (session.progressive?.loading) return;
     const view = pmView();
     if (!view) return;
     const selection = selectionOverride ?? view.state.selection;
@@ -471,9 +428,9 @@
     // feeds content through setContent, and a top-level read is a Svelte 5
     // "captures only the initial value" warning.
     if (content) {
-      pendingContent = content;
-      hostMarkdown = content;
-      liveMarkdown = content;
+      session.pendingContent = content;
+      session.hostMarkdown = content;
+      session.liveMarkdown = content;
     }
     const visibility = (): void => {
       if (nativeShell && document.visibilityState === 'hidden') flush();
@@ -497,13 +454,13 @@
         useSlashMenu: () => useSlashMenu,
         useSelectionToolbar: () => useSelectionToolbar,
         getEditor: () => editor,
-        getPendingContent: () => pendingContent,
+        getPendingContent: () => session.pendingContent,
         getPasteHandler: () => pasteHandler,
         getDropHandler: () => dropHandler,
-        isLoadFailed: () => loadFailed,
-        getCurrentNoteId: () => currentNoteId,
-        getDocumentGeneration: () => documentGeneration,
-        getDocumentIdentity: () => documentIdentity,
+        isLoadFailed: () => session.loadFailed,
+        getCurrentNoteId: () => session.currentNoteId,
+        getDocumentGeneration: () => session.documentGeneration,
+        getDocumentIdentity: () => session.documentIdentity,
         imageTarget,
         pmView,
         flush,
@@ -523,21 +480,16 @@
       // One cache per editor instance, built as soon as the ctx slices it
       // reads (serializerCtx/schemaCtx) exist — both are set by Milkdown's
       // own internal plugins during `.create()`, so this is always safe here.
-      const schema = created.ctx.get(schemaCtx);
-      const serializeDoc = created.ctx.get(serializerCtx);
-      blockSerializer = createBlockSerializer({
-        serializeDoc: (doc) => serializeDoc(doc),
-        createDoc: (nodes) => schema.topNodeType.create(null, nodes),
-      });
+      serialization.attach(created);
       // Here, not after the chrome below and not after the first document is
       // parsed: the question this answers is "can this WebView run the editor
       // engine", and tying it to a parse would make a big note look like an
       // unsupported WebView on a slow phone (the host's boot grace is 10 s).
       onenginemounted?.();
-      if (pendingContent !== null) {
-        applyExternal(pendingContent);
+      if (session.pendingContent !== null) {
+        applyExternal(session.pendingContent);
       }
-      pendingContent = null;
+      session.pendingContent = null;
 
       pasteHandler = createImagePasteHandler({
         sink: resolveImagePasteSink(),
@@ -607,9 +559,9 @@
       disposed = true;
       // No document to belong to any more, so a pending image completion is
       // abandoned rather than inserted into a destroyed editor.
-      documentIdentity += 1;
-      documentGeneration += 1;
-      currentNoteId = null;
+      session.documentIdentity += 1;
+      session.documentGeneration += 1;
+      session.currentNoteId = null;
       document.removeEventListener('visibilitychange', visibility);
       window.removeEventListener('pagehide', flushOnPageHide);
       dismissLinkPrompt();
@@ -621,7 +573,7 @@
       // serialize a destroyed editor and report it as the note.
       cancelChangeNotification();
       stopPriming();
-      blockSerializer = null;
+      serialization.detach();
       stopFileDrop?.();
       stopFileDrop = null;
       dropHandler = null;
@@ -660,213 +612,22 @@
     refreshEditable();
   });
 
-  /**
-   * A transaction changed the document — report it once it settles.
-   *
-   * Restarted by every further change, so a burst of typing costs exactly one
-   * serialization (M5). Driven by documentChanges.ts, which explains why this
-   * is the component's own signal rather than `@milkdown/plugin-listener`'s
-   * `markdownUpdated`: that callback goes SILENT whenever the settled document
-   * matches its own baseline, and a note cleared inside the same window as its
-   * load matches the pristine empty document that baseline is still sitting on.
-   */
-  /**
-   * How long `reportDocumentChange` will serialize SYNCHRONOUSLY before
-   * falling back to the idle priming loop. One or a few changed units on any
-   * real note fit in this easily; a still-cold multi-thousand-block document
-   * does not, and THAT is the case the idle loop below exists for.
-   */
-  const SYNC_PRIME_BUDGET_MS = 8;
-
-  /**
-   * Runs `blockSerializer.prime()` in idle slices until `view.state.doc` is
-   * fully cached, then calls `onDone` (if the editor and document are still
-   * around — `pmView()`/`blockSerializer` can go null on a race with destroy
-   * or a fresh load elsewhere in this file, and there is nothing to prime
-   * against then).
-   *
-   * Safe to call while a priming loop is already running: it cancels that
-   * loop's SCHEDULING first, but the cache itself (a `WeakMap` inside
-   * `blockSerializer`) is untouched, so nothing already primed is redone —
-   * only the "who to call when done" is replaced. That is also what makes it
-   * safe to call from `reportDocumentChange` with no separate queue: the next
-   * idle slice always primes whatever `view.state.doc` is AT THAT MOMENT, so
-   * a doc that kept changing simply keeps the loop going instead of losing
-   * work.
-   */
-  function startPriming(onDone?: () => void): void {
-    stopPriming();
-    const step = (deadline: IdleDeadline | undefined): void => {
-      primeCancelIdle = null;
-      const view = pmView();
-      if (!view || !blockSerializer) return;
-      // A real deadline reports its own remaining time; the setTimeout
-      // fallback (no requestIdleCallback — Safari/WKWebView) gets a fixed
-      // ~6 ms slice budget instead, tracked from when this slice started.
-      const timeRemainingMs = deadline
-        ? (): number => deadline.timeRemaining()
-        : ((): (() => number) => {
-            const sliceStart = performance.now();
-            return (): number => 6 - (performance.now() - sliceStart);
-          })();
-      const done = blockSerializer.prime(view.state.doc, timeRemainingMs);
-      if (done) {
-        onDone?.();
-        return;
-      }
-      primeCancelIdle = scheduleIdleSlice(step);
-    };
-    primeCancelIdle = scheduleIdleSlice(step);
-  }
-
-  /** Cancels the in-flight priming loop, if any. Does not touch the cache. */
-  function stopPriming(): void {
-    primeCancelIdle?.();
-    primeCancelIdle = null;
-  }
-
   /** A user edit (documentChanges.ts): remember it, and report it once the document settles. */
   function documentEdited(): void {
-    documentGeneration += 1;
-    if (!unreported) {
-      unreported = true;
-      onedited?.(documentRef());
+    session.documentGeneration += 1;
+    if (!session.unreported) {
+      session.unreported = true;
+      onedited?.(session.documentRef());
     }
     scheduleChangeNotification();
   }
 
-  /* A trailing debounce, capped: an edit is reported once the document has sat
-   * still for DOCUMENT_CHANGE_DEBOUNCE_MS, or DOCUMENT_CHANGE_MAX_WAIT_MS after
-   * it was made, whichever is first (RC-26 — typing that never paused was never
-   * reported, so never saved). The same one timer either way. */
-  function scheduleChangeNotification(): void {
-    if (changeTimer !== null) window.clearTimeout(changeTimer);
-    const now = performance.now();
-    changePendingSince ??= now;
-    const delay = Math.min(
-      DOCUMENT_CHANGE_DEBOUNCE_MS,
-      Math.max(0, changePendingSince + DOCUMENT_CHANGE_MAX_WAIT_MS - now),
-    );
-    changeTimer = window.setTimeout(() => {
-      changeTimer = null;
-      changePendingSince = null;
-      reportDocumentChange();
-    }, delay);
-  }
-
-  function cancelChangeNotification(): void {
-    if (changeTimer !== null) window.clearTimeout(changeTimer);
-    changeTimer = null;
-    changePendingSince = null;
-  }
-
-  /** Hands the settled document to the host, unless it is not the host's to hear. */
-  function reportDocumentChange(): void {
-    emitFormatState();
-    /* SAVE LOCK (CRITICAL — progressiveLoad.ts): while the tail is streaming
-     * the document is a PREFIX of the note. Reporting it as a change is how a
-     * slow open truncates a file, and `liveMarkdown` must not take a prefix
-     * either — `setContent` dedupes against it. An edit made in this window is
-     * not lost: finishProgressiveLoad() releases it against the complete
-     * document. */
-    if (progressive?.loading) return;
-    /* A document we failed to load is not a source of user edits: the editable
-     * is off, and anything the engine still reports for it describes an empty
-     * document, not the note. */
-    if (loadFailed) return;
-
-    if (!unreported) return;
-    if (unchangedSinceLoad()) {
-      const loaded = hostMarkdown ?? readSerialized();
-      if (loaded !== null) postChange(loaded);
-      return;
-    }
-
-    // Most notes are already fully primed here (noteLoaded/finishProgressiveLoad
-    // warm the cache in the background), so this budget almost never does real
-    // work — it exists for the note that JUST loaded or streamed in and whose
-    // background priming hasn't caught up yet. A SMALL synchronous budget
-    // keeps that ordinary case on the same cadence as before this cache
-    // existed: one or a few changed units serialize well inside it. Only a
-    // document that is still cold at multi-thousand-block scale exceeds it,
-    // which is exactly the case the whole-document `getMarkdown()` cost this
-    // module replaces was unacceptable for
-    // (docs/plan/milkdown-transition.md "Gate run, real app, 2026-09-06").
-    const primingView = pmView();
-    if (primingView && blockSerializer && !blockSerializer.isPrimed(primingView.state.doc)) {
-      const budgetStart = performance.now();
-      const primed = blockSerializer.prime(
-        primingView.state.doc,
-        () => SYNC_PRIME_BUDGET_MS - (performance.now() - budgetStart),
-      );
-      if (!primed) {
-        // Still cold past the budget: finish priming in idle slices and let
-        // the NORMAL debounce fire again once the document settles, rather
-        // than reporting the moment priming happens to land (which could be
-        // mid-typing-burst). Any keystrokes that arrive meanwhile are one or
-        // two more cache misses, absorbed by the sync budget on that next
-        // pass.
-        startPriming(() => {
-          scheduleChangeNotification();
-        });
-        return;
-      }
-    }
-
-    // The LIVE document, never a snapshot of an earlier transaction: this is
-    // the answer the host would get from `getContent()` at this instant.
-    const markdown = readSerialized();
-    if (markdown === null) return;
-    // A genuine user edit: the host's copy is no longer authoritative.
-    loadedDoc = null;
-    hostMarkdown = null;
-    postChange(markdown);
-  }
-
-  /**
-   * Milkdown's serialization of the live document, cached against that
-   * document. Delegates to `blockSerializer` (blockSerializer.ts) rather than
-   * `getMarkdown()`: byte-identical output, but proportional to what changed
-   * since the last serialization instead of to the whole document.
-   */
-  function readSerialized(): string | null {
-    const view = pmView();
-    if (!editor || !view || !blockSerializer) return null;
-    const doc = view.state.doc;
-    if (liveDoc === doc && liveMarkdown !== null) return liveMarkdown;
-    try {
-      /* The one place the live document becomes text (`getContent`, the
-       * `change` report): a lone surrogate — a Backspace that split an emoji, a
-       * paste that carried half of one — is written as U+FFFD (RC-48, decision
-       * 16A). Unfixed it reached the Tauri IPC as a `\ud800` JSON escape and the
-       * save never settled. */
-      const markdown = toWellFormedText(blockSerializer.serialize(doc));
-      liveDoc = doc;
-      liveMarkdown = markdown;
-      return markdown;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Is the document still exactly what the host loaded? Identity first, so an
-   * untouched note answers in O(1); `Node.eq` covers a document rebuilt to the
-   * same content (an edit and its undo), and it compares unchanged children by
-   * identity too, so it stays cheap at any note size.
-   */
-  function unchangedSinceLoad(): boolean {
-    const view = pmView();
-    if (!view || loadedDoc === null) return false;
-    return view.state.doc === loadedDoc || view.state.doc.eq(loadedDoc);
-  }
-
   /** Record the live document as the host's note `text`, without serializing it. */
   function noteLoaded(text: string): void {
-    hostMarkdown = text;
-    loadedDoc = pmView()?.state.doc ?? null;
-    liveDoc = null;
-    liveMarkdown = null;
+    session.hostMarkdown = text;
+    session.loadedDoc = pmView()?.state.doc ?? null;
+    session.liveDoc = null;
+    session.liveMarkdown = null;
     // Warm the block cache in the background so the FIRST edit's debounce
     // never meets an unprimed document.
     startPriming();
@@ -1021,7 +782,7 @@
    * knocks on.
    */
   function editedSinceLoadStart(): boolean {
-    return unreported;
+    return session.unreported;
   }
 
   /**
@@ -1029,7 +790,7 @@
    * into the first viewport while the rest was still arriving.
    */
   function finishProgressiveLoad(): void {
-    streamingTail = false;
+    session.streamingTail = false;
     measureOpen(OPEN_COMPLETE_MEASURE);
     emitFormatState();
 
@@ -1037,23 +798,23 @@
      * reported right here; either way a second report would be a duplicate. */
     cancelChangeNotification();
     // Any cached serialization described a prefix of the note.
-    liveDoc = null;
-    liveMarkdown = null;
+    session.liveDoc = null;
+    session.liveMarkdown = null;
 
     if (!editedSinceLoadStart()) {
       // The finished document IS the host's note: the load echo now applies.
-      loadedDoc = pmView()?.state.doc ?? null;
+      session.loadedDoc = pmView()?.state.doc ?? null;
       // Warm the block cache now that the whole note has landed.
       startPriming();
       return;
     }
     // The host's bytes are no longer what the document says.
-    hostMarkdown = null;
-    loadedDoc = null;
+    session.hostMarkdown = null;
+    session.loadedDoc = null;
     // This fills every cache miss synchronously, so the document is already
     // fully primed by the time startPriming() below gets to run it.
     const complete = readSerialized();
-    if (complete !== null && !settlingForFlush) postChange(complete);
+    if (complete !== null && !session.settlingForFlush) postChange(complete);
     startPriming();
   }
 
@@ -1092,11 +853,11 @@
    * here. (A settled one clears it there, and this is then a no-op.)
    */
   function endPendingLoad(mode: 'settle' | 'discard'): void {
-    const load = progressive;
+    const load = session.progressive;
     if (mode === 'settle') load?.finishNow();
     else load?.cancel();
-    progressive = null;
-    streamingTail = false;
+    session.progressive = null;
+    session.streamingTail = false;
   }
 
   /**
@@ -1112,7 +873,7 @@
   function applyExternal(text: string, chunkOptions?: MarkdownChunkOptions): void {
     if (!editor) return;
     cancelChangeNotification();
-    unreported = false;
+    session.unreported = false;
     /* A Link URL prompt left floating from before this call holds THAT
      * document's positions; submitting it after would write into this one.
      * `openNote` is not the only door — the native shells switch notes
@@ -1122,7 +883,7 @@
     // A different note (or this one, re-parsed whole): nothing still queued is
     // worth parsing.
     endPendingLoad('discard');
-    abortedToWholeDocument = false;
+    session.abortedToWholeDocument = false;
     // A priming loop from the PREVIOUS document has nothing left to prime —
     // its cache entries key on that document's own node identities, which
     // this load is about to replace.
@@ -1133,8 +894,8 @@
     /* Only when it actually moves: `refreshEditable` re-runs ProseMirror's
      * whole state-update pass, which on a very large note is measurable
      * against the open budget, and an ordinary open never touches this. */
-    if (loadFailed) {
-      loadFailed = false;
+    if (session.loadFailed) {
+      session.loadFailed = false;
       refreshEditable();
     }
     markOpenStart();
@@ -1143,11 +904,11 @@
      * The host's text stays the answer to `getContent()`, the surface goes
      * read-only, and the failure is shown — never serialized back to disk. */
     const recordFailedLoad = (): void => {
-      hostMarkdown = text;
-      loadedDoc = null;
-      liveDoc = null;
-      liveMarkdown = null;
-      loadFailed = true;
+      session.hostMarkdown = text;
+      session.loadedDoc = null;
+      session.liveDoc = null;
+      session.liveMarkdown = null;
+      session.loadFailed = true;
       refreshEditable();
     };
 
@@ -1156,16 +917,16 @@
       if (!applyWholeDocument(text)) recordFailedLoad();
       measureOpen(OPEN_INTERACTIVE_MEASURE);
       measureOpen(OPEN_COMPLETE_MEASURE);
-      if (!loadFailed) ondocumentloaded?.(documentRef(), pendingLoadSource);
+      if (!session.loadFailed) ondocumentloaded?.(session.documentRef(), session.pendingLoadSource);
       return;
     }
 
-    hostMarkdown = text;
+    session.hostMarkdown = text;
     /* No complete document exists yet — it is still a prefix. The save lock,
      * not `loadedDoc`, is what protects the streaming window. */
-    loadedDoc = null;
-    liveDoc = null;
-    liveMarkdown = null;
+    session.loadedDoc = null;
+    session.liveDoc = null;
+    session.liveMarkdown = null;
 
     /* A chunk the editor would not take. Nothing about progressive open is
      * worth risking content for: throw the partial document away and load the
@@ -1176,7 +937,7 @@
      * appending a chunk that lost part of the note. */
     let index = 0;
     const abortToWholeDocument = (): void => {
-      abortedToWholeDocument = true;
+      session.abortedToWholeDocument = true;
       endPendingLoad('discard');
       if (!applyWholeDocument(text)) recordFailedLoad();
       measureOpen(OPEN_COMPLETE_MEASURE);
@@ -1185,7 +946,7 @@
     const load = startProgressiveLoad({
       chunks: plan.chunks,
       applyChunk: (markdown, leadingEmptyParagraphs) => {
-        if (abortedToWholeDocument) return;
+        if (session.abortedToWholeDocument) return;
         const applied =
           index === 0
             ? applyFirstChunk(markdown)
@@ -1195,7 +956,7 @@
       },
       scheduleIdle: scheduleIdleSlice,
       onComplete: () => {
-        if (abortedToWholeDocument) return;
+        if (session.abortedToWholeDocument) return;
         finishProgressiveLoad();
       },
     });
@@ -1203,18 +964,18 @@
     /* Chunk 0 is applied inside `startProgressiveLoad`, so an abort there ran
      * before `progressive` existed and could not cancel the load it is part of.
      * Everything else is already settled by `abortToWholeDocument`. */
-    if (abortedToWholeDocument) {
+    if (session.abortedToWholeDocument) {
       load.cancel();
       measureOpen(OPEN_INTERACTIVE_MEASURE);
       return;
     }
 
-    progressive = load;
-    streamingTail = load.loading;
+    session.progressive = load;
+    session.streamingTail = load.loading;
     // After chunk 0, which is not an edit (`loadParsedDocument`): whatever
     // the user does from here on is.
-    unreported = false;
-    ondocumentloaded?.(documentRef(), pendingLoadSource);
+    session.unreported = false;
+    ondocumentloaded?.(session.documentRef(), session.pendingLoadSource);
     measureOpen(OPEN_INTERACTIVE_MEASURE);
   }
 
@@ -1410,36 +1171,33 @@
   }
 
   export function getDocumentRef(): DocumentRef {
-    return documentRef();
-  }
-
-  function documentRef(): DocumentRef {
-    return { noteId: currentNoteId ?? '', generation: documentGeneration };
-  }
-
-  function postChange(text: string, token?: string): void {
-    unreported = false;
-    onchange?.(toWellFormedText(text), documentRef(), token);
+    return session.documentRef();
   }
 
   export function setContent(noteId: string, text: string): void {
     if (editor && holdsExactly(text)) {
-      if (currentNoteId === noteId) return;
-      if (unreported && nativeShell) flush();
-      currentNoteId = noteId;
-      documentGeneration += 1;
-      ondocumentloaded?.(documentRef(), 'load');
+      if (session.currentNoteId === noteId) return;
+      if (session.unreported && nativeShell) flush();
+      session.currentNoteId = noteId;
+      session.documentGeneration += 1;
+      ondocumentloaded?.(session.documentRef(), 'load');
       return;
     }
     // A streaming edited departure pays the remaining parse before changing identity.
-    if (currentNoteId !== null && currentNoteId !== noteId && unreported && nativeShell) flush();
-    documentIdentity += 1;
-    currentNoteId = noteId;
-    documentGeneration += 1;
-    pendingLoadSource = 'load';
+    if (
+      session.currentNoteId !== null &&
+      session.currentNoteId !== noteId &&
+      session.unreported &&
+      nativeShell
+    )
+      flush();
+    session.documentIdentity += 1;
+    session.currentNoteId = noteId;
+    session.documentGeneration += 1;
+    session.pendingLoadSource = 'load';
     if (!editor) {
-      pendingContent = text;
-      hostMarkdown = text;
+      session.pendingContent = text;
+      session.hostMarkdown = text;
       return;
     }
     applyExternal(text);
@@ -1453,9 +1211,9 @@
    * document with it dropped that keystroke and the undo history.
    */
   export function retarget(fromId: string, toId: string): void {
-    if (currentNoteId !== fromId || fromId === toId) return;
-    currentNoteId = toId;
-    documentGeneration += 1;
+    if (session.currentNoteId !== fromId || fromId === toId) return;
+    session.currentNoteId = toId;
+    session.documentGeneration += 1;
     flush();
   }
 
@@ -1464,16 +1222,20 @@
     text: string,
     expectedGeneration: number,
   ): void {
-    if (currentNoteId !== noteId || documentGeneration !== expectedGeneration || unreported) {
-      onexternalrefused?.(documentRef());
+    if (
+      session.currentNoteId !== noteId ||
+      session.documentGeneration !== expectedGeneration ||
+      session.unreported
+    ) {
+      onexternalrefused?.(session.documentRef());
       return;
     }
     const identical = holdsExactly(text);
-    documentGeneration += 1;
-    pendingLoadSource = 'external';
-    if (identical) ondocumentloaded?.(documentRef(), 'external');
+    session.documentGeneration += 1;
+    session.pendingLoadSource = 'external';
+    if (identical) ondocumentloaded?.(session.documentRef(), 'external');
     else {
-      documentIdentity += 1;
+      session.documentIdentity += 1;
       applyExternal(text);
     }
   }
@@ -1495,10 +1257,10 @@
    * can be compared against the complete host bytes without parsing the tail.
    */
   function holdsExactly(text: string): boolean {
-    if (loadFailed || progressive?.loading) {
-      return text === hostMarkdown && (loadFailed || !editedSinceLoadStart());
+    if (session.loadFailed || session.progressive?.loading) {
+      return text === session.hostMarkdown && (session.loadFailed || !editedSinceLoadStart());
     }
-    if (hostMarkdown !== null && unchangedSinceLoad()) return text === hostMarkdown;
+    if (session.hostMarkdown !== null && unchangedSinceLoad()) return text === session.hostMarkdown;
     /* Equal bytes are not an equal document: trailing empty paragraphs are not
      * written (RC-22), nor is an empty last line (paragraphLines.ts), so a
      * document the user stacked blank lines onto serializes like one without
@@ -1516,30 +1278,30 @@
 
   export function flush(token?: string): void {
     const fail = (reason: FlushFailureReason): void => {
-      if (token !== undefined) onflushfailed?.(documentRef(), token, reason);
+      if (token !== undefined) onflushfailed?.(session.documentRef(), token, reason);
     };
-    if (currentNoteId === null || !editor) {
+    if (session.currentNoteId === null || !editor) {
       fail('noDocument');
       return;
     }
-    if (loadFailed) {
+    if (session.loadFailed) {
       fail('loadFailed');
       return;
     }
     cancelChangeNotification();
     stopPriming();
     // Settling may itself report the complete document. The token still needs its answer.
-    if (progressive?.loading && unreported) {
-      settlingForFlush = true;
+    if (session.progressive?.loading && session.unreported) {
+      session.settlingForFlush = true;
       try {
         endPendingLoad('settle');
       } finally {
-        settlingForFlush = false;
+        session.settlingForFlush = false;
       }
     }
     const text =
-      hostMarkdown !== null && (progressive?.loading || unchangedSinceLoad())
-        ? hostMarkdown
+      session.hostMarkdown !== null && (session.progressive?.loading || unchangedSinceLoad())
+        ? session.hostMarkdown
         : readSerialized();
     if (text === null) {
       fail('serializer');
@@ -1575,8 +1337,8 @@
      * untouched new note in exactly that state, and the text typed into it is
      * real content the moment it exists, a full change-debounce before the
      * change notification catches up. */
-    if (loadFailed) return hostMarkdown ?? undefined;
-    if (hostMarkdown === null && loadedDoc === null && liveDoc === null) {
+    if (session.loadFailed) return session.hostMarkdown ?? undefined;
+    if (session.hostMarkdown === null && session.loadedDoc === null && session.liveDoc === null) {
       const untouched = readSerialized();
       if (untouched === null || untouched.trim() === '') return undefined;
       return untouched;
@@ -1586,10 +1348,10 @@
      * of exactly two ways content leaves the editor (the other is the `change`
      * message, locked in the listener above). Neither branch below can return
      * a prefix. */
-    if (progressive?.loading) {
+    if (session.progressive?.loading) {
       /* Untouched since the open: the host's own bytes ARE the whole note, and
        * they are exactly what is on disk. The correct answer, and free. */
-      if (!editedSinceLoadStart()) return hostMarkdown ?? '';
+      if (!editedSinceLoadStart()) return session.hostMarkdown ?? '';
       /* Edited: the only answer carrying both the edit and the tail costs the
        * rest of the parse. Pay it rather than hand back a prefix. */
       endPendingLoad('settle');
@@ -1598,13 +1360,13 @@
     // EXACTLY what it loaded; a keystroke inside the change debounce window
     // must not be reported as the unmodified note — and an untouched note
     // answers here without serializing anything.
-    if (hostMarkdown !== null && unchangedSinceLoad()) return hostMarkdown;
+    if (session.hostMarkdown !== null && unchangedSinceLoad()) return session.hostMarkdown;
     const live = readSerialized();
     /* CRITICAL — a document that cannot be serialized is not an empty one
      * (RC-17). After a chrome edit (`applyEdit`) nothing else describes it,
      * and `''` here was indistinguishable from the user clearing the note. No
      * answer is the honest one: every caller treats `undefined` as unsaveable. */
-    if (live === null) return hostMarkdown ?? liveMarkdown ?? undefined;
+    if (live === null) return session.hostMarkdown ?? session.liveMarkdown ?? undefined;
     return live;
   }
 
@@ -1667,7 +1429,7 @@
 
   export function insertMarkdown(text: string): void {
     // Chrome must not write into a document that is not the note (`loadFailed`).
-    if (!editor || loadFailed) return;
+    if (!editor || session.loadFailed) return;
     editor.action(insert(stripLeadingBoms(text)));
     pmView()?.focus();
   }
@@ -1706,7 +1468,7 @@
   export function applyEdit(text: string): void {
     // Same rule as `insertMarkdown`: the tag bar computed this from a document
     // the editor never managed to load, so it is not the note either.
-    if (!editor || loadFailed) return;
+    if (!editor || session.loadFailed) return;
     /* CRITICAL — the chunks a large note is still streaming would append onto
      * this replacement and leave the note holding its tail twice. Settled, not
      * discarded: this replace is one undoable step, so the document it leaves
@@ -1716,10 +1478,10 @@
     // The document is no longer the host's bytes — and this replace's own
     // debounced change notification is an echo of the report made right here,
     // not a second edit: `loadedDoc` is what says so.
-    hostMarkdown = null;
-    loadedDoc = pmView()?.state.doc ?? null;
-    liveDoc = null;
-    liveMarkdown = null;
+    session.hostMarkdown = null;
+    session.loadedDoc = pmView()?.state.doc ?? null;
+    session.liveDoc = null;
+    session.liveMarkdown = null;
     postChange(readSerialized() ?? text);
   }
 
@@ -1824,7 +1586,7 @@
       markdown: readSerialized(),
       chunked: plan.chunked,
       chunks: plan.chunks.length,
-      aborted: abortedToWholeDocument,
+      aborted: session.abortedToWholeDocument,
     };
   }
 
@@ -1975,7 +1737,7 @@
        positioned so it never enters the editor's layout, and rendered inside
        the container the same way the block-drag ghost is. `polite` rather than
        `assertive`: it is reassurance, not an interruption of typing. -->
-  {#if streamingTail}
+  {#if session.streamingTail}
     <div class="milkdown-stream-tail" role="status" aria-live="polite">
       <span class="milkdown-stream-tail-dot" aria-hidden="true"></span>
       {localizedText('editor.progressiveLoad.loadingRest')}
@@ -1987,7 +1749,7 @@
        before the save pipeline made it one (2026-09-03). The editable is
        read-only underneath (`editable` in editorViewOptionsCtx), and the file
        on disk is untouched. → docs/spec/editor.md -->
-  {#if loadFailed}
+  {#if session.loadFailed}
     <div class="milkdown-load-failed" role="alert">
       <strong>{localizedText('editor.loadFailed.heading')}</strong>
       {localizedText('editor.loadFailed.body')}

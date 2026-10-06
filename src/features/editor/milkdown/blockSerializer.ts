@@ -1,7 +1,7 @@
 /**
  * A per-top-level-block serialization cache for Milkdown's markdown output.
  *
- * The problem: `readSerialized()` in MilkdownEditor.svelte calls Milkdown's
+ * The problem: `readSerialized()` in serializationLoop.ts calls Milkdown's
  * `getMarkdown()` on the WHOLE document 200 ms after every settled edit
  * (documentChanges.ts). That is proportional to document size, not to the
  * edit, and at 12,500 top-level blocks it is ~10 s on the main thread on the

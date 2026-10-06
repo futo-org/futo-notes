@@ -49,7 +49,7 @@ export interface SelectionToolbarPlugin {
 
 /**
  * `documentToken` is WHICH note the editor is holding, as any value that
- * changes when it adopts a different one (MilkdownEditor.svelte's
+ * changes when it adopts a different one (documentSession.svelte.ts's
  * `documentGeneration`). The URL field is the one part of this bar that
  * outlives a single gesture: it stays open while the user types, and a
  * keyboard note switch moves no DOM focus and fires no pointerdown, so

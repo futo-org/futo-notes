@@ -262,7 +262,7 @@ about.
 
 - A note whose markdown makes the parser throw is shown READ-ONLY with a visible
   "This note could not be displayed" message, never as a blank editable page. →
-  src/features/editor/milkdown/MilkdownEditor.svelte `loadFailed`,
+  src/features/editor/milkdown/documentSession.svelte.ts `loadFailed`,
   src/features/editor/milkdown/MilkdownEditor.test.ts
 - For such a note the editor reports the HOST's original bytes as its content —
   the same load-echo contract as an unedited note (ADR-0002), extended to the
@@ -1659,7 +1659,7 @@ unchanged by it.
   abandoned drop leaves no blob nothing points at. Silent: there is no
   message, because the note the user is looking at is correct and untouched.
   _(desktop)_ → src/features/editor/imageInsertTarget.ts, imageInsert.ts,
-  imagePasteSink.ts, milkdown/MilkdownEditor.svelte `documentGeneration`,
+  imagePasteSink.ts, milkdown/documentSession.svelte.ts `documentGeneration`,
   milkdown/imageInsertIdentity.test.ts
 - A delayed native picker/clipboard completion belongs to the editor attachment
   generation that started it. Detaching, deleting, or adopting another note
@@ -1703,7 +1703,7 @@ unchanged by it.
   docs/evidence/milkdown-serialize-census.md). A document whose cache is still
   cold primes it in idle slices and reports the change once primed, instead of
   serializing the whole note on the main thread. → milkdown/blockSerializer.ts,
-  MilkdownEditor.svelte `readSerialized`
+  milkdown/serializationLoop.ts `readSerialized`
 - A note of 400 lines or more is opened PROGRESSIVELY: the first ~80 lines are
   parsed and mounted synchronously so the first viewport is interactive, and the
   rest stream in idle slices. Chunk boundaries are only ever taken where a chunk
@@ -1810,7 +1810,7 @@ unchanged by it.
   note is byte-identical to the pristine empty document every editor starts
   from, so any such comparison reads the user's deletion as "nothing changed"
   and drops it. → src/features/editor/milkdown/documentChanges.ts,
-  MilkdownEditor.svelte `reportDocumentChange`,
+  src/features/editor/milkdown/serializationLoop.ts `reportDocumentChange`,
   src/features/editor/milkdown/MilkdownEditor.test.ts,
   tests/note-never-emptied.spec.ts
 - A note that has content is never written back empty on the strength of an
