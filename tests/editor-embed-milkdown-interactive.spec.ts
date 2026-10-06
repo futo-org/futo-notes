@@ -1337,6 +1337,21 @@ test('Enter at the end of a line with a line below leaves one blank line between
   expect(await getContent(page)).toBe('one\n\ntwo\n');
 });
 
+test('two Enters at the end of a line with a line below leave an empty line: two blank lines', async ({
+  page,
+}) => {
+  // The second Enter splits the paragraph, so the line below starts with a
+  // line break (the empty line). The save writes it as an empty line, never
+  // as a character reference.
+  await open(page, 'one\ntwo');
+  await caretInText(page, 'one', 'one'.length);
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await settled(page);
+  expect(await paragraphLines(page)).toEqual(['one', '\ntwo']);
+  expect(await getContent(page)).toBe('one\n\n\ntwo\n');
+});
+
 test('Backspace under a line that ends in a newline takes back one newline', async ({ page }) => {
   await open(page, 'one\n\ntwo');
   await caretInText(page, 'one', 'one'.length);

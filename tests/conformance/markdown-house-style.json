@@ -1059,7 +1059,7 @@
     },
     {
       "story": 7,
-      "name": "a paragraph that starts with an empty line has an empty paragraph before it",
+      "name": "a paragraph that starts with an empty line has an empty paragraph before it: two Enters at the end of one in one\\ntwo save a blank line, never &#x20;",
       "doc": {
         "type": "doc",
         "content": [
