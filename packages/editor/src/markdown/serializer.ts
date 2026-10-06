@@ -35,13 +35,7 @@
  * `../milkdown-compat/ownedSerializer.ts` replaces. Both are handed the
  * editor's own `parserCtx` as `parse`.
  */
-import {
-  DEFAULT_MARKER,
-  alternateMarker,
-  listKind,
-  writeTopLevel,
-  type ListMarker,
-} from './blocks';
+import { listKind, listMarkers, writeTopLevel, type ListMarker } from './blocks';
 import { chooseSpelling, DEFAULT_CHECK_BUDGET, type CheckBudget, type Reader } from './choose';
 import { NODE, isEmptyParagraph, type NodeJson, type ParseMarkdown } from './docJson';
 import { canonical, normalizeBlock } from './normalize';
@@ -127,22 +121,14 @@ export function planDocument(
 ): ({ firstLine: boolean; listMarker: ListMarker | null } | null)[] {
   let started = false;
   let emptyBefore = 0;
-  let previous: { kind: string; marker: ListMarker } | null = null;
+  const markerFor = listMarkers();
   return summaries.map((summary) => {
     if (summary.empty) {
       emptyBefore += 1;
       return null;
     }
-    const kind = summary.listKind;
-    let listMarker: ListMarker | null = null;
-    if (kind) {
-      listMarker =
-        previous && previous.kind === kind
-          ? alternateMarker(previous.marker)
-          : DEFAULT_MARKER[kind];
-    }
+    const listMarker = markerFor(summary.listKind);
     const firstLine = !started && emptyBefore === 0;
-    previous = kind && listMarker ? { kind, marker: listMarker } : null;
     started = true;
     emptyBefore = 0;
     return { firstLine, listMarker };

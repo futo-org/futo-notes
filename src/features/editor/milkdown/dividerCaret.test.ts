@@ -256,7 +256,7 @@ describe('opening a note must never move a divider or its caret (regression)', (
     expect(handle.getContent()).toBe(NOTE_WITH_MID_DOCUMENT_DIVIDERS);
   });
 
-  it('the chunked/progressive path leaves the same note byte-identical', async () => {
+  it('the chunked/progressive path reads the same note: its save is the house style (both rules ---)', async () => {
     const handle = await mountEditorHandle('');
     // Tiny budgets force `markdownChunks.ts` to actually cut this short note
     // into several pieces — the production 400-line threshold never would.

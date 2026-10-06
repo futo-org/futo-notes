@@ -8,7 +8,15 @@
  *
  * The input is already normalized (`./normalize.ts` `normalizeBlock`).
  */
-import { NODE, UnknownNodeError, attr, isEmptyParagraph, textOf, type NodeJson } from './docJson';
+import {
+  NODE,
+  UnknownNodeError,
+  attr,
+  isEmptyParagraph,
+  isHtmlBlock,
+  textOf,
+  type NodeJson,
+} from './docJson';
 import { writeInline } from './inline';
 import { blankLines, prefixLines, type Line, type Sites } from './pieces';
 
@@ -23,11 +31,32 @@ export interface BlockPosition {
   readonly listMarker: ListMarker | null;
 }
 
-export const DEFAULT_MARKER = { bullet: '-', ordered: '.' } as const;
+const DEFAULT_MARKER = { bullet: '-', ordered: '.' } as const;
 
 /** The marker a list uses after a touching list of the same kind that used `previous`. */
-export function alternateMarker(previous: ListMarker): ListMarker {
+function alternateMarker(previous: ListMarker): ListMarker {
   return ({ '-': '*', '*': '-', '.': ')', ')': '.' } as const)[previous];
+}
+
+/**
+ * The markers of a run of written blocks: call it with each one's `listKind`,
+ * in order, leaving out empty paragraphs (which do not keep two lists apart).
+ * A list is `-`/`.` unless it follows a list of the same kind, whose marker it
+ * then alternates (`-` then `*`, `.` then `)`); null for a block that is not a
+ * list.
+ */
+export function listMarkers(): (kind: 'bullet' | 'ordered' | null) => ListMarker | null {
+  let previous: { kind: string; marker: ListMarker } | null = null;
+  return (kind) => {
+    if (kind === null) {
+      previous = null;
+      return null;
+    }
+    const marker =
+      previous?.kind === kind ? alternateMarker(previous.marker) : DEFAULT_MARKER[kind];
+    previous = { kind, marker };
+    return marker;
+  };
 }
 
 export function listKind(node: NodeJson): 'bullet' | 'ordered' | null {
@@ -117,15 +146,6 @@ function writeTable(node: NodeJson, sites: Sites, nested: boolean): Line[] {
   return [row(header), delimiter, ...rows.map(row)];
 }
 
-/** A paragraph that is one block of HTML (the preset wraps HTML blocks in one). */
-function isHtmlBlock(node: NodeJson): boolean {
-  return (
-    node.type === NODE.paragraph &&
-    node.content?.length === 1 &&
-    node.content[0]?.type === NODE.html
-  );
-}
-
 /**
  * The first lines of blocks that may be written LAZILY — without their list
  * item's indent. An HTML block that cannot interrupt a paragraph (`</grid>`)
@@ -186,20 +206,13 @@ function writeChildren(
   const lines: Line[] = [];
   let previous: NodeJson | null = null;
   let emptyBefore = 0;
-  let previousList: { kind: string; marker: ListMarker } | null = null;
+  const markerFor = listMarkers();
   for (const child of children) {
     if (isEmptyParagraph(child)) {
       emptyBefore += 1;
       continue;
     }
-    const kind = listKind(child);
-    let listMarker: ListMarker | null = null;
-    if (kind) {
-      listMarker =
-        previousList && previousList.kind === kind
-          ? alternateMarker(previousList.marker)
-          : DEFAULT_MARKER[kind];
-    }
+    const listMarker = markerFor(listKind(child));
     if (previous) {
       const blank =
         emptyBefore > 0
@@ -218,7 +231,6 @@ function writeChildren(
       lazyLines.add(written[0]);
     }
     lines.push(...written);
-    previousList = kind && listMarker ? { kind, marker: listMarker } : null;
     previous = child;
     emptyBefore = 0;
   }

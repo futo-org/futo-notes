@@ -32,7 +32,7 @@
  * (`tests/milkdown-census/detectors.mjs`), so a gate never trusts the code it
  * gates.
  */
-import { MARK, NODE, isEmptyParagraph, type MarkJson, type NodeJson } from './docJson';
+import { MARK, NODE, isEmptyParagraph, isHtmlBlock, type MarkJson, type NodeJson } from './docJson';
 
 /** The three places inline content lives, which differ in what a line break can be. */
 export type InlineKind = 'paragraph' | 'heading' | 'cell';
@@ -222,10 +222,6 @@ function splitAtEmptyLines(paragraph: NodeJson, content: NodeJson[]): NodeJson[]
 
 const CONTAINERS = new Set<string>([NODE.blockquote, NODE.listItem, NODE.footnoteDefinition]);
 
-/** A paragraph that is one block of HTML (the preset wraps HTML blocks in one). */
-const isHtmlBlock = (node: NodeJson): boolean =>
-  node.content?.length === 1 && node.content[0]?.type === NODE.html;
-
 /**
  * Whether a list item's blocks (trimmed, `trimContainer`) can only be written
  * with a blank line between two of them, which reads the item back loose: two
@@ -277,7 +273,15 @@ const SPELLING_ATTRS: Partial<Record<string, readonly string[]>> = {
   [NODE.tableCell]: ['colwidth', 'alignment'],
 };
 
-type Canon = Record<string, unknown>;
+/** A node as `canonical` writes it: what a parse check compares. */
+export interface CanonicalNode {
+  type: string;
+  attrs?: Record<string, unknown>;
+  /** `markKey`s, sorted. */
+  marks?: string[];
+  text?: string;
+  content?: CanonicalNode[];
+}
 
 function canonicalAttrs(type: string, attrs: Readonly<Record<string, unknown>> | undefined) {
   if (!attrs) return undefined;
@@ -297,8 +301,8 @@ function canonicalMarks(marks: readonly MarkJson[] | undefined): string[] | unde
   return marks.map(markKey).sort();
 }
 
-function canonicalNode(node: NodeJson): Canon {
-  const out: Canon = { type: node.type };
+function canonicalNode(node: NodeJson): CanonicalNode {
+  const out: CanonicalNode = { type: node.type };
   const attrs = canonicalAttrs(node.type, node.attrs);
   if (attrs) out.attrs = attrs;
   const marks = canonicalMarks(node.marks);

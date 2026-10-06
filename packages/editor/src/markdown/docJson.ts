@@ -74,6 +74,15 @@ export function isEmptyParagraph(node: NodeJson): boolean {
   return node.type === NODE.paragraph && (node.content?.length ?? 0) === 0;
 }
 
+/** A paragraph that is one block of HTML (the preset wraps HTML blocks in one). */
+export function isHtmlBlock(node: NodeJson): boolean {
+  return (
+    node.type === NODE.paragraph &&
+    node.content?.length === 1 &&
+    node.content[0]?.type === NODE.html
+  );
+}
+
 /** A node the serializer does not know. Thrown rather than skipped: skipping is content loss. */
 export class UnknownNodeError extends Error {
   constructor(readonly nodeType: string) {
