@@ -1,7 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { buildCensusPage } from './milkdown-census/build.mjs';
-import { houseDocument } from './milkdown-census/detectors.mjs';
 
 /**
  * Round-trip safety of the Milkdown compat plugins and the editor's own
@@ -27,6 +26,52 @@ import { houseDocument } from './milkdown-census/detectors.mjs';
  */
 
 let pageUrl: string;
+
+interface JsonNode {
+  type: string;
+  attrs?: Record<string, unknown>;
+  marks?: { type: string; attrs?: Record<string, unknown> }[];
+  text?: string;
+  content?: JsonNode[];
+}
+
+/**
+ * A document (`doc.toJSON()`) with the one thing the house style re-spells in
+ * the inline-mark tests below taken out: an emphasis or strong run's `marker`,
+ * which records whether the FILE wrote `*` or `_` (a save writes `*` and only
+ * falls back to `_` where two `*` runs would merge). Text runs that then carry
+ * the same marks are one run, as `_a_*b*` saved as `*ab*` reads back.
+ * Everything else — text, which marks, where they start and end, links,
+ * structure, every other attribute — must match exactly. Deliberately
+ * narrower than the census `houseDocument`, which also forgives
+ * normalizations (whitespace at a line end, empty paragraphs, CR, layout)
+ * these tests have no reason to.
+ */
+function withoutMarkers(doc: unknown): string {
+  const strip = (node: JsonNode): JsonNode => {
+    const out: JsonNode = { ...node };
+    if (node.marks) {
+      out.marks = node.marks.map((mark) => {
+        if (!mark.attrs || !('marker' in mark.attrs)) return mark;
+        const { marker: _marker, ...attrs } = mark.attrs;
+        return Object.keys(attrs).length > 0 ? { ...mark, attrs } : { type: mark.type };
+      });
+    }
+    if (node.content) {
+      const merged: JsonNode[] = [];
+      for (const child of node.content.map(strip)) {
+        const last = merged[merged.length - 1];
+        const sameMarks = JSON.stringify(last?.marks) === JSON.stringify(child.marks);
+        if (last?.type === 'text' && child.type === 'text' && sameMarks) {
+          merged[merged.length - 1] = { ...last, text: `${last.text ?? ''}${child.text ?? ''}` };
+        } else merged.push(child);
+      }
+      out.content = merged;
+    }
+    return out;
+  };
+  return JSON.stringify(strip(doc as JsonNode));
+}
 
 test.beforeAll(async () => {
   pageUrl = await buildCensusPage();
@@ -749,9 +794,9 @@ test.describe('an underscore emphasis next to a `*` run reopens as the same docu
       const first = await read(markdown);
       const second = await read(first.markdown);
       expect(second.markdown).toBe(first.markdown);
-      // A switched marker would leave literal `**` behind: compared the way the
-      // census `content_loss` gate compares (only spelling taken out).
-      expect(houseDocument(second.docJson), first.markdown).toBe(houseDocument(first.docJson));
+      // A switched marker would leave literal `**` behind: compared with only
+      // the `*`/`_` spelling taken out (`withoutMarkers`).
+      expect(withoutMarkers(second.docJson), first.markdown).toBe(withoutMarkers(first.docJson));
     });
   }
 });
@@ -902,9 +947,10 @@ test.describe('random mark runs inside every container never gain a reference (R
         expect(r.saved).not.toMatch(/NaN|undefined/);
         // parse(serialize(doc)) equals doc — at least whenever the unpatched
         // preset manages it, so the assertion is about what THIS layer adds.
-        // Compared the way the census `content_loss` gate compares: a mark's
-        // `*`/`_` marker is spelling, which the house style does not remember.
-        const [c1, c2, b1, b2] = r.docs.map(houseDocument);
+        // Compared with only a mark's `*`/`_` marker taken out
+        // (`withoutMarkers`): it is how the file spelled the run, which the
+        // house style does not remember. Nothing else is forgiven.
+        const [c1, c2, b1, b2] = r.docs.map(withoutMarkers);
         if (b1 === b2) {
           expect(
             c2,
