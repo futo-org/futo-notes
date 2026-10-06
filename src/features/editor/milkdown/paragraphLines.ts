@@ -233,15 +233,17 @@ export function onSelectedLines(command: Command): Command {
 }
 
 /*
- * The block shortcuts the commonmark preset's input rules fire when typed at
- * the start of a paragraph (`@milkdown/preset-commonmark` src/node: bullet-list
+ * The block shortcuts the presets' input rules fire when typed at the start of
+ * a paragraph (`@milkdown/preset-commonmark` src/node: bullet-list
  * `^\s*([-+*])\s$`, ordered-list `^\s*(\d+)\.\s$`, blockquote `^\s*>\s$`,
  * heading `^(?<hashes>#+)\s$`, code-block `^```(?<language>[a-z]*)?[\s\n]$`,
- * hr `^(?:---|___\s|\*\*\*\s)$`). Mirrored, not imported: the presets keep
- * their rules inside plugin instances. `@milkdown/kit` is pinned.
+ * hr `^(?:---|___\s|\*\*\*\s)$`; `@milkdown/preset-gfm` table
+ * `^\|(?<col>\d+)[xX](?<row>\d+)\|\s$`). Mirrored, not imported: the presets
+ * keep their rules inside plugin instances. `@milkdown/kit` is pinned, and
+ * paragraphLines.preset.test.ts fails when the presets stop agreeing.
  */
 const LINE_START_SHORTCUT =
-  /^(?:\s*[-+*]\s|\s*\d+\.\s|\s*>\s|#+\s|```[a-z]*[\s\n]|---|___\s|\*\*\*\s)$/;
+  /^(?:\s*[-+*]\s|\s*\d+\.\s|\s*>\s|#+\s|```[a-z]*[\s\n]|---|___\s|\*\*\*\s|\|\d+[xX]\d+\|\s)$/;
 
 /** Whether `typed` — a line's text so far plus the character just typed — is a block shortcut. */
 export function lineStartShortcut(typed: string): boolean {

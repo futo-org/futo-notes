@@ -192,10 +192,12 @@ about.
   down a row (Shift+Enter there is an in-cell line break). Shift+Enter in any of
   them does what Enter does.
 - A block shortcut typed at the start of a line — `- `, `1. `, `> `, `# `,
-  ` ``` `, `---` — starts that block from that line alone; the lines above stay
-  a paragraph. A block format from the toolbar or the `/` menu lands the same
-  way, on the lines the caret or selection touches, each becoming its own
-  block. → paragraphLines.ts `handleLineStartShortcut` / `isolateSelectedLines`
+  ` ``` `, `---`, `|2x3| ` (a table) — starts that block from that line alone;
+  the lines above stay a paragraph. A block format from the toolbar or the `/`
+  menu lands the same way, on the lines the caret or selection touches, each
+  becoming its own block. → paragraphLines.ts `handleLineStartShortcut` /
+  `isolateSelectedLines`, paragraphLines.preset.test.ts (the shortcut list
+  checked against the presets)
 - A paragraph is one block however many lines it has: the native shells'
   long-press drag moves it whole.
 - A newline at the very end of a note is not written (trailing whitespace is

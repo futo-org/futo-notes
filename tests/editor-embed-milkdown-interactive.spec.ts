@@ -1467,6 +1467,18 @@ test('"# " typed at the start of a line makes that line a heading', async ({ pag
   expect(await getContent(page)).toBe('one\ntwo\n\n# Next\n');
 });
 
+test('"|2x2| " typed at the start of a line makes a table from that line', async ({ page }) => {
+  await openAtEnd(page, 'one');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('|2x2| ');
+  await settled(page);
+  // The line above stays a paragraph of its own (the empty one after the
+  // table is the caret's landing place under a last-block table).
+  expect((await paragraphLines(page))[0]).toBe('one');
+  expect(await page.locator('.ProseMirror table').count()).toBe(1);
+  expect(await getContent(page)).toMatch(/^one\n\n\|/);
+});
+
 test('a block format from the toolbar lands on the caret line only', async ({ page }) => {
   await openAtEnd(page, 'one\ntwo\nthree');
   await withCaretObserved(page, () => page.keyboard.press('ArrowUp'));
