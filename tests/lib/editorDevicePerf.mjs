@@ -31,6 +31,8 @@
  *   though it never carried the `hard` policy's real-note-viewport shape.
  * - The keystroke budget applies to EVERY fixture: typing stays interactive at
  *   any size (AGENTS.md M5).
+ * - The SAVE — the serialization behind the change notification — has its own
+ *   policy, `evaluateSaveCost` at the bottom of this file.
  *
  * Plain node .mjs, not TS: the device runner (tests/android-editor-perf.mjs)
  * imports it directly, and the vitest suite locks it.
@@ -48,6 +50,14 @@ export const DEVICE_BUDGET = {
    * constant factor. Matches the desktop floor's factor.
    */
   openCliffFactor: 2.5,
+  /**
+   * A save against a primed cache writes the one edited block, and it runs on
+   * the main thread — mid-typing too, once the change notification's max wait
+   * fires — so it gets the frame a keystroke gets.
+   */
+  warmSaveP95Ms: 16,
+  /** The open's cliff factor, applied to the per-line cost of a whole-document (cold) save. */
+  saveCliffFactor: 2.5,
 };
 
 /** One content line, in the four shapes the desktop floor's fixture cycles. */
@@ -124,6 +134,14 @@ export function blockFixture(lines) {
     index += 1;
   }
   return out.slice(0, lines).join('\n');
+}
+
+/** The middle sample; the mean of the two middle ones for an even count. */
+export function median(samples) {
+  const sorted = [...samples].sort((left, right) => left - right);
+  if (sorted.length === 0) return Infinity;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
 /** p95 by the same rank rule the desktop floor uses (performanceFloor.ts). */
@@ -232,6 +250,87 @@ export function evaluateDeviceFloor(fixtures, results) {
         detail:
           `open completes at ${ratio.toFixed(1)}x the per-line cost of ` +
           `${fixture.openPolicy.reference}, past the ${DEVICE_BUDGET.openCliffFactor}x cliff factor`,
+      });
+    }
+  }
+
+  return violations;
+}
+
+/**
+ * Every SAVE budget the run missed, in fixture order. Empty means it held.
+ *
+ * A save is `getContent()` — the serialization the change notification and a
+ * host flush run — timed in two states (tests/lib/editorDevicePerfSnippets.mjs,
+ * `saveSnippet`):
+ *
+ * - WARM, every block already in the per-block cache: the one edited block is
+ *   written, so its p95 is held to `warmSaveP95Ms`, at every size.
+ * - COLD, nothing cached (right after an open): the whole document is written.
+ *   No absolute budget — the editor primes that cache in idle slices, and only a
+ *   flush can meet it cold — but a fixture with a `reference` must stay within
+ *   `saveCliffFactor` of the reference's per-line cost: whole-document
+ *   serialization scales linearly. Median, not p95: a garbage collection
+ *   landing in one sample is not a cliff.
+ *
+ * fixtures: { name, save?: { reference? } } — only fixtures with `save` are scored
+ * results:  { fixture, lines, coldMedianMs, warmP95Ms }
+ *           or { fixture, lines, error } when the measurement threw
+ */
+export function evaluateSaveCost(fixtures, results) {
+  const byName = new Map(results.map((result) => [result.fixture, result]));
+  const violations = [];
+
+  for (const fixture of fixtures) {
+    if (!fixture.save) continue;
+    const result = byName.get(fixture.name);
+    if (!result) {
+      violations.push({
+        fixture: fixture.name,
+        kind: 'missing-save-measurement',
+        detail: 'the fixture produced no save measurement',
+      });
+      continue;
+    }
+    if (result.error) {
+      violations.push({
+        fixture: fixture.name,
+        kind: 'save-failure',
+        detail: `the save could not be measured: ${result.error}`,
+      });
+      continue;
+    }
+
+    if (result.warmP95Ms >= DEVICE_BUDGET.warmSaveP95Ms) {
+      violations.push({
+        fixture: fixture.name,
+        kind: 'warm-save-budget',
+        detail:
+          `warm save p95 ${Math.round(result.warmP95Ms)}ms ` +
+          `is not under the ${DEVICE_BUDGET.warmSaveP95Ms}ms budget`,
+      });
+    }
+
+    if (!fixture.save.reference) continue;
+    const reference = byName.get(fixture.save.reference);
+    if (!reference || reference.error) {
+      violations.push({
+        fixture: fixture.name,
+        kind: 'missing-save-reference',
+        detail: `no ${fixture.save.reference} save measurement to compare against`,
+      });
+      continue;
+    }
+    const perLine = (measurement) =>
+      measurement.lines > 0 ? measurement.coldMedianMs / measurement.lines : Infinity;
+    const ratio = perLine(result) / perLine(reference);
+    if (ratio > DEVICE_BUDGET.saveCliffFactor) {
+      violations.push({
+        fixture: fixture.name,
+        kind: 'save-cliff',
+        detail:
+          `a cold save costs ${ratio.toFixed(1)}x the per-line cost of ` +
+          `${fixture.save.reference}, past the ${DEVICE_BUDGET.saveCliffFactor}x cliff factor`,
       });
     }
   }

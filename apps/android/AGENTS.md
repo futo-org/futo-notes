@@ -18,10 +18,10 @@ just test-android-perf         # editor perf budgets on the low-end reference ph
 
 `test-android-perf` is the DEVICE half of the editor performance floor (#106):
 it drives the editor WebView over CDP and enforces interactive-first-viewport
-<1s plus keystroke p95 <16ms on the phone the budgets are hardest on. It needs
-`$ANDROID_SERIAL` set to a physical low-end device — a fast emulator on a
-desktop CPU cannot fail the way the ticket cares about — and it is deliberately
-out of `check`/CI, which has no device.
+<1s plus keystroke and warm-save p95 <16ms on the phone the budgets are
+hardest on. It needs `$ANDROID_SERIAL` set to a physical low-end device — a
+fast emulator on a desktop CPU cannot fail the way the ticket cares about — and
+it is deliberately out of `check`/CI, which has no device.
 
 For app-only Kotlin iteration, `./gradlew :app:installDirectDebug` from here is
 enough **in a warm checkout**. In a FRESH worktree it is not, and the failures look

@@ -6,7 +6,9 @@ import {
   DEVICE_BUDGET,
   blockFixture,
   evaluateDeviceFloor,
+  evaluateSaveCost,
   lineFixture,
+  median,
 } from './editorDevicePerf.mjs';
 
 /**
@@ -230,5 +232,77 @@ describe('evaluateDeviceFloor', () => {
       const results = [result('10000-lines', 10_000, { firstFocusMs: 999_000 })];
       expect(evaluateDeviceFloor(linearHard, results)).toEqual([]);
     });
+  });
+});
+
+/**
+ * The save leg: `getContent()` — the serialization behind the change
+ * notification — warm (one block written against a primed cache, held to a
+ * frame) and cold (the whole document, held only to scaling linearly).
+ */
+describe('evaluateSaveCost', () => {
+  const saveFixtures = [
+    { name: '1000-lines-blocks', save: {} },
+    { name: '10000-lines-blocks', save: { reference: '1000-lines-blocks' } },
+    { name: '25000-lines', openPolicy: { kind: 'measured' } },
+  ];
+  const save = (name, lines, overrides = {}) => ({
+    fixture: name,
+    lines,
+    coldMedianMs: lines / 100,
+    warmP95Ms: 2,
+    ...overrides,
+  });
+  const cleanSaves = () => [save('1000-lines-blocks', 1_000), save('10000-lines-blocks', 10_000)];
+
+  it('passes a run where both save budgets hold, scoring only fixtures that measure a save', () => {
+    expect(evaluateSaveCost(saveFixtures, cleanSaves())).toEqual([]);
+  });
+
+  it('flags a warm save whose p95 does not fit a frame', () => {
+    const saves = cleanSaves();
+    saves[0] = save('1000-lines-blocks', 1_000, { warmP95Ms: DEVICE_BUDGET.warmSaveP95Ms });
+    expect(evaluateSaveCost(saveFixtures, saves)).toMatchObject([
+      { fixture: '1000-lines-blocks', kind: 'warm-save-budget' },
+    ]);
+  });
+
+  it('holds a cold save to no absolute budget, only to scaling linearly', () => {
+    const saves = [
+      save('1000-lines-blocks', 1_000, { coldMedianMs: 400 }),
+      save('10000-lines-blocks', 10_000, { coldMedianMs: 4_000 }),
+    ];
+    expect(evaluateSaveCost(saveFixtures, saves)).toEqual([]);
+  });
+
+  it('flags a cold save whose per-line cost is past the cliff factor of its reference', () => {
+    const saves = cleanSaves();
+    // The reference costs 0.01ms/line; 0.026ms/line is past the 2.5x factor.
+    saves[1] = save('10000-lines-blocks', 10_000, { coldMedianMs: 260 });
+    const violations = evaluateSaveCost(saveFixtures, saves);
+    expect(violations).toMatchObject([{ fixture: '10000-lines-blocks', kind: 'save-cliff' }]);
+    expect(violations[0].detail).toContain('2.6x');
+  });
+
+  it('reports a save fixture with no measurement instead of skipping it', () => {
+    expect(evaluateSaveCost(saveFixtures, cleanSaves().slice(0, 1))).toMatchObject([
+      { fixture: '10000-lines-blocks', kind: 'missing-save-measurement' },
+    ]);
+  });
+
+  it('reports a save that could not be measured, and the cliff check that needed it', () => {
+    const saves = cleanSaves();
+    saves[0] = { fixture: '1000-lines-blocks', lines: 1_000, error: 'never reported generation 3' };
+    expect(evaluateSaveCost(saveFixtures, saves)).toMatchObject([
+      { fixture: '1000-lines-blocks', kind: 'save-failure' },
+      { fixture: '10000-lines-blocks', kind: 'missing-save-reference' },
+    ]);
+  });
+});
+
+describe('median', () => {
+  it('takes the middle sample, or the mean of the two middle ones', () => {
+    expect(median([5, 1, 3])).toBe(3);
+    expect(median([4, 1, 3, 2])).toBe(2.5);
   });
 });
