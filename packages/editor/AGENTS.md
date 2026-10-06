@@ -127,9 +127,18 @@ so `getMarkdown()` and a copy's text/plain write the same bytes
 (`just chunk-census --serialize` holds the cache equal to it). Both are handed
 the editor's own `parserCtx`.
 
+- TypeScript only, with no Rust mirror, so M6 (Rust owns note rules) does not apply:
+  the serializer writes the editor's document, which only the editor holds, and
+  decides its escaping by parsing with the editor's own parser. No Rust, Swift or
+  Kotlin code reads or writes that document, so there is no second consumer to
+  keep in step and nothing for the TS↔Rust differential to compare
+  (`tests/conformance/title-rules-differential.mjs` lists the fixture in
+  `FIXTURES_OUTSIDE_THE_DIFFERENTIAL`; tests/conformance/README.md says the same).
 - Spec line first, then a golden in `tests/conformance/markdown-house-style.json`
   (hand-reviewed; never pasted from output), then the code. The goldens run against
   the shipping parser in `src/features/editor/milkdown/markdownHouseStyle.test.ts`.
+- A node or mark it has no spelling for throws `UnknownNodeError` rather than being
+  skipped: a new schema node needs its writer here in the same change.
 - No `@milkdown/*` or `prosemirror-*` import, ever: the parser is injected.
 - Escaping is decided by parsing the candidate output (`choose.ts`). A pattern may
   only decide WHEN to parse (the `plausible` sites, `obviouslyFlanks`), never what

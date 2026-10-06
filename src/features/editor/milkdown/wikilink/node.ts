@@ -5,8 +5,9 @@
  * Atomic because display and source deliberately differ — `[[Projects/Roadmap]]`
  * reads as "Roadmap" (docs/spec/editor.md), and a caret inside a shortened
  * rendering has no honest position in the source. The target survives in the
- * node's attrs and serializes back verbatim through `syntax.ts`, so the file on
- * disk keeps whatever the user (or another tool) wrote.
+ * node's attrs and the editor's serializer (`@futo-notes/editor/markdown`)
+ * writes it back verbatim, so the file on disk keeps whatever the user (or
+ * another tool) wrote.
  *
  * The rendered TEXT depends on the note universe, which the host replaces at
  * any time through `setNotes`. Re-rendering therefore must not touch the
