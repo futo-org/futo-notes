@@ -232,7 +232,9 @@ hand-reviewed goldens, one or more per line below)
   it: whitespace at the start of a line, an empty line inside a paragraph
   (`&#x20;` alone on it), and the letter or space beside formatting that would
   not otherwise open or close (`**Note:**&#x62;ar`). The formatting marker
-  itself never changes.
+  changes in one case only: an italic or bold run that starts exactly where
+  another `*` run ends is written with `_` if, and only if, a parse says the
+  two `*` runs would merge.
 - Whitespace at the end of a line is not written, and neither is a line break
   at the very end of a paragraph, heading or table cell: the parser drops both
   on every read, so writing them would only make the next save differ.
@@ -266,7 +268,15 @@ hand-reviewed goldens, one or more per line below)
   exactly as held, and the closing fence. A language that contains a backtick
   gets a `~~~` fence instead.
 - A blockquote prefixes each line with `> `, and a blank line inside it with
-  `>`.
+  `>`. Inside a quote, a list that touches another list or a quote is written
+  directly above it, with no blank `>` line: the parser reads a list followed
+  by a blank `>` line and then a list or a quote as loose.
+- Where the parser's reading of a list inside a quote or a tight item needs a
+  blank line the rules above would not write (a paragraph after a nested list
+  in a tight item, the end of a quote after a loose nested list), or an HTML
+  block that followed a tight item's paragraph on an unindented line, that
+  layout is written — decided by parsing, and only where it keeps the list as
+  tight or loose as it was.
 - A front matter block is `---`, its body exactly as read (with LF line
   endings), and `---`, followed by a blank line before the body.
 
@@ -296,13 +306,15 @@ hand-reviewed goldens, one or more per line below)
   another row.
 - The delimiter row is `---` for a column with no alignment, `:--` left, `:-:`
   center, `--:` right. A column the author never aligned stays unaligned.
-- A `|` inside a cell is written `\|`, in code and wikilinks too. A line break
-  inside a cell is `<br>`.
+- A `|` inside a cell is written `\|`, in code, wikilinks, and link and image
+  destinations and titles too. A line break inside a cell is `<br>`.
 
 ### Links, images and the constructs the editor does not model
 
-- A link is `[text](url)` or `[text](url "title")`; a destination with a space
-  or a parenthesis in it is written `<url>`. A link whose text is its own URL
+- A link is `[text](url)` or `[text](url "title")`; a destination with a
+  space, a backslash, a control character or unbalanced parentheses in it, or
+  one that starts with `<`, is written `<url>` (balanced parentheses stay bare:
+  `wiki/Foo_(bar)`). A link whose text is its own URL
   (`https://…`, `www.…`, an email address) is written bare whenever the bare
   text reads back as the same link, and otherwise as `<url>` (as
   `[www.…](http://www.…)` for a `www.` link, which has no `<…>` form).
@@ -312,7 +324,10 @@ hand-reviewed goldens, one or more per line below)
 - A footnote reference is `[^label]`; its definition is `[^label]: text`, with
   continuation lines indented four spaces.
 - Inline HTML, HTML blocks, front matter bodies and unused link reference
-  definitions are written back exactly as read.
+  definitions are written back exactly as read — except an HTML block's
+  indentation before its first tag, which is layout, not HTML (kept, it would
+  put the block in a different container once list indentation is the house
+  style's), and CR line endings, which are LF.
 
 ## Localization
 
