@@ -15,7 +15,13 @@
     },
     {
       "story": 2,
-      "name": "a rule on the first line is *** (--- would open front matter)",
+      "name": "a rule on the first line is *** (--- there would open front matter that the later rule closes)",
+      "source": "***\n\ntext\n\n***\n\nmore",
+      "expected": "***\n\ntext\n\n---\n\nmore\n"
+    },
+    {
+      "story": 16,
+      "name": "--- on line 1 closed by a later --- is front matter, blank lines in its body included",
       "source": "---\n\ntext\n\n---\n\nmore",
       "expected": "---\n\ntext\n\n---\n\nmore\n"
     },
