@@ -197,6 +197,29 @@ describe('MobileBlockDndView — focus arbitration (QA #001)', () => {
     dom.remove();
   });
 
+  it('hides the selection only where iOS WebKit needs it, and removes it with the arm class', () => {
+    for (const [ios, expected] of [
+      [true, true],
+      [false, false],
+    ] as const) {
+      vi.stubGlobal('navigator', ios ? {} : { userAgentData: {} });
+      const { view, dom, pointA } = makeView(/* hasFocus */ false);
+      const { options } = makeOptions();
+      const pluginView = new MobileBlockDndView(view, options);
+
+      dom.dispatchEvent(pointerEvent('pointerdown', { clientX: pointA.x, clientY: pointA.y }));
+      expect(dom.classList.contains('futo-mobile-dnd-armed')).toBe(true);
+      expect(dom.classList.contains('futo-mobile-dnd-hide-selection')).toBe(expected);
+
+      dom.dispatchEvent(pointerEvent('pointerup', { clientX: pointA.x, clientY: pointA.y }));
+      expect(dom.classList.contains('futo-mobile-dnd-hide-selection')).toBe(false);
+
+      pluginView.destroy();
+      dom.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('re-reads focus fresh on every gesture instead of caching the first answer', () => {
     const { view, dom, setFocused, pointA } = makeView(/* hasFocus */ true);
     const { options, onPressActive } = makeOptions();

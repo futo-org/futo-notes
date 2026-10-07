@@ -34,8 +34,11 @@
  *      1. Any live range is collapsed AT ARM — a hold that starts on top of an
  *         existing selection would otherwise simply keep it, with no
  *         `selectionchange` to react to.
- *      2. A transparent `::selection` while armed, so a range WebKit manages
- *         to establish anyway is never *rendered*.
+ *      2. A transparent `::selection` while armed (iOS WebKit ONLY —
+ *         HIDE_SELECTION_CLASS), so a range WebKit manages to establish
+ *         anyway is never *rendered*. Not applied under Chromium: the rule
+ *         restyles the whole note on every toggle (see its comment) and the
+ *         synchronous `selectstart` cancel in 3 already stops the selection.
  *      3. `selectstart` and `contextmenu` cancelled while armed (the callout
  *         menu rides the same gesture).
  *      4. `selectionchange` watched while armed: any range that appears is
@@ -214,6 +217,25 @@ const DEFAULT_MOVE_CANCEL_PX = 10;
  * not just the drag: iOS's selection gesture starts long before our lift. */
 const ARMED_CLASS = 'futo-mobile-dnd-armed';
 
+/** Paints any range WebKit establishes anyway as transparent. SEPARATE from
+ * ARMED_CLASS because its descendant `::selection` rule restyles the WHOLE note
+ * on every toggle — measured under Chromium (4x CPU throttle) at 21ms/65ms add
+ * and the same again on remove for 1,000/3,000 blocks (~0.8s/2.3s on a real
+ * Android phone), versus 0.5/1.4ms for the user-select declarations alone; no
+ * selector shape (child/tag/:where/sheet or media toggle/custom property) was
+ * cheaper there. Only added where the race it covers was actually measured
+ * (iOS WebKit, see `needsSelectionNet`). */
+const HIDE_SELECTION_CLASS = 'futo-mobile-dnd-hide-selection';
+
+/** iOS WKWebView is the only engine here that commits to a selection the page
+ * cannot cancel (module doc); Chromium's long-press selection is stopped by the
+ * synchronous `selectstart` cancel alone. Detected as "not Chromium"
+ * (`navigator.userAgentData` is Chromium-only) so an engine we cannot identify
+ * keeps the net rather than silently losing it. */
+function needsSelectionNet(): boolean {
+  return typeof navigator === 'undefined' || !('userAgentData' in navigator);
+}
+
 /** Injected once per page (not per editor instance/mount). The ghost, indicator
  * and source-dim styles are the shared session's (blockDragSession.ts). */
 let stylesInjected = false;
@@ -232,8 +254,8 @@ function ensureStyles(): void {
       user-select: none !important;
       -webkit-touch-callout: none !important;
     }
-    .${ARMED_CLASS} ::selection,
-    .${ARMED_CLASS}::selection {
+    .${HIDE_SELECTION_CLASS} ::selection,
+    .${HIDE_SELECTION_CLASS}::selection {
       background: transparent !important;
       color: inherit !important;
     }
@@ -371,7 +393,7 @@ export class MobileBlockDndView {
     const wasDragging = this.dragging;
     this.dragging = false;
     this.heldPastThreshold = false;
-    this.view.dom.classList.remove(ARMED_CLASS);
+    this.view.dom.classList.remove(ARMED_CLASS, HIDE_SELECTION_CLASS);
     // Paired with the lift's / the arm's `true`, from the ONE exit every
     // abandoned gesture goes through — a shell left suspended would swallow
     // text selection for the rest of the session. Drag first, then press, so
@@ -525,6 +547,7 @@ export class MobileBlockDndView {
     // ARM the suppression here, not at lift: iOS's selection long-press is
     // already running by the time our 340ms timer fires.
     this.view.dom.classList.add(ARMED_CLASS);
+    if (needsSelectionNet()) this.view.dom.classList.add(HIDE_SELECTION_CLASS);
     this.addGestureListeners();
     // A hold that STARTS on top of an existing selection produces no
     // `selectionchange`, so the watcher below would never see it.
