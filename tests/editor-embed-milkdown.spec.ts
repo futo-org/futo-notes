@@ -1520,16 +1520,23 @@ gutterHandleTest(
 );
 
 // The curtain hides the real blocks, so it must paint what the native shell
-// paints behind the (transparent) web view: iOS Theme.background, #FCFCFC /
-// #1A1A1A. It once fell through to white in dark mode.
-for (const [theme, expected] of [
-  ['dark', 'rgb(26, 26, 26)'],
-  ['light', 'rgb(252, 252, 252)'],
+// paints behind the (transparent) web view: iOS Theme.background (#FCFCFC /
+// #1A1A1A), Android FutoTheme.colors.surface (#FFFFFF / #1F1C19). It once fell
+// through to white in dark mode.
+for (const [host, theme, expected] of [
+  ['iOS', 'dark', 'rgb(26, 26, 26)'],
+  ['iOS', 'light', 'rgb(252, 252, 252)'],
+  ['Android', 'dark', 'rgb(31, 28, 25)'],
+  ['Android', 'light', 'rgb(255, 255, 255)'],
 ] as const) {
   gutterHandleTest(
-    `the reflow curtain paints the ${theme} editor surface over a transparent page`,
+    `the reflow curtain paints the ${host} ${theme} editor surface over a transparent page`,
     async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme });
+      // The fake host is Android's (`window.futoBridge`); iOS has no such tag.
+      if (host === 'iOS') {
+        await page.evaluate(() => document.documentElement.removeAttribute('data-platform'));
+      }
       await page.evaluate(
         (t) => (window as unknown as FakeHostWindow).FutoEditor.setTheme(t),
         theme,

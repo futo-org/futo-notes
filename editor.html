@@ -87,6 +87,13 @@
       }
     })();
   </script>
+  <!-- Host tag for the surface tokens below: the Android shell exposes
+       `window.futoBridge` (addJavascriptInterface, present before any page
+       script); iOS only has `window.webkit.messageHandlers.futoBridge`. Same
+       test packages/editor/src/bridge.ts uses to pick the sink. -->
+  <script>
+    if (window.futoBridge) document.documentElement.setAttribute('data-platform', 'android');
+  </script>
   <style>
     /* ------------------------------------------------------------------ *
      * Embedded editor layout for the native iOS/Android WebView hosts.
@@ -123,15 +130,22 @@
       background: transparent;
     }
 
-    /* What the hosts actually paint behind this page — iOS Theme.background
-     * (#FCFCFC / #1A1A1A). The transparent page above gives overlays that must
-     * hide the note (the block-drag curtain) nothing to read, so they take this
-     * token; keep it in step with Theme.swift. Longhand hex, Chromium-80 safe. */
+    /* What the hosts actually paint behind this page. The transparent page
+     * above gives overlays that must hide the note (the block-drag curtain)
+     * nothing to read, so they take this token. iOS: Theme.background
+     * (#FCFCFC / #1A1A1A, Theme.swift); Android: FutoTheme.colors.surface
+     * (#FFFFFF / #1F1C19, ui/theme/Color.kt). Keep in step with those. */
     html {
       --futo-editor-surface: #fcfcfc;
     }
     html[data-theme='dark'] {
       --futo-editor-surface: #1a1a1a;
+    }
+    html[data-platform='android'] {
+      --futo-editor-surface: #ffffff;
+    }
+    html[data-platform='android'][data-theme='dark'] {
+      --futo-editor-surface: #1f1c19;
     }
 
     /* Pin the body to the web view, unlayered (github#33).
