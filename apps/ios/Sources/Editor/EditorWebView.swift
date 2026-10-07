@@ -422,6 +422,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     private let editorFileURL: URL?
     let webView: WKWebView
+    #if DEBUG
+        private let benchProbe = BlockDragBenchProbe()
+    #endif
 
     private override init() {
         // Force the keyboard to appear when an EMPTY contenteditable is focused
@@ -465,6 +468,11 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         super.init()
 
         controller.add(self, name: "futoBridge")
+        #if DEBUG
+            if BlockDragBenchProbe.isEnabled {
+                controller.add(benchProbe, name: BlockDragBenchProbe.handlerName)
+            }
+        #endif
         wv.navigationDelegate = self
 
         loadEditor()
@@ -955,6 +963,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // The config landed and the note is on screen — the point where
             // this shell's per-note follow-up is meaningful.
             isReady = true
+            #if DEBUG
+                benchProbe.startIfNeeded(in: webView)
+            #endif
             // The desired state can have moved (a sync adopt, a theme flip)
             // between sending the config and this reply; each of these is
             // deduped and so a no-op when it hasn't.
