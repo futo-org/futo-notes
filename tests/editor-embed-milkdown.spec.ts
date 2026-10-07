@@ -1519,6 +1519,45 @@ gutterHandleTest(
   },
 );
 
+// The curtain hides the real blocks, so it must paint what the native shell
+// paints behind the (transparent) web view: iOS Theme.background, #FCFCFC /
+// #1A1A1A. It once fell through to white in dark mode.
+for (const [theme, expected] of [
+  ['dark', 'rgb(26, 26, 26)'],
+  ['light', 'rgb(252, 252, 252)'],
+] as const) {
+  gutterHandleTest(
+    `the reflow curtain paints the ${theme} editor surface over a transparent page`,
+    async ({ page }) => {
+      await page.emulateMedia({ colorScheme: theme });
+      await page.evaluate(
+        (t) => (window as unknown as FakeHostWindow).FutoEditor.setTheme(t),
+        theme,
+      );
+      await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+      expect(
+        await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor),
+      ).toBe('rgba(0, 0, 0, 0)');
+
+      const handle = await surfaceHandle(page, 'alpha');
+      const charlie = await blockBox(page, 'charlie');
+      const drag = await startHandleDrag(page, handle);
+      await drag.over(charlie.x, charlie.bottom - 3);
+      expect(await curtainUp(page)).toBe(true);
+      expect(
+        await page.evaluate(
+          () =>
+            getComputedStyle(document.querySelector('.futo-mobile-dnd-reflow-curtain') as Element)
+              .backgroundColor,
+        ),
+      ).toBe(expected);
+
+      await page.keyboard.press('Escape');
+      await page.mouse.up();
+    },
+  );
+}
+
 gutterHandleTest(
   'Escape mid-drag cancels the ⠿ handle drag with no transaction',
   async ({ page }) => {

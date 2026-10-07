@@ -675,13 +675,21 @@ function collapsedTopMargin(el: HTMLElement): number {
   }
 }
 
-/** The first opaque-ish background at or above `el`: what the editor's text
- * is drawn on, so the curtain hides the real blocks without a seam. */
+/** What the editor's text is drawn on, so the curtain hides the real blocks
+ * without a seam: the first opaque-ish background at or above `el`, else the
+ * embed's `--futo-editor-surface` (the native hosts paint their own colour
+ * behind a transparent page; editor.html), else the colour scheme's paper. */
 function backgroundBehind(el: HTMLElement): string {
   const win = el.ownerDocument.defaultView ?? window;
   for (let n: HTMLElement | null = el; n; n = n.parentElement) {
     const color = win.getComputedStyle(n).backgroundColor;
     if (color && color !== 'transparent' && !/rgba\(.*,\s*0\)$/.test(color)) return color;
   }
-  return '#fff';
+  const root = el.ownerDocument.documentElement;
+  const surface = win.getComputedStyle(root).getPropertyValue('--futo-editor-surface').trim();
+  if (surface) return surface;
+  const dark = root.dataset.theme
+    ? root.dataset.theme === 'dark'
+    : win.matchMedia?.('(prefers-color-scheme: dark)').matches;
+  return dark ? '#1a1a1a' : '#fcfcfc';
 }

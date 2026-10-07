@@ -123,6 +123,17 @@
       background: transparent;
     }
 
+    /* What the hosts actually paint behind this page — iOS Theme.background
+     * (#FCFCFC / #1A1A1A). The transparent page above gives overlays that must
+     * hide the note (the block-drag curtain) nothing to read, so they take this
+     * token; keep it in step with Theme.swift. Longhand hex, Chromium-80 safe. */
+    html {
+      --futo-editor-surface: #fcfcfc;
+    }
+    html[data-theme='dark'] {
+      --futo-editor-surface: #1a1a1a;
+    }
+
     /* Pin the body to the web view, unlayered (github#33).
      *
      * This is a deliberate copy of src/styles/base.css's `body { position:
