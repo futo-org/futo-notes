@@ -5,7 +5,7 @@
 //   node scripts/perf/block-drag-bench.mjs [variant ...] [--repeat 5]
 //       [--sizes 1000,3000] [--layout desktop|embed] [--no-cursor-layer]
 //       [--target editor|app] [--hide <css selector>] [--snapshot <dir>]
-//       [--device android|android-app] [--profile <dir>]
+//       [--device android|android-app|ios-app] [--profile <dir>] [--no-selection]
 //
 // `--device android` runs the same benchmarks on the phone in $ANDROID_SERIAL,
 // in its own Chrome (the same Chromium as its System WebView), inside the real
@@ -16,6 +16,11 @@
 // `--device android-app` is the gate: the REAL app, each variant built into
 // it and installed, driven with real touch input — block-drag-bench/app-device.mjs.
 // Put `current` last so the app is left on the working tree's bundle.
+// `--device ios-app` is the same gate on a physical iPhone, with real touches
+// from XCUITest (block-drag-bench/ios-app.mjs). It only has the working tree's
+// bundle (no per-variant install), so it takes `current` and `current:line`
+// only; any other variant is an error rather than a mislabelled run.
+// `--no-selection` skips its press-and-hold text-selection stories.
 //
 // `--target app` runs only the scroll-drag benchmark, inside the whole app
 // shell (the plain-web build, through the real ⠿ handle) instead of the bare
@@ -24,7 +29,12 @@
 //
 // A variant is `current` (the working tree's blockDragSession.ts), a path to
 // another copy of that file, and either one with a `:line` suffix to force the
-// drop-line mode (sets the page flag `window.__futoBlockDragReflow = 'off'`).
+// drop-line mode. For a file with the reflow switch (it uses `ReflowCurtain`)
+// that sets the page flag `window.__futoBlockDragReflow = 'off'`; for a
+// historical file with `const LIVE_REFLOW = true;` it flips the constant; a file
+// with neither is rejected (block-drag-bench/variant.mjs). Every run also
+// reports the preview it actually saw (drop line vs curtain) and the bench
+// fails when that is not the one the variant asked for.
 // Default: `current:line current`.
 //
 // Why it looks like this: the first version of this test drove the real
@@ -47,6 +57,8 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'no
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
+
+import { assertModes, forceLineMode } from './block-drag-bench/variant.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const sessionFile = path.join(root, 'src/features/editor/milkdown/blockDragSession.ts');
@@ -77,6 +89,7 @@ function parseArgs(argv) {
     snapshot: '',
     device: 'desktop',
     profile: '',
+    noSelection: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -88,15 +101,24 @@ function parseArgs(argv) {
     else if (arg === '--hide') opts.hide = argv[++i];
     else if (arg === '--snapshot') opts.snapshot = path.resolve(argv[++i]);
     else if (arg === '--device') opts.device = argv[++i];
+    else if (arg === '--no-selection') opts.noSelection = true;
     else if (arg === '--profile') opts.profile = path.resolve(argv[++i]);
     else if (arg.startsWith('--')) throw new Error(`unknown flag ${arg}`);
     else opts.variants.push(arg);
   }
   if (opts.variants.length === 0) opts.variants = ['current:line', 'current'];
-  if (!['desktop', 'android', 'android-app'].includes(opts.device))
+  if (!['desktop', 'android', 'android-app', 'ios-app'].includes(opts.device))
     throw new Error(`unknown device ${opts.device}`);
+  if (opts.device === 'ios-app') {
+    const bad = opts.variants.filter((v) => v !== 'current' && v !== 'current:line');
+    if (bad.length)
+      throw new Error(
+        `--device ios-app only runs the working tree's bundle: variants current and current:line, not ${bad.join(', ')}`,
+      );
+  }
   if (opts.device !== 'desktop') {
-    if (opts.target !== 'editor') throw new Error('--device android runs the editor target only');
+    if (opts.target !== 'editor')
+      throw new Error(`--device ${opts.device} runs the editor target only`);
     opts.layout = 'embed';
     opts.cursorLayer = false;
   }
@@ -130,11 +152,7 @@ function sessionVariantPlugin(variant) {
     load(id) {
       if (id.split('?')[0] !== sessionFile) return null;
       let code = readFileSync(variant.file, 'utf8');
-      // The reflow switch is a page flag, read when a drag starts
-      // (blockDragCurtain.ts `reflowForcedOff`), so a `:line` variant is the
-      // same file with the flag set ahead of it. A file from before the flag
-      // existed ignores it.
-      if (variant.line) code = `window.__futoBlockDragReflow = 'off';\n${code}`;
+      if (variant.line) code = forceLineMode(code, variant.file);
       return code;
     },
   };
@@ -364,7 +382,7 @@ function report(results, opts) {
   const benches =
     opts.target === 'app'
       ? ['scroll frame', '  of which JS', '  of which style+layout']
-      : opts.device === 'android-app'
+      : opts.device === 'android-app' || opts.device === 'ios-app'
         ? [
             'lift frame',
             'gap frame',
@@ -391,6 +409,7 @@ function report(results, opts) {
     desktop: 'WebKitGTK',
     android: 'Android Chrome (phone)',
     'android-app': 'REAL Android app (phone), long-press gesture',
+    'ios-app': 'REAL iOS app (iPhone), XCUITest long-press gesture',
   }[opts.device];
   console.log(
     `\n${engine}, ${opts.target === 'app' ? `whole app${opts.hide ? ` minus ${opts.hide}` : ''}` : `${opts.layout} layout`}, cursor layer ${opts.cursorLayer ? 'on' : 'off'}, ${opts.repeat} runs each; ms per operation, median (min–max)\n`,
@@ -443,12 +462,16 @@ for (const spec of opts.variants) {
     const app = await import('./block-drag-bench/app-device.mjs');
     await app.installVariant(variant, { root, sessionVariantPlugin });
     runs = await app.runInApp(opts, { root });
+  } else if (opts.device === 'ios-app') {
+    const ios = await import('./block-drag-bench/ios-app.mjs');
+    runs = await ios.runInIosApp(opts, { root, variant });
   } else {
     runs =
       opts.device === 'android'
         ? await runVariantOnPhone(variant, opts)
         : await runVariant(variant, opts);
   }
+  assertModes(variant, runs);
   results.push({ variant, runs });
   console.error(`${variant.label}: ${((performance.now() - t) / 1000).toFixed(1)}s`);
 }

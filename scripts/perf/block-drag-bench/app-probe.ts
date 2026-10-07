@@ -12,6 +12,8 @@
  * view is not reachable from the shell), so it pays the handle's hover wait —
  * once per drag, outside the timed frames.
  */
+import { previewMode } from './preview-mode';
+
 type AppPlan = {
   sizes: number[];
   repeat: number;
@@ -178,7 +180,7 @@ async function scrollDrag(
     await sleep(300); // past the 180ms slide and the card's 120ms pop
     await snapshot(snapshotPath);
   }
-  const mode = document.querySelector('.futo-mobile-dnd-indicator--visible') ? 'line' : 'reflow';
+  const mode = previewMode(pm);
   // Per frame: the pointer's JS, then a forced style + layout, then whatever
   // the frame still costs (paint and compositing).
   let jsMs = 0;
