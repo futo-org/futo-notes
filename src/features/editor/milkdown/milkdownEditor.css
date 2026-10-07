@@ -635,11 +635,15 @@
   background: color-mix(in srgb, var(--color-text, #0f0f0f) 12%, transparent);
 }
 
-/* While the ⠿ handle lifts a block (handleBlockDrag.ts): the HTML5 drag this
- * replaced drew the OS's own drag cursor, so the page supplies one. */
-html.futo-block-dragging,
-html.futo-block-dragging * {
-  cursor: grabbing !important;
+/* While the ⠿ handle lifts a block (handleBlockDrag.ts showCursorLayer): the
+ * HTML5 drag this replaced drew the OS's own drag cursor, so the page supplies
+ * one — on a layer over everything, never a root class that restyles the page.
+ * Transparent, so sitting above the ghost card and drop line hides nothing. */
+.futo-block-drag-cursor {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  cursor: grabbing;
 }
 
 /* Streaming-tail affordance. Pinned to the bottom of the editor rather than

@@ -590,6 +590,10 @@ hand-reviewed goldens, one or more per line below)
   src/features/editor/milkdown/handleBlockDrag.test.ts,
   src/features/editor/milkdown/blockDragSession.ts,
   tests/editor-embed-milkdown.spec.ts _(desktop)_
+- While the desktop ⠿ handle has a block lifted, the pointer is the grabbing
+  cursor everywhere in the window, and the mouse wheel still scrolls the note
+  under the pointer. → src/features/editor/milkdown/handleBlockDrag.ts
+  `showCursorLayer`, tests/editor-embed-milkdown.spec.ts _(desktop)_
 - A dragged block lands among its own kind. A top-level block sees only the
   gaps between top-level blocks: just below a blockquote is NOT "inside the
   blockquote", however the schema would read that position. A list item sees

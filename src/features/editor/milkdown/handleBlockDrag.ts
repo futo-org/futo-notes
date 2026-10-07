@@ -42,10 +42,50 @@ import { handleSourceFor, type ActiveHandleBlock, type HandleSource } from './ha
  * jitters a pixel or two must still be a click. */
 const LIFT_DISTANCE_PX = 4;
 
-/** Set on the root element for the length of a lift: the HTML5 drag this
- * replaced drew the OS's own drag cursor, and without one the pointer would be
- * an I-beam over the text it travels across. */
-const DRAGGING_CLASS = 'futo-block-dragging';
+/**
+ * A full-window layer that carries the grabbing cursor for the length of a
+ * lift: the HTML5 drag this replaced drew the OS's own drag cursor, and without
+ * one the pointer would be an I-beam over the text it travels across.
+ *
+ * NOT a class on the root element. That is what this was (`html.x *`, then
+ * `html.x` alone): `cursor` is inherited, so any change at the root restyles
+ * every element on the page — ~200ms on a 3,000-block note at the lift and
+ * again at the drop, in the drop-line mode too (`just bench-block-drag`). The
+ * layer is one fixed element. It does catch the wheel, so it hands each wheel
+ * event to the scroll container under the pointer: the wheel is the only way
+ * to reach an off-screen gap mid-drag.
+ */
+function showCursorLayer(doc: Document): () => void {
+  const layer = doc.createElement('div');
+  layer.className = 'futo-block-drag-cursor';
+  layer.setAttribute('aria-hidden', 'true');
+  layer.addEventListener(
+    'wheel',
+    (event) => {
+      const scroller = scrollerUnder(doc, layer, event.clientX, event.clientY);
+      if (!scroller) return;
+      // deltaMode 1 is lines, 2 is pages; WebKitGTK and Chromium send pixels.
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? scroller.clientHeight : 1;
+      scroller.scrollBy(event.deltaX * unit, event.deltaY * unit);
+    },
+    { passive: true },
+  );
+  doc.body.appendChild(layer);
+  return () => layer.remove();
+}
+
+/** The nearest scrollable ancestor of whatever is under the layer at (x, y). */
+function scrollerUnder(doc: Document, layer: Element, x: number, y: number): Element | null {
+  const below = doc.elementsFromPoint(x, y).find((el) => el !== layer);
+  const win = doc.defaultView ?? window;
+  for (let el = below ?? null; el; el = el.parentElement) {
+    const overflowY = win.getComputedStyle(el).overflowY;
+    if ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight) {
+      return el;
+    }
+  }
+  return doc.scrollingElement;
+}
 
 export interface HandleBlockDragHost {
   /** The element BlockProvider renders as the handle. */
@@ -76,6 +116,7 @@ export function mountHandleBlockDrag(host: HandleBlockDragHost): { destroy(): vo
   const doc = handleEl.ownerDocument;
   const sessions = new WeakMap<ProseView, BlockDragSession>();
   let press: Press | null = null;
+  let removeCursorLayer: (() => void) | null = null;
 
   function sessionFor(view: ProseView): BlockDragSession {
     let session = sessions.get(view);
@@ -107,7 +148,8 @@ export function mountHandleBlockDrag(host: HandleBlockDragHost): { destroy(): vo
     const ended = press;
     press = null;
     removeGestureListeners();
-    doc.documentElement.classList.remove(DRAGGING_CLASS);
+    removeCursorLayer?.();
+    removeCursorLayer = null;
     return ended;
   }
 
@@ -150,7 +192,7 @@ export function mountHandleBlockDrag(host: HandleBlockDragHost): { destroy(): vo
       if (distance < LIFT_DISTANCE_PX) return;
       press.lifted = true;
       host.hideHandle();
-      doc.documentElement.classList.add(DRAGGING_CLASS);
+      removeCursorLayer = showCursorLayer(doc);
       const { from, to, dom } = press.source;
       sessionFor(press.view).start(
         { from, to, dom, clone: press.clone },

@@ -1514,6 +1514,48 @@ gutterHandleTest(
   },
 );
 
+/* The grabbing cursor is a full-window layer (handleBlockDrag.ts
+ * showCursorLayer), not a class on the root element: `cursor` is inherited, so
+ * a root class restyled every element at the lift and again at the drop
+ * (~200ms each on a 3,000-block note). The layer catches the wheel, so it hands
+ * each wheel event to the scroller under the pointer — mid-drag, the wheel is
+ * how a desktop user reaches a gap that is off screen. */
+gutterHandleTest(
+  'mid-drag, the wheel still scrolls the note through the ⠿ cursor layer',
+  async ({ page }) => {
+    await hostSetContent(page, Array.from({ length: 80 }, (_, i) => `paragraph ${i}`).join('\n\n'));
+    const handle = await surfaceHandle(page, 'paragraph 0');
+    const drag = await startHandleDrag(page, handle);
+    await drag.over(handle.x + 200, handle.y + 120);
+    await expect(page.locator('.futo-block-drag-cursor')).toHaveCount(1);
+
+    const scrollTop = () =>
+      page.evaluate(() => {
+        for (
+          let el: HTMLElement | null = document.querySelector('.ProseMirror');
+          el;
+          el = el.parentElement
+        ) {
+          const overflowY = getComputedStyle(el).overflowY;
+          if (
+            (overflowY === 'auto' || overflowY === 'scroll') &&
+            el.scrollHeight > el.clientHeight
+          ) {
+            return el.scrollTop;
+          }
+        }
+        return document.scrollingElement?.scrollTop ?? 0;
+      });
+    const before = await scrollTop();
+    await page.mouse.wheel(0, 400);
+    await expect.poll(scrollTop).toBeGreaterThan(before + 100);
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.futo-block-drag-cursor')).toHaveCount(0);
+    await page.mouse.up();
+  },
+);
+
 /* The DESKTOP half of "one boundary, one place to drop it".
  *
  * The indicator used to be @milkdown/kit/plugin/cursor's, which wraps
