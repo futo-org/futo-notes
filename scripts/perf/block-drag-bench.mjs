@@ -23,8 +23,9 @@
 // part of the shell for that run, to bisect what costs the frames.
 //
 // A variant is `current` (the working tree's blockDragSession.ts), a path to
-// another copy of that file, and either one with a `:line` suffix to force
-// `LIVE_REFLOW = false` (the drop-line mode). Default: `current:line current`.
+// another copy of that file, and either one with a `:line` suffix to force the
+// drop-line mode (sets the page flag `window.__futoBlockDragReflow = 'off'`).
+// Default: `current:line current`.
 //
 // Why it looks like this: the first version of this test drove the real
 // desktop app over its debug bridge — fixed sleeps to open a note and wait for
@@ -129,15 +130,11 @@ function sessionVariantPlugin(variant) {
     load(id) {
       if (id.split('?')[0] !== sessionFile) return null;
       let code = readFileSync(variant.file, 'utf8');
-      if (variant.line) {
-        const switched = code.replace(/^const LIVE_REFLOW = true;$/m, 'const LIVE_REFLOW = false;');
-        if (!/^const LIVE_REFLOW = false;$/m.test(switched)) {
-          throw new Error(
-            `${variant.file}: no \`const LIVE_REFLOW = true|false;\` line to switch off`,
-          );
-        }
-        code = switched;
-      }
+      // The reflow switch is a page flag, read when a drag starts
+      // (blockDragCurtain.ts `reflowForcedOff`), so a `:line` variant is the
+      // same file with the flag set ahead of it. A file from before the flag
+      // existed ignores it.
+      if (variant.line) code = `window.__futoBlockDragReflow = 'off';\n${code}`;
       return code;
     },
   };
