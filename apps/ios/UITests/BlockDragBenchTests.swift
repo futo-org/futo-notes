@@ -11,6 +11,9 @@ import XCTest
 /// element goes away when the finger lifts. Coordinates are page CSS px, which
 /// are WebView points.
 ///
+/// The test fails (rather than returns) if the probe's `done` never arrives
+/// inside its 900 s deadline; `ios-app.mjs` also checks the probe's own records.
+///
 /// The probe script is `BlockDragBenchProbe.js`, generated into this directory
 /// (gitignored) by the runner; without it this test skips. It reaches the app
 /// through `FUTO_BLOCK_DRAG_BENCH_JS` (BlockDragBenchProbe.swift, DEBUG only).
@@ -78,7 +81,7 @@ final class BlockDragBenchTests: XCTestCase {
             case "tap":
                 at(x, y).tap()
             case "done":
-                return
+                return  // the one clean exit
             default:
                 break
             }
@@ -87,5 +90,8 @@ final class BlockDragBenchTests: XCTestCase {
             let gone = NSPredicate(format: "exists == false")
             wait(for: [expectation(for: gone, evaluatedWith: command)], timeout: 20)
         }
+        // Only `done` ends the test cleanly. Running out the clock means the probe
+        // stalled or died: fail, so the runner never mistakes it for a finished run.
+        XCTFail("block-drag bench never reached its 'done' command within 900 s")
     }
 }

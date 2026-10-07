@@ -234,9 +234,13 @@ async function runOnce(cdp, blocks) {
     await sleep(GAP_MOVE_MS);
   }
   const g1 = await cdp.evaluate('performance.now()');
-  const mode = await cdp.evaluate(
-    `document.querySelector('.futo-mobile-dnd-indicator--visible') ? 'line' : 'reflow'`,
-  );
+  // The preview actually on screen (see preview-mode.ts, which this mirrors).
+  const mode = await cdp.evaluate(`(() => {
+    const line = document.querySelector('.futo-mobile-dnd-indicator--visible') !== null;
+    const reflow = document.querySelector('.futo-mobile-dnd-reflow-clip') !== null ||
+      Array.from(window.__futoProseMirrorView().dom.children).some((el) => el.style.transform);
+    return line && !reflow ? 'line' : reflow && !line ? 'reflow' : 'unknown';
+  })()`);
   await touch('touchMove', geo.x, geo.edgeY);
   await sleep(150);
   const s0 = await cdp.evaluate(

@@ -6,15 +6,20 @@
  * `BENCH:<verb>:x:y:x2:y2:arg[:name]` the test reads off the accessibility
  * tree, records every frame and touch while the finger does it, and posts
  * metrics shaped like app-device.mjs's (lift / gap / scroll / drop frame).
- * Results go out through webkit.messageHandlers.futoBench, one JSON line each. */
+ * Results go out through webkit.messageHandlers.futoBench, one JSON line each.
+ * A run is only good if it ends in `finished` with no `error` record (ios-app.mjs
+ * `validateRecords` enforces that); on a failure the probe still sends the test
+ * its `done` command so the test ends instead of waiting out its deadline. */
 (async () => {
   const post = (o) => window.webkit.messageHandlers.futoBench.postMessage(JSON.stringify(o));
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const raf = () => new Promise((r) => requestAnimationFrame(r));
+  if (CONFIG.line) window.__futoBlockDragReflow = 'off';
   try {
     await run();
   } catch (e) {
     post({ kind: 'error', message: String((e && e.stack) || e) });
+    command('done', 0, 0, 0, 0, 0);
   }
 
   async function waitFor(what, fn, ms = 60000) {
@@ -42,6 +47,31 @@
       passive: true,
     });
   }
+  // The preview on screen mid-drag, sampled from the touchmoves of the lift
+  // story (a few DOM queries, not one per move). Mirrors preview-mode.ts.
+  let modeSamples = null;
+  let moveCount = 0;
+  function previewMode() {
+    const line = document.querySelector('.futo-mobile-dnd-indicator--visible') !== null;
+    const reflow =
+      document.querySelector('.futo-mobile-dnd-reflow-clip') !== null ||
+      (!line &&
+        Array.from(window.__futoProseMirrorView().dom.children).some((el) => el.style.transform));
+    return line && !reflow ? 'line' : reflow && !line ? 'reflow' : 'unknown';
+  }
+  window.addEventListener(
+    'touchmove',
+    () => {
+      if (!modeSamples) return;
+      moveCount += 1;
+      if (moveCount % 20 === 5 && document.querySelector('.futo-mobile-dnd-ghost')) {
+        // An early move can land before the first preview is drawn: skip it.
+        const m = previewMode();
+        if (m !== 'unknown') modeSamples.push(m);
+      }
+    },
+    { capture: true, passive: true },
+  );
   let scrollTarget = null;
   const onScroll = () => events.push({ t: performance.now(), type: 'scroll' });
   const mo = new MutationObserver(() => {
@@ -126,8 +156,9 @@
         await one(blocks, rep);
       }
     }
-    command('done', 0, 0, 0, 0, 0);
+    // `finished` first: the test ends the app as soon as it reads `done`.
     post({ kind: 'finished' });
+    command('done', 0, 0, 0, 0, 0);
   }
 
   async function load(blocks) {
@@ -211,7 +242,17 @@
     {
       view.dom.scrollTop = 0;
       await raf();
+      modeSamples = [];
+      moveCount = 0;
       const tEnd = await runCommand(['lift', g.x, g.liftY, g.x, g.yB, 700], 4000);
+      const seen = [...new Set(modeSamples)];
+      modeSamples = null;
+      const mode = seen.length === 1 ? seen[0] : 'unknown';
+      const expected = CONFIG.line ? 'line' : 'reflow';
+      if (mode !== expected)
+        throw new Error(
+          `asked for the ${expected} preview, page showed: ${seen.join(', ') || 'none'}`,
+        );
       const tStart = ev('touchstart');
       const ghost = ev('ghost');
       const moves = events.filter((e) => e.type === 'touchmove' && e.t > (ghost ?? 1e12));
@@ -222,12 +263,13 @@
         liftedAfterMs: ghost && tStart ? ghost - tStart : null,
         liftFrame: ghost && tStart ? max(between(tStart + 300, ghost + 300)) : null,
         dragFrames: stats(dragFrames),
+        dragSamples: dragFrames,
         dropFrame: max(between(tEnd, tEnd + 3900)),
         moves: moves.length,
+        mode,
         leftover:
           document.querySelectorAll('.futo-mobile-dnd-ghost, .futo-mobile-dnd-reflow-clip').length +
           Array.from(view.dom.children).filter((el) => el.style.transform).length,
-        reflow: !document.querySelector('.futo-mobile-dnd-indicator--visible'),
       });
     }
 
@@ -249,6 +291,7 @@
         ...base,
         scrolledPx: Math.round(view.dom.scrollTop - sc0),
         scrollFrames: stats(scrollFrames),
+        scrollSamples: scrollFrames,
         dropFrame: max(between(tEnd, tEnd + 3900)),
         before,
       });
@@ -270,14 +313,22 @@
     }
 
     // Selection race, once per size 1000 only (state-independent).
-    if (blocks === CONFIG.sizes[0] && rep === 0 && CONFIG.selection)
-      await selectionRace(view, base);
+    if (blocks === CONFIG.sizes[0] && rep === 0 && CONFIG.selection) await selectionRace(blocks);
   }
 
-  async function selectionRace(view, base) {
+  async function selectionRace(blocks) {
+    // The earlier stories drop blocks into new places, so block 1 is no longer
+    // the fixture's first paragraph. Start from a fresh copy and find the
+    // paragraph by its content (generateNote: block 1 holds **bold 1**, _italic_,
+    // a link to /1); a missing target fails the run instead of being skipped.
+    const { view } = await load(blocks);
     view.dom.scrollTop = 0;
     await raf();
-    const block = view.dom.children[1];
+    const block = Array.from(view.dom.children).find(
+      (el) => el.querySelector('strong')?.textContent === 'bold 1',
+    );
+    if (!block)
+      throw new Error('selection: the fixture paragraph with **bold 1** is not in the doc');
     const centre = (el) => {
       const rs = el.getClientRects();
       const r = rs[0];
@@ -286,15 +337,14 @@
     const kinds = [
       ['strong', block.querySelector('strong')],
       ['em', block.querySelector('em')],
-      ['link', block.querySelector('a')],
+      ['link', block.querySelector('a[href$="/1"]')],
       ['plain', block],
     ];
     for (const [name, el] of kinds) {
-      if (!el) {
-        post({ kind: 'selection', name, error: 'no element' });
-        continue;
-      }
+      if (!el) throw new Error(`selection: no ${name} element in the fixture paragraph`);
       let p = centre(el);
+      if (p.y < 0 || p.y > innerHeight - 20)
+        throw new Error(`selection: the ${name} target is off screen (y ${Math.round(p.y)})`);
       if (name === 'plain') {
         const r = block.getBoundingClientRect();
         p = { x: r.left + 24, y: r.top + 10 };

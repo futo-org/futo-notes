@@ -15,6 +15,7 @@ import { BlockDragSession } from '$features/editor/milkdown/blockDragSession';
 import { undo } from '@milkdown/kit/prose/history';
 import type { EditorView } from '@milkdown/kit/prose/view';
 import { generateNote } from './note.mjs';
+import { previewMode } from './preview-mode';
 
 /** What a host page hands the benchmark: the live view, and a way to replace
  * the document. */
@@ -125,10 +126,10 @@ function modeProbe(
   session.start(liftFirst(v), plan.x, plan.liftY);
   session.move(plan.x, plan.yB);
   settle(v);
-  const line = document.querySelector('.futo-mobile-dnd-indicator--visible') !== null;
+  const mode = previewMode(v.dom);
   session.cancel();
   settle(v);
-  return line ? 'line' : 'reflow';
+  return mode;
 }
 
 export type BenchResult = Record<string, { reps: number; totalMs: number; samplesMs?: number[] }>;
