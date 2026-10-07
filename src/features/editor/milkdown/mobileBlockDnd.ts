@@ -229,11 +229,25 @@ const HIDE_SELECTION_CLASS = 'futo-mobile-dnd-hide-selection';
 
 /** iOS WKWebView is the only engine here that commits to a selection the page
  * cannot cancel (module doc); Chromium's long-press selection is stopped by the
- * synchronous `selectstart` cancel alone. Detected as "not Chromium"
- * (`navigator.userAgentData` is Chromium-only) so an engine we cannot identify
- * keeps the net rather than silently losing it. */
-function needsSelectionNet(): boolean {
-  return typeof navigator === 'undefined' || !('userAgentData' in navigator);
+ * synchronous `selectstart` cancel alone. So the net is skipped only for a
+ * positively identified Chromium: `navigator.userAgentData` (Chromium-only, but
+ * Android WebView has it only from v116, and the editor supports 80+) or a
+ * `Chrome/` / `Chromium/` UA token (Android WebView carries it; iOS Chrome,
+ * Edge and Firefox are WebKit and carry `CriOS/`, `EdgiOS/`, `FxiOS/` instead,
+ * and any iPhone/iPad/iPod UA keeps the net regardless). An engine we cannot
+ * identify keeps the net rather than silently losing it. Exported for the
+ * test, which feeds it real UA strings. */
+export function needsSelectionNet(
+  nav: { userAgent?: string; userAgentData?: unknown } | undefined = typeof navigator ===
+  'undefined'
+    ? undefined
+    : navigator,
+): boolean {
+  if (!nav) return true;
+  const ua = nav.userAgent ?? '';
+  if (/\b(iPhone|iPad|iPod)\b/.test(ua)) return true;
+  if ('userAgentData' in nav) return false;
+  return !/\b(Chrome|Chromium)\//.test(ua);
 }
 
 /** Injected once per page (not per editor instance/mount). The ghost, indicator
