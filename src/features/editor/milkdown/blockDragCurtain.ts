@@ -418,7 +418,9 @@ export class ReflowCurtain {
     const y = Math.min(Math.max(clientY, rect.top + 1), rect.bottom - 1);
     reflow.originTop = rect.top - scroller.scrollTop;
     const contentY = y - reflow.originTop;
-    return this.firstNotPast((i) => this.slotTop(i) + this.slotSize(i) / 2 < contentY);
+    // The flip is at each block's own visual midpoint (not its slot's, which
+    // includes the gap below): the lower half of a block is "after it".
+    return this.firstNotPast((i) => this.slotTop(i) + reflow.heights[i] / 2 < contentY);
   }
 
   /** The drop target under `clientY` for a release or a boundary check. */
