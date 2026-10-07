@@ -202,3 +202,6 @@ flatpak/.builder-state/
 .claude/skills/swiftui-expert-skill
 .claude/skills/swift-concurrency-pro
 .claude/skills/swift-testing-pro
+
+# Local block-drag benchmark variants, run logs and screenshots
+.perf-variants/

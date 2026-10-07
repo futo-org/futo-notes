@@ -268,6 +268,15 @@ test-android-perf-quick *args:
   }
   node tests/android-editor-perf-quick.mjs {{args}}
 
+# Block-drag cost per phase (lift, drop-spot change, drop, scroll frame) on
+# 1000- and 3000-block notes, in the system WebKitGTK the desktop app ships.
+# About 10s per variant; a variant is `current`, a copy of blockDragSession.ts,
+# and either with `:line` for the drop-line mode. Opens a window per variant.
+#   just bench-block-drag                              # current:line vs current
+#   just bench-block-drag current /path/to/other.ts --repeat 3
+bench-block-drag *args:
+  node scripts/perf/block-drag-bench.mjs {{args}}
+
 # Storage-migration stories on the REAL app; CLEARS debug data — claim a device first.
 test-android-storage:
   node tests/android-storage-migration.mjs

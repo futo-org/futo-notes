@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Block drag bench</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      /* The desktop shell's chain (NoteWorkspace.svelte): `.note-body` scrolls,
+       and the editable inside it is a plain box as tall as the note. */
+      .notes-shell {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      /* The native shells' chain (editor.html): the editable scrolls itself. */
+      .embed-layout #editor {
+        height: 100vh;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="notes-shell desktop-layout">
+      <div class="note-body">
+        <div class="editor-container"><div id="editor"></div></div>
+      </div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
