@@ -1592,6 +1592,47 @@ gutterHandleTest(
   },
 );
 
+gutterHandleTest(
+  'a host setContent that shrinks the note mid-drag ends the curtain and cannot strand the drag',
+  async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    // Long, and lifted from the middle: the curtain measures blocks lazily
+    // (around the viewport and along its binary searches), so after a shrink a
+    // search for the top of the page probes slots that were never measured.
+    const words = Array.from({ length: 600 }, (_, i) => `block${i}`);
+    await hostSetContent(page, words.join('\n\n'));
+    await page.evaluate(() =>
+      [...document.querySelectorAll('.ProseMirror > *')]
+        .find((el) => el.textContent === 'block300')
+        ?.scrollIntoView({ block: 'center' }),
+    );
+    await clearMessages(page);
+
+    const handle = await surfaceHandle(page, 'block300');
+    const below = await blockBox(page, 'block302');
+    const drag = await startHandleDrag(page, handle);
+    await drag.over(below.x, below.bottom - 3);
+    expect(await curtainUp(page)).toBe(true);
+
+    // The host swaps the note for a shorter one while the block is held.
+    await hostSetContent(page, 'one\n\ntwo\n\nthree');
+    const one = await blockBox(page, 'one');
+    // Sweep the pointer down the page: each y probes a different path through
+    // the stale block count.
+    for (let y = one.top + 3; y < one.top + 700; y += 90) await drag.over(one.x, y);
+    await drag.drop(one.x, one.top + 3);
+    await page.waitForTimeout(50);
+
+    expect(errors, 'the release threw').toEqual([]);
+    expect(await curtainUp(page)).toBe(false);
+    await expect(page.locator('.futo-mobile-dnd-ghost')).toHaveCount(0);
+    await expect(page.locator('.futo-mobile-dnd-source')).toHaveCount(0);
+    // The held block no longer exists, so the drop is cancelled.
+    expect(await getContent(page)).toBe('one\n\ntwo\n\nthree');
+  },
+);
+
 gutterHandleLineTest(
   'Escape mid-drag cancels the ⠿ handle drag with no transaction (drop line)',
   async ({ page }) => {

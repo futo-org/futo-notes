@@ -21,6 +21,7 @@
  * The session's whole contact with this module: `measure` (reads), `mount`
  * (first writes), `sync`/`target` per pointer step, `end`.
  */
+import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import type { DropTarget } from './blockDragGeometry';
 
@@ -64,6 +65,10 @@ const IDLE_FALLBACK_SLICE_MS = 4;
 const REFLOW_TRANSITION = 'transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1)';
 
 interface Reflow {
+  /** The document the geometry below was measured against. Any transaction
+   * that changes the doc (a host `setContent`, a sync adopt, an undo) makes
+   * every cached slot and clone stale, whatever the block count is. */
+  doc: ProseNode;
   /** Top-level blocks at lift. */
   count: number;
   /** Each block's top, left, width and height in scroll-content coordinates
@@ -243,6 +248,7 @@ export class ReflowCurtain {
     curtain.className = 'futo-mobile-dnd-reflow-curtain ProseMirror';
     clip.appendChild(curtain);
     return {
+      doc,
       count,
       tops: unmeasured(),
       lefts: unmeasured(),
@@ -277,6 +283,7 @@ export class ReflowCurtain {
     reflow.idleOpen = this.whenIdle(() => {
       reflow.idleOpen = 0;
       if (this.reflow !== reflow || reflow.open) return;
+      if (!this.ensureValid()) return;
       reflow.originTop = this.reflowOriginTop();
       this.openCurtain(reflow, this.planCurtainWindow(reflow));
     }, CURTAIN_IDLE_OPEN_TIMEOUT_MS);
@@ -289,6 +296,7 @@ export class ReflowCurtain {
     reflow.idleFill = this.whenIdle((deadline) => {
       reflow.idleFill = 0;
       if (this.reflow !== reflow || !reflow.open) return;
+      if (!this.ensureValid()) return;
       reflow.originTop = this.reflowOriginTop();
       const { add } = this.planCurtainWindow(reflow, REFLOW_WINDOW_MARGIN_VIEWPORTS);
       let done = 0;
@@ -423,8 +431,25 @@ export class ReflowCurtain {
     return this.firstNotPast((i) => this.slotTop(i) + reflow.heights[i] / 2 < contentY);
   }
 
-  /** The drop target under `clientY` for a release or a boundary check. */
+  /** Whether the preview is still up and describes the document as it is now.
+   * A mismatch (the doc was replaced under the drag) ends the preview here, so
+   * no read ever indexes DOM children the measurements no longer match. The
+   * session then falls back to the drop line, or cancels a drop whose source
+   * is gone. */
+  ensureValid(): boolean {
+    const reflow = this.reflow;
+    if (!reflow) return false;
+    if (this.view.state.doc === reflow.doc && this.view.dom.children.length === reflow.count) {
+      return true;
+    }
+    this.end();
+    return false;
+  }
+
+  /** The drop target under `clientY` for a release or a boundary check, or
+   * null once the preview is no longer valid (`ensureValid`). */
   target(clientY: number): DropTarget | null {
+    if (!this.ensureValid()) return null;
     const gap = this.reflowGapAt(clientY);
     const doc = this.view.state.doc;
     let pos = doc.content.size;
@@ -440,16 +465,12 @@ export class ReflowCurtain {
    * Returns false when the preview ended itself because the doc changed shape
    * under the drag; the caller then falls back to the drop line. */
   sync(clientY: number, tick: boolean): boolean {
+    if (!this.ensureValid()) return false;
     const reflow = this.reflow!;
     const gap = this.reflowGapAt(clientY);
     const s = reflow.sourceIndex;
     const effective = gap === s || gap === s + 1 ? null : gap;
     if (effective === reflow.applied) return true;
-    if (this.view.state.doc.childCount !== reflow.count) {
-      // The doc changed shape under the drag: stop previewing, keep the line.
-      this.end();
-      return false;
-    }
     if (!reflow.open) {
       reflow.applied = effective;
       if (effective === null) return true;
@@ -604,7 +625,7 @@ export class ReflowCurtain {
     if (!reflow || reflow.scrollFrame) return;
     reflow.scrollFrame = requestAnimationFrame(() => {
       reflow.scrollFrame = 0;
-      if (this.reflow === reflow && reflow.open) this.followScroll(reflow);
+      if (this.reflow === reflow && reflow.open && this.ensureValid()) this.followScroll(reflow);
     });
   }
 

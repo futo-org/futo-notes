@@ -334,27 +334,41 @@ export class BlockDragSession {
     // range comes from the mapped decoration. The target is also read before
     // the visuals go, because ending the reflow preview switches `computeTarget`
     // back to the line geometry.
-    const target = commit ? this.computeTarget(clientY) : null;
-    this.cleanupDragVisuals();
-    if (!target) {
+    let target: DropTarget | null = null;
+    try {
+      target = commit ? this.computeTarget(clientY) : null;
+    } catch (error) {
+      this.clearDecoration();
+      throw error;
+    } finally {
+      // Whatever the read does, the visuals and the lift state go: a throw
+      // here must not leave the curtain and ghost mounted.
+      this.cleanupDragVisuals();
+      if (!target) this.reset();
+    }
+    const range = target ? this.currentSourceRange(lifted) : null;
+    if (!target || !range) {
       this.clearDecoration();
       this.reset();
       return false;
     }
 
-    const range = this.currentSourceRange(lifted);
     // Every refusal case (stale range, a target that stopped being a legal
     // gap, a drop back at the source, a node ProseMirror would re-shape) lives
     // in moveBlock. A drop that commits nothing is silent: no transaction, no
     // history entry, no 'change'.
-    const committed = moveBlock(this.view, range, target.pos, (tr, movedTo) => {
-      // Same transaction as the move, so the source block is never drawn
-      // dimmed for a frame at its new position.
-      tr.setMeta(blockDragSourceKey, { decorationSet: DecorationSet.empty });
-      beforeDispatch?.(tr, movedTo, range);
-    });
-    if (!committed) this.clearDecoration();
-    this.reset();
+    let committed: boolean;
+    try {
+      committed = moveBlock(this.view, range, target.pos, (tr, movedTo) => {
+        // Same transaction as the move, so the source block is never drawn
+        // dimmed for a frame at its new position.
+        tr.setMeta(blockDragSourceKey, { decorationSet: DecorationSet.empty });
+        beforeDispatch?.(tr, movedTo, range);
+      });
+      if (!committed) this.clearDecoration();
+    } finally {
+      this.reset();
+    }
     return committed;
   }
 
@@ -418,7 +432,8 @@ export class BlockDragSession {
    * the card overlapping it) while the pointer is still over the block it just
    * picked up. */
   private isNoOpTarget(target: DropTarget): boolean {
-    return this.lifted !== null && isNoOpDrop(this.currentSourceRange(this.lifted), target.pos);
+    const range = this.lifted && this.currentSourceRange(this.lifted);
+    return range ? isNoOpDrop(range, target.pos) : false;
   }
 
   /** After every frame edge auto-scroll actually moved the scroller. The
@@ -435,8 +450,14 @@ export class BlockDragSession {
    * of its list for a list item. */
   private computeTarget(clientY: number): DropTarget | null {
     if (!this.lifted) return null;
-    if (this.reflow) return this.reflow.target(clientY);
-    const source = dragSourceAt(this.view.state.doc, this.currentSourceRange(this.lifted).from);
+    if (this.reflow) {
+      // The doc was replaced under the drag: the preview has ended itself, and
+      // the line geometry (or no drop at all, if the source is gone) takes over.
+      if (this.reflow.ensureValid()) return this.reflow.target(clientY);
+      this.reflow = null;
+    }
+    const range = this.currentSourceRange(this.lifted);
+    const source = range && dragSourceAt(this.view.state.doc, range.from);
     return source ? targetAtPointerY(this.view, clientY, source) : null;
   }
 
@@ -445,7 +466,7 @@ export class BlockDragSession {
    * that edited the doc between the lift and release — autocorrect, a host
    * `setContent`, the trailing-paragraph plugin. The lift-time positions are
    * only the fallback. */
-  private currentSourceRange(lifted: BlockDragLift): BlockMoveRange {
+  private currentSourceRange(lifted: BlockDragLift): BlockMoveRange | null {
     const decorations = blockDragSourceKey.getState(this.view.state)?.decorationSet;
     const found = decorations?.find(
       undefined,
@@ -453,7 +474,14 @@ export class BlockDragSession {
       (spec: { futoDragSource?: boolean }) => spec.futoDragSource === true,
     );
     if (found && found.length === 1) return { from: found[0].from, to: found[0].to };
-    return { from: lifted.from, to: lifted.to };
+    // The lift-time range is only good while that exact block is still there:
+    // a replaced document leaves it pointing past the end, or into other text.
+    const doc = this.view.state.doc;
+    if (lifted.to > doc.content.size) return null;
+    const node = doc.nodeAt(lifted.from);
+    return node && lifted.from + node.nodeSize === lifted.to
+      ? { from: lifted.from, to: lifted.to }
+      : null;
   }
 
   /** The ghost host is the `.futo-milkdown` container (OUTSIDE the
