@@ -1228,19 +1228,50 @@ async function longPressDrag(
 // getOffset, surfaced by OUR synthetic pointermove, and the plugin's own drag
 // is cancelled by listeners that only win because they are registered before
 // its own.
-const gutterHandleTest = base.extend<{ page: Page }>({
-  page: async ({ browser }, use) => {
-    const context = await browser.newContext();
-    await context.addInitScript(installFakeAndroidHost);
-    const page = await context.newPage();
-    await page.goto(`${EDITOR_URL}&blockDragMode=gutter-handle`);
-    await page.waitForFunction(() =>
-      (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
-    );
-    await use(page);
-    await context.close();
-  },
-});
+const gutterHandleFixture = (query: string) =>
+  base.extend<{ page: Page }>({
+    page: async ({ browser }, use) => {
+      const context = await browser.newContext();
+      await context.addInitScript(installFakeAndroidHost);
+      const page = await context.newPage();
+      await page.goto(`${EDITOR_URL}&blockDragMode=gutter-handle${query}`);
+      await page.waitForFunction(() =>
+        (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
+      );
+      await use(page);
+      await context.close();
+    },
+  });
+const gutterHandleTest = gutterHandleFixture('');
+/** Same, with live reflow forced off: the drop LINE, which list items and a
+ * doc that changes shape mid-drag still use. */
+const gutterHandleLineTest = gutterHandleFixture('&blockDragReflow=off');
+
+/**
+ * Live-reflow state, read off the curtain's clones (their inline transform is
+ * the shift they are sliding to): the previewed target gap (0..n) given the
+ * blocks' texts in document order and the dragged block's index, or null when
+ * the curtain is absent or nothing is shifted (the source's own gaps).
+ */
+async function reflowGap(page: Page, order: string[], source: number): Promise<number | null> {
+  const shifts = await page.evaluate(() => {
+    const out: Record<string, number> = {};
+    for (const el of document.querySelectorAll('.futo-mobile-dnd-reflow-curtain > *')) {
+      const m = /translateY\((-?[\d.]+)px\)/.exec((el as HTMLElement).style.transform);
+      out[(el.textContent ?? '').trim()] = m ? Number.parseFloat(m[1]) : 0;
+    }
+    return out;
+  });
+  const moved = order.filter((t, i) => i !== source && Math.abs(shifts[t] ?? 0) > 0.5).length;
+  const own = shifts[order[source]] ?? 0;
+  if (Math.abs(own) <= 0.5) return null;
+  return own > 0 ? source + 1 + moved : source - moved;
+}
+
+/** True while the reflow curtain is up. */
+function curtainUp(page: Page): Promise<boolean> {
+  return page.evaluate(() => document.querySelector('.futo-mobile-dnd-reflow-clip') !== null);
+}
 
 /**
  * A pointer-driven drag off the ⠿ handle (handleBlockDrag.ts), ONE move at a
@@ -1499,6 +1530,33 @@ gutterHandleTest(
     const drag = await startHandleDrag(page, handle);
     await drag.over(charlie.x, charlie.bottom - 3);
     await expect(page.locator('.futo-mobile-dnd-ghost')).toHaveCount(1);
+    expect(await curtainUp(page)).toBe(true);
+    expect(await reflowGap(page, ['alpha', 'bravo', 'charlie'], 0)).toBe(3);
+
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.futo-mobile-dnd-ghost')).toHaveCount(0);
+    expect(await curtainUp(page)).toBe(false);
+    await expect(page.locator('.futo-mobile-dnd-source')).toHaveCount(0);
+
+    // The release that follows the Escape must not commit anything either.
+    await page.mouse.up();
+    await page.waitForTimeout(50);
+    expect(await getContent(page)).toBe('alpha\n\nbravo\n\ncharlie');
+    expect(await messagesOfType(page, 'change')).toHaveLength(0);
+  },
+);
+
+gutterHandleLineTest(
+  'Escape mid-drag cancels the ⠿ handle drag with no transaction (drop line)',
+  async ({ page }) => {
+    await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+    await clearMessages(page);
+
+    const handle = await surfaceHandle(page, 'alpha');
+    const charlie = await blockBox(page, 'charlie');
+    const drag = await startHandleDrag(page, handle);
+    await drag.over(charlie.x, charlie.bottom - 3);
+    await expect(page.locator('.futo-mobile-dnd-ghost')).toHaveCount(1);
     expect(await dropIndicatorTop(page)).not.toBeNull();
 
     await page.keyboard.press('Escape');
@@ -1565,8 +1623,38 @@ gutterHandleTest(
  * two different y values, so every gap offered two visible slots that meant the
  * same thing. The handle drag now draws the shared session's line
  * (blockDragSession.ts), the one the long press draws. */
-gutterHandleTest(
-  'the ⠿ handle draws ONE line per gap, in the gap, from either side',
+gutterHandleTest('the ⠿ handle previews ONE slot per gap, from either side', async ({ page }) => {
+  await hostSetContent(page, '# alpha\n\nbravo\n\ncharlie');
+  await clearMessages(page);
+
+  const order = ['alpha', 'bravo', 'charlie'];
+  const handle = await surfaceHandle(page, 'alpha');
+  const bravo = await blockBox(page, 'bravo');
+  const charlie = await blockBox(page, 'charlie');
+  // Otherwise "between them" is not a region and the assertion is vacuous.
+  expect(charlie.top).toBeGreaterThan(bravo.bottom);
+
+  const drag = await startHandleDrag(page, handle);
+
+  // bravo's lower half, then charlie's upper half: the same boundary, so the
+  // same slot opens (bravo slid up, alpha parked after it).
+  await drag.over(bravo.x, bravo.bottom - 3);
+  const fromAbove = await reflowGap(page, order, 0);
+  await drag.over(charlie.x, charlie.top + 3);
+  const fromBelow = await reflowGap(page, order, 0);
+
+  expect(fromAbove).toBe(2);
+  expect(fromBelow).toBe(fromAbove);
+
+  // And the drop commits where the slot was: alpha lands between them,
+  // still a heading (a re-fitted slice would have unwrapped it).
+  await drag.drop(charlie.x, charlie.top + 3);
+  const changes = await waitForMessages(page, 'change');
+  expect(changes[changes.length - 1].content).toBe('bravo\n\n# alpha\n\ncharlie\n');
+});
+
+gutterHandleLineTest(
+  'the ⠿ handle draws ONE line per gap (drop line), in the gap, from either side',
   async ({ page }) => {
     await hostSetContent(page, '# alpha\n\nbravo\n\ncharlie');
     await clearMessages(page);
@@ -1604,7 +1692,42 @@ gutterHandleTest(
 // must draw no line either, since the move already refuses to commit there
 // (blockMove.ts isNoOpDrop).
 gutterHandleTest(
-  "the ⠿ handle's line hides while dragging over the block's own gaps",
+  "the ⠿ handle's preview stays shut while dragging over the block's own gaps",
+  async ({ page }) => {
+    await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+    await clearMessages(page);
+
+    const order = ['alpha', 'bravo', 'charlie'];
+    const alpha = await blockBox(page, 'alpha');
+    const handle = await surfaceHandle(page, 'alpha');
+    const bravo = await blockBox(page, 'bravo');
+
+    const drag = await startHandleDrag(page, handle);
+
+    // Still over "alpha" itself (its own upper boundary): nothing shifts.
+    await drag.over(alpha.x, alpha.top + 2);
+    expect(await reflowGap(page, order, 0)).toBeNull();
+
+    // Its own lower boundary too (alpha's lower half is the gap after it).
+    await drag.over(alpha.x, alpha.bottom - 2);
+    expect(await reflowGap(page, order, 0)).toBeNull();
+
+    // A genuinely different gap opens its slot.
+    await drag.over(bravo.x, bravo.bottom - 3);
+    expect(await reflowGap(page, order, 0)).toBe(2);
+
+    // Back over the source: the slot closes again.
+    await drag.over(alpha.x, alpha.top + 2);
+    expect(await reflowGap(page, order, 0)).toBeNull();
+
+    // Release back over the source: a no-op, not a commit.
+    await drag.drop(alpha.x, alpha.top + 2);
+    expect(await messagesOfType(page, 'edited')).toHaveLength(0);
+  },
+);
+
+gutterHandleLineTest(
+  "the ⠿ handle's line (drop line) hides while dragging over the block's own gaps",
   async ({ page }) => {
     await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
     await clearMessages(page);
@@ -1896,6 +2019,52 @@ gutterHandleTest(
     });
 
     const drag = await startHandleDrag(page, handle);
+    const order = ['alpha', 'bravo', 'charlie'];
+    const gaps: number[] = [];
+    for (const y of probes) {
+      await drag.over(blocks[0].x, y);
+      const gap = await reflowGap(page, order, 0);
+      if (gap !== null && !gaps.includes(gap)) gaps.push(gap);
+    }
+    await drag.drop(blocks[0].x, (blocks[1].bottom + blocks[2].top) / 2);
+
+    // "alpha" is the block being dragged, so its own two boundaries — the very
+    // start of the document, and the alpha/bravo gap it already sits against —
+    // are no-op drops and shift nothing (isNoOpDrop, blockMove.ts): alpha's own
+    // halves, the margin right after it, and bravo's upper half (the SAME gap)
+    // all resolved to null above. That leaves the two REAL boundaries — the
+    // bravo/charlie gap (2) and the end of the document (3) — each opening
+    // exactly one slot, in order, bravo's lower half flipping at its own
+    // midpoint.
+    expect(gaps).toEqual([2, 3]);
+  },
+);
+
+gutterHandleLineTest(
+  'a ⠿ drag down the whole note passes through one line per boundary (drop line)',
+  async ({ page }) => {
+    await hostSetContent(page, '# alpha\n\nbravo\n\ncharlie');
+    await clearMessages(page);
+
+    const handle = await surfaceHandle(page, 'alpha');
+    const blocks = [
+      await blockBox(page, 'alpha'),
+      await blockBox(page, 'bravo'),
+      await blockBox(page, 'charlie'),
+    ];
+
+    // Every region a pointer can be in, top to bottom: each block's upper
+    // half, its lower half, and the margin between it and the next.
+    const upper = (b: (typeof blocks)[number]) => b.top + (b.bottom - b.top) * 0.25;
+    const lower = (b: (typeof blocks)[number]) => b.top + (b.bottom - b.top) * 0.75;
+    const probes: number[] = [];
+    blocks.forEach((block, i) => {
+      probes.push(upper(block), lower(block));
+      const next = blocks[i + 1];
+      if (next) probes.push((block.bottom + next.top) / 2);
+    });
+
+    const drag = await startHandleDrag(page, handle);
     const tops: number[] = [];
     for (const y of probes) {
       await drag.over(blocks[0].x, y);
@@ -1924,25 +2093,29 @@ gutterHandleTest(
 // native shells load declares `nativeShell: true`, and that flag IS the gate
 // (blockDragMode.ts). This fixture differs from the default one only in
 // carrying a CDP session for the genuine touch stream.
-const mobileDndTest = base.extend<{ page: Page; cdp: CDPSession }>({
-  page: async ({ browser }, use) => {
-    const context = await browser.newContext({ hasTouch: true });
-    await context.addInitScript(installFakeAndroidHost);
-    const page = await context.newPage();
-    await page.goto(EDITOR_URL);
-    await page.waitForFunction(() =>
-      (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
-    );
-    await initialize(page, hostConfig());
-    await use(page);
-    await context.close();
-  },
-  cdp: async ({ page }, use) => {
-    const session = await page.context().newCDPSession(page);
-    await use(session);
-    await session.detach();
-  },
-});
+const mobileDndFixture = (query: string) =>
+  base.extend<{ page: Page; cdp: CDPSession }>({
+    page: async ({ browser }, use) => {
+      const context = await browser.newContext({ hasTouch: true });
+      await context.addInitScript(installFakeAndroidHost);
+      const page = await context.newPage();
+      await page.goto(`${EDITOR_URL}${query}`);
+      await page.waitForFunction(() =>
+        (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
+      );
+      await initialize(page, hostConfig());
+      await use(page);
+      await context.close();
+    },
+    cdp: async ({ page }, use) => {
+      const session = await page.context().newCDPSession(page);
+      await use(session);
+      await session.detach();
+    },
+  });
+const mobileDndTest = mobileDndFixture('');
+/** Live reflow forced off: the long-press drag draws the drop line. */
+const mobileDndLineTest = mobileDndFixture('&blockDragReflow=off');
 
 mobileDndTest(
   'a long-press drag reorders the block and posts lift, a tick per boundary, then drop',
@@ -2023,7 +2196,7 @@ mobileDndTest('a cancelled drag reports the drag as over', async ({ page, cdp })
   expect(await getContent(page)).toBe('alpha\n\nbravo\n\ncharlie');
 });
 
-mobileDndTest('the indicator ticks once per boundary, not once per move', async ({ page, cdp }) => {
+mobileDndTest('the preview ticks once per boundary, not once per move', async ({ page, cdp }) => {
   await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie\n\ndelta');
   await clearMessages(page);
 
@@ -2031,32 +2204,33 @@ mobileDndTest('the indicator ticks once per boundary, not once per move', async 
     (await messagesOfType(page, 'haptic')).filter((m) => m.kind === 'move').length;
 
   const alpha = await blockCenter(page, 'alpha');
-  const bravo = await blockCenter(page, 'bravo');
-  const charlie = await blockCenter(page, 'charlie');
+  // Lower halves: a block's own midpoint is where its boundary flips.
+  const bravo = await blockBox(page, 'bravo');
+  const charlie = await blockBox(page, 'charlie');
 
   await touch(cdp, 'touchStart', alpha.x, alpha.y);
   await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
   // The hold itself is silent: the bar is where the block already is.
   expect(await ticks()).toBe(0);
 
-  await touch(cdp, 'touchMove', bravo.x, bravo.y);
+  await touch(cdp, 'touchMove', bravo.x, bravo.bottom - 3);
   await page.waitForTimeout(32);
   const afterFirstBoundary = await ticks();
   expect(afterFirstBoundary).toBe(1);
 
   // Two more moves that resolve to the SAME boundary — no thumb should feel
   // anything, because nothing moved as far as the eye is concerned.
-  await touch(cdp, 'touchMove', bravo.x, bravo.y + 2);
+  await touch(cdp, 'touchMove', bravo.x, bravo.bottom - 4);
   await page.waitForTimeout(32);
-  await touch(cdp, 'touchMove', bravo.x, bravo.y + 3);
+  await touch(cdp, 'touchMove', bravo.x, bravo.bottom - 5);
   await page.waitForTimeout(32);
   expect(await ticks()).toBe(afterFirstBoundary);
 
-  await touch(cdp, 'touchMove', charlie.x, charlie.y);
+  await touch(cdp, 'touchMove', charlie.x, charlie.bottom - 3);
   await page.waitForTimeout(32);
   expect(await ticks()).toBe(afterFirstBoundary + 1);
 
-  await touch(cdp, 'touchEnd', charlie.x, charlie.y);
+  await touch(cdp, 'touchEnd', charlie.x, charlie.bottom - 3);
   await settleChangeDebounce(page);
 });
 
@@ -2071,12 +2245,6 @@ mobileDndTest('one boundary is one slot, approached from either side', async ({ 
 
   const ticks = async () =>
     (await messagesOfType(page, 'haptic')).filter((m) => m.kind === 'move').length;
-  const indicatorTop = () =>
-    page.evaluate(() => {
-      const el = document.querySelector('.futo-mobile-dnd-indicator');
-      return el instanceof HTMLElement ? el.style.top : null;
-    });
-
   const alpha = await blockCenter(page, 'alpha');
   const bravo = await blockBox(page, 'bravo');
   const charlie = await blockBox(page, 'charlie');
@@ -2088,20 +2256,16 @@ mobileDndTest('one boundary is one slot, approached from either side', async ({ 
   await touch(cdp, 'touchMove', bravo.x, bravo.bottom - 3);
   await page.waitForTimeout(32);
   const fromAboveTicks = await ticks();
-  const fromAboveTop = await indicatorTop();
   expect(fromAboveTicks).toBeGreaterThan(0);
-  expect(fromAboveTop).not.toBeNull();
 
-  // The bar sits IN the gap, not on either block's edge.
-  const drawnAt = Number.parseFloat(fromAboveTop as string);
-  expect(drawnAt).toBeGreaterThanOrEqual(bravo.bottom);
-  expect(drawnAt).toBeLessThanOrEqual(charlie.top);
+  // The slot opens after bravo: alpha parked there, bravo slid up into its place.
+  expect(await reflowGap(page, ['alpha', 'bravo', 'charlie'], 0)).toBe(2);
 
   // "charlie"'s upper half: the SAME boundary, reached from the other side.
   await touch(cdp, 'touchMove', charlie.x, charlie.top + 3);
   await page.waitForTimeout(32);
   expect(await ticks()).toBe(fromAboveTicks);
-  expect(await indicatorTop()).toBe(fromAboveTop);
+  expect(await reflowGap(page, ['alpha', 'bravo', 'charlie'], 0)).toBe(2);
 
   await touch(cdp, 'touchEnd', charlie.x, charlie.top + 3);
   await settleChangeDebounce(page);
@@ -2109,6 +2273,54 @@ mobileDndTest('one boundary is one slot, approached from either side', async ({ 
   const changes = await messagesOfType(page, 'change');
   expect(changes[changes.length - 1].content).toBe('bravo\n\nalpha\n\ncharlie\n');
 });
+
+mobileDndLineTest(
+  'one boundary is one slot (drop line), approached from either side',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+    await clearMessages(page);
+
+    const ticks = async () =>
+      (await messagesOfType(page, 'haptic')).filter((m) => m.kind === 'move').length;
+    const indicatorTop = () =>
+      page.evaluate(() => {
+        const el = document.querySelector('.futo-mobile-dnd-indicator');
+        return el instanceof HTMLElement ? el.style.top : null;
+      });
+
+    const alpha = await blockCenter(page, 'alpha');
+    const bravo = await blockBox(page, 'bravo');
+    const charlie = await blockBox(page, 'charlie');
+
+    await touch(cdp, 'touchStart', alpha.x, alpha.y);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+
+    // "bravo"'s lower half: the boundary between bravo and charlie.
+    await touch(cdp, 'touchMove', bravo.x, bravo.bottom - 3);
+    await page.waitForTimeout(32);
+    const fromAboveTicks = await ticks();
+    const fromAboveTop = await indicatorTop();
+    expect(fromAboveTicks).toBeGreaterThan(0);
+    expect(fromAboveTop).not.toBeNull();
+
+    // The bar sits IN the gap, not on either block's edge.
+    const drawnAt = Number.parseFloat(fromAboveTop as string);
+    expect(drawnAt).toBeGreaterThanOrEqual(bravo.bottom);
+    expect(drawnAt).toBeLessThanOrEqual(charlie.top);
+
+    // "charlie"'s upper half: the SAME boundary, reached from the other side.
+    await touch(cdp, 'touchMove', charlie.x, charlie.top + 3);
+    await page.waitForTimeout(32);
+    expect(await ticks()).toBe(fromAboveTicks);
+    expect(await indicatorTop()).toBe(fromAboveTop);
+
+    await touch(cdp, 'touchEnd', charlie.x, charlie.top + 3);
+    await settleChangeDebounce(page);
+    // Same slot, same commit: alpha lands between bravo and charlie either way.
+    const changes = await messagesOfType(page, 'change');
+    expect(changes[changes.length - 1].content).toBe('bravo\n\nalpha\n\ncharlie\n');
+  },
+);
 
 // A tester reported the orange drop-indicator line showing through the ghost
 // card while still holding a block over itself, which looked wrong on an
@@ -2119,7 +2331,75 @@ mobileDndTest('one boundary is one slot, approached from either side', async ({ 
 // drawing the card OVER the line with a translucent background, so the line
 // (and the dimmed source block) still read through it (mobileBlockDnd.ts).
 mobileDndTest(
-  "the drop line hides over the dragged block's own boundaries, and reads through the card",
+  "the slot closes over the dragged block's own boundaries, and the card reads through",
+  async ({ page, cdp }) => {
+    await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+    await clearMessages(page);
+
+    const order = ['alpha', 'bravo', 'charlie'];
+    const slotOpen = async () => (await reflowGap(page, order, 0)) !== null;
+    const ticks = async () =>
+      (await messagesOfType(page, 'haptic')).filter((m) => m.kind === 'move').length;
+
+    const alpha = await blockBox(page, 'alpha');
+    const alphaY = (alpha.top + alpha.bottom) / 2;
+    const bravo = await blockBox(page, 'bravo');
+
+    await touch(cdp, 'touchStart', alpha.x, alphaY);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+
+    // Still holding over "alpha" itself: resolves to one of its own two
+    // boundaries, a no-op drop — no slot, no tick.
+    expect(await slotOpen()).toBe(false);
+    expect(await ticks()).toBe(0);
+
+    // "bravo"'s lower half: a genuinely new, real boundary.
+    await touch(cdp, 'touchMove', bravo.x, bravo.bottom - 3);
+    await page.waitForTimeout(32);
+    expect(await slotOpen()).toBe(true);
+    const ticksAtBravo = await ticks();
+    expect(ticksAtBravo).toBeGreaterThan(0);
+
+    // Back inside "alpha": hidden again, and the tick count must not move —
+    // this is a no-op boundary, not a new one to announce.
+    await touch(cdp, 'touchMove', alpha.x, alphaY);
+    await page.waitForTimeout(32);
+    expect(await slotOpen()).toBe(false);
+    expect(await ticks()).toBe(ticksAtBravo);
+
+    // The card's background must be genuinely translucent (alpha strictly
+    // between 0 and 1) — not opaque (which would hide the slot completely)
+    // and not `opacity` on the whole card (which would fade the text).
+    const cardAlpha = await page.evaluate(() => {
+      const card = document.querySelector('.futo-mobile-dnd-ghost-card');
+      if (!card) return null;
+      const bg = getComputedStyle(card).backgroundColor;
+      // A color-mix() background resolves to `color(srgb r g b / a)` in this
+      // Chromium, not rgb()/rgba() — handle both forms, defaulting to fully
+      // opaque (1) when no alpha component is present.
+      const rgbMatch = bg.match(
+        /^rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*(?:,\s*([\d.]+)\s*)?\)$/,
+      );
+      if (rgbMatch) return rgbMatch[1] === undefined ? 1 : Number.parseFloat(rgbMatch[1]);
+      const colorMatch = bg.match(
+        /^color\([\w-]+\s+[\d.]+\s+[\d.]+\s+[\d.]+(?:\s*\/\s*([\d.]+)\s*)?\)$/,
+      );
+      if (colorMatch) return colorMatch[1] === undefined ? 1 : Number.parseFloat(colorMatch[1]);
+      return null;
+    });
+    expect(cardAlpha).not.toBeNull();
+    expect(cardAlpha as number).toBeGreaterThan(0);
+    expect(cardAlpha as number).toBeLessThan(1);
+
+    // Release over the source: a true no-op, same as the dedicated test above.
+    await touch(cdp, 'touchEnd', alpha.x, alphaY);
+    await settleChangeDebounce(page);
+    expect(await messagesOfType(page, 'change')).toHaveLength(0);
+  },
+);
+
+mobileDndLineTest(
+  "the drop line (line mode) hides over the dragged block's own boundaries, and reads through the card",
   async ({ page, cdp }) => {
     await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
     await clearMessages(page);
