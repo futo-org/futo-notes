@@ -94,6 +94,7 @@ class EditorSessionTest {
         val titleCommits: Boolean = true,
         val performs: suspend () -> Boolean = { true },
         val awaitWork: suspend () -> Unit = {},
+        val onPrepare: () -> Unit = {},
     ) : EditorExitEffects {
         var failure: EditorExitFailure? = null
         var succeeded = false
@@ -108,6 +109,7 @@ class EditorSessionTest {
 
         override fun prepare() {
             log += "$name:prepare"
+            onPrepare()
         }
 
         override suspend fun awaitPendingWork() {
@@ -583,8 +585,13 @@ class EditorSessionTest {
         assertFalse(session.isClosing)
     }
 
+    /**
+     * Back used to hold the pop until a WebView round trip and a disk write had
+     * landed. It leaves first now, like the iOS back swipe, and the drain runs
+     * after — still body before title, still under the session lock.
+     */
     @Test
-    fun `navigation commits the body before the title, then leaves`() = runBlocking {
+    fun `navigation leaves first, then commits the body before the title`() = runBlocking {
         val scope = scope()
         val session = EditorSession(scope)
         val log = mutableListOf<String>()
@@ -594,18 +601,108 @@ class EditorSessionTest {
 
         assertEquals(
             listOf(
-                "nav:prepare",
-                "nav:awaitPendingWork:start",
-                "nav:awaitPendingWork:end",
-                "nav:cancelPendingSave",
-                "nav:awaitCurrentBody",
-                "nav:commitBody",
-                "nav:commitTitle",
-                "nav:perform",
-                "nav:onSucceeded",
+                    "nav:prepare",
+                    "nav:awaitPendingWork:start",
+                    "nav:awaitPendingWork:end",
+                    "nav:perform",
+                    "nav:onSucceeded",
+                    "nav:cancelPendingSave",
+                    "nav:awaitCurrentBody",
+                    "nav:commitBody",
+                    "nav:commitTitle",
             ),
             log,
         )
+        // The screen is going away: the exit keeps its latch.
+        assertTrue(session.isInteractionLocked)
+    }
+
+    /**
+     * The commit outlives the screen. The screen's composition scope is
+     * cancelled when the pop animation ends; a commit still waiting on the
+     * editor or the disk then must keep going on the scope it was handed.
+     */
+    @Test
+    fun `navigation's commit survives the screen scope that started it`() = runBlocking {
+        val screen = scope()
+        val store = scope()
+        val session = EditorSession(screen, launchCommit = { block -> store.launch { block() } })
+        val log = mutableListOf<String>()
+        val bodyArrives = CompletableDeferred<String>()
+
+        session.end(EditorExit.NAVIGATE, RecordingEffects(log, name = "nav", body = { bodyArrives.await() }))
+        assertTrue(log.contains("nav:perform"))
+        assertFalse(log.contains("nav:commitBody"))
+
+        screen.coroutineContext.job.cancel()
+        bodyArrives.complete("body")
+        store.settle()
+
+        assertEquals(listOf("nav:commitBody", "nav:commitTitle"), log.takeLast(2))
+    }
+
+    /**
+     * The screen's leave work (fallback flush, untouched-capture delete, draft
+     * register release) waits for the commit. Run alongside it, the fallback
+     * flush wrote the same body against the same base a second time and parked
+     * a conflict copy, and the capture check read a body the editor had not
+     * reported yet.
+     */
+    @Test
+    fun `leave work waits for the commit navigation started after leaving`() = runBlocking {
+        val scope = scope()
+        val session = EditorSession(scope)
+        val log = mutableListOf<String>()
+        val bodyArrives = CompletableDeferred<String>()
+
+        session.whenExitSettles { log += "leave work, no exit" }
+        session.end(EditorExit.NAVIGATE, RecordingEffects(log, name = "nav", body = { bodyArrives.await() }))
+        session.whenExitSettles { log += "leave work" }
+        assertFalse(log.contains("leave work"))
+
+        bodyArrives.complete("body")
+        scope.settle()
+
+        assertEquals(
+            listOf("leave work, no exit", "nav:commitTitle", "leave work"),
+            log.filter { it.startsWith("leave work") || it == "nav:commitTitle" },
+        )
+    }
+
+    @Test
+    fun `a commit that throws after leaving is reported and still settles`() = runBlocking {
+        val scope = scope()
+        val session = EditorSession(scope)
+        val log = mutableListOf<String>()
+        val effects = RecordingEffects(log, name = "nav", body = { throw IllegalStateException("disk gone") })
+
+        session.end(EditorExit.NAVIGATE, effects)
+        session.whenExitSettles { log += "leave work" }
+        scope.settle()
+
+        assertTrue(effects.succeeded)
+        assertEquals(EditorExitFailure.THREW, effects.failure)
+        assertEquals("leave work", log.last())
+    }
+
+    /** A delete (or a peer's delete) latched first owns the leave; a navigation
+     *  alongside it would pop a second screen. */
+    @Test
+    fun `navigation is dropped once a destructive exit has latched`() = runBlocking {
+        val scope = scope()
+        val session = EditorSession(scope)
+        val log = mutableListOf<String>()
+        val hold = CompletableDeferred<Unit>()
+
+        session.end(
+            EditorExit.DELETE,
+            RecordingEffects(log, name = "delete", performs = { hold.await(); true }),
+        )
+        session.end(EditorExit.NAVIGATE, RecordingEffects(log, name = "nav"))
+        hold.complete(Unit)
+        scope.settle()
+
+        assertTrue(log.none { it.startsWith("nav:") })
     }
 
     @Test
@@ -666,8 +763,10 @@ class EditorSessionTest {
             session.end(EditorExit.NAVIGATE, effects)
 
             // Still waiting on the picker: nothing has been captured, let alone
-            // committed or navigated — the note must not be deletable yet.
+            // committed or navigated — the note must not be deletable yet, and
+            // the insert still needs this screen's editor attachment.
             assertTrue(log.none { it.startsWith("nav:awaitCurrentBody") })
+            assertFalse(log.contains("nav:perform"))
             assertFalse(effects.succeeded)
 
             pickerReturned.complete(Unit)
@@ -675,53 +774,54 @@ class EditorSessionTest {
 
             assertEquals(
                 listOf(
-                    "nav:prepare",
-                    "nav:awaitPendingWork:start",
-                    "nav:awaitPendingWork:end",
-                    "nav:cancelPendingSave",
-                    "nav:awaitCurrentBody",
-                    "nav:commitBody",
-                    "nav:commitTitle",
-                    "nav:perform",
-                    "nav:onSucceeded",
+                        "nav:prepare",
+                        "nav:awaitPendingWork:start",
+                        "nav:awaitPendingWork:end",
+                        "nav:perform",
+                        "nav:onSucceeded",
+                        "nav:cancelPendingSave",
+                        "nav:awaitCurrentBody",
+                        "nav:commitBody",
+                        "nav:commitTitle",
                 ),
                 log,
             )
         }
 
     @Test
-    fun `navigation refuses a second exit until the first one fails`() = runBlocking {
-        val scope = scope()
-        val locks = mutableListOf<Boolean>()
-        val session = EditorSession(scope) { locks += it }
-        val log = mutableListOf<String>()
+    fun `navigation refuses a second exit, and a failed commit cannot call the user back`() =
+        runBlocking {
+            val scope = scope()
+            val locks = mutableListOf<Boolean>()
+            val session = EditorSession(scope, onInteractionLockChanged = { locks += it })
+            val log = mutableListOf<String>()
 
-        val blocked = RecordingEffects(log, name = "first", bodyCommits = false)
-        val hold = CompletableDeferred<Unit>()
-        val holdWork = scope.launch { session.runWork { hold.await() } }
+            val blocked = RecordingEffects(log, name = "first", bodyCommits = false)
+            val hold = CompletableDeferred<Unit>()
+            val holdWork = scope.launch { session.runWork { hold.await() } }
 
-        session.end(EditorExit.NAVIGATE, blocked)
-        assertTrue(session.isInteractionLocked)
+            session.end(EditorExit.NAVIGATE, blocked)
+            assertTrue(session.isInteractionLocked)
+            // Left already, while an autosave still holds the lock.
+            assertTrue(log.contains("first:perform"))
+            assertFalse(log.contains("first:commitBody"))
 
-        // A second Back while the first exit is draining is dropped entirely.
-        val second = RecordingEffects(log, name = "second")
-        session.end(EditorExit.NAVIGATE, second)
-        assertTrue(log.none { it.startsWith("second:") })
+            // A second Back while the first exit is committing is dropped entirely.
+            val second = RecordingEffects(log, name = "second")
+            session.end(EditorExit.NAVIGATE, second)
+            assertTrue(log.none { it.startsWith("second:") })
 
-        hold.complete(Unit)
-        holdWork.join()
-        scope.settle()
+            hold.complete(Unit)
+            holdWork.join()
+            scope.settle()
 
-        // The first exit failed, so the editor is usable and Back works again.
-        assertEquals(EditorExitFailure.BODY, blocked.failure)
-        assertFalse(session.isInteractionLocked)
-        assertEquals(listOf(true, false), locks)
-
-        val retry = RecordingEffects(log, name = "retry")
-        session.end(EditorExit.NAVIGATE, retry)
-        scope.settle()
-        assertTrue(retry.succeeded)
-    }
+            // The body did not commit: reported, and left to the screen's leave
+            // work. The screen is gone, so nothing unlatches.
+            assertEquals(EditorExitFailure.BODY, blocked.failure)
+            assertFalse(log.contains("first:commitTitle"))
+            assertTrue(session.isInteractionLocked)
+            assertEquals(listOf(true), locks)
+        }
 
     /**
      * F3: `end()`'s unlatch used to live only in the ordinary "the exit
@@ -754,10 +854,10 @@ class EditorSessionTest {
             Dispatchers.Unconfined + Job() + CoroutineExceptionHandler { _, _ -> },
         )
         val locks = mutableListOf<Boolean>()
-        val session = EditorSession(scope) { locks += it }
+        val session = EditorSession(scope, onInteractionLockChanged = { locks += it })
         val log = mutableListOf<String>()
         val boom = IllegalStateException("renderer wedged")
-        val effects = RecordingEffects(log, name = "nav", body = { throw boom })
+        val effects = RecordingEffects(log, name = "nav", performs = { throw boom })
 
         session.end(EditorExit.NAVIGATE, effects)
         scope.settle()
@@ -766,8 +866,10 @@ class EditorSessionTest {
         assertEquals(listOf(true, false), locks)
     }
 
+    /** iOS parity (the back swipe): the body is already committed, and a
+     *  rename that cannot land is reported after leaving, not a reason to stay. */
     @Test
-    fun `navigation refuses to leave while a rename cannot commit`() = runBlocking {
+    fun `a rename that cannot commit is reported after leaving`() = runBlocking {
         val scope = scope()
         val session = EditorSession(scope)
         val log = mutableListOf<String>()
@@ -777,12 +879,12 @@ class EditorSessionTest {
         scope.settle()
 
         assertEquals(EditorExitFailure.TITLE, effects.failure)
-        assertFalse(log.contains("nav:perform"))
-        assertFalse(session.isInteractionLocked)
+        assertTrue(effects.succeeded)
+        assertTrue(log.indexOf("nav:commitBody") < log.indexOf("nav:commitTitle"))
     }
 
     @Test
-    fun `navigation stops when the editor cannot hand back its body`() = runBlocking {
+    fun `a body the editor cannot hand back is never committed in its place`() = runBlocking {
         val scope = scope()
         val session = EditorSession(scope)
         val log = mutableListOf<String>()
@@ -792,7 +894,9 @@ class EditorSessionTest {
         scope.settle()
 
         assertEquals(EditorExitFailure.UNFLUSHED, effects.failure)
+        assertTrue(effects.succeeded)
         assertFalse(log.contains("nav:commitBody"))
+        assertFalse(log.contains("nav:commitTitle"))
     }
 
     @Test
@@ -811,20 +915,20 @@ class EditorSessionTest {
     }
 
     @Test
-    fun `an exit that loses its attachment mid-drain never leaves`() = runBlocking {
+    fun `an exit that loses its attachment before leaving commits but never leaves`() = runBlocking {
         val scope = scope()
         val session = EditorSession(scope)
         val log = mutableListOf<String>()
         var attached = true
-        // The editor is re-attached to another note while this exit commits.
-        // The body still has to reach disk — it was captured while the
-        // attachment was ours — but the navigation itself must not fire, and it
-        // is not a failure the user should be told about.
+        // The editor is re-attached to another note between Back and the
+        // leave. The body still has to reach disk — the exit was admitted
+        // while the attachment was ours — but the navigation itself must not
+        // fire, and it is not a failure the user should be told about.
         val effects = RecordingEffects(
             log,
             name = "nav",
             attached = { attached },
-            body = { attached = false; "body" },
+            awaitWork = { attached = false },
         )
 
         session.end(EditorExit.NAVIGATE, effects)
@@ -1029,7 +1133,11 @@ class EditorSessionTest {
         }
         scope.launch { session.reconcileOpenNote(effects) }
         started.await()
-        session.end(EditorExit.NAVIGATE, RecordingEffects(log, body = { null }))
+        var attached = true
+        session.end(
+            EditorExit.NAVIGATE,
+            RecordingEffects(log, attached = { attached }, onPrepare = { attached = false }),
+        )
         withTimeout(250) { scope.settle() }
         assertEquals(2, waits)
         assertEquals(1, log.count { it == "classify" })
@@ -1075,7 +1183,10 @@ class EditorSessionTest {
                 session.end(exit, effects)
                 scope.settle()
                 assertEquals(if (gone) "base" else null, committed)
-                if (!gone) assertFalse(session.isClosing || session.isInteractionLocked)
+                // Navigation has already left; the others stay on the note.
+                if (!gone && exit != EditorExit.NAVIGATE) {
+                    assertFalse(session.isClosing || session.isInteractionLocked)
+                }
             }
         }
     }

@@ -525,6 +525,37 @@ class NotesStore(
         }
     }
 
+    /** Commits editors run after their screen has already left (main thread only). */
+    private val editorLeaves = mutableSetOf<Job>()
+
+    /**
+     * Run an editor's leave commit on the store's scope, which outlives the
+     * screen. Back navigates first and commits here after (EditorSession), so
+     * the pop never waits on a disk write; [awaitEditorLeaves] is what keeps a
+     * note reopened in that window from reading the bytes before the commit.
+     */
+    fun launchEditorLeave(block: suspend () -> Unit): Job {
+        val job = scope.launch { block() }
+        if (!job.isCompleted) {
+            editorLeaves += job
+            job.invokeOnCompletion { editorLeaves -= job }
+        }
+        return job
+    }
+
+    /**
+     * Wait for every leave commit still in flight, and every fire-and-forget
+     * editor flush queued behind them, before an editor reads its note: the
+     * note it opens may be the one just left, its last edit not yet on disk.
+     */
+    suspend fun awaitEditorLeaves() {
+        while (true) {
+            val pending = editorLeaves.firstOrNull() ?: break
+            pending.join()
+        }
+        editorDraftTail?.join()
+    }
+
     fun flushRetainedEditor(id: String, content: String, base: () -> String, ownerToken: Long) {
         val previous = editorDraftTail
         scope.launch {

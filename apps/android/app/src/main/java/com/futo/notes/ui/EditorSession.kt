@@ -69,9 +69,17 @@ internal interface OpenNoteEffects {
  *
  * | exit | latches (synchronous) | drain | commit | own effect |
  * | --- | --- | --- | --- | --- |
- * | [EditorExit.NAVIGATE] | interaction lock (one exit at a time) | serialize | mailbox → body → title | after the drain |
+ * | [EditorExit.NAVIGATE] | interaction lock (one exit at a time) | serialize, after leaving | mailbox → body → title | BEFORE the drain |
  * | [EditorExit.MOVE] | — | serialize | mailbox → body | inside the drain |
  * | [EditorExit.DELETE] | closed (one-way) | serialize, destructive | mailbox → body | inside the drain |
+ *
+ * Navigation leaves first and commits after, the way the iOS back swipe always
+ * has: the pop animation used to wait for a WebView round trip and a disk
+ * write. The commit runs on a scope that outlives the screen
+ * ([EditorSession]'s `launchCommit`), and the screen's own leave work —
+ * the fallback flush, the untouched-capture delete, releasing the draft
+ * register entry — waits for it ([whenExitSettles]). Until then the note's
+ * draft provider stays registered, so a backgrounding flush still covers it.
  *
  * "Serialize" is the whole drain on Android: every tracked workflow runs inside
  * [runWork], so taking the same lock IS waiting for the in-flight one. A
@@ -99,6 +107,9 @@ internal enum class EditorExit {
 internal enum class EditorExitFailure {
     /** The editor could not hand back its current body. */
     UNFLUSHED,
+
+    /** A commit after navigation already left threw instead of answering. */
+    THREW,
 
     /** The body could not be persisted or parked. */
     BODY,
@@ -192,6 +203,9 @@ internal interface EditorExitEffects {
     fun onSucceeded() {}
 
     fun onFailed(failure: EditorExitFailure) {}
+
+    /** A commit after leaving threw; [onFailed] follows with [EditorExitFailure.THREW]. */
+    fun onCommitError(error: Exception) {}
 }
 
 /**
@@ -207,6 +221,12 @@ private data class ExitPlan(
     val commitsTitle: Boolean,
     /** Run the exit's own effect while still holding the drain lock. */
     val performsInsideDrain: Boolean,
+    /**
+     * Run the exit's own effect BEFORE the drain, then drain and commit on the
+     * session's commit scope. Only navigation: its effect removes the screen,
+     * which a drain neither needs nor can be refused by once the user has left.
+     */
+    val leavesFirst: Boolean = false,
 )
 
 private val EXIT_PLANS = mapOf(
@@ -215,12 +235,13 @@ private val EXIT_PLANS = mapOf(
     // locks interaction. It commits the title AFTER the body: the body is
     // flushed to the id the editor believes it is on, then the rename moves the
     // file. (iOS orders these the other way; see the MR that introduced this
-    // class.)
+    // class.) It leaves before either commit runs.
     EditorExit.NAVIGATE to ExitPlan(
         closes = false,
         locksInteraction = true,
         commitsTitle = true,
         performsInsideDrain = false,
+        leavesFirst = true,
     ),
     EditorExit.MOVE to ExitPlan(
         closes = false,
@@ -242,9 +263,19 @@ private val EXIT_PLANS = mapOf(
 
 internal class EditorSession(
     private val scope: CoroutineScope,
+    /**
+     * Starts the commit a navigation runs after it has left. It must outlive
+     * [scope]: the screen's composition scope is cancelled when the pop
+     * animation ends, mid-write for a slow disk. The shell passes the store's
+     * scope (`NotesStore.launchEditorLeave`), which a reopened note waits on.
+     */
+    private val launchCommit: (suspend () -> Unit) -> Job = { block -> scope.launch { block() } },
     private val onInteractionLockChanged: (Boolean) -> Unit = {},
 ) {
     private val mutex = Mutex()
+
+    /** The commit a navigation started after leaving, while it runs. */
+    private var exitCommit: Job? = null
 
     @Volatile
     private var closed = false
@@ -440,6 +471,9 @@ internal class EditorSession(
             effects.exitWithoutEditor()
             return
         }
+        // A destructive exit (delete, or a peer's delete) owns the leave. A
+        // navigation that left alongside it would pop a second screen.
+        if (plan.leavesFirst && closed) return
         if (plan.locksInteraction) {
             if (exiting) return
             exiting = true
@@ -454,6 +488,11 @@ internal class EditorSession(
         val interrupted = if (wait != null) interruptedReconciliation else null
         wait?.cancel()
         effects.prepare()
+
+        if (plan.leavesFirst) {
+            leaveThenCommit(effects, interrupted)
+            return
+        }
 
         scope.launch {
             // `succeeded` gates the unlatch in `finally` below: a completed
@@ -517,21 +556,113 @@ internal class EditorSession(
                         setInteractionLocked(false)
                     }
                     if (plan.closes) closed = false
-                    // The editor stays open: finish the reconcile this exit
-                    // interrupted — once. Back pressed again and again against
-                    // a busy page refuses again and again, and each refusal
-                    // must not stack up another reconcile behind the last.
-                    if (interrupted != null && !restartingReconciliation) {
-                        restartingReconciliation = true
-                        scope.launch {
-                            try {
-                                interrupted()
-                            } finally {
-                                restartingReconciliation = false
-                            }
-                        }
-                    }
+                    rerunInterrupted(interrupted)
                 }
+            }
+        }
+    }
+
+    /**
+     * The editor stays open: finish the reconcile this exit interrupted — once.
+     * Back pressed again and again against a busy page refuses again and again,
+     * and each refusal must not stack up another reconcile behind the last.
+     */
+    private fun rerunInterrupted(interrupted: (suspend () -> Unit)?) {
+        if (interrupted == null || restartingReconciliation) return
+        restartingReconciliation = true
+        scope.launch {
+            try {
+                interrupted()
+            } finally {
+                restartingReconciliation = false
+            }
+        }
+    }
+
+    /**
+     * Navigation's half of [end]: leave, then drain and commit.
+     *
+     * A picker round trip still in flight is awaited BEFORE leaving — its
+     * insert needs this screen's editor attachment, which leaving gives up.
+     * Then the effect runs, and the drain + commit starts on [launchCommit] in
+     * the same continuation: nothing can dispose the screen between the two,
+     * so [whenExitSettles] always sees the commit.
+     *
+     * Nothing after the effect can refuse the exit. A body or title that does
+     * not commit is reported ([EditorExitEffects.onFailed]) and left to the
+     * screen's leave work, which runs once the commit settles: the draft
+     * register keeps the unsaved body (F8) and the mailbox delivers an edit the
+     * editor had not reported yet. A commit that throws is reported the same
+     * way instead of crashing a scope the screen does not own.
+     *
+     * An attachment lost before the effect (another editor took the WebView)
+     * still commits — the body was captured while it was ours — but does not
+     * navigate, and unlatches so this editor stays usable.
+     */
+    private fun leaveThenCommit(effects: EditorExitEffects, interrupted: (suspend () -> Unit)?) {
+        scope.launch {
+            var left = false
+            try {
+                effects.awaitPendingWork()
+                if (effects.isAttached()) {
+                    left = effects.perform()
+                    if (!left) effects.onFailed(EditorExitFailure.ACTION)
+                }
+                exitCommit = launchCommit { drainAndCommit(effects) }
+                if (left) effects.onSucceeded()
+            } finally {
+                if (!left) {
+                    exiting = false
+                    setInteractionLocked(false)
+                    rerunInterrupted(interrupted)
+                }
+            }
+        }
+    }
+
+    /** Navigation's drain: mailbox → body → title, reported, never refusing. */
+    private suspend fun drainAndCommit(effects: EditorExitEffects) {
+        var failure: EditorExitFailure? = null
+        try {
+            val outcome = runWork {
+                effects.cancelPendingSave()
+                val body = effects.awaitCurrentBody()
+                if (body == null) {
+                    failure = EditorExitFailure.UNFLUSHED
+                    return@runWork
+                }
+                if (!effects.commitBody(body)) {
+                    failure = EditorExitFailure.BODY
+                    return@runWork
+                }
+                if (!effects.commitTitle()) failure = EditorExitFailure.TITLE
+            }
+            if (outcome == null) failure = EditorExitFailure.REJECTED
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            effects.onCommitError(e)
+            failure = EditorExitFailure.THREW
+        }
+        failure?.let(effects::onFailed)
+    }
+
+    /**
+     * Run [block] once the commit a navigation started after leaving has
+     * settled — at once when there is none. The screen's leave work goes
+     * through here: run while the commit is still in flight, it would write
+     * the body a second time against the same base (a spurious conflict copy),
+     * delete a quick-capture note whose first keystrokes were still in the
+     * editor, or release the draft register entry before the body is durable.
+     */
+    fun whenExitSettles(block: () -> Unit) {
+        val commit = exitCommit
+        if (commit == null || commit.isCompleted) {
+            block()
+        } else {
+            launchCommit {
+                commit.join()
+                block()
             }
         }
     }
