@@ -82,9 +82,19 @@ interface Reflow {
   lefts: Float64Array;
   widths: Float64Array;
   heights: Float64Array;
-  /** How far up each clone is drawn from its block's top (`collapsedTopMargin`),
-   * read when the clone is planned. NaN until then. */
+  /** How far up each clone is drawn from its block's top: the margin its
+   * first descendants reach out through its top with (`collapsedMargin`).
+   * NaN until read. */
   insets: Float64Array;
+  /** Each block's own top margin where it is now, and its bottom margin with
+   * its last descendants' (`marginBelow`). NaN until read. */
+  marginTops: Float64Array;
+  marginBottoms: Float64Array;
+  /** A block's own top margin at the other end of the note's first-block
+   * rule: block 0's after another block, any other block's as the first. */
+  movedMarginTops: Map<number, number>;
+  /** `moveShifts` of the gap it was last worked out for. */
+  shifts: { gap: number; value: MoveShifts } | null;
   /** The scroll-content origin (`reflowOriginTop`) as of the current step. */
   originTop: number;
   /** The editor's left edge in client coordinates (it never scrolls sideways). */
@@ -124,6 +134,16 @@ interface CurtainBox {
   width: number;
   height: number;
   background: string;
+}
+
+/** How far a previewed move shifts the blocks, by where they sit relative to
+ * it: the ones between the source and the gap, the source itself, and every
+ * one after both. The last is zero unless the blocks around the two ends have
+ * different margins (a heading's top margin is bigger than a paragraph's). */
+interface MoveShifts {
+  between: number;
+  source: number;
+  after: number;
 }
 
 interface CurtainWindowPlan {
@@ -256,6 +276,10 @@ export class ReflowCurtain {
       widths: unmeasured(),
       heights: unmeasured(),
       insets: unmeasured(),
+      marginTops: unmeasured(),
+      marginBottoms: unmeasured(),
+      movedMarginTops: new Map(),
+      shifts: null,
       originTop: this.reflowOriginTop(),
       originLeft: viewRect.left,
       sourceIndex,
@@ -378,11 +402,9 @@ export class ReflowCurtain {
     return scroller.getBoundingClientRect().top - scroller.scrollTop;
   }
 
-  /** Block `i`'s top in scroll-content coordinates; `i === count` is the
-   * bottom of the last block's slot. */
+  /** Block `i`'s top in scroll-content coordinates. */
   private slotTop(i: number): number {
     const reflow = this.reflow!;
-    if (i >= reflow.count) return this.slotTop(reflow.count - 1) + this.slotSize(reflow.count - 1);
     if (Number.isNaN(reflow.tops[i])) {
       const el = this.view.dom.children[i] as HTMLElement;
       const rect = el.getBoundingClientRect();
@@ -394,15 +416,77 @@ export class ReflowCurtain {
     return reflow.tops[i];
   }
 
-  /** Block `i` plus the gap below it: how far its neighbours move when it
-   * leaves. The last block has no gap below, so it borrows the one above. */
-  private slotSize(i: number): number {
+  /** Block `i`'s bottom edge in scroll-content coordinates; `-1` is the top
+   * of the editor's content box, the edge the first block's margin is
+   * measured from. */
+  private slotBottom(i: number): number {
+    if (i < 0) return this.slotTop(0) - this.marginAbove(0, true);
+    return this.slotTop(i) + this.reflow!.heights[i];
+  }
+
+  /** The margin block `i` keeps above itself as the note's first block
+   * (`first`) or after another one: its own, collapsed with any of its first
+   * descendants' that reach out through its top. The editor zeroes a
+   * paragraph's top margin when it is the first block (milkdownEditor.css's
+   * `:first-child` rule) but not a heading's, so a block's margin in the
+   * position it is NOT in now is read off a detached copy (`ownMarginTop`). */
+  private marginAbove(i: number, first: boolean): number {
     const reflow = this.reflow!;
-    if (i + 1 < reflow.count) return this.slotTop(i + 1) - this.slotTop(i);
-    const top = this.slotTop(i);
-    const height = reflow.heights[i];
-    if (i === 0) return height;
-    return height + Math.max(0, top - (this.slotTop(i - 1) + reflow.heights[i - 1]));
+    const el = this.view.dom.children[i] as HTMLElement;
+    if (Number.isNaN(reflow.insets[i])) reflow.insets[i] = collapsedMargin(el, 'top');
+    let own: number;
+    if (first === (i === 0)) {
+      if (Number.isNaN(reflow.marginTops[i])) {
+        reflow.marginTops[i] = parseFloat(getComputedStyle(el).marginTop) || 0;
+      }
+      own = reflow.marginTops[i];
+    } else {
+      own = reflow.movedMarginTops.get(i) ?? this.ownMarginTop(el, first);
+      reflow.movedMarginTops.set(i, own);
+    }
+    return collapse(own, reflow.insets[i]);
+  }
+
+  /** Block `i`'s bottom margin, with its last descendants' that reach out
+   * through its bottom. Nothing in the editor's stylesheet makes it depend on
+   * where the block is. */
+  private marginBelow(i: number): number {
+    const reflow = this.reflow!;
+    if (Number.isNaN(reflow.marginBottoms[i])) {
+      const el = this.view.dom.children[i] as HTMLElement;
+      reflow.marginBottoms[i] = collapse(
+        parseFloat(getComputedStyle(el).marginBottom) || 0,
+        collapsedMargin(el, 'bottom'),
+      );
+    }
+    return reflow.marginBottoms[i];
+  }
+
+  /** The space between block `a`'s bottom and block `b`'s top when `b`
+   * follows `a` (`a === -1`: `b` is the first block), as the browser lays it
+   * out: the two margins collapse into one. */
+  private spaceBetween(a: number, b: number): number {
+    if (a < 0) return this.marginAbove(b, true);
+    return collapse(this.marginBelow(a), this.marginAbove(b, false));
+  }
+
+  /** `el`'s own top margin as the first block (`first`) or after another one,
+   * read off a shallow copy in a detached, undisplayed editor box so only the
+   * stylesheet decides it. Needed at most twice a drag: only a move to or
+   * from the top of the note changes which block is first. */
+  private ownMarginTop(el: HTMLElement, first: boolean): number {
+    const probe = this.doc.createElement('div');
+    probe.className = 'ProseMirror';
+    probe.style.display = 'none';
+    if (!first) probe.appendChild(this.doc.createElement('p'));
+    const copy = el.cloneNode(false) as HTMLElement;
+    probe.appendChild(copy);
+    // Beside the editor, so the copy inherits the same font size its `em`
+    // margins resolve against.
+    (this.view.dom.parentElement ?? this.host).appendChild(probe);
+    const margin = parseFloat(getComputedStyle(copy).marginTop) || 0;
+    probe.remove();
+    return margin;
   }
 
   /** The first block index in [0, count] for which `past(i)` is false, for a
@@ -518,22 +602,59 @@ export class ReflowCurtain {
   }
 
   /** How far block `i` sits from its natural place with `gap` previewed: the
-   * blocks between the source and `gap` shift by the source's size, and the
-   * source slides to its landing slot. */
+   * blocks between the source and `gap` shift by the room the source takes,
+   * the source slides to its landing slot, and the blocks past both shift by
+   * whatever the margins around the two ends change by (`moveShifts`). */
   private reflowShift(i: number, gap: number | null): number {
     const { sourceIndex: s } = this.reflow!;
-    if (gap === null) return 0;
-    if (gap > s + 1) {
-      // The source's travel is the slots between it and the gap, which
-      // telescope to a difference of two tops.
-      if (i === s) return this.slotTop(gap) - this.slotTop(s + 1);
-      return i > s && i < gap ? -this.slotSize(s) : 0;
+    if (gap === null || gap === s || gap === s + 1) return 0;
+    const shifts = this.moveShifts(gap);
+    if (i === s) return shifts.source;
+    if (gap > s) {
+      if (i > s && i < gap) return shifts.between;
+      return i >= gap ? shifts.after : 0;
     }
-    if (gap < s) {
-      if (i === s) return this.slotTop(gap) - this.slotTop(s);
-      return i >= gap && i < s ? this.slotSize(s) : 0;
+    if (i >= gap && i < s) return shifts.between;
+    return i > s ? shifts.after : 0;
+  }
+
+  /** The shifts for moving the source to `gap`, worked out from the blocks'
+   * heights and margins exactly as the browser will lay the note out after the
+   * drop. Every gap between two blocks is their two margins collapsed into
+   * one, so the space the source leaves behind (or opens up) is not simply its
+   * height plus the gap below it: next to a heading, or at the top of the note
+   * (`marginAbove`), the margins on either side differ, and a preview built on
+   * that assumption moved the other blocks on release. */
+  private moveShifts(gap: number): MoveShifts {
+    const reflow = this.reflow!;
+    if (reflow.shifts?.gap === gap) return reflow.shifts.value;
+    const s = reflow.sourceIndex;
+    const height = (i: number) => this.slotBottom(i) - this.slotTop(i);
+    const space = (a: number, b: number) => this.spaceBetween(a, b);
+    let value: MoveShifts;
+    if (gap > s) {
+      // Down: what follows the source closes up over it, and it opens a place
+      // for itself between gap - 1 and gap.
+      const closed = space(s - 1, s) + height(s) + space(s, s + 1) - space(s - 1, s + 1);
+      const landed = this.slotBottom(gap - 1) - closed + space(gap - 1, s);
+      const opened =
+        gap < reflow.count
+          ? space(gap - 1, s) + height(s) + space(s, gap) - space(gap - 1, gap)
+          : 0;
+      value = { between: -closed, source: landed - this.slotTop(s), after: opened - closed };
+    } else {
+      // Up: the source opens a place for itself between gap - 1 and gap, and
+      // what followed it closes up over where it was.
+      const opened = space(gap - 1, s) + height(s) + space(s, gap) - space(gap - 1, gap);
+      const landed = this.slotBottom(gap - 1) + space(gap - 1, s);
+      const closed =
+        s + 1 < reflow.count
+          ? space(s - 1, s) + height(s) + space(s, s + 1) - space(s - 1, s + 1)
+          : 0;
+      value = { between: opened, source: landed - this.slotTop(s), after: opened - closed };
     }
-    return 0;
+    reflow.shifts = { gap, value };
+    return value;
   }
 
   /** Moves the curtain to the current scroll position and brings its window
@@ -559,7 +680,7 @@ export class ReflowCurtain {
       const margin = viewport * within;
       const top = this.slotTop(i) + this.reflowShift(i, reflow.applied);
       return (
-        top + this.slotSize(i) >= -reflow.originTop - margin &&
+        top + reflow.heights[i] >= -reflow.originTop - margin &&
         top <= viewport - reflow.originTop + margin
       );
     };
@@ -569,11 +690,12 @@ export class ReflowCurtain {
       const margin = viewport * within;
       const visTop = -reflow.originTop - margin;
       const visBottom = viewport - reflow.originTop + margin;
-      // Every block but the source moves by at most the source's own size, so
-      // the window's blocks are the ones within that much of it, found by a
-      // binary search — plus the source, wherever its landing slot is.
-      const reach = reflow.applied === null ? 0 : this.slotSize(sourceIndex);
-      const first = this.firstNotPast((i) => this.slotTop(i) + this.slotSize(i) + reach < visTop);
+      // Every block but the source moves by one of two shifts (`moveShifts`),
+      // so the window's blocks are the ones within the larger of them of it,
+      // found by a binary search — plus the source, wherever it lands.
+      const shifts = reflow.applied === null ? null : this.moveShifts(reflow.applied);
+      const reach = shifts ? Math.max(Math.abs(shifts.between), Math.abs(shifts.after)) : 0;
+      const first = this.firstNotPast((i) => this.slotTop(i) + reflow.heights[i] + reach < visTop);
       const out: number[] = [];
       for (let i = first; i < reflow.count && this.slotTop(i) - reach <= visBottom; i += 1) {
         if (i !== sourceIndex && !clones.has(i) && near(i, within)) out.push(i);
@@ -582,11 +704,12 @@ export class ReflowCurtain {
       return out;
     };
     add.push(...missing(viewports));
-    // Shifts the writes will ask for (the source's travel reads two slots).
+    // Everything the writes will read: the shifts (the margins and slots
+    // around both ends of the move), and the new clones' slots and insets.
     for (const i of add) {
       this.reflowShift(i, reflow.applied);
       if (Number.isNaN(reflow.insets[i])) {
-        reflow.insets[i] = collapsedTopMargin(this.view.dom.children[i] as HTMLElement);
+        reflow.insets[i] = collapsedMargin(this.view.dom.children[i] as HTMLElement, 'top');
       }
     }
     return { remove, add };
@@ -694,30 +817,38 @@ function visibleBox(el: HTMLElement): { top: number; left: number; width: number
   };
 }
 
-/** How far the top margin of `el`'s first descendants reaches out through its
- * top edge. In the document that margin collapses OUTSIDE the block (a list's
- * first item, say), so the block's top is its content's top; a clone is
- * absolutely positioned — a formatting context of its own — which keeps the
- * margin inside and would draw the content that much lower (2.5px for a list
- * on the reference phone) unless the clone is raised by it. */
-function collapsedTopMargin(el: HTMLElement): number {
+/** How far the margin of `el`'s first (`top`) or last (`bottom`) descendants
+ * reaches out through that edge. In the document that margin collapses OUTSIDE
+ * the block (a list's first item, say), so the block's top is its content's
+ * top, and the margin joins the block's own in the gap to its neighbour. A
+ * clone is absolutely positioned — a formatting context of its own — which
+ * keeps the margin inside and would draw the content that much lower (2.5px
+ * for a list on the reference phone) unless the clone is raised by it. */
+function collapsedMargin(el: HTMLElement, edge: 'top' | 'bottom'): number {
   const win = el.ownerDocument.defaultView ?? window;
+  const side = edge === 'top' ? 'Top' : 'Bottom';
   let through = 0;
   for (let n: Element = el; ;) {
     const style = win.getComputedStyle(n);
-    if (n !== el) through = Math.max(through, parseFloat(style.marginTop) || 0);
+    if (n !== el) through = collapse(through, parseFloat(style[`margin${side}`]) || 0);
     const contained =
       (style.display !== 'block' && style.display !== 'list-item') ||
       style.overflowY !== 'visible' ||
-      parseFloat(style.paddingTop) > 0 ||
-      parseFloat(style.borderTopWidth) > 0;
-    let first = n.firstChild;
-    while (first && first.nodeType === Node.TEXT_NODE && !first.textContent?.trim()) {
-      first = first.nextSibling;
+      parseFloat(style[`padding${side}`]) > 0 ||
+      parseFloat(style[`border${side}Width`]) > 0;
+    let next = edge === 'top' ? n.firstChild : n.lastChild;
+    while (next && next.nodeType === Node.TEXT_NODE && !next.textContent?.trim()) {
+      next = edge === 'top' ? next.nextSibling : next.previousSibling;
     }
-    if (contained || !(first instanceof Element)) return through;
-    n = first;
+    if (contained || !(next instanceof Element)) return through;
+    n = next;
   }
+}
+
+/** Two adjoining vertical margins as the browser collapses them into one: the
+ * largest positive plus the most negative. */
+function collapse(a: number, b: number): number {
+  return Math.max(a, b, 0) + Math.min(a, b, 0);
 }
 
 /** What the editor's text is drawn on, so the curtain hides the real blocks

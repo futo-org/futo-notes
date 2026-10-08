@@ -1248,24 +1248,29 @@ const gutterHandleTest = gutterHandleFixture('');
 const gutterHandleLineTest = gutterHandleFixture('&blockDragReflow=off');
 
 /**
- * Live-reflow state, read off the curtain's clones (their inline transform is
- * the shift they are sliding to): the previewed target gap (0..n) given the
- * blocks' texts in document order and the dragged block's index, or null when
- * the curtain is absent or nothing is shifted (the source's own gaps).
+ * Live-reflow state, read off the curtain's clones (their inline `top` plus
+ * transform is where they are sliding to): the previewed target gap (0..n)
+ * given the blocks' texts in document order and the dragged block's index, or
+ * null when the curtain is absent or the source is where it started (its own
+ * gaps). Read from the source's place in the previewed order, not from which
+ * blocks shifted: a heading moved away from the top also nudges the blocks
+ * after the gap, by the margins it takes with it.
  */
 async function reflowGap(page: Page, order: string[], source: number): Promise<number | null> {
-  const shifts = await page.evaluate(() => {
+  const tops = await page.evaluate(() => {
     const out: Record<string, number> = {};
     for (const el of document.querySelectorAll('.futo-mobile-dnd-reflow-curtain > *')) {
-      const m = /translateY\((-?[\d.]+)px\)/.exec((el as HTMLElement).style.transform);
-      out[(el.textContent ?? '').trim()] = m ? Number.parseFloat(m[1]) : 0;
+      const style = (el as HTMLElement).style;
+      const m = /translateY\((-?[\d.]+)px\)/.exec(style.transform);
+      out[(el.textContent ?? '').trim()] =
+        Number.parseFloat(style.top) + (m ? Number.parseFloat(m[1]) : 0);
     }
     return out;
   });
-  const moved = order.filter((t, i) => i !== source && Math.abs(shifts[t] ?? 0) > 0.5).length;
-  const own = shifts[order[source]] ?? 0;
-  if (Math.abs(own) <= 0.5) return null;
-  return own > 0 ? source + 1 + moved : source - moved;
+  if (!(order[source] in tops)) return null;
+  const rank = order.filter((t, i) => i !== source && tops[t] < tops[order[source]]).length;
+  if (rank === source) return null;
+  return rank > source ? rank + 1 : rank;
 }
 
 /** True while the reflow curtain is up. */
@@ -2807,23 +2812,107 @@ mobileDndTest('a cancelled drag stops the auto-scroll', async ({ page, cdp }) =>
 // screen: the user reported that after an auto-scroll the view SOMETIMES
 // jumped on release (Android, 2026-10-08).
 
-/** Where each block the user can see sits on screen, by its text: the real
- * blocks, or (`curtain`) the reflow preview's clones drawn over them. */
-function visibleBlockTops(page: Page, curtain: boolean): Promise<Record<string, number>> {
+/** Where one block's content is drawn on screen, keyed (`dragLayout`) by what
+ * it shows: the top of its first line, the bottom of its last, and its left
+ * edge. Content, not the element's box: a preview clone's box legitimately
+ * differs from the real block's by the margins its children collapse through. */
+interface LaidOutBlock {
+  top: number;
+  bottom: number;
+  left: number;
+  index: number;
+}
+
+/** What the user sees during a reflow drag, or after it: the scroll position,
+ * and every block's content keyed by its text (an image by its alt text, a
+ * rule by its tag). `curtain` reads the preview's clones — only those on
+ * screen, which is what the user is looking at — and names the lifted
+ * block's; otherwise the real blocks, all of them. */
+function dragLayout(
+  page: Page,
+  curtain: boolean,
+): Promise<{ scrollTop: number; source: string | null; blocks: Record<string, LaidOutBlock> }> {
   return page.evaluate((fromCurtain) => {
     const editor = document.querySelector('.ProseMirror[contenteditable]') as HTMLElement;
     const root = fromCurtain
       ? (document.querySelector('.futo-mobile-dnd-reflow-curtain') as HTMLElement | null)
       : editor;
     const view = editor.getBoundingClientRect();
-    const tops: Record<string, number> = {};
-    for (const block of Array.from(root?.children ?? [])) {
-      const rect = block.getBoundingClientRect();
-      if (rect.bottom <= view.top || rect.top >= view.bottom) continue;
-      tops[(block.textContent ?? '').trim()] = rect.top;
-    }
-    return tops;
+    const keyOf = (el: Element) =>
+      (el.textContent ?? '').replace(/\s+/g, ' ').trim() ||
+      el.querySelector('img')?.getAttribute('alt') ||
+      el.tagName;
+    const lineRects = (el: Element): DOMRect[] => {
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const rects: DOMRect[] = [];
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (!n.textContent?.trim()) continue;
+        const range = document.createRange();
+        range.selectNodeContents(n);
+        rects.push(...Array.from(range.getClientRects()).filter((r) => r.height > 0));
+      }
+      return rects;
+    };
+    const blocks: Record<string, { top: number; bottom: number; left: number; index: number }> = {};
+    let source: string | null = null;
+    Array.from(root?.children ?? []).forEach((block, index) => {
+      const box = block.getBoundingClientRect();
+      if (fromCurtain && (box.bottom <= view.top || box.top >= view.bottom)) return;
+      const key = keyOf(block);
+      if (block.classList.contains('futo-mobile-dnd-reflow-source')) source = key;
+      const lines = lineRects(block);
+      const drawn = block.querySelector('img, hr')?.getBoundingClientRect() ?? box;
+      blocks[key] = lines.length
+        ? {
+            top: Math.min(...lines.map((r) => r.top)),
+            bottom: Math.max(...lines.map((r) => r.bottom)),
+            left: Math.min(...lines.map((r) => r.left)),
+            index,
+          }
+        : { top: drawn.top, bottom: drawn.bottom, left: drawn.left, index };
+    });
+    return { scrollTop: editor.scrollTop, source, blocks };
   }, curtain);
+}
+
+/** The drop invariant: releasing a reflow drag moves NOTHING on screen. Every
+ * block the preview showed — the neighbours it slid out of the way and the
+ * dimmed source in its landing slot — is exactly where the real block sits
+ * once the move has committed, and the note did not scroll. `release` lets
+ * go; the returned layout is the real one after the drop. */
+async function expectDropMatchesPreview(page: Page, release: () => Promise<void>) {
+  // The preview's slide (0.18s) has finished, so the clones are at rest.
+  await page.waitForTimeout(400);
+  const preview = await dragLayout(page, true);
+  // Otherwise the comparison below could pass on an empty preview (M11).
+  expect(Object.keys(preview.blocks).length).toBeGreaterThan(3);
+  expect(preview.source, 'the lifted block is not in its landing slot').not.toBeNull();
+
+  await release();
+  await waitForMessages(page, 'change');
+  await flushFrames(page);
+  await expect(page.locator('.futo-mobile-dnd-reflow-clip')).toHaveCount(0);
+
+  const real = await dragLayout(page, false);
+  const moved: string[] = [];
+  for (const [key, shown] of Object.entries(preview.blocks)) {
+    const now = real.blocks[key];
+    const label = `"${key.slice(0, 32)}"${key === preview.source ? ' (dropped)' : ''}`;
+    if (!now) moved.push(`${label} is gone`);
+    else if (
+      Math.abs(now.top - shown.top) > 1 ||
+      Math.abs(now.bottom - shown.bottom) > 1 ||
+      Math.abs(now.left - shown.left) > 1
+    ) {
+      moved.push(
+        `${label} preview ${shown.top.toFixed(1)}..${shown.bottom.toFixed(1)} @${shown.left.toFixed(1)}` +
+          ` -> real ${now.top.toFixed(1)}..${now.bottom.toFixed(1)} @${now.left.toFixed(1)}`,
+      );
+    }
+  }
+  expect(moved, 'blocks that moved on release').toEqual([]);
+  expect(real.scrollTop, 'the note scrolled on release').toBe(preview.scrollTop);
+  return real;
 }
 
 /** A tall first block (it wraps over many lines), so a drop that shifts the
@@ -2833,29 +2922,9 @@ function tallSourceNote(): string {
   return `${TALL_BLOCK}\n\n${scrollableNote(120)}`;
 }
 
-/** Drops at `y` and asserts that what the preview showed at that moment is
- * exactly what the note shows after the drop: same scroll position, every
- * visible block at the same screen position. */
+/** Drops at `y` (a long-press drag) and holds it to the drop invariant. */
 async function dropAndExpectStill(page: Page, cdp: CDPSession, x: number, y: number) {
-  // The preview's slide (0.18s) has finished, so the clones are at rest.
-  await page.waitForTimeout(400);
-  const before = await editorScroll(page);
-  const preview = await visibleBlockTops(page, true);
-  // Otherwise the comparison below could pass on an empty intersection (M11).
-  expect(Object.keys(preview).length).toBeGreaterThan(5);
-
-  await touch(cdp, 'touchEnd', x, y);
-  await waitForMessages(page, 'change');
-  await flushFrames(page);
-
-  const after = await editorScroll(page);
-  const real = await visibleBlockTops(page, false);
-  expect(after.top).toBe(before.top);
-  const shared = Object.keys(preview).filter((text) => text in real);
-  expect(shared.length).toBeGreaterThan(5);
-  for (const text of shared) {
-    expect(real[text], `"${text.slice(0, 24)}" moved on drop`).toBeCloseTo(preview[text], 0);
-  }
+  await expectDropMatchesPreview(page, () => touch(cdp, 'touchEnd', x, y));
 }
 
 mobileDndTest(
@@ -2937,6 +3006,276 @@ mobileDndTest(
     await dropAndExpectStill(page, cdp, tall.x, middle);
   },
 );
+
+// ---- the drop invariant, across block kinds -------------------------------
+//
+// The same invariant over every top-level block kind, as the source and as the
+// neighbours it slides past, up and down, near and far, on both drag gestures.
+// The note is the one the user found the multi-line case with (desktop,
+// 2026-10-08: dragging the two-line intro paragraph down past A and B moved
+// the other blocks on release; one-line blocks did not). List items are not
+// sources here: they drag with the drop line, not the reflow preview.
+
+const DRAG_PLAYGROUND = `# Drag Playground
+
+Short, distinct blocks so it's obvious where each one lands. Long-press (mobile) or use the handle (desktop) and move things around. #editor
+
+Paragraph A — the first plain paragraph.
+
+Paragraph B — the second plain paragraph.
+
+## Heading C
+
+- List item D
+- List item E
+  - Child of E (should travel with E)
+  - Second child of E
+- List item F
+
+1. Ordered G
+2. Ordered H
+3. Ordered I
+
+- [ ] Task J
+- [x] Task K
+- [ ] Task L
+
+> Quote M
+
+\`\`\`
+Code block N
+\`\`\`
+
+| Table | O |
+|-------|---|
+| row | 1 |
+
+---
+
+Paragraph P — after the rule.
+
+![Image Q](sample-image.png)
+
+Paragraph R — the last block.
+`;
+
+/** The playground's top-level blocks, by index, as the matrix names them. */
+const PLAYGROUND_BLOCKS = [
+  'H1',
+  'intro (two lines)',
+  'Paragraph A',
+  'Paragraph B',
+  'Heading C',
+  'bullet list',
+  'ordered list',
+  'task list',
+  'quote',
+  'code',
+  'table',
+  'rule',
+  'Paragraph P',
+  'image',
+  'Paragraph R',
+];
+
+/** Narrow enough that the intro wraps to two lines, as on the user's desktop,
+ * and tall enough that the whole note is on screen: no edge auto-scroll. */
+const PLAYGROUND_VIEWPORT = { width: 760, height: 1600 };
+
+/** The box of the top-level block at `index`. */
+async function blockBoxAt(
+  page: Page,
+  index: number,
+): Promise<{ x: number; left: number; top: number; bottom: number }> {
+  const box = await page.locator('.ProseMirror[contenteditable] > *').nth(index).boundingBox();
+  if (!box) throw new Error(`no geometry for top-level block ${index}`);
+  return { x: box.x + box.width / 2, left: box.x, top: box.y, bottom: box.y + box.height };
+}
+
+/** A lifted block, whichever gesture lifted it. */
+interface LiftedBlock {
+  x: number;
+  move(y: number): Promise<void>;
+  release(): Promise<void>;
+}
+
+/** Lifts top-level block `index` off its ⠿ handle (desktop). */
+async function liftWithHandle(page: Page, index: number): Promise<LiftedBlock> {
+  const block = await blockBoxAt(page, index);
+  // Over the block's first line at its left: the handle stands for the
+  // outermost block the hovered node is a FIRST child of, so hovering a
+  // table's second column would surface (and drag) that header cell instead.
+  await page.mouse.move(block.left + 10, block.top + 4);
+  const handle = page.locator('.milkdown-block-handle[data-show="true"]');
+  await handle.waitFor({ state: 'attached' });
+  await expect
+    .poll(async () => {
+      const box = await handle.boundingBox();
+      const y = box ? box.y + box.height / 2 : -1;
+      return y >= block.top - 8 && y <= block.bottom + 8;
+    })
+    .toBe(true);
+  const box = (await handle.boundingBox())!;
+  const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await startHandleDrag(page, at);
+  let y = at.y + 20;
+  return {
+    x: at.x,
+    move: async (to) => {
+      for (let step = 1; step <= 4; step += 1) {
+        await page.mouse.move(at.x, y + ((to - y) * step) / 4);
+        await page.waitForTimeout(16);
+      }
+      y = to;
+    },
+    release: () => page.mouse.up(),
+  };
+}
+
+/** Long-presses top-level block `index` (native shells). */
+async function liftWithTouch(page: Page, cdp: CDPSession, index: number): Promise<LiftedBlock> {
+  const block = await blockBoxAt(page, index);
+  const x = block.x;
+  let y = Math.min(block.top + 12, (block.top + block.bottom) / 2);
+  await touch(cdp, 'touchStart', x, y);
+  await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+  expect((await messagesOfType(page, 'haptic')).map((m) => m.kind)).toContain('lift');
+  return {
+    x,
+    move: async (to) => {
+      for (let step = 1; step <= 4; step += 1) {
+        await touch(cdp, 'touchMove', x, y + ((to - y) * step) / 4);
+        await page.waitForTimeout(16);
+      }
+      y = to;
+    },
+    release: () => touch(cdp, 'touchEnd', x, y),
+  };
+}
+
+interface DropCase {
+  source: number;
+  /** The block the drop lands beside: after it going down, before it going up. */
+  target: number;
+}
+
+/** Sources × {up, down} × {near, far}, skipping drops off either end. */
+const DROP_CASES: DropCase[] = [0, 1, 2, 4, 8, 9, 10, 11, 13, 14].flatMap((source) =>
+  [-6, -2, 2, 6]
+    .map((offset) => ({ source, target: source + offset }))
+    .filter(({ target }) => target >= 0 && target < PLAYGROUND_BLOCKS.length),
+);
+
+function dropCaseName({ source, target }: DropCase): string {
+  const dir = target > source ? 'down' : 'up';
+  const far = Math.abs(target - source) > 2 ? 'far' : 'near';
+  return `${PLAYGROUND_BLOCKS[source]} ${dir} ${far} ${target > source ? 'after' : 'before'} ${PLAYGROUND_BLOCKS[target]}`;
+}
+
+/** Drags the case's source to its target with `lift`, and holds the drop to
+ * the invariant; also checks it landed beside the target. */
+async function runDropCase(page: Page, c: DropCase, lift: () => Promise<LiftedBlock>) {
+  const target = await blockBoxAt(page, c.target);
+  const keys = Object.keys((await dragLayout(page, false)).blocks);
+  const lifted = await lift();
+  const down = c.target > c.source;
+  // The lower quarter of the target is "after it", the upper quarter "before".
+  await lifted.move(target.top + (target.bottom - target.top) * (down ? 0.75 : 0.25));
+  const real = await expectDropMatchesPreview(page, () => lifted.release());
+  // ...and it is the move the case asked for.
+  const landed = real.blocks[keys[c.source]].index - real.blocks[keys[c.target]].index;
+  expect(landed).toBe(down ? 1 : -1);
+}
+
+/** Sources that cannot be lifted at all — lifting gaps, not reflow ones. The
+ * rule, by either gesture: a press resolves to the position BETWEEN blocks
+ * around a top-level leaf, and its line is 1px tall. The table, by the ⠿
+ * handle: the table's row grip (table/tableGrips.ts) is drawn over the handle
+ * at its first row, so the press goes to the grip. */
+const RULE = PLAYGROUND_BLOCKS.indexOf('rule');
+const TABLE = PLAYGROUND_BLOCKS.indexOf('table');
+
+for (const c of DROP_CASES) {
+  gutterHandleTest(
+    `reflow drop matches its preview (handle): ${dropCaseName(c)}`,
+    async ({ page }) => {
+      gutterHandleTest.fixme(c.source === RULE, 'a horizontal rule cannot be lifted');
+      gutterHandleTest.fixme(c.source === TABLE, "the table's row grip covers its ⠿ handle");
+      await page.setViewportSize(PLAYGROUND_VIEWPORT);
+      await hostSetContent(page, DRAG_PLAYGROUND);
+      await clearMessages(page);
+      await runDropCase(page, c, () => liftWithHandle(page, c.source));
+    },
+  );
+  mobileDndTest(
+    `reflow drop matches its preview (long press): ${dropCaseName(c)}`,
+    async ({ page, cdp }) => {
+      mobileDndTest.fixme(c.source === RULE, 'a horizontal rule cannot be lifted');
+      await page.setViewportSize(PLAYGROUND_VIEWPORT);
+      await hostSetContent(page, DRAG_PLAYGROUND);
+      await clearMessages(page);
+      await runDropCase(page, c, () => liftWithTouch(page, cdp, c.source));
+    },
+  );
+}
+
+/** The playground with enough after it to scroll. */
+const SCROLLING_PLAYGROUND = `${DRAG_PLAYGROUND}\n${scrollableNote(60)}`;
+
+/** Lifts `index`, holds the pointer in the bottom (or top) edge zone until the
+ * note has scrolled `distance` px, then parks it mid-screen and drops. */
+async function runAutoScrollDrop(
+  page: Page,
+  lift: () => Promise<LiftedBlock>,
+  direction: 'down' | 'up',
+) {
+  const start = await editorScroll(page);
+  const lifted = await lift();
+  await lifted.move(direction === 'down' ? start.bottomEdge - 12 : start.topEdge + 12);
+  await expect
+    .poll(async () => Math.abs((await editorScroll(page)).top - start.top), { timeout: 8000 })
+    .toBeGreaterThan(700);
+  await lifted.move((start.topEdge + start.bottomEdge) / 2);
+  await expectDropMatchesPreview(page, () => lifted.release());
+}
+
+const AUTO_SCROLL_VIEWPORT = { width: 760, height: 720 };
+
+/** The intro (two lines) going down, and a block from the end going up. */
+const AUTO_SCROLL_CASES = [
+  { name: 'intro (two lines) down', index: 1, direction: 'down' as const },
+  { name: 'Paragraph A down', index: 2, direction: 'down' as const },
+  { name: 'Line 55 up', index: PLAYGROUND_BLOCKS.length + 55, direction: 'up' as const },
+];
+
+for (const c of AUTO_SCROLL_CASES) {
+  const setUp = async (page: Page) => {
+    await page.setViewportSize(AUTO_SCROLL_VIEWPORT);
+    await hostSetContent(page, SCROLLING_PLAYGROUND);
+    await clearMessages(page);
+    if (c.direction === 'up') {
+      await page.evaluate(() => {
+        const dom = document.querySelector('.ProseMirror') as HTMLElement;
+        dom.scrollTop = dom.scrollHeight;
+      });
+      await flushFrames(page);
+    }
+  };
+  gutterHandleTest(
+    `reflow drop after auto-scroll matches its preview (handle): ${c.name}`,
+    async ({ page }) => {
+      await setUp(page);
+      await runAutoScrollDrop(page, () => liftWithHandle(page, c.index), c.direction);
+    },
+  );
+  mobileDndTest(
+    `reflow drop after auto-scroll matches its preview (long press): ${c.name}`,
+    async ({ page, cdp }) => {
+      await setUp(page);
+      await runAutoScrollDrop(page, () => liftWithTouch(page, cdp, c.index), c.direction);
+    },
+  );
+}
 
 mobileDndTest('a scroll gesture never lifts a block', async ({ page, cdp }) => {
   await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
