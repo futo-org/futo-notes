@@ -2025,10 +2025,13 @@ build:ios-native:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_COMMIT_TAG
 
-# Native iOS unit tests on a concrete simulator via Cirrus. This separately
+# Native iOS tests on a concrete simulator via Cirrus. This separately
 # enforces the FutoNotesNativeTests target that build:ios-native only compiles.
 # Keep this hard gate for iOS-impacting MRs and releases while the single
 # macscript runner is constrained. Other MRs retain an optional manual run.
+# MR pipelines run the unit bundle only; main pushes and tags add the 8 UI
+# tests (~3 of the ~4 minutes of testing) — testFutoNotesIOSNative in
+# .cirrus.yml owns the tiers and the per-bundle outcome arbiter.
 test:ios-native:
   stage: test
   needs: []
