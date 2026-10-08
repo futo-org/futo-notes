@@ -13,9 +13,9 @@
  *
  * No edge "+" buttons: Insert after already covers that, and fewer
  * affordances is the point (Justin's scoping decision — full Obsidian
- * Advanced Tables parity is out, see the spec Gap line).
+ * Advanced Tables parity is out, 2026-09).
  *
- * ARCHITECTURE: one `Plugin` view, mirroring `blockDropIndicator.ts` — DOM
+ * ARCHITECTURE: one `Plugin` view, mirroring `blockDragSession.ts`'s indicator — DOM
  * owned by this class, positioned `position: fixed` in viewport coordinates
  * (so no scroll compensation) and appended OUTSIDE the contenteditable
  * (`view.dom.parentNode`), for the same reason: WebKit's DOMObserver heals
@@ -66,7 +66,7 @@ import {
   rowGripRect,
   type Rect,
 } from './tableGripsGeometry';
-import { tableCellLineBreakRemark, tableCellLineBreakSerializer } from './tableLineBreak';
+import { tableCellLineBreakRemark } from './tableLineBreak';
 import { tablePasteRepair } from './tablePaste';
 
 export const tableGripsKey = new PluginKey<number>('FUTO_TABLE_GRIPS');
@@ -86,7 +86,7 @@ const MENU_ITEM_CLASS = 'futo-table-grip-menu-item';
 
 /** CSS px. Small on purpose (desktop, mouse-first) — the brief for this lane
  * notes touch targets this size are a known rough edge for fingers rather
- * than something to redesign here; see docs/spec/editor.md's Gap line. */
+ * than something to redesign here. */
 const GRIP_SIZE = 18;
 const GRIP_GAP = 4;
 /** How far past a grip's own box the pointer may wander and still count as
@@ -499,16 +499,11 @@ const tableGripsView = $prose(
 );
 
 /**
- * Everything `MilkdownEditor.svelte`'s one `.use(tableGrips)` needs to mount
- * for GFM tables: the grips view above, plus the Shift+Enter line-break
- * round-trip fix (`tableLineBreak.ts` — a different bug in the same feature
- * area, bundled here rather than adding a second `.use()` call), and the
- * table-paste repair (`tablePaste.ts`), mirroring
- * how `wikilink/index.ts` bundles its own feature's plugins under one name.
+ * Everything `editorPlugins.ts`'s one `.use(tableGrips)` needs to mount
+ * for GFM tables: the grips view above, plus the reader half of the
+ * Shift+Enter line-break round trip (`tableLineBreak.ts` — a different bug in
+ * the same feature area, bundled here rather than adding a second `.use()`
+ * call), and the table-paste repair (`tablePaste.ts`), mirroring how
+ * `wikilink/index.ts` bundles its own feature's plugins under one name.
  */
-export const tableGrips = [
-  tableGripsView,
-  tableCellLineBreakRemark,
-  tableCellLineBreakSerializer,
-  tablePasteRepair,
-].flat();
+export const tableGrips = [tableGripsView, tableCellLineBreakRemark, tablePasteRepair].flat();

@@ -30,6 +30,7 @@ import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
 import { blockFormatAtPos } from '../blockCommands';
 import { editorView } from '../caretContext';
+import { isLineBreak } from '../paragraphLines';
 import type { ImageInsertTarget } from '../../imageInsertTarget';
 import { createSlashExec } from './exec';
 import { filterSlashItems, type SlashItem } from './items';
@@ -98,14 +99,27 @@ function readOpenRun(state: EditorState): OpenRun | null {
     $head.parentOffset,
     undefined,
     // A leaf (a wikilink chip, an image) must occupy one character so the offset
-    // arithmetic below still lands on the right document position.
-    '￼',
+    // arithmetic below still lands on the right document position; a line break
+    // is a newline, because a typed line starts a run too (paragraphLines.ts).
+    (leaf) => (isLineBreak(leaf) ? '\n' : '\ufffc'),
   );
-  const found = SLASH_RUN.exec(textBefore);
+  const found = SLASH_RUN.exec(textBefore.slice(textBefore.lastIndexOf('\n') + 1));
   if (!found) return null;
 
   const query = found[1];
   return { from: $head.pos - (query.length + 1), items: filterSlashItems(query) };
+}
+
+/** Views whose `/` menu is on screen — so the keyboard's direct handlers can leave Enter to it. */
+const menusOpen = new WeakSet<ProseView>();
+
+/**
+ * Whether `view`'s `/` menu is showing. `keyboardParity.ts` claims Enter in a
+ * paragraph before any plugin sees it, so it asks this first and leaves the key
+ * to the menu, which picks the highlighted item.
+ */
+export function isSlashMenuOpen(view: ProseView): boolean {
+  return menusOpen.has(view);
 }
 
 export interface SlashMenuPlugin {
@@ -202,7 +216,7 @@ export function createSlashMenuPlugin(
             }
           },
         },
-        view: () => {
+        view: (ownerView) => {
           const menu = new SlashMenu((index) => {
             const view = editorView(getEditor());
             if (!view || !open) return;
@@ -237,10 +251,16 @@ export function createSlashMenuPlugin(
                 selected = sameRun ? Math.min(selected, run.items.length - 1) : 0;
                 dismissedFrom = null;
               }
-              if (open && open.items.length > 0) menu.render(open.items, selected);
+              if (open && open.items.length > 0) {
+                menu.render(open.items, selected);
+                menusOpen.add(view);
+              } else menusOpen.delete(view);
               provider.update(view);
             },
+            // The editor view can outlive this plugin view (a reconfigure that
+            // drops the plugin); an entry left behind would keep Enter from it.
             destroy: () => {
+              menusOpen.delete(ownerView);
               provider.destroy();
               menu.destroy();
             },

@@ -5,28 +5,31 @@
  * sequence, and exposes one function that reports what a note's bytes look like
  * after the editor has read and written them back.
  *
- * SCOPE: commonmark + gfm, which is what the compat plugins act on. It does NOT
- * mount the wikilink plugin the app also uses (#101): that reaches into
- * `$features/notes/notes.svelte` for the note index, so bundling it here would
- * mean pulling the Svelte app state into an esbuild browser bundle. Wikilink
- * round-tripping has its own differential and embed-seam coverage under
- * `src/features/editor/milkdown/wikilink/`; a note whose ONLY round-trip
- * difference is wikilink escaping therefore reads as a difference here that the
- * shipping editor does not have.
+ * SCOPE: on `compat`, every plugin of the app's chain (editorPlugins.ts) that
+ * changes what a note's bytes parse into or what a save writes — the compat
+ * presets (which install the owned serializer), the inline line-break node
+ * view, wikilinks, and a table cell's `<br>` read back as a line break — plus
+ * the core plugins below. Not what only renders, edits or decorates.
+ * Wikilinks need the app's note index, a Svelte runes module esbuild cannot
+ * bundle; `build.mjs` swaps in `noteIndexStub.ts`, an empty vault, which only
+ * changes how a link RENDERS (broken), never how it parses or saves.
  *
- * Two variants share this file so the census can measure a change rather than a
- * snapshot: `compat` is what the app ships, `baseline` is the unpatched
- * upstream preset. `milkdown-compat.canary.spec.ts` uses `baseline` to prove
- * the upstream bugs are still there — the day one is fixed upstream, its canary
+ * Two variants share this file so the census can measure a change rather than
+ * a snapshot: `compat` is what the app ships — the compat presets, which read
+ * through the parse-side fixes and write through the editor's own serializer
+ * (`@futo-notes/editor/markdown`, #266) — and `baseline` is the unpatched
+ * upstream preset, reading and writing with remark.
+ * `tests/editor-embed-milkdown-compat.spec.ts` uses `baseline` to prove the
+ * upstream bugs are still there — the day one is fixed upstream, its canary
  * fails and the corresponding local fork should be deleted.
  */
 import {
   Editor,
   defaultValueCtx,
   editorViewCtx,
-  remarkCtx,
-  remarkStringifyOptionsCtx,
+  parserCtx,
   rootCtx,
+  serializerCtx,
 } from '@milkdown/kit/core';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 import { gfm } from '@milkdown/kit/preset/gfm';
@@ -39,40 +42,14 @@ import { getMarkdown, replaceAll } from '@milkdown/kit/utils';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { Selection } from '@milkdown/kit/prose/state';
 
-import {
-  bareUrlLinkHandler,
-  commonmarkWithCompat,
-  gfmWithCompat,
-  withNarrowedEscapes,
-} from '@futo-notes/editor/milkdown-compat';
+import type { MilkdownPlugin } from '@milkdown/kit/ctx';
+
+import { commonmarkWithCompat, gfmWithCompat } from '@futo-notes/editor/milkdown-compat';
+import { softBreakView } from '../../src/features/editor/milkdown/paragraphLines';
+import { tableCellLineBreakRemark } from '../../src/features/editor/milkdown/table/tableLineBreak';
+import { wikilink } from '../../src/features/editor/milkdown/wikilink';
 
 export type CensusVariant = 'compat' | 'baseline';
-
-/**
- * The escape narrowing MilkdownEditor.svelte installs (`withNarrowedEscapes`:
- * the line-leading `#` and the intra-word `_`) and its bare-URL link handler
- * (`bareUrlLinkHandler`), applied to the `compat` variant
- * so a change to either is measured by this census the way the manual
- * requires. The `baseline` variant keeps remark-stringify's stock escapes.
- *
- * Deliberately NOT the app's `bullet: '-'`: the canary fixtures in
- * tests/editor-embed-milkdown-compat.spec.ts pin remark's stock `*` marker, and
- * the marker is spelling, not a loss class this census flags.
- */
-function configureSerializer(ctx: Parameters<Parameters<Editor['config']>[0]>[0]): void {
-  ctx.update(remarkStringifyOptionsCtx, (options) => {
-    const text = options.handlers?.text;
-    if (!text) return options;
-    return {
-      ...options,
-      handlers: {
-        ...options.handlers,
-        text: withNarrowedEscapes(text),
-        link: bareUrlLinkHandler((markdown) => ctx.get(remarkCtx).parse(markdown)),
-      },
-    };
-  });
-}
 
 /** One pass of the editor over a note: what went in, what came back out. */
 export interface RoundTrip {
@@ -84,6 +61,24 @@ export interface RoundTrip {
   /** ProseMirror's own structural comparison needs the doc, which cannot cross
    *  the page boundary — so the JSON goes instead and the driver compares that. */
   docJson: unknown;
+  /** `markdown` parsed and written again: a second save (`second_pass_unstable`). */
+  secondPass: string;
+}
+
+/**
+ * What a variant reads and writes markdown with. `compat` is the app's own
+ * (editorPlugins.ts, same order); `baseline` the unpatched upstream presets.
+ */
+function markdownPlugins(variant: CensusVariant): MilkdownPlugin[] {
+  if (variant === 'baseline') return [...commonmark, ...gfm];
+  return [
+    ...commonmarkWithCompat(),
+    // AFTER the preset, whose hardbreak node it re-registers (paragraphLines.ts).
+    softBreakView,
+    ...gfmWithCompat(),
+    ...wikilink,
+    tableCellLineBreakRemark,
+  ].flat();
 }
 
 function histogram(doc: ProseNode): Record<string, number> {
@@ -111,15 +106,12 @@ function visibleText(doc: ProseNode): string {
 async function loadOnce(variant: CensusVariant, markdown: string): Promise<RoundTrip> {
   const root = document.createElement('div');
   document.body.appendChild(root);
-  const preset = variant === 'compat' ? commonmarkWithCompat() : commonmark;
   const editor = await Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, root);
       ctx.set(defaultValueCtx, markdown);
-      if (variant === 'compat') configureSerializer(ctx);
     })
-    .use(preset)
-    .use(variant === 'compat' ? gfmWithCompat() : gfm)
+    .use(markdownPlugins(variant))
     .use(history)
     .use(listener)
     .use(clipboard)
@@ -128,13 +120,15 @@ async function loadOnce(variant: CensusVariant, markdown: string): Promise<Round
     .create();
   try {
     if (markdown !== '') editor.action(replaceAll(markdown));
-    const out = editor.action(getMarkdown());
     const doc = editor.ctx.get(editorViewCtx).state.doc;
+    const out = editor.action(getMarkdown());
+    const secondPass = editor.ctx.get(serializerCtx)(editor.ctx.get(parserCtx)(out));
     return {
       markdown: out,
       histogram: histogram(doc),
       text: visibleText(doc),
       docJson: doc.toJSON(),
+      secondPass,
     };
   } finally {
     await editor.destroy();
@@ -170,14 +164,12 @@ async function headingEditChurn(
 ): Promise<HeadingEditChurn> {
   const root = document.createElement('div');
   document.body.appendChild(root);
-  const preset = variant === 'compat' ? commonmarkWithCompat() : commonmark;
   const editor = await Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, root);
       ctx.set(defaultValueCtx, markdown);
     })
-    .use(preset)
-    .use(variant === 'compat' ? gfmWithCompat() : gfm)
+    .use(markdownPlugins(variant))
     .use(history)
     .use(listener)
     .use(clipboard)
@@ -213,14 +205,11 @@ async function headingEditChurn(
 async function pastePlainText(variant: CensusVariant, markdown: string): Promise<string> {
   const root = document.createElement('div');
   document.body.appendChild(root);
-  const preset = variant === 'compat' ? commonmarkWithCompat() : commonmark;
   const editor = await Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, root);
-      if (variant === 'compat') configureSerializer(ctx);
     })
-    .use(preset)
-    .use(variant === 'compat' ? gfmWithCompat() : gfm)
+    .use(markdownPlugins(variant))
     .use(history)
     .use(listener)
     .use(clipboard)
@@ -254,14 +243,12 @@ async function mountForIme(
 ): Promise<{ composing: () => boolean; destroy: () => Promise<void> }> {
   const root = document.createElement('div');
   document.body.appendChild(root);
-  const preset = variant === 'compat' ? commonmarkWithCompat() : commonmark;
   const editor = await Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, root);
       ctx.set(defaultValueCtx, markdown);
     })
-    .use(preset)
-    .use(variant === 'compat' ? gfmWithCompat() : gfm)
+    .use(markdownPlugins(variant))
     .use(history)
     .use(listener)
     .use(clipboard)

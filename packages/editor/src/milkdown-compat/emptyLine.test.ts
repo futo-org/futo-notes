@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { blankLineJoin, fixEmptyLinePlaceholders, restoreBlankLineParagraphs } from './emptyLine';
+import { fixEmptyLinePlaceholders, restoreBlankLineParagraphs } from './emptyLine';
 import type { MdastNode } from './mdast';
 
 /**
@@ -16,7 +16,6 @@ const at = (line: number, node: MdastNode, endLine = line): MdastNode => ({
   position: { start: { line }, end: { line: endLine } },
 });
 const para = (value: string): MdastNode => ({ type: 'paragraph', children: [text(value)] });
-const empty = (): MdastNode => ({ type: 'paragraph', children: [] });
 
 function types(node: MdastNode): string[] {
   return (node.children ?? []).map((child) => child.type);
@@ -111,42 +110,6 @@ describe('restoreBlankLineParagraphs', () => {
     const root: MdastNode = { type: 'root', children: [para('a'), para('b')] };
     restoreBlankLineParagraphs(root);
     expect(shape(root)).toBe('p p');
-  });
-});
-
-describe('blankLineJoin', () => {
-  it('asks for a single newline after an empty paragraph', () => {
-    // `a`, empty, `b` → "a" + "\n\n" + "" + "\n" + "b" = two blank lines.
-    expect(blankLineJoin(empty())).toBe(0);
-  });
-
-  it('defers to the library for everything else', () => {
-    expect(blankLineJoin(para('a'))).toBeUndefined();
-    expect(blankLineJoin({ type: 'heading', children: [text('h')] })).toBeUndefined();
-    expect(blankLineJoin({ type: 'thematicBreak' })).toBeUndefined();
-  });
-
-  it("carries a list's marker across the empty paragraphs to the next list", () => {
-    // `containerFlow` calls join(list, empty), then serializes the empty
-    // paragraph and clears bulletLastUsed, then calls join(empty, list). The
-    // second list must still see `*` so it alternates to `-`.
-    const list = { type: 'list', children: [{ type: 'listItem' }] };
-    const state = { bulletLastUsed: '*' as string | undefined };
-    expect(blankLineJoin(list, empty(), null, state)).toBeUndefined();
-    state.bulletLastUsed = undefined; // containerFlow's reset after the empty paragraph
-    expect(blankLineJoin(empty(), empty(), null, state)).toBe(0);
-    expect(blankLineJoin(empty(), list, null, state)).toBe(0);
-    expect(state.bulletLastUsed).toBe('*');
-  });
-
-  it('forgets the marker once a real block sits between the lists', () => {
-    const list = { type: 'list', children: [{ type: 'listItem' }] };
-    const state = { bulletLastUsed: '*' as string | undefined };
-    blankLineJoin(list, empty(), null, state);
-    state.bulletLastUsed = undefined;
-    expect(blankLineJoin(empty(), para('x'), null, state)).toBe(0);
-    expect(blankLineJoin(para('x'), list, null, state)).toBeUndefined();
-    expect(state.bulletLastUsed).toBeUndefined();
   });
 });
 

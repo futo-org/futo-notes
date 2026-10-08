@@ -6,6 +6,7 @@ import {
   connectPage,
   keystrokeExpression,
   measureExpression,
+  saveExpression,
   summarizeProfile,
 } from './editorDevicePerfSnippets.mjs';
 
@@ -129,6 +130,120 @@ describe('typing measurement modes', () => {
     const probe = setup(false);
     await expect(probe.run({ focused: true })).rejects.toThrow('did not take focus');
     expect(probe.calls).toEqual(['focus']);
+  });
+});
+
+describe('save measurement', () => {
+  /**
+   * A fake editor: an edit bumps the document generation and queues the
+   * debounced `change` report, which the editor posts through whatever
+   * `window.futoBridge` is at that moment (as postToHost does), delivered while
+   * the measurement waits.
+   */
+  function setup({ reports = true, readGrows = true, keepsIdentity = false, step = 1 } = {}) {
+    const calls = [];
+    const type = { create: (attrs, content, marks) => ({ type, attrs, content, marks }) };
+    let blocks = [type.create({}, null, []), type.create({}, null, [])];
+    let generation = 1;
+    let text = 'note';
+    const queued = [];
+    const view = {
+      get state() {
+        const doc = {
+          forEach: (f) => blocks.forEach(f),
+          content: { size: 8 },
+          firstChild: blocks[0],
+        };
+        const tr = {
+          meta: {},
+          insertText: () => Object.assign(tr, { kind: 'edit' }),
+          replaceWith: (_from, _to, fresh) => Object.assign(tr, { kind: 'fresh', fresh }),
+          setMeta: (key, value) => Object.assign(tr, { meta: { ...tr.meta, [key]: value } }),
+        };
+        return { doc, tr };
+      },
+      dispatch(tr) {
+        if (tr.kind === 'fresh') {
+          calls.push(`fresh blocks, addToHistory ${tr.meta.addToHistory}`);
+          if (!keepsIdentity) blocks = tr.fresh;
+          return;
+        }
+        calls.push('edit');
+        generation += 1;
+        if (readGrows) text += 'x';
+        if (reports) queued.push(generation);
+      },
+    };
+    const host = {
+      postMessage: (json) => calls.push(`reported ${JSON.parse(json).generation}`),
+    };
+    const window = {
+      __futoProseMirrorView: () => view,
+      __futoTest: {
+        documentRef: () => ({ noteId: 'note', generation }),
+        readDocument: () => {
+          calls.push('read');
+          return text;
+        },
+      },
+      futoBridge: host,
+    };
+    let clock = 0;
+    const context = {
+      window,
+      performance: { now: () => (clock += step) },
+      setTimeout: (callback) => {
+        for (const queuedGeneration of queued.splice(0)) {
+          window.futoBridge.postMessage(
+            JSON.stringify({ type: 'change', noteId: 'note', generation: queuedGeneration }),
+          );
+        }
+        callback();
+      },
+    };
+    return {
+      calls,
+      window,
+      host,
+      run: (options) => runInNewContext(saveExpression(2, options), context),
+    };
+  }
+
+  it('times a warm read after each edit, once the editor has reported the document', async () => {
+    const probe = setup();
+    const result = await probe.run();
+    // Its own edit first, so the report it waits for cannot predate the tap.
+    expect(probe.calls.slice(0, 2)).toEqual(['edit', 'reported 2']);
+    expect(probe.calls.filter((call) => call === 'read')).toHaveLength(3);
+    expect(probe.calls.some((call) => call.startsWith('fresh'))).toBe(false);
+    expect(result.warmSamplesMs).toHaveLength(2);
+    expect(result.coldSamplesMs).toEqual([]);
+    expect(probe.window.futoBridge).toBe(probe.host);
+  });
+
+  it('gives every block a fresh identity, outside the history, before each cold edit', async () => {
+    const probe = setup();
+    const result = await probe.run({ cold: true });
+    const fresh = probe.calls.filter((call) => call.startsWith('fresh'));
+    expect(fresh).toEqual(Array(2).fill('fresh blocks, addToHistory false'));
+    expect(result.coldSamplesMs).toHaveLength(2);
+    expect(result.warmSamplesMs).toEqual([]);
+  });
+
+  it('fails instead of timing a cold read against blocks the cache already holds', async () => {
+    const probe = setup({ keepsIdentity: true });
+    await expect(probe.run({ cold: true })).rejects.toThrow('kept their identity');
+  });
+
+  it('fails when a read does not carry the edit, and still restores the bridge', async () => {
+    const probe = setup({ readGrows: false });
+    await expect(probe.run()).rejects.toThrow('did not carry the edit');
+    expect(probe.window.futoBridge).toBe(probe.host);
+  });
+
+  it('fails when the editor never reports the edit', async () => {
+    const probe = setup({ reports: false, step: 1_000 });
+    await expect(probe.run()).rejects.toThrow('never reported generation 2');
   });
 });
 

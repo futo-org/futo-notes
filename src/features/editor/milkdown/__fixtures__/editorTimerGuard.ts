@@ -3,7 +3,7 @@
  * `noLeakedCtxTimers.ts` (RC-66: MR !360's `test` job failed on an unhandled
  * `ReferenceError: Element is not defined` although all 2831 tests passed).
  *
- * The mechanism: `MilkdownEditor.svelte` nudges `@milkdown/plugin-block`'s
+ * The mechanism: `blockDrag.svelte.ts` nudges `@milkdown/plugin-block`'s
  * hover handle with a synthetic `pointermove` on every selection change
  * (`nudgeBlockHandle`). The plugin runs its hit-test through a lodash-es
  * `throttle(…, 200)`, so a burst of caret moves leaves ONE trailing call

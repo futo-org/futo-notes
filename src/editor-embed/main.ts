@@ -125,7 +125,7 @@ const editor = mount(MilkdownEditor, {
       post({ type: 'formatState', active, disabled });
     },
     // The long-press block-drag path BOTH native shells mount (see
-    // MilkdownEditor.svelte / mobileBlockDnd.ts); the browser build never calls
+    // blockDrag.svelte.ts / mobileBlockDnd.ts); the browser build never calls
     // this prop — it keeps the ⠿ gutter handle.
     onhaptic: (kind: 'lift' | 'move' | 'drop') => {
       post({ type: 'haptic', kind });
@@ -218,7 +218,8 @@ if (query.has('census')) installChunkCensusHook(editor as unknown as ChunkCensus
 /* Harness probe for the editor gauntlet's Milkdown adapter
  * (tests/editor-gauntlet/milkdownAdapter.ts). It drives these exact bundle
  * bytes over file://, so a test-only build would not be the thing under test.
- * See MilkdownEditor.getProseMirrorView for why the gauntlet needs the view. */
+ * See getProseMirrorView (milkdown/hostHandle.ts) for why the gauntlet needs
+ * the view. */
 (window as unknown as { __futoProseMirrorView?: () => unknown }).__futoProseMirrorView = () =>
   editor.getProseMirrorView?.() ?? null;
 

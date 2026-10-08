@@ -21,8 +21,7 @@ import {
  * with a widget whose glyph cycled •/◦/▪ by depth, and revealed the raw `- `
  * again on the line holding the caret. Both were decorations over markdown
  * source. A real `<ul>` has neither, so the glyph-cycle test and the
- * decorated-vs-revealed indent-shift test were deleted with the engine; the
- * lost glyph cycle is recorded as a Gap in docs/spec/editor.md.
+ * decorated-vs-revealed indent-shift test were deleted with the engine.
  *
  * Pixel measurements, so these only mean anything in a real browser.
  */

@@ -1,0 +1,1910 @@
+{
+  "description": "The editor's markdown house style (docs/spec/editor.md \"Markdown house style\", #266): what a save writes for a note, as hand-reviewed {source, expected} pairs. `source` is read with the app's own parser; `doc` instead gives an editor-made document no file could produce (ProseMirror toJSON shape). Every case also asserts that `expected` reads back as the same document and writes itself again unchanged. TypeScript only: the serializer has no Rust consumer. Runner: src/features/editor/milkdown/markdownHouseStyle.test.ts.",
+  "cases": [
+    {
+      "story": 2,
+      "name": "a *** rule is written ---",
+      "source": "a\n\n***\n\nb",
+      "expected": "a\n\n---\n\nb\n"
+    },
+    {
+      "story": 2,
+      "name": "a ___ rule is written ---",
+      "source": "a\n\n___\n\nb",
+      "expected": "a\n\n---\n\nb\n"
+    },
+    {
+      "story": 2,
+      "name": "a rule on the first line is *** (--- there would open front matter that the later rule closes)",
+      "source": "***\n\ntext\n\n***\n\nmore",
+      "expected": "***\n\ntext\n\n---\n\nmore\n"
+    },
+    {
+      "story": 2,
+      "name": "a *** rule on the first line is written --- when no later line would close front matter",
+      "source": "***\n\ntext",
+      "expected": "---\n\ntext\n"
+    },
+    {
+      "story": 2,
+      "name": "a rule on the first line stays *** when a --- line in a later code block would close front matter",
+      "source": "***\n\n```\n---\n```",
+      "expected": "***\n\n```\n---\n```\n"
+    },
+    {
+      "story": 2,
+      "name": "a later ---- or --- x line is not a fence: the first-line rule is ---",
+      "source": "***\n\n```\n----\n--- x\n```",
+      "expected": "---\n\n```\n----\n--- x\n```\n"
+    },
+    {
+      "story": 2,
+      "name": "a rule after a blank first line is not on line 1: it and the rules after it are ---",
+      "source": "\n***\n\nx\n\n***\n***",
+      "expected": "\n---\n\nx\n\n---\n\n---\n"
+    },
+    {
+      "story": 16,
+      "name": "--- on line 1 closed by a later --- is front matter, blank lines in its body included",
+      "source": "---\n\ntext\n\n---\n\nmore",
+      "expected": "---\n\ntext\n\n---\n\nmore\n"
+    },
+    {
+      "story": 2,
+      "name": "an unclosed --- on line 1 is a rule, written --- (nothing later would close front matter)",
+      "source": "---\n\n- a\n\n> q",
+      "expected": "---\n\n- a\n\n> q\n"
+    },
+    {
+      "story": 2,
+      "name": "a rule as a - item's first block is ***",
+      "source": "- ***",
+      "expected": "- ***\n"
+    },
+    {
+      "story": 2,
+      "name": "a rule under a tight item's paragraph is *** (--- would be a setext underline)",
+      "source": "- a\n  ***",
+      "expected": "- a\n  ***\n"
+    },
+    {
+      "story": 3,
+      "name": "* and + bullets are written -",
+      "source": "* one\n* two\n\n+ three",
+      "expected": "- one\n- two\n\n* three\n"
+    },
+    {
+      "story": 3,
+      "name": "_ emphasis and __ strong are written * and **",
+      "source": "_it_ and __bold__ and ___both___",
+      "expected": "*it* and **bold** and ***both***\n"
+    },
+    {
+      "story": 3,
+      "name": "single and double tilde strikethrough are written ~~",
+      "source": "~one~ and ~~two~~",
+      "expected": "~~one~~ and ~~two~~\n"
+    },
+    {
+      "story": 3,
+      "name": "marks over the same text nest strikethrough outermost, then bold, then italic",
+      "source": "***~~hello~~***",
+      "expected": "~~***hello***~~\n"
+    },
+    {
+      "story": 3,
+      "name": "an italic inside a word is written with *, which opens and closes there",
+      "source": "&#x78;_a_&#x79;",
+      "expected": "x*a*y\n"
+    },
+    {
+      "story": 3,
+      "name": "two italic runs that touch are one italic run (typing Z before _b_*c*)",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a Z"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "emphasis",
+                    "attrs": {
+                      "marker": "_"
+                    }
+                  }
+                ],
+                "text": "b"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "emphasis",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ],
+                "text": "c"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "a Z*bc*\n"
+    },
+    {
+      "story": 4,
+      "name": "underscores inside words and in math are not escaped",
+      "source": "snake_case_word, $x_1$, file_name.txt and #dog_problems",
+      "expected": "snake_case_word, $x_1$, file_name.txt and #dog_problems\n"
+    },
+    {
+      "story": 4,
+      "name": "a lone underscore needs no escape",
+      "source": "a \\_ b",
+      "expected": "a _ b\n"
+    },
+    {
+      "story": 4,
+      "name": "a literal *x* keeps the one escape it needs, on the opener",
+      "source": "\\*not italic\\*",
+      "expected": "\\*not italic*\n"
+    },
+    {
+      "story": 4,
+      "name": "asterisks that cannot be emphasis stay bare",
+      "source": "2 * 3 * 4",
+      "expected": "2 * 3 * 4\n"
+    },
+    {
+      "story": 5,
+      "name": "a #tag line is not escaped",
+      "source": "#alpha #beta\ntext",
+      "expected": "#alpha #beta\ntext\n"
+    },
+    {
+      "story": 5,
+      "name": "a # that would be a heading is escaped",
+      "source": "\\# not a heading",
+      "expected": "\\# not a heading\n"
+    },
+    {
+      "story": 5,
+      "name": "#5 and C# are text",
+      "source": "#5 in C#",
+      "expected": "#5 in C#\n"
+    },
+    {
+      "story": 5,
+      "name": "1. that would be a list is escaped",
+      "source": "1\\. not a list",
+      "expected": "1\\. not a list\n"
+    },
+    {
+      "story": 5,
+      "name": "a heading's closing hashes are escaped only when they would close",
+      "source": "# a \\#\n\n# C#",
+      "expected": "# a \\#\n\n# C#\n"
+    },
+    {
+      "story": 6,
+      "name": "bare URLs and www links are written bare",
+      "source": "see https://example.com/a_b and www.example.com.",
+      "expected": "see https://example.com/a_b and www.example.com.\n"
+    },
+    {
+      "story": 6,
+      "name": "a scheme with nothing after it is not a link and needs no escape",
+      "source": "not https:// ",
+      "expected": "not https://\n"
+    },
+    {
+      "story": 6,
+      "name": "an autolink is written bare",
+      "source": "<https://example.com> and <a@b.co>",
+      "expected": "https://example.com and a@b.co\n"
+    },
+    {
+      "story": 6,
+      "name": "a URL that letters would extend stays an autolink",
+      "source": "[https://a.com](https://a.com)b",
+      "expected": "<https://a.com>b\n"
+    },
+    {
+      "story": 6,
+      "name": "an autolink whose URL holds a backslash is bare too: the literal keeps it",
+      "source": "<https://a.com/a\\.b>",
+      "expected": "https://a.com/a\\.b\n"
+    },
+    {
+      "story": 6,
+      "name": "a link with an empty label is written as its URL",
+      "source": "[](https://x.com/a)",
+      "expected": "https://x.com/a\n"
+    },
+    {
+      "story": 7,
+      "name": "single newlines stay single newlines",
+      "source": "line one\nline two\nline three",
+      "expected": "line one\nline two\nline three\n"
+    },
+    {
+      "story": 7,
+      "name": "whitespace at the end of a line is not written",
+      "source": "one \ntwo\t\nthree",
+      "expected": "one\ntwo\nthree\n"
+    },
+    {
+      "story": 7,
+      "name": "an old two-space hard break is written as a backslash",
+      "source": "one  \ntwo",
+      "expected": "one\\\ntwo\n"
+    },
+    {
+      "story": 7,
+      "name": "a backslash hard break stays",
+      "source": "one\\\ntwo",
+      "expected": "one\\\ntwo\n"
+    },
+    {
+      "story": 7,
+      "name": "a hard break in a setext heading is a space",
+      "source": "a  \nb\n===\n\nc\nd\n---",
+      "expected": "# a b\n\n## c d\n"
+    },
+    {
+      "story": 7,
+      "name": "a newline before inline HTML stays a newline",
+      "source": "Press\n<kbd>Ctrl</kbd> now",
+      "expected": "Press\n<kbd>Ctrl</kbd> now\n"
+    },
+    {
+      "story": 7,
+      "name": "bold across a line break is one run",
+      "source": "**a\nb** and **c**\n**d**",
+      "expected": "**a\nb** and **c**\n**d**\n"
+    },
+    {
+      "story": 8,
+      "name": "N empty paragraphs between blocks are N+1 blank lines",
+      "source": "a\n\n\n\nb\n\n\nc",
+      "expected": "a\n\n\n\nb\n\n\nc\n"
+    },
+    {
+      "story": 8,
+      "name": "blank lines before the first block are kept",
+      "source": "\n\n# h",
+      "expected": "\n\n# h\n"
+    },
+    {
+      "story": 8,
+      "name": "an older build's <br /> line is one empty paragraph",
+      "source": "a\n\n<br />\n\nb",
+      "expected": "a\n\n\nb\n"
+    },
+    {
+      "story": 8,
+      "name": "an inline <br> beside text stays",
+      "source": "a <br> b",
+      "expected": "a <br> b\n"
+    },
+    {
+      "story": 8,
+      "name": "empty paragraphs inside a quote",
+      "source": "> a\n>\n>\n> b",
+      "expected": "> a\n>\n>\n> b\n"
+    },
+    {
+      "story": 8,
+      "name": "an empty paragraph inside a list item, after its first paragraph",
+      "source": "- a\n\n\n  b\n- c",
+      "expected": "- a\n\n\n  b\n- c\n"
+    },
+    {
+      "story": 9,
+      "name": "a tight list stays tight",
+      "source": "- a\n- b\n  - c",
+      "expected": "- a\n- b\n  - c\n"
+    },
+    {
+      "story": 9,
+      "name": "a loose list stays loose",
+      "source": "- a\n\n- b",
+      "expected": "- a\n\n- b\n"
+    },
+    {
+      "story": 9,
+      "name": "a loose item inside a tight list keeps its blank line",
+      "source": "- a\n- b\n\n  c\n- d",
+      "expected": "- a\n- b\n\n  c\n- d\n"
+    },
+    {
+      "story": 9,
+      "name": "two paragraphs in a tight item are written tight, as two lines of one paragraph (Backspace at a nested item's start)",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "b"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n  b\n"
+    },
+    {
+      "story": 9,
+      "name": "two paragraphs and a nested list in a tight item stay tight",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "b"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "bullet_list",
+                    "attrs": {
+                      "spread": false
+                    },
+                    "content": [
+                      {
+                        "type": "list_item",
+                        "attrs": {
+                          "label": "•",
+                          "listType": "bullet",
+                          "spread": false,
+                          "checked": null
+                        },
+                        "content": [
+                          {
+                            "type": "paragraph",
+                            "content": [
+                              {
+                                "type": "text",
+                                "text": "c"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n  b\n  - c\n"
+    },
+    {
+      "story": 9,
+      "name": "two paragraphs in a tight nested item are two lines of one paragraph",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "bullet_list",
+                    "attrs": {
+                      "spread": false
+                    },
+                    "content": [
+                      {
+                        "type": "list_item",
+                        "attrs": {
+                          "label": "•",
+                          "listType": "bullet",
+                          "spread": false,
+                          "checked": null
+                        },
+                        "content": [
+                          {
+                            "type": "paragraph",
+                            "content": [
+                              {
+                                "type": "text",
+                                "text": "x"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "paragraph",
+                            "content": [
+                              {
+                                "type": "text",
+                                "text": "b"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n  - x\n    b\n"
+    },
+    {
+      "name": "the joined second line keeps the escape it needs: 1. there would start a list",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "1. b"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n  1\\. b\n"
+    },
+    {
+      "name": "a paragraph joined to the one before keeps its own empty line: the item turns loose there",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "b"
+                      },
+                      {
+                        "type": "hardbreak",
+                        "attrs": {
+                          "isInline": true
+                        }
+                      },
+                      {
+                        "type": "hardbreak",
+                        "attrs": {
+                          "isInline": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "c"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n  b\n\n  c\n"
+    },
+    {
+      "name": "a paragraph after an HTML block in a tight item keeps its blank line: the block would take the line",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "html",
+                        "attrs": {
+                          "value": "<div>x</div>"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "b"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- <div>x</div>\n\n  b\n"
+    },
+    {
+      "story": 9,
+      "name": "an empty paragraph between two blocks of a tight item makes it loose",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "bullet_list",
+                    "attrs": {
+                      "spread": false
+                    },
+                    "content": [
+                      {
+                        "type": "list_item",
+                        "attrs": {
+                          "label": "•",
+                          "listType": "bullet",
+                          "spread": false,
+                          "checked": null
+                        },
+                        "content": [
+                          {
+                            "type": "paragraph",
+                            "content": [
+                              {
+                                "type": "text",
+                                "text": "c"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph"
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "b"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n\n  - c\n\n\n  b\n"
+    },
+    {
+      "story": 10,
+      "name": "ordered items are numbered from the start",
+      "source": "1. a\n1. b\n1. c\n\n3) x\n7) y",
+      "expected": "1. a\n2. b\n3. c\n\n3) x\n4) y\n"
+    },
+    {
+      "story": 10,
+      "name": "1) numbering is written 1.",
+      "source": "1) a\n2) b",
+      "expected": "1. a\n2. b\n"
+    },
+    {
+      "story": 11,
+      "name": "a nested list is indented by its parent's marker width",
+      "source": "* a\n    * b\n\ntext\n\n10. x\n    - y\n\ntext\n\n1. p\n   1. q",
+      "expected": "- a\n  - b\n\ntext\n\n10. x\n    - y\n\ntext\n\n1. p\n   1. q\n"
+    },
+    {
+      "story": 12,
+      "name": "task items, an empty task item and an uppercase X",
+      "source": "- [ ] todo\n- [ ]\n* [X] done",
+      "expected": "- [ ] todo\n- [ ]\n\n* [x] done\n"
+    },
+    {
+      "story": 12,
+      "name": "an empty task item with a nested list",
+      "source": "- [ ]\n  - b",
+      "expected": "- [ ]\n  - b\n"
+    },
+    {
+      "story": 12,
+      "name": "a list item that starts with a block writes it on the marker line",
+      "source": "* > quote\n*\n  # heading",
+      "expected": "- > quote\n- # heading\n"
+    },
+    {
+      "story": 13,
+      "name": "a fence is one longer than the longest fence inside",
+      "source": "````\n```\ninner\n```\n````",
+      "expected": "````\n```\ninner\n```\n````\n"
+    },
+    {
+      "story": 13,
+      "name": "tilde and indented code are written with backticks",
+      "source": "~~~js\nx = 1\n~~~\n\n    indented",
+      "expected": "```js\nx = 1\n```\n\n```\nindented\n```\n"
+    },
+    {
+      "story": 13,
+      "name": "an empty fence",
+      "source": "```\n```",
+      "expected": "```\n```\n"
+    },
+    {
+      "story": 13,
+      "name": "inline code fences and padding",
+      "source": "`a` and `` b`c `` and `` `d `` and ``  e  ``",
+      "expected": "`a` and ``b`c`` and `` `d `` and `  e  `\n"
+    },
+    {
+      "story": 14,
+      "name": "table cells get one space each side, no column padding",
+      "source": "|a|b|\n|-|-|\n|1|2|\n|  long cell  |x|",
+      "expected": "| a | b |\n| --- | --- |\n| 1 | 2 |\n| long cell | x |\n"
+    },
+    {
+      "story": 14,
+      "name": "a pipe in a cell is \\|, in text and code",
+      "source": "| a \\| b | `c\\|d` |\n| --- | --- |",
+      "expected": "| a \\| b | `c\\|d` |\n| --- | --- |\n"
+    },
+    {
+      "story": 14,
+      "name": "a line break in a cell is <br>",
+      "source": "| a<br>b |\n| --- |",
+      "expected": "| a<br>b |\n| --- |\n"
+    },
+    {
+      "story": 14,
+      "name": "a line break at the end of a cell is <br> too: x<br> reads back as x and a line break",
+      "source": "| x<br> | y<br><br> |\n| --- | --- |\n| **z**<br> | a<br>b<br> |",
+      "expected": "| x<br> | y<br><br> |\n| --- | --- |\n| **z**<br> | a<br>b<br> |\n"
+    },
+    {
+      "story": 14,
+      "name": "a cell holding two or more line breaks and nothing else writes each as <br>",
+      "source": "| <br><br> | x |\n| --- | --- |\n| <br> <br> | <br><br><br> |",
+      "expected": "| <br><br> | x |\n| --- | --- |\n| <br> <br> | <br><br><br> |\n"
+    },
+    {
+      "story": 14,
+      "name": "a cell holding a single line break and nothing else is written empty: a lone <br> reads back as an empty cell",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "table",
+            "content": [
+              {
+                "type": "table_header_row",
+                "content": [
+                  {
+                    "type": "table_header",
+                    "attrs": {
+                      "colspan": 1,
+                      "rowspan": 1,
+                      "colwidth": null,
+                      "alignment": null
+                    },
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "a"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "table_header",
+                    "attrs": {
+                      "colspan": 1,
+                      "rowspan": 1,
+                      "colwidth": null,
+                      "alignment": null
+                    },
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "b"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "table_row",
+                "content": [
+                  {
+                    "type": "table_cell",
+                    "attrs": {
+                      "colspan": 1,
+                      "rowspan": 1,
+                      "colwidth": null,
+                      "alignment": null
+                    },
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "hardbreak",
+                            "attrs": {
+                              "isInline": false
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "table_cell",
+                    "attrs": {
+                      "colspan": 1,
+                      "rowspan": 1,
+                      "colwidth": null,
+                      "alignment": null
+                    },
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": " "
+                          },
+                          {
+                            "type": "hardbreak",
+                            "attrs": {
+                              "isInline": false
+                            }
+                          },
+                          {
+                            "type": "text",
+                            "text": " "
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "| a | b |\n| --- | --- |\n|  |  |\n"
+    },
+    {
+      "name": "Shift+Enter at the end of a cell's text is a <br> the save keeps",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "table",
+            "content": [
+              {
+                "type": "table_header_row",
+                "content": [
+                  {
+                    "type": "table_header",
+                    "attrs": {
+                      "colspan": 1,
+                      "rowspan": 1,
+                      "colwidth": null,
+                      "alignment": null
+                    },
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "a"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "table_row",
+                "content": [
+                  {
+                    "type": "table_cell",
+                    "attrs": {
+                      "colspan": 1,
+                      "rowspan": 1,
+                      "colwidth": null,
+                      "alignment": null
+                    },
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "x"
+                          },
+                          {
+                            "type": "hardbreak",
+                            "attrs": {
+                              "isInline": false
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "| a |\n| --- |\n| x<br> |\n"
+    },
+    {
+      "story": 14,
+      "name": "a ragged row is padded at the end",
+      "source": "| a | b |\n| --- | --- |\n| 1 |",
+      "expected": "| a | b |\n| --- | --- |\n| 1 |  |\n"
+    },
+    {
+      "story": 14,
+      "name": "a table with no body rows",
+      "source": "|a|\n|-|",
+      "expected": "| a |\n| --- |\n"
+    },
+    {
+      "story": 15,
+      "name": "alignments: unset ---, left :--, center :-:, right --:",
+      "source": "| a | b | c | d |\n|---|:--|:-:|--:|\n| 1 | 2 | 3 | 4 |",
+      "expected": "| a | b | c | d |\n| --- | :-- | :-: | --: |\n| 1 | 2 | 3 | 4 |\n"
+    },
+    {
+      "story": 16,
+      "name": "front matter is written back byte for byte",
+      "source": "---\ntags: [a, b]\ntitle: \"x*y*\"  \n\nnested:\n  - _z_\n---\n\nbody _x_",
+      "expected": "---\ntags: [a, b]\ntitle: \"x*y*\"  \n\nnested:\n  - _z_\n---\n\nbody *x*\n"
+    },
+    {
+      "story": 16,
+      "name": "a note of only front matter",
+      "source": "---\na: 1\n---",
+      "expected": "---\na: 1\n---\n"
+    },
+    {
+      "story": 17,
+      "name": "wikilinks keep their raw target",
+      "source": "[[Projects/Road map]] and [[a_b*c*]] and ![[embed]]",
+      "expected": "[[Projects/Road map]] and [[a_b*c*]] and ![[embed]]\n"
+    },
+    {
+      "story": 17,
+      "name": "a pipe in a wikilink in a cell is \\|",
+      "source": "| [[a\\|b]] |\n| --- |",
+      "expected": "| [[a\\|b]] |\n| --- |\n"
+    },
+    {
+      "story": 17,
+      "name": "text that looks like a wikilink keeps its escape",
+      "source": "\\[[not a link]]",
+      "expected": "\\[[not a link]]\n"
+    },
+    {
+      "story": 17,
+      "name": "two escapes before [[ come back as one, on the opener",
+      "source": "\\[\\[x]] **b**",
+      "expected": "\\[[x]] **b**\n"
+    },
+    {
+      "story": 18,
+      "name": "images keep their syntax and never gain a title",
+      "source": "![](image-1.png) ![alt](b.png \"T\") ![a](<c d.png>)",
+      "expected": "![](image-1.png) ![alt](b.png \"T\") ![a](<c d.png>)\n"
+    },
+    {
+      "story": 19,
+      "name": "inline and block HTML are kept exactly",
+      "source": "Press <kbd>Ctrl</kbd> <span class=\"x\">y</span>\n\n<div>\n  x\n</div>",
+      "expected": "Press <kbd>Ctrl</kbd> <span class=\"x\">y</span>\n\n<div>\n  x\n</div>\n"
+    },
+    {
+      "story": 19,
+      "name": "a multi-line inline tag keeps its indent",
+      "source": "a <span\n       b='1'>x</span>",
+      "expected": "a <span\n       b='1'>x</span>\n"
+    },
+    {
+      "story": 20,
+      "name": "an unused link reference definition is kept",
+      "source": "[unused]: https://x.com \"T\"\n\ntext",
+      "expected": "[unused]: https://x.com \"T\"\n\ntext\n"
+    },
+    {
+      "story": 20,
+      "name": "a used definition moves into its link",
+      "source": "[a][x]\n\n[x]: /u",
+      "expected": "[a](/u)\n"
+    },
+    {
+      "story": 20,
+      "name": "text that would use a kept definition keeps its escape",
+      "source": "\\[x]\n\n[x]: /u",
+      "expected": "\\[x]\n\n[x]: /u\n"
+    },
+    {
+      "story": 21,
+      "name": "trailing empty paragraphs are not written",
+      "source": "a\n\n\n\n\n",
+      "expected": "a\n"
+    },
+    {
+      "story": 22,
+      "name": "CRLF and CR are written LF, code included; front matter keeps its own line endings (story 16)",
+      "source": "---\r\na: 1\r\nb: 2\r\n---\r\n\r\nx\r\ny\r\n\r\n```\r\nc\r\n```",
+      "expected": "---\r\na: 1\r\nb: 2\r\n---\n\nx\ny\n\n```\nc\n```\n"
+    },
+    {
+      "story": 16,
+      "name": "front matter from a CR file keeps its CR line endings, fences included",
+      "source": "---\ra: 1\rb: 2\r---\r\rx",
+      "expected": "---\ra: 1\rb: 2\r---\n\nx\n"
+    },
+    {
+      "story": 16,
+      "name": "a one-line front matter body from a CRLF file gets LF fences: the parser keeps no line ending beside a fence",
+      "source": "---\r\na: 1\r\n---\r\n\r\nx",
+      "expected": "---\na: 1\n---\n\nx\n"
+    },
+    {
+      "story": 22,
+      "name": "a lone CR is a line break",
+      "source": "a\rb",
+      "expected": "a\nb\n"
+    },
+    {
+      "name": "two touching lists alternate - and *",
+      "source": "- a\n* b\n- c",
+      "expected": "- a\n\n* b\n\n- c\n"
+    },
+    {
+      "name": "lists separated only by an empty paragraph alternate",
+      "source": "- a\n\n\n* b\n\n\n1. c\n\n\n1) d",
+      "expected": "- a\n\n\n* b\n\n\n1. c\n\n\n1) d\n"
+    },
+    {
+      "name": "a list after a paragraph uses the default marker again",
+      "source": "* a\n\ntext\n\n+ b",
+      "expected": "- a\n\ntext\n\n- b\n"
+    },
+    {
+      "name": "bold whose edge is punctuation next to a letter keeps flanking",
+      "source": "**Note:**&#x62;ar",
+      "expected": "**Note:**&#x62;ar\n"
+    },
+    {
+      "name": "CJK bold ending in full-width punctuation",
+      "source": "**注意：**&#x6587;本",
+      "expected": "**注意：**&#x6587;本\n"
+    },
+    {
+      "name": "an escaped hash before bold stays escaped",
+      "source": "\\# a **b**",
+      "expected": "\\# a **b**\n"
+    },
+    {
+      "name": "entities: plain & stays bare, an entity-like literal keeps its escape",
+      "source": "AT&amp;T and \\&copy;",
+      "expected": "AT&T and \\&copy;\n"
+    },
+    {
+      "name": "spaces from references at a line's start are not written: the parser drops line-start whitespace",
+      "source": "&#x20;&#x20;a\n\n&#x20;&#x20;&#x20;&#x20;not code\n\nb\\\n&#x9;c",
+      "expected": "a\n\nnot code\n\nb\\\nc\n"
+    },
+    {
+      "story": 7,
+      "name": "a line holding only a space reference is an empty line: a paragraph break",
+      "source": "a\n&#x20;\nb",
+      "expected": "a\n\nb\n"
+    },
+    {
+      "name": "footnotes, continuation indented four",
+      "source": "x[^1] and \\[^1]\n\n[^1]: note\n  lazy\n\n    second",
+      "expected": "x[^1] and \\[^1]\n\n[^1]: note\n    lazy\n\n    second\n"
+    },
+    {
+      "name": "links: titles, spaces and balanced parentheses",
+      "source": "[a](<b c> \"t\\\"x\") [w](https://en.wikipedia.org/wiki/Foo_(bar)) [e]()",
+      "expected": "[a](<b c> \"t\\\"x\") [w](https://en.wikipedia.org/wiki/Foo_(bar)) [e]()\n"
+    },
+    {
+      "name": "Enter after \"Press \" before inline HTML: one newline, no trailing space (#263)",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Press "
+              },
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                }
+              },
+              {
+                "type": "html",
+                "attrs": {
+                  "value": "<kbd>"
+                }
+              },
+              {
+                "type": "text",
+                "text": "Ctrl"
+              },
+              {
+                "type": "html",
+                "attrs": {
+                  "value": "</kbd>"
+                }
+              },
+              {
+                "type": "text",
+                "text": " now"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "Press\n<kbd>Ctrl</kbd> now\n"
+    },
+    {
+      "story": 7,
+      "name": "an empty line typed inside a paragraph is an empty line, which the file reads as a paragraph break (#263)",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              },
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                }
+              },
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                }
+              },
+              {
+                "type": "text",
+                "text": "b"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "a\n\nb\n"
+    },
+    {
+      "story": 7,
+      "name": "two empty lines typed inside a paragraph are a paragraph break and one empty paragraph",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              },
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                }
+              },
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                }
+              },
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                }
+              },
+              {
+                "type": "text",
+                "text": "b"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "a\n\n\nb\n"
+    },
+    {
+      "story": 7,
+      "name": "a paragraph that starts with an empty line has an empty paragraph before it: two Enters at the end of one in one\\ntwo save a blank line, never &#x20;",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                }
+              },
+              {
+                "type": "text",
+                "text": "b"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "a\n\n\nb\n"
+    },
+    {
+      "story": 7,
+      "name": "a note whose first paragraph starts with an empty line starts with a blank line",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                }
+              },
+              {
+                "type": "text",
+                "text": "b"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "\nb\n"
+    },
+    {
+      "story": 7,
+      "name": "bold across an empty line closes before it and opens again after",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "strong",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ],
+                "text": "a"
+              },
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                },
+                "marks": [
+                  {
+                    "type": "strong",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                },
+                "marks": [
+                  {
+                    "type": "strong",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "strong",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ],
+                "text": "b"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "**a**\n\n**b**\n"
+    },
+    {
+      "story": 7,
+      "name": "a hard break before an empty line ends the paragraph and is not written",
+      "source": "a\\\n&#x20;\nb",
+      "expected": "a\n\nb\n"
+    },
+    {
+      "story": 7,
+      "name": "an empty line in a list item's paragraph makes two paragraphs and the item loose",
+      "source": "- a\n  &#x20;\n  b\n- c",
+      "expected": "- a\n\n  b\n- c\n"
+    },
+    {
+      "story": 7,
+      "name": "an empty line at the start of a list item is not written",
+      "source": "- &#x20;\n  b",
+      "expected": "- b\n"
+    },
+    {
+      "story": 7,
+      "name": "an empty line in a quoted paragraph is a blank > line",
+      "source": "> a\n> &#x20;\n> b",
+      "expected": "> a\n>\n> b\n"
+    },
+    {
+      "story": 7,
+      "name": "a link whose text starts or ends at a line break keeps it: that line holds the [ or the ](…)",
+      "source": "[\nb](u)\n\n- [\n  c](u)\n\n[d\n](u)\nx",
+      "expected": "[\nb](u)\n\n- [\n  c](u)\n\n[d\n](u)\nx\n"
+    },
+    {
+      "name": "spaces typed at the start or the end of a line are not written",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "  indented "
+              },
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                }
+              },
+              {
+                "type": "text",
+                "text": "\tnext  "
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "indented\nnext\n"
+    },
+    {
+      "name": "bold that starts with spaces at a line's start is written without them, never with a reference",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "  a",
+                "marks": [
+                  {
+                    "type": "strong",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "**a**\n"
+    },
+    {
+      "name": "a heading's and a cell's leading spaces are not written",
+      "source": "# &#x20;h\n\n| &#x20;x | **&#x20;y** |\n| --- | --- |",
+      "expected": "# h\n\n| x | **y** |\n| --- | --- |\n"
+    },
+    {
+      "name": "a space after formatting that opens mid-line stays a reference: that is flanking, not a line's start",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "x "
+              },
+              {
+                "type": "text",
+                "text": " a",
+                "marks": [
+                  {
+                    "type": "strong",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "x **&#x20;a**\n"
+    },
+    {
+      "name": "a link or code span at a line's start keeps its leading space: the parser keeps it there",
+      "source": "[ a](u) and\n[ b](u)\n\n` c`",
+      "expected": "[ a](u) and\n[ b](u)\n\n` c`\n"
+    },
+    {
+      "story": 12,
+      "name": "spaces after a task item's [ ] are written as typed: they follow the checkbox on the line, and the parser keeps them",
+      "source": "- [ ]  x\n- [x]   **a**\n  b",
+      "expected": "- [ ]  x\n- [x]   **a**\n  b\n"
+    },
+    {
+      "name": "a link whose text starts with a space keeps a plain space: after the bracket it is not the line's start",
+      "source": "[ _a_](u)",
+      "expected": "[ *a*](u)\n"
+    },
+    {
+      "name": "text right after an opening mark is not at the line's start: 1. and # stay bare",
+      "source": "**1. not a list** and *# not a heading*",
+      "expected": "**1. not a list** and *# not a heading*\n"
+    },
+    {
+      "name": "a line break at the end of a paragraph is not written",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              },
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                }
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "b"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "a\n\nb\n"
+    },
+    {
+      "name": "typed text that would read as syntax is escaped",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "# not a heading"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "1. not a list"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "- not a bullet"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "*not italic* and <b>"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "\\# not a heading\n\n1\\. not a list\n\n\\- not a bullet\n\n\\*not italic* and \\<b>\n"
+    },
+    {
+      "name": "bold typed against a letter after punctuation",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "strong",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ],
+                "text": "Note:"
+              },
+              {
+                "type": "text",
+                "text": "bar"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "**Note:**&#x62;ar\n"
+    },
+    {
+      "name": "bold and italic that overlap",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "strong",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ],
+                "text": "a"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "emphasis",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  },
+                  {
+                    "type": "strong",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ],
+                "text": "b"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "emphasis",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ],
+                "text": "c"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "**a*b****c*\n"
+    },
+    {
+      "name": "an empty task item made in the editor",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- [ ]\n"
+    },
+    {
+      "name": "two touching lists made in the editor",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "paragraph"
+          },
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "b"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n\n\n* b\n"
+    },
+    {
+      "name": "in a quote, a tight list is followed directly by a list or a quote (a blank > line would make it loose)",
+      "source": "> 1. a\n> - b\n> > q",
+      "expected": "> 1. a\n> - b\n> > q\n"
+    },
+    {
+      "name": "in a quote, a loose list keeps the blank line before the next list",
+      "source": "> 1. a\n>\n> - b",
+      "expected": "> 1. a\n>\n> - b\n"
+    },
+    {
+      "name": "in a quote, a tight item's paragraph after its nested list keeps the blank line it needs",
+      "source": "> - a\n>   - b\n>\n>   c",
+      "expected": "> - a\n>   - b\n>\n>   c\n"
+    },
+    {
+      "name": "a closing tag on the line after a list item is its own HTML block after the list",
+      "source": "+ a\n</grid>",
+      "expected": "- a\n\n</grid>\n"
+    },
+    {
+      "name": "an HTML block's indentation before its first tag is not written",
+      "source": "- x\n    - y\n    <details>\n         <summary>C</summary>",
+      "expected": "- x\n  - y\n  <details>\n         <summary>C</summary>\n"
+    },
+    {
+      "name": "a destination with < inside stays bare",
+      "source": "[a](x.md#<c-i>-y)",
+      "expected": "[a](x.md#<c-i>-y)\n"
+    },
+    {
+      "name": "a reference that would decode keeps its escape, one that would not stays bare",
+      "source": "| &amp;#2600; | &amp;#1F600; |\n| --- | --- |",
+      "expected": "| \\&#2600; | &#1F600; |\n| --- | --- |\n"
+    },
+    {
+      "name": "a literal backslash at the end of a line is escaped (it would be a hard break)",
+      "source": "a \\\\\nb",
+      "expected": "a \\\\\nb\n"
+    },
+    {
+      "name": "HTML that followed a tight item's paragraph on a lazy line stays lazy",
+      "source": "+ a\n</grid>\n\nnote:",
+      "expected": "- a\n</grid>\n\nnote:\n"
+    },
+    {
+      "story": 14,
+      "name": "a pipe in a link or image destination or title inside a cell is \\|",
+      "source": "| [x](u?a=\\|b \"t\\|u\") | ![i](p\\|q.png) |\n| --- | --- |",
+      "expected": "| [x](u?a=\\|b \"t\\|u\") | ![i](p\\|q.png) |\n| --- | --- |\n"
+    }
+  ]
+}

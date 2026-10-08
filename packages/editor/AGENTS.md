@@ -12,8 +12,8 @@ This package owns the sanctioned synchronous TS mirrors of Rust note rules, the 
   goldens in `tests/conformance/`.
 - `src/bridge.ts` owns bridge messages and `BRIDGE_VERSION`. A new message requires both native
   hosts (`EditorWebView.swift` and `EditorWebView.kt`); ask before a version bump.
-- `src/wellFormed.ts` owns "no lone surrogate leaves the editor" (RC-48, decision 16A): `MilkdownEditor`'s
-  `readSerialized`/the in-process desktop `getContent` and the desktop `invoke` wrapper (`src/lib/platform/tauri/invoke.ts`) write each
+- `src/wellFormed.ts` owns "no lone surrogate leaves the editor" (RC-48, decision 16A): `serializationLoop.ts`'s
+  `readSerialized`/`hostHandle.ts`'s in-process desktop `getContent` and the desktop `invoke` wrapper (`src/lib/platform/tauri/invoke.ts`) write each
   one as U+FFFD. Never call `String.prototype.toWellFormed` directly: the Android WebView floor (Chromium 80)
   and iOS 15 lack it, and the helper carries the fallback.
 - `src/toolbar.ts` owns toolbar items; execution belongs in shared `TOOLBAR_EXEC`, never a shell.
@@ -23,16 +23,17 @@ This package owns the sanctioned synchronous TS mirrors of Rust note rules, the 
 
 ## Milkdown compat plugins — the M6 carve-out
 
-`src/milkdown-compat/` fixes round-trip defects in `@milkdown/kit` 7.22.1:
-an inline `<br>` deleted with no replacement and `[](url)` losing its href — and retires the preset's `<br />`
-stand-in for an empty paragraph in favour of extra blank lines (`emptyLine.ts`,
-both the parse-side transformer and the serializer `join`; never register a
-plugin under the name `remark-preserve-empty-line`, that is what turns the tag
-back on). On the serializer side it narrows two of remark-stringify's escapes
-(`atxEscape.ts`, `underscoreEscape.ts`, installed through
-`withNarrowedEscapes` in `stringifyHandlers.ts` — by the editor AND by the
-census harness, so both write the same bytes), and scopes the presets' three
-whole-document passes to the touched blocks (`listOrder.ts`, `tablePasses.ts`,
+`src/milkdown-compat/` adapts `@milkdown/kit` 7.22.1 on the way IN — what a
+note's bytes parse into — and installs the editor's own serializer
+(`ownedSerializer.ts`, below) as Milkdown's `serializerCtx`. Nothing here
+patches remark-stringify any more: Milkdown's own serializer is never called.
+
+Parse-side repairs: an inline `<br>` deleted with no replacement and `[](url)`
+losing its href; the preset's `<br />` stand-in for an empty paragraph retired
+in favour of extra blank lines (`emptyLine.ts`, the parse-side transformer;
+never register a plugin under the name `remark-preserve-empty-line`, that is
+what turns the tag back on). The presets' three whole-document passes are
+scoped to the touched blocks (`listOrder.ts`, `tablePasses.ts`,
 `touchedRange.ts`; `gfmWithCompat()` pairs with `commonmarkWithCompat()`).
 **CommonMark decides ambiguous list syntax; there is no pre-parse bullet-number rewriting.**
 **These carry no Rust mirror.** They
@@ -49,23 +50,8 @@ ProseMirror re-dispatching that selection made Chromium drop the composition). T
 `editor-embed-milkdown-compat.spec.ts`, its real-IME tests in
 `editor-embed-milkdown-wikilinks.spec.ts`.
 
-Escaping repairs:
+From the 2026-09 release-hardening campaign (FB-4a/4b/4c), all on the parse side:
 
-- `withNarrowedEscapes` also writes an autolink's text (`<https://…>`)
-  VERBATIM — CommonMark reads no escapes inside `<…>`, and `safe()` doubled
-  its backslashes every save — and sends every run Milkdown's `text` handler
-  would return raw (`/^[^*_\\]*\s+$/`: any run ending in whitespace, which is
-  every run before a mark, link, wikilink or inline HTML) through `safe()`
-  minus its trailing whitespace. Never delegate such a run back to Milkdown's
-  handler: that shortcut is what saved `\# a **b**` as a heading and split a
-  cell on a typed `|`.
-- `attentionEncoding.ts` wraps Milkdown's `strong`/`emphasis` handlers (and
-  a restated GFM `delete`) with upstream's `encodeInfo`, so bold, italic or
-  strikethrough whose edge is punctuation next to a letter still flanks
-  (`**Note:**&#x62;ar`). When such an edge can only flank encoded, the
-  adjacent character is written as a character reference (`&#x62;`); the marker
-  is never switched (`_` to `*`), because that broke flanking next to `*` runs.
-  Installed by `attentionEncodingPlugin` in `commonmarkWithCompat()`.
 - `inlineHtmlIndent.ts` puts back the up-to-three continuation-line columns
   micromark strips from INLINE HTML. It hooks the `htmlText` token on purpose:
   by the time a tree transform runs, the preset has wrapped block HTML in a
@@ -74,19 +60,15 @@ Escaping repairs:
   validates as a string (mdast hands the parser `null`); an empty title is not
   written back, so the round trip is unchanged.
 - `emptyTaskItem.ts` reads a list item whose first paragraph is only `[ ]`/`[x]`
-  as an EMPTY task item (GFM needs text after the marker), and `listItemFiller.ts`
-  writes that marker itself for an empty task item; without the pair it saved as
-  a bare `-`.
+  as an EMPTY task item (GFM needs text after the marker); the serializer writes
+  an empty task item as `- [ ]`.
 - `listItemSpread.ts` makes an editor-made list item TIGHT: the preset defaults
   `list_item.spread` to `true` (the parser always overrides it from the source), so
   a nested list built by typing Enter then Tab saved `- b\n\n  - c` (RC-102). Placed
   after the gfm preset in `gfmWithCompat()`; parsed and pasted items are untouched.
-- The app's own `break` handler (`src/features/editor/milkdown/table/tableLineBreak.ts`)
-  writes a space where `\n` is unsafe (an ATX heading) and `<br>` before inline
-  HTML; the wikilink handler writes `|` as `\|` in a table cell.
-
-Structural repairs:
-
+- The app's table-cell `<br>` reader (`src/features/editor/milkdown/table/tableLineBreak.ts`)
+  turns a `<br>` beside text in a cell back into a line break; the wikilink
+  tokenizer reads `\|` in a table cell as `|`.
 - `linkDefinitions.ts` replaces the preset's `remarkInlineLinkPlugin`: it
   inlines a USED link reference definition exactly as upstream did, but keeps
   every unused one as its own source text (an inline `html` atom, verbatim).
@@ -95,11 +77,11 @@ Structural repairs:
   alignment unset) before ProseMirror sees it; `fixTables` padded them at the
   START and moved values under the wrong header.
 - `tableAlignment.ts` keeps a cell's missing alignment through the DOM
-  (`data-align-unset`), so a pasted table is not written `| :- |`.
-- `trailingParagraph.ts` wraps the doc serializer so the document's trailing
-  empty paragraphs (the `trailing` plugin's parked one) are not written;
-  `src/features/editor/milkdown/blockSerializer.ts` drops the same units, and
-  the two must stay byte-identical (`just chunk-census --serialize`).
+  (`data-align-unset`), so a pasted table is not written `| :-- |`.
+- `trailingParagraph.ts` answers whether a document ends in blank space its
+  own serialization does not hold — more empty paragraphs than a parse leaves,
+  or an empty last line (`endsInUnwrittenBlank`; a host `setContent` must still
+  be applied then); the serializer writes neither.
 - In `frontmatter.ts`: a parser wrapper refuses the front matter construct for
   a note with no closing fence (the construct is `concrete`, and a failed
   attempt at EOF had disabled every list and quote; canary in
@@ -109,12 +91,11 @@ Structural repairs:
 `src/milkdown-compat/frontmatter.ts` is in the same directory for the same
 reason but is an ADDITION, not a fork: the preset has no front matter construct,
 so `---\ntags: [a, b]\n---` parsed as a thematic break plus a setext heading and
-any edit wrote back `***` and `tags: \[a, b]`. The block itself has no canary — upstream
+any edit rewrote the metadata. The block itself has no canary — upstream
 is not wrong, it just does not ship the extension — and it must come after the
 preset in `commonmarkWithCompat()`, because it overrides the preset's own `doc`
 node by re-registering that id and reads the registered entry back to inherit
-everything but the content expression (only `trailingParagraph.ts`'s doc
-override, which wraps it the same way, comes later).
+everything but the content expression.
 
 Rules that do bind here:
 
@@ -134,6 +115,44 @@ Rules that do bind here:
   `just milkdown-census --variant baseline` then
   `just milkdown-census --diff build/milkdown-census/baseline`. Zero newly-raised
   flags over ~31k real notes. `tests/milkdown-census/README.md` owns the harness.
+
+## The markdown serializer — `src/markdown/` (#266)
+
+The editor's own serializer and the only one in the product: a pure function
+from the document's JSON to the bytes a save writes, in the house style of
+docs/spec/editor.md "Markdown house style". The save path keeps a per-block
+cache over it (`src/markdown/cache.ts`, built by
+`src/features/editor/milkdown/serializationLoop.ts` `createDocumentSerializer`);
+`src/milkdown-compat/ownedSerializer.ts` makes it Milkdown's `serializerCtx`,
+so `getMarkdown()` and a copy's text/plain write the same bytes
+(`just chunk-census --serialize` holds the cache equal to it). Both are handed
+the editor's own `parserCtx`.
+
+- TypeScript only, with no Rust mirror, so M6 (Rust owns note rules) does not apply:
+  the serializer writes the editor's document, which only the editor holds, and
+  decides its escaping by parsing with the editor's own parser. No Rust, Swift or
+  Kotlin code reads or writes that document, so there is no second consumer to
+  keep in step and nothing for the TS↔Rust differential to compare
+  (`tests/conformance/title-rules-differential.mjs` lists the fixture in
+  `FIXTURES_OUTSIDE_THE_DIFFERENTIAL`; tests/conformance/README.md says the same).
+- Spec line first, then a golden in `tests/conformance/markdown-house-style.json`
+  (hand-reviewed; never pasted from output), then the code. The goldens run against
+  the shipping parser in `src/features/editor/milkdown/markdownHouseStyle.test.ts`.
+- A node or mark it has no spelling for throws `UnknownNodeError` rather than being
+  skipped: a new schema node needs its writer here in the same change.
+- No `@milkdown/*` or `prosemirror-*` import, ever: the parser is injected.
+- Escaping is decided by parsing the candidate output (`choose.ts`). A pattern may
+  only decide WHEN to parse (the `plausible` sites, `obviouslyFlanks`), never what
+  to write. A layout quirk of the parser is offered as a layout site, not hard-coded,
+  unless it is measured and stated (`touches` in `blocks.ts`).
+- Output depends only on the document and the parser — no clock, no randomness —
+  and only on the document's NORMALIZED form (`normalize.ts`), which is what makes a
+  second save a no-op. The census `content_loss` detector states the same
+  normalizations independently (`tests/milkdown-census/detectors.mjs`
+  `houseDocument`): change one, change both, in the same commit.
+- Measured, not argued: `just milkdown-census` (the default `compat` variant writes
+  with this serializer) over the corpus and `--vault`; `content_loss` and
+  `second_pass_unstable` are the gates.
 
 ## Rule-change chain
 

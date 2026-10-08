@@ -36,7 +36,7 @@
  * automatically, with no new call site to remember).
  *
  * Order matters for exactly one thing: `.use()`d AFTER `@milkdown/plugin-trailing`
- * in `MilkdownEditor.svelte`, so that by the time this plugin's
+ * in `editorPlugins.ts`, so that by the time this plugin's
  * `appendTransaction` runs, a trailing empty paragraph `trailing` already
  * added is visible in `newState` and is reused rather than duplicated —
  * `EditorState.applyTransaction` resolves all plugins' `appendTransaction`s in

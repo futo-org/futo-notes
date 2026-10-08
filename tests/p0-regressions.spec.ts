@@ -87,7 +87,7 @@ test.describe('P0 Crash and IME Regressions', () => {
  * ("Blank editor surface") specifies the opposite: the tail below the final
  * line belongs to the editor and a press there places a caret.
  *
- * → src/features/editor/milkdown/MilkdownEditor.svelte `.ProseMirror`,
+ * → src/features/editor/milkdown/milkdownEditor.css `.ProseMirror`,
  *   docs/spec/editor.md "Blank editor surface"
  */
 test.describe('Empty-note caret', () => {

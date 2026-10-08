@@ -1026,6 +1026,36 @@
           "kind": "test"
         }
       ]
+    },
+    {
+      "concept": "markdown-house-normalizations",
+      "description": "What the markdown house style may change on purpose (docs/spec/editor.md \"Markdown house style\"), stated twice in TypeScript BY DESIGN: the owned serializer normalizes a document before writing it and compares parse checks through it (packages/editor/src/markdown/normalize.ts `normalizeBlock`/`canonical`), and the census `content_loss` gate states the same list independently (tests/milkdown-census/detectors.mjs `houseDocument`) so the gate never trusts the code it gates. A rule in one copy and not the other is either a gate that hides real content loss or a serializer the gate flags on every note that hits the rule. Change one, change both, in the same commit (packages/editor/AGENTS.md \"The markdown serializer\").",
+      "lockStatus": "partial",
+      "note": "PARTIAL: markdownHouseStyle.test.ts writes every golden with normalize.ts and asserts that the bytes read back as the same document under houseDocument, so a normalization the serializer applies and houseDocument lacks fails every golden that reaches it, and markdownPreFilter.test.ts does the same over random paragraphs and headings. Nothing fails when houseDocument forgives MORE than normalize.ts does (the gate loosened on its own); the census numbers moving is the only signal there.",
+      "copies": [
+        {
+          "location": "packages/editor/src/markdown/normalize.ts",
+          "pattern": "export function normalizeBlock"
+        },
+        {
+          "location": "tests/milkdown-census/detectors.mjs",
+          "pattern": "export function houseDocument"
+        }
+      ],
+      "locks": [
+        {
+          "path": "src/features/editor/milkdown/markdownHouseStyle.test.ts",
+          "kind": "test"
+        },
+        {
+          "path": "tests/conformance/markdown-house-style.json",
+          "kind": "fixture"
+        },
+        {
+          "path": "src/features/editor/milkdown/markdownPreFilter.test.ts",
+          "kind": "property test"
+        }
+      ]
     }
   ]
 }

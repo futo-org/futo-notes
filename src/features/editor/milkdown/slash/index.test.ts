@@ -17,6 +17,7 @@ import { undo } from '@milkdown/kit/prose/history';
 import type { EditorView } from '@milkdown/kit/prose/view';
 import { withoutLeakedCtxTimers } from '../__fixtures__/noLeakedCtxTimers';
 import { guardEditorTimers } from '../__fixtures__/editorTimerGuard';
+import { isSlashMenuOpen } from './index';
 
 // RC-66: no native timer may outlive a test (see the guard's header).
 guardEditorTimers();
@@ -158,5 +159,22 @@ describe('the `/` menu commits every item as one step (QA-010)', () => {
       if (node.type.name === 'code_block') codeBlockAfterUndo = node;
     });
     expect(codeBlockAfterUndo).toBeNull();
+  });
+});
+
+describe('isSlashMenuOpen', () => {
+  it('forgets a view once the menu plugin is gone from it, so Enter is the editor’s again', async () => {
+    const view = await mountEditor();
+    type(view, '/');
+    expect(isSlashMenuOpen(view)).toBe(true);
+
+    // The plugin view is destroyed while the editor view lives on.
+    const plugins = view.state.plugins.filter(
+      (plugin) => !(plugin as unknown as { key: string }).key.startsWith('futoBlockMenu_SLASH'),
+    );
+    expect(plugins).toHaveLength(view.state.plugins.length - 1);
+    view.updateState(view.state.reconfigure({ plugins }));
+
+    expect(isSlashMenuOpen(view)).toBe(false);
   });
 });

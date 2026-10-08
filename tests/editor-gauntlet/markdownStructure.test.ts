@@ -26,31 +26,47 @@ function snapshot(source: string, kind: 'bold' = 'bold'): EditorSnapshot {
 }
 
 describe('editor gauntlet markdown structure oracle', () => {
-  it('rejects Enter that leaves one inline mark spanning a soft line break', () => {
-    const result = checkSemanticIntent(snapshot('**alp\nha beta**'), {
-      kind: 'bold',
-      styledText: ['alp', 'ha beta'],
-      visibleText: ['alp', 'ha', 'beta'],
-      topology: 'split-paragraphs',
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.structureErrors).toContain('expected 2 semantic node(s), found 1');
-  });
-
-  it('accepts Enter only when both pieces are marked in distinct paragraphs', () => {
-    const source = '**alp**\n\n**ha beta**';
+  it('accepts Enter that carries one inline mark across the new line', () => {
+    const source = '**alp\nha beta**';
     const rendered = snapshot(source);
-    rendered.visibleText = 'alp\n\nha beta';
+    rendered.visibleText = 'alp\nha beta';
 
     expect(
       checkSemanticIntent(rendered, {
         kind: 'bold',
-        styledText: ['alp', 'ha beta'],
+        styledText: ['alp\nha beta'],
         visibleText: ['alp', 'ha', 'beta'],
-        topology: 'split-paragraphs',
+        topology: 'split-lines',
       }),
     ).toMatchObject({ ok: true, structureErrors: [] });
+  });
+
+  it('rejects Enter that splits the run into separate paragraphs', () => {
+    const result = checkSemanticIntent(snapshot('**alp**\n\n**ha beta**'), {
+      kind: 'bold',
+      styledText: ['alp\nha beta'],
+      visibleText: ['alp', 'ha', 'beta'],
+      topology: 'split-lines',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.structureErrors).toEqual(
+      expect.arrayContaining([
+        'expected 1 semantic node(s), found 2',
+        'semantic nodes are not lines of one paragraph',
+      ]),
+    );
+  });
+
+  it('rejects a run that never got its line break', () => {
+    const result = checkSemanticIntent(snapshot('**alpha beta**'), {
+      kind: 'bold',
+      styledText: ['alpha beta'],
+      visibleText: ['alpha', 'beta'],
+      topology: 'split-lines',
+    });
+
+    expect(result.structureErrors).toContain('semantic run has no line break');
   });
 
   it('rejects a Backspace join that leaves the marks in separate paragraphs', () => {

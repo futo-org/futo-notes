@@ -622,7 +622,9 @@ test('Backspace at the start of a nested item keeps its indentation', async ({ p
   await caretAtStartOf(page, 'b');
   await page.keyboard.press('Backspace');
   await settled(page);
-  expect((await getContent(page)).trimEnd()).toBe('- a\n\n  b');
+  // The item now holds two paragraphs, which the house style writes tight, as
+  // two lines of one paragraph (docs/spec/editor.md "Lists").
+  expect((await getContent(page)).trimEnd()).toBe('- a\n  b');
 });
 
 test('a second Backspace on that continuation paragraph joins it with the previous block', async ({
@@ -662,7 +664,9 @@ test('Backspace on a nested item with a following sibling leaves the sibling nes
   await page.keyboard.press('Backspace');
   await settled(page);
   const content = (await getContent(page)).trimEnd();
-  expect(content).toBe('- a\n\n  b\n  - c');
+  // Two paragraphs in a row in a tight item are written as two lines of one
+  // paragraph, and the item stays tight (docs/spec/editor.md "Lists").
+  expect(content).toBe('- a\n  b\n  - c');
 });
 
 test('Backspace on a nested item with a PRECEDING sibling joins the sibling instead of "a"', async ({
@@ -675,7 +679,7 @@ test('Backspace on a nested item with a PRECEDING sibling joins the sibling inst
   await page.keyboard.press('Backspace');
   await settled(page);
   const content = (await getContent(page)).trimEnd();
-  expect(content).toBe('- a\n  - x\n\n    b');
+  expect(content).toBe('- a\n  - x\n    b');
 });
 
 // ============================================================
@@ -807,22 +811,20 @@ test('a pipe typed in a table cell survives a pause after a trailing space', asy
   ).toEqual(['c x | y', 'd']);
 });
 
-test('a line typed after Shift+Enter that starts with "# " stays in the paragraph', async ({
+test('a line of a paragraph that starts with an escaped "# " stays in the paragraph', async ({
   page,
 }) => {
-  await open(page, 'Notes');
-  await caretAtEndOf(page, 'Notes');
-  await page.keyboard.press('Shift+Enter');
-  await page.keyboard.type('# not a heading ');
+  // Typing `# ` at the start of a line makes a heading (the line-start
+  // shortcut), so the line comes from the file, escaped as text.
+  await openAtEnd(page, 'Notes\n\\# not a heading');
+  await page.keyboard.type(' ');
   await page.keyboard.press('ControlOrMeta+b');
   await page.keyboard.type('bold');
   await settled(page);
   const saved = await getContent(page);
   await reopen(page, saved);
   expect(await page.locator('.ProseMirror h1').count(), saved).toBe(0);
-  expect(await page.locator('.ProseMirror p').first().textContent(), saved).toBe(
-    'Notes# not a heading bold',
-  );
+  expect(await paragraphLines(page), saved).toEqual(['Notes\n# not a heading bold']);
 });
 
 test('"&amp;" typed before bold is still "&amp;" after a reopen', async ({ page }) => {
@@ -839,22 +841,25 @@ test('"&amp;" typed before bold is still "&amp;" after a reopen', async ({ page 
   );
 });
 
-test('Shift+Enter in an H4 never adds a backslash to the heading', async ({ page }) => {
-  // An ATX heading is one line. The break handler wrote `\` + newline there,
-  // which ended the heading: it reopened as `Plan\` plus a paragraph.
+test('Shift+Enter at the end of a heading starts a paragraph, as Enter does', async ({ page }) => {
+  // It used to insert a hard break in the heading, written `\` + newline,
+  // which ended the heading and left a stray backslash.
   await open(page, '#### Plan');
   await caretAtEndOf(page, 'Plan');
   await page.keyboard.press('Shift+Enter');
   await page.keyboard.type('next');
   await settled(page);
   const saved = await getContent(page);
-  expect(saved).not.toContain('\\');
-  await reopen(page, saved);
-  expect(await page.locator('.ProseMirror h4').allTextContents(), saved).toEqual(['Plan next']);
-  expect(await page.locator('.ProseMirror p').count(), saved).toBe(0);
+  expect(saved).toBe('#### Plan\n\nnext\n');
 });
 
-test('Shift+Enter directly before inline HTML keeps the break and adds no backslash', async ({
+// remark-stringify would not end a line in front of an inline HTML node (it
+// could open an HTML block, syntax-tree/mdast-util-to-markdown#15) and wrote a
+// space instead, so the newline was lost. `<kbd>` cannot open a block that
+// interrupts a paragraph, and the editor's own serializer (#266) writes the
+// newline. The space before it is not written: whitespace at a line's end
+// never is.
+test('Enter directly before inline HTML keeps the newline and adds no backslash', async ({
   page,
 }) => {
   await open(page, 'Press <kbd>Ctrl</kbd> now');
@@ -871,11 +876,9 @@ test('Shift+Enter directly before inline HTML keeps the break and adds no backsl
       getSelection()?.addRange(range);
     }),
   );
-  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.press('Enter');
   await settled(page);
-  const saved = await getContent(page);
-  // `\` + space is a literal backslash on one line; `<br>` is the break.
-  expect(saved).toBe('Press <br><kbd>Ctrl</kbd> now\n');
+  expect(await getContent(page)).toBe('Press\n<kbd>Ctrl</kbd> now\n');
 });
 
 /** Select the first `length` characters of the first paragraph, as a mouse drag would. */
@@ -936,7 +939,9 @@ test('a letter typed before an underscore emphasis followed by a `*` run keeps b
   const saved = await getContent(page);
   expect(saved).not.toContain('**');
   await reopen(page, saved);
-  expect(await page.locator('.ProseMirror p em').allTextContents(), saved).toEqual(['b', 'c']);
+  // Both letters stay italic. The two touching runs, `_` then `*`, are written
+  // as one (docs/spec/editor.md "Markdown house style").
+  expect(await page.locator('.ProseMirror p em').allTextContents(), saved).toEqual(['bc']);
 });
 
 // ============================================================
@@ -1032,7 +1037,7 @@ for (const [name, typed, src, alt, title, rendered] of [
     await expect(image).toHaveAttribute('alt', alt);
     if (title) await expect(image).toHaveAttribute('title', title);
     const saved = await getContent(page);
-    expect(saved).toBe(`Notes\n\n${typed}\n`);
+    expect(saved).toBe(`Notes\n${typed}\n`);
     // And the saved bytes reopen as the same image.
     await reopen(page, saved);
     await expect(page.locator(`.ProseMirror img[data-futo-src="${src}"]`)).toHaveCount(1);
@@ -1056,7 +1061,7 @@ test('a typed image converts in the middle of a sentence and keeps the text arou
 }) => {
   await typeAfterNotes(page, 'see ![alt](https://example.com/a.png) here');
   await expect(page.locator(IMAGES)).toHaveCount(1);
-  expect(await getContent(page)).toBe('Notes\n\nsee ![alt](https://example.com/a.png) here\n');
+  expect(await getContent(page)).toBe('Notes\nsee ![alt](https://example.com/a.png) here\n');
 });
 
 test('one Ctrl+Z after the typed image converts undoes it, like another rule does', async ({
@@ -1075,9 +1080,7 @@ test('one Ctrl+Z after the typed image converts undoes it, like another rule doe
   await expect(page.locator(IMAGES)).toHaveCount(1);
   await page.keyboard.press('ControlOrMeta+z');
   await expect(page.locator(IMAGES)).toHaveCount(0);
-  expect(await page.locator('.ProseMirror p').last().textContent()).toBe(
-    '![alt](https://example.com/a.png',
-  );
+  expect(await lastLine(page)).toBe('![alt](https://example.com/a.png');
 
   // Control: the strong rule, same shape.
   await page.keyboard.press('Enter');
@@ -1087,7 +1090,7 @@ test('one Ctrl+Z after the typed image converts undoes it, like another rule doe
   await expect(page.locator('.ProseMirror p strong')).toHaveText('bold');
   await page.keyboard.press('ControlOrMeta+z');
   await expect(page.locator('.ProseMirror p strong')).toHaveCount(0);
-  expect(await page.locator('.ProseMirror p').last().textContent()).toBe('**bold*');
+  expect(await lastLine(page)).toBe('**bold*');
 });
 
 test('a typed image does not convert inside inline code', async ({ page }) => {
@@ -1096,7 +1099,7 @@ test('a typed image does not convert inside inline code', async ({ page }) => {
   await expect(page.locator('.ProseMirror p code').last()).toHaveText(
     '![alt](https://example.com/a.png)',
   );
-  expect(await getContent(page)).toBe('Notes\n\n`![alt](https://example.com/a.png)`\n');
+  expect(await getContent(page)).toBe('Notes\n`![alt](https://example.com/a.png)`\n');
 });
 
 test('a typed image does not convert inside an existing code span', async ({ page }) => {
@@ -1136,17 +1139,13 @@ test('an escaped `\\![alt](…)` typed in a paragraph stays text', async ({ page
   const saved = await getContent(page);
   await reopen(page, saved);
   await expect(page.locator(IMAGES)).toHaveCount(0);
-  expect(await page.locator('.ProseMirror p').last().textContent(), saved).toBe(
-    '\\![alt](https://example.com/a.png)',
-  );
+  expect(await lastLine(page), saved).toBe('\\![alt](https://example.com/a.png)');
 });
 
 test('a typed plain link `[a](b)` is not turned into an image or a link', async ({ page }) => {
   await typeAfterNotes(page, '[a](https://example.com)');
   await expect(page.locator(IMAGES)).toHaveCount(0);
-  expect(await page.locator('.ProseMirror p').last().textContent()).toBe(
-    '[a](https://example.com)',
-  );
+  expect(await lastLine(page)).toBe('[a](https://example.com)');
 });
 
 // ============================================================
@@ -1195,4 +1194,315 @@ test('a LOOSE file keeps its blank lines after the same edit', async ({ page }) 
   await page.keyboard.type('!');
   await settled(page);
   expect(await getContent(page)).toBe('- item a\n\n- item b\n\n  - nested c!\n');
+});
+
+// ============================================================
+// Paragraphs and lines — Enter is a newline (docs/spec/editor.md "Paragraphs
+// and lines", #263). Each case asserts only two things: the bytes the editor
+// would save, and what the reader sees.
+// ============================================================
+
+/** The visible text of the editor's top-level paragraphs, a `<br>` read as a newline. */
+function paragraphLines(page: Page): Promise<string[]> {
+  return page
+    .locator('.ProseMirror > p')
+    .evaluateAll((paragraphs) =>
+      paragraphs.map((paragraph) => (paragraph as HTMLElement).innerText.replace(/\n$/, '')),
+    );
+}
+
+/**
+ * Moves the caret `count` characters left, and waits until ProseMirror has
+ * read the move: arrow keys move only the DOM caret, which ProseMirror learns
+ * from an async `selectionchange`, so a key pressed straight after would be
+ * handled against the old caret (see `withCaretObserved`).
+ */
+async function caretBack(page: Page, count: number): Promise<void> {
+  for (let i = 0; i < count - 1; i += 1) await page.keyboard.press('ArrowLeft');
+  await withCaretObserved(page, () => page.keyboard.press('ArrowLeft'));
+}
+
+/** The visible last line of the last paragraph: what was typed after the last Enter. */
+async function lastLine(page: Page): Promise<string | undefined> {
+  return (await paragraphLines(page)).at(-1)?.split('\n').at(-1);
+}
+
+/** Opens `text` with the caret at the end of the document. */
+async function openAtEnd(page: Page, text: string): Promise<void> {
+  await open(page, text);
+  await page.locator('.ProseMirror').click();
+  await page.keyboard.press('ControlOrMeta+End');
+}
+
+test('one Enter writes one newline, and the next line shows under the first', async ({ page }) => {
+  await openAtEnd(page, 'one');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('two');
+  await settled(page);
+  expect(await getContent(page)).toBe('one\ntwo\n');
+  expect(await paragraphLines(page)).toEqual(['one\ntwo']);
+});
+
+test('two Enters end the paragraph: one blank line', async ({ page }) => {
+  await openAtEnd(page, 'one');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('two');
+  await settled(page);
+  expect(await getContent(page)).toBe('one\n\ntwo\n');
+  expect(await paragraphLines(page)).toEqual(['one', 'two']);
+});
+
+test('three Enters leave an empty paragraph: two blank lines', async ({ page }) => {
+  await openAtEnd(page, 'one');
+  for (let i = 0; i < 3; i += 1) await page.keyboard.press('Enter');
+  await page.keyboard.type('two');
+  await settled(page);
+  expect(await getContent(page)).toBe('one\n\n\ntwo\n');
+});
+
+test('Shift+Enter is Enter: one newline, then a paragraph break, never a backslash', async ({
+  page,
+}) => {
+  await openAtEnd(page, 'one');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('two');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('three');
+  await settled(page);
+  expect(await getContent(page)).toBe('one\ntwo\n\nthree\n');
+});
+
+test('Backspace at the start of a line joins it to the line above', async ({ page }) => {
+  await openAtEnd(page, 'one');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('two');
+  await caretBack(page, 'two'.length);
+  await page.keyboard.press('Backspace');
+  await settled(page);
+  expect(await getContent(page)).toBe('onetwo\n');
+});
+
+test('Backspace after two Enters takes back one of them, not both', async ({ page }) => {
+  await openAtEnd(page, 'one');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('two');
+  await caretBack(page, 'two'.length);
+  await page.keyboard.press('Backspace');
+  await settled(page);
+  expect(await getContent(page)).toBe('one\ntwo\n');
+  expect(await paragraphLines(page)).toEqual(['one\ntwo']);
+});
+
+test('Delete at the end of a paragraph joins the next one as a line', async ({ page }) => {
+  await open(page, 'one\n\ntwo');
+  await caretAtEndOf(page, 'one');
+  await page.keyboard.press('Delete');
+  await settled(page);
+  expect(await getContent(page)).toBe('one\ntwo\n');
+});
+
+/**
+ * Puts the caret `offset` characters into the first text node that holds
+ * exactly `text` — a line of a paragraph, which `getByText` cannot address.
+ */
+async function caretInText(page: Page, text: string, offset: number): Promise<void> {
+  await withCaretObserved(page, () =>
+    page.evaluate(
+      ([wanted, at]) => {
+        const root = document.querySelector('.ProseMirror');
+        if (!root) throw new Error('no editor');
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          if (node.textContent === wanted) {
+            getSelection()?.collapse(node, at);
+            return;
+          }
+        }
+        throw new Error(`no text node "${wanted}"`);
+      },
+      [text, offset] as const,
+    ),
+  );
+}
+
+test('Enter at the end of a line with a line below leaves one blank line between them', async ({
+  page,
+}) => {
+  await open(page, 'one\ntwo');
+  await caretInText(page, 'one', 'one'.length);
+  await page.keyboard.press('Enter');
+  await settled(page);
+  expect(await paragraphLines(page)).toEqual(['one\n\ntwo']);
+  expect(await getContent(page)).toBe('one\n\ntwo\n');
+});
+
+test('two Enters at the end of a line with a line below leave an empty line: two blank lines', async ({
+  page,
+}) => {
+  // The second Enter splits the paragraph, so the line below starts with a
+  // line break (the empty line). The save writes it as an empty line, never
+  // as a character reference.
+  await open(page, 'one\ntwo');
+  await caretInText(page, 'one', 'one'.length);
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await settled(page);
+  expect(await paragraphLines(page)).toEqual(['one', '\ntwo']);
+  expect(await getContent(page)).toBe('one\n\n\ntwo\n');
+});
+
+test('Backspace under a line that ends in a newline takes back one newline', async ({ page }) => {
+  await open(page, 'one\n\ntwo');
+  await caretInText(page, 'one', 'one'.length);
+  await page.keyboard.press('Enter');
+  await caretInText(page, 'two', 0);
+  await page.keyboard.press('Backspace');
+  await settled(page);
+  expect(await paragraphLines(page)).toEqual(['one\ntwo']);
+  expect(await getContent(page)).toBe('one\ntwo\n');
+});
+
+test('Delete on an empty last line joins the next paragraph onto it', async ({ page }) => {
+  await open(page, 'one\n\ntwo');
+  await caretInText(page, 'one', 'one'.length);
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Delete');
+  await settled(page);
+  expect(await paragraphLines(page)).toEqual(['one\ntwo']);
+  expect(await getContent(page)).toBe('one\ntwo\n');
+});
+
+test('bold typed across an Enter stays one bold run', async ({ page }) => {
+  await openAtEnd(page, 'start');
+  await page.keyboard.type(' ');
+  await page.keyboard.press('ControlOrMeta+b');
+  await page.keyboard.type('one');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('two');
+  await settled(page);
+  const saved = await getContent(page);
+  expect(saved).toBe('start **one\ntwo**\n');
+  await reopen(page, saved);
+  expect(await page.locator('.ProseMirror strong').count(), saved).toBe(1);
+});
+
+test('a file with single newlines opens on separate lines and is not rewritten', async ({
+  page,
+}) => {
+  await open(page, 'hey man\nyes');
+  expect(await paragraphLines(page)).toEqual(['hey man\nyes']);
+  expect(await getContent(page)).toBe('hey man\nyes');
+});
+
+test('undo after an Enter takes back exactly that newline', async ({ page }) => {
+  await openAtEnd(page, 'one');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('ControlOrMeta+z');
+  await settled(page);
+  expect(await paragraphLines(page)).toEqual(['one']);
+  expect(await getContent(page)).toBe('one');
+});
+
+test('Enter at the end of a heading still starts a paragraph', async ({ page }) => {
+  await open(page, '# Title');
+  await caretAtEndOf(page, 'Title');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('body');
+  await settled(page);
+  expect(await getContent(page)).toBe('# Title\n\nbody\n');
+});
+
+test('Enter in a blockquote still splits its paragraph', async ({ page }) => {
+  await open(page, '> quote');
+  await caretAtEndOf(page, 'quote');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('more');
+  await settled(page);
+  expect(await getContent(page)).toBe('> quote\n>\n> more\n');
+});
+
+test('Enter in a code block is still a newline in the code', async ({ page }) => {
+  await open(page, '```\ncode\n```');
+  await withCaretObserved(page, () =>
+    page.evaluate(() => {
+      const text = document.querySelector('.ProseMirror pre code')?.firstChild;
+      if (!text) throw new Error('no code text');
+      getSelection()?.collapse(text, 'code'.length);
+    }),
+  );
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('more');
+  await settled(page);
+  expect(await getContent(page)).toBe('```\ncode\nmore\n```\n');
+});
+
+test('Shift+Enter in a list item continues the list, as Enter does', async ({ page }) => {
+  await open(page, '- a');
+  await caretAtEndOf(page, 'a');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('b');
+  await settled(page);
+  expect(await getContent(page)).toBe('- a\n- b\n');
+});
+
+test('Shift+Enter in a table cell is still a line break in that cell, and moves no row', async ({
+  page,
+}) => {
+  await open(page, SMALL_TABLE);
+  await caretAtEndOf(page, 'c');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('more');
+  await settled(page);
+  expect(await page.locator('.ProseMirror tr').count()).toBe(2);
+  expect(await page.locator('.ProseMirror tr').nth(1).locator('td').first().innerText()).toBe(
+    'c\nmore',
+  );
+  const saved = await getContent(page);
+  expect(saved.split('\n').filter((line) => line !== '')).toHaveLength(3);
+  expect(saved).toContain('| c<br>more | d |');
+});
+
+test('"- " typed at the start of a line starts a list from that line', async ({ page }) => {
+  await openAtEnd(page, 'Shopping:');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('- milk');
+  await settled(page);
+  expect(await getContent(page)).toBe('Shopping:\n\n- milk\n');
+  expect(await page.locator('.ProseMirror > p').first().innerText()).toBe('Shopping:');
+  expect(await page.locator('.ProseMirror li').allInnerTexts()).toEqual(['milk']);
+});
+
+test('"# " typed at the start of a line makes that line a heading', async ({ page }) => {
+  await openAtEnd(page, 'one\ntwo');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('# Next');
+  await settled(page);
+  expect(await getContent(page)).toBe('one\ntwo\n\n# Next\n');
+});
+
+test('"|2x2| " typed at the start of a line makes a table from that line', async ({ page }) => {
+  await openAtEnd(page, 'one');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('|2x2| ');
+  await settled(page);
+  // The line above stays a paragraph of its own (the empty one after the
+  // table is the caret's landing place under a last-block table).
+  expect((await paragraphLines(page))[0]).toBe('one');
+  expect(await page.locator('.ProseMirror table').count()).toBe(1);
+  expect(await getContent(page)).toMatch(/^one\n\n\|/);
+});
+
+test('a block format from the toolbar lands on the caret line only', async ({ page }) => {
+  await openAtEnd(page, 'one\ntwo\nthree');
+  await withCaretObserved(page, () => page.keyboard.press('ArrowUp'));
+  await page.evaluate(() =>
+    (
+      window as unknown as FakeHostWindow & { FutoEditor: { exec(id: string): void } }
+    ).FutoEditor.exec('bullet-list'),
+  );
+  await settled(page);
+  expect(await getContent(page)).toBe('one\n\n- two\n\nthree\n');
 });

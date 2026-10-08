@@ -44,11 +44,15 @@ export function checkSemanticIntent(snapshot: EditorSnapshot, intent: SemanticIn
     );
   }
   const paragraphIds = new Set(parsedNodes.map((node) => node.paragraph));
-  if (
-    intent.topology === 'split-paragraphs' &&
-    (hasUnownedNode || paragraphIds.size !== expectedText.length)
-  ) {
-    structureErrors.push('semantic nodes are not split across distinct paragraphs');
+  if (intent.topology === 'split-lines') {
+    if (hasUnownedNode || paragraphIds.size !== 1) {
+      structureErrors.push('semantic nodes are not lines of one paragraph');
+    }
+    const first = parsedNodes[0];
+    const last = parsedNodes.at(-1);
+    if (first && last && !snapshot.source.slice(first.from, last.to).includes('\n')) {
+      structureErrors.push('semantic run has no line break');
+    }
   }
   if (intent.topology === 'joined-contiguous') {
     if (hasUnownedNode || paragraphIds.size !== 1) {

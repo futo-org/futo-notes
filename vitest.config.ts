@@ -13,6 +13,7 @@ export default defineConfig({
       'src/**/*.test.ts',
       'scripts/**/*.test.mjs',
       'tests/lib/**/*.test.mjs',
+      'tests/milkdown-census/**/*.test.mjs',
       'tests/editor-gauntlet/**/*.test.ts',
       // Throwaway probes and benchmarks. vitest's `include` is a filter even
       // when you pass an explicit path, so a scratch file outside these globs

@@ -10,6 +10,8 @@ import {
 } from '@milkdown/kit/prose/state';
 import { Mapping, type Step } from '@milkdown/kit/prose/transform';
 
+import { onSelectedLines } from './paragraphLines';
+
 /**
  * The block kinds a single line can be, plus
  * `code` for the one block whose lines can carry NO markdown prefix at all.
@@ -441,8 +443,16 @@ function transitionRuns(target: (current: BlockFormat) => BlockFormat): Command 
   };
 }
 
-/** List buttons toggle; heading levels, Text and Quote are explicit choices. */
+/**
+ * List buttons toggle; heading levels, Text and Quote are explicit choices.
+ * Each lands on the typed LINES the selection touches, not on every line of a
+ * multi-line paragraph (paragraphLines.ts `onSelectedLines`).
+ */
 export function blockCommand(command: BlockCommandId): Command {
+  return onSelectedLines(unscopedBlockCommand(command));
+}
+
+function unscopedBlockCommand(command: BlockCommandId): Command {
   switch (command) {
     case 'heading-1':
       return setBlockFormat({ kind: 'heading', level: 1 });
@@ -465,7 +475,11 @@ export function blockCommand(command: BlockCommandId): Command {
   }
 }
 
-/** Set a format; heading/Text changes leave enclosing quotes in place. */
+/**
+ * Set a format; heading/Text changes leave enclosing quotes in place. Not
+ * line-scoped here: its one caller, the `/` menu, runs every pick through
+ * commandRunner.ts `runAfterDelete`, which scopes it to the selected lines.
+ */
 export function setBlockFormat(target: BlockFormat): Command {
   return transitionRuns((current) => (current.kind === 'code' ? current : target));
 }

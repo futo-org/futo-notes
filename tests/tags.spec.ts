@@ -9,8 +9,7 @@ import { EDITOR, editorMarkdown, openNewNote } from './lib/desktopEditor';
  * with the CodeMirror engine. Hiding the leading `#a #b` line was a decoration
  * over markdown source; the WYSIWYG editor renders it as ordinary text, so a
  * note's tags currently show twice on desktop — as pills and as the literal
- * first line. That is recorded as a Gap in docs/spec/editor.md, and asserting
- * the old behaviour here would contradict it.
+ * first line, and asserting the old behaviour here would contradict that.
  */
 
 async function seedNote(page: Page, id: string, body: string): Promise<void> {
@@ -131,7 +130,8 @@ test.describe('Tag System', () => {
   // through `EditorApi.applyEdit`, which re-SERIALIZES the whole document, and
   // remark-stringify used to escape every `_` — so `#dog_problems` came back
   // as `#dog\_problems`, which is no tag at all, and both pills disappeared.
-  // packages/editor/src/milkdown-compat/underscoreEscape.ts is the fix.
+  // The editor's own serializer escapes a `_` only where a parse says it
+  // would open emphasis (packages/editor/src/markdown/).
   test('Tag input normalizes case and spaces before creating', async ({ page }) => {
     await openNewNote(page);
     await seedNote(page, 'normalize tag test', '#Whale\n\nSome note content here.');

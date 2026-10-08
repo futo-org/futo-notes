@@ -28,10 +28,12 @@
  * the report, and is not in this repo — the corpus is real user notes.
  *
  * `--serialize` runs a DIFFERENT equivalence claim over the same corpus and
- * page harness: `blockSerializer.ts`'s per-top-level-block serialization
- * cache (the fix for the whole-document `getMarkdown()` cost on a settled
- * edit, docs/plan/milkdown-transition.md "Gate run, real app, 2026-09-06")
- * must produce the SAME bytes as Milkdown's own serializer called directly.
+ * page harness: the save path's per-top-level-block serialization cache
+ * (`createDocumentSerializer` in serializationLoop.ts, the fix for the
+ * whole-document `getMarkdown()` cost on a settled edit, docs/plan/
+ * milkdown-transition.md "Gate run, real app, 2026-09-06") must produce the
+ * SAME bytes as the editor's serializer (`@futo-notes/editor/markdown`)
+ * writing the whole document, which is what `getMarkdown()` returns.
  * It drives `window.__futoSerializeCensus` (chunkCensusHook.ts) instead of
  * `window.__futoChunkCensus`, and defaults its report to
  * `build/serialize-census/report.md` rather than `build/chunk-census/report.md`.
@@ -132,8 +134,8 @@ async function openCensusPage(browser, serialize) {
 }
 
 /**
- * The `--serialize` census: does `blockSerializer.ts`'s per-block cache
- * produce the same bytes as Milkdown's own serializer, over the same corpus
+ * The `--serialize` census: does the save path's per-block cache produce the
+ * same bytes as the editor's whole-document serialization, over the same corpus
  * and page harness as the chunk-equivalence census above? Split out rather
  * than interleaved with `main()`'s chunk-census loop because the two share
  * only the corpus reader and the worker pages — the verdict, stats, and
@@ -154,6 +156,13 @@ async function runSerializeCensus(args, workers, browser) {
       return;
     }
     stats.notes += 1;
+    /* null is a serializer that threw (or no editor): two of them are not a
+     * match, and counting them as one would pass a note nothing could write. */
+    if (result.whole === null || result.blocks === null) {
+      stats.failed += 1;
+      divergences.push({ index: note.index, kind: 'no-serialization', detail: 'null' });
+      return;
+    }
     if (result.whole === result.blocks) {
       stats.equal += 1;
       return;
@@ -193,7 +202,7 @@ async function runSerializeCensus(args, workers, browser) {
     '',
     `Corpus: \`${path.basename(args.corpus)}\` — note CONTENT is never recorded here.`,
     `Bundle: \`build/native-editor/editor.html\` (rebuilt this run: ${!args.skipBuild}).`,
-    `Claim: a FRESH BlockSerializer's serialize() of a note equals Milkdown's own serializer called directly on the same document.`,
+    `Claim: a FRESH per-block cache's serialize() of a note equals the editor's serializerCtx (the owned serializer) called directly on the same document.`,
     '',
     '| Metric | Count |',
     '|---|---:|',
@@ -301,6 +310,12 @@ async function main() {
     } else {
       stats.declined += 1;
     }
+    /* null is a serializer that threw: never a match (see the serialize census). */
+    if (result.whole === null || result.chunked === null) {
+      stats.failed += 1;
+      divergences.push({ index: note.index, kind: 'no-serialization', detail: 'null' });
+      return;
+    }
     if (result.whole === result.chunked) {
       stats.equal += 1;
       return;
@@ -368,9 +383,9 @@ async function main() {
         'not an equivalence result, so those notes are excluded from the counts above.'
       : '',
     '',
-    'The equivalence claim is against the plugin chain THIS BUNDLE SHIPS. The compat plugin set ' +
-      '(issue #99) is not in it yet, so re-run this after #99 lands — the acceptance criterion for ' +
-      'issue #105 asks for equivalence under the final chain.',
+    'The equivalence claim is against the plugin chain THIS BUNDLE SHIPS: the compat presets ' +
+      '(issue #99), which read through the parse-side fixes and write with the editor’s own ' +
+      'serializer (#266). Re-run it after any change to that chain.',
     '',
   ].join('\n');
 

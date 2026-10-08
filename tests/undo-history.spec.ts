@@ -13,7 +13,7 @@ import { EDITOR, editorMarkdown, waitForEditor, waitForMarkdown } from './lib/de
  *
  * The convenience half — each note remembering its own history across a round
  * trip — is GONE with the CodeMirror engine's per-note state stash
- * (`noteHistory.ts`), and is recorded as a Gap in docs/spec/editor.md. The five
+ * (`noteHistory.ts`). The five
  * tests that locked it were deleted with the feature rather than inverted:
  * asserting that undo does nothing would pin the loss in place.
  */

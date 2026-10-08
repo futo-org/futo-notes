@@ -10,7 +10,7 @@
  * whatever link that parse finds — its extent, with GFM's trailing-punctuation
  * trim, and its href, `http://` added for `www.` — is the link applied. So
  * "a link now" and "a link after reopening" cannot disagree, and the file keeps
- * the bare URL the user typed (packages/editor/src/milkdown-compat/bareUrl.ts).
+ * the bare URL the user typed (docs/spec/editor.md "Markdown house style").
  *
  * An `appendTransaction` rather than a Space input rule and an Enter keymap:
  * it sees the result of the edit however it arrived — a key, a phone keyboard's
@@ -28,7 +28,9 @@ import {
 } from '@milkdown/kit/prose/state';
 import { $prose } from '@milkdown/kit/utils';
 
-import type { ParsedNode, ParseMarkdown } from '@futo-notes/editor';
+import type { MdastNode } from '@futo-notes/editor/milkdown-compat';
+
+import { isLineBreak } from './paragraphLines';
 
 export const autolinkKey = new PluginKey('FUTO_AUTOLINK');
 
@@ -37,7 +39,7 @@ const URL_HINT = /https?:\/\/|www\./i;
 
 /** One character per inline leaf, so string offsets stay document offsets;
  * a hard break reads as the line break it is. */
-const leafText = (node: ProseNode): string => (node.type.name === 'hardbreak' ? '\n' : '￼');
+const leafText = (node: ProseNode): string => (isLineBreak(node) ? '\n' : '\ufffc');
 
 /**
  * Where the word that this edit ended stops, or null if it ended none: the
@@ -64,8 +66,11 @@ function endedWordAt(state: EditorState, previous: EditorState): number | null {
   return lineEnd.empty && lineEnd.from < $caret.pos ? lineEnd.from : null;
 }
 
+/** Markdown in, mdast out — the editor's own remark processor's `parse`. */
+type ParseToMdast = (markdown: string) => MdastNode;
+
 /** The first link in a parsed tree, with its source offsets. */
-function firstLink(node: ParsedNode): { url: string; start: number; end: number } | null {
+function firstLink(node: MdastNode): { url: string; start: number; end: number } | null {
   if (node.type === 'link') {
     const start = node.position?.start.offset;
     const end = node.position?.end.offset;
@@ -84,7 +89,7 @@ function firstLink(node: ParsedNode): { url: string; start: number; end: number 
 export function autolinkTransaction(
   state: EditorState,
   end: number,
-  parse: ParseMarkdown,
+  parse: ParseToMdast,
 ): Transaction | null {
   const { link, inlineCode } = state.schema.marks;
   if (!link) return null;

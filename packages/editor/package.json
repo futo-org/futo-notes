@@ -7,14 +7,14 @@
   "exports": {
     ".": "./src/index.ts",
     "./bridge": "./src/bridge.ts",
-    "./milkdown-compat": "./src/milkdown-compat/index.ts"
+    "./milkdown-compat": "./src/milkdown-compat/index.ts",
+    "./markdown": "./src/markdown/index.ts"
   },
   "scripts": {
     "build:editor": "vite build --config ../../vite.editor.config.ts",
     "test": "vitest run"
   },
   "dependencies": {
-    "mdast-util-to-markdown": "2.1.2",
     "remark-frontmatter": "5.0.0"
   },
   "devDependencies": {

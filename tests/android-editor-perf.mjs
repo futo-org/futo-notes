@@ -15,6 +15,10 @@
  *   under the same 1s budget at real-note sizes. A `content-visibility`
  *   containment rule used to stall it for seconds (docs/spec/editor.md,
  *   Performance); this is what keeps that from coming back.
+ * - the SAVE at 1k and 10k lines, in its own section: `getContent()`, the
+ *   serialization the change notification runs on the 200 ms debounce, timed
+ *   against a primed per-block cache (warm p95 under one frame) and an empty one
+ *   (cold — the whole document; no cliff between the two sizes).
  *
  * The budgets and policies live in tests/lib/editorDevicePerf.mjs (unit
  * tested); this file is the device glue. Measurements run INSIDE the app's
@@ -31,6 +35,7 @@
  * Usage:
  *   export ANDROID_SERIAL=<the claimed phone>   # adb devices -l
  *   just test-android-perf                      # builds + installs first
+ *   node tests/android-editor-perf.mjs          # the app already installed, as is
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -45,10 +50,12 @@ import {
   DEVICE_BUDGET,
   blockFixture,
   evaluateDeviceFloor,
+  evaluateSaveCost,
   lineFixture,
+  median,
   percentile95,
 } from './lib/editorDevicePerf.mjs';
-import { connectPage, measureExpression } from './lib/editorDevicePerfSnippets.mjs';
+import { connectPage, measureExpression, saveExpression } from './lib/editorDevicePerfSnippets.mjs';
 
 /**
  * Flags, parsed once and strictly: an unrecognised argument fails the run
@@ -82,6 +89,12 @@ const NOTE_FILE = `${NOTE_TITLE}.md`;
  */
 const KEYSTROKE_SAMPLES = 25;
 const KEYSTROKE_SAMPLES_PATHOLOGICAL = 8;
+/**
+ * Save samples per state per fixture. Each waits out the 200 ms change debounce
+ * for the editor's report, and a cold one serializes the whole document, so
+ * this is the run's slowest loop per sample; 20 puts p95 on the second-worst.
+ */
+const SAVE_SAMPLES = 20;
 const REPORT_DIR = 'tests/editor-gauntlet/local';
 const LOCAL_NOTE_PATH = path.join(REPORT_DIR, 'device-perf-note.md');
 
@@ -112,8 +125,18 @@ const LOCAL_NOTE_PATH = path.join(REPORT_DIR, 'device-perf-note.md');
 // a phone's CDP socket measures the socket more than the editor.
 function fixturePlan() {
   const plan = [
-    { name: '1000-lines-blocks', openPolicy: { kind: 'hard' }, build: () => blockFixture(1_000) },
-    { name: '10000-lines-blocks', openPolicy: { kind: 'hard' }, build: () => blockFixture(10_000) },
+    {
+      name: '1000-lines-blocks',
+      openPolicy: { kind: 'hard' },
+      save: {},
+      build: () => blockFixture(1_000),
+    },
+    {
+      name: '10000-lines-blocks',
+      openPolicy: { kind: 'hard' },
+      save: { reference: '1000-lines-blocks' },
+      build: () => blockFixture(10_000),
+    },
   ];
   const realNote = resolveRealNote();
   if (realNote) {
@@ -219,6 +242,30 @@ function requireSerial() {
   }
 }
 
+/**
+ * Both save states (`saveSnippet`) on the fixture that is loaded. Warm first: it
+ * waits on the editor's own priming after the open and the keystroke loop. A
+ * failure is recorded, not thrown — evaluateSaveCost scores it.
+ */
+async function measureSave(cdp, fixture, lines) {
+  try {
+    const { warmSamplesMs } = await cdp.evaluate(saveExpression(SAVE_SAMPLES));
+    const { coldSamplesMs } = await cdp.evaluate(saveExpression(SAVE_SAMPLES, { cold: true }));
+    return {
+      fixture,
+      lines,
+      coldSamplesMs,
+      warmSamplesMs,
+      coldMedianMs: median(coldSamplesMs),
+      coldP95Ms: percentile95(coldSamplesMs),
+      warmMedianMs: median(warmSamplesMs),
+      warmP95Ms: percentile95(warmSamplesMs),
+    };
+  } catch (error) {
+    return { fixture, lines, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /** Tap the seeded note in the list; its label may carry a preview suffix. */
 async function openSeededNote(device) {
   const node = await device.waitFor(
@@ -291,6 +338,7 @@ async function main() {
 
   const { plan, realNote } = fixturePlan();
   const results = [];
+  const saveResults = [];
   try {
     /* Wait for the HOST's own load to have landed, not merely for the bridge to
      * exist. The shell calls `FutoEditor.initialize` with the note's content
@@ -361,6 +409,7 @@ async function main() {
           `first focus ${Math.round(result.firstFocusMs)}ms, ` +
           `keystroke p95 ${result.keystrokeSynchronousP95Ms.toFixed(1)}ms (settled ${result.keystrokeSettledToPaintP95Ms.toFixed(1)}ms)`,
       );
+      if (fixture.save) saveResults.push(await measureSave(cdp, fixture.name, result.lines));
     }
   } finally {
     cdp.close();
@@ -370,7 +419,21 @@ async function main() {
     adb.shell(`rm -f ${quoteForDeviceShell(notePath)}`, { allowFailure: true });
   }
 
-  const violations = evaluateDeviceFloor(plan, results);
+  console.log('\nSave — getContent(), the serialization behind the change notification:');
+  for (const save of saveResults) {
+    const ms = (value) => `${value.toFixed(2)}ms`;
+    console.log(
+      save.error
+        ? `  ${save.fixture} … FAILED — ${save.error.split('\n')[0]}`
+        : `  ${save.fixture} … cold median ${ms(save.coldMedianMs)}, p95 ${ms(save.coldP95Ms)}; ` +
+            `warm median ${ms(save.warmMedianMs)}, p95 ${ms(save.warmP95Ms)}`,
+    );
+  }
+
+  const violations = [
+    ...evaluateDeviceFloor(plan, results),
+    ...evaluateSaveCost(plan, saveResults),
+  ];
 
   mkdirSync(REPORT_DIR, { recursive: true });
   const report = {
@@ -378,6 +441,7 @@ async function main() {
     budget: DEVICE_BUDGET,
     realNoteFixture: realNote ? { lines: realNote.lines } : null,
     results,
+    saveResults,
     violations,
   };
   writeFileSync(

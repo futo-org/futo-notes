@@ -41,17 +41,23 @@
  * nested item; pinned in `tests/editor-embed-milkdown-interactive.spec.ts`.
  *
  * Wired as the ProseMirror `handleKeyDown` DIRECT view prop (via
- * `editorViewOptionsCtx` in MilkdownEditor.svelte) rather than a keymap
+ * `editorViewOptionsCtx` in editorPlugins.ts) rather than a keymap
  * plugin, for the same reason `handlePaste` is: direct props are consulted
  * before every plugin keymap, so this wins deterministically over the preset's
  * own Enter/Tab bindings without depending on plugin registration order.
  * While the `[[` suggestion popup is open, Enter and Tab are the popup's
  * (accept), so this module declines both.
+ * Enter, Shift+Enter, Backspace and Delete in a top-level paragraph follow the
+ * newline model of `paragraphLines.ts`: Enter writes one newline, Shift+Enter
+ * is the same key (it is replayed as a plain Enter everywhere but a table cell,
+ * so it never makes a `\` hard break), and Backspace/Delete at a paragraph
+ * boundary remove one newline. While the `/` menu is open, Enter and Tab are
+ * its, as they are the `[[` popup's.
+ *
  * Everything it does not explicitly claim falls through untouched —
- * Shift-Enter hard breaks outside a table (inside one, `insertLineBreakInTableCell`
- * claims it — see that command's own doc), Mod-Enter's `exitTable`,
- * Tab/Shift-Tab cell and list navigation, Backspace everywhere, and the
- * list-split Enter for plain and unchecked items.
+ * Mod-Enter's `exitTable`, Tab/Shift-Tab cell and list navigation, Backspace
+ * and Delete inside a block, and the list-split Enter for plain and unchecked
+ * items.
  */
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { splitListItem } from '@milkdown/kit/prose/schema-list';
@@ -73,6 +79,8 @@ import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
 import { blockFormatAtPos, changeBlockIndent } from './blockCommands';
 import { enclosingListItem } from './caretContext';
+import { enterInParagraph, joinBackwardAsLine, joinForwardAsLine } from './paragraphLines';
+import { isSlashMenuOpen } from './slash';
 import { isWikilinkSuggestOpen } from './wikilink/autocomplete';
 
 /**
@@ -302,6 +310,23 @@ const outdentCodeBlockOnShiftTab: Command = (state, dispatch) =>
 const tabEscapeArmed = new WeakMap<ProseView, boolean>();
 
 /**
+ * Shift+Enter outside a table cell: run whatever plain Enter does at the caret
+ * — a newline, a list split, a new paragraph after a heading, a newline in code
+ * — by offering every key handler a plain Enter. Always claims the key, so the
+ * preset's own Shift-Enter binding (a `\` hard break) never runs.
+ */
+function replayAsEnter(view: ProseView): boolean {
+  const enter = new KeyboardEvent('keydown', {
+    key: 'Enter',
+    code: 'Enter',
+    bubbles: true,
+    cancelable: true,
+  });
+  view.someProp('handleKeyDown', (handle) => handle(view, enter));
+  return true;
+}
+
+/**
  * The `handleKeyDown` direct view prop. Returns true only when one of the
  * parity commands above actually handled the key.
  */
@@ -315,24 +340,32 @@ export function handleParityKeyDown(view: ProseView, event: KeyboardEvent): bool
   const armed = tabEscapeArmed.get(view) === true;
   if (event.key !== 'Tab') tabEscapeArmed.delete(view);
 
-  /* An open `[[` suggestion popup owns Enter and Tab (accept the highlighted
-   * row). Its keymap is a plugin prop and this is a direct prop, which runs
-   * first, so without this a checked task item split / a table-cell Enter won
-   * over the accept and the `[[query` stayed as literal text (RC-20). */
-  if ((event.key === 'Enter' || event.key === 'Tab') && isWikilinkSuggestOpen(view.state)) {
+  /* An open `[[` suggestion popup or `/` menu owns Enter and Tab (take the
+   * highlighted row). Their handlers are plugin props and this is a direct
+   * prop, which runs first, so without this a checked task item split / a
+   * table-cell Enter / a paragraph newline won over the pick and the typed
+   * query stayed as literal text (RC-20). */
+  if (
+    (event.key === 'Enter' || event.key === 'Tab') &&
+    (isWikilinkSuggestOpen(view.state) || isSlashMenuOpen(view))
+  ) {
     tabEscapeArmed.delete(view);
-    return false;
+    // Shift+Enter is Enter here too: the pick, never a `\` hard break.
+    return event.key === 'Enter' && event.shiftKey ? replayAsEnter(view) : false;
   }
 
   if (event.key === 'Enter' && !event.shiftKey) {
     return (
       insertTableRowBelow(view.state, view.dispatch) ||
-      splitCheckedTaskItem(view.state, view.dispatch)
+      splitCheckedTaskItem(view.state, view.dispatch) ||
+      enterInParagraph(view.state, view.dispatch)
     );
   }
   if (event.key === 'Enter' && event.shiftKey) {
-    return insertLineBreakInTableCell(view.state, view.dispatch);
+    return insertLineBreakInTableCell(view.state, view.dispatch) || replayAsEnter(view);
   }
+  if (event.key === 'Backspace') return joinBackwardAsLine(view.state, view.dispatch);
+  if (event.key === 'Delete') return joinForwardAsLine(view.state, view.dispatch);
   if (event.key === 'Tab') {
     tabEscapeArmed.delete(view);
     // The escape hatch overrides the code-fence claim below — it exists
@@ -351,7 +384,7 @@ export function handleParityKeyDown(view: ProseView, event: KeyboardEvent): bool
  * convention (Mod+] / Mod+[), and independent of the Tab decision above: Tab
  * stays plain focus navigation everywhere but a code fence, this claims two
  * keys Tab never touched. Wired from its own `handleKeyDown` slot in
- * MilkdownEditor.svelte (composed ahead of `handleParityKeyDown`, which bails
+ * editorPlugins.ts (composed ahead of `handleParityKeyDown`, which bails
  * out on any modifier key and so never sees these), not from inside
  * `handleParityKeyDown` above.
  */

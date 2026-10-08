@@ -94,11 +94,12 @@ async function centerOf(page: Page, selector: string, nth = 0) {
 // ============================================================
 
 /*
- * The one that is data safety, not decoration. remark-stringify escapes any
- * line-leading `#`, so before packages/editor/src/milkdown-compat/atxEscape.ts
- * the first edit to a note turned its header tag block `#alpha #beta` into
- * `\#alpha #beta` — and `\#alpha` is a tag to nothing: not to this app's rule,
- * not to the desktop tag bar, not to Obsidian. The tag was gone from the note.
+ * The one that is data safety, not decoration. remark-stringify escaped any
+ * line-leading `#`, so before the escape was narrowed (and later decided by a
+ * parse, in the editor's own serializer) the first edit to a note turned its
+ * header tag block `#alpha #beta` into `\#alpha #beta` — and `\#alpha` is a tag
+ * to nothing: not to this app's rule, not to the desktop tag bar, not to
+ * Obsidian. The tag was gone from the note.
  */
 test('editing a note never escapes its tags away', async ({ page }) => {
   await open(page, '#alpha #beta\n\nBody text\n');
@@ -124,12 +125,12 @@ test('the tag rules still read every tag out of what Milkdown saved', async ({ p
 });
 
 /*
- * The same class of loss, one character over: remark-stringify escapes EVERY
+ * The same class of loss, one character over: remark-stringify escaped EVERY
  * `_` in prose, so a keystroke anywhere rewrote `snake_case_word` and turned
  * `#dog_problems` into `#dog\_problems` — a tag to nothing, and on desktop the
  * tag bar (which commits through a full re-serialization) then dropped every
- * chip on the note. packages/editor/src/milkdown-compat/underscoreEscape.ts
- * narrows the escape to a `_` CommonMark could read as an emphasis delimiter.
+ * chip on the note. The editor's own serializer escapes a `_` only where a
+ * parse says it would open emphasis.
  */
 test('editing a note never escapes the underscore inside a word or a tag', async ({ page }) => {
   const original =
@@ -552,7 +553,7 @@ test('a typed URL becomes a link when Enter ends it', async ({ page }) => {
   await page.keyboard.type('next');
   expect(await links(page)).toEqual([['https://youtube.com', 'https://youtube.com']]);
   await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
-  expect(await getContent(page)).toBe('https://youtube.com\n\nnext\n');
+  expect(await getContent(page)).toBe('https://youtube.com\nnext\n');
 });
 
 test('a typed link is exactly what reopening the note would link', async ({ page }) => {
@@ -564,10 +565,11 @@ test('a typed link is exactly what reopening the note would link', async ({ page
     ['https://a.com/x_y', 'https://a.com/x_y'],
   ]);
   await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
-  // The plain-text `https://` gets the serializer's stock `\:` (remark-gfm
-  // escapes a `:` between `s` and `/`, so it cannot start a literal).
+  // The plain-text `https://` needs no escape (a scheme with nothing after it
+  // is not a literal), and the space the typing ended on is not written at the
+  // line's end (docs/spec/editor.md "Markdown house style").
   expect(await getContent(page)).toBe(
-    'go to www.example.com. or https://a.com/x_y, not https\\:// \n',
+    'go to www.example.com. or https://a.com/x_y, not https://\n',
   );
 });
 
@@ -580,9 +582,10 @@ test('a URL typed inside inline code stays code', async ({ page }) => {
   expect(await links(page)).toEqual([]);
 });
 
-/* The serializer half. mdast-util-to-markdown writes a link whose text is its
+/* The serializer half. mdast-util-to-markdown wrote a link whose text is its
  * URL as `<url>` and a `www.` literal as `[text](http://…)`, so ANY edit used to
- * rewrite every bare URL in the note. bareUrl.ts. */
+ * rewrite every bare URL in the note. The house style writes such a link bare
+ * whenever the bare text reads back as the same link. */
 test('editing a note leaves its bare URLs bare', async ({ page }) => {
   const note = 'see https://youtube.com ok\n\nand www.example.com, or (https://a.com/b).\n';
   await open(page, note);

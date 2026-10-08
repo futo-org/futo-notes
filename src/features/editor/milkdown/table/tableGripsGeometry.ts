@@ -19,7 +19,7 @@ export interface Rect {
 /**
  * Where the column grip sits: centered horizontally over the header cell,
  * `gap` px above it. `position: fixed` in viewport coordinates, so no scroll
- * compensation — same contract as `blockDropIndicator.ts`'s indicator.
+ * compensation — same contract as `blockDragSession.ts`'s indicator.
  */
 export function columnGripRect(headerCellRect: Rect, gripSize: number, gap: number): Rect {
   return {

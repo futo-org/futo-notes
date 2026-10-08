@@ -8,9 +8,15 @@
  *   node tests/milkdown-census/run.mjs --vault ~/Documents/futo-notes   # local leg
  *   node tests/milkdown-census/run.mjs --diff build/milkdown-census/baseline
  *
- * `--variant baseline` runs the unpatched upstream preset, which is how the
- * "did anything regress" comparison is produced from this same harness rather
- * than from a set of numbers nobody can re-derive.
+ * `--variant compat` (the default) is what the app ships: the compat presets,
+ * writing with the editor's own serializer. `--variant baseline` runs the
+ * unpatched upstream preset, which is how the "did anything regress"
+ * comparison is produced from this same harness rather than from a set of
+ * numbers nobody can re-derive.
+ *
+ * On `compat` it ends with the gate verdict (`./knownExceptions.mjs`): every
+ * note `content_loss` or `second_pass_unstable` flagged, and a non-zero exit
+ * unless each is a known exception.
  *
  * Output (default `build/milkdown-census/<variant>/`, gitignored):
  *   results.jsonl  one record per note; flagged notes also carry round1/round2
@@ -27,6 +33,7 @@ import { chromium } from 'playwright';
 
 import { buildCensusPage } from './build.mjs';
 import { FLAG_ORDER, classify } from './detectors.mjs';
+import { describeVerdict, gateVerdict } from './knownExceptions.mjs';
 
 const DEFAULT_CORPUS = path.join(
   process.env.HOME ?? '',
@@ -84,7 +91,7 @@ function parseArgs(argv) {
         throw new Error(`unknown argument: ${flag}`);
     }
   }
-  if (args.variant !== 'compat' && args.variant !== 'baseline') {
+  if (!['compat', 'baseline'].includes(args.variant)) {
     throw new Error(`--variant must be compat or baseline, got ${args.variant}`);
   }
   args.out ??= path.join('build/milkdown-census', args.variant);
@@ -135,6 +142,27 @@ async function* readVault(dir, limit) {
   }
 }
 
+/**
+ * How much a first save re-spells. `churned`: the bytes differ — ignoring only
+ * whether the file ends in a newline, because the corpus export stripped every
+ * note's final newline and counting that would measure the dataset. `churnLines`:
+ * how many written lines the note did not already hold (a multiset difference,
+ * cheap and order-blind — a moved line is not counted).
+ */
+function churn(body, written) {
+  const trim = (text) => text.replace(/\n$/, '');
+  if (trim(body) === trim(written)) return { churned: false, churnLines: 0 };
+  const had = new Map();
+  for (const line of trim(body).split('\n')) had.set(line, (had.get(line) ?? 0) + 1);
+  let churnLines = 0;
+  for (const line of trim(written).split('\n')) {
+    const left = had.get(line) ?? 0;
+    if (left > 0) had.set(line, left - 1);
+    else churnLines += 1;
+  }
+  return { churned: true, churnLines };
+}
+
 async function processNote(page, variant, note, timeoutMs) {
   const load = (markdown) =>
     page.evaluate(([v, m]) => window.__futoCensus.load(v, m), [variant, markdown]);
@@ -157,6 +185,8 @@ async function processNote(page, variant, note, timeoutMs) {
     time_ms: Date.now() - started,
     ...note.meta,
     flags,
+    // Not flags: a first save is allowed to re-spell (ADR-0002). A scorecard.
+    ...churn(note.body, round1.markdown),
   };
   if (Object.keys(flags).length > 0) {
     record.round1 = round1.markdown;
@@ -222,7 +252,13 @@ async function main() {
   }
 
   const records = [];
-  const summary = { notes: 0, harness_failures: 0, editor_failures: 0 };
+  const summary = {
+    notes: 0,
+    harness_failures: 0,
+    editor_failures: 0,
+    first_save_churn: 0,
+    churn_lines: 0,
+  };
   for (const flag of FLAG_ORDER) summary[flag] = 0;
   const startedAt = Date.now();
 
@@ -247,6 +283,8 @@ async function main() {
       }
       records.push(record);
       summary.notes += 1;
+      if (record.churned) summary.first_save_churn += 1;
+      summary.churn_lines += record.churnLines ?? 0;
       for (const flag of Object.keys(record.flags)) summary[flag] += 1;
       if (summary.notes % 500 === 0) {
         const rate = summary.notes / ((Date.now() - startedAt) / 1000);
@@ -265,9 +303,17 @@ async function main() {
   summary.variant = args.variant;
   summary.source = args.vault ? 'vault' : path.basename(args.corpus);
   summary.duration_s = Math.round((Date.now() - startedAt) / 1000);
+  // The hard gates are stated against what the app ships, not the baseline.
+  const verdict = args.variant === 'compat' ? gateVerdict(records, summary.source) : null;
+  if (verdict) summary.gate = verdict.pass ? 'pass' : 'fail';
   writeFileSync(path.join(args.out, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
 
   console.log(JSON.stringify(summary, null, 2));
+  if (verdict) {
+    console.log('');
+    for (const line of describeVerdict(verdict)) console.log(line);
+    if (!verdict.pass) process.exitCode = 1;
+  }
   if (args.diff) {
     const regressions = reportDiff(args.diff, args.out);
     if (regressions.length > 0) process.exitCode = 1;

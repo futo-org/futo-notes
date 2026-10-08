@@ -126,6 +126,104 @@ export function keystrokeExpression(samples, options) {
   })()`;
 }
 
+/** How long one edit may take to be reported to the host: the 200 ms change debounce plus priming. */
+export const SAVE_SETTLE_TIMEOUT_MS = 60_000;
+
+/**
+ * The SAVE cost of whatever document is loaded: `__futoTest.readDocument()`,
+ * which is the editor's `getContent()` — the same serialization the change
+ * notification and a host flush run. (Bridge v9 removed `FutoEditor.getContent`;
+ * this debug seam is what reads the document now.) Each sample makes ONE edit
+ * and times only the read, in the same task as the edit, so nothing idle runs
+ * in between.
+ *
+ * - `cold: false` (WARM): every block is already in the editor's per-block
+ *   serialization cache, so the read writes the one edited block. "Primed" is
+ *   waited for on a condition, not a sleep: the editor's own `change` report
+ *   for the current generation. Both editors post it only once the document is
+ *   primed — a still-cold document is primed in idle slices first and reported
+ *   afterwards — so a report for this generation means its cache is full.
+ * - `cold: true`: the edit lands on a document whose every top-level block is
+ *   a fresh node, which is the cache's state right after an open, before idle
+ *   priming has run: the read serializes the whole document. The fresh nodes
+ *   come from a housekeeping transaction (`addToHistory: false` — not
+ *   reported, not undoable) that replaces each block with an equal copy, in the
+ *   same task as the edit. Catching a real open in that window is a race
+ *   against the editor's idle priming; this state is the same work every time.
+ *
+ * The host bridge is tapped (and every message still forwarded to it) to see
+ * the `change` reports; it is restored before returning.
+ */
+export function saveSnippet(samples, { cold = false } = {}) {
+  return `
+    const saveView = window.__futoProseMirrorView?.();
+    if (!saveView) throw new Error('no ProseMirror view');
+    const host = window.futoBridge;
+    if (!host) throw new Error('no futoBridge host on this page');
+    let reported = null;
+    window.futoBridge = {
+      postMessage: (json) => {
+        const message = JSON.parse(json);
+        if (message.type === 'change') reported = { noteId: message.noteId, generation: message.generation };
+        host.postMessage(json);
+      },
+    };
+    if (window.futoBridge === host) throw new Error('could not tap the futoBridge host');
+    const coldSamplesMs = [];
+    const warmSamplesMs = [];
+    try {
+      const settled = async () => {
+        const deadline = performance.now() + ${SAVE_SETTLE_TIMEOUT_MS};
+        for (;;) {
+          const ref = window.__futoTest.documentRef();
+          if (reported && reported.noteId === ref.noteId && reported.generation === ref.generation) return;
+          if (performance.now() > deadline) {
+            throw new Error('the editor never reported generation ' + ref.generation + ' to the host');
+          }
+          await new Promise((r) => setTimeout(r, 20));
+        }
+      };
+      const edit = () => saveView.dispatch(saveView.state.tr.insertText('x'));
+      const freshBlocks = () => {
+        const { state } = saveView;
+        const fresh = [];
+        state.doc.forEach((block) => fresh.push(block.type.create(block.attrs, block.content, block.marks)));
+        saveView.dispatch(
+          state.tr.replaceWith(0, state.doc.content.size, fresh).setMeta('addToHistory', false),
+        );
+        if (saveView.state.doc.firstChild === state.doc.firstChild) {
+          throw new Error('the blocks kept their identity; this would time a warm cache');
+        }
+      };
+      // An edit of our own first: the report this waits for cannot have gone out before the tap.
+      edit();
+      await settled();
+      let lastLength = window.__futoTest.readDocument()?.length ?? 0;
+      for (let i = 0; i < ${samples}; i += 1) {
+        ${cold ? 'freshBlocks();' : ''}
+        edit();
+        const t0 = performance.now();
+        const text = window.__futoTest.readDocument();
+        ${cold ? 'coldSamplesMs' : 'warmSamplesMs'}.push(performance.now() - t0);
+        /* Every sample adds a character, so the answer must grow: a stale read
+         * (the previous document's cached text) or a missing one fails here. */
+        if (typeof text !== 'string' || text.length <= lastLength) {
+          throw new Error('the read did not carry the edit: ' + lastLength + ' chars, then ' + (text?.length ?? text));
+        }
+        lastLength = text.length;
+        await settled();
+      }
+    } finally {
+      window.futoBridge = host;
+    }`;
+}
+
+export function saveExpression(samples, options) {
+  return `(async () => {${saveSnippet(samples, options)}
+    return { coldSamplesMs, warmSamplesMs };
+  })()`;
+}
+
 export function measureExpression(markdown, samples, options) {
   return `(async () => {${openSnippet(markdown)}
     const duration = (name) => performance.getEntriesByName(name)[0]?.duration ?? null;

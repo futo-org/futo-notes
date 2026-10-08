@@ -12,9 +12,9 @@ const MARKER = /^\[( |x|X)\]$/;
  * own parses as a bullet whose paragraph is the literal text `[ ]`. That made an
  * empty task item — what the toolbar's Task button, or Enter after a task,
  * leaves the caret in — impossible to save: it went to disk as a bare `-` and
- * reopened as a plain bullet (iOS 27 lane, `O1/O10`). The serializer now writes
- * `- [ ]` for it (`./listItemFiller`), and this is the other half: the same bytes
- * read back as the empty task item they came from.
+ * reopened as a plain bullet (iOS 27 lane, `O1/O10`). The serializer writes
+ * `- [ ]` for it (docs/spec/editor.md "Markdown house style"), and this is the
+ * other half: the same bytes read back as the empty task item they came from.
  *
  * An item whose text really is a literal `[ ]` becomes an empty task item too;
  * that is what such a line means to every markdown reader that supports task

@@ -229,8 +229,9 @@ test-android-native-ui: _preflight-android android-env-check build-rust-android
 # explicitly claimed device — written for the low-end reference phone, where
 # the budgets are hardest (issue #106, docs/plan/milkdown-transition.md §5):
 # interactive-first-viewport <1s and keystroke p95 <16ms at real-note sizes,
-# open that scales linearly with no cliff, and the first focus after an open
-# under 1s (the tap that starts typing). The
+# open that scales linearly with no cliff, the first focus after an open
+# under 1s (the tap that starts typing), and the save at 1k/10k lines (a warm
+# save p95 <16ms, a cold whole-document save with no cliff). The
 # build/install is deliberately mandatory so the run always exercises the code
 # being pushed (same rule as test-ios-stories). The maintainer's largest real
 # note joins the fixtures as a LOCAL, UNCOMMITTED file: $FUTO_PERF_NOTE=<path>,
@@ -266,6 +267,15 @@ test-android-perf-quick *args:
     exit 1
   }
   node tests/android-editor-perf-quick.mjs {{args}}
+
+# Block-drag cost per phase (lift, drop-spot change, drop, scroll frame) on
+# 1000- and 3000-block notes, in the system WebKitGTK the desktop app ships.
+# About 10s per variant; a variant is `current`, a copy of blockDragSession.ts,
+# and either with `:line` for the drop-line mode. Opens a window per variant.
+#   just bench-block-drag                              # current:line vs current
+#   just bench-block-drag current /path/to/other.ts --repeat 3
+bench-block-drag *args:
+  node scripts/perf/block-drag-bench.mjs {{args}}
 
 # Storage-migration stories on the REAL app; CLEARS debug data — claim a device first.
 test-android-storage:
@@ -589,8 +599,9 @@ gauntlet-milkdown-foreign *args:
 # ── Milkdown round-trip census ──
 # Run a corpus of real notes through the real Milkdown editor and report what
 # the round trip changed. This is the measurement behind the compat plugin set
-# in packages/editor/src/milkdown-compat/ (docs/plan/milkdown-transition.md §3),
-# and the way to prove a change to it costs nothing:
+# in packages/editor/src/milkdown-compat/ (docs/plan/milkdown-transition.md §3)
+# and the editor's own serializer (#266; the default `compat` variant writes
+# with it), and the way to prove a change to either costs nothing:
 #
 #   just milkdown-census --variant baseline          # the UNPATCHED upstream preset
 #   just milkdown-census --diff build/milkdown-census/baseline

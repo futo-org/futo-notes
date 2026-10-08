@@ -12,18 +12,22 @@
  * collects every MAXIMAL run of adjacent text — adjacent in ProseMirror
  * positions, so two text nodes split only by a mark (`**bo**ld`) join into one
  * run and a query spanning the mark boundary still matches, while a block
- * boundary or an inline leaf (an image, a hard break) ends the run. A match can
- * therefore never straddle two paragraphs, and offset `i` inside a run at
- * `from` is always document position `from + i`.
+ * boundary or an inline leaf (an image, a wikilink chip) ends the run. A line
+ * break inside a paragraph is the exception: it reads as one space, so
+ * `man yes` finds `man` at the end of one line and `yes` at the start of the
+ * next, as it would across a soft wrap. A match can never straddle two
+ * paragraphs, and offset `i` inside a run at `from` is always document
+ * position `from + i` — the break occupies one position and is one space.
  *
- * > Gap against docs/spec/editor.md: CodeMirror searched the SOURCE markdown,
- * > so `**` and a link's URL were findable. Milkdown is WYSIWYG and holds no
- * > syntax characters in its document, so find matches the text the reader
- * > sees. Recorded under the spec's "Find in note" section.
+ * CodeMirror searched the SOURCE markdown, so `**` and a link's URL were
+ * findable. Milkdown is WYSIWYG and holds no syntax characters in its
+ * document, so find matches the text the reader sees.
  */
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 
 import { localizedText } from '$shared/localization';
+
+import { isLineBreak } from '../paragraphLines';
 
 export interface FindMatch {
   from: number;
@@ -65,19 +69,20 @@ export function foldCase(text: string): string {
 }
 
 /**
- * Every run of adjacent text in `doc`, in document order.
+ * Every run of adjacent text in `doc`, in document order, a line break read as
+ * a space.
  *
  * Runs are joined on position adjacency alone: a run that ends at position `p`
- * absorbs a text node that starts at `p`. Nothing else has to know which node
- * types break a run, because every non-text node occupies at least one position
- * and so breaks adjacency by itself.
+ * absorbs a text node (or a line break) that starts at `p`. Nothing else has to
+ * know which node types break a run, because every other node occupies at
+ * least one position and so breaks adjacency by itself.
  */
 export function docTextSegments(doc: ProseNode): TextSegment[] {
   const segments: TextSegment[] = [];
   let open: TextSegment | null = null;
   doc.descendants((node, pos) => {
-    if (!node.isText) return true;
-    const text = node.text ?? '';
+    const text = node.isText ? (node.text ?? '') : isLineBreak(node) ? ' ' : null;
+    if (text === null) return true;
     if (open && open.from + open.text.length === pos) open.text += text;
     else {
       open = { from: pos, text };

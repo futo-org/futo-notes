@@ -53,11 +53,19 @@ describe('docTextSegments', () => {
   });
 
   it('ends a run at an inline leaf', () => {
-    const node = doc(para(s.text('a'), s.nodes.hardbreak.create(), s.text('b')));
+    const node = doc(para(s.text('a'), s.nodes.image.create(), s.text('b')));
     expect(docTextSegments(node)).toEqual([
       { from: 1, text: 'a' },
       { from: 3, text: 'b' },
     ]);
+  });
+
+  // One space for the break's one position, so offsets stay document positions.
+  it('reads a line break inside a paragraph as a space', () => {
+    const typed = s.nodes.hardbreak.create({ isInline: true });
+    const older = s.nodes.hardbreak.create({ isInline: false });
+    const node = doc(para(s.text('hey man'), typed, s.text('yes'), older, s.text('no')));
+    expect(docTextSegments(node)).toEqual([{ from: 1, text: 'hey man yes no' }]);
   });
 });
 
@@ -83,6 +91,13 @@ describe('findDocMatches', () => {
   it('never matches across a block boundary', () => {
     const node = doc(para(s.text('foo')), para(s.text('bar')));
     expect(findDocMatches(node, 'foobar')).toEqual([]);
+  });
+
+  it('matches across a line break inside a paragraph as across a soft wrap', () => {
+    const lineBreak = s.nodes.hardbreak.create({ isInline: true });
+    const node = doc(para(s.text('hey man'), lineBreak, s.text('yes')));
+    expect(findDocMatches(node, 'man yes')).toEqual([{ from: 5, to: 12 }]);
+    expect(findDocMatches(node, 'yes')).toEqual([{ from: 9, to: 12 }]);
   });
 
   it('finds text inside a fenced code block', () => {

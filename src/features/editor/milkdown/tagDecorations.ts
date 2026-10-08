@@ -41,7 +41,7 @@ import {
   type PositionedBlock,
 } from './blockDecorations';
 
-/** Class the decoration paints; styled by MilkdownEditor.svelte. */
+/** Class the decoration paints; styled by milkdownEditor.css. */
 export const TAG_DECORATION_CLASS = 'futo-tag';
 
 export const tagDecorationsKey = new PluginKey<DecorationSet>('FUTO_TAG_DECORATIONS');

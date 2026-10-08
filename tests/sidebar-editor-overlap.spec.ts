@@ -31,11 +31,16 @@ function boxesIntersect(
   return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
 }
 
-/** Type enough short lines that the note overflows any of the tested viewports. */
+/**
+ * Type enough short one-line paragraphs that the note overflows any of the
+ * tested viewports. Two Enters each: one Enter is a newline inside the same
+ * paragraph (docs/spec/editor.md "Paragraphs and lines").
+ */
 async function typeManyLines(page: Page, count: number): Promise<void> {
   await page.locator(EDITOR).click();
   for (let i = 0; i < count; i += 1) {
     await page.keyboard.type(`Line ${i} of overlap repro text.`);
+    await page.keyboard.press('Enter');
     await page.keyboard.press('Enter');
   }
 }

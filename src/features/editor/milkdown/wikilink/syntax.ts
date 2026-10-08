@@ -226,24 +226,17 @@ interface FromMarkdownContext {
  * A pipe inside a GFM table cell. The row is split on every unescaped `|`
  * BEFORE any inline parsing, so a wikilink whose target holds one — `[[a|b]]`,
  * typed by hand or written by Obsidian — has to be spelled `[[a\|b]]` there,
- * or the next open splits the cell in two and the link with it. The pair below
- * is `mdast-util-gfm-table`'s own rule for inline code, restated for this node:
- * `\|` reads back as `|` inside a table, and `|` is written as `\|` in a cell.
- * No rule outcome moves: `|` is a forbidden note-title character, so a target
- * holding one never resolves and no rename ever rewrites it.
+ * or the next open splits the cell in two and the link with it. This is
+ * `mdast-util-gfm-table`'s own rule for inline code, restated for this node:
+ * `\|` reads back as `|` inside a table (the serializer writes `|` as `\|` in
+ * a cell, docs/spec/editor.md "Markdown house style"). No rule outcome moves:
+ * `|` is a forbidden note-title character, so a target holding one never
+ * resolves and no rename ever rewrites it.
  */
 function unescapeCellPipes(target: string): string {
   // Pipes work, backslashes do not (but cannot escape pipes) — upstream's rule.
   return target.replace(/\\([\\|])/g, (escape, character: string) =>
     character === '|' ? character : escape,
-  );
-}
-
-function escapeCellPipes(target: string): string {
-  // A pipe after an odd run of backslashes gets one more, so the run reads back
-  // as escaped backslashes and never as a cell boundary.
-  return target.replace(/(\\*)\|/g, (_pipe, run: string) =>
-    run.length % 2 === 1 ? `${run}\\\\|` : `${run}\\|`,
   );
 }
 
@@ -265,28 +258,10 @@ export const wikilinkFromMarkdownExtension = {
 };
 
 /**
- * Serialization is the whole reason this exists: `mdast-util-to-markdown`'s
- * text handler escapes a leading `[`, so an unhandled `[[x]]` leaves the editor
- * as `\[\[x]]` and every link in the note stops resolving. The handler returns
- * the target verbatim — no `safe()`, no escaping — so a round trip is
- * byte-identical, and no `unsafe` pattern is registered, so neighbouring text
- * is not escaped on our account either. The one exception is a `|` in a table
- * cell ({@link escapeCellPipes}).
- */
-export const wikilinkToMarkdownExtension = {
-  handlers: {
-    [WIKILINK_MDAST_TYPE]: (
-      node: WikilinkMdastNode,
-      _parent: unknown,
-      state: { stack: readonly string[] },
-    ): string =>
-      `[[${state.stack.includes('tableCell') ? escapeCellPipes(node.target) : node.target}]]`,
-  },
-};
-
-/**
- * The remark plugin Milkdown mounts through `$remark`. Registers all three
- * halves — tokenizer, mdast build, mdast serialize — on the shared processor.
+ * The remark plugin Milkdown mounts through `$remark`. Registers both halves —
+ * tokenizer and mdast build — on the shared processor. Writing `[[target]]`
+ * back is the serializer's (`@futo-notes/editor/markdown`): the target
+ * verbatim, but for a `|` inside a table cell, written `\|`.
  */
 export const remarkWikilink: RemarkPluginRaw<undefined> = function remarkWikilinkPlugin() {
   const data = this.data() as Record<string, unknown[]>;
@@ -296,5 +271,4 @@ export const remarkWikilink: RemarkPluginRaw<undefined> = function remarkWikilin
   };
   push('micromarkExtensions', wikilinkMicromarkExtension);
   push('fromMarkdownExtensions', wikilinkFromMarkdownExtension);
-  push('toMarkdownExtensions', wikilinkToMarkdownExtension);
 };

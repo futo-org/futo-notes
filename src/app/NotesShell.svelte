@@ -353,9 +353,10 @@
 
   /* A REPLACED editor component mounts empty, under a session that still holds
    * the open note — a blank page over a file with content. The editor refuses
-   * to report that empty document as the note (MilkdownEditor `getContent`), so
-   * it can no longer be saved over the file; this hands the note back so the
-   * user sees it again. A dev hot reload is what does this today. */
+   * to report that empty document as the note (milkdown/hostHandle.ts
+   * `getContent`), so it can no longer be saved over the file; this hands the
+   * note back so the user sees it again. A dev hot reload is what does this
+   * today. */
   $effect(() => {
     const currentEditor = editor;
     if (!currentEditor) return;

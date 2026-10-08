@@ -18,7 +18,7 @@
 /* Wikilink chips (dashed underline, muted when broken) are NOT here: this file
    is imported under `@layer components`, which loses to the editor's unlayered
    `.futo-milkdown .ProseMirror a` rule, so rules for them here never applied
-   (RC-58). They live in MilkdownEditor.svelte's <style>. */
+   (RC-58). They live in milkdownEditor.css. */
 
 /* Wikilink autocomplete popup.
    Fixed-positioned on the viewport by autocomplete.ts, so it stays put whichever

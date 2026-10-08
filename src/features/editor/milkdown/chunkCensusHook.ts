@@ -27,9 +27,9 @@ import type { MarkdownChunkOptions } from './markdownChunks';
 
 /** What the census learns about one note. */
 export interface ChunkCensusResult {
-  /** Milkdown's serialization after a whole-document parse. */
+  /** The editor's serialization after a whole-document parse. */
   whole: string | null;
-  /** Milkdown's serialization after a chunked parse of the same note. */
+  /** The editor's serialization after a chunked parse of the same note. */
   chunked: string | null;
   /** False when the planner declined to chunk this note (see the reasons). */
   wasChunked: boolean;
@@ -61,7 +61,7 @@ export interface ChunkCensusWindow {
 
 /**
  * Forces a whole-document parse: no document has an infinite number of lines.
- * Exported so `MilkdownEditor.svelte`'s `censusSerialize` can force the same
+ * Exported so `hostHandle.ts`'s `censusSerialize` can force the same
  * whole-document load without a second, drifting definition of "whole".
  */
 export const WHOLE: MarkdownChunkOptions = { minLines: Number.POSITIVE_INFINITY };
@@ -72,9 +72,9 @@ const CHUNKED: MarkdownChunkOptions = { minLines: 0, firstChunkLines: 1, chunkLi
 
 /** What the block-serializer-equivalence census learns about one note. */
 export interface SerializeCensusResult {
-  /** Milkdown's OWN serializer, called directly on the whole loaded document. */
+  /** The editor's `serializerCtx` (the owned serializer), called directly on the whole loaded document. */
   whole: string | null;
-  /** A FRESH `BlockSerializer`'s `serialize()` of the same document. */
+  /** A FRESH per-block cache's `serialize()` of the same document (`createDocumentSerializer`). */
   blocks: string | null;
 }
 

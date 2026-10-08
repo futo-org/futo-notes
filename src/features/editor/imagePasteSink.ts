@@ -23,7 +23,7 @@
  * ProseMirror's `handlePaste` prop and inserts the filename itself
  * (`milkdown/MilkdownEditor.svelte`); the CodeMirror editor inside a native
  * Reached from the editor's own ProseMirror `handlePaste` prop
- * (MilkdownEditor.svelte) on every platform.
+ * (milkdown/editorPlugins.ts) on every platform.
  */
 import {
   hasNativeBridgeHost,

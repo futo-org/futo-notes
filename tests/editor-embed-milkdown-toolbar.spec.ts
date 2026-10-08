@@ -168,7 +168,8 @@ test('bold, italic and strikethrough wrap the selection', async ({ page }) => {
 
   await selectAll(page);
   await exec(page, 'strikethrough');
-  expect((await getContent(page)).trimEnd()).toBe('***~~hello~~***');
+  // Marks over the same text nest strikethrough outermost (the house style).
+  expect((await getContent(page)).trimEnd()).toBe('~~***hello***~~');
 });
 
 test('bold on an already-bold selection removes it', async ({ page }) => {

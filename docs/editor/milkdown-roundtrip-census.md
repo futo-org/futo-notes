@@ -6,16 +6,21 @@
 
 What opening and re-saving a note in the Milkdown editor does to its bytes,
 measured over 30,995 real notes plus the maintainer's own 2,511-note vault.
-This is the evidence behind `packages/editor/src/milkdown-compat/`, and the
-report the transition plan's D4 asks for: **a scorecard, not a release gate.**
+This is the evidence behind `packages/editor/src/milkdown-compat/` and the
+owned serializer (`packages/editor/src/markdown/`), and the report the
+transition plan's D4 asks for. Most numbers are a scorecard; since #266 two
+are hard gates the serializer ships under, `content_loss` and
+`second_pass_unstable` (see "2026-10-06 — the owned serializer" below).
 
 - Harness: `tests/milkdown-census/` — `just milkdown-census`.
 - Editor: `@milkdown/kit` 7.22.1, the app's core plugin chain and load sequence
-  (`defaultValueCtx`, then `replaceAll`), headless Chromium. Commonmark + gfm —
-  not the wikilink plugin (#101), which needs the app's note index; see
-  `tests/milkdown-census/README.md`. So `[[wikilink]]` backslash-escaping still
-  counts as a difference in the tables below, where the shipping editor no
-  longer has it.
+  (`defaultValueCtx`, then `replaceAll`), headless Chromium. Since 2026-10-06
+  (#266) `compat` mounts every plugin of the app's chain that changes what a
+  note's bytes parse into or what a save writes, the wikilink plugin (#101) and
+  the table cell `<br>` reader included (`tests/milkdown-census/README.md`).
+  Every result dated before that was measured with commonmark + gfm only, so in
+  those tables `[[wikilink]]` backslash-escaping counts as a difference the
+  shipping editor did not have.
 - Corpora: `notes_corpus.jsonl.gz` (30,995 notes, not in this repo) and the
   maintainer's real vault (local only — its results are never committed).
 - `baseline` is the unpatched upstream preset; `compat` is what the app ships.
@@ -134,6 +139,90 @@ preservation. The old pre-parser's second-pass reinterpretation is gone;
 Reproduce with `just milkdown-census --out <after> --diff <before>` using a
 baseline captured before this change. Results stayed in ignored local build
 outputs; no corpus documents were added to the repository.
+
+## 2026-10-06 — the owned serializer (#266)
+
+Every save is now written by the editor's own serializer in one house style
+(docs/spec/editor.md "Markdown house style"); remark-stringify and its patches
+are gone. The census `compat` variant writes with it, and since the same day
+reads with the app's wikilink plugin and table cell `<br>` reader too
+(`tests/milkdown-census/README.md`).
+
+**The two hard gates** — `compat`, run 2026-10-06 on the final #266 code:
+
+| | corpus (30,995 notes) | vault (2,570 notes) |
+|---|---:|---:|
+| `content_loss` — the save reads back as a different document, once the house style's deliberate changes are taken out | 3 | 0 |
+| `second_pass_unstable` — write, read, write again: the bytes differ | 0 | 0 |
+
+The 3 corpus notes (8761, 9151, 9478) are one shape, a quoted ordered list
+whose nested items are tab-indented under a whitespace-only `> ` line: the
+parser reads one nested list as loose (mdast `spread`) only in the source
+spelling. The maintainer accepted them as a KNOWN EXCEPTION (decision 1,
+2026-10-06); the gate is not normalized to hide them. A `compat` run prints
+every note either gate flags and ends with a verdict that passes only when
+each is on the list (`tests/milkdown-census/knownExceptions.mjs`), exiting
+non-zero otherwise:
+
+| corpus note | flag | repro | why it is accepted |
+|---|---|---|---|
+| 8761, 9151, 9478 | `content_loss` | `> 1. A\n> \t- B\n> \t\t- C\n> \n>2. D` | the parser marks the one-item list `C` loose only through the tab indentation and the whitespace-only `> ` line; the save writes it with spaces, which reads tight, as CommonMark's own rule reads both spellings |
+
+**First-save churn (story 31)** — how many notes a first save re-spells, and
+how many written lines a note did not already hold (`first_save_churn`,
+`churn_lines`; both ignore the final newline, which the corpus export
+stripped):
+
+| | old formatter | owned serializer |
+|---|---:|---:|
+| corpus notes churned | 23,569 | 20,972 |
+| corpus lines churned | 431,144 | 348,618 |
+| vault notes churned | 2,237 | 2,176 |
+| vault lines churned | 30,958 | 27,285 |
+
+Method. Owned: `node tests/milkdown-census/run.mjs --variant compat`, and the
+same with `--vault ~/Documents/futo-notes --out build/milkdown-census/<name>`,
+on the final #266 code (wikilink plugin and cell `<br>` reader mounted). Old
+formatter: the same harness at 12eb1e27, before the switch (3c40a09b),
+where `compat` was remark-stringify plus the compat patches; measured
+2026-10-06 in a scratch run with the census page's bullet set to the app's
+`-` (the page wrote `*`, which would have inflated the old number), not
+committed, and without the wikilink plugin, which that page could not mount.
+The owned serializer churns MORE table lines (corpus 17,747 against 12,313,
+same-day run before the plugins were mounted) because it never pads columns;
+everything else it re-spells less. The owned column is the run after the
+Obsidian-shaped changes below.
+
+### 2026-10-06 — Obsidian-shaped, and a cell's last `<br>` kept
+
+Maintainer decision 2: the house style writes what Obsidian would, the bytes
+the user typed and no added character references, in four places
+(docs/spec/editor.md "Markdown house style"). Each change was measured on its
+own, in order, with `compat` over the corpus and the vault:
+
+| change | corpus churn (notes / lines) | vault churn (notes / lines) | other flags that moved |
+|---|---:|---:|---|
+| before | 20,977 / 348,632 | 2,176 / 27,287 | corpus `br_loss` 6, `html_loss` 6, `doc_mismatch` 2,930; vault `br_loss` 1, `html_loss` 1, `doc_mismatch` 15 |
+| a cell's last line break is written `<br>`, not dropped | 20,977 / 348,632 | 2,176 / 27,287 | corpus `br_loss` 6 → 4, `html_loss` 6 → 4, `doc_mismatch` 2,930 → 2,928 (notes 4278, 7481) |
+| a rule on line 1 is `---` unless `---` would open front matter | 20,972 / 348,625 | 2,176 / 27,287 | none |
+| front matter byte for byte, CRLF included | 20,972 / 348,625 | 2,176 / 27,287 | none: neither set has CRLF front matter |
+| two paragraphs in a tight item are two lines, `- a\n  b` | 20,972 / 348,625 | 2,176 / 27,287 | none: only the editor makes the shape |
+| no reference for whitespace at a line's start | 20,972 / 348,618 | 2,176 / 27,285 | corpus `doc_mismatch` 2,928 → 2,930 (notes 6371, 24446) |
+
+Both gates held at every step: corpus `content_loss` 3 (the known
+exceptions above) and `second_pass_unstable` 0, vault 0 and 0, verdict PASS.
+
+- Two or more line breaks alone in a cell are written `<br>` each, a lone
+  one as an empty cell (a lone `<br>` reads back empty); neither set has such
+  a cell, so the numbers above do not move.
+- The four `br_loss` notes left are each a `<br>` alone on a line, the
+  placeholder an older build wrote for an empty paragraph, which is now an
+  empty paragraph by design; the vault's one is the same.
+- The whitespace rule writes a task item's `- [ ]  x` back as typed (it was
+  `- [ ] &#x20;x`), which is the churn it saves. Its two new `doc_mismatch`
+  notes hold `a\n<br> b`, which the parser already reads as `a`, `<br>`, a
+  line break, then ` b`: the space after the `<br>` now starts a line in the
+  document, so a save drops it, where it used to be written `&#x20;`.
 
 ## What each fix bought
 

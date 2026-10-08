@@ -55,8 +55,9 @@ function isHousekeeping(transaction: Transaction): boolean {
  * `addToHistory: false` is the editor's own housekeeping — above all the
  * streamed chunk appends of a progressive open (progressiveLoad.ts), which are
  * a PREFIX of the note and must never start a report. The listener plugin
- * skipped exactly these, and the save lock in MilkdownEditor is the second half
- * of the same guarantee. A transaction another plugin appended in reaction to
+ * skipped exactly these, and the save lock (serializationLoop.ts,
+ * hostHandle.ts) is the second half of the same guarantee. A transaction
+ * another plugin appended in reaction to
  * one of them (`trailing` re-adding its empty paragraph after a load) is
  * housekeeping too, by the rule prosemirror-history itself applies.
  */

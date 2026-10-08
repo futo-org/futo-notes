@@ -12,7 +12,7 @@ export interface SemanticIntent {
   kind: GauntletSemanticKind;
   styledText: string[];
   visibleText: string[];
-  topology: 'split-paragraphs' | 'joined-contiguous' | 'single-node';
+  topology: 'split-lines' | 'joined-contiguous' | 'single-node';
 }
 
 export interface SplitTortureCase {
@@ -51,6 +51,19 @@ function intent(
   return { kind: construct.kind, styledText, visibleText, topology } satisfies SemanticIntent;
 }
 
+/**
+ * Whether a line break ends this construct. A newline inside a code span reads
+ * back as a space, so Enter ends the span; every other run carries on across
+ * the new line (docs/spec/editor.md "Paragraphs and lines").
+ */
+function breakEnds(construct: InlineConstruct): boolean {
+  return construct.kind === 'inline-code';
+}
+
+/**
+ * Enter mid-span writes one newline: the run continues on the next line of the
+ * same paragraph, or, for code, stops at the line and resumes after it.
+ */
 function enterCases(construct: InlineConstruct): SplitTortureCase[] {
   const inner = construct.id === 'double-backtick-code' ? 'alpha ` beta' : 'alpha beta';
   const source = `before ${wrapped(construct, inner)} after`;
@@ -67,18 +80,25 @@ function enterCases(construct: InlineConstruct): SplitTortureCase[] {
     action: { type: 'enter' },
     intent: intent(
       construct,
-      [inner.slice(0, offset), inner.slice(offset)].filter((piece) => piece.trim().length > 0),
+      breakEnds(construct)
+        ? [inner.slice(0, offset), inner.slice(offset)].filter((piece) => piece.trim().length > 0)
+        : [`${inner.slice(0, offset)}\n${inner.slice(offset)}`],
       [
         'before',
         ...inner.slice(0, offset).trim().split(/\s+/),
         ...inner.slice(offset).trim().split(/\s+/),
         'after',
       ],
-      'split-paragraphs',
+      'split-lines',
     ),
   }));
 }
 
+/**
+ * Backspace at the start of the second run removes ONE newline: across a
+ * paragraph break the two runs become two lines of one paragraph, and across a
+ * line break they join.
+ */
 function backspaceCases(construct: InlineConstruct): SplitTortureCase[] {
   return ['\n\n', '\n'].map((separator, index) => {
     const first = wrapped(construct, 'alpha');
@@ -97,7 +117,10 @@ function backspaceCases(construct: InlineConstruct): SplitTortureCase[] {
         },
       },
       action: { type: 'backspace' },
-      intent: intent(construct, ['alphabeta'], ['alphabeta'], 'joined-contiguous'),
+      intent:
+        index === 0
+          ? intent(construct, ['alpha', 'beta'], ['alpha', 'beta'], 'split-lines')
+          : intent(construct, ['alphabeta'], ['alphabeta'], 'joined-contiguous'),
     };
   });
 }

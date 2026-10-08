@@ -140,6 +140,21 @@ test.describe('slash menu', () => {
     expect(await editorMarkdown(page)).toContain('and/or');
   });
 
+  test('a / at the start of a line opens the menu, and the pick lands on that line', async ({
+    page,
+  }) => {
+    // Enter writes a newline inside the paragraph (docs/spec/editor.md
+    // "Paragraphs and lines"), so the second line is not a block of its own
+    // until the pick makes it one.
+    await typeSlash(page, 'first line');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('/head', { delay: TYPE_DELAY_MS });
+    await expectMenuOpen(page);
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('title', { delay: TYPE_DELAY_MS });
+    await expect.poll(async () => await editorMarkdown(page)).toContain('first line\n\n# title');
+  });
+
   test('a space after the / closes the menu', async ({ page }) => {
     await typeSlash(page, '/');
     await expectMenuOpen(page);
@@ -154,21 +169,17 @@ test.describe('slash menu', () => {
     await expectMenuOpen(page);
     await page.keyboard.press('Enter');
     await expect(page.locator(`${EDITOR} hr`)).toHaveCount(1);
-    // `***`, not `---`: remark-stringify's default thematic-break marker. The
-    // editor pins `bullet: '-'` (MilkdownEditor.svelte) but not `rule`, so a
-    // note that ALREADY contains `---` is rewritten to `***` on its first
-    // edit — a pre-existing round-trip normalization this menu only makes
-    // easier to reach. Changing the marker is a serializer change and has to be
-    // measured against the corpus first (`just milkdown-census --diff`,
-    // packages/editor/AGENTS.md), so this asserts what the editor does today.
-    await expect.poll(async () => await editorMarkdown(page)).toContain('***');
+    // `---`, the house style's rule, even on the note's first line: `***` is
+    // written there only when `---` would open front matter, and nothing below
+    // closes one here (docs/spec/editor.md "Markdown house style").
+    await expect.poll(async () => await editorMarkdown(page)).toContain('---');
     // QA-013: the typed `/divider` run used to survive as literal text right
     // after the rule (the run's remembered position no longer described the
     // post-command document, so the delete silently no-opped).
     expect(await editorMarkdown(page)).not.toContain('divider');
     // The caret is ready to type in an empty paragraph right after the rule.
     await page.keyboard.type('after', { delay: TYPE_DELAY_MS });
-    expect(await editorMarkdown(page)).toMatch(/\*\*\*\s*\n\s*after/);
+    expect(await editorMarkdown(page)).toMatch(/---\s*\n\s*after/);
   });
 
   test('picking Table inserts a header row plus two body rows', async ({ page }) => {
@@ -262,10 +273,10 @@ test.describe('slash menu', () => {
     await url.press('Enter');
 
     // Inserted with the URL as its own label — asserted on the DOM, not the
-    // markdown: remark-stringify shortens a link whose text equals its href
-    // to the autolink form (`<https://…>`), which is a serializer choice, not
-    // what this asserts. Typing right away replaces the label — proof the
-    // label text was left SELECTED, not just inserted after it.
+    // markdown: the house style writes a link whose text is its own URL as the
+    // bare URL, which is a serializer choice, not what this asserts. Typing
+    // right away replaces the label — proof the label text was left SELECTED,
+    // not just inserted after it.
     const link = page.locator(`${EDITOR} a[href="https://example.test/docs"]`);
     await expect(link).toHaveText('https://example.test/docs');
     await page.keyboard.type('the docs', { delay: TYPE_DELAY_MS });

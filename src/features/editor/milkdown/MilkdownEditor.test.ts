@@ -52,12 +52,12 @@ vi.mock('./parseNote', async (importOriginal) => {
   };
 });
 
-vi.mock('./blockSerializer', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./blockSerializer')>();
+vi.mock('@futo-notes/editor/markdown', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@futo-notes/editor/markdown')>();
   return {
     ...actual,
-    createBlockSerializer: (...args: Parameters<typeof actual.createBlockSerializer>) => {
-      const serializer = actual.createBlockSerializer(...args);
+    createCachedSerializer: (...args: Parameters<typeof actual.createCachedSerializer>) => {
+      const serializer = actual.createCachedSerializer(...args);
       return {
         ...serializer,
         serialize: (...values: Parameters<typeof serializer.serialize>) => {
@@ -400,6 +400,8 @@ describe('the focus signal the external-change coordinator reads', () => {
  */
 describe('a note that starts with a byte order mark', () => {
   const BODY = 'Intro **b** and _it_ x**y**z\n';
+  /* What a save writes for BODY: the house style spells italics `*`. */
+  const SAVED = 'Intro **b** and *it* x**y**z\n';
 
   it('keeps its emphasis when the tag bar rewrites the document', () => {
     handle.openNote('test-note', `\ufeff${BODY}`);
@@ -407,8 +409,8 @@ describe('a note that starts with a byte order mark', () => {
 
     handle.applyEdit(`${handle.getContent()}\n#tag\n`);
 
-    expect(changes.at(-1)).toBe(`${BODY}\n#tag\n`);
-    expect(handle.getContent()).toBe(`${BODY}\n#tag\n`);
+    expect(changes.at(-1)).toBe(`${SAVED}\n#tag\n`);
+    expect(handle.getContent()).toBe(`${SAVED}\n#tag\n`);
   });
 
   it('keeps its emphasis when the BOM is doubled, and echoes the host bytes on open', () => {
@@ -418,7 +420,7 @@ describe('a note that starts with a byte order mark', () => {
 
     handle.applyEdit(`${note}\n#tag\n`);
 
-    expect(changes.at(-1)).toBe(`${BODY}\n#tag\n`);
+    expect(changes.at(-1)).toBe(`${SAVED}\n#tag\n`);
   });
 });
 
@@ -436,7 +438,8 @@ describe('the BOM strip on the parser doors other than openNote', () => {
     handle.openNote('test-note', '');
     handle.insertMarkdown(`\ufeff${BODY}`);
 
-    expect(handle.getContent()).toBe(BODY);
+    // The house style spells italics `*`.
+    expect(handle.getContent()).toBe('Intro **b** and *it* x**y**z\n');
   });
 
   it('a note handed to the engine as its initial value keeps its emphasis', async () => {

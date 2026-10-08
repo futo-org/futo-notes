@@ -5,13 +5,13 @@
  * what the tests need to know is what the document holds and what
  * `getMarkdown()` writes back — the two things a note on disk is made of. A
  * unit test of the tokenizer in isolation would pass while the mdast handler or
- * the node schema silently dropped the target.
+ * the node schema silently dropped the target. The compat presets, because
+ * they are what installs the editor's own serializer — the writer under test.
  */
 import { Editor, defaultValueCtx, editorViewCtx, rootCtx } from '@milkdown/kit/core';
-import { commonmark } from '@milkdown/kit/preset/commonmark';
-import { gfm } from '@milkdown/kit/preset/gfm';
 import { getMarkdown } from '@milkdown/kit/utils';
 
+import { commonmarkWithCompat, gfmWithCompat } from '@futo-notes/editor/milkdown-compat';
 import { wikilink } from '..';
 import { WIKILINK_NODE } from '../node';
 import { withoutLeakedCtxTimers } from '../../__fixtures__/noLeakedCtxTimers';
@@ -32,8 +32,8 @@ export async function roundTrip(source: string): Promise<RoundTrip> {
         ctx.set(rootCtx, root);
         ctx.set(defaultValueCtx, source);
       })
-      .use(commonmark)
-      .use(gfm)
+      .use(commonmarkWithCompat())
+      .use(gfmWithCompat())
       .use(wikilink)
       .create(),
   );

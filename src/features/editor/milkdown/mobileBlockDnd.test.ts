@@ -27,11 +27,38 @@ import {
   DEFAULT_LONG_PRESS_MS,
   MobileBlockDndView,
   dropBlockDndFocusGuards,
+  needsSelectionNet,
   type MobileBlockDndOptions,
 } from './mobileBlockDnd';
 import { testSchema } from './__fixtures__/schema';
 
 const s = testSchema;
+
+/** Real user-agent strings, by engine. */
+const UA = {
+  iosWebView:
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+  iosChrome:
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.6478.153 Mobile/15E148 Safari/604.1',
+  iosEdge:
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 EdgiOS/125.2535.60 Mobile/15E148 Safari/605.1.15',
+  iosFirefox:
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/127.0 Mobile/15E148 Safari/605.1.15',
+  ipadSafariDesktopMode:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+  androidWebView90:
+    'Mozilla/5.0 (Linux; Android 11; Pixel 4 Build/RQ3A.210805.001.A1; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/90.0.4430.210 Mobile Safari/537.36',
+  androidWebView120:
+    'Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/UQ1A.240105.004; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.6099.230 Mobile Safari/537.36',
+  chromeDesktop:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+  safariDesktop:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+  webKitGtk:
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+  firefoxDesktop: 'Mozilla/5.0 (X11; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0',
+  firefoxAndroid: 'Mozilla/5.0 (Android 14; Mobile; rv:127.0) Gecko/127.0 Firefox/127.0',
+};
 
 const BLOCK_TOP = 100;
 const BLOCK_HEIGHT = 40;
@@ -197,6 +224,30 @@ describe('MobileBlockDndView — focus arbitration (QA #001)', () => {
     dom.remove();
   });
 
+  it('hides the selection only where iOS WebKit needs it, and removes it with the arm class', () => {
+    for (const [nav, expected] of [
+      [{ userAgent: UA.iosWebView }, true],
+      // Android WebView 90: Chromium without `userAgentData` (added in 116).
+      [{ userAgent: UA.androidWebView90 }, false],
+    ] as const) {
+      vi.stubGlobal('navigator', nav);
+      const { view, dom, pointA } = makeView(/* hasFocus */ false);
+      const { options } = makeOptions();
+      const pluginView = new MobileBlockDndView(view, options);
+
+      dom.dispatchEvent(pointerEvent('pointerdown', { clientX: pointA.x, clientY: pointA.y }));
+      expect(dom.classList.contains('futo-mobile-dnd-armed')).toBe(true);
+      expect(dom.classList.contains('futo-mobile-dnd-hide-selection')).toBe(expected);
+
+      dom.dispatchEvent(pointerEvent('pointerup', { clientX: pointA.x, clientY: pointA.y }));
+      expect(dom.classList.contains('futo-mobile-dnd-hide-selection')).toBe(false);
+
+      pluginView.destroy();
+      dom.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('re-reads focus fresh on every gesture instead of caching the first answer', () => {
     const { view, dom, setFocused, pointA } = makeView(/* hasFocus */ true);
     const { options, onPressActive } = makeOptions();
@@ -347,5 +398,33 @@ describe('MobileBlockDndView — focus arbitration (QA #001)', () => {
 
     pluginView.destroy();
     dom.remove();
+  });
+});
+
+describe('needsSelectionNet', () => {
+  it.each([
+    ['iOS WKWebView', { userAgent: UA.iosWebView }, true],
+    ['iOS Chrome (CriOS is WebKit)', { userAgent: UA.iosChrome }, true],
+    ['iOS Edge', { userAgent: UA.iosEdge }, true],
+    ['iOS Firefox', { userAgent: UA.iosFirefox }, true],
+    ['desktop Safari', { userAgent: UA.safariDesktop }, true],
+    ['iPad in desktop mode (Safari UA)', { userAgent: UA.ipadSafariDesktopMode }, true],
+    ['WebKitGTK', { userAgent: UA.webKitGtk }, true],
+    ['Firefox desktop', { userAgent: UA.firefoxDesktop }, true],
+    ['Firefox Android', { userAgent: UA.firefoxAndroid }, true],
+    ['an unknown engine', { userAgent: 'SomeBrowser/1.0' }, true],
+    ['no navigator', undefined, true],
+    // Chromium: no net, with or without `userAgentData` (WebView < 116 has none).
+    ['Android WebView 90 (no userAgentData)', { userAgent: UA.androidWebView90 }, false],
+    [
+      'Android WebView 120',
+      { userAgent: UA.androidWebView120, userAgentData: { mobile: true } },
+      false,
+    ],
+    ['Chrome desktop', { userAgent: UA.chromeDesktop, userAgentData: {} }, false],
+    ['Chrome desktop without userAgentData', { userAgent: UA.chromeDesktop }, false],
+    ['userAgentData alone', { userAgentData: {} }, false],
+  ] as const)('%s', (_name, nav, expected) => {
+    expect(needsSelectionNet(nav)).toBe(expected);
   });
 });

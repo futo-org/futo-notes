@@ -122,8 +122,9 @@ granularity the planner allows, and exits non-zero on a single divergence. NOT i
 `check`/CI — the corpus is real user notes and lives outside this repo. Committed result:
 `docs/evidence/milkdown-chunk-census.md`. `--dump-divergences <path>` writes the offending
 notes for triage (carries note TEXT, keep it out of the repo). `--serialize` runs the OTHER
-equivalence claim over the same corpus/harness: `blockSerializer.ts`'s per-block cache must
-match Milkdown's own serializer called directly.
+equivalence claim over the same corpus/harness: the save path's per-block cache
+(`createDocumentSerializer`, serializationLoop.ts) must match the editor's serializer writing
+the whole document. A serializer that throws counts as a failure, never as a match.
 
 ## check-node-modules / _require-install / _require-node-modules
 

@@ -1,11 +1,10 @@
 /**
  * `[[wikilink]]` support for the Milkdown editor — parse, render, navigate,
- * autocomplete, serialize.
+ * autocomplete. Writing `[[target]]` back is the editor's own serializer's
+ * (`@futo-notes/editor/markdown`), which knows the `wikilink` node.
  *
- * MANDATORY, not optional polish: without the serializer half, remark escapes
- * `[[x]]` to `\[\[x]]` the first time a note is edited and every link in that
- * note stops resolving. `syntax.ts` documents the survey (#101) that decided
- * this is hand-written rather than adopted.
+ * `syntax.ts` documents the survey (#101) that decided the tokenizer is
+ * hand-written rather than adopted.
  */
 import { remarkWikilink } from './syntax';
 import { $remark } from '@milkdown/kit/utils';
@@ -16,7 +15,7 @@ import { wikilinkAutocomplete } from './autocomplete';
 
 export const wikilinkRemark = $remark('remark-futo-wikilink', () => remarkWikilink);
 
-/** Mounted as one `.use(...)` by `MilkdownEditor.svelte`. */
+/** Mounted as one `.use(...)` by `editorPlugins.ts`. */
 export const wikilink = [
   wikilinkRemark,
   wikilinkSchema,
