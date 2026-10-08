@@ -294,11 +294,21 @@ export class BlockDragSession {
         { futoDragSource: true },
       ),
     ]);
-    view.dispatch(view.state.tr.setMeta(blockDragSourceKey, { decorationSet }));
-    this.reflow?.mount();
-    this.indicatorPos =
-      restingTarget && !this.isNoOpTarget(restingTarget) ? restingTarget.pos : null;
-    this.createGhost(clientX, clientY, liftRect);
+    try {
+      view.dispatch(view.state.tr.setMeta(blockDragSourceKey, { decorationSet }));
+      this.reflow?.mount();
+      this.indicatorPos =
+        restingTarget && !this.isNoOpTarget(restingTarget) ? restingTarget.pos : null;
+      this.createGhost(clientX, clientY, liftRect);
+    } catch (error) {
+      // A lift that throws half-way (an engine missing some API) must not
+      // strand the dim, the curtain or the ghost: callers only treat the drag
+      // as live once `start` returns, so nothing else would ever clear them.
+      this.cleanupDragVisuals();
+      this.reset();
+      this.clearDecoration();
+      throw error;
+    }
   }
 
   /** The pointer moved while lifted. */
@@ -613,6 +623,31 @@ const GHOST_SHADOWS: ReadonlyArray<readonly [number, number, number]> = [
 ];
 const GHOST_RADIUS_PX = 14;
 
+/** Begins a path of a rounded rectangle. `roundRect` is Chromium 99; the
+ * Android WebView floor is 80, so older engines get the same shape from four
+ * `arcTo` corners. */
+function roundedRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+): void {
+  ctx.beginPath();
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(x, y, width, height, radius);
+    return;
+  }
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+  ctx.closePath();
+}
+
 /** Paints the card's shadow once, onto a canvas behind it, sized to the card's
  * laid-out box plus room for the widest blur. The card is translucent and a
  * box-shadow is never drawn under its own box, so the card's area is cut back
@@ -645,8 +680,8 @@ function drawGhostShadow(ghost: HTMLElement, card: HTMLElement): void {
     ctx.shadowBlur = blur * dpr;
     ctx.shadowOffsetX = away;
     ctx.shadowOffsetY = offsetY * dpr;
-    ctx.beginPath();
-    ctx.roundRect(
+    roundedRectPath(
+      ctx,
       margin * dpr - away,
       margin * dpr,
       width * dpr,
@@ -657,8 +692,14 @@ function drawGhostShadow(ghost: HTMLElement, card: HTMLElement): void {
     ctx.restore();
   }
   ctx.globalCompositeOperation = 'destination-out';
-  ctx.beginPath();
-  ctx.roundRect(margin * dpr, margin * dpr, width * dpr, height * dpr, GHOST_RADIUS_PX * dpr);
+  roundedRectPath(
+    ctx,
+    margin * dpr,
+    margin * dpr,
+    width * dpr,
+    height * dpr,
+    GHOST_RADIUS_PX * dpr,
+  );
   ctx.fill();
   ghost.insertBefore(canvas, ghost.firstChild);
 }

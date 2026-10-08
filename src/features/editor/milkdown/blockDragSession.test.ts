@@ -101,4 +101,68 @@ describe('BlockDragSession', () => {
     expect(fixture.order()).toEqual(['a', 'b', 'c']);
     expect(fixture.dispatched.every((tr) => !tr.docChanged)).toBe(true);
   });
+
+  // The Android WebView floor is Chromium 80 (EditorEngineSupport.kt); the
+  // ghost shadow's `CanvasRenderingContext2D.roundRect` is Chromium 99.
+  describe('on a canvas without roundRect (an older WebView)', () => {
+    /** A recording 2D context with the pre-99 surface: no `roundRect`. */
+    function oldContext() {
+      const calls: string[] = [];
+      const ctx: Record<string, unknown> = {};
+      for (const name of [
+        'save',
+        'restore',
+        'beginPath',
+        'fill',
+        'arcTo',
+        'moveTo',
+        'lineTo',
+        'closePath',
+      ]) {
+        ctx[name] = () => calls.push(name);
+      }
+      return { ctx: ctx as unknown as CanvasRenderingContext2D, calls };
+    }
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('still lifts, and paints the shadow without roundRect', () => {
+      const { ctx, calls } = oldContext();
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as never);
+      const fixture = makeStackedView(['a', 'b', 'c']);
+      const session = new BlockDragSession(fixture.view);
+
+      expect(() => session.start(lift(0, fixture), X, blockTop(0) + 10)).not.toThrow();
+
+      expect(session.active).toBe(true);
+      expect(fixture.dom.querySelectorAll('.futo-mobile-dnd-ghost')).toHaveLength(1);
+      expect(calls).toContain('arcTo');
+      expect(calls).toContain('fill');
+      session.destroy();
+    });
+
+    it('a lift that throws leaves nothing behind: no ghost, no dim, not active', () => {
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => {
+        throw new Error('canvas unavailable');
+      });
+      const fixture = makeStackedView(['a', 'b', 'c']);
+      const session = new BlockDragSession(fixture.view);
+
+      expect(() => session.start(lift(0, fixture), X, blockTop(0) + 10)).toThrow(
+        'canvas unavailable',
+      );
+
+      expect(session.active).toBe(false);
+      expect(document.querySelector('.futo-mobile-dnd-ghost')).toBeNull();
+      const last = fixture.dispatched[fixture.dispatched.length - 1];
+      expect(last.getMeta(blockDragSourceKey).decorationSet.find()).toHaveLength(0);
+      // And the session is usable again.
+      vi.restoreAllMocks();
+      session.start(lift(0, fixture), X, blockTop(0) + 10);
+      expect(session.active).toBe(true);
+      session.destroy();
+    });
+  });
 });
