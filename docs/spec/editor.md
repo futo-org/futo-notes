@@ -1991,7 +1991,17 @@ unchanged by it.
   milkdown/serializationLoop.ts `createDocumentSerializer`/`readSerialized`
 - A note of 400 lines or more is opened PROGRESSIVELY: the first ~80 lines are
   parsed and mounted synchronously so the first viewport is interactive, and the
-  rest stream in idle slices. Chunk boundaries are only ever taken where a chunk
+  rest stream in idle slices.
+- While the tail streams, a pointer down, focus or key in the editor holds the
+  next idle slice until 150 ms after the last such event, so no chunk parse
+  starts in the frames that place the caret (a slice already running when the
+  finger lands still finishes first). An unbroken run of events holds for at most
+  1 s, then slices run again until the events pause. A held slice is delayed, never
+  dropped: the stream still completes exactly once and the save lock below is
+  unchanged. The serializer's idle cache priming yields the same way. →
+  milkdown/interactionHold.ts, milkdown/progressiveLoad.ts
+  `createYieldingIdleScheduler`, tests/editor-embed-milkdown.spec.ts
+- Chunk boundaries are only ever taken where a chunk
   parses to the same document the whole note would (never inside front matter,
   never at a `---`), and a chunk that parses to nothing aborts the whole thing
   back to a single whole-document parse. → milkdown/markdownChunks.ts,

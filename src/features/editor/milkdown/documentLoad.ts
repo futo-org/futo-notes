@@ -27,6 +27,7 @@ import {
   measureOpen,
   scheduleIdleSlice,
   startProgressiveLoad,
+  type ScheduleIdle,
 } from './progressiveLoad';
 import type { SerializationLoop } from './serializationLoop';
 
@@ -42,6 +43,9 @@ export interface DocumentLoadDeps {
   /** Re-asks the view for its `editable` prop (MilkdownEditor.svelte). */
   refreshEditable: () => void;
   props: DocumentLoadProps;
+  /** The idle scheduler the streamed tail runs on; the component passes the
+   * yielding one (progressiveLoad.ts `createYieldingIdleScheduler`). */
+  scheduleIdle?: ScheduleIdle;
 }
 
 export type DocumentLoad = ReturnType<typeof createDocumentLoad>;
@@ -173,7 +177,14 @@ export function createDocumentLoad(
   serialization: SerializationLoop,
   deps: DocumentLoadDeps,
 ) {
-  const { getEditor, pmView, emitFormatState, refreshEditable, props } = deps;
+  const {
+    getEditor,
+    pmView,
+    emitFormatState,
+    refreshEditable,
+    props,
+    scheduleIdle = scheduleIdleSlice,
+  } = deps;
   const { cancelChangeNotification, startPriming, stopPriming, readSerialized, postChange } =
     serialization;
   const { applyFirstChunk, appendParsedChunk } = createChunkApplier(getEditor, pmView);
@@ -396,7 +407,7 @@ export function createDocumentLoad(
         index += 1;
         if (!applied) abortToWholeDocument();
       },
-      scheduleIdle: scheduleIdleSlice,
+      scheduleIdle,
       onComplete: () => {
         if (session.abortedToWholeDocument) return;
         finishProgressiveLoad();

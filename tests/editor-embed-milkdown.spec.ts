@@ -9,6 +9,8 @@ import { BRIDGE_VERSION } from '@futo-notes/editor';
 import { LAND_CAP_MS } from '../src/features/editor/milkdown/blockDragCurtain';
 import { GHOST_PAD_Y_PX } from '../src/features/editor/milkdown/blockDragSession';
 import { DEFAULT_LONG_PRESS_MS } from '../src/features/editor/milkdown/mobileBlockDnd';
+import { HOLD_SETTLE_MS } from '../src/features/editor/milkdown/interactionHold';
+import { OPEN_COMPLETE_MEASURE } from '../src/features/editor/milkdown/progressiveLoad';
 import { EDITOR_URL } from './editorEmbedBundle';
 import { PERFORMANCE_BUDGET } from './editor-gauntlet/performanceFloor';
 import {
@@ -4961,6 +4963,67 @@ test('an edit made while the tail streams is released against the COMPLETE note'
   // The tail is all there: the last section of the note survived the edit.
   expect(saved).toContain('Section 599');
   expect(await getContent(page)).toBe(saved);
+});
+
+test('a focus while the tail streams holds the next chunk until the focus settles', async ({
+  page,
+}) => {
+  // The interaction hold (interactionHold.ts): the frames right after a tap
+  // or a focus belong to the caret, the keyboard and the focus work, so the
+  // streamed tail waits out a settle window before its next slice instead of
+  // landing a chunk parse between the finger and the caret. The proof is the
+  // time the first streamed chunk reaches the DOM, taken by a MutationObserver
+  // in the task that appended it — not a sampled frame, so no race.
+  const sections = 1200;
+  const note = largeNote(sections);
+
+  const run = await page.evaluate(
+    (json) => {
+      const w = window as unknown as FakeHostWindow & { __msgs: { type: string }[] };
+      w.__msgs.length = 0;
+      let focusAt: number | null = null;
+      const onFocus = () => (focusAt ??= performance.now());
+      window.addEventListener('focusin', onFocus, true);
+      w.FutoEditor.initialize(json);
+      const root = document.querySelector('.ProseMirror') as HTMLElement;
+      const blocksAtFocus = root.childElementCount;
+      w.FutoEditor.focus();
+      window.removeEventListener('focusin', onFocus, true);
+      return new Promise<{
+        focusAt: number | null;
+        blocksAtFocus: number;
+        firstAppendAfterFocusMs: number;
+      }>((resolve) => {
+        const observer = new MutationObserver(() => {
+          if (root.childElementCount <= blocksAtFocus) return;
+          observer.disconnect();
+          resolve({
+            focusAt,
+            blocksAtFocus,
+            firstAppendAfterFocusMs: performance.now() - (focusAt ?? Number.NaN),
+          });
+        });
+        observer.observe(root, { childList: true });
+      });
+    },
+    hostConfig({ content: note }),
+  );
+
+  // Chunk 0 only: a heading and a body paragraph per section is the whole note.
+  expect(run.blocksAtFocus, 'the note must still be streaming when the focus lands').toBeLessThan(
+    2 * sections,
+  );
+  expect(run.focusAt, 'the focus never reached the page').not.toBeNull();
+  expect(run.firstAppendAfterFocusMs).toBeGreaterThanOrEqual(HOLD_SETTLE_MS);
+
+  // Held, not dropped: the tail resumes and the open completes exactly once,
+  // with the save lock intact — no change message, the host's bytes back.
+  await waitForStreamComplete(page);
+  expect(
+    await page.evaluate((name) => performance.getEntriesByName(name).length, OPEN_COMPLETE_MEASURE),
+  ).toBe(1);
+  expect(await messagesOfType(page, 'change')).toEqual([]);
+  expect(await getContent(page)).toBe(note);
 });
 
 test('a flush mid-stream after an edit settles the complete document', async ({ page }) => {
