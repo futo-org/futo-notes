@@ -50,6 +50,19 @@ const reference = (character: string): string =>
 
 const isAsciiPunctuation = (character: string): boolean => /^[!-/:-@[-`{-~]$/.test(character);
 
+/** What can follow `&` in a character reference (`&amp;`, `&#38;`, `&#x26;`). */
+const REFERENCE_TAIL = /^(?:#[0-9]{1,7};|#[xX][0-9a-fA-F]{1,6};|[A-Za-z][A-Za-z0-9]{1,31};)/;
+
+/**
+ * A destination or title with each `&` that would start a character reference
+ * written `\&`, so a decoded `&amp;` is not decoded again on the next read. A
+ * `&` that starts none stays bare.
+ */
+const escapeReferences = (value: string): string =>
+  value.replace(/&/g, (amp, at: number) =>
+    REFERENCE_TAIL.test(value.slice(at + 1, at + 40)) ? `\\${amp}` : amp,
+  );
+
 /** A `|` in a table cell, as `\|`: the row is split at every other one before anything is read. */
 const cellPipes = (text: string, inCell: boolean): string =>
   inCell ? text.replace(/\|/g, '\\|') : text;
@@ -71,8 +84,8 @@ function codeSpan(value: string, inCell: boolean): string {
  */
 export function destination(url: string, inCell = false): string {
   const bare = /^[^\s\\\p{Cc}]*$/u.test(url) && !url.startsWith('<');
-  if (bare && balancedParentheses(url)) return cellPipes(url, inCell);
-  return cellPipes(`<${url.replace(/[\\<>]/g, '\\$&')}>`, inCell);
+  if (bare && balancedParentheses(url)) return cellPipes(escapeReferences(url), inCell);
+  return cellPipes(`<${escapeReferences(url.replace(/[\\<>]/g, '\\$&'))}>`, inCell);
 }
 
 function balancedParentheses(url: string): boolean {
@@ -87,7 +100,7 @@ function balancedParentheses(url: string): boolean {
 
 function titlePart(title: unknown, inCell: boolean): string {
   if (typeof title !== 'string' || title === '') return '';
-  return cellPipes(` "${title.replace(/["\\]/g, '\\$&')}"`, inCell);
+  return cellPipes(` "${escapeReferences(title.replace(/["\\]/g, '\\$&'))}"`, inCell);
 }
 
 /** Every character that could be link-label syntax, escaped — only for a `www.` link written in full. */
@@ -288,9 +301,7 @@ function touchingMarkers(tokens: Token[], sites: Sites): Token[] {
 /** The characters that can start or end markdown syntax wherever they stand. */
 const ALWAYS = new Set(['\\', '`', '*', '~', '[', ']', '<', '|']);
 
-/** What can follow `&` in a character reference (`&amp;`, `&#38;`, `&#x26;`). */
-const REFERENCE_TAIL = /^(?:#[0-9]{1,7};|#[xX][0-9a-fA-F]{1,6};|[A-Za-z][A-Za-z0-9]{1,31};)/;
-/** …and the ones that only can as a line's first character. */
+/** The characters that can start syntax only as a line's first character. */
 const LINE_START = new Set(['-', '+', '=', '>', '#']);
 
 const isWord = (character: string | undefined): boolean =>

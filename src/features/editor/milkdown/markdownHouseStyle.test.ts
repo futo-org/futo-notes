@@ -187,3 +187,68 @@ describe('the per-block save cache', () => {
     expect(cached.isPrimed(doc)).toBe(true);
   });
 });
+
+/*
+ * A link or image destination, and a title, are character-reference territory
+ * exactly like text: `&amp;` in the source reads as `&`, so a decoded `&amp;`
+ * must be written so it does not decode again. A bare `&` that starts no
+ * reference stays bare (byte stability of existing notes).
+ */
+describe('character references in link and image attributes', () => {
+  const adapter = {
+    children: (doc: NodeJson) => doc.content ?? [],
+    toJSON: (block: NodeJson) => block,
+  };
+
+  /** [markdown source as written, what its destination/title decodes to] */
+  const SOURCES = [
+    ['paragraph link', '[x](a&amp;amp;b)'],
+    ['paragraph link, numeric', '[x](a&amp;#38;b)'],
+    ['paragraph link, title', '[x](u "&amp;copy;")'],
+    ['paragraph image', '![x](a&amp;amp;b)'],
+    ['paragraph image, title', '![x](u "&amp;copy;")'],
+    ['table cell link', '| h |\n| --- |\n| [x](a&amp;amp;b) |'],
+    ['table cell image', '| h |\n| --- |\n| ![x](a&amp;amp;b "&amp;copy;") |'],
+  ] as const;
+
+  it.each(SOURCES)('keeps what a %s decodes to', (_name, source) => {
+    const doc = parser.parse(source);
+    const written = serializer.serialize(doc);
+    expect(houseDocument(parser.parse(written)), written).toBe(houseDocument(doc));
+    expect(serializer.serialize(parser.parse(written))).toBe(written);
+  });
+
+  it('still writes a bare & that starts no reference bare', () => {
+    expect(serializer.serialize(parser.parse('[x](a&b?c=1&d=2 "t&u")'))).toBe(
+      '[x](a&b?c=1&d=2 "t&u")\n',
+    );
+    expect(serializer.serialize(parser.parse('[x](a&amp;b)'))).toBe('[x](a&b)\n');
+  });
+
+  it('keeps the destinations of an untouched block when another paragraph is edited', () => {
+    const cached = createCachedSerializer(serializer, adapter);
+    const doc = parser.parse('[x](a&amp;amp;b)\n\n![y](c&amp;amp;d "&amp;copy;")\n\nedit me');
+    cached.serialize(doc);
+    const content = doc.content ?? [];
+    const edited: NodeJson = {
+      ...doc,
+      content: [
+        content[0]!,
+        content[1]!,
+        { type: 'paragraph', content: [{ type: 'text', text: 'edited' }] },
+      ],
+    };
+    const written = cached.serialize(edited);
+    expect(houseDocument(parser.parse(written)), written).toBe(houseDocument(edited));
+  });
+
+  it('keeps them when the edited block is the link paragraph itself', () => {
+    const doc = parser.parse('[x](a&amp;amp;b)');
+    const content = doc.content ?? [];
+    const written = createCachedSerializer(serializer, adapter).serialize({
+      ...doc,
+      content: [{ ...content[0]! }],
+    });
+    expect(houseDocument(parser.parse(written)), written).toBe(houseDocument(doc));
+  });
+});
