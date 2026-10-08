@@ -929,12 +929,20 @@ export class ReflowCurtain {
 
   /** A release is about to commit the move this preview shows. The preview IS
    * the note after that move at the current scroll position, so the drop must
-   * not scroll. Chromium's scroll anchoring would: it pins the first visible
-   * block on screen across a layout change, and when the source sat above the
-   * viewport (auto-scroll carried it off the top) that block is one the move
-   * shifts up by the source's height, so the view jumped by it on release —
-   * only "sometimes", because it depends on which block the browser picked.
-   * Anchoring is held off the scroller until the move has been laid out. */
+   * not scroll. Two things in the browser would scroll it:
+   *
+   * - Chromium's scroll anchoring pins the first visible block on screen
+   *   across a layout change, and when the source sat above the viewport
+   *   (auto-scroll carried it off the top) that block is one the move shifts
+   *   up by the source's height, so the view jumped by it on release — only
+   *   "sometimes", because it depends on which block the browser picked.
+   *   Anchoring is held off the scroller until the move has been laid out.
+   * - A move can make the note shorter (`dropShrink`), and scrolled to near
+   *   its bottom the browser clamps the scroll position to the shorter note,
+   *   moving every block on screen down. The editor keeps the missing extent
+   *   as bottom padding until a scroll no longer needs it (`holdScrollExtent`).
+   *
+   * Reads, then writes; the move's dispatch follows. */
   holdScrollThroughDrop(): void {
     const reflow = this.reflow;
     if (!reflow || reflow.applied === null) return;
@@ -943,11 +951,34 @@ export class ReflowCurtain {
         ? reflow.scroller
         : (this.doc.scrollingElement as HTMLElement | null);
     if (!el) return;
+    // The scroll extent after the move, and whether the browser would clamp
+    // the scroll position to it; if so, how much it falls short.
+    const after = el.scrollHeight - this.dropShrink(reflow);
+    const clamps = el.scrollTop > Math.max(0, after - el.clientHeight) + 0.5;
+    const short = clamps ? el.scrollTop + el.clientHeight - after : 0;
+    const padding = short > 0 ? parseFloat(getComputedStyle(this.view.dom).paddingBottom) || 0 : 0;
     el.style.overflowAnchor = 'none';
     // Two frames: the first frame's layout is the one that lays out the move.
     requestAnimationFrame(() =>
       requestAnimationFrame(() => el.style.removeProperty('overflow-anchor')),
     );
+    if (short > 0) holdScrollExtent(this.view.dom, el, reflow.scroller, padding, Math.ceil(short));
+  }
+
+  /** How much shorter the previewed move makes the note: how far the end of
+   * its last block moves up. Counted with and without the last block's bottom
+   * margin, whichever is more, so a move that changes which block is last
+   * never falls short whether or not the browser counts that margin in the
+   * scroll extent (too much only leaves a few pixels of padding for a while). */
+  private dropShrink(reflow: Reflow): number {
+    const gap = reflow.applied!;
+    const s = reflow.sourceIndex;
+    const last = reflow.count - 1;
+    const newLast = gap === reflow.count ? s : s === last ? last - 1 : last;
+    if (newLast < 0) return 0;
+    const byBlock =
+      this.slotBottom(last) - (this.slotBottom(newLast) + this.reflowShift(newLast, gap));
+    return Math.max(byBlock, byBlock + this.marginBelow(last) - this.marginBelow(newLast));
   }
 
   /** Takes the curtain down and ends the preview. Every exit calls it;
@@ -965,6 +996,45 @@ export class ReflowCurtain {
     reflow.clip.remove();
     this.reflow = null;
   }
+}
+
+/** The bottom padding `holdScrollExtent` added to an editor, by editor. */
+const extentHolds = new WeakMap<HTMLElement, { extra: number; release: () => void }>();
+
+/** Adds `extra` px to `editor`'s bottom padding (`padding` px, as computed
+ * now) so a drop that shortens the note leaves `scroller` the extent its
+ * scroll position needs. The padding is released at the first scroll that
+ * leaves the view clear of it, so releasing it can never move the view. A
+ * second drop before then adds to the first. */
+function holdScrollExtent(
+  editor: HTMLElement,
+  el: HTMLElement,
+  scroller: HTMLElement | Window,
+  padding: number,
+  extra: number,
+): void {
+  const held = extentHolds.get(editor);
+  if (held) {
+    held.extra += extra;
+    editor.style.paddingBottom = `${padding + extra}px`;
+    return;
+  }
+  const hold = {
+    extra,
+    release: () => {
+      // Without the padding, the furthest the view can scroll; past it, the
+      // browser would clamp the scroll position and move the view.
+      if (el.scrollTop > Math.max(0, el.scrollHeight - hold.extra - el.clientHeight) + 0.5) {
+        return;
+      }
+      scroller.removeEventListener('scroll', hold.release);
+      editor.style.removeProperty('padding-bottom');
+      extentHolds.delete(editor);
+    },
+  };
+  extentHolds.set(editor, hold);
+  editor.style.paddingBottom = `${padding + extra}px`;
+  scroller.addEventListener('scroll', hold.release, { passive: true });
 }
 
 /** `el`'s padding box in client coordinates: what of its content is visible,

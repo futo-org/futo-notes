@@ -3462,6 +3462,76 @@ for (const c of LATE_LAYOUT_CASES) {
   );
 }
 
+/* A move can make the note SHORTER: the final paragraph moved above a first
+ * heading becomes the first block, whose top margin the editor zeroes, while
+ * the heading keeps its own — one paragraph gap fewer. Scrolled to the bottom,
+ * the browser would then clamp the scroll position to the shorter note and
+ * every block on screen would move down by the difference. The note here
+ * overflows by a few pixels, less than that gap, so the move is on screen with
+ * the note at its bottom. */
+const SHORTENING_NOTE = [
+  '# A first heading long enough to wrap over several lines of a narrow screen',
+  ...Array.from({ length: 5 }, (_, i) => `Paragraph ${i}`),
+  'The final paragraph',
+].join('\n\n');
+
+/** Scrolls SHORTENING_NOTE to its bottom in a viewport it overflows by 6px,
+ * then lifts its final paragraph with `lift` and drops it above the heading. */
+async function runShorteningDrop(page: Page, lift: (index: number) => Promise<LiftedBlock>) {
+  await page.setViewportSize({ width: 420, height: 640 });
+  await hostSetContent(page, SHORTENING_NOTE);
+  await clearMessages(page);
+  // Under 700px tall the editor's bottom padding is a fixed 280px, so the
+  // overflow follows the viewport height one for one.
+  const { max } = await editorScroll(page);
+  await page.setViewportSize({ width: 420, height: 640 + max - 6 });
+  await page.evaluate(() => {
+    const dom = document.querySelector('.ProseMirror') as HTMLElement;
+    dom.scrollTop = dom.scrollHeight;
+  });
+  await flushFrames(page);
+  const start = await editorScroll(page);
+  expect(start.max).toBeGreaterThan(2);
+  expect(start.max).toBeLessThan(10);
+  expect(start.top).toBe(start.max);
+
+  const count = await page.locator('.ProseMirror[contenteditable] > *').count();
+  const heading = await blockBoxAt(page, 0);
+  // Above the heading's middle, below the edge auto-scroll zone (64px).
+  const y = Math.max(start.topEdge + 72, heading.top + 12);
+  expect(y).toBeLessThan((heading.top + heading.bottom) / 2);
+  const lifted = await lift(count - 1);
+  await lifted.move(y);
+
+  await expectDropMatchesPreview(page, () => lifted.release());
+  expect(await getContent(page)).toMatch(/^The final paragraph\n\n# A first heading/);
+
+  // The extent that kept the view still is temporary bottom padding, which
+  // goes at the first scroll that leaves the view clear of it.
+  const heldPadding = () =>
+    page.evaluate(
+      () => (document.querySelector('.ProseMirror') as HTMLElement).style.paddingBottom,
+    );
+  expect(await heldPadding()).not.toBe('');
+  await page.evaluate(() => {
+    (document.querySelector('.ProseMirror') as HTMLElement).scrollTop = 0;
+  });
+  await expect.poll(heldPadding).toBe('');
+}
+
+gutterHandleTest(
+  'a drop that shortens a note scrolled to its bottom keeps the view still (handle)',
+  async ({ page }) => {
+    await runShorteningDrop(page, (index) => liftWithHandle(page, index));
+  },
+);
+mobileDndTest(
+  'a drop that shortens a note scrolled to its bottom keeps the view still (long press)',
+  async ({ page, cdp }) => {
+    await runShorteningDrop(page, (index) => liftWithTouch(page, cdp, index));
+  },
+);
+
 mobileDndTest('a scroll gesture never lifts a block', async ({ page, cdp }) => {
   await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
   await clearMessages(page);

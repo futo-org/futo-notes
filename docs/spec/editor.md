@@ -733,9 +733,15 @@ hand-reviewed goldens, one or more per line below)
   release stay exactly where the live preview drew them, and the dropped block
   lands where the preview showed it — also when edge auto-scroll carried the
   source block off the top of the screen before the drop (Chromium's scroll
-  anchoring used to pull the view back by the source's height then). Verified
-  in Chromium (Playwright) 2026-10-08. → src/features/editor/milkdown/blockDragCurtain.ts
-  `holdScrollThroughDrop`, src/features/editor/milkdown/blockDragSession.ts,
+  anchoring used to pull the view back by the source's height then), and also
+  when the move makes the note shorter while it is scrolled to its bottom (a
+  last paragraph moved above a first heading loses one paragraph gap; the
+  browser used to clamp the scroll position to the shorter note and move every
+  block down). For that, the editor keeps the missing scroll extent as extra
+  bottom padding, which goes at the first scroll that leaves the view clear of
+  it, so its removal never moves the view either. Verified in Chromium
+  (Playwright) 2026-10-08. → src/features/editor/milkdown/blockDragCurtain.ts
+  `holdScrollThroughDrop` `holdScrollExtent`, src/features/editor/milkdown/blockDragSession.ts,
   tests/editor-embed-milkdown.spec.ts
 - A finger landing on a block in the long-press block drag suspends the
   platform's DELAYED text interaction from touch-down — the magnifier loupe and
