@@ -1019,11 +1019,38 @@ test:rust:macos:
     # test:rust:workspace, and duplicating it here spent ~6 min of the single
     # contended macscript runner per Rust MR for an allow_failure result.
     # The full macOS `cargo test --workspace` runs on main pushes and tags.
-    # All of crates/ (not just the FFI crate): any inner crate can break the
-    # mobile target. allow_failure stays on MRs: this runs through Cirrus on
-    # the single macscript runner, and infra flakiness must not block merges.
+    # allow_failure stays on MRs: this runs through Cirrus on the single
+    # macscript runner, and infra flakiness must not block merges.
+    #
+    # The MR list leaves out every path that also starts test:ios-native on
+    # an MR: that job's scripts/build-rust-ios.sh builds futo-notes-ffi for all
+    # three iOS triples, a superset of this check, so firing both spent a
+    # second VM boot on the same proof. That is futo-notes-ffi itself,
+    # Cargo.lock and build-rust-ios.sh. The other crates are listed one by one
+    # (every one sits in the FFI tree, and test:ios-native does not watch
+    # them); premerge-test-parity fails when a new crate is in neither list.
+    # apps/tauri/src-tauri is out too: the desktop crate is not in the FFI
+    # tree, so it cannot change what this MR check compiles. .cirrus.yml and
+    # .gitlab-ci.yml stay, because they can break this job's own environment.
     - if: $CI_MERGE_REQUEST_IID
-      changes: &rust-macos-changes
+      changes:
+        - Cargo.toml
+        - rust-toolchain.toml
+        - crates/futo-notes-core/**/*
+        - crates/futo-notes-license/**/*
+        - crates/futo-notes-model/**/*
+        - crates/futo-notes-search/**/*
+        - crates/futo-notes-store/**/*
+        - crates/futo-notes-sync/**/*
+        - .cirrus.yml
+        - .gitlab-ci.yml
+      allow_failure: true
+    # Full macOS workspace tests on Rust-touching main pushes, so a macOS-only
+    # break surfaces before tag time (M13) instead of first failing on the tag.
+    # All of crates/ and the desktop crate: this is the full test run, not the
+    # MR compile check.
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
         - Cargo.toml
         - Cargo.lock
         - rust-toolchain.toml
@@ -1032,11 +1059,6 @@ test:rust:macos:
         - scripts/build-rust-ios.sh
         - .cirrus.yml
         - .gitlab-ci.yml
-      allow_failure: true
-    # Full macOS workspace tests on Rust-touching main pushes, so a macOS-only
-    # break surfaces before tag time (M13) instead of first failing on the tag.
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: *rust-macos-changes
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true

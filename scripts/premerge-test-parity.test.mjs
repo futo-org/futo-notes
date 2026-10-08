@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -244,9 +244,36 @@ describe('pre-merge CI routing contracts', () => {
     // and ordered after it, so the exclusion never delays the sync suite.
     expect(androidCheckJob).toContain('resource_group: cross-platform-sync');
     expect(androidCheckJob).toContain('job: test:cross-platform-sync');
-    expect(macosRustJob).toContain('- crates/**/*');
     expect(macosRustTask).toContain('cargo check -p futo-notes-ffi --target aarch64-apple-ios');
     expect(releaseGate).toContain('- job: test:rust:ffi-android');
+  });
+
+  it('starts an iOS-target compile check on MRs for every crate', () => {
+    // test:rust:macos's MR run type-checks futo-notes-ffi's whole dependency
+    // tree for aarch64-apple-ios; test:ios-native builds futo-notes-ffi for all
+    // three iOS triples. The macOS list names crates one by one (the FFI crate
+    // belongs to test:ios-native alone), so a new crate must be added to one of
+    // them or an MR touching only it gets no iOS compile until main.
+    const mrChanges = (jobPattern) => {
+      const job = topLevelBlock(gitlabPipeline, jobPattern);
+      const mrRule = job.slice(job.indexOf('- if: $CI_MERGE_REQUEST_IID\n      changes:'));
+      return mrRule.slice(0, mrRule.indexOf('- if:', 1));
+    };
+    const macosMr = mrChanges(/^test:rust:macos:$/m);
+    const iosMr = mrChanges(/^test:ios-native:$/m);
+    const crates = readdirSync(join(ROOT, 'crates'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+
+    expect(crates).toContain('futo-notes-ffi');
+    expect(iosMr).toContain('- crates/futo-notes-ffi/**/*\n');
+    for (const crate of crates) {
+      const glob = `- crates/${crate}/**/*\n`;
+      expect(
+        macosMr.includes(glob) || iosMr.includes(glob),
+        `crates/${crate} starts neither test:rust:macos nor test:ios-native on MRs`,
+      ).toBe(true);
+    }
   });
 
   it('runs full macOS workspace tests on main and tags but not MR pipelines', () => {
