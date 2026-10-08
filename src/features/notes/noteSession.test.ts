@@ -201,7 +201,10 @@ describe('leaving a note whose save fails', () => {
       expect(titleEditorContent).toBe('unsaved A');
       expect(session.originalId).toBe('A');
       expect(session.savedContent).toBe('original A');
-      expect(readNote).not.toHaveBeenCalled();
+      // B may have been READ alongside the save (a different file), but the
+      // editor was never handed anything but A.
+      expect(deps.openEditorNote).toHaveBeenLastCalledWith('A', 'original A');
+      if (destination !== 'B') expect(readNote).not.toHaveBeenCalled();
       await session.flushSave();
       expect(session.savedContent).toBe('unsaved A');
     },
@@ -585,6 +588,9 @@ describe('save straddling a note switch (F1)', () => {
       resolveReadB = resolve;
     });
     vi.mocked(readNote).mockImplementationOnce(() => readB);
+    // The read of B overlaps A's save, and the keystroke below lands during
+    // it, so B is read again behind the flush (createNoteLoader readIncoming).
+    vi.mocked(readNote).mockResolvedValue('B body');
     routeNoteId = 'B';
     const opening = session.loadNote('B');
 
@@ -953,5 +959,164 @@ describe('an editor that lost the note never empties it on disk', () => {
     await session.flushSave();
 
     expect(updateNote).not.toHaveBeenCalled();
+  });
+});
+
+describe('reading the incoming note while the outgoing note saves', () => {
+  let editorContent = '';
+  let routeNoteId: string | null = 'A';
+  /* What the store has written, so a read after a save sees the save. */
+  let disk = new Map<string, string>();
+  let releaseHeldSave: (() => void) | null = null;
+
+  function makeDeps() {
+    return {
+      getEditorContent: () => editorContent,
+      setEditorContent: vi.fn((text: string) => {
+        editorContent = text;
+      }),
+      openEditorNote: vi.fn((_noteId: string | null, text: string) => {
+        editorContent = text;
+      }),
+      focusEditor: vi.fn(),
+      isEditorFocused: () => false,
+      isComposing: () => false,
+      getNotes: () => [],
+      getNoteBody: () => undefined,
+      getTitleTextarea: () => undefined,
+      getNoteId: () => routeNoteId,
+      setPrevNoteId: vi.fn(),
+      navigate: vi.fn(),
+      onNoteRenamed: vi.fn(),
+      reconcileOpenNote: vi.fn(async () => false),
+    } satisfies NoteSessionDeps;
+  }
+
+  const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+  /** Holds the next save open until `releaseHeldSave()`. */
+  async function holdNextSave(): Promise<void> {
+    const { updateNote } = await import('./notes.svelte');
+    vi.mocked(updateNote).mockImplementationOnce(async (id: string, body: string) => {
+      await new Promise<void>((resolve) => {
+        releaseHeldSave = resolve;
+      });
+      disk.set(id, body);
+      return { id, mtime: 0, disposition: 'wrote' };
+    });
+  }
+
+  /** Note A open, with an edit no save has seen. */
+  function openDirtyA() {
+    const session = createNoteSession(makeDeps());
+    session.seedOpenNote('A', 'A body');
+    editorContent = 'A body edited';
+    session.debouncedSave(editorContent);
+    return session;
+  }
+
+  beforeEach(async () => {
+    editorContent = '';
+    routeNoteId = 'A';
+    disk = new Map([
+      ['A', 'A body'],
+      ['B', 'B body'],
+    ]);
+    releaseHeldSave = null;
+    const { readNote, updateNote } = await import('./notes.svelte');
+    vi.mocked(readNote).mockReset();
+    vi.mocked(readNote).mockImplementation(async (id: string) => disk.get(id) ?? '');
+    vi.mocked(updateNote).mockReset();
+    vi.mocked(updateNote).mockImplementation(async (id: string, body: string) => {
+      disk.set(id, body);
+      return { id, mtime: 0, disposition: 'wrote' };
+    });
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("reads B while A's save is still writing, and opens B once that save lands", async () => {
+    const { readNote, updateNote } = await import('./notes.svelte');
+    const session = openDirtyA();
+    await holdNextSave();
+
+    routeNoteId = 'B';
+    const opening = session.loadNote('B');
+    await settle();
+    expect(updateNote).toHaveBeenCalledWith('A', 'A body edited', expect.anything());
+    expect(readNote).toHaveBeenCalledWith('B');
+    expect(session.originalId).toBe('A');
+
+    releaseHeldSave?.();
+    await opening;
+    expect(disk.get('A')).toBe('A body edited');
+    expect(session.originalId).toBe('B');
+    expect(session.content).toBe('B body');
+    expect(readNote).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['the note being saved', 'A'],
+    ['a case variant of its id, which is the same file on macOS and Windows', 'a'],
+  ])('waits for the save before reading %s', async (_name, incoming) => {
+    const { readNote } = await import('./notes.svelte');
+    const session = openDirtyA();
+    await holdNextSave();
+
+    routeNoteId = incoming;
+    const opening = session.loadNote(incoming);
+    await settle();
+    expect(readNote).not.toHaveBeenCalled();
+
+    releaseHeldSave?.();
+    await opening;
+    expect(readNote).toHaveBeenCalledOnce();
+  });
+
+  it('waits for a save that renames, since a rename rewrites links in other notes', async () => {
+    const { readNote } = await import('./notes.svelte');
+    const session = createNoteSession(makeDeps());
+    session.seedOpenNote('A', 'A body');
+    editorContent = 'A body';
+    typeTitle(session, 'A renamed');
+    await holdNextSave();
+
+    routeNoteId = 'B';
+    const opening = session.loadNote('B');
+    await settle();
+    expect(readNote).not.toHaveBeenCalled();
+
+    releaseHeldSave?.();
+    await opening;
+    expect(readNote).toHaveBeenCalledWith('B');
+  });
+
+  it('switching straight back to the note being saved reads what the save wrote', async () => {
+    const { readNote } = await import('./notes.svelte');
+    const session = openDirtyA();
+    await holdNextSave();
+
+    routeNoteId = 'B';
+    const leaving = session.loadNote('B');
+    await settle();
+    expect(readNote).toHaveBeenCalledWith('B');
+
+    // Back to A before B landed: A's save is still writing, so A waits for it.
+    routeNoteId = 'A';
+    const returning = session.loadNote('A');
+    await settle();
+    expect(readNote).not.toHaveBeenCalledWith('A');
+
+    releaseHeldSave?.();
+    await Promise.all([leaving, returning]);
+    expect(readNote).toHaveBeenLastCalledWith('A');
+    expect(session.originalId).toBe('A');
+    expect(session.content).toBe('A body edited');
   });
 });

@@ -2010,8 +2010,9 @@ unchanged by it.
   3 s flush race plus 2 s margin) AND the page reports nothing unsaved, Rust
   waits for any in-flight vault write (the process-wide `vault_mutation_guard`,
   at most 5 s more) and exits without the JS thread. A note open is not an unsaved
-  edit (a note switch awaits the outgoing save before the next note is read, and
-  the page cannot be typed into while it parses), so the open case is exactly
+  edit (a note switch awaits the outgoing save before the next note is opened —
+  it may READ the next note's file meanwhile when that save cannot touch it —
+  and the page cannot be typed into while it parses), so the open case is exactly
   what the deadline cuts. A page that does hold an unsaved edit is not cut at the
   deadline, however long its JS thread stalls (an 8 s task, a 2.5 MB paste): the
   page tells Rust on every clean/dirty transition, reports at once from the

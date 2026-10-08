@@ -22,6 +22,19 @@
 
 (() => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // A macrotask turn without setTimeout's nesting clamp: lets the switch's own
+  // tasks (IPC callbacks, the read, the replace) run between polls. ONE
+  // channel for the whole probe: a port with a listener is never collected,
+  // and a channel per tick grew the web process past WebKit's 16 GB kill
+  // threshold within a couple of hundred switches.
+  const tickChannel = new MessageChannel();
+  const tickWaiters = [];
+  tickChannel.port1.onmessage = () => tickWaiters.shift()?.();
+  const tick = () =>
+    new Promise((r) => {
+      tickWaiters.push(r);
+      tickChannel.port2.postMessage(null);
+    });
   const hook = () => window.__notesShellTest;
 
   // WebKit suspends requestAnimationFrame for an occluded/minimised window, so
@@ -80,29 +93,81 @@
     );
   }
 
+  const OPEN_COMPLETE = 'futo:editor-open-complete';
+
+  // The editor clears its open measures when a load starts and records
+  // `futo:editor-open-complete` once the last chunk is in (progressiveLoad.ts),
+  // so this is "the incoming note has fully landed" — a 10k-line note streams
+  // its tail in idle slices after the switch painted. Bounded: a note that
+  // never records one (a failed load) must not hang the run.
+  async function settled(since, maxMs = 6000) {
+    const t0 = performance.now();
+    while (performance.now() - t0 < maxMs) {
+      // Only a measure whose open STARTED after `since`: the previous note's
+      // entry is still in the buffer until the next load clears it.
+      const entry = performance
+        .getEntriesByName(OPEN_COMPLETE)
+        .find((candidate) => candidate.startTime >= since);
+      if (entry) return Math.round(entry.duration);
+      await sleep(20);
+    }
+    return null;
+  }
+
   // One Ctrl+Tab, measured from the keypress to the frame that shows the new
   // note. `paint` is the perceived number; the phase fields attribute it.
-  async function one() {
-    const prevDoc = hook().getState().editorContent;
+  // `dirty` types one character into the outgoing note first, in the same
+  // task as the keypress, so the switch pays a real save (the flush a clean
+  // switch skips) — the shape of "type, then Ctrl+Tab immediately".
+  //
+  // `frameless` measures a window whose frame clock is stalled (occluded, or
+  // a compositor that refused to raise it): instead of waiting for the frame
+  // that paints, it polls on message-channel ticks until the editor holds the
+  // new note and then forces style + layout of the editor, reporting that as
+  // `layout`. It excludes paint and compositing, so it is a lower bound on
+  // `paint`, not a substitute for it — record which mode a run used.
+  async function one({ dirty = false, frameless = false } = {}) {
+    const from = hook().getState().originalId;
     const frames = [];
+    if (dirty) hook().typeInEditor('x');
+    // Read AFTER the edit: the switch is what changes the content from here.
+    const prevDoc = hook().getState().editorContent;
     const t0 = performance.now();
     ctrlTab();
-    for (let i = 0; i < 120; i += 1) {
-      await raf();
-      frames.push(Math.round(performance.now() - t0));
-      if (hook().getState().editorContent !== prevDoc) break;
+    let paint = null;
+    let layout = null;
+    if (frameless) {
+      const deadline = t0 + 5000;
+      while (hook().getState().editorContent === prevDoc && performance.now() < deadline) {
+        await tick();
+      }
+      document.querySelector('.ProseMirror')?.getBoundingClientRect();
+      layout = Math.round(performance.now() - t0);
+    } else {
+      for (let i = 0; i < 120; i += 1) {
+        await raf();
+        frames.push(Math.round(performance.now() - t0));
+        if (hook().getState().editorContent !== prevDoc) break;
+      }
+      await raf(); // the frame that paints the new content
+      paint = Math.round(performance.now() - t0);
     }
-    await raf(); // the frame that paints the new content
-    const paint = Math.round(performance.now() - t0);
     const timeline = hook().noteSwitchTimelines().slice(-1)[0];
     const phases = Object.fromEntries(timeline.phases.map((p) => [p.phase, Math.round(p.atMs)]));
+    // Let the tail land before the next switch, and report the editor's own
+    // open span (parse + apply, first chunk to last) for the incoming note.
+    const openComplete = await settled(t0);
     return {
+      from,
       note: timeline.noteId,
+      dirty,
       bytes: hook().getState().editorContent.length,
+      openComplete,
       // keydown -> the Svelte effect entering createTabNoteTransition
       effectLatency: Math.round(timeline.startedAt - t0),
       ...phases,
       paint,
+      layout,
       frames,
     };
   }
@@ -153,17 +218,59 @@
     },
 
     // `warmup` full cycles are discarded before `rounds` measured switches.
-    async measure(rounds = 7, warmup = 7) {
+    // `dirty` makes every measured switch leave a note with an unsaved edit;
+    // `frameless` is the stalled-frame-clock mode described at `one`.
+    async measure(rounds = 7, warmup = 7, { dirty = false, frameless = false } = {}) {
       for (let i = 0; i < warmup; i += 1) {
-        await one();
+        await one({ dirty, frameless });
         await sleep(150);
       }
       const rows = [];
       for (let i = 0; i < rounds; i += 1) {
-        rows.push(await one());
+        rows.push(await one({ dirty, frameless }));
         await sleep(150);
       }
       return rows;
+    },
+
+    // Closes every tab but one, then opens one tab per note id, in order
+    // (Ctrl+T, then the note's route). The survivor is the first id's tab.
+    async openTabs(ids) {
+      for (
+        let guard = 0;
+        guard < 64 && document.querySelectorAll('.tab-pill').length > 1;
+        guard += 1
+      ) {
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 'w',
+            ctrlKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        await sleep(80);
+      }
+      let first = true;
+      for (const id of ids) {
+        if (!first) {
+          window.dispatchEvent(
+            new KeyboardEvent('keydown', {
+              key: 't',
+              ctrlKey: true,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+          await sleep(120);
+        }
+        first = false;
+        const t0 = performance.now();
+        window.location.hash = '#/note/' + encodeURIComponent(id);
+        await sleep(300);
+        await settled(t0);
+      }
+      return document.querySelectorAll('.tab-pill').length;
     },
 
     summarize(rows) {
@@ -181,6 +288,8 @@
         'noteRead',
         'contentApplied',
         'paint',
+        'layout',
+        'openComplete',
       ];
       return Object.fromEntries(keys.map((k) => [k, { p50: q(k, 0.5), p90: q(k, 0.9) }]));
     },
