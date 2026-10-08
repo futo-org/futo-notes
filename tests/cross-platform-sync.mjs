@@ -2169,7 +2169,11 @@ async function androidKeepsAnUnreportedEditOverAPeerEdit(desktop, android, serve
   await desktop.syncNow();
   await android.waitForNoteContent(id, base);
 
-  const marker = 'TYPEDWHILESTREAMING ';
+  // No trailing space: the caret lands at the end of the first streamed chunk,
+  // which is a heading, and the editor does not write whitespace at the end of
+  // a line (docs/spec/editor.md, Markdown serialization), so a typed space
+  // there never reaches the file.
+  const marker = 'TYPEDWHILESTREAMING';
   await typeUnreportedEditWhileStreaming(android, id, base, marker);
 
   const peerEdit = base.replace('Body line 1 of', 'Body line 1 (peer edit) of');
@@ -2191,7 +2195,8 @@ async function androidKeepsAnUnreportedEditOverAPeerDelete(desktop, android, ser
   await desktop.syncNow();
   await android.waitForNoteContent(id, base);
 
-  const marker = 'TYPEDBEFOREPEERDELETE ';
+  // No trailing space, for the reason in androidKeepsAnUnreportedEditOverAPeerEdit.
+  const marker = 'TYPEDBEFOREPEERDELETE';
   await typeUnreportedEditWhileStreaming(android, id, base, marker);
 
   await desktop.deleteNoteInApp(id);
