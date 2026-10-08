@@ -1273,6 +1273,27 @@ async function reflowGap(page: Page, order: string[], source: number): Promise<n
   return rank > source ? rank + 1 : rank;
 }
 
+/**
+ * Where the reflow preview DRAWS the block containing `text`, in client
+ * coordinates: the real block's box (the real blocks never move during a
+ * drag) moved by the shift its clone slides to. Read from the clone's target
+ * transform, not its rect, so it is right mid-slide too. The drop slot is
+ * judged against this layout, not the one the drag started from.
+ */
+async function drawnBox(page: Page, text: string): Promise<{ top: number; bottom: number }> {
+  const box = await blockBox(page, text);
+  const shift = await page.evaluate((wanted) => {
+    for (const el of document.querySelectorAll('.futo-mobile-dnd-reflow-curtain > *')) {
+      if (!(el.textContent ?? '').includes(wanted)) continue;
+      const m = /translateY\((-?[\d.]+)px\)/.exec((el as HTMLElement).style.transform);
+      return m ? Number.parseFloat(m[1]) : 0;
+    }
+    return null;
+  }, text);
+  if (shift === null) throw new Error(`the preview draws no clone of "${text}"`);
+  return { top: box.top + shift, bottom: box.bottom + shift };
+}
+
 /** True while the reflow curtain is up. */
 function curtainUp(page: Page): Promise<boolean> {
   return page.evaluate(() => document.querySelector('.futo-mobile-dnd-reflow-clip') !== null);
@@ -1445,10 +1466,14 @@ gutterHandleTest('a mouse drag on the ⠿ handle reorders the block', async ({ p
   const handle = page.locator('.milkdown-block-handle[data-show="true"]');
   await handle.waitFor({ state: 'attached' });
 
-  // y=4 is charlie's UPPER half, so the drop lands above charlie rather than
-  // after it — the same half-block rule the long-press path uses.
-  const charlie = page.getByText('charlie', { exact: true }).first();
-  await handle.dragTo(charlie, { targetPosition: { x: 4, y: 4 } });
+  // bravo's lower half, so the drop lands after bravo and above charlie — the
+  // same rule the long-press path uses. Not charlie's top edge: the slot is
+  // judged against the blocks as the preview draws them, and with alpha gone
+  // from the top bravo slides up and charlie with it (its margin above
+  // changes), so charlie's old top edge is in charlie's DRAWN lower half.
+  const bravo = page.getByText('bravo', { exact: true }).first();
+  const bravoHeight = (await bravo.boundingBox())!.height;
+  await handle.dragTo(bravo, { targetPosition: { x: 4, y: bravoHeight - 3 } });
 
   const changes = await waitForMessages(page, 'change');
   const content = changes[changes.length - 1].content as string;
@@ -1756,10 +1781,14 @@ gutterHandleTest('the ⠿ handle previews ONE slot per gap, from either side', a
   const drag = await startHandleDrag(page, handle);
 
   // bravo's lower half, then charlie's upper half: the same boundary, so the
-  // same slot opens (bravo slid up, alpha parked after it).
+  // same slot opens (bravo slid up, alpha parked after it). Charlie's upper
+  // half as the preview DRAWS it: with alpha gone from the top, charlie is
+  // drawn higher than it sat at the lift (`drawnBox`).
   await drag.over(bravo.x, bravo.bottom - 3);
   const fromAbove = await reflowGap(page, order, 0);
-  await drag.over(charlie.x, charlie.top + 3);
+  const drawnCharlie = await drawnBox(page, 'charlie');
+  expect(drawnCharlie.top).toBeLessThan(charlie.top);
+  await drag.over(charlie.x, drawnCharlie.top + 3);
   const fromBelow = await reflowGap(page, order, 0);
 
   expect(fromAbove).toBe(2);
@@ -1767,7 +1796,7 @@ gutterHandleTest('the ⠿ handle previews ONE slot per gap, from either side', a
 
   // And the drop commits where the slot was: alpha lands between them,
   // still a heading (a re-fitted slice would have unwrapped it).
-  await drag.drop(charlie.x, charlie.top + 3);
+  await drag.drop(charlie.x, drawnCharlie.top + 3);
   const changes = await waitForMessages(page, 'change');
   expect(changes[changes.length - 1].content).toBe('bravo\n\n# alpha\n\ncharlie\n');
 });
@@ -2549,9 +2578,14 @@ mobileDndTest(
     const ticksAtBravo = await ticks();
     expect(ticksAtBravo).toBeGreaterThan(0);
 
-    // Back inside "alpha": hidden again, and the tick count must not move —
-    // this is a no-op boundary, not a new one to announce.
-    await touch(cdp, 'touchMove', alpha.x, alphaY);
+    // Back over alpha's own place: hidden again, and the tick count must not
+    // move — this is a no-op boundary, not a new one to announce. The slot is
+    // judged against the blocks as drawn, and bravo is drawn in alpha's place
+    // now, its middle exactly at `alphaY` (where a tie keeps the slot open);
+    // so the finger goes above bravo's drawn middle.
+    const backY = alpha.top + 3;
+    expect(backY).toBeLessThan(alphaY);
+    await touch(cdp, 'touchMove', alpha.x, backY);
     await page.waitForTimeout(32);
     expect(await slotOpen()).toBe(false);
     expect(await ticks()).toBe(ticksAtBravo);
@@ -2581,7 +2615,7 @@ mobileDndTest(
     expect(cardAlpha as number).toBeLessThan(1);
 
     // Release over the source: a true no-op, same as the dedicated test above.
-    await touch(cdp, 'touchEnd', alpha.x, alphaY);
+    await touch(cdp, 'touchEnd', alpha.x, backY);
     await settleChangeDebounce(page);
     expect(await messagesOfType(page, 'change')).toHaveLength(0);
   },
