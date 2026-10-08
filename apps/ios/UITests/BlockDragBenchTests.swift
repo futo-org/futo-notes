@@ -23,8 +23,10 @@ final class BlockDragBenchTests: XCTestCase {
         guard
             let probeURL = Bundle(for: Self.self).url(
                 forResource: "BlockDragBenchProbe", withExtension: "js"),
-            let probe = try? String(contentsOf: probeURL, encoding: .utf8)
-        else { throw XCTSkip("no generated BlockDragBenchProbe.js: device-only perf driver") }
+            let body = try? String(contentsOf: probeURL, encoding: .utf8),
+            let config = ProcessInfo.processInfo.environment["FUTO_BENCH_CONFIG"]
+        else { throw XCTSkip("no generated BlockDragBenchProbe.js or TEST_RUNNER_FUTO_BENCH_CONFIG: device-only perf driver") }
+        let probe = "const CONFIG = \(config);\n" + body
         let app = makeIsolatedApplication()
         app.launchEnvironment["FUTO_BLOCK_DRAG_BENCH_JS"] = probe
         app.launch()
@@ -64,11 +66,11 @@ final class BlockDragBenchTests: XCTestCase {
                     forDuration: 0.05, thenDragTo: at(x2, y2),
                     withVelocity: XCUIGestureVelocity(hold), thenHoldForDuration: 0.3)
             case "hold":
-                // Long hold with no motion; screenshots at 1.5s, mid-press.
+                // Long hold with no motion; screenshots at 0.9s, mid-press.
                 let name = parts.count > 7 ? parts[7] : "hold\(shots)"
                 shots += 1
                 let t = Thread {
-                    Thread.sleep(forTimeInterval: 1.5)
+                    Thread.sleep(forTimeInterval: 0.9)
                     let shot = XCUIScreen.main.screenshot()
                     let a = XCTAttachment(screenshot: shot)
                     a.name = name
@@ -77,7 +79,7 @@ final class BlockDragBenchTests: XCTestCase {
                 }
                 t.start()
                 at(x, y).press(forDuration: hold / 1000)
-                Thread.sleep(forTimeInterval: 0.6)
+                Thread.sleep(forTimeInterval: 0.3)
             case "tap":
                 at(x, y).tap()
             case "done":

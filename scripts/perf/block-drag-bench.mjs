@@ -20,6 +20,7 @@
 // from XCUITest (block-drag-bench/ios-app.mjs). It only has the working tree's
 // bundle (no per-variant install), so it takes `current` and `current:line`
 // only; any other variant is an error rather than a mislabelled run.
+// `--selection` (iOS only) adds the press-and-hold stories, which are on by default elsewhere;
 // `--no-selection` skips its press-and-hold text-selection stories.
 //
 // `--target app` runs only the scroll-drag benchmark, inside the whole app
@@ -80,7 +81,7 @@ const PHONE_REPS = {
 function parseArgs(argv) {
   const opts = {
     variants: [],
-    repeat: 5,
+    repeat: null,
     sizes: [1000, 3000],
     layout: 'desktop',
     cursorLayer: true,
@@ -90,6 +91,7 @@ function parseArgs(argv) {
     device: 'desktop',
     profile: '',
     noSelection: false,
+    selection: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -102,11 +104,16 @@ function parseArgs(argv) {
     else if (arg === '--snapshot') opts.snapshot = path.resolve(argv[++i]);
     else if (arg === '--device') opts.device = argv[++i];
     else if (arg === '--no-selection') opts.noSelection = true;
+    else if (arg === '--selection') opts.selection = true;
     else if (arg === '--profile') opts.profile = path.resolve(argv[++i]);
     else if (arg.startsWith('--')) throw new Error(`unknown flag ${arg}`);
     else opts.variants.push(arg);
   }
-  if (opts.variants.length === 0) opts.variants = ['current:line', 'current'];
+  // The iOS gate is the shipping mode, once; the comparison and the selection
+  // holds are opt-in (`current:line`, `--selection`).
+  if (opts.repeat == null) opts.repeat = opts.device === 'ios-app' ? 1 : 5;
+  if (opts.variants.length === 0)
+    opts.variants = opts.device === 'ios-app' ? ['current'] : ['current:line', 'current'];
   if (!['desktop', 'android', 'android-app', 'ios-app'].includes(opts.device))
     throw new Error(`unknown device ${opts.device}`);
   if (opts.device === 'ios-app') {

@@ -15,18 +15,19 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const raf = () => new Promise((r) => requestAnimationFrame(r));
   if (CONFIG.line) window.__futoBlockDragReflow = 'off';
-  try {
-    await run();
-  } catch (e) {
-    post({ kind: 'error', message: String((e && e.stack) || e) });
-    command('done', 0, 0, 0, 0, 0);
-  }
 
   async function waitFor(what, fn, ms = 60000) {
     const end = performance.now() + ms;
+    let nextNote = performance.now() + 10000;
     for (;;) {
       const v = fn();
       if (v) return v;
+      if (performance.now() > nextNote) {
+        const seen = {};
+        for (const e of events) seen[e.type] = (seen[e.type] || 0) + 1;
+        post({ kind: 'waiting', what, seen });
+        nextNote += 10000;
+      }
       if (performance.now() > end) throw new Error('timeout: ' + what);
       await sleep(100);
     }
@@ -41,7 +42,16 @@
     frames.push(performance.now());
     requestAnimationFrame(loop);
   };
-  for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) {
+  for (const type of [
+    'touchstart',
+    'touchmove',
+    'touchend',
+    'touchcancel',
+    'pointerdown',
+    'pointerup',
+    'pointercancel',
+    'contextmenu',
+  ]) {
     window.addEventListener(type, () => events.push({ t: performance.now(), type }), {
       capture: true,
       passive: true,
@@ -124,11 +134,12 @@
     startRecording();
     await sleep(300);
     command(...args);
+    post({ kind: 'stage', what: 'command ' + args[0] });
     // The test reads the element, performs the gesture, and waits for it to go.
     await waitFor(
       'touchend after ' + args[0],
       () => last('touchend') || last('touchcancel'),
-      90000,
+      30000,
     );
     const tEnd = last('touchend') || last('touchcancel');
     clearCommand();
@@ -142,7 +153,11 @@
       'editor view',
       () => window.__futoProseMirrorView && window.__futoProseMirrorView(),
     );
-    await sleep(CONFIG.bootWaitMs);
+    // XCUITest snapshots the whole a11y tree on every poll; on a few-thousand-block
+    // editor that starves the page. Hide the document from it (the command element
+    // lives outside view.dom, so the test still sees it).
+    window.__futoProseMirrorView().dom.setAttribute('aria-hidden', 'true');
+    await sleep(500);
     const info = {
       ua: navigator.userAgent,
       dpr: devicePixelRatio,
@@ -162,6 +177,8 @@
   }
 
   async function load(blocks) {
+    post({ kind: 'stage', what: 'load ' + blocks });
+    window.__futoProseMirrorView().dom.setAttribute('aria-hidden', 'true');
     const md = generateNote(blocks);
     window.FutoEditor.setContent('bench-note-' + blocks, '');
     await raf();
@@ -174,6 +191,7 @@
       },
       180000,
     );
+    v.dom.setAttribute('aria-hidden', 'true');
     document.activeElement?.blur?.();
     v.dom.blur();
     v.dom.scrollTop = 0;
@@ -191,6 +209,7 @@
       prev = t;
     }
     intervals.sort((a, b) => a - b);
+    post({ kind: 'stage', what: 'loaded ' + blocks });
     return { view: v, vsync: intervals[intervals.length >> 1] };
   }
 
@@ -244,7 +263,7 @@
       await raf();
       modeSamples = [];
       moveCount = 0;
-      const tEnd = await runCommand(['lift', g.x, g.liftY, g.x, g.yB, 700], 4000);
+      const tEnd = await runCommand(['lift', g.x, g.liftY, g.x, g.yB, 700], 1000);
       const seen = [...new Set(modeSamples)];
       modeSamples = null;
       const mode = seen.length === 1 ? seen[0] : 'unknown';
@@ -264,7 +283,7 @@
         liftFrame: ghost && tStart ? max(between(tStart + 300, ghost + 300)) : null,
         dragFrames: stats(dragFrames),
         dragSamples: dragFrames,
-        dropFrame: max(between(tEnd, tEnd + 3900)),
+        dropFrame: max(between(tEnd, tEnd + 900)),
         moves: moves.length,
         mode,
         leftover:
@@ -281,7 +300,7 @@
       scrollTarget = view.dom;
       const sc0 = view.dom.scrollTop;
       view.dom.addEventListener('scroll', onScroll, { passive: true });
-      const tEnd = await runCommand(['edge', g.x, g.liftY, g.x, g.edgeY, 1800], 4000);
+      const tEnd = await runCommand(['edge', g.x, g.liftY, g.x, g.edgeY, 1800], 1000);
       view.dom.removeEventListener('scroll', onScroll);
       const s0 = ev('scroll');
       const s1 = last('scroll');
@@ -292,7 +311,7 @@
         scrolledPx: Math.round(view.dom.scrollTop - sc0),
         scrollFrames: stats(scrollFrames),
         scrollSamples: scrollFrames,
-        dropFrame: max(between(tEnd, tEnd + 3900)),
+        dropFrame: max(between(tEnd, tEnd + 900)),
         before,
       });
     }
@@ -301,14 +320,14 @@
     {
       view.dom.scrollTop = 0;
       await raf();
-      const tEnd = await runCommand(['scroll', g.x, g.yB, g.x, g.top + 40, 1200], 1500);
+      const tEnd = await runCommand(['scroll', g.x, g.yB, g.x, g.top + 40, 1200], 800);
       const tStart = ev('touchstart');
       post({
         kind: 'scroll-arm',
         ...base,
         armWindowFrame: max(between(tStart, tStart + 250)),
         scrollWindow: stats(between(tStart, tEnd)),
-        afterEndFrame: max(between(tEnd, tEnd + 1000)),
+        afterEndFrame: max(between(tEnd, tEnd + 700)),
       });
     }
 
@@ -349,7 +368,7 @@
         const r = block.getBoundingClientRect();
         p = { x: r.left + 24, y: r.top + 10 };
       }
-      const tEnd = await runCommand(['hold', p.x, p.y, p.x, p.y, 2600, 'hold-' + name], 1000);
+      const tEnd = await runCommand(['hold', p.x, p.y, p.x, p.y, 1200, 'hold-' + name], 1000);
       const sel = getSelection();
       post({
         kind: 'selection',
@@ -376,5 +395,13 @@
       anchorOffset: sel.anchorOffset,
     });
     view.dom.blur();
+  }
+
+  // Last, so every const above is initialised before run() reads it.
+  try {
+    await run();
+  } catch (e) {
+    post({ kind: 'error', message: String(e) + '\n' + String((e && e.stack) || '') });
+    command('done', 0, 0, 0, 0, 0);
   }
 })();

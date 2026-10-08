@@ -20,7 +20,7 @@
  * connected, unlocked, developer-mode device.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -33,14 +33,70 @@ const sh = (cmd, args, opts = {}) =>
 
 /** Writes the probe the UI test bundles, from ios-probe.js + the shared note generator. */
 export function writeProbe(root, { sizes, repeat, selection, line }) {
-  const config = { sizes, repeat, selection, line, bootWaitMs: 6000 };
-  const gen = generateNote.toString();
+  const config = { sizes, repeat, selection, line };
   const out = [
-    `const CONFIG = ${JSON.stringify(config)};`,
-    gen,
+    generateNote.toString(),
     readFileSync(path.join(root, 'scripts/perf/block-drag-bench/ios-probe.js'), 'utf8'),
   ].join('\n');
-  writeFileSync(path.join(root, 'apps/ios/UITests/BlockDragBenchProbe.js'), out);
+  // The probe is static (the test prepends `const CONFIG` from its environment),
+  // so an unchanged probe leaves the test bundle up to date: only rewrite on a change.
+  const file = path.join(root, 'apps/ios/UITests/BlockDragBenchProbe.js');
+  if (!existsSync(file) || readFileSync(file, 'utf8') !== out) writeFileSync(file, out);
+  return config;
+}
+
+function xcodeArgs(udid, team) {
+  return [
+    '-project',
+    'FutoNotesNative.xcodeproj',
+    '-scheme',
+    'FutoNotesNative',
+    '-configuration',
+    'Debug',
+    '-destination',
+    `id=${udid}`,
+    '-derivedDataPath',
+    '.build-device',
+    '-only-testing:FutoNotesNativeUITests/BlockDragBenchTests',
+    `DEVELOPMENT_TEAM=${team}`,
+    'CODE_SIGN_STYLE=Automatic',
+    'CODE_SIGNING_ALLOWED=YES',
+    'CODE_SIGNING_REQUIRED=YES',
+    'CODE_SIGN_IDENTITY=Apple Development',
+    '-allowProvisioningUpdates',
+  ];
+}
+
+/** True unless the last build is newer than every tracked/untracked source file
+ * the iOS app, its editor bundle and the UI tests are built from. */
+function needsBuild(root, marker) {
+  if (!existsSync(marker)) return true;
+  const since = statSync(marker).mtimeMs;
+  const files = sh(
+    'git',
+    [
+      'ls-files',
+      '-co',
+      '--exclude-standard',
+      'apps/ios',
+      'src',
+      'packages',
+      'scripts/editor-deps.sh',
+      'scripts/perf/block-drag-bench',
+      'vite.editor.config.ts',
+      'package.json',
+    ],
+    { cwd: root },
+  )
+    .split('\n')
+    .filter(Boolean);
+  return files.some((f) => {
+    try {
+      return statSync(path.join(root, f)).mtimeMs > since;
+    } catch {
+      return false;
+    }
+  });
 }
 
 export function runInIosApp(opts, { root, variant }) {
@@ -58,13 +114,27 @@ export function runInIosApp(opts, { root, variant }) {
   const plan = {
     sizes: opts.sizes,
     repeat: opts.repeat,
-    selection: !opts.noSelection,
+    selection: opts.selection,
     line: variant.line,
   };
-  writeProbe(root, plan);
-  sh('bash', ['scripts/editor-deps.sh'], { cwd: root });
-  sh('node_modules/.bin/vite', ['build', '--config', 'vite.editor.config.ts'], { cwd: root });
-  sh('xcodegen', ['generate'], { cwd: ios });
+  const config = writeProbe(root, plan);
+  const t0 = performance.now();
+  const lap = (what) =>
+    console.error(`ios-bench: ${what} ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+  const built = path.join(ios, '.build-device/.bench-built');
+  // Rebuild (editor bundle, project, app + runner) only when something under the
+  // inputs is newer than the last build; otherwise reuse the installed products.
+  if (needsBuild(root, built)) {
+    sh('bash', ['scripts/editor-deps.sh'], { cwd: root });
+    sh('node_modules/.bin/vite', ['build', '--config', 'vite.editor.config.ts'], { cwd: root });
+    sh('xcodegen', ['generate'], { cwd: ios });
+    sh('xcodebuild', [...xcodeArgs(udid, team), 'build-for-testing'], {
+      cwd: ios,
+      stdio: ['ignore', 'inherit', 'inherit'],
+    });
+    writeFileSync(built, '');
+    lap('build-for-testing');
+  }
   const results = mkdtempSync(path.join(tmpdir(), 'ios-bench-'));
   const xcresult = path.join(results, 'bench.xcresult');
   // A failing `xcodebuild test` (build, signing, the test's own XCTFail or its
@@ -72,33 +142,17 @@ export function runInIosApp(opts, { root, variant }) {
   try {
     sh(
       'xcodebuild',
-      [
-        'test',
-        '-project',
-        'FutoNotesNative.xcodeproj',
-        '-scheme',
-        'FutoNotesNative',
-        '-configuration',
-        'Debug',
-        '-destination',
-        `id=${udid}`,
-        '-derivedDataPath',
-        '.build-device',
-        '-only-testing:FutoNotesNativeUITests/BlockDragBenchTests',
-        '-resultBundlePath',
-        xcresult,
-        `DEVELOPMENT_TEAM=${team}`,
-        'CODE_SIGN_STYLE=Automatic',
-        'CODE_SIGNING_ALLOWED=YES',
-        'CODE_SIGNING_REQUIRED=YES',
-        'CODE_SIGN_IDENTITY=Apple Development',
-        '-allowProvisioningUpdates',
-      ],
-      { cwd: ios, stdio: ['ignore', 'inherit', 'inherit'] },
+      [...xcodeArgs(udid, team), 'test-without-building', '-resultBundlePath', xcresult],
+      {
+        cwd: ios,
+        stdio: ['ignore', 'inherit', 'inherit'],
+        env: { ...process.env, TEST_RUNNER_FUTO_BENCH_CONFIG: JSON.stringify(config) },
+      },
     );
   } catch (e) {
     throw new Error(`xcodebuild test failed (${e.message}); xcresult at ${xcresult}`, { cause: e });
   }
+  lap('test-without-building');
   const local = path.join(results, 'futo-bench-results.jsonl');
   sh('xcrun', [
     'devicectl',
