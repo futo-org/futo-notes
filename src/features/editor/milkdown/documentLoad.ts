@@ -15,7 +15,11 @@ import type { DocumentRef } from '@futo-notes/editor';
 import { FRONTMATTER_NODE } from '@futo-notes/editor/milkdown-compat';
 import type { DocumentSession } from './documentSession.svelte';
 import { dismissLinkPrompt } from './linkPrompt';
-import { planMarkdownChunks, type MarkdownChunkOptions } from './markdownChunks';
+import {
+  firstChunkLinesForViewport,
+  planMarkdownChunks,
+  type MarkdownChunkOptions,
+} from './markdownChunks';
 import { parseNote } from './parseNote';
 import {
   OPEN_COMPLETE_MEASURE,
@@ -364,7 +368,19 @@ export function createDocumentLoad(
       refreshEditable();
     };
 
-    const plan = planMarkdownChunks(text, chunkOptions);
+    /* An ordinary open sizes the first chunk to the screen it has to fill
+     * (`firstChunkLinesForViewport`); a caller with its own plan (the census)
+     * keeps it. `innerHeight` is the web view's height in the native shells
+     * and an upper bound on the pane in the desktop one, and reading it forces
+     * no layout. */
+    const plan = planMarkdownChunks(
+      text,
+      chunkOptions ?? {
+        firstChunkLines: firstChunkLinesForViewport(
+          pmView()?.dom.ownerDocument.defaultView?.innerHeight,
+        ),
+      },
+    );
     if (!plan.chunked) {
       if (!applyWholeDocument(text)) recordFailedLoad();
       measureOpen(OPEN_INTERACTIVE_MEASURE);

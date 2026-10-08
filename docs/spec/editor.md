@@ -1989,9 +1989,13 @@ unchanged by it.
   once primed, instead of serializing the whole note on the main thread. →
   packages/editor/src/markdown/cache.ts,
   milkdown/serializationLoop.ts `createDocumentSerializer`/`readSerialized`
-- A note of 400 lines or more is opened PROGRESSIVELY: the first ~80 lines are
+- A note of 400 lines or more is opened PROGRESSIVELY: the first chunk is
   parsed and mounted synchronously so the first viewport is interactive, and the
-  rest stream in idle slices.
+  rest stream in idle slices. The first chunk is sized to the editor's viewport
+  — about a screen and a half of lines at an estimated 24 px a line, never
+  fewer than 30 or more than 160, and 80 when the viewport cannot be measured —
+  so a phone parses only what it can show. → milkdown/markdownChunks.ts
+  `firstChunkLinesForViewport`
 - While the tail streams, a pointer down, focus or key in the editor holds the
   next idle slice until 150 ms after the last such event, so no chunk parse
   starts in the frames that place the caret (a slice already running when the
