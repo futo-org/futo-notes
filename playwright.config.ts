@@ -79,6 +79,10 @@ export default defineConfig({
   ],
   webServer: {
     command: 'pnpm run dev',
+    // No file watcher: tests never need HMR, and on a shared CI host the
+    // watches of several sharded dev servers exhausted the inotify limit
+    // (vite.config.ts, server.watch).
+    env: { FUTO_VITE_NO_WATCH: '1' },
     url: baseURL,
     reuseExistingServer: !!process.env.PLAYWRIGHT_REUSE_DEV_SERVER,
     timeout: isCI ? 90000 : 30000,

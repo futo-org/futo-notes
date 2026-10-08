@@ -99,15 +99,22 @@ export default defineConfig({
     // while every consumer still points at the original.
     port: webPort(),
     strictPort: true,
-    watch: {
-      // Vite does not read .gitignore. A predicate, not globs: these paths are
-      // absolute and unescaped glob metacharacters in a checkout path silently
-      // match nothing.
-      ignored: (file) => {
-        const p = file.split(path.sep).join('/');
-        return IGNORED_WATCH_DIRS.some((dir) => p === dir || p.startsWith(`${dir}/`));
-      },
-    },
+    // null (no watcher at all) for the dev server Playwright starts
+    // (playwright.config.ts webServer): a test run never needs HMR, and every
+    // chokidar watch comes out of an inotify budget the whole CI runner host
+    // shares. Three sharded test:e2e:rest servers on one host died with
+    // "ENOSPC: System limit for number of file watchers reached" (job 266618).
+    watch: process.env.FUTO_VITE_NO_WATCH
+      ? null
+      : {
+          // Vite does not read .gitignore. A predicate, not globs: these paths are
+          // absolute and unescaped glob metacharacters in a checkout path silently
+          // match nothing.
+          ignored: (file) => {
+            const p = file.split(path.sep).join('/');
+            return IGNORED_WATCH_DIRS.some((dir) => p === dir || p.startsWith(`${dir}/`));
+          },
+        },
     // Dev only. The Tauri WebKitGTK webview heuristically disk-caches module
     // responses across app restarts. After a dev-server restart the cached
     // parent-component JS executes without a server hit and imports its
