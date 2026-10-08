@@ -48,6 +48,23 @@ struct EditorBackAffordanceTests {
         #expect(source[leave.upperBound...].prefix(400).contains(".navigate,"))
     }
 
+    @Test("the pop is never gated on the commit: finishLeave returns before it awaits")
+    func finishLeaveNeverBlocksThePop() throws {
+        let source = try editorViewSource()
+        let leave = try #require(source.range(of: "private func finishLeave()"))
+        #expect(
+            !source[leave.lowerBound...].prefix(40).contains("async"),
+            "finishLeave must stay synchronous: the system pop has already happened when it runs"
+        )
+        // Everything between the signature and the detached Task must be
+        // plain calls. An `await` there would turn a committed pop into a
+        // wait the user sees — the exact cost Android's Back pays
+        // (NoteEditorScreen.navigateAfterSaving) and iOS does not.
+        let body = source[leave.upperBound...]
+        let task = try #require(body.range(of: "Task { @MainActor in"))
+        #expect(!body[..<task.lowerBound].contains("await "), "finishLeave awaited before handing off")
+    }
+
     @Test("the visible find close control always closes the shared engine")
     func findCloseIsNotBlockedByLifecycleOwnership() throws {
         let source = try editorViewSource()

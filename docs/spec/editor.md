@@ -1085,10 +1085,21 @@ native shells edit tags as text in the body, which is not a gap.
   rename fails and, on iOS, an admitted image insertion: navigation waits for
   the insertion's editor transaction and deferred bridge callback before
   committing. Android applies this to toolbar Back, system Back, and wikilinks;
-  iOS uses its custom navigation Back and wikilinks. →
+  iOS applies it to wikilinks only. →
   `EditorNavigationCommit.kt`, `NoteEditorScreen.kt`,
   `EditorHost.awaitCurrent`, `EditorCompletionQueue`,
   `NoteEditorView.requestNavigation`
+- [iOS] Back is the system button, so Back and the edge swipe pop the editor
+  FIRST and the same drain-and-commit runs after the pop, under a draft
+  register entry that stays claimed until the write is durable (a failed
+  commit is retried by the lifecycle flush, never lost). Nothing the user
+  waits on between the tap and the list is a bridge round trip or a disk
+  write; what remains is the pop animation and the keyboard going down.
+  Hiding the system button to veto the exit would also disable the swipe
+  (docs/learnings/ios-swipe-back-over-webview.md). Measured:
+  docs/perf/mobile-close-ios.md. →
+  `NoteEditorView.finishLeave`, `EditorBackAffordanceTests.swift`,
+  `scripts/perf/ios-close-bench.mjs`
 - **Renaming or moving a note rewrites every wikilink that points at it,
   across all notes** — including folder moves (`[[Markdown demo]]` →
   `[[Archive/Markdown demo]]`) and **self-referencing links inside the renamed
