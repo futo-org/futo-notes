@@ -2,7 +2,7 @@
 
 Shared Rust crate imported across the workspace — by the Tauri app and, via the `futo-notes-ffi` UniFFI facade, the native iOS/Android shells. Contains portable, stateless capabilities used by the note store and sync orchestrator.
 
-**Do not reimplement logic that exists here.** The desktop Tauri adapter imports functions directly from this crate. If you need something this crate provides in TypeScript, check whether a TS equivalent already exists in `src/lib/` before adding one.
+**Do not reimplement logic that exists here.** The desktop Tauri adapter imports functions directly from this crate. TypeScript reaches it through Tauri commands; the only permitted TS mirrors are the conformance-locked ones in `packages/editor` (root AGENTS.md §4, M6).
 
 ## Modules
 

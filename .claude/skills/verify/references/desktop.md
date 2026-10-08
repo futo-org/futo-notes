@@ -2,7 +2,7 @@
 
 Two ways to see a change running on desktop. The web dev server is faster but
 stubs out every Tauri command; the Tauri app is the real thing. When in doubt,
-use Tauri. Both need the Instance Setup variables from SKILL.md (`$SLOT`,
+use Tauri. Both need the session variables from `references/session.md` (`$SLOT`,
 `$VITE_PORT`, `$WEB_VITE_PORT`, `$TAURI_LOG`, `$PID_FILE`) — re-compute them
 in every Bash block.
 
@@ -88,7 +88,7 @@ used to bind `0.0.0.0`, which succeeds even while another process holds
 ### Launch (or reuse a running instance)
 
 ```bash
-# Re-compute instance variables (see SKILL.md Instance Setup)
+# Re-compute instance variables (see references/session.md)
 ALREADY_RUNNING=false
 if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
   echo "Tauri already running for this worktree (PID $(cat "$PID_FILE"))"

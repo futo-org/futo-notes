@@ -111,10 +111,10 @@ Both were learned by damaging the user's real data. Brief every leg on both.
 
 1. **Slot-hash collision** — the canonical derivation in `scripts/lib/slot.mjs`
    can collide at ~5 concurrent worktrees (two worktrees → same slot: same
-   Vite port + same `com.futo.notes.verify.s0` identifier, and
-   `driver_session` silently reuses the *other* app). On any collision fall
-   back to a unique identifier `com.futo.notes.verify.mr<iid>` + a manually
-   picked free port. Related MCP trap: with >1 connected Tauri app the
+   Vite port + same `com.futo.notes.wt<slot>.dev` identifier). `just tauri-dev`
+   holds a machine-wide slot lease and refuses the second desktop launch, so a
+   collision shows up as that refusal: run the colliding worktree's desktop leg
+   in a later wave. Related MCP trap: with >1 connected Tauri app the
    last-connected becomes the default, so unqualified
    `webview_execute_js`/`read_logs` calls land on another MR's app — always
    pass `appIdentifier: <port>` explicitly.

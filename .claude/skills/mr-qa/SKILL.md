@@ -131,7 +131,7 @@ drifts mid-session.
    stalled/died. On each idle (or on a timer) verify actual progress: a live
    build process (`pgrep -af "worktrees/mr-<iid>" | grep -E
 'cargo|gradle|tauri|vite'`) plus ledger movement (`stat` + tail of
-   `.qa-ledger.md`). Idle + neither = stalled → re-engage once via
+   the leg's ledger path from its brief). Idle + neither = stalled → re-engage once via
    `SendMessage`; on a second stall (two strikes) take over the remaining
    checks yourself — the agent leaves its Tauri instances + qa-server running,
    so drive them directly or run `pnpm run test:cross-platform`.

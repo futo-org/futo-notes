@@ -2,7 +2,7 @@
 name: release
 description: Full release workflow: run tests, create MR, generate changelog with Zulip mentions, monitor pipeline, and post release announcement. Use when the user says "release", "ship it", "merge and release", or is ready to merge changes to main.
 argument-hint: [version-tag, e.g. v0.0.8]
-allowed-tools: Bash, Read, Write, Edit, Grep, Glob, AskUserQuestion
+allowed-tools: Bash, Read, Write, Edit, Grep, Glob
 ---
 
 # Release Workflow
@@ -25,10 +25,10 @@ One-time setup:
 
 ---
 
-## Step 1: Run All Tests
+## Step 1: Run the Pre-Merge Checks
 
 ```bash
-pnpm test
+just check        # the AGENTS.md §7.10 bar; use `just prepush` for a broad release
 ```
 
 **If ANY test fails, STOP.** Report failures to the user. Do not proceed.
@@ -37,7 +37,7 @@ pnpm test
 
 1. Run `git status` and `git diff --stat` to understand the changes.
 2. Analyze the diff and draft a concise commit message.
-3. Present the proposed commit message to the user via **AskUserQuestion** for confirmation or editing.
+3. Show the proposed commit message and ask for approval or edits as numbered plain-text options.
 4. After approval:
    ```bash
    git add <relevant files>
@@ -189,7 +189,7 @@ Determine the version tag:
   ```bash
   git describe --tags --abbrev=0
   ```
-- Confirm with the user via AskUserQuestion.
+- Show the proposed tag and ask for approval as numbered plain-text options.
 
 Releases are **annotated** `vX.Y.Z` tags — never a lightweight tag:
 
@@ -200,7 +200,7 @@ git push origin <version>
 
 ### 7c. Monitor the pipeline
 
-The tag push triggers CI: build-android → build-ios → upload-apk → create-release.
+The tag push runs the build jobs, then `release:gate`, then `publish:android`, `publish:ios:appstore`, and `release`.
 
 Poll pipeline status until it finishes:
 
@@ -228,7 +228,7 @@ The two store-submission jobs are the slow tail, and both are safe to retry:
 
 ## Step 8: Post to Zulip
 
-**Pre-flight check**: Confirm with the user via AskUserQuestion that they're ready to announce. Show them the Zulip changelog one more time.
+**Pre-flight check**: Ask the user, as numbered plain-text options, whether they're ready to announce. Show them the Zulip changelog one more time.
 
 Post the **Zulip version** of the changelog to `#futo-notes`:
 

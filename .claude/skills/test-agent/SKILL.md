@@ -167,8 +167,8 @@ Use these as starting points. Adapt and combine them based on the test targets.
 - Client sends stale `hash_at_last_sync` → expect server to handle gracefully
 - Sync with empty content vs sync with whitespace-only content
 
-### Semantic search
-- Index 50 notes, query for a concept (not exact keyword) → expect relevant results
+### Search (lexical BM25)
+- Index 50 notes, query an exact term and a prefix → expect relevant results
 - Delete a note, re-index → expect it gone from results
 - Search immediately after sync (before indexing completes) → expect graceful degradation
 - Query with Unicode/CJK → expect results if matching notes exist
@@ -204,7 +204,7 @@ Use these as starting points. Adapt and combine them based on the test targets.
 
 - **Ephemeral tests only.** Do not commit generated test files. They live in `/tmp/` and die with the session.
 - **If a scenario finds a real bug**, tell the user clearly and suggest creating a permanent regression test (using the `/bugfix` skill's test-first approach).
-- **Reuse existing test infrastructure.** Don't reinvent `SyncClient` or `createTestEnv()` — import them.
+- **Reuse existing test infrastructure.** Extend `tests/cross-platform-sync.mjs` and the crate test helpers rather than writing a new harness.
 - **Screenshots are evidence.** For any UI scenario, capture before and after states.
-- **Time is not a constraint.** Be thorough. Run more scenarios rather than fewer. The user values coverage over speed.
+- **Coverage over speed.** Prefer a scenario that could find a new bug over finishing quickly.
 - **The test plan is a conversation.** Present it, get feedback, adjust. Don't just run everything blindly.

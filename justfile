@@ -488,10 +488,6 @@ test-cross-platform *args: editor-deps
 test-sync-integration *args:
   node tests/sync-integration.mjs "$@"
 
-# Run the markdown conformance/oracle suite.
-test-markdown-spec:
-  pnpm run test:markdown-spec
-
 # Prove a chunked parse equals a whole-document parse over a real corpus; see justfile-notes.md.
 chunk-census *args:
   node scripts/milkdown-chunk-census.mjs {{args}}

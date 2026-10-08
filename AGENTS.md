@@ -11,8 +11,8 @@ user data or shipped behavior; never weaken one to make a test, build, or pipeli
 Engineering defaults: the simplest implementation that fully meets the current requirement, and an
 established, well-maintained library over a custom one.
 
-**Read the nearest nested `AGENTS.md` before editing a layer.** Every crate has one
-(`crates/futo-notes-{core,model,store,search,sync,ffi}/`), as does `src/`, `packages/editor/`,
+**Read the nearest nested `AGENTS.md` before editing a layer.** Every crate in `crates/` has
+one, as does `src/`, `packages/editor/`,
 each app in `apps/`, `scripts/`, `tests/`, and `docs/spec/`.
 
 For structural work, read `docs/architecture/codebase-organization.md`: use the narrowest real
@@ -28,7 +28,7 @@ commands, overlays, dev IDs, worktree isolation, and device detection. Never cal
 
 ## 2. CRITICAL — mobile is native, not Tauri
 
-There is no Tauri mobile shell; the old `cargo tauri ios/android` recipes were removed. Use the
+There is no Tauri mobile shell and no `cargo tauri ios/android` recipe. Use the
 native apps in `apps/ios` and `apps/android` through `just ios-native` / `just android-native`.
 Their nested manuals own build, device, release, and test variants. Missing
 `vite-plugin-singlefile` means stale node_modules; error 7 launching iOS usually means a locked phone.
@@ -45,7 +45,7 @@ Their nested manuals own build, device, release, and test variants. Missing
 - `docs/spec/`: behavioral truth; `docs/qa/`: story documents for what only a real
   device can show (a camera, an OS auth sheet, a keychain), each carrying the result of
   the last run and what that run could not prove; `tests/` (unit, Playwright, and the
-  editor gauntlet) and `markdown-spec/`: fixture/oracle systems.
+  editor gauntlet): fixture/oracle systems.
 - `release-notes/`: one `v<X.Y.Z>.md` per stable release — the App Store and Play copy (§5).
 
 Generated and gitignored: native bindings/JNI libraries and `editor.html`. The external sync server
@@ -101,13 +101,10 @@ infrastructure owner.
   **papercut**: file it without stopping the task, `papercuts add "<what you hit>" --tag <area>`.
   Product bugs and spec gaps are never papercuts. Full procedure: `docs/agents/papercuts.md`.
 - `.claude/settings.json` wires `scripts/hooks/session-orient.mjs` (SessionStart) and
-  `scripts/hooks/subagent-scratch.mjs` (SubagentStart). A prior PreToolUse hook that denied
-  process-name kills, `git stash` in a linked worktree (refs/stash is shared by every worktree of
-  this repo, so a pop here can restore a parallel lane's work-in-progress over yours), and
-  OS-level input on every Bash call was removed (too broad — it also denied unrelated,
-  non-FUTO-Notes commands with FUTO-Notes-specific reasoning); those remain prose-only rules (M24,
-  M25 below) with no runtime enforcement, so follow them by hand and never `git stash` outside the
-  primary checkout. Sessions open with `just orient`; agent worktrees come from `just wt new
+  `scripts/hooks/subagent-scratch.mjs` (SubagentStart). No hook enforces M24, M25, or the stash
+  rule at runtime, so follow them by hand: never `git stash` outside the primary checkout —
+  refs/stash is shared by every worktree of this repo, so a pop can restore a parallel lane's
+  work-in-progress over yours. Sessions open with `just orient`; agent worktrees come from `just wt new
   <name>` and go via `just wt gc`.
 
 ## 6. Named mistakes — and the rule that prevents each
@@ -270,7 +267,7 @@ wall-clock in one month of transcripts.
    outside your scratchpad — gitignored ≠ disposable, and `target/` is a 31GB rebuild. Cleanup
    removes only paths the script itself created, never a computed ancestor: `rmSync(rel.split('/')[0])`
    ate a worktree's `target/` and the then-tracked `factory/`.
-4. Publishing: posting to Zulip, F-Droid, and **tagging a release — a stable tag now goes
+4. Publishing: posting to Zulip, F-Droid, and **tagging a release — a stable tag publishes
    straight to Play production and Apple review, not to a testing track**.
 5. Changing specified intent rather than closing a Gap.
 6. Sync payload, `BRIDGE_VERSION`, or `AppState` schema changes.

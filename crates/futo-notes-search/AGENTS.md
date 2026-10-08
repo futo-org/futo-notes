@@ -13,8 +13,8 @@ The index directory lives outside the vault — an index file inside a vault wou
 
 - **`lib.rs`**: the public surface — `SearchEngine::start`, `query`, `status`, `rescan`, and the
   host-facing change notifications `notify_changed` / `notify_removed` / `notify_renamed`, plus
-  `SearchConfig`, `SearchHit`, `SearchStatus`, `DEFAULT_TOPK` (50). `SearchHit.source` is `"bm25"`
-  on main, and the indexer walks `.md` and `.txt` under `SearchConfig.notes_root`.
+  `SearchConfig`, `SearchHit`, `SearchStatus`, `DEFAULT_TOPK` (50). `SearchHit.source` is always
+  `"bm25"`, and the indexer walks `.md` and `.txt` under `SearchConfig.notes_root`.
 - **`indexer.rs`**: the background indexer. Owns a tokio runtime, an mpsc channel from the host's
   file watcher, debounce timers, and keeps blocking Tantivy work off the async path.
 - **`tantivy_indices.rs`**: schema and index handling.
