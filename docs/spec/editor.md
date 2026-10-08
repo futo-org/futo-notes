@@ -620,6 +620,14 @@ hand-reviewed goldens, one or more per line below)
   `setContent`, a sync pull, an undo), which ends the preview and draws the line
   from the next move. → src/features/editor/milkdown/blockDragCurtain.ts
   `measure` `ensureValid`, src/features/editor/milkdown/blockDragSession.ts
+- The live-reflow preview follows the note's layout when it changes under a
+  drag while the note itself does not: an image that loads, a web font that
+  swaps in, a resized window or a rotated phone. The blocks are measured again
+  and the preview is redrawn in the same frame, with the slot found again under
+  the pointer, so the release still lands exactly where the preview shows. It
+  does not fall back to the drop line. Verified in Chromium (Playwright)
+  2026-10-08. → src/features/editor/milkdown/blockDragCurtain.ts
+  `scheduleWatchSizes` `remeasure`, tests/editor-embed-milkdown.spec.ts
 - The desktop ⠿ handle's lifted block is a ghost card the page draws, at the
   block's own on-screen size, never an OS drag image: a clone of the block over
   the block itself (padded by the card's breathing room, like the long press's),

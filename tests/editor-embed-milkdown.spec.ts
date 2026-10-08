@@ -3374,6 +3374,94 @@ for (const c of AUTO_SCROLL_CASES) {
   );
 }
 
+// ---- the drop invariant when the layout changes under the drag -------------
+//
+// The preview caches every block's geometry for the drag, but a block's size
+// can change with the document untouched: a vault image resolves and loads
+// (vaultImageView.ts sets `src` when the host's URL lands), a web font swaps
+// in, the viewport resizes. The preview must follow, or the clones and the
+// drop slot are judged against a layout the drop will not produce.
+
+/** A 200px-tall image, served for any vault filename once the base URL below
+ * is registered — only then, so it can load in the middle of a drag. */
+const LATE_IMAGE_BASE = 'https://vault.futo-notes.test/';
+const LATE_IMAGE_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#c84"/></svg>';
+
+const LATE_LAYOUT_CASES = [
+  {
+    name: 'an image below the slot loads',
+    content: 'alpha\n\nbravo\n\ncharlie\n\ndelta\n\n![late image](late.svg)\n\necho\n\nfoxtrot',
+    source: 0,
+    change: 'image' as const,
+  },
+  {
+    name: 'an image above the source loads',
+    content: '![late image](late.svg)\n\nalpha\n\nbravo\n\ncharlie\n\ndelta\n\necho\n\nfoxtrot',
+    source: 1,
+    change: 'image' as const,
+    // Everything moves 200px down under the still finger, which then holds
+    // over the image (the source's own place: a no-op drop), so it follows
+    // the target down, and the slot is judged against the new layout.
+    followTarget: true,
+  },
+  {
+    name: 'the viewport narrows',
+    content: Array.from(
+      { length: 6 },
+      (_, i) => `Block ${i} ${'words that wrap on a narrow screen '.repeat(4).trim()}`,
+    ).join('\n\n'),
+    source: 0,
+    change: 'viewport' as const,
+  },
+];
+
+for (const c of LATE_LAYOUT_CASES) {
+  mobileDndTest(
+    `reflow drop matches its preview when ${c.name} mid-drag`,
+    async ({ page, cdp }) => {
+      await page.setViewportSize({ width: 760, height: 1200 });
+      await page.route(`${LATE_IMAGE_BASE}**`, (route) =>
+        route.fulfill({ contentType: 'image/svg+xml', body: LATE_IMAGE_SVG }),
+      );
+      await hostSetContent(page, c.content);
+      await clearMessages(page);
+
+      // The source down past the next two blocks.
+      const target = await blockBoxAt(page, c.source + 2);
+      const lifted = await liftWithTouch(page, cdp, c.source);
+      await lifted.move(target.top + (target.bottom - target.top) * 0.75);
+      await page.waitForTimeout(400);
+      expect(await curtainUp(page)).toBe(true);
+
+      if (c.change === 'image') {
+        await page.evaluate(
+          (base) => (window as unknown as FakeHostWindow).FutoEditor.setImageBaseUrl(base),
+          LATE_IMAGE_BASE,
+        );
+        await expect
+          .poll(() =>
+            page.evaluate(() => {
+              const img = document.querySelector('.ProseMirror[contenteditable] img');
+              return img instanceof HTMLImageElement && img.complete ? img.naturalHeight : 0;
+            }),
+          )
+          .toBe(200);
+      } else {
+        await page.setViewportSize({ width: 520, height: 1200 });
+      }
+      await flushFrames(page);
+      if ('followTarget' in c) {
+        const moved = await blockBoxAt(page, c.source + 2);
+        expect(moved.top).toBeGreaterThan(target.top + 150);
+        await lifted.move(moved.top + (moved.bottom - moved.top) * 0.75);
+      }
+
+      await expectDropMatchesPreview(page, () => lifted.release());
+    },
+  );
+}
+
 mobileDndTest('a scroll gesture never lifts a block', async ({ page, cdp }) => {
   await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
   await clearMessages(page);
