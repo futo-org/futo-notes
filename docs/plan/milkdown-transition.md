@@ -3,7 +3,7 @@
 > **Status: DECIDED 2026-08-28, not yet started.** Every decision below was made by Justin in a
 > structured decision session (2026-08-27/28); the evidence behind each one is cited inline. This
 > doc is the execution source of truth for the transition. Contract context: ADR-0002 (round-trip
-> normalization accepted, tiers 1–2 stand), ADR-0003 (tree CRDT substrate). The rich-text bake-off
+> normalization accepted, tiers 1–2 stand), `docs/plan/crdt-sync-and-sharing.md` (CRDT substrate; replaces the old ADR-0003). The rich-text bake-off
 > (`docs/plan/rich-text-editor-bakeoff.md`) was scored against the now-superseded Tier-3 contract —
 > its measurements remain valid evidence; its verdicts do not bind this work.
 
@@ -12,7 +12,7 @@
 | # | Decision | Choice |
 |---|---|---|
 | D1 | Sequencing | **Editor first, on existing file sync.** CRDT sync is a separate later campaign. Normalize-once churn under text sync is accepted as bounded and self-extinguishing; the conflict-copy machinery catches the rare concurrent-edit collision. |
-| D2 | CRDT substrate (on paper now, per ADR-0002's gate) | **Tree CRDT, Yjs family** — see ADR-0003. The editor's engine wrapper is built with the y-prosemirror rebind in mind. |
+| D2 | CRDT substrate (on paper now, per ADR-0002's gate) | ~~Tree CRDT, Yjs family (ADR-0003)~~ **Superseded 2026-10-08:** yrs holding the markdown text, owned by Rust — see `docs/plan/crdt-sync-and-sharing.md`. |
 | D3 | Foundation | **Productionize `spike/milkdown-editor`**: `@milkdown/kit` core presets + our own chrome (no Crepe). Validated by the perf probe, the 31k-note corpus census, and the working two-shell integration on that branch. |
 | D4 | Data-loss bar | **Zero loss is the tracked ideal, not a release gate** (amends ADR-0002's wording). The parked guard work gets finished as ordinary v1 work; the census is a scorecard. |
 | D5 | Guard architecture | **Milkdown compat plugin set in `packages/editor`** (root-cause plugin fixes), plus one pre-parse string pass for the bullet-number ambiguity only. Canary tests against upstream; bugs filed upstream. No Rust mirror — recorded M6 carve-out. |
@@ -1108,10 +1108,10 @@ Selectors are `.futo-milkdown` (the mount) and `.ProseMirror` (the editable elem
 ## 9. CRDT rebind seam (design constraint now, work later)
 
 Keep everything that feeds markdown strings in/out of the editor behind the engine-wrapper seam
-(`MilkdownEditor.svelte` + `createFutoEditorApi`), so the later swap to a y-prosemirror-bound Ydoc
-(ADR-0003) replaces the content plumbing without touching plugins, toolbar, chrome, or the bridge
-surface. Prior art to read before that campaign: branch `origin/collab-spike`,
-`~/Developer/stonefruit-collab-spike`.
+(`MilkdownEditor.svelte` + `createFutoEditorApi`). The CRDT plan
+(`docs/plan/crdt-sync-and-sharing.md`) keeps markdown as the editor's input and output and adds
+one capability at this seam: applying a remote edit as a small transaction that keeps the caret and
+undo history. The prototype of that is `collabApply.ts` on branch `origin/collab-proto`.
 
 ## 10. Follow-ups / backlog (recorded, not scheduled)
 
