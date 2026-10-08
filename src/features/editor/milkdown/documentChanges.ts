@@ -26,6 +26,7 @@ import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 import { Plugin, PluginKey, type Transaction } from '@milkdown/kit/prose/state';
 import { $prose } from '@milkdown/kit/utils';
 import { noteEditIntent } from '$shared/lifecycle/editIntent';
+import { noteKeystroke } from '$shared/perf/interactionLedger';
 
 /**
  * How long the document must sit still before it is reported.
@@ -95,6 +96,9 @@ export function createDocumentChangePlugin(onDocumentChanged: () => void): Plugi
         // layout) and before the debounce the host hears about it through. Covers every
         // edit source, including keymap commands and clicks that raise no input event.
         noteEditIntent();
+        // The keystroke tripwire (interactionLedger.ts): one boolean read unless a
+        // harness turned it on, then dispatch → next frame per edit.
+        noteKeystroke();
         onDocumentChanged();
       }
       return null;

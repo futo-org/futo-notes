@@ -4,10 +4,15 @@ import { EditorState, type Transaction } from '@milkdown/kit/prose/state';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
+import { clearInteractions, getInteractions } from '$shared/perf/interactionLedger';
 import {
+  OPEN_COMPLETE_MEASURE,
+  OPEN_INTERACTIVE_MEASURE,
   appendChunkContent,
   chunkShouldHaveContent,
   isEffectivelyEmpty,
+  markOpenStart,
+  measureOpen,
   seamEmptyParagraphs,
   startProgressiveLoad,
 } from './progressiveLoad';
@@ -327,5 +332,20 @@ describe('isEffectivelyEmpty', () => {
     expect(isEffectivelyEmpty(s.nodes.doc.create(null, [s.nodes.horizontal_rule.create()]))).toBe(
       false,
     );
+  });
+});
+
+describe('open timing on the interaction ledger', () => {
+  it('records each open as interactive then complete, and nothing after complete', () => {
+    clearInteractions('note-open');
+    markOpenStart();
+    measureOpen(OPEN_INTERACTIVE_MEASURE);
+    measureOpen(OPEN_COMPLETE_MEASURE);
+    measureOpen(OPEN_COMPLETE_MEASURE);
+
+    const records = getInteractions('note-open');
+    expect(records).toHaveLength(1);
+    expect(records[0].phases.map((p) => p.phase)).toEqual(['interactive', 'complete']);
+    clearInteractions('note-open');
   });
 });

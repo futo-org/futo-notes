@@ -25,6 +25,7 @@
 
 import { Fragment, type Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
+import { beginInteraction, endInteraction, markInteraction } from '$shared/perf/interactionLedger';
 
 /** What a chunk append needs to know about the chunk BEFORE it. */
 export interface ChunkAppendOptions {
@@ -304,6 +305,7 @@ export const OPEN_COMPLETE_MEASURE = 'futo:editor-open-complete';
 
 /** Starts an open timing, discarding any entries from the previous open. */
 export function markOpenStart(): void {
+  beginInteraction('note-open');
   if (typeof performance?.mark !== 'function') return;
   performance.clearMarks(OPEN_START_MARK);
   performance.clearMeasures(OPEN_INTERACTIVE_MEASURE);
@@ -313,6 +315,10 @@ export function markOpenStart(): void {
 
 /** Records `name` as the span from the open's start mark to now. */
 export function measureOpen(name: string): void {
+  // The same two moments on the interaction ledger, for harnesses that read
+  // every interaction from one place rather than the performance buffer.
+  markInteraction('note-open', name === OPEN_INTERACTIVE_MEASURE ? 'interactive' : 'complete');
+  if (name === OPEN_COMPLETE_MEASURE) endInteraction('note-open');
   if (typeof performance?.measure !== 'function') return;
   try {
     performance.measure(name, OPEN_START_MARK);

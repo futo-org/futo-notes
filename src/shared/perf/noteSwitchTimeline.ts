@@ -3,9 +3,18 @@
 // createNoteLoader in features/notes/ — and features/ cannot import from app/,
 // so the timeline lives at their nearest common owner rather than in either.
 //
-// Always on. A phase costs one performance.now() and one array write, and only
-// the last HISTORY switches are retained, so this never grows without bound.
+// These are thin names over the interaction ledger (interactionLedger.ts),
+// kept so the two owners and the tab-switch probe
+// (scripts/perf/tab-switch-probe.js, via `__notesShellTest`) read as before.
 // It deliberately does NOT touch the per-keystroke path (M5).
+
+import {
+  beginInteraction,
+  clearInteractions,
+  endInteraction,
+  getInteractions,
+  markInteraction,
+} from './interactionLedger';
 
 export type NoteSwitchPhase =
   'saveFlushed' | 'readStarted' | 'noteRead' | 'contentApplied' | 'loadReturned' | 'scrollRestored';
@@ -18,20 +27,12 @@ export interface NoteSwitchTimeline {
   phases: Array<{ phase: NoteSwitchPhase; atMs: number }>;
 }
 
-const HISTORY = 50;
-
-const timelines: NoteSwitchTimeline[] = [];
-let current: NoteSwitchTimeline | null = null;
-
 export function beginNoteSwitch(noteId: string | null): void {
-  current = { noteId, startedAt: performance.now(), phases: [] };
-  timelines.push(current);
-  if (timelines.length > HISTORY) timelines.shift();
+  beginInteraction('note-switch', noteId);
 }
 
 export function markNoteSwitch(phase: NoteSwitchPhase): void {
-  if (!current) return;
-  current.phases.push({ phase, atMs: performance.now() - current.startedAt });
+  markInteraction('note-switch', phase);
 }
 
 /**
@@ -40,14 +41,17 @@ export function markNoteSwitch(phase: NoteSwitchPhase): void {
  * dropped phase is visible rather than silently attributed to the next switch.
  */
 export function endNoteSwitch(): void {
-  current = null;
+  endInteraction('note-switch');
 }
 
 export function getNoteSwitchTimelines(): readonly NoteSwitchTimeline[] {
-  return timelines;
+  return getInteractions('note-switch').map((record) => ({
+    noteId: record.subject,
+    startedAt: record.startedAt,
+    phases: record.phases as NoteSwitchTimeline['phases'],
+  }));
 }
 
 export function clearNoteSwitchTimelines(): void {
-  timelines.length = 0;
-  current = null;
+  clearInteractions('note-switch');
 }

@@ -7,6 +7,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { clearInteractions, getInteractions } from '$shared/perf/interactionLedger';
 import { BlockDragSession, blockDragSourceKey } from './blockDragSession';
 import { BLOCK_HEIGHT, blockTop, makeStackedView } from './__fixtures__/stackedBlocksView';
 
@@ -100,6 +101,24 @@ describe('BlockDragSession', () => {
     expect(committed).toBe(false);
     expect(fixture.order()).toEqual(['a', 'b', 'c']);
     expect(fixture.dispatched.every((tr) => !tr.docChanged)).toBe(true);
+  });
+
+  it('records each drag on the interaction ledger: lifted, then released and dropped — or cancelled', () => {
+    clearInteractions('block-drag');
+    const fixture = makeStackedView(['a', 'b', 'c']);
+    const session = new BlockDragSession(fixture.view);
+
+    session.start(lift(0, fixture), X, blockTop(0) + 10);
+    session.finish(fixture.lowerHalf(2), true);
+    session.start(lift(0, fixture), X, blockTop(0) + 10);
+    session.cancel();
+
+    const phases = getInteractions('block-drag').map((r) => r.phases.map((p) => p.phase));
+    expect(phases).toEqual([
+      ['lifted', 'released', 'dropped'],
+      ['lifted', 'cancelled'],
+    ]);
+    clearInteractions('block-drag');
   });
 
   // The Android WebView floor is Chromium 80 (EditorEngineSupport.kt); the

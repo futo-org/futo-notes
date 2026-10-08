@@ -34,6 +34,7 @@ import {
 import { isNoOpDrop, moveBlock, planBlockMove, type BlockMoveRange } from './blockMove';
 import { CURTAIN_STYLES, ReflowCurtain } from './blockDragCurtain';
 import { PENDING_EDIT_META } from './documentChanges';
+import { beginInteraction, endInteraction, markInteraction } from '$shared/perf/interactionLedger';
 
 /** What the gesture hands over at lift. */
 export interface BlockDragLift extends BlockMoveRange {
@@ -319,6 +320,8 @@ export class BlockDragSession {
     // The gestures do not lift while a drop lands (`landingDrop`); this is
     // the guarantee.
     if (this.lifted || this.landing) return;
+    // The interaction ledger (interactionLedger.ts): lift → lifted → dropped.
+    beginInteraction('block-drag');
     const view = this.view;
     this.lifted = source;
     this.lastY = clientY;
@@ -351,12 +354,14 @@ export class BlockDragSession {
       this.indicatorPos =
         restingTarget && !this.isNoOpTarget(restingTarget) ? restingTarget.pos : null;
       this.createGhost(clientX, clientY, liftRect);
+      markInteraction('block-drag', 'lifted');
     } catch (error) {
       // A lift that throws half-way (an engine missing some API) must not
       // strand the dim, the curtain or the ghost: callers only treat the drag
       // as live once `start` returns, so nothing else would ever clear them.
       this.cleanupDragVisuals();
       this.reset();
+      endInteraction('block-drag');
       this.clearDecoration();
       throw error;
     }
@@ -390,6 +395,7 @@ export class BlockDragSession {
     const lifted = this.lifted;
     if (!lifted) return false;
     this.autoScroll.stop();
+    markInteraction('block-drag', commit ? 'released' : 'cancelled');
 
     // The target and the range are both read BEFORE the dim is cleared: the
     // range comes from the mapped decoration. The target is also read before
@@ -413,6 +419,8 @@ export class BlockDragSession {
       }
       this.cleanupDragVisuals();
       this.reset();
+      // A drop in flight keeps the record open until the guard below.
+      if (!target) endInteraction('block-drag');
     }
     const range = target ? this.currentSourceRange(lifted) : null;
     // Every refusal case (stale range, a target that stopped being a legal
@@ -420,10 +428,13 @@ export class BlockDragSession {
     // in moveBlock. A drop that commits nothing is silent: no transaction, no
     // history entry, no 'change'.
     if (!target || !range || !planBlockMove(this.view.state, range, target.pos)) {
+      endInteraction('block-drag');
       curtain?.end();
       this.clearDecoration();
       return false;
     }
+    markInteraction('block-drag', 'dropped');
+    endInteraction('block-drag');
     if (curtain) {
       this.land(curtain, lifted, target.pos, beforeDispatch);
       return true;
@@ -532,6 +543,7 @@ export class BlockDragSession {
     this.landing?.curtain.end();
     this.landing = null;
     landingDrops.delete(this.view.dom);
+    endInteraction('block-drag');
   }
 
   private reset(): void {
