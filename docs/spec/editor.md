@@ -639,11 +639,12 @@ hand-reviewed goldens, one or more per line below)
   tests/editor-embed-milkdown.spec.ts
 - There is ONE drop slot per boundary between top-level blocks, on both drag
   gestures. Below block A and above the block directly under it are the same
-  place, so they are one target: one indicator line, drawn IN the gap midway
-  between A's bottom edge and B's top edge (on the outer edge at the document's
-  first and last boundary), and one haptic tick for reaching it however the
-  pointer got there. A block's OWN two boundaries stay distinct, because those
-  are different positions. Both gestures resolve that one slot with the same
+  place, so they are one target: one slot opening in the live-reflow preview
+  (or, where the preview falls back, one indicator line, drawn IN the gap
+  midway between A's bottom edge and B's top edge, on the outer edge at the
+  document's first and last boundary), and one haptic tick for reaching it
+  however the pointer got there. A block's OWN two boundaries stay distinct,
+  because those are different positions. Both gestures resolve that one slot with the same
   code and commit through the same move, so neither the line's position nor the
   set of places a block may land can differ between them — which is why the
   desktop ⠿ handle draws OUR indicator rather than the one
@@ -653,23 +654,33 @@ hand-reviewed goldens, one or more per line below)
   src/features/editor/milkdown/blockDragSession.ts,
   src/features/editor/milkdown/blockDragGeometry.test.ts,
   tests/editor-embed-milkdown.spec.ts
-- The dragged block's own two boundaries draw no line and tick no haptic on
-  either gesture, because a drop there is a no-op: the finger holding a block
-  over the gap it already sits against would otherwise show the indicator
-  running through the lifted card. On the native long-press the lifted card
-  is drawn OVER the indicator line, with a translucent background, so the
-  line — and the dimmed source block underneath at lift — stay visible
+- In the live-reflow preview, which slot is open is judged against the blocks
+  where the preview DRAWS them, not where they sat at the lift: the slot moves
+  past a block once the pointer passes that block's drawn middle (its own
+  middle, not its slot's), and a pointer exactly on it keeps the slot where it
+  is. Judged against the lift-time layout instead, a long paragraph dragged
+  past a block flipped back the moment the pointer re-entered that block's old
+  upper half — a whole paragraph-height inside the paragraph's own drawn slot.
+  The slot cannot flip back and forth: passing a block moves it to the other
+  side of the slot, away from the pointer. → src/features/editor/milkdown/blockDragCurtain.ts
+  `reflowGapAt`, tests/editor-embed-milkdown.spec.ts
+- The dragged block's own two boundaries open no slot, draw no line and tick no
+  haptic on either gesture, because a drop there is a no-op: the finger holding
+  a block over the gap it already sits against would otherwise show the
+  indicator running through the lifted card. On the native long-press the
+  lifted card is drawn OVER the indicator line, with a translucent background,
+  so the line — and the dimmed source block underneath at lift — stay visible
   through the card wherever it overlaps a boundary. → src/features/editor/milkdown/blockMove.ts
   `isNoOpDrop`, src/features/editor/milkdown/blockDragSession.ts,
   src/features/editor/milkdown/blockMove.test.ts, tests/editor-embed-milkdown.spec.ts
 - A block drag is haptic three ways on both native shells: one firmer impact
-  when the block lifts, a light tick each time the drop indicator lands on a
-  DIFFERENT top-level boundary, and one light impact when a release commits a
-  reorder. A finger travelling inside one gap ticks nothing, a hold ticks
-  nothing, edge auto-scroll ticks nothing (an auto-scroll is a hold, and a tick
-  per boundary swept past would be a continuous buzz), and a release back at the
-  source is silent (it commits nothing). Same gesture, same three moments, same
-  feel on both. →
+  when the block lifts, a light tick each time the drop slot (or the indicator
+  line, where the preview falls back) lands on a DIFFERENT top-level boundary,
+  and one light impact when a release commits a reorder. A finger travelling
+  inside one gap ticks nothing, a hold ticks nothing, edge auto-scroll ticks
+  nothing (an auto-scroll is a hold, and a tick per boundary swept past would be
+  a continuous buzz), and a release back at the source is silent (it commits
+  nothing). Same gesture, same three moments, same feel on both. →
   src/features/editor/milkdown/mobileBlockDnd.ts,
   apps/ios/Sources/Editor/EditorWebView.swift `moveHapticFeedback`,
   apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt
@@ -720,7 +731,7 @@ hand-reviewed goldens, one or more per line below)
   ramping to 1400px/s at the edge — so a block can be dropped at a boundary that
   was off screen when it was lifted. It runs while the pointer holds still, stops
   at the document's ends, and stops on every exit (commit, no-op release, cancel,
-  editor destroy). The drop indicator is recomputed each frame from the boundary
+  editor destroy). The drop slot is recomputed each frame from the boundary
   now under the stationary pointer. Both drag paths share it: the native shells'
   long-press drag and the desktop ⠿ gutter handle's mouse drag. Verified on an
   Android device 2026-09-01 — a hold within the zone scrolls continuously and
