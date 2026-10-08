@@ -18,6 +18,8 @@ type AppPlan = {
   sizes: number[];
   repeat: number;
   frames: number;
+  /** Pointer moves dispatched per frame of the scroll drag (default 1). */
+  movesPerFrame?: number;
   hide?: string;
   snapshot?: string;
 };
@@ -133,6 +135,7 @@ async function scrollDrag(
   pm: HTMLElement,
   scroller: HTMLElement,
   frames: number,
+  movesPerFrame: number,
   snapshotPath?: string,
 ) {
   scroller.scrollTop = 0;
@@ -189,7 +192,8 @@ async function scrollDrag(
   for (let i = 0; i < frames; i += 1) {
     scroller.scrollTop += 23;
     let t = performance.now();
-    pointer('pointermove', document, y);
+    // Every move lands on a distinct position, as a device's would.
+    for (let m = 0; m < movesPerFrame; m += 1) pointer('pointermove', document, y + (m % 2));
     jsMs += performance.now() - t;
     t = performance.now();
     void document.body.offsetHeight;
@@ -221,7 +225,13 @@ async function runPlan(plan: AppPlan): Promise<void> {
         const { pm, scroller } = await load(blocks);
         const shot =
           plan.snapshot && r === 0 ? plan.snapshot.replace('.png', `-${blocks}.png`) : undefined;
-        const { mode, totalMs, jsMs, layoutMs } = await scrollDrag(pm, scroller, plan.frames, shot);
+        const { mode, totalMs, jsMs, layoutMs } = await scrollDrag(
+          pm,
+          scroller,
+          plan.frames,
+          plan.movesPerFrame ?? 1,
+          shot,
+        );
         runs.push({
           blocks,
           mode,
