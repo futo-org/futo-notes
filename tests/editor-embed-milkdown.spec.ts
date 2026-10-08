@@ -1772,6 +1772,69 @@ gutterHandleTest('the ⠿ handle previews ONE slot per gap, from either side', a
   expect(changes[changes.length - 1].content).toBe('bravo\n\n# alpha\n\ncharlie\n');
 });
 
+/* "Above or below" follows the pointer against the blocks AS THE PREVIEW DRAWS
+ * THEM. Judged against the lift-time layout instead, a long paragraph dragged
+ * past a block flipped back the moment the pointer re-entered that block's OLD
+ * upper half — a whole paragraph-height below where the block is drawn now,
+ * inside the paragraph's own slot. */
+gutterHandleTest(
+  'the ⠿ handle flips a slot back only past the drawn middle of the block that passed it',
+  async ({ page }) => {
+    const long = `alpha ${'lorem ipsum dolor sit amet '.repeat(60).trim()}`;
+    await hostSetContent(page, `${long}\n\nbravo\n\ncharlie`);
+    await clearMessages(page);
+
+    const order = [long, 'bravo', 'charlie'];
+    const alpha = await blockBox(page, 'alpha');
+    const bravo = await blockBox(page, 'bravo');
+    // Taller than bravo by a lot, or bravo's old and drawn places overlap.
+    expect(alpha.bottom - alpha.top).toBeGreaterThan(4 * (bravo.bottom - bravo.top));
+
+    const drag = await startHandleDrag(page, await surfaceHandle(page, 'alpha'));
+    await drag.over(bravo.x, bravo.bottom - 3);
+    expect(await reflowGap(page, order, 0)).toBe(2);
+
+    // bravo's lift-time upper half is now inside the drawn slot, well below
+    // bravo (slid up to alpha's place): the slot stays.
+    await drag.over(bravo.x, bravo.top + 3);
+    expect(await reflowGap(page, order, 0)).toBe(2);
+
+    // Above bravo's drawn middle, it flips back.
+    await drag.over(bravo.x, alpha.top + 2);
+    expect(await reflowGap(page, order, 0)).toBeNull();
+
+    await drag.drop(bravo.x, alpha.top + 2);
+    expect(await messagesOfType(page, 'edited')).toHaveLength(0);
+  },
+);
+
+gutterHandleTest(
+  'the ⠿ handle flips a slot back down only past the drawn middle of the block that passed it',
+  async ({ page }) => {
+    const long = `alpha ${'lorem ipsum dolor sit amet '.repeat(60).trim()}`;
+    await hostSetContent(page, `bravo\n\ncharlie\n\n${long}`);
+    await clearMessages(page);
+
+    const order = ['bravo', 'charlie', long];
+    const bravo = await blockBox(page, 'bravo');
+    const alpha = await blockBox(page, 'alpha');
+    expect(alpha.bottom - alpha.top).toBeGreaterThan(4 * (bravo.bottom - bravo.top));
+
+    const drag = await startHandleDrag(page, await surfaceHandle(page, 'alpha'));
+    await drag.over(bravo.x, bravo.top + 3);
+    expect(await reflowGap(page, order, 2)).toBe(0);
+
+    // bravo's lift-time lower half is inside the drawn slot, well above bravo
+    // (pushed down by alpha's height): the slot stays at the top.
+    await drag.over(bravo.x, bravo.bottom - 3);
+    expect(await reflowGap(page, order, 2)).toBe(0);
+
+    await drag.drop(bravo.x, bravo.bottom - 3);
+    const changes = await waitForMessages(page, 'change');
+    expect(changes[changes.length - 1].content).toBe(`${long}\n\nbravo\n\ncharlie\n`);
+  },
+);
+
 gutterHandleLineTest(
   'the ⠿ handle draws ONE line per gap (drop line), in the gap, from either side',
   async ({ page }) => {

@@ -502,8 +502,16 @@ export class ReflowCurtain {
     return lo;
   }
 
-  /** The gap index (0..n) under `clientY`, judged against the LIFT-TIME layout
-   * so blocks sliding under the pointer can't flip the answer back and forth. */
+  /** The gap index (0..n) under `clientY`, judged against the blocks where the
+   * preview DRAWS them: starting from the slot open now, the slot moves below
+   * the block under it once the pointer passes that block's drawn midpoint (its
+   * own, not its slot's, which includes the gap below), and above the block
+   * over it likewise. Judging against the lift-time layout instead put the flip
+   * back up a whole source-height inside the drawn slot, which is worst for a
+   * long paragraph. It cannot flip back and forth: passing a block moves that
+   * block to the other side of the slot, away from the pointer by the room the
+   * source takes. Auto-scroll re-syncs it as the document moves under a still
+   * pointer, a block at a time. */
   private reflowGapAt(clientY: number): number {
     const reflow = this.reflow!;
     const scroller = this.view.dom;
@@ -511,9 +519,25 @@ export class ReflowCurtain {
     const y = Math.min(Math.max(clientY, rect.top + 1), rect.bottom - 1);
     reflow.originTop = rect.top - scroller.scrollTop;
     const contentY = y - reflow.originTop;
-    // The flip is at each block's own visual midpoint (not its slot's, which
-    // includes the gap below): the lower half of a block is "after it".
-    return this.firstNotPast((i) => this.slotTop(i) + reflow.heights[i] / 2 < contentY);
+    const s = reflow.sourceIndex;
+    const drawnMid = (i: number, gap: number) =>
+      this.slotTop(i) + this.reflowShift(i, gap) + reflow.heights[i] / 2;
+    // Gaps s and s + 1 are both the source's own place: the block under the
+    // slot is s + 1 and the one over it s - 1.
+    let gap = reflow.applied ?? s;
+    const start = gap;
+    for (;;) {
+      const below = gap === s ? s + 1 : gap;
+      if (below >= reflow.count || drawnMid(below, gap) >= contentY) break;
+      gap = below + 1;
+    }
+    if (gap !== start) return gap;
+    for (;;) {
+      const above = gap === s + 1 ? s - 1 : gap - 1;
+      if (above < 0 || drawnMid(above, gap) <= contentY) break;
+      gap = above;
+    }
+    return gap;
   }
 
   /** Whether the preview is still up and describes the document as it is now.
