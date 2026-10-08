@@ -1625,6 +1625,29 @@ for (const [host, theme, expected] of [
   );
 }
 
+// ProseMirror keeps a block's DOM, and its view descriptor, when the new
+// document has an EQUAL block there, without pointing the descriptor at the
+// new node object. A curtain that matched blocks to their DOM by identity
+// refused every drag after the host's setContent, and those drags quietly
+// showed the drop line instead.
+gutterHandleTest(
+  'a drag after the host replaces the content still previews by reflow',
+  async ({ page }) => {
+    await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie\n\ndelta');
+    await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+
+    const handle = await surfaceHandle(page, 'alpha');
+    const charlie = await blockBox(page, 'charlie');
+    const drag = await startHandleDrag(page, handle);
+    await drag.over(charlie.x, charlie.bottom - 3);
+    await expect(page.locator('.futo-mobile-dnd-ghost')).toHaveCount(1);
+    expect(await curtainUp(page)).toBe(true);
+    expect(await reflowGap(page, ['alpha', 'bravo', 'charlie'], 0)).toBe(3);
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+  },
+);
+
 gutterHandleTest(
   'Escape mid-drag cancels the ⠿ handle drag with no transaction',
   async ({ page }) => {
