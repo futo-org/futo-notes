@@ -341,6 +341,31 @@ collect-secrets-from-op:
         echo "Using Playwright browsers in $PLAYWRIGHT_BROWSERS_PATH"
       fi
 
+# M11 for a `parallel:` Playwright job: the shard flag must have reached
+# Playwright AND this shard must have run tests, because both failures are
+# green. `pnpm run <script> -- --shard=…` forwards a literal `--`, and
+# Playwright then ran the WHOLE suite in every shard; an empty shard exits 0
+# with stats.expected 0 (both reproduced locally on Playwright 1.63.0). Reads
+# the JSON reporter's output named by $PLAYWRIGHT_JSON.
+.check-playwright-shard:
+  script:
+    - |
+      node -e '
+        const [file, index, total] = process.argv.slice(1);
+        const report = require(file);
+        const shard = report.config && report.config.shard;
+        if (!shard || shard.current !== Number(index) || shard.total !== Number(total)) {
+          console.error(`Playwright did not run as shard ${index}/${total} (report shard: ${JSON.stringify(shard)})`);
+          process.exit(1);
+        }
+        const passed = report.stats ? report.stats.expected : 0;
+        if (!(passed > 0)) {
+          console.error(`Playwright shard ${index}/${total} ran zero tests`);
+          process.exit(1);
+        }
+        console.log(`Playwright shard ${index}/${total}: ${passed} tests passed`);
+      ' "$PLAYWRIGHT_JSON" "$CI_NODE_INDEX" "$CI_NODE_TOTAL"
+
 # ─────────────────────────────────────────────────────────────
 # Cache templates
 # ─────────────────────────────────────────────────────────────
@@ -763,13 +788,24 @@ test:e2e:rest:
   # Runner 71 — see the `test` job. Median 10m10 on runner 55 vs 3m02 on runner 71.
   tags:
     - dind_fast
+  # Three shards by file (188 tests split 63/71/54 on 2026-10-08). Each shard
+  # starts its own dev server; the docker executor gives every job its own
+  # network namespace, so the shards cannot collide on the port. July's
+  # two-shard attempt was undone for oversubscribing runner 55 (58ceb12b7);
+  # these run on runner 71 only, where the cost is its five job slots.
+  parallel: 3
+  variables:
+    PLAYWRIGHT_JSON: $CI_PROJECT_DIR/test-results/results.json
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-playwright, cache]
   script:
     - pnpm install --frozen-lockfile --prefer-offline
     - !reference [.setup-playwright, script]
-    - pnpm run test:e2e:rest
+    # The flag goes straight after the script name, never after `--`; see
+    # .check-playwright-shard.
+    - pnpm run test:e2e:rest --shard="$CI_NODE_INDEX/$CI_NODE_TOTAL"
+    - !reference [.check-playwright-shard, script]
   artifacts:
     when: always
     paths:
@@ -800,6 +836,11 @@ test:e2e:editor-embed:
   # Runner 71 — see the `test` job. Median 23m30 on runner 55 vs 8m16 on runner 71.
   tags:
     - dind_fast
+  # Three shards by file (630 tests split 235/198/197 on 2026-10-08); each
+  # shard's globalSetup builds its own editor.html.
+  parallel: 3
+  variables:
+    PLAYWRIGHT_JSON: $CI_PROJECT_DIR/test-results/editor-embed-results.json
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-playwright, cache]
@@ -808,12 +849,11 @@ test:e2e:editor-embed:
     - !reference [.setup-playwright, script]
     # globalSetup builds the single-file editor.html; every test loads it over
     # file:// (no dev server), so the harness drives the SAME bytes the native
-    # shells ship.
-    - pnpm run test:e2e:editor-embed
+    # shells ship. The shard flag goes straight after the script name.
+    - pnpm run test:e2e:editor-embed --shard="$CI_NODE_INDEX/$CI_NODE_TOTAL"
     # M11: a green playwright exit with zero tests must still fail red (a broken
-    # testMatch would otherwise pass silently).
-    - |
-      node -e "const r=require('$CI_PROJECT_DIR/test-results/editor-embed-results.json'); if(!(r.stats && r.stats.expected>0)){console.error('editor-embed bridge harness ran zero tests'); process.exit(1);} console.log('editor-embed bridge tests run:', r.stats.expected);"
+    # testMatch, or an empty shard, would otherwise pass silently).
+    - !reference [.check-playwright-shard, script]
   artifacts:
     when: always
     paths:

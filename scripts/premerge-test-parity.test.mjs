@@ -82,13 +82,23 @@ describe('pre-merge CI routing contracts', () => {
     expect(packageScripts['test:e2e:rest']).toContain('P0 Crash and IME Regressions');
   });
 
-  it('uses bounded Playwright concurrency without multiplying CI jobs', () => {
-    const restJob = topLevelBlock(gitlabPipeline, /^test:e2e:rest:$/m);
-
-    expect(restJob).toContain('pnpm run test:e2e:rest');
+  it('proves every Playwright shard ran as its shard and ran tests', () => {
+    // Both failures are green on their own: `pnpm run <script> -- --shard=…`
+    // ran the whole suite in every shard, and an empty shard exits 0. The
+    // runtime check catches both, but cannot catch its own absence.
+    const jobs = gitlabPipeline.split(/(?=^[^ #\n][^\n]*:\n)/m);
+    const sharded = jobs.filter(
+      (job) => /^ {2}parallel: \d+$/m.test(job) && job.includes('pnpm run test:e2e'),
+    );
+    expect(sharded.length).toBeGreaterThan(0);
+    for (const job of sharded) {
+      const name = job.split('\n')[0];
+      expect(job, name).toContain('!reference [.check-playwright-shard, script]');
+      expect(job, name).toMatch(
+        /^ {4}PLAYWRIGHT_JSON: \$CI_PROJECT_DIR\/test-results\/\S+\.json$/m,
+      );
+    }
     expect(packageScripts['test:e2e:rest']).toContain('--workers=2');
-    expect(restJob).not.toContain('parallel: 2');
-    expect(restJob).not.toContain('--shard=');
   });
 
   it('does not recompress the shared Rust target cache after source-only MR jobs', () => {
