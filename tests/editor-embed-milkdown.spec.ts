@@ -1243,8 +1243,8 @@ const gutterHandleFixture = (query: string) =>
     },
   });
 const gutterHandleTest = gutterHandleFixture('');
-/** Same, with live reflow forced off: the drop LINE, which list items and a
- * doc that changes shape mid-drag still use. */
+/** Same, with live reflow forced off: the drop LINE, which a doc that changes
+ * shape mid-drag still falls back to. */
 const gutterHandleLineTest = gutterHandleFixture('&blockDragReflow=off');
 
 /**
@@ -1325,28 +1325,10 @@ function dropIndicatorTop(page: Page): Promise<number | null> {
   });
 }
 
-/** Box of the LIST ITEM containing `text` (blockBox answers with the whole
- * list for any text inside one). */
-async function itemBox(
-  page: Page,
-  text: string,
-): Promise<{ x: number; top: number; bottom: number }> {
-  const box = await page.locator('.ProseMirror li', { hasText: text }).first().boundingBox();
-  if (!box) throw new Error(`no geometry for the list item containing "${text}"`);
-  return { x: box.x + box.width / 2, top: box.y, bottom: box.y + box.height };
-}
-
-/** Centre of the ⠿ handle for the block containing `text`, surfaced by hover
- * — or for the list item containing it, with `{ item: true }`. */
-async function surfaceHandle(
-  page: Page,
-  text: string,
-  options: { item?: boolean } = {},
-): Promise<{ x: number; y: number }> {
-  const block = options.item
-    ? await itemBox(page, text).then((box) => ({ x: box.x, y: (box.top + box.bottom) / 2 }))
-    : await blockCenter(page, text);
-  const range = options.item ? await itemBox(page, text) : await blockBox(page, text);
+/** Centre of the ⠿ handle for the block containing `text`, surfaced by hover. */
+async function surfaceHandle(page: Page, text: string): Promise<{ x: number; y: number }> {
+  const block = await blockCenter(page, text);
+  const range = await blockBox(page, text);
   await page.mouse.move(block.x, block.y);
   const handle = page.locator('.milkdown-block-handle[data-show="true"]');
   await handle.waitFor({ state: 'attached' });
@@ -1369,32 +1351,39 @@ async function surfaceHandle(
 }
 
 gutterHandleTest('the ⠿ handle sits in the gutter, never over a list marker', async ({ page }) => {
-  // A list item's box starts at its text; its bullet hangs in the list's
-  // padding to the left. An offset measured from that box put the handle on
-  // top of the bullet, and over the parent's text for a nested item. The
-  // handle belongs in the editor's gutter, left of the text column, at every
-  // depth.
-  // Second items, deliberately: plugin-block resolves a FIRST item to its
-  // parent list, whose box does start at the text column, so first items never
-  // showed the bug.
+  // The handle belongs in the editor's gutter, left of the text column, never
+  // over a bullet. Hovering an item of a list, at any depth, surfaces the
+  // handle for the whole list (a drag only lifts top-level blocks), beside the
+  // list's first line.
   await hostSetContent(page, 'intro\n\n- first\n- outer\n  - nested\n  - inner\n');
   const contentLeft = await page.evaluate(() => {
     const pm = document.querySelector('.ProseMirror')!;
     return pm.getBoundingClientRect().left + parseFloat(getComputedStyle(pm).paddingLeft);
   });
-  for (const text of ['intro', 'outer', 'inner']) {
-    // Over the TEXT, not the block's left edge: hovering a list item's text
-    // makes the item itself the active block, which is the case that put the
-    // handle on the bullet.
+  for (const [text, line] of [
+    ['intro', 'intro'],
+    ['outer', 'first'],
+    ['inner', 'first'],
+  ]) {
+    // Over the TEXT, not the block's left edge.
     const textBox = (await page.getByText(text, { exact: true }).first().boundingBox())!;
+    const lineBox = (await page.getByText(line, { exact: true }).first().boundingBox())!;
     await page.mouse.move(textBox.x + textBox.width / 2, textBox.y + textBox.height / 2, {
       steps: 4,
     });
     const handle = page.locator('.milkdown-block-handle[data-show="true"]');
-    // The handle is repositioned asynchronously; wait until it is on THIS line.
+    // The handle is repositioned asynchronously; wait until it is on its line.
     await expect
-      .poll(async () => (await handle.boundingBox())?.y ?? -1, { message: `${text}: handle` })
-      .toBeGreaterThanOrEqual(textBox.y - 4);
+      .poll(
+        async () => {
+          const box = await handle.boundingBox();
+          return box
+            ? Math.abs(box.y + box.height / 2 - (lineBox.y + lineBox.height / 2))
+            : Infinity;
+        },
+        { message: `${text}: handle beside "${line}"` },
+      )
+      .toBeLessThan(4);
     const box = (await handle.boundingBox())!;
     expect(box.x + box.width, `${text}: handle overlaps the text column`).toBeLessThanOrEqual(
       contentLeft + 0.5,
@@ -1402,6 +1391,44 @@ gutterHandleTest('the ⠿ handle sits in the gutter, never over a list marker', 
     expect(box.x, `${text}: handle left the editor`).toBeGreaterThanOrEqual(0);
   }
 });
+
+/* A multi-line block has ONE handle, beside its first line. Hovering anywhere
+ * in a list — a later item, a nested child — surfaces that same handle at the
+ * list's top line; it is never drawn lower down, beside the item under the
+ * pointer. */
+gutterHandleTest(
+  "the ⠿ handle stays beside a list's first line wherever the list is hovered",
+  async ({ page }) => {
+    await hostSetContent(
+      page,
+      'intro\n\n- List item D\n- List item E\n  - Child of E\n  - Another child of E\n- List item F\n\noutro',
+    );
+    const first = (await page.getByText('List item D', { exact: true }).boundingBox())!;
+    const firstLine = first.y + first.height / 2;
+    const handle = page.locator('.milkdown-block-handle[data-show="true"]');
+    const handleY = async () => {
+      const box = await handle.boundingBox();
+      return box ? box.y + box.height / 2 : Number.NaN;
+    };
+
+    for (const text of ['List item D', 'Child of E', 'Another child of E', 'List item F']) {
+      // Away from the handle first, so each hover is a fresh resolve.
+      const intro = await blockCenter(page, 'intro');
+      await page.mouse.move(intro.x, intro.y, { steps: 2 });
+      await expect
+        .poll(handleY, { message: `${text}: handle reached intro` })
+        .toBeLessThan(first.y);
+
+      const box = (await page.getByText(text, { exact: true }).boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 });
+      await expect
+        .poll(async () => Math.abs((await handleY()) - firstLine), {
+          message: `hovering "${text}": handle beside the list's first line`,
+        })
+        .toBeLessThan(2);
+    }
+  },
+);
 
 gutterHandleTest('a mouse drag on the ⠿ handle reorders the block', async ({ page }) => {
   await hostSetContent(page, '# alpha\n\nbravo\n\ncharlie');
@@ -1843,98 +1870,72 @@ gutterHandleLineTest(
   },
 );
 
-/** A list-final document with its trailing newlines collapsed to one (see the
- * first list test below for why). */
+/** A list-final document with its trailing newlines collapsed to one:
+ * @milkdown/kit/plugin/trailing keeps an empty paragraph after a list-final
+ * document, which is upstream behaviour and not what these assert. */
 const listOnly = (markdown: string): string => markdown.replace(/\n+$/, '\n');
 
-/* Reordering INSIDE a list. The resolver used to know only top-level gaps, so
- * a list item — which lives one level down — drew no line at all, and the drop
- * fell through to ProseMirror's default, which re-fit the item as a second list
- * beside the first ("a break in between"). */
-gutterHandleTest('the ⠿ handle moves a bullet to the end of its own list', async ({ page }) => {
-  await hostSetContent(page, '- alpha\n- bravo\n- charlie');
-  await clearMessages(page);
-
-  // The SECOND item, whose handle plugin-block resolves to the item itself.
-  const handle = await surfaceHandle(page, 'bravo', { item: true });
-  const charlie = await itemBox(page, 'charlie');
-  const drag = await startHandleDrag(page, handle);
-
-  // charlie's lower half is the boundary after it: the list's end, drawn on
-  // charlie's bottom edge — a line, where before there was none.
-  await drag.over(charlie.x, charlie.bottom - 3);
-  const line = await dropIndicatorTop(page);
-  expect(line).not.toBeNull();
-  expect(Math.abs((line as number) - charlie.bottom)).toBeLessThan(2);
-
-  await drag.drop(charlie.x, charlie.bottom - 3);
-  const changes = await waitForMessages(page, 'change');
-  // ONE list, reordered — not two lists with a break between them. Trailing
-  // newlines are normalized: @milkdown/kit/plugin/trailing keeps an empty
-  // paragraph after a list-final document, which is upstream behaviour and
-  // not what this asserts.
-  expect(listOnly(changes[changes.length - 1].content as string)).toBe(
-    '- alpha\n- charlie\n- bravo\n',
-  );
-});
-
-/* plugin-block resolves a list's FIRST item to the list itself (the same rule
- * the gutter test above leans on), so the handle beside the first bullet
- * stood for — and would have dragged — every bullet. handleSource.ts narrows
- * that to the item under the handle. */
+/* A drag only ever lifts a TOP-LEVEL block. The handle used to stand for the
+ * list ITEM beside it, and a list item could not be previewed by the curtain,
+ * so dragging flipped between the reflow preview and the drop line depending
+ * on what was grabbed. Now the handle beside any item, at any depth, stands
+ * for the whole list. */
 gutterHandleTest(
-  'the ⠿ handle on the FIRST bullet drags that bullet, not the whole list',
+  'the ⠿ handle beside a nested list item drags the whole list, with the reflow preview',
   async ({ page }) => {
-    await hostSetContent(page, '- alpha\n- bravo\n- charlie');
+    await hostSetContent(page, 'intro\n\n- one\n- two\n  - nested\n- three\n\noutro');
     await clearMessages(page);
 
-    const handle = await surfaceHandle(page, 'alpha', { item: true });
-    const charlie = await itemBox(page, 'charlie');
-    const drag = await startHandleDrag(page, handle);
+    const order = ['intro', 'onetwonestedthree', 'outro'];
+    // Hover the nested item's TEXT: before, that made the item the active block.
+    const nested = (await page.getByText('nested', { exact: true }).boundingBox())!;
+    await page.mouse.move(nested.x + nested.width / 2, nested.y + nested.height / 2, {
+      steps: 4,
+    });
+    // The handle comes up beside the list's FIRST line, which is where the
+    // block it stands for starts — not beside the hovered item.
+    const one = (await page.getByText('one', { exact: true }).boundingBox())!;
+    const shown = page.locator('.milkdown-block-handle[data-show="true"]');
+    await expect
+      .poll(async () => {
+        const box = await shown.boundingBox();
+        return box ? Math.abs(box.y + box.height / 2 - (one.y + one.height / 2)) : Infinity;
+      })
+      .toBeLessThan(4);
+    const box = (await shown.boundingBox())!;
+    const handle = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 
-    await drag.over(charlie.x, charlie.bottom - 3);
-    expect(await dropIndicatorTop(page)).not.toBeNull();
-    await drag.drop(charlie.x, charlie.bottom - 3);
+    const outro = await blockBox(page, 'outro');
+    const drag = await startHandleDrag(page, handle);
+    await drag.over(outro.x, outro.bottom - 3);
+    await expect(page.locator('.futo-mobile-dnd-source')).toHaveText(/one.*two.*nested.*three/s);
+    expect(await reflowGap(page, order, 1)).toBe(3);
+    expect(await dropIndicatorTop(page)).toBeNull();
+    await drag.drop(outro.x, outro.bottom - 3);
 
     const changes = await waitForMessages(page, 'change');
     expect(listOnly(changes[changes.length - 1].content as string)).toBe(
-      '- bravo\n- charlie\n- alpha\n',
+      'intro\n\noutro\n\n- one\n- two\n  - nested\n- three\n',
     );
   },
 );
 
-/* Leaving a list. Just below the list is still the list (two adjacent lists
- * are one list in markdown); past the next block is out. */
+/* Drops only land in top-level gaps: a paragraph dragged over the middle of a
+ * list lands above or below the whole list, never between its items. */
 gutterHandleTest(
-  'a bullet dragged just below its list joins its end; past the next block it leaves',
+  'a block dragged over a list lands beside it, never inside it',
   async ({ page }) => {
-    await hostSetContent(page, '- alpha\n- bravo\n\ncharlie');
+    await hostSetContent(page, 'alpha\n\n- one\n- two\n- three\n\nomega');
     await clearMessages(page);
 
-    let handle = await surfaceHandle(page, 'alpha', { item: true });
-    const charlie = await blockBox(page, 'charlie');
-    let drag = await startHandleDrag(page, handle);
-    await drag.drop(charlie.x, charlie.top + 3);
-    let changes = await waitForMessages(page, 'change');
-    expect(changes[changes.length - 1].content).toBe('- bravo\n- alpha\n\ncharlie\n');
+    const handle = await surfaceHandle(page, 'alpha');
+    const two = (await page.getByText('two', { exact: true }).boundingBox())!;
+    const drag = await startHandleDrag(page, handle);
+    // "two" sits in the list's lower half: the gap after the list.
+    await drag.drop(two.x + two.width / 2, two.y + two.height - 2);
 
-    await clearMessages(page);
-    handle = await surfaceHandle(page, 'alpha', { item: true });
-    drag = await startHandleDrag(page, handle);
-    await drag.drop(charlie.x, charlie.bottom - 3);
-    await expect.poll(() => getContent(page)).toBe('- bravo\n\ncharlie\n\n- alpha\n');
-    const generation = await page.evaluate(
-      () => (window as unknown as FakeHostWindow).__futoTest.documentRef().generation,
-    );
-    await expect
-      .poll(async () =>
-        (await messagesOfType(page, 'change')).some((m) => m.generation === generation),
-      )
-      .toBe(true);
-    changes = await messagesOfType(page, 'change');
-    expect(listOnly(changes[changes.length - 1].content as string)).toBe(
-      '- bravo\n\ncharlie\n\n- alpha\n',
-    );
+    const changes = await waitForMessages(page, 'change');
+    expect(changes[changes.length - 1].content).toBe('- one\n- two\n- three\n\nalpha\n\nomega\n');
   },
 );
 
@@ -2230,6 +2231,39 @@ mobileDndTest(
     /* The shell suspends WKWebView's text interaction between these two, so
      * the OS magnifier stays out of the drag (bridge.ts BlockDragMessage). */
     expect((await messagesOfType(page, 'blockDrag')).map((m) => m.active)).toEqual([true, false]);
+  },
+);
+
+/* A drag only ever lifts a TOP-LEVEL block. A long press on an item of a list,
+ * at any depth, lifts the whole list, so it gets the same live-reflow preview
+ * as every other block rather than the drop line. */
+mobileDndTest(
+  'a long press on a nested list item lifts the whole list, with the reflow preview',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, 'intro\n\n- one\n- two\n  - nested\n- three\n\noutro');
+    await clearMessages(page);
+
+    const order = ['intro', 'onetwonestedthree', 'outro'];
+    const nested = (await page.getByText('nested', { exact: true }).boundingBox())!;
+    const outro = await blockBox(page, 'outro');
+    await touch(cdp, 'touchStart', nested.x + nested.width / 2, nested.y + nested.height / 2);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+    for (let step = 1; step <= 4; step += 1) {
+      await touch(cdp, 'touchMove', outro.x, nested.y + ((outro.bottom - 3 - nested.y) * step) / 4);
+      await page.waitForTimeout(16);
+    }
+
+    // The whole list is the dimmed source, previewed below "outro" by the
+    // curtain: no drop line.
+    await expect(page.locator('.futo-mobile-dnd-source')).toHaveText(/one.*two.*nested.*three/s);
+    await expect.poll(() => reflowGap(page, order, 1)).toBe(3);
+    expect(await dropIndicatorTop(page)).toBeNull();
+
+    await touch(cdp, 'touchEnd', outro.x, outro.bottom - 3);
+    const changes = await waitForMessages(page, 'change');
+    expect(listOnly(changes[changes.length - 1].content as string)).toBe(
+      'intro\n\noutro\n\n- one\n- two\n  - nested\n- three\n',
+    );
   },
 );
 

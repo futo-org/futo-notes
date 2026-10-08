@@ -531,8 +531,8 @@ hand-reviewed goldens, one or more per line below)
 - Both native shells drag a block by LONG-PRESSING THE BLOCK ITSELF — there is
   no ⠿ handle anywhere in the editor on a phone, and the left gutter that would
   hold one is not reserved. Touch and hold a block for ~340ms and it lifts as a
-  card-like ghost under the finger, dragging floats it with a drop-indicator
-  line at the resolved top-level boundary, and release commits the move. The ⠿
+  card-like ghost under the finger, dragging floats it with the drop previewed
+  at the resolved top-level boundary, and release commits the move. The ⠿
   gutter handle is the DESKTOP gesture only. Verified on an Android
   device 2026-09-01 (moto g play 2023, System WebView 151) and on the iOS
   simulator. → src/features/editor/milkdown/blockDragMode.ts
@@ -567,11 +567,11 @@ hand-reviewed goldens, one or more per line below)
   src/features/editor/milkdown/mobileBlockDnd.ts `createGhost`
   `GHOST_MAX_HEIGHT_FRACTION`, tests/editor-embed-milkdown.spec.ts
   _(native shells)_
-- On desktop a ⠿ handle appears in the left gutter beside the block under the
-  pointer — in the GUTTER, 4px left of the text column, at every nesting depth:
-  a list item's own box starts at its text, so an offset from that box would
-  put the handle over the bullet, and over the parent's text for a nested item
-  — and dragging it with a mouse reorders blocks. Where there is no
+- On desktop a ⠿ handle appears in the left gutter beside the top-level block
+  under the pointer — in the GUTTER, 4px left of the text column, never over a
+  list marker, and beside the block's first line. Hovering anywhere inside a
+  list, at any depth, surfaces the handle for the whole list, beside its first
+  item — and dragging it with a mouse reorders blocks. Where there is no
   hover, the handle is still surfaced for the block that was just tapped or
   that the caret moved into, but dragging it needs a mouse: the drag starts on
   a mouse's primary-button press and no touch or pen gesture starts it. →
@@ -594,27 +594,32 @@ hand-reviewed goldens, one or more per line below)
   cursor everywhere in the window, and the mouse wheel still scrolls the note
   under the pointer. → src/features/editor/milkdown/handleBlockDrag.ts
   `showCursorLayer`, tests/editor-embed-milkdown.spec.ts _(desktop)_
-- A dragged block lands among its own kind. A top-level block sees only the
-  gaps between top-level blocks: just below a blockquote is NOT "inside the
-  blockquote", however the schema would read that position. A list item sees
-  the gaps between the items of its list, the items of any other list of the
-  same type at any depth, and the top-level gaps — where it is wrapped in a
-  fresh list of the type (and attributes) it came out of, and a list it was the
-  only item of goes with it rather than staying behind empty. A top-level gap
-  directly beside a list of the item's own type IS that list's end (or start):
-  two adjacent lists of one type are one list in markdown, so dragging a bullet
-  just below its list makes it the last bullet, and dragging it past the next
-  block takes it out. → src/features/editor/milkdown/blockDragGeometry.ts
+- A block drag only ever lifts a TOP-LEVEL block, on both gestures. A press
+  anywhere inside a list — bullet, ordered or task, at any nesting depth —
+  lifts the WHOLE top-level list as one block, and the same goes for anything
+  nested inside another top-level block, such as a blockquote. A single list
+  item cannot be dragged on its own. So every drag gets the same live-reflow
+  preview: the other blocks slide out of the way and the dimmed source sits in
+  its landing slot, rather than some drags drawing a drop line instead. (List
+  items used to drag on their own within their list, with only the line,
+  because the preview handles top-level blocks only; a drag flipped between the
+  two depending on what was grabbed.) → src/features/editor/milkdown/mobileBlockDnd.ts
+  `onPointerDown`, src/features/editor/milkdown/handleSource.ts `handleSourceFor`,
+  src/features/editor/milkdown/blockDragCurtain.ts,
+  src/features/editor/milkdown/handleSource.test.ts, tests/editor-embed-milkdown.spec.ts
+- A dragged block only lands in a gap between top-level blocks: just below a
+  blockquote is NOT "inside the blockquote", however the schema would read that
+  position, and a point between two items of a list is the gap above or below
+  the whole list. → src/features/editor/milkdown/blockDragGeometry.ts
   `resolveDropTarget`, src/features/editor/milkdown/blockMove.ts `moveBlock`,
   src/features/editor/milkdown/blockDragGeometry.test.ts,
   src/features/editor/milkdown/blockMove.test.ts, tests/editor-embed-milkdown.spec.ts
-- On desktop the ⠿ handle beside a list's FIRST item drags that item, like the
-  handle beside every other item. @milkdown/plugin-block resolves a first child
-  to its parent, so the handle it draws for a first bullet stands for the whole
-  list; the press narrows that to the item whose box the pointer is in. →
-  src/features/editor/milkdown/handleSource.ts `handleSourceFor`,
-  src/features/editor/milkdown/handleSource.test.ts,
-  tests/editor-embed-milkdown.spec.ts _(desktop)_
+- The drop line is the fallback when the preview cannot run: when the editor's
+  rendered blocks do not line up one-to-one with the document's top-level
+  blocks at the lift, or when the note changes under the drag (a host
+  `setContent`, a sync pull, an undo), which ends the preview and draws the line
+  from the next move. → src/features/editor/milkdown/blockDragCurtain.ts
+  `measure` `ensureValid`, src/features/editor/milkdown/blockDragSession.ts
 - The desktop ⠿ handle's lifted block is a ghost card the page draws, at the
   block's own on-screen size, never an OS drag image: a clone of the block over
   the block itself (padded by the card's breathing room, like the long press's),
@@ -624,9 +629,8 @@ hand-reviewed goldens, one or more per line below)
   fractionally scaled WebKitGTK display, which nothing the page did could fix).
   → src/features/editor/milkdown/blockDragSession.ts,
   tests/editor-embed-milkdown.spec.ts
-- There is ONE drop slot per boundary, on both drag gestures — between
-  top-level blocks, and between the items of a list for a list item. Below
-  block A and above the block directly under it are the same
+- There is ONE drop slot per boundary between top-level blocks, on both drag
+  gestures. Below block A and above the block directly under it are the same
   place, so they are one target: one indicator line, drawn IN the gap midway
   between A's bottom edge and B's top edge (on the outer edge at the document's
   first and last boundary), and one haptic tick for reaching it however the

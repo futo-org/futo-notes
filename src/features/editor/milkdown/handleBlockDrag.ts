@@ -168,7 +168,7 @@ export function mountHandleBlockDrag(host: HandleBlockDragHost): { destroy(): vo
     const view = host.view();
     const active = host.active();
     if (!view || !active) return;
-    const source = handleSourceFor(view, active, event.clientY);
+    const source = handleSourceFor(view, active);
     if (!source) return;
     // Belt and braces with the cancelled `dragstart` below.
     handleEl.draggable = false;

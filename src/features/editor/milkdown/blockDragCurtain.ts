@@ -2,9 +2,9 @@
  * The live-reflow preview of a block drag: instead of a drop line, the other
  * blocks slide out of the way while you drag, so the note already looks the
  * way it will after the drop, and the dimmed source block sits in its landing
- * slot. Only for top-level blocks; `measure` returns null for a list item (and
- * for any doc shape it cannot clone by index), and `blockDragSession.ts` falls
- * back to the drop line, as it does if the doc changes shape mid-drag (`sync`
+ * slot. A drag only ever lifts a top-level block; `measure` returns null for
+ * any doc shape it cannot clone by index, and `blockDragSession.ts` falls back
+ * to the drop line, as it does if the doc changes shape mid-drag (`sync`
  * returns false).
  *
  * The real document is never touched while dragging. Any style change on an
@@ -210,8 +210,8 @@ export class ReflowCurtain {
 
   /** Sets up the preview for `source` — where the curtain goes; the blocks
    * themselves are measured as they are needed (`slotTop`) — or returns null
-   * when this drag cannot be previewed (a list item, or a block without
-   * rendered DOM). Reads only. */
+   * when this drag cannot be previewed (a block without rendered DOM, or a
+   * source that is not top-level, which no gesture lifts). Reads only. */
   private measureReflow(source: { from: number }): Reflow | null {
     const view = this.view;
     const doc = view.state.doc;

@@ -14,8 +14,8 @@
  * out oversized on a fractionally scaled WebKitGTK display, where nothing the
  * page does can reliably fix the picture.
  *
- * The source range may be a top-level block or a list item
- * (`blockDragGeometry.ts` resolves the gaps for either).
+ * The source range is always a top-level block, and it only lands in a
+ * top-level gap (`blockDragGeometry.ts`).
  *
  * Gating: `blockDragSourcePlugin` is mounted for every editor (it is only the
  * state behind the dim); a session is created by whichever gesture the editor
@@ -27,7 +27,6 @@ import { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import {
   createDragAutoScroller,
-  dragSourceAt,
   targetAtPointerY,
   type DragAutoScroller,
   type DropTarget,
@@ -456,9 +455,8 @@ export class BlockDragSession {
     this.syncIndicator(this.lastY, false);
   };
 
-  /** The lifted block's CURRENT position decides which gaps it may land in
-   * (blockDragGeometry.ts): the top-level gaps for a top-level block, the gaps
-   * of its list for a list item. */
+  /** The top-level gap under `clientY`, or null once the lifted block is gone
+   * from the document. */
   private computeTarget(clientY: number): DropTarget | null {
     if (!this.lifted) return null;
     if (this.reflow) {
@@ -467,9 +465,7 @@ export class BlockDragSession {
       if (this.reflow.ensureValid()) return this.reflow.target(clientY);
       this.reflow = null;
     }
-    const range = this.currentSourceRange(this.lifted);
-    const source = range && dragSourceAt(this.view.state.doc, range.from);
-    return source ? targetAtPointerY(this.view, clientY, source) : null;
+    return this.currentSourceRange(this.lifted) ? targetAtPointerY(this.view, clientY) : null;
   }
 
   /** The source block's CURRENT range. The decoration set is mapped through

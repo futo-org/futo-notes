@@ -12,23 +12,22 @@
  * `blockMove.ts`.
  */
 import type { Editor } from '@milkdown/kit/core';
-import { block, BlockProvider } from '@milkdown/kit/plugin/block';
+import { block, blockConfig, BlockProvider } from '@milkdown/kit/plugin/block';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { blockDragSourcePlugin } from './blockDragSession';
 import { mountHandleBlockDrag } from './handleBlockDrag';
+import { topLevelBlockFilter } from './handleSource';
 import { createMobileBlockDndPlugin, type MobileBlockDndOptions } from './mobileBlockDnd';
 
 /* The ⠿ handle lives in the editor's left GUTTER, 8px left of the text
  * column, whatever block is under the pointer. floating-ui's offset is
- * measured from the active block's own box, and a list item's box starts at
- * its text — its bullet or number hangs in the list's padding to the LEFT of
- * it — so a fixed offset put the handle squarely over the marker (reported:
- * "the grabber handle is rendering on top of the bullet"), and further right
- * still for a nested item, over the parent's text. Measuring the block's
- * inset from the text column and adding it back moves the handle out to the
- * gutter for every depth; the task checkbox now sits inside the list's own
- * box too (see `li[data-checked]` in milkdownEditor.css), so it needs no
- * special case. */
+ * measured from the active block's own box. The handle used to stand for a
+ * list ITEM, whose box starts at its text with the marker hanging to the LEFT
+ * of it, so a fixed offset put the handle squarely over the bullet (reported:
+ * "the grabber handle is rendering on top of the bullet"). It now only ever
+ * stands for a top-level block, whose box starts at the text column, but the
+ * block's inset from the text column is still measured and added back, so a
+ * block drawn indented cannot pull the handle over its content. */
 function blockHandleOffset(editorDom: HTMLElement, blockDom: HTMLElement): { mainAxis: number } {
   const contentLeft =
     editorDom.getBoundingClientRect().left + parseFloat(getComputedStyle(editorDom).paddingLeft);
@@ -86,6 +85,10 @@ function blockHandleAnchor(blockDom: HTMLElement): DOMRect {
  * path REPLACES the ⠿ gutter handle plugin entirely for this editor instance
  * — the two never coexist. Both share the one source-dim plugin
  * (`blockDragSourcePlugin`), mounted once.
+ *
+ * Both lift only TOP-LEVEL blocks: the handle's hover climbs out of a list
+ * item (or anything else nested) to its top-level block, the way the long
+ * press's `topLevelBlockAt` does.
  */
 export function useBlockDragPlugins(
   builder: Editor,
@@ -95,7 +98,9 @@ export function useBlockDragPlugins(
   const withSource = builder.use(blockDragSourcePlugin);
   return useMobileBlockDnd
     ? withSource.use(createMobileBlockDndPlugin(mobile))
-    : withSource.use(block);
+    : withSource
+        .config((ctx) => ctx.set(blockConfig.key, { filterNodes: topLevelBlockFilter }))
+        .use(block);
 }
 
 /** One editor's desktop ⠿ gutter handle: its BlockProvider, the drag off it, and the teardown. */

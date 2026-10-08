@@ -237,57 +237,33 @@ describe('moveBlock', () => {
     expect(ran).toBe(false);
   });
 
-  describe('a list item', () => {
-    it('reorders within its own list as one transaction', () => {
-      const doc = s.nodes.doc.create(null, [bullets('a', 'b', 'c')]);
-      const { view, dispatched } = stubView(doc);
-
-      // "a" to the boundary after "c": the end of the list's content.
-      const listEnd = startOf(doc, 0) + doc.child(0).nodeSize - 1;
-      expect(moveBlock(view, itemRangeOf(doc, 0, 0), listEnd)).toBe(true);
-      expect(dispatched).toHaveLength(1);
-      expect(shape(dispatched[0].doc)).toEqual(['[b,c,a]']);
-      // Still one list, with the attrs it had.
-      expect(dispatched[0].doc.child(0).attrs).toEqual(doc.child(0).attrs);
-    });
-
-    it('is wrapped in a list of its own kind when dropped at a top-level gap', () => {
+  /* A drag only ever lifts a TOP-LEVEL block: a press on a list item lifts
+   * the whole list. A list is moved like any other block, and nothing below
+   * the top level is a source or a target. */
+  describe('lists', () => {
+    it('moves a whole list as one block', () => {
       const doc = s.nodes.doc.create(null, [bullets('a', 'b'), paragraph('p')]);
       const { view, dispatched } = stubView(doc);
 
-      expect(moveBlock(view, itemRangeOf(doc, 0, 1), doc.content.size)).toBe(true);
-      const after = dispatched[0].doc;
-      expect(shape(after)).toEqual(['[a]', 'p', '[b]']);
-      // The wrapper carries the source list's attrs, not the schema defaults.
-      expect(after.child(2).attrs).toEqual(doc.child(0).attrs);
-      expect(after.child(2).attrs.spread).toBe(true);
+      expect(moveBlock(view, rangeOf(doc, 0), doc.content.size)).toBe(true);
+      expect(shape(dispatched[0].doc)).toEqual(['p', '[a,b]']);
+      expect(dispatched[0].doc.child(1).attrs).toEqual(doc.child(0).attrs);
     });
 
-    it('takes an emptied list with it rather than leaving an empty one behind', () => {
-      const doc = s.nodes.doc.create(null, [bullets('only'), paragraph('p')]);
-      const { view, dispatched } = stubView(doc);
-
-      expect(moveBlock(view, itemRangeOf(doc, 0, 0), doc.content.size)).toBe(true);
-      const after = dispatched[0].doc;
-      expect(shape(after)).toEqual(['p', '[only]']);
-      expect(after.check()).toBeUndefined();
-    });
-
-    it('moves into another list of the same type as an item, not as a nested list', () => {
-      const doc = s.nodes.doc.create(null, [bullets('a'), paragraph('p'), bullets('x', 'y')]);
-      const { view, dispatched } = stubView(doc);
-
-      // Before "y" in the second list.
-      expect(moveBlock(view, itemRangeOf(doc, 0, 0), itemStartOf(doc, 2, 1))).toBe(true);
-      expect(shape(dispatched[0].doc)).toEqual(['p', '[x,a,y]']);
-    });
-
-    it('refuses a target inside a textblock', () => {
+    it('refuses a list item as the source', () => {
       const doc = s.nodes.doc.create(null, [bullets('a', 'b'), paragraph('p')]);
       const { view, dispatched } = stubView(doc);
 
-      const insideP = startOf(doc, 1) + 1;
-      expect(moveBlock(view, itemRangeOf(doc, 0, 0), insideP)).toBe(false);
+      expect(moveBlock(view, itemRangeOf(doc, 0, 1), doc.content.size)).toBe(false);
+      expect(moveBlock(view, itemRangeOf(doc, 0, 1), itemStartOf(doc, 0, 0))).toBe(false);
+      expect(dispatched).toHaveLength(0);
+    });
+
+    it('refuses a target between the items of a list', () => {
+      const doc = s.nodes.doc.create(null, [paragraph('p'), bullets('a', 'b')]);
+      const { view, dispatched } = stubView(doc);
+
+      expect(moveBlock(view, rangeOf(doc, 0), itemStartOf(doc, 1, 1))).toBe(false);
       expect(dispatched).toHaveLength(0);
     });
   });
