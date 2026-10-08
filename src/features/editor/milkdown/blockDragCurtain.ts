@@ -19,7 +19,8 @@
  * were.
  *
  * The session's whole contact with this module: `measure` (reads), `mount`
- * (first writes), `sync`/`target` per pointer step, `end`.
+ * (first writes), `sync`/`target` per pointer step, `holdScrollThroughDrop` on
+ * a committing release, `end`.
  */
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
@@ -641,6 +642,29 @@ export class ReflowCurtain {
     };
     if (win.cancelIdleCallback) win.cancelIdleCallback(id);
     else win.clearTimeout(id);
+  }
+
+  /** A release is about to commit the move this preview shows. The preview IS
+   * the note after that move at the current scroll position, so the drop must
+   * not scroll. Chromium's scroll anchoring would: it pins the first visible
+   * block on screen across a layout change, and when the source sat above the
+   * viewport (auto-scroll carried it off the top) that block is one the move
+   * shifts up by the source's height, so the view jumped by it on release —
+   * only "sometimes", because it depends on which block the browser picked.
+   * Anchoring is held off the scroller until the move has been laid out. */
+  holdScrollThroughDrop(): void {
+    const reflow = this.reflow;
+    if (!reflow || reflow.applied === null) return;
+    const el =
+      reflow.scroller instanceof HTMLElement
+        ? reflow.scroller
+        : (this.doc.scrollingElement as HTMLElement | null);
+    if (!el) return;
+    el.style.overflowAnchor = 'none';
+    // Two frames: the first frame's layout is the one that lays out the move.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => el.style.removeProperty('overflow-anchor')),
+    );
   }
 
   /** Takes the curtain down and ends the preview. Every exit calls it;

@@ -347,6 +347,7 @@ export class BlockDragSession {
     let target: DropTarget | null = null;
     try {
       target = commit ? this.computeTarget(clientY) : null;
+      if (target) this.reflow?.holdScrollThroughDrop();
     } catch (error) {
       this.clearDecoration();
       throw error;

@@ -717,6 +717,14 @@ hand-reviewed goldens, one or more per line below)
   src/features/editor/milkdown/blockDragSession.ts,
   src/features/editor/milkdown/blockDragGeometry.test.ts,
   tests/editor-embed-milkdown.spec.ts _(native shells)_
+- Dropping a top-level block never scrolls the note: the blocks on screen at the
+  release stay exactly where the live preview drew them, and the dropped block
+  lands where the preview showed it — also when edge auto-scroll carried the
+  source block off the top of the screen before the drop (Chromium's scroll
+  anchoring used to pull the view back by the source's height then). Verified
+  in Chromium (Playwright) 2026-10-08. → src/features/editor/milkdown/blockDragCurtain.ts
+  `holdScrollThroughDrop`, src/features/editor/milkdown/blockDragSession.ts,
+  tests/editor-embed-milkdown.spec.ts
 - A finger landing on a block in the long-press block drag suspends the
   platform's DELAYED text interaction from touch-down — the magnifier loupe and
   tap-and-a-half select — for as long as the press lasts, and restores it the

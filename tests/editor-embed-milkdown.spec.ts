@@ -2766,6 +2766,144 @@ mobileDndTest('a cancelled drag stops the auto-scroll', async ({ page, cdp }) =>
   expect(await messagesOfType(page, 'change')).toHaveLength(0);
 });
 
+// ---- the drop keeps the view still ---------------------------------------
+//
+// The reflow preview already draws the note as it will be after the drop, at
+// the current scroll position. So the drop itself must not move anything on
+// screen: the user reported that after an auto-scroll the view SOMETIMES
+// jumped on release (Android, 2026-10-08).
+
+/** Where each block the user can see sits on screen, by its text: the real
+ * blocks, or (`curtain`) the reflow preview's clones drawn over them. */
+function visibleBlockTops(page: Page, curtain: boolean): Promise<Record<string, number>> {
+  return page.evaluate((fromCurtain) => {
+    const editor = document.querySelector('.ProseMirror[contenteditable]') as HTMLElement;
+    const root = fromCurtain
+      ? (document.querySelector('.futo-mobile-dnd-reflow-curtain') as HTMLElement | null)
+      : editor;
+    const view = editor.getBoundingClientRect();
+    const tops: Record<string, number> = {};
+    for (const block of Array.from(root?.children ?? [])) {
+      const rect = block.getBoundingClientRect();
+      if (rect.bottom <= view.top || rect.top >= view.bottom) continue;
+      tops[(block.textContent ?? '').trim()] = rect.top;
+    }
+    return tops;
+  }, curtain);
+}
+
+/** A tall first block (it wraps over many lines), so a drop that shifts the
+ * view by the source's size is unmistakable, then numbered one-line blocks. */
+const TALL_BLOCK = `Tall ${'block of wrapping words '.repeat(60)}`.trim();
+function tallSourceNote(): string {
+  return `${TALL_BLOCK}\n\n${scrollableNote(120)}`;
+}
+
+/** Drops at `y` and asserts that what the preview showed at that moment is
+ * exactly what the note shows after the drop: same scroll position, every
+ * visible block at the same screen position. */
+async function dropAndExpectStill(page: Page, cdp: CDPSession, x: number, y: number) {
+  // The preview's slide (0.18s) has finished, so the clones are at rest.
+  await page.waitForTimeout(400);
+  const before = await editorScroll(page);
+  const preview = await visibleBlockTops(page, true);
+  // Otherwise the comparison below could pass on an empty intersection (M11).
+  expect(Object.keys(preview).length).toBeGreaterThan(5);
+
+  await touch(cdp, 'touchEnd', x, y);
+  await waitForMessages(page, 'change');
+  await flushFrames(page);
+
+  const after = await editorScroll(page);
+  const real = await visibleBlockTops(page, false);
+  expect(after.top).toBe(before.top);
+  const shared = Object.keys(preview).filter((text) => text in real);
+  expect(shared.length).toBeGreaterThan(5);
+  for (const text of shared) {
+    expect(real[text], `"${text.slice(0, 24)}" moved on drop`).toBeCloseTo(preview[text], 0);
+  }
+}
+
+mobileDndTest(
+  'a drop after auto-scroll carried the source off the top keeps the view still',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, tallSourceNote());
+    await clearMessages(page);
+
+    const start = await editorScroll(page);
+    const tall = await blockBox(page, 'Tall block');
+    // The source must be big enough that a jump of its size cannot hide in
+    // the tolerance.
+    expect(tall.bottom - tall.top).toBeGreaterThan(150);
+    const middle = (start.topEdge + start.bottomEdge) / 2;
+
+    await touch(cdp, 'touchStart', tall.x, tall.top + 20);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+    await touch(cdp, 'touchMove', tall.x, start.bottomEdge - 12);
+    // Until the source is wholly above the viewport, then park the finger
+    // mid-screen so the scroll stops and the drop lands among visible blocks.
+    await expect
+      .poll(async () => (await editorScroll(page)).top, { timeout: 8000 })
+      .toBeGreaterThan(tall.bottom - start.topEdge + 200);
+    await touch(cdp, 'touchMove', tall.x, middle);
+
+    await dropAndExpectStill(page, cdp, tall.x, middle);
+    const content = await getContent(page);
+    expect(content.indexOf('Tall block')).toBeGreaterThan(content.indexOf('Line 10\n'));
+  },
+);
+
+mobileDndTest(
+  'a drop with the source still on screen keeps the view still',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, tallSourceNote());
+    await clearMessages(page);
+
+    const start = await editorScroll(page);
+    const tall = await blockBox(page, 'Tall block');
+    const target = start.bottomEdge - 100;
+    expect(target).toBeGreaterThan(tall.bottom + 40);
+
+    await touch(cdp, 'touchStart', tall.x, tall.top + 20);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+    for (let step = 1; step <= 4; step += 1) {
+      await touch(cdp, 'touchMove', tall.x, tall.top + 20 + ((target - tall.top - 20) * step) / 4);
+      await page.waitForTimeout(16);
+    }
+    expect((await editorScroll(page)).top).toBe(0);
+
+    await dropAndExpectStill(page, cdp, tall.x, target);
+  },
+);
+
+mobileDndTest(
+  'a drop after auto-scroll carried the source off the bottom keeps the view still',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, `${scrollableNote(120)}\n${TALL_BLOCK}\n`);
+    await clearMessages(page);
+    // Start at the end, so the tall block is on screen to be lifted.
+    await page.evaluate(() => {
+      const dom = document.querySelector('.ProseMirror') as HTMLElement;
+      dom.scrollTop = dom.scrollHeight;
+    });
+    await flushFrames(page);
+
+    const start = await editorScroll(page);
+    const tall = await blockBox(page, 'Tall block');
+    const middle = (start.topEdge + start.bottomEdge) / 2;
+
+    await touch(cdp, 'touchStart', tall.x, tall.top + 20);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+    await touch(cdp, 'touchMove', tall.x, start.topEdge + 12);
+    await expect
+      .poll(async () => (await editorScroll(page)).top, { timeout: 8000 })
+      .toBeLessThan(start.top - (start.bottomEdge - tall.top) - 400);
+    await touch(cdp, 'touchMove', tall.x, middle);
+
+    await dropAndExpectStill(page, cdp, tall.x, middle);
+  },
+);
+
 mobileDndTest('a scroll gesture never lifts a block', async ({ page, cdp }) => {
   await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
   await clearMessages(page);
