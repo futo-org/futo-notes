@@ -380,6 +380,18 @@ describe('pre-merge CI routing contracts', () => {
     expect(syncJob).toContain('extends: .ci-test-image');
   });
 
+  it('runs every .ci-test-image job on the one runner that allows its pull policy', () => {
+    // Runner 55 (dind) only allows pull_policy always and refuses a job that
+    // asks for if-not-present, so the image and the dind_fast tag travel
+    // together.
+    const jobs = gitlabPipeline.split(/(?=^[^ #\n][^\n]*:\n)/m);
+    const imageJobs = jobs.filter((job) => /^ {2}extends: \.ci-test-image$/m.test(job));
+    expect(imageJobs.length).toBeGreaterThan(0);
+    for (const job of imageJobs) {
+      expect(job, job.split('\n')[0]).toMatch(/^ {2}tags:\n {4}- dind_fast$/m);
+    }
+  });
+
   // Both of these fail far from the change: a broken COPY surfaces only when
   // someone runs the manual image rebuild, with `just check` silent until then.
   it('keeps the baked-Node images buildable', () => {
