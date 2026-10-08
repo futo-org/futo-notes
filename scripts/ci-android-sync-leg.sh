@@ -54,8 +54,10 @@ trap 'exit 143' TERM
 ci_emulator_start --read-only
 
 # -r replaces a copy left by an earlier run; -g pre-grants runtime permissions
-# so no system dialog can sit in front of the UI the harness drives.
-"$ADB" -s "$ANDROID_SERIAL" install -r -g "$APK"
+# so no system dialog can sit in front of the UI the harness drives. The helper
+# survives one Android framework restart landing on the install (see
+# ci-android-emulator.sh): 31 of 133 runs died right here before it existed.
+ci_emulator_install_apk "$APK" -r -g
 
 # No `grep -q` here: with pipefail its early exit SIGPIPEs adb (a package list is
 # many buffers) and the check reads "not installed" although it is (RC-65).

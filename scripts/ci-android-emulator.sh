@@ -107,68 +107,166 @@ ci_emulator_start() {
     return 1
   fi
 
-  # sys.boot_completed goes to 1 BEFORE servicemanager has registered every
-  # system service, so an install issued here dies with
-  # "cmd: Can't find service: package" (job 209306). Wait for the service the
-  # caller actually needs rather than sleeping a guessed amount (M15).
-  local package_service_ready=false
+  ci_emulator_wait_framework_ready || return 1
+  echo "Android emulator $ANDROID_SERIAL booted ($userdata_mode), framework ready (system_server pid $CI_EMULATOR_FRAMEWORK_PID)"
+}
+
+# ── The framework can restart after boot ─────────────────────
+# sys.boot_completed is not the end of booting. The Android framework process
+# (system_server) can die and start again AFTER it reads 1, and the property
+# STAYS 1 across that restart, so any probe that passed a moment ago may have
+# passed against the old process. test:cross-platform-sync:android lost 33 of
+# 283 runs (2026-07-31..2026-10-08, all on runner 71) at `adb install`, right
+# after every readiness probe below had passed, with one of:
+#   cmd: Can't find service: package
+#   cmd: Failure calling service package: Broken pipe (32)
+#   IllegalStateException: Cannot access system provider: 'settings' before
+#     system providers are installed!
+#   NullPointerException ... PackageManagerInternal.freeStorage(...) on a null
+#     object reference, at StorageManagerService.allocateBytes
+#   NullPointerException ... StorageManager.getVolumes() on a null object
+#     reference, at InstallLocationUtils.resolveInstallVolume (jobs 257114,
+#     257078)
+# Only a system_server that is still starting up can say any of those, and in
+# the same runs the emulator's own post-boot `settings put` failed with "cmd:
+# Can't find service: settings". The rate went from 2 of 150 runs to 31 of 133
+# when -gpu swiftshader_indirect became swangle_indirect (2026-09-18), so the
+# graphics stack is the likely trigger; ci_emulator_framework_report prints the
+# init and crash lines that name it. `adb root && adb shell setprop ctl.restart
+# zygote` reproduces every string above on demand: a new system_server pid,
+# sys.system_server.start_count 1 -> 2, sys.boot_completed still 1.
+#
+# So readiness is checked per framework GENERATION (one system_server pid), and
+# ci_emulator_install_apk survives one restart instead of trusting the probes.
+
+# The running system_server's pid, or nothing while the framework is down.
+ci_emulator_framework_pid() {
+  "$ADB" -s "$ANDROID_SERIAL" shell pidof system_server 2>/dev/null | tr -d '\r' || true
+}
+
+# True once the system_server with pid $1 has finished booting. It writes
+# boot_progress_enable_screen to the events log after ActivityManager is ready,
+# i.e. after the boot phases that wire StorageManager and the system providers,
+# and a restarted process writes its own under its own pid. awk reads the whole
+# stream (no early exit to SIGPIPE adb under pipefail, RC-65).
+ci_emulator_framework_booted() {
+  local pid="$1"
+  [[ -n "$pid" ]] || return 1
+  "$ADB" -s "$ANDROID_SERIAL" logcat -b events -d -v threadtime 2>/dev/null \
+    | awk -v pid="$pid" '$3 == pid && $6 == "boot_progress_enable_screen:" { found = 1 } END { exit !found }'
+}
+
+# Wait, on conditions rather than a guessed sleep (M15), until the CURRENT
+# framework generation can take an install, and record its pid in
+# CI_EMULATOR_FRAMEWORK_PID. Each probe guards a failure seen in CI:
+#   - the running system_server has finished booting (see above);
+#   - the package service is registered. Matched EXACTLY: `service check`
+#     answers "Service package: not found" while the framework is down, which a
+#     *found* glob accepted (job 209306 is why the check exists at all);
+#   - `pm install-create` succeeds. It walks the same createSessionInternal ->
+#     resolveInstallVolume -> StorageManager path a real install does, without
+#     writing anything (jobs 257114 / 257078); the session is abandoned;
+#   - the pid is unchanged after the probes, so they all saw one generation.
+CI_EMULATOR_FRAMEWORK_PID=""
+ci_emulator_wait_framework_ready() {
+  local attempt pid waiting_for="" session_output="" session_id
   for attempt in $(seq 1 90); do
-    if [[ "$("$ADB" -s "$ANDROID_SERIAL" shell service check package 2>/dev/null | tr -d '\r')" == *found* ]] \
-      && "$ADB" -s "$ANDROID_SERIAL" shell pm list packages >/dev/null 2>&1; then
-      package_service_ready=true
-      break
-    fi
-    sleep 2
-  done
-
-  if [[ "$package_service_ready" != true ]]; then
-    echo "ERROR: the emulator's package manager never came up (3 minutes after boot)" >&2
-    return 1
-  fi
-
-  # `service check package` + `pm list packages` above only prove the package
-  # manager's BINDER SERVICE is registered — not that system_server has finished
-  # wiring every system service class an install actually touches. An install
-  # issued in that gap dies with:
-  #   java.lang.NullPointerException: Attempt to invoke virtual method
-  #   'java.util.List android.os.storage.StorageManager.getVolumes()' on a null
-  #   object reference
-  #     at com.android.internal.content.InstallLocationUtils.resolveInstallVolume
-  #     at com.android.server.pm.PackageInstallerService.createSessionInternal
-  # (main pipeline 36733 job 257114, and 36730 job 257078 before its retry) —
-  # `service check mount` alone doesn't catch this: both `package` and `mount`
-  # already reported "found" when the NPE fired. `pm install-create` walks the
-  # SAME createSessionInternal → resolveInstallVolume → StorageManager.getVolumes()
-  # path a real install would (confirmed against a live emulator), without
-  # writing anything, so it is the actual condition to wait on rather than a
-  # proxy for it (M15). Abandon the probe session so nothing lingers.
-  local storage_ready=false session_output session_id
-  for attempt in $(seq 1 60); do
-    if session_output="$("$ADB" -s "$ANDROID_SERIAL" shell pm install-create 2>&1)" \
-      && [[ "$session_output" == *Success* ]]; then
+    pid="$(ci_emulator_framework_pid)"
+    if ! ci_emulator_framework_booted "$pid"; then
+      waiting_for="system_server ${pid:-<not running>} to finish booting"
+    elif [[ "$("$ADB" -s "$ANDROID_SERIAL" shell service check package 2>/dev/null | tr -d '\r')" != "Service package: found" ]] \
+      || ! "$ADB" -s "$ANDROID_SERIAL" shell pm list packages >/dev/null 2>&1; then
+      waiting_for="the package service"
+    elif ! session_output="$("$ADB" -s "$ANDROID_SERIAL" shell pm install-create 2>&1)" \
+      || [[ "$session_output" != *Success* ]]; then
+      waiting_for="pm install-create (last output: ${session_output:-<none>})"
+    else
       session_id="$(printf '%s' "$session_output" | grep -o '\[[0-9]*\]' | tr -d '[]')"
       if [[ -n "$session_id" ]]; then
         "$ADB" -s "$ANDROID_SERIAL" shell pm install-abandon "$session_id" >/dev/null 2>&1 || true
       fi
-      storage_ready=true
-      break
+      if [[ "$(ci_emulator_framework_pid)" == "$pid" ]]; then
+        CI_EMULATOR_FRAMEWORK_PID="$pid"
+        return 0
+      fi
+      waiting_for="a framework that restarted during the probes"
     fi
     sleep 2
   done
-
-  if [[ "$storage_ready" != true ]]; then
-    echo "ERROR: the emulator's storage manager never came up (2 minutes after the package manager did)" >&2
-    echo "  Last pm install-create output: ${session_output:-<none>}" >&2
-    return 1
-  fi
-  echo "Android emulator $ANDROID_SERIAL booted ($userdata_mode), package manager + storage ready"
+  echo "ERROR: the emulator's Android framework was not ready after 3 minutes; still waiting for $waiting_for" >&2
+  ci_emulator_framework_report >&2
+  return 1
 }
 
-# Print the emulator log so a red job carries its own diagnosis.
+# Install an APK, surviving ONE framework restart. A restart that lands on the
+# install (a failure carrying one of the signatures above, or a system_server
+# pid that changed underneath a success) is waited out with the readiness gate
+# and the install runs once more; a second restart, or any other install
+# failure, is red. Extra arguments go to `adb install` (default -r -g).
+ci_emulator_install_apk() {
+  local apk="${1:?ci_emulator_install_apk needs an APK path}"
+  shift
+  local install_args=("$@")
+  ((${#install_args[@]})) || install_args=(-r -g)
+  local attempt output status pid_after
+  for attempt in 1 2; do
+    status=0
+    output="$("$ADB" -s "$ANDROID_SERIAL" install "${install_args[@]}" "$apk" 2>&1)" || status=$?
+    printf '%s\n' "$output"
+    pid_after="$(ci_emulator_framework_pid)"
+    if [[ "$status" -eq 0 && "$pid_after" == "$CI_EMULATOR_FRAMEWORK_PID" ]]; then
+      return 0
+    fi
+    if [[ "$pid_after" == "$CI_EMULATOR_FRAMEWORK_PID" ]] && ! ci_emulator_framework_gone "$output"; then
+      echo "ERROR: adb install failed (exit $status) while the framework stayed up" >&2
+      return 1
+    fi
+    if ((attempt == 2)); then
+      echo "ERROR: the Android framework restarted again during the retried install; not retrying twice" >&2
+      ci_emulator_framework_report >&2
+      return 1
+    fi
+    echo "Android framework restarted during adb install (system_server pid $CI_EMULATOR_FRAMEWORK_PID -> ${pid_after:-<not running>}); waiting for the new process, then installing once more"
+    ci_emulator_framework_report
+    ci_emulator_wait_framework_ready || return 1
+  done
+}
+
+# True when adb output carries a signature of a framework that is down or
+# still starting (the list above).
+ci_emulator_framework_gone() {
+  case "$1" in
+    *"Can't find service"* | *"Failure calling service"* | *"DeadObjectException"* \
+      | *"before system providers are installed"* | *"on a null object reference"*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+# What the framework and init said about restarts — diagnostics only, so a
+# missing device or an empty buffer is not an error here.
+ci_emulator_framework_report() {
+  echo "--- Android framework: sys.system_server.start_count=$("$ADB" -s "$ANDROID_SERIAL" shell getprop sys.system_server.start_count 2>/dev/null | tr -d '\r'), system_server pid=$(ci_emulator_framework_pid) ---"
+  # Each zygote start is one framework generation; an onrestart line that
+  # restarts zygote names the service whose death caused it; abnormal deaths
+  # carry no "took" (boot-time oneshots exiting normally do), and zygote's own
+  # children dying afterwards ("Untracked pid") are only the cascade.
+  echo "--- init: framework starts and the deaths that caused them (first 20) ---"
+  "$ADB" -s "$ANDROID_SERIAL" logcat -b all -d 2>/dev/null \
+    | awk '/ init *: / && !/Untracked pid/ && (/starting service .zygote/ || (/onrestart/ && /zygote/) || ((/received signal|exited with status/) && !/ took /)) { if (++n <= 20) print }' || true
+  echo "--- logcat crash buffer: what crashed (first 20) ---"
+  "$ADB" -s "$ANDROID_SERIAL" logcat -b crash -d 2>/dev/null \
+    | awk '/FATAL EXCEPTION|Process: |Fatal signal|Abort message|>>> / { if (++n <= 20) print }' || true
+}
+
+# Print the emulator log, and the framework's restart history while the device
+# still answers, so a red job carries its own diagnosis.
 ci_emulator_log_tail() {
   if [[ -f "$EMULATOR_LOG" ]]; then
     tail -200 "$EMULATOR_LOG"
   fi
+  ci_emulator_framework_report
 }
 
 ci_emulator_stop() {
