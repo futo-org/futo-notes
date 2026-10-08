@@ -66,6 +66,7 @@ let top = 30;
 let evalExpression = null;
 let callers = null;
 let shot = null;
+let cpuThrottle = 1;
 for (let i = 0; i < args.length; i += 1) {
   const arg = args[i];
   if (arg === '--fixture') fixtures.push(args[++i]);
@@ -73,6 +74,7 @@ for (let i = 0; i < args.length; i += 1) {
   else if (arg === '--eval-file') evalExpression = readFileSync(args[++i], 'utf8');
   else if (arg === '--callers') callers = args[++i];
   else if (arg === '--shot') shot = args[++i];
+  else if (arg === '--cpu-throttle') cpuThrottle = Number(args[++i]);
   else if (arg === '--no-build') build = false;
   else if (arg === '--samples') samples = Number(args[++i]);
   else if (arg === '--profile') profileKeystrokes = true;
@@ -82,7 +84,7 @@ for (let i = 0; i < args.length; i += 1) {
   else if (arg === '--top') top = Number(args[++i]);
   else {
     console.error(
-      `Unrecognised argument: ${arg}\nSupported: --fixture <name> (repeatable), --no-build, --samples <n>, --profile, --profile-open, --focused, --no-tripwire, --top <n>, --callers <fn>, --eval <js>, --eval-file <path>, --shot <png>`,
+      `Unrecognised argument: ${arg}\nSupported: --fixture <name> (repeatable), --no-build, --samples <n>, --profile, --profile-open, --focused, --no-tripwire, --top <n>, --callers <fn>, --eval <js>, --eval-file <path>, --shot <png>, --cpu-throttle <rate>`,
     );
     process.exit(2);
   }
@@ -191,6 +193,12 @@ try {
   });
   await cdp.send('Runtime.enable');
   await cdp.send('Page.enable');
+  /* `--cpu-throttle 6`: Chromium's own CPU throttle, so a fast emulator or a
+   * flagship phone stands in for the budget reference phone. A RATIO, not a
+   * phone: compare numbers measured at the same rate, never across rates. */
+  if (cpuThrottle > 1) {
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: cpuThrottle });
+  }
   await waitFor(
     'the editor to mount',
     () =>
@@ -208,7 +216,10 @@ try {
   const recordTripwire = hasTripwire && tripwire;
 
   const model = adb.shell('getprop ro.product.model').trim();
-  console.log(`Device: ${model} (${process.env.ANDROID_SERIAL}), Chrome tab ${tab.id}`);
+  console.log(
+    `Device: ${model} (${process.env.ANDROID_SERIAL}), Chrome tab ${tab.id}` +
+      (cpuThrottle > 1 ? `, CPU throttled ${cpuThrottle}x` : ''),
+  );
   console.log(
     `Keystroke tripwire: ${hasTripwire ? (tripwire ? 'on' : 'off') : 'not in this bundle'}`,
   );
