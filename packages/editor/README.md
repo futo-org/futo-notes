@@ -19,10 +19,9 @@ mirrors aligned with Rust.
 
 `bridge.ts` is the single source of truth for the editor ↔ host interface:
 
-- `FutoEditorApi` — the `window.FutoEditor` surface hosts call into
-  (`setContent` / `getContent` / `focus` / `setTheme`).
+- `FutoEditorApi` — the `window.FutoEditor` surface hosts call into.
 - `FutoEditorOutboundMessage` — the discriminated union the editor posts back
-  to the host's `futoBridge` sink (`ready` / `change` / `focus`).
+  to the host's `futoBridge` sink.
 - `BRIDGE_VERSION` — bump on any breaking change; the `ready` message carries
   it so a host can refuse a bundle it doesn't understand.
 

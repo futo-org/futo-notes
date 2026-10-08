@@ -23,10 +23,12 @@ Sources/
   App/                 app composition, launch isolation, theme, full reset
   CrashReporting/      crash capture, persistence, upload, and report sheet
   Editor/              shared WebView host, bridge, draft/navigation gates
-  Localization/        catalog runtime shared with the other shells (fixture-locked)
     GeneratedContracts/ generated bridge, title, and toolbar contracts
     Images/             native image loading, picking, and vault persistence
     Toolbar/            keyboard accessory toolbar
+  Feedback/            in-app feedback
+  License/             paid-license activation UI over futo-notes-license
+  Localization/        catalog runtime shared with the other shells (fixture-locked)
   Notes/
     Editor/             open-note editing lifecycle
     List/               list/folder presentation and destructive dialogs

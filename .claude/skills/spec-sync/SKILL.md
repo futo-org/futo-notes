@@ -42,13 +42,16 @@ Example lines to imitate:
 
    | Changed | Spec file |
    |---|---|
-   | MarkdownEditor, liveMarkdownTransform, listContinuation, tableEditor, markdownToolbar, `packages/editor` | `editor.md` |
+   | `src/features/editor/` (Milkdown), `src/editor-embed/`, `packages/editor` | `editor.md` (+ `editor-visual.md` for visual changes) |
    | Note list, sidebar, drawer, ForYouPage, note actions | `list.md` |
    | Routing, shell chrome, tabs | `nav.md`, `tabs.md` |
    | search* (TS or `futo-notes-search`) | `search.md` |
    | Settings screens | `settings.md` (+ `settings-visual.md` for visual changes) |
    | sync* (TS), `crates/futo-notes-sync`, `sync.rs`, server contract | `sync.md` |
    | App init, appState, updater, crash reporting, vault location | `app.md` |
+   | `crates/futo-notes-license`, license UI | `license.md` |
+   | `languages/*.json`, `localizedText` call sites | `localization.md` |
+   | `apps/tauri` Rust: IPC, watcher, trash, updater glue | `desktop-rust.md` |
 
 2. Read the relevant sections. For each behavior your diff established, changed, or removed:
    update the line, or add one in the matching section. Match the house style above. For sync

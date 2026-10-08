@@ -27,7 +27,7 @@ Before investigating the root cause, write a test that demonstrates the broken b
 
 Don't overthink it. A naive test that exercises the buggy code path and checks for the right answer is fine. You can refine it later if you discover the root cause is different from what you expected. The point is to lock in a concrete reproduction *now*.
 
-Choose the test type based on where the bug lives. Refer to AGENTS.md's "Testing & quality bar" for where tests live and how to run them:
+Choose the test type based on where the bug lives. Refer to AGENTS.md §7 "Quality bar per deliverable" and §8 "Testing map" for where tests live and how to run them:
 
 | Bug location | Test approach |
 |---|---|
@@ -44,7 +44,7 @@ Run the test and **confirm it fails**:
 
 ```bash
 # Run the new test — it should fail
-pnpm run test:unit -- --reporter verbose 2>&1 | tail -20
+pnpm run test:unit -- --reporter verbose
 ```
 
 If it passes, something is wrong — the test doesn't exercise the bug. Revisit before continuing.
@@ -76,8 +76,8 @@ Run the regression test — it should now pass:
 Then run the broader test suite to make sure you didn't break anything else. Use the project's verification chain from AGENTS.md — pick the chain matching what you changed. At minimum:
 
 ```bash
-pnpm exec tsc --noEmit 2>&1 | head -30          # Type check
-pnpm run build 2>&1 | tail -20              # Build
+pnpm exec tsc --noEmit                       # Type check
+pnpm run build                               # Build
 # + relevant test suite(s) for the area you changed
 ```
 
@@ -92,7 +92,7 @@ The same bug pattern often exists in more than one place. Grep the codebase for 
 rg "user\.settings\." --type ts -l
 ```
 
-If you find siblings, mention them to the user. Don't silently fix them — they're separate bugs and deserve their own tests. But flagging them now saves the user from discovering them the hard way.
+Fix every sibling too, or centralize the pattern so one fix covers them all (AGENTS.md M17). Give each sibling that is a separate code path its own regression test, and list every sibling you fixed in your report.
 
 ## Report
 

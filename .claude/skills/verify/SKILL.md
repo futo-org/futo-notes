@@ -128,7 +128,7 @@ The web dev server stubs ALL Tauri commands. Check whether changed frontend
 files depend on Tauri APIs:
 
 ```bash
-grep -rl 'invoke\|@tauri-apps\|rustCore' $(git diff --name-only HEAD~1 HEAD 2>/dev/null; git diff --name-only --cached; git diff --name-only) 2>/dev/null | grep -E '\.(ts|svelte)$' | sort -u
+grep -rl 'invoke\|@tauri-apps\|rustCore' $(git diff --name-only "$(git merge-base HEAD origin/main)" 2>/dev/null) 2>/dev/null | grep -E '\.(ts|svelte)$' | sort -u
 ```
 
 Any match → Tauri. No match and purely CSS/markdown/editor decorations →

@@ -1,7 +1,7 @@
 # futo-notes: suites, isolation, and consumers per scope
 
-Repo-specific mechanics for the contract-rewrite phases. AGENTS.md's "Testing & quality bar" is the
-authoritative testing map; this file organizes it by rewrite concern.
+Repo-specific mechanics for the contract-rewrite phases. AGENTS.md §7 "Quality bar per deliverable" and §8
+"Testing map" are the authoritative testing map; this file organizes it by rewrite concern.
 
 ## Acceptance suites by layer (the contract gate)
 
@@ -46,7 +46,7 @@ node tests/cross-platform-sync.mjs
 `FUTO_NOTES_DATA_DIR` isolates client data per worktree (M3 — never point a rewrite at real
 notes in `~/Documents/futo-notes`).
 
-## Consumer verification (Phase 4, G5)
+## Consumer verification (Phase 7)
 
 The note domain and sync engine each have three consumers; a rewrite must verify all of them,
 not just the crate:
@@ -67,7 +67,7 @@ before judging native shells (M9). Whole umbrella before merge: `just check`.
 
 - **Conformance-locked pairs (AGENTS.md "Drift watchlist")**: note rules exist in TS
   (`packages/editor`) AND Rust. A rewrite of either side must keep `tests/conformance/*` green
-  bit-for-bit or change both sides plus the reviewed goldens (AGENTS.md "Testing & quality bar",
+  bit-for-bit or change both sides plus the reviewed goldens (AGENTS.md §7.3,
   Note rule). The fixtures ARE part of the contract; `just test-rust` also differentially compares
   a broad title corpus without deriving expected behavior from either implementation.
 - **Drift registry** (`just check-drift` via arch-gate): registered multi-copy concepts

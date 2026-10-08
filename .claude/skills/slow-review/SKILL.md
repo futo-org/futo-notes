@@ -98,12 +98,12 @@ For each approved fix:
 
 - Apply the minimal change. No neighborhood cleanup — `bugfix` skill rules apply.
 - If the fix exposes a pre-existing bug the PR didn't introduce, **surface it as a side-quest** the user opts into. Don't silently widen the diff.
-- Add a regression test where applicable (see AGENTS.md's "Testing & quality bar").
+- Add a regression test where applicable (see AGENTS.md §7 "Quality bar per deliverable").
 - Commit per logical fix or per severity tier — keeps reviewable history.
 
 ### 6. Re-verify and report
 
-Run the project verification chain that matches what you touched (per AGENTS.md). If anything substantial changed, ask the user to run `/codex:review --background` once more on just the new commits.
+Run the project verification chain that matches what you touched (per AGENTS.md). If anything substantial changed, rerun Reviewer B (step 2's review script, detached) with `--base` set to the commit before your fixes.
 
 Final report:
 

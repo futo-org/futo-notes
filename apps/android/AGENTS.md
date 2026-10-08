@@ -31,19 +31,6 @@ unrelated to what you changed:
   plain shell has no `ANDROID_HOME`. Either export `ANDROID_HOME`
   (`~/Library/Android/sdk` on this Mac) or run `just android-native` once, which
   resolves the SDK and writes `local.properties` for you.
-- `IllegalArgumentException: 25.0.2` — the calling shell's `java` (often Android
-  Studio's bundled JBR after a Studio update) is JDK 25+, which Gradle 8.14.3's
-  Kotlin DSL cannot parse; the whole error is the version string. Gradle's own
-  daemon JVM is pinned to JDK 21 by the gradle-daemon-jvm.properties file under
-  apps/android/gradle/ — that pin is the fix, and Gradle auto-provisions/auto-detects JDK 21 for the
-  daemon from it regardless of the calling shell's `java`. **Never fix this by
-  exporting `JAVA_HOME`** — that fights the pin and leaks a stale JDK 21 into
-  every other tool the shell later runs. Every Gradle entry point (`just
-  *-android*` recipes, `apps/android/run.sh`) checks up front via
-  `scripts/android-env.sh`, which only warns if no JDK 21 is discoverable
-  anywhere on the machine (so the pin has nothing to provision from) — it never
-  exports or alters `JAVA_HOME` itself — BEFORE the 10-25 minute Rust build, not
-  after it.
 - a Kotlin compile error on a missing UniFFI symbol — the generated Kotlin
   bindings are gitignored, so they simply do not exist yet. Run
   `just build-rust-android` first.
@@ -134,6 +121,7 @@ read the list there, not from a copy here that would rot.
 | `app/src/debug` | debug-only surfaces — currently `testhook/` |
 | `app/src/release` | no-op stand-ins for debug-only surfaces, at the same FQN |
 | `app/src/test` | JVM unit tests; compiled against `main + debug + the flavor` |
+| `app/src/androidTest` | Compose instrumentation tests (`just test-android-native-ui`, CI's emulator job) |
 
 Generated and gitignored: `uniffi/` Kotlin bindings, `jniLibs/`,
 `app/src/main/assets/editor.html`. Never edit them — regenerate (M8).
@@ -178,9 +166,7 @@ Generated and gitignored: `uniffi/` Kotlin bindings, `jniLibs/`,
 
 CI **does** run instrumented tests: `build:android-native` executes
 `scripts/ci-android-instrumentation.sh` on a headless emulator and publishes
-its `apps/android/app/build/outputs/androidTest-results/` JUnit XML. (This file used to claim there
-was no instrumented target; an androidTest written against that claim failed the
-pipeline in MR !225.) They are not part of local `just check`, which has no
+its `apps/android/app/build/outputs/androidTest-results/` JUnit XML. They are not part of local `just check`, which has no
 emulator — run them with `just test-android-native-ui`.
 
 Even so, prefer pushing logic down rather than reaching for instrumentation: the
