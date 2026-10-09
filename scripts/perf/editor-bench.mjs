@@ -4,11 +4,13 @@
 // objects laid out), not by wall-clock time.
 //
 //   node --experimental-strip-types scripts/perf/editor-bench.mjs [--runs 3] [--no-build] [--json <file>]
-//       [--baseline <file>] [--only <scenario,...>] [--check] [--headed]
+//       [--baseline <file>] [--only <scenario,...>] [--passes N] [--check] [--headed]
 //
-// The score is one instrumented pass, all scenarios in parallel. `--runs N`
-// adds N clean wall-clock passes after it (`--runs 0`: counts only, the fast
-// loop). `--check` runs the count pass twice and fails if any count moved.
+// The score is an instrumented pass, all scenarios in parallel. `--passes N`
+// runs it N times and scores each count's median, so one pass that caught an
+// extra event under load cannot decide a climb. `--runs N` adds N clean
+// wall-clock passes after it (`--runs 0`: counts only, the fast loop).
+// `--check` (at least two passes) fails if any count moved past the noise.
 //
 // Why counts: on Chromium a keystroke is 81-96 % renderer style/layout and
 // ~0.5 ms editor JS (docs/perf/keystroke-attribution.md), so a JS microbench
@@ -41,6 +43,7 @@ const VIEWPORT = { width: 412, height: 915 };
 const args = process.argv.slice(2);
 const opt = {
   runs: 3,
+  passes: 1,
   check: false,
   build: true,
   json: null,
@@ -53,6 +56,7 @@ for (let i = 0; i < args.length; i++) {
   if (a === '--runs') opt.runs = Number(args[++i]);
   else if (a === '--no-build') opt.build = false;
   else if (a === '--check') opt.check = true;
+  else if (a === '--passes') opt.passes = Number(args[++i]);
   else if (a === '--json') opt.json = args[++i];
   else if (a === '--baseline') opt.baseline = args[++i];
   else if (a === '--only') opt.only = args[++i].split(',');
@@ -199,6 +203,84 @@ async function pressKeys(page, key, times) {
   }
 }
 
+// ── Block drag ───────────────────────────────────────────────────────────
+// The long-press drag both native shells ship (mobileBlockDnd.ts), driven by a
+// real CDP touch stream as the editor-embed spec does: DOM-dispatched events
+// would miss the gesture's own listeners (AGENTS.md M21).
+
+const touch = (cdp, type, x, y) =>
+  cdp.send('Input.dispatchTouchEvent', {
+    type,
+    touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1 }],
+  });
+const hapticCount = (page) =>
+  page.evaluate(() => window.__msgs.filter((m) => m.type === 'haptic').length);
+
+// Centres of the source block and of the block to drop below, read in setup so
+// the measured gesture does no layout reads of its own.
+async function dragPlan(page, from, to) {
+  return page.evaluate(
+    ([a, b]) => {
+      const blocks = document.querySelectorAll('.ProseMirror > *');
+      const r = (i) => blocks[i].getBoundingClientRect();
+      const src = r(a);
+      const dst = r(b);
+      return {
+        from: { x: src.left + src.width / 2, y: src.top + src.height / 2 },
+        // Just above the target's bottom edge: the slot after it.
+        to: { x: dst.left + dst.width / 2, y: dst.bottom - 2 },
+      };
+    },
+    [from, to],
+  );
+}
+
+// Hold until the lift (its haptic post, not a fixed sleep), then 12 moves one
+// frame apart, release, and wait for the moved note's `change`. No autoscroll:
+// its speed is time-based, which would make the count depend on the machine.
+async function longPressDrag(page, plan) {
+  const cdp = await page.context().newCDPSession(page);
+  const haptics = await hapticCount(page);
+  const changes = await changeCount(page);
+  await touch(cdp, 'touchStart', plan.from.x, plan.from.y);
+  await page.waitForFunction(
+    (n) => window.__msgs.filter((m) => m.type === 'haptic').length > n,
+    haptics,
+    {
+      polling: 'raf',
+    },
+  );
+  const MOVES = 12;
+  for (let i = 1; i <= MOVES; i++) {
+    const t = i / MOVES;
+    await touch(
+      cdp,
+      'touchMove',
+      plan.from.x + (plan.to.x - plan.from.x) * t,
+      plan.from.y + (plan.to.y - plan.from.y) * t,
+    );
+    await frame(page);
+  }
+  await touch(cdp, 'touchEnd', plan.to.x, plan.to.y);
+  await waitChange(page, changes);
+  await cdp.detach();
+}
+
+function dragScenario(name, note, noteText) {
+  let plan;
+  return {
+    name,
+    note,
+    setup: async (page) => {
+      await setContent(page, name, noteText);
+      await settle(page);
+      // Block 1 (a paragraph) to below block 7 (a code fence): both on screen.
+      plan = await dragPlan(page, 1, 7);
+    },
+    run: async (page) => longPressDrag(page, plan),
+  };
+}
+
 // ── Scenarios ────────────────────────────────────────────────────────────
 // `setup` runs untimed; `run` is measured. Each starts from a fresh page.
 
@@ -274,6 +356,8 @@ const SCENARIOS = [
       await waitChange(page, n);
     },
   },
+  dragScenario('drag-small', '40-block note, long-press block 1 to below block 7', NOTE_SMALL),
+  dragScenario('drag-large', '2000-block note, long-press block 1 to below block 7', NOTE_LARGE),
 ];
 
 // ── Measurement ──────────────────────────────────────────────────────────
@@ -379,6 +463,15 @@ async function runScenario(browser, scenario, instrument) {
   );
   await frame(page);
   const tLoaded = performance.now();
+  // CSS transitions run 100x fast (a 120 ms slide finishes in a frame or
+  // two), so an animation counts as the elements it touches rather than as
+  // however many frames the machine rendered during it: under load Chromium
+  // renders fewer, and the drag scenarios' counts moved by a whole frame
+  // (~50 elements) between passes. `transitionend` still fires, so the
+  // gesture runs the same code path.
+  const anim = await context.newCDPSession(page);
+  await anim.send('Animation.enable');
+  await anim.send('Animation.setPlaybackRate', { playbackRate: 100 });
   await scenario.setup(page);
   await settle(page);
   const cdp = await context.newCDPSession(page);
@@ -392,9 +485,11 @@ async function runScenario(browser, scenario, instrument) {
   await scenario.run(page);
   const wallMs = performance.now() - tRun;
   await settle(page);
+  const tSettled = performance.now();
   const after = await metrics(cdp);
   const work = instrument ? traceWork(await stopTrace(cdp)) : {};
   const jsCalls = instrument ? await takeCalls(cdp) : undefined;
+  const tCollected = performance.now();
 
   const markdown = await page.evaluate(() => window.__futoTest.readDocument());
   await context.close();
@@ -413,6 +508,8 @@ async function runScenario(browser, scenario, instrument) {
       load: tLoaded - t0,
       setup: tRun - tLoaded,
       run: wallMs,
+      settle: tSettled - tRun - wallMs,
+      collect: tCollected - tSettled,
       total: performance.now() - t0,
     },
   };
@@ -463,26 +560,37 @@ const countPass = async () =>
       }),
     ),
   );
-const counts = await countPass();
+const passes = [];
+for (let i = 0; i < Math.max(opt.passes, opt.check ? 2 : 1); i++) passes.push(await countPass());
 const countsMs = performance.now() - tCounts;
 // Near-exact rather than exact: the progressive open sizes its chunks by a
 // time budget and timers fire a few more or fewer times, which moves a count
 // by ~0.1 % at most (measured 2026-10-09). A real change is well above this.
+// The drags add a fixed few: the 340 ms hold spans 20 or 21 frames, each
+// restyling 4-5 elements, so drag-small (~470) moves by up to ~12. A drift
+// fails only when it is past BOTH bounds. With 28 of 32 cores busy a drag
+// can also catch one extra layout (drag-small layoutScope +10 %), which is
+// what `--passes 3` and its median are for.
 const NOISE_PCT = 0.5;
+const NOISE_ABS = 24;
+const COUNT_FIELDS = ['styledElements', 'layoutScope', 'jsCalls'];
 let unstable = [];
 let maxDriftPct = 0;
-if (opt.check) {
-  const again = await countPass();
-  for (const s of scenarios) {
-    if (again[s.name].hash !== counts[s.name].hash)
-      unstable.push(`${s.name}.hash: ${counts[s.name].hash} vs ${again[s.name].hash}`);
-    for (const f of ['styledElements', 'layoutScope', 'jsCalls']) {
-      const a = counts[s.name][f];
-      const b = again[s.name][f];
-      const pct = a === b ? 0 : (Math.abs(a - b) / Math.max(a, b)) * 100;
-      maxDriftPct = Math.max(maxDriftPct, pct);
-      if (pct > NOISE_PCT) unstable.push(`${s.name}.${f}: ${a} vs ${b} (${pct.toFixed(2)}%)`);
-    }
+const counts = {};
+for (const s of scenarios) {
+  const runs = passes.map((p) => p[s.name]);
+  counts[s.name] = { ...runs[0] };
+  const hashes = new Set(runs.map((r) => r.hash));
+  if (hashes.size > 1) unstable.push(`${s.name}.hash: ${[...hashes].join(' vs ')}`);
+  for (const f of COUNT_FIELDS) {
+    const xs = runs.map((r) => r[f]);
+    counts[s.name][f] = median(xs);
+    const lo = Math.min(...xs);
+    const hi = Math.max(...xs);
+    const pct = hi === lo ? 0 : ((hi - lo) / hi) * 100;
+    maxDriftPct = Math.max(maxDriftPct, pct);
+    if (opt.check && pct > NOISE_PCT && hi - lo > NOISE_ABS)
+      unstable.push(`${s.name}.${f}: ${xs.join(' vs ')} (${pct.toFixed(2)}%)`);
   }
 }
 
@@ -515,7 +623,7 @@ for (const s of scenarios) {
 const fmt = (v) => (v == null ? '-' : Math.abs(v) >= 100 ? Math.round(v).toString() : v.toFixed(1));
 const FIELDS = opt.runs > 0 ? [...COUNTS, ...TIMES] : COUNTS;
 console.log(
-  `\ncounts: 1 instrumented run (exact); times: median of ${opt.runs} clean runs ±(max-min)/median\n`,
+  `\ncounts: median of ${passes.length} instrumented pass(es); times: median of ${opt.runs} clean runs ±(max-min)/median\n`,
 );
 console.log(['scenario'.padEnd(22), ...FIELDS.map((f) => f.padStart(15)), '  hash'].join(''));
 for (const [name, s] of Object.entries(summary)) {
@@ -531,7 +639,7 @@ const totals = Object.fromEntries(
 console.log(`\ntotals: ${COUNTS.map((f) => `${f} ${totals[f]}`).join(', ')}`);
 console.log(
   `suite: build ${fmt(buildMs)} ms, browser ${fmt(launchMs)} ms, counts pass ${fmt(countsMs)} ms` +
-    `${opt.check ? ` (+ check, max drift ${maxDriftPct.toFixed(3)}%)` : ''}, timing passes ${fmt(timingMs)} ms, total ${fmt(totalMs)} ms`,
+    `${passes.length > 1 ? ` (${passes.length} passes, median; max drift ${maxDriftPct.toFixed(3)}%)` : ''}, timing passes ${fmt(timingMs)} ms, total ${fmt(totalMs)} ms`,
 );
 const allRuns = [...Object.values(counts), ...Object.values(timing).flat()];
 const phase = (k, rs) => fmt(median(rs.map((r) => r.phaseMs[k])));
