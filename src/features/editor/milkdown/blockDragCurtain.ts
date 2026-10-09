@@ -598,6 +598,25 @@ export class ReflowCurtain {
     return { pos, dom: this.view.dom, indicator: { top: 0, left: 0, width: 0 } };
   }
 
+  /** The drop target for a release at `clientY`, or null once the preview is
+   * no longer valid. Unlike `target`, it first makes sure the measurements
+   * still describe the layout — a size can change in the very task that
+   * releases, before the ResizeObserver has reported it — and moves the
+   * preview to the gap it resolves, so the committed move,
+   * `holdScrollThroughDrop` and the picture `settle` leaves up all agree on one
+   * gap. Only the blocks the release reads are checked: the drawn window, the
+   * source and the note's last two (`dropShrink`); a size change above any of
+   * them moves them. */
+  release(clientY: number): DropTarget | null {
+    if (!this.ensureValid()) return null;
+    const reflow = this.reflow!;
+    reflow.pointerY = clientY;
+    const read = [...reflow.clones.keys(), reflow.sourceIndex, reflow.count - 1, reflow.count - 2];
+    if (!this.layoutMatches(reflow, read)) this.remeasure(reflow);
+    if (!this.sync(clientY, false)) return null;
+    return this.target(clientY);
+  }
+
   /** The pointer is at `clientY` (or auto-scroll moved the document under it):
    * moves the previewed gap there, ticking `onBoundaryChange` when `tick`.
    * Returns false when the preview ended itself because the doc changed shape
@@ -828,11 +847,11 @@ export class ReflowCurtain {
     if (!first || !this.layoutMatches(reflow)) this.remeasure(reflow);
   }
 
-  /** Whether every block measured so far, and the curtain's box, are still
-   * where they were measured. A block that changed size moves every block
-   * after it, so checking the measured ones also catches an unmeasured block
-   * changing above them. Reads only. */
-  private layoutMatches(reflow: Reflow): boolean {
+  /** Whether every block measured so far (or, given `only`, those of them),
+   * and the curtain's box, are still where they were measured. A block that
+   * changed size moves every block after it, so checking the measured ones
+   * also catches an unmeasured block changing above them. Reads only. */
+  private layoutMatches(reflow: Reflow, only?: number[]): boolean {
     const moved = (a: number, b: number) => Math.abs(a - b) > 0.5;
     const box = this.curtainBox(reflow.scroller);
     if (
@@ -847,8 +866,8 @@ export class ReflowCurtain {
     }
     const originTop = this.reflowOriginTop();
     const blocks = this.view.dom.children;
-    for (let i = 0; i < reflow.count; i += 1) {
-      if (Number.isNaN(reflow.tops[i])) continue;
+    for (const i of only ?? reflow.tops.keys()) {
+      if (i < 0 || Number.isNaN(reflow.tops[i])) continue;
       const rect = blocks[i].getBoundingClientRect();
       if (
         moved(rect.top - originTop, reflow.tops[i]) ||

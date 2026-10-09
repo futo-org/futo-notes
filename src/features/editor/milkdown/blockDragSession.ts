@@ -345,7 +345,7 @@ export class BlockDragSession {
     // back to the line geometry.
     let target: DropTarget | null = null;
     try {
-      target = commit ? this.computeTarget(clientY) : null;
+      target = commit ? this.computeTarget(clientY, true) : null;
       if (target) this.reflow?.holdScrollThroughDrop();
     } catch (error) {
       this.clearDecoration();
@@ -456,13 +456,16 @@ export class BlockDragSession {
   };
 
   /** The top-level gap under `clientY`, or null once the lifted block is gone
-   * from the document. */
-  private computeTarget(clientY: number): DropTarget | null {
+   * from the document. `release`: this is the gap a release commits to (see
+   * `ReflowCurtain.release`). */
+  private computeTarget(clientY: number, release = false): DropTarget | null {
     if (!this.lifted) return null;
     if (this.reflow) {
       // The doc was replaced under the drag: the preview has ended itself, and
       // the line geometry (or no drop at all, if the source is gone) takes over.
-      if (this.reflow.ensureValid()) return this.reflow.target(clientY);
+      if (this.reflow.ensureValid()) {
+        return release ? this.reflow.release(clientY) : this.reflow.target(clientY);
+      }
       this.reflow = null;
     }
     return this.currentSourceRange(this.lifted) ? targetAtPointerY(this.view, clientY) : null;

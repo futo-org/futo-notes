@@ -3462,6 +3462,49 @@ for (const c of LATE_LAYOUT_CASES) {
   );
 }
 
+/* The layout can change in the very task that releases the drag, before the
+ * ResizeObserver has reported it: the release must judge the slot against the
+ * layout as it is then, not the one measured. Here an image above the slot
+ * grows by 200px as the finger lifts (in a capturing listener that runs before
+ * the drag's own), so the finger is over that image, not over delta. */
+mobileDndTest(
+  'a release judges the slot against a layout that changed in the release itself',
+  async ({ page, cdp }) => {
+    await page.setViewportSize({ width: 760, height: 1200 });
+    await hostSetContent(page, 'alpha\n\nbravo\n\n![](late.svg)\n\ncharlie\n\ndelta\n\necho');
+    await clearMessages(page);
+
+    const delta = await blockBox(page, 'delta');
+    const lifted = await liftWithTouch(page, cdp, 0);
+    await lifted.move(delta.top + (delta.bottom - delta.top) * 0.75);
+    await page.waitForTimeout(400);
+    // Previewed after delta.
+    expect(await reflowGap(page, ['alpha', 'bravo', '', 'charlie', 'delta', 'echo'], 0)).toBe(5);
+
+    await page.evaluate(() => {
+      const grow = () => {
+        const img = document.querySelector('.ProseMirror[contenteditable] img') as HTMLElement;
+        img.style.width = '200px';
+        img.style.height = '200px';
+      };
+      window.addEventListener('pointerup', grow, { capture: true, once: true });
+    });
+    await lifted.release();
+    await waitForMessages(page, 'change');
+
+    const imgHeight = await page.evaluate(
+      () =>
+        document.querySelector('.ProseMirror[contenteditable] img')!.getBoundingClientRect().height,
+    );
+    expect(imgHeight).toBe(200);
+    // The finger was over the grown image: alpha lands beside it, not after
+    // delta, which the image pushed 200px below the finger.
+    const content = await getContent(page);
+    expect(content.indexOf('alpha')).toBeGreaterThan(content.indexOf('bravo'));
+    expect(content.indexOf('alpha')).toBeLessThan(content.indexOf('charlie'));
+  },
+);
+
 /* A move can make the note SHORTER: the final paragraph moved above a first
  * heading becomes the first block, whose top margin the editor zeroes, while
  * the heading keeps its own — one paragraph gap fewer. Scrolled to the bottom,
