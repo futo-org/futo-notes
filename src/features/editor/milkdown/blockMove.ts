@@ -36,7 +36,7 @@
  *    this is the one place a block drag becomes a document change, for both
  *    drag paths.
  */
-import type { Transaction } from '@milkdown/kit/prose/state';
+import type { EditorState, Transaction } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
 import { FRONTMATTER_NODE } from '@futo-notes/editor/milkdown-compat';
@@ -76,42 +76,55 @@ export function moveBlock(
    * `movedTo` is where the moved node now starts in `tr.doc`. */
   beforeDispatch?: (tr: Transaction, movedTo: number) => void,
 ): boolean {
+  const planned = planBlockMove(view.state, range, targetPos);
+  if (!planned) return false;
+  beforeDispatch?.(planned.tr, planned.movedTo);
+  view.dispatch(planned.tr);
+  return true;
+}
+
+/** The transaction `moveBlock` would dispatch, and where the moved node
+ * starts in it, or null for every move it refuses. Dispatches nothing: a drag
+ * that commits its move later (blockDragSession.ts) asks this at the release. */
+export function planBlockMove(
+  state: EditorState,
+  range: BlockMoveRange,
+  targetPos: number,
+): { tr: Transaction; movedTo: number } | null {
   const { from: srcStart, to: srcEnd } = range;
 
-  if (isNoOpDrop(range, targetPos)) return false;
+  if (isNoOpDrop(range, targetPos)) return null;
 
-  const beforeDoc = view.state.doc;
+  const beforeDoc = state.doc;
   const node = beforeDoc.nodeAt(srcStart);
   // Not exactly one node any more — refuse to guess.
-  if (!node || srcStart + node.nodeSize !== srcEnd) return false;
+  if (!node || srcStart + node.nodeSize !== srcEnd) return null;
   // The front matter block never moves (see the header note).
-  if (node.type.name === FRONTMATTER_NODE) return false;
+  if (node.type.name === FRONTMATTER_NODE) return null;
 
   // Only a top-level block moves (see the header note).
-  if (beforeDoc.resolve(srcStart).depth !== 0) return false;
+  if (beforeDoc.resolve(srcStart).depth !== 0) return null;
 
-  let tr = view.state.tr.delete(srcStart, srcEnd);
+  let tr = state.tr.delete(srcStart, srcEnd);
   const mappedTarget = tr.mapping.map(targetPos);
   const target = tr.doc.resolve(mappedTarget);
   const index = target.index();
   // Nothing moves above the front matter. Position 0 is the only boundary that
   // could, and only when front matter is what currently sits there.
-  if (mappedTarget === 0 && tr.doc.firstChild?.type.name === FRONTMATTER_NODE) return false;
+  if (mappedTarget === 0 && tr.doc.firstChild?.type.name === FRONTMATTER_NODE) return null;
 
   // The same rule the resolver applies (blockDragGeometry.ts): a node lands in
   // a gap of the document — never inside some other block that merely happens
   // to accept it. Positions are re-checked here because the ones the caller
   // resolved may have moved.
-  if (target.depth !== 0) return false;
-  if (!target.parent.canReplaceWith(index, index, node.type)) return false;
+  if (target.depth !== 0) return null;
+  if (!target.parent.canReplaceWith(index, index, node.type)) return null;
 
   tr = tr.insert(mappedTarget, node);
   // `insert` puts the node so it STARTS at mappedTarget, so no re-mapping.
   const moved = tr.doc.nodeAt(mappedTarget);
-  if (!moved || !moved.sameMarkup(node) || !moved.content.eq(node.content)) return false;
-  if (tr.doc.eq(beforeDoc)) return false;
+  if (!moved || !moved.sameMarkup(node) || !moved.content.eq(node.content)) return null;
+  if (tr.doc.eq(beforeDoc)) return null;
 
-  beforeDispatch?.(tr, mappedTarget);
-  view.dispatch(tr);
-  return true;
+  return { tr, movedTo: mappedTarget };
 }

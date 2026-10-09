@@ -71,15 +71,9 @@ const CURTAIN_FILL_TIMEOUT_MS = 300;
 const IDLE_FALLBACK_DELAY_MS = 32;
 const IDLE_FALLBACK_SLICE_MS = 4;
 const REFLOW_TRANSITION = 'transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1)';
-/** How often `settle` checks that its slides are still under way, should a
+/** How often `land` checks that its slides are still under way, should a
  * slide's `transitionend` never arrive. */
-const SETTLE_CHECK_MS = 1000;
-
-/** The finish of each editor's settling curtain (`settle`), by editor DOM. */
-const settling = new WeakMap<HTMLElement, () => void>();
-/** A preview waiting for an editor's settling curtain to go before it opens
- * (`waitForSettle`), by editor DOM. */
-const settleWaiters = new WeakMap<HTMLElement, () => void>();
+const LAND_CHECK_MS = 1000;
 
 interface Reflow {
   /** The document the geometry below was measured against. Any transaction
@@ -148,10 +142,12 @@ interface Reflow {
   clones: Map<number, { el: HTMLElement; shift: number }>;
   /** The clones whose slide (a transform transition) is still running. */
   sliding: Set<EventTarget>;
-  /** Called as each slide ends, once `settle` is waiting on them. */
+  /** Called as each slide ends, once `land` is waiting on them. */
   onSlideEnd: (() => void) | null;
-  /** The scroll position a committed drop keeps (`holdScrollThroughDrop`). */
-  dropScrollTop: number;
+  /** While the release's move waits for the slides (`land`): what commits it,
+   * and the fallback check's timer. */
+  landed: (() => void) | null;
+  landTimer: number;
   /** The gap index currently previewed, or null for "nothing moved". */
   applied: number | null;
   scrollFrame: number;
@@ -302,8 +298,8 @@ export class ReflowCurtain {
       if (event.target === null || !sliding.delete(event.target)) return;
       reflow.onSlideEnd?.();
     };
-    // Not `transitioncancel`: a slide sent somewhere new (`retarget`) cancels
-    // its old transition while still sliding.
+    // Not `transitioncancel`: a slide sent somewhere new (the slot moved
+    // mid-slide) cancels its old transition while still sliding.
     curtain.addEventListener('transitionend', slideEnded);
     const reflow: Reflow = {
       doc,
@@ -335,7 +331,8 @@ export class ReflowCurtain {
       clones: new Map(),
       sliding,
       onSlideEnd: null,
-      dropScrollTop: Number.NaN,
+      landed: null,
+      landTimer: 0,
       applied: null,
       scrollFrame: 0,
     };
@@ -370,7 +367,6 @@ export class ReflowCurtain {
     reflow.idleOpen = this.whenIdle(() => {
       reflow.idleOpen = 0;
       if (this.reflow !== reflow || reflow.open) return;
-      if (settling.has(this.view.dom)) return;
       if (!this.ensureValid()) return;
       reflow.originTop = this.reflowOriginTop();
       this.openCurtain(reflow, this.planCurtainWindow(reflow));
@@ -636,16 +632,13 @@ export class ReflowCurtain {
    * still describe the layout — a size can change in the very task that
    * releases, before the ResizeObserver has reported it — and moves the
    * preview to the gap it resolves, so the committed move,
-   * `holdScrollThroughDrop` and the picture `settle` leaves up all agree on one
+   * `holdScrollThroughDrop` and the picture `land` leaves up all agree on one
    * gap. Checked: the drawn window's first and last blocks and the note's last
    * two (`dropShrink`). A size change above any of them moves it, and one
    * inside the window moves its last block. */
   release(clientY: number): DropTarget | null {
     if (!this.ensureValid()) return null;
     const reflow = this.reflow!;
-    // A drop within the last one's slide: that slide is cut short (the one
-    // case where a neighbour still jumps), so this preview can show the move.
-    if (!reflow.open && settling.has(this.view.dom)) ReflowCurtain.endSettling(this.view);
     reflow.pointerY = clientY;
     let first = Infinity;
     let last = -1;
@@ -671,10 +664,6 @@ export class ReflowCurtain {
     const s = reflow.sourceIndex;
     const effective = gap === s || gap === s + 1 ? null : gap;
     if (effective === reflow.applied) return true;
-    if (!reflow.open && settling.has(this.view.dom)) {
-      this.waitForSettle(reflow);
-      return true;
-    }
     if (!reflow.open) {
       reflow.applied = effective;
       if (effective === null) return true;
@@ -906,7 +895,13 @@ export class ReflowCurtain {
    * layout and paint, so the reads are cheap and the new preview is painted
    * in the same frame as the change. */
   private onSizesChanged(reflow: Reflow, entries: ResizeObserverEntry[]): void {
-    if (this.reflow !== reflow || !this.ensureValid()) return;
+    if (this.reflow !== reflow) return;
+    if (reflow.landed) {
+      // A layout change while the move waits on its slides: it commits now.
+      if (entries.some((entry) => !reflow.unreported.delete(entry.target))) reflow.landed();
+      return;
+    }
+    if (!this.ensureValid()) return;
     let changed = false;
     for (const entry of entries) {
       if (!reflow.unreported.delete(entry.target)) changed = true;
@@ -954,23 +949,8 @@ export class ReflowCurtain {
    * since nothing moved but the layout itself. */
   private remeasure(reflow: Reflow): void {
     // Reads.
-    for (const cache of [
-      reflow.tops,
-      reflow.lefts,
-      reflow.widths,
-      reflow.heights,
-      reflow.insets,
-      reflow.marginTops,
-      reflow.marginBottoms,
-    ]) {
-      cache.fill(Number.NaN);
-    }
-    reflow.movedMarginTops.clear();
-    reflow.shifts = null;
-    const box = this.curtainBox(reflow.scroller);
-    reflow.box = box;
-    reflow.originLeft = box.originLeft;
-    reflow.originTop = this.reflowOriginTop();
+    this.forget(reflow);
+    const { box } = reflow;
     // A closed curtain previews nothing yet (`sync` opens it at the first
     // slot), so only an open one has a slot to find again.
     if (reflow.open && !Number.isNaN(reflow.pointerY)) {
@@ -1015,8 +995,35 @@ export class ReflowCurtain {
     }
   }
 
+  /** Drops every cached measurement, and reads the curtain's box and the
+   * scroll origin afresh. */
+  private forget(reflow: Reflow): void {
+    for (const cache of [
+      reflow.tops,
+      reflow.lefts,
+      reflow.widths,
+      reflow.heights,
+      reflow.insets,
+      reflow.marginTops,
+      reflow.marginBottoms,
+    ]) {
+      cache.fill(Number.NaN);
+    }
+    reflow.movedMarginTops.clear();
+    reflow.shifts = null;
+    const box = this.curtainBox(reflow.scroller);
+    reflow.box = box;
+    reflow.originLeft = box.originLeft;
+    reflow.originTop = this.reflowOriginTop();
+  }
+
   private onReflowScroll(): void {
     const reflow = this.reflow;
+    // The picture does not follow a scroll once released: the move commits.
+    if (reflow?.landed) {
+      reflow.landed();
+      return;
+    }
     if (!reflow || reflow.scrollFrame) return;
     reflow.scrollFrame = requestAnimationFrame(() => {
       reflow.scrollFrame = 0;
@@ -1062,6 +1069,12 @@ export class ReflowCurtain {
   holdScrollThroughDrop(): void {
     const reflow = this.reflow;
     if (!reflow || reflow.applied === null) return;
+    // A document changed under the landing drop (it commits mapped) is not
+    // the one this geometry describes.
+    if (this.view.state.doc !== reflow.doc) return;
+    // Measured afresh: the layout may have changed since (`land` commits on
+    // a size change).
+    this.forget(reflow);
     const el =
       reflow.scroller instanceof HTMLElement
         ? reflow.scroller
@@ -1073,7 +1086,6 @@ export class ReflowCurtain {
     const clamps = el.scrollTop > Math.max(0, after - el.clientHeight) + 0.5;
     const short = clamps ? el.scrollTop + el.clientHeight - after : 0;
     const top = el.scrollTop;
-    reflow.dropScrollTop = top;
     const restore = new ResizeObserver(() => {
       restore.disconnect();
       if (Math.abs(el.scrollTop - top) > 0.5) el.scrollTop = top;
@@ -1108,73 +1120,46 @@ export class ReflowCurtain {
     reflow.clip.remove();
   }
 
-  /** The move this preview shows has been dispatched: the real blocks under
-   * the curtain are now laid out exactly where the clones are headed
-   * (`release`). Taking the curtain down at once would make every neighbour
-   * still sliding there jump the rest of the way, so it stays up until the
-   * last slide ends; only the dropped block's clone moves now, undimmed,
-   * snapping into its slot. While it is up, a layout change sends the clones on
-   * to where their blocks now are (`retarget`), and the next drag's preview
-   * waits for it (`waitForSettle`). It goes early at a scroll (it does not
-   * follow one) or a document change (`endSettling`), and when the editor
-   * goes. */
-  settle(): void {
+  /** The release will commit this preview's move (`BlockDragSession.land`)
+   * once the neighbours still sliding are in place, so nothing jumps: calls
+   * `onLanded` when the last slide ends, at once when nothing is sliding, and
+   * early at a scroll (the picture does not follow one) or a size change of a
+   * watched block or the scroll box. A size change is a relayout of
+   * everything on screen in itself, so committing then is not seen as a jump:
+   * the clones' fixed widths and heights would otherwise go on drawing the old
+   * line breaks until the slide ended. The dropped block's clone undims and
+   * snaps into its slot now. The curtain stays until `end`. */
+  land(onLanded: () => void): void {
     const reflow = this.reflow;
-    if (!reflow) return;
-    this.stop(reflow);
+    if (!reflow) {
+      onLanded();
+      return;
+    }
+    this.cancelIdleOpen(reflow);
+    this.cancelIdle(reflow.idleFill);
+    reflow.idleFill = 0;
     const source = reflow.clones.get(reflow.sourceIndex)?.el;
     if (source) {
       source.classList.remove('futo-mobile-dnd-reflow-source');
       source.style.transition = 'none';
       reflow.sliding.delete(source);
     }
-    if (!reflow.open || reflow.sliding.size === 0 || reflow.applied === null) {
-      reflow.clip.remove();
+    if (!reflow.open || reflow.sliding.size === 0) {
+      onLanded();
       return;
     }
-    const editor = this.view.dom;
     const win = this.doc.defaultView ?? window;
-    // Each clone's block after the move, by the clone's index before it.
-    const gap = reflow.applied;
-    const s = reflow.sourceIndex;
-    const movedIndex = (i: number) => {
-      if (i === s) return gap > s ? gap - 1 : gap;
-      if (gap > s && i > s && i < gap) return i - 1;
-      if (gap < s && i >= gap && i < s) return i + 1;
-      return i;
-    };
-    const watched = new Map<Element, number>();
-    for (const i of reflow.clones.keys()) {
-      const block = editor.children[movedIndex(i)];
-      if (block) watched.set(block, i);
-    }
-    // The blocks under the clones (a few dozen), and the scroll box: a size
-    // change above the window moves it, which scroll anchoring turns into a
-    // scroll, which ends the settle.
-    const sizes = new ResizeObserver(() => this.retarget(reflow, watched));
-    for (const block of watched.keys()) sizes.observe(block);
-    if (reflow.scroller instanceof HTMLElement) sizes.observe(reflow.scroller);
-    let timer = 0;
-    // Scroll anchoring moving the view and the drop putting it back
-    // (`holdScrollThroughDrop`) are no scroll.
-    const scroller =
-      reflow.scroller instanceof HTMLElement ? reflow.scroller : this.doc.scrollingElement;
-    const onScroll = () => {
-      if (!scroller || !(Math.abs(scroller.scrollTop - reflow.dropScrollTop) <= 0.5)) done();
-    };
-    const done = () => {
-      win.clearTimeout(timer);
-      sizes.disconnect();
-      reflow.scroller.removeEventListener('scroll', onScroll);
+    reflow.landed = () => {
+      if (!reflow.landed) return;
+      reflow.landed = null;
       reflow.onSlideEnd = null;
-      reflow.clip.remove();
-      if (settling.get(editor) !== done) return;
-      settling.delete(editor);
-      const wake = settleWaiters.get(editor);
-      settleWaiters.delete(editor);
-      wake?.();
+      win.clearTimeout(reflow.landTimer);
+      onLanded();
     };
-    // Should a slide's `transitionend` never arrive: done once nothing is
+    reflow.onSlideEnd = () => {
+      if (reflow.sliding.size === 0) reflow.landed?.();
+    };
+    // Should a slide's `transitionend` never arrive: landed once nothing is
     // still on its way (a stopped animation clock keeps it waiting).
     const check = () => {
       const moving = [...reflow.clones.values()].some(
@@ -1182,62 +1167,10 @@ export class ReflowCurtain {
           reflow.sliding.has(clone.el) &&
           Math.abs(new DOMMatrix(getComputedStyle(clone.el).transform).m42 - clone.shift) > 0.5,
       );
-      if (moving) timer = win.setTimeout(check, SETTLE_CHECK_MS);
-      else done();
+      if (moving) reflow.landTimer = win.setTimeout(check, LAND_CHECK_MS);
+      else reflow.landed?.();
     };
-    timer = win.setTimeout(check, SETTLE_CHECK_MS);
-    reflow.onSlideEnd = () => {
-      if (reflow.sliding.size === 0) done();
-    };
-    reflow.scroller.addEventListener('scroll', onScroll, { passive: true });
-    settling.get(editor)?.();
-    settling.set(editor, done);
-  }
-
-  /** A settling curtain's blocks changed size: each clone is sent on to where
-   * its block (`watched`, block → clone index) now is. A CSS transition
-   * retargeted mid-way carries on from where it is drawn, so nothing jumps.
-   * Reads, then writes. */
-  private retarget(reflow: Reflow, watched: Map<Element, number>): void {
-    const box = this.curtainBox(reflow.scroller);
-    const originTop = this.reflowOriginTop();
-    const targets: Array<[{ el: HTMLElement; shift: number }, number]> = [];
-    for (const [block, i] of watched) {
-      const clone = reflow.clones.get(i);
-      if (!clone) continue;
-      // The clone's box top on screen with no shift (`addClone`), against
-      // its block's, raised by the same margin the clone is.
-      const shift =
-        block.getBoundingClientRect().top -
-        reflow.insets[i] -
-        (originTop + parseFloat(clone.el.style.top));
-      if (Math.abs(shift - clone.shift) > 0.5) targets.push([clone, shift]);
-    }
-    reflow.box = box;
-    this.placeCurtain(reflow);
-    reflow.curtain.style.transform = `translateY(${originTop - box.clip.top}px)`;
-    for (const [clone, shift] of targets) {
-      clone.el.style.removeProperty('transition');
-      clone.el.style.transform = `translateY(${shift}px)`;
-      clone.shift = shift;
-      reflow.sliding.add(clone.el);
-    }
-  }
-
-  /** Takes down `view`'s settling curtain, if one is still up. */
-  static endSettling(view: ProseView): void {
-    settling.get(view.dom)?.();
-  }
-
-  /** The editor's last drop is still settling: this preview opens once it
-   * has, at the slot under the pointer then. */
-  private waitForSettle(reflow: Reflow): void {
-    const editor = this.view.dom;
-    settleWaiters.set(editor, () => {
-      if (this.reflow === reflow && !reflow.open && !Number.isNaN(reflow.pointerY)) {
-        this.sync(reflow.pointerY, false);
-      }
-    });
+    reflow.landTimer = win.setTimeout(check, LAND_CHECK_MS);
   }
 
   /** Stops everything that keeps the preview live (idle work, the size
@@ -1246,6 +1179,9 @@ export class ReflowCurtain {
     this.cancelIdleOpen(reflow);
     this.cancelIdle(reflow.idleFill);
     reflow.sizes.disconnect();
+    reflow.landed = null;
+    reflow.onSlideEnd = null;
+    (this.doc.defaultView ?? window).clearTimeout(reflow.landTimer);
     cancelAnimationFrame(reflow.scrollFrame);
     reflow.scroller.removeEventListener('scroll', reflow.onScroll);
     this.reflow = null;

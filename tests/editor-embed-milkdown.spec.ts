@@ -3646,14 +3646,16 @@ mobileDndTest(
     expect(Math.abs(before.blocks.bravo.top - bravoWas.top)).toBeGreaterThan(5);
 
     await lifted.release();
-    await waitForMessages(page, 'change');
+    await flushFrames(page);
     // Only the dropped block moved (into its slot); the rest are where they
     // were drawn, still part-way.
     expectNoneMoved(before, await renderedLayout(page), { except: 'alpha' });
 
-    // Once the clock runs, the slide finishes and the preview goes.
+    // Once the clock runs, the slide finishes, the move commits and the
+    // preview goes.
     await animationRate(cdp, 1);
     await expect(page.locator('.futo-mobile-dnd-reflow-clip')).toHaveCount(0);
+    await waitForMessages(page, 'change');
     expect(await getContent(page)).toMatch(/^bravo\n\ncharlie\n\ndelta\n\nalpha\n\n/);
   },
 );
@@ -3695,13 +3697,23 @@ mobileDndTest(
   },
 );
 
-/* After a release mid-slide the curtain stays up while the neighbours finish
- * their slide (`settle`). It is a picture of the note after the move: a note
- * switch must take it down at once (the new note must never be hidden under
- * the old picture), and a layout change must send the clones on to where the
- * blocks are now, without a jump. */
+/* After a release mid-slide the move is not committed until the neighbours
+ * have finished their slide (`ReflowCurtain.land`): until then the curtain
+ * shows the note as the move will leave it, and the real note under it is
+ * untouched. Nothing may cut that slide short, and nothing may leave the
+ * picture up over something it no longer shows. */
+
+/** The text of every block of the real note, in order. */
+function realOrder(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    [...document.querySelectorAll('.ProseMirror[contenteditable] > *')].map(
+      (el) => (el.textContent ?? '').trim() || el.querySelector('img')?.alt || el.tagName,
+    ),
+  );
+}
+
 mobileDndTest(
-  'opening another note while a dropped block settles shows the new note at once',
+  'opening another note while a drop lands shows the new note at once',
   async ({ page, cdp }) => {
     await page.setViewportSize({ width: 760, height: 1200 });
     await hostSetContent(page, SLIDE_NOTE);
@@ -3709,90 +3721,117 @@ mobileDndTest(
 
     const lifted = await liftAndStopMidSlide(page, cdp);
     await lifted.release();
-    await waitForMessages(page, 'change');
+    await flushFrames(page);
     expect(await curtainUp(page)).toBe(true);
 
     await hostSetContent(page, 'a different note\n\nwith its own text');
     expect(await curtainUp(page)).toBe(false);
     await animationRate(cdp, 1);
+    await flushFrames(page);
+    expect(await getContent(page)).toBe('a different note\n\nwith its own text');
   },
 );
 
-/** Where each clone of the settling curtain is headed, against where its
- * block now is, by text: the clone's box with its slide finished, and the real
- * block's box. */
-function settleTargets(page: Page) {
-  return page.evaluate(() => {
-    const out: Record<string, { headed: number; block: number }> = {};
-    const real = new Map<string, number>();
-    for (const el of document.querySelectorAll('.ProseMirror[contenteditable] > *')) {
-      const key = (el.textContent ?? '').trim() || el.querySelector('img')?.alt || el.tagName;
-      real.set(key, el.getBoundingClientRect().top);
-    }
-    for (const el of document.querySelectorAll('.futo-mobile-dnd-reflow-curtain > *')) {
-      const key = (el.textContent ?? '').trim() || el.querySelector('img')?.alt || el.tagName;
-      const now = new DOMMatrix(getComputedStyle(el).transform).m42;
-      const m = /translateY\((-?[\d.]+)px\)/.exec((el as HTMLElement).style.transform);
-      const target = m ? Number.parseFloat(m[1]) : 0;
-      const headed = el.getBoundingClientRect().top - now + target;
-      if (real.has(key)) out[key] = { headed, block: real.get(key)! };
-    }
-    return out;
+/* An edit that leaves the dropped block where it was (text typed into another
+ * block) while the drop lands: the move commits at once, at its target mapped
+ * through the edit, and both survive. */
+mobileDndTest('an edit elsewhere while a drop lands commits both', async ({ page, cdp }) => {
+  await page.setViewportSize({ width: 760, height: 1200 });
+  await hostSetContent(page, SLIDE_NOTE);
+  await clearMessages(page);
+
+  const lifted = await liftAndStopMidSlide(page, cdp);
+  await lifted.release();
+  await flushFrames(page);
+  expect(await curtainUp(page)).toBe(true);
+
+  // "X" at the start of bravo, before the drop's target (after delta).
+  await page.evaluate(() => {
+    const view = (
+      window as unknown as {
+        __futoProseMirrorView: () => {
+          state: {
+            doc: { firstChild: { nodeSize: number } };
+            tr: { insertText(t: string, p: number): unknown };
+          };
+          dispatch(tr: unknown): void;
+        };
+      }
+    ).__futoProseMirrorView();
+    view.dispatch(view.state.tr.insertText('X', view.state.doc.firstChild.nodeSize + 1));
   });
+  expect(await curtainUp(page)).toBe(false);
+  await animationRate(cdp, 1);
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toMatch(/^Xbravo\n\ncharlie\n\ndelta\n\nalpha\n\n/);
+});
+
+/* A layout change while the drop lands (a narrower window rewraps every
+ * line; an image loads) commits the move at once and takes the picture down.
+ * The change is itself a relayout of everything on screen, so nothing is seen
+ * to jump because of the drop — and nothing jumps once the slide would have
+ * ended, either: the picture is not left drawn with the old line breaks. */
+for (const change of ['viewport', 'image'] as const) {
+  mobileDndTest(
+    `a ${change === 'viewport' ? 'narrower window' : 'loading image'} while a drop lands commits it, with nothing jumping after`,
+    async ({ page, cdp }) => {
+      await page.setViewportSize({ width: 760, height: 1200 });
+      await page.route(`${LATE_IMAGE_BASE}**`, (route) =>
+        route.fulfill({ contentType: 'image/svg+xml', body: LATE_IMAGE_SVG }),
+      );
+      const wide = `alpha ${'words that wrap differently on a narrower screen '.repeat(3).trim()}`;
+      await hostSetContent(
+        page,
+        SLIDE_NOTE.replace('alpha', wide).replace(/bravo/, `bravo ${wide}`),
+      );
+      await clearMessages(page);
+
+      const lifted = await liftAndStopMidSlide(page, cdp);
+      await lifted.release();
+      await flushFrames(page);
+      expect(await curtainUp(page)).toBe(true);
+
+      if (change === 'viewport') {
+        await page.setViewportSize({ width: 520, height: 1200 });
+      } else {
+        await page.evaluate(
+          (base) => (window as unknown as FakeHostWindow).FutoEditor.setImageBaseUrl(base),
+          LATE_IMAGE_BASE,
+        );
+        await expect
+          .poll(() =>
+            page.evaluate(() => {
+              const img = document.querySelector('.ProseMirror[contenteditable] img');
+              return img instanceof HTMLImageElement && img.complete ? img.naturalHeight : 0;
+            }),
+          )
+          .toBe(200);
+      }
+      await flushFrames(page);
+      const changed = await renderedLayout(page);
+
+      await animationRate(cdp, 1);
+      await expect(page.locator('.futo-mobile-dnd-reflow-clip')).toHaveCount(0);
+      await waitForMessages(page, 'change');
+      await flushFrames(page);
+      expectNoneMoved(changed, await dragLayout(page, false));
+      expect((await realOrder(page)).slice(0, 4)).toEqual([
+        expect.stringMatching(/^bravo/),
+        'charlie',
+        'delta',
+        expect.stringMatching(/^alpha/),
+      ]);
+    },
+  );
 }
 
-mobileDndTest(
-  'a layout change while a dropped block settles sends the clones on without a jump',
-  async ({ page, cdp }) => {
-    await page.setViewportSize({ width: 760, height: 1200 });
-    await page.route(`${LATE_IMAGE_BASE}**`, (route) =>
-      route.fulfill({ contentType: 'image/svg+xml', body: LATE_IMAGE_SVG }),
-    );
-    await hostSetContent(page, SLIDE_NOTE);
-    await clearMessages(page);
-
-    const lifted = await liftAndStopMidSlide(page, cdp);
-    await lifted.release();
-    await waitForMessages(page, 'change');
-    expect(await curtainUp(page)).toBe(true);
-    const before = await renderedLayout(page);
-
-    // An image below the slot loads (200px) while the curtain settles.
-    await page.evaluate(
-      (base) => (window as unknown as FakeHostWindow).FutoEditor.setImageBaseUrl(base),
-      LATE_IMAGE_BASE,
-    );
-    await expect
-      .poll(() =>
-        page.evaluate(() => {
-          const img = document.querySelector('.ProseMirror[contenteditable] img');
-          return img instanceof HTMLImageElement && img.complete ? img.naturalHeight : 0;
-        }),
-      )
-      .toBe(200);
-    await flushFrames(page);
-    expect(await curtainUp(page)).toBe(true);
-    // Nothing jumped at the change (only tops: the image's own block grows)...
-    expectNoneMoved(before, await renderedLayout(page), { topOnly: true });
-    // ...and every clone is headed where its block now is, so the curtain
-    // can come down without one either.
-    const off = Object.entries(await settleTargets(page))
-      .filter(([, t]) => Math.abs(t.headed - t.block) > 1)
-      .map(([key, t]) => `"${key}" headed ${t.headed.toFixed(1)}, block at ${t.block.toFixed(1)}`);
-    expect(off).toEqual([]);
-
-    await animationRate(cdp, 1);
-    await expect(page.locator('.futo-mobile-dnd-reflow-clip')).toHaveCount(0);
-  },
-);
-
-/* A second drag lifted while the first drop's neighbours are still sliding
- * must not cut their slide short: they finish it, and the new drag's preview
- * opens once they have. */
+/* A second drag cannot start while a drop is landing: lifting the next block
+ * would cut the first slide short, so the press is refused until the first
+ * move has committed. */
 for (const gesture of ['handle', 'long press'] as const) {
   const dragTest = gesture === 'handle' ? gutterHandleTest : mobileDndTest;
   dragTest(
-    `a second drag lifted while the first drop settles lets its slide finish (${gesture})`,
+    `a second drag cannot cut a landing drop's slide short (${gesture})`,
     async ({ page }) => {
       const cdp = await page.context().newCDPSession(page);
       await page.setViewportSize({ width: 760, height: 1200 });
@@ -3801,24 +3840,74 @@ for (const gesture of ['handle', 'long press'] as const) {
 
       const first = await liftAndStopMidSlide(page, cdp, gesture === 'handle');
       await first.release();
-      await waitForMessages(page, 'change');
+      await flushFrames(page);
       const before = await renderedLayout(page);
       expect(await curtainUp(page)).toBe(true);
 
-      // Lift the last block while the first drop's slide is stopped part-way.
+      // A whole second drag, lift to release, of the last block to the top.
       const count = await page.locator('.ProseMirror[contenteditable] > *').count();
-      const second =
-        gesture === 'handle'
-          ? await liftWithHandle(page, count - 1)
-          : await liftWithTouch(page, cdp, count - 1);
-      expectNoneMoved(before, await renderedLayout(page), { except: 'foxtrot' });
-
-      // The slide finishes; then the second drag previews and drops as ever.
-      await animationRate(cdp, 1);
+      const last = await blockBoxAt(page, count - 1);
       const top = await blockBoxAt(page, 0);
-      await second.move(top.top + (top.bottom - top.top) * 0.25);
-      await expectDropMatchesPreview(page, () => second.release());
-      expect(await getContent(page)).toMatch(/^foxtrot\n\nbravo\n\n/);
+      if (gesture === 'handle') {
+        await page.mouse.move(last.left + 10, last.top + 4);
+        await page.waitForTimeout(150);
+        await page.mouse.move(last.left - 20, last.top + 4, { steps: 2 });
+        await page.mouse.down();
+        await page.mouse.move(last.left - 16, last.top - 20, { steps: 2 });
+        await page.mouse.move(last.left - 16, top.top + 2, { steps: 4 });
+        await page.mouse.up();
+      } else {
+        await touch(cdp, 'touchStart', last.x, last.top + 4);
+        await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+        await touch(cdp, 'touchMove', last.x, top.top + 2);
+        await page.waitForTimeout(32);
+        await touch(cdp, 'touchEnd', last.x, top.top + 2);
+      }
+      await flushFrames(page);
+      // The first slide is where it was, still part-way.
+      expectNoneMoved(before, await renderedLayout(page), { except: 'alpha' });
+
+      // The first drop lands, and only it.
+      await animationRate(cdp, 1);
+      await expect(page.locator('.futo-mobile-dnd-reflow-clip')).toHaveCount(0);
+      await waitForMessages(page, 'change');
+      await settleChangeDebounce(page);
+      expect(await getContent(page)).toMatch(/^bravo\n\ncharlie\n\ndelta\n\nalpha\n\n/);
+    },
+  );
+}
+
+/* The editor going away while a drop lands takes the picture, and everything
+ * it was waiting on, with it. On desktop the ⠿ handle's drag is over by then
+ * (the press ended at the release), so nothing of the gesture's own teardown
+ * reaches the landing drop: the editor's plugin has to. */
+for (const gesture of ['handle', 'long press'] as const) {
+  const dragTest = gesture === 'handle' ? gutterHandleTest : mobileDndTest;
+  dragTest(
+    `destroying the editor while a drop lands takes the curtain down (${gesture})`,
+    async ({ page }) => {
+      const cdp = await page.context().newCDPSession(page);
+      await page.setViewportSize({ width: 760, height: 1200 });
+      await hostSetContent(page, SLIDE_NOTE);
+      await clearMessages(page);
+      const errors: string[] = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+
+      const lifted = await liftAndStopMidSlide(page, cdp, gesture === 'handle');
+      await lifted.release();
+      await flushFrames(page);
+      expect(await curtainUp(page)).toBe(true);
+
+      await page.evaluate(() =>
+        (window as unknown as { __futoProseMirrorView: () => { destroy(): void } })
+          .__futoProseMirrorView()
+          .destroy(),
+      );
+      expect(await curtainUp(page)).toBe(false);
+      await animationRate(cdp, 1);
+      await page.waitForTimeout(300);
+      expect(await curtainUp(page)).toBe(false);
+      expect(errors).toEqual([]);
     },
   );
 }

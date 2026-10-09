@@ -754,15 +754,22 @@ hand-reviewed goldens, one or more per line below)
   transparent bottom border, apart from its own bottom padding, which keeps
   following the window size) until the first scroll, or the first change of
   its blocks such as opening another note, that leaves the view clear of it, so
-  its removal never moves the view either, even after the window was resized. Only the dropped block moves
-  at the release, snapping into its slot: a neighbour still sliding out of the
-  way when the finger lifts finishes its slide rather than jumping to its
-  place, carrying on to the block's new place if the layout changes meanwhile.
-  Opening another note during that slide shows the new note at once, and a
-  block lifted during it lets the slide finish before its own preview opens.
+  its removal never moves the view either, even after the window was resized.
   Verified in Chromium (Playwright) 2026-10-08. →
   src/features/editor/milkdown/blockDragCurtain.ts `holdScrollThroughDrop`
-  `holdScrollExtent` `settle`, src/features/editor/milkdown/blockDragSession.ts,
+  `holdScrollExtent`, src/features/editor/milkdown/blockDragSession.ts,
+  tests/editor-embed-milkdown.spec.ts
+- Only the dropped block moves at the release, snapping into its slot: a
+  neighbour still sliding out of the way when the finger lifts finishes its
+  slide, and the move is committed (and the note reported changed) once the
+  slides end, at most ~0.18s later. A scroll or a layout change in that time (a
+  resized window, an image loading) commits it at once, which is a relayout of
+  the screen anyway; an edit elsewhere commits it at once, mapped through the
+  edit; a change that takes the block away (another note opened) cancels it,
+  and the new note shows at once; the editor going away cancels it. No new drag
+  lifts until it has committed. Verified in Chromium (Playwright) 2026-10-09. →
+  src/features/editor/milkdown/blockDragSession.ts `land`,
+  src/features/editor/milkdown/blockDragCurtain.ts `land`,
   tests/editor-embed-milkdown.spec.ts
 - A finger landing on a block in the long-press block drag suspends the
   platform's DELAYED text interaction from touch-down — the magnifier loupe and

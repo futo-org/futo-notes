@@ -168,6 +168,9 @@ export function mountHandleBlockDrag(host: HandleBlockDragHost): { destroy(): vo
     const view = host.view();
     const active = host.active();
     if (!view || !active) return;
+    // The last drop is still landing: a press now would lift a block of the
+    // note before that move (`BlockDragSession.landingDrop`).
+    if (sessionFor(view).landingDrop) return;
     const source = handleSourceFor(view, active);
     if (!source) return;
     // Belt and braces with the cancelled `dragstart` below.

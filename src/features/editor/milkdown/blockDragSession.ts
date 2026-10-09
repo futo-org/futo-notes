@@ -31,7 +31,7 @@ import {
   type DragAutoScroller,
   type DropTarget,
 } from './blockDragGeometry';
-import { isNoOpDrop, moveBlock, type BlockMoveRange } from './blockMove';
+import { isNoOpDrop, moveBlock, planBlockMove, type BlockMoveRange } from './blockMove';
 import { CURTAIN_STYLES, ReflowCurtain } from './blockDragCurtain';
 
 /** What the gesture hands over at lift. */
@@ -80,7 +80,14 @@ const GHOST_VIEWPORT_MARGIN_PX = 4;
 
 interface BlockDragSourceState {
   decorationSet: DecorationSet;
+  /** Where a landing drop (`BlockDragSession.land`) will insert its block,
+   * mapped through every transaction until it commits. */
+  dropTarget?: number;
 }
+
+/** The session with a drop landing on each editor (`BlockDragSession.land`),
+ * by editor DOM, so the editor's plugin can reach it. */
+const landingDrops = new WeakMap<HTMLElement, BlockDragSession>();
 
 export const blockDragSourceKey = new PluginKey<BlockDragSourceState>('futo-block-drag-source');
 
@@ -209,8 +216,12 @@ export const blockDragSourcePlugin = $prose(
         apply(tr, value) {
           const meta = tr.getMeta(blockDragSourceKey) as BlockDragSourceState | undefined;
           if (meta) return meta;
-          if (tr.docChanged) return { decorationSet: value.decorationSet.map(tr.mapping, tr.doc) };
-          return value;
+          if (!tr.docChanged) return value;
+          return {
+            decorationSet: value.decorationSet.map(tr.mapping, tr.doc),
+            dropTarget:
+              value.dropTarget === undefined ? undefined : tr.mapping.map(value.dropTarget),
+          };
         },
       },
       props: {
@@ -218,11 +229,15 @@ export const blockDragSourcePlugin = $prose(
           return blockDragSourceKey.getState(state)?.decorationSet ?? null;
         },
       },
-      // A dropped block's settling preview pictures the document the drop
-      // made: any later change (a note switch, an undo) takes it down.
-      view: () => ({
+      // A drop still landing pictures the document before anything else
+      // changed it: a change commits it now (or cancels it, when the change
+      // took its block away), and the editor going away cancels it.
+      view: (editorView) => ({
         update(view, prev) {
-          if (view.state.doc !== prev.doc) ReflowCurtain.endSettling(view);
+          if (view.state.doc !== prev.doc) landingDrops.get(view.dom)?.docChanged();
+        },
+        destroy() {
+          landingDrops.get(editorView.dom)?.destroy();
         },
       }),
     }),
@@ -236,6 +251,12 @@ export class BlockDragSession {
   private readonly options: BlockDragSessionOptions;
 
   private lifted: BlockDragLift | null = null;
+  /** A released drop whose move is not committed yet (`land`). */
+  private landing: {
+    curtain: ReflowCurtain;
+    lifted: BlockDragLift;
+    beforeDispatch?: (tr: Transaction, movedTo: number, range: BlockMoveRange) => void;
+  } | null = null;
   private lastY = 0;
   private liftX = 0;
   private liftY = 0;
@@ -270,10 +291,19 @@ export class BlockDragSession {
     return this.lifted !== null;
   }
 
+  /** Whether a released drop is still landing (`land`): no new drag may lift
+   * until it has committed, since the lift would cut its slide short and
+   * measure the note before the move. */
+  get landingDrop(): boolean {
+    return this.landing !== null;
+  }
+
   /** Lifts `source`: dims it, draws the ghost over it and seeds the indicator.
    * `clientX/Y` is where the pointer is at the lift. */
   start(source: BlockDragLift, clientX: number, clientY: number): void {
-    if (this.lifted) return;
+    // The gestures do not lift while a drop lands (`landingDrop`); this is
+    // the guarantee.
+    if (this.lifted || this.landing) return;
     const view = this.view;
     this.lifted = source;
     this.lastY = clientY;
@@ -351,12 +381,11 @@ export class BlockDragSession {
     // the visuals go, because ending the reflow preview switches `computeTarget`
     // back to the line geometry.
     let target: DropTarget | null = null;
-    // The reflow preview of a release that will commit: it outlives the drag
-    // until its slide finishes (`ReflowCurtain.settle`), or ends with it.
-    let settling: ReflowCurtain | null = null;
+    // The reflow preview of a release that will commit: the move lands under
+    // it (`land`).
+    let curtain: ReflowCurtain | null = null;
     try {
       target = commit ? this.computeTarget(clientY, true) : null;
-      if (target) this.reflow?.holdScrollThroughDrop();
     } catch (error) {
       this.clearDecoration();
       throw error;
@@ -364,39 +393,110 @@ export class BlockDragSession {
       // Whatever the read does, the visuals and the lift state go: a throw
       // here must not leave the curtain and ghost mounted.
       if (target) {
-        settling = this.reflow;
+        curtain = this.reflow;
         this.reflow = null;
       }
       this.cleanupDragVisuals();
-      if (!target) this.reset();
+      this.reset();
     }
     const range = target ? this.currentSourceRange(lifted) : null;
-    if (!target || !range) {
-      settling?.end();
-      this.clearDecoration();
-      this.reset();
-      return false;
-    }
-
     // Every refusal case (stale range, a target that stopped being a legal
     // gap, a drop back at the source, a node ProseMirror would re-shape) lives
     // in moveBlock. A drop that commits nothing is silent: no transaction, no
     // history entry, no 'change'.
+    if (!target || !range || !planBlockMove(this.view.state, range, target.pos)) {
+      curtain?.end();
+      this.clearDecoration();
+      return false;
+    }
+    if (curtain) {
+      this.land(curtain, lifted, target.pos, beforeDispatch);
+      return true;
+    }
+    return this.commit(range, target.pos, beforeDispatch);
+  }
+
+  /** Moves `range` to `pos` in one transaction that also clears the dim. */
+  private commit(
+    range: BlockMoveRange,
+    pos: number,
+    beforeDispatch?: (tr: Transaction, movedTo: number, range: BlockMoveRange) => void,
+  ): boolean {
+    const committed = moveBlock(this.view, range, pos, (tr, movedTo) => {
+      // Same transaction as the move, so the source block is never drawn
+      // dimmed for a frame at its new position.
+      tr.setMeta(blockDragSourceKey, { decorationSet: DecorationSet.empty });
+      beforeDispatch?.(tr, movedTo, range);
+    });
+    if (!committed) this.clearDecoration();
+    return committed;
+  }
+
+  /** A release that will commit the move the reflow preview shows. Its
+   * neighbours may still be sliding to their places, and committing now would
+   * take the curtain down and make them jump the rest of the way, so the move
+   * waits under the curtain until they are there (`ReflowCurtain.land`), then
+   * commits and the curtain goes, in one frame: nothing moves on screen but
+   * the dropped block, and no real block is ever animated (a style change
+   * inside the editor's scroll box restyles the whole note). The target is
+   * kept in the source plugin's state, so a document change in the meantime
+   * maps it (`docChanged`). */
+  private land(
+    curtain: ReflowCurtain,
+    lifted: BlockDragLift,
+    pos: number,
+    beforeDispatch?: (tr: Transaction, movedTo: number, range: BlockMoveRange) => void,
+  ): void {
+    const source = blockDragSourceKey.getState(this.view.state);
+    this.view.dispatch(
+      this.view.state.tr.setMeta(blockDragSourceKey, {
+        decorationSet: source?.decorationSet ?? DecorationSet.empty,
+        dropTarget: pos,
+      }),
+    );
+    this.landing = { curtain, lifted, beforeDispatch };
+    landingDrops.set(this.view.dom, this);
+    curtain.land(() => this.landed());
+  }
+
+  /** The landing drop's neighbours are in place (or the layout changed, or
+   * the note scrolled, or the document changed): the move commits, at its
+   * target mapped through anything that happened since, and the curtain goes
+   * in the same frame. A move that no longer applies (its block was taken
+   * away) is dropped. Only the mapped dim decoration names the block here,
+   * never the lift-time positions: after a note switch those could name a
+   * block of the new note. */
+  private landed(): void {
+    const landing = this.landing;
+    if (!landing) return;
+    this.landing = null;
+    landingDrops.delete(this.view.dom);
     let committed = false;
     try {
-      committed = moveBlock(this.view, range, target.pos, (tr, movedTo) => {
-        // Same transaction as the move, so the source block is never drawn
-        // dimmed for a frame at its new position.
-        tr.setMeta(blockDragSourceKey, { decorationSet: DecorationSet.empty });
-        beforeDispatch?.(tr, movedTo, range);
-      });
-      if (!committed) this.clearDecoration();
+      const state = blockDragSourceKey.getState(this.view.state);
+      const found = state?.decorationSet.find(
+        undefined,
+        undefined,
+        (spec: { futoDragSource?: boolean }) => spec.futoDragSource === true,
+      );
+      if (found?.length === 1 && state?.dropTarget !== undefined) {
+        landing.curtain.holdScrollThroughDrop();
+        committed = this.commit(
+          { from: found[0].from, to: found[0].to },
+          state.dropTarget,
+          landing.beforeDispatch,
+        );
+      }
     } finally {
-      this.reset();
-      if (committed) settling?.settle();
-      else settling?.end();
+      landing.curtain.end();
+      if (!committed) this.clearDecoration();
     }
-    return committed;
+  }
+
+  /** The document changed while a drop was landing: it commits (mapped) or
+   * is dropped, after the transaction that changed it has been applied. */
+  docChanged(): void {
+    if (this.landing) queueMicrotask(() => this.landed());
   }
 
   /** Ends the drag with no transaction. */
@@ -408,8 +508,11 @@ export class BlockDragSession {
   destroy(): void {
     this.autoScroll.stop();
     this.cleanupDragVisuals();
-    ReflowCurtain.endSettling(this.view);
     this.lifted = null;
+    // A landing drop goes with the editor, uncommitted.
+    this.landing?.curtain.end();
+    this.landing = null;
+    landingDrops.delete(this.view.dom);
   }
 
   private reset(): void {

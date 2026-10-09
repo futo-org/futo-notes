@@ -636,6 +636,8 @@ export class MobileBlockDndView {
     // like any other press, but is never liftable (module doc's "an empty
     // paragraph cannot be lifted"): no ghost, no haptic, no `blockDrag`.
     if (!this.pressed.liftable) return;
+    // Nor while the last drop is still landing (`BlockDragSession.landingDrop`).
+    if (this.session.landingDrop) return;
 
     // Belt and braces: the shell has been holding WKWebView's delayed text
     // interaction down since pointerdown (`onPressActive`), so there should be
