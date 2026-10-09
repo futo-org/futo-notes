@@ -284,6 +284,14 @@ bench-block-drag *args:
 bench-editor *args:
   node --experimental-strip-types scripts/perf/editor-bench.mjs {{args}}
 
+# ACCEPT/REJECT a change against the editor bench baseline: 3 count passes, no
+# count worse, score ≥0.5 % better, then the editor-embed suite. Exits 1 on REJECT.
+# The protocol for an agent climbing it: docs/perf/editor-bench-climb.md.
+#   just bench-climb-gate            # verdict only
+#   just bench-climb-gate --accept   # and write the new baseline
+bench-climb-gate *args:
+  node --experimental-strip-types scripts/perf/editor-bench-gate.mjs {{args}}
+
 # Storage-migration stories on the REAL app; CLEARS debug data — claim a device first.
 test-android-storage:
   node tests/android-storage-migration.mjs

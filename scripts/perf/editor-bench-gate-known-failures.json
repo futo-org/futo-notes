@@ -1,0 +1,4 @@
+{
+  "_comment": "editor-embed tests already failing on the gate's baseline commit, so a climb is not blamed for them. Each entry needs a reason. Empty on purpose: at 1359f2220 (rebased onto !402) all 709 run, 700 pass, 9 skip. An entry is a decision, not a fix (scripts/AGENTS.md).",
+  "failures": []
+}
