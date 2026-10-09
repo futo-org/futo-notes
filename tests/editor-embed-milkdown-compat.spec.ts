@@ -73,6 +73,12 @@ function withoutMarkers(doc: unknown): string {
   return JSON.stringify(strip(doc as JsonNode));
 }
 
+// One worker for this file even under `--fully-parallel` (the bench gate runs
+// the suite that way): every worker's beforeAll rebuilds the census page at the
+// same fixed path, so a second worker overwrote it while the first was loading
+// it and three tests read `__futoCensus` as undefined.
+test.describe.configure({ mode: 'default' });
+
 test.beforeAll(async () => {
   pageUrl = await buildCensusPage();
 });
