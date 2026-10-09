@@ -45,7 +45,9 @@ test_desktop_smoke_macos_task:
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
     - pnpm install --frozen-lockfile
-    - cargo install tauri-cli --locked
+    # Pinned: an unpinned install now resolves tauri-cli 2.12.1, which needs
+    # rustc 1.90 while rust-toolchain.toml pins 1.89.0. 2.11.4 built v1.8.0.
+    - cargo install tauri-cli --version 2.11.4 --locked
     # Build frontend + debug binary
     - pnpm run build
     - (cd apps/tauri && cargo tauri build --debug --no-bundle)
@@ -226,7 +228,7 @@ build_macos_task:
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
     - export PATH="$HOME/.cargo/bin:$PATH"
     - rustup target add aarch64-apple-darwin x86_64-apple-darwin
-    - cargo install tauri-cli --locked
+    - cargo install tauri-cli --version 2.11.4 --locked
 
     # Derive version from git tag
     - VERSION="${CI_COMMIT_TAG#v}"
