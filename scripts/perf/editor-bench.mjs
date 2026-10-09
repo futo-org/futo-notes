@@ -5,12 +5,16 @@
 //
 //   node --experimental-strip-types scripts/perf/editor-bench.mjs [--runs 3] [--no-build] [--json <file>]
 //       [--baseline <file>] [--only <scenario,...>] [--passes N] [--check] [--headed]
+//       [--why <scenario>]
 //
 // The score is an instrumented pass, all scenarios in parallel. `--passes N`
 // runs it N times and scores each count's median, so one pass that caught an
 // extra event under load cannot decide a climb. `--runs N` adds N clean
 // wall-clock passes after it (`--runs 0`: counts only, the fast loop).
 // `--check` (at least two passes) fails if any count moved past the noise.
+// `--why <scenario>` scores nothing: it runs one scenario on an unminified
+// build and prints, for each restyle of 100+ elements and each layout over
+// 1000+ objects, what invalidated it and the JS stack that did.
 //
 // Why counts: on Chromium a keystroke is 81-96 % renderer style/layout and
 // ~0.5 ms editor JS (docs/perf/keystroke-attribution.md), so a JS microbench
@@ -36,7 +40,10 @@ import { chromium } from '@playwright/test';
 import { installFakeAndroidHost } from '../../tests/lib/editorEmbedHost.ts';
 
 const BUNDLE = path.resolve('build/native-editor/editor.html');
-const URL = `file://${BUNDLE}?test`;
+// `--why` drives an unminified copy so stacks carry real function names. It is
+// for reading causes only and is never scored.
+const WHY_OUT_DIR = 'build/native-editor-why';
+let URL = `file://${BUNDLE}?test`;
 // A phone-sized viewport: the embed is the mobile shells' editor.
 const VIEWPORT = { width: 412, height: 915 };
 
@@ -50,6 +57,7 @@ const opt = {
   baseline: null,
   only: null,
   headed: false,
+  why: null,
 };
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -61,6 +69,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--baseline') opt.baseline = args[++i];
   else if (a === '--only') opt.only = args[++i].split(',');
   else if (a === '--headed') opt.headed = true;
+  else if (a === '--why') opt.why = args[++i];
   else {
     console.error(`Unrecognised argument: ${a}`);
     process.exit(2);
@@ -378,10 +387,17 @@ async function metrics(cdp) {
   );
 }
 
-async function startTrace(cdp) {
+// `--why` adds what invalidated each restyle and layout, with the JS stack
+// that did it. It costs time, so the scored passes never record it.
+const WHY_CATEGORIES = [
+  'disabled-by-default-devtools.timeline.invalidationTracking',
+  'disabled-by-default-devtools.timeline.stack',
+];
+
+async function startTrace(cdp, why = false) {
   await cdp.send('Tracing.start', {
     traceConfig: {
-      includedCategories: ['devtools.timeline'],
+      includedCategories: ['devtools.timeline', ...(why ? WHY_CATEGORIES : [])],
       recordMode: 'recordAsMuchAsPossible',
     },
     transferMode: 'ReturnAsStream',
@@ -439,7 +455,7 @@ async function takeCalls(cdp) {
   return calls;
 }
 
-async function runScenario(browser, scenario, instrument) {
+async function runScenario(browser, scenario, instrument, why = false) {
   const t0 = performance.now();
   const context = await browser.newContext({ viewport: VIEWPORT, hasTouch: true });
   await context.addInitScript(installFakeAndroidHost);
@@ -478,16 +494,19 @@ async function runScenario(browser, scenario, instrument) {
   await cdp.send('Performance.enable');
   if (instrument) {
     await startCalls(cdp);
-    await startTrace(cdp);
+    await startTrace(cdp, why);
   }
   const before = await metrics(cdp);
+  // Marks the start of the measured step in the trace (a TimeStamp event).
+  await page.evaluate(() => console.timeStamp('editor-bench:run'));
   const tRun = performance.now();
   await scenario.run(page);
   const wallMs = performance.now() - tRun;
   await settle(page);
   const tSettled = performance.now();
   const after = await metrics(cdp);
-  const work = instrument ? traceWork(await stopTrace(cdp)) : {};
+  const events = instrument ? await stopTrace(cdp) : null;
+  const work = instrument ? traceWork(events) : {};
   const jsCalls = instrument ? await takeCalls(cdp) : undefined;
   const tCollected = performance.now();
 
@@ -504,6 +523,7 @@ async function runScenario(browser, scenario, instrument) {
     layoutMs: (after.LayoutDuration - before.LayoutDuration) * 1000,
     scriptMs: (after.ScriptDuration - before.ScriptDuration) * 1000,
     hash: createHash('sha256').update(markdown).digest('hex').slice(0, 12),
+    events: why ? events : undefined,
     phaseMs: {
       load: tLoaded - t0,
       setup: tRun - tLoaded,
@@ -513,6 +533,97 @@ async function runScenario(browser, scenario, instrument) {
       total: performance.now() - t0,
     },
   };
+}
+
+// ── --why: what caused each big restyle and layout ───────────────────────
+
+// Restyles of at least this many elements, and layouts over at least this many
+// objects, get their causes printed. Below it a frame is ordinary.
+const WHY_MIN_ELEMENTS = 100;
+const WHY_MIN_LAYOUT = 1000;
+
+function whyReport(events) {
+  const ev = events.filter((e) => e.ts > 0).sort((a, b) => a.ts - b.ts);
+  const mark = ev.find(
+    (e) => e.name === 'TimeStamp' && e.args?.data?.message === 'editor-bench:run',
+  );
+  const t0 = mark ? mark.ts : ev[0].ts;
+  const ms = (e) => `${Math.round((e.ts - t0) / 1000)}ms`.padStart(7);
+  const stack = (d) =>
+    (d.stackTrace ?? [])
+      .map((f) => f.functionName)
+      .filter(Boolean)
+      .slice(0, 5)
+      .join(' < ') || '(no JS on the stack: a timer, rAF or browser task)';
+  const what = (d) =>
+    [
+      d.changedClass && `class "${d.changedClass}"`,
+      d.changedAttribute && `attribute "${d.changedAttribute}"`,
+      d.changedPseudo && `pseudo ${d.changedPseudo}`,
+      d.changedId && `id "${d.changedId}"`,
+      d.reason,
+    ]
+      .filter(Boolean)
+      .join(', ');
+  const node = (d) => (d.nodeName ?? '?').slice(0, 70);
+
+  const input = ev.filter(
+    (e) =>
+      e.name === 'EventDispatch' &&
+      /^(keydown|pointerdown|pointerup|touchstart|touchend)$/.test(e.args?.data?.type ?? '') &&
+      e.ts >= t0,
+  );
+  console.log(
+    `\ninput: ${input.map((e) => `${ms(e).trim()} ${e.args.data.type}`).join(', ') || 'none'}`,
+  );
+
+  // Group identical frames (same size, same causes) so ten keystrokes print once.
+  const groups = new Map();
+  let sinceStyle = t0;
+  let sinceLayout = t0;
+  for (const e of ev) {
+    if (e.ts < t0) continue;
+    const isStyle =
+      e.name === 'UpdateLayoutTree' && (e.args?.elementCount ?? 0) >= WHY_MIN_ELEMENTS;
+    const isLayout =
+      e.name === 'Layout' && (e.args?.beginData?.totalObjects ?? 0) >= WHY_MIN_LAYOUT;
+    if (e.name === 'UpdateLayoutTree' && !isStyle) sinceStyle = e.ts;
+    if (e.name === 'Layout' && !isLayout) sinceLayout = e.ts;
+    if (!isStyle && !isLayout) continue;
+    const from = isStyle ? sinceStyle : sinceLayout;
+    const pattern = isStyle
+      ? /^(ScheduleStyle|StyleRecalc)InvalidationTracking$/
+      : /^LayoutInvalidationTracking$/;
+    const causes = new Map();
+    for (const c of ev) {
+      if (c.ts <= from || c.ts > e.ts || !pattern.test(c.name)) continue;
+      const d = c.args.data;
+      const key = `${what(d)} on ${node(d)}\n        ← ${stack(d)}`;
+      causes.set(key, (causes.get(key) ?? 0) + 1);
+    }
+    const size = isStyle
+      ? `restyle of ${e.args.elementCount} elements`
+      : `layout over ${e.args.beginData.totalObjects} objects (${e.args.beginData.dirtyObjects} dirty)`;
+    const causeLines = [...causes.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([k, n]) => `      ${n > 1 ? `${n}× ` : ''}${k}`);
+    if (causes.size > 6) causeLines.push(`      … and ${causes.size - 6} more distinct causes`);
+    const sig = `${size}\n${causeLines.join('\n')}`;
+    const g = groups.get(sig) ?? { at: [], size, causeLines };
+    g.at.push(ms(e).trim());
+    groups.set(sig, g);
+    if (isStyle) sinceStyle = e.ts;
+    else sinceLayout = e.ts;
+  }
+  if (groups.size === 0)
+    console.log(`no restyle ≥ ${WHY_MIN_ELEMENTS} elements or layout ≥ ${WHY_MIN_LAYOUT} objects`);
+  for (const g of groups.values()) {
+    const when =
+      g.at.length > 3 ? `${g.at.length}× (${g.at.slice(0, 3).join(', ')}, …)` : g.at.join(', ');
+    console.log(`\n${when}: ${g.size}, caused by:`);
+    console.log(g.causeLines.join('\n') || '      (no invalidation recorded)');
+  }
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────
@@ -525,7 +636,9 @@ const spread = (xs) => {
 
 const tStart = performance.now();
 let buildMs = 0;
-if (opt.build) {
+// `--why` builds its own unminified copy; the regular bundle only has to exist,
+// because the build config stages it into the native apps.
+if (opt.build && !(opt.why && existsSync(BUNDLE))) {
   const t = performance.now();
   execFileSync(
     path.resolve('node_modules/.bin/vite'),
@@ -535,6 +648,38 @@ if (opt.build) {
   buildMs = performance.now() - t;
 }
 if (!existsSync(BUNDLE)) throw new Error(`no bundle at ${BUNDLE}; run without --no-build`);
+
+if (opt.why) {
+  const scenario = SCENARIOS.find((s) => s.name === opt.why);
+  if (!scenario) {
+    console.error(`--why: no scenario "${opt.why}" (${SCENARIOS.map((s) => s.name).join(', ')})`);
+    process.exit(2);
+  }
+  execFileSync(
+    path.resolve('node_modules/.bin/vite'),
+    [
+      'build',
+      '--config',
+      'vite.editor.config.ts',
+      '--logLevel',
+      'error',
+      '--minify',
+      'false',
+      '--outDir',
+      WHY_OUT_DIR,
+    ],
+    { stdio: 'inherit' },
+  );
+  URL = `file://${path.resolve(WHY_OUT_DIR, 'editor.html')}?test`;
+  const whyBrowser = await chromium.launch({ headless: !opt.headed });
+  const r = await runScenario(whyBrowser, scenario, true, true);
+  await whyBrowser.close();
+  console.log(
+    `${scenario.name}: ${scenario.note} (unminified bundle; times from the measured step's start)`,
+  );
+  whyReport(r.events);
+  process.exit(0);
+}
 
 const tLaunch = performance.now();
 const browser = await chromium.launch({ headless: !opt.headed });

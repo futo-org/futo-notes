@@ -12,7 +12,8 @@ and after its measured step. The open primes the serializer and streams its tail
 slices sized by wall time; without the wait, switch-note's JS calls moved 17 % between two
 passes, depending on how much of the previous open was still running.
 
-To climb it, follow `editor-bench-climb.md`; `just bench-climb-gate` judges each candidate.
+To climb it, follow `editor-bench-climb.md`; `just bench-climb-gate` judges each candidate,
+and `just bench-editor --no-build --why <scenario>` names what caused each big restyle and layout.
 
 ## What it counts
 

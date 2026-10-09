@@ -279,7 +279,7 @@ bench-block-drag *args:
 
 # Editor hill-climb score: elements restyled, layout scope and JS calls for eight
 # editor interactions (typing, opening, block drag) in headless Chromium — counts, not timings.
-# ~9.7s with the bundle build, ~4.9s with --no-build; --passes 3 to confirm a win. See docs/perf/editor-bench.md.
+# ~9.7s with the bundle build, ~4.9s with --no-build; --why <scenario> names causes. See docs/perf/editor-bench.md.
 #   just bench-editor --runs 0 --baseline docs/perf/editor-bench-baseline.json
 bench-editor *args:
   node --experimental-strip-types scripts/perf/editor-bench.mjs {{args}}

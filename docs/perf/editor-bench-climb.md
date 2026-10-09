@@ -5,7 +5,10 @@ editor bench"; `editor-bench.md` explains the bench itself.
 
 ## The loop
 
-1. Pick one idea from the hills below, or from the bench's own output.
+1. Pick one idea from the hills below. Before editing, run
+   `just bench-editor --no-build --why <scenario>`: for every restyle of 100+ elements and
+   every layout over 1000+ objects it prints what invalidated it and the JS stack that did
+   (~10 s, on an unminified build). Fix the cause it names, not a guess.
 2. Edit. Iterate fast with `just bench-editor --runs 0 --baseline docs/perf/editor-bench-baseline.json`
    (~10 s, one count pass). Always without `--no-build`: it scores whatever bundle is on
    disk, not your edit.
@@ -22,22 +25,39 @@ editor bench"; `editor-bench.md` explains the bench itself.
    under "Not yours to decide". Report what landed and the ideas log.
 
 Never edit the baseline, the bench, the gate or its known-failures file to make a change
-pass. Do not run anything else heavy while the bench runs; it shares the machine.
+pass. `jsCalls` counts function calls, not work: merging or inlining functions to lower it is
+not a win. A change whose gain is mostly `jsCalls` must say in the commit what work it removed
+(a walk, a re-render, a serialization); if it removed none, revert it. Do not run anything else heavy while the bench runs; it shares the machine.
 
-## Hills (from the baseline)
+## Hills (from the baseline, causes from `--why`)
 
-- **The drop restyles the whole note, twice.** drag-large: the two frames after `pointerup`
-  restyle 3,611 and 3,601 elements, 96 % of the scenario's restyling. Start in
-  `mobileBlockDnd.ts` (`ARMED_CLASS`, `HIDE_SELECTION_CLASS`: a class on the editor root
-  whose descendant rules restyle every block) and `blockDragSession.ts`.
+- **The drop restyles the whole note, twice.** drag-large: 3,611 then 3,601 elements, 96 %
+  of the scenario's restyling. Both are an inline-style write on the editor root:
+  `holdScrollThroughDrop` (`blockDragCurtain.ts`) sets `overflow-anchor: none` on it, and a
+  `requestAnimationFrame` two frames later removes it.
 - **The lift lays out the whole note, twice.** drag-large: two layouts over all 27,229
-  objects at the 340 ms mark.
-- **Typing scales with note length.** A keystroke in 2000 blocks lays out ~27k objects
-  (vs ~550 in 40 blocks) and makes ~65k JS calls (vs ~4.3k). Find what walks the whole
-  document per transaction (decorations, plugins' `view.update`, serializer).
+  objects at the 340 ms mark, both forced inside `createGhost` (`blockDragSession.ts`):
+  `drawGhostShadow` after the ghost goes in, then again after its canvas does.
+- **Every keystroke lays out the whole note.** type-large: 10 keys, 10 layouts over 27,208
+  objects with 10 dirty, caused by the browser's own text change. Nothing in the note is a
+  relayout boundary, so the root is `#document`. Also ~65k JS calls per key against ~4.3k
+  in 40 blocks: something walks the document per transaction (decorations, a plugin's
+  `view.update`, the serializer).
 
-To see where a scenario's work lands, `just bench-editor --no-build --runs 0 --only <scenario>`
-with a Chromium trace is the tool; the per-frame breakdown in `editor-bench.md` shows how.
+## Confirm on the phone
+
+The reference phone is the moto g play 2023, `ZY22HSGXSG` (`adb devices -l`; never the
+Pixel 7a, which is personal). After every ACCEPT, measure the interaction you changed there
+and put before → after in the commit body:
+
+- Typing or opening: `ANDROID_SERIAL=ZY22HSGXSG just test-android-perf-quick --fixture 1000-lines-blocks`
+  (~1 min; the phone's Chrome is the same Chromium build as its WebView). Baseline
+  2026-10-09: interactive 164 ms, first focus 295 ms, keystroke p95 5.8 ms (settled 31.7 ms).
+- Drag: `ANDROID_SERIAL=ZY22HSGXSG just bench-block-drag current --device android --sizes 1000`
+  (~2 min). Baseline 2026-10-09: lift frame 82.7 ms, drop 35.1 ms, gap frame p95 18.0 ms.
+
+A gate ACCEPT that does not move the phone is still worth keeping if nothing got slower, but
+say so in the commit; do not claim a user-visible win the phone did not show.
 
 ## Not yours to decide — stop and report instead
 
@@ -50,8 +70,8 @@ with a Chromium trace is the tool; the per-frame breakdown in `editor-bench.md` 
 
 ## What a gate ACCEPT does not prove
 
-Headless Chromium is the Android WebView's engine, not iOS WebKit or WebKitGTK, and not a
-phone. A landed climb is a candidate until it is measured on a device.
+Headless Chromium is the Android WebView's engine, not iOS WebKit or WebKitGTK. The phone
+step covers Android; iOS and desktop are unmeasured, so say that in the final report.
 
 ## Ideas log
 
