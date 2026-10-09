@@ -136,6 +136,11 @@ What this says:
   longer chain is the wait for the editor's mailbox to answer, about 13 to
   15 ms against 1 to 3 ms for 10k. I did not dig into why.
 
+**Verdict: nothing on the iOS close path is worth touching for speed.** The
+user waits on UIKit's pop animation and, when dirty, the keyboard. The app's
+own work is the 27 to 38 ms before the pop is seen, and the save runs
+after the list is fully on screen.
+
 There is no before/after pair, because there was no Back-path change to
 make. These numbers are the baseline a future change to the close path
 should be compared against.
