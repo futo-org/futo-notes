@@ -1,0 +1,777 @@
+{
+  "runs": 5,
+  "timing": {
+    "buildMs": 4803.409418,
+    "launchMs": 38.272901000000275,
+    "countsMs": 2513.5125309999994,
+    "timingMs": 46573.325114,
+    "totalMs": 56427.584133
+  },
+  "totals": {
+    "styledElements": 34924,
+    "layoutScope": 983002,
+    "jsCalls": 20583513
+  },
+  "summary": {
+    "open-large": {
+      "hash": "07b970979497",
+      "styledElements": {
+        "median": 29245,
+        "spreadPct": 0
+      },
+      "layoutScope": {
+        "median": 202667,
+        "spreadPct": 0
+      },
+      "jsCalls": {
+        "median": 16419562,
+        "spreadPct": 0
+      },
+      "wallMs": {
+        "median": 398.2143730000007,
+        "spreadPct": 111.19602531272601
+      },
+      "styleMs": {
+        "median": 30.828000000000003,
+        "spreadPct": 108.43064746334498
+      },
+      "layoutMs": {
+        "median": 51.623000000000005,
+        "spreadPct": 143.39151153555582
+      },
+      "scriptMs": {
+        "median": 251.234,
+        "spreadPct": 107.2267288663159
+      }
+    },
+    "switch-note": {
+      "hash": "63f61362fc8d",
+      "styledElements": {
+        "median": 5568,
+        "spreadPct": 0
+      },
+      "layoutScope": {
+        "median": 12883,
+        "spreadPct": 0
+      },
+      "jsCalls": {
+        "median": 2475497,
+        "spreadPct": 0
+      },
+      "wallMs": {
+        "median": 83.40636799999993,
+        "spreadPct": 36.38757654571974
+      },
+      "styleMs": {
+        "median": 5.6610000000000005,
+        "spreadPct": 43.01360183713124
+      },
+      "layoutMs": {
+        "median": 5.709,
+        "spreadPct": 46.593098616220026
+      },
+      "scriptMs": {
+        "median": 36.972,
+        "spreadPct": 45.439792275235305
+      }
+    },
+    "type-small": {
+      "hash": "14c04958da6b",
+      "styledElements": {
+        "median": 0,
+        "spreadPct": 0
+      },
+      "layoutScope": {
+        "median": 5520,
+        "spreadPct": 0
+      },
+      "jsCalls": {
+        "median": 42825,
+        "spreadPct": 0
+      },
+      "wallMs": {
+        "median": 361.10210599999846,
+        "spreadPct": 0.2379925194897193
+      },
+      "styleMs": {
+        "median": 0,
+        "spreadPct": 0
+      },
+      "layoutMs": {
+        "median": 0.714,
+        "spreadPct": 64.9859943977591
+      },
+      "scriptMs": {
+        "median": 8.936,
+        "spreadPct": 62.04118173679499
+      }
+    },
+    "type-large": {
+      "hash": "deac59e67b2a",
+      "styledElements": {
+        "median": 0,
+        "spreadPct": 0
+      },
+      "layoutScope": {
+        "median": 272080,
+        "spreadPct": 0
+      },
+      "jsCalls": {
+        "median": 648385,
+        "spreadPct": 0
+      },
+      "wallMs": {
+        "median": 374.71351499999946,
+        "spreadPct": 19.86736720718495
+      },
+      "styleMs": {
+        "median": 0,
+        "spreadPct": 0
+      },
+      "layoutMs": {
+        "median": 10.658000000000001,
+        "spreadPct": 119.44079564646275
+      },
+      "scriptMs": {
+        "median": 13.852,
+        "spreadPct": 100.61362980075079
+      }
+    },
+    "enter-list-large": {
+      "hash": "5979d3a5b04f",
+      "styledElements": {
+        "median": 102,
+        "spreadPct": 0
+      },
+      "layoutScope": {
+        "median": 326622,
+        "spreadPct": 0
+      },
+      "jsCalls": {
+        "median": 590396,
+        "spreadPct": 0
+      },
+      "wallMs": {
+        "median": 390.0085309999995,
+        "spreadPct": 37.85218021295048
+      },
+      "styleMs": {
+        "median": 0.968,
+        "spreadPct": 148.03719008264463
+      },
+      "layoutMs": {
+        "median": 14.615,
+        "spreadPct": 173.32192952446115
+      },
+      "scriptMs": {
+        "median": 34.24,
+        "spreadPct": 124.17932242990655
+      }
+    },
+    "backspace-join-large": {
+      "hash": "6f8b2d846d8b",
+      "styledElements": {
+        "median": 9,
+        "spreadPct": 0
+      },
+      "layoutScope": {
+        "median": 163230,
+        "spreadPct": 0
+      },
+      "jsCalls": {
+        "median": 406848,
+        "spreadPct": 0
+      },
+      "wallMs": {
+        "median": 311.8899559999991,
+        "spreadPct": 21.954278643073973
+      },
+      "styleMs": {
+        "median": 0.125,
+        "spreadPct": 136.79999999999995
+      },
+      "layoutMs": {
+        "median": 6.948,
+        "spreadPct": 111.01036269430051
+      },
+      "scriptMs": {
+        "median": 17.590999999999998,
+        "spreadPct": 76.17531692342675
+      }
+    }
+  },
+  "counts": {
+    "open-large": {
+      "styledElements": 29245,
+      "layoutScope": 202667,
+      "jsCalls": 16419562,
+      "styleRecalcs": 28,
+      "layouts": 14,
+      "wallMs": 764.4543919999996,
+      "styleMs": 36.14,
+      "layoutMs": 71.392,
+      "scriptMs": 596.527,
+      "hash": "07b970979497",
+      "phaseMs": {
+        "load": 237.77930099999958,
+        "setup": 235.82882900000004,
+        "run": 764.4543919999996,
+        "total": 1735.6805829999994
+      }
+    },
+    "switch-note": {
+      "styledElements": 5568,
+      "layoutScope": 12883,
+      "jsCalls": 2475497,
+      "styleRecalcs": 7,
+      "layouts": 4,
+      "wallMs": 129.56965299999956,
+      "styleMs": 5.955,
+      "layoutMs": 6.2509999999999994,
+      "scriptMs": 91.429,
+      "hash": "63f61362fc8d",
+      "phaseMs": {
+        "load": 218.77033500000016,
+        "setup": 1270.3123290000003,
+        "run": 129.56965299999956,
+        "total": 1993.9797429999999
+      }
+    },
+    "type-small": {
+      "styledElements": 0,
+      "layoutScope": 5520,
+      "jsCalls": 42825,
+      "styleRecalcs": 0,
+      "layouts": 10,
+      "wallMs": 362.4536820000003,
+      "styleMs": 0,
+      "layoutMs": 1.193,
+      "scriptMs": 12.562,
+      "hash": "14c04958da6b",
+      "phaseMs": {
+        "load": 213.24649299999965,
+        "setup": 454.5507889999999,
+        "run": 362.4536820000003,
+        "total": 1266.6564600000002
+      }
+    },
+    "type-large": {
+      "styledElements": 0,
+      "layoutScope": 272080,
+      "jsCalls": 648385,
+      "styleRecalcs": 0,
+      "layouts": 10,
+      "wallMs": 382.0234449999998,
+      "styleMs": 0,
+      "layoutMs": 14.233,
+      "scriptMs": 27.89,
+      "hash": "deac59e67b2a",
+      "phaseMs": {
+        "load": 239.20206299999973,
+        "setup": 1235.0226060000005,
+        "run": 382.0234449999998,
+        "total": 2391.9460769999996
+      }
+    },
+    "enter-list-large": {
+      "styledElements": 102,
+      "layoutScope": 326622,
+      "jsCalls": 590396,
+      "styleRecalcs": 12,
+      "layouts": 12,
+      "wallMs": 391.82933500000036,
+      "styleMs": 0.9219999999999999,
+      "layoutMs": 19.737000000000002,
+      "scriptMs": 45.442,
+      "hash": "5979d3a5b04f",
+      "phaseMs": {
+        "load": 194.39430900000025,
+        "setup": 1341.7594829999998,
+        "run": 391.82933500000036,
+        "total": 2462.615516
+      }
+    },
+    "backspace-join-large": {
+      "styledElements": 9,
+      "layoutScope": 163230,
+      "jsCalls": 406848,
+      "styleRecalcs": 2,
+      "layouts": 6,
+      "wallMs": 316.21379799999977,
+      "styleMs": 0.158,
+      "layoutMs": 10.44,
+      "scriptMs": 25.948,
+      "hash": "6f8b2d846d8b",
+      "phaseMs": {
+        "load": 226.44606399999975,
+        "setup": 1417.3603190000003,
+        "run": 316.21379799999977,
+        "total": 2443.946283
+      }
+    }
+  },
+  "timingRuns": {
+    "open-large": [
+      {
+        "styleRecalcs": 27,
+        "layouts": 14,
+        "wallMs": 398.2143730000007,
+        "styleMs": 31.527,
+        "layoutMs": 57.102,
+        "scriptMs": 245.43699999999998,
+        "hash": "07b970979497",
+        "phaseMs": {
+          "load": 167.33573699999943,
+          "setup": 236.46721799999978,
+          "run": 398.2143730000007,
+          "total": 1207.6171059999997
+        }
+      },
+      {
+        "styleRecalcs": 27,
+        "layouts": 14,
+        "wallMs": 393.9963920000009,
+        "styleMs": 30.566,
+        "layoutMs": 48.461999999999996,
+        "scriptMs": 251.234,
+        "hash": "07b970979497",
+        "phaseMs": {
+          "load": 160.6674099999982,
+          "setup": 240.45523999999932,
+          "run": 393.9963920000009,
+          "total": 1201.0590429999975
+        }
+      },
+      {
+        "styleRecalcs": 30,
+        "layouts": 14,
+        "wallMs": 827.245465,
+        "styleMs": 63.992999999999995,
+        "layoutMs": 122.485,
+        "scriptMs": 514.0630000000001,
+        "hash": "07b970979497",
+        "phaseMs": {
+          "load": 241.16425199999867,
+          "setup": 240.68141000000105,
+          "run": 827.245465,
+          "total": 1864.7969479999992
+        }
+      },
+      {
+        "styleRecalcs": 26,
+        "layouts": 14,
+        "wallMs": 412.84247199999663,
+        "styleMs": 30.828000000000003,
+        "layoutMs": 51.623000000000005,
+        "scriptMs": 267.484,
+        "hash": "07b970979497",
+        "phaseMs": {
+          "load": 175.37397700000292,
+          "setup": 237.21404900000198,
+          "run": 412.84247199999663,
+          "total": 1182.2457970000032
+        }
+      },
+      {
+        "styleRecalcs": 27,
+        "layouts": 14,
+        "wallMs": 384.446910000006,
+        "styleMs": 30.733,
+        "layoutMs": 50.587,
+        "scriptMs": 244.673,
+        "hash": "07b970979497",
+        "phaseMs": {
+          "load": 159.70359199999803,
+          "setup": 237.24988999999914,
+          "run": 384.446910000006,
+          "total": 1186.643075
+        }
+      }
+    ],
+    "switch-note": [
+      {
+        "styleRecalcs": 6,
+        "layouts": 4,
+        "wallMs": 83.40636799999993,
+        "styleMs": 5.685,
+        "layoutMs": 5.55,
+        "scriptMs": 36.055,
+        "hash": "63f61362fc8d",
+        "phaseMs": {
+          "load": 176.54002799999944,
+          "setup": 716.6858470000006,
+          "run": 83.40636799999993,
+          "total": 1379.8818859999992
+        }
+      },
+      {
+        "styleRecalcs": 6,
+        "layouts": 4,
+        "wallMs": 80.27633500000229,
+        "styleMs": 5.6290000000000004,
+        "layoutMs": 5.675999999999999,
+        "scriptMs": 36.972,
+        "hash": "63f61362fc8d",
+        "phaseMs": {
+          "load": 159.56412400000045,
+          "setup": 703.2916449999975,
+          "run": 80.27633500000229,
+          "total": 1347.1398109999973
+        }
+      },
+      {
+        "styleRecalcs": 7,
+        "layouts": 4,
+        "wallMs": 110.53693700000076,
+        "styleMs": 8.052,
+        "layoutMs": 8.21,
+        "scriptMs": 52.855,
+        "hash": "63f61362fc8d",
+        "phaseMs": {
+          "load": 176.27961399999913,
+          "setup": 1206.1744360000012,
+          "run": 110.53693700000076,
+          "total": 1849.4570830000011
+        }
+      },
+      {
+        "styleRecalcs": 7,
+        "layouts": 4,
+        "wallMs": 93.32239400000253,
+        "styleMs": 5.6610000000000005,
+        "layoutMs": 7.877999999999999,
+        "scriptMs": 41.485,
+        "hash": "63f61362fc8d",
+        "phaseMs": {
+          "load": 159.46877400000085,
+          "setup": 740.5884009999936,
+          "run": 93.32239400000253,
+          "total": 1348.0019150000007
+        }
+      },
+      {
+        "styleRecalcs": 6,
+        "layouts": 4,
+        "wallMs": 80.1873809999961,
+        "styleMs": 5.617,
+        "layoutMs": 5.709,
+        "scriptMs": 36.879000000000005,
+        "hash": "63f61362fc8d",
+        "phaseMs": {
+          "load": 156.2382209999996,
+          "setup": 636.9801920000027,
+          "run": 80.1873809999961,
+          "total": 1379.4299370000008
+        }
+      }
+    ],
+    "type-small": [
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 360.4856639999998,
+        "styleMs": 0,
+        "layoutMs": 0.755,
+        "scriptMs": 8.924,
+        "hash": "14c04958da6b",
+        "phaseMs": {
+          "load": 163.2792819999995,
+          "setup": 373.2628769999992,
+          "run": 360.4856639999998,
+          "total": 1401.61089
+        }
+      },
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 361.34505999999965,
+        "styleMs": 0,
+        "layoutMs": 0.712,
+        "scriptMs": 10.016,
+        "hash": "14c04958da6b",
+        "phaseMs": {
+          "load": 162.39023699999962,
+          "setup": 372.78553300000203,
+          "run": 361.34505999999965,
+          "total": 1402.5072070000024
+        }
+      },
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 361.18014299999777,
+        "styleMs": 0,
+        "layoutMs": 1.083,
+        "scriptMs": 14.418000000000001,
+        "hash": "14c04958da6b",
+        "phaseMs": {
+          "load": 243.38544199999887,
+          "setup": 406.26467600000615,
+          "run": 361.18014299999777,
+          "total": 1216.1616639999993
+        }
+      },
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 361.10210599999846,
+        "styleMs": 0,
+        "layoutMs": 0.619,
+        "scriptMs": 8.874,
+        "hash": "14c04958da6b",
+        "phaseMs": {
+          "load": 178.1599120000028,
+          "setup": 372.8202309999979,
+          "run": 361.10210599999846,
+          "total": 1418.2354450000057
+        }
+      },
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 361.080120000006,
+        "styleMs": 0,
+        "layoutMs": 0.714,
+        "scriptMs": 8.936,
+        "hash": "14c04958da6b",
+        "phaseMs": {
+          "load": 160.07719499999803,
+          "setup": 389.48039199999766,
+          "run": 361.080120000006,
+          "total": 1415.700361999996
+        }
+      }
+    ],
+    "type-large": [
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 374.71351499999946,
+        "styleMs": 0,
+        "layoutMs": 10.004000000000001,
+        "scriptMs": 12.999,
+        "hash": "deac59e67b2a",
+        "phaseMs": {
+          "load": 161.67766699999993,
+          "setup": 758.7741449999994,
+          "run": 374.71351499999946,
+          "total": 1450.9728259999993
+        }
+      },
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 446.5291490000018,
+        "styleMs": 0,
+        "layoutMs": 22.734,
+        "scriptMs": 26.936,
+        "hash": "deac59e67b2a",
+        "phaseMs": {
+          "load": 259.8841250000005,
+          "setup": 1187.3782369999972,
+          "run": 446.5291490000018,
+          "total": 2412.8811529999984
+        }
+      },
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 402.0050259999989,
+        "styleMs": 0,
+        "layoutMs": 15.729,
+        "scriptMs": 18.481,
+        "hash": "deac59e67b2a",
+        "phaseMs": {
+          "load": 243.77407099999982,
+          "setup": 1198.3719460000066,
+          "run": 402.0050259999989,
+          "total": 2352.7312960000054
+        }
+      },
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 372.0834390000018,
+        "styleMs": 0,
+        "layoutMs": 10.658000000000001,
+        "scriptMs": 13.363,
+        "hash": "deac59e67b2a",
+        "phaseMs": {
+          "load": 160.09210899999744,
+          "setup": 761.5584250000029,
+          "run": 372.0834390000018,
+          "total": 1450.8959069999983
+        }
+      },
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 373.53424000000086,
+        "styleMs": 0,
+        "layoutMs": 10.217,
+        "scriptMs": 13.852,
+        "hash": "deac59e67b2a",
+        "phaseMs": {
+          "load": 161.2732310000065,
+          "setup": 760.1027829999948,
+          "run": 373.53424000000086,
+          "total": 1452.2812550000017
+        }
+      }
+    ],
+    "enter-list-large": [
+      {
+        "styleRecalcs": 12,
+        "layouts": 12,
+        "wallMs": 388.7646730000015,
+        "styleMs": 0.798,
+        "layoutMs": 12.433,
+        "scriptMs": 31.621999999999996,
+        "hash": "5979d3a5b04f",
+        "phaseMs": {
+          "load": 160.29663800000162,
+          "setup": 761.7160719999974,
+          "run": 388.7646730000015,
+          "total": 1467.7068440000003
+        }
+      },
+      {
+        "styleRecalcs": 12,
+        "layouts": 12,
+        "wallMs": 535.2333519999993,
+        "styleMs": 2.231,
+        "layoutMs": 37.763999999999996,
+        "scriptMs": 74.141,
+        "hash": "5979d3a5b04f",
+        "phaseMs": {
+          "load": 347.2538620000014,
+          "setup": 898.1772320000018,
+          "run": 535.2333519999993,
+          "total": 1941.876787000001
+        }
+      },
+      {
+        "styleRecalcs": 12,
+        "layouts": 12,
+        "wallMs": 435.82960099999764,
+        "styleMs": 1.173,
+        "layoutMs": 22.663,
+        "scriptMs": 47.584,
+        "hash": "5979d3a5b04f",
+        "phaseMs": {
+          "load": 257.70674499999586,
+          "setup": 931.0942120000036,
+          "run": 435.82960099999764,
+          "total": 1780.3016949999947
+        }
+      },
+      {
+        "styleRecalcs": 12,
+        "layouts": 12,
+        "wallMs": 387.60661999999866,
+        "styleMs": 0.968,
+        "layoutMs": 14.615,
+        "scriptMs": 34.24,
+        "hash": "5979d3a5b04f",
+        "phaseMs": {
+          "load": 175.98537899999792,
+          "setup": 779.2390920000034,
+          "run": 387.60661999999866,
+          "total": 1499.3886570000031
+        }
+      },
+      {
+        "styleRecalcs": 12,
+        "layouts": 12,
+        "wallMs": 390.0085309999995,
+        "styleMs": 0.824,
+        "layoutMs": 13.553,
+        "scriptMs": 33.086,
+        "hash": "5979d3a5b04f",
+        "phaseMs": {
+          "load": 158.82655800000066,
+          "setup": 760.1479650000038,
+          "run": 390.0085309999995,
+          "total": 1463.6802090000056
+        }
+      }
+    ],
+    "backspace-join-large": [
+      {
+        "styleRecalcs": 2,
+        "layouts": 6,
+        "wallMs": 311.8899559999991,
+        "styleMs": 0.125,
+        "layoutMs": 6.4590000000000005,
+        "scriptMs": 17.105999999999998,
+        "hash": "6f8b2d846d8b",
+        "phaseMs": {
+          "load": 159.4611189999996,
+          "setup": 738.4496499999987,
+          "run": 311.8899559999991,
+          "total": 1365.2388339999998
+        }
+      },
+      {
+        "styleRecalcs": 2,
+        "layouts": 6,
+        "wallMs": 371.64321500000005,
+        "styleMs": 0.27999999999999997,
+        "layoutMs": 14.172,
+        "scriptMs": 30.505999999999997,
+        "hash": "6f8b2d846d8b",
+        "phaseMs": {
+          "load": 238.52298899999732,
+          "setup": 1278.825050000003,
+          "run": 371.64321500000005,
+          "total": 2347.195201999999
+        }
+      },
+      {
+        "styleRecalcs": 2,
+        "layouts": 6,
+        "wallMs": 314.2762819999989,
+        "styleMs": 0.126,
+        "layoutMs": 9.11,
+        "scriptMs": 17.590999999999998,
+        "hash": "6f8b2d846d8b",
+        "phaseMs": {
+          "load": 194.1903020000027,
+          "setup": 1302.3098590000009,
+          "run": 314.2762819999989,
+          "total": 1968.3539610000007
+        }
+      },
+      {
+        "styleRecalcs": 2,
+        "layouts": 6,
+        "wallMs": 303.17002499999944,
+        "styleMs": 0.10900000000000001,
+        "layoutMs": 6.944,
+        "scriptMs": 17.296,
+        "hash": "6f8b2d846d8b",
+        "phaseMs": {
+          "load": 159.59957399999985,
+          "setup": 763.8182949999973,
+          "run": 303.17002499999944,
+          "total": 1383.018615999994
+        }
+      },
+      {
+        "styleRecalcs": 2,
+        "layouts": 6,
+        "wallMs": 306.96807999999874,
+        "styleMs": 0.125,
+        "layoutMs": 6.948,
+        "scriptMs": 18.315,
+        "hash": "6f8b2d846d8b",
+        "phaseMs": {
+          "load": 161.69456200000423,
+          "setup": 760.3951089999973,
+          "run": 306.96807999999874,
+          "total": 1436.0243259999988
+        }
+      }
+    ]
+  }
+}
