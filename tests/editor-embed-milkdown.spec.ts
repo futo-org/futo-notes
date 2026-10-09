@@ -3462,6 +3462,66 @@ for (const c of LATE_LAYOUT_CASES) {
   );
 }
 
+/* Only the blocks the preview has cloned (the window around the screen) are
+ * watched for size changes. A block far above the window that grows moves the
+ * whole window without resizing any of it; scroll anchoring keeps the screen
+ * still by scrolling, and that scroll is what tells the preview to remeasure. */
+mobileDndTest(
+  'reflow drop matches its preview when an image far above the window loads mid-drag',
+  async ({ page, cdp }) => {
+    await page.setViewportSize({ width: 760, height: 720 });
+    await page.route(`${LATE_IMAGE_BASE}**`, (route) =>
+      route.fulfill({ contentType: 'image/svg+xml', body: LATE_IMAGE_SVG }),
+    );
+    await hostSetContent(page, `![late image](late.svg)\n\n${scrollableNote(150)}`);
+    await clearMessages(page);
+    // Line 100 at the top of the screen: the image is many viewports up.
+    await page.evaluate(() => {
+      const dom = document.querySelector('.ProseMirror') as HTMLElement;
+      const line = [...dom.children].find((el) => el.textContent === 'Line 100') as HTMLElement;
+      dom.scrollTop += line.getBoundingClientRect().top - dom.getBoundingClientRect().top;
+    });
+    await flushFrames(page);
+    const before = (await editorScroll(page)).top;
+    expect(before).toBeGreaterThan(3 * 720);
+
+    const lineAt = async (n: number) => {
+      const index = await page.evaluate(
+        (text) =>
+          [...document.querySelector('.ProseMirror')!.children].findIndex(
+            (el) => el.textContent === text,
+          ),
+        `Line ${n}`,
+      );
+      return { index, box: await blockBoxAt(page, index) };
+    };
+    const source = await lineAt(102);
+    const target = await lineAt(106);
+    const lifted = await liftWithTouch(page, cdp, source.index);
+    await lifted.move(target.box.top + (target.box.bottom - target.box.top) * 0.75);
+    await page.waitForTimeout(400);
+    expect(await curtainUp(page)).toBe(true);
+
+    await page.evaluate(
+      (base) => (window as unknown as FakeHostWindow).FutoEditor.setImageBaseUrl(base),
+      LATE_IMAGE_BASE,
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const img = document.querySelector('.ProseMirror[contenteditable] img');
+          return img instanceof HTMLImageElement && img.complete ? img.naturalHeight : 0;
+        }),
+      )
+      .toBe(200);
+    await flushFrames(page);
+    // Anchoring kept the screen still by scrolling past the grown image.
+    expect((await editorScroll(page)).top).toBeGreaterThan(before + 150);
+
+    await expectDropMatchesPreview(page, () => lifted.release());
+  },
+);
+
 /* The layout can change in the very task that releases the drag, before the
  * ResizeObserver has reported it: the release must judge the slot against the
  * layout as it is then, not the one measured. Here an image above the slot

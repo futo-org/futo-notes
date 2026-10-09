@@ -629,7 +629,7 @@ hand-reviewed goldens, one or more per line below)
   release checks the layout again itself, so a change in the very moment of
   release is not missed. It does not fall back to the drop line. Verified in
   Chromium (Playwright) 2026-10-08. → src/features/editor/milkdown/blockDragCurtain.ts
-  `scheduleWatchSizes` `remeasure` `release`, tests/editor-embed-milkdown.spec.ts
+  `watch` `followScroll` `remeasure` `release`, tests/editor-embed-milkdown.spec.ts
 - The desktop ⠿ handle's lifted block is a ghost card the page draws, at the
   block's own on-screen size, never an OS drag image: a clone of the block over
   the block itself (padded by the card's breathing room, like the long press's),

@@ -21,7 +21,8 @@
  * The geometry is cached for the drag, and the document staying the same does
  * not keep it right: an image that loads, a web font that swaps in or a
  * resized viewport changes the blocks' sizes under the drag. A ResizeObserver
- * on the real blocks notices (`scheduleWatchSizes`), and the preview is
+ * on the blocks the curtain has cloned notices (`watch`), as does a check of
+ * the window's place as the note scrolls (`followScroll`), and the preview is
  * measured and drawn again from the layout as it is then (`remeasure`).
  *
  * The session's whole contact with this module: `measure` (reads), `mount`
@@ -134,13 +135,12 @@ interface Reflow {
   idleOpen: number;
   /** The pending idle fill (`scheduleFill`), same kinds of id. */
   idleFill: number;
-  /** The pending idle start of `scheduleWatchSizes`, same kinds of id. */
-  idleWatch: number;
-  /** Watches the real blocks' sizes once `scheduleWatchSizes` has run. */
-  sizes: ResizeObserver | null;
-  /** Whether `sizes` has made its first report (every block's size as it was
-   * when the watch started); every later one is a change. */
-  sizesReported: boolean;
+  /** Watches the sizes of the cloned blocks and the scroll box (`watch`). */
+  sizes: ResizeObserver;
+  /** What `sizes` watches, and of that, what it has not yet reported once
+   * (its first report is the size it was measured at, not a change). */
+  watched: Set<Element>;
+  unreported: Set<Element>;
   /** The pointer's y at the last `sync`, which a `remeasure` re-resolves the
    * slot against. NaN before the first. */
   pointerY: number;
@@ -150,6 +150,8 @@ interface Reflow {
   sliding: Set<EventTarget>;
   /** Called as each slide ends, once `settle` is waiting on them. */
   onSlideEnd: (() => void) | null;
+  /** The scroll position a committed drop keeps (`holdScrollThroughDrop`). */
+  dropScrollTop: number;
   /** The gap index currently previewed, or null for "nothing moved". */
   applied: number | null;
   scrollFrame: number;
@@ -256,7 +258,8 @@ export class ReflowCurtain {
     this.placeCurtain(this.reflow);
     this.host.appendChild(this.reflow.clip);
     this.scheduleIdleOpen(this.reflow);
-    this.scheduleWatchSizes(this.reflow);
+    const { scroller } = this.reflow;
+    this.watch(this.reflow, scroller instanceof HTMLElement ? scroller : this.doc.documentElement);
   }
 
   /** Sets up the preview for `source` — where the curtain goes; the blocks
@@ -325,13 +328,14 @@ export class ReflowCurtain {
       open: false,
       idleOpen: 0,
       idleFill: 0,
-      idleWatch: 0,
-      sizes: null,
-      sizesReported: false,
+      sizes: new ResizeObserver((entries) => this.onSizesChanged(reflow, entries)),
+      watched: new Set(),
+      unreported: new Set(),
       pointerY: Number.NaN,
       clones: new Map(),
       sliding,
       onSlideEnd: null,
+      dropScrollTop: Number.NaN,
       applied: null,
       scrollFrame: 0,
     };
@@ -339,8 +343,12 @@ export class ReflowCurtain {
   }
 
   /** Where the clip and curtain go over `scroller` as the page is laid out
-   * now. Reads only. */
-  private curtainBox(scroller: HTMLElement | Window): CurtainBox & { originLeft: number } {
+   * now, and (unless `paint` is false, for a check of the geometry alone) what
+   * the curtain is painted with. Reads only. */
+  private curtainBox(
+    scroller: HTMLElement | Window,
+    paint = true,
+  ): CurtainBox & { originLeft: number } {
     const win = this.doc.defaultView ?? window;
     const visible =
       scroller instanceof HTMLElement
@@ -352,7 +360,7 @@ export class ReflowCurtain {
       left: viewRect.left - visible.left,
       width: viewRect.width,
       height: Math.max(this.view.dom.scrollHeight, viewRect.height),
-      background: backgroundBehind(this.view.dom),
+      background: paint ? backgroundBehind(this.view.dom) : '',
       originLeft: viewRect.left,
     };
   }
@@ -629,9 +637,9 @@ export class ReflowCurtain {
    * releases, before the ResizeObserver has reported it — and moves the
    * preview to the gap it resolves, so the committed move,
    * `holdScrollThroughDrop` and the picture `settle` leaves up all agree on one
-   * gap. Only the blocks the release reads are checked: the drawn window, the
-   * source and the note's last two (`dropShrink`); a size change above any of
-   * them moves them. */
+   * gap. Checked: the drawn window's first and last blocks and the note's last
+   * two (`dropShrink`). A size change above any of them moves it, and one
+   * inside the window moves its last block. */
   release(clientY: number): DropTarget | null {
     if (!this.ensureValid()) return null;
     const reflow = this.reflow!;
@@ -639,7 +647,13 @@ export class ReflowCurtain {
     // case where a neighbour still jumps), so this preview can show the move.
     if (!reflow.open && settling.has(this.view.dom)) ReflowCurtain.endSettling(this.view);
     reflow.pointerY = clientY;
-    const read = [...reflow.clones.keys(), reflow.sourceIndex, reflow.count - 1, reflow.count - 2];
+    let first = Infinity;
+    let last = -1;
+    for (const i of reflow.clones.keys()) {
+      first = Math.min(first, i);
+      last = Math.max(last, i);
+    }
+    const read = [first, last, reflow.count - 1, reflow.count - 2].filter(Number.isFinite);
     if (!this.layoutMatches(reflow, read)) this.remeasure(reflow);
     if (!this.sync(clientY, false)) return null;
     return this.target(clientY);
@@ -767,6 +781,23 @@ export class ReflowCurtain {
    * of clones up to date. */
   private followScroll(reflow: Reflow): void {
     reflow.originTop = this.reflowOriginTop();
+    // A size change above the window moves the whole window without resizing
+    // any block it watches, and scroll anchoring makes that a scroll: the
+    // window's first block is where it was measured, or the preview is.
+    // One rect read a frame: this runs on every frame of an auto-scroll.
+    let first = Infinity;
+    for (const i of reflow.clones.keys()) first = Math.min(first, i);
+    if (
+      first !== Infinity &&
+      Math.abs(
+        this.view.dom.children[first].getBoundingClientRect().top -
+          reflow.originTop -
+          reflow.tops[first],
+      ) > 0.5
+    ) {
+      this.remeasure(reflow);
+      return;
+    }
     const plan = this.planCurtainWindow(reflow);
     reflow.curtain.style.transform = `translateY(${reflow.originTop - reflow.box.clip.top}px)`;
     this.applyCurtainWindow(reflow, plan);
@@ -827,6 +858,7 @@ export class ReflowCurtain {
     for (const i of plan.remove) {
       reflow.clones.get(i)?.el.remove();
       reflow.clones.delete(i);
+      this.unwatch(reflow, this.view.dom.children[i]);
     }
     for (const i of plan.add) this.addClone(reflow, i);
     this.scheduleFill(reflow);
@@ -848,45 +880,47 @@ export class ReflowCurtain {
     clone.style.transform = `translateY(${shift}px)`;
     reflow.curtain.appendChild(clone);
     reflow.clones.set(i, { el: clone, shift });
+    this.watch(reflow, live);
   }
 
-  /** Starts watching the real blocks' sizes, in idle time after the lift:
-   * observing 3,000 blocks costs ~2ms, and their first report (one entry per
-   * block) ~4ms of the frame after (desktop Chromium at 6x CPU throttling,
-   * 2026-10-08). That first report also checks everything measured until then
-   * (`layoutMatches`), so a change before the watch started is caught too. The
-   * scroll box is watched as well: the clip covers it. */
-  private scheduleWatchSizes(reflow: Reflow): void {
-    reflow.idleWatch = this.whenIdle(() => {
-      reflow.idleWatch = 0;
-      if (this.reflow !== reflow) return;
-      const sizes = new ResizeObserver(() => this.onSizesChanged(reflow));
-      for (const block of Array.from(this.view.dom.children)) sizes.observe(block);
-      sizes.observe(
-        reflow.scroller instanceof HTMLElement ? reflow.scroller : this.doc.documentElement,
-      );
-      reflow.sizes = sizes;
-    }, CURTAIN_IDLE_OPEN_TIMEOUT_MS);
+  /** Watches `el`'s size (a cloned block, or the scroll box the clip covers).
+   * Only the window's few dozen blocks: watching all 3,000 blocks of a long
+   * note cost the budget phone ~8ms a frame for as long as the drag lasted
+   * (2026-10-09), and a block outside the window only matters by moving it
+   * (`followScroll`). */
+  private watch(reflow: Reflow, el: Element | undefined): void {
+    if (!el || reflow.watched.has(el)) return;
+    reflow.watched.add(el);
+    reflow.unreported.add(el);
+    reflow.sizes.observe(el);
   }
 
-  /** A watched size changed, or this is the watch's first report, which only
-   * calls for a remeasure when the layout is no longer the one measured. Runs
-   * between layout and paint, so the reads are cheap and the new preview is
-   * painted in the same frame as the change. */
-  private onSizesChanged(reflow: Reflow): void {
+  private unwatch(reflow: Reflow, el: Element | undefined): void {
+    if (!el || !reflow.watched.delete(el)) return;
+    reflow.unreported.delete(el);
+    reflow.sizes.unobserve(el);
+  }
+
+  /** A watched size changed: the preview is measured again. A first report
+   * is the size the element was measured at, not a change. Runs between
+   * layout and paint, so the reads are cheap and the new preview is painted
+   * in the same frame as the change. */
+  private onSizesChanged(reflow: Reflow, entries: ResizeObserverEntry[]): void {
     if (this.reflow !== reflow || !this.ensureValid()) return;
-    const first = !reflow.sizesReported;
-    reflow.sizesReported = true;
-    if (!first || !this.layoutMatches(reflow)) this.remeasure(reflow);
+    let changed = false;
+    for (const entry of entries) {
+      if (!reflow.unreported.delete(entry.target)) changed = true;
+    }
+    if (changed) this.remeasure(reflow);
   }
 
-  /** Whether every block measured so far (or, given `only`, those of them),
-   * and the curtain's box, are still where they were measured. A block that
-   * changed size moves every block after it, so checking the measured ones
-   * also catches an unmeasured block changing above them. Reads only. */
-  private layoutMatches(reflow: Reflow, only?: number[]): boolean {
+  /** Whether the blocks `only` (those of them measured), and the curtain's
+   * box, are still where they were measured. A block that changed size moves
+   * every block after it, so checking a block also catches any changing
+   * above it. Reads only. */
+  private layoutMatches(reflow: Reflow, only: number[]): boolean {
     const moved = (a: number, b: number) => Math.abs(a - b) > 0.5;
-    const box = this.curtainBox(reflow.scroller);
+    const box = this.curtainBox(reflow.scroller, false);
     if (
       moved(box.clip.top, reflow.box.clip.top) ||
       moved(box.clip.left, reflow.box.clip.left) ||
@@ -899,7 +933,7 @@ export class ReflowCurtain {
     }
     const originTop = this.reflowOriginTop();
     const blocks = this.view.dom.children;
-    for (const i of only ?? reflow.tops.keys()) {
+    for (const i of only) {
       if (i < 0 || Number.isNaN(reflow.tops[i])) continue;
       const rect = blocks[i].getBoundingClientRect();
       if (
@@ -953,7 +987,10 @@ export class ReflowCurtain {
     for (const [i, clone] of stale) drawnTops.set(i, clone.el.getBoundingClientRect().top);
     // Writes.
     this.placeCurtain(reflow);
-    for (const clone of stale.values()) clone.el.remove();
+    for (const [i, clone] of stale) {
+      clone.el.remove();
+      if (!plan?.add.includes(i)) this.unwatch(reflow, this.view.dom.children[i]);
+    }
     reflow.sliding.clear();
     if (!plan) return;
     reflow.curtain.style.background = box.background;
@@ -1009,8 +1046,13 @@ export class ReflowCurtain {
    *   across a layout change, and when the source sat above the viewport
    *   (auto-scroll carried it off the top) that block is one the move shifts
    *   up by the source's height, so the view jumped by it on release — only
-   *   "sometimes", because it depends on which block the browser picked.
-   *   Anchoring is held off the scroller until the move has been laid out.
+   *   "sometimes", because it depends on which block the browser picked. The
+   *   scroll position is put back after the move's layout, before its paint
+   *   (a ResizeObserver's first report comes then). Turning anchoring off
+   *   instead (`overflow-anchor: none` on the scroller for the drop) restyled
+   *   the whole note twice, since the editor IS the scroller on the native
+   *   shells: +280ms on the drop frame and a 300ms frame after it, on a
+   *   3,000-block note on the budget phone (2026-10-09).
    * - A move can make the note shorter (`dropShrink`), and scrolled to near
    *   its bottom the browser clamps the scroll position to the shorter note,
    *   moving every block on screen down. The editor holds the missing extent
@@ -1030,18 +1072,13 @@ export class ReflowCurtain {
     const after = el.scrollHeight - this.dropShrink(reflow);
     const clamps = el.scrollTop > Math.max(0, after - el.clientHeight) + 0.5;
     const short = clamps ? el.scrollTop + el.clientHeight - after : 0;
-    el.style.overflowAnchor = 'none';
-    const hold = (anchorHolds.get(el) ?? 0) + 1;
-    anchorHolds.set(el, hold);
-    // Two frames: the first frame's layout is the one that lays out the move.
-    // Only the latest drop's hold lets go, so an earlier one cannot end it.
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        if (anchorHolds.get(el) !== hold) return;
-        anchorHolds.delete(el);
-        el.style.removeProperty('overflow-anchor');
-      }),
-    );
+    const top = el.scrollTop;
+    reflow.dropScrollTop = top;
+    const restore = new ResizeObserver(() => {
+      restore.disconnect();
+      if (Math.abs(el.scrollTop - top) > 0.5) el.scrollTop = top;
+    });
+    restore.observe(el);
     if (short > 0) holdScrollExtent(this.view.dom, el, reflow.scroller, Math.ceil(short));
   }
 
@@ -1118,10 +1155,17 @@ export class ReflowCurtain {
     for (const block of watched.keys()) sizes.observe(block);
     if (reflow.scroller instanceof HTMLElement) sizes.observe(reflow.scroller);
     let timer = 0;
+    // Scroll anchoring moving the view and the drop putting it back
+    // (`holdScrollThroughDrop`) are no scroll.
+    const scroller =
+      reflow.scroller instanceof HTMLElement ? reflow.scroller : this.doc.scrollingElement;
+    const onScroll = () => {
+      if (!scroller || !(Math.abs(scroller.scrollTop - reflow.dropScrollTop) <= 0.5)) done();
+    };
     const done = () => {
       win.clearTimeout(timer);
       sizes.disconnect();
-      reflow.scroller.removeEventListener('scroll', done);
+      reflow.scroller.removeEventListener('scroll', onScroll);
       reflow.onSlideEnd = null;
       reflow.clip.remove();
       if (settling.get(editor) !== done) return;
@@ -1145,7 +1189,7 @@ export class ReflowCurtain {
     reflow.onSlideEnd = () => {
       if (reflow.sliding.size === 0) done();
     };
-    reflow.scroller.addEventListener('scroll', done, { passive: true });
+    reflow.scroller.addEventListener('scroll', onScroll, { passive: true });
     settling.get(editor)?.();
     settling.set(editor, done);
   }
@@ -1201,16 +1245,12 @@ export class ReflowCurtain {
   private stop(reflow: Reflow): void {
     this.cancelIdleOpen(reflow);
     this.cancelIdle(reflow.idleFill);
-    this.cancelIdle(reflow.idleWatch);
-    reflow.sizes?.disconnect();
+    reflow.sizes.disconnect();
     cancelAnimationFrame(reflow.scrollFrame);
     reflow.scroller.removeEventListener('scroll', reflow.onScroll);
     this.reflow = null;
   }
 }
-
-/** The pending end of each scroller's scroll-anchoring hold, by scroller. */
-const anchorHolds = new WeakMap<HTMLElement, number>();
 
 /** The extent `holdScrollExtent` is holding on an editor, by editor. */
 const extentHolds = new WeakMap<HTMLElement, { extra: number; release: () => void }>();
