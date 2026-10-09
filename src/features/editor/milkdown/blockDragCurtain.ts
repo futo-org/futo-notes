@@ -70,6 +70,13 @@ const CURTAIN_FILL_TIMEOUT_MS = 300;
 const IDLE_FALLBACK_DELAY_MS = 32;
 const IDLE_FALLBACK_SLICE_MS = 4;
 const REFLOW_TRANSITION = 'transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1)';
+/** The longest `settle` leaves the curtain up, should a slide's
+ * `transitionend` never arrive (`transitioncancel` is Chromium 87; the
+ * Android WebView floor is 80). */
+const SETTLE_TIMEOUT_MS = 1000;
+
+/** The finish of each editor's settling curtain (`settle`), by editor DOM. */
+const settling = new WeakMap<HTMLElement, () => void>();
 
 interface Reflow {
   /** The document the geometry below was measured against. Any transaction
@@ -137,6 +144,10 @@ interface Reflow {
   pointerY: number;
   /** Live clones by block index, with the shift (px) written on each. */
   clones: Map<number, { el: HTMLElement; shift: number }>;
+  /** The clones whose slide (a transform transition) is still running. */
+  sliding: Set<EventTarget>;
+  /** Called as each slide ends, once `settle` is waiting on them. */
+  onSlideEnd: (() => void) | null;
   /** The gap index currently previewed, or null for "nothing moved". */
   applied: number | null;
   scrollFrame: number;
@@ -230,6 +241,7 @@ export class ReflowCurtain {
     onBoundaryChange?: () => void,
   ): ReflowCurtain | null {
     const win = view.dom.ownerDocument.defaultView ?? window;
+    ReflowCurtain.endSettling(view);
     if (reflowForcedOff(win)) return null;
     const curtain = new ReflowCurtain(view, host, onBoundaryChange);
     curtain.reflow = curtain.measureReflow(source);
@@ -281,7 +293,14 @@ export class ReflowCurtain {
     // clones; the curtain rules above override the editor's BOX rules.
     curtain.className = 'futo-mobile-dnd-reflow-curtain ProseMirror';
     clip.appendChild(curtain);
-    return {
+    const sliding = new Set<EventTarget>();
+    const slideEnded = (event: Event) => {
+      if (event.target === null || !sliding.delete(event.target)) return;
+      reflow.onSlideEnd?.();
+    };
+    curtain.addEventListener('transitionend', slideEnded);
+    curtain.addEventListener('transitioncancel', slideEnded);
+    const reflow: Reflow = {
       doc,
       count,
       tops: unmeasured(),
@@ -309,9 +328,12 @@ export class ReflowCurtain {
       sizesReported: false,
       pointerY: Number.NaN,
       clones: new Map(),
+      sliding,
+      onSlideEnd: null,
       applied: null,
       scrollFrame: 0,
     };
+    return reflow;
   }
 
   /** Where the clip and curtain go over `scroller` as the page is laid out
@@ -671,6 +693,7 @@ export class ReflowCurtain {
     for (const [clone, shift] of moves) {
       clone.el.style.transform = `translateY(${shift}px)`;
       clone.shift = shift;
+      reflow.sliding.add(clone.el);
     }
   }
 
@@ -914,13 +937,35 @@ export class ReflowCurtain {
     const stale = reflow.clones;
     reflow.clones = new Map();
     const plan = reflow.open ? this.planCurtainWindow(reflow) : null;
+    // Where each clone is drawn right now, mid-slide or not: its replacement
+    // starts there, so a remeasure never makes a block jump.
+    const drawnTops = new Map<number, number>();
+    for (const [i, clone] of stale) drawnTops.set(i, clone.el.getBoundingClientRect().top);
     // Writes.
     this.placeCurtain(reflow);
     for (const clone of stale.values()) clone.el.remove();
+    reflow.sliding.clear();
     if (!plan) return;
     reflow.curtain.style.background = box.background;
     reflow.curtain.style.transform = `translateY(${reflow.originTop - box.clip.top}px)`;
     this.applyCurtainWindow(reflow, plan);
+    const glides: Array<{ el: HTMLElement; shift: number }> = [];
+    for (const [i, top] of drawnTops) {
+      const clone = reflow.clones.get(i);
+      if (!clone) continue;
+      // The clone's box top on screen with no shift (`addClone`).
+      const from = top - (reflow.originTop + this.slotTop(i) - reflow.insets[i]);
+      if (Math.abs(from - clone.shift) <= 0.5) continue;
+      clone.el.style.transform = `translateY(${from}px)`;
+      glides.push(clone);
+    }
+    if (glides.length === 0) return;
+    // One style pass resolves every starting point, then each slides on.
+    void getComputedStyle(glides[0].el).transform;
+    for (const clone of glides) {
+      clone.el.style.transform = `translateY(${clone.shift}px)`;
+      reflow.sliding.add(clone.el);
+    }
   }
 
   private onReflowScroll(): void {
@@ -1000,19 +1045,70 @@ export class ReflowCurtain {
     return Math.max(byBlock, byBlock + this.marginBelow(last) - this.marginBelow(newLast));
   }
 
-  /** Takes the curtain down and ends the preview. Every exit calls it;
-   * `finish` does so before dispatching the move, in the same synchronous step,
-   * so no stale preview is painted over the result. */
+  /** Takes the curtain down and ends the preview. Every exit but a committed
+   * move calls it, in the same synchronous step as the exit, so no stale
+   * preview is painted over the result. */
   end(): void {
     const reflow = this.reflow;
     if (!reflow) return;
+    this.stop(reflow);
+    reflow.clip.remove();
+  }
+
+  /** The move this preview shows has been dispatched: the real blocks under
+   * the curtain are now laid out exactly where the clones are headed
+   * (`release`). Taking the curtain down at once would make every neighbour
+   * still sliding there jump the rest of the way, so it stays up until the
+   * last slide ends; only the dropped block's clone moves now, undimmed,
+   * snapping into its slot. The curtain goes early at a scroll (it no longer
+   * follows one), at the next drag's lift or when the editor goes
+   * (`endSettling`), and after SETTLE_TIMEOUT_MS at the latest. */
+  settle(): void {
+    const reflow = this.reflow;
+    if (!reflow) return;
+    this.stop(reflow);
+    const source = reflow.clones.get(reflow.sourceIndex)?.el;
+    if (source) {
+      source.classList.remove('futo-mobile-dnd-reflow-source');
+      source.style.transition = 'none';
+      reflow.sliding.delete(source);
+    }
+    if (!reflow.open || reflow.sliding.size === 0) {
+      reflow.clip.remove();
+      return;
+    }
+    const editor = this.view.dom;
+    const win = this.doc.defaultView ?? window;
+    const done = () => {
+      win.clearTimeout(timer);
+      reflow.scroller.removeEventListener('scroll', done);
+      reflow.onSlideEnd = null;
+      if (settling.get(editor) === done) settling.delete(editor);
+      reflow.clip.remove();
+    };
+    const timer = win.setTimeout(done, SETTLE_TIMEOUT_MS);
+    reflow.onSlideEnd = () => {
+      if (reflow.sliding.size === 0) done();
+    };
+    reflow.scroller.addEventListener('scroll', done, { passive: true });
+    settling.get(editor)?.();
+    settling.set(editor, done);
+  }
+
+  /** Takes down `view`'s settling curtain, if one is still up. */
+  static endSettling(view: ProseView): void {
+    settling.get(view.dom)?.();
+  }
+
+  /** Stops everything that keeps the preview live (idle work, the size
+   * watch, the scroll follow) and lets go of it. */
+  private stop(reflow: Reflow): void {
     this.cancelIdleOpen(reflow);
     this.cancelIdle(reflow.idleFill);
     this.cancelIdle(reflow.idleWatch);
     reflow.sizes?.disconnect();
     cancelAnimationFrame(reflow.scrollFrame);
     reflow.scroller.removeEventListener('scroll', reflow.onScroll);
-    reflow.clip.remove();
     this.reflow = null;
   }
 }

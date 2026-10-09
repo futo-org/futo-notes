@@ -624,10 +624,12 @@ hand-reviewed goldens, one or more per line below)
   drag while the note itself does not: an image that loads, a web font that
   swaps in, a resized window or a rotated phone. The blocks are measured again
   and the preview is redrawn in the same frame, with the slot found again under
-  the pointer, so the release still lands exactly where the preview shows. It
-  does not fall back to the drop line. Verified in Chromium (Playwright)
-  2026-10-08. → src/features/editor/milkdown/blockDragCurtain.ts
-  `scheduleWatchSizes` `remeasure`, tests/editor-embed-milkdown.spec.ts
+  the pointer, so the release still lands exactly where the preview shows; a
+  block mid-slide carries on from where it is drawn rather than jumping. A
+  release checks the layout again itself, so a change in the very moment of
+  release is not missed. It does not fall back to the drop line. Verified in
+  Chromium (Playwright) 2026-10-08. → src/features/editor/milkdown/blockDragCurtain.ts
+  `scheduleWatchSizes` `remeasure` `release`, tests/editor-embed-milkdown.spec.ts
 - The desktop ⠿ handle's lifted block is a ghost card the page draws, at the
   block's own on-screen size, never an OS drag image: a clone of the block over
   the block itself (padded by the card's breathing room, like the long press's),
@@ -750,9 +752,12 @@ hand-reviewed goldens, one or more per line below)
   browser used to clamp the scroll position to the shorter note and move every
   block down). For that, the editor keeps the missing scroll extent as extra
   bottom padding, which goes at the first scroll that leaves the view clear of
-  it, so its removal never moves the view either. Verified in Chromium
-  (Playwright) 2026-10-08. → src/features/editor/milkdown/blockDragCurtain.ts
-  `holdScrollThroughDrop` `holdScrollExtent`, src/features/editor/milkdown/blockDragSession.ts,
+  it, so its removal never moves the view either. Only the dropped block moves
+  at the release, snapping into its slot: a neighbour still sliding out of the
+  way when the finger lifts finishes its slide rather than jumping to its
+  place. Verified in Chromium (Playwright) 2026-10-08. →
+  src/features/editor/milkdown/blockDragCurtain.ts `holdScrollThroughDrop`
+  `holdScrollExtent` `settle`, src/features/editor/milkdown/blockDragSession.ts,
   tests/editor-embed-milkdown.spec.ts
 - A finger landing on a block in the long-press block drag suspends the
   platform's DELAYED text interaction from touch-down — the magnifier loupe and

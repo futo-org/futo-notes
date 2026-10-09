@@ -3505,6 +3505,131 @@ mobileDndTest(
   },
 );
 
+// ---- the drop invariant mid-slide ------------------------------------------
+//
+// The preview's clones slide to their places over 0.18s. A release, or a
+// layout change, during that slide must not teleport a neighbour to where it
+// was going: it carries on from where it is drawn. The page's animation clock
+// is slowed and then stopped through CDP, so the slide is caught part-way
+// every time, and positions are read off what is RENDERED (the clones' rects,
+// transform included), never off their target transforms.
+
+/** The blocks as rendered right now: the curtain's clones while it is up,
+ * else the real blocks. */
+async function renderedLayout(page: Page) {
+  return dragLayout(page, await curtainUp(page));
+}
+
+/** Runs the page's animations at `rate` (0 stops them). */
+async function animationRate(cdp: CDPSession, rate: number): Promise<void> {
+  await cdp.send('Animation.enable');
+  await cdp.send('Animation.setPlaybackRate', { playbackRate: rate });
+}
+
+/** Lifts alpha and moves it past charlie and delta, then catches the slide
+ * part-way: runs it at 5% speed for a beat, then stops the clock. */
+async function liftAndStopMidSlide(page: Page, cdp: CDPSession): Promise<LiftedBlock> {
+  const delta = await blockBox(page, 'delta');
+  const lifted = await liftWithTouch(page, cdp, 0);
+  // Let the curtain open on a still finger, so only the move below slides.
+  await page.waitForTimeout(300);
+  await animationRate(cdp, 0.05);
+  await lifted.move(delta.top + (delta.bottom - delta.top) * 0.75);
+  await page.waitForTimeout(600);
+  await animationRate(cdp, 0);
+  return lifted;
+}
+
+/** Every block in `before` but `except` is within 1px of its place (top
+ * only, with `topOnly`) in `after`. */
+function expectNoneMoved(
+  before: Awaited<ReturnType<typeof dragLayout>>,
+  after: Awaited<ReturnType<typeof dragLayout>>,
+  { except = '', topOnly = false } = {},
+) {
+  const moved: string[] = [];
+  for (const [key, was] of Object.entries(before.blocks)) {
+    if (key === except) continue;
+    const now = after.blocks[key];
+    if (!now) moved.push(`"${key}" is gone`);
+    else if (
+      Math.abs(now.top - was.top) > 1 ||
+      (!topOnly && Math.abs(now.bottom - was.bottom) > 1)
+    ) {
+      moved.push(`"${key}" ${was.top.toFixed(1)} -> ${now.top.toFixed(1)}`);
+    }
+  }
+  expect(moved, 'blocks that jumped').toEqual([]);
+}
+
+const SLIDE_NOTE =
+  'alpha\n\nbravo\n\ncharlie\n\ndelta\n\n![late image](late.svg)\n\necho\n\nfoxtrot';
+
+mobileDndTest(
+  'a release mid-slide lets the neighbours finish their slide instead of jumping',
+  async ({ page, cdp }) => {
+    await page.setViewportSize({ width: 760, height: 1200 });
+    await hostSetContent(page, SLIDE_NOTE);
+    await clearMessages(page);
+
+    const lifted = await liftAndStopMidSlide(page, cdp);
+    const before = await renderedLayout(page);
+    // Caught part-way: bravo is drawn neither where it was nor where it goes.
+    const bravoGoes = await drawnBox(page, 'bravo');
+    const bravoWas = await blockBox(page, 'bravo');
+    expect(Math.abs(before.blocks.bravo.top - bravoGoes.top)).toBeGreaterThan(5);
+    expect(Math.abs(before.blocks.bravo.top - bravoWas.top)).toBeGreaterThan(5);
+
+    await lifted.release();
+    await waitForMessages(page, 'change');
+    // Only the dropped block moved (into its slot); the rest are where they
+    // were drawn, still part-way.
+    expectNoneMoved(before, await renderedLayout(page), { except: 'alpha' });
+
+    // Once the clock runs, the slide finishes and the preview goes.
+    await animationRate(cdp, 1);
+    await expect(page.locator('.futo-mobile-dnd-reflow-clip')).toHaveCount(0);
+    expect(await getContent(page)).toMatch(/^bravo\n\ncharlie\n\ndelta\n\nalpha\n\n/);
+  },
+);
+
+mobileDndTest(
+  'a layout change mid-slide lets the clones finish their slide instead of jumping',
+  async ({ page, cdp }) => {
+    await page.setViewportSize({ width: 760, height: 1200 });
+    await page.route(`${LATE_IMAGE_BASE}**`, (route) =>
+      route.fulfill({ contentType: 'image/svg+xml', body: LATE_IMAGE_SVG }),
+    );
+    await hostSetContent(page, SLIDE_NOTE);
+    await clearMessages(page);
+
+    const lifted = await liftAndStopMidSlide(page, cdp);
+    const before = await renderedLayout(page);
+    expect(Object.keys(before.blocks).length).toBeGreaterThan(3);
+
+    // An image below the slot loads (200px), and the preview is remeasured.
+    await page.evaluate(
+      (base) => (window as unknown as FakeHostWindow).FutoEditor.setImageBaseUrl(base),
+      LATE_IMAGE_BASE,
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const img = document.querySelector('.futo-mobile-dnd-reflow-curtain img');
+          return img instanceof HTMLImageElement && img.complete ? img.naturalHeight : 0;
+        }),
+      )
+      .toBe(200);
+    await flushFrames(page);
+    // Every clone starts its new slide from where it was drawn (the image's
+    // own block grows, so only tops are compared).
+    expectNoneMoved(before, await renderedLayout(page), { topOnly: true });
+
+    await animationRate(cdp, 1);
+    await expectDropMatchesPreview(page, () => lifted.release());
+  },
+);
+
 /* A move can make the note SHORTER: the final paragraph moved above a first
  * heading becomes the first block, whose top margin the editor zeroes, while
  * the heading keeps its own — one paragraph gap fewer. Scrolled to the bottom,

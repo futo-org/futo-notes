@@ -344,6 +344,9 @@ export class BlockDragSession {
     // the visuals go, because ending the reflow preview switches `computeTarget`
     // back to the line geometry.
     let target: DropTarget | null = null;
+    // The reflow preview of a release that will commit: it outlives the drag
+    // until its slide finishes (`ReflowCurtain.settle`), or ends with it.
+    let settling: ReflowCurtain | null = null;
     try {
       target = commit ? this.computeTarget(clientY, true) : null;
       if (target) this.reflow?.holdScrollThroughDrop();
@@ -353,11 +356,16 @@ export class BlockDragSession {
     } finally {
       // Whatever the read does, the visuals and the lift state go: a throw
       // here must not leave the curtain and ghost mounted.
+      if (target) {
+        settling = this.reflow;
+        this.reflow = null;
+      }
       this.cleanupDragVisuals();
       if (!target) this.reset();
     }
     const range = target ? this.currentSourceRange(lifted) : null;
     if (!target || !range) {
+      settling?.end();
       this.clearDecoration();
       this.reset();
       return false;
@@ -367,7 +375,7 @@ export class BlockDragSession {
     // gap, a drop back at the source, a node ProseMirror would re-shape) lives
     // in moveBlock. A drop that commits nothing is silent: no transaction, no
     // history entry, no 'change'.
-    let committed: boolean;
+    let committed = false;
     try {
       committed = moveBlock(this.view, range, target.pos, (tr, movedTo) => {
         // Same transaction as the move, so the source block is never drawn
@@ -378,6 +386,8 @@ export class BlockDragSession {
       if (!committed) this.clearDecoration();
     } finally {
       this.reset();
+      if (committed) settling?.settle();
+      else settling?.end();
     }
     return committed;
   }
@@ -391,6 +401,7 @@ export class BlockDragSession {
   destroy(): void {
     this.autoScroll.stop();
     this.cleanupDragVisuals();
+    ReflowCurtain.endSettling(this.view);
     this.lifted = null;
   }
 
