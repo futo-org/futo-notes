@@ -750,9 +750,11 @@ hand-reviewed goldens, one or more per line below)
   when the move makes the note shorter while it is scrolled to its bottom (a
   last paragraph moved above a first heading loses one paragraph gap; the
   browser used to clamp the scroll position to the shorter note and move every
-  block down). For that, the editor keeps the missing scroll extent as extra
-  bottom padding, which goes at the first scroll that leaves the view clear of
-  it, so its removal never moves the view either. Only the dropped block moves
+  block down). For that, the editor holds the missing scroll extent (a
+  transparent bottom border, apart from its own bottom padding, which keeps
+  following the window size) until the first scroll, or the first change of
+  its blocks such as opening another note, that leaves the view clear of it, so
+  its removal never moves the view either, even after the window was resized. Only the dropped block moves
   at the release, snapping into its slot: a neighbour still sliding out of the
   way when the finger lifts finishes its slide rather than jumping to its
   place. Verified in Chromium (Playwright) 2026-10-08. →

@@ -1003,8 +1003,8 @@ export class ReflowCurtain {
    *   Anchoring is held off the scroller until the move has been laid out.
    * - A move can make the note shorter (`dropShrink`), and scrolled to near
    *   its bottom the browser clamps the scroll position to the shorter note,
-   *   moving every block on screen down. The editor keeps the missing extent
-   *   as bottom padding until a scroll no longer needs it (`holdScrollExtent`).
+   *   moving every block on screen down. The editor holds the missing extent
+   *   until it is no longer needed (`holdScrollExtent`).
    *
    * Reads, then writes; the move's dispatch follows. */
   holdScrollThroughDrop(): void {
@@ -1020,13 +1020,19 @@ export class ReflowCurtain {
     const after = el.scrollHeight - this.dropShrink(reflow);
     const clamps = el.scrollTop > Math.max(0, after - el.clientHeight) + 0.5;
     const short = clamps ? el.scrollTop + el.clientHeight - after : 0;
-    const padding = short > 0 ? parseFloat(getComputedStyle(this.view.dom).paddingBottom) || 0 : 0;
     el.style.overflowAnchor = 'none';
+    const hold = (anchorHolds.get(el) ?? 0) + 1;
+    anchorHolds.set(el, hold);
     // Two frames: the first frame's layout is the one that lays out the move.
+    // Only the latest drop's hold lets go, so an earlier one cannot end it.
     requestAnimationFrame(() =>
-      requestAnimationFrame(() => el.style.removeProperty('overflow-anchor')),
+      requestAnimationFrame(() => {
+        if (anchorHolds.get(el) !== hold) return;
+        anchorHolds.delete(el);
+        el.style.removeProperty('overflow-anchor');
+      }),
     );
-    if (short > 0) holdScrollExtent(this.view.dom, el, reflow.scroller, padding, Math.ceil(short));
+    if (short > 0) holdScrollExtent(this.view.dom, el, reflow.scroller, Math.ceil(short));
   }
 
   /** How much shorter the previewed move makes the note: how far the end of
@@ -1113,43 +1119,54 @@ export class ReflowCurtain {
   }
 }
 
-/** The bottom padding `holdScrollExtent` added to an editor, by editor. */
+/** The pending end of each scroller's scroll-anchoring hold, by scroller. */
+const anchorHolds = new WeakMap<HTMLElement, number>();
+
+/** The extent `holdScrollExtent` is holding on an editor, by editor. */
 const extentHolds = new WeakMap<HTMLElement, { extra: number; release: () => void }>();
 
-/** Adds `extra` px to `editor`'s bottom padding (`padding` px, as computed
- * now) so a drop that shortens the note leaves `scroller` the extent its
- * scroll position needs. The padding is released at the first scroll that
- * leaves the view clear of it, so releasing it can never move the view. A
- * second drop before then adds to the first. */
+/** Gives `el` (the scroller) `extra` px more scroll extent than the note will
+ * have after a drop that shortens it, so its scroll position stays reachable.
+ * It is a transparent bottom border on `editor`, apart from the stylesheet's
+ * bottom padding (`max(40vh, 280px)`), which goes on following the viewport
+ * underneath: removing the border takes away exactly `extra`, whatever the
+ * viewport did meanwhile. (On the embed the editor is the scroller, and the
+ * border shortens its visible box; on desktop it lengthens the content. The
+ * extent grows by `extra` either way.) It is released at the first scroll, or
+ * change of the editor's blocks (another note opened), that leaves the view
+ * clear of it, so releasing it never moves the view. A second drop before
+ * then adds to the first. */
 function holdScrollExtent(
   editor: HTMLElement,
   el: HTMLElement,
   scroller: HTMLElement | Window,
-  padding: number,
   extra: number,
 ): void {
   const held = extentHolds.get(editor);
   if (held) {
     held.extra += extra;
-    editor.style.paddingBottom = `${padding + extra}px`;
+    editor.style.borderBottom = `${held.extra}px solid transparent`;
     return;
   }
+  const blocks = new MutationObserver(() => hold.release());
   const hold = {
     extra,
     release: () => {
-      // Without the padding, the furthest the view can scroll; past it, the
+      // Without the extent, the furthest the view can scroll; past it, the
       // browser would clamp the scroll position and move the view.
       if (el.scrollTop > Math.max(0, el.scrollHeight - hold.extra - el.clientHeight) + 0.5) {
         return;
       }
       scroller.removeEventListener('scroll', hold.release);
-      editor.style.removeProperty('padding-bottom');
+      blocks.disconnect();
+      editor.style.removeProperty('border-bottom');
       extentHolds.delete(editor);
     },
   };
   extentHolds.set(editor, hold);
-  editor.style.paddingBottom = `${padding + extra}px`;
+  editor.style.borderBottom = `${extra}px solid transparent`;
   scroller.addEventListener('scroll', hold.release, { passive: true });
+  blocks.observe(editor, { childList: true });
 }
 
 /** `el`'s padding box in client coordinates: what of its content is visible,
