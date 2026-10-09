@@ -757,7 +757,10 @@ hand-reviewed goldens, one or more per line below)
   its removal never moves the view either, even after the window was resized. Only the dropped block moves
   at the release, snapping into its slot: a neighbour still sliding out of the
   way when the finger lifts finishes its slide rather than jumping to its
-  place. Verified in Chromium (Playwright) 2026-10-08. →
+  place, carrying on to the block's new place if the layout changes meanwhile.
+  Opening another note during that slide shows the new note at once, and a
+  block lifted during it lets the slide finish before its own preview opens.
+  Verified in Chromium (Playwright) 2026-10-08. →
   src/features/editor/milkdown/blockDragCurtain.ts `holdScrollThroughDrop`
   `holdScrollExtent` `settle`, src/features/editor/milkdown/blockDragSession.ts,
   tests/editor-embed-milkdown.spec.ts

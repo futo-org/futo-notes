@@ -218,6 +218,13 @@ export const blockDragSourcePlugin = $prose(
           return blockDragSourceKey.getState(state)?.decorationSet ?? null;
         },
       },
+      // A dropped block's settling preview pictures the document the drop
+      // made: any later change (a note switch, an undo) takes it down.
+      view: () => ({
+        update(view, prev) {
+          if (view.state.doc !== prev.doc) ReflowCurtain.endSettling(view);
+        },
+      }),
     }),
 );
 
