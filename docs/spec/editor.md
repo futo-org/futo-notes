@@ -1096,8 +1096,10 @@ native shells edit tags as text in the body, which is not a gap.
   waits on between the tap and the list is a bridge round trip or a disk
   write; what remains is the pop animation and the keyboard going down.
   Hiding the system button to veto the exit would also disable the swipe
-  (docs/learnings/ios-swipe-back-over-webview.md). Measured:
-  docs/perf/mobile-close-ios.md. →
+  (docs/learnings/ios-swipe-back-over-webview.md). Measured on the iOS 26.5
+  simulator 2026-10-08: first list frame 50 ms after the tap (83 ms with the
+  keyboard up), pop done by ~550 ms, the commit after it, for 1k and 10k
+  blocks alike: docs/perf/mobile-close-ios.md. →
   `NoteEditorView.finishLeave`, `EditorBackAffordanceTests.swift`,
   `scripts/perf/ios-close-bench.mjs`
 - **Renaming or moving a note rewrites every wikilink that points at it,

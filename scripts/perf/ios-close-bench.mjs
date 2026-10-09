@@ -10,7 +10,8 @@
 // project and runs ONE UI test, `EditorClosePerfTests`
 // (apps/ios/UITests/EditorClosePerfTests.swift), which seeds a note of each
 // size into a throwaway vault under --out, opens it, optionally types one
-// character, taps Back and records the host wall clock around it. The app's
+// character, taps Back by coordinate and records the host wall clock at the
+// tap (no accessibility query runs in the measured window). The app's
 // debug-only CloseLedger (apps/ios/Sources/Notes/Editor/CloseLedger.swift)
 // logs the phases in between on the same clock; this reads them back with
 // `log show` and joins them to each sample.
@@ -125,17 +126,28 @@ function readLedger(sim, since) {
   return marks;
 }
 
+/**
+ * Every phase is measured from the app's own `touchUp` mark: the finger
+ * lifting off Back, which is when a bar button fires. The test's clock reads
+ * only bracket the tap (XCUITest spends 1-3 s inside `tap()` before it
+ * synthesizes the touch), so they choose the window, never the origin.
+ */
 function joinSamples(samples, marks) {
   return samples.map((s) => {
+    const touchUp = marks.find(
+      (m) =>
+        m.phase === 'touchUp' && m.epochMs >= s.tapEpochMs && m.epochMs <= s.tapReturnedEpochMs,
+    );
+    if (!touchUp) return { ...s, touchUp: null, phases: {} };
     const window = marks.filter(
-      (m) => m.epochMs >= s.tapEpochMs - 100 && m.epochMs <= s.listEpochMs + 4000,
+      (m) => m.epochMs >= touchUp.epochMs && m.epochMs <= touchUp.epochMs + 5000,
     );
     const phases = {};
     for (const phase of PHASES) {
       const hit = window.find((m) => m.phase === phase);
-      if (hit) phases[phase] = { ms: hit.epochMs - s.tapEpochMs, note: hit.note };
+      if (hit) phases[phase] = { ms: hit.epochMs - touchUp.epochMs, note: hit.note };
     }
-    return { ...s, phases };
+    return { ...s, touchUp: { epochMs: touchUp.epochMs, note: touchUp.note }, phases };
   });
 }
 
@@ -165,12 +177,17 @@ function summarize(joined) {
       size: Number(size),
       dirty: dirty === 'true',
       n: list.length,
-      wall: col((s) => s.wallMs),
+      popObserved: col((s) => s.phases.popObserved?.ms),
       listFrame: col((s) => s.phases.listFrame?.ms),
       editorDisappeared: col((s) => s.phases.editorDisappeared?.ms),
       bodyCurrent: col((s) => s.phases.bodyCurrent?.ms),
       bodyDone: col((s) => (s.phases.bodyCommitted ?? s.phases.bodyClean)?.ms),
       exitSettled: col((s) => s.phases.exitSettled?.ms),
+      chain: col((s) =>
+        s.phases.exitSettled && s.phases.editorDisappeared
+          ? s.phases.exitSettled.ms - s.phases.editorDisappeared.ms
+          : undefined,
+      ),
     });
   }
   rows.sort((a, b) => a.size - b.size || Number(a.dirty) - Number(b.dirty));
@@ -179,14 +196,14 @@ function summarize(joined) {
 
 function table(rows) {
   const head =
-    '| note | edit | n | Back tap → list (XCUITest) | → listFrame | → editorDisappeared | → bodyCurrent | → body done | → exitSettled |\n|---|---|---:|---|---|---|---|---|---|';
+    '| note | edit | n | → popObserved | → listFrame | → editorDisappeared | → bodyCurrent | → body done | → exitSettled | commit chain after disappear |\n|---|---|---:|---|---|---|---|---|---|---|';
   const body = rows
     .map(
       (r) =>
-        `| ${r.size} lines | ${r.dirty ? 'dirty' : 'clean'} | ${r.n} | ${r.wall} | ${r.listFrame} | ${r.editorDisappeared} | ${r.bodyCurrent} | ${r.bodyDone} | ${r.exitSettled} |`,
+        `| ${r.size} blocks | ${r.dirty ? 'dirty' : 'clean'} | ${r.n} | ${r.popObserved} | ${r.listFrame} | ${r.editorDisappeared} | ${r.bodyCurrent} | ${r.bodyDone} | ${r.exitSettled} | ${r.chain} |`,
     )
     .join('\n');
-  return `${head}\n${body}\n\nAll cells are ms from the Back tap, median / p90.`;
+  return `${head}\n${body}\n\nCells are ms from the app's touchUp on Back, median / p90; the last column is exitSettled − editorDisappeared.`;
 }
 
 function main() {
@@ -232,12 +249,13 @@ function main() {
   }
   const marks = readLedger(opts.sim, since);
   const joined = joinSamples(samples, marks);
-  const missing = joined.filter((s) => !s.phases.listFrame || !s.phases.exitSettled);
-  if (missing.length > 0) {
-    throw new Error(
-      `${missing.length} of ${joined.length} samples have no listFrame/exitSettled ledger mark — is this a Debug build with CloseLedger compiled in?`,
-    );
-  }
+  const missing = joined.filter(
+    (s) =>
+      !s.touchUp || !s.phases.popObserved || !s.phases.editorDisappeared || !s.phases.exitSettled,
+  );
+  // A "dirty" sample that logged bodyClean measured a clean close: the
+  // edit never reached the editor, or the held save was not held.
+  const notDirty = joined.filter((s) => s.dirty && !s.phases.bodyCommitted);
   const rows = summarize(joined);
   const report = {
     label: opts.label,
@@ -249,6 +267,16 @@ function main() {
   };
   const reportFile = path.join(opts.out, `close-bench-${opts.label}.json`);
   writeFileSync(reportFile, JSON.stringify(report, null, 2));
+  if (missing.length > 0) {
+    throw new Error(
+      `${missing.length} of ${joined.length} samples lack a touchUp/popObserved/editorDisappeared/exitSettled ledger mark — is this a Debug build with CloseLedger compiled in? (${reportFile})`,
+    );
+  }
+  if (notDirty.length > 0) {
+    throw new Error(
+      `${notDirty.length} dirty samples committed no body — they measured a clean close (${reportFile})`,
+    );
+  }
   process.stdout.write(`${table(rows)}\n\nsamples: ${joined.length}, report: ${reportFile}\n`);
 }
 

@@ -514,7 +514,8 @@ struct NoteEditorView: View {
                     let disposition = await store.flushDraft(
                         PendingDraft(id: noteId, base: savedContent, content: flushed),
                         ownerToken: token)
-                    CloseLedger.mark("bodyCommitted", note: disposition == nil ? "failed" : "durable")
+                    CloseLedger.mark(
+                        "bodyCommitted", note: disposition == nil ? "failed" : "durable")
                     guard disposition != nil else { return false }
                     savedContent = flushed
                     return true
@@ -612,7 +613,7 @@ struct NoteEditorView: View {
 
     private func scheduleSave(_ newContent: String) {
         session.schedule(.save) {
-            try? await Task.sleep(nanoseconds: 400_000_000)
+            try? await Task.sleep(nanoseconds: CloseLedger.saveDebounceNanoseconds(400_000_000))
             guard session.isActive else { return false }
             return await persistBody(newContent)
         }

@@ -60,6 +60,7 @@ struct NoteListView: View {
                 CloseLedger.mark("popObserved", note: "depth=\(after)")
                 CloseLedger.markOnNextFrame("listFrame")
             }
+            .onAppear { CloseLedger.installBenchTouchMarks() }
             .toolbar {
                 // Distinct ToolbarItem `id:`s so the two leading controls expose
                 // as SEPARATE accessibility elements instead of collapsing into
