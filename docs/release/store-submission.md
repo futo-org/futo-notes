@@ -235,8 +235,10 @@ is what to reach for when a release should not go straight to everyone:
 | `PLAY_TRACK`   | `internal`, `alpha`, `beta` instead of the `production` default             |
 | `PLAY_ROLLOUT` | A fraction (`0.1`) — publishes as a staged rollout rather than to all users |
 
-Play has no review queue for an update, so a production publish is live within
-Google's own processing time. There is nothing to approve afterwards.
+Play can still review an update after the publish job succeeds: v1.8.0 was
+rejected 28 minutes after submission over the All-files-access permission
+declaration. A green `publish:android` means Play accepted the release, not that
+it is live — watch Play Console's Publishing overview for a rejection.
 
 **One-time setup required before the first tag pipeline can publish:**
 
@@ -247,7 +249,9 @@ Google's own processing time. There is nothing to approve afterwards.
    `futo-notes-release.keystore` is the **upload key**.
 3. **Create a Google Cloud service account** with the Play Android Publisher
    API enabled, then in Play Console → _Users & permissions_ grant it
-   **"Release to testing tracks"** (or admin). Download its JSON key.
+   **"Release to production"** for FUTO Notes (or admin). Download its JSON key.
+   "Release to testing tracks" is not enough: the upload succeeds, then the
+   commit fails with HTTP 403 `PERMISSION_DENIED`.
 4. **Set these GitLab CI/CD variables** (masked + protected):
    - `PLAY_SERVICE_ACCOUNT_JSON` — base64 of the service-account JSON
      (`base64 -i service-account.json | pbcopy`)
