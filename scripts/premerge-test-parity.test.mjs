@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -82,13 +82,23 @@ describe('pre-merge CI routing contracts', () => {
     expect(packageScripts['test:e2e:rest']).toContain('P0 Crash and IME Regressions');
   });
 
-  it('uses bounded Playwright concurrency without multiplying CI jobs', () => {
-    const restJob = topLevelBlock(gitlabPipeline, /^test:e2e:rest:$/m);
-
-    expect(restJob).toContain('pnpm run test:e2e:rest');
+  it('proves every Playwright shard ran as its shard and ran tests', () => {
+    // Both failures are green on their own: `pnpm run <script> -- --shard=…`
+    // ran the whole suite in every shard, and an empty shard exits 0. The
+    // runtime check catches both, but cannot catch its own absence.
+    const jobs = gitlabPipeline.split(/(?=^[^ #\n][^\n]*:\n)/m);
+    const sharded = jobs.filter(
+      (job) => /^ {2}parallel: \d+$/m.test(job) && job.includes('pnpm run test:e2e'),
+    );
+    expect(sharded.length).toBeGreaterThan(0);
+    for (const job of sharded) {
+      const name = job.split('\n')[0];
+      expect(job, name).toContain('!reference [.check-playwright-shard, script]');
+      expect(job, name).toMatch(
+        /^ {4}PLAYWRIGHT_JSON: \$CI_PROJECT_DIR\/test-results\/\S+\.json$/m,
+      );
+    }
     expect(packageScripts['test:e2e:rest']).toContain('--workers=2');
-    expect(restJob).not.toContain('parallel: 2');
-    expect(restJob).not.toContain('--shard=');
   });
 
   it('does not recompress the shared Rust target cache after source-only MR jobs', () => {
@@ -234,9 +244,36 @@ describe('pre-merge CI routing contracts', () => {
     // and ordered after it, so the exclusion never delays the sync suite.
     expect(androidCheckJob).toContain('resource_group: cross-platform-sync');
     expect(androidCheckJob).toContain('job: test:cross-platform-sync');
-    expect(macosRustJob).toContain('- crates/**/*');
     expect(macosRustTask).toContain('cargo check -p futo-notes-ffi --target aarch64-apple-ios');
     expect(releaseGate).toContain('- job: test:rust:ffi-android');
+  });
+
+  it('starts an iOS-target compile check on MRs for every crate', () => {
+    // test:rust:macos's MR run type-checks futo-notes-ffi's whole dependency
+    // tree for aarch64-apple-ios; test:ios-native builds futo-notes-ffi for all
+    // three iOS triples. The macOS list names crates one by one (the FFI crate
+    // belongs to test:ios-native alone), so a new crate must be added to one of
+    // them or an MR touching only it gets no iOS compile until main.
+    const mrChanges = (jobPattern) => {
+      const job = topLevelBlock(gitlabPipeline, jobPattern);
+      const mrRule = job.slice(job.indexOf('- if: $CI_MERGE_REQUEST_IID\n      changes:'));
+      return mrRule.slice(0, mrRule.indexOf('- if:', 1));
+    };
+    const macosMr = mrChanges(/^test:rust:macos:$/m);
+    const iosMr = mrChanges(/^test:ios-native:$/m);
+    const crates = readdirSync(join(ROOT, 'crates'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+
+    expect(crates).toContain('futo-notes-ffi');
+    expect(iosMr).toContain('- crates/futo-notes-ffi/**/*\n');
+    for (const crate of crates) {
+      const glob = `- crates/${crate}/**/*\n`;
+      expect(
+        macosMr.includes(glob) || iosMr.includes(glob),
+        `crates/${crate} starts neither test:rust:macos nor test:ios-native on MRs`,
+      ).toBe(true);
+    }
   });
 
   it('runs full macOS workspace tests on main and tags but not MR pipelines', () => {
@@ -378,6 +415,18 @@ describe('pre-merge CI routing contracts', () => {
     expect(testImageBlock).toContain('pull_policy: if-not-present');
     expect(rustWorkspaceJob).toContain('extends: .ci-test-image');
     expect(syncJob).toContain('extends: .ci-test-image');
+  });
+
+  it('runs every .ci-test-image job on the one runner that allows its pull policy', () => {
+    // Runner 55 (dind) only allows pull_policy always and refuses a job that
+    // asks for if-not-present, so the image and the dind_fast tag travel
+    // together.
+    const jobs = gitlabPipeline.split(/(?=^[^ #\n][^\n]*:\n)/m);
+    const imageJobs = jobs.filter((job) => /^ {2}extends: \.ci-test-image$/m.test(job));
+    expect(imageJobs.length).toBeGreaterThan(0);
+    for (const job of imageJobs) {
+      expect(job, job.split('\n')[0]).toMatch(/^ {2}tags:\n {4}- dind_fast$/m);
+    }
   });
 
   // Both of these fail far from the change: a broken COPY surfaces only when

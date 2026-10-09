@@ -1,8 +1,9 @@
 default:
   tags:
     - dind
-  # Keep the lightweight org image as the default for documentation and
-  # JavaScript jobs. Rust/sync opt into the larger purpose-built image below.
+  # Keep the lightweight org image as the default for the untagged jobs that
+  # can land on runner 55, which refuses .ci-test-image's pull policy. Jobs
+  # pinned to runner 71 (dind_fast) opt into that larger image below.
   image: gitlab.futo.org:5050/futocore/ci/kitchensink@sha256:2df4951967506d9dc31ad4dea6d7b03eb4ddea21f3bd5e500ef3d3be924e589f
   interruptible: true
   before_script:
@@ -63,14 +64,17 @@ variables:
 
 # Pinned by digest, not `:latest`, so a manual rebuild cannot silently change
 # the MR environment. Resolve deliberate updates through project registry
-# repository 176. Only jobs that benefit from Rust/Tauri, GTK/WebKit, Bun,
-# sccache, xvfb, and Postgres tooling should extend this image.
+# repository 176. It is kitchensink plus Rust/Tauri, GTK/WebKit, Bun, sccache,
+# xvfb, Postgres tooling and a baked Playwright Chromium (ci/test.Dockerfile),
+# so any job that would otherwise run on kitchensink can extend it.
 .ci-test-image:
   # if-not-present is safe on a digest pin (the bytes can't drift) and skips
   # a registry round-trip that cost up to 5 minutes under contention (job
-  # 192833: prepare_executor 308s vs 4s). Only the dind_fast runner allows
-  # the override — runner 55 (dind) is locked to allowed_pull_policies
-  # [always], so never copy this onto a job that can land there.
+  # 192833: prepare_executor 308s vs 4s; job 252177 still re-pulled
+  # kitchensink for 166s on runner 71). Only the dind_fast runner allows the
+  # override — runner 55 (dind) is locked to allowed_pull_policies [always]
+  # and refuses the job — so every job extending this ALSO carries
+  # `tags: [dind_fast]` (premerge-test-parity asserts the pairing).
   image:
     name: gitlab.futo.org:5050/futo-notes/futo-notes/ci/test@sha256:c8cb4ab14ce1cb939a88505ae5e37f3421b7c4a64f2cacfcd73e6e19e89a32fb
     pull_policy: if-not-present
@@ -307,30 +311,60 @@ collect-secrets-from-op:
 .setup-playwright:
   script:
     - |
-      playwright_browser_path() {
-        node -e "const fs=require('fs'); const { chromium }=require('@playwright/test'); const p=chromium.executablePath(); if (fs.existsSync(p)) console.log(p)" 2>/dev/null
-        if [ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
-          find "$PLAYWRIGHT_BROWSERS_PATH" -type f \( -name chrome-headless-shell -o -path "*/chrome-linux64/chrome" \) -print -quit 2>/dev/null
-        fi
+      # Use the image's baked browsers only when they are EXACTLY what the
+      # lockfile's Playwright launches. ci/test bakes Playwright 1.62.1's
+      # headless shell (revision 1234) while the lockfile is on 1.63.0
+      # (revision 1243); accepting any chrome-headless-shell found under
+      # /ms-playwright would hand 1.63 a browser it cannot launch. `install
+      # --dry-run` prints every directory a real install would fill (the
+      # headless shell AND ffmpeg, which video capture needs); each needs the
+      # INSTALLATION_COMPLETE marker Playwright writes last.
+      playwright_dirs_missing() {
+        local dirs
+        dirs="$(PLAYWRIGHT_BROWSERS_PATH="$1" pnpm exec playwright install --dry-run --only-shell chromium | sed -n 's/^ *Install location: *//p')"
+        # No parsed location means the dry-run format changed: report it
+        # missing rather than accept an unchecked directory (M11).
+        test -n "$dirs" || { echo "(no install location parsed)"; return; }
+        for dir in $dirs; do
+          test -f "$dir/INSTALLATION_COMPLETE" || echo "$dir"
+        done
       }
-
-      playwright_browser_exists() {
-        test -n "$(playwright_browser_path | head -1)"
-      }
-
-      if playwright_browser_exists; then
-        echo "Playwright Chromium already present at $(playwright_browser_path | head -1)"
-      elif [ -d /ms-playwright ]; then
+      if [ -d /ms-playwright ] && [ -z "$(playwright_dirs_missing /ms-playwright)" ]; then
         export PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-        if playwright_browser_exists; then
-          echo "Using Playwright Chromium baked into kitchensink at $(playwright_browser_path | head -1)"
-        else
-          export PLAYWRIGHT_BROWSERS_PATH="$CI_PROJECT_DIR/.cache-ms-playwright"
-          pnpm exec playwright install --only-shell chromium
-        fi
+        echo "Using the image's baked Playwright browsers in /ms-playwright"
       else
+        # The cached download dir (.cache-playwright). A no-op when the
+        # restored cache already holds this revision.
         pnpm exec playwright install --only-shell chromium
+        MISSING="$(playwright_dirs_missing "$PLAYWRIGHT_BROWSERS_PATH")"
+        test -z "$MISSING" || { echo "Playwright browsers still missing after install: $MISSING" >&2; exit 1; }
+        echo "Using Playwright browsers in $PLAYWRIGHT_BROWSERS_PATH"
       fi
+
+# M11 for a `parallel:` Playwright job: the shard flag must have reached
+# Playwright AND this shard must have run tests, because both failures are
+# green. `pnpm run <script> -- --shard=…` forwards a literal `--`, and
+# Playwright then ran the WHOLE suite in every shard; an empty shard exits 0
+# with stats.expected 0 (both reproduced locally on Playwright 1.63.0). Reads
+# the JSON reporter's output named by $PLAYWRIGHT_JSON.
+.check-playwright-shard:
+  script:
+    - |
+      node -e '
+        const [file, index, total] = process.argv.slice(1);
+        const report = require(file);
+        const shard = report.config && report.config.shard;
+        if (!shard || shard.current !== Number(index) || shard.total !== Number(total)) {
+          console.error(`Playwright did not run as shard ${index}/${total} (report shard: ${JSON.stringify(shard)})`);
+          process.exit(1);
+        }
+        const passed = report.stats ? report.stats.expected : 0;
+        if (!(passed > 0)) {
+          console.error(`Playwright shard ${index}/${total} ran zero tests`);
+          process.exit(1);
+        }
+        console.log(`Playwright shard ${index}/${total}: ${passed} tests passed`);
+      ' "$PLAYWRIGHT_JSON" "$CI_NODE_INDEX" "$CI_NODE_TOTAL"
 
 # ─────────────────────────────────────────────────────────────
 # Cache templates
@@ -416,7 +450,7 @@ collect-secrets-from-op:
 # WebKitGTK is new enough for the EGL platform API). The post-bundle pass in
 # scripts/patch-appimage.mjs strips the Mesa 26-incompatible Wayland library and
 # rewrites tauri-bundler's forced-X11 hook to prefer Wayland. Test jobs use the
-# kitchensink image. Each base gets its own cache key — sharing a target/ across
+# ci/test image. Each base gets its own cache key — sharing a target/ across
 # images wastes bandwidth and invalidates oddly.
 .cache-cargo-tauri-linux-packages:
   cache:
@@ -478,20 +512,31 @@ collect-secrets-from-op:
 # ─────────────────────────────────────────────────────────────
 
 test:
+  extends: .ci-test-image
   stage: test
+  # Runner 71 (dind_fast), like the three Playwright jobs below. Untagged, ~75%
+  # of these jobs landed on runner 55, which ran this one at a 7m15 median
+  # against 1m27 on runner 71 (14 days to 2026-10-08): 55 is locked to
+  # pull_policy always (130-320s re-pulling the image every job), its pnpm
+  # store cache misses (all 449 packages downloaded every job), and it runs up
+  # to 11 jobs at once. Runner 71 caps out at five concurrent jobs, so these
+  # can queue behind it there; they no longer queue behind a slow box.
+  tags:
+    - dind_fast
   # Never overlap another pipeline's unit-test job. The contention is between
-  # concurrent JOBS on the one shared runner, not within vitest (which already
-  # caps maxWorkers:4 in CI): with 3 stacked-MR pipelines in flight,
+  # concurrent JOBS on one runner, not within vitest (which already caps
+  # maxWorkers:4 in CI): with 3 stacked-MR pipelines in flight,
   # FolderTreeView.test.ts's virtualization cases went from 54/65/52ms to
   # 5397/3619/3408ms — a 60-100x slowdown — and one crossed vitest's 5s default
   # and went red. The assertion was fine and the CPU was not, so this is
-  # exclusion, not a longer timeout (M15). Same root-cause fix, and the same
-  # mechanism, as the sync suite's resource_group above; a distinct key so the
-  # two suites never wait on each other.
+  # exclusion, not a longer timeout (M15). Runner 71 is not immune: it shares
+  # its five slots with the Rust, sync and Android jobs. Same root-cause fix,
+  # and the same mechanism, as the sync suite's resource_group above; a
+  # distinct key so the two suites never wait on each other.
   #
-  # Cost, measured on recent main pipelines: this job runs up to ~271s, so a
-  # third concurrent MR queues roughly 8 minutes. That is cheaper than the
-  # failure it replaces — a red pipeline plus the attribution hunt.
+  # Cost: the median run on runner 71 is 87s, so a third concurrent MR queues
+  # about 3 minutes. That is cheaper than the failure it replaces — a red
+  # pipeline plus the attribution hunt.
   #
   # Merge trains would be the other way to stop stacked pipelines overlapping,
   # but gitlab.futo.org runs the EE binary on a Free tier and merge trains are
@@ -500,8 +545,9 @@ test:
   # TIGHTENED from the inherited 60m project default, not bumped: inside a
   # resource group a hung job is head-of-line blocking for every other MR, and
   # hangs are real here (a test:rust:workspace run hung 3870s in the same
-  # incident). 15m is ~3x the worst observed run, so a cold cache still fits
-  # while a wedged job frees the group in 15m instead of an hour.
+  # incident). 15m is twice runner 55's 7m15 median and ten times runner 71's
+  # 87s, so a cold pnpm store still fits while a wedged job frees the group in
+  # 15m instead of an hour.
   timeout: 15m
   # No scope classifier: this job always runs the full script. A documentation
   # MR pays the pnpm install, and in exchange there is exactly one path that can
@@ -704,7 +750,11 @@ test:quality-report:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 test:e2e:smoke:
+  extends: .ci-test-image
   stage: test
+  # Runner 71 — see the `test` job. Median 2m28 on runner 55 vs 1m37 on runner 71.
+  tags:
+    - dind_fast
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-playwright, cache]
@@ -733,14 +783,29 @@ test:e2e:smoke:
       changes: *web-e2e-smoke-changes
 
 test:e2e:rest:
+  extends: .ci-test-image
   stage: test
+  # Runner 71 — see the `test` job. Median 10m10 on runner 55 vs 3m02 on runner 71.
+  tags:
+    - dind_fast
+  # Three shards by file (188 tests split 63/71/54 on 2026-10-08). Each shard
+  # starts its own dev server; the docker executor gives every job its own
+  # network namespace, so the shards cannot collide on the port. July's
+  # two-shard attempt was undone for oversubscribing runner 55 (58ceb12b7);
+  # these run on runner 71 only, where the cost is its five job slots.
+  parallel: 3
+  variables:
+    PLAYWRIGHT_JSON: $CI_PROJECT_DIR/test-results/results.json
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-playwright, cache]
   script:
     - pnpm install --frozen-lockfile --prefer-offline
     - !reference [.setup-playwright, script]
-    - pnpm run test:e2e:rest
+    # The flag goes straight after the script name, never after `--`; see
+    # .check-playwright-shard.
+    - pnpm run test:e2e:rest --shard="$CI_NODE_INDEX/$CI_NODE_TOTAL"
+    - !reference [.check-playwright-shard, script]
   artifacts:
     when: always
     paths:
@@ -766,7 +831,16 @@ test:e2e:rest:
       allow_failure: true
 
 test:e2e:editor-embed:
+  extends: .ci-test-image
   stage: test
+  # Runner 71 — see the `test` job. Median 23m30 on runner 55 vs 8m16 on runner 71.
+  tags:
+    - dind_fast
+  # Three shards by file (630 tests split 235/198/197 on 2026-10-08); each
+  # shard's globalSetup builds its own editor.html.
+  parallel: 3
+  variables:
+    PLAYWRIGHT_JSON: $CI_PROJECT_DIR/test-results/editor-embed-results.json
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-playwright, cache]
@@ -775,12 +849,11 @@ test:e2e:editor-embed:
     - !reference [.setup-playwright, script]
     # globalSetup builds the single-file editor.html; every test loads it over
     # file:// (no dev server), so the harness drives the SAME bytes the native
-    # shells ship.
-    - pnpm run test:e2e:editor-embed
+    # shells ship. The shard flag goes straight after the script name.
+    - pnpm run test:e2e:editor-embed --shard="$CI_NODE_INDEX/$CI_NODE_TOTAL"
     # M11: a green playwright exit with zero tests must still fail red (a broken
-    # testMatch would otherwise pass silently).
-    - |
-      node -e "const r=require('$CI_PROJECT_DIR/test-results/editor-embed-results.json'); if(!(r.stats && r.stats.expected>0)){console.error('editor-embed bridge harness ran zero tests'); process.exit(1);} console.log('editor-embed bridge tests run:', r.stats.expected);"
+    # testMatch, or an empty shard, would otherwise pass silently).
+    - !reference [.check-playwright-shard, script]
   artifacts:
     when: always
     paths:
@@ -946,11 +1019,38 @@ test:rust:macos:
     # test:rust:workspace, and duplicating it here spent ~6 min of the single
     # contended macscript runner per Rust MR for an allow_failure result.
     # The full macOS `cargo test --workspace` runs on main pushes and tags.
-    # All of crates/ (not just the FFI crate): any inner crate can break the
-    # mobile target. allow_failure stays on MRs: this runs through Cirrus on
-    # the single macscript runner, and infra flakiness must not block merges.
+    # allow_failure stays on MRs: this runs through Cirrus on the single
+    # macscript runner, and infra flakiness must not block merges.
+    #
+    # The MR list leaves out every path that also starts test:ios-native on
+    # an MR: that job's scripts/build-rust-ios.sh builds futo-notes-ffi for all
+    # three iOS triples, a superset of this check, so firing both spent a
+    # second VM boot on the same proof. That is futo-notes-ffi itself,
+    # Cargo.lock and build-rust-ios.sh. The other crates are listed one by one
+    # (every one sits in the FFI tree, and test:ios-native does not watch
+    # them); premerge-test-parity fails when a new crate is in neither list.
+    # apps/tauri/src-tauri is out too: the desktop crate is not in the FFI
+    # tree, so it cannot change what this MR check compiles. .cirrus.yml and
+    # .gitlab-ci.yml stay, because they can break this job's own environment.
     - if: $CI_MERGE_REQUEST_IID
-      changes: &rust-macos-changes
+      changes:
+        - Cargo.toml
+        - rust-toolchain.toml
+        - crates/futo-notes-core/**/*
+        - crates/futo-notes-license/**/*
+        - crates/futo-notes-model/**/*
+        - crates/futo-notes-search/**/*
+        - crates/futo-notes-store/**/*
+        - crates/futo-notes-sync/**/*
+        - .cirrus.yml
+        - .gitlab-ci.yml
+      allow_failure: true
+    # Full macOS workspace tests on Rust-touching main pushes, so a macOS-only
+    # break surfaces before tag time (M13) instead of first failing on the tag.
+    # All of crates/ and the desktop crate: this is the full test run, not the
+    # MR compile check.
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
         - Cargo.toml
         - Cargo.lock
         - rust-toolchain.toml
@@ -959,11 +1059,6 @@ test:rust:macos:
         - scripts/build-rust-ios.sh
         - .cirrus.yml
         - .gitlab-ci.yml
-      allow_failure: true
-    # Full macOS workspace tests on Rust-touching main pushes, so a macOS-only
-    # break surfaces before tag time (M13) instead of first failing on the tag.
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: *rust-macos-changes
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
@@ -1680,8 +1775,11 @@ build:android-native:
   # Pin to the office runner via the dind_fast tag (only runner 71 has it; the
   # DigitalOcean dind droplet has just `dind`). It keeps a warm local cargo
   # cache and has far faster CPU — ~5m here vs ~88m cold on the droplet.
-  # Trade-off: the dind_fast jobs serialise on one box and lose the droplet
-  # as failover.
+  # Trade-off: every dind_fast job shares that one box and loses the droplet
+  # as failover. It runs at most five jobs at once (14 days to 2026-10-08: no
+  # sixth ever started, and a job starting as the fifth waited a median 11s
+  # vs 1-2s otherwise), and since the JavaScript jobs moved here too (`test`,
+  # test:e2e:*) those five slots are this repo's main MR bottleneck.
   tags:
     - dind_fast
   # Native verification is independent of the JavaScript suite; starting it
@@ -1927,10 +2025,13 @@ build:ios-native:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_COMMIT_TAG
 
-# Native iOS unit tests on a concrete simulator via Cirrus. This separately
+# Native iOS tests on a concrete simulator via Cirrus. This separately
 # enforces the FutoNotesNativeTests target that build:ios-native only compiles.
 # Keep this hard gate for iOS-impacting MRs and releases while the single
 # macscript runner is constrained. Other MRs retain an optional manual run.
+# MR pipelines run the unit bundle only; main pushes and tags add the 8 UI
+# tests (~3 of the ~4 minutes of testing) — testFutoNotesIOSNative in
+# .cirrus.yml owns the tiers and the per-bundle outcome arbiter.
 test:ios-native:
   stage: test
   needs: []

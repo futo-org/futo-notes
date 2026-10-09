@@ -279,6 +279,19 @@ test_ios_native_task:
       xcrun simctl bootstatus "$SIM" -b
       echo "Testing on simulator $SIM"
       export SIM
+    # Two tiers, keyed the same way testRustMacOS keys its full run. MR
+    # pipelines run only the FutoNotesNativeTests unit bundle (Swift Testing,
+    # 323 tests in ~13s in job 264124); main pushes and tags also run the
+    # FutoNotesNativeUITests bundle, 8 XCTest UI cases that took 173s of that
+    # job's 226s test phase. A UI regression therefore surfaces on the main
+    # push, before tag time, rather than on the MR.
+    - |
+      if [ -n "${CI_COMMIT_TAG:-}" ] || { [ -n "${CI_DEFAULT_BRANCH:-}" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}" ]; }; then
+        export IOS_TEST_TIER=full
+      else
+        export IOS_TEST_TIER=unit
+      fi
+      echo "iOS test tier: $IOS_TEST_TIER"
     # xcodebuild's EXIT CODE is unreliable for a Swift-Testing-only target: it
     # returns non-zero for the empty XCTest bundle's "Executed 0 tests" on some
     # Xcode versions even when Swift Testing passed and "** TEST SUCCEEDED **"
@@ -294,9 +307,14 @@ test_ios_native_task:
       # (output still streams to the Cirrus log, so the file silently stays
       # empty). A warm local .build hid this. Create the dir first.
       mkdir -p apps/ios/.build
+      ONLY_TESTING=()
+      if [ "$IOS_TEST_TIER" = unit ]; then
+        ONLY_TESTING=(-only-testing:FutoNotesNativeTests)
+      fi
       set +e
       xcodebuild test -project apps/ios/FutoNotesNative.xcodeproj \
         -scheme FutoNotesNative \
+        "${ONLY_TESTING[@]}" \
         -destination "id=$SIM" \
         -derivedDataPath apps/ios/.build \
         -resultBundlePath apps/ios/.build/TestResults.xcresult \
@@ -306,7 +324,9 @@ test_ios_native_task:
       set -e
       echo "xcodebuild-exit=$XCODEBUILD_EXIT (informational; the arbiter below decides)"
     # M11 outcome arbiter — pass/fail from what xcodebuild REPORTED, never its
-    # exit code. Layered so it can never go silently green.
+    # exit code. Layered so it can never go silently green, and it checks each
+    # bundle the tier ran by its own marker, so one bundle's tests can never
+    # stand in for the other's.
     - |
       LOG=apps/ios/.build/xcodebuild-test.log
       # (1) Any genuine test/build failure marker -> red.
@@ -315,20 +335,34 @@ test_ios_native_task:
         grep -Ei 'fail' "$LOG" | tail -20 >&2
         exit 1
       fi
-      # (2) Require a positive pass summary with >=1 executed test (catches
-      #     build failures and zero-test runs — the empty XCTest "Executed 0
-      #     tests" line does NOT satisfy this).
-      if ! grep -Eq 'Test run with [1-9][0-9]* tests?( in [0-9]+ suites?)? passed|Executed [1-9][0-9]* tests?, with 0 failures' "$LOG"; then
-        echo "ERROR: no passing test summary with >=1 executed test" >&2
+      # (2) The unit bundle, in both tiers: Swift Testing's own summary with
+      #     >=1 test. FutoNotesNativeTests is the only Swift Testing bundle
+      #     (UITests is XCTest), so this line is its count and nothing else's.
+      #     Its XCTest half always prints "Executed 0 tests" (it holds no
+      #     XCTestCase), and that line must never satisfy anything here.
+      UNIT_SUMMARY="$(awk '/Test run with [1-9][0-9]* tests?( in [0-9]+ suites?)? passed/ { line = $0 } END { print line }' "$LOG")"
+      if [ -z "$UNIT_SUMMARY" ]; then
+        echo "ERROR: no passing Swift Testing summary with >=1 test from FutoNotesNativeTests" >&2
         grep -E 'Executed [0-9]+ tests?|Test run with [0-9]+ tests?' "$LOG" >&2 || echo "(no test summary at all)" >&2
         exit 1
       fi
-      # (3) Require the overall success marker.
+      echo "unit bundle: $UNIT_SUMMARY"
+      # (3) The UI bundle, full tier only: its XCTest suite passed with >=1
+      #     executed case. awk reads the whole log (no early-exit pipe, RC-65).
+      if [ "$IOS_TEST_TIER" = full ]; then
+        UI_EXECUTED="$(awk '/Test Suite .FutoNotesNativeUITests\.xctest. passed/ { getline; if (match($0, /Executed [0-9]+ test/)) { n = substr($0, RSTART + 9, RLENGTH - 14) } } END { print n + 0 }' "$LOG")"
+        if [ "$UI_EXECUTED" -lt 1 ]; then
+          echo "ERROR: full tier, but FutoNotesNativeUITests reported no passing suite with >=1 executed test" >&2
+          exit 1
+        fi
+        echo "UI bundle: $UI_EXECUTED test(s) executed"
+      fi
+      # (4) Require the overall success marker.
       if ! grep -q '\*\* TEST SUCCEEDED \*\*' "$LOG"; then
         echo "ERROR: no '** TEST SUCCEEDED **' marker in the test log" >&2
         exit 1
       fi
-      echo "iOS tests passed (arbiter: TEST SUCCEEDED + >=1 executed test + no failure markers)"
+      echo "iOS tests passed ($IOS_TEST_TIER tier; arbiter: TEST SUCCEEDED + per-bundle test counts + no failure markers)"
   always:
     # See the note on testRustMacOS's upload_caches: naming any cache disables
     # the automatic upload for all of them, so this list stays exhaustive.

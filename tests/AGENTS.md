@@ -42,6 +42,10 @@ Playwright **wipes** `test-results/` at the start of every run, so a failed run'
 are gone the moment you re-run to check whether it was a flake; set `PW_RUN_ID=before` /
 `PW_RUN_ID=after` to keep runs side by side. The default config runs single-worker
 (`workers: 1`, `fullyParallel: false`); CI's `test:e2e:rest` job overrides that with `--workers=2`.
+CI splits `test:e2e:rest` and `test:e2e:editor-embed` into three jobs each by file
+(`--shard=N/3`), so a red shard holds only its share of the specs; reproduce one with
+`pnpm run test:e2e:rest --shard=2/3`. Put the flag straight after the script name: after a `--`,
+pnpm forwards the separator and Playwright quietly runs the whole suite.
 
 A Playwright pass proves nothing about WebView2 or a real iOS keyboard (AGENTS.md M22). Those need
 `scripts/win-vm/` and a device.
