@@ -2998,14 +2998,39 @@ function dragLayout(
   }, curtain);
 }
 
+/** Waits until the reflow preview is at rest: the finger's last move drawn,
+ * and the slides it started finished. The handle draws a move once per frame
+ * (`queueMove`), so on a loaded machine the last frames can come well after
+ * the move was sent, and a slide runs in real time from the frame that starts
+ * it: a fixed sleep read the clones mid-way, or before their last gap was
+ * drawn at all. The frames first (callbacks run in the order they were asked
+ * for, so ours follow the drag's), then the transitions on the curtain, until
+ * none is left (a remeasure can start more). */
+async function previewAtRest(page: Page): Promise<void> {
+  await flushFrames(page);
+  await page.evaluate(async () => {
+    const running = () =>
+      document
+        .getAnimations()
+        .filter(
+          (a) =>
+            a.playState === 'running' &&
+            (a.effect as KeyframeEffect | null)?.target?.closest('.futo-mobile-dnd-reflow-curtain'),
+        );
+    for (let left = running(); left.length > 0; left = running()) {
+      await Promise.allSettled(left.map((a) => a.finished));
+    }
+  });
+  await flushFrames(page);
+}
+
 /** The drop invariant: releasing a reflow drag moves NOTHING on screen. Every
  * block the preview showed — the neighbours it slid out of the way and the
  * dimmed source in its landing slot — is exactly where the real block sits
  * once the move has committed, and the note did not scroll. `release` lets
  * go; the returned layout is the real one after the drop. */
 async function expectDropMatchesPreview(page: Page, release: () => Promise<void>) {
-  // The preview's slide (0.18s) has finished, so the clones are at rest.
-  await page.waitForTimeout(400);
+  await previewAtRest(page);
   const preview = await dragLayout(page, true);
   // Otherwise the comparison below could pass on an empty preview (M11).
   expect(Object.keys(preview.blocks).length).toBeGreaterThan(3);
