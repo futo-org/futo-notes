@@ -4229,13 +4229,29 @@ mobileDndTest(
     });
     expect(height).toBeGreaterThan(760);
     expect(await heldExtent(page)).not.toBe('');
-    await page.setViewportSize({ width: 420, height: height - 60 });
-    // Back to the bottom, which the held extent still reaches, and up from
-    // there through the point where it is released.
+    // Shrinking the viewport throws the scroll position to the top in the
+    // layout of the resize itself, and the scroll event for that reaches the
+    // editor a frame later: a view clear of the held extent, which releases
+    // it (as it should: it moved nothing). Whether the test's own scroll to
+    // the bottom beat that frame depended on how loaded the machine was. So
+    // go back to the bottom, which the held extent still reaches, inside the
+    // resize event: before any scroll event for it is dispatched, whatever
+    // the load. Then up from there through the point where it is released.
     await page.evaluate(() => {
-      const dom = document.querySelector('.ProseMirror') as HTMLElement;
-      dom.scrollTop = dom.scrollHeight;
+      (window as unknown as { shrunk: Promise<void> }).shrunk = new Promise((resolve) =>
+        window.addEventListener(
+          'resize',
+          () => {
+            const dom = document.querySelector('.ProseMirror') as HTMLElement;
+            dom.scrollTop = dom.scrollHeight;
+            resolve();
+          },
+          { once: true },
+        ),
+      );
     });
+    await page.setViewportSize({ width: 420, height: height - 60 });
+    await page.evaluate(() => (window as unknown as { shrunk: Promise<void> }).shrunk);
     await flushFrames(page);
     expect(await heldExtent(page)).not.toBe('');
     expect(await clampsScrollingUp(page)).toEqual([]);
