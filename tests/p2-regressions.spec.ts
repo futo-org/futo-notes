@@ -121,6 +121,36 @@ test.describe('P2 Header + Formatting Regressions', () => {
     await expect(page.locator('text=Title cannot end with a dot')).toBeVisible();
   });
 
+  // Typed with a frame between keystrokes, the stripped char stayed on screen
+  // (the title was unchanged, so nothing rewrote the field) and a deferred
+  // caret move put the next char before it: "a/b:c?d*e" came out "aedcb".
+  test('a forbidden character typed slowly is stripped without moving the caret', async ({
+    page,
+  }) => {
+    await openNewNote(page);
+
+    const titleInput = page.locator('.title-input');
+    await titleInput.click();
+    await page.keyboard.press('Backspace');
+    await expect(titleInput).toHaveValue('');
+    // The click's select-all re-runs a frame later; typing before it would
+    // select the first char and the next keystroke would replace it.
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+
+    const caret = () =>
+      titleInput.evaluate((el: HTMLTextAreaElement) => [el.selectionStart, el.selectionEnd]);
+
+    await page.keyboard.type('a/b:c?d*e', { delay: 80 });
+    await expect(titleInput).toHaveValue('abcde');
+    expect(await caret()).toEqual([5, 5]);
+
+    // Mid-title too: the caret stays where the stripped char was typed.
+    await page.keyboard.press('ArrowLeft', { delay: 80 });
+    await page.keyboard.type('|x', { delay: 80 });
+    await expect(titleInput).toHaveValue('abcdxe');
+    expect(await caret()).toEqual([5, 5]);
+  });
+
   async function openNoteForRetitle(page: Page, id: string): Promise<void> {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
