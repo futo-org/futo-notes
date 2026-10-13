@@ -4,7 +4,8 @@
 # retired Tauri `deploy-ios`; for a DEBUG device install use run-device.sh
 # (`just ios-native-device`), and for the simulator use run.sh (`just ios-native`).
 #
-# Uses FUTO_DEV_TEAM or apps/ios/.signing-team for the Apple Developer team.
+# Uses FUTO_DEV_TEAM or apps/ios/.signing-team for the Apple Developer team
+# (scripts/ios-signing-team.mjs; a worktree falls back to the primary checkout's).
 #
 # Usage:
 #   apps/ios/deploy.sh
@@ -23,14 +24,8 @@ UDID=$(node scripts/ios-device-id.mjs)
 echo "==> Device: $UDID"
 
 # ── Signing team ──
-TEAM="${FUTO_DEV_TEAM:-}"
-if [ -z "$TEAM" ] && [ -f "$APP_DIR/.signing-team" ]; then
-  TEAM=$(tr -d '[:space:]' < "$APP_DIR/.signing-team")
-fi
-if [ -z "$TEAM" ]; then
-  echo "Could not determine a signing team. Set FUTO_DEV_TEAM=<10-char team id> or write apps/ios/.signing-team." >&2
-  exit 1
-fi
+# FUTO_DEV_TEAM, else apps/ios/.signing-team here or in the primary checkout.
+TEAM=$(node scripts/ios-signing-team.mjs)
 echo "==> Signing team: $TEAM"
 
 echo "==> JS deps"

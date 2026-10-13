@@ -220,8 +220,8 @@ kill $KWIN
 ## Android
 
 Compile and JVM-unit legs (`node scripts/remote-test.mjs build-android-native` +
-`node scripts/remote-test.mjs test-android-native`) belong here now: 32 cores build the four-ABI
-Rust `.so` far faster than the Mac, and nothing about them needs macOS.
+`node scripts/remote-test.mjs test-android-native`) belong here now: 32 cores build the Rust
+`.so` far faster than the Mac, and nothing about them needs macOS.
 
 Interactive Android **device QA** should also move here eventually — `/dev/kvm` makes the box's
 emulators dramatically faster than the Mac's, where x86 images are emulated. It has not moved yet

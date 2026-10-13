@@ -58,6 +58,17 @@ interface CreateNotePersistenceOptions {
   showTitleWarning: (message: LocalizedMessage) => void;
 }
 
+/** Why a save refuses `title` — invalid or a duplicate (list.md) — or null when it takes it. */
+export function titleSaveRefusal(
+  title: string,
+  hasDuplicateTitle: (title: string) => boolean,
+): LocalizedMessage | null {
+  const normalized = normalizeTitleForPersistence(title);
+  const issue = validateTitle(normalized).find((item) => item.kind !== 'empty');
+  if (issue) return titleValidationMessage(issue.kind);
+  return hasDuplicateTitle(normalized) ? { path: 'notes.title.duplicate' } : null;
+}
+
 export function createNotePersistence(options: CreateNotePersistenceOptions) {
   return async function saveNote(): Promise<boolean> {
     const noteId = options.getNoteId();
@@ -83,9 +94,9 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
       // Navigating Home clears the tab's note id before this queued save runs.
       if (noteId === null && state.originalId === null && !state.title) return false;
       const newTitle = normalizeTitleForPersistence(state.title);
-      const blockingTitleIssue = validateTitle(newTitle).find((issue) => issue.kind !== 'empty');
-      if (blockingTitleIssue) {
-        options.showTitleWarning(titleValidationMessage(blockingTitleIssue.kind));
+      const refusal = titleSaveRefusal(state.title, options.hasDuplicateTitle);
+      if (refusal) {
+        options.showTitleWarning(refusal);
         return false;
       }
 
@@ -106,10 +117,6 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
           newContent,
         })
       ) {
-        return false;
-      }
-      if (options.hasDuplicateTitle(newTitle)) {
-        options.showTitleWarning({ path: 'notes.title.duplicate' });
         return false;
       }
 

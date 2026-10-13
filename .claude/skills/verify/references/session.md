@@ -199,7 +199,9 @@ server content not declared in the brief is an isolation collision; report it.
 ## Teardown
 
 Only release resources this session owns. From each worktree, `just qa-release --shutdown`
-frees its device claims and stops its sync server. Drop disposable test data with
+frees its device claims and stops its sync server. Claims belong to the worktree, not the
+session: when sibling agents share one worktree, name your platform
+(`just qa-release android --shutdown`) so you leave theirs and the server they still use. Drop disposable test data with
 `just qa-server-stop --drop` only when the session created it and the user is done.
 Stop desktop instances by `just qa-target kill` or the exact PID/process group this
 session started. Preserve worktrees, ledgers, and manifests needed for iteration or

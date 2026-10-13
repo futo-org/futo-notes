@@ -217,8 +217,10 @@ glab ci status
 The two store-submission jobs are the slow tail, and both are safe to retry:
 
 - `publish:android` uploads the AAB and **releases it to the Play production
-  track**. Play has no review queue for an update, so this is live once it
-  commits.
+  track**. Play can still reject an update after it commits (v1.8.0 was
+  rejected 28 minutes later), so check Play Console's Publishing overview
+  before calling Android shipped. A 403 `PERMISSION_DENIED` at "Committing"
+  means the service account lacks "Release to production" in Play Console.
 - `publish:ios:appstore` waits for Apple to finish processing the TestFlight
   build (5-30 minutes is normal, 60m timeout) and then submits for review.
   A timeout here is NOT a failed release — the binary is already in TestFlight.

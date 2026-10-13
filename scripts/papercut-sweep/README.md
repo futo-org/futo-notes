@@ -24,7 +24,9 @@ This is the "papercuts get a weekly owner" half of `docs/plan/agent-dx.md`
 The launcher is the deterministic half and owns everything the agent must not
 be trusted with, in the same shape as `scripts/issue-triage/runTriage.mjs`:
 
-1. Reads the open cuts, ranks blockers and majors first, caps the list at 40.
+1. Fetches `origin/main` and reads the open cuts from _its_ log (not the
+   launcher checkout's, which can be on a stale branch), ranks blockers and
+   majors first, caps the list at 40.
 2. `git fetch origin main`, then a worktree under
    `~/.local/state/futo-notes-papercut-sweep/worktrees/sweep-<runId>` on branch
    `chore/papercut-sweep-<runId>`.

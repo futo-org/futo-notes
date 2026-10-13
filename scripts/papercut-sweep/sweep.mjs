@@ -51,11 +51,9 @@ export function repoDir(env = process.env) {
     : DEFAULT_REPO_DIR;
 }
 
-/** Open cuts (no matching resolve) from the append-only log. */
-export function loadOpenCuts(file, fsImpl = fs) {
-  if (!fsImpl.existsSync(file)) return [];
-  const entries = fsImpl
-    .readFileSync(file, 'utf8')
+/** Open cuts (no matching resolve) from the text of the append-only log. */
+export function openCuts(logText) {
+  const entries = logText
     .split('\n')
     .filter(Boolean)
     .map((line) => {
@@ -130,10 +128,23 @@ export function parseSweepResult(raw) {
 }
 
 function runGit(args, cwd) {
-  const result = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
+  const result = spawnSync('git', ['-C', cwd, ...args], {
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024, // `git show` of the whole papercut log
+  });
   if (result.status !== 0)
     throw new Error(`git ${args.join(' ')} failed: ${(result.stderr ?? '').trim()}`);
   return result.stdout ?? '';
+}
+
+/**
+ * The log as origin/main has it. Not the launcher's own working tree: the
+ * timer runs sweep.mjs from whichever checkout installed it, and that checkout
+ * can sit on an old branch whose log still lists cuts main resolved weeks ago.
+ */
+export function readMainLog(repoDirectory, runGitImpl = runGit) {
+  runGitImpl(['fetch', 'origin', 'main'], repoDirectory);
+  return runGitImpl(['show', 'origin/main:.papercuts.jsonl'], repoDirectory);
 }
 
 /** Fresh worktree off origin/main under the state dir; branch chore/papercut-sweep-<runId>. */
@@ -247,6 +258,7 @@ export async function runSweep({
 } = {}) {
   const createWorktreeImpl = dependencies.createWorktree ?? createSweepWorktree;
   const removeWorktreeImpl = dependencies.removeWorktree ?? removeWorktree;
+  const readLogImpl = dependencies.readLog ?? readMainLog;
   const runAgentImpl = dependencies.runAgent ?? runAgent;
   const installImpl =
     dependencies.install ??
@@ -266,7 +278,7 @@ export async function runSweep({
   const logFile = path.join(stateDirectory, 'logs', `run-${runId}.log`);
   const lastRunFile = path.join(stateDirectory, 'last-run.json');
 
-  const cuts = rankCuts(loadOpenCuts(path.join(repoDirectory, '.papercuts.jsonl')));
+  const cuts = rankCuts(openCuts(readLogImpl(repoDirectory)));
   if (cuts.length === 0) {
     fs.writeFileSync(
       lastRunFile,

@@ -2851,7 +2851,7 @@ publish:ios:main:
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
-# Upload the signed AAB to Google Play (internal testing track) using FUTO's
+# Upload the signed AAB to Google Play (production track by default) using FUTO's
 # shared publish_playstore.py (Android Publisher API v3) — the SAME uploader
 # grayjay uses. Gated by release:gate so a failing test blocks the upload.
 # Consumes the PLAY-flavor AAB built in build:android-native (no rebuild of the
@@ -2859,7 +2859,9 @@ publish:ios:main:
 # Requires:
 #   - PLAY_SERVICE_ACCOUNT_JSON  (CI var, base64 of the Play service-account JSON)
 #   - the app already created in Play Console + that service account granted
-#     "Release to testing tracks" access (the API cannot create the app listing)
+#     "Release to production" access (the API cannot create the app listing).
+#     "Release to testing tracks" alone uploads fine, then the edit's final
+#     commit answers HTTP 403 PERMISSION_DENIED (v1.8.1, pipeline #37926)
 #   - KEYSTORE_BASE64/KEYSTORE_PASSWORD/KEY_ALIAS set so build:android-native
 #     produced a SIGNED AAB (Play rejects unsigned uploads)
 # Publishes to the PRODUCTION track by default. $PLAY_TRACK and $PLAY_ROLLOUT

@@ -242,6 +242,25 @@ tasks.named("preBuild").configure {
     dependsOn(stageCoinAssets)
 }
 
+// A release must ship libfuto_notes_ffi.so for every ABI in abiFilters, but the
+// dev recipes build only the connected device's (ABIS=device in
+// scripts/build-rust-android.sh). A bare `./gradlew …Release` after one would
+// package a single ABI and die with UnsatisfiedLinkError everywhere else.
+val jniLibsDirectory = file("src/main/jniLibs")
+tasks.configureEach {
+    if (!name.matches(Regex("merge\\w+ReleaseJniLibFolders"))) return@configureEach
+    val shippedAbis = android.buildTypes.getByName("release").ndk.abiFilters.toList()
+    doFirst {
+        val missingAbis = shippedAbis.filterNot {
+            jniLibsDirectory.resolve("$it/libfuto_notes_ffi.so").isFile
+        }
+        check(missingAbis.isEmpty()) {
+            "No libfuto_notes_ffi.so for $missingAbis — run `just build-rust-android` " +
+                "with ABIS unset (every shipped ABI) before a release build."
+        }
+    }
+}
+
 dependencies {
     // BOM bumped to the Compose 1.9.x train so material3/foundation/ui stay
     // consistent with the Compose 1.9.2 that activity 1.12.x pulls in transitively

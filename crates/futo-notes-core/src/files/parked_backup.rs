@@ -228,18 +228,6 @@ pub(super) fn install_temp(temp: &Path, destination: &Path) -> Result<(), String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
-
-    fn temp_dir() -> PathBuf {
-        static SEQUENCE: AtomicU32 = AtomicU32::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "futo-notes-parked-backup-{}-{}",
-            std::process::id(),
-            SEQUENCE.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir_all(&path).unwrap();
-        path
-    }
 
     fn write_parked_backup(
         root: &Path,
@@ -256,11 +244,12 @@ mod tests {
 
     #[test]
     fn recover_restores_a_note_stranded_in_a_parked_backup() {
-        let root = temp_dir();
-        let (backup, sidecar) = write_parked_backup(&root, "1-2-3", "Welcome.md", "stranded bytes");
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let (backup, sidecar) = write_parked_backup(root, "1-2-3", "Welcome.md", "stranded bytes");
         assert!(!root.join("Welcome.md").exists());
 
-        let recovered = recover_parked_backups(&root);
+        let recovered = recover_parked_backups(root);
 
         assert!(
             recovered.is_empty(),
@@ -277,11 +266,12 @@ mod tests {
 
     #[test]
     fn recover_drops_a_backup_identical_to_the_returned_note() {
-        let root = temp_dir();
-        let (backup, sidecar) = write_parked_backup(&root, "9-9-9", "Welcome.md", "same bytes");
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let (backup, sidecar) = write_parked_backup(root, "9-9-9", "Welcome.md", "same bytes");
         fs::write(root.join("Welcome.md"), "same bytes").unwrap();
 
-        let recovered = recover_parked_backups(&root);
+        let recovered = recover_parked_backups(root);
 
         assert!(recovered.is_empty());
         assert_eq!(
@@ -294,12 +284,13 @@ mod tests {
 
     #[test]
     fn recover_returns_a_divergent_backup_as_terminal() {
-        let root = temp_dir();
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
         let (backup, sidecar) =
-            write_parked_backup(&root, "8-8-8", "Welcome.md", "stranded original");
+            write_parked_backup(root, "8-8-8", "Welcome.md", "stranded original");
         fs::write(root.join("Welcome.md"), "newcomer bytes").unwrap();
 
-        let recovered = recover_parked_backups(&root);
+        let recovered = recover_parked_backups(root);
 
         assert_eq!(
             fs::read_to_string(root.join("Welcome.md")).unwrap(),
@@ -325,11 +316,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn recover_does_not_follow_directory_symlinks_into_a_loop() {
-        let root = temp_dir();
-        write_parked_backup(&root, "1-1-1", "Note.md", "loop-safe bytes");
-        std::os::unix::fs::symlink(&root, root.join("loop")).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        write_parked_backup(root, "1-1-1", "Note.md", "loop-safe bytes");
+        std::os::unix::fs::symlink(root, root.join("loop")).unwrap();
 
-        let _ = recover_parked_backups(&root);
+        let _ = recover_parked_backups(root);
 
         assert_eq!(
             fs::read_to_string(root.join("Note.md")).unwrap(),
@@ -339,10 +331,11 @@ mod tests {
 
     #[test]
     fn recover_removes_orphan_sidecars() {
-        let root = temp_dir();
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
         fs::write(root.join(".sf-bak-orphan.path"), "Ghost.md").unwrap();
 
-        let _ = recover_parked_backups(&root);
+        let _ = recover_parked_backups(root);
 
         assert!(!root.join(".sf-bak-orphan.path").exists());
         assert!(!root.join("Ghost.md").exists());
@@ -350,12 +343,13 @@ mod tests {
 
     #[test]
     fn recover_recurses_into_folders() {
-        let root = temp_dir();
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
         let sub = root.join("Folder");
         fs::create_dir_all(&sub).unwrap();
         let (backup, _) = write_parked_backup(&sub, "5-5-5", "Deep.md", "sub bytes");
 
-        let _ = recover_parked_backups(&root);
+        let _ = recover_parked_backups(root);
 
         assert_eq!(
             fs::read_to_string(sub.join("Deep.md")).unwrap(),

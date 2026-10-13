@@ -1,37 +1,8 @@
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
-
 use super::*;
-
-struct TempRoot(PathBuf);
-
-impl TempRoot {
-    fn new() -> Self {
-        static COUNTER: AtomicU32 = AtomicU32::new(0);
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir().join(format!(
-            "futo-sync-vault-fs-test-{}-{}-{n}",
-            std::process::id(),
-            crate::files::now_ms()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        Self(root)
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for TempRoot {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
 
 #[test]
 fn a_non_positive_timestamp_never_stamps_the_file_to_1970() {
-    let root = TempRoot::new();
+    let root = tempfile::tempdir().unwrap();
     write_atomic(root.path(), "note.md", b"body").unwrap();
     let path = root.path().join("note.md");
     crate::files::set_file_mtime_ms(&path, 1_700_000_000_000).unwrap();
@@ -44,7 +15,7 @@ fn a_non_positive_timestamp_never_stamps_the_file_to_1970() {
 
 #[test]
 fn write_reports_directory_sync_failure() {
-    let root = TempRoot::new();
+    let root = tempfile::tempdir().unwrap();
     platform::fail_directory_sync_on_call(1);
 
     let error = write_atomic(root.path(), "note.md", b"body").unwrap_err();
@@ -54,7 +25,7 @@ fn write_reports_directory_sync_failure() {
 
 #[test]
 fn write_syncs_each_parent_entry_before_using_it() {
-    let root = TempRoot::new();
+    let root = tempfile::tempdir().unwrap();
     platform::fail_directory_sync_on_call(1);
 
     let first_error = write_atomic(root.path(), "folder/note.md", b"body").unwrap_err();
@@ -79,7 +50,7 @@ fn write_syncs_each_parent_entry_before_using_it() {
 
 #[test]
 fn remove_reports_directory_sync_failure() {
-    let root = TempRoot::new();
+    let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("note.md"), "body").unwrap();
     platform::fail_directory_sync_on_call(1);
 
@@ -90,7 +61,7 @@ fn remove_reports_directory_sync_failure() {
 
 #[test]
 fn remove_retry_resyncs_when_the_leaf_is_already_absent() {
-    let root = TempRoot::new();
+    let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("note.md"), "body").unwrap();
     platform::fail_directory_sync_on_call(1);
     remove(root.path(), "note.md").unwrap_err();
@@ -103,7 +74,7 @@ fn remove_retry_resyncs_when_the_leaf_is_already_absent() {
 
 #[test]
 fn absent_inspection_resyncs_before_callers_trust_the_missing_leaf() {
-    let root = TempRoot::new();
+    let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("note.md"), "body").unwrap();
     platform::fail_directory_sync_on_call(1);
     remove(root.path(), "note.md").unwrap_err();
@@ -116,7 +87,7 @@ fn absent_inspection_resyncs_before_callers_trust_the_missing_leaf() {
 
 #[test]
 fn path_text_cannot_turn_a_non_missing_parent_error_into_not_found() {
-    let root = TempRoot::new();
+    let root = tempfile::tempdir().unwrap();
     std::fs::write(
         root.path().join("No such file or directory"),
         "not a directory",
@@ -131,7 +102,7 @@ fn path_text_cannot_turn_a_non_missing_parent_error_into_not_found() {
 
 #[test]
 fn rename_reports_destination_directory_sync_failure() {
-    let root = TempRoot::new();
+    let root = tempfile::tempdir().unwrap();
     std::fs::create_dir(root.path().join("source")).unwrap();
     std::fs::create_dir(root.path().join("destination")).unwrap();
     std::fs::write(root.path().join("source/note.md"), "body").unwrap();
@@ -144,7 +115,7 @@ fn rename_reports_destination_directory_sync_failure() {
 
 #[test]
 fn rename_retry_resyncs_when_only_the_destination_remains() {
-    let root = TempRoot::new();
+    let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("source.md"), "body").unwrap();
     platform::fail_directory_sync_on_call(1);
     rename(root.path(), "source.md", "destination.md").unwrap_err();
@@ -157,7 +128,7 @@ fn rename_retry_resyncs_when_only_the_destination_remains() {
 
 #[test]
 fn local_moves_report_committed_identity_when_directory_sync_fails() {
-    let root = TempRoot::new();
+    let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("old.md"), "body").unwrap();
     platform::fail_directory_sync_on_call(1);
     assert!(move_no_replace(root.path(), "old.md", "new.md").unwrap());
@@ -170,7 +141,7 @@ fn local_moves_report_committed_identity_when_directory_sync_fails() {
 
 #[test]
 fn local_create_and_write_preserve_best_effort_directory_sync() {
-    let root = TempRoot::new();
+    let root = tempfile::tempdir().unwrap();
     platform::fail_directory_sync_on_call(1);
     assert!(create_new(root.path(), "note.md", b"created").unwrap());
     platform::fail_directory_sync_on_call(1);
@@ -180,7 +151,7 @@ fn local_create_and_write_preserve_best_effort_directory_sync() {
 
 #[test]
 fn descriptor_copy_fallback_keeps_collision_and_timestamp_contract() {
-    let root = TempRoot::new();
+    let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("old.md"), "draft").unwrap();
     set_mtime_ms(root.path(), "old.md", 1_700_000_123_000).unwrap();
     platform::force_copy();
@@ -200,7 +171,7 @@ fn descriptor_copy_fallback_keeps_collision_and_timestamp_contract() {
 
 #[test]
 fn parked_backup_fallback_cleans_up_and_recovers_interruption() {
-    let root = TempRoot::new();
+    let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("note.md"), "original").unwrap();
     platform::force_backup(false);
     platform::fail_directory_sync_on_call(1);
@@ -216,8 +187,8 @@ fn parked_backup_fallback_cleans_up_and_recovers_interruption() {
 #[test]
 fn native_recursive_delete_does_not_follow_links() {
     use std::os::unix::fs::symlink;
-    let root = TempRoot::new();
-    let outside = TempRoot::new();
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
     std::fs::write(outside.path().join("keep.md"), "outside").unwrap();
     create_dir(root.path(), "folder").unwrap();
     symlink(outside.path(), root.path().join("folder/link")).unwrap();

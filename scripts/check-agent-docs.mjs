@@ -39,6 +39,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { readJustCommands } from './lib/justfile.mjs';
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // Repo paths are only validated when they look path-like: they must contain
@@ -98,33 +100,6 @@ const SKIP_DIRS = new Set([
 // ---------------------------------------------------------------------------
 // justfile / package.json parsing
 // ---------------------------------------------------------------------------
-
-const JUST_ALIAS_RE = /^alias\s+([a-zA-Z_][a-zA-Z0-9_-]*)\s*:=/;
-// A recipe header: an unindented, non-comment line whose name is followed
-// (optionally through parameters or a dependency list) by the FIRST colon on
-// the line — covers both `name params:` and `name: dep1 dep2` shapes.
-const JUST_RECIPE_RE = /^([a-zA-Z_][a-zA-Z0-9_-]*)[^\n:]*:(?!=)/;
-
-// Recipe/alias names invocable as `just <name>`, parsed directly from the
-// justfile text rather than shelling out to `just` (CI's pinned image does
-// not have it — see the justfile's own arch-gate comment).
-export function parseJustRecipes(justfileText) {
-  const names = new Set();
-  for (const rawLine of justfileText.split('\n')) {
-    if (/^\s/.test(rawLine)) continue; // recipe body line
-    const trimmed = rawLine.trim();
-    if (trimmed === '' || trimmed.startsWith('#')) continue;
-
-    const alias = JUST_ALIAS_RE.exec(rawLine);
-    if (alias) {
-      names.add(alias[1]);
-      continue;
-    }
-    const recipe = JUST_RECIPE_RE.exec(rawLine);
-    if (recipe) names.add(recipe[1]);
-  }
-  return names;
-}
 
 export function parsePackageScripts(packageJsonText) {
   const pkg = JSON.parse(packageJsonText);
@@ -498,7 +473,8 @@ function resolveSkillLink(repoRelativePath) {
 
 function main() {
   const files = collectInstructionFiles(ROOT);
-  const justRecipes = parseJustRecipes(fs.readFileSync(path.join(ROOT, 'justfile'), 'utf8'));
+  const commands = readJustCommands(ROOT);
+  const justRecipes = new Set([...commands.recipes, ...commands.aliases.keys()]);
   const pnpmScripts = parsePackageScripts(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 
   let totalRefs = 0;
