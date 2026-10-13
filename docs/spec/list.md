@@ -478,11 +478,16 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   `textFieldShouldReturn`, EditorWebView.swift `EditorHost.focusBody`,
   src/features/notes/createNoteTitleController.svelte.ts, NoteTitleField.kt,
   NoteTitleFieldTest.kt
-- Android: a rename that lands while the title is still being typed (a pause
-  past the 500 ms debounce) leaves the caret where it was. It used to rebuild
-  the field with the caret at the start, so "abc", a pause, then "def" came out
-  "defabc". Fixed and verified on the emulator 2026-09-23. _(Android)_ →
-  NoteTitleField.kt `titleFieldAfterRename`, TitleFieldAfterRenameTest.kt
+- **While the title field is focused, only typing changes it.** A title the app
+  commits meanwhile — a rename that trimmed or suffixed what was typed ("jkl "
+  saves as `jkl.md`, "con" as `con_.md`), a move, a sync rename, a conflict
+  copy — shows once the field loses focus; typing before then discards it. A
+  rewrite mid-typing moved the caret: "abc", a pause, then "def" came out
+  "defabc" (Android), and "jkl ", a pause, then "mno" came out "jklmno" (Android,
+  desktop). Verified on the Android emulator (API 36) and desktop (macOS)
+  2026-10-05. → NoteTitleField.kt `TitleFieldState`, TitleFieldStateTest.kt,
+  src/features/notes/noteSession.svelte.ts `showCommittedTitle`,
+  NoteEditorView.swift `TitleTextField.updateUIView`
 - **A title longer than the screen never widens the editor** on any of the
   three apps. The title field takes the width of the editor column and no more,
   so an over-long title is cut off at the column edge rather than pushing

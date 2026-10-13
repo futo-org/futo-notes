@@ -346,6 +346,190 @@ describe('title debounce vs body debounce (character-loss race)', () => {
   });
 });
 
+describe('a focused title changes only by typing (list.md)', () => {
+  beforeEach(useTitleSaveFakes);
+  afterEach(() => {
+    restoreTitleSaveFakes();
+    document.body.replaceChildren();
+  });
+
+  function focusedTitleSession() {
+    const textarea = document.createElement('textarea');
+    document.body.append(textarea);
+    textarea.focus();
+    const session = createNoteSession({ ...makeTitleDeps(), getTitleTextarea: () => textarea });
+    const blur = () => {
+      textarea.blur();
+      session.handleTitleBlur();
+    };
+    return { session, blur };
+  }
+
+  it('keeps the space a save trimmed off in the field, then shows the saved title on blur', async () => {
+    const { session, blur } = focusedTitleSession();
+    const { updateNote } = await import('./notes.svelte');
+
+    typeTitle(session, 'jkl ');
+    await session.flushSave();
+    expect(session.fieldTitle).toBe('jkl ');
+    expect(session.title).toBe('jkl');
+
+    await session.flushSave();
+    expect(updateNote).toHaveBeenCalledOnce();
+
+    blur();
+    expect(session.fieldTitle).toBe('jkl');
+  });
+
+  it('keeps holding through a window switch, which blurs the field but leaves it active', async () => {
+    const { session, blur } = focusedTitleSession();
+
+    typeTitle(session, 'jkl ');
+    await session.flushSave();
+    session.handleTitleBlur();
+    expect(session.fieldTitle).toBe('jkl ');
+
+    blur();
+    expect(session.fieldTitle).toBe('jkl');
+  });
+
+  it('lets typing after the save win over the saved title', async () => {
+    const { session, blur } = focusedTitleSession();
+
+    typeTitle(session, 'jkl ');
+    await session.flushSave();
+    typeTitle(session, 'jkl mno');
+    blur();
+
+    expect(session.fieldTitle).toBe('jkl mno');
+    expect(session.title).toBe('jkl mno');
+  });
+
+  it('holds a sync rename in the field until blur, without renaming it back', async () => {
+    const { session, blur } = focusedTitleSession();
+    const { updateNote } = await import('./notes.svelte');
+    session.seedOpenNote('Roadmap', 'body');
+    titleEditorContent = 'body';
+
+    session.applyRemoteRename('Plan', 'Plan');
+    expect(session.fieldTitle).toBe('Roadmap');
+    expect(session.title).toBe('Plan');
+
+    await session.flushSave();
+    expect(updateNote).not.toHaveBeenCalled();
+
+    blur();
+    expect(session.fieldTitle).toBe('Plan');
+  });
+
+  it('keeps a title typed before a sync rename and saves it under the new name', async () => {
+    const { session } = focusedTitleSession();
+    const { updateNote } = await import('./notes.svelte');
+    session.seedOpenNote('Roadmap', 'body');
+    titleEditorContent = 'body';
+    typeTitle(session, 'Roadmap v2');
+
+    session.applyRemoteRename('Plan', 'Plan');
+    expect(session.fieldTitle).toBe('Roadmap v2');
+
+    await session.flushSave();
+    expect(updateNote).toHaveBeenCalledExactlyOnceWith('Roadmap v2', 'body', {
+      originalId: 'Plan',
+      base: 'body',
+    });
+  });
+
+  it('lets a sync rename replace a typed title that cannot save, even with a save armed', () => {
+    const session = createNoteSession(makeTitleDeps());
+    session.seedOpenNote('Roadmap', 'body');
+    titleEditorContent = 'body';
+    typeTitle(session, 'Roadmap.');
+    session.debouncedSave('body edited');
+
+    session.applyRemoteRename('Plan', 'Plan');
+
+    expect(session.fieldTitle).toBe('Plan');
+  });
+
+  it('keeps a typed title whose save failed and retries it under the new name', async () => {
+    const session = createNoteSession(makeTitleDeps());
+    const { updateNote } = await import('./notes.svelte');
+    session.seedOpenNote('Roadmap', 'body');
+    titleEditorContent = 'body';
+    typeTitle(session, 'Roadmap v2');
+    vi.mocked(updateNote).mockRejectedValueOnce(new Error('disk full'));
+    await expect(session.flushSave()).rejects.toThrow('disk full');
+
+    session.applyRemoteRename('Plan', 'Plan');
+    expect(session.fieldTitle).toBe('Roadmap v2');
+
+    await session.flushSave();
+    expect(updateNote).toHaveBeenLastCalledWith('Roadmap v2', 'body', {
+      originalId: 'Plan',
+      base: 'body',
+    });
+  });
+
+  it('keeps the warning of a held blocked title until blur shows the new name', () => {
+    const { session, blur } = focusedTitleSession();
+    session.seedOpenNote('Roadmap', 'body');
+    typeTitle(session, 'Roadmap.');
+    expect(session.titleWarning).not.toBe('');
+
+    session.applyRemoteRename('Plan', 'Plan');
+    expect(session.fieldTitle).toBe('Roadmap.');
+    expect(session.titleWarning).not.toBe('');
+
+    blur();
+    expect(session.fieldTitle).toBe('Plan');
+    expect(session.titleWarning).toBe('');
+  });
+
+  it('saves a duplicate typed title once a move makes it unique, dropping the warning', async () => {
+    const notes = [{ id: 'Plan' }, { id: 'Roadmap' }] as unknown as ReturnType<
+      NoteSessionDeps['getNotes']
+    >;
+    const session = createNoteSession({ ...makeTitleDeps(), getNotes: () => notes });
+    const { updateNote } = await import('./notes.svelte');
+    session.seedOpenNote('Roadmap', 'body');
+    titleEditorContent = 'body';
+    typeTitle(session, 'Plan');
+    await session.flushSave();
+    expect(session.titleWarning).not.toBe('');
+    expect(updateNote).not.toHaveBeenCalled();
+
+    session.applyRemoteRename('Work/Roadmap', 'Roadmap');
+    expect(session.titleWarning).toBe('');
+
+    await vi.runAllTimersAsync();
+    expect(updateNote).toHaveBeenCalledExactlyOnceWith('Work/Plan', 'body', {
+      originalId: 'Work/Roadmap',
+      base: 'body',
+    });
+  });
+
+  it('keeps a blocked typed title and its warning through a body adopt', () => {
+    const { session, blur } = focusedTitleSession();
+    session.seedOpenNote('Roadmap', 'body');
+    typeTitle(session, 'Roadmap.');
+
+    session.applyExternalContent('peer body');
+    blur();
+
+    expect(session.fieldTitle).toBe('Roadmap.');
+    expect(session.titleWarning).not.toBe('');
+  });
+
+  it('shows a sync rename at once when the title is not focused', () => {
+    const session = createNoteSession(makeTitleDeps());
+    session.seedOpenNote('Roadmap', 'body');
+
+    session.applyRemoteRename('Plan', 'Plan');
+
+    expect(session.fieldTitle).toBe('Plan');
+  });
+});
+
 describe('external unlink during an in-flight save', () => {
   let editorContent = '';
 

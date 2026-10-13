@@ -44,6 +44,11 @@ export function editorLostTheNote(params: {
   return params.content === params.savedContent;
 }
 
+/** Whether `title` holds an edit `savedTitle` lacks; whitespace a save trims is not one. */
+export function titleHasUnsavedEdit(title: string, savedTitle: string): boolean {
+  return normalizeTitleForPersistence(title) !== normalizeTitleForPersistence(savedTitle);
+}
+
 export function editorHasUnseenChanges(params: {
   editorContent: string | undefined;
   savedContent: string;
@@ -52,8 +57,7 @@ export function editorHasUnseenChanges(params: {
   savedTitle: string;
 }): boolean {
   if (params.editorContent === undefined) return false;
-  const titleChanged =
-    normalizeTitleForPersistence(params.title) !== normalizeTitleForPersistence(params.savedTitle);
+  const titleChanged = titleHasUnsavedEdit(params.title, params.savedTitle);
   // A blank editor's body is not a change; a rename typed alongside it still is.
   if (editorLostTheNote(params)) return titleChanged;
   return params.editorContent !== params.savedContent || titleChanged;

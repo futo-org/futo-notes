@@ -4,14 +4,15 @@ import type { NotePreview } from '$shared/types/note';
 import { notifySaved } from '$features/sync/autoSync';
 import { createNoteSaveQueue } from './noteSaveQueue';
 import { createNoteTitleController } from './createNoteTitleController.svelte';
-import { createNotePersistence } from './createNotePersistence';
+import { createNotePersistence, titleSaveRefusal } from './createNotePersistence';
 import { createNoteLoader } from './createNoteLoader';
 import {
   editorHasUnseenChanges,
   isEditorChangeEcho,
   normalizeTitleForPersistence,
+  titleHasUnsavedEdit,
 } from './noteSessionChanges';
-import { getNoteById, readNote } from './notes.svelte';
+import { readNote } from './notes.svelte';
 
 export interface NoteSessionDeps {
   getEditorContent: () => string | undefined;
@@ -43,6 +44,8 @@ export interface ParkedDraftSnapshot {
 
 export interface NoteSession {
   readonly title: string;
+  /** What the title field shows: `title`, unless a commit landed while it was focused (list.md). */
+  readonly fieldTitle: string;
   readonly content: string;
   readonly originalId: string | null;
   readonly titleWarning: string;
@@ -68,6 +71,7 @@ export interface NoteSession {
   handleTitlePointerDown: (event: PointerEvent) => void;
   seedOpenNote: (id: string, body: string) => void;
   cancelAndClear: () => void;
+  /** Adopts a peer's body; renames arrive through applyRemoteRename. */
   applyExternalContent: (freshContent: string) => void;
   /** Re-hands the open note to a newly created editor instance. */
   reattachEditor: () => void;
@@ -120,6 +124,8 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   let loading = $state(false);
   let savedContent = '';
   let pendingNewFolder: string | null = null;
+  /* The text a focused title field keeps after a commit moved `title` (see showCommittedTitle). */
+  let heldFieldTitle = $state<string | null>(null);
 
   let suppressSaveOnChange = false;
 
@@ -128,12 +134,16 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     if (patch.content !== undefined) content = patch.content;
     if (patch.savedContent !== undefined) savedContent = patch.savedContent;
     if (patch.savedTitle !== undefined) savedTitle = patch.savedTitle;
-    if (patch.originalId !== undefined) originalId = patch.originalId;
+    if (patch.originalId !== undefined) {
+      originalId = patch.originalId;
+      heldFieldTitle = null;
+    }
     if (patch.loading !== undefined) loading = patch.loading;
   }
 
   function resetSessionState(): void {
     title = '';
+    heldFieldTitle = null;
     content = '';
     originalId = null;
     savedTitle = '';
@@ -146,6 +156,8 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
 
   const titleController = createNoteTitleController({
     setTitle: (value) => {
+      if (value === (heldFieldTitle ?? title)) return;
+      heldFieldTitle = null;
       title = value;
     },
     hasDuplicateTitle,
@@ -188,7 +200,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       if (deps.getEditorContent() === newContent) content = newContent;
       savedContent = newContent;
       savedTitle = newTitle;
-      if (title === requestedTitle) title = newTitle;
+      if (title === requestedTitle) showCommittedTitle(newTitle);
       if (savedOriginalId === id) return;
       if (!keepsOriginal) {
         deps.onNoteRenamed(savedOriginalId, id);
@@ -347,17 +359,6 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     }
   }
 
-  function applyExternalContent(freshContent: string): void {
-    adoptContent(freshContent);
-
-    const meta = originalId ? getNoteById(originalId) : null;
-    if (meta) {
-      title = meta.title;
-      savedTitle = meta.title;
-    }
-    titleController.clearWarning();
-  }
-
   function rebaseSavedContent(freshContent: string): void {
     savedContent = freshContent;
   }
@@ -376,16 +377,53 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     deps.openEditorNote(originalId ?? deps.getNoteId(), content);
   }
 
+  /**
+   * While the title field is focused only the user's typing changes it
+   * (list.md). A title the app commits meanwhile — a save that trimmed what was
+   * typed, a sync rename — becomes `title` at once, so saves never request the
+   * stale text, but the field keeps showing what it had until blur. Typing
+   * first replaces both.
+   */
+  function showCommittedTitle(committed: string): void {
+    if (committed !== title && document.activeElement === deps.getTitleTextarea()) {
+      heldFieldTitle ??= title;
+    }
+    title = committed;
+  }
+
+  function handleTitleBlur(): void {
+    // A window switch blurs the field but leaves it the active element.
+    if (heldFieldTitle !== null && document.activeElement !== deps.getTitleTextarea()) {
+      heldFieldTitle = null;
+      titleController.clearWarning();
+    }
+    titleController.handleBlur();
+  }
+
+  /**
+   * A sync rename or move named the note `newTitle`. A typed title the save
+   * will take still wins, as on the native shells: it saves now, renaming the
+   * note from its new id, and any warning it had (a duplicate in the old
+   * folder) is stale. One the save refuses gives way, keeping its warning
+   * while the field still shows it.
+   */
   function applyRemoteRename(toId: string, newTitle: string): void {
+    const typedTitle = titleHasUnsavedEdit(title, savedTitle);
     originalId = toId;
-    title = newTitle;
     savedTitle = newTitle;
-    titleController.clearWarning();
+    if (typedTitle && !titleSaveRefusal(title, hasDuplicateTitle)) {
+      titleController.clearWarning();
+      saveQueue.resume();
+      return;
+    }
+    showCommittedTitle(newTitle);
+    if (heldFieldTitle === null) titleController.clearWarning();
   }
 
   function seedOpenNote(id: string, body: string): void {
     originalId = id;
     title = id;
+    heldFieldTitle = null;
     savedTitle = id;
     content = body;
     savedContent = body;
@@ -407,6 +445,9 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   return {
     get title() {
       return title;
+    },
+    get fieldTitle() {
+      return heldFieldTitle ?? title;
     },
     get content() {
       return content;
@@ -451,12 +492,12 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     loadNote: noteLoader.load,
     handleTitleInput: titleController.handleInput,
     handleTitleKeydown: titleController.handleKeydown,
-    handleTitleBlur: titleController.handleBlur,
+    handleTitleBlur,
     handleTitleFocus: titleController.handleFocus,
     handleTitlePointerDown: titleController.handlePointerDown,
     seedOpenNote,
     cancelAndClear,
-    applyExternalContent,
+    applyExternalContent: adoptContent,
     reattachEditor,
     rebaseSavedContent,
     noteRelinked,
