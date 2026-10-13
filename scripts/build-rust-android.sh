@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build futo-notes-ffi for Android (all ABIs), generate the UniFFI Kotlin
-# bindings, and stage the per-ABI .so into apps/android's jniLibs.
+# Build futo-notes-ffi for Android (every shipped ABI, or $ABIS), generate the
+# UniFFI Kotlin bindings, and stage the per-ABI .so into apps/android's jniLibs.
 #
 # Requires: ANDROID_NDK_HOME + `cargo install cargo-ndk` + the android rust
 # targets (`rustup target add aarch64-linux-android armv7-linux-androideabi
@@ -53,10 +53,29 @@ APP="apps/android"
 JNI="$APP/app/src/main/jniLibs"
 KOTLIN_OUT="$APP/app/src/main/java"
 
-# ABIs: arm64 (modern devices), armv7 (older), x86_64 (emulator). i686 is rarely
-# needed; add "x86" here if you target 32-bit emulators.
-ABIS="${ABIS:-arm64-v8a,armeabi-v7a,x86_64}"
+# ABIs: arm64 (current phones, Apple Silicon emulators), armv7 (older phones),
+# x86_64 (Intel emulators, ChromeOS). The default is every ABI the app ships
+# (`abiFilters` in app/build.gradle.kts), which releases and CI need.
+# ABIS=device builds only the connected device's ABI — about a third of a cold
+# build — and is what the dev recipes pass; adb honours ANDROID_SERIAL. With no
+# single device to ask (none, or several and no ANDROID_SERIAL) it builds all.
+ALL_ABIS="arm64-v8a,armeabi-v7a,x86_64"
+ABIS="${ABIS:-$ALL_ABIS}"
+if [[ "$ABIS" == device ]]; then
+  if DEVICE_ABI="$(adb shell getprop ro.product.cpu.abi 2>/dev/null | tr -d '\r')" \
+    && [[ -n "$DEVICE_ABI" ]]; then
+    ABIS="$DEVICE_ABI"
+  else
+    echo "==> ABIS=device: no single device answered adb; building every ABI"
+    ABIS="$ALL_ABIS"
+  fi
+fi
 PROFILE="${FUTO_ANDROID_FFI_PROFILE:-release-ffi}"
+
+# Start empty: a .so left from an earlier build for an ABI this run skips would
+# still be packaged, so a device of that ABI would run old Rust. It now fails
+# at library load instead — as does any install after a failed or stopped build.
+rm -rf "$JNI"
 
 echo "==> Building futo-notes-ffi for Android ABIs: $ABIS (profile: $PROFILE)"
 cargo ndk --platform 24 --target "$ABIS" --output-dir "$JNI" \

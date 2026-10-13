@@ -80,3 +80,48 @@ describe('android environment guard wiring', () => {
     expect(envScript).toContain('SDK location not found');
   });
 });
+
+// Dev builds compile one ABI; anything that can reach a user must keep all
+// three, or a release APK ships without armv7/x86_64 and those installs die
+// at library load.
+describe('android FFI ABI selection', () => {
+  const buildScript = readFileSync(join(ROOT, 'scripts/build-rust-android.sh'), 'utf8');
+  const gradle = readFileSync(join(ROOT, 'apps/android/app/build.gradle.kts'), 'utf8');
+
+  it('defaults to every shipped ABI; the dev recipes ask for the device', () => {
+    const shippedAbis = /abiFilters \+= listOf\(([^)]*)\)/.exec(gradle)[1].match(/[\w-]+/g);
+    const defaultAbis = /^ALL_ABIS="([^"]*)"$/m.exec(buildScript)[1].split(',');
+    expect(defaultAbis.toSorted()).toEqual(shippedAbis.toSorted());
+    expect(buildScript).toContain('ABIS="${ABIS:-$ALL_ABIS}"');
+    expect(justfile).toContain(
+      'build-rust-android abis="":\n  ABIS="${ABIS:-{{abis}}}" bash scripts/build-rust-android.sh\n',
+    );
+    expect(runSh).toContain('ABIS="${ABIS:-device}" bash scripts/build-rust-android.sh');
+    for (const recipeName of [
+      'build-android-native',
+      'test-android-native',
+      'test-android-native-ui',
+    ]) {
+      expect(justfile).toMatch(
+        new RegExp(`^${recipeName}:[^\\n]*\\(build-rust-android "device"\\)`, 'm'),
+      );
+    }
+  });
+
+  it('release builds refuse a partial jniLibs; CI builds every ABI', () => {
+    // The guard only checks presence, so it relies on every build starting
+    // jniLibs empty: a kept .so from an older build would pass it.
+    const resetAt = buildScript.indexOf('rm -rf "$JNI"');
+    expect(resetAt).toBeGreaterThan(-1);
+    expect(resetAt).toBeLessThan(buildScript.indexOf('cargo ndk'));
+    expect(gradle).toContain('Regex("merge\\\\w+ReleaseJniLibFolders")');
+    expect(gradle).toMatch(
+      /doFirst \{[\s\S]*?libfuto_notes_ffi\.so[\s\S]*?check\(missingAbis\.isEmpty\(\)\)/,
+    );
+    // CI builds release variants only on tags, so pin its call here; a local
+    // release is caught by the abiFilters guard in app/build.gradle.kts.
+    const ci = readFileSync(join(ROOT, '.gitlab-ci.yml'), 'utf8');
+    expect(ci).not.toMatch(/\bABIS\b/);
+    expect(ci).toMatch(/^\s+- bash scripts\/build-rust-android\.sh$/m);
+  });
+});
