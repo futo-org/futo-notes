@@ -33,6 +33,7 @@ import {
 } from './blockDragGeometry';
 import { isNoOpDrop, moveBlock, planBlockMove, type BlockMoveRange } from './blockMove';
 import { CURTAIN_STYLES, ReflowCurtain } from './blockDragCurtain';
+import { PENDING_EDIT_META } from './documentChanges';
 
 /** What the gesture hands over at lift. */
 export interface BlockDragLift extends BlockMoveRange {
@@ -90,6 +91,20 @@ interface BlockDragSourceState {
 const landingDrops = new WeakMap<HTMLElement, BlockDragSession>();
 
 export const blockDragSourceKey = new PluginKey<BlockDragSourceState>('futo-block-drag-source');
+
+/** Commits the drop landing on `view` now, if one is: whatever reads or saves
+ * the note next (a host flush or `getContent`, the page going away) must find
+ * the move in it, and a release whose slides are held up (an animation clock
+ * stopped by the app going to the background) would otherwise leave it out. */
+export function landPendingDrop(view: ProseView | null): void {
+  if (view) landingDrops.get(view.dom)?.landed();
+}
+
+/** Whether a released drop is still landing on `view`: the note the host
+ * would hear about now is the one before the move. */
+export function dropLanding(view: ProseView | null): boolean {
+  return view !== null && landingDrops.has(view.dom);
+}
 
 /** Injected once per page (not per editor instance/mount) — the ghost and
  * indicator live outside the ProseMirror DOM (fixed-position), so their
@@ -440,7 +455,9 @@ export class BlockDragSession {
    * the dropped block, and no real block is ever animated (a style change
    * inside the editor's scroll box restyles the whole note). The target is
    * kept in the source plugin's state, so a document change in the meantime
-   * maps it (`docChanged`). */
+   * maps it (`docChanged`). The release is reported as an edit at once
+   * (`PENDING_EDIT_META`); `landPendingDrop` commits the move early for
+   * anything that reads or saves the note. */
   private land(
     curtain: ReflowCurtain,
     lifted: BlockDragLift,
@@ -449,10 +466,12 @@ export class BlockDragSession {
   ): void {
     const source = blockDragSourceKey.getState(this.view.state);
     this.view.dispatch(
-      this.view.state.tr.setMeta(blockDragSourceKey, {
-        decorationSet: source?.decorationSet ?? DecorationSet.empty,
-        dropTarget: pos,
-      }),
+      this.view.state.tr
+        .setMeta(blockDragSourceKey, {
+          decorationSet: source?.decorationSet ?? DecorationSet.empty,
+          dropTarget: pos,
+        })
+        .setMeta(PENDING_EDIT_META, true),
     );
     this.landing = { curtain, lifted, beforeDispatch };
     landingDrops.set(this.view.dom, this);
@@ -460,13 +479,13 @@ export class BlockDragSession {
   }
 
   /** The landing drop's neighbours are in place (or the layout changed, or
-   * the note scrolled, or the document changed): the move commits, at its
-   * target mapped through anything that happened since, and the curtain goes
-   * in the same frame. A move that no longer applies (its block was taken
+   * the note scrolled, or the document changed, or something reads the note:
+   * `landPendingDrop`): the move commits, at its target mapped through
+   * anything that happened since, and the curtain goes in the same frame. A move that no longer applies (its block was taken
    * away) is dropped. Only the mapped dim decoration names the block here,
    * never the lift-time positions: after a note switch those could name a
    * block of the new note. */
-  private landed(): void {
+  landed(): void {
     const landing = this.landing;
     if (!landing) return;
     this.landing = null;

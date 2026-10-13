@@ -25,6 +25,7 @@ import {
   type NodeJson,
 } from '@futo-notes/editor/markdown';
 import { editorMarkdownSerializer } from '@futo-notes/editor/milkdown-compat';
+import { dropLanding } from './blockDragSession';
 import { DOCUMENT_CHANGE_DEBOUNCE_MS, DOCUMENT_CHANGE_MAX_WAIT_MS } from './documentChanges';
 import type { DocumentSession } from './documentSession.svelte';
 import { scheduleIdleSlice } from './progressiveLoad';
@@ -203,6 +204,10 @@ export function createSerializationLoop(session: DocumentSession, deps: Serializ
     if (session.loadFailed) return;
 
     if (!session.unreported) return;
+    /* A block drop still landing (blockDragSession.ts) is reported as an edit
+     * at its release, but the note is the one before the move until it lands,
+     * and its landing reports it. */
+    if (dropLanding(pmView())) return;
     if (unchangedSinceLoad()) {
       const loaded = session.hostMarkdown ?? readSerialized();
       if (loaded !== null) postChange(loaded);

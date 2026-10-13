@@ -6,6 +6,7 @@ import { expect, test as base, type CDPSession, type Page } from '@playwright/te
 
 import { BRIDGE_VERSION } from '@futo-notes/editor';
 
+import { LAND_CAP_MS } from '../src/features/editor/milkdown/blockDragCurtain';
 import { GHOST_PAD_Y_PX } from '../src/features/editor/milkdown/blockDragSession';
 import { DEFAULT_LONG_PRESS_MS } from '../src/features/editor/milkdown/mobileBlockDnd';
 import { EDITOR_URL } from './editorEmbedBundle';
@@ -3595,6 +3596,11 @@ async function liftAndStopMidSlide(
   handle = false,
 ): Promise<LiftedBlock> {
   const delta = await blockBox(page, 'delta');
+  // A release must go on landing for as long as the test looks at it: with the
+  // wall-clock cap off, only the slides' end, or what the test does, lands it.
+  await page.evaluate(() => {
+    (window as unknown as { __futoBlockDragLandCap?: string }).__futoBlockDragLandCap = 'off';
+  });
   const lifted = handle ? await liftWithHandle(page, 0) : await liftWithTouch(page, cdp, 0);
   // Let the curtain open on a still finger, so only the move below slides.
   await page.waitForTimeout(300);
@@ -3911,6 +3917,149 @@ for (const gesture of ['handle', 'long press'] as const) {
     },
   );
 }
+
+/* A drop still landing is an edit the host must not miss. The release reports
+ * it at once (`edited`): a native host leaving the foreground flushes only an
+ * editor that has told it of an edit since its last change, and would
+ * otherwise save the note as it was before the drop. Whatever reads or saves
+ * the note, and the page going away, commits the move first. */
+
+const MOVED = /^bravo\n\ncharlie\n\ndelta\n\nalpha\n\n/;
+
+/** Releases alpha past delta mid-slide with the clock stopped (and the cap
+ * off), and checks the drop is still landing: the curtain up, the real note
+ * not yet moved. */
+async function releaseLandingDrop(page: Page, cdp: CDPSession): Promise<void> {
+  await page.setViewportSize({ width: 760, height: 1200 });
+  await hostSetContent(page, SLIDE_NOTE);
+  await clearMessages(page);
+  const lifted = await liftAndStopMidSlide(page, cdp);
+  await lifted.release();
+  await flushFrames(page);
+  expect(await curtainUp(page)).toBe(true);
+  expect((await realOrder(page))[0]).toBe('alpha');
+}
+
+mobileDndTest('a release reports its move as an edit before it lands', async ({ page, cdp }) => {
+  await releaseLandingDrop(page, cdp);
+  expect(await messagesOfType(page, 'edited')).toHaveLength(1);
+  // The change debounce runs out while it lands: the note before the move is
+  // not reported as the edit.
+  await settleChangeDebounce(page);
+  expect(await curtainUp(page)).toBe(true);
+  expect(await messagesOfType(page, 'change')).toHaveLength(0);
+
+  await animationRate(cdp, 1);
+  await waitForMessages(page, 'change');
+  expect((await messagesOfType(page, 'change')).at(-1)?.content).toMatch(MOVED);
+});
+
+mobileDndTest(
+  'a flush while a drop lands reports the note with the move in it',
+  async ({ page, cdp }) => {
+    await releaseLandingDrop(page, cdp);
+    await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.flush('leaving'));
+    expect(await curtainUp(page)).toBe(false);
+    const flushed = (await messagesOfType(page, 'change')).filter(
+      (m) => m.flushToken === 'leaving',
+    );
+    expect(flushed).toHaveLength(1);
+    expect(flushed[0].content).toMatch(MOVED);
+  },
+);
+
+mobileDndTest('getContent while a drop lands has the move in it', async ({ page, cdp }) => {
+  await releaseLandingDrop(page, cdp);
+  expect(await getContent(page)).toMatch(MOVED);
+  expect(await curtainUp(page)).toBe(false);
+});
+
+for (const event of ['visibilitychange', 'pagehide'] as const) {
+  mobileDndTest(
+    `the page going away (${event}) while a drop lands commits and reports the move`,
+    async ({ page, cdp }) => {
+      await releaseLandingDrop(page, cdp);
+      await page.evaluate((type) => {
+        if (type === 'visibilitychange') {
+          Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            get: () => 'hidden',
+          });
+          document.dispatchEvent(new Event('visibilitychange'));
+        } else {
+          window.dispatchEvent(new PageTransitionEvent('pagehide'));
+        }
+      }, event);
+      expect(await curtainUp(page)).toBe(false);
+      expect((await messagesOfType(page, 'change')).at(-1)?.content).toMatch(MOVED);
+    },
+  );
+}
+
+/** Milliseconds from the release (pointerup) to the curtain coming down. */
+async function releaseToCommit(page: Page, release: () => Promise<void>): Promise<number> {
+  await page.evaluate(() => {
+    const w = window as unknown as { __releasedAt?: number; __committedAt?: number };
+    w.__releasedAt = undefined;
+    w.__committedAt = undefined;
+    window.addEventListener(
+      'pointerup',
+      () => {
+        w.__releasedAt = performance.now();
+        new MutationObserver((_, observer) => {
+          if (document.querySelector('.futo-mobile-dnd-reflow-clip')) return;
+          w.__committedAt = performance.now();
+          observer.disconnect();
+        }).observe(document.body, { childList: true, subtree: true });
+      },
+      { capture: true, once: true },
+    );
+  });
+  await release();
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as unknown as { __committedAt?: number }).__committedAt ?? null),
+    )
+    .not.toBeNull();
+  return page.evaluate(() => {
+    const w = window as unknown as { __releasedAt: number; __committedAt: number };
+    return w.__committedAt - w.__releasedAt;
+  });
+}
+
+/** Lifts alpha and moves it past delta with the slides slowed to 5%, so
+ * they are a long way from their end at the release. */
+async function liftAndSlowSlide(page: Page, cdp: CDPSession): Promise<LiftedBlock> {
+  await page.setViewportSize({ width: 760, height: 1200 });
+  await hostSetContent(page, SLIDE_NOTE);
+  await clearMessages(page);
+  const delta = await blockBox(page, 'delta');
+  const lifted = await liftWithTouch(page, cdp, 0);
+  await page.waitForTimeout(300);
+  await animationRate(cdp, 0.05);
+  await lifted.move(delta.top + (delta.bottom - delta.top) * 0.75);
+  await page.waitForTimeout(100);
+  return lifted;
+}
+
+/* Where the slides never end (the animation clock stopped, as in an app sent
+ * to the background mid-slide; a hidden curtain), the drop lands at a cap. */
+mobileDndTest('a drop whose slides stall still lands within the cap', async ({ page, cdp }) => {
+  const lifted = await liftAndSlowSlide(page, cdp);
+  await animationRate(cdp, 0);
+  const ms = await releaseToCommit(page, () => lifted.release());
+  expect(ms).toBeLessThan(LAND_CAP_MS + 150);
+  await waitForMessages(page, 'change');
+  expect(await getContent(page)).toMatch(MOVED);
+});
+
+mobileDndTest('with reduced motion, a drop lands at the release', async ({ page, cdp }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const lifted = await liftAndSlowSlide(page, cdp);
+  expect(await releaseToCommit(page, () => lifted.release())).toBeLessThan(100);
+  await waitForMessages(page, 'change');
+  expect(await getContent(page)).toMatch(MOVED);
+});
 
 /* A move can make the note SHORTER: the final paragraph moved above a first
  * heading (`shorteningNote`) becomes the first block, whose top margin the editor zeroes, while

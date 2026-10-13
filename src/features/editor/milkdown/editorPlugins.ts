@@ -26,6 +26,7 @@ import type { DocumentRef } from '@futo-notes/editor';
 import type { ImageInsertTarget } from '../imageInsertTarget';
 import { readOnlyGuard } from './readOnlyGuard';
 import { useBlockDragPlugins } from './blockDrag.svelte';
+import { landPendingDrop } from './blockDragSession';
 import { autolink } from './autolink';
 import { dividerCaretFix } from './dividerCaret';
 import { plainTextBlockPaste } from './plainTextBlockPaste';
@@ -203,6 +204,7 @@ function configureEditor(ctx: Ctx, assembly: EditorAssembly): void {
   const listeners = ctx.get(listenerCtx);
   listeners.focus(() => props.onfocuschange?.(true));
   listeners.blur(() => {
+    landPendingDrop(pmView());
     if (props.nativeShell) flush();
     props.onfocuschange?.(false);
   });

@@ -59,6 +59,7 @@
   import type { EditorLinkGesture } from '../editorLinkGesture';
   import { resolveBlockDragMode } from './blockDragMode';
   import { createBlockDrag } from './blockDrag.svelte';
+  import { landPendingDrop } from './blockDragSession';
   import { assembleEditor } from './editorPlugins';
   import { editorView, enclosingListItem } from './caretContext';
   import { inIndentableContainer } from './blockCommands';
@@ -425,7 +426,11 @@
     oncursorcontext?.({ onListLine: inList, inContainer: inAnyContainer });
   }
 
-  function flushOnPageHide(): void {
+  /** The page is going away or out of sight: a block drop still landing
+   * commits now (its slides may never end: a hidden page's animation clock
+   * stops), and a native shell's note is flushed. */
+  function pageLeaving(): void {
+    landPendingDrop(pmView());
     if (nativeShell) flush();
   }
 
@@ -441,10 +446,10 @@
       session.liveMarkdown = content;
     }
     const visibility = (): void => {
-      if (nativeShell && document.visibilityState === 'hidden') flush();
+      if (document.visibilityState === 'hidden') pageLeaving();
     };
     document.addEventListener('visibilitychange', visibility);
-    window.addEventListener('pagehide', flushOnPageHide);
+    window.addEventListener('pagehide', pageLeaving);
     container.addEventListener('click', handleClick);
     container.addEventListener('auxclick', handleAuxClick);
     container.addEventListener('pointerdown', handlePointerDown);
@@ -571,7 +576,7 @@
       session.documentGeneration += 1;
       session.currentNoteId = null;
       document.removeEventListener('visibilitychange', visibility);
-      window.removeEventListener('pagehide', flushOnPageHide);
+      window.removeEventListener('pagehide', pageLeaving);
       dismissLinkPrompt();
       // Same teardown `openNote`/`applyExternal` use for a pending progressive
       // load: discard rather than settle, since there is no document left to

@@ -50,6 +50,16 @@ function reflowForcedOff(win: Window): boolean {
   }
 }
 
+/**
+ * TEST-ONLY switch, read at each release: `window.__futoBlockDragLandCap =
+ * 'off'` lets a landing drop wait on its slides past LAND_CAP_MS, so a test
+ * that stops the animation clock mid-slide can look at the landing for as
+ * long as it needs. Never set by production hosts.
+ */
+function landCapOff(win: Window): boolean {
+  return (win as Window & { __futoBlockDragLandCap?: string }).__futoBlockDragLandCap === 'off';
+}
+
 /** The blocks within REFLOW_WINDOW_URGENT_VIEWPORTS of the visible area are
  * cloned in the frame that needs them; the rest of the window, out to
  * REFLOW_WINDOW_MARGIN_VIEWPORTS on each side, is cloned in idle time between
@@ -71,9 +81,11 @@ const CURTAIN_FILL_TIMEOUT_MS = 300;
 const IDLE_FALLBACK_DELAY_MS = 32;
 const IDLE_FALLBACK_SLICE_MS = 4;
 const REFLOW_TRANSITION = 'transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1)';
-/** How often `land` checks that its slides are still under way, should a
- * slide's `transitionend` never arrive. */
-const LAND_CHECK_MS = 1000;
+/** The longest a release waits for its slides to end before it commits
+ * (`land`): well past the slide's own 0.18s, for when no `transitionend`
+ * comes. A stopped animation clock (the app sent to the background mid-slide)
+ * or a hidden curtain never ends a slide. Exported for the tests. */
+export const LAND_CAP_MS = 400;
 
 interface Reflow {
   /** The document the geometry below was measured against. Any transaction
@@ -145,7 +157,7 @@ interface Reflow {
   /** Called as each slide ends, once `land` is waiting on them. */
   onSlideEnd: (() => void) | null;
   /** While the release's move waits for the slides (`land`): what commits it,
-   * and the fallback check's timer. */
+   * and the LAND_CAP_MS timer. */
   landed: (() => void) | null;
   landTimer: number;
   /** The gap index currently previewed, or null for "nothing moved". */
@@ -1122,12 +1134,14 @@ export class ReflowCurtain {
 
   /** The release will commit this preview's move (`BlockDragSession.land`)
    * once the neighbours still sliding are in place, so nothing jumps: calls
-   * `onLanded` when the last slide ends, at once when nothing is sliding, and
-   * early at a scroll (the picture does not follow one) or a size change of a
-   * watched block or the scroll box. A size change is a relayout of
-   * everything on screen in itself, so committing then is not seen as a jump:
-   * the clones' fixed widths and heights would otherwise go on drawing the old
-   * line breaks until the slide ended. The dropped block's clone undims and
+   * `onLanded` when the last slide ends, or LAND_CAP_MS after the release
+   * whatever the slides are doing; at once when nothing is sliding, under a
+   * reduced-motion setting, or in a hidden page; and early at a scroll (the
+   * picture does not follow one) or a size change of a watched block or the
+   * scroll box. A size change is a relayout of everything on screen in
+   * itself, so committing then is not seen as a jump: the clones' fixed
+   * widths and heights would otherwise go on drawing the old line breaks until
+   * the slide ended. The dropped block's clone undims and
    * snaps into its slot now. The curtain stays until `end`. */
   land(onLanded: () => void): void {
     const reflow = this.reflow;
@@ -1144,11 +1158,16 @@ export class ReflowCurtain {
       source.style.transition = 'none';
       reflow.sliding.delete(source);
     }
-    if (!reflow.open || reflow.sliding.size === 0) {
+    const win = this.doc.defaultView ?? window;
+    if (
+      !reflow.open ||
+      reflow.sliding.size === 0 ||
+      win.matchMedia?.('(prefers-reduced-motion: reduce)').matches ||
+      this.doc.visibilityState === 'hidden'
+    ) {
       onLanded();
       return;
     }
-    const win = this.doc.defaultView ?? window;
     reflow.landed = () => {
       if (!reflow.landed) return;
       reflow.landed = null;
@@ -1159,18 +1178,7 @@ export class ReflowCurtain {
     reflow.onSlideEnd = () => {
       if (reflow.sliding.size === 0) reflow.landed?.();
     };
-    // Should a slide's `transitionend` never arrive: landed once nothing is
-    // still on its way (a stopped animation clock keeps it waiting).
-    const check = () => {
-      const moving = [...reflow.clones.values()].some(
-        (clone) =>
-          reflow.sliding.has(clone.el) &&
-          Math.abs(new DOMMatrix(getComputedStyle(clone.el).transform).m42 - clone.shift) > 0.5,
-      );
-      if (moving) reflow.landTimer = win.setTimeout(check, LAND_CHECK_MS);
-      else reflow.landed?.();
-    };
-    reflow.landTimer = win.setTimeout(check, LAND_CHECK_MS);
+    if (!landCapOff(win)) reflow.landTimer = win.setTimeout(() => reflow.landed?.(), LAND_CAP_MS);
   }
 
   /** Stops everything that keeps the preview live (idle work, the size

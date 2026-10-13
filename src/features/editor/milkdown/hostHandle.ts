@@ -17,6 +17,7 @@ import type { Schema as ProseSchema } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { toWellFormedText, type DocumentRef, type FlushFailureReason } from '@futo-notes/editor';
 import { endsInUnwrittenBlank } from '@futo-notes/editor/milkdown-compat';
+import { landPendingDrop } from './blockDragSession';
 import { WHOLE as CENSUS_WHOLE } from './chunkCensusHook';
 import type { DocumentLoad } from './documentLoad';
 import type { DocumentSession } from './documentSession.svelte';
@@ -80,6 +81,8 @@ function createContentCommands(
   }
 
   function flush(token?: string): void {
+    // A block drop still landing is in the note the host is about to save.
+    landPendingDrop(pmView());
     const fail = (reason: FlushFailureReason): void => {
       if (token !== undefined) props.onflushfailed?.(session.documentRef(), token, reason);
     };
@@ -114,6 +117,8 @@ function createContentCommands(
   }
 
   function getContent(): string | undefined {
+    // A block drop still landing is in the note the host is about to read.
+    landPendingDrop(pmView());
     const text = readContent();
     /* Every answer passes here, the host's own bytes included: nothing that
      * leaves the editor may carry a lone surrogate (RC-48, decision 16A). */
