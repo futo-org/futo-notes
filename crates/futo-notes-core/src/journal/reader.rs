@@ -64,7 +64,8 @@ mod tests {
 
     #[test]
     fn reading_a_directory_that_has_never_been_journaled_is_empty_not_an_error() {
-        let events = read_events(std::env::temp_dir().join("futo-notes-journal-absent")).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let events = read_events(directory.path().join("absent")).unwrap();
         assert!(events.is_empty());
     }
 }

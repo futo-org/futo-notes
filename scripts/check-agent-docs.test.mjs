@@ -7,7 +7,6 @@ import { describe, expect, it } from 'vitest';
 import {
   collectInstructionFiles,
   extractReferences,
-  parseJustRecipes,
   parsePackageScripts,
   resolvePathCheckTarget,
   validateRequiredVerificationChains,
@@ -56,36 +55,6 @@ describe('validateRequiredVerificationChains', () => {
           'shared note-rule verification chain is missing: pnpm run test:editor:minimal, just test-rust',
       },
     ]);
-  });
-});
-
-describe('parseJustRecipes', () => {
-  it('parses plain recipes, parameterized recipes, dependency recipes, and aliases', () => {
-    const justfile = [
-      'alias b := build',
-      '',
-      '# Lint everything',
-      'lint:',
-      '  pnpm run lint',
-      '',
-      'tauri-dev *args:',
-      '  node scripts/tauri-dev.mjs {{args}}',
-      '',
-      'sim-boot name="iPhone 17 Pro":',
-      '  echo hi',
-      '',
-      'check: lint test-rust',
-      '  pnpm run build',
-    ].join('\n');
-
-    const recipes = parseJustRecipes(justfile);
-    expect(recipes).toEqual(new Set(['b', 'lint', 'tauri-dev', 'sim-boot', 'check']));
-  });
-
-  it('does not mistake an alias line for a recipe named "alias"', () => {
-    const recipes = parseJustRecipes('alias td := tauri-dev\n');
-    expect(recipes.has('alias')).toBe(false);
-    expect(recipes.has('td')).toBe(true);
   });
 });
 

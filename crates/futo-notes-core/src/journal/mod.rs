@@ -178,21 +178,8 @@ fn now_ms() -> u64 {
 mod tests {
     use super::*;
     use std::fs;
-    use std::path::PathBuf;
-    use std::sync::atomic::AtomicU32;
     use std::sync::mpsc::{channel, Sender};
     use std::time::Duration;
-
-    fn temp_dir() -> PathBuf {
-        static SEQUENCE: AtomicU32 = AtomicU32::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "futo-notes-journal-{}-{}",
-            std::process::id(),
-            SEQUENCE.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir_all(&path).unwrap();
-        path
-    }
 
     impl Journal {
         /// Opens a journal whose writer runs `gate` before each write, so a test
@@ -246,8 +233,9 @@ mod tests {
 
     #[test]
     fn a_recorded_event_round_trips_through_the_envelope() {
-        let root = temp_dir();
-        let journal = Journal::open(&root, JournalLimits::default()).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let journal = Journal::open(root, JournalLimits::default()).unwrap();
         journal.record(
             "sync_run",
             &SampleEvent {
@@ -257,8 +245,7 @@ mod tests {
         );
         drop(journal);
 
-        let events = read_events(&root).unwrap();
-        fs::remove_dir_all(&root).unwrap();
+        let events = read_events(root).unwrap();
 
         assert_eq!(events.len(), 1);
         let event = &events[0];
@@ -271,8 +258,9 @@ mod tests {
 
     #[test]
     fn events_stay_in_the_order_they_were_recorded_across_segments() {
-        let root = temp_dir();
-        let journal = Journal::open(&root, small_ring()).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let journal = Journal::open(root, small_ring()).unwrap();
         for index in 0..12u32 {
             journal.record(
                 "sync_run",
@@ -284,9 +272,8 @@ mod tests {
         }
         drop(journal);
 
-        let events = read_events(&root).unwrap();
-        let segment_count = fs::read_dir(&root).unwrap().count();
-        fs::remove_dir_all(&root).unwrap();
+        let events = read_events(root).unwrap();
+        let segment_count = fs::read_dir(root).unwrap().count();
 
         assert!(
             segment_count > 1,
@@ -301,9 +288,10 @@ mod tests {
 
     #[test]
     fn the_ring_drops_the_oldest_segments_to_stay_under_the_total_cap() {
-        let root = temp_dir();
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
         let limits = small_ring();
-        let journal = Journal::open(&root, limits).unwrap();
+        let journal = Journal::open(root, limits).unwrap();
         for index in 0..400u32 {
             journal.record(
                 "sync_run",
@@ -315,13 +303,12 @@ mod tests {
         }
         drop(journal);
 
-        let total_bytes: u64 = fs::read_dir(&root)
+        let total_bytes: u64 = fs::read_dir(root)
             .unwrap()
             .flatten()
             .map(|entry| entry.metadata().unwrap().len())
             .sum();
-        let recorded = recorded_pushed_values(&read_events(&root).unwrap());
-        fs::remove_dir_all(&root).unwrap();
+        let recorded = recorded_pushed_values(&read_events(root).unwrap());
 
         assert!(
             total_bytes <= limits.max_total_bytes,
@@ -342,8 +329,9 @@ mod tests {
 
     #[test]
     fn reopening_a_journal_keeps_the_events_already_on_disk() {
-        let root = temp_dir();
-        let first = Journal::open(&root, JournalLimits::default()).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let first = Journal::open(root, JournalLimits::default()).unwrap();
         first.record(
             "sync_run",
             &SampleEvent {
@@ -353,7 +341,7 @@ mod tests {
         );
         drop(first);
 
-        let second = Journal::open(&root, JournalLimits::default()).unwrap();
+        let second = Journal::open(root, JournalLimits::default()).unwrap();
         second.record(
             "sync_run",
             &SampleEvent {
@@ -363,8 +351,7 @@ mod tests {
         );
         drop(second);
 
-        let events = read_events(&root).unwrap();
-        fs::remove_dir_all(&root).unwrap();
+        let events = read_events(root).unwrap();
 
         let ids: Vec<&str> = events
             .iter()
@@ -379,13 +366,14 @@ mod tests {
     #[test]
     fn a_stalled_writer_drops_events_instead_of_blocking_the_caller() {
         const RECORDED: u32 = 200;
-        let root = temp_dir();
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
         let (release_sender, release_receiver) = channel::<()>();
         let release_sender: Sender<()> = release_sender;
         let gate_receiver = Arc::new(std::sync::Mutex::new(Some(release_receiver)));
 
         let journal = Journal::open_gated(
-            &root,
+            root,
             JournalLimits {
                 queue_capacity: 4,
                 ..small_ring()
@@ -414,8 +402,7 @@ mod tests {
         drop(release_sender); // releases the gate's `recv`
         drop(journal); // flushes and joins the writer
 
-        let events = read_events(&root).unwrap();
-        fs::remove_dir_all(&root).unwrap();
+        let events = read_events(root).unwrap();
 
         assert!(
             elapsed < Duration::from_secs(5),

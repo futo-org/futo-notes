@@ -108,8 +108,9 @@ just check-theme-single-pace
 node scripts/gate-redproofs.mjs --include-cargo
 ```
 
-The `check:arch-gate` script in `package.json` owns the check list because the pinned GitLab CI
-image does not include `just`. Both the root `justfile` and `.gitlab-ci.yml` call that script. When
+The `check:arch-gate` script in `package.json` owns the shared check list. Both the root `justfile`
+and `.gitlab-ci.yml` call that script. CI installs pinned `just` through `ci/install-just.sh` before
+running the docs gate, which reads recipe names and alias targets from its JSON metadata. When
 adding or removing a gate, change only `check:arch-gate`; do not duplicate the command list in
 either caller.
 

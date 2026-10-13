@@ -34,9 +34,7 @@ import { hostname, userInfo } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-// The justfile recipe parser already exists (the agent-docs gate validates
-// every `just <recipe>` reference with it); a second copy here would be drift.
-import { parseJustRecipes } from './check-agent-docs.mjs';
+import { readJustCommands } from './lib/justfile.mjs';
 import { PINNED_SERVER_VERSION } from './lib/sync-server.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -155,16 +153,6 @@ export const CAVEATED = [
 
 function matches(matcher, name) {
   return typeof matcher === 'string' ? matcher === name : matcher.test(name);
-}
-
-/** `alias t := test` lines, so a refusal cannot be bypassed via the short name. */
-export function parseJustAliases(justfileText) {
-  const aliases = new Map();
-  for (const line of justfileText.split('\n')) {
-    const m = /^alias\s+([a-zA-Z_][a-zA-Z0-9_-]*)\s*:=\s*([a-zA-Z_][a-zA-Z0-9_-]*)/.exec(line);
-    if (m) aliases.set(m[1], m[2]);
-  }
-  return aliases;
 }
 
 /**
@@ -954,11 +942,7 @@ function main() {
   // Refuse BEFORE touching the network: a refusal should be instant and offline.
   let verdict = null;
   if (!opts.doctor && !opts.kill) {
-    const justfile = readFileSync(path.join(ROOT, 'justfile'), 'utf8');
-    verdict = classifyRecipe(opts.recipe, {
-      aliases: parseJustAliases(justfile),
-      recipes: parseJustRecipes(justfile),
-    });
+    verdict = classifyRecipe(opts.recipe, readJustCommands(ROOT));
     if (!verdict.allowed) {
       console.error(`\nremote-test REFUSED: ${verdict.reason}\n`);
       return EXIT_REFUSED;
