@@ -226,6 +226,7 @@
         "moreAccessibilityLabel": "更多"
       },
       "shareChooserTitle": "共享笔记",
+      "shareFailed": "无法共享此笔记。",
       "pathCopied": "已复制路径",
       "unavailable": "该笔记已不可用。",
       "movedTo": "已移至{destination}",

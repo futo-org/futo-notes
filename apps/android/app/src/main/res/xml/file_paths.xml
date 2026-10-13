@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- FileProvider paths: only the camera-capture staging dir is shared (the
-     system camera app writes the photo here before we copy it into the vault). -->
+<!-- FileProvider paths: the camera-capture staging dir (the system camera app
+     writes the photo here before we copy it into the vault) and the share
+     staging dir (a note too big to ride in an Intent goes out as a file). -->
 <paths>
     <cache-path name="camera" path="camera/" />
+    <cache-path name="share" path="share/" />
 </paths>

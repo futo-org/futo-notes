@@ -250,6 +250,7 @@
         "moreAccessibilityLabel": "More"
       },
       "shareChooserTitle": "Share note",
+      "shareFailed": "Couldn't share this note.",
       "pathCopied": "Path copied",
       "unavailable": "That note is no longer available.",
       "movedTo": "Moved to {destination}",

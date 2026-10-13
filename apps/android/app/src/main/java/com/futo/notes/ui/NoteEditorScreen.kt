@@ -1,7 +1,6 @@
 package com.futo.notes.ui
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.text.Editable
 import android.text.TextWatcher
@@ -78,6 +77,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.futo.notes.ImagePicker
 import com.futo.notes.NoteMutationOutcome
+import com.futo.notes.NoteShare
 import com.futo.notes.NotesStore
 import com.futo.notes.PendingDraft
 import com.futo.notes.clipboardImageUri
@@ -1031,17 +1031,19 @@ fun NoteEditorScreen(
                 },
                 actions = {
                     IconButton(enabled = !interactionLocked, onClick = {
-                        val share = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TITLE, titleField.value.text)
-                            putExtra(Intent.EXTRA_TEXT, content)
-                        }
-                        context.startActivity(
-                            Intent.createChooser(
-                                share,
-                                localization.localizedText("notes.shareChooserTitle"),
-                            ),
+                        val shared = NoteShare.share(
+                            context,
+                            titleField.value.text,
+                            content,
+                            localization.localizedText("notes.shareChooserTitle"),
                         )
+                        if (!shared) {
+                            Toast.makeText(
+                                context,
+                                localization.localizedText("notes.shareFailed"),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
                     }) {
                         Icon(
                             Icons.Filled.Share,
