@@ -6,6 +6,7 @@ mod paths;
 mod search;
 mod vault;
 mod vault_migration;
+mod welcome_seed;
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -217,6 +218,9 @@ pub struct LocalNoteStore {
     sort_order: Mutex<NoteSortOrder>,
     search: StoreSearch,
     list_cache: list_cache::ListCache,
+    /// Index dir of the last `bootstrap_with_search`: where the Welcome-seeded
+    /// marker lives, so a full reset can clear it.
+    app_data_index: Mutex<Option<PathBuf>>,
     /// Fault injection fired between id allocation and no-replace installation
     /// to simulate a concurrent writer landing at the chosen id.
     #[cfg(test)]
@@ -240,6 +244,7 @@ impl LocalNoteStore {
             gate: Mutex::new(()),
             sort_order: Mutex::new(NoteSortOrder::default()),
             list_cache: list_cache::ListCache::new(),
+            app_data_index: Mutex::new(None),
             #[cfg(test)]
             install_window_hook: Mutex::new(None),
             #[cfg(test)]
@@ -337,6 +342,9 @@ impl LocalNoteStore {
     /// so a concurrent recovery rename can only cost a miss.
     fn bootstrap_loading(&self, cache: Option<(&Path, &Path)>) -> Result<BootstrapResult, String> {
         let _gate = self.lock_gate()?;
+        // `None` (no app-data dir to persist in): seeds whenever the vault is empty.
+        let index_dir = cache.map(|(_, index_dir)| index_dir);
+        let may_seed = index_dir.is_none_or(welcome_seed::may_seed);
         let (migrated, mut warnings) = std::thread::scope(|scope| {
             if let Some((root, index_dir)) = cache {
                 scope.spawn(|| self.list_cache.ensure_disk_loaded(root, index_dir));
@@ -344,9 +352,16 @@ impl LocalNoteStore {
             self.prepare_bootstrap()
         })?;
         let mut snapshot = self.snapshot();
-        let seeded = self.seed_empty_vault(snapshot.notes.is_empty(), &mut warnings);
+        let wants_seed = may_seed && snapshot.notes.is_empty();
+        let seeded = self.seed_empty_vault(wants_seed, &mut warnings);
         if seeded == 1 {
             snapshot = self.snapshot();
+        }
+        // A failed seed is retried next launch; every other outcome is final.
+        if let Some(index_dir) = index_dir.filter(|_| seeded == 1 || !wants_seed) {
+            if let Err(error) = welcome_seed::mark_seeded(index_dir) {
+                warnings.push(format!("welcome marker: {error}"));
+            }
         }
         Ok(BootstrapResult {
             snapshot,
@@ -378,8 +393,8 @@ impl LocalNoteStore {
         Ok((migrated, warnings))
     }
 
-    fn seed_empty_vault(&self, is_empty: bool, warnings: &mut Vec<String>) -> u32 {
-        if !is_empty {
+    fn seed_empty_vault(&self, wanted: bool, warnings: &mut Vec<String>) -> u32 {
+        if !wanted {
             return 0;
         }
         match vault_mutation_guard()
@@ -405,6 +420,10 @@ impl LocalNoteStore {
         on_status: StatusObserver,
     ) -> Result<BootstrapResult, String> {
         let root = list_cache::canonicalize_or(&self.root);
+        *self
+            .app_data_index
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(index_dir.clone());
         let mut result = self.bootstrap_loading(Some((&root, &index_dir)))?;
         if let Err(error) = self.start_search(index_dir, on_status) {
             result.warnings.push(format!("search startup: {error}"));
@@ -1052,6 +1071,16 @@ impl LocalNoteStore {
             .collect::<Vec<_>>();
         self.before_write.before_write(&removals);
         vault_fs::clear(&self.root)?;
+        // A reset app is a fresh install: the next launch shows Welcome once
+        // more. Best effort - a stuck marker only withholds the greeting.
+        if let Some(index_dir) = self
+            .app_data_index
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_deref()
+        {
+            let _ = welcome_seed::mark_reseed(index_dir);
+        }
         self.rebuild_search();
         Ok(())
     }
