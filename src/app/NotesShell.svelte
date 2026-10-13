@@ -156,6 +156,7 @@
   const tabTransition = createTabNoteTransition({
     loadNote: session.loadNote,
     getNoteBody: () => noteBody,
+    isNoteStreaming: () => editor?.isStreaming() ?? false,
   });
 
   function readSidebarView(): SidebarView {
