@@ -374,7 +374,7 @@ test('a toggle is one undo step, and undo puts the tick back', async ({ page }) 
   expect(await getContent(page)).toContain('[x] todo');
 
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
-  await page.keyboard.press('Control+z');
+  await page.keyboard.press('ControlOrMeta+z');
   await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
 
   expect(await getContent(page)).toContain('[ ] todo');
