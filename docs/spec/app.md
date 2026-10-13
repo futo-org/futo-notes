@@ -28,6 +28,11 @@ Behaviors and constraints that hold across every surface and platform.
   the authoritative full Rust bootstrap; the fast listing never mutates the
   vault or becomes authoritative for tab hydration. → `LocalNoteStore::startup_listing`,
   `local_notes_startup_listing`, `prefetchLocalNoteListing`, `initNotes`
+- The Welcome note is seeded once per install, on the first launch into an empty
+  vault. Deleting it, or emptying the vault later, never brings it back. The
+  fact is kept in app data beside the search index (`<index_dir>.welcome`),
+  never in the notes folder; Full reset re-arms it (#52). → `welcome_seed`,
+  `LocalNoteStore::bootstrap_loading`
 
 ## Notes & files
 

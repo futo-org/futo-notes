@@ -39,9 +39,38 @@ fn launched_before(index_dir: &Path) -> bool {
 }
 
 pub(crate) fn mark_seeded(index_dir: &Path) -> std::io::Result<()> {
-    fs::write(marker_path(index_dir), SEEDED)
+    write_marker(index_dir, SEEDED)
 }
 
 pub(crate) fn mark_reseed(index_dir: &Path) -> std::io::Result<()> {
-    fs::write(marker_path(index_dir), RESEED)
+    write_marker(index_dir, RESEED)
+}
+
+/// The marker's parent (iOS `Library/Application Support`) may not exist yet
+/// on a true fresh install; writing without creating it fails with ENOENT.
+fn write_marker(index_dir: &Path, state: &str) -> std::io::Result<()> {
+    let marker = marker_path(index_dir);
+    if let Some(parent) = marker.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(marker, state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::TestRoot;
+
+    #[test]
+    fn markers_are_written_into_a_parent_dir_that_does_not_exist_yet() {
+        let root = TestRoot::new();
+        let index = root.0.join("Library/Application Support/search");
+        mark_seeded(&index).unwrap();
+        assert_eq!(fs::read_to_string(marker_path(&index)).unwrap(), SEEDED);
+        assert!(!may_seed(&index));
+
+        let index = root.0.join("Other/Support/search");
+        mark_reseed(&index).unwrap();
+        assert!(may_seed(&index));
+    }
 }
