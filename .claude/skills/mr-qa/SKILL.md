@@ -188,10 +188,15 @@ afternoon.
 SHIP requires all of these. Any one missing makes it NO SHIP, not a judgment
 call:
 
-- No unexplained FAIL. A FAIL is either fixed on the branch, or shown to be
-  pre-existing on main / a broken gate **with the evidence for that claim**
-  (see the tally procedure below; "probably the isolation layer" is not
-  evidence).
+- No unexplained FAIL. A FAIL is either fixed on the branch **and that fix
+  re-driven**, or shown to be pre-existing on main / a broken gate **with the
+  evidence for that claim** (see the tally procedure below; "probably the
+  isolation layer" is not evidence).
+- Every leg passed on the head sha being merged. A fix pushed mid-QA voids
+  the passes before it on every platform the fix touches; re-drive those legs
+  on the new head. Green CI and unit tests do not stand in for the re-drive.
+  This has already been violated: !407 merged after a fresh-iOS fix that iOS
+  never re-ran.
 - Coverage actually matched the diff, from this pass or a legitimately
   carried-over one. An `apps/ios` MR whose iOS leg was impossible is NO SHIP
   (insufficient coverage), however clean the desktop leg looked.
