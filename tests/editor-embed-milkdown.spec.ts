@@ -4989,9 +4989,9 @@ test('streamed appends are not undoable — Ctrl-Z after an open keeps the note'
   await waitForStreamComplete(page);
   await focusEditor(page);
 
-  await page.keyboard.press('Control+z');
-  await page.keyboard.press('Control+z');
-  await page.keyboard.press('Control+z');
+  await page.keyboard.press('ControlOrMeta+z');
+  await page.keyboard.press('ControlOrMeta+z');
+  await page.keyboard.press('ControlOrMeta+z');
   await settleChangeDebounce(page);
 
   // Undo neither un-loaded a chunk nor emptied the document.
