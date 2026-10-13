@@ -145,6 +145,16 @@ ${leg.focus}
     : ''
 }
 
+${
+  leg.changes
+    ? `
+**Changed since the last release — exercise these FIRST, and adversarially
+(edge inputs, undo, relaunch, the platform's own keyboard/gesture paths), then
+sweep the rest of the surface as usual:**
+${leg.changes}
+`
+    : ''
+}
 **Effort discipline (you are running at LOW effort on purpose):** move fast on
 the happy path. When a story looks wrong, capture the evidence, mark it **FAIL**,
 and MOVE ON — do NOT deep-dive to refute it here. A separate high-effort verify
@@ -212,7 +222,7 @@ const results = await pipeline(
   (leg) =>
     agent(sweepBrief(leg), {
       agentType: 'app-qa',
-      model: 'sonnet',
+      model: leg.model || 'sonnet',
       effort: effort.sweep,
       phase: 'QA',
       label: `qa:${leg.id}`,

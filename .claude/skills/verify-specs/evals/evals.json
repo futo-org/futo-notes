@@ -14,6 +14,12 @@
       "assert": "Runs `git describe --tags --abbrev=0`, diffs since it, maps changed files to surfaces via spec `→` refs + fallback table, derives platforms, reports the derived scope to the user before provisioning, and provisions only what the scope needs."
     },
     {
+      "prompt": "smoke test the app on every platform before the release",
+      "should_trigger": true,
+      "expected_scope": "release smoke: diff v<lasttag>..HEAD deep + baseline smoke legs + mesh",
+      "assert": "Release-smoke mode per references/release-smoke.md: deep legs for diff-mapped surfaces each carry a `changes` brief; one smoke leg per platform in its own worktree with `focus` = the checklist rows not already covered on that platform; a mesh round-trip even if sync is untouched; report split into Changed vs Baseline, ending in GO / NO GO."
+    },
+    {
       "prompt": "run the specs on this branch",
       "should_trigger": true,
       "expected_scope": "diff branch-base..HEAD",

@@ -1,13 +1,13 @@
 ---
 name: verify-specs
-description: Run the behavioral spec in docs/spec/ against the real apps — a parallel, story-driven QA sweep across desktop, iOS, and Android plus cross-client sync. Use when the user says "verify specs", "run the specs", "spec pass", "QA the specs", "check the app against the spec", or "/verify-specs [scope]". A bare run does the full spec (all surfaces × all platforms + sync mesh); a scope phrase ("since the last tagged release", "just the editor") narrows to the surfaces/platforms the diff touched. Fans out Sonnet low-effort app-qa legs, escalates FAILs to high effort, and is built to survive session-limit deaths without losing work.
+description: Run the behavioral spec in docs/spec/ against the real apps — a parallel, story-driven QA sweep across desktop, iOS, and Android plus cross-client sync. Use when the user says "verify specs", "run the specs", "spec pass", "QA the specs", "check the app against the spec", or "/verify-specs [scope]". A bare run does the full spec (all surfaces × all platforms + sync mesh); a scope phrase ("since the last tagged release", "just the editor") narrows to the surfaces/platforms the diff touched; "release smoke" / "smoke test before the release" runs the diff deep plus a fixed baseline smoke checklist on every platform and ends in a GO / NO GO. Fans out Sonnet low-effort app-qa legs, escalates FAILs to high effort, and is built to survive session-limit deaths without losing work.
 ---
 
 # Verify Specs — parallel spec QA that resumes after a session death
 
 This runs `docs/spec/` as **stories against the running apps** and reports
 evidence-backed verdicts. It is not `just check` (that's the static chain);
-this is the device-driven behavioral pass. Two modes, chosen from the invocation:
+this is the device-driven behavioral pass. Three modes, chosen from the invocation:
 
 - **Full run** — `/verify-specs` (no scope) → every area file in `docs/spec/`
   (excluding `README.md` and `AGENTS.md`) ×
@@ -15,6 +15,12 @@ this is the device-driven behavioral pass. Two modes, chosen from the invocation
 - **Scoped run** — `/verify-specs since the last tagged release` (or "since
   <tag>", "just the editor", "what changed on this branch") → map the diff to
   spec surfaces + affected platforms and QA only those.
+- **Release smoke**: `/verify-specs release smoke` (or "smoke test before
+  the release", "pre-release QA"). This is a scoped run since the last tag with
+  a `changes` brief per leg, plus per-platform smoke legs running a fixed
+  baseline checklist on the untouched surfaces, plus at least a mesh
+  round-trip. It ends in a GO / NO GO verdict. Read
+  **`references/release-smoke.md`**, which owns this mode's legs and report.
 
 Read `.claude/skills/verify/references/session.md` for shared provisioning,
 isolation, evidence, and cleanup. Platform playbooks live beside it. This skill
@@ -52,6 +58,8 @@ echo "last tag: $LAST_TAG"
 - **Scoped run**: compute the diff (`git diff --name-only "$LAST_TAG"..HEAD`,
   or the branch base / user-named range) and map it to surfaces + platforms
   per **`references/scoping.md`** — read it.
+- **Release smoke**: the scoped run above against `"$LAST_TAG"..HEAD`,
+  then add the smoke and mesh legs per **`references/release-smoke.md`**.
 
 Report the derived scope to the user before provisioning ("v1.6.0..HEAD
 touched editor, sync, list, app across all platforms + iOS/Android shells —
@@ -125,6 +133,15 @@ reporting the remainder as SKIP noise:
 Omit it for a full sweep — that is the default and what a bare run uses. Reach
 for it on a **resume** pass or a targeted re-check after a fix, where
 re-sweeping the whole surface wastes a leg.
+
+Two more optional leg fields, used mainly by release smoke:
+
+- `"changes"`: plain-language list of behavior changes on this leg's surfaces.
+  The leg exercises them first and adversarially, then sweeps the rest.
+- `"model"`: the sweep model for this leg (default `sonnet`). The verify pass
+  stays Sonnet at high effort no matter what. Only drop a leg to
+  `claude-haiku-5-5` for a `focus`-narrowed smoke leg. Verification only
+  re-checks FAILs, so a weaker sweeper's false PASS is never caught.
 
 ## Step 3 — Fan out via the workflow
 
