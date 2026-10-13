@@ -13,10 +13,7 @@ function paragraph(text: string): ProseNode {
   return s.nodes.paragraph.create(null, s.text(text));
 }
 
-const ITEM_HEIGHT = 30;
-
-/** A doc of a paragraph and one bullet list; items stubbed as stacked boxes
- * from y=100. */
+/** A doc of a paragraph and one bullet list, every node with a stub element. */
 function listView(...texts: string[]) {
   const list = s.nodes.bullet_list.create(
     null,
@@ -32,65 +29,61 @@ function listView(...texts: string[]) {
   const listEl = document.createElement('ul');
   boxes.set(listPos, listEl);
   let pos = listPos + 1;
-  let top = 100;
   list.forEach((item) => {
-    const el = document.createElement('li');
-    const itemTop = top;
-    el.getBoundingClientRect = () => ({ top: itemTop, bottom: itemTop + ITEM_HEIGHT }) as DOMRect;
-    boxes.set(pos, el);
+    boxes.set(pos, document.createElement('li'));
     pos += item.nodeSize;
-    top += ITEM_HEIGHT;
   });
   const view = {
     state,
     nodeDOM: (at: number) => boxes.get(at) ?? null,
   } as unknown as ProseView;
-  const activeList: ActiveHandleBlock = { node: list, $pos: { pos: listPos }, el: listEl };
+  const itemPos = (index: number) => [...boxes.keys()].filter((k) => k > listPos)[index];
   return {
     view,
-    activeList,
+    list,
+    listPos,
+    listEl,
     introActive: { node: intro, $pos: { pos: 0 }, el: introEl } as ActiveHandleBlock,
-    itemPos: (index: number) => [...boxes.keys()].filter((k) => k > listPos)[index],
+    activeList: { node: list, $pos: { pos: listPos }, el: listEl } as ActiveHandleBlock,
+    activeItem: (index: number): ActiveHandleBlock => ({
+      node: list.child(index),
+      $pos: { pos: itemPos(index) },
+      el: boxes.get(itemPos(index))!,
+    }),
   };
 }
 
 describe('handleSourceFor', () => {
-  it('stands for the block the plugin hovered when it is not a list', () => {
+  it('stands for the block the plugin hovered when it is top-level', () => {
     const { view, introActive } = listView('a', 'b');
 
-    const source = handleSourceFor(view, introActive, 0);
+    const source = handleSourceFor(view, introActive);
 
     expect(source).toEqual({ from: 0, to: introActive.node.nodeSize, dom: introActive.el });
   });
 
-  it('narrows a hovered LIST to the item beside the handle — the first bullet is not the whole list', () => {
-    const { view, activeList, itemPos } = listView('a', 'b', 'c');
+  it('stands for the whole list when the plugin hovered the list', () => {
+    const { view, activeList, list, listPos, listEl } = listView('a', 'b', 'c');
 
-    const source = handleSourceFor(view, activeList, 100 + ITEM_HEIGHT / 2);
+    const source = handleSourceFor(view, activeList);
 
-    expect(source?.from).toBe(itemPos(0));
-    expect(source?.to).toBe(itemPos(1));
-    expect(source?.dom).toBe(view.nodeDOM(itemPos(0)));
+    expect(source).toEqual({ from: listPos, to: listPos + list.nodeSize, dom: listEl });
   });
 
-  it('picks the item whose box spans the press y', () => {
-    const { view, activeList, itemPos } = listView('a', 'b', 'c');
+  // A drag only ever lifts a TOP-LEVEL block: the hovered item, at any
+  // position in its list, stands for the list.
+  it.each([0, 1, 2])('stands for the whole list when the plugin hovered item %i', (index) => {
+    const { view, activeItem, list, listPos, listEl } = listView('a', 'b', 'c');
 
-    const source = handleSourceFor(view, activeList, 100 + ITEM_HEIGHT * 2 + 5);
+    const source = handleSourceFor(view, activeItem(index));
 
-    expect(source?.from).toBe(itemPos(2));
-  });
-
-  it('falls back to the first item when the y is in no item', () => {
-    const { view, activeList, itemPos } = listView('a', 'b');
-
-    expect(handleSourceFor(view, activeList, 5)?.from).toBe(itemPos(0));
+    expect(source).toEqual({ from: listPos, to: listPos + list.nodeSize, dom: listEl });
   });
 
   it('refuses a hover result that no longer describes the document', () => {
     const { view, introActive } = listView('a');
     const stale: ActiveHandleBlock = { ...introActive, $pos: { pos: 3 } };
 
-    expect(handleSourceFor(view, stale, 0)).toBeNull();
+    expect(handleSourceFor(view, stale)).toBeNull();
   });
 });

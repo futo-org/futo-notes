@@ -31,6 +31,12 @@ import {
 } from '$features/editor/milkdown/chunkCensusHook';
 import { pickImageInBrowser } from './hostBridge';
 import { warmEditorFonts } from './warmEditorFonts';
+import {
+  clearInteractions,
+  getInteractions,
+  keystrokeFrameSamplesMs,
+  setKeystrokeTripwire,
+} from '$shared/perf/interactionLedger';
 import type { FindMatchReport } from '$features/editor/milkdown/find';
 import {
   createFutoEditorApi,
@@ -194,13 +200,25 @@ if (query.has('test') || query.has('census')) {
         readDocument: () => string | undefined;
         documentRef: () => DocumentRef;
         replaceDocument: (text: string) => void;
+        interactions: typeof getInteractions;
+        clearInteractions: typeof clearInteractions;
+        keystrokeFrameSamplesMs: typeof keystrokeFrameSamplesMs;
+        setKeystrokeTripwire: typeof setKeystrokeTripwire;
       };
     }
   ).__futoTest = {
     readDocument: () => editor.getContent(),
     replaceDocument: (text: string) => editor.applyEdit(text),
     documentRef: () => editor.getDocumentRef(),
+    interactions: getInteractions,
+    clearInteractions,
+    keystrokeFrameSamplesMs,
+    setKeystrokeTripwire,
   };
+  // The keystroke tripwire (interactionLedger.ts) samples dispatch → next
+  // frame. Only here: a release URL never turns it on. A perf run can turn it
+  // back off (`--no-tripwire`) to measure what a release build pays.
+  setKeystrokeTripwire(true);
 }
 warmEditorFonts();
 

@@ -531,8 +531,8 @@ hand-reviewed goldens, one or more per line below)
 - Both native shells drag a block by LONG-PRESSING THE BLOCK ITSELF — there is
   no ⠿ handle anywhere in the editor on a phone, and the left gutter that would
   hold one is not reserved. Touch and hold a block for ~340ms and it lifts as a
-  card-like ghost under the finger, dragging floats it with a drop-indicator
-  line at the resolved top-level boundary, and release commits the move. The ⠿
+  card-like ghost under the finger, dragging floats it with the drop previewed
+  at the resolved top-level boundary, and release commits the move. The ⠿
   gutter handle is the DESKTOP gesture only. Verified on an Android
   device 2026-09-01 (moto g play 2023, System WebView 151) and on the iOS
   simulator. → src/features/editor/milkdown/blockDragMode.ts
@@ -567,11 +567,11 @@ hand-reviewed goldens, one or more per line below)
   src/features/editor/milkdown/mobileBlockDnd.ts `createGhost`
   `GHOST_MAX_HEIGHT_FRACTION`, tests/editor-embed-milkdown.spec.ts
   _(native shells)_
-- On desktop a ⠿ handle appears in the left gutter beside the block under the
-  pointer — in the GUTTER, 4px left of the text column, at every nesting depth:
-  a list item's own box starts at its text, so an offset from that box would
-  put the handle over the bullet, and over the parent's text for a nested item
-  — and dragging it with a mouse reorders blocks. Where there is no
+- On desktop a ⠿ handle appears in the left gutter beside the top-level block
+  under the pointer — in the GUTTER, 4px left of the text column, never over a
+  list marker, and beside the block's first line. Hovering anywhere inside a
+  list, at any depth, surfaces the handle for the whole list, beside its first
+  item — and dragging it with a mouse reorders blocks. Where there is no
   hover, the handle is still surfaced for the block that was just tapped or
   that the caret moved into, but dragging it needs a mouse: the drag starts on
   a mouse's primary-button press and no touch or pen gesture starts it. →
@@ -594,27 +594,42 @@ hand-reviewed goldens, one or more per line below)
   cursor everywhere in the window, and the mouse wheel still scrolls the note
   under the pointer. → src/features/editor/milkdown/handleBlockDrag.ts
   `showCursorLayer`, tests/editor-embed-milkdown.spec.ts _(desktop)_
-- A dragged block lands among its own kind. A top-level block sees only the
-  gaps between top-level blocks: just below a blockquote is NOT "inside the
-  blockquote", however the schema would read that position. A list item sees
-  the gaps between the items of its list, the items of any other list of the
-  same type at any depth, and the top-level gaps — where it is wrapped in a
-  fresh list of the type (and attributes) it came out of, and a list it was the
-  only item of goes with it rather than staying behind empty. A top-level gap
-  directly beside a list of the item's own type IS that list's end (or start):
-  two adjacent lists of one type are one list in markdown, so dragging a bullet
-  just below its list makes it the last bullet, and dragging it past the next
-  block takes it out. → src/features/editor/milkdown/blockDragGeometry.ts
+- A block drag only ever lifts a TOP-LEVEL block, on both gestures. A press
+  anywhere inside a list — bullet, ordered or task, at any nesting depth —
+  lifts the WHOLE top-level list as one block, and the same goes for anything
+  nested inside another top-level block, such as a blockquote. A single list
+  item cannot be dragged on its own. So every drag gets the same live-reflow
+  preview: the other blocks slide out of the way and the dimmed source sits in
+  its landing slot, rather than some drags drawing a drop line instead. (List
+  items used to drag on their own within their list, with only the line,
+  because the preview handles top-level blocks only; a drag flipped between the
+  two depending on what was grabbed.) → src/features/editor/milkdown/mobileBlockDnd.ts
+  `onPointerDown`, src/features/editor/milkdown/handleSource.ts `handleSourceFor`,
+  src/features/editor/milkdown/blockDragCurtain.ts,
+  src/features/editor/milkdown/handleSource.test.ts, tests/editor-embed-milkdown.spec.ts
+- A dragged block only lands in a gap between top-level blocks: just below a
+  blockquote is NOT "inside the blockquote", however the schema would read that
+  position, and a point between two items of a list is the gap above or below
+  the whole list. → src/features/editor/milkdown/blockDragGeometry.ts
   `resolveDropTarget`, src/features/editor/milkdown/blockMove.ts `moveBlock`,
   src/features/editor/milkdown/blockDragGeometry.test.ts,
   src/features/editor/milkdown/blockMove.test.ts, tests/editor-embed-milkdown.spec.ts
-- On desktop the ⠿ handle beside a list's FIRST item drags that item, like the
-  handle beside every other item. @milkdown/plugin-block resolves a first child
-  to its parent, so the handle it draws for a first bullet stands for the whole
-  list; the press narrows that to the item whose box the pointer is in. →
-  src/features/editor/milkdown/handleSource.ts `handleSourceFor`,
-  src/features/editor/milkdown/handleSource.test.ts,
-  tests/editor-embed-milkdown.spec.ts _(desktop)_
+- The drop line is the fallback when the preview cannot run: when the editor's
+  rendered blocks do not line up one-to-one with the document's top-level
+  blocks at the lift, or when the note changes under the drag (a host
+  `setContent`, a sync pull, an undo), which ends the preview and draws the line
+  from the next move. → src/features/editor/milkdown/blockDragCurtain.ts
+  `measure` `ensureValid`, src/features/editor/milkdown/blockDragSession.ts
+- The live-reflow preview follows the note's layout when it changes under a
+  drag while the note itself does not: an image that loads, a web font that
+  swaps in, a resized window or a rotated phone. The blocks are measured again
+  and the preview is redrawn in the same frame, with the slot found again under
+  the pointer, so the release still lands exactly where the preview shows; a
+  block mid-slide carries on from where it is drawn rather than jumping. A
+  release checks the layout again itself, so a change in the very moment of
+  release is not missed. It does not fall back to the drop line. Verified in
+  Chromium (Playwright) 2026-10-08. → src/features/editor/milkdown/blockDragCurtain.ts
+  `watch` `followScroll` `remeasure` `release`, tests/editor-embed-milkdown.spec.ts
 - The desktop ⠿ handle's lifted block is a ghost card the page draws, at the
   block's own on-screen size, never an OS drag image: a clone of the block over
   the block itself (padded by the card's breathing room, like the long press's),
@@ -624,14 +639,14 @@ hand-reviewed goldens, one or more per line below)
   fractionally scaled WebKitGTK display, which nothing the page did could fix).
   → src/features/editor/milkdown/blockDragSession.ts,
   tests/editor-embed-milkdown.spec.ts
-- There is ONE drop slot per boundary, on both drag gestures — between
-  top-level blocks, and between the items of a list for a list item. Below
-  block A and above the block directly under it are the same
-  place, so they are one target: one indicator line, drawn IN the gap midway
-  between A's bottom edge and B's top edge (on the outer edge at the document's
-  first and last boundary), and one haptic tick for reaching it however the
-  pointer got there. A block's OWN two boundaries stay distinct, because those
-  are different positions. Both gestures resolve that one slot with the same
+- There is ONE drop slot per boundary between top-level blocks, on both drag
+  gestures. Below block A and above the block directly under it are the same
+  place, so they are one target: one slot opening in the live-reflow preview
+  (or, where the preview falls back, one indicator line, drawn IN the gap
+  midway between A's bottom edge and B's top edge, on the outer edge at the
+  document's first and last boundary), and one haptic tick for reaching it
+  however the pointer got there. A block's OWN two boundaries stay distinct,
+  because those are different positions. Both gestures resolve that one slot with the same
   code and commit through the same move, so neither the line's position nor the
   set of places a block may land can differ between them — which is why the
   desktop ⠿ handle draws OUR indicator rather than the one
@@ -641,23 +656,33 @@ hand-reviewed goldens, one or more per line below)
   src/features/editor/milkdown/blockDragSession.ts,
   src/features/editor/milkdown/blockDragGeometry.test.ts,
   tests/editor-embed-milkdown.spec.ts
-- The dragged block's own two boundaries draw no line and tick no haptic on
-  either gesture, because a drop there is a no-op: the finger holding a block
-  over the gap it already sits against would otherwise show the indicator
-  running through the lifted card. On the native long-press the lifted card
-  is drawn OVER the indicator line, with a translucent background, so the
-  line — and the dimmed source block underneath at lift — stay visible
+- In the live-reflow preview, which slot is open is judged against the blocks
+  where the preview DRAWS them, not where they sat at the lift: the slot moves
+  past a block once the pointer passes that block's drawn middle (its own
+  middle, not its slot's), and a pointer exactly on it keeps the slot where it
+  is. Judged against the lift-time layout instead, a long paragraph dragged
+  past a block flipped back the moment the pointer re-entered that block's old
+  upper half — a whole paragraph-height inside the paragraph's own drawn slot.
+  The slot cannot flip back and forth: passing a block moves it to the other
+  side of the slot, away from the pointer. → src/features/editor/milkdown/blockDragCurtain.ts
+  `reflowGapAt`, tests/editor-embed-milkdown.spec.ts
+- The dragged block's own two boundaries open no slot, draw no line and tick no
+  haptic on either gesture, because a drop there is a no-op: the finger holding
+  a block over the gap it already sits against would otherwise show the
+  indicator running through the lifted card. On the native long-press the
+  lifted card is drawn OVER the indicator line, with a translucent background,
+  so the line — and the dimmed source block underneath at lift — stay visible
   through the card wherever it overlaps a boundary. → src/features/editor/milkdown/blockMove.ts
   `isNoOpDrop`, src/features/editor/milkdown/blockDragSession.ts,
   src/features/editor/milkdown/blockMove.test.ts, tests/editor-embed-milkdown.spec.ts
 - A block drag is haptic three ways on both native shells: one firmer impact
-  when the block lifts, a light tick each time the drop indicator lands on a
-  DIFFERENT top-level boundary, and one light impact when a release commits a
-  reorder. A finger travelling inside one gap ticks nothing, a hold ticks
-  nothing, edge auto-scroll ticks nothing (an auto-scroll is a hold, and a tick
-  per boundary swept past would be a continuous buzz), and a release back at the
-  source is silent (it commits nothing). Same gesture, same three moments, same
-  feel on both. →
+  when the block lifts, a light tick each time the drop slot (or the indicator
+  line, where the preview falls back) lands on a DIFFERENT top-level boundary,
+  and one light impact when a release commits a reorder. A finger travelling
+  inside one gap ticks nothing, a hold ticks nothing, edge auto-scroll ticks
+  nothing (an auto-scroll is a hold, and a tick per boundary swept past would be
+  a continuous buzz), and a release back at the source is silent (it commits
+  nothing). Same gesture, same three moments, same feel on both. →
   src/features/editor/milkdown/mobileBlockDnd.ts,
   apps/ios/Sources/Editor/EditorWebView.swift `moveHapticFeedback`,
   apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt
@@ -708,7 +733,7 @@ hand-reviewed goldens, one or more per line below)
   ramping to 1400px/s at the edge — so a block can be dropped at a boundary that
   was off screen when it was lifted. It runs while the pointer holds still, stops
   at the document's ends, and stops on every exit (commit, no-op release, cancel,
-  editor destroy). The drop indicator is recomputed each frame from the boundary
+  editor destroy). The drop slot is recomputed each frame from the boundary
   now under the stationary pointer. Both drag paths share it: the native shells'
   long-press drag and the desktop ⠿ gutter handle's mouse drag. Verified on an
   Android device 2026-09-01 — a hold within the zone scrolls continuously and
@@ -717,6 +742,35 @@ hand-reviewed goldens, one or more per line below)
   src/features/editor/milkdown/blockDragSession.ts,
   src/features/editor/milkdown/blockDragGeometry.test.ts,
   tests/editor-embed-milkdown.spec.ts _(native shells)_
+- Dropping a top-level block never scrolls the note: the blocks on screen at the
+  release stay exactly where the live preview drew them, and the dropped block
+  lands where the preview showed it — also when edge auto-scroll carried the
+  source block off the top of the screen before the drop (Chromium's scroll
+  anchoring used to pull the view back by the source's height then), and also
+  when the move makes the note shorter while it is scrolled to its bottom (a
+  last paragraph moved above a first heading loses one paragraph gap; the
+  browser used to clamp the scroll position to the shorter note and move every
+  block down). For that, the editor holds the missing scroll extent (a
+  transparent bottom border, apart from its own bottom padding, which keeps
+  following the window size) until the first scroll, or the first change of
+  its blocks such as opening another note, that leaves the view clear of it, so
+  its removal never moves the view either, even after the window was resized.
+  Verified in Chromium (Playwright) 2026-10-08. →
+  src/features/editor/milkdown/blockDragCurtain.ts `holdScrollThroughDrop`
+  `holdScrollExtent`, src/features/editor/milkdown/blockDragSession.ts,
+  tests/editor-embed-milkdown.spec.ts
+- Only the dropped block moves at the release, snapping into its slot: a
+  neighbour still sliding out of the way when the finger lifts finishes its
+  slide, and the move is committed (and the note reported changed) once the
+  slides end, at most ~0.18s later. A scroll or a layout change in that time (a
+  resized window, an image loading) commits it at once, which is a relayout of
+  the screen anyway; an edit elsewhere commits it at once, mapped through the
+  edit; a change that takes the block away (another note opened) cancels it,
+  and the new note shows at once; the editor going away cancels it. No new drag
+  lifts until it has committed. Verified in Chromium (Playwright) 2026-10-09. →
+  src/features/editor/milkdown/blockDragSession.ts `land`,
+  src/features/editor/milkdown/blockDragCurtain.ts `land`,
+  tests/editor-embed-milkdown.spec.ts
 - A finger landing on a block in the long-press block drag suspends the
   platform's DELAYED text interaction from touch-down — the magnifier loupe and
   tap-and-a-half select — for as long as the press lasts, and restores it the
@@ -1031,10 +1085,23 @@ native shells edit tags as text in the body, which is not a gap.
   rename fails and, on iOS, an admitted image insertion: navigation waits for
   the insertion's editor transaction and deferred bridge callback before
   committing. Android applies this to toolbar Back, system Back, and wikilinks;
-  iOS uses its custom navigation Back and wikilinks. →
+  iOS applies it to wikilinks only. →
   `EditorNavigationCommit.kt`, `NoteEditorScreen.kt`,
   `EditorHost.awaitCurrent`, `EditorCompletionQueue`,
   `NoteEditorView.requestNavigation`
+- [iOS] Back is the system button, so Back and the edge swipe pop the editor
+  FIRST and the same drain-and-commit runs after the pop, under a draft
+  register entry that stays claimed until the write is durable (a failed
+  commit is retried by the lifecycle flush, never lost). Nothing the user
+  waits on between the tap and the list is a bridge round trip or a disk
+  write; what remains is the pop animation and the keyboard going down.
+  Hiding the system button to veto the exit would also disable the swipe
+  (docs/learnings/ios-swipe-back-over-webview.md). Measured on the iOS 26.5
+  simulator 2026-10-08: first list frame 50 ms after the tap (83 ms with the
+  keyboard up), pop done by ~550 ms, the commit after it, for 1k and 10k
+  blocks alike: docs/perf/mobile-close-ios.md. →
+  `NoteEditorView.finishLeave`, `EditorBackAffordanceTests.swift`,
+  `scripts/perf/ios-close-bench.mjs`
 - **Renaming or moving a note rewrites every wikilink that points at it,
   across all notes** — including folder moves (`[[Markdown demo]]` →
   `[[Archive/Markdown demo]]`) and **self-referencing links inside the renamed
@@ -1935,9 +2002,23 @@ unchanged by it.
   once primed, instead of serializing the whole note on the main thread. →
   packages/editor/src/markdown/cache.ts,
   milkdown/serializationLoop.ts `createDocumentSerializer`/`readSerialized`
-- A note of 400 lines or more is opened PROGRESSIVELY: the first ~80 lines are
+- A note of 400 lines or more is opened PROGRESSIVELY: the first chunk is
   parsed and mounted synchronously so the first viewport is interactive, and the
-  rest stream in idle slices. Chunk boundaries are only ever taken where a chunk
+  rest stream in idle slices. The first chunk is sized to the editor's viewport
+  — about a screen and a half of lines at an estimated 24 px a line, never
+  fewer than 30 or more than 160, and 80 when the viewport cannot be measured —
+  so a phone parses only what it can show. → milkdown/markdownChunks.ts
+  `firstChunkLinesForViewport`
+- While the tail streams, a pointer down, focus or key in the editor holds the
+  next idle slice until 150 ms after the last such event, so no chunk parse
+  starts in the frames that place the caret (a slice already running when the
+  finger lands still finishes first). An unbroken run of events holds for at most
+  1 s, then slices run again until the events pause. A held slice is delayed, never
+  dropped: the stream still completes exactly once and the save lock below is
+  unchanged. The serializer's idle cache priming yields the same way. →
+  milkdown/interactionHold.ts, milkdown/progressiveLoad.ts
+  `createYieldingIdleScheduler`, tests/editor-embed-milkdown.spec.ts
+- Chunk boundaries are only ever taken where a chunk
   parses to the same document the whole note would (never inside front matter,
   never at a `---`), and a chunk that parses to nothing aborts the whole thing
   back to a single whole-document parse. → milkdown/markdownChunks.ts,
@@ -1956,8 +2037,9 @@ unchanged by it.
   3 s flush race plus 2 s margin) AND the page reports nothing unsaved, Rust
   waits for any in-flight vault write (the process-wide `vault_mutation_guard`,
   at most 5 s more) and exits without the JS thread. A note open is not an unsaved
-  edit (a note switch awaits the outgoing save before the next note is read, and
-  the page cannot be typed into while it parses), so the open case is exactly
+  edit (a note switch awaits the outgoing save before the next note is opened —
+  it may READ the next note's file meanwhile when that save cannot touch it —
+  and the page cannot be typed into while it parses), so the open case is exactly
   what the deadline cuts. A page that does hold an unsaved edit is not cut at the
   deadline, however long its JS thread stalls (an 8 s task, a 2.5 MB paste): the
   page tells Rust on every clean/dirty transition, reports at once from the
@@ -2091,11 +2173,8 @@ unchanged by it.
   commits; rename/move retarget retained drafts to the authoritative final id.
   Failed identity mutations reopen a fresh generation. A queued or failed leave
   flush from the old generation therefore cannot resurrect a deleted note or
-  create an old-id ghost after rename/move. Android keeps the editor Back handler
-  installed while a navigation commit is pending, consuming repeated Back presses
-  instead of letting the parent route pop early; after awaiting its current mailbox it
-  also commits a valid visible title immediately rather than waiting for the
-  rename debounce. The iOS move awaits the final posted editor document
+  create an old-id ghost after rename/move. Android Back commits a valid visible
+  title immediately after the body rather than waiting for the rename debounce. The iOS move awaits the final posted editor document
   after destination selection, persists or parks it through the draft workflow,
   and moves the parked conflict identity when that is where the local draft was
   committed. _(iOS, Android)_ → `NotesStore.write`,
@@ -2285,10 +2364,19 @@ EditorSessionTest.kt, EditorSessionTests.swift
 - While an existing note's disk read is pending, the visible placeholder has no note identity. It never seeds that note's mailbox. Starting a new open invalidates the previous clean snapshot; reconciliation waits for `documentLoaded` for the real note. Quick capture already owns the engine-created empty body and accepts edits immediately. _(native shells)_ → NoteEditorView.swift, NoteEditorScreen.kt, EditorMailbox.swift `prepareLoad`, EditorMailbox.kt `prepareLoad`
 - Every document report carries its vault-relative note id and a page-monotonic generation. A shell routes reports into the named note's mailbox even after another view attaches. _(native shells)_ → packages/editor/src/bridge.ts, EditorMailbox.kt, EditorMailbox.swift
 - A reportable user transaction advances the generation synchronously. The first transaction after a load or delivered change posts `edited`; subsequent transactions in that unreported run do not post another watermark. _(native shells)_ → milkdown/serializationLoop.ts `documentEdited`
-- A mailbox is current when its newest change generation is at least its edited watermark. Current exits use those bytes without WebView interaction; a behind exit asks for one flush and waits up to 6 seconds. A token-tagged failure or deadline while still behind refuses a user exit, releases its latches, and permits retry. _(native shells)_ → EditorMailbox.kt `awaitCurrent`, EditorMailbox.swift `awaitCurrent`
+- A mailbox is current when its newest change generation is at least its edited watermark. Current exits use those bytes without WebView interaction; a behind exit asks for one flush and waits up to 6 seconds. A token-tagged failure or deadline while still behind refuses a user exit that has not yet left, releases its latches, and permits retry. _(native shells)_ → EditorMailbox.kt `awaitCurrent`, EditorMailbox.swift `awaitCurrent`
 - A renderer-death OS signal lets every exit proceed on the mailbox's latest bytes. A never-loaded, never-edited note leaves using the shell's disk copy with nothing to save. Silence alone never declares a renderer dead. _(native shells)_
 - The body an exit commits is the newest tagged change held by its mailbox after the flush wait. A destructive exit still folds in newer quarantined changes before completing. _(native shells)_ → EditorSession.kt, EditorSession.swift
-- A failed body flush or pending rename refuses a user exit and releases every latch it set. A failed delete leaves the editor usable. _(native shells)_
+- A failed body flush or pending rename refuses a user exit that has not yet left, and releases every latch it set. A failed delete leaves the editor usable. _(native shells)_
+- Android Back, the system back gesture, the top-bar back arrow, and a resolved wikilink tap leave the note before committing it. The next screen starts its transition without waiting for the editor flush or the disk write. _(Android)_ → EditorSession.kt `leaveThenCommit`, EditorSessionTest.kt
+- Android Back waits before leaving only for an image insert whose picker has already returned. That insert needs the editor it was picked for. _(Android)_ → NoteEditorScreen.kt `awaitPendingWork`
+- After Android Back has left, the commit runs on the store's scope, which outlives the screen. The order is mailbox, then body, then title. The commit cannot call the user back to the note. _(Android)_ → EditorSession.kt `drainAndCommit`, NotesStore.kt `launchEditorLeave`
+- An Android Back commit that fails, or a title that cannot be renamed, shows a message after the note list is on screen. The unsaved body stays in the draft register, and the editor's leave flush retries it. _(Android)_ → NoteEditorScreen.kt `onFailed`, `leaveNote`
+- Android runs the editor's leave flush, the untouched-capture delete, and the draft register release only after Back's commit settles. A second write of the same body against the same baseline cannot park a conflict copy. _(Android)_ → EditorSession.kt `whenExitSettles`
+- Android reads a note's body on open only after every leave commit still in flight has landed. Reopening the note just left shows its committed text. _(Android)_ → NotesStore.kt `awaitEditorLeaves`
+- A leaving Android editor never loads content into the shared WebView: a self-link relink after Back updates only the saved baseline. _(Android)_ → NoteEditorScreen.kt `settleRelink`
+- A leaving Android editor holds its pane at its last height while the keyboard and format toolbar animate away. The WebView does not relayout the note during the exit. _(Android)_ → NoteEditorScreen.kt `leavingEditorHeight`
+- Android Back is ignored once a delete or a peer's delete has latched the editor closed. That exit performs the leave itself. _(Android)_ → EditorSession.kt `end`
 - iOS system Back and edge swipe commit after the pop. They wait once when behind and proceed on the mailbox's latest bytes even if the wait fails; a later delivered change is handed to retained persistence. The parent may re-adopt first: loading it flushes the child's outgoing edit with the child's identity before loading the parent. _(iOS)_ → NoteEditorView.swift `finishLeave`, EditorMailboxTests.swift, docs/qa/wikilink-pop-large-edited-note.md
 - Streaming withholds content changes to protect against saving a prefix, but never withholds the synchronous `edited` signal. A flush settles an edited tail before reporting the complete document; a clean streamed flush echoes the host's full original bytes. A note switch reports an outgoing pending edit synchronously before replacing its identity. _(native shells)_ → milkdown/hostHandle.ts `flush`, `setContent`, milkdown/documentLoad.ts `finishProgressiveLoad`
 - Blur, hidden visibility and pagehide flush the embedded editor immediately. Backgrounding explicitly waits for posted changes (2 seconds on Android, 6 seconds within iOS background time) and then flushes the draft register, including the mailbox's latest available bytes after a failed wait. A durable write advances the baseline before a later write. _(native shells)_ → BackgroundEditorFlush.swift, NotesStore.kt, EditorSession.kt

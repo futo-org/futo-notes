@@ -108,6 +108,9 @@ interface Press {
   user: { doc: ProseNode; selection: Selection };
   view: ProseView;
   lifted: boolean;
+  /** The last pointer position this frame, waiting for `frame` to draw it. */
+  pending: { x: number; y: number } | null;
+  frame: number | null;
 }
 
 /** Wires the press-move-release gesture onto `host.handleEl`; returns its teardown. */
@@ -147,6 +150,10 @@ export function mountHandleBlockDrag(host: HandleBlockDragHost): { destroy(): vo
   function endPress(): Press | null {
     const ended = press;
     press = null;
+    if (ended && ended.frame !== null) {
+      (doc.defaultView ?? window).cancelAnimationFrame(ended.frame);
+      ended.frame = null;
+    }
     removeGestureListeners();
     removeCursorLayer?.();
     removeCursorLayer = null;
@@ -168,7 +175,10 @@ export function mountHandleBlockDrag(host: HandleBlockDragHost): { destroy(): vo
     const view = host.view();
     const active = host.active();
     if (!view || !active) return;
-    const source = handleSourceFor(view, active, event.clientY);
+    // The last drop is still landing: a press now would lift a block of the
+    // note before that move (`BlockDragSession.landingDrop`).
+    if (sessionFor(view).landingDrop) return;
+    const source = handleSourceFor(view, active);
     if (!source) return;
     // Belt and braces with the cancelled `dragstart` below.
     handleEl.draggable = false;
@@ -181,9 +191,29 @@ export function mountHandleBlockDrag(host: HandleBlockDragHost): { destroy(): vo
       user: { doc: view.state.doc, selection: view.state.selection },
       view,
       lifted: false,
+      pending: null,
+      frame: null,
     };
     addGestureListeners();
   };
+
+  /** Draws the lifted block at the pointer ONCE PER FRAME, at the last
+   * position the pointer reported. WebKit (WebKitGTK, macOS) delivers every
+   * move a mouse produces — a 1000 Hz mouse is sixteen a frame at 60 Hz — and
+   * each session move reads geometry and redraws the preview, so drawing every
+   * one is the same frame painted sixteen times. The release reads its own
+   * position (`finish`), so a frame cut short by it is simply dropped. */
+  function queueMove(current: Press, x: number, y: number): void {
+    current.pending = { x, y };
+    if (current.frame !== null) return;
+    current.frame = (doc.defaultView ?? window).requestAnimationFrame(() => {
+      current.frame = null;
+      const at = current.pending;
+      current.pending = null;
+      if (press !== current || !at) return;
+      sessionFor(current.view).move(at.x, at.y);
+    });
+  }
 
   const onPointerMove = (event: PointerEvent): void => {
     if (!press || event.pointerId !== press.pointerId) return;
@@ -200,7 +230,7 @@ export function mountHandleBlockDrag(host: HandleBlockDragHost): { destroy(): vo
         event.clientY,
       );
     }
-    sessionFor(press.view).move(event.clientX, event.clientY);
+    queueMove(press, event.clientX, event.clientY);
   };
 
   const onPointerUp = (event: PointerEvent): void => {

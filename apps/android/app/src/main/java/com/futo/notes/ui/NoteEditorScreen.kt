@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
@@ -62,6 +63,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -145,6 +148,19 @@ internal fun editedDuringOpenNoteGather(
 ): Boolean = currentEditVersion != reconciliationStartVersion
 
 internal enum class FindBackAction { DismissFind, ExitNote }
+
+/**
+ * The height the editor pane is held at, or null to let it follow its box.
+ * While an exit holds the interaction lock the editor is leaving: the blur
+ * drops the keyboard and the format toolbar, and letting the WebView follow
+ * would relayout the whole note on every frame of the keyboard animation
+ * (Chromium walks the whole document for any layout inside its scroll box),
+ * competing with the note list's first frames. Held at its last settled
+ * height instead; an exit that stays on the note releases the lock and the
+ * pane follows again.
+ */
+internal fun leavingEditorHeight(interactionLocked: Boolean, settledHeightPx: Int): Int? =
+    if (interactionLocked && settledHeightPx > 0) settledHeightPx else null
 
 internal fun findBackAction(findVisible: Boolean): FindBackAction =
     if (findVisible) FindBackAction.DismissFind else FindBackAction.ExitNote
@@ -262,8 +278,19 @@ fun NoteEditorScreen(
     // EditorSession.kt for the drain table.
     val ownerToken = remember(initialNoteId) { store.claimDraftOwnership() }
     val session = remember(initialNoteId) {
-        EditorSession(scope) { locked -> interactionLocked = locked }
+        EditorSession(scope, launchCommit = store::launchEditorLeave) { locked ->
+            interactionLocked = locked
+        }
     }
+    // Set the moment Back navigates. The exit's commit carries on after this
+    // screen is gone, and from then on must not touch the shared WebView: it
+    // may already hold the next note.
+    var leaving by remember(initialNoteId) { mutableStateOf(false) }
+    // The editor pane's last height outside an exit (leavingEditorHeight). A
+    // plain holder, not state: it changes on every keyboard animation frame
+    // while typing, and must not recompose this screen each time.
+    val settledEditorHeight = remember { IntArray(1) }
+    val density = LocalDensity.current
     val theme = if (darkTheme) "dark" else "light"
 
     suspend fun retargetNoteId(id: String) {
@@ -356,6 +383,13 @@ fun NoteEditorScreen(
         val body = relinkedBody ?: return
         if (body == flushed) return
         savedContent = body
+        if (leaving) {
+            // Nobody is typing in a note that has been left, so the relinked
+            // file is the whole draft — and the editor document must not be
+            // reloaded with it: the WebView may belong to the next note.
+            if (content == flushed) content = body
+            return
+        }
         val loadedDocument = host.awaitLoaded(noteId, content)
         if (loadedDocument.latest == null) return
         settleRelinkAdoption(
@@ -505,6 +539,7 @@ fun NoteEditorScreen(
         }
 
     fun navigateAfterSaving(navigate: () -> Unit) {
+        CloseLedger.begin(noteId)
         val attachment = host.currentAttachment()
         session.end(
             EditorExit.NAVIGATE,
@@ -533,6 +568,7 @@ fun NoteEditorScreen(
                     focusManager.clearFocus(force = true)
                     dismissFind()
                     host.blur()
+                    CloseLedger.mark("prepared")
                 }
 
                 override suspend fun cancelPendingSave() {
@@ -541,6 +577,7 @@ fun NoteEditorScreen(
 
                 override suspend fun awaitCurrentBody(): String? {
                     val current = host.awaitCurrent(noteId)
+                    CloseLedger.mark("bodyCurrent")
                     return if (current.canProceed) current.latest?.content ?: content else null
                 }
 
@@ -557,6 +594,7 @@ fun NoteEditorScreen(
                     if (commit.disposition is FlushDisposition.ParkedConflict) {
                         retargetNoteId(commit.disposition.parkedId)
                     }
+                    CloseLedger.mark("bodyCommitted")
                     return commit.canNavigate
                 }
 
@@ -584,22 +622,36 @@ fun NoteEditorScreen(
                         showTitleField(titleField.afterCommit(splitId(noteId).title))
                     }
                     if (titleCommit.isCommitted) settleRelink(flushed, titleCommit.relinkedBody)
+                    CloseLedger.mark("titleCommitted")
                     return titleCommit.isCommitted
                 }
 
                 override suspend fun perform(): Boolean {
+                    CloseLedger.mark("navigate")
+                    leaving = true
                     navigate()
                     return true
                 }
 
+                // The commit runs after the screen has gone (EditorSession
+                // leaves first), so a failure is told through the application
+                // context. The body is not lost: the leave work that follows
+                // retries it, and the draft register keeps it until it lands.
                 override fun onFailed(failure: EditorExitFailure) {
-                    if (attachment != null && host.isCurrentAttachment(attachment)) {
-                        Toast.makeText(
-                            context,
-                            localization.localizedText(if (failure == EditorExitFailure.UNFLUSHED) "notes.navigation.unflushed" else "notes.save.failedPending"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
+                    CloseLedger.mark("exitFailed")
+                    if (!leaving && (attachment == null || !host.isCurrentAttachment(attachment))) return
+                    Toast.makeText(
+                        context.applicationContext,
+                        localization.localizedText(
+                            if (failure == EditorExitFailure.TITLE) "notes.errors.renameFailed"
+                            else "notes.save.failedPending",
+                        ),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+
+                override fun onCommitError(error: Exception) {
+                    android.util.Log.e("NoteEditor", "commit after leaving $noteId failed", error)
                 }
             },
         )
@@ -688,6 +740,9 @@ fun NoteEditorScreen(
         // Quick capture has already created an empty note in the engine.
         host.prepareLoad(initialNoteId)
         if (loaded) return@LaunchedEffect
+        // Back leaves before its commit lands; reopening that note inside the
+        // window must read the committed bytes, not the ones before them.
+        store.awaitEditorLeaves()
         // A note that exists but cannot be read never opens as a blank page
         // (desktop loader parity): `loaded` stays false, so nothing can save
         // over it, and the editor leaves without writing.
@@ -729,38 +784,53 @@ fun NoteEditorScreen(
                 openNoteEffects(summary = null, reconciliationStartEditVersion = editVersion),
             )
         }
-        onDispose { store.releaseDraftOwnership(ownerToken) }
+        // Released by the leave work below, once Back's commit has settled.
+        onDispose {}
     }
 
     // Flush a pending save when leaving (only if loaded + changed). The exists
     // check and write run off the main thread on the store's scope, which
     // outlives this composable — a composable's onDispose can't suspend. This is
     // the POP flush (navigating back isn't a background signal, so onPause won't
-    // fire); the register handles the background flush.
+    // fire); the register handles the background flush. After Back it is the
+    // fallback for whatever the exit's own commit could not land.
+    fun leaveNote() {
+        val departureId = noteId
+        host.retainUnflushed(departureId) { text ->
+            store.flushRetainedEditor(departureId, text, { savedContent }, ownerToken)
+        }
+        // Discard an untouched quick-capture note: opened brand-new
+        // (autoFocus), never renamed (id unchanged AND title still the
+        // created placeholder), body still empty. Backing out leaves nothing
+        // behind — desktop parity (list.md). deleteAsync runs on the store's
+        // scope (onDispose can't suspend and the composable scope is gone).
+        // A pending image insert (see pendingImageInsert's doc) makes this
+        // note NOT untouched even though its body hasn't landed yet — this
+        // is defense in depth behind NAVIGATE's awaitPendingWork(), which
+        // already keeps this dispose from running until any insert settles;
+        // it also covers Move/Delete disposing while one is still in flight.
+        if (autoFocus && noteId == initialNoteId && content.isEmpty()
+            && titleField.value.text == splitId(initialNoteId).title
+            && pendingImageInsert == 0) {
+            store.deleteAsync(noteId, ownerToken)
+        } else if (loaded && content != savedContent) {
+            val snapshot = content
+            store.flushAsync(PendingDraft(noteId, savedContent, snapshot), ownerToken) { savedContent = snapshot }
+        }
+    }
+
+    // Back navigates before its commit lands (EditorSession leaves first), so
+    // this waits for that commit: run alongside it, leaveNote's flush would
+    // write the same body twice against one base and park a spurious conflict copy,
+    // and the untouched-capture check would read a body the editor had not
+    // reported yet. The draft register entry is released last, so the jetsam
+    // guard covers the draft until here.
     DisposableEffect(initialNoteId) {
         onDispose {
             saveJob?.cancel()
-            val departureId = noteId
-            host.retainUnflushed(departureId) { text ->
-                store.flushRetainedEditor(departureId, text, { savedContent }, ownerToken)
-            }
-            // Discard an untouched quick-capture note: opened brand-new
-            // (autoFocus), never renamed (id unchanged AND title still the
-            // created placeholder), body still empty. Backing out leaves nothing
-            // behind — desktop parity (list.md). deleteAsync runs on the store's
-            // scope (onDispose can't suspend and the composable scope is gone).
-            // A pending image insert (see pendingImageInsert's doc) makes this
-            // note NOT untouched even though its body hasn't landed yet — this
-            // is defense in depth behind NAVIGATE's awaitPendingWork(), which
-            // already keeps this dispose from running until any insert settles;
-            // it also covers Move/Delete disposing while one is still in flight.
-            if (autoFocus && noteId == initialNoteId && content.isEmpty()
-                && titleField.value.text == splitId(initialNoteId).title
-                && pendingImageInsert == 0) {
-                store.deleteAsync(noteId, ownerToken)
-            } else if (loaded && content != savedContent) {
-                val snapshot = content
-                store.flushAsync(PendingDraft(noteId, savedContent, snapshot), ownerToken) { savedContent = snapshot }
+            session.whenExitSettles {
+                leaveNote()
+                store.releaseDraftOwnership(ownerToken)
             }
         }
     }
@@ -1088,7 +1158,11 @@ fun NoteEditorScreen(
             }
             Spacer(Modifier.size(8.dp))
 
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            Box(
+                modifier = Modifier.weight(1f).fillMaxWidth().onSizeChanged {
+                    if (!interactionLocked) settledEditorHeight[0] = it.height
+                },
+            ) {
                 // An engine that can't run the bundle would paint a blank pane
                 // (github#8) — show the native "update WebView" notice instead.
                 if (editorPaneUnavailable) {
@@ -1109,7 +1183,13 @@ fun NoteEditorScreen(
                         // Local ![](image.png) resolves against the vault root
                         // [editor.md:121] (allowFileAccess stays on, see EditorHost).
                         imageBaseUrl = "file://${store.rootPath}/",
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = leavingEditorHeight(interactionLocked, settledEditorHeight[0])
+                            ?.let { heldPx ->
+                                Modifier.fillMaxWidth()
+                                    .wrapContentHeight(Alignment.Top, unbounded = true)
+                                    .height(with(density) { heldPx.toDp() })
+                            }
+                            ?: Modifier.fillMaxSize(),
                         onAttachmentChange = { editorAttachment = it },
                         onDocumentLoaded = { id -> if (loaded && id == noteId) documentReady = true },
                         onOpenNote = { linkedNoteId ->

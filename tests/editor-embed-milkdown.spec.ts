@@ -6,8 +6,11 @@ import { expect, test as base, type CDPSession, type Page } from '@playwright/te
 
 import { BRIDGE_VERSION } from '@futo-notes/editor';
 
+import { LAND_CAP_MS } from '../src/features/editor/milkdown/blockDragCurtain';
 import { GHOST_PAD_Y_PX } from '../src/features/editor/milkdown/blockDragSession';
 import { DEFAULT_LONG_PRESS_MS } from '../src/features/editor/milkdown/mobileBlockDnd';
+import { HOLD_SETTLE_MS } from '../src/features/editor/milkdown/interactionHold';
+import { OPEN_COMPLETE_MEASURE } from '../src/features/editor/milkdown/progressiveLoad';
 import { EDITOR_URL } from './editorEmbedBundle';
 import { PERFORMANCE_BUDGET } from './editor-gauntlet/performanceFloor';
 import {
@@ -1243,29 +1246,55 @@ const gutterHandleFixture = (query: string) =>
     },
   });
 const gutterHandleTest = gutterHandleFixture('');
-/** Same, with live reflow forced off: the drop LINE, which list items and a
- * doc that changes shape mid-drag still use. */
+/** Same, with live reflow forced off: the drop LINE, which a doc that changes
+ * shape mid-drag still falls back to. */
 const gutterHandleLineTest = gutterHandleFixture('&blockDragReflow=off');
 
 /**
- * Live-reflow state, read off the curtain's clones (their inline transform is
- * the shift they are sliding to): the previewed target gap (0..n) given the
- * blocks' texts in document order and the dragged block's index, or null when
- * the curtain is absent or nothing is shifted (the source's own gaps).
+ * Live-reflow state, read off the curtain's clones (their inline `top` plus
+ * transform is where they are sliding to): the previewed target gap (0..n)
+ * given the blocks' texts in document order and the dragged block's index, or
+ * null when the curtain is absent or the source is where it started (its own
+ * gaps). Read from the source's place in the previewed order, not from which
+ * blocks shifted: a heading moved away from the top also nudges the blocks
+ * after the gap, by the margins it takes with it.
  */
 async function reflowGap(page: Page, order: string[], source: number): Promise<number | null> {
-  const shifts = await page.evaluate(() => {
+  const tops = await page.evaluate(() => {
     const out: Record<string, number> = {};
     for (const el of document.querySelectorAll('.futo-mobile-dnd-reflow-curtain > *')) {
-      const m = /translateY\((-?[\d.]+)px\)/.exec((el as HTMLElement).style.transform);
-      out[(el.textContent ?? '').trim()] = m ? Number.parseFloat(m[1]) : 0;
+      const style = (el as HTMLElement).style;
+      const m = /translateY\((-?[\d.]+)px\)/.exec(style.transform);
+      out[(el.textContent ?? '').trim()] =
+        Number.parseFloat(style.top) + (m ? Number.parseFloat(m[1]) : 0);
     }
     return out;
   });
-  const moved = order.filter((t, i) => i !== source && Math.abs(shifts[t] ?? 0) > 0.5).length;
-  const own = shifts[order[source]] ?? 0;
-  if (Math.abs(own) <= 0.5) return null;
-  return own > 0 ? source + 1 + moved : source - moved;
+  if (!(order[source] in tops)) return null;
+  const rank = order.filter((t, i) => i !== source && tops[t] < tops[order[source]]).length;
+  if (rank === source) return null;
+  return rank > source ? rank + 1 : rank;
+}
+
+/**
+ * Where the reflow preview DRAWS the block containing `text`, in client
+ * coordinates: the real block's box (the real blocks never move during a
+ * drag) moved by the shift its clone slides to. Read from the clone's target
+ * transform, not its rect, so it is right mid-slide too. The drop slot is
+ * judged against this layout, not the one the drag started from.
+ */
+async function drawnBox(page: Page, text: string): Promise<{ top: number; bottom: number }> {
+  const box = await blockBox(page, text);
+  const shift = await page.evaluate((wanted) => {
+    for (const el of document.querySelectorAll('.futo-mobile-dnd-reflow-curtain > *')) {
+      if (!(el.textContent ?? '').includes(wanted)) continue;
+      const m = /translateY\((-?[\d.]+)px\)/.exec((el as HTMLElement).style.transform);
+      return m ? Number.parseFloat(m[1]) : 0;
+    }
+    return null;
+  }, text);
+  if (shift === null) throw new Error(`the preview draws no clone of "${text}"`);
+  return { top: box.top + shift, bottom: box.bottom + shift };
 }
 
 /** True while the reflow curtain is up. */
@@ -1325,28 +1354,10 @@ function dropIndicatorTop(page: Page): Promise<number | null> {
   });
 }
 
-/** Box of the LIST ITEM containing `text` (blockBox answers with the whole
- * list for any text inside one). */
-async function itemBox(
-  page: Page,
-  text: string,
-): Promise<{ x: number; top: number; bottom: number }> {
-  const box = await page.locator('.ProseMirror li', { hasText: text }).first().boundingBox();
-  if (!box) throw new Error(`no geometry for the list item containing "${text}"`);
-  return { x: box.x + box.width / 2, top: box.y, bottom: box.y + box.height };
-}
-
-/** Centre of the ⠿ handle for the block containing `text`, surfaced by hover
- * — or for the list item containing it, with `{ item: true }`. */
-async function surfaceHandle(
-  page: Page,
-  text: string,
-  options: { item?: boolean } = {},
-): Promise<{ x: number; y: number }> {
-  const block = options.item
-    ? await itemBox(page, text).then((box) => ({ x: box.x, y: (box.top + box.bottom) / 2 }))
-    : await blockCenter(page, text);
-  const range = options.item ? await itemBox(page, text) : await blockBox(page, text);
+/** Centre of the ⠿ handle for the block containing `text`, surfaced by hover. */
+async function surfaceHandle(page: Page, text: string): Promise<{ x: number; y: number }> {
+  const block = await blockCenter(page, text);
+  const range = await blockBox(page, text);
   await page.mouse.move(block.x, block.y);
   const handle = page.locator('.milkdown-block-handle[data-show="true"]');
   await handle.waitFor({ state: 'attached' });
@@ -1369,32 +1380,39 @@ async function surfaceHandle(
 }
 
 gutterHandleTest('the ⠿ handle sits in the gutter, never over a list marker', async ({ page }) => {
-  // A list item's box starts at its text; its bullet hangs in the list's
-  // padding to the left. An offset measured from that box put the handle on
-  // top of the bullet, and over the parent's text for a nested item. The
-  // handle belongs in the editor's gutter, left of the text column, at every
-  // depth.
-  // Second items, deliberately: plugin-block resolves a FIRST item to its
-  // parent list, whose box does start at the text column, so first items never
-  // showed the bug.
+  // The handle belongs in the editor's gutter, left of the text column, never
+  // over a bullet. Hovering an item of a list, at any depth, surfaces the
+  // handle for the whole list (a drag only lifts top-level blocks), beside the
+  // list's first line.
   await hostSetContent(page, 'intro\n\n- first\n- outer\n  - nested\n  - inner\n');
   const contentLeft = await page.evaluate(() => {
     const pm = document.querySelector('.ProseMirror')!;
     return pm.getBoundingClientRect().left + parseFloat(getComputedStyle(pm).paddingLeft);
   });
-  for (const text of ['intro', 'outer', 'inner']) {
-    // Over the TEXT, not the block's left edge: hovering a list item's text
-    // makes the item itself the active block, which is the case that put the
-    // handle on the bullet.
+  for (const [text, line] of [
+    ['intro', 'intro'],
+    ['outer', 'first'],
+    ['inner', 'first'],
+  ]) {
+    // Over the TEXT, not the block's left edge.
     const textBox = (await page.getByText(text, { exact: true }).first().boundingBox())!;
+    const lineBox = (await page.getByText(line, { exact: true }).first().boundingBox())!;
     await page.mouse.move(textBox.x + textBox.width / 2, textBox.y + textBox.height / 2, {
       steps: 4,
     });
     const handle = page.locator('.milkdown-block-handle[data-show="true"]');
-    // The handle is repositioned asynchronously; wait until it is on THIS line.
+    // The handle is repositioned asynchronously; wait until it is on its line.
     await expect
-      .poll(async () => (await handle.boundingBox())?.y ?? -1, { message: `${text}: handle` })
-      .toBeGreaterThanOrEqual(textBox.y - 4);
+      .poll(
+        async () => {
+          const box = await handle.boundingBox();
+          return box
+            ? Math.abs(box.y + box.height / 2 - (lineBox.y + lineBox.height / 2))
+            : Infinity;
+        },
+        { message: `${text}: handle beside "${line}"` },
+      )
+      .toBeLessThan(4);
     const box = (await handle.boundingBox())!;
     expect(box.x + box.width, `${text}: handle overlaps the text column`).toBeLessThanOrEqual(
       contentLeft + 0.5,
@@ -1402,6 +1420,44 @@ gutterHandleTest('the ⠿ handle sits in the gutter, never over a list marker', 
     expect(box.x, `${text}: handle left the editor`).toBeGreaterThanOrEqual(0);
   }
 });
+
+/* A multi-line block has ONE handle, beside its first line. Hovering anywhere
+ * in a list — a later item, a nested child — surfaces that same handle at the
+ * list's top line; it is never drawn lower down, beside the item under the
+ * pointer. */
+gutterHandleTest(
+  "the ⠿ handle stays beside a list's first line wherever the list is hovered",
+  async ({ page }) => {
+    await hostSetContent(
+      page,
+      'intro\n\n- List item D\n- List item E\n  - Child of E\n  - Another child of E\n- List item F\n\noutro',
+    );
+    const first = (await page.getByText('List item D', { exact: true }).boundingBox())!;
+    const firstLine = first.y + first.height / 2;
+    const handle = page.locator('.milkdown-block-handle[data-show="true"]');
+    const handleY = async () => {
+      const box = await handle.boundingBox();
+      return box ? box.y + box.height / 2 : Number.NaN;
+    };
+
+    for (const text of ['List item D', 'Child of E', 'Another child of E', 'List item F']) {
+      // Away from the handle first, so each hover is a fresh resolve.
+      const intro = await blockCenter(page, 'intro');
+      await page.mouse.move(intro.x, intro.y, { steps: 2 });
+      await expect
+        .poll(handleY, { message: `${text}: handle reached intro` })
+        .toBeLessThan(first.y);
+
+      const box = (await page.getByText(text, { exact: true }).boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 });
+      await expect
+        .poll(async () => Math.abs((await handleY()) - firstLine), {
+          message: `hovering "${text}": handle beside the list's first line`,
+        })
+        .toBeLessThan(2);
+    }
+  },
+);
 
 gutterHandleTest('a mouse drag on the ⠿ handle reorders the block', async ({ page }) => {
   await hostSetContent(page, '# alpha\n\nbravo\n\ncharlie');
@@ -1413,10 +1469,14 @@ gutterHandleTest('a mouse drag on the ⠿ handle reorders the block', async ({ p
   const handle = page.locator('.milkdown-block-handle[data-show="true"]');
   await handle.waitFor({ state: 'attached' });
 
-  // y=4 is charlie's UPPER half, so the drop lands above charlie rather than
-  // after it — the same half-block rule the long-press path uses.
-  const charlie = page.getByText('charlie', { exact: true }).first();
-  await handle.dragTo(charlie, { targetPosition: { x: 4, y: 4 } });
+  // bravo's lower half, so the drop lands after bravo and above charlie — the
+  // same rule the long-press path uses. Not charlie's top edge: the slot is
+  // judged against the blocks as the preview draws them, and with alpha gone
+  // from the top bravo slides up and charlie with it (its margin above
+  // changes), so charlie's old top edge is in charlie's DRAWN lower half.
+  const bravo = page.getByText('bravo', { exact: true }).first();
+  const bravoHeight = (await bravo.boundingBox())!.height;
+  await handle.dragTo(bravo, { targetPosition: { x: 4, y: bravoHeight - 3 } });
 
   const changes = await waitForMessages(page, 'change');
   const content = changes[changes.length - 1].content as string;
@@ -1564,6 +1624,29 @@ for (const [host, theme, expected] of [
     },
   );
 }
+
+// ProseMirror keeps a block's DOM, and its view descriptor, when the new
+// document has an EQUAL block there, without pointing the descriptor at the
+// new node object. A curtain that matched blocks to their DOM by identity
+// refused every drag after the host's setContent, and those drags quietly
+// showed the drop line instead.
+gutterHandleTest(
+  'a drag after the host replaces the content still previews by reflow',
+  async ({ page }) => {
+    await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie\n\ndelta');
+    await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
+
+    const handle = await surfaceHandle(page, 'alpha');
+    const charlie = await blockBox(page, 'charlie');
+    const drag = await startHandleDrag(page, handle);
+    await drag.over(charlie.x, charlie.bottom - 3);
+    await expect(page.locator('.futo-mobile-dnd-ghost')).toHaveCount(1);
+    expect(await curtainUp(page)).toBe(true);
+    expect(await reflowGap(page, ['alpha', 'bravo', 'charlie'], 0)).toBe(3);
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+  },
+);
 
 gutterHandleTest(
   'Escape mid-drag cancels the ⠿ handle drag with no transaction',
@@ -1724,10 +1807,14 @@ gutterHandleTest('the ⠿ handle previews ONE slot per gap, from either side', a
   const drag = await startHandleDrag(page, handle);
 
   // bravo's lower half, then charlie's upper half: the same boundary, so the
-  // same slot opens (bravo slid up, alpha parked after it).
+  // same slot opens (bravo slid up, alpha parked after it). Charlie's upper
+  // half as the preview DRAWS it: with alpha gone from the top, charlie is
+  // drawn higher than it sat at the lift (`drawnBox`).
   await drag.over(bravo.x, bravo.bottom - 3);
   const fromAbove = await reflowGap(page, order, 0);
-  await drag.over(charlie.x, charlie.top + 3);
+  const drawnCharlie = await drawnBox(page, 'charlie');
+  expect(drawnCharlie.top).toBeLessThan(charlie.top);
+  await drag.over(charlie.x, drawnCharlie.top + 3);
   const fromBelow = await reflowGap(page, order, 0);
 
   expect(fromAbove).toBe(2);
@@ -1735,10 +1822,73 @@ gutterHandleTest('the ⠿ handle previews ONE slot per gap, from either side', a
 
   // And the drop commits where the slot was: alpha lands between them,
   // still a heading (a re-fitted slice would have unwrapped it).
-  await drag.drop(charlie.x, charlie.top + 3);
+  await drag.drop(charlie.x, drawnCharlie.top + 3);
   const changes = await waitForMessages(page, 'change');
   expect(changes[changes.length - 1].content).toBe('bravo\n\n# alpha\n\ncharlie\n');
 });
+
+/* "Above or below" follows the pointer against the blocks AS THE PREVIEW DRAWS
+ * THEM. Judged against the lift-time layout instead, a long paragraph dragged
+ * past a block flipped back the moment the pointer re-entered that block's OLD
+ * upper half — a whole paragraph-height below where the block is drawn now,
+ * inside the paragraph's own slot. */
+gutterHandleTest(
+  'the ⠿ handle flips a slot back only past the drawn middle of the block that passed it',
+  async ({ page }) => {
+    const long = `alpha ${'lorem ipsum dolor sit amet '.repeat(60).trim()}`;
+    await hostSetContent(page, `${long}\n\nbravo\n\ncharlie`);
+    await clearMessages(page);
+
+    const order = [long, 'bravo', 'charlie'];
+    const alpha = await blockBox(page, 'alpha');
+    const bravo = await blockBox(page, 'bravo');
+    // Taller than bravo by a lot, or bravo's old and drawn places overlap.
+    expect(alpha.bottom - alpha.top).toBeGreaterThan(4 * (bravo.bottom - bravo.top));
+
+    const drag = await startHandleDrag(page, await surfaceHandle(page, 'alpha'));
+    await drag.over(bravo.x, bravo.bottom - 3);
+    expect(await reflowGap(page, order, 0)).toBe(2);
+
+    // bravo's lift-time upper half is now inside the drawn slot, well below
+    // bravo (slid up to alpha's place): the slot stays.
+    await drag.over(bravo.x, bravo.top + 3);
+    expect(await reflowGap(page, order, 0)).toBe(2);
+
+    // Above bravo's drawn middle, it flips back.
+    await drag.over(bravo.x, alpha.top + 2);
+    expect(await reflowGap(page, order, 0)).toBeNull();
+
+    await drag.drop(bravo.x, alpha.top + 2);
+    expect(await messagesOfType(page, 'edited')).toHaveLength(0);
+  },
+);
+
+gutterHandleTest(
+  'the ⠿ handle flips a slot back down only past the drawn middle of the block that passed it',
+  async ({ page }) => {
+    const long = `alpha ${'lorem ipsum dolor sit amet '.repeat(60).trim()}`;
+    await hostSetContent(page, `bravo\n\ncharlie\n\n${long}`);
+    await clearMessages(page);
+
+    const order = ['bravo', 'charlie', long];
+    const bravo = await blockBox(page, 'bravo');
+    const alpha = await blockBox(page, 'alpha');
+    expect(alpha.bottom - alpha.top).toBeGreaterThan(4 * (bravo.bottom - bravo.top));
+
+    const drag = await startHandleDrag(page, await surfaceHandle(page, 'alpha'));
+    await drag.over(bravo.x, bravo.top + 3);
+    expect(await reflowGap(page, order, 2)).toBe(0);
+
+    // bravo's lift-time lower half is inside the drawn slot, well above bravo
+    // (pushed down by alpha's height): the slot stays at the top.
+    await drag.over(bravo.x, bravo.bottom - 3);
+    expect(await reflowGap(page, order, 2)).toBe(0);
+
+    await drag.drop(bravo.x, bravo.bottom - 3);
+    const changes = await waitForMessages(page, 'change');
+    expect(changes[changes.length - 1].content).toBe(`${long}\n\nbravo\n\ncharlie\n`);
+  },
+);
 
 gutterHandleLineTest(
   'the ⠿ handle draws ONE line per gap (drop line), in the gap, from either side',
@@ -1843,98 +1993,72 @@ gutterHandleLineTest(
   },
 );
 
-/** A list-final document with its trailing newlines collapsed to one (see the
- * first list test below for why). */
+/** A list-final document with its trailing newlines collapsed to one:
+ * @milkdown/kit/plugin/trailing keeps an empty paragraph after a list-final
+ * document, which is upstream behaviour and not what these assert. */
 const listOnly = (markdown: string): string => markdown.replace(/\n+$/, '\n');
 
-/* Reordering INSIDE a list. The resolver used to know only top-level gaps, so
- * a list item — which lives one level down — drew no line at all, and the drop
- * fell through to ProseMirror's default, which re-fit the item as a second list
- * beside the first ("a break in between"). */
-gutterHandleTest('the ⠿ handle moves a bullet to the end of its own list', async ({ page }) => {
-  await hostSetContent(page, '- alpha\n- bravo\n- charlie');
-  await clearMessages(page);
-
-  // The SECOND item, whose handle plugin-block resolves to the item itself.
-  const handle = await surfaceHandle(page, 'bravo', { item: true });
-  const charlie = await itemBox(page, 'charlie');
-  const drag = await startHandleDrag(page, handle);
-
-  // charlie's lower half is the boundary after it: the list's end, drawn on
-  // charlie's bottom edge — a line, where before there was none.
-  await drag.over(charlie.x, charlie.bottom - 3);
-  const line = await dropIndicatorTop(page);
-  expect(line).not.toBeNull();
-  expect(Math.abs((line as number) - charlie.bottom)).toBeLessThan(2);
-
-  await drag.drop(charlie.x, charlie.bottom - 3);
-  const changes = await waitForMessages(page, 'change');
-  // ONE list, reordered — not two lists with a break between them. Trailing
-  // newlines are normalized: @milkdown/kit/plugin/trailing keeps an empty
-  // paragraph after a list-final document, which is upstream behaviour and
-  // not what this asserts.
-  expect(listOnly(changes[changes.length - 1].content as string)).toBe(
-    '- alpha\n- charlie\n- bravo\n',
-  );
-});
-
-/* plugin-block resolves a list's FIRST item to the list itself (the same rule
- * the gutter test above leans on), so the handle beside the first bullet
- * stood for — and would have dragged — every bullet. handleSource.ts narrows
- * that to the item under the handle. */
+/* A drag only ever lifts a TOP-LEVEL block. The handle used to stand for the
+ * list ITEM beside it, and a list item could not be previewed by the curtain,
+ * so dragging flipped between the reflow preview and the drop line depending
+ * on what was grabbed. Now the handle beside any item, at any depth, stands
+ * for the whole list. */
 gutterHandleTest(
-  'the ⠿ handle on the FIRST bullet drags that bullet, not the whole list',
+  'the ⠿ handle beside a nested list item drags the whole list, with the reflow preview',
   async ({ page }) => {
-    await hostSetContent(page, '- alpha\n- bravo\n- charlie');
+    await hostSetContent(page, 'intro\n\n- one\n- two\n  - nested\n- three\n\noutro');
     await clearMessages(page);
 
-    const handle = await surfaceHandle(page, 'alpha', { item: true });
-    const charlie = await itemBox(page, 'charlie');
-    const drag = await startHandleDrag(page, handle);
+    const order = ['intro', 'onetwonestedthree', 'outro'];
+    // Hover the nested item's TEXT: before, that made the item the active block.
+    const nested = (await page.getByText('nested', { exact: true }).boundingBox())!;
+    await page.mouse.move(nested.x + nested.width / 2, nested.y + nested.height / 2, {
+      steps: 4,
+    });
+    // The handle comes up beside the list's FIRST line, which is where the
+    // block it stands for starts — not beside the hovered item.
+    const one = (await page.getByText('one', { exact: true }).boundingBox())!;
+    const shown = page.locator('.milkdown-block-handle[data-show="true"]');
+    await expect
+      .poll(async () => {
+        const box = await shown.boundingBox();
+        return box ? Math.abs(box.y + box.height / 2 - (one.y + one.height / 2)) : Infinity;
+      })
+      .toBeLessThan(4);
+    const box = (await shown.boundingBox())!;
+    const handle = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 
-    await drag.over(charlie.x, charlie.bottom - 3);
-    expect(await dropIndicatorTop(page)).not.toBeNull();
-    await drag.drop(charlie.x, charlie.bottom - 3);
+    const outro = await blockBox(page, 'outro');
+    const drag = await startHandleDrag(page, handle);
+    await drag.over(outro.x, outro.bottom - 3);
+    await expect(page.locator('.futo-mobile-dnd-source')).toHaveText(/one.*two.*nested.*three/s);
+    expect(await reflowGap(page, order, 1)).toBe(3);
+    expect(await dropIndicatorTop(page)).toBeNull();
+    await drag.drop(outro.x, outro.bottom - 3);
 
     const changes = await waitForMessages(page, 'change');
     expect(listOnly(changes[changes.length - 1].content as string)).toBe(
-      '- bravo\n- charlie\n- alpha\n',
+      'intro\n\noutro\n\n- one\n- two\n  - nested\n- three\n',
     );
   },
 );
 
-/* Leaving a list. Just below the list is still the list (two adjacent lists
- * are one list in markdown); past the next block is out. */
+/* Drops only land in top-level gaps: a paragraph dragged over the middle of a
+ * list lands above or below the whole list, never between its items. */
 gutterHandleTest(
-  'a bullet dragged just below its list joins its end; past the next block it leaves',
+  'a block dragged over a list lands beside it, never inside it',
   async ({ page }) => {
-    await hostSetContent(page, '- alpha\n- bravo\n\ncharlie');
+    await hostSetContent(page, 'alpha\n\n- one\n- two\n- three\n\nomega');
     await clearMessages(page);
 
-    let handle = await surfaceHandle(page, 'alpha', { item: true });
-    const charlie = await blockBox(page, 'charlie');
-    let drag = await startHandleDrag(page, handle);
-    await drag.drop(charlie.x, charlie.top + 3);
-    let changes = await waitForMessages(page, 'change');
-    expect(changes[changes.length - 1].content).toBe('- bravo\n- alpha\n\ncharlie\n');
+    const handle = await surfaceHandle(page, 'alpha');
+    const two = (await page.getByText('two', { exact: true }).boundingBox())!;
+    const drag = await startHandleDrag(page, handle);
+    // "two" sits in the list's lower half: the gap after the list.
+    await drag.drop(two.x + two.width / 2, two.y + two.height - 2);
 
-    await clearMessages(page);
-    handle = await surfaceHandle(page, 'alpha', { item: true });
-    drag = await startHandleDrag(page, handle);
-    await drag.drop(charlie.x, charlie.bottom - 3);
-    await expect.poll(() => getContent(page)).toBe('- bravo\n\ncharlie\n\n- alpha\n');
-    const generation = await page.evaluate(
-      () => (window as unknown as FakeHostWindow).__futoTest.documentRef().generation,
-    );
-    await expect
-      .poll(async () =>
-        (await messagesOfType(page, 'change')).some((m) => m.generation === generation),
-      )
-      .toBe(true);
-    changes = await messagesOfType(page, 'change');
-    expect(listOnly(changes[changes.length - 1].content as string)).toBe(
-      '- bravo\n\ncharlie\n\n- alpha\n',
-    );
+    const changes = await waitForMessages(page, 'change');
+    expect(changes[changes.length - 1].content).toBe('- one\n- two\n- three\n\nalpha\n\nomega\n');
   },
 );
 
@@ -2233,6 +2357,39 @@ mobileDndTest(
   },
 );
 
+/* A drag only ever lifts a TOP-LEVEL block. A long press on an item of a list,
+ * at any depth, lifts the whole list, so it gets the same live-reflow preview
+ * as every other block rather than the drop line. */
+mobileDndTest(
+  'a long press on a nested list item lifts the whole list, with the reflow preview',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, 'intro\n\n- one\n- two\n  - nested\n- three\n\noutro');
+    await clearMessages(page);
+
+    const order = ['intro', 'onetwonestedthree', 'outro'];
+    const nested = (await page.getByText('nested', { exact: true }).boundingBox())!;
+    const outro = await blockBox(page, 'outro');
+    await touch(cdp, 'touchStart', nested.x + nested.width / 2, nested.y + nested.height / 2);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+    for (let step = 1; step <= 4; step += 1) {
+      await touch(cdp, 'touchMove', outro.x, nested.y + ((outro.bottom - 3 - nested.y) * step) / 4);
+      await page.waitForTimeout(16);
+    }
+
+    // The whole list is the dimmed source, previewed below "outro" by the
+    // curtain: no drop line.
+    await expect(page.locator('.futo-mobile-dnd-source')).toHaveText(/one.*two.*nested.*three/s);
+    await expect.poll(() => reflowGap(page, order, 1)).toBe(3);
+    expect(await dropIndicatorTop(page)).toBeNull();
+
+    await touch(cdp, 'touchEnd', outro.x, outro.bottom - 3);
+    const changes = await waitForMessages(page, 'change');
+    expect(listOnly(changes[changes.length - 1].content as string)).toBe(
+      'intro\n\noutro\n\n- one\n- two\n  - nested\n- three\n',
+    );
+  },
+);
+
 mobileDndTest(
   'releasing back at the source is a true no-op: no change, no drop haptic',
   async ({ page, cdp }) => {
@@ -2447,9 +2604,14 @@ mobileDndTest(
     const ticksAtBravo = await ticks();
     expect(ticksAtBravo).toBeGreaterThan(0);
 
-    // Back inside "alpha": hidden again, and the tick count must not move —
-    // this is a no-op boundary, not a new one to announce.
-    await touch(cdp, 'touchMove', alpha.x, alphaY);
+    // Back over alpha's own place: hidden again, and the tick count must not
+    // move — this is a no-op boundary, not a new one to announce. The slot is
+    // judged against the blocks as drawn, and bravo is drawn in alpha's place
+    // now, its middle exactly at `alphaY` (where a tie keeps the slot open);
+    // so the finger goes above bravo's drawn middle.
+    const backY = alpha.top + 3;
+    expect(backY).toBeLessThan(alphaY);
+    await touch(cdp, 'touchMove', alpha.x, backY);
     await page.waitForTimeout(32);
     expect(await slotOpen()).toBe(false);
     expect(await ticks()).toBe(ticksAtBravo);
@@ -2479,7 +2641,7 @@ mobileDndTest(
     expect(cardAlpha as number).toBeLessThan(1);
 
     // Release over the source: a true no-op, same as the dedicated test above.
-    await touch(cdp, 'touchEnd', alpha.x, alphaY);
+    await touch(cdp, 'touchEnd', alpha.x, backY);
     await settleChangeDebounce(page);
     expect(await messagesOfType(page, 'change')).toHaveLength(0);
   },
@@ -2764,6 +2926,1370 @@ mobileDndTest('a cancelled drag stops the auto-scroll', async ({ page, cdp }) =>
   await page.waitForTimeout(600);
   expect((await editorScroll(page)).top).toBe(stopped);
   expect(await messagesOfType(page, 'change')).toHaveLength(0);
+});
+
+// ---- the drop keeps the view still ---------------------------------------
+//
+// The reflow preview already draws the note as it will be after the drop, at
+// the current scroll position. So the drop itself must not move anything on
+// screen: the user reported that after an auto-scroll the view SOMETIMES
+// jumped on release (Android, 2026-10-08).
+
+/** Where one block's content is drawn on screen, keyed (`dragLayout`) by what
+ * it shows: the top of its first line, the bottom of its last, and its left
+ * edge. Content, not the element's box: a preview clone's box legitimately
+ * differs from the real block's by the margins its children collapse through. */
+interface LaidOutBlock {
+  top: number;
+  bottom: number;
+  left: number;
+  index: number;
+}
+
+/** What the user sees during a reflow drag, or after it: the scroll position,
+ * and every block's content keyed by its text (an image by its alt text, a
+ * rule by its tag). `curtain` reads the preview's clones — only those on
+ * screen, which is what the user is looking at — and names the lifted
+ * block's; otherwise the real blocks, all of them. */
+function dragLayout(
+  page: Page,
+  curtain: boolean,
+): Promise<{ scrollTop: number; source: string | null; blocks: Record<string, LaidOutBlock> }> {
+  return page.evaluate((fromCurtain) => {
+    const editor = document.querySelector('.ProseMirror[contenteditable]') as HTMLElement;
+    const root = fromCurtain
+      ? (document.querySelector('.futo-mobile-dnd-reflow-curtain') as HTMLElement | null)
+      : editor;
+    const view = editor.getBoundingClientRect();
+    const keyOf = (el: Element) =>
+      (el.textContent ?? '').replace(/\s+/g, ' ').trim() ||
+      el.querySelector('img')?.getAttribute('alt') ||
+      el.tagName;
+    const lineRects = (el: Element): DOMRect[] => {
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const rects: DOMRect[] = [];
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (!n.textContent?.trim()) continue;
+        const range = document.createRange();
+        range.selectNodeContents(n);
+        rects.push(...Array.from(range.getClientRects()).filter((r) => r.height > 0));
+      }
+      return rects;
+    };
+    const blocks: Record<string, { top: number; bottom: number; left: number; index: number }> = {};
+    let source: string | null = null;
+    Array.from(root?.children ?? []).forEach((block, index) => {
+      const box = block.getBoundingClientRect();
+      if (fromCurtain && (box.bottom <= view.top || box.top >= view.bottom)) return;
+      const key = keyOf(block);
+      if (block.classList.contains('futo-mobile-dnd-reflow-source')) source = key;
+      const lines = lineRects(block);
+      const drawn = block.querySelector('img, hr')?.getBoundingClientRect() ?? box;
+      blocks[key] = lines.length
+        ? {
+            top: Math.min(...lines.map((r) => r.top)),
+            bottom: Math.max(...lines.map((r) => r.bottom)),
+            left: Math.min(...lines.map((r) => r.left)),
+            index,
+          }
+        : { top: drawn.top, bottom: drawn.bottom, left: drawn.left, index };
+    });
+    return { scrollTop: editor.scrollTop, source, blocks };
+  }, curtain);
+}
+
+/** Waits until the reflow preview is at rest: the finger's last move drawn,
+ * and the slides it started finished. The handle draws a move once per frame
+ * (`queueMove`), so on a loaded machine the last frames can come well after
+ * the move was sent, and a slide runs in real time from the frame that starts
+ * it: a fixed sleep read the clones mid-way, or before their last gap was
+ * drawn at all. The frames first (callbacks run in the order they were asked
+ * for, so ours follow the drag's), then the transitions on the curtain, until
+ * none is left (a remeasure can start more). */
+async function previewAtRest(page: Page): Promise<void> {
+  await flushFrames(page);
+  await page.evaluate(async () => {
+    const running = () =>
+      document
+        .getAnimations()
+        .filter(
+          (a) =>
+            a.playState === 'running' &&
+            (a.effect as KeyframeEffect | null)?.target?.closest('.futo-mobile-dnd-reflow-curtain'),
+        );
+    for (let left = running(); left.length > 0; left = running()) {
+      await Promise.allSettled(left.map((a) => a.finished));
+    }
+  });
+  await flushFrames(page);
+}
+
+/** The drop invariant: releasing a reflow drag moves NOTHING on screen. Every
+ * block the preview showed — the neighbours it slid out of the way and the
+ * dimmed source in its landing slot — is exactly where the real block sits
+ * once the move has committed, and the note did not scroll. `release` lets
+ * go; the returned layout is the real one after the drop. */
+async function expectDropMatchesPreview(page: Page, release: () => Promise<void>) {
+  await previewAtRest(page);
+  const preview = await dragLayout(page, true);
+  // Otherwise the comparison below could pass on an empty preview (M11).
+  expect(Object.keys(preview.blocks).length).toBeGreaterThan(3);
+  expect(preview.source, 'the lifted block is not in its landing slot').not.toBeNull();
+
+  await release();
+  await waitForMessages(page, 'change');
+  await flushFrames(page);
+  await expect(page.locator('.futo-mobile-dnd-reflow-clip')).toHaveCount(0);
+
+  const real = await dragLayout(page, false);
+  const moved: string[] = [];
+  for (const [key, shown] of Object.entries(preview.blocks)) {
+    const now = real.blocks[key];
+    const label = `"${key.slice(0, 32)}"${key === preview.source ? ' (dropped)' : ''}`;
+    if (!now) moved.push(`${label} is gone`);
+    else if (
+      Math.abs(now.top - shown.top) > 1 ||
+      Math.abs(now.bottom - shown.bottom) > 1 ||
+      Math.abs(now.left - shown.left) > 1
+    ) {
+      moved.push(
+        `${label} preview ${shown.top.toFixed(1)}..${shown.bottom.toFixed(1)} @${shown.left.toFixed(1)}` +
+          ` -> real ${now.top.toFixed(1)}..${now.bottom.toFixed(1)} @${now.left.toFixed(1)}`,
+      );
+    }
+  }
+  expect(moved, 'blocks that moved on release').toEqual([]);
+  expect(real.scrollTop, 'the note scrolled on release').toBe(preview.scrollTop);
+  return real;
+}
+
+/** A tall first block (it wraps over many lines), so a drop that shifts the
+ * view by the source's size is unmistakable, then numbered one-line blocks. */
+const TALL_BLOCK = `Tall ${'block of wrapping words '.repeat(60)}`.trim();
+function tallSourceNote(): string {
+  return `${TALL_BLOCK}\n\n${scrollableNote(120)}`;
+}
+
+/** Drops at `y` (a long-press drag) and holds it to the drop invariant. */
+async function dropAndExpectStill(page: Page, cdp: CDPSession, x: number, y: number) {
+  await expectDropMatchesPreview(page, () => touch(cdp, 'touchEnd', x, y));
+}
+
+mobileDndTest(
+  'a drop after auto-scroll carried the source off the top keeps the view still',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, tallSourceNote());
+    await clearMessages(page);
+
+    const start = await editorScroll(page);
+    const tall = await blockBox(page, 'Tall block');
+    // The source must be big enough that a jump of its size cannot hide in
+    // the tolerance.
+    expect(tall.bottom - tall.top).toBeGreaterThan(150);
+    const middle = (start.topEdge + start.bottomEdge) / 2;
+
+    await touch(cdp, 'touchStart', tall.x, tall.top + 20);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+    await touch(cdp, 'touchMove', tall.x, start.bottomEdge - 12);
+    // Until the source is wholly above the viewport, then park the finger
+    // mid-screen so the scroll stops and the drop lands among visible blocks.
+    await expect
+      .poll(async () => (await editorScroll(page)).top, { timeout: 8000 })
+      .toBeGreaterThan(tall.bottom - start.topEdge + 200);
+    await touch(cdp, 'touchMove', tall.x, middle);
+
+    await dropAndExpectStill(page, cdp, tall.x, middle);
+    const content = await getContent(page);
+    expect(content.indexOf('Tall block')).toBeGreaterThan(content.indexOf('Line 10\n'));
+  },
+);
+
+mobileDndTest(
+  'a drop with the source still on screen keeps the view still',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, tallSourceNote());
+    await clearMessages(page);
+
+    const start = await editorScroll(page);
+    const tall = await blockBox(page, 'Tall block');
+    const target = start.bottomEdge - 100;
+    expect(target).toBeGreaterThan(tall.bottom + 40);
+
+    await touch(cdp, 'touchStart', tall.x, tall.top + 20);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+    for (let step = 1; step <= 4; step += 1) {
+      await touch(cdp, 'touchMove', tall.x, tall.top + 20 + ((target - tall.top - 20) * step) / 4);
+      await page.waitForTimeout(16);
+    }
+    expect((await editorScroll(page)).top).toBe(0);
+
+    await dropAndExpectStill(page, cdp, tall.x, target);
+  },
+);
+
+mobileDndTest(
+  'a drop after auto-scroll carried the source off the bottom keeps the view still',
+  async ({ page, cdp }) => {
+    await hostSetContent(page, `${scrollableNote(120)}\n${TALL_BLOCK}\n`);
+    await clearMessages(page);
+    // Start at the end, so the tall block is on screen to be lifted.
+    await page.evaluate(() => {
+      const dom = document.querySelector('.ProseMirror') as HTMLElement;
+      dom.scrollTop = dom.scrollHeight;
+    });
+    await flushFrames(page);
+
+    const start = await editorScroll(page);
+    const tall = await blockBox(page, 'Tall block');
+    const middle = (start.topEdge + start.bottomEdge) / 2;
+
+    await touch(cdp, 'touchStart', tall.x, tall.top + 20);
+    await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+    await touch(cdp, 'touchMove', tall.x, start.topEdge + 12);
+    await expect
+      .poll(async () => (await editorScroll(page)).top, { timeout: 8000 })
+      .toBeLessThan(start.top - (start.bottomEdge - tall.top) - 400);
+    await touch(cdp, 'touchMove', tall.x, middle);
+
+    await dropAndExpectStill(page, cdp, tall.x, middle);
+  },
+);
+
+// ---- the drop invariant, across block kinds -------------------------------
+//
+// The same invariant over every top-level block kind, as the source and as the
+// neighbours it slides past, up and down, near and far, on both drag gestures.
+// The note is the one the user found the multi-line case with (desktop,
+// 2026-10-08: dragging the two-line intro paragraph down past A and B moved
+// the other blocks on release; one-line blocks did not). List items are not
+// sources here: they drag with the drop line, not the reflow preview.
+
+const DRAG_PLAYGROUND = `# Drag Playground
+
+Short, distinct blocks so it's obvious where each one lands. Long-press (mobile) or use the handle (desktop) and move things around. #editor
+
+Paragraph A — the first plain paragraph.
+
+Paragraph B — the second plain paragraph.
+
+## Heading C
+
+- List item D
+- List item E
+  - Child of E (should travel with E)
+  - Second child of E
+- List item F
+
+1. Ordered G
+2. Ordered H
+3. Ordered I
+
+- [ ] Task J
+- [x] Task K
+- [ ] Task L
+
+> Quote M
+
+\`\`\`
+Code block N
+\`\`\`
+
+| Table | O |
+|-------|---|
+| row | 1 |
+
+---
+
+Paragraph P — after the rule.
+
+![Image Q](sample-image.png)
+
+Paragraph R — the last block.
+`;
+
+/** The playground's top-level blocks, by index, as the matrix names them. */
+const PLAYGROUND_BLOCKS = [
+  'H1',
+  'intro (two lines)',
+  'Paragraph A',
+  'Paragraph B',
+  'Heading C',
+  'bullet list',
+  'ordered list',
+  'task list',
+  'quote',
+  'code',
+  'table',
+  'rule',
+  'Paragraph P',
+  'image',
+  'Paragraph R',
+];
+
+/** Narrow enough that the intro wraps to two lines, as on the user's desktop,
+ * and tall enough that the whole note is on screen: no edge auto-scroll. */
+const PLAYGROUND_VIEWPORT = { width: 760, height: 1600 };
+
+/** The box of the top-level block at `index`. */
+async function blockBoxAt(
+  page: Page,
+  index: number,
+): Promise<{ x: number; left: number; top: number; bottom: number }> {
+  const box = await page.locator('.ProseMirror[contenteditable] > *').nth(index).boundingBox();
+  if (!box) throw new Error(`no geometry for top-level block ${index}`);
+  return { x: box.x + box.width / 2, left: box.x, top: box.y, bottom: box.y + box.height };
+}
+
+/** A lifted block, whichever gesture lifted it. */
+interface LiftedBlock {
+  x: number;
+  move(y: number): Promise<void>;
+  release(): Promise<void>;
+}
+
+/** Lifts top-level block `index` off its ⠿ handle (desktop). */
+async function liftWithHandle(page: Page, index: number): Promise<LiftedBlock> {
+  const block = await blockBoxAt(page, index);
+  // Over the block's first line at its left: the handle stands for the
+  // outermost block the hovered node is a FIRST child of, so hovering a
+  // table's second column would surface (and drag) that header cell instead.
+  await page.mouse.move(block.left + 10, block.top + 4);
+  const handle = page.locator('.milkdown-block-handle[data-show="true"]');
+  await handle.waitFor({ state: 'attached' });
+  await expect
+    .poll(async () => {
+      const box = await handle.boundingBox();
+      const y = box ? box.y + box.height / 2 : -1;
+      return y >= block.top - 8 && y <= block.bottom + 8;
+    })
+    .toBe(true);
+  const box = (await handle.boundingBox())!;
+  const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await startHandleDrag(page, at);
+  let y = at.y + 20;
+  return {
+    x: at.x,
+    move: async (to) => {
+      for (let step = 1; step <= 4; step += 1) {
+        await page.mouse.move(at.x, y + ((to - y) * step) / 4);
+        await page.waitForTimeout(16);
+      }
+      y = to;
+    },
+    release: () => page.mouse.up(),
+  };
+}
+
+/** Long-presses top-level block `index` (native shells). */
+async function liftWithTouch(page: Page, cdp: CDPSession, index: number): Promise<LiftedBlock> {
+  const block = await blockBoxAt(page, index);
+  const x = block.x;
+  let y = Math.min(block.top + 12, (block.top + block.bottom) / 2);
+  await touch(cdp, 'touchStart', x, y);
+  await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+  expect((await messagesOfType(page, 'haptic')).map((m) => m.kind)).toContain('lift');
+  return {
+    x,
+    move: async (to) => {
+      for (let step = 1; step <= 4; step += 1) {
+        await touch(cdp, 'touchMove', x, y + ((to - y) * step) / 4);
+        await page.waitForTimeout(16);
+      }
+      y = to;
+    },
+    release: () => touch(cdp, 'touchEnd', x, y),
+  };
+}
+
+interface DropCase {
+  source: number;
+  /** The block the drop lands beside: after it going down, before it going up. */
+  target: number;
+}
+
+/** Sources × {up, down} × {near, far}, skipping drops off either end. */
+const DROP_CASES: DropCase[] = [0, 1, 2, 4, 8, 9, 10, 11, 13, 14].flatMap((source) =>
+  [-6, -2, 2, 6]
+    .map((offset) => ({ source, target: source + offset }))
+    .filter(({ target }) => target >= 0 && target < PLAYGROUND_BLOCKS.length),
+);
+
+function dropCaseName({ source, target }: DropCase): string {
+  const dir = target > source ? 'down' : 'up';
+  const far = Math.abs(target - source) > 2 ? 'far' : 'near';
+  return `${PLAYGROUND_BLOCKS[source]} ${dir} ${far} ${target > source ? 'after' : 'before'} ${PLAYGROUND_BLOCKS[target]}`;
+}
+
+/** Drags the case's source to its target with `lift`, and holds the drop to
+ * the invariant; also checks it landed beside the target. */
+async function runDropCase(page: Page, c: DropCase, lift: () => Promise<LiftedBlock>) {
+  const target = await blockBoxAt(page, c.target);
+  const keys = Object.keys((await dragLayout(page, false)).blocks);
+  const lifted = await lift();
+  const down = c.target > c.source;
+  // The lower quarter of the target is "after it", the upper quarter "before".
+  await lifted.move(target.top + (target.bottom - target.top) * (down ? 0.75 : 0.25));
+  const real = await expectDropMatchesPreview(page, () => lifted.release());
+  // ...and it is the move the case asked for.
+  const landed = real.blocks[keys[c.source]].index - real.blocks[keys[c.target]].index;
+  expect(landed).toBe(down ? 1 : -1);
+}
+
+/** Sources that cannot be lifted at all — lifting gaps, not reflow ones. The
+ * rule, by either gesture: a press resolves to the position BETWEEN blocks
+ * around a top-level leaf, and its line is 1px tall. The table, by the ⠿
+ * handle: the table's row grip (table/tableGrips.ts) is drawn over the handle
+ * at its first row, so the press goes to the grip. */
+const RULE = PLAYGROUND_BLOCKS.indexOf('rule');
+const TABLE = PLAYGROUND_BLOCKS.indexOf('table');
+
+for (const c of DROP_CASES) {
+  gutterHandleTest(
+    `reflow drop matches its preview (handle): ${dropCaseName(c)}`,
+    async ({ page }) => {
+      gutterHandleTest.fixme(c.source === RULE, 'a horizontal rule cannot be lifted');
+      gutterHandleTest.fixme(c.source === TABLE, "the table's row grip covers its ⠿ handle");
+      await page.setViewportSize(PLAYGROUND_VIEWPORT);
+      await hostSetContent(page, DRAG_PLAYGROUND);
+      await clearMessages(page);
+      await runDropCase(page, c, () => liftWithHandle(page, c.source));
+    },
+  );
+  mobileDndTest(
+    `reflow drop matches its preview (long press): ${dropCaseName(c)}`,
+    async ({ page, cdp }) => {
+      mobileDndTest.fixme(c.source === RULE, 'a horizontal rule cannot be lifted');
+      await page.setViewportSize(PLAYGROUND_VIEWPORT);
+      await hostSetContent(page, DRAG_PLAYGROUND);
+      await clearMessages(page);
+      await runDropCase(page, c, () => liftWithTouch(page, cdp, c.source));
+    },
+  );
+}
+
+/** The playground with enough after it to scroll. */
+const SCROLLING_PLAYGROUND = `${DRAG_PLAYGROUND}\n${scrollableNote(60)}`;
+
+/** Lifts `index`, holds the pointer in the bottom (or top) edge zone until the
+ * note has scrolled `distance` px, then parks it mid-screen and drops. */
+async function runAutoScrollDrop(
+  page: Page,
+  lift: () => Promise<LiftedBlock>,
+  direction: 'down' | 'up',
+) {
+  const start = await editorScroll(page);
+  const lifted = await lift();
+  await lifted.move(direction === 'down' ? start.bottomEdge - 12 : start.topEdge + 12);
+  await expect
+    .poll(async () => Math.abs((await editorScroll(page)).top - start.top), { timeout: 8000 })
+    .toBeGreaterThan(700);
+  await lifted.move((start.topEdge + start.bottomEdge) / 2);
+  await expectDropMatchesPreview(page, () => lifted.release());
+}
+
+const AUTO_SCROLL_VIEWPORT = { width: 760, height: 720 };
+
+/** The intro (two lines) going down, and a block from the end going up. */
+const AUTO_SCROLL_CASES = [
+  { name: 'intro (two lines) down', index: 1, direction: 'down' as const },
+  { name: 'Paragraph A down', index: 2, direction: 'down' as const },
+  { name: 'Line 55 up', index: PLAYGROUND_BLOCKS.length + 55, direction: 'up' as const },
+];
+
+for (const c of AUTO_SCROLL_CASES) {
+  const setUp = async (page: Page) => {
+    await page.setViewportSize(AUTO_SCROLL_VIEWPORT);
+    await hostSetContent(page, SCROLLING_PLAYGROUND);
+    await clearMessages(page);
+    if (c.direction === 'up') {
+      await page.evaluate(() => {
+        const dom = document.querySelector('.ProseMirror') as HTMLElement;
+        dom.scrollTop = dom.scrollHeight;
+      });
+      await flushFrames(page);
+    }
+  };
+  gutterHandleTest(
+    `reflow drop after auto-scroll matches its preview (handle): ${c.name}`,
+    async ({ page }) => {
+      await setUp(page);
+      await runAutoScrollDrop(page, () => liftWithHandle(page, c.index), c.direction);
+    },
+  );
+  mobileDndTest(
+    `reflow drop after auto-scroll matches its preview (long press): ${c.name}`,
+    async ({ page, cdp }) => {
+      await setUp(page);
+      await runAutoScrollDrop(page, () => liftWithTouch(page, cdp, c.index), c.direction);
+    },
+  );
+}
+
+// ---- the drop invariant when the layout changes under the drag -------------
+//
+// The preview caches every block's geometry for the drag, but a block's size
+// can change with the document untouched: a vault image resolves and loads
+// (vaultImageView.ts sets `src` when the host's URL lands), a web font swaps
+// in, the viewport resizes. The preview must follow, or the clones and the
+// drop slot are judged against a layout the drop will not produce.
+
+/** A 200px-tall image, served for any vault filename once the base URL below
+ * is registered — only then, so it can load in the middle of a drag. */
+const LATE_IMAGE_BASE = 'https://vault.futo-notes.test/';
+const LATE_IMAGE_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#c84"/></svg>';
+
+const LATE_LAYOUT_CASES = [
+  {
+    name: 'an image below the slot loads',
+    content: 'alpha\n\nbravo\n\ncharlie\n\ndelta\n\n![late image](late.svg)\n\necho\n\nfoxtrot',
+    source: 0,
+    change: 'image' as const,
+  },
+  {
+    name: 'an image above the source loads',
+    content: '![late image](late.svg)\n\nalpha\n\nbravo\n\ncharlie\n\ndelta\n\necho\n\nfoxtrot',
+    source: 1,
+    change: 'image' as const,
+    // Everything moves 200px down under the still finger, which then holds
+    // over the image (the source's own place: a no-op drop), so it follows
+    // the target down, and the slot is judged against the new layout.
+    followTarget: true,
+  },
+  {
+    name: 'the viewport narrows',
+    content: Array.from(
+      { length: 6 },
+      (_, i) => `Block ${i} ${'words that wrap on a narrow screen '.repeat(4).trim()}`,
+    ).join('\n\n'),
+    source: 0,
+    change: 'viewport' as const,
+  },
+];
+
+for (const c of LATE_LAYOUT_CASES) {
+  mobileDndTest(
+    `reflow drop matches its preview when ${c.name} mid-drag`,
+    async ({ page, cdp }) => {
+      await page.setViewportSize({ width: 760, height: 1200 });
+      await page.route(`${LATE_IMAGE_BASE}**`, (route) =>
+        route.fulfill({ contentType: 'image/svg+xml', body: LATE_IMAGE_SVG }),
+      );
+      await hostSetContent(page, c.content);
+      await clearMessages(page);
+
+      // The source down past the next two blocks.
+      const target = await blockBoxAt(page, c.source + 2);
+      const lifted = await liftWithTouch(page, cdp, c.source);
+      await lifted.move(target.top + (target.bottom - target.top) * 0.75);
+      await page.waitForTimeout(400);
+      expect(await curtainUp(page)).toBe(true);
+
+      if (c.change === 'image') {
+        await page.evaluate(
+          (base) => (window as unknown as FakeHostWindow).FutoEditor.setImageBaseUrl(base),
+          LATE_IMAGE_BASE,
+        );
+        await expect
+          .poll(() =>
+            page.evaluate(() => {
+              const img = document.querySelector('.ProseMirror[contenteditable] img');
+              return img instanceof HTMLImageElement && img.complete ? img.naturalHeight : 0;
+            }),
+          )
+          .toBe(200);
+      } else {
+        await page.setViewportSize({ width: 520, height: 1200 });
+      }
+      await flushFrames(page);
+      if ('followTarget' in c) {
+        const moved = await blockBoxAt(page, c.source + 2);
+        expect(moved.top).toBeGreaterThan(target.top + 150);
+        await lifted.move(moved.top + (moved.bottom - moved.top) * 0.75);
+      }
+
+      await expectDropMatchesPreview(page, () => lifted.release());
+    },
+  );
+}
+
+/* Only the blocks the preview has cloned (the window around the screen) are
+ * watched for size changes. A block far above the window that grows moves the
+ * whole window without resizing any of it; scroll anchoring keeps the screen
+ * still by scrolling, and that scroll is what tells the preview to remeasure. */
+mobileDndTest(
+  'reflow drop matches its preview when an image far above the window loads mid-drag',
+  async ({ page, cdp }) => {
+    await page.setViewportSize({ width: 760, height: 720 });
+    await page.route(`${LATE_IMAGE_BASE}**`, (route) =>
+      route.fulfill({ contentType: 'image/svg+xml', body: LATE_IMAGE_SVG }),
+    );
+    await hostSetContent(page, `![late image](late.svg)\n\n${scrollableNote(150)}`);
+    await clearMessages(page);
+    // Line 100 at the top of the screen: the image is many viewports up.
+    await page.evaluate(() => {
+      const dom = document.querySelector('.ProseMirror') as HTMLElement;
+      const line = [...dom.children].find((el) => el.textContent === 'Line 100') as HTMLElement;
+      dom.scrollTop += line.getBoundingClientRect().top - dom.getBoundingClientRect().top;
+    });
+    await flushFrames(page);
+    const before = (await editorScroll(page)).top;
+    expect(before).toBeGreaterThan(3 * 720);
+
+    const lineAt = async (n: number) => {
+      const index = await page.evaluate(
+        (text) =>
+          [...document.querySelector('.ProseMirror')!.children].findIndex(
+            (el) => el.textContent === text,
+          ),
+        `Line ${n}`,
+      );
+      return { index, box: await blockBoxAt(page, index) };
+    };
+    const source = await lineAt(102);
+    const target = await lineAt(106);
+    const lifted = await liftWithTouch(page, cdp, source.index);
+    await lifted.move(target.box.top + (target.box.bottom - target.box.top) * 0.75);
+    await page.waitForTimeout(400);
+    expect(await curtainUp(page)).toBe(true);
+
+    await page.evaluate(
+      (base) => (window as unknown as FakeHostWindow).FutoEditor.setImageBaseUrl(base),
+      LATE_IMAGE_BASE,
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const img = document.querySelector('.ProseMirror[contenteditable] img');
+          return img instanceof HTMLImageElement && img.complete ? img.naturalHeight : 0;
+        }),
+      )
+      .toBe(200);
+    await flushFrames(page);
+    // Anchoring kept the screen still by scrolling past the grown image.
+    expect((await editorScroll(page)).top).toBeGreaterThan(before + 150);
+
+    await expectDropMatchesPreview(page, () => lifted.release());
+  },
+);
+
+/* The layout can change in the very task that releases the drag, before the
+ * ResizeObserver has reported it: the release must judge the slot against the
+ * layout as it is then, not the one measured. Here an image above the slot
+ * grows by 200px as the finger lifts (in a capturing listener that runs before
+ * the drag's own), so the finger is over that image, not over delta. */
+mobileDndTest(
+  'a release judges the slot against a layout that changed in the release itself',
+  async ({ page, cdp }) => {
+    await page.setViewportSize({ width: 760, height: 1200 });
+    await hostSetContent(page, 'alpha\n\nbravo\n\n![](late.svg)\n\ncharlie\n\ndelta\n\necho');
+    await clearMessages(page);
+
+    const delta = await blockBox(page, 'delta');
+    const lifted = await liftWithTouch(page, cdp, 0);
+    await lifted.move(delta.top + (delta.bottom - delta.top) * 0.75);
+    await page.waitForTimeout(400);
+    // Previewed after delta.
+    expect(await reflowGap(page, ['alpha', 'bravo', '', 'charlie', 'delta', 'echo'], 0)).toBe(5);
+
+    await page.evaluate(() => {
+      const grow = () => {
+        const img = document.querySelector('.ProseMirror[contenteditable] img') as HTMLElement;
+        img.style.width = '200px';
+        img.style.height = '200px';
+      };
+      window.addEventListener('pointerup', grow, { capture: true, once: true });
+    });
+    await lifted.release();
+    await waitForMessages(page, 'change');
+
+    const imgHeight = await page.evaluate(
+      () =>
+        document.querySelector('.ProseMirror[contenteditable] img')!.getBoundingClientRect().height,
+    );
+    expect(imgHeight).toBe(200);
+    // The finger was over the grown image: alpha lands beside it, not after
+    // delta, which the image pushed 200px below the finger.
+    const content = await getContent(page);
+    expect(content.indexOf('alpha')).toBeGreaterThan(content.indexOf('bravo'));
+    expect(content.indexOf('alpha')).toBeLessThan(content.indexOf('charlie'));
+  },
+);
+
+// ---- the drop invariant mid-slide ------------------------------------------
+//
+// The preview's clones slide to their places over 0.18s. A release, or a
+// layout change, during that slide must not teleport a neighbour to where it
+// was going: it carries on from where it is drawn. The page's animation clock
+// is slowed and then stopped through CDP, so the slide is caught part-way
+// every time, and positions are read off what is RENDERED (the clones' rects,
+// transform included), never off their target transforms.
+
+/** The blocks as rendered right now: the curtain's clones while it is up,
+ * else the real blocks. */
+async function renderedLayout(page: Page) {
+  return dragLayout(page, await curtainUp(page));
+}
+
+/** Runs the page's animations at `rate` (0 stops them). */
+async function animationRate(cdp: CDPSession, rate: number): Promise<void> {
+  await cdp.send('Animation.enable');
+  await cdp.send('Animation.setPlaybackRate', { playbackRate: rate });
+}
+
+/** Lifts alpha (by long press, or by its ⠿ handle with `handle`) and moves it
+ * past charlie and delta, then catches the slide part-way: runs it at 5% speed
+ * for a beat, then stops the clock. */
+async function liftAndStopMidSlide(
+  page: Page,
+  cdp: CDPSession,
+  handle = false,
+): Promise<LiftedBlock> {
+  const delta = await blockBox(page, 'delta');
+  // A release must go on landing for as long as the test looks at it: with the
+  // wall-clock cap off, only the slides' end, or what the test does, lands it.
+  await page.evaluate(() => {
+    (window as unknown as { __futoBlockDragLandCap?: string }).__futoBlockDragLandCap = 'off';
+  });
+  const lifted = handle ? await liftWithHandle(page, 0) : await liftWithTouch(page, cdp, 0);
+  // Let the curtain open on a still finger, so only the move below slides.
+  await page.waitForTimeout(300);
+  await animationRate(cdp, 0.05);
+  await lifted.move(delta.top + (delta.bottom - delta.top) * 0.75);
+  await page.waitForTimeout(600);
+  await animationRate(cdp, 0);
+  return lifted;
+}
+
+/** Every block in `before` but `except` is within 1px of its place (top
+ * only, with `topOnly`) in `after`. */
+function expectNoneMoved(
+  before: Awaited<ReturnType<typeof dragLayout>>,
+  after: Awaited<ReturnType<typeof dragLayout>>,
+  { except = '', topOnly = false } = {},
+) {
+  const moved: string[] = [];
+  for (const [key, was] of Object.entries(before.blocks)) {
+    if (key === except) continue;
+    const now = after.blocks[key];
+    if (!now) moved.push(`"${key}" is gone`);
+    else if (
+      Math.abs(now.top - was.top) > 1 ||
+      (!topOnly && Math.abs(now.bottom - was.bottom) > 1)
+    ) {
+      moved.push(`"${key}" ${was.top.toFixed(1)} -> ${now.top.toFixed(1)}`);
+    }
+  }
+  expect(moved, 'blocks that jumped').toEqual([]);
+}
+
+const SLIDE_NOTE =
+  'alpha\n\nbravo\n\ncharlie\n\ndelta\n\n![late image](late.svg)\n\necho\n\nfoxtrot';
+
+mobileDndTest(
+  'a release mid-slide lets the neighbours finish their slide instead of jumping',
+  async ({ page, cdp }) => {
+    await page.setViewportSize({ width: 760, height: 1200 });
+    await hostSetContent(page, SLIDE_NOTE);
+    await clearMessages(page);
+
+    const lifted = await liftAndStopMidSlide(page, cdp);
+    const before = await renderedLayout(page);
+    // Caught part-way: bravo is drawn neither where it was nor where it goes.
+    const bravoGoes = await drawnBox(page, 'bravo');
+    const bravoWas = await blockBox(page, 'bravo');
+    expect(Math.abs(before.blocks.bravo.top - bravoGoes.top)).toBeGreaterThan(5);
+    expect(Math.abs(before.blocks.bravo.top - bravoWas.top)).toBeGreaterThan(5);
+
+    await lifted.release();
+    await flushFrames(page);
+    // Only the dropped block moved (into its slot); the rest are where they
+    // were drawn, still part-way.
+    expectNoneMoved(before, await renderedLayout(page), { except: 'alpha' });
+
+    // Once the clock runs, the slide finishes, the move commits and the
+    // preview goes.
+    await animationRate(cdp, 1);
+    await expect(page.locator('.futo-mobile-dnd-reflow-clip')).toHaveCount(0);
+    await waitForMessages(page, 'change');
+    expect(await getContent(page)).toMatch(/^bravo\n\ncharlie\n\ndelta\n\nalpha\n\n/);
+  },
+);
+
+mobileDndTest(
+  'a layout change mid-slide lets the clones finish their slide instead of jumping',
+  async ({ page, cdp }) => {
+    await page.setViewportSize({ width: 760, height: 1200 });
+    await page.route(`${LATE_IMAGE_BASE}**`, (route) =>
+      route.fulfill({ contentType: 'image/svg+xml', body: LATE_IMAGE_SVG }),
+    );
+    await hostSetContent(page, SLIDE_NOTE);
+    await clearMessages(page);
+
+    const lifted = await liftAndStopMidSlide(page, cdp);
+    const before = await renderedLayout(page);
+    expect(Object.keys(before.blocks).length).toBeGreaterThan(3);
+
+    // An image below the slot loads (200px), and the preview is remeasured.
+    await page.evaluate(
+      (base) => (window as unknown as FakeHostWindow).FutoEditor.setImageBaseUrl(base),
+      LATE_IMAGE_BASE,
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const img = document.querySelector('.futo-mobile-dnd-reflow-curtain img');
+          return img instanceof HTMLImageElement && img.complete ? img.naturalHeight : 0;
+        }),
+      )
+      .toBe(200);
+    await flushFrames(page);
+    // Every clone starts its new slide from where it was drawn (the image's
+    // own block grows, so only tops are compared).
+    expectNoneMoved(before, await renderedLayout(page), { topOnly: true });
+
+    await animationRate(cdp, 1);
+    await expectDropMatchesPreview(page, () => lifted.release());
+  },
+);
+
+/* After a release mid-slide the move is not committed until the neighbours
+ * have finished their slide (`ReflowCurtain.land`): until then the curtain
+ * shows the note as the move will leave it, and the real note under it is
+ * untouched. Nothing may cut that slide short, and nothing may leave the
+ * picture up over something it no longer shows. */
+
+/** The text of every block of the real note, in order. */
+function realOrder(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    [...document.querySelectorAll('.ProseMirror[contenteditable] > *')].map(
+      (el) => (el.textContent ?? '').trim() || el.querySelector('img')?.alt || el.tagName,
+    ),
+  );
+}
+
+mobileDndTest(
+  'opening another note while a drop lands shows the new note at once',
+  async ({ page, cdp }) => {
+    await page.setViewportSize({ width: 760, height: 1200 });
+    await hostSetContent(page, SLIDE_NOTE);
+    await clearMessages(page);
+
+    const lifted = await liftAndStopMidSlide(page, cdp);
+    await lifted.release();
+    await flushFrames(page);
+    expect(await curtainUp(page)).toBe(true);
+
+    await hostSetContent(page, 'a different note\n\nwith its own text');
+    expect(await curtainUp(page)).toBe(false);
+    await animationRate(cdp, 1);
+    await flushFrames(page);
+    expect(await getContent(page)).toBe('a different note\n\nwith its own text');
+  },
+);
+
+/* An edit that leaves the dropped block where it was (text typed into another
+ * block) while the drop lands: the move commits at once, at its target mapped
+ * through the edit, and both survive. */
+mobileDndTest('an edit elsewhere while a drop lands commits both', async ({ page, cdp }) => {
+  await page.setViewportSize({ width: 760, height: 1200 });
+  await hostSetContent(page, SLIDE_NOTE);
+  await clearMessages(page);
+
+  const lifted = await liftAndStopMidSlide(page, cdp);
+  await lifted.release();
+  await flushFrames(page);
+  expect(await curtainUp(page)).toBe(true);
+
+  // "X" at the start of bravo, before the drop's target (after delta).
+  await page.evaluate(() => {
+    const view = (
+      window as unknown as {
+        __futoProseMirrorView: () => {
+          state: {
+            doc: { firstChild: { nodeSize: number } };
+            tr: { insertText(t: string, p: number): unknown };
+          };
+          dispatch(tr: unknown): void;
+        };
+      }
+    ).__futoProseMirrorView();
+    view.dispatch(view.state.tr.insertText('X', view.state.doc.firstChild.nodeSize + 1));
+  });
+  expect(await curtainUp(page)).toBe(false);
+  await animationRate(cdp, 1);
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toMatch(/^Xbravo\n\ncharlie\n\ndelta\n\nalpha\n\n/);
+});
+
+/* A layout change while the drop lands (a narrower window rewraps every
+ * line; an image loads) commits the move at once and takes the picture down.
+ * The change is itself a relayout of everything on screen, so nothing is seen
+ * to jump because of the drop — and nothing jumps once the slide would have
+ * ended, either: the picture is not left drawn with the old line breaks. */
+for (const change of ['viewport', 'image'] as const) {
+  mobileDndTest(
+    `a ${change === 'viewport' ? 'narrower window' : 'loading image'} while a drop lands commits it, with nothing jumping after`,
+    async ({ page, cdp }) => {
+      await page.setViewportSize({ width: 760, height: 1200 });
+      await page.route(`${LATE_IMAGE_BASE}**`, (route) =>
+        route.fulfill({ contentType: 'image/svg+xml', body: LATE_IMAGE_SVG }),
+      );
+      const wide = `alpha ${'words that wrap differently on a narrower screen '.repeat(3).trim()}`;
+      await hostSetContent(
+        page,
+        SLIDE_NOTE.replace('alpha', wide).replace(/bravo/, `bravo ${wide}`),
+      );
+      await clearMessages(page);
+
+      const lifted = await liftAndStopMidSlide(page, cdp);
+      await lifted.release();
+      await flushFrames(page);
+      expect(await curtainUp(page)).toBe(true);
+
+      if (change === 'viewport') {
+        await page.setViewportSize({ width: 520, height: 1200 });
+      } else {
+        await page.evaluate(
+          (base) => (window as unknown as FakeHostWindow).FutoEditor.setImageBaseUrl(base),
+          LATE_IMAGE_BASE,
+        );
+        await expect
+          .poll(() =>
+            page.evaluate(() => {
+              const img = document.querySelector('.ProseMirror[contenteditable] img');
+              return img instanceof HTMLImageElement && img.complete ? img.naturalHeight : 0;
+            }),
+          )
+          .toBe(200);
+      }
+      await flushFrames(page);
+      const changed = await renderedLayout(page);
+
+      await animationRate(cdp, 1);
+      await expect(page.locator('.futo-mobile-dnd-reflow-clip')).toHaveCount(0);
+      await waitForMessages(page, 'change');
+      await flushFrames(page);
+      expectNoneMoved(changed, await dragLayout(page, false));
+      expect((await realOrder(page)).slice(0, 4)).toEqual([
+        expect.stringMatching(/^bravo/),
+        'charlie',
+        'delta',
+        expect.stringMatching(/^alpha/),
+      ]);
+    },
+  );
+}
+
+/* A second drag cannot start while a drop is landing: lifting the next block
+ * would cut the first slide short, so the press is refused until the first
+ * move has committed. */
+for (const gesture of ['handle', 'long press'] as const) {
+  const dragTest = gesture === 'handle' ? gutterHandleTest : mobileDndTest;
+  dragTest(
+    `a second drag cannot cut a landing drop's slide short (${gesture})`,
+    async ({ page }) => {
+      const cdp = await page.context().newCDPSession(page);
+      await page.setViewportSize({ width: 760, height: 1200 });
+      await hostSetContent(page, SLIDE_NOTE);
+      await clearMessages(page);
+
+      const first = await liftAndStopMidSlide(page, cdp, gesture === 'handle');
+      await first.release();
+      await flushFrames(page);
+      const before = await renderedLayout(page);
+      expect(await curtainUp(page)).toBe(true);
+
+      // A whole second drag, lift to release, of the last block to the top.
+      const count = await page.locator('.ProseMirror[contenteditable] > *').count();
+      const last = await blockBoxAt(page, count - 1);
+      const top = await blockBoxAt(page, 0);
+      if (gesture === 'handle') {
+        await page.mouse.move(last.left + 10, last.top + 4);
+        await page.waitForTimeout(150);
+        await page.mouse.move(last.left - 20, last.top + 4, { steps: 2 });
+        await page.mouse.down();
+        await page.mouse.move(last.left - 16, last.top - 20, { steps: 2 });
+        await page.mouse.move(last.left - 16, top.top + 2, { steps: 4 });
+        await page.mouse.up();
+      } else {
+        await touch(cdp, 'touchStart', last.x, last.top + 4);
+        await page.waitForTimeout(DEFAULT_LONG_PRESS_MS + 110);
+        await touch(cdp, 'touchMove', last.x, top.top + 2);
+        await page.waitForTimeout(32);
+        await touch(cdp, 'touchEnd', last.x, top.top + 2);
+      }
+      await flushFrames(page);
+      // The first slide is where it was, still part-way.
+      expectNoneMoved(before, await renderedLayout(page), { except: 'alpha' });
+
+      // The first drop lands, and only it.
+      await animationRate(cdp, 1);
+      await expect(page.locator('.futo-mobile-dnd-reflow-clip')).toHaveCount(0);
+      await waitForMessages(page, 'change');
+      await settleChangeDebounce(page);
+      expect(await getContent(page)).toMatch(/^bravo\n\ncharlie\n\ndelta\n\nalpha\n\n/);
+    },
+  );
+}
+
+/* The editor going away while a drop lands takes the picture, and everything
+ * it was waiting on, with it. On desktop the ⠿ handle's drag is over by then
+ * (the press ended at the release), so nothing of the gesture's own teardown
+ * reaches the landing drop: the editor's plugin has to. */
+for (const gesture of ['handle', 'long press'] as const) {
+  const dragTest = gesture === 'handle' ? gutterHandleTest : mobileDndTest;
+  dragTest(
+    `destroying the editor while a drop lands takes the curtain down (${gesture})`,
+    async ({ page }) => {
+      const cdp = await page.context().newCDPSession(page);
+      await page.setViewportSize({ width: 760, height: 1200 });
+      await hostSetContent(page, SLIDE_NOTE);
+      await clearMessages(page);
+      const errors: string[] = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+
+      const lifted = await liftAndStopMidSlide(page, cdp, gesture === 'handle');
+      await lifted.release();
+      await flushFrames(page);
+      expect(await curtainUp(page)).toBe(true);
+
+      await page.evaluate(() =>
+        (window as unknown as { __futoProseMirrorView: () => { destroy(): void } })
+          .__futoProseMirrorView()
+          .destroy(),
+      );
+      expect(await curtainUp(page)).toBe(false);
+      await animationRate(cdp, 1);
+      await page.waitForTimeout(300);
+      expect(await curtainUp(page)).toBe(false);
+      expect(errors).toEqual([]);
+    },
+  );
+}
+
+/* A drop still landing is an edit the host must not miss. The release reports
+ * it at once (`edited`): a native host leaving the foreground flushes only an
+ * editor that has told it of an edit since its last change, and would
+ * otherwise save the note as it was before the drop. Whatever reads or saves
+ * the note, and the page going away, commits the move first. */
+
+const MOVED = /^bravo\n\ncharlie\n\ndelta\n\nalpha\n\n/;
+
+/** Releases alpha past delta mid-slide with the clock stopped (and the cap
+ * off), and checks the drop is still landing: the curtain up, the real note
+ * not yet moved. */
+async function releaseLandingDrop(page: Page, cdp: CDPSession): Promise<void> {
+  await page.setViewportSize({ width: 760, height: 1200 });
+  await hostSetContent(page, SLIDE_NOTE);
+  await clearMessages(page);
+  const lifted = await liftAndStopMidSlide(page, cdp);
+  await lifted.release();
+  await flushFrames(page);
+  expect(await curtainUp(page)).toBe(true);
+  expect((await realOrder(page))[0]).toBe('alpha');
+}
+
+mobileDndTest('a release reports its move as an edit before it lands', async ({ page, cdp }) => {
+  await releaseLandingDrop(page, cdp);
+  expect(await messagesOfType(page, 'edited')).toHaveLength(1);
+  // The change debounce runs out while it lands: the note before the move is
+  // not reported as the edit.
+  await settleChangeDebounce(page);
+  expect(await curtainUp(page)).toBe(true);
+  expect(await messagesOfType(page, 'change')).toHaveLength(0);
+
+  await animationRate(cdp, 1);
+  await waitForMessages(page, 'change');
+  expect((await messagesOfType(page, 'change')).at(-1)?.content).toMatch(MOVED);
+});
+
+mobileDndTest(
+  'a flush while a drop lands reports the note with the move in it',
+  async ({ page, cdp }) => {
+    await releaseLandingDrop(page, cdp);
+    await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.flush('leaving'));
+    expect(await curtainUp(page)).toBe(false);
+    const flushed = (await messagesOfType(page, 'change')).filter(
+      (m) => m.flushToken === 'leaving',
+    );
+    expect(flushed).toHaveLength(1);
+    expect(flushed[0].content).toMatch(MOVED);
+  },
+);
+
+mobileDndTest('getContent while a drop lands has the move in it', async ({ page, cdp }) => {
+  await releaseLandingDrop(page, cdp);
+  expect(await getContent(page)).toMatch(MOVED);
+  expect(await curtainUp(page)).toBe(false);
+});
+
+for (const event of ['visibilitychange', 'pagehide'] as const) {
+  mobileDndTest(
+    `the page going away (${event}) while a drop lands commits and reports the move`,
+    async ({ page, cdp }) => {
+      await releaseLandingDrop(page, cdp);
+      await page.evaluate((type) => {
+        if (type === 'visibilitychange') {
+          Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            get: () => 'hidden',
+          });
+          document.dispatchEvent(new Event('visibilitychange'));
+        } else {
+          window.dispatchEvent(new PageTransitionEvent('pagehide'));
+        }
+      }, event);
+      expect(await curtainUp(page)).toBe(false);
+      expect((await messagesOfType(page, 'change')).at(-1)?.content).toMatch(MOVED);
+    },
+  );
+}
+
+/** Milliseconds from the release (pointerup) to the curtain coming down. */
+async function releaseToCommit(page: Page, release: () => Promise<void>): Promise<number> {
+  await page.evaluate(() => {
+    const w = window as unknown as { __releasedAt?: number; __committedAt?: number };
+    w.__releasedAt = undefined;
+    w.__committedAt = undefined;
+    window.addEventListener(
+      'pointerup',
+      () => {
+        w.__releasedAt = performance.now();
+        new MutationObserver((_, observer) => {
+          if (document.querySelector('.futo-mobile-dnd-reflow-clip')) return;
+          w.__committedAt = performance.now();
+          observer.disconnect();
+        }).observe(document.body, { childList: true, subtree: true });
+      },
+      { capture: true, once: true },
+    );
+  });
+  await release();
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as unknown as { __committedAt?: number }).__committedAt ?? null),
+    )
+    .not.toBeNull();
+  return page.evaluate(() => {
+    const w = window as unknown as { __releasedAt: number; __committedAt: number };
+    return w.__committedAt - w.__releasedAt;
+  });
+}
+
+/** Lifts alpha and moves it past delta with the slides slowed to 5%, so
+ * they are a long way from their end at the release. */
+async function liftAndSlowSlide(page: Page, cdp: CDPSession): Promise<LiftedBlock> {
+  await page.setViewportSize({ width: 760, height: 1200 });
+  await hostSetContent(page, SLIDE_NOTE);
+  await clearMessages(page);
+  const delta = await blockBox(page, 'delta');
+  const lifted = await liftWithTouch(page, cdp, 0);
+  await page.waitForTimeout(300);
+  await animationRate(cdp, 0.05);
+  await lifted.move(delta.top + (delta.bottom - delta.top) * 0.75);
+  await page.waitForTimeout(100);
+  return lifted;
+}
+
+/* Where the slides never end (the animation clock stopped, as in an app sent
+ * to the background mid-slide; a hidden curtain), the drop lands at a cap. */
+mobileDndTest('a drop whose slides stall still lands within the cap', async ({ page, cdp }) => {
+  const lifted = await liftAndSlowSlide(page, cdp);
+  await animationRate(cdp, 0);
+  const ms = await releaseToCommit(page, () => lifted.release());
+  expect(ms).toBeLessThan(LAND_CAP_MS + 150);
+  await waitForMessages(page, 'change');
+  expect(await getContent(page)).toMatch(MOVED);
+});
+
+mobileDndTest('with reduced motion, a drop lands at the release', async ({ page, cdp }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const lifted = await liftAndSlowSlide(page, cdp);
+  expect(await releaseToCommit(page, () => lifted.release())).toBeLessThan(100);
+  await waitForMessages(page, 'change');
+  expect(await getContent(page)).toMatch(MOVED);
+});
+
+/* A move can make the note SHORTER: the final paragraph moved above a first
+ * heading (`shorteningNote`) becomes the first block, whose top margin the editor zeroes, while
+ * the heading keeps its own — one paragraph gap fewer. Scrolled to the bottom,
+ * the browser would then clamp the scroll position to the shorter note and
+ * every block on screen would move down by the difference. The note here
+ * overflows by a few pixels, less than that gap, so the move is on screen with
+ * the note at its bottom. */
+/** A note whose final paragraph moved above its first heading makes it
+ * shorter (see above), with `paragraphs` plain paragraphs between the two. */
+function shorteningNote(paragraphs = 5): string {
+  return [
+    '# A first heading long enough to wrap over several lines of a narrow screen',
+    ...Array.from({ length: paragraphs }, (_, i) => `Paragraph ${i}`),
+    'The final paragraph',
+  ].join('\n\n');
+}
+
+/** Opens `shorteningNote(paragraphs)` in a viewport (about `height` tall) it
+ * overflows by 6px, scrolls it to its bottom, then lifts its final paragraph
+ * with `lift` and drops it above the heading, holding the drop to the
+ * invariant. */
+async function runShorteningDrop(
+  page: Page,
+  lift: (index: number) => Promise<LiftedBlock>,
+  { paragraphs = 5, height = 640 } = {},
+) {
+  await page.setViewportSize({ width: 420, height });
+  await hostSetContent(page, shorteningNote(paragraphs));
+  await clearMessages(page);
+  // The editor's bottom padding is max(40vh, 280px): under 700px tall the
+  // overflow follows the viewport height one for one, above it 0.6 for one.
+  for (let tries = 0; tries < 3; tries += 1) {
+    const { max } = await editorScroll(page);
+    if (max > 2 && max < 10) break;
+    height = Math.round(height + (max - 6) / (height > 700 ? 0.6 : 1));
+    await page.setViewportSize({ width: 420, height });
+  }
+  await page.evaluate(() => {
+    const dom = document.querySelector('.ProseMirror') as HTMLElement;
+    dom.scrollTop = dom.scrollHeight;
+  });
+  await flushFrames(page);
+  const start = await editorScroll(page);
+  expect(start.max).toBeGreaterThan(2);
+  expect(start.max).toBeLessThan(10);
+  expect(start.top).toBe(start.max);
+
+  const count = await page.locator('.ProseMirror[contenteditable] > *').count();
+  const heading = await blockBoxAt(page, 0);
+  // Above the heading's middle, below the edge auto-scroll zone (64px).
+  const y = Math.max(start.topEdge + 72, heading.top + 12);
+  expect(y).toBeLessThan((heading.top + heading.bottom) / 2);
+  const lifted = await lift(count - 1);
+  await lifted.move(y);
+
+  await expectDropMatchesPreview(page, () => lifted.release());
+  expect(await getContent(page)).toMatch(/^The final paragraph\n\n# A first heading/);
+  return height;
+}
+
+/** The scroll extent a shortening drop is holding on the editor, as inline
+ * styles; empty once released. */
+function heldExtent(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const style = (document.querySelector('.ProseMirror') as HTMLElement).style;
+    return `${style.paddingBottom}${style.borderBottomWidth}`;
+  });
+}
+
+/** Scrolls the note up to its top 2px at a time, a frame or two each, and
+ * returns every step the browser did not land on (a clamp). */
+function clampsScrollingUp(page: Page): Promise<string[]> {
+  return page.evaluate(async () => {
+    const dom = document.querySelector('.ProseMirror') as HTMLElement;
+    const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+    const clamps: string[] = [];
+    for (let to = dom.scrollTop; ; to = Math.max(to - 2, 0)) {
+      dom.scrollTop = to;
+      await frame();
+      await frame();
+      if (Math.abs(dom.scrollTop - to) > 1) clamps.push(`${to} -> ${dom.scrollTop}`);
+      if (to === 0) break;
+    }
+    return clamps;
+  });
+}
+
+for (const gesture of ['handle', 'long press'] as const) {
+  const dragTest = gesture === 'handle' ? gutterHandleTest : mobileDndTest;
+  dragTest(
+    `a drop that shortens a note scrolled to its bottom keeps the view still (${gesture})`,
+    async ({ page }) => {
+      const cdp = gesture === 'handle' ? null : await page.context().newCDPSession(page);
+      await runShorteningDrop(page, (index) =>
+        cdp ? liftWithTouch(page, cdp, index) : liftWithHandle(page, index),
+      );
+      // The extent that kept the view still is temporary, and goes at the
+      // first scroll that leaves the view clear of it, without a clamp.
+      expect(await heldExtent(page)).not.toBe('');
+      expect(await clampsScrollingUp(page)).toEqual([]);
+      expect(await heldExtent(page)).toBe('');
+    },
+  );
+}
+
+/* The editor's bottom padding is max(40vh, 280px), so above a 700px-tall
+ * viewport it follows the height. A held extent frozen into that padding
+ * restored a SMALLER padding when it was released after the viewport shrank,
+ * and the browser clamped the scroll position on the way up. */
+mobileDndTest(
+  'a held scroll extent released after the viewport shrank never clamps the view',
+  async ({ page, cdp }) => {
+    const height = await runShorteningDrop(page, (index) => liftWithTouch(page, cdp, index), {
+      paragraphs: 10,
+      height: 1000,
+    });
+    expect(height).toBeGreaterThan(760);
+    expect(await heldExtent(page)).not.toBe('');
+    // Shrinking the viewport throws the scroll position to the top in the
+    // layout of the resize itself, and the scroll event for that reaches the
+    // editor a frame later: a view clear of the held extent, which releases
+    // it (as it should: it moved nothing). Whether the test's own scroll to
+    // the bottom beat that frame depended on how loaded the machine was. So
+    // go back to the bottom, which the held extent still reaches, inside the
+    // resize event: before any scroll event for it is dispatched, whatever
+    // the load. Then up from there through the point where it is released.
+    await page.evaluate(() => {
+      (window as unknown as { shrunk: Promise<void> }).shrunk = new Promise((resolve) =>
+        window.addEventListener(
+          'resize',
+          () => {
+            const dom = document.querySelector('.ProseMirror') as HTMLElement;
+            dom.scrollTop = dom.scrollHeight;
+            resolve();
+          },
+          { once: true },
+        ),
+      );
+    });
+    await page.setViewportSize({ width: 420, height: height - 60 });
+    await page.evaluate(() => (window as unknown as { shrunk: Promise<void> }).shrunk);
+    await flushFrames(page);
+    expect(await heldExtent(page)).not.toBe('');
+    expect(await clampsScrollingUp(page)).toEqual([]);
+    expect(await heldExtent(page)).toBe('');
+  },
+);
+
+/* Opening another note replaces the editor's blocks; the held extent goes
+ * with the note it was held for. */
+mobileDndTest('opening another note releases a held scroll extent', async ({ page, cdp }) => {
+  await runShorteningDrop(page, (index) => liftWithTouch(page, cdp, index));
+  expect(await heldExtent(page)).not.toBe('');
+  await hostSetContent(page, scrollableNote(60));
+  await expect.poll(() => heldExtent(page)).toBe('');
+});
+
+/* A second drop while the first's extent is held, then a scroll: nothing of
+ * either drop's scroll protection is left on the editor. */
+mobileDndTest('repeated drops leave no scroll protection behind', async ({ page, cdp }) => {
+  await runShorteningDrop(page, (index) => liftWithTouch(page, cdp, index));
+  expect(await heldExtent(page)).not.toBe('');
+  // The final paragraph, now first, back down to the end: below the last
+  // block, wherever it is drawn.
+  const count = await page.locator('.ProseMirror[contenteditable] > *').count();
+  const last = await blockBoxAt(page, count - 1);
+  const lifted = await liftWithTouch(page, cdp, 0);
+  await lifted.move(last.bottom + 12);
+  await expectDropMatchesPreview(page, () => lifted.release());
+  expect(await getContent(page)).toMatch(/The final paragraph\n$/);
+
+  expect(await clampsScrollingUp(page)).toEqual([]);
+  await flushFrames(page);
+  expect(await heldExtent(page)).toBe('');
+  expect(
+    await page.evaluate(
+      () => (document.querySelector('.ProseMirror') as HTMLElement).style.overflowAnchor,
+    ),
+  ).toBe('');
 });
 
 mobileDndTest('a scroll gesture never lifts a block', async ({ page, cdp }) => {
@@ -3501,6 +5027,67 @@ test('an edit made while the tail streams is released against the COMPLETE note'
   // The tail is all there: the last section of the note survived the edit.
   expect(saved).toContain('Section 599');
   expect(await getContent(page)).toBe(saved);
+});
+
+test('a focus while the tail streams holds the next chunk until the focus settles', async ({
+  page,
+}) => {
+  // The interaction hold (interactionHold.ts): the frames right after a tap
+  // or a focus belong to the caret, the keyboard and the focus work, so the
+  // streamed tail waits out a settle window before its next slice instead of
+  // landing a chunk parse between the finger and the caret. The proof is the
+  // time the first streamed chunk reaches the DOM, taken by a MutationObserver
+  // in the task that appended it — not a sampled frame, so no race.
+  const sections = 1200;
+  const note = largeNote(sections);
+
+  const run = await page.evaluate(
+    (json) => {
+      const w = window as unknown as FakeHostWindow & { __msgs: { type: string }[] };
+      w.__msgs.length = 0;
+      let focusAt: number | null = null;
+      const onFocus = () => (focusAt ??= performance.now());
+      window.addEventListener('focusin', onFocus, true);
+      w.FutoEditor.initialize(json);
+      const root = document.querySelector('.ProseMirror') as HTMLElement;
+      const blocksAtFocus = root.childElementCount;
+      w.FutoEditor.focus();
+      window.removeEventListener('focusin', onFocus, true);
+      return new Promise<{
+        focusAt: number | null;
+        blocksAtFocus: number;
+        firstAppendAfterFocusMs: number;
+      }>((resolve) => {
+        const observer = new MutationObserver(() => {
+          if (root.childElementCount <= blocksAtFocus) return;
+          observer.disconnect();
+          resolve({
+            focusAt,
+            blocksAtFocus,
+            firstAppendAfterFocusMs: performance.now() - (focusAt ?? Number.NaN),
+          });
+        });
+        observer.observe(root, { childList: true });
+      });
+    },
+    hostConfig({ content: note }),
+  );
+
+  // Chunk 0 only: a heading and a body paragraph per section is the whole note.
+  expect(run.blocksAtFocus, 'the note must still be streaming when the focus lands').toBeLessThan(
+    2 * sections,
+  );
+  expect(run.focusAt, 'the focus never reached the page').not.toBeNull();
+  expect(run.firstAppendAfterFocusMs).toBeGreaterThanOrEqual(HOLD_SETTLE_MS);
+
+  // Held, not dropped: the tail resumes and the open completes exactly once,
+  // with the save lock intact — no change message, the host's bytes back.
+  await waitForStreamComplete(page);
+  expect(
+    await page.evaluate((name) => performance.getEntriesByName(name).length, OPEN_COMPLETE_MEASURE),
+  ).toBe(1);
+  expect(await messagesOfType(page, 'change')).toEqual([]);
+  expect(await getContent(page)).toBe(note);
 });
 
 test('a flush mid-stream after an edit settles the complete document', async ({ page }) => {

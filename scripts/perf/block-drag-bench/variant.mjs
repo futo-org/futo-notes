@@ -1,5 +1,19 @@
 /* Source rewrites for `block-drag-bench.mjs` variants. Kept apart from the CLI
  * (which runs on import) so they can be tested. */
+import path from 'node:path';
+
+/** The gesture files `--gestures <dir>` replaces: the two that turn pointer
+ * events into session calls (the ⠿ handle's and the long press's). */
+export const GESTURE_FILES = Object.freeze(['handleBlockDrag.ts', 'mobileBlockDnd.ts']);
+
+/** The file to serve for module `id` when gestures come from `dir`: that
+ * directory's copy when `id` is one of GESTURE_FILES in `milkdownDir`, else
+ * null (the module loads as usual). */
+export function gestureOverride(id, milkdownDir, dir) {
+  const file = id.split('?')[0];
+  const name = GESTURE_FILES.find((n) => file === path.join(milkdownDir, n));
+  return name ? path.join(dir, name) : null;
+}
 
 /** Source of `file` with the drop line forced. The reflow switch is a page flag,
  * read when a drag starts (blockDragCurtain.ts `reflowForcedOff`), so a file

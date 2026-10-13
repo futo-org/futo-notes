@@ -4,10 +4,16 @@ import { EditorState, type Transaction } from '@milkdown/kit/prose/state';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
+import { clearInteractions, getInteractions } from '$shared/perf/interactionLedger';
 import {
+  OPEN_COMPLETE_MEASURE,
+  OPEN_INTERACTIVE_MEASURE,
   appendChunkContent,
   chunkShouldHaveContent,
   isEffectivelyEmpty,
+  createYieldingIdleScheduler,
+  markOpenStart,
+  measureOpen,
   seamEmptyParagraphs,
   startProgressiveLoad,
 } from './progressiveLoad';
@@ -327,5 +333,133 @@ describe('isEffectivelyEmpty', () => {
     expect(isEffectivelyEmpty(s.nodes.doc.create(null, [s.nodes.horizontal_rule.create()]))).toBe(
       false,
     );
+  });
+});
+
+describe('open timing on the interaction ledger', () => {
+  it('records each open as interactive then complete, and nothing after complete', () => {
+    clearInteractions('note-open');
+    markOpenStart();
+    measureOpen(OPEN_INTERACTIVE_MEASURE);
+    measureOpen(OPEN_COMPLETE_MEASURE);
+    measureOpen(OPEN_COMPLETE_MEASURE);
+
+    const records = getInteractions('note-open');
+    expect(records).toHaveLength(1);
+    expect(records[0].phases.map((p) => p.phase)).toEqual(['interactive', 'complete']);
+    clearInteractions('note-open');
+  });
+});
+
+describe('createYieldingIdleScheduler', () => {
+  /** A hand-cranked idle queue and frame queue. */
+  function harness() {
+    const idle: Array<() => void> = [];
+    const frames: Array<() => void> = [];
+    let held = false;
+    const inner = (run: (deadline: IdleDeadline | undefined) => void) => {
+      const job = () => run(undefined);
+      idle.push(job);
+      return () => {
+        const i = idle.indexOf(job);
+        if (i >= 0) idle.splice(i, 1);
+      };
+    };
+    const nextFrame = (run: () => void) => {
+      frames.push(run);
+      return () => {
+        const i = frames.indexOf(run);
+        if (i >= 0) frames.splice(i, 1);
+      };
+    };
+    const schedule = createYieldingIdleScheduler(() => held, inner, nextFrame);
+    return {
+      schedule,
+      idle,
+      frames,
+      setHeld: (v: boolean) => (held = v),
+      runIdle: () => idle.splice(0).forEach((job) => job()),
+      runFrame: () => frames.splice(0).forEach((job) => job()),
+    };
+  }
+
+  it('is the plain scheduler while nothing is held', () => {
+    const h = harness();
+    const ran = vi.fn();
+    h.schedule(ran);
+    expect(h.idle).toHaveLength(1);
+    expect(h.frames).toHaveLength(0);
+    h.runIdle();
+    expect(ran).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits a frame at a time while held, then schedules the slice', () => {
+    const h = harness();
+    const ran = vi.fn();
+    h.setHeld(true);
+    h.schedule(ran);
+    expect(h.idle).toHaveLength(0);
+    expect(h.frames).toHaveLength(1);
+    h.runFrame();
+    expect(h.frames).toHaveLength(1);
+    h.setHeld(false);
+    h.runFrame();
+    expect(h.idle).toHaveLength(1);
+    h.runIdle();
+    expect(ran).toHaveBeenCalledTimes(1);
+  });
+
+  it('defers an idle callback that fires while held — the timeout case', () => {
+    const h = harness();
+    const ran = vi.fn();
+    h.schedule(ran);
+    h.setHeld(true);
+    h.runIdle();
+    expect(ran).not.toHaveBeenCalled();
+    expect(h.frames).toHaveLength(1);
+    h.setHeld(false);
+    h.runFrame();
+    h.runIdle();
+    expect(ran).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels whichever wait is pending, and never runs after cancel', () => {
+    const h = harness();
+    const ran = vi.fn();
+    h.setHeld(true);
+    const cancel = h.schedule(ran);
+    cancel();
+    expect(h.frames).toHaveLength(0);
+    h.setHeld(false);
+    const cancelIdle = h.schedule(ran);
+    cancelIdle();
+    expect(h.idle).toHaveLength(0);
+    h.runFrame();
+    h.runIdle();
+    expect(ran).not.toHaveBeenCalled();
+  });
+
+  it('keeps a progressive load streaming to exactly one completion', () => {
+    const h = harness();
+    const applied: string[] = [];
+    const onComplete = vi.fn();
+    h.setHeld(true);
+    startProgressiveLoad({
+      chunks: ['a', 'b', 'c'],
+      applyChunk: (md) => applied.push(md),
+      scheduleIdle: h.schedule,
+      onComplete,
+    });
+    expect(applied).toEqual(['a']);
+    h.runFrame();
+    h.runIdle();
+    expect(applied).toEqual(['a']);
+    h.setHeld(false);
+    for (let i = 0; i < 6; i += 1) {
+      h.runFrame();
+      h.runIdle();
+    }
+    expect(applied).toEqual(['a', 'b', 'c']);
+    expect(onComplete).toHaveBeenCalledTimes(1);
   });
 });

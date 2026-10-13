@@ -20,11 +20,10 @@
  *    target's parent is asked, through the schema, whether it can hold the node
  *    THERE, the NODE is moved rather than a re-fitted slice, and the result is
  *    compared against the original before anything is dispatched.
- *  - A LIST ITEM PULLED OUT TO THE TOP LEVEL IS WRAPPED, BY US. The document
- *    cannot hold a bare list item; it gets a fresh list of the type (and attrs)
- *    it came out of — again asked of the schema, never assumed. And a list it
- *    was the only item of is removed whole, because an empty list is not a
- *    document the serializer can round-trip.
+ *  - ONLY TOP-LEVEL BLOCKS MOVE, AND ONLY BETWEEN TOP-LEVEL BLOCKS. A drag
+ *    lifts the whole top-level block containing the press (a list, never one
+ *    of its items), so a source or a target below the top level is refused
+ *    rather than reshaped.
  *  - A DROP BACK AT THE SOURCE IS A TRUE NO-OP: no transaction, so no history
  *    entry, no change notification, and no `change` message to the host.
  *  - FRONT MATTER IS PINNED TO THE TOP. `---` only means front matter at the
@@ -37,7 +36,7 @@
  *    this is the one place a block drag becomes a document change, for both
  *    drag paths.
  */
-import type { Transaction } from '@milkdown/kit/prose/state';
+import type { EditorState, Transaction } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
 import { FRONTMATTER_NODE } from '@futo-notes/editor/milkdown-compat';
@@ -74,62 +73,58 @@ export function moveBlock(
   /** Runs on the move transaction just before dispatch — used to clear the
    * drag decoration in the SAME transaction, so the source block is never
    * drawn dimmed for a frame at its new position, and to place the selection.
-   * `movedTo` is where the moved node now starts in `tr.doc` (inside the list
-   * that wraps it, when it was pulled out to the top level). */
+   * `movedTo` is where the moved node now starts in `tr.doc`. */
   beforeDispatch?: (tr: Transaction, movedTo: number) => void,
 ): boolean {
+  const planned = planBlockMove(view.state, range, targetPos);
+  if (!planned) return false;
+  beforeDispatch?.(planned.tr, planned.movedTo);
+  view.dispatch(planned.tr);
+  return true;
+}
+
+/** The transaction `moveBlock` would dispatch, and where the moved node
+ * starts in it, or null for every move it refuses. Dispatches nothing: a drag
+ * that commits its move later (blockDragSession.ts) asks this at the release. */
+export function planBlockMove(
+  state: EditorState,
+  range: BlockMoveRange,
+  targetPos: number,
+): { tr: Transaction; movedTo: number } | null {
   const { from: srcStart, to: srcEnd } = range;
 
-  if (isNoOpDrop(range, targetPos)) return false;
+  if (isNoOpDrop(range, targetPos)) return null;
 
-  const beforeDoc = view.state.doc;
+  const beforeDoc = state.doc;
   const node = beforeDoc.nodeAt(srcStart);
   // Not exactly one node any more — refuse to guess.
-  if (!node || srcStart + node.nodeSize !== srcEnd) return false;
+  if (!node || srcStart + node.nodeSize !== srcEnd) return null;
   // The front matter block never moves (see the header note).
-  if (node.type.name === FRONTMATTER_NODE) return false;
+  if (node.type.name === FRONTMATTER_NODE) return null;
 
-  const source = beforeDoc.resolve(srcStart);
-  const container = source.parent;
-  const topLevel = source.depth === 0;
-  // The only item of a list takes the list with it (see the header note).
-  let deleteFrom = srcStart;
-  let deleteTo = srcEnd;
-  if (!topLevel && container.childCount === 1) {
-    deleteFrom = source.before();
-    deleteTo = source.after();
-    if (targetPos >= deleteFrom && targetPos <= deleteTo) return false;
-  }
+  // Only a top-level block moves (see the header note).
+  if (beforeDoc.resolve(srcStart).depth !== 0) return null;
 
-  let tr = view.state.tr.delete(deleteFrom, deleteTo);
+  let tr = state.tr.delete(srcStart, srcEnd);
   const mappedTarget = tr.mapping.map(targetPos);
   const target = tr.doc.resolve(mappedTarget);
   const index = target.index();
   // Nothing moves above the front matter. Position 0 is the only boundary that
   // could, and only when front matter is what currently sits there.
-  if (mappedTarget === 0 && tr.doc.firstChild?.type.name === FRONTMATTER_NODE) return false;
+  if (mappedTarget === 0 && tr.doc.firstChild?.type.name === FRONTMATTER_NODE) return null;
 
   // The same rule the resolver applies (blockDragGeometry.ts): a node lands in
-  // a gap of the document, or of a container of the kind it came out of —
-  // never inside some other block that merely happens to accept it. Positions
-  // are re-checked here because the ones the caller resolved may have moved.
-  const intoDoc = target.depth === 0;
-  if (!intoDoc && (topLevel || target.parent.type !== container.type)) return false;
+  // a gap of the document — never inside some other block that merely happens
+  // to accept it. Positions are re-checked here because the ones the caller
+  // resolved may have moved.
+  if (target.depth !== 0) return null;
+  if (!target.parent.canReplaceWith(index, index, node.type)) return null;
 
-  let inserted = node;
-  if (!target.parent.canReplaceWith(index, index, node.type)) {
-    // The gap cannot hold the node itself; it may hold a list of its kind.
-    if (topLevel || !target.parent.canReplaceWith(index, index, container.type)) return false;
-    inserted = container.type.create(container.attrs, node);
-  }
-
-  tr = tr.insert(mappedTarget, inserted);
+  tr = tr.insert(mappedTarget, node);
   // `insert` puts the node so it STARTS at mappedTarget, so no re-mapping.
   const moved = tr.doc.nodeAt(mappedTarget);
-  if (!moved || !moved.sameMarkup(inserted) || !moved.content.eq(inserted.content)) return false;
-  if (tr.doc.eq(beforeDoc)) return false;
+  if (!moved || !moved.sameMarkup(node) || !moved.content.eq(node.content)) return null;
+  if (tr.doc.eq(beforeDoc)) return null;
 
-  beforeDispatch?.(tr, inserted === node ? mappedTarget : mappedTarget + 1);
-  view.dispatch(tr);
-  return true;
+  return { tr, movedTo: mappedTarget };
 }

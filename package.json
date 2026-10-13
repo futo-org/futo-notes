@@ -96,6 +96,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@jridgewell/trace-mapping": "0.3.31",
     "@lezer/markdown": "1.6.3",
     "@playwright/test": "^1.62.1",
     "@types/js-yaml": "^4.0.9",

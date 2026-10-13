@@ -25,9 +25,10 @@ import {
   type NodeJson,
 } from '@futo-notes/editor/markdown';
 import { editorMarkdownSerializer } from '@futo-notes/editor/milkdown-compat';
+import { dropLanding } from './blockDragSession';
 import { DOCUMENT_CHANGE_DEBOUNCE_MS, DOCUMENT_CHANGE_MAX_WAIT_MS } from './documentChanges';
 import type { DocumentSession } from './documentSession.svelte';
-import { scheduleIdleSlice } from './progressiveLoad';
+import { scheduleIdleSlice, type ScheduleIdle } from './progressiveLoad';
 
 /**
  * How long `reportDocumentChange` will serialize SYNCHRONOUSLY before
@@ -48,6 +49,9 @@ export interface SerializationLoopDeps {
   pmView: () => ProseView | null;
   emitFormatState: () => void;
   props: SerializationLoopProps;
+  /** The idle scheduler priming runs on; the component passes the yielding
+   * one (progressiveLoad.ts `createYieldingIdleScheduler`). */
+  scheduleIdle?: ScheduleIdle;
 }
 
 export type SerializationLoop = ReturnType<typeof createSerializationLoop>;
@@ -68,7 +72,7 @@ export function createDocumentSerializer(editor: Editor): CachedSerializer<Prose
 }
 
 export function createSerializationLoop(session: DocumentSession, deps: SerializationLoopDeps) {
-  const { getEditor, pmView, emitFormatState, props } = deps;
+  const { getEditor, pmView, emitFormatState, props, scheduleIdle = scheduleIdleSlice } = deps;
 
   /* The per-top-level-block serialization cache (`createDocumentSerializer`).
    * One instance per editor, built once the editor exists. */
@@ -141,9 +145,9 @@ export function createSerializationLoop(session: DocumentSession, deps: Serializ
         onDone?.();
         return;
       }
-      primeCancelIdle = scheduleIdleSlice(step);
+      primeCancelIdle = scheduleIdle(step);
     };
-    primeCancelIdle = scheduleIdleSlice(step);
+    primeCancelIdle = scheduleIdle(step);
   }
 
   /** Cancels the in-flight priming loop, if any. Does not touch the cache. */
@@ -203,6 +207,10 @@ export function createSerializationLoop(session: DocumentSession, deps: Serializ
     if (session.loadFailed) return;
 
     if (!session.unreported) return;
+    /* A block drop still landing (blockDragSession.ts) is reported as an edit
+     * at its release, but the note is the one before the move until it lands,
+     * and its landing reports it. */
+    if (dropLanding(pmView())) return;
     if (unchangedSinceLoad()) {
       const loaded = session.hostMarkdown ?? readSerialized();
       if (loaded !== null) postChange(loaded);

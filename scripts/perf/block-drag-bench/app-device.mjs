@@ -182,13 +182,16 @@ async function runOnce(cdp, blocks) {
   })()`);
   await cdp.evaluate(RECORD);
   await sleep(200);
-  // BD_TRACE_LIFT=<file.json>: a Chromium trace of the first lift.
-  let trace = null;
-  if (process.env.BD_TRACE_LIFT && !runOnce.traced) {
-    runOnce.traced = true;
+  // BD_TRACE_LIFT / BD_TRACE_SCROLL / BD_TRACE_DROP=<file.json>: a Chromium
+  // trace of that phase of the first run.
+  const traceFile = (phase) => (runOnce.traced?.[phase] ? '' : process.env[`BD_TRACE_${phase}`]);
+  const startTrace = async (phase) => {
+    if (!traceFile(phase)) return null;
+    runOnce.traced = { ...runOnce.traced, [phase]: true };
     const events = [];
     let complete;
-    trace = { events, done: new Promise((r) => (complete = r)) };
+    const trace = { file: process.env[`BD_TRACE_${phase}`], events };
+    trace.done = new Promise((r) => (complete = r));
     cdp.onEvent = (method, params) => {
       if (method === 'Tracing.dataCollected') events.push(...params.value);
       if (method === 'Tracing.tracingComplete') complete();
@@ -208,7 +211,19 @@ async function runOnce(cdp, blocks) {
       },
       transferMode: 'ReportEvents',
     });
-  }
+    return trace;
+  };
+  const stopTrace = async (trace) => {
+    if (!trace) return;
+    await cdp.send('Tracing.end');
+    await trace.done;
+    (await import('node:fs')).writeFileSync(
+      trace.file,
+      JSON.stringify({ traceEvents: trace.events }),
+    );
+    console.error(`trace: ${trace.file}`);
+  };
+  let trace = await startTrace('LIFT');
   const t0 = await cdp.evaluate('performance.now()');
   await touch('touchStart', geo.x, geo.liftY);
   const lifted = await cdp.evaluate(`(async () => {
@@ -219,15 +234,7 @@ async function runOnce(cdp, blocks) {
     throw new Error('the long press never lifted the block');
   })()`);
   await sleep(500);
-  if (trace) {
-    await cdp.send('Tracing.end');
-    await trace.done;
-    (await import('node:fs')).writeFileSync(
-      process.env.BD_TRACE_LIFT,
-      JSON.stringify({ traceEvents: trace.events }),
-    );
-    console.error(`lift trace: ${process.env.BD_TRACE_LIFT}`);
-  }
+  await stopTrace(trace);
   const g0 = await cdp.evaluate('performance.now()');
   for (let i = 0; i < GAP_MOVES; i += 1) {
     await touch('touchMove', geo.x + (i % 2), i % 2 ? geo.yA : geo.yB);
@@ -241,6 +248,7 @@ async function runOnce(cdp, blocks) {
       Array.from(window.__futoProseMirrorView().dom.children).some((el) => el.style.transform);
     return line && !reflow ? 'line' : reflow && !line ? 'reflow' : 'unknown';
   })()`);
+  trace = await startTrace('SCROLL');
   await touch('touchMove', geo.x, geo.edgeY);
   await sleep(150);
   const s0 = await cdp.evaluate(
@@ -250,13 +258,16 @@ async function runOnce(cdp, blocks) {
   const s1 = await cdp.evaluate(
     '[performance.now(), window.__futoProseMirrorView().dom.scrollTop]',
   );
+  await stopTrace(trace);
   await touch('touchMove', geo.x, geo.yB);
   await sleep(300);
+  trace = await startTrace('DROP');
   const d0 = await cdp.evaluate('performance.now()');
   await touch('touchEnd');
   // Long enough for the slowest release seen (the end of the press restyles
   // the whole note: ~2.7s on 3,000 blocks on the reference phone).
   await sleep(4000);
+  await stopTrace(trace);
   const end = await cdp.evaluate(`(() => {
     window.__bdRecording = false;
     const v = window.__futoProseMirrorView();

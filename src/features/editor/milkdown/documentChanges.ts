@@ -26,6 +26,7 @@ import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 import { Plugin, PluginKey, type Transaction } from '@milkdown/kit/prose/state';
 import { $prose } from '@milkdown/kit/utils';
 import { noteEditIntent } from '$shared/lifecycle/editIntent';
+import { noteKeystroke } from '$shared/perf/interactionLedger';
 
 /**
  * How long the document must sit still before it is reported.
@@ -68,19 +69,36 @@ export function isReportableDocumentChange(transaction: Transaction): boolean {
 }
 
 /**
+ * The meta of a transaction that makes an edit whose document change follows
+ * in a later one: a block drop that commits once its slide ends
+ * (`BlockDragSession.land`). Reported as an edit at once, so a native host
+ * leaving the foreground flushes the editor rather than saving what it last
+ * heard (it only flushes an editor that has reported an edit since).
+ */
+export const PENDING_EDIT_META = 'futoPendingEdit';
+
+/**
  * A ProseMirror plugin that calls `onDocumentChanged` once per dispatch that
- * altered the document. It reads nothing and returns no transaction of its own;
- * `appendTransaction` is simply the hook that sees every dispatch exactly once.
+ * altered the document, or that carries `PENDING_EDIT_META`. It reads nothing
+ * and returns no transaction of its own; `appendTransaction` is simply the
+ * hook that sees every dispatch exactly once.
  */
 export function createDocumentChangePlugin(onDocumentChanged: () => void): Plugin {
   return new Plugin({
     key: new PluginKey('FUTO_DOCUMENT_CHANGES'),
     appendTransaction: (transactions) => {
-      if (transactions.some(isReportableDocumentChange)) {
+      if (
+        transactions.some(
+          (tr) => isReportableDocumentChange(tr) || tr.getMeta(PENDING_EDIT_META) === true,
+        )
+      ) {
         // Synchronously, at dispatch: before the work the edit sets off (re-render,
         // layout) and before the debounce the host hears about it through. Covers every
         // edit source, including keymap commands and clicks that raise no input event.
         noteEditIntent();
+        // The keystroke tripwire (interactionLedger.ts): one boolean read unless a
+        // harness turned it on, then dispatch → next frame per edit.
+        noteKeystroke();
         onDocumentChanged();
       }
       return null;

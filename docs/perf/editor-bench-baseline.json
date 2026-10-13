@@ -1,0 +1,1125 @@
+{
+  "runs": 5,
+  "timing": {
+    "buildMs": 11365.553915,
+    "launchMs": 59.7957320000005,
+    "countsMs": 14991.562436000002,
+    "timingMs": 83883.302808,
+    "totalMs": 110310.197415
+  },
+  "totals": {
+    "styledElements": 42905,
+    "layoutScope": 1067178,
+    "jsCalls": 20938427
+  },
+  "summary": {
+    "open-large": {
+      "hash": "07b970979497",
+      "styledElements": {
+        "median": 29247,
+        "spreadPct": 0
+      },
+      "layoutScope": {
+        "median": 202667,
+        "spreadPct": 0
+      },
+      "jsCalls": {
+        "median": 16419564,
+        "spreadPct": 0
+      },
+      "wallMs": {
+        "median": 413.6034389999986,
+        "spreadPct": 141.61403890067984
+      },
+      "styleMs": {
+        "median": 30.970000000000002,
+        "spreadPct": 111.38844042621892
+      },
+      "layoutMs": {
+        "median": 53.208,
+        "spreadPct": 135.08119079837618
+      },
+      "scriptMs": {
+        "median": 243.773,
+        "spreadPct": 159.64524373084797
+      }
+    },
+    "switch-note": {
+      "hash": "63f61362fc8d",
+      "styledElements": {
+        "median": 5569,
+        "spreadPct": 0
+      },
+      "layoutScope": {
+        "median": 12883,
+        "spreadPct": 0
+      },
+      "jsCalls": {
+        "median": 2475512,
+        "spreadPct": 0
+      },
+      "wallMs": {
+        "median": 80.68684899999789,
+        "spreadPct": 27.944069299324585
+      },
+      "styleMs": {
+        "median": 5.729,
+        "spreadPct": 9.390818641996846
+      },
+      "layoutMs": {
+        "median": 5.816,
+        "spreadPct": 9.834938101788158
+      },
+      "scriptMs": {
+        "median": 37.428999999999995,
+        "spreadPct": 36.22592107723959
+      }
+    },
+    "type-small": {
+      "hash": "14c04958da6b",
+      "styledElements": {
+        "median": 0,
+        "spreadPct": 0
+      },
+      "layoutScope": {
+        "median": 5520,
+        "spreadPct": 0
+      },
+      "jsCalls": {
+        "median": 42837,
+        "spreadPct": 0
+      },
+      "wallMs": {
+        "median": 361.6479110000073,
+        "spreadPct": 1.1937032867317363
+      },
+      "styleMs": {
+        "median": 0,
+        "spreadPct": 0
+      },
+      "layoutMs": {
+        "median": 0.65,
+        "spreadPct": 57.692307692307686
+      },
+      "scriptMs": {
+        "median": 8.163,
+        "spreadPct": 37.939483033198584
+      }
+    },
+    "type-large": {
+      "hash": "deac59e67b2a",
+      "styledElements": {
+        "median": 0,
+        "spreadPct": 0
+      },
+      "layoutScope": {
+        "median": 272080,
+        "spreadPct": 0
+      },
+      "jsCalls": {
+        "median": 648371,
+        "spreadPct": 0
+      },
+      "wallMs": {
+        "median": 374.9911290000018,
+        "spreadPct": 0.6238267572452187
+      },
+      "styleMs": {
+        "median": 0,
+        "spreadPct": 0
+      },
+      "layoutMs": {
+        "median": 9.938,
+        "spreadPct": 19.702153350774804
+      },
+      "scriptMs": {
+        "median": 13.259,
+        "spreadPct": 11.780677275812652
+      }
+    },
+    "enter-list-large": {
+      "hash": "5979d3a5b04f",
+      "styledElements": {
+        "median": 102,
+        "spreadPct": 0
+      },
+      "layoutScope": {
+        "median": 326622,
+        "spreadPct": 0
+      },
+      "jsCalls": {
+        "median": 590386,
+        "spreadPct": 0
+      },
+      "wallMs": {
+        "median": 387.9539530000038,
+        "spreadPct": 8.922330532355714
+      },
+      "styleMs": {
+        "median": 0.886,
+        "spreadPct": 16.252821670428897
+      },
+      "layoutMs": {
+        "median": 11.75,
+        "spreadPct": 36.306382978723406
+      },
+      "scriptMs": {
+        "median": 33.737,
+        "spreadPct": 10.66484868245546
+      }
+    },
+    "backspace-join-large": {
+      "hash": "6f8b2d846d8b",
+      "styledElements": {
+        "median": 9,
+        "spreadPct": 0
+      },
+      "layoutScope": {
+        "median": 163230,
+        "spreadPct": 0
+      },
+      "jsCalls": {
+        "median": 406845,
+        "spreadPct": 0
+      },
+      "wallMs": {
+        "median": 306.99396599999454,
+        "spreadPct": 5.19496171465414
+      },
+      "styleMs": {
+        "median": 0.118,
+        "spreadPct": 49.15254237288137
+      },
+      "layoutMs": {
+        "median": 6.7330000000000005,
+        "spreadPct": 32.9570770830239
+      },
+      "scriptMs": {
+        "median": 16.991,
+        "spreadPct": 22.723794950267784
+      }
+    },
+    "drag-small": {
+      "hash": "8b36fc14a124",
+      "styledElements": {
+        "median": 465,
+        "spreadPct": 0
+      },
+      "layoutScope": {
+        "median": 2104,
+        "spreadPct": 0
+      },
+      "jsCalls": {
+        "median": 15160,
+        "spreadPct": 0
+      },
+      "wallMs": {
+        "median": 1182.2218429999994,
+        "spreadPct": 1.1094757788189407
+      },
+      "styleMs": {
+        "median": 3.056,
+        "spreadPct": 39.98691099476439
+      },
+      "layoutMs": {
+        "median": 0.75,
+        "spreadPct": 50.40000000000001
+      },
+      "scriptMs": {
+        "median": 10.722000000000001,
+        "spreadPct": 25.592240253684007
+      }
+    },
+    "drag-large": {
+      "hash": "8a02e42ae30f",
+      "styledElements": {
+        "median": 7513,
+        "spreadPct": 0
+      },
+      "layoutScope": {
+        "median": 82072,
+        "spreadPct": 0
+      },
+      "jsCalls": {
+        "median": 339752,
+        "spreadPct": 0
+      },
+      "wallMs": {
+        "median": 1193.3727760000038,
+        "spreadPct": 1.3152637897947344
+      },
+      "styleMs": {
+        "median": 11.053,
+        "spreadPct": 46.26798154347237
+      },
+      "layoutMs": {
+        "median": 2.6220000000000003,
+        "spreadPct": 36.72768878718535
+      },
+      "scriptMs": {
+        "median": 14.895,
+        "spreadPct": 37.82477341389728
+      }
+    }
+  },
+  "counts": {
+    "open-large": {
+      "styledElements": 29247,
+      "layoutScope": 202667,
+      "jsCalls": 16419564,
+      "styleRecalcs": 29,
+      "layouts": 14,
+      "wallMs": 874.9540180000004,
+      "styleMs": 37.989000000000004,
+      "layoutMs": 89.202,
+      "scriptMs": 659.775,
+      "hash": "07b970979497",
+      "phaseMs": {
+        "load": 621.4473679999992,
+        "setup": 243.0790219999999,
+        "run": 874.9540180000004,
+        "settle": 500.03083100000003,
+        "collect": 47.006034,
+        "total": 2292.833116
+      }
+    },
+    "switch-note": {
+      "styledElements": 5569,
+      "layoutScope": 12883,
+      "jsCalls": 2475512,
+      "styleRecalcs": 7,
+      "layouts": 4,
+      "wallMs": 133.2162040000003,
+      "styleMs": 6.502,
+      "layoutMs": 8.547,
+      "scriptMs": 92.279,
+      "hash": "63f61362fc8d",
+      "phaseMs": {
+        "load": 615.1042769999985,
+        "setup": 1032.374726,
+        "run": 133.2162040000003,
+        "settle": 500.7023019999997,
+        "collect": 31.71306000000004,
+        "total": 2316.4816039999987
+      }
+    },
+    "type-small": {
+      "styledElements": 0,
+      "layoutScope": 5520,
+      "jsCalls": 42837,
+      "styleRecalcs": 0,
+      "layouts": 10,
+      "wallMs": 369.04192499999954,
+      "styleMs": 0,
+      "layoutMs": 1.0399999999999998,
+      "scriptMs": 9.408,
+      "hash": "14c04958da6b",
+      "phaseMs": {
+        "load": 608.4493549999988,
+        "setup": 879.0866580000002,
+        "run": 369.04192499999954,
+        "settle": 150.76160900000104,
+        "collect": 35.40970500000003,
+        "total": 2047.422036
+      }
+    },
+    "type-large": {
+      "styledElements": 0,
+      "layoutScope": 272080,
+      "jsCalls": 648371,
+      "styleRecalcs": 0,
+      "layouts": 10,
+      "wallMs": 401.15446800000063,
+      "styleMs": 0,
+      "layoutMs": 20.188000000000002,
+      "scriptMs": 39.279,
+      "hash": "deac59e67b2a",
+      "phaseMs": {
+        "load": 567.2748660000016,
+        "setup": 1331.3555189999988,
+        "run": 401.15446800000063,
+        "settle": 150.33804400000008,
+        "collect": 28.840071999999054,
+        "total": 2483.2655620000005
+      }
+    },
+    "enter-list-large": {
+      "styledElements": 102,
+      "layoutScope": 326622,
+      "jsCalls": 590386,
+      "styleRecalcs": 12,
+      "layouts": 12,
+      "wallMs": 392.84834899999987,
+      "styleMs": 1.012,
+      "layoutMs": 18.203,
+      "scriptMs": 45.21,
+      "hash": "5979d3a5b04f",
+      "phaseMs": {
+        "load": 573.7844289999994,
+        "setup": 1724.213447,
+        "run": 392.84834899999987,
+        "settle": 200.12484500000028,
+        "collect": 30.100861000000805,
+        "total": 2924.5520079999988
+      }
+    },
+    "backspace-join-large": {
+      "styledElements": 9,
+      "layoutScope": 163230,
+      "jsCalls": 406845,
+      "styleRecalcs": 2,
+      "layouts": 6,
+      "wallMs": 326.4238720000012,
+      "styleMs": 0.149,
+      "layoutMs": 10.642000000000001,
+      "scriptMs": 26.894000000000002,
+      "hash": "6f8b2d846d8b",
+      "phaseMs": {
+        "load": 482.25269800000024,
+        "setup": 1290.622804999999,
+        "run": 326.4238720000012,
+        "settle": 150.36655099999916,
+        "collect": 39.72766500000034,
+        "total": 2294.1536589999996
+      }
+    },
+    "drag-small": {
+      "styledElements": 465,
+      "layoutScope": 2104,
+      "jsCalls": 15160,
+      "styleRecalcs": 33,
+      "layouts": 5,
+      "wallMs": 1188.2637880000002,
+      "styleMs": 4.296,
+      "layoutMs": 1.059,
+      "scriptMs": 12.553999999999998,
+      "hash": "8b36fc14a124",
+      "phaseMs": {
+        "load": 556.3596980000002,
+        "setup": 746.5382419999987,
+        "run": 1188.2637880000002,
+        "settle": 1948.3862339999996,
+        "collect": 30.743216000000757,
+        "total": 4472.912059
+      }
+    },
+    "drag-large": {
+      "styledElements": 7513,
+      "layoutScope": 82072,
+      "jsCalls": 339752,
+      "styleRecalcs": 33,
+      "layouts": 5,
+      "wallMs": 1186.4870440000013,
+      "styleMs": 11.378,
+      "layoutMs": 4.157,
+      "scriptMs": 20.082,
+      "hash": "8a02e42ae30f",
+      "phaseMs": {
+        "load": 591.002504,
+        "setup": 1430.3174929999986,
+        "run": 1186.4870440000013,
+        "settle": 1949.7888999999977,
+        "collect": 39.23349100000269,
+        "total": 5199.722208000001
+      }
+    }
+  },
+  "timingRuns": {
+    "open-large": [
+      {
+        "styleRecalcs": 28,
+        "layouts": 14,
+        "wallMs": 413.6034389999986,
+        "styleMs": 30.970000000000002,
+        "layoutMs": 53.208,
+        "scriptMs": 243.773,
+        "hash": "07b970979497",
+        "phaseMs": {
+          "load": 179.7539530000031,
+          "setup": 237.007873999999,
+          "run": 413.6034389999986,
+          "settle": 400.73559600000226,
+          "collect": 0.9787599999981467,
+          "total": 1237.2821210000002
+        }
+      },
+      {
+        "styleRecalcs": 27,
+        "layouts": 14,
+        "wallMs": 435.68219600000157,
+        "styleMs": 31.794000000000004,
+        "layoutMs": 58.428,
+        "scriptMs": 293.837,
+        "hash": "07b970979497",
+        "phaseMs": {
+          "load": 175.59427100000175,
+          "setup": 236.26253500000166,
+          "run": 435.68219600000157,
+          "settle": 349.8823349999948,
+          "collect": 1.0095920000021579,
+          "total": 1203.4272239999991
+        }
+      },
+      {
+        "styleRecalcs": 30,
+        "layouts": 14,
+        "wallMs": 966.3892540000015,
+        "styleMs": 64.789,
+        "layoutMs": 118.70899999999999,
+        "scriptMs": 624.735,
+        "hash": "07b970979497",
+        "phaseMs": {
+          "load": 275.6238710000034,
+          "setup": 172.7278329999972,
+          "run": 966.3892540000015,
+          "settle": 297.11102299999766,
+          "collect": 0.7977329999994254,
+          "total": 1720.858073000003
+        }
+      },
+      {
+        "styleRecalcs": 27,
+        "layouts": 14,
+        "wallMs": 380.66871899999387,
+        "styleMs": 30.367,
+        "layoutMs": 48.307,
+        "scriptMs": 237.247,
+        "hash": "07b970979497",
+        "phaseMs": {
+          "load": 160.334720999992,
+          "setup": 236.99219400000584,
+          "run": 380.66871899999387,
+          "settle": 400.14272300001176,
+          "collect": 1.0685919999959879,
+          "total": 1183.606725000005
+        }
+      },
+      {
+        "styleRecalcs": 27,
+        "layouts": 14,
+        "wallMs": 380.733819999994,
+        "styleMs": 30.291999999999998,
+        "layoutMs": 46.835,
+        "scriptMs": 235.563,
+        "hash": "07b970979497",
+        "phaseMs": {
+          "load": 161.10042400000384,
+          "setup": 236.9208809999982,
+          "run": 380.733819999994,
+          "settle": 400.06004799999937,
+          "collect": 0.8439210000069579,
+          "total": 1184.3402590000042
+        }
+      }
+    ],
+    "switch-note": [
+      {
+        "styleRecalcs": 5,
+        "layouts": 4,
+        "wallMs": 102.20885400000043,
+        "styleMs": 6.226,
+        "layoutMs": 6.093999999999999,
+        "scriptMs": 49.49,
+        "hash": "63f61362fc8d",
+        "phaseMs": {
+          "load": 194.51300800000172,
+          "setup": 1179.6440079999993,
+          "run": 102.20885400000043,
+          "settle": 350.5635869999969,
+          "collect": 1.1057180000025255,
+          "total": 1832.0822560000015
+        }
+      },
+      {
+        "styleRecalcs": 6,
+        "layouts": 4,
+        "wallMs": 79.66166499999963,
+        "styleMs": 5.729,
+        "layoutMs": 5.816,
+        "scriptMs": 37.553000000000004,
+        "hash": "63f61362fc8d",
+        "phaseMs": {
+          "load": 172.0754220000017,
+          "setup": 637.123047000001,
+          "run": 79.66166499999963,
+          "settle": 500.94189599999663,
+          "collect": 0.6974000000045635,
+          "total": 1392.896735000002
+        }
+      },
+      {
+        "styleRecalcs": 7,
+        "layouts": 4,
+        "wallMs": 80.68684899999789,
+        "styleMs": 5.7749999999999995,
+        "layoutMs": 5.793,
+        "scriptMs": 37.428999999999995,
+        "hash": "63f61362fc8d",
+        "phaseMs": {
+          "load": 254.63870999999926,
+          "setup": 935.8123930000002,
+          "run": 80.68684899999789,
+          "settle": 350.5975360000011,
+          "collect": 0.8093799999987823,
+          "total": 1625.7652860000017
+        }
+      },
+      {
+        "styleRecalcs": 7,
+        "layouts": 4,
+        "wallMs": 81.03526499999862,
+        "styleMs": 5.688000000000001,
+        "layoutMs": 5.832000000000001,
+        "scriptMs": 36.132999999999996,
+        "hash": "63f61362fc8d",
+        "phaseMs": {
+          "load": 160.0445929999987,
+          "setup": 686.115518000006,
+          "run": 81.03526499999862,
+          "settle": 450.68522400000074,
+          "collect": 1.6949059999897145,
+          "total": 1382.7607319999952
+        }
+      },
+      {
+        "styleRecalcs": 6,
+        "layouts": 4,
+        "wallMs": 80.4192989999865,
+        "styleMs": 5.713,
+        "layoutMs": 5.522,
+        "scriptMs": 35.931,
+        "hash": "63f61362fc8d",
+        "phaseMs": {
+          "load": 160.00203400000464,
+          "setup": 736.6648240000068,
+          "run": 80.4192989999865,
+          "settle": 400.582035000014,
+          "collect": 0.5532789999997476,
+          "total": 1380.947125000006
+        }
+      }
+    ],
+    "type-small": [
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 362.3748140000025,
+        "styleMs": 0,
+        "layoutMs": 0.65,
+        "scriptMs": 8.163,
+        "hash": "14c04958da6b",
+        "phaseMs": {
+          "load": 160.39443000000028,
+          "setup": 371.67939599999954,
+          "run": 362.3748140000025,
+          "settle": 500.8524899999975,
+          "collect": 1.1120240000018384,
+          "total": 1399.9922710000028
+        }
+      },
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 362.16442500000267,
+        "styleMs": 0,
+        "layoutMs": 0.735,
+        "scriptMs": 8.789,
+        "hash": "14c04958da6b",
+        "phaseMs": {
+          "load": 162.63229200000205,
+          "setup": 371.18385399999534,
+          "run": 362.16442500000267,
+          "settle": 501.9346519999963,
+          "collect": 0.5913199999995413,
+          "total": 1400.6876839999968
+        }
+      },
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 358.05781099999876,
+        "styleMs": 0,
+        "layoutMs": 0.9430000000000001,
+        "scriptMs": 10.583,
+        "hash": "14c04958da6b",
+        "phaseMs": {
+          "load": 195.3700830000016,
+          "setup": 392.1698949999991,
+          "run": 358.05781099999876,
+          "settle": 501.5778859999991,
+          "collect": 0.5458859999998822,
+          "total": 1450.6725030000016
+        }
+      },
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 361.59242699999595,
+        "styleMs": 0,
+        "layoutMs": 0.642,
+        "scriptMs": 8.097,
+        "hash": "14c04958da6b",
+        "phaseMs": {
+          "load": 160.65488799999002,
+          "setup": 371.94095700001344,
+          "run": 361.59242699999595,
+          "settle": 501.9712419999996,
+          "collect": 0.6263190000026952,
+          "total": 1398.6773560000001
+        }
+      },
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 361.6479110000073,
+        "styleMs": 0,
+        "layoutMs": 0.5680000000000001,
+        "scriptMs": 7.486,
+        "hash": "14c04958da6b",
+        "phaseMs": {
+          "load": 145.75288,
+          "setup": 388.6109199999919,
+          "run": 361.6479110000073,
+          "settle": 501.4618349999946,
+          "collect": 0.30606299999635667,
+          "total": 1399.3087369999994
+        }
+      }
+    ],
+    "type-large": [
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 375.21436800000083,
+        "styleMs": 0,
+        "layoutMs": 9.045,
+        "scriptMs": 13.259,
+        "hash": "deac59e67b2a",
+        "phaseMs": {
+          "load": 160.25515399999858,
+          "setup": 808.4939919999997,
+          "run": 375.21436800000083,
+          "settle": 151.35285199999998,
+          "collect": 0.683961000002455,
+          "total": 1499.8002430000015
+        }
+      },
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 372.8750730000029,
+        "styleMs": 0,
+        "layoutMs": 9.938,
+        "scriptMs": 14.065,
+        "hash": "deac59e67b2a",
+        "phaseMs": {
+          "load": 161.71657000000414,
+          "setup": 744.3777159999954,
+          "run": 372.8750730000029,
+          "settle": 150.60141999999905,
+          "collect": 1.1342230000009295,
+          "total": 1435.4743569999991
+        }
+      },
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 374.9911290000018,
+        "styleMs": 0,
+        "layoutMs": 10.328999999999999,
+        "scriptMs": 13.906,
+        "hash": "deac59e67b2a",
+        "phaseMs": {
+          "load": 177.74247800000012,
+          "setup": 742.1223550000068,
+          "run": 374.9911290000018,
+          "settle": 150.5404819999967,
+          "collect": 1.0901000000012573,
+          "total": 1451.0547180000067
+        }
+      },
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 374.94771700000274,
+        "styleMs": 0,
+        "layoutMs": 11.003,
+        "scriptMs": 12.958,
+        "hash": "deac59e67b2a",
+        "phaseMs": {
+          "load": 161.9164679999958,
+          "setup": 725.4826969999995,
+          "run": 374.94771700000274,
+          "settle": 150.62745500000892,
+          "collect": 0.8629879999934928,
+          "total": 1417.9150930000033
+        }
+      },
+      {
+        "styleRecalcs": 0,
+        "layouts": 10,
+        "wallMs": 375.04315299999143,
+        "styleMs": 0,
+        "layoutMs": 9.404,
+        "scriptMs": 12.503,
+        "hash": "deac59e67b2a",
+        "phaseMs": {
+          "load": 163.20771200000308,
+          "setup": 741.6273040000087,
+          "run": 375.04315299999143,
+          "settle": 151.5232160000014,
+          "collect": 0.45782900000631344,
+          "total": 1435.2766709999996
+        }
+      }
+    ],
+    "enter-list-large": [
+      {
+        "styleRecalcs": 12,
+        "layouts": 12,
+        "wallMs": 356.6383500000011,
+        "styleMs": 0.858,
+        "layoutMs": 10.416,
+        "scriptMs": 30.247,
+        "hash": "5979d3a5b04f",
+        "phaseMs": {
+          "load": 160.30140799999936,
+          "setup": 727.3022349999956,
+          "run": 356.6383500000011,
+          "settle": 151.32664099999965,
+          "collect": 0.9125720000010915,
+          "total": 1400.9110929999952
+        }
+      },
+      {
+        "styleRecalcs": 12,
+        "layouts": 12,
+        "wallMs": 387.9539530000038,
+        "styleMs": 0.962,
+        "layoutMs": 14.682,
+        "scriptMs": 33.802,
+        "hash": "5979d3a5b04f",
+        "phaseMs": {
+          "load": 159.6082910000041,
+          "setup": 795.8302019999974,
+          "run": 387.9539530000038,
+          "settle": 150.4346069999956,
+          "collect": 0.7859360000002198,
+          "total": 1498.6715499999991
+        }
+      },
+      {
+        "styleRecalcs": 12,
+        "layouts": 12,
+        "wallMs": 389.8339910000068,
+        "styleMs": 1.002,
+        "layoutMs": 13.714,
+        "scriptMs": 33.737,
+        "hash": "5979d3a5b04f",
+        "phaseMs": {
+          "load": 159.86093399999663,
+          "setup": 727.1537059999973,
+          "run": 389.8339910000068,
+          "settle": 200.56191099999705,
+          "collect": 0.4820529999997234,
+          "total": 1481.8869589999958
+        }
+      },
+      {
+        "styleRecalcs": 12,
+        "layouts": 12,
+        "wallMs": 374.9569000000047,
+        "styleMs": 0.867,
+        "layoutMs": 11.75,
+        "scriptMs": 31.029999999999998,
+        "hash": "5979d3a5b04f",
+        "phaseMs": {
+          "load": 160.439160000009,
+          "setup": 725.8102369999979,
+          "run": 374.9569000000047,
+          "settle": 200.60195999999996,
+          "collect": 1.4960279999941122,
+          "total": 1468.0698479999992
+        }
+      },
+      {
+        "styleRecalcs": 12,
+        "layouts": 12,
+        "wallMs": 391.25288400000136,
+        "styleMs": 0.886,
+        "layoutMs": 11.609,
+        "scriptMs": 33.845,
+        "hash": "5979d3a5b04f",
+        "phaseMs": {
+          "load": 160.95661499998823,
+          "setup": 725.9280660000077,
+          "run": 391.25288400000136,
+          "settle": 150.56468499999028,
+          "collect": 0.7671700000064448,
+          "total": 1433.697709999993
+        }
+      }
+    ],
+    "backspace-join-large": [
+      {
+        "styleRecalcs": 2,
+        "layouts": 6,
+        "wallMs": 304.8840730000011,
+        "styleMs": 0.165,
+        "layoutMs": 7.984,
+        "scriptMs": 19.496,
+        "hash": "6f8b2d846d8b",
+        "phaseMs": {
+          "load": 159.65727300000435,
+          "setup": 778.8365189999968,
+          "run": 304.8840730000011,
+          "settle": 151.29761100000178,
+          "collect": 0.9732969999968191,
+          "total": 1399.9961240000048
+        }
+      },
+      {
+        "styleRecalcs": 2,
+        "layouts": 6,
+        "wallMs": 312.61637899999914,
+        "styleMs": 0.118,
+        "layoutMs": 6.431,
+        "scriptMs": 16.991,
+        "hash": "6f8b2d846d8b",
+        "phaseMs": {
+          "load": 160.95609900000272,
+          "setup": 737.7393719999964,
+          "run": 312.61637899999914,
+          "settle": 150.67047400000592,
+          "collect": 0.8368749999935972,
+          "total": 1367.1598250000025
+        }
+      },
+      {
+        "styleRecalcs": 2,
+        "layouts": 6,
+        "wallMs": 306.99396599999454,
+        "styleMs": 0.11900000000000001,
+        "layoutMs": 6.7330000000000005,
+        "scriptMs": 16.657999999999998,
+        "hash": "6f8b2d846d8b",
+        "phaseMs": {
+          "load": 161.19071399999666,
+          "setup": 726.9839680000005,
+          "run": 306.99396599999454,
+          "settle": 150.4847560000053,
+          "collect": 0.9400960000057239,
+          "total": 1350.8306020000018
+        }
+      },
+      {
+        "styleRecalcs": 2,
+        "layouts": 6,
+        "wallMs": 312.4958020000049,
+        "styleMs": 0.11699999999999999,
+        "layoutMs": 7.0280000000000005,
+        "scriptMs": 18.031,
+        "hash": "6f8b2d846d8b",
+        "phaseMs": {
+          "load": 159.12277699999686,
+          "setup": 704.7582350000012,
+          "run": 312.4958020000049,
+          "settle": 200.42964199998823,
+          "collect": 1.0805729999992764,
+          "total": 1383.7095299999928
+        }
+      },
+      {
+        "styleRecalcs": 2,
+        "layouts": 6,
+        "wallMs": 296.6681600000011,
+        "styleMs": 0.107,
+        "layoutMs": 5.765000000000001,
+        "scriptMs": 15.635,
+        "hash": "6f8b2d846d8b",
+        "phaseMs": {
+          "load": 144.19064799998887,
+          "setup": 736.8631160000077,
+          "run": 296.6681600000011,
+          "settle": 150.55246500000067,
+          "collect": 0.7771099999954458,
+          "total": 1333.6000159999967
+        }
+      }
+    ],
+    "drag-small": [
+      {
+        "styleRecalcs": 33,
+        "layouts": 5,
+        "wallMs": 1182.2218429999994,
+        "styleMs": 3.337,
+        "layoutMs": 0.778,
+        "scriptMs": 10.722000000000001,
+        "hash": "8b36fc14a124",
+        "phaseMs": {
+          "load": 159.58650099999795,
+          "setup": 452.4170579999991,
+          "run": 1182.2218429999994,
+          "settle": 1949.2343920000058,
+          "collect": 0.8170329999993555,
+          "total": 3746.9602369999993
+        }
+      },
+      {
+        "styleRecalcs": 33,
+        "layouts": 5,
+        "wallMs": 1181.3926120000033,
+        "styleMs": 3.933,
+        "layoutMs": 1.072,
+        "scriptMs": 11.949,
+        "hash": "8b36fc14a124",
+        "phaseMs": {
+          "load": 160.12099699999817,
+          "setup": 403.01356400000077,
+          "run": 1181.3926120000033,
+          "settle": 1949.424328999994,
+          "collect": 0.9911720000018249,
+          "total": 3697.850314999996
+        }
+      },
+      {
+        "styleRecalcs": 33,
+        "layouts": 5,
+        "wallMs": 1184.9181439999957,
+        "styleMs": 3.056,
+        "layoutMs": 0.75,
+        "scriptMs": 11.098,
+        "hash": "8b36fc14a124",
+        "phaseMs": {
+          "load": 160.2825359999988,
+          "setup": 450.3638030000002,
+          "run": 1184.9181439999957,
+          "settle": 1948.9183119999943,
+          "collect": 0.6877690000110306,
+          "total": 3747.2868699999963
+        }
+      },
+      {
+        "styleRecalcs": 33,
+        "layouts": 5,
+        "wallMs": 1194.5090769999952,
+        "styleMs": 2.711,
+        "layoutMs": 0.694,
+        "scriptMs": 9.488,
+        "hash": "8b36fc14a124",
+        "phaseMs": {
+          "load": 158.54476299999806,
+          "setup": 440.416538999998,
+          "run": 1194.5090769999952,
+          "settle": 1949.3272520000028,
+          "collect": 0.8446890000050189,
+          "total": 3746.629660999999
+        }
+      },
+      {
+        "styleRecalcs": 33,
+        "layouts": 5,
+        "wallMs": 1181.6000760000024,
+        "styleMs": 2.851,
+        "layoutMs": 0.696,
+        "scriptMs": 9.205,
+        "hash": "8b36fc14a124",
+        "phaseMs": {
+          "load": 160.26352500000212,
+          "setup": 453.1297199999972,
+          "run": 1181.6000760000024,
+          "settle": 1949.4008840000024,
+          "collect": 0.980887999990955,
+          "total": 3747.864591000005
+        }
+      }
+    ],
+    "drag-large": [
+      {
+        "styleRecalcs": 33,
+        "layouts": 5,
+        "wallMs": 1193.3727760000038,
+        "styleMs": 11.266,
+        "layoutMs": 3.362,
+        "scriptMs": 18.974,
+        "hash": "8a02e42ae30f",
+        "phaseMs": {
+          "load": 162.3617479999957,
+          "setup": 1224.4719519999999,
+          "run": 1193.3727760000038,
+          "settle": 1949.6824789999955,
+          "collect": 1.3977850000010221,
+          "total": 4536.554283999998
+        }
+      },
+      {
+        "styleRecalcs": 33,
+        "layouts": 5,
+        "wallMs": 1193.9558630000029,
+        "styleMs": 15.148,
+        "layoutMs": 2.868,
+        "scriptMs": 16.44,
+        "hash": "8a02e42ae30f",
+        "phaseMs": {
+          "load": 162.31146399999852,
+          "setup": 1173.6957079999993,
+          "run": 1193.9558630000029,
+          "settle": 1949.905568000002,
+          "collect": 1.378618999995524,
+          "total": 4486.816288000002
+        }
+      },
+      {
+        "styleRecalcs": 33,
+        "layouts": 5,
+        "wallMs": 1189.1901660000003,
+        "styleMs": 11.053,
+        "layoutMs": 2.6220000000000003,
+        "scriptMs": 14.895,
+        "hash": "8a02e42ae30f",
+        "phaseMs": {
+          "load": 162.92419999999402,
+          "setup": 1379.1273660000006,
+          "run": 1189.1901660000003,
+          "settle": 1949.0314649999927,
+          "collect": 0.8560150000121212,
+          "total": 4685.587839999993
+        }
+      },
+      {
+        "styleRecalcs": 33,
+        "layouts": 5,
+        "wallMs": 1179.4124580000062,
+        "styleMs": 10.033999999999999,
+        "layoutMs": 2.591,
+        "scriptMs": 13.943999999999999,
+        "hash": "8a02e42ae30f",
+        "phaseMs": {
+          "load": 145.24781899999653,
+          "setup": 1171.413056999998,
+          "run": 1179.4124580000062,
+          "settle": 1949.7782390000066,
+          "collect": 0.7507539999933215,
+          "total": 4450.559255
+        }
+      },
+      {
+        "styleRecalcs": 33,
+        "layouts": 5,
+        "wallMs": 1195.1084580000024,
+        "styleMs": 10.212,
+        "layoutMs": 2.399,
+        "scriptMs": 13.34,
+        "hash": "8a02e42ae30f",
+        "phaseMs": {
+          "load": 162.15005900000688,
+          "setup": 1173.1596319999953,
+          "run": 1195.1084580000024,
+          "settle": 1949.1352740000002,
+          "collect": 1.1009780000022147,
+          "total": 4485.5077350000065
+        }
+      }
+    ]
+  }
+}

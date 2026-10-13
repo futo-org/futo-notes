@@ -300,8 +300,9 @@ describe('a chrome edit during a progressive open', () => {
    * The note is genuinely mid-stream at this point — asserted, not assumed. A
    * planner change that loaded this fixture whole would leave every assertion
    * after it passing while exercising nothing (AGENTS.md M11). Chunk 0's
-   * budget is 80 lines, so it carries ~40 of the 301 blocks and the final
-   * paragraph is nowhere near it yet.
+   * budget is a screen and a half of jsdom's 768 px window (48 lines,
+   * `firstChunkLinesForViewport`), so it carries ~24 of the 301 blocks and the
+   * final paragraph is nowhere near it yet.
    */
   function expectMidStream(): void {
     const mounted = editable().children.length;

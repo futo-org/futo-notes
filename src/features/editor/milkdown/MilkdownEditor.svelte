@@ -59,6 +59,7 @@
   import type { EditorLinkGesture } from '../editorLinkGesture';
   import { resolveBlockDragMode } from './blockDragMode';
   import { createBlockDrag } from './blockDrag.svelte';
+  import { landPendingDrop } from './blockDragSession';
   import { assembleEditor } from './editorPlugins';
   import { editorView, enclosingListItem } from './caretContext';
   import { inIndentableContainer } from './blockCommands';
@@ -70,6 +71,8 @@
   import { DocumentSession } from './documentSession.svelte';
   import { createSerializationLoop } from './serializationLoop';
   import { createDocumentLoad } from './documentLoad';
+  import { createInteractionHold } from './interactionHold';
+  import { createYieldingIdleScheduler } from './progressiveLoad';
   import { createHostHandle } from './hostHandle';
   import { createLinkTaps } from './linkTaps';
   import { CHECKBOX_SIZE_PX } from './taskCheckbox';
@@ -230,12 +233,18 @@
 
   const pmView = (): ProseView | null => editorView(editor);
 
+  /* Background idle work — the streamed tail of a progressive open, the
+   * serializer's cache priming — yields to the user's touch
+   * (interactionHold.ts): a tap into a still-streaming note gets its frames. */
+  const interactionHold = createInteractionHold();
+  const scheduleIdle = createYieldingIdleScheduler(interactionHold.isHeld);
   /* How the live document becomes the markdown the host hears (serializationLoop.ts). */
   const serialization = createSerializationLoop(session, {
     getEditor: () => editor,
     pmView,
     emitFormatState,
     props: liveProps,
+    scheduleIdle,
   });
   /* How host content becomes the document (documentLoad.ts). */
   const documentLoad = createDocumentLoad(session, serialization, {
@@ -244,6 +253,7 @@
     emitFormatState,
     refreshEditable,
     props: liveProps,
+    scheduleIdle,
   });
   /* Everything the embed and the desktop shell call (hostHandle.ts), exported
    * under the same names. */
@@ -425,7 +435,11 @@
     oncursorcontext?.({ onListLine: inList, inContainer: inAnyContainer });
   }
 
-  function flushOnPageHide(): void {
+  /** The page is going away or out of sight: a block drop still landing
+   * commits now (its slides may never end: a hidden page's animation clock
+   * stops), and a native shell's note is flushed. */
+  function pageLeaving(): void {
+    landPendingDrop(pmView());
     if (nativeShell) flush();
   }
 
@@ -441,10 +455,11 @@
       session.liveMarkdown = content;
     }
     const visibility = (): void => {
-      if (nativeShell && document.visibilityState === 'hidden') flush();
+      if (document.visibilityState === 'hidden') pageLeaving();
     };
     document.addEventListener('visibilitychange', visibility);
-    window.addEventListener('pagehide', flushOnPageHide);
+    window.addEventListener('pagehide', pageLeaving);
+    const detachInteractionHold = interactionHold.attach(container);
     container.addEventListener('click', handleClick);
     container.addEventListener('auxclick', handleAuxClick);
     container.addEventListener('pointerdown', handlePointerDown);
@@ -571,7 +586,7 @@
       session.documentGeneration += 1;
       session.currentNoteId = null;
       document.removeEventListener('visibilitychange', visibility);
-      window.removeEventListener('pagehide', flushOnPageHide);
+      window.removeEventListener('pagehide', pageLeaving);
       dismissLinkPrompt();
       // Same teardown `openNote`/`applyExternal` use for a pending progressive
       // load: discard rather than settle, since there is no document left to
@@ -589,6 +604,7 @@
         uninstallVaultImageUrlResolver();
         ownsImageUrlResolver = false;
       }
+      detachInteractionHold();
       container.removeEventListener('click', handleClick);
       container.removeEventListener('auxclick', handleAuxClick);
       container.removeEventListener('pointerdown', handlePointerDown);
