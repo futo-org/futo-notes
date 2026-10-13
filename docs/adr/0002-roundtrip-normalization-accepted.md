@@ -57,8 +57,10 @@ substrate. The substrate choice is load-bearing: a *text* CRDT over the markdown
 whole-file normalization into a delete-and-reinsert that steamrolls concurrent edits from other
 devices, while a *tree* CRDT (y-prosemirror family) makes the markdown file a projection and the
 churn disappears from sync entirely. That decision must land before a normalizing editor ships.
-**Resolved 2026-08-28:** the substrate is decided — tree CRDT, Yjs family (ADR-0003), with the
-editor shipping first on existing file sync. The editor choice and execution plan now live in
+**Resolved 2026-08-28, then re-decided 2026-10-08:** the substrate is yrs holding the note's
+markdown text, owned by Rust, with the editor's re-spelling diffed against its own rendering so it
+never syncs as an edit. See `docs/plan/crdt-sync-and-sharing.md`, which replaces the old ADR-0003
+(tree CRDT). The editor shipped first on existing file sync. The editor choice and execution plan now live in
 `docs/plan/milkdown-transition.md`.
 
 Origin: Milkdown evaluation discussion (https://milkdown.dev/), 2026-08-27. Prior art:
