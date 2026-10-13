@@ -21,6 +21,7 @@
  *   node tests/android-editor-perf-quick.mjs --profile                # where a keystroke's time goes
  *   node tests/android-editor-perf-quick.mjs --profile-open           # where the open's time goes
  *   node tests/android-editor-perf-quick.mjs --focused                # include native selection/layout work
+ *   node tests/android-editor-perf-quick.mjs --no-tripwire            # keystroke tripwire off, as in a release build
  *
  * Fixture names: `<n>-lines-blocks` (real-note shaped, one block per line),
  * `<n>-lines` (no blank lines — fuses into a few huge blocks), or `real-note`
@@ -60,10 +61,12 @@ let samples = 25;
 let profileKeystrokes = false;
 let profileOpen = false;
 let focused = false;
+let tripwire = true;
 let top = 30;
 let evalExpression = null;
 let callers = null;
 let shot = null;
+let cpuThrottle = 1;
 for (let i = 0; i < args.length; i += 1) {
   const arg = args[i];
   if (arg === '--fixture') fixtures.push(args[++i]);
@@ -71,15 +74,17 @@ for (let i = 0; i < args.length; i += 1) {
   else if (arg === '--eval-file') evalExpression = readFileSync(args[++i], 'utf8');
   else if (arg === '--callers') callers = args[++i];
   else if (arg === '--shot') shot = args[++i];
+  else if (arg === '--cpu-throttle') cpuThrottle = Number(args[++i]);
   else if (arg === '--no-build') build = false;
   else if (arg === '--samples') samples = Number(args[++i]);
   else if (arg === '--profile') profileKeystrokes = true;
   else if (arg === '--profile-open') profileOpen = true;
   else if (arg === '--focused') focused = true;
+  else if (arg === '--no-tripwire') tripwire = false;
   else if (arg === '--top') top = Number(args[++i]);
   else {
     console.error(
-      `Unrecognised argument: ${arg}\nSupported: --fixture <name> (repeatable), --no-build, --samples <n>, --profile, --profile-open, --focused, --top <n>, --callers <fn>, --eval <js>, --eval-file <path>, --shot <png>`,
+      `Unrecognised argument: ${arg}\nSupported: --fixture <name> (repeatable), --no-build, --samples <n>, --profile, --profile-open, --focused, --no-tripwire, --top <n>, --callers <fn>, --eval <js>, --eval-file <path>, --shot <png>, --cpu-throttle <rate>`,
     );
     process.exit(2);
   }
@@ -166,7 +171,11 @@ try {
   for (const old of (await listTabs()).filter(ours)) {
     await fetch(`http://localhost:${cdpPort}/json/close/${old.id}`);
   }
-  const navigationUrl = `${pageUrl}?t=${Date.now()}`;
+  // `?test` is what a debug Android build loads, and the snippets need the
+  // `__futoTest` reads it installs. It also turns the keystroke tripwire on
+  // (src/shared/perf/interactionLedger.ts); --no-tripwire turns it back off
+  // below, to measure what a release build pays.
+  const navigationUrl = `${pageUrl}?test&t=${Date.now()}`;
   adb.shell(`am start -a android.intent.action.VIEW -d '${navigationUrl}' -n ${CHROME_MAIN}`);
   const tab = await waitFor(
     'the editor tab in Chrome',
@@ -184,6 +193,12 @@ try {
   });
   await cdp.send('Runtime.enable');
   await cdp.send('Page.enable');
+  /* `--cpu-throttle 6`: Chromium's own CPU throttle, so a fast emulator or a
+   * flagship phone stands in for the budget reference phone. A RATIO, not a
+   * phone: compare numbers measured at the same rate, never across rates. */
+  if (cpuThrottle > 1) {
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: cpuThrottle });
+  }
   await waitFor(
     'the editor to mount',
     () =>
@@ -193,8 +208,21 @@ try {
     30_000,
   );
 
+  // A bundle from before the tripwire has no switch: report it as absent.
+  const hasTripwire = await cdp.evaluate(
+    `typeof window.__futoTest?.setKeystrokeTripwire === 'function'`,
+  );
+  if (hasTripwire) await cdp.evaluate(`window.__futoTest.setKeystrokeTripwire(${tripwire})`);
+  const recordTripwire = hasTripwire && tripwire;
+
   const model = adb.shell('getprop ro.product.model').trim();
-  console.log(`Device: ${model} (${process.env.ANDROID_SERIAL}), Chrome tab ${tab.id}`);
+  console.log(
+    `Device: ${model} (${process.env.ANDROID_SERIAL}), Chrome tab ${tab.id}` +
+      (cpuThrottle > 1 ? `, CPU throttled ${cpuThrottle}x` : ''),
+  );
+  console.log(
+    `Keystroke tripwire: ${hasTripwire ? (tripwire ? 'on' : 'off') : 'not in this bundle'}`,
+  );
   console.log(
     `Typing mode: ${focused ? 'focused (includes native selection/layout)' : 'default dispatch (does not request focus)'}`,
   );
@@ -245,6 +273,7 @@ try {
       continue;
     }
 
+    if (recordTripwire) await cdp.evaluate(`window.__futoTest.clearInteractions('keystroke')`);
     const measured = await cdp.evaluate(measureExpression(content, samples, { focused }));
     const syncP95 = percentile95(measured.synchronousSamplesMs);
     const settledP95 = percentile95(measured.settledToPaintSamplesMs);
@@ -270,6 +299,14 @@ try {
       `      sync ms: ${measured.synchronousSamplesMs.map((ms) => ms.toFixed(1)).join(' ')}\n` +
         `      settled ms: ${measured.settledToPaintSamplesMs.map((ms) => Math.round(ms)).join(' ')}`,
     );
+    if (recordTripwire) {
+      const frames = await cdp.evaluate(`window.__futoTest.keystrokeFrameSamplesMs()`);
+      if (frames.length === 0)
+        throw new Error(`${name}: the keystroke tripwire recorded no samples`);
+      console.log(
+        `      tripwire (dispatch → frame): ${frames.length} samples, p95 ${percentile95(frames).toFixed(1)}ms, median ${median(frames).toFixed(1)}ms`,
+      );
+    }
   }
 } finally {
   cdp?.close();

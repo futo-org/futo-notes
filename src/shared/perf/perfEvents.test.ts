@@ -3,6 +3,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { installPerfCourse } from './installPerfCourse';
 import {
+  beginInteraction,
+  isKeystrokeTripwireEnabled,
+  setKeystrokeTripwire,
+} from './interactionLedger';
+import {
   countPerfEvents,
   drainPerfEvents,
   recordPerfEvent,
@@ -115,5 +120,21 @@ describe('installPerfCourse', () => {
     expect(target.__perfCourse?.count()).toBe(0);
     expect(typeof target.__perfCourse?.startFrameProbe).toBe('function');
     expect(typeof target.__perfCourse?.stopFrameProbe).toBe('function');
+  });
+
+  it('exposes the interaction ledger and turns the keystroke tripwire on', () => {
+    setKeystrokeTripwire(false);
+    const target = {} as Window;
+    installPerfCourse(target);
+
+    expect(isKeystrokeTripwireEnabled()).toBe(true);
+    beginInteraction('note-open', 'note-b');
+    expect(target.__perfCourse?.interactions('note-open').map((r) => r.subject)).toEqual([
+      'note-b',
+    ]);
+    target.__perfCourse?.clearInteractions();
+    expect(target.__perfCourse?.interactions()).toHaveLength(0);
+    expect(target.__perfCourse?.keystrokeFrameSamplesMs()).toEqual([]);
+    setKeystrokeTripwire(false);
   });
 });

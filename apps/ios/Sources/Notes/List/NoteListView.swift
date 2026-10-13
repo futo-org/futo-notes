@@ -51,6 +51,16 @@ struct NoteListView: View {
                 await runSearch()
             }
             .toolbar { sortToolbar }
+            // The close ledger's first two marks: the path shrank (a system
+            // pop, Back or the edge swipe, has been committed to the stack)
+            // and the first screen refresh after it. Debug-only, no work in
+            // release (CloseLedger.swift).
+            .onChange(of: navPath.count) { before, after in
+                guard after < before else { return }
+                CloseLedger.mark("popObserved", note: "depth=\(after)")
+                CloseLedger.markOnNextFrame("listFrame")
+            }
+            .onAppear { CloseLedger.installBenchTouchMarks() }
             .toolbar {
                 // Distinct ToolbarItem `id:`s so the two leading controls expose
                 // as SEPARATE accessibility elements instead of collapsing into

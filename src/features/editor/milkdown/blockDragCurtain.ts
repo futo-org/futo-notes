@@ -284,12 +284,18 @@ export class ReflowCurtain {
     // Each block's own view descriptor, not `view.nodeDOM(offset)`: nodeDOM
     // walks the blocks from the top on every call, which made this check
     // quadratic — 150-250ms on a 3,000-block note on a budget phone.
+    // EQUAL, not identical: when a new document has an equal block where the
+    // old one was, ProseMirror keeps that block's DOM and descriptor without
+    // pointing the descriptor at the new node, so after the host's
+    // `setContent` every untouched block failed an identity test and the drag
+    // quietly fell back to the drop line. `eq` only walks a
+    // block's content when the identity test has already failed.
     const blocks = view.dom.children;
     let sourceIndex = -1;
     let ok = true;
     doc.forEach((node, offset, index) => {
-      const desc = (blocks[index] as { pmViewDesc?: { node?: unknown } } | undefined)?.pmViewDesc;
-      if (desc?.node !== node) ok = false;
+      const desc = (blocks[index] as { pmViewDesc?: { node?: ProseNode } } | undefined)?.pmViewDesc;
+      if (!desc?.node || (desc.node !== node && !desc.node.eq(node))) ok = false;
       if (offset === source.from) sourceIndex = index;
     });
     if (!ok || sourceIndex < 0) return null;

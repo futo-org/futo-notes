@@ -9,6 +9,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TextSelection } from '@milkdown/kit/prose/state';
 
+import { BlockDragSession } from './blockDragSession';
 import { mountHandleBlockDrag } from './handleBlockDrag';
 import { blockTop, makeStackedView } from './__fixtures__/stackedBlocksView';
 
@@ -126,5 +127,37 @@ describe('mountHandleBlockDrag', () => {
 
     expect(escape.defaultPrevented).toBe(false);
     mounted.destroy();
+  });
+
+  // A mouse reports far more moves than there are frames (1000 Hz on WebKit,
+  // which delivers every one), and each session move reads geometry and
+  // redraws the preview. Only the last position of a frame is worth drawing.
+  it('the moves of one frame reach the session once, at the last position', () => {
+    vi.useFakeTimers();
+    const moveSpy = vi.spyOn(BlockDragSession.prototype, 'move');
+    const { fixture, press, move, release, mounted } = setup();
+
+    press();
+    move(blockTop(0) + 30); // the lift
+    move(fixture.lowerHalf(1));
+    move(fixture.upperHalf(2));
+    move(fixture.lowerHalf(2));
+    expect(moveSpy).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(20); // one frame
+    expect(moveSpy).toHaveBeenCalledTimes(1);
+    expect(moveSpy).toHaveBeenLastCalledWith(X, fixture.lowerHalf(2));
+
+    // A release inside a frame commits at ITS position; the frame it cut
+    // short never runs, so nothing draws after the drop.
+    move(fixture.lowerHalf(1));
+    release(fixture.lowerHalf(2));
+    expect(fixture.order()).toEqual(['b', 'c', 'a']);
+    vi.advanceTimersByTime(20);
+    expect(moveSpy).toHaveBeenCalledTimes(1);
+
+    mounted.destroy();
+    moveSpy.mockRestore();
+    vi.useRealTimers();
   });
 });

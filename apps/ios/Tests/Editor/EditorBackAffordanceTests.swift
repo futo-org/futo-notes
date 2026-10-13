@@ -48,6 +48,38 @@ struct EditorBackAffordanceTests {
         #expect(source[leave.upperBound...].prefix(400).contains(".navigate,"))
     }
 
+    @Test("the pop is never gated on the commit: finishLeave cannot suspend")
+    func finishLeaveNeverBlocksThePop() throws {
+        let source = try editorViewSource()
+        let leave = try #require(source.range(of: "private func finishLeave()"))
+        // A function that is not `async` cannot await, so this one check is
+        // the whole guarantee: the drain and commit run in the closures it
+        // hands the session and in its detached Task, all after the pop. An
+        // async finishLeave would turn a committed pop into a wait the user
+        // sees, the cost Android's Back pays (NoteEditorScreen.navigateAfterSaving).
+        #expect(
+            !source[leave.lowerBound...].prefix(40).contains("async"),
+            "finishLeave must stay synchronous: the system pop has already happened when it runs"
+        )
+    }
+
+    @Test("Back never waits on the commit: only the wikilink push goes through requestNavigation")
+    func onlyTheWikilinkPushWaitsBeforeNavigating() throws {
+        let source = try editorViewSource()
+        // requestNavigation drains the bridge, the disk write and the rename
+        // BEFORE it navigates. That wait is right for a push (it can still be
+        // refused and the editor stays put), and wrong for Back: a Back routed
+        // through it holds the user on the editor for a bridge round trip and
+        // a flush, which is what Android's Back pays and iOS must not.
+        let calls = source.components(separatedBy: "requestNavigation {").count - 1
+        #expect(
+            calls == 1, "requestNavigation has \(calls) callers; Back must pop first (finishLeave)")
+        let push = try #require(source.range(of: "private func openLinkedNote("))
+        let pushBody = source[push.upperBound...].prefix(300)
+        #expect(
+            pushBody.contains("requestNavigation {"), "the one caller must be the wikilink push")
+    }
+
     @Test("the visible find close control always closes the shared engine")
     func findCloseIsNotBlockedByLifecycleOwnership() throws {
         let source = try editorViewSource()

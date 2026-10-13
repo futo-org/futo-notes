@@ -6,6 +6,29 @@
 //       [--sizes 1000,3000] [--layout desktop|embed] [--no-cursor-layer]
 //       [--target editor|app] [--hide <css selector>] [--snapshot <dir>]
 //       [--device android|android-app|ios-app] [--profile <dir>] [--no-selection]
+//       [--budget] [--moves-per-frame N] [--gestures <dir>] [--json <file>]
+//
+// `--json <file>` also writes every run's raw result there, for pooling
+// interleaved runs into one median/p90 table (docs/perf/block-drag-baseline.md).
+// `--budget` judges every variant against the reference-phone budgets in
+// block-drag-bench/budget.mjs (lift, scroll-drag frame p95, drop) and exits
+// non-zero on a miss — the gate, not a report. A phase the chosen mode does
+// not measure is printed as skipped, never as a pass.
+//
+// `--moves-per-frame N` (with `--target app`) dispatches N pointermove events
+// per animation frame through the real ⠿ handle instead of one. WebKit
+// (WebKitGTK, WKWebView) delivers every pointer event the device produces —
+// a 1000 Hz mouse is 16 a frame at 60 Hz — where Chromium already aligns
+// them to frames; this is how to see what the gesture's own per-frame
+// coalescing (handleBlockDrag.ts, mobileBlockDnd.ts) buys on WebKit.
+//
+// `--gestures <dir>` serves `<dir>/handleBlockDrag.ts` and
+// `<dir>/mobileBlockDnd.ts` in place of the working tree's, for every variant
+// of the run (labelled `[<dir name>]`). It is how to A/B a change to the
+// gesture layer, which the session variants below do not reach, without
+// touching the working tree: copy the old files out with `git show`, run once
+// with `--gestures` and once without. Not for `--device ios-app`, which builds
+// only the working tree.
 //
 // `--device android` runs the same benchmarks on the phone in $ANDROID_SERIAL,
 // in its own Chrome (the same Chromium as its System WebView), inside the real
@@ -59,7 +82,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 
-import { assertModes, forceLineMode } from './block-drag-bench/variant.mjs';
+import { evaluateBudget } from './block-drag-bench/budget.mjs';
+import {
+  GESTURE_FILES,
+  assertModes,
+  forceLineMode,
+  gestureOverride,
+} from './block-drag-bench/variant.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const sessionFile = path.join(root, 'src/features/editor/milkdown/blockDragSession.ts');
@@ -92,6 +121,10 @@ function parseArgs(argv) {
     profile: '',
     noSelection: false,
     selection: false,
+    budget: false,
+    movesPerFrame: 1,
+    gestures: '',
+    json: '',
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -106,6 +139,10 @@ function parseArgs(argv) {
     else if (arg === '--no-selection') opts.noSelection = true;
     else if (arg === '--selection') opts.selection = true;
     else if (arg === '--profile') opts.profile = path.resolve(argv[++i]);
+    else if (arg === '--budget') opts.budget = true;
+    else if (arg === '--moves-per-frame') opts.movesPerFrame = Number(argv[++i]);
+    else if (arg === '--gestures') opts.gestures = path.resolve(argv[++i]);
+    else if (arg === '--json') opts.json = path.resolve(argv[++i]);
     else if (arg.startsWith('--')) throw new Error(`unknown flag ${arg}`);
     else opts.variants.push(arg);
   }
@@ -123,6 +160,18 @@ function parseArgs(argv) {
         `--device ios-app only runs the working tree's bundle: variants current and current:line, not ${bad.join(', ')}`,
       );
   }
+  if (opts.gestures) {
+    if (opts.device === 'ios-app')
+      throw new Error(
+        "--gestures needs a per-variant build; --device ios-app has only the working tree's",
+      );
+    const missing = GESTURE_FILES.filter((n) => !existsSync(path.join(opts.gestures, n)));
+    if (missing.length) throw new Error(`--gestures ${opts.gestures} lacks ${missing.join(', ')}`);
+  }
+  if (!Number.isInteger(opts.movesPerFrame) || opts.movesPerFrame < 1)
+    throw new Error(`--moves-per-frame needs a whole number of at least 1`);
+  if (opts.movesPerFrame > 1 && opts.target !== 'app')
+    throw new Error('--moves-per-frame drives the real handle: it needs --target app');
   if (opts.device !== 'desktop') {
     if (opts.target !== 'editor')
       throw new Error(`--device ${opts.device} runs the editor target only`);
@@ -138,7 +187,7 @@ function parseArgs(argv) {
 
 const repsFor = (opts) => (opts.device === 'desktop' ? REPS : PHONE_REPS);
 
-function parseVariant(spec) {
+function parseVariant(spec, gestures) {
   const line = spec.endsWith(':line');
   const name = line ? spec.slice(0, -5) : spec;
   const file = name === 'current' ? sessionFile : path.resolve(name);
@@ -146,17 +195,22 @@ function parseVariant(spec) {
     spec,
     file,
     line,
-    label: `${path.basename(name).replace(/^blockDragSession\.|\.ts$/g, '')}${line ? ' (line)' : ''}`,
+    gestures,
+    label: `${path.basename(name).replace(/^blockDragSession\.|\.ts$/g, '')}${line ? ' (line)' : ''}${gestures ? ` [${path.basename(gestures)}]` : ''}`,
   };
 }
 
 /** Serves `variant.file` in place of blockDragSession.ts, optionally with the
- * reflow switched off. The working tree is never touched. */
+ * reflow switched off, and `variant.gestures`' copies of the gesture files.
+ * The working tree is never touched. */
 function sessionVariantPlugin(variant) {
   return {
     name: 'block-drag-bench-variant',
     enforce: 'pre',
     load(id) {
+      const gesture =
+        variant.gestures && gestureOverride(id, path.dirname(sessionFile), variant.gestures);
+      if (gesture) return readFileSync(gesture, 'utf8');
       if (id.split('?')[0] !== sessionFile) return null;
       let code = readFileSync(variant.file, 'utf8');
       if (variant.line) code = forceLineMode(code, variant.file);
@@ -236,6 +290,7 @@ async function runVariant(variant, opts) {
         repeat: opts.repeat,
         sizes: opts.sizes,
         frames: APP_FRAMES,
+        movesPerFrame: opts.movesPerFrame,
         hide: opts.hide,
         // One PNG per note size, mid-drag, on the first run (`--target app`).
         snapshot: opts.snapshot
@@ -419,7 +474,7 @@ function report(results, opts) {
     'ios-app': 'REAL iOS app (iPhone), XCUITest long-press gesture',
   }[opts.device];
   console.log(
-    `\n${engine}, ${opts.target === 'app' ? `whole app${opts.hide ? ` minus ${opts.hide}` : ''}` : `${opts.layout} layout`}, cursor layer ${opts.cursorLayer ? 'on' : 'off'}, ${opts.repeat} runs each; ms per operation, median (min–max)\n`,
+    `\n${engine}, ${opts.target === 'app' ? `whole app${opts.hide ? ` minus ${opts.hide}` : ''}, ${opts.movesPerFrame} pointer move${opts.movesPerFrame === 1 ? '' : 's'} per frame` : `${opts.layout} layout`}, cursor layer ${opts.cursorLayer ? 'on' : 'off'}, ${opts.repeat} runs each; ms per operation, median (min–max)\n`,
   );
   console.log(''.padEnd(labelWidth) + results.map((r) => pad(r.variant.label, colWidth)).join(''));
   for (const size of opts.sizes) {
@@ -462,7 +517,7 @@ const opts = parseArgs(process.argv.slice(2));
 const started = performance.now();
 const results = [];
 for (const spec of opts.variants) {
-  const variant = parseVariant(spec);
+  const variant = parseVariant(spec, opts.gestures);
   const t = performance.now();
   let runs;
   if (opts.device === 'android-app') {
@@ -483,6 +538,7 @@ for (const spec of opts.variants) {
   console.error(`${variant.label}: ${((performance.now() - t) / 1000).toFixed(1)}s`);
 }
 report(results, opts);
+if (opts.json) writeFileSync(opts.json, JSON.stringify({ opts, results }, null, 1));
 console.error(`total ${((performance.now() - started) / 1000).toFixed(1)}s`);
 const leftovers = results.flatMap((r) =>
   r.runs.filter((x) => x.leftover).map(() => r.variant.label),
@@ -492,4 +548,14 @@ if (leftovers.length) {
     `FAIL: blocks kept a transform after the drag ended in: ${[...new Set(leftovers)].join(', ')}`,
   );
   process.exit(1);
+}
+if (opts.budget) {
+  const verdict = evaluateBudget(results, opts);
+  console.log(`budget (${verdict.pass ? 'PASS' : 'FAIL'}):`);
+  for (const line of verdict.lines) console.log(line);
+  console.log('');
+  if (!verdict.pass) {
+    console.error('FAIL: a block-drag phase missed its budget (see above)');
+    process.exit(1);
+  }
 }

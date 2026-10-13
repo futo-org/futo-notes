@@ -15,7 +15,11 @@ import type { DocumentRef } from '@futo-notes/editor';
 import { FRONTMATTER_NODE } from '@futo-notes/editor/milkdown-compat';
 import type { DocumentSession } from './documentSession.svelte';
 import { dismissLinkPrompt } from './linkPrompt';
-import { planMarkdownChunks, type MarkdownChunkOptions } from './markdownChunks';
+import {
+  firstChunkLinesForViewport,
+  planMarkdownChunks,
+  type MarkdownChunkOptions,
+} from './markdownChunks';
 import { parseNote } from './parseNote';
 import {
   OPEN_COMPLETE_MEASURE,
@@ -27,6 +31,7 @@ import {
   measureOpen,
   scheduleIdleSlice,
   startProgressiveLoad,
+  type ScheduleIdle,
 } from './progressiveLoad';
 import type { SerializationLoop } from './serializationLoop';
 
@@ -42,6 +47,9 @@ export interface DocumentLoadDeps {
   /** Re-asks the view for its `editable` prop (MilkdownEditor.svelte). */
   refreshEditable: () => void;
   props: DocumentLoadProps;
+  /** The idle scheduler the streamed tail runs on; the component passes the
+   * yielding one (progressiveLoad.ts `createYieldingIdleScheduler`). */
+  scheduleIdle?: ScheduleIdle;
 }
 
 export type DocumentLoad = ReturnType<typeof createDocumentLoad>;
@@ -173,7 +181,14 @@ export function createDocumentLoad(
   serialization: SerializationLoop,
   deps: DocumentLoadDeps,
 ) {
-  const { getEditor, pmView, emitFormatState, refreshEditable, props } = deps;
+  const {
+    getEditor,
+    pmView,
+    emitFormatState,
+    refreshEditable,
+    props,
+    scheduleIdle = scheduleIdleSlice,
+  } = deps;
   const { cancelChangeNotification, startPriming, stopPriming, readSerialized, postChange } =
     serialization;
   const { applyFirstChunk, appendParsedChunk } = createChunkApplier(getEditor, pmView);
@@ -353,7 +368,19 @@ export function createDocumentLoad(
       refreshEditable();
     };
 
-    const plan = planMarkdownChunks(text, chunkOptions);
+    /* An ordinary open sizes the first chunk to the screen it has to fill
+     * (`firstChunkLinesForViewport`); a caller with its own plan (the census)
+     * keeps it. `innerHeight` is the web view's height in the native shells
+     * and an upper bound on the pane in the desktop one, and reading it forces
+     * no layout. */
+    const plan = planMarkdownChunks(
+      text,
+      chunkOptions ?? {
+        firstChunkLines: firstChunkLinesForViewport(
+          pmView()?.dom.ownerDocument.defaultView?.innerHeight,
+        ),
+      },
+    );
     if (!plan.chunked) {
       if (!applyWholeDocument(text)) recordFailedLoad();
       measureOpen(OPEN_INTERACTIVE_MEASURE);
@@ -396,7 +423,7 @@ export function createDocumentLoad(
         index += 1;
         if (!applied) abortToWholeDocument();
       },
-      scheduleIdle: scheduleIdleSlice,
+      scheduleIdle,
       onComplete: () => {
         if (session.abortedToWholeDocument) return;
         finishProgressiveLoad();

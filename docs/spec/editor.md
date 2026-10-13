@@ -1085,10 +1085,23 @@ native shells edit tags as text in the body, which is not a gap.
   rename fails and, on iOS, an admitted image insertion: navigation waits for
   the insertion's editor transaction and deferred bridge callback before
   committing. Android applies this to toolbar Back, system Back, and wikilinks;
-  iOS uses its custom navigation Back and wikilinks. →
+  iOS applies it to wikilinks only. →
   `EditorNavigationCommit.kt`, `NoteEditorScreen.kt`,
   `EditorHost.awaitCurrent`, `EditorCompletionQueue`,
   `NoteEditorView.requestNavigation`
+- [iOS] Back is the system button, so Back and the edge swipe pop the editor
+  FIRST and the same drain-and-commit runs after the pop, under a draft
+  register entry that stays claimed until the write is durable (a failed
+  commit is retried by the lifecycle flush, never lost). Nothing the user
+  waits on between the tap and the list is a bridge round trip or a disk
+  write; what remains is the pop animation and the keyboard going down.
+  Hiding the system button to veto the exit would also disable the swipe
+  (docs/learnings/ios-swipe-back-over-webview.md). Measured on the iOS 26.5
+  simulator 2026-10-08: first list frame 50 ms after the tap (83 ms with the
+  keyboard up), pop done by ~550 ms, the commit after it, for 1k and 10k
+  blocks alike: docs/perf/mobile-close-ios.md. →
+  `NoteEditorView.finishLeave`, `EditorBackAffordanceTests.swift`,
+  `scripts/perf/ios-close-bench.mjs`
 - **Renaming or moving a note rewrites every wikilink that points at it,
   across all notes** — including folder moves (`[[Markdown demo]]` →
   `[[Archive/Markdown demo]]`) and **self-referencing links inside the renamed
@@ -1989,9 +2002,23 @@ unchanged by it.
   once primed, instead of serializing the whole note on the main thread. →
   packages/editor/src/markdown/cache.ts,
   milkdown/serializationLoop.ts `createDocumentSerializer`/`readSerialized`
-- A note of 400 lines or more is opened PROGRESSIVELY: the first ~80 lines are
+- A note of 400 lines or more is opened PROGRESSIVELY: the first chunk is
   parsed and mounted synchronously so the first viewport is interactive, and the
-  rest stream in idle slices. Chunk boundaries are only ever taken where a chunk
+  rest stream in idle slices. The first chunk is sized to the editor's viewport
+  — about a screen and a half of lines at an estimated 24 px a line, never
+  fewer than 30 or more than 160, and 80 when the viewport cannot be measured —
+  so a phone parses only what it can show. → milkdown/markdownChunks.ts
+  `firstChunkLinesForViewport`
+- While the tail streams, a pointer down, focus or key in the editor holds the
+  next idle slice until 150 ms after the last such event, so no chunk parse
+  starts in the frames that place the caret (a slice already running when the
+  finger lands still finishes first). An unbroken run of events holds for at most
+  1 s, then slices run again until the events pause. A held slice is delayed, never
+  dropped: the stream still completes exactly once and the save lock below is
+  unchanged. The serializer's idle cache priming yields the same way. →
+  milkdown/interactionHold.ts, milkdown/progressiveLoad.ts
+  `createYieldingIdleScheduler`, tests/editor-embed-milkdown.spec.ts
+- Chunk boundaries are only ever taken where a chunk
   parses to the same document the whole note would (never inside front matter,
   never at a `---`), and a chunk that parses to nothing aborts the whole thing
   back to a single whole-document parse. → milkdown/markdownChunks.ts,
@@ -2010,8 +2037,9 @@ unchanged by it.
   3 s flush race plus 2 s margin) AND the page reports nothing unsaved, Rust
   waits for any in-flight vault write (the process-wide `vault_mutation_guard`,
   at most 5 s more) and exits without the JS thread. A note open is not an unsaved
-  edit (a note switch awaits the outgoing save before the next note is read, and
-  the page cannot be typed into while it parses), so the open case is exactly
+  edit (a note switch awaits the outgoing save before the next note is opened —
+  it may READ the next note's file meanwhile when that save cannot touch it —
+  and the page cannot be typed into while it parses), so the open case is exactly
   what the deadline cuts. A page that does hold an unsaved edit is not cut at the
   deadline, however long its JS thread stalls (an 8 s task, a 2.5 MB paste): the
   page tells Rust on every clean/dirty transition, reports at once from the
@@ -2145,11 +2173,8 @@ unchanged by it.
   commits; rename/move retarget retained drafts to the authoritative final id.
   Failed identity mutations reopen a fresh generation. A queued or failed leave
   flush from the old generation therefore cannot resurrect a deleted note or
-  create an old-id ghost after rename/move. Android keeps the editor Back handler
-  installed while a navigation commit is pending, consuming repeated Back presses
-  instead of letting the parent route pop early; after awaiting its current mailbox it
-  also commits a valid visible title immediately rather than waiting for the
-  rename debounce. The iOS move awaits the final posted editor document
+  create an old-id ghost after rename/move. Android Back commits a valid visible
+  title immediately after the body rather than waiting for the rename debounce. The iOS move awaits the final posted editor document
   after destination selection, persists or parks it through the draft workflow,
   and moves the parked conflict identity when that is where the local draft was
   committed. _(iOS, Android)_ → `NotesStore.write`,
@@ -2339,10 +2364,19 @@ EditorSessionTest.kt, EditorSessionTests.swift
 - While an existing note's disk read is pending, the visible placeholder has no note identity. It never seeds that note's mailbox. Starting a new open invalidates the previous clean snapshot; reconciliation waits for `documentLoaded` for the real note. Quick capture already owns the engine-created empty body and accepts edits immediately. _(native shells)_ → NoteEditorView.swift, NoteEditorScreen.kt, EditorMailbox.swift `prepareLoad`, EditorMailbox.kt `prepareLoad`
 - Every document report carries its vault-relative note id and a page-monotonic generation. A shell routes reports into the named note's mailbox even after another view attaches. _(native shells)_ → packages/editor/src/bridge.ts, EditorMailbox.kt, EditorMailbox.swift
 - A reportable user transaction advances the generation synchronously. The first transaction after a load or delivered change posts `edited`; subsequent transactions in that unreported run do not post another watermark. _(native shells)_ → milkdown/serializationLoop.ts `documentEdited`
-- A mailbox is current when its newest change generation is at least its edited watermark. Current exits use those bytes without WebView interaction; a behind exit asks for one flush and waits up to 6 seconds. A token-tagged failure or deadline while still behind refuses a user exit, releases its latches, and permits retry. _(native shells)_ → EditorMailbox.kt `awaitCurrent`, EditorMailbox.swift `awaitCurrent`
+- A mailbox is current when its newest change generation is at least its edited watermark. Current exits use those bytes without WebView interaction; a behind exit asks for one flush and waits up to 6 seconds. A token-tagged failure or deadline while still behind refuses a user exit that has not yet left, releases its latches, and permits retry. _(native shells)_ → EditorMailbox.kt `awaitCurrent`, EditorMailbox.swift `awaitCurrent`
 - A renderer-death OS signal lets every exit proceed on the mailbox's latest bytes. A never-loaded, never-edited note leaves using the shell's disk copy with nothing to save. Silence alone never declares a renderer dead. _(native shells)_
 - The body an exit commits is the newest tagged change held by its mailbox after the flush wait. A destructive exit still folds in newer quarantined changes before completing. _(native shells)_ → EditorSession.kt, EditorSession.swift
-- A failed body flush or pending rename refuses a user exit and releases every latch it set. A failed delete leaves the editor usable. _(native shells)_
+- A failed body flush or pending rename refuses a user exit that has not yet left, and releases every latch it set. A failed delete leaves the editor usable. _(native shells)_
+- Android Back, the system back gesture, the top-bar back arrow, and a resolved wikilink tap leave the note before committing it. The next screen starts its transition without waiting for the editor flush or the disk write. _(Android)_ → EditorSession.kt `leaveThenCommit`, EditorSessionTest.kt
+- Android Back waits before leaving only for an image insert whose picker has already returned. That insert needs the editor it was picked for. _(Android)_ → NoteEditorScreen.kt `awaitPendingWork`
+- After Android Back has left, the commit runs on the store's scope, which outlives the screen. The order is mailbox, then body, then title. The commit cannot call the user back to the note. _(Android)_ → EditorSession.kt `drainAndCommit`, NotesStore.kt `launchEditorLeave`
+- An Android Back commit that fails, or a title that cannot be renamed, shows a message after the note list is on screen. The unsaved body stays in the draft register, and the editor's leave flush retries it. _(Android)_ → NoteEditorScreen.kt `onFailed`, `leaveNote`
+- Android runs the editor's leave flush, the untouched-capture delete, and the draft register release only after Back's commit settles. A second write of the same body against the same baseline cannot park a conflict copy. _(Android)_ → EditorSession.kt `whenExitSettles`
+- Android reads a note's body on open only after every leave commit still in flight has landed. Reopening the note just left shows its committed text. _(Android)_ → NotesStore.kt `awaitEditorLeaves`
+- A leaving Android editor never loads content into the shared WebView: a self-link relink after Back updates only the saved baseline. _(Android)_ → NoteEditorScreen.kt `settleRelink`
+- A leaving Android editor holds its pane at its last height while the keyboard and format toolbar animate away. The WebView does not relayout the note during the exit. _(Android)_ → NoteEditorScreen.kt `leavingEditorHeight`
+- Android Back is ignored once a delete or a peer's delete has latched the editor closed. That exit performs the leave itself. _(Android)_ → EditorSession.kt `end`
 - iOS system Back and edge swipe commit after the pop. They wait once when behind and proceed on the mailbox's latest bytes even if the wait fails; a later delivered change is handed to retained persistence. The parent may re-adopt first: loading it flushes the child's outgoing edit with the child's identity before loading the parent. _(iOS)_ → NoteEditorView.swift `finishLeave`, EditorMailboxTests.swift, docs/qa/wikilink-pop-large-edited-note.md
 - Streaming withholds content changes to protect against saving a prefix, but never withholds the synchronous `edited` signal. A flush settles an edited tail before reporting the complete document; a clean streamed flush echoes the host's full original bytes. A note switch reports an outgoing pending edit synchronously before replacing its identity. _(native shells)_ → milkdown/hostHandle.ts `flush`, `setContent`, milkdown/documentLoad.ts `finishProgressiveLoad`
 - Blur, hidden visibility and pagehide flush the embedded editor immediately. Backgrounding explicitly waits for posted changes (2 seconds on Android, 6 seconds within iOS background time) and then flushes the draft register, including the mailbox's latest available bytes after a failed wait. A durable write advances the baseline before a later write. _(native shells)_ → BackgroundEditorFlush.swift, NotesStore.kt, EditorSession.kt

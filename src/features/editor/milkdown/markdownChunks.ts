@@ -134,6 +134,36 @@ export const DEFAULT_CHUNK_OPTIONS: Required<MarkdownChunkOptions> = {
   chunkLines: 500,
 };
 
+/**
+ * Pixels one source line takes on screen, roughly: 16 px type at line-height
+ * 1.55 is ~25 px, a block adds margin, and wrapped lines add more — so this
+ * errs toward MORE lines in the first chunk, never a short viewport.
+ */
+export const ESTIMATED_LINE_PX = 24;
+/** The first chunk fills the viewport plus half a screen to scroll into. */
+export const FIRST_CHUNK_VIEWPORTS = 1.5;
+export const FIRST_CHUNK_LINES_MIN = 30;
+export const FIRST_CHUNK_LINES_MAX = 160;
+
+/**
+ * The first chunk's line budget for a viewport `viewportHeightPx` tall.
+ *
+ * The first chunk is the parse the user waits for, so it should be as small as
+ * the screen allows and no smaller: a phone's ~800 px viewport needs ~50 lines
+ * where the fixed default of 80 parsed and mounted a screen and a half it
+ * could not show. Unmeasurable (no window, zero height) falls back to that
+ * default, and both ends are clamped so a tiny or a 4K viewport still gets a
+ * sane chunk.
+ */
+export function firstChunkLinesForViewport(viewportHeightPx: number | null | undefined): number {
+  if (typeof viewportHeightPx !== 'number' || !Number.isFinite(viewportHeightPx)) {
+    return DEFAULT_CHUNK_OPTIONS.firstChunkLines;
+  }
+  if (viewportHeightPx <= 0) return DEFAULT_CHUNK_OPTIONS.firstChunkLines;
+  const lines = Math.ceil((viewportHeightPx / ESTIMATED_LINE_PX) * FIRST_CHUNK_VIEWPORTS);
+  return Math.min(FIRST_CHUNK_LINES_MAX, Math.max(FIRST_CHUNK_LINES_MIN, lines));
+}
+
 /** Leading-whitespace width, counting a tab as the 4 columns CommonMark gives it. */
 function indentWidth(line: string): number {
   let width = 0;

@@ -263,8 +263,49 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     return run;
   }
 
+  /* Which files the saves in flight may still write: each save's note, and
+   * — when it carries a title change — a rename's destination and every note
+   * whose links it rewrites, which no one knows until the store answers. A
+   * note switch reads its incoming note WHILE such a save runs only when the
+   * save cannot touch that file (`fenceIncomingRead`); otherwise it waits, as
+   * every switch did. Ids are compared as the file system may: a case or
+   * Unicode-normalization variant names the same file on macOS and Windows. */
+  const fileKey = (id: string): string => id.normalize('NFC').toLowerCase();
+  const savingKeys = new Set<string>();
+  let identitySavesInFlight = 0;
+  /* Bumped when a save that may rename starts, so a fence notices one that
+   * started AND finished while its read was out. */
+  let identitySaveEpoch = 0;
+
+  function trackSave(): Promise<boolean> {
+    const key = originalId === null ? null : fileKey(originalId);
+    const mayRename = key === null || title !== savedTitle;
+    if (key !== null) savingKeys.add(key);
+    if (mayRename) {
+      identitySavesInFlight += 1;
+      identitySaveEpoch += 1;
+    }
+    return serializePersistence(saveNote).finally(() => {
+      if (key !== null) savingKeys.delete(key);
+      if (mayRename) identitySavesInFlight -= 1;
+    });
+  }
+
+  function fenceIncomingRead(incomingId: string): (() => boolean) | null {
+    const key = fileKey(incomingId);
+    const cannotTouch = () =>
+      originalId !== null &&
+      fileKey(originalId) !== key &&
+      title === savedTitle &&
+      !savingKeys.has(key) &&
+      identitySavesInFlight === 0;
+    if (!cannotTouch()) return null;
+    const epoch = identitySaveEpoch;
+    return () => identitySaveEpoch === epoch && cannotTouch();
+  }
+
   const saveQueue = createNoteSaveQueue({
-    save: () => serializePersistence(saveNote),
+    save: trackSave,
     hasUnseenChanges: hasUnseenEditorChanges,
     editedSinceSaveRead: () => deps.getEditorContent() !== editorReadBySave,
     notifySaved,
@@ -274,6 +315,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     getNotes: deps.getNotes,
     getEditorContent: deps.getEditorContent,
     isSavePending: saveQueue.isPending,
+    fenceIncomingRead,
     /* `noteId` is the loader's own signal, not the editor's: this branch's
      * `deps.openEditorNote` takes only the body. A null id opening over the
      * `new` route is the one case that must remember the folder the note was

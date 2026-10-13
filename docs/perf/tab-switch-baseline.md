@@ -236,4 +236,5 @@ Cost of the lead, steady scroll (70 × 400 px steps, 150 sampled frames):
 - Ctrl+Tab is dispatched as a synthetic `KeyboardEvent`, so OS→WebKit event
   delivery is excluded. That path is small relative to 127 ms.
 - The probe measures a clean session. Switching away from a dirty note adds a
-  real `flushSave`, which was not measured here.
+  real `flushSave`, which was not measured here — see
+  `tab-switch-dirty-and-parse.md` (the probe's `dirty` option).

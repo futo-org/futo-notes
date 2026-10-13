@@ -24,6 +24,14 @@ interface CreateNoteLoaderOptions {
   getNotes: () => NotePreview[];
   /** A save of the open note is armed, running or queued. */
   isSavePending: () => boolean;
+  /**
+   * A fence for reading note `id` while the outgoing note's save still runs,
+   * or null when that save may write `id`'s file and must finish first (it is
+   * `id`, a rename may land on `id` or rewrite its links, or the note has no
+   * file yet). The fence answers whether that is STILL true: false once any
+   * save that could touch `id` has started since it was taken.
+   */
+  fenceIncomingRead: (id: string) => (() => boolean) | null;
   navigate: (path: string) => void;
   patchState: (patch: NoteLoadPatch) => void;
   resetState: () => void;
@@ -68,11 +76,26 @@ export function createNoteLoader(options: CreateNoteLoaderOptions) {
    * incoming one re-read, so the replace that follows discards nothing. The
    * last read's resolution and that replace then run in one task: no keystroke
    * can land between them.
+   *
+   * With a `fence`, the outgoing note's save is still running while this
+   * reads — the two files are different, so the disk write and the disk read
+   * overlap instead of queueing (a dirty switch used to cost the save, THEN
+   * the read). The read is still only handed over once that save has
+   * settled, from the same microtask its flush resolves in, so the one-task
+   * guarantee above holds unchanged; it merely stops re-reading a file the
+   * save could not have touched. A broken fence (a rename save started while
+   * this read) drops back to the old order: flush, then read again.
+   * `outgoingFlush` is that save's flush: its outcome is observed before any
+   * hand-over, because a save that FAILED is no longer pending and would
+   * otherwise look settled — and a failed save keeps the user on the note.
    */
   async function readIncoming(
     id: string,
     version: number,
+    readFence: (() => boolean) | null,
+    outgoingFlush: Promise<void>,
   ): Promise<{ content: string } | { error: unknown } | null> {
+    let fence = readFence;
     for (;;) {
       const outgoing = options.getEditorContent();
       let result: { content: string } | { error: unknown };
@@ -84,19 +107,45 @@ export function createNoteLoader(options: CreateNoteLoaderOptions) {
         result = { error };
       }
       if (version !== loadVersion) return null;
-      if (!options.isSavePending() && options.getEditorContent() === outgoing) return result;
+      // Rethrows a failed save; already settled, it costs one microtask.
+      if (fence !== null) await outgoingFlush;
+      if (version !== loadVersion) return null;
+      const settled = () => !options.isSavePending() && options.getEditorContent() === outgoing;
+      if (settled() && (fence === null || fence())) return result;
       await options.flushSave();
       if (version !== loadVersion) return null;
+      if (fence !== null && fence() && settled()) return result;
+      // Read again, now behind a finished flush — the order every read had.
+      fence = null;
     }
   }
 
   async function load(id: string | null): Promise<void> {
     const version = ++loadVersion;
-    await options.flushSave();
-    markNoteSwitch('saveFlushed');
-    if (version !== loadVersion) return;
+    const incomingId = id && id !== 'new' && hasFileSystem ? id : null;
+    /* The outgoing note's save and the incoming note's read overlap when the
+     * save cannot touch the incoming file. Any other save — the same note
+     * reopened, a rename that may land under the incoming id, a note saved
+     * for the first time — is awaited first, as every switch used to be, so
+     * the read sees what the save wrote. */
+    const fence = incomingId !== null ? options.fenceIncomingRead(incomingId) : null;
+    const flushing = options.flushSave();
+    if (fence !== null) {
+      /* `readIncoming` awaits this same promise before handing anything
+       * over; the handler only keeps a superseded load's failure from
+       * surfacing as unhandled. */
+      flushing.then(
+        () => markNoteSwitch('saveFlushed'),
+        () => undefined,
+      );
+    } else {
+      await flushing;
+      markNoteSwitch('saveFlushed');
+      if (version !== loadVersion) return;
+    }
 
-    const read = id && id !== 'new' && hasFileSystem ? await readIncoming(id, version) : null;
+    const read =
+      incomingId !== null ? await readIncoming(incomingId, version, fence, flushing) : null;
     if (version !== loadVersion) return;
 
     options.patchState({ loading: true });

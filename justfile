@@ -277,6 +277,21 @@ test-android-perf-quick *args:
 bench-block-drag *args:
   node scripts/perf/block-drag-bench.mjs {{args}}
 
+# Editor hill-climb score: elements restyled, layout scope and JS calls for eight
+# editor interactions (typing, opening, block drag) in headless Chromium — counts, not timings.
+# ~9.7s with the bundle build, ~4.9s with --no-build; --why <scenario> names causes. See docs/perf/editor-bench.md.
+#   just bench-editor --runs 0 --baseline docs/perf/editor-bench-baseline.json
+bench-editor *args:
+  node --experimental-strip-types scripts/perf/editor-bench.mjs {{args}}
+
+# ACCEPT/REJECT a change against the editor bench baseline: 3 count passes, no
+# count worse, score ≥0.5 % better, then the editor-embed suite. Exits 1 on REJECT.
+# The protocol for an agent climbing it: docs/perf/editor-bench-climb.md.
+#   just bench-climb-gate            # verdict only
+#   just bench-climb-gate --accept   # and write the new baseline
+bench-climb-gate *args:
+  node --experimental-strip-types scripts/perf/editor-bench-gate.mjs {{args}}
+
 # Storage-migration stories on the REAL app; CLEARS debug data — claim a device first.
 test-android-storage:
   node tests/android-storage-migration.mjs

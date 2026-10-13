@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { planMarkdownChunks } from './markdownChunks';
+import {
+  DEFAULT_CHUNK_OPTIONS,
+  FIRST_CHUNK_LINES_MAX,
+  FIRST_CHUNK_LINES_MIN,
+  firstChunkLinesForViewport,
+  planMarkdownChunks,
+} from './markdownChunks';
 
 /** The one invariant every plan must satisfy, whatever it decided. */
 function expectLossless(markdown: string): string[] {
@@ -577,5 +583,38 @@ describe('planMarkdownChunks — a leading U+FEFF', () => {
     expect(plan.chunks.join('')).toBe(md);
     // The blank line inside the front matter is not a boundary.
     expect(plan.chunks.some((c) => c.startsWith('b: 2'))).toBe(false);
+  });
+});
+
+describe('firstChunkLinesForViewport', () => {
+  it('sizes the first chunk to a screen and a half of the viewport', () => {
+    // A phone's ~800 px viewport: 34 lines × 1.5 → 50, not the fixed 80.
+    expect(firstChunkLinesForViewport(800)).toBe(50);
+    // A laptop pane.
+    expect(firstChunkLinesForViewport(960)).toBe(60);
+  });
+
+  it('clamps a tiny or a huge viewport', () => {
+    expect(firstChunkLinesForViewport(200)).toBe(FIRST_CHUNK_LINES_MIN);
+    expect(firstChunkLinesForViewport(5000)).toBe(FIRST_CHUNK_LINES_MAX);
+  });
+
+  it('falls back to the default when the viewport is unmeasurable', () => {
+    for (const h of [undefined, null, 0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(firstChunkLinesForViewport(h)).toBe(DEFAULT_CHUNK_OPTIONS.firstChunkLines);
+    }
+  });
+
+  it('only moves the FIRST cut; every chunk still joins back to the input', () => {
+    const md = Array.from({ length: 600 }, (_, i) => `line ${i}\n\n`).join('');
+    const phone = planMarkdownChunks(md, { firstChunkLines: firstChunkLinesForViewport(800) });
+    const fixed = planMarkdownChunks(md);
+    expect(phone.chunked).toBe(true);
+    expect(phone.chunks.join('')).toBe(md);
+    expect(phone.chunks[0].split('\n').length).toBeLessThan(fixed.chunks[0].split('\n').length);
+    // Every later cut is still one of the planner's proven boundaries: each
+    // chunk after the first starts where a blank line ended.
+    for (const chunk of phone.chunks.slice(1)) expect(chunk.startsWith('line ')).toBe(true);
+    expect(phone.chunks.length).toBeGreaterThanOrEqual(fixed.chunks.length);
   });
 });

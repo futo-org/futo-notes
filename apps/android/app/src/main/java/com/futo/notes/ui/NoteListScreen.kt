@@ -43,6 +43,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,6 +64,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.futo.notes.BuildConfig
 import androidx.compose.ui.unit.sp
 import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NotesStore
@@ -126,6 +129,10 @@ internal fun NoteListScreen(
 
     val subfolders = store.subfolders(folder)
     val notes = store.notesIn(folder)
+    // The first frame this list draws after it is (re)composed — the end of a
+    // note's exit as the user sees it (CloseLedger; a no-op outside an exit).
+    // Compiled out of release builds.
+    if (BuildConfig.DEBUG) LaunchedEffect(Unit) { withFrameNanos { CloseLedger.end() } }
     val title = if (isRoot) localization.localizedText("notes.heading") else folder.substringAfterLast('/')
 
     Scaffold(

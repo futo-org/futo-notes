@@ -426,6 +426,7 @@ struct NoteEditorView: View {
             // Presenting the centered delete confirmation covers this view but
             // is not navigation. Preserve its save chain and draft ownership.
             guard !showDeleteConfirm else { return }
+            CloseLedger.mark("editorDisappeared", note: noteId)
             closeFind()
             // Covered (a wikilink pushed a new editor) or popped: no longer the
             // visible editor, so it must stop driving the shared WebView.
@@ -501,14 +502,20 @@ struct NoteEditorView: View {
             effects: EditorExitEffects(
                 awaitCurrentBody: {
                     let current = await EditorHost.shared.awaitCurrent(noteId)
+                    CloseLedger.mark("bodyCurrent", note: current.canProceed ? "current" : "behind")
                     return current.latest?.content ?? content
                 },
                 commitBody: { flushed in
                     content = flushed
-                    guard loaded, flushed != savedContent else { return true }
+                    guard loaded, flushed != savedContent else {
+                        CloseLedger.mark("bodyClean")
+                        return true
+                    }
                     let disposition = await store.flushDraft(
                         PendingDraft(id: noteId, base: savedContent, content: flushed),
                         ownerToken: token)
+                    CloseLedger.mark(
+                        "bodyCommitted", note: disposition == nil ? "failed" : "durable")
                     guard disposition != nil else { return false }
                     savedContent = flushed
                     return true
@@ -518,12 +525,14 @@ struct NoteEditorView: View {
                 // under the id the note kept. Refusing would skip the body.
                 commitTitle: {
                     _ = await applyRename(titleField)
+                    CloseLedger.mark("titleCommitted")
                     return true
                 }
             )
         )
         Task { @MainActor in
             let left = await exit?.value ?? false
+            CloseLedger.mark("exitSettled", note: left ? "left" : "refused")
             let destinationId = noteId
             let baseline = savedContent
             let latest = EditorHost.shared.latest(departureId)
@@ -604,7 +613,7 @@ struct NoteEditorView: View {
 
     private func scheduleSave(_ newContent: String) {
         session.schedule(.save) {
-            try? await Task.sleep(nanoseconds: 400_000_000)
+            try? await Task.sleep(nanoseconds: CloseLedger.saveDebounceNanoseconds(400_000_000))
             guard session.isActive else { return false }
             return await persistBody(newContent)
         }

@@ -25,6 +25,7 @@
 
 import { Fragment, type Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
+import { beginInteraction, endInteraction, markInteraction } from '$shared/perf/interactionLedger';
 
 /** What a chunk append needs to know about the chunk BEFORE it. */
 export interface ChunkAppendOptions {
@@ -287,6 +288,67 @@ export function scheduleIdleSlice(run: (deadline: IdleDeadline | undefined) => v
   return () => clearTimeout(handle);
 }
 
+/** The shape of {@link scheduleIdleSlice}: what every idle consumer takes. */
+export type ScheduleIdle = (run: (deadline: IdleDeadline | undefined) => void) => CancelIdle;
+
+/** One animation frame, with a timer fallback for a page without rAF (tests). */
+function nextAnimationFrame(run: () => void): CancelIdle {
+  const raf = (globalThis as { requestAnimationFrame?: typeof requestAnimationFrame })
+    .requestAnimationFrame;
+  if (typeof raf === 'function') {
+    const handle = raf(() => run());
+    return () =>
+      (globalThis as { cancelAnimationFrame?: typeof cancelAnimationFrame }).cancelAnimationFrame?.(
+        handle,
+      );
+  }
+  const handle = setTimeout(run, 16);
+  return () => clearTimeout(handle);
+}
+
+/**
+ * {@link scheduleIdleSlice}, yielding to the user: while `isHeld()` (the
+ * interaction hold, interactionHold.ts) a slice waits a frame at a time, and
+ * runs through `inner` once the hold lifts. The check runs both when the slice
+ * is scheduled and again when the idle callback fires, because
+ * `requestIdleCallback`'s timeout can land a slice in the frames right after
+ * a tap — the frames the hold exists to protect.
+ *
+ * The returned canceller cancels whichever wait is pending, so a consumer's
+ * cancel/exactly-once bookkeeping is the same as with the plain scheduler.
+ */
+export function createYieldingIdleScheduler(
+  isHeld: () => boolean,
+  inner: ScheduleIdle = scheduleIdleSlice,
+  nextFrame: (run: () => void) => CancelIdle = nextAnimationFrame,
+): ScheduleIdle {
+  return (run) => {
+    let cancelled = false;
+    let cancel: CancelIdle | null = null;
+    const attempt = (): void => {
+      if (cancelled) return;
+      if (isHeld()) {
+        cancel = nextFrame(attempt);
+        return;
+      }
+      cancel = inner((deadline) => {
+        if (cancelled) return;
+        if (isHeld()) {
+          cancel = nextFrame(attempt);
+          return;
+        }
+        run(deadline);
+      });
+    };
+    attempt();
+    return () => {
+      cancelled = true;
+      cancel?.();
+      cancel = null;
+    };
+  };
+}
+
 /* ---- open timing ----------------------------------------------------------
  *
  * The open budget progressive open is measured against is
@@ -304,6 +366,7 @@ export const OPEN_COMPLETE_MEASURE = 'futo:editor-open-complete';
 
 /** Starts an open timing, discarding any entries from the previous open. */
 export function markOpenStart(): void {
+  beginInteraction('note-open');
   if (typeof performance?.mark !== 'function') return;
   performance.clearMarks(OPEN_START_MARK);
   performance.clearMeasures(OPEN_INTERACTIVE_MEASURE);
@@ -313,6 +376,10 @@ export function markOpenStart(): void {
 
 /** Records `name` as the span from the open's start mark to now. */
 export function measureOpen(name: string): void {
+  // The same two moments on the interaction ledger, for harnesses that read
+  // every interaction from one place rather than the performance buffer.
+  markInteraction('note-open', name === OPEN_INTERACTIVE_MEASURE ? 'interactive' : 'complete');
+  if (name === OPEN_COMPLETE_MEASURE) endInteraction('note-open');
   if (typeof performance?.measure !== 'function') return;
   try {
     performance.measure(name, OPEN_START_MARK);

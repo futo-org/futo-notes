@@ -307,6 +307,9 @@ export class MobileBlockDndView {
   private lastY = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private dragging = false;
+  /** The last pointer position this frame, waiting for `moveFrame` to draw it. */
+  private pendingMove: { x: number; y: number } | null = null;
+  private moveFrame: number | null = null;
   private pressed: PressedBlock | null = null;
   /** True when the editor already held focus at the moment this press
    * started. Decides whether `onFocusCapture` undoes a focus that lands mid-
@@ -400,6 +403,7 @@ export class MobileBlockDndView {
    * unselectable. */
   private disarm(): void {
     this.cancelTimer();
+    this.cancelMoveFrame();
     this.removeGestureListeners();
     const wasArmed = this.pointerId !== null;
     this.pointerId = null;
@@ -591,8 +595,36 @@ export class MobileBlockDndView {
       return;
     }
 
-    this.session.move(event.clientX, event.clientY);
+    this.queueMove(event.clientX, event.clientY);
   };
+
+  /** Draws the lifted block at the finger ONCE PER FRAME, at the last position
+   * the finger reported. A touch digitizer samples faster than the display
+   * refreshes and WKWebView delivers every sample (Chromium already aligns
+   * them to frames); each session move reads geometry and redraws the
+   * preview, so drawing every sample is the same frame painted several times
+   * over. The release reads its own position (`finish`), so a frame cut short
+   * by it is simply dropped. */
+  private queueMove(x: number, y: number): void {
+    this.pendingMove = { x, y };
+    if (this.moveFrame !== null) return;
+    const win = this.doc.defaultView ?? window;
+    this.moveFrame = win.requestAnimationFrame(() => {
+      this.moveFrame = null;
+      const at = this.pendingMove;
+      this.pendingMove = null;
+      if (!this.dragging || !at) return;
+      this.session.move(at.x, at.y);
+    });
+  }
+
+  private cancelMoveFrame(): void {
+    if (this.moveFrame !== null) {
+      (this.doc.defaultView ?? window).cancelAnimationFrame(this.moveFrame);
+      this.moveFrame = null;
+    }
+    this.pendingMove = null;
+  }
 
   private onPointerUp = (event: PointerEvent): void => {
     if (this.pointerId === null || event.pointerId !== this.pointerId) return;
