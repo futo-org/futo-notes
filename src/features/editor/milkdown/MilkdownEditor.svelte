@@ -278,6 +278,7 @@
     isComposing,
     insertMarkdown,
     openNote,
+    isStreaming,
     applyEdit,
     contentElement,
     placeCaretAtCoords,

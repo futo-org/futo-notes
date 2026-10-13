@@ -351,7 +351,16 @@ function createNoteCommands(
     setContent(noteId ?? '', text);
   }
 
-  return { setContent, retarget, applyExternalContent, openNote };
+  /**
+   * The note is still streaming in (progressiveLoad.ts): the document, and the
+   * height it lays out to, is a prefix of the note until this goes false. The
+   * shell's per-tab scroll restore waits on it.
+   */
+  function isStreaming(): boolean {
+    return session.streamingTail;
+  }
+
+  return { setContent, retarget, applyExternalContent, openNote, isStreaming };
 }
 
 /** The view: focus, the caret, what the shell measures, the undo stack, toolbar commands. */

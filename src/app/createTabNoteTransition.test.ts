@@ -37,7 +37,11 @@ describe('createTabNoteTransition', () => {
 
   it('restores the outgoing tab when its draft cannot be saved', async () => {
     const loadNote = vi.fn(async () => undefined);
-    const transition = createTabNoteTransition({ loadNote, getNoteBody: () => undefined });
+    const transition = createTabNoteTransition({
+      loadNote,
+      getNoteBody: () => undefined,
+      isNoteStreaming: () => false,
+    });
     await transition.transition('first', 'One', 0);
     tabs.activeTabId = 'second';
     loadNote.mockRejectedValueOnce(new Error('disk full'));
@@ -50,6 +54,7 @@ describe('createTabNoteTransition', () => {
     const transition = createTabNoteTransition({
       loadNote: vi.fn(async () => undefined),
       getNoteBody: () => body,
+      isNoteStreaming: () => false,
     });
 
     await transition.transition('first', 'One', 0);
@@ -69,6 +74,7 @@ describe('createTabNoteTransition', () => {
     const transition = createTabNoteTransition({
       loadNote: vi.fn(async () => undefined),
       getNoteBody: () => body,
+      isNoteStreaming: () => false,
     });
 
     await transition.transition('first', 'One', 80);
@@ -77,5 +83,39 @@ describe('createTabNoteTransition', () => {
     animationFrames.shift()?.(0);
 
     expect(body.scrollTop).toBe(0);
+  });
+
+  it('waits for a streaming note to reach the saved offset, unless the reader scrolls first', async () => {
+    let streaming = true;
+    const body = { scrollTop: 0, scrollHeight: 2_000, clientHeight: 500 } as HTMLElement;
+    const transition = createTabNoteTransition({
+      loadNote: vi.fn(async () => undefined),
+      getNoteBody: () => body,
+      isNoteStreaming: () => streaming,
+    });
+    const frames = (count: number) => {
+      for (let i = 0; i < count; i += 1) animationFrames.shift()?.(0);
+    };
+
+    await transition.transition('first', 'Big', 5_000);
+    frames(4);
+    // Set now, the browser would clamp it to the 2 000px streamed so far.
+    expect(body.scrollTop).toBe(0);
+    (body as { scrollHeight: number }).scrollHeight = 6_000;
+    frames(1);
+    expect(body.scrollTop).toBe(5_000);
+
+    tabs.activeTabId = 'second';
+    await transition.transition('second', 'Other', 0);
+    (body as { scrollHeight: number }).scrollHeight = 2_000;
+    body.scrollTop = 0;
+    tabs.activeTabId = 'first';
+    await transition.transition('first', 'Big', 5_000);
+    frames(3);
+    body.scrollTop = 300; // the reader's own scroll, while the tail streams
+    (body as { scrollHeight: number }).scrollHeight = 6_000;
+    streaming = false;
+    frames(4);
+    expect(body.scrollTop).toBe(300);
   });
 });

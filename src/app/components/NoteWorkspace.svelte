@@ -18,6 +18,7 @@
   export interface EditorApi {
     setContent: (noteId: string, text: string) => void;
     openNote: (noteId: string | null, text: string) => void;
+    isStreaming: () => boolean;
     applyEdit: (markdown: string) => void;
     insertMarkdown: (text: string) => void;
     focus: () => void;
