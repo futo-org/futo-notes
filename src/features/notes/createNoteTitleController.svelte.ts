@@ -43,20 +43,23 @@ export function createNoteTitleController(options: NoteTitleControllerOptions) {
 
   function handleInput(event: Event): void {
     const input = event.target as HTMLTextAreaElement;
-    let cleaned = input.value.replace(/[\r\n]/g, '');
-    const withoutForbidden = cleaned.replace(FORBIDDEN_CHARS_RE, '');
-    const hadForbidden = cleaned !== withoutForbidden;
-    cleaned = withoutForbidden;
+    const typed = input.value;
+    const withoutNewlines = typed.replace(/[\r\n]/g, '');
+    const cleaned = withoutNewlines.replace(FORBIDDEN_CHARS_RE, '');
     options.setTitle(cleaned);
 
-    if (hadForbidden) {
-      const position = input.selectionStart ?? cleaned.length;
-      requestAnimationFrame(() => input.setSelectionRange(position - 1, position - 1));
+    if (typed !== cleaned) {
+      // Written here, not left to the `value` binding: it skips a title that
+      // didn't change, so stripping "a/" back to "a" would leave the "/" shown.
+      const beforeCaret = typed.slice(0, input.selectionStart ?? typed.length);
+      const caret = beforeCaret.replace(/[\r\n]/g, '').replace(FORBIDDEN_CHARS_RE, '').length;
+      input.value = cleaned;
+      input.setSelectionRange(caret, caret);
+    }
+
+    if (withoutNewlines !== cleaned) {
       showWarning({ path: 'notes.title.forbiddenCharacter' }, 2000);
-    } else if (input.value !== cleaned) {
-      const position = input.selectionStart ?? cleaned.length;
-      requestAnimationFrame(() => input.setSelectionRange(position, position));
-    } else {
+    } else if (typed === cleaned) {
       const issue = validateTitle(cleaned).find(
         (item) =>
           item.kind === 'leading_dots' || item.kind === 'trailing_dots' || item.kind === 'too_long',
