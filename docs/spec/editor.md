@@ -1444,8 +1444,12 @@ EditorWebView.swift, EditorWebView.kt
   the toolbar lights nothing up — the editor reads the fence as its own `code`
   kind, which no command has a transition for. A selection that spans a fence
   formats the prose either side of it and steps over the fence rather than
-  swallowing it. → src/features/editor/milkdown/blockCommands.ts,
-  tests/editor-embed-milkdown-toolbar.spec.ts
+  swallowing it. The desktop block shortcuts (Ctrl/Cmd+Alt+0…8,
+  Ctrl/Cmd+Shift+B, Ctrl/Cmd+Alt+C) do nothing at all while the selection
+  touches a code block. → src/features/editor/milkdown/blockCommands.ts,
+  src/features/editor/milkdown/keyboardParity.ts,
+  tests/editor-embed-milkdown-toolbar.spec.ts,
+  tests/editor-embed-milkdown-interactive.spec.ts
 - The same holds inside a TABLE CELL: a GFM cell carries one line of inline
   content, which no block prefix can apply to, so a block command leaves the
   table untouched. → src/features/editor/milkdown/blockCommands.ts,

@@ -30,7 +30,11 @@ import { landPendingDrop } from './blockDragSession';
 import { autolink } from './autolink';
 import { dividerCaretFix } from './dividerCaret';
 import { plainTextBlockPaste } from './plainTextBlockPaste';
-import { handleIndentShortcut, handleParityKeyDown } from './keyboardParity';
+import {
+  handleBlockTypeChordInCode,
+  handleIndentShortcut,
+  handleParityKeyDown,
+} from './keyboardParity';
 import { handleLineStartShortcut, softBreakView } from './paragraphLines';
 import type { MobileDndHapticKind } from './mobileBlockDnd';
 import { codeHighlight } from './codeHighlight';
@@ -137,7 +141,9 @@ function configureEditor(ctx: Ctx, assembly: EditorAssembly): void {
   /* `handleKeyDown` rides it for the same precedence reason: the
    * CM6-parity Enter/Tab behaviors in keyboardParity.ts must win over
    * the gfm preset's own table keymap (bare Enter there is
-   * `exitTable`) without depending on plugin registration order. */
+   * `exitTable`) without depending on plugin registration order — and
+   * the code-block guard on the commonmark preset's block-type chords
+   * has to run before that preset's keymap at all. */
   ctx.update(editorViewOptionsCtx, (prev) => ({
     ...prev,
     attributes: {
@@ -156,7 +162,9 @@ function configureEditor(ctx: Ctx, assembly: EditorAssembly): void {
      * block drag carries no files and is left entirely alone. */
     handleDrop: (_view, event) => getDropHandler()?.(event as DragEvent) ?? false,
     handleKeyDown: (view, event) =>
-      handleIndentShortcut(view, event) || handleParityKeyDown(view, event),
+      handleIndentShortcut(view, event) ||
+      handleBlockTypeChordInCode(view, event) ||
+      handleParityKeyDown(view, event),
     /* A block shortcut (`- `, `# `, …) typed at the start of a line
      * inside a paragraph starts that block from the line, for the same
      * precedence reason (paragraphLines.ts). */

@@ -757,6 +757,44 @@ test('Escape then Tab releases the code-block claim for the next Tab only', asyn
 });
 
 // ============================================================
+// Code blocks — the presets' block-type shortcuts (ed-24; spec: "A
+// block-format command never touches a CODE BLOCK")
+// ============================================================
+
+/**
+ * Every preset chord that sets or wraps a block: Text, H1-H6, Ordered, Bullet,
+ * Quote, Code.
+ */
+const BLOCK_TYPE_CHORDS = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+  .map((n) => `ControlOrMeta+Alt+${n}`)
+  .concat(['ControlOrMeta+Shift+b', 'ControlOrMeta+Alt+c']);
+
+for (const [where, markdown, selectAll] of [
+  ['inside a one-line fence', '```js\nab\n```\n\nafter\n', false],
+  ['inside a multi-line fence', '```js\nconst a = 1;\nif (a) {\n  b();\n}\n```\n', false],
+  ['over a selection spanning a fence', 'before\n\n```js\nab\n```\n\nafter\n', true],
+] as const) {
+  test(`block-type shortcuts ${where} leave the note's bytes alone`, async ({ page }) => {
+    await open(page, markdown);
+    await withCaretObserved(page, () => page.locator('.ProseMirror pre code').first().click());
+    if (selectAll) await withCaretObserved(page, () => page.keyboard.press('ControlOrMeta+a'));
+    for (const chord of BLOCK_TYPE_CHORDS) {
+      await page.keyboard.press(chord);
+      await settled(page);
+      expect.soft(await getContent(page), chord).toBe(markdown);
+    }
+  });
+}
+
+test('Mod+Alt+1 still turns a paragraph into a heading', async ({ page }) => {
+  await open(page, 'plain\n');
+  await caretAtEndOf(page, 'plain');
+  await page.keyboard.press('ControlOrMeta+Alt+1');
+  await settled(page);
+  expect(await getContent(page)).toBe('# plain\n');
+});
+
+// ============================================================
 // Typed text saves with the escapes it needs (hardening L6e-1/13/14). Each
 // case types, saves, re-opens what was saved, and checks the note still MEANS
 // what was typed — the serializer's escaping is only visible on the reopen.
