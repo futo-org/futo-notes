@@ -150,7 +150,7 @@
     showToast: showGlobalToast,
     onMoved: retargetActiveNote,
     onDeleted: (id) => pruneLocalDeletes([id]),
-    onDeleteConfirmed: closeActiveNote,
+    onActiveNoteDeleted: closeActiveNote,
   });
 
   const tabTransition = createTabNoteTransition({

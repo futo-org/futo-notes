@@ -498,6 +498,24 @@ export function inIndentableContainer(at: ResolvedPos): boolean {
   return ancestorDepth(at, 'list_item') > 0 || ancestorDepth(at, 'blockquote') > 0;
 }
 
+/**
+ * Whether any textblock the selection touches is a code block — the guard the
+ * presets' own block-type key chords need (keyboardParity.ts
+ * `handleBlockTypeChordInCode`): unlike the commands above they are bare
+ * `setBlockType`/`wrapIn`s that would rewrite the fence.
+ */
+export function selectionTouchesCode(state: EditorState): boolean {
+  const { from, to } = state.selection;
+  let code = false;
+  state.doc.nodesBetween(from, to, (node, pos) => {
+    if (code) return false;
+    if (!node.isTextblock) return true;
+    code = isCodeTextblock(state.doc.resolve(pos + 1));
+    return false;
+  });
+  return code;
+}
+
 /** Change the nearest list or quote container by exactly one level. */
 export function changeBlockIndent(direction: 1 | -1): Command {
   return (state, dispatch) => {

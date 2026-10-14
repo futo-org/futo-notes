@@ -841,6 +841,17 @@
   outline: none;
 }
 
+/* The floating Link prompt (linkPrompt/index.ts) on a screen narrower than
+   its 260px field: capped to the viewport less `shift`'s 8px padding each
+   side, the field gives up the width so the button stays whole. */
+.futo-link-prompt {
+  max-width: calc(100vw - 16px);
+}
+
+.futo-link-prompt .futo-selection-toolbar-url {
+  min-width: 0;
+}
+
 .futo-selection-toolbar-url:focus {
   border-color: var(--color-primary);
 }

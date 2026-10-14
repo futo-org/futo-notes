@@ -14,7 +14,7 @@ export interface CurrentNoteActionsDeps {
   showToast: (message: ToastMessage) => void;
   onMoved: (fromId: string, toId: string, title: string) => void;
   onDeleted: (id: string) => void;
-  onDeleteConfirmed: () => void;
+  onActiveNoteDeleted: () => void;
 }
 
 // Open-note overflow menu (list.md): Copy file path, Move to folder, Delete note.
@@ -95,7 +95,7 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
       if (!id) return deps.showToast({ path: 'notes.unavailable' });
       try {
         await deleteNoteFromVault(id);
-        deps.onDeleteConfirmed();
+        if (deps.getActiveNoteId() === id) deps.onActiveNoteDeleted();
         deps.onDeleted(id);
         deps.showToast({ path: 'notes.deleted' });
       } catch (cause) {

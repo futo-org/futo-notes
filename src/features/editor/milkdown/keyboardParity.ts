@@ -59,6 +59,7 @@
  * and Delete inside a block, and the list-split Enter for plain and unchecked
  * items.
  */
+import { keydownHandler } from '@milkdown/kit/prose/keymap';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { splitListItem } from '@milkdown/kit/prose/schema-list';
 import {
@@ -77,7 +78,7 @@ import {
 } from '@milkdown/kit/prose/tables';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
-import { blockFormatAtPos, changeBlockIndent } from './blockCommands';
+import { blockFormatAtPos, changeBlockIndent, selectionTouchesCode } from './blockCommands';
 import { enclosingListItem } from './caretContext';
 import { enterInParagraph, joinBackwardAsLine, joinForwardAsLine } from './paragraphLines';
 import { isSlashMenuOpen } from './slash';
@@ -410,4 +411,37 @@ export function handleIndentShortcut(view: ProseView, event: KeyboardEvent): boo
   const direction = isIndentShortcut(event);
   if (direction === null) return false;
   return changeBlockIndent(direction)(view.state, view.dispatch);
+}
+
+/*
+ * The commonmark preset's block-type chords — Text (Mod-Alt-0), Heading 1-6
+ * (Mod-Alt-1…6), Ordered (Mod-Alt-7), Bullet (Mod-Alt-8), Quote (Mod-Shift-b)
+ * and Code (Mod-Alt-c) — are bare `setBlockType`/`wrapIn`s, so with the caret
+ * in a fence they rewrote it: a heading or paragraph of its lines joined by
+ * spaces, a `>`-wrapped fence, the language dropped — and over a selection
+ * spanning a fence, the lists swallowed it too (ed-24). A fence is literal
+ * text, which no block format applies to (blockCommands.ts, and
+ * docs/spec/editor.md "A block-format command never touches a CODE BLOCK"),
+ * so these chords do nothing while the selection touches one. The key is
+ * still CLAIMED: the preset claims it everywhere else, and declining here
+ * would hand it straight back to that preset's keymap. Key names are the
+ * preset's own, matched by the same `keydownHandler` its keymap uses.
+ */
+const blockTypeChordsInCode = keydownHandler(
+  Object.fromEntries(
+    [0, 1, 2, 3, 4, 5, 6, 7, 8]
+      .map((n) => `Mod-Alt-${n}`)
+      .concat(['Mod-Shift-b', 'Mod-Alt-c'])
+      .map((chord): [string, Command] => [chord, (state) => selectionTouchesCode(state)]),
+  ),
+);
+
+/**
+ * The `handleKeyDown` direct view prop for the preset's block-type chords:
+ * claims one, changing nothing, when the selection touches a code block;
+ * declines everywhere else so the preset runs as before.
+ */
+export function handleBlockTypeChordInCode(view: ProseView, event: KeyboardEvent): boolean {
+  if (event.isComposing) return false;
+  return blockTypeChordsInCode(view, event);
 }

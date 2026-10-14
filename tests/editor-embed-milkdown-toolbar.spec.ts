@@ -347,6 +347,59 @@ test('a caret at the edge of an existing link (no selection) edits that link', a
   expect((await getContent(page)).trimEnd()).toBe('[docs](https://example.test/moved) tail');
 });
 
+// A phone-width WebView (360 CSS px, the Android release-smoke device): the
+// prompt is wider than the room right of most carets, and once placed at the
+// caret it ran ~15px off the right edge, cutting the Update button in half.
+// The cases cover the left side, the right edge, a selection, and a screen
+// narrower than the prompt itself.
+const LINK_IN_PARAGRAPH = '[paragraph](example.org)';
+const NEARLY_FULL_LINE = 'a line that runs nearly the whole width';
+const NARROW_PROMPT_CASES: Array<[string, number, string, (page: Page) => Promise<void>]> = [
+  [
+    'a caret inside an existing link',
+    360,
+    LINK_IN_PARAGRAPH,
+    (page) => page.getByText('paragraph', { exact: true }).first().click(),
+  ],
+  // `setContent` leaves the caret at the end of the document, which this
+  // line's length puts near the right edge of a 360px column.
+  ['a caret near the right edge', 360, NEARLY_FULL_LINE, async () => {}],
+  [
+    'a selection near the right edge',
+    360,
+    NEARLY_FULL_LINE,
+    (page) => page.getByText('width', { exact: false }).first().dblclick(),
+  ],
+  [
+    'a caret inside an existing link',
+    300,
+    LINK_IN_PARAGRAPH,
+    (page) => page.getByText('paragraph', { exact: true }).first().click(),
+  ],
+];
+for (const [where, width, markdown, place] of NARROW_PROMPT_CASES) {
+  test(`at ${width}px wide, the link prompt for ${where} stays inside the viewport`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 640 });
+    await hostSetContent(page, markdown);
+    await focusEditor(page);
+    await place(page);
+    await flushFrames(page);
+    await exec(page, 'link');
+
+    const url = linkUrlField(page);
+    await expect(url).toBeVisible();
+    const prompt = page.locator('.futo-selection-toolbar').filter({ has: url });
+    for (const part of [prompt, url, prompt.locator('.futo-selection-toolbar-apply')]) {
+      const box = await part.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+    }
+  });
+}
+
 // ============================================================
 // Undo / Redo (QA-003) — first toolbar items, prosemirror-history's own stack
 // ============================================================

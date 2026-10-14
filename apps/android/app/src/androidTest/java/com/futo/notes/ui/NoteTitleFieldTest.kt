@@ -1,9 +1,6 @@
 package com.futo.notes.ui
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.testTag
@@ -17,9 +14,10 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextInputSelection
 import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -39,13 +37,14 @@ class NoteTitleFieldTest {
     val compose = createComposeRule()
 
     private var returns = 0
+    private val title = TextFieldState()
+    private val forbiddenEdits = mutableListOf<String>()
 
     private fun showField() {
         compose.setContent {
-            var value by remember { mutableStateOf(TextFieldValue("")) }
             NoteTitleField(
-                value = value,
-                onValueChange = { value = it },
+                state = title,
+                onTyped = { typed, forbidden -> if (forbidden) forbiddenEdits += typed },
                 placeholder = "Untitled",
                 enabled = true,
                 onReturn = { returns++ },
@@ -76,6 +75,20 @@ class NoteTitleFieldTest {
 
         assertEquals(1, returns)
         compose.onNodeWithTag(TAG).assert(hasText("Groceries"))
+    }
+
+    // The strip runs inside the field's editing pipeline, so the keyboard's
+    // input connection is never restarted under a key typed right after it.
+    @Test
+    fun aForbiddenCharIsStrippedWhereItWasTyped() {
+        showField()
+        compose.onNodeWithTag(TAG).performTextInputSelection(TextRange(3))
+
+        compose.onNodeWithTag(TAG).performTextInput("/")
+
+        assertEquals("Groceries", title.text.toString())
+        assertEquals(TextRange(3), title.selection)
+        assertEquals(listOf("Groceries"), forbiddenEdits)
     }
 
     private companion object {
