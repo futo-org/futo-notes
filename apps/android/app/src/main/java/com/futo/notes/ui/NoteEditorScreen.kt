@@ -244,6 +244,22 @@ fun NoteEditorScreen(
         if (titleField.text != before) titleWarning = null
     }
     var warningJob by remember { mutableStateOf<Job?>(null) }
+    // Persistent warning for dot/too-long; else duplicate; else clear.
+    fun showTitleValidation(title: String) {
+        warningJob?.cancel()
+        val blocking = validateTitle(title)
+            .firstOrNull { it.kind != "empty" && it.kind != "forbidden_chars" }
+        val dup = title.trim().let { t ->
+            t.isNotEmpty() && makeId(splitId(noteId).folder, sanitizeTitle(t)).let { tgt ->
+                tgt != noteId && store.notes.any { it.id == tgt }
+            }
+        }
+        titleWarning = blocking?.let { titleValidationMessage(it.kind) }
+            ?: if (dup) LocalizedMessage("notes.title.duplicate") else null
+    }
+    // The title onTyped last handled, so the edit watcher below doesn't
+    // validate it again (and clobber a forbidden-char warning).
+    var typedTitle by remember(initialNoteId) { mutableStateOf<String?>(null) }
     // CRITICAL: never block the editor's first frame on a disk read. Start empty
     // and load the note body off the main thread; the WebView mounts immediately
     // and receives the content reactively once the read lands.
@@ -886,6 +902,16 @@ fun NoteEditorScreen(
         }
     }
 
+    // The user's edits from any source discard a title waiting for blur; one
+    // onTyped never saw (an undo/redo) is validated here.
+    LaunchedEffect(titleField) {
+        titleField.watchEdits { title ->
+            val typed = typedTitle
+            typedTitle = null
+            if (title != typed) showTitleValidation(title)
+        }
+    }
+
     // Debounced rename (500 ms) — the filename IS the title; Rust resolves
     // collisions and returns the final id.
     LaunchedEffect(initialNoteId) {
@@ -1114,23 +1140,14 @@ fun NoteEditorScreen(
                 // The field strips forbidden filesystem chars in place (desktop
                 // parity — the illegal char never persists) + caps the length.
                 onTyped = { capped, forbidden ->
+                    typedTitle = capped
                     if (forbidden) {
                         // Transient warning (auto-hide after 2 s).
                         titleWarning = LocalizedMessage("notes.title.forbiddenCharacter")
                         warningJob?.cancel()
                         warningJob = scope.launch { delay(2000); titleWarning = null }
                     } else {
-                        // Persistent warning for dot/too-long; else duplicate; else clear.
-                        warningJob?.cancel()
-                        val blocking = validateTitle(capped)
-                            .firstOrNull { it.kind != "empty" && it.kind != "forbidden_chars" }
-                        val dup = capped.trim().let { t ->
-                            t.isNotEmpty() && makeId(splitId(noteId).folder, sanitizeTitle(t)).let { tgt ->
-                                tgt != noteId && store.notes.any { it.id == tgt }
-                            }
-                        }
-                        titleWarning = blocking?.let { titleValidationMessage(it.kind) }
-                            ?: if (dup) LocalizedMessage("notes.title.duplicate") else null
+                        showTitleValidation(capped)
                     }
                 },
                 modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 4.dp)

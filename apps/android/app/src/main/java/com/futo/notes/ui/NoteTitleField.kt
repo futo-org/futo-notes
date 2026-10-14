@@ -17,6 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
@@ -56,7 +57,26 @@ internal class TitleFieldState(title: String) {
         if (focused) return
         val (title, committedFor) = titleOnBlur ?: return
         titleOnBlur = null
+        // An edit in the same frame as the blur hasn't reached [watchEdits] yet.
         if (text == committedFor) commit(title)
+    }
+
+    /**
+     * Watches the text while the screen is up. Focused, the app never changes
+     * it (its commits wait for blur), so a change then is the user's, from any
+     * source: typing, a paste, or an undo/redo the input filter never sees. It
+     * discards a waiting title, even if the text later reads the same again,
+     * and is passed to [onEdited].
+     */
+    suspend fun watchEdits(onEdited: (String) -> Unit) {
+        var seen = text
+        snapshotFlow { text }.collect { now ->
+            if (isFocused && now != seen) {
+                titleOnBlur = null
+                onEdited(now)
+            }
+            seen = now
+        }
     }
 
     fun commit(title: String) {
