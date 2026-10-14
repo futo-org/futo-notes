@@ -27,7 +27,7 @@ function makeActions(overrides: Partial<Parameters<typeof createCurrentNoteActio
     showToast: vi.fn(),
     onMoved: vi.fn(),
     onDeleted: vi.fn(),
-    onDeleteConfirmed: vi.fn(),
+    onActiveNoteDeleted: vi.fn(),
     ...overrides,
   });
 }
@@ -44,8 +44,13 @@ describe('createCurrentNoteActions', () => {
     const showToast = vi.fn();
     const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => operation());
     const onDeleted = vi.fn();
-    const onDeleteConfirmed = vi.fn();
-    const actions = makeActions({ runWithActiveNoteLock, showToast, onDeleted, onDeleteConfirmed });
+    const onActiveNoteDeleted = vi.fn();
+    const actions = makeActions({
+      runWithActiveNoteLock,
+      showToast,
+      onDeleted,
+      onActiveNoteDeleted,
+    });
 
     await actions.deleteCurrentNote();
 
@@ -56,12 +61,12 @@ describe('createCurrentNoteActions', () => {
     expect(mocks.deleteNote).toHaveBeenCalledWith('Projects/Roadmap');
     expect(onDeleted).toHaveBeenCalledWith('Projects/Roadmap');
     expect(runWithActiveNoteLock).toHaveBeenCalledOnce();
-    expect(onDeleteConfirmed).toHaveBeenCalledOnce();
+    expect(onActiveNoteDeleted).toHaveBeenCalledOnce();
     expect(runWithActiveNoteLock.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.deleteNote.mock.invocationCallOrder[0],
     );
     expect(mocks.deleteNote.mock.invocationCallOrder[0]).toBeLessThan(
-      onDeleteConfirmed.mock.invocationCallOrder[0],
+      onActiveNoteDeleted.mock.invocationCallOrder[0],
     );
     expect(showToast).toHaveBeenCalledWith({ path: 'notes.deleted' });
   });
@@ -108,6 +113,28 @@ describe('createCurrentNoteActions note targeting', () => {
     await actions.deleteCurrentNote();
 
     expect(mocks.deleteNote).toHaveBeenCalledExactlyOnceWith('Doomed');
+  });
+
+  it('keeps the note switched to while the confirm dialog was up open', async () => {
+    let activeId: string = 'Doomed';
+    mocks.getNoteById.mockImplementation((id: string) => ({ id }));
+    mocks.confirmDialog.mockImplementation(async () => {
+      activeId = 'Bystander';
+      return true;
+    });
+    const onDeleted = vi.fn();
+    const onActiveNoteDeleted = vi.fn();
+    const actions = makeActions({
+      getActiveNoteId: () => activeId,
+      onDeleted,
+      onActiveNoteDeleted,
+    });
+
+    await actions.deleteCurrentNote();
+
+    expect(mocks.deleteNote).toHaveBeenCalledExactlyOnceWith('Doomed');
+    expect(onDeleted).toHaveBeenCalledExactlyOnceWith('Doomed');
+    expect(onActiveNoteDeleted).not.toHaveBeenCalled();
   });
 
   it('deletes the id the flush minted for an unsaved draft, not the note switched to', async () => {
