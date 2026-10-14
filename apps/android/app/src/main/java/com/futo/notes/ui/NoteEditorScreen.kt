@@ -69,8 +69,6 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.ViewCompat
@@ -230,11 +228,9 @@ fun NoteEditorScreen(
     val editorPaneUnavailable = isEditorPaneUnavailable(hasWebViewProvider, host.engineFailure)
 
     var noteId by remember(initialNoteId) { mutableStateOf(initialNoteId) }
-    // TextFieldValue (not String) so we can control the selection: tapping a
+    // A TextFieldState, not a String, so we can control the selection: tapping a
     // still-placeholder title selects it whole (see the select-all effect below).
-    var titleField by remember(initialNoteId) {
-        mutableStateOf(TitleFieldState(TextFieldValue(splitId(initialNoteId).title)))
-    }
+    val titleField = remember(initialNoteId) { TitleFieldState(splitId(initialNoteId).title) }
     // Inline title-validation warning (desktop parity): forbidden char → transient
     // 2 s; dot/too-long/duplicate → persistent + blocks the rename. Shown in
     // danger red under the title field.
@@ -242,9 +238,10 @@ fun NoteEditorScreen(
     // The app, not typing, changed the title text: a warning about the old text
     // no longer applies (desktop parity). A title held while focused keeps its
     // warning until blur shows the new one.
-    fun showTitleField(next: TitleFieldState) {
-        if (next.value.text != titleField.value.text) titleWarning = null
-        titleField = next
+    fun showTitleChange(change: () -> Unit) {
+        val before = titleField.text
+        change()
+        if (titleField.text != before) titleWarning = null
     }
     var warningJob by remember { mutableStateOf<Job?>(null) }
     // CRITICAL: never block the editor's first frame on a disk read. Start empty
@@ -324,7 +321,7 @@ fun NoteEditorScreen(
 
             is FlushDisposition.ParkedConflict -> {
                 retargetNoteId(disposition.parkedId)
-                showTitleField(titleField.afterCommit(splitId(disposition.parkedId).title))
+                showTitleChange { titleField.commit(splitId(disposition.parkedId).title) }
                 savedContent = snapshot
                 Toast.makeText(
                     context,
@@ -497,7 +494,7 @@ fun NoteEditorScreen(
 
                     is OpenNoteDisposition.FollowRename -> {
                         retargetNoteId(disposition.toId)
-                        showTitleField(titleField.afterCommit(splitId(disposition.toId).title))
+                        showTitleChange { titleField.commit(splitId(disposition.toId).title) }
                     }
 
                     is OpenNoteDisposition.KeepDraft -> {
@@ -599,7 +596,7 @@ fun NoteEditorScreen(
                 }
 
                 override suspend fun commitTitle(): Boolean {
-                    val requestedTitle = titleField.value.text
+                    val requestedTitle = titleField.text
                     val flushed = content
                     val titleCommit = commitEditorTitleSnapshot(
                         currentId = noteId,
@@ -618,8 +615,8 @@ fun NoteEditorScreen(
                         },
                     )
                     retargetNoteId(titleCommit.id)
-                    if (titleCommit.isCommitted && titleField.value.text == requestedTitle) {
-                        showTitleField(titleField.afterCommit(splitId(noteId).title))
+                    if (titleCommit.isCommitted && titleField.text == requestedTitle) {
+                        showTitleChange { titleField.commit(splitId(noteId).title) }
                     }
                     if (titleCommit.isCommitted) settleRelink(flushed, titleCommit.relinkedBody)
                     CloseLedger.mark("titleCommitted")
@@ -810,7 +807,7 @@ fun NoteEditorScreen(
         // already keeps this dispose from running until any insert settles;
         // it also covers Move/Delete disposing while one is still in flight.
         if (autoFocus && noteId == initialNoteId && content.isEmpty()
-            && titleField.value.text == splitId(initialNoteId).title
+            && titleField.text == splitId(initialNoteId).title
             && pendingImageInsert == 0) {
             store.deleteAsync(noteId, ownerToken)
         } else if (loaded && content != savedContent) {
@@ -892,7 +889,7 @@ fun NoteEditorScreen(
     // Debounced rename (500 ms) — the filename IS the title; Rust resolves
     // collisions and returns the final id.
     LaunchedEffect(initialNoteId) {
-        snapshotFlow { titleField.value.text }.debounce(500).collect { next ->
+        snapshotFlow { titleField.text }.debounce(500).collect { next ->
             // Flush any pending body edit to the CURRENT id and cancel the
             // in-flight save before the file moves — otherwise a stale save
             // would recreate a ghost note at the old id (data loss). The derived
@@ -922,8 +919,8 @@ fun NoteEditorScreen(
                     },
                 )
                 retargetNoteId(titleCommit.id)
-                if (titleCommit.isCommitted && titleField.value.text == next) {
-                    showTitleField(titleField.afterCommit(splitId(noteId).title))
+                if (titleCommit.isCommitted && titleField.text == next) {
+                    showTitleChange { titleField.commit(splitId(noteId).title) }
                 }
                 if (titleCommit.isCommitted) settleRelink(flushed, titleCommit.relinkedBody)
                 if (!titleCommit.isCommitted) {
@@ -1005,10 +1002,7 @@ fun NoteEditorScreen(
     // once per focus (after the tap's caret placement settles — otherwise the
     // tap's collapsed selection would win), not on every tap while focused.
     LaunchedEffect(titleField.isFocused) {
-        val title = titleField.value
-        if (titleField.isFocused && isPlaceholderTitle(title.text)) {
-            titleField = titleField.copy(value = title.copy(selection = TextRange(0, title.text.length)))
-        }
+        if (titleField.isFocused && isPlaceholderTitle(titleField.text)) titleField.selectAll()
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -1033,7 +1027,7 @@ fun NoteEditorScreen(
                     IconButton(enabled = !interactionLocked, onClick = {
                         val shared = NoteShare.share(
                             context,
-                            titleField.value.text,
+                            titleField.text,
                             content,
                             localization.localizedText("notes.shareChooserTitle"),
                         )
@@ -1112,18 +1106,14 @@ fun NoteEditorScreen(
         ) {
             NoteTitleField(
                 enabled = !interactionLocked,
-                value = titleField.value,
+                state = titleField.textState,
                 placeholder = localization.localizedText("notes.untitledPlaceholder"),
                 // The same native-then-page focus a new note opens with, so the
                 // keyboard stays up and typing carries on into the body. [list.md]
                 onReturn = { host.focusEditor() },
-                onValueChange = { v ->
-                    // Strip forbidden filesystem chars in-place (desktop parity —
-                    // the illegal char never persists) + cap at the length limit.
-                    val forbidden = TitleSpec.forbiddenChars.containsMatchIn(v.text.replace("\n", ""))
-                    val edited = filteredTitleInput(v)
-                    val capped = edited.text
-                    titleField = titleField.afterTyping(edited)
+                // The field strips forbidden filesystem chars in place (desktop
+                // parity — the illegal char never persists) + caps the length.
+                onTyped = { capped, forbidden ->
                     if (forbidden) {
                         // Transient warning (auto-hide after 2 s).
                         titleWarning = LocalizedMessage("notes.title.forbiddenCharacter")
@@ -1144,7 +1134,7 @@ fun NoteEditorScreen(
                     }
                 },
                 modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 4.dp)
-                    .onFocusChanged { showTitleField(titleField.afterFocusChange(it.isFocused)) },
+                    .onFocusChanged { focus -> showTitleChange { titleField.focusChanged(focus.isFocused) } },
             )
             titleWarning?.let { warning ->
                 Text(
@@ -1396,7 +1386,7 @@ fun NoteEditorScreen(
                         }
 
                         override suspend fun perform(): Boolean {
-                            val requestedTitle = titleField.value.text
+                            val requestedTitle = titleField.text
                             val flushed = content
                             val moveOutcome = store.moveNote(
                                 noteId,
@@ -1409,8 +1399,8 @@ fun NoteEditorScreen(
                             // target the final id.
                             savedContent = flushed
                             retargetNoteId(moveOutcome.value.id)
-                            if (titleField.value.text == requestedTitle) {
-                                showTitleField(titleField.afterCommit(splitId(noteId).title))
+                            if (titleField.text == requestedTitle) {
+                                showTitleChange { titleField.commit(splitId(noteId).title) }
                             }
                             settleRelink(flushed, moveOutcome.value.relinkedBody)
                             return true
