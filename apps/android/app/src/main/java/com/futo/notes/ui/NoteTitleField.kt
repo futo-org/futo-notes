@@ -50,6 +50,21 @@ internal data class TitleFieldState(
 }
 
 /**
+ * What [typed] leaves in the title field [list.md]: newlines and forbidden
+ * filename chars stripped in place, capped at the title length limit. Each
+ * selection end lands after the chars that survived before it, so the caret
+ * stays where a stripped char was typed instead of moving right past it.
+ */
+internal fun filteredTitleInput(typed: TextFieldValue): TextFieldValue {
+    fun filter(text: String) =
+        TitleSpec.forbiddenChars.replace(text.replace("\n", ""), "").take(TitleSpec.maxLength)
+    val filtered = filter(typed.text)
+    if (filtered == typed.text) return typed
+    fun kept(offset: Int) = filter(typed.text.take(offset)).length
+    return TextFieldValue(filtered, TextRange(kept(typed.selection.start), kept(typed.selection.end)))
+}
+
+/**
  * The note's inline title field [list.md]. Return moves on into the body: the
  * keyboard's action key (shown as "next") and a hardware Enter both run
  * [onReturn], and the title never takes a newline. The caller owns the rename,

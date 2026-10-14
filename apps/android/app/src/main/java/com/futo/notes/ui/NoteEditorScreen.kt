@@ -1120,14 +1120,10 @@ fun NoteEditorScreen(
                 onValueChange = { v ->
                     // Strip forbidden filesystem chars in-place (desktop parity —
                     // the illegal char never persists) + cap at the length limit.
-                    val noNewline = v.text.replace("\n", "")
-                    val cleaned = TitleSpec.forbiddenChars.replace(noNewline, "")
-                    val forbidden = cleaned != noNewline
-                    val capped = if (cleaned.length > TitleSpec.maxLength) cleaned.take(TitleSpec.maxLength) else cleaned
-                    titleField = titleField.afterTyping(
-                        if (capped == v.text) v
-                        else TextFieldValue(capped, TextRange(minOf(v.selection.end, capped.length))),
-                    )
+                    val forbidden = TitleSpec.forbiddenChars.containsMatchIn(v.text.replace("\n", ""))
+                    val edited = filteredTitleInput(v)
+                    val capped = edited.text
+                    titleField = titleField.afterTyping(edited)
                     if (forbidden) {
                         // Transient warning (auto-hide after 2 s).
                         titleWarning = LocalizedMessage("notes.title.forbiddenCharacter")
