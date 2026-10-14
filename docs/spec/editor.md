@@ -1374,7 +1374,9 @@ EditorWebView.swift, EditorWebView.kt
   tests/editor-embed-milkdown-toolbar.spec.ts
 - Link opens the SAME shared URL prompt the desktop selection toolbar and the
   `/` menu's Link item do (`linkPrompt/`), floated over the caret/selection
-  inside the WebView — never a native SwiftUI/Compose dialog. With a
+  inside the WebView — never a native SwiftUI/Compose dialog. The prompt stays
+  fully inside the viewport (slid in from a screen edge, narrowed on a screen
+  thinner than it), so its Add/Update button is never cut off. With a
   selection (or a bare caret already sitting inside an existing link — reachable
   on mobile via a selection-handle drag that resolves back to a collapsed
   caret) the field is prefilled with that link's href and updates it in place;

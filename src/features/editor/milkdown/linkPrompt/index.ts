@@ -45,6 +45,7 @@
  * a click/tap outside the prompt all cancel and leave the document untouched
  * (the `/` menu case leaves it exactly as its own `/link` deletion left it).
  */
+import { shift } from '@floating-ui/dom';
 import type { Editor } from '@milkdown/kit/core';
 import { SlashProvider } from '@milkdown/kit/plugin/slash';
 import { callCommand } from '@milkdown/kit/utils';
@@ -150,7 +151,7 @@ function openLinkFieldAt(view: ProseView, options: LinkFieldOptions): void {
   dismissLinkPrompt();
 
   const content = document.createElement('div');
-  content.className = 'futo-selection-toolbar';
+  content.className = 'futo-selection-toolbar futo-link-prompt';
   const body = document.createElement('div');
   body.className = 'futo-selection-toolbar-body';
   content.appendChild(body);
@@ -164,6 +165,11 @@ function openLinkFieldAt(view: ProseView, options: LinkFieldOptions): void {
     root: document.body,
     floatingUIOptions: { strategy: 'fixed' },
     offset: 6,
+    // `SlashProvider` only runs `flip`, which cannot fit a prompt wider than
+    // the room on either side of the caret: on a 360px phone it left the
+    // Update button cut off at the screen edge. `shift` slides it back inside
+    // the viewport, as the selection toolbar's own `shift` does.
+    middleware: [shift({ padding: 8 })],
     debounce: 0,
     shouldShow: () => !settled,
   });
