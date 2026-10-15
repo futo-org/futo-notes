@@ -1,11 +1,14 @@
 # Plan: what a license includes — app icons, the landing after paying, attribution, and a license that follows the vault
 
-Status: rough spec, 2026-10-15. Nothing implemented. Decided with @justin and FUTO's CEO: a
+Status: rough spec, 2026-10-15, reviewed by @justin the same day (decisions D11–D13 below
+are his). Nothing implemented. Decided with @justin and FUTO's CEO: a
 license may include **purely cosmetic** choices. Every working feature stays available
 without one; what a license buys is the things that cost FUTO recurring money (sync) and the
 cosmetics FUTO chooses to include. App icons are the first; themes are the likely second.
 Behavioral truth to update: `docs/spec/license.md`, `docs/spec/settings.md`.
-Sketches: `~/Developer/licensed-app-icons-mockups-v2.html` on jfedora (not in the repo).
+Sketches: `docs/plan/license-cosmetics/*.png` (exported from the reviewed design doc,
+<https://claude.ai/code/artifact/e6bb4266-b1e4-42a8-b8ff-12e38cd1b417>; the doc stays the
+editable original, the PNGs are what this plan was written against).
 
 Written for an implementing agent. Read root `AGENTS.md`, `crates/futo-notes-license/AGENTS.md`,
 `crates/futo-notes-ffi/AGENTS.md`, `apps/ios/AGENTS.md`, `apps/android/AGENTS.md`,
@@ -27,11 +30,14 @@ summary` form with a `Verified:` line.
 | D8 | Rust owns the rule | What a license includes is one Rust answer (`license_includes`), projected through UniFFI and Tauri. No Swift/Kotlin/TS copy. Shells only ask. |
 | D9 | The spec principle changes | "Nothing is gated" becomes "Nothing that works is gated." Rewritten in the same MR as M1, with ADR-0006 recording the decision and the CEO's sign-off. |
 | D10 | License sync (M6) is its own MR, after this plan is approved | It touches the sync payload (AGENTS.md §11.6). This document is the ask; M6 does not start until @justin OKs its section. |
+| D11 | Picker treatment | **Concept A**: coin badges on every tile but the current one, one footnote under the grid, a sheet on tap. Concept B (an ask card inside the picker) is rejected. (@justin 2026-10-15) |
+| D12 | The License card does not change | No new sentence on the Unlicensed card. The App icon row hint is the only Settings-level touch. `license.explanationIncludes` is **not** added. (@justin 2026-10-15) |
+| D13 | Picker once Licensed | The coin **stays** on every icon but Standard, so the picker still shows which ones came with the license. No footnote, no ask, no sheet. (@justin 2026-10-15) |
 
 ## 1. The picker when the license does not include icons (M2, M3)
 
-Concept A from the sketches. The resting picker is unchanged in shape: two-column grid, six
-labeled tiles, the current choice checked.
+Concept A (D11), `license-cosmetics/02-picker-unlicensed.png`. The resting picker is unchanged in
+shape: two-column grid, six labeled tiles, the current choice checked.
 
 - Every tile except the current one wears a small coin badge (the existing
   `SupporterCoin` artwork, 26pt, bottom-trailing of the artwork, surface-colored ring).
@@ -52,10 +58,12 @@ labeled tiles, the current choice checked.
     contains `Buy`/`Renew` the sheet is link-out, else key-only. No new storefront logic.
 - Tapping the current tile is a no-op, as today.
 - The Settings row gains a trailing coin + `settings.appIcon.license.rowHint` before the
-  chevron while the license does not include icons.
-- The Unlicensed/Expired License card gains one sentence after the mission paragraph:
-  `license.explanationIncludes`. Native only (D7).
-- Licensed: every one of the above disappears. The picker is byte-for-byte today's.
+  chevron while the license does not include icons (`01-settings-row-hint.png`). The License
+  card itself does not change (D12).
+- The sheet is `03-tap-sheet.png`, both builds.
+- Licensed (D13, right half of `04-after-activation.png`): the footnote, the sheet and the row
+  hint disappear; the coin badge stays on every tile but Standard. Tapping a tile changes the
+  icon exactly as today.
 
 ## 2. M1 — the Rust rule and its projections
 
@@ -97,16 +105,16 @@ Verification: `cargo test -p futo-notes-license -p futo-notes-ffi`, `just check`
 
 ## 3. M2 iOS, M3 Android — the picker
 
-- iOS: `AppIconPicker.swift` grows the badge, footnote, and sheet; `SettingsView.swift` the row
-  hint; `LicenseSettingsSection.swift` the sentence. Tests: `AppIconPickerTests` (rendering
-  per status, which is a pure function of `includes` + `rowActions`), `LicenseSurfaceTests`
-  (the sentence appears Unlicensed/Expired and not Licensed), a UI test in `AppIconTests` that
-  taps a badged tile on a forced-Unlicensed build and sees the sheet, then forces Licensed and
-  sees the plain grid. Storefront forcing already exists (`-FUTOLicenseStorefront`).
-- Android: `AppIconSheet.kt` the same three; `SettingsScreen.kt` the row hint;
-  `LicenseSettingsSection.kt` the sentence. Tests: `AppIconSheetTest` (Compose, both
-  renderings, both flavors), `LicenseSurfaceTest`. The existing "Change app icon to …?"
-  confirm stays after the license check, untouched.
+- iOS: `AppIconPicker.swift` grows the badge (both states, D13), the footnote and the sheet
+  (unlicensed only); `SettingsView.swift` the row hint. `LicenseSettingsSection.swift` is
+  untouched (D12). Tests: `AppIconPickerTests` (rendering per status, which is a pure function
+  of `includes` + `rowActions`), a UI test in `AppIconTests` that taps a badged tile on a
+  forced-Unlicensed build and sees the sheet, then forces Licensed and sees the grid with
+  badges and no footnote. Storefront forcing already exists (`-FUTOLicenseStorefront`).
+- Android: `AppIconSheet.kt` the same; `SettingsScreen.kt` the row hint;
+  `LicenseSettingsSection.kt` untouched. Tests: `AppIconSheetTest` (Compose, both renderings,
+  both flavors). The existing "Change app icon to …?" confirm stays after the license check,
+  untouched. Android sketch: `05-android-and-second-device.png`, left.
 - Accessibility: a badged tile's label becomes "{name}, included with a license"
   (`settings.appIcon.license.a11yIncluded`); the sheet's title is its heading.
 - Catalog: every string in § 6, English only, `pnpm run check:languages`.
@@ -147,7 +155,8 @@ on the card) **and** the new `includes` contains `AppIcon` **and** the shell has
 1. The existing toast `license.activated` still shows.
 2. Settings is presented if it is not already (the deep link can arrive on the list), and the
    picker is opened over it, with a one-time header above the grid: the coin,
-   `license.explanationLicensed` in bold, `settings.appIcon.license.landing` under it.
+   `license.explanationLicensed` in bold, `settings.appIcon.license.landing` under it
+   (`04-after-activation.png`, left). The coin badges are already on the tiles (D13).
 3. The header exists only for this presentation. Dismissing the picker and reopening it shows
    today's plain grid. Nothing is persisted; there is no "seen" flag.
 4. If the picker is already open (the user went Buy from the sheet, or typed a key after
@@ -176,7 +185,6 @@ fixture and asserting the picker is on screen with the header; Android `LicenseL
 | `settings.appIcon.license.notNow` | Not now |
 | `settings.appIcon.license.landing` | Your license includes choosing your app icon. Pick one. |
 | `settings.appIcon.license.a11yIncluded` | {iconName}, included with a license |
-| `license.explanationIncludes` | A license also includes choosing your app icon. |
 
 Reused: `license.buy`, `license.renew`, `license.enterKey`, `license.keyOnlyExplanation`,
 `license.activated`, `license.explanationLicensed`, `license.coinAccessibilityLabel`.
@@ -219,7 +227,7 @@ desktop + phone pair; `just test-rust`.
 | Milestone | Scope | MR |
 |---|---|---|
 | M1 | Rust rule + FFI/Tauri projection + spec/ADR rewrite + catalog | this plan's MR, then a feature MR |
-| M2, M3 | iOS and Android picker/row/card | same feature MR |
+| M2, M3 | iOS and Android picker and row | same feature MR |
 | M4 | Buy URL `from` | same feature MR (small, independent commit) |
 | M5 | Post-activation landing | same feature MR, last |
 | M6 | License follows the vault | **separate MR after OK on § 7** |
@@ -229,6 +237,8 @@ to a follow-up rather than growing the MR.
 
 ## 9. Open questions for @justin
 
+Resolved 2026-10-15: picker treatment is A (D11).
+
 1. D3: should Expired keep the picker open (a lapsed buyer keeps choosing) or close it as
    written? Written: closes.
 2. M5 on desktop: there is no picker, so nothing to land on. Confirm the toast is enough.
@@ -236,3 +246,17 @@ to a follow-up rather than growing the MR.
    feasibility note is written.
 4. Does the row hint ("With a license") belong on key-only builds, where the row cannot lead
    to a purchase? Written: yes, the hint names a fact, not a sale.
+5. The reviewed Settings sketch (`01-settings-row-hint.png`) shows the License card's
+   paragraph as "FUTO Notes is paid for by you, not by ads or by selling your data." instead
+   of today's `license.explanation`. Was that a sketch shortcut, or a copy change to make? Not
+   in scope here unless you say so.
+
+## 10. Sketches
+
+| File | Shows |
+|---|---|
+| `license-cosmetics/01-settings-row-hint.png` | Settings, unlicensed, link-out build: the row hint, the only Settings-level change |
+| `license-cosmetics/02-picker-unlicensed.png` | The picker unlicensed: A (chosen) beside B (rejected) |
+| `license-cosmetics/03-tap-sheet.png` | The sheet on tapping a coined tile, link-out and key-only builds |
+| `license-cosmetics/04-after-activation.png` | The landing right after activation, and the licensed picker on any later visit |
+| `license-cosmetics/05-android-and-second-device.png` | Android's bottom sheet, and a second synced device after M6 |
