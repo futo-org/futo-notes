@@ -48,6 +48,18 @@ pub enum LicenseState {
     Invalid(InvalidReason),
 }
 
+impl LicenseState {
+    /// The card state this verdict renders as — the one mapping every shell
+    /// uses. `Invalid` flattens to `Unlicensed`: the reason is diagnostic only.
+    pub fn status(&self) -> LicenseStatus {
+        match self {
+            LicenseState::Licensed(_) => LicenseStatus::Licensed,
+            LicenseState::Expired(_) => LicenseStatus::Expired,
+            LicenseState::Invalid(_) => LicenseStatus::Unlicensed,
+        }
+    }
+}
+
 /// Why a pair was rejected.
 ///
 /// **Diagnostic only.** No user ever sees this: every reason renders as the one
@@ -167,23 +179,15 @@ pub fn license_includes(status: LicenseStatus) -> Vec<LicenseInclusion> {
 mod includes_tests {
     use super::*;
 
-    #[test]
-    fn licensed_includes_the_app_icon() {
-        assert!(license_includes(LicenseStatus::Licensed).contains(&LicenseInclusion::AppIcon));
-    }
-
-    #[test]
-    fn unlicensed_and_expired_include_nothing() {
-        assert!(license_includes(LicenseStatus::Unlicensed).is_empty());
-        assert!(license_includes(LicenseStatus::Expired).is_empty());
-    }
-
     /// Adding an inclusion is a policy change: it must be a deliberate edit here.
     #[test]
-    fn the_full_inclusion_list_is_stable() {
-        assert_eq!(
-            license_includes(LicenseStatus::Licensed),
-            vec![LicenseInclusion::AppIcon]
-        );
+    fn only_licensed_includes_the_app_icon() {
+        for (status, expected) in [
+            (LicenseStatus::Licensed, vec![LicenseInclusion::AppIcon]),
+            (LicenseStatus::Unlicensed, vec![]),
+            (LicenseStatus::Expired, vec![]),
+        ] {
+            assert_eq!(license_includes(status), expected, "{status:?}");
+        }
     }
 }

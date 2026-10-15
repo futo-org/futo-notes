@@ -1,13 +1,7 @@
 import { invoke } from './invoke';
 import { listen } from '@tauri-apps/api/event';
 
-import type {
-  LicenseActionResult,
-  LicenseInclusion,
-  LicenseLinks,
-  LicenseStateName,
-  LicenseView,
-} from '../license';
+import type { LicenseActionResult, LicenseLinks, LicenseView } from '../license';
 
 // Emitted by apps/tauri/src-tauri/src/license.rs when a `futonotes://` link
 // arrives while the app is already running.
@@ -27,10 +21,6 @@ export async function clearLicense(): Promise<LicenseView> {
 
 export async function readLicenseLinks(): Promise<LicenseLinks> {
   return invoke<LicenseLinks>('license_links');
-}
-
-export async function readLicenseIncludes(state: LicenseStateName): Promise<LicenseInclusion[]> {
-  return invoke<LicenseInclusion[]>('license_includes', { state });
 }
 
 // Drains a link outcome that arrived before the shell could listen — a link

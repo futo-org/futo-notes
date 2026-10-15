@@ -123,7 +123,6 @@ pub(crate) fn run() {
             crate::license::license_enter_key,
             crate::license::license_remove,
             crate::license::license_links,
-            crate::license::license_includes,
             crate::license::license_take_pending_link,
             crate::sync::tauri_commands::e2ee_connect,
             crate::sync::tauri_commands::e2ee_resume,

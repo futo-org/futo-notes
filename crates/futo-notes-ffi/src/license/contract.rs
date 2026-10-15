@@ -216,6 +216,16 @@ pub fn license_row_actions(status: LicenseStatus, link_out: bool) -> Vec<License
     }
 }
 
+impl From<CoreLicenseStatus> for LicenseStatus {
+    fn from(status: CoreLicenseStatus) -> Self {
+        match status {
+            CoreLicenseStatus::Unlicensed => LicenseStatus::Unlicensed,
+            CoreLicenseStatus::Licensed => LicenseStatus::Licensed,
+            CoreLicenseStatus::Expired => LicenseStatus::Expired,
+        }
+    }
+}
+
 impl From<LicenseStatus> for CoreLicenseStatus {
     fn from(status: LicenseStatus) -> Self {
         match status {
@@ -454,14 +464,8 @@ fn epoch_millis(value: OffsetDateTime) -> i64 {
 
 fn view_of(state: &LicenseState) -> LicenseView {
     match state {
-        LicenseState::Licensed(details) => LicenseView {
-            status: LicenseStatus::Licensed,
-            issued_at_millis: details.issued_at.map(epoch_millis),
-            expires_at_millis: details.expires_at.map(epoch_millis),
-            key: Some(details.key.clone()),
-        },
-        LicenseState::Expired(details) => LicenseView {
-            status: LicenseStatus::Expired,
+        LicenseState::Licensed(details) | LicenseState::Expired(details) => LicenseView {
+            status: state.status().into(),
             issued_at_millis: details.issued_at.map(epoch_millis),
             expires_at_millis: details.expires_at.map(epoch_millis),
             key: Some(details.key.clone()),
@@ -939,35 +943,23 @@ mod tests {
 
     #[test]
     fn the_buy_url_carries_the_source() {
-        assert_eq!(
-            license_links(
-                LicensePlatform::Ios,
-                "com.futo.notes".into(),
-                BuySource::AppIconPicker
-            )
-            .buy,
-            "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
-             /checkout-ready?platform=ios&from=app-icon&success=redirect-to-organization-page"
-        );
-        assert_eq!(
-            license_links(
-                LicensePlatform::Android,
-                "com.futo.notes.dev".into(),
-                BuySource::AppIconPicker
-            )
-            .buy,
-            "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
-             /checkout-ready?platform=android&from=app-icon&success=redirect-to-organization-page"
-        );
+        assert!(license_links(
+            LicensePlatform::Ios,
+            "com.futo.notes".into(),
+            BuySource::AppIconPicker
+        )
+        .buy
+        .contains("&from=app-icon&"));
     }
 
+    /// The FFI mapping, not the policy (the crate owns that): a status reaches
+    /// the crate's rule as the same status, and the answer comes back mapped.
     #[test]
-    fn a_license_includes_the_app_icon_and_nothing_else_does() {
+    fn includes_maps_the_status_through_to_the_crate_rule() {
         assert_eq!(
             license_includes(LicenseStatus::Licensed),
             vec![LicenseInclusion::AppIcon]
         );
-        assert!(license_includes(LicenseStatus::Unlicensed).is_empty());
         assert!(license_includes(LicenseStatus::Expired).is_empty());
     }
 

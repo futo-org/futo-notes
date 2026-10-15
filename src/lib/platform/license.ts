@@ -12,6 +12,9 @@
 
 import { platformName } from './index';
 
+/** A cosmetic choice a license includes (today only the app icon). */
+export type LicenseInclusion = 'appIcon';
+
 export type LicenseStateName = 'unlicensed' | 'licensed' | 'expired';
 
 /** What the License row renders. Timestamps are RFC 3339; the *formatting* is
@@ -29,6 +32,10 @@ export interface LicenseView {
    *  on request, so it crosses the boundary instead of being read back out of
    *  storage here. `null` whenever the state is `unlicensed`. */
   key: string | null;
+  /** What this state includes beyond the card (cosmetic only). Rust's
+   *  `license_includes`, computed beside the state so it cannot disagree with
+   *  it; desktop renders nothing from it (no picker). */
+  includes: LicenseInclusion[];
 }
 
 /** Which toast an action earned. `invalid` covers both a key the server does
@@ -40,10 +47,6 @@ export interface LicenseActionResult {
   view: LicenseView;
 }
 
-/** What a license includes beyond the card (cosmetic only). The rule is Rust's
- *  `license_includes`; desktop renders nothing from it yet. */
-export type LicenseInclusion = 'appIcon';
-
 export interface LicenseLinks {
   buy: string;
   support: string;
@@ -54,6 +57,7 @@ export const UNLICENSED: LicenseView = {
   issuedAt: null,
   expiresAt: null,
   key: null,
+  includes: [],
 };
 
 export async function readLicenseStatus(): Promise<LicenseView> {
@@ -87,13 +91,6 @@ export async function readLicenseLinks(): Promise<LicenseLinks> {
   if (platformName !== 'tauri') return { buy: '', support: '' };
   const { readLicenseLinks: read } = await import('./tauri/license');
   return read();
-}
-
-/** What a license in `state` includes. Off Tauri nothing is licensed, so nothing. */
-export async function readLicenseIncludes(state: LicenseStateName): Promise<LicenseInclusion[]> {
-  if (platformName !== 'tauri') return [];
-  const { readLicenseIncludes: read } = await import('./tauri/license');
-  return read(state);
 }
 
 export async function takePendingLicenseLink(): Promise<LicenseActionResult | null> {

@@ -9,12 +9,14 @@ const UNLICENSED: LicenseView = {
   issuedAt: null,
   expiresAt: null,
   key: null,
+  includes: [],
 };
 const LICENSED: LicenseView = {
   state: 'licensed',
   issuedAt: '2026-06-15T12:00:00Z',
   expiresAt: '2029-06-15T12:00:00Z',
   key: 'AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV',
+  includes: ['appIcon'],
 };
 
 const platform = vi.hoisted(() => ({
@@ -22,19 +24,17 @@ const platform = vi.hoisted(() => ({
   submitLicenseKey: vi.fn(),
   clearLicense: vi.fn(),
   readLicenseLinks: vi.fn(),
-  readLicenseIncludes: vi.fn(),
   takePendingLicenseLink: vi.fn(),
   nudge: null as null | (() => void),
   subscribeDelay: null as null | Promise<void>,
 }));
 
 vi.mock('$lib/platform/license', () => ({
-  UNLICENSED: { state: 'unlicensed', issuedAt: null, expiresAt: null, key: null },
+  UNLICENSED: { state: 'unlicensed', issuedAt: null, expiresAt: null, key: null, includes: [] },
   readLicenseStatus: platform.readLicenseStatus,
   submitLicenseKey: platform.submitLicenseKey,
   clearLicense: platform.clearLicense,
   readLicenseLinks: platform.readLicenseLinks,
-  readLicenseIncludes: platform.readLicenseIncludes,
   takePendingLicenseLink: platform.takePendingLicenseLink,
   // Capture the handler so a test can fire a link nudge the way Rust does.
   // `subscribeDelay` lets a test hold the subscription open to prove the drain
@@ -83,7 +83,6 @@ beforeEach(() => {
   platform.readLicenseStatus.mockResolvedValue(UNLICENSED);
   platform.readLicenseLinks.mockResolvedValue({ buy: 'https://buy.example', support: 'mailto:x' });
   platform.takePendingLicenseLink.mockResolvedValue(null);
-  platform.readLicenseIncludes.mockResolvedValue([]);
   platform.clearLicense.mockResolvedValue(UNLICENSED);
 });
 

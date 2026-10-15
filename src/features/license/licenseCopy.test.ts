@@ -20,14 +20,22 @@ const unlicensed: LicenseView = {
   issuedAt: null,
   expiresAt: null,
   key: null,
+  includes: [],
 };
 const licensed: LicenseView = {
   state: 'licensed',
   issuedAt: ISSUED,
   expiresAt: EXPIRES,
   key: KEY,
+  includes: ['appIcon'],
 };
-const expired: LicenseView = { state: 'expired', issuedAt: ISSUED, expiresAt: EXPIRES, key: KEY };
+const expired: LicenseView = {
+  state: 'expired',
+  issuedAt: ISSUED,
+  expiresAt: EXPIRES,
+  key: KEY,
+  includes: [],
+};
 // What a v1 activation produces: Licensed, with no purchase time and no expiry
 // — the format carries neither, and neither may be invented (issue #161).
 const licensedV1: LicenseView = {
@@ -35,6 +43,7 @@ const licensedV1: LicenseView = {
   issuedAt: null,
   expiresAt: null,
   key: KEY,
+  includes: ['appIcon'],
 };
 
 describe('the license card', () => {
