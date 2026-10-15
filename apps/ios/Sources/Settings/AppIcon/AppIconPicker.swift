@@ -21,6 +21,9 @@ struct AppIconPickerShape: Equatable {
     let footnote: Bool
     /// What tapping a coined tile opens; `nil` once the license includes icons.
     let sheet: Sheet?
+    /// False while the license is still being read: unknown is neither
+    /// licensed nor unlicensed, so no ask is drawn and a tap does nothing.
+    var resolved = true
 
     /// Where a tap on `icon` goes: the ask sheet, or the icon change.
     func asks(_ icon: AppIcon) -> Bool { sheet != nil && coined.contains(icon) }
@@ -28,12 +31,15 @@ struct AppIconPickerShape: Equatable {
 
 func appIconPickerShape(
     selected: AppIcon,
-    includes: Set<LicenseInclusion>,
+    includes: Set<LicenseInclusion>?,
     rowActions: [LicenseAction],
     available: Bool = true
 ) -> AppIconPickerShape {
     // An OS that cannot change icons shows only "unavailable": no ask to make.
     guard available else { return AppIconPickerShape(coined: [], footnote: false, sheet: nil) }
+    guard let includes else {
+        return AppIconPickerShape(coined: [], footnote: false, sheet: nil, resolved: false)
+    }
     if includes.contains(.appIcon) {
         // D13: the coin stays on every icon but Standard, so the picker still
         // shows which ones came with the license.
@@ -55,18 +61,22 @@ struct AppIconPicker: View {
     let linkOut: Bool
     /// The one-time header after an activation. Lives only for this presentation.
     let showsLanding: Bool
+    /// The icon whose ask is up. Owned by the presenter: the picker's own view
+    /// is re-created when the app returns to the foreground (it re-appears with
+    /// fresh `@State`), which dropped the sheet from under the user.
+    @Binding var asking: AppIcon?
     /// "I already paid": the presenter closes the picker and opens the key field.
     let onAlreadyPaid: () -> Void
 
+    @EnvironmentObject private var store: NotesStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.localization) private var localization
     @Environment(\.scenePhase) private var scenePhase
-    @State private var asking: AppIcon?
 
     private var shape: AppIconPickerShape {
         appIconPickerShape(
             selected: controller.selected,
-            includes: license.includes,
+            includes: license.view == nil ? nil : license.includes,
             rowActions: license.view.map { licenseRowActions(status: $0.status, linkOut: linkOut) }
                 ?? [],
             available: controller.available)
@@ -89,7 +99,9 @@ struct AppIconPicker: View {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16)
                     {
                         ForEach(AppIcon.allCases) { icon in
-                            tile(icon, coined: shape.coined.contains(icon), asks: shape.asks(icon))
+                            tile(
+                                icon, coined: shape.coined.contains(icon), asks: shape.asks(icon),
+                                resolved: shape.resolved)
                         }
                     }
                     if shape.footnote { footnote }
@@ -106,6 +118,9 @@ struct AppIconPicker: View {
                 }
             }
         }
+        // The `license.activated` toast belongs to whatever is on top: a banner
+        // on the Settings screen beneath this sheet would be hidden by it.
+        .transientMessageBanner(store)
         .sheet(item: $asking) { icon in
             AppIconAskSheet(
                 icon: icon, sheet: shape.sheet ?? .keyOnly, buyURL: license.appIconLinks.buy,
@@ -113,8 +128,9 @@ struct AppIconPicker: View {
         }
         // A license arriving while the ask is up (bought from its sheet, or a
         // key typed after "I already paid"): the sheet drops away and the grid
-        // re-renders licensed.
-        .onChange(of: shape.sheet == nil) { _, included in
+        // re-renders licensed. Only when the icon is now included — nothing
+        // else about the shape may close it.
+        .onChange(of: license.includes.contains(.appIcon)) { _, included in
             if included { asking = nil }
         }
         .onAppear { controller.refresh() }
@@ -123,7 +139,7 @@ struct AppIconPicker: View {
         }
     }
 
-    private func tile(_ icon: AppIcon, coined: Bool, asks: Bool) -> some View {
+    private func tile(_ icon: AppIcon, coined: Bool, asks: Bool, resolved: Bool) -> some View {
         let name = localization.localizedText(icon.labelKey)
         return Button {
             if asks {
@@ -150,7 +166,7 @@ struct AppIconPicker: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(controller.changing || !controller.available)
+        .disabled(controller.changing || !controller.available || !resolved)
         .accessibilityLabel(
             coined
                 ? localization.localizedText(
@@ -162,17 +178,28 @@ struct AppIconPicker: View {
     }
 
     private var footnote: some View {
-        HStack(alignment: .center, spacing: 6) {
-            Text(localization.localizedText("settings.appIcon.license.footnote"))
-                .multilineTextAlignment(.center)
-            CoinBadge(diameter: 16, ring: false)
-        }
-        .font(.footnote)
-        .foregroundStyle(.secondary)
-        .padding(.top, 8)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("app-icon-footnote")
+        // The coin is part of the text run, so it follows "license." on the
+        // last line instead of floating at the far edge.
+        let text = localization.localizedText("settings.appIcon.license.footnote")
+        // A no-break space keeps the coin with the last word, never orphaned.
+        return Text("\(text)\u{00A0}\(Self.inlineCoin)")
+            .multilineTextAlignment(.center)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .padding(.top, 8)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("app-icon-footnote")
     }
+
+    /// The coin at footnote size, as an image `Text` can carry inline.
+    private static let inlineCoin: Image = {
+        let side: CGFloat = 13
+        guard let coin = UIImage(named: "SupporterCoin") else { return Image(systemName: "circle") }
+        let scaled = UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+            coin.draw(in: CGRect(x: 0, y: 0, width: side, height: side))
+        }
+        return Image(uiImage: scaled)
+    }()
 
     private var landingHeader: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -298,7 +325,7 @@ private struct AppIconAskSheet: View {
         Button(action: action) {
             Text(localization.localizedText(path))
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(Theme.Plate.accent)
+                .foregroundStyle(Theme.primary)
                 .padding(.vertical, 8)
         }
         .buttonStyle(.plain)

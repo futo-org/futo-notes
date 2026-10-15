@@ -25,6 +25,15 @@ struct NoteListView: View {
     /// Results returned by the Rust-owned local-note store.
     @State private var searchHits: [NoteItem] = []
 
+    /// Whether any UIKit-level modal (a sheet or cover from this list, a
+    /// folder row, the crash report) is already over the root. SwiftUI drops a
+    /// presentation made while another is up, so the landing asks first.
+    private static var modalIsPresented: Bool {
+        UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow }
+            .contains { $0.rootViewController?.presentedViewController != nil }
+    }
+
     private var filtered: [NoteItem] {
         guard !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return store.notes
@@ -96,17 +105,22 @@ struct NoteListView: View {
                     .environmentObject(store)
             }
             // An activation that includes the app icon lands on the picker over
-            // Settings; Settings is presented here when it is not already up
-            // (the link can arrive on the list). SettingsView takes the landing
-            // itself when it is already showing, so this only acts on one it
-            // can still see. Skipped when the OS cannot change icons.
+            // Settings. The landing is decided at activation time and never
+            // kept: SettingsView takes it when it is already up; otherwise it is
+            // presented here only if nothing else covers the list (a stray
+            // flag would pop the picker, header and all, on a later manual
+            // open). Skipped when the OS cannot change icons.
             .onChange(of: license.pendingLanding, initial: true) { _, pending in
-                guard pending else { return }
-                guard UIApplication.shared.supportsAlternateIcons else {
+                guard pending, !showSettings else { return }
+                guard UIApplication.shared.supportsAlternateIcons, !Self.modalIsPresented else {
                     license.consumeLanding()
                     return
                 }
                 showSettings = true
+            }
+            // Backstop: whatever happened, closing Settings leaves no landing behind.
+            .onChange(of: showSettings) { _, shown in
+                if !shown { license.consumeLanding() }
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView()

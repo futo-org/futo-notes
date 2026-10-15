@@ -7,61 +7,60 @@ import Testing
 /// shape is tested against the answers the app actually gets.
 @Suite("App icon picker shape")
 struct AppIconPickerTests {
-    private func shape(
-        _ status: LicenseStatus, linkOut: Bool, selected: AppIcon = .darkStandard
-    ) -> AppIconPickerShape {
-        appIconPickerShape(
-            selected: selected,
-            includes: Set(licenseIncludes(status: status)),
-            rowActions: licenseRowActions(status: status, linkOut: linkOut))
+    struct Row: Sendable, CustomTestStringConvertible {
+        let name: String
+        let status: LicenseStatus?  // nil: the license has not been read yet
+        let linkOut: Bool
+        var selected: AppIcon = .darkStandard
+        var available = true
+        let coined: Set<AppIcon>
+        let footnote: Bool
+        let sheet: AppIconPickerShape.Sheet?
+        var resolved = true
+
+        var testDescription: String { name }
     }
 
-    @Test("unlicensed: a coin on every tile but the current one, the footnote, a Buy sheet")
-    func unlicensedLinkOut() {
-        let shape = shape(.unlicensed, linkOut: true)
+    static let all = Set(AppIcon.allCases)
 
-        #expect(shape.coined == Set(AppIcon.allCases).subtracting([.darkStandard]))
-        #expect(shape.footnote)
-        #expect(shape.sheet == .linkOut(primary: .buy))
-        #expect(!shape.asks(.darkStandard))
-        #expect(shape.asks(.lightStandard))
-    }
+    static let rows = [
+        Row(
+            name: "unlicensed: coins but the current, footnote, a Buy sheet",
+            status: .unlicensed, linkOut: true, coined: all.subtracting([.darkStandard]),
+            footnote: true, sheet: .linkOut(primary: .buy)),
+        Row(
+            name: "expired asks the same, with Renew where Buy would be",
+            status: .expired, linkOut: true, coined: all.subtracting([.darkStandard]),
+            footnote: true, sheet: .linkOut(primary: .renew)),
+        Row(
+            name: "key-only build: the key-only sheet, still coins and the footnote",
+            status: .unlicensed, linkOut: false, coined: all.subtracting([.darkStandard]),
+            footnote: true, sheet: .keyOnly),
+        Row(
+            name: "licensed: coin on every tile but Standard, no footnote, nothing to ask",
+            status: .licensed, linkOut: true, selected: .website,
+            coined: all.subtracting([.lightStandard]), footnote: false, sheet: nil),
+        Row(
+            name: "unknown (still loading): no coins, no footnote, no ask, inert",
+            status: nil, linkOut: true, coined: [], footnote: false, sheet: nil, resolved: false),
+        Row(
+            name: "an OS that cannot change icons gets no ask at all",
+            status: .unlicensed, linkOut: true, available: false, coined: [], footnote: false,
+            sheet: nil),
+    ]
 
-    @Test("expired asks the same, with Renew where Buy would be")
-    func expiredRenews() {
-        let shape = shape(.expired, linkOut: true)
-
-        #expect(shape.footnote)
-        #expect(shape.sheet == .linkOut(primary: .renew))
-    }
-
-    @Test("a key-only build gets the key-only sheet, still with coins and the footnote")
-    func keyOnly() {
-        let shape = shape(.unlicensed, linkOut: false)
-
-        #expect(shape.coined.count == AppIcon.allCases.count - 1)
-        #expect(shape.footnote)
-        #expect(shape.sheet == .keyOnly)
-    }
-
-    @Test("licensed: the coin stays on every tile but Standard, no footnote, nothing to ask")
-    func licensed() {
-        for selected in [AppIcon.lightStandard, .website] {
-            let shape = shape(.licensed, linkOut: true, selected: selected)
-
-            #expect(shape.coined == Set(AppIcon.allCases).subtracting([.lightStandard]))
-            #expect(!shape.footnote)
-            #expect(shape.sheet == nil)
-            #expect(AppIcon.allCases.allSatisfy { !shape.asks($0) })
-        }
-    }
-
-    @Test("an OS that cannot change icons gets no ask at all")
-    func unavailable() {
+    @Test("the shape follows the license", arguments: rows)
+    func shape(_ row: Row) {
         let shape = appIconPickerShape(
-            selected: .lightStandard, includes: [],
-            rowActions: licenseRowActions(status: .unlicensed, linkOut: true), available: false)
+            selected: row.selected,
+            includes: row.status.map { Set(licenseIncludes(status: $0)) },
+            rowActions: row.status.map { licenseRowActions(status: $0, linkOut: row.linkOut) } ?? [],
+            available: row.available)
 
-        #expect(shape == AppIconPickerShape(coined: [], footnote: false, sheet: nil))
+        #expect(shape.coined == row.coined)
+        #expect(shape.footnote == row.footnote)
+        #expect(shape.sheet == row.sheet)
+        #expect(shape.resolved == row.resolved)
+        #expect(AppIcon.allCases.allSatisfy { shape.asks($0) == (row.sheet != nil && row.coined.contains($0)) })
     }
 }

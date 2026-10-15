@@ -36,29 +36,19 @@ final class AppIconTests: XCTestCase {
 
     /// Unlicensed, a tile other than the current one is an ask, never an icon
     /// change: the sheet's shape follows the storefront (link-out in the US,
-    /// key-only elsewhere) and "Not now" returns to the grid.
+    /// key-only elsewhere) and "Not now" returns to the grid. Foregrounding the
+    /// app (the return from Safari after Buy) must leave the sheet up.
     @MainActor
     func testUnlicensedTileOpensTheAskInsteadOfChangingTheIcon() {
         for (country, linkOut) in [("USA", true), ("FRA", false)] {
             let app = makeIsolatedApplication()
-            app.launchArguments += ["-FUTOLicenseStorefront", country]
-            app.launch()
-            openSettings(app)
-            removeLicense(app)
-
-            let row = scrollToAppIconRow(app)
-            XCTAssertTrue(
-                app.staticTexts["With a license"].exists, "the App icon row lost its hint")
-            attach(app, named: "settings-row-hint-\(country)")
-            row.tap()
-            XCTAssertTrue(app.navigationBars["App icon"].waitForExistence(timeout: 10))
+            openUnlicensedPicker(app, storefront: country)
 
             XCTAssertTrue(app.staticTexts["app-icon-footnote"].waitForExistence(timeout: 5))
             // A reused simulator may keep any icon; the current one is the
             // only tile without a coin.
-            let ids = ["light-standard", "light-reversed", "dark-standard", "dark-reversed", "futo", "website"]
-            let current = ids.map { app.buttons["app-icon-\($0)"] }.first { $0.isSelected }!
-            let tile = ids.map { app.buttons["app-icon-\($0)"] }.first { !$0.isSelected }!
+            let current = Self.tiles(app).first { $0.isSelected }!
+            let tile = Self.tiles(app).first { !$0.isSelected }!
             XCTAssertFalse(current.label.contains("included with a license"))
             XCTAssertTrue(tile.label.hasSuffix(", included with a license"), tile.label)
             attach(app, named: "picker-unlicensed-\(country)")
@@ -69,6 +59,11 @@ final class AppIconTests: XCTestCase {
             XCTAssertEqual(title.label, "Included with a license")
             XCTAssertEqual(app.buttons["app-icon-ask-buy"].exists, linkOut)
             XCTAssertTrue(app.buttons["app-icon-ask-already-paid"].exists)
+
+            XCUIDevice.shared.press(.home)
+            app.activate()
+            XCTAssertTrue(
+                title.waitForExistence(timeout: 10), "foregrounding dropped the ask sheet")
             attach(app, named: "ask-sheet-\(country)")
 
             app.buttons["app-icon-ask-not-now"].tap()
@@ -83,20 +78,37 @@ final class AppIconTests: XCTestCase {
     @MainActor
     func testAlreadyPaidOpensTheKeyFieldOnTheCard() {
         let app = makeIsolatedApplication()
-        app.launchArguments += ["-FUTOLicenseStorefront", "USA"]
-        app.launch()
-        openSettings(app)
-        removeLicense(app)
-        scrollToAppIconRow(app).tap()
-        XCTAssertTrue(app.navigationBars["App icon"].waitForExistence(timeout: 10))
-        // A reused simulator may keep any icon; the current tile is not an ask.
-        ["futo", "website"].map { app.buttons["app-icon-\($0)"] }.first { !$0.isSelected }!.tap()
+        openUnlicensedPicker(app, storefront: "USA")
+        Self.tiles(app).first { !$0.isSelected }!.tap()
         let paid = app.buttons["app-icon-ask-already-paid"]
         XCTAssertTrue(paid.waitForExistence(timeout: 5))
         paid.tap()
 
         XCTAssertTrue(app.textFields["license-key-field"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.navigationBars["App icon"].exists)
+    }
+
+    /// Launches unlicensed in `storefront`, and opens the App icon picker.
+    @MainActor
+    private func openUnlicensedPicker(_ app: XCUIApplication, storefront: String) {
+        app.launchArguments += ["-FUTOLicenseStorefront", storefront]
+        app.launch()
+        openSettings(app)
+        removeLicense(app)
+        let row = scrollToAppIconRow(app)
+        XCTAssertTrue(app.staticTexts["With a license"].exists, "the App icon row lost its hint")
+        attach(app, named: "settings-row-hint-\(storefront)")
+        row.tap()
+        XCTAssertTrue(app.navigationBars["App icon"].waitForExistence(timeout: 10))
+    }
+
+    private static let iconIds = [
+        "light-standard", "light-reversed", "dark-standard", "dark-reversed", "futo", "website",
+    ]
+
+    @MainActor
+    private static func tiles(_ app: XCUIApplication) -> [XCUIElement] {
+        iconIds.map { app.buttons["app-icon-\($0)"] }
     }
 
     /// Activating by deep link lands on the picker over Settings with the
@@ -115,6 +127,10 @@ final class AppIconTests: XCTestCase {
         XCUIDevice.shared.system.open(deepLink)
 
         XCTAssertTrue(app.navigationBars["App icon"].waitForExistence(timeout: 15))
+        // The toast is drawn inside the picker, not under it (it lasts ~3.5 s).
+        XCTAssertTrue(
+            app.staticTexts["License activated"].waitForExistence(timeout: 3),
+            "the toast is hidden by the picker")
         XCTAssertTrue(app.staticTexts["Thank you for purchasing FUTO Notes."].waitForExistence(timeout: 5))
         XCTAssertTrue(
             app.staticTexts["Your license includes choosing your app icon. Pick one."].exists)

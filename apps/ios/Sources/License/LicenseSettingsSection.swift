@@ -83,10 +83,10 @@ func licenseExplanationPath(status: LicenseStatus, linkOut: Bool) -> String {
 /// Nothing that works is gated on a license: a purchase changes this card and
 /// adds only purely cosmetic choices (today the app icon — Rust's
 /// `licenseIncludes`, docs/spec/license.md § What a license includes). The card
-/// itself gains no sentence for them. Which controls each state offers is Rust's answer
-/// (`licenseRowActions`), and how each state reads is the shared card model
-/// (`licenseCardModel`), so iOS and Android render the same thing. The
-/// storefront decision is shared by copy and actions.
+/// itself gains no sentence for them. Which controls each state offers is
+/// Rust's answer (`licenseRowActions`), and how each state reads is the shared
+/// card model (`licenseCardModel`), so iOS and Android render the same thing.
+/// The storefront decision is shared by copy and actions.
 struct LicenseSettingsSection: View {
     @ObservedObject var license: LicenseModel
     /// The observed storefront decision, shared by copy and actions.
