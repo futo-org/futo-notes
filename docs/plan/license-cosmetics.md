@@ -82,9 +82,9 @@ pub fn license_includes(status: LicenseStatus) -> Vec<LicenseInclusion>
   stable (snapshot) so adding a variant is a deliberate edit.
 - `futo-notes-ffi` license contract: export `license_includes` and `LicenseInclusion` as a
   `uniffi::Enum`, next to `license_row_actions`. Contract test mirrors the Rust one.
-- Tauri: a `license_includes` command alongside the existing license commands; TS reads it
-  into the license reactive state once (M5 — no per-render calls). Desktop renders nothing
-  from it yet.
+- Tauri: `includes` rides on the `LicenseView` the existing license commands already return
+  (computed in Rust through `license_includes`, off `LicenseState::status()`); TS reads it
+  from the view, no second IPC call. Desktop renders nothing from it yet.
 - Shells: `LicenseModel` (Swift/Kotlin) exposes `includes: Set<LicenseInclusion>` derived from
   `view.status` through the FFI call, updated wherever `view` is assigned (load, apply,
   remove, full reset). `AppIconController` does **not** learn about licenses; the picker view

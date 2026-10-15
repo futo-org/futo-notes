@@ -153,9 +153,10 @@ fixture would close that on all three platforms at once.
 ## What a license includes
 
 - **Today a license includes choosing the app icon**, and nothing else cosmetic:
-  all six existing choices (Standard, Reversed, Dark, Dark, Reversed, FUTO,
-  Scanlines). There is no seventh, licensee-only icon. Standard is the default
-  every install has, not a "free tier". → `license_includes`
+  all six existing choices, as the picker labels them: "Standard", "Reversed",
+  "Dark", "Dark, Reversed", "FUTO" and "Scanlines". There is no seventh,
+  licensee-only icon. Standard is the default every install has, not a "free
+  tier". → `license_includes`
 - **Rust owns the answer.** Licensed includes everything on the list; Unlicensed
   and Expired include nothing. Shells and the desktop webview only ask; no
   Swift, Kotlin, or TypeScript copy of the rule. Desktop projects the answer but
@@ -527,6 +528,13 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   presented if it is not already, and the App icon picker opens over it with a
   one-time header above the grid: the coin, `license.explanationLicensed` in
   bold, and `settings.appIcon.license.landing` under it.
+- The `license.activated` toast is shown inside the picker presentation, over the
+  grid, so the user sees it during the landing (a banner on the screen beneath
+  the picker would be hidden by it). It is shown once.
+- The landing happens only if it can be presented at the moment of activation: no
+  other modal covers the note list, and no Settings-owned sheet or dialog (Sync,
+  Full reset) is up. Otherwise it is dropped on the spot and the toast alone
+  shows; a pending landing is never kept for a later Settings visit.
 - The header exists only for that presentation: dismissing the picker and
   reopening shows the plain grid. Nothing is persisted; there is no "seen" flag.
 - If the picker is already open (the user bought from its sheet, or typed a key
