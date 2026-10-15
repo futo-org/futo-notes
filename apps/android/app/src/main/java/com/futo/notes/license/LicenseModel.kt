@@ -12,7 +12,6 @@ import uniffi.futo_notes_ffi.BuySource
 import uniffi.futo_notes_ffi.LicenseAcceptance
 import uniffi.futo_notes_ffi.LicenseAction
 import uniffi.futo_notes_ffi.LicenseException
-import uniffi.futo_notes_ffi.LicenseInclusion
 import uniffi.futo_notes_ffi.LicenseLinkOutcome
 import uniffi.futo_notes_ffi.LicenseLinks
 import uniffi.futo_notes_ffi.LicensePlatform
@@ -20,7 +19,6 @@ import uniffi.futo_notes_ffi.LicenseView
 import uniffi.futo_notes_ffi.licenseEnterKey
 import uniffi.futo_notes_ffi.licenseEvaluate
 import uniffi.futo_notes_ffi.licenseHandleDeepLink
-import uniffi.futo_notes_ffi.licenseIncludes
 import uniffi.futo_notes_ffi.licenseLinks
 import uniffi.futo_notes_ffi.licenseLinkOut
 import uniffi.futo_notes_ffi.licenseRowActions
@@ -65,14 +63,6 @@ class LicenseModel(
     var view by mutableStateOf<LicenseView?>(null)
         private set
 
-    /**
-     * What the current license includes beyond the card (cosmetic only), Rust's
-     * `licenseIncludes(status)`. Empty until [view] is known. Recomputed where
-     * [view] is assigned, never per render; no UI reads it yet.
-     */
-    var includes by mutableStateOf<Set<LicenseInclusion>>(emptySet())
-        private set
-
     /** True only while the one activation request is in flight. */
     var busy by mutableStateOf(false)
         private set
@@ -85,11 +75,7 @@ class LicenseModel(
      * it during `onCreate`, and the first native call would load the shared
      * library on the main thread there (M1). Settings is where these are read.
      */
-    val links: LicenseLinks by lazy { linksFor(BuySource.LICENSE_CARD) }
-
-    /** The same destinations with the Buy URL attributed to [source]. */
-    fun linksFor(source: BuySource): LicenseLinks =
-        licenseLinks(LicensePlatform.ANDROID, bundleId, source)
+    val links: LicenseLinks by lazy { licenseLinks(LicensePlatform.ANDROID, bundleId, BuySource.LICENSE_CARD) }
 
     /**
      * How a message reaches the user. Assigned by the activity so the license
@@ -133,7 +119,7 @@ class LicenseModel(
      */
     internal fun applyEvaluated(evaluated: LicenseView) {
         if (settled) return
-        publish(evaluated)
+        view = evaluated
     }
 
     /** Which controls the row offers, in the order Rust puts them in. */
@@ -205,7 +191,7 @@ class LicenseModel(
         storage.clear()
         settled = true
         stateRevision += 1
-        publish(licenseEvaluate(null, bundleId))
+        view = licenseEvaluate(null, bundleId)
     }
 
     /**
@@ -213,11 +199,6 @@ class LicenseModel(
      * zone). Deliberately silent: the user is already looking at a reset.
      */
     fun clearForFullReset() = remove()
-
-    private fun publish(newView: LicenseView) {
-        view = newView
-        includes = licenseIncludes(newView.status).toSet()
-    }
 
     private fun announce(message: LocalizedMessage) {
         val destination = showMessage
@@ -239,7 +220,7 @@ class LicenseModel(
         storage.write(acceptance.pair)
         settled = true
         stateRevision += 1
-        publish(acceptance.view)
+        view = acceptance.view
         announce(LocalizedMessage("license.activated"))
         if (BuildConfig.DEBUG) Log.i(LICENSE_LOG_TAG, "license applied: ${acceptance.view.status}")
     }

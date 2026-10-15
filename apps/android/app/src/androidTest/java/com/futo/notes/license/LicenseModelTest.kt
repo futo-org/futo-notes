@@ -12,9 +12,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import uniffi.futo_notes_ffi.BuySource
 import uniffi.futo_notes_ffi.LicenseAcceptance
-import uniffi.futo_notes_ffi.LicenseInclusion
 import uniffi.futo_notes_ffi.LicensePair
 import uniffi.futo_notes_ffi.LicenseStatus
 import uniffi.futo_notes_ffi.licenseEvaluate
@@ -63,28 +61,6 @@ class LicenseModelTest {
 
         assertEquals(LicenseStatus.LICENSED, license.view?.status)
         assertEquals(LicenseFixture.ISSUED_AT_MILLIS, license.view?.issuedAtMillis)
-    }
-
-    @Test
-    fun theIncludesFollowTheViewThroughLoadAndRemove() = runBlocking {
-        LicenseStorage(preferences).write(
-            LicensePair(key = LicenseFixture.KEY, activation = LicenseFixture.ACTIVATION),
-        )
-        val license = model()
-        assertTrue(license.includes.isEmpty())
-
-        license.load()
-        assertEquals(setOf(LicenseInclusion.APP_ICON), license.includes)
-
-        license.remove()
-        assertTrue(license.includes.isEmpty())
-    }
-
-    @Test
-    fun theBuyLinkNamesItsSource() {
-        val license = model()
-        assertTrue(license.links.buy.contains("&from=license-card&"))
-        assertTrue(license.linksFor(BuySource.APP_ICON_PICKER).buy.contains("&from=app-icon&"))
     }
 
     /**
