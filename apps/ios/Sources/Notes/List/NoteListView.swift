@@ -95,6 +95,19 @@ struct NoteListView: View {
                     .environmentObject(sync)
                     .environmentObject(store)
             }
+            // An activation that includes the app icon lands on the picker over
+            // Settings; Settings is presented here when it is not already up
+            // (the link can arrive on the list). SettingsView takes the landing
+            // itself when it is already showing, so this only acts on one it
+            // can still see. Skipped when the OS cannot change icons.
+            .onChange(of: license.pendingLanding, initial: true) { _, pending in
+                guard pending else { return }
+                guard UIApplication.shared.supportsAlternateIcons else {
+                    license.consumeLanding()
+                    return
+                }
+                showSettings = true
+            }
             .sheet(isPresented: $showSettings) {
                 SettingsView()
                     .environmentObject(sync)
