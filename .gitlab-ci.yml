@@ -3161,6 +3161,22 @@ release:
     # fixed manifest + a client channel setting.)
     - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
 
+# Changelog post on notes.futo.tech, generated from release-notes/<tag>.md.
+# After `release` so the download links are live. allow_failure and nothing
+# depends on it: a website problem must never fail a shipped release. No
+# WEBSITE_REPO_TOKEN = logged skip; an existing post (hand-written) is kept.
+publish:website-post:
+  stage: release
+  interruptible: false
+  needs:
+    - job: release
+      artifacts: false
+  allow_failure: true
+  script:
+    - node "$CI_PROJECT_DIR/scripts/publish-website-post.mjs" --tag "$CI_COMMIT_TAG"
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
+
 # ─────────────────────────────────────────────────────────────
 # Internal release — hosted-enabled Android + desktop builds, prerelease
 # tags only (D2, taken — docs/plan/hosted-sync-to-staging.md, ticket C8)

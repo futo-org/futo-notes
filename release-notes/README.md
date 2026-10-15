@@ -49,6 +49,22 @@ node scripts/release-notes.mjs --tag v1.7.2 --check
 
 Prerelease tags (`v1.7.2-4`) publish to nothing and need no file.
 
+## The website post
+
+After the GitLab release exists, `publish:website-post` turns the same file into
+a changelog post on notes.futo.tech: it commits
+`src/content/blog/futo-notes-X-Y-Z.md` and the matching `public/llms.txt` line
+to the `futo-notes/website` main branch, which deploys itself.
+
+- The post body is the App Store text as written (paragraphs and `- ` bullets
+  are already markdown); the summary is the `## Short` text. Section titles are
+  bare lines in store text, so they are not turned into headings. For a richer
+  post, write it by hand on the website before tagging.
+- If the website already has a post for the version, the job does nothing.
+- Without the `WEBSITE_REPO_TOKEN` CI variable it logs a skip. The job is
+  `allow_failure` and nothing depends on it, so it can never fail a release.
+- `WEBSITE_RELEASE_MODE=mr` opens a website MR for a human to merge instead.
+
 ## Writing them
 
 Lead with the fix or feature a user would notice, in their words, not the

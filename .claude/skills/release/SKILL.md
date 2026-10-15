@@ -200,7 +200,7 @@ git push origin <version>
 
 ### 7c. Monitor the pipeline
 
-The tag push runs the build jobs, then `release:gate`, then `publish:android`, `publish:ios:appstore`, and `release`.
+The tag push runs the build jobs, then `release:gate`, then `publish:android`, `publish:ios:appstore`, and `release`, then `publish:website-post` (allow-failure: posts the changelog to notes.futo.tech unless the website already has one; see `release-notes/README.md`).
 
 Poll pipeline status until it finishes:
 
