@@ -1,10 +1,10 @@
 # License — Spec
 
 FUTO Notes asks the user to pay for it, and nothing in the app enforces that.
-A user may **buy a license** for the client. The license unlocks nothing
-that works without it: it includes only **purely cosmetic** choices (today the
-app icon, see [What a license includes](#what-a-license-includes)), removes the ambient **Unlicensed** label — leaving nothing in its
-place, because a paid license says nothing outside Settings — and turns the
+A user may **buy a license** for the client. Nothing that works is gated
+behind it: a license includes only **purely cosmetic** choices (today the app
+icon, see [What a license includes](#what-a-license-includes)), removes the
+ambient **Unlicensed** label — leaving nothing in its place, because a paid license says nothing outside Settings — and turns the
 License card into a plate carrying the FUTO coin in its well and the stored key,
 masked.
 Unpaid is a fully working app, but the product never calls itself "free to use"
