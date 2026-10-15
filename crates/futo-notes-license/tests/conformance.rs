@@ -17,9 +17,9 @@ use std::path::PathBuf;
 use futo_notes_license::{
     activation_url, buy_url, enter_license_key, evaluate, is_valid_license_key,
     normalize_license_key, parse_deep_link, recognize_input, AcceptedLicense, ActivationTransport,
-    EnterKeyError, Environment, HttpResponse, InvalidReason, LicenseConfig, LicenseInput,
-    LicensePair, LicenseState, OffsetDateTime, Platform, TransportError, CHECKOUT_PRODUCT_SLUG,
-    DEEP_LINK_SCHEME, KEY_ALPHABET, ORG_SLUG, PRODUCT_SLUG, SUPPORT_MAILTO,
+    BuySource, EnterKeyError, Environment, HttpResponse, InvalidReason, LicenseConfig,
+    LicenseInput, LicensePair, LicenseState, OffsetDateTime, Platform, TransportError,
+    CHECKOUT_PRODUCT_SLUG, DEEP_LINK_SCHEME, KEY_ALPHABET, ORG_SLUG, PRODUCT_SLUG, SUPPORT_MAILTO,
 };
 use serde_json::Value;
 
@@ -154,17 +154,17 @@ fn constants_match_the_fixture() {
         let expected = &buy[name];
         let config = environment.config();
         assert_eq!(
-            buy_url(config, Platform::Desktop),
+            buy_url(config, Platform::Desktop, BuySource::LicenseCard),
             text(expected, "desktop"),
             "{name} desktop buy URL"
         );
         assert_eq!(
-            buy_url(config, Platform::Ios),
+            buy_url(config, Platform::Ios, BuySource::LicenseCard),
             text(expected, "ios"),
             "{name} iOS buy URL"
         );
         assert_eq!(
-            buy_url(config, Platform::Android),
+            buy_url(config, Platform::Android, BuySource::LicenseCard),
             text(expected, "android"),
             "{name} Android buy URL"
         );

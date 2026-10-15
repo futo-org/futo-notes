@@ -8,6 +8,7 @@ import com.futo.notes.BuildConfig
 import com.futo.notes.localization.LocalizedMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import uniffi.futo_notes_ffi.BuySource
 import uniffi.futo_notes_ffi.LicenseAcceptance
 import uniffi.futo_notes_ffi.LicenseAction
 import uniffi.futo_notes_ffi.LicenseException
@@ -84,7 +85,11 @@ class LicenseModel(
      * it during `onCreate`, and the first native call would load the shared
      * library on the main thread there (M1). Settings is where these are read.
      */
-    val links: LicenseLinks by lazy { licenseLinks(LicensePlatform.ANDROID, bundleId) }
+    val links: LicenseLinks by lazy { linksFor(BuySource.LICENSE_CARD) }
+
+    /** The same destinations with the Buy URL attributed to [source]. */
+    fun linksFor(source: BuySource): LicenseLinks =
+        licenseLinks(LicensePlatform.ANDROID, bundleId, source)
 
     /**
      * How a message reaches the user. Assigned by the activity so the license

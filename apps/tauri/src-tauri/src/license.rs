@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use futo_notes_license::{
     buy_url, enter_license_key, evaluate, license_includes as core_license_includes,
-    parse_deep_link, ActivationTransport, EnterKeyError, Environment, HttpResponse,
+    parse_deep_link, ActivationTransport, BuySource, EnterKeyError, Environment, HttpResponse,
     LicenseInclusion, LicensePair, LicenseState, LicenseStatus, OffsetDateTime, Platform,
     TransportError, SUPPORT_MAILTO,
 };
@@ -389,7 +389,7 @@ pub async fn license_remove(app: AppHandle) -> Result<LicenseView, String> {
 pub async fn license_links(app: AppHandle) -> LicenseLinks {
     let config = Environment::for_bundle_id(&app.config().identifier).config();
     LicenseLinks {
-        buy: buy_url(config, Platform::Desktop),
+        buy: buy_url(config, Platform::Desktop, BuySource::LicenseCard),
         support: SUPPORT_MAILTO.to_string(),
     }
 }

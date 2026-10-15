@@ -3,9 +3,10 @@
 
 use futo_notes_license::{
     buy_url, enter_license_key, evaluate, license_includes as core_license_includes,
-    parse_deep_link, ActivationTransport, EnterKeyError, Environment, LicenseConfig,
-    LicenseInclusion as CoreLicenseInclusion, LicenseState, LicenseStatus as CoreLicenseStatus,
-    OffsetDateTime, Platform, TransportError, DEEP_LINK_SCHEME, SUPPORT_MAILTO,
+    parse_deep_link, ActivationTransport, BuySource as CoreBuySource, EnterKeyError, Environment,
+    LicenseConfig, LicenseInclusion as CoreLicenseInclusion, LicenseState,
+    LicenseStatus as CoreLicenseStatus, OffsetDateTime, Platform, TransportError, DEEP_LINK_SCHEME,
+    SUPPORT_MAILTO,
 };
 
 use super::transport::Pay2Transport;
@@ -250,6 +251,22 @@ pub fn license_includes(status: LicenseStatus) -> Vec<LicenseInclusion> {
         .collect()
 }
 
+/// Attribution only: which surface sent the buyer to checkout (`from=`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum BuySource {
+    LicenseCard,
+    AppIconPicker,
+}
+
+impl From<BuySource> for CoreBuySource {
+    fn from(source: BuySource) -> Self {
+        match source {
+            BuySource::LicenseCard => CoreBuySource::LicenseCard,
+            BuySource::AppIconPicker => CoreBuySource::AppIconPicker,
+        }
+    }
+}
+
 /// The URL scheme this app answers.
 ///
 /// Exported so a shell's *build-time* registration — iOS `CFBundleURLTypes`,
@@ -267,11 +284,16 @@ pub fn license_deep_link_scheme() -> String {
 /// environment's pay2 host, so a `.dev` build sends a buyer to staging
 /// checkout and can never open the production storefront.
 #[uniffi::export]
-pub fn license_links(platform: LicensePlatform, bundle_id: String) -> LicenseLinks {
+pub fn license_links(
+    platform: LicensePlatform,
+    bundle_id: String,
+    source: BuySource,
+) -> LicenseLinks {
     LicenseLinks {
         buy: buy_url(
             Environment::for_bundle_id(&bundle_id).config(),
             platform.into(),
+            source.into(),
         ),
         support: SUPPORT_MAILTO.to_string(),
     }
@@ -890,18 +912,52 @@ mod tests {
     #[test]
     fn the_buy_url_carries_the_platform() {
         assert_eq!(
-            license_links(LicensePlatform::Ios, "com.futo.notes".into()).buy,
+            license_links(
+                LicensePlatform::Ios,
+                "com.futo.notes".into(),
+                BuySource::LicenseCard
+            )
+            .buy,
             "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
-             /checkout-ready?platform=ios&success=redirect-to-organization-page"
+             /checkout-ready?platform=ios&from=license-card&success=redirect-to-organization-page"
         );
         assert_eq!(
-            license_links(LicensePlatform::Android, "com.futo.notes".into()).buy,
+            license_links(LicensePlatform::Android, "com.futo.notes".into(), BuySource::LicenseCard).buy,
             "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
-             /checkout-ready?platform=android&success=redirect-to-organization-page"
+             /checkout-ready?platform=android&from=license-card&success=redirect-to-organization-page"
         );
         assert_eq!(
-            license_links(LicensePlatform::Ios, "com.futo.notes".into()).support,
+            license_links(
+                LicensePlatform::Ios,
+                "com.futo.notes".into(),
+                BuySource::LicenseCard
+            )
+            .support,
             "mailto:support@futo.tech"
+        );
+    }
+
+    #[test]
+    fn the_buy_url_carries_the_source() {
+        assert_eq!(
+            license_links(
+                LicensePlatform::Ios,
+                "com.futo.notes".into(),
+                BuySource::AppIconPicker
+            )
+            .buy,
+            "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
+             /checkout-ready?platform=ios&from=app-icon&success=redirect-to-organization-page"
+        );
+        assert_eq!(
+            license_links(
+                LicensePlatform::Android,
+                "com.futo.notes.dev".into(),
+                BuySource::AppIconPicker
+            )
+            .buy,
+            "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
+             /checkout-ready?platform=android&from=app-icon&success=redirect-to-organization-page"
         );
     }
 
@@ -921,9 +977,9 @@ mod tests {
     #[test]
     fn a_dev_build_buys_on_staging() {
         assert_eq!(
-            license_links(LicensePlatform::Android, "com.futo.notes.dev".into()).buy,
+            license_links(LicensePlatform::Android, "com.futo.notes.dev".into(), BuySource::LicenseCard).buy,
             "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
-             /checkout-ready?platform=android&success=redirect-to-organization-page"
+             /checkout-ready?platform=android&from=license-card&success=redirect-to-organization-page"
         );
     }
 

@@ -12,6 +12,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import uniffi.futo_notes_ffi.BuySource
 import uniffi.futo_notes_ffi.LicenseAcceptance
 import uniffi.futo_notes_ffi.LicenseInclusion
 import uniffi.futo_notes_ffi.LicensePair
@@ -77,6 +78,13 @@ class LicenseModelTest {
 
         license.remove()
         assertTrue(license.includes.isEmpty())
+    }
+
+    @Test
+    fun theBuyLinkNamesItsSource() {
+        val license = model()
+        assertTrue(license.links.buy.contains("&from=license-card&"))
+        assertTrue(license.linksFor(BuySource.APP_ICON_PICKER).buy.contains("&from=app-icon&"))
     }
 
     /**
