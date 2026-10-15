@@ -242,14 +242,20 @@ collect-secrets-from-op:
       fi
       rustup default 1.89.0
     - |
-      if command -v cargo-tauri >/dev/null 2>&1; then
-        echo "cargo-tauri already installed (cached)"
+      # Pinned, and the cached binary is checked by version: tauri-cli 2.12.3
+      # changed the AppImage GTK hook patch-appimage.mjs rewrites (v1.9.0 tag).
+      TAURI_CLI_VERSION=2.11.4
+      if cargo tauri --version 2>/dev/null | grep -Fx "tauri-cli $TAURI_CLI_VERSION" >/dev/null; then
+        echo "cargo-tauri $TAURI_CLI_VERSION already installed (cached)"
       else
-        echo "Installing cargo-binstall..."
-        curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
-        echo "Installing tauri-cli via binstall..."
-        cargo binstall tauri-cli --no-confirm --locked
+        if ! command -v cargo-binstall >/dev/null 2>&1; then
+          echo "Installing cargo-binstall..."
+          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+        fi
+        echo "Installing tauri-cli $TAURI_CLI_VERSION via binstall..."
+        cargo binstall "tauri-cli@$TAURI_CLI_VERSION" --no-confirm --locked --force
       fi
+      cargo tauri --version | grep -Fx "tauri-cli $TAURI_CLI_VERSION"
     # Last step before any cargo invocation, and shared by every job that
     # restores a cargo `target/` cache. Cache restore runs AFTER get_sources, so
     # a restored artifact can be newer than the source it was built from and
