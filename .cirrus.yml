@@ -175,7 +175,7 @@ test_desktop_smoke_macos_task:
       if [ -x "$TAURI_CLI_ROOT/bin/cargo-tauri" ]; then
         echo "cargo-tauri restored from cache: $("$TAURI_CLI_ROOT/bin/cargo-tauri" --version)"
       else
-        cargo install tauri-cli --locked --root "$TAURI_CLI_ROOT"
+        cargo install tauri-cli --version 2.11.4 --locked --root "$TAURI_CLI_ROOT"
       fi
       export PATH="$TAURI_CLI_ROOT/bin:$PATH"
       command -v cargo-tauri
@@ -473,7 +473,8 @@ build_macos_task:
     # (2) The cache lands after the sources, so a restored artifact can still
     #     claim to be newer than the source it was built from.
     - CI_PROJECT_DIR="${CIRRUS_WORKING_DIR:-$PWD}" node scripts/ci-cargo-cache-freshness.mjs
-    - cargo install tauri-cli --locked
+    # Pinned: tauri-cli 2.12 needs rustc 1.90; rust-toolchain.toml pins 1.89.0.
+    - cargo install tauri-cli --version 2.11.4 --locked
 
     # Derive version from git tag
     - VERSION="${CI_COMMIT_TAG#v}"
@@ -595,7 +596,7 @@ build_macos_internal_task:
       if [ -x "$TAURI_CLI_ROOT/bin/cargo-tauri" ]; then
         echo "cargo-tauri restored from cache: $("$TAURI_CLI_ROOT/bin/cargo-tauri" --version)"
       else
-        cargo install tauri-cli --locked --root "$TAURI_CLI_ROOT"
+        cargo install tauri-cli --version 2.11.4 --locked --root "$TAURI_CLI_ROOT"
       fi
       export PATH="$TAURI_CLI_ROOT/bin:$PATH"
       command -v cargo-tauri
