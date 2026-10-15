@@ -239,6 +239,16 @@ to a follow-up rather than growing the MR.
 
 Resolved 2026-10-15: picker treatment is A (D11).
 
+Taken as written (2026-10-15, the docs/catalog pass; reopen with @justin if wrong):
+
+- Q1: Expired closes the picker (D3 as written).
+- Q2: the toast is enough on desktop.
+- Q4: the row hint shows on key-only builds.
+- Q5: not in scope.
+- Q3: still pending M6's feasibility note.
+
+This pass is **iPhone only**: Android UI (M3) and desktop UI are deferred, and the specs record Android as a Gap.
+
 1. D3: should Expired keep the picker open (a lapsed buyer keeps choosing) or close it as
    written? Written: closes.
 2. M5 on desktop: there is no picker, so nothing to land on. Confirm the toast is enough.

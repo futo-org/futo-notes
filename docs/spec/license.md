@@ -2,7 +2,8 @@
 
 FUTO Notes asks the user to pay for it, and nothing in the app enforces that.
 A user may **buy a license** for the client. The license unlocks nothing
-functional: it removes the ambient **Unlicensed** label — leaving nothing in its
+that works without it: it includes only **purely cosmetic** choices (today the
+app icon, see [What a license includes](#what-a-license-includes)), removes the ambient **Unlicensed** label — leaving nothing in its
 place, because a paid license says nothing outside Settings — and turns the
 License card into a plate carrying the FUTO coin in its well and the stored key,
 masked.
@@ -98,7 +99,8 @@ A coin BURST — 120 little coins thrown across the plate on activation, ported
 from FUTOpay's checkout page — shipped on all three clients that same day and
 came straight back out (@justin 2026-09-18): seen running, it was clutter on a
 card whose whole job is to be read. The coin in the well is the only thing a
-purchase adds.
+purchase adds to the card itself; what else it includes is
+[What a license includes](#what-a-license-includes).
 
 **Expired was reached from a stored license only on Android**, by moving the
 emulator clock forward against the v2 staging fixture. _(ios)_ It has never been
@@ -114,10 +116,16 @@ fixture would close that on all three platforms at once.
 
 ## Principles
 
-- **Nothing is gated.** Every feature works identically licensed or not. The
-  only differences are the ambient label and what the License card shows. Never
-  add a licensed-only feature, theme, icon, or limit; a requested "cosmetic"
-  feature that non-payers would want is a gate by another name.
+- **Nothing that works is gated.** Every feature the app has works identically
+  licensed or not; a license never takes one away and never turns one on. What a
+  license includes beyond the ambient label and the License card is **purely
+  cosmetic** choices FUTO decides to include (today the app icon), and the thing
+  that costs FUTO recurring money to run (sync). The inclusion rule: a license
+  may include a choice only if the app is whole without it, the unchosen default
+  is a complete product rather than a "free tier", and the gate is on
+  _choosing_, never on _keeping_ (below). Never add a licensed-only feature or
+  limit. Decided with @justin and FUTO's CEO 2026-10-15 (ADR-0006), replacing
+  "Nothing is gated", which also forbade cosmetics.
 - **It is a purchase, never a donation.** Copy says "license", "buy", "renew".
   The word "donate" never appears in the product or the store listing. (Stores
   treat donations differently and enforce against donation links; FUTO is not a
@@ -135,8 +143,47 @@ fixture would close that on all three platforms at once.
 - **Zero background network.** The license module contacts the network only on
   an explicit user action (entering a bare key). It never validates on launch,
   never polls, never phones home. Offline-first and privacy win over revocation.
+- **Attribution rides the click the user already makes.** The Buy URL carries
+  `platform` and `from` (which surface the user tapped Buy on: `license-card` or
+  `app-icon`). That is the whole of it: no new request, nothing stored, nothing
+  sent without a tap. _(desktop, ios, android)_ → `buy_url`, `BuySource`
 - **Typing is sacred (M5).** License state is read once into reactive state; no
   per-keystroke or per-render verification.
+
+## What a license includes
+
+- **Today a license includes choosing the app icon**, and nothing else cosmetic:
+  all six existing choices (Standard, Reversed, Dark, Dark, Reversed, FUTO,
+  Scanlines). There is no seventh, licensee-only icon. Standard is the default
+  every install has, not a "free tier". → `license_includes`
+- **Rust owns the answer.** Licensed includes everything on the list; Unlicensed
+  and Expired include nothing. Shells and the desktop webview only ask; no
+  Swift, Kotlin, or TypeScript copy of the rule. Desktop projects the answer but
+  renders nothing from it (no picker). → `license_includes`,
+  `LicenseInclusion`
+- **The gate is on choosing, never on keeping.** Removing a license, or one
+  expiring, leaves whatever icon is set. Nothing in the app ever changes the
+  icon on its own except Full reset, which restores Standard.
+- **Expired does not include the icons.** Expired is Unlicensed with a story:
+  the picker shows the same ask with Renew where Buy would be.
+- **Where the ask may appear:** only where the user walked in: the icon picker,
+  its footnote and sheet, and the App icon row's hint in Settings. Never on
+  launch, never a popup, never in the editor or the note list. The License card
+  does not change for this.
+- **Vocabulary:** "included with a license", "comes with a license". Never
+  "paywall", "unlock", "premium", "free" or "donate".
+- **Key-only builds** (iOS outside the US, Android `play`) get the key-only ask:
+  `license.keyOnlyExplanation` and "I already paid", no Buy, no "Lost your
+  key?", no website (ADR-0005). The row hint still shows there: it states a
+  fact, not a sale.
+- _(ios)_ Implemented: the picker, sheet, row hint and landing, see
+  settings.md § Native app icons.
+
+> **Gap:** _(android, desktop)_ The behaviors above are specified but only iOS
+> renders them (2026-10-15, the first pass of
+> `docs/plan/license-cosmetics.md`). Android's icon sheet still lets any user
+> pick any icon, with no coin, footnote, sheet, row hint or landing; the
+> desktop webview has no picker and needs no UI. Android closes in M3.
 
 ## The license
 
@@ -473,6 +520,26 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   `license::LicenseLinkInbox`, `license_take_pending_link`,
   `license::tests::a_parked_link_outcome_is_delivered_exactly_once`,
   `license.svelte.test.ts` "does not let the startup snapshot overwrite a license"
+
+- **Landing after activation** _(ios)_. When an activation succeeds (deep link,
+  cold or warm; or a key or pair entered on the card) and the license now
+  includes the app icon, the `license.activated` toast still shows, Settings is
+  presented if it is not already, and the App icon picker opens over it with a
+  one-time header above the grid: the coin, `license.explanationLicensed` in
+  bold, and `settings.appIcon.license.landing` under it.
+- The header exists only for that presentation: dismissing the picker and
+  reopening shows the plain grid. Nothing is persisted; there is no "seen" flag.
+- If the picker is already open (the user bought from its sheet, or typed a key
+  after "I already paid"), the sheet dismisses itself and the grid re-renders
+  licensed with the same header.
+- A cold-start link applies after the shell has painted; the picker is
+  presented after, never gating the shell.
+- If the OS cannot change icons (`supportsAlternateIcons == false`) the landing
+  is skipped entirely.
+- _(desktop)_ The toast alone is the landing: there is no picker to land on.
+
+> **Gap:** _(android)_ The landing is not implemented (see What a license
+> includes). Android shows the toast only.
 
 ## States and copy
 
@@ -876,12 +943,21 @@ and the decision, not the rules, is what this section records.
 > not designed; it touches the sync payload (AGENTS.md §11.6) and must be its own
 > change.
 
-> **Gap:** The `platform` attribution the Buy URL carries is not yet recorded by
-> the server. The client sends it and FUTOpay's newer branch puts it on the
-> checkout, but the deployed `staging-pay2.futo.org` predates that: its
-> `checkout-ready` page renders no `platform` field for `?platform=desktop`
-> (observed 2026-09-10). Nothing about the purchase depends on it, so this
-> closes when lib-polar deploys, with no client change.
+> **Gap:** The `platform` and `from` attribution the Buy URL carries is not
+> recorded by the server. Checked against `~/Developer/lib-polar` 2026-10-15
+> (read-only). On `main` and the deployed storefront, `checkout-ready` accepts
+> only `success`: `platform` and `from` are both dropped, and the checkout
+> page posts `metadata: null` to Polar. The unmerged branch
+> `feat/futo-notes-v2-activation` forwards `platform` (whitelisted to
+> `desktop|ios|android|web`, anything else dropped) into the Polar checkout as
+> `metadata.platform`; no branch reads `from`. The `pay.futo.tech/futo-notes`
+> product landing page redirects to `checkout-ready` carrying `platform` only,
+> so `from` would be lost there too even after a lib-polar change. `from` is
+> therefore sent but never recorded until lib-polar forwards a second
+> attribution field (suggested: `metadata.from`, whitelisted
+> `license-card|app-icon`, in both the landing redirect and `checkout-ready`).
+> Nothing about the purchase depends on either; this closes when lib-polar
+> deploys, with no client change.
 
 > **Gap:** No in-Play purchase path — Play users must obtain a license outside the app. A Play Billing SKU or companion app (the FUTO
 > Keyboard pattern) is deliberately not built.
