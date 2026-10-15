@@ -6,6 +6,7 @@ import UIKit
 /// storage readout, issue reporting, about, and the danger-zone full reset.
 /// Sync details/actions stay in SyncView — the Sync row just opens it.
 struct SettingsView: View {
+    private static let licenseCardID = "license-card"
     static let systemSettingsURL = URL(string: UIApplication.openSettingsURLString)!
 
     @EnvironmentObject private var store: NotesStore
@@ -26,6 +27,13 @@ struct SettingsView: View {
 
     @State private var appIcons = AppIconController()
     @State private var showAppIcons = false
+    /// The one-time header above the picker's grid after an activation. Set when
+    /// the landing opens the picker and dropped when it closes: nothing is
+    /// persisted, so reopening shows the plain grid.
+    @State private var showsLanding = false
+    /// Bumped by "I already paid" in the picker's sheet; the License card opens
+    /// its key field on each change.
+    @State private var keyEntryRequest = 0
     @Environment(\.scenePhase) private var scenePhase
     @State private var showSync = false
     /// Full reset is guarded by a modal confirmation dialog: tapping the row
@@ -37,12 +45,17 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             Form {
                 // The License row is the FIRST row of Settings on mobile:
                 // there is no ambient label anywhere else on this platform, so
                 // this row's status text IS the label (docs/spec/license.md
                 // § States and copy).
-                LicenseSettingsSection(license: license, linkOut: licenseStorefront.linkOut)
+                LicenseSettingsSection(
+                    license: license, linkOut: licenseStorefront.linkOut,
+                    keyEntryRequest: keyEntryRequest
+                )
+                .id(Self.licenseCardID)
 
                 // The whole Sync surface is one "Sync" row: cloud
                 // icon, connected-vs-local status, SYNCED/LOCAL badge. No
@@ -101,6 +114,7 @@ struct SettingsView: View {
                             Text(localization.localizedText(appIcons.selected.labelKey))
                                 .foregroundStyle(.primary)
                             Spacer()
+                            if !license.includes.contains(.appIcon) { appIconHint }
                             Image(systemName: "chevron.right").foregroundStyle(.secondary)
                         }
                     }
@@ -193,6 +207,17 @@ struct SettingsView: View {
                     #endif
                 }
             }
+            .onChange(of: license.pendingLanding, initial: true) { _, pending in
+                guard pending else { return }
+                license.consumeLanding()
+                // The OS cannot change icons: the picker would only say so.
+                guard appIcons.available else { return }
+                showsLanding = true
+                showAppIcons = true
+            }
+            .onChange(of: showAppIcons) { _, shown in
+                if !shown { showsLanding = false }
+            }
             .navigationTitle(localization.localizedText("settings.heading"))
             .navigationBarTitleDisplayMode(.inline)
             .tint(Theme.primary)
@@ -203,7 +228,14 @@ struct SettingsView: View {
                 }
             }
             .sheet(isPresented: $showAppIcons) {
-                AppIconPicker(controller: appIcons)
+                AppIconPicker(
+                    controller: appIcons, license: license, linkOut: licenseStorefront.linkOut,
+                    showsLanding: showsLanding,
+                    onAlreadyPaid: {
+                        showAppIcons = false
+                        withAnimation { proxy.scrollTo(Self.licenseCardID, anchor: .top) }
+                        keyEntryRequest += 1
+                    })
             }
             .sheet(isPresented: $showSync) {
                 SyncView()
@@ -225,6 +257,7 @@ struct SettingsView: View {
                     }
                 }
             }
+            }
         }
         .onAppear { appIcons.refresh() }
         .onChange(of: scenePhase) { _, phase in
@@ -232,6 +265,17 @@ struct SettingsView: View {
         }
         .transientMessageBanner(store)
         .interactiveDismissDisabled(resetting)
+    }
+
+    /// The coin and "With a license" on the App icon row while the license does
+    /// not include icons — on key-only builds too: it names a fact, not a sale.
+    private var appIconHint: some View {
+        HStack(spacing: 6) {
+            CoinBadge(diameter: 18, ring: false)
+            Text(localization.localizedText("settings.appIcon.license.rowHint"))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
     }
 
     /// SYNCED / LOCAL pill shown on the single "Sync" row.
