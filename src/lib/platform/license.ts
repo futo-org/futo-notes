@@ -40,6 +40,10 @@ export interface LicenseActionResult {
   view: LicenseView;
 }
 
+/** What a license includes beyond the card (cosmetic only). The rule is Rust's
+ *  `license_includes`; desktop renders nothing from it yet. */
+export type LicenseInclusion = 'appIcon';
+
 export interface LicenseLinks {
   buy: string;
   support: string;
@@ -83,6 +87,13 @@ export async function readLicenseLinks(): Promise<LicenseLinks> {
   if (platformName !== 'tauri') return { buy: '', support: '' };
   const { readLicenseLinks: read } = await import('./tauri/license');
   return read();
+}
+
+/** What a license in `state` includes. Off Tauri nothing is licensed, so nothing. */
+export async function readLicenseIncludes(state: LicenseStateName): Promise<LicenseInclusion[]> {
+  if (platformName !== 'tauri') return [];
+  const { readLicenseIncludes: read } = await import('./tauri/license');
+  return read(state);
 }
 
 export async function takePendingLicenseLink(): Promise<LicenseActionResult | null> {

@@ -134,3 +134,56 @@ pub fn evaluate(
         LicenseState::Licensed(details)
     }
 }
+
+/// The three states a License card can be in. [`LicenseState::Invalid`] is not
+/// one of them: a stored pair that stopped verifying reads as `Unlicensed`,
+/// exactly like no license at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LicenseStatus {
+    Unlicensed,
+    Licensed,
+    Expired,
+}
+
+/// What a license includes beyond the card. Cosmetic only, by policy
+/// (docs/spec/license.md): a working feature never appears here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LicenseInclusion {
+    /// Choosing the app icon (native shells).
+    AppIcon,
+}
+
+/// The one place the inclusion policy lives. Licensed includes everything
+/// listed; Unlicensed and Expired include nothing (Expired is Unlicensed with
+/// a story). Shells ask; none of them keeps a copy of this table.
+pub fn license_includes(status: LicenseStatus) -> Vec<LicenseInclusion> {
+    match status {
+        LicenseStatus::Licensed => vec![LicenseInclusion::AppIcon],
+        LicenseStatus::Unlicensed | LicenseStatus::Expired => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod includes_tests {
+    use super::*;
+
+    #[test]
+    fn licensed_includes_the_app_icon() {
+        assert!(license_includes(LicenseStatus::Licensed).contains(&LicenseInclusion::AppIcon));
+    }
+
+    #[test]
+    fn unlicensed_and_expired_include_nothing() {
+        assert!(license_includes(LicenseStatus::Unlicensed).is_empty());
+        assert!(license_includes(LicenseStatus::Expired).is_empty());
+    }
+
+    /// Adding an inclusion is a policy change: it must be a deliberate edit here.
+    #[test]
+    fn the_full_inclusion_list_is_stable() {
+        assert_eq!(
+            license_includes(LicenseStatus::Licensed),
+            vec![LicenseInclusion::AppIcon]
+        );
+    }
+}

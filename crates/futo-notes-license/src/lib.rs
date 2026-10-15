@@ -1,10 +1,11 @@
 //! The paid client license: the one owner of every license rule.
 //!
 //! Behavioral truth is `docs/spec/license.md`. FUTO Notes asks you to pay for
-//! it and enforces nothing; a license unlocks nothing functional. It removes
-//! the ambient "Unlicensed" label and fills the License card's well with the
-//! FUTO coin and stored key. Nothing in this crate gates
-//! a feature, and nothing ever should.
+//! it and enforces nothing: nothing that works is gated. A license removes the
+//! ambient "Unlicensed" label, fills the License card's well with the FUTO coin
+//! and stored key, and includes the purely cosmetic choices FUTO lists in
+//! [`license_includes`] (today, the app icon). Nothing in this crate gates a
+//! working feature, and nothing ever should.
 //!
 //! # What this crate owns
 //!
@@ -82,7 +83,10 @@ pub use enter::{
 };
 pub use input::{parse_deep_link, recognize_input, LicenseInput, LicensePair};
 pub use key::{is_valid_license_key, normalize_license_key};
-pub use state::{evaluate, InvalidReason, LicenseDetails, LicenseState};
+pub use state::{
+    evaluate, license_includes, InvalidReason, LicenseDetails, LicenseInclusion, LicenseState,
+    LicenseStatus,
+};
 
 /// Re-exported so shells and the FFI projection do not have to agree on a
 /// `time` version to speak to this crate.

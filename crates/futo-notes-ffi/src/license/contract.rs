@@ -2,9 +2,10 @@
 //! back. Records and enums only — no copy, no storage, no platform branching.
 
 use futo_notes_license::{
-    buy_url, enter_license_key, evaluate, parse_deep_link, ActivationTransport, EnterKeyError,
-    Environment, LicenseConfig, LicenseState, OffsetDateTime, Platform, TransportError,
-    DEEP_LINK_SCHEME, SUPPORT_MAILTO,
+    buy_url, enter_license_key, evaluate, license_includes as core_license_includes,
+    parse_deep_link, ActivationTransport, EnterKeyError, Environment, LicenseConfig,
+    LicenseInclusion as CoreLicenseInclusion, LicenseState, LicenseStatus as CoreLicenseStatus,
+    OffsetDateTime, Platform, TransportError, DEEP_LINK_SCHEME, SUPPORT_MAILTO,
 };
 
 use super::transport::Pay2Transport;
@@ -212,6 +213,41 @@ pub fn license_row_actions(status: LicenseStatus, link_out: bool) -> Vec<License
         ],
         LicenseStatus::Unlicensed | LicenseStatus::Expired => vec![LicenseAction::EnterKey],
     }
+}
+
+impl From<LicenseStatus> for CoreLicenseStatus {
+    fn from(status: LicenseStatus) -> Self {
+        match status {
+            LicenseStatus::Unlicensed => CoreLicenseStatus::Unlicensed,
+            LicenseStatus::Licensed => CoreLicenseStatus::Licensed,
+            LicenseStatus::Expired => CoreLicenseStatus::Expired,
+        }
+    }
+}
+
+/// What a license includes beyond the card. Cosmetic only, by policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum LicenseInclusion {
+    /// Choosing the app icon.
+    AppIcon,
+}
+
+impl From<CoreLicenseInclusion> for LicenseInclusion {
+    fn from(inclusion: CoreLicenseInclusion) -> Self {
+        match inclusion {
+            CoreLicenseInclusion::AppIcon => LicenseInclusion::AppIcon,
+        }
+    }
+}
+
+/// What this status includes. The rule is `futo_notes_license::license_includes`;
+/// shells derive their `includes` set from it whenever the view changes.
+#[uniffi::export]
+pub fn license_includes(status: LicenseStatus) -> Vec<LicenseInclusion> {
+    core_license_includes(status.into())
+        .into_iter()
+        .map(Into::into)
+        .collect()
 }
 
 /// The URL scheme this app answers.
@@ -867,6 +903,16 @@ mod tests {
             license_links(LicensePlatform::Ios, "com.futo.notes".into()).support,
             "mailto:support@futo.tech"
         );
+    }
+
+    #[test]
+    fn a_license_includes_the_app_icon_and_nothing_else_does() {
+        assert_eq!(
+            license_includes(LicenseStatus::Licensed),
+            vec![LicenseInclusion::AppIcon]
+        );
+        assert!(license_includes(LicenseStatus::Unlicensed).is_empty());
+        assert!(license_includes(LicenseStatus::Expired).is_empty());
     }
 
     /// The defect this split fixed: a `.dev` build's Buy button opened the

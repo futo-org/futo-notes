@@ -3,11 +3,12 @@
 The single owner of every paid-client-license rule. Behavioral truth:
 [`docs/spec/license.md`](../../docs/spec/license.md); the implementation spec is GitLab issue #149.
 
-FUTO Notes asks you to pay for it, and nothing enforces that. A license unlocks **nothing
-functional** — it removes the ambient "Unlicensed" label and fills the License card's well with
-the FUTO coin, above a "Licensed since {date}" row (a full localized date, never a bare year).
-Never add a licensed-only feature, theme, icon, or limit to this crate or to
-anything that reads it; a "cosmetic" feature non-payers would want is a gate by another name.
+FUTO Notes asks you to pay for it, and nothing enforces that. **Nothing that works is gated.** A
+license removes the ambient "Unlicensed" label, fills the License card's well with the FUTO coin,
+above a "Licensed since {date}" row (a full localized date, never a bare year), and includes the
+purely cosmetic choices listed in `license_includes` (today: choosing the app icon; docs/plan/license-cosmetics.md).
+That function is the whole inclusion rule: never add a licensed-only feature or limit, and never
+add an inclusion that is not cosmetic. Shells ask `license_includes`; none keeps a copy.
 Never describe the app as "free to use" either: the honest framing, and the one Grayjay and FUTO
 Keyboard use, is that FUTO wants you to pay and declines to force you.
 

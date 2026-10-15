@@ -22,6 +22,7 @@ const platform = vi.hoisted(() => ({
   submitLicenseKey: vi.fn(),
   clearLicense: vi.fn(),
   readLicenseLinks: vi.fn(),
+  readLicenseIncludes: vi.fn(),
   takePendingLicenseLink: vi.fn(),
   nudge: null as null | (() => void),
   subscribeDelay: null as null | Promise<void>,
@@ -33,6 +34,7 @@ vi.mock('$lib/platform/license', () => ({
   submitLicenseKey: platform.submitLicenseKey,
   clearLicense: platform.clearLicense,
   readLicenseLinks: platform.readLicenseLinks,
+  readLicenseIncludes: platform.readLicenseIncludes,
   takePendingLicenseLink: platform.takePendingLicenseLink,
   // Capture the handler so a test can fire a link nudge the way Rust does.
   // `subscribeDelay` lets a test hold the subscription open to prove the drain
@@ -81,6 +83,7 @@ beforeEach(() => {
   platform.readLicenseStatus.mockResolvedValue(UNLICENSED);
   platform.readLicenseLinks.mockResolvedValue({ buy: 'https://buy.example', support: 'mailto:x' });
   platform.takePendingLicenseLink.mockResolvedValue(null);
+  platform.readLicenseIncludes.mockResolvedValue([]);
   platform.clearLicense.mockResolvedValue(UNLICENSED);
 });
 

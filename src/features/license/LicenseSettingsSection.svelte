@@ -6,8 +6,9 @@
   import SupporterCoin from './SupporterCoin.svelte';
 
   // The Steel Ledger plate. The three states and their actions are
-  // docs/spec/license.md § States and copy. Nothing here is gated on a license:
-  // the plate is the only difference a purchase makes.
+  // docs/spec/license.md § States and copy. Nothing that works is gated on a license
+  // (it includes only cosmetics, none of them on desktop yet): the plate is the
+  // only difference a purchase makes here.
   //
   // The card *copy* is shared law — `licenseCardModel` is a registered drift
   // concept with iOS and Android copies (scripts/drift-registry.json

@@ -7,11 +7,13 @@
 import {
   clearLicense,
   subscribeLicenseLinks,
+  readLicenseIncludes,
   readLicenseLinks,
   readLicenseStatus,
   submitLicenseKey,
   takePendingLicenseLink,
   UNLICENSED,
+  type LicenseInclusion,
   type LicenseLinks,
   type LicenseOutcome,
   type LicenseView,
@@ -38,6 +40,9 @@ const LINK_TOASTS: Readonly<Record<LicenseOutcome, string>> = {
 class LicenseModel {
   view = $state<LicenseView>(UNLICENSED);
   links = $state<LicenseLinks>({ buy: '', support: '' });
+  /// What the current license includes (Rust's `license_includes`), read when
+  /// the view changes and never per render. Desktop renders nothing from it.
+  includes = $state<LicenseInclusion[]>([]);
   /// True only while the one activation request is in flight.
   busy = $state(false);
   /// Counts the moments this device *became* licensed, so a surface showing
@@ -114,7 +119,10 @@ class LicenseModel {
   async #refresh(startingRevision: number): Promise<void> {
     try {
       const view = await readLicenseStatus();
-      if (startingRevision === this.#stateRevision) this.view = view;
+      if (startingRevision === this.#stateRevision) {
+        this.view = view;
+        void this.#readIncludes(view);
+      }
     } catch (error) {
       console.warn('Failed to read the license status:', error);
     }
@@ -168,12 +176,23 @@ class LicenseModel {
     if (this.links.support) openExternalUrl(this.links.support);
   }
 
+  async #readIncludes(view: LicenseView): Promise<void> {
+    try {
+      const includes = await readLicenseIncludes(view.state);
+      // A newer view may have landed while this was in flight.
+      if (this.view === view) this.includes = includes;
+    } catch (error) {
+      console.warn('Failed to read what the license includes:', error);
+    }
+  }
+
   #replaceView(view: LicenseView): void {
     this.#stateRevision += 1;
     // Only the crossing counts. Re-entering a key you already hold leaves the
     // state at licensed and is not a second activation.
     if (view.state === 'licensed' && this.view.state !== 'licensed') this.#activations += 1;
     this.view = view;
+    void this.#readIncludes(view);
   }
 }
 

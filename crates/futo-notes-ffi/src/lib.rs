@@ -5,9 +5,9 @@ mod sync;
 
 pub use license::{
     license_deep_link_scheme, license_enter_key, license_evaluate, license_handle_deep_link,
-    license_link_out, license_links, license_row_actions, LicenseAcceptance, LicenseAction,
-    LicenseError, LicenseLinkOutcome, LicenseLinks, LicensePair, LicensePlatform, LicenseStatus,
-    LicenseView,
+    license_includes, license_link_out, license_links, license_row_actions, LicenseAcceptance,
+    LicenseAction, LicenseError, LicenseInclusion, LicenseLinkOutcome, LicenseLinks, LicensePair,
+    LicensePlatform, LicenseStatus, LicenseView,
 };
 pub use localization::{localization_maximize_language_tag, localization_plural_category};
 pub use notes::{

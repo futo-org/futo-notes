@@ -15,9 +15,10 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use futo_notes_license::{
-    buy_url, enter_license_key, evaluate, parse_deep_link, ActivationTransport, EnterKeyError,
-    Environment, HttpResponse, LicensePair, LicenseState, OffsetDateTime, Platform, TransportError,
-    SUPPORT_MAILTO,
+    buy_url, enter_license_key, evaluate, license_includes as core_license_includes,
+    parse_deep_link, ActivationTransport, EnterKeyError, Environment, HttpResponse,
+    LicenseInclusion, LicensePair, LicenseState, LicenseStatus, OffsetDateTime, Platform,
+    TransportError, SUPPORT_MAILTO,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
@@ -393,6 +394,24 @@ pub async fn license_links(app: AppHandle) -> LicenseLinks {
     }
 }
 
+/// What a license in `state` (`unlicensed` | `licensed` | `expired`) includes,
+/// as camelCase names (`appIcon`). The rule is the crate's; desktop renders
+/// nothing from it yet. An unknown state includes nothing.
+#[tauri::command]
+pub fn license_includes(state: String) -> Vec<&'static str> {
+    let status = match state.as_str() {
+        STATE_LICENSED => LicenseStatus::Licensed,
+        STATE_EXPIRED => LicenseStatus::Expired,
+        _ => LicenseStatus::Unlicensed,
+    };
+    core_license_includes(status)
+        .into_iter()
+        .map(|inclusion| match inclusion {
+            LicenseInclusion::AppIcon => "appIcon",
+        })
+        .collect()
+}
+
 #[tauri::command]
 pub async fn license_take_pending_link(
     state: State<'_, AppState>,
@@ -402,6 +421,13 @@ pub async fn license_take_pending_link(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_a_licensed_state_includes_the_app_icon() {
+        assert_eq!(super::license_includes("licensed".into()), vec!["appIcon"]);
+        assert!(super::license_includes("expired".into()).is_empty());
+        assert!(super::license_includes("unlicensed".into()).is_empty());
+    }
+
     use super::*;
     use futo_notes_license::{InvalidReason, LicenseDetails};
     use std::sync::atomic::{AtomicU32, Ordering};
