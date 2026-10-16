@@ -452,9 +452,9 @@ rule (the shell acknowledges). Use the `rsa` crate this crate already carries; n
   the release anchor set is **exactly Apple's three roots** (a test asserts the set, and that an
   Xcode-signed fixture is Invalid under the release config); the Xcode anchor exists only in test code (Q8).
 - **Google.** The public key is per app listing in Play Console (Monetize > Monetization setup),
-  so `com.futo.notes` has one and **`com.futo.notes.dev` has none unless we also create it as a Play
-  app** (recommended, § M7.5, internal-testing track only; this is what lets staging verify a real
-  signed purchase). License testers and test cards produce purchases **signed like real ones**, and
+  so `com.futo.notes` has one and `com.futo.notes.dev` has none: there is no second Play app (D27),
+  so a `.dev` build only ever sees fake-`BillingClient` purchases signed by a test key in test code,
+  and real signed purchases are exercised on `com.futo.notes` via the internal track. License testers and test cards produce purchases **signed like real ones**, and
   nothing in `getOriginalJson()` marks them as tests (the test flag lives on the Developer API's
   purchase resource, which we do not call), so a release build cannot tell a tester purchase from a
   real one. Accepted: testers are a list in our Play Console. Old `android.test.purchased` static
