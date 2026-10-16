@@ -21,8 +21,8 @@ Read first, in this order:
    what is specified but not built; § 8 below maps each open Gap to the workstream that closes it.
 4. Root `AGENTS.md`, then the `AGENTS.md` of every layer a workstream touches, before editing it.
 
-Older plans, absorbed: [`license-ship.md`](license-ship.md) (shipped; its execution log is
-history), [`license-store-compliance.md`](license-store-compliance.md) (M1-M5 shipped 2026-09-24;
+Older plans, absorbed: the ship plan (shipped, since deleted; last version at commit 0774e8a2e; its
+execution log is history), [`license-store-compliance.md`](license-store-compliance.md) (M1-M5 shipped 2026-09-24;
 its M6 "real purchase on each shape" and M7 "store submission" are not scheduled; the posture it
 shipped, ADR-0005, is still the one in force).
 

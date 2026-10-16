@@ -550,7 +550,7 @@ hand-reviewed goldens, one or more per line below)
   Checked once, at touch-down; a press already in flight does not re-arbitrate
   mid-gesture. → src/features/editor/milkdown/mobileBlockDnd.ts
   `onPointerDown`, src/features/editor/milkdown/mobileBlockDnd.test.ts,
-  tests/editor-embed-milkdown.spec.ts _(native shells)_
+  tests/editor-embed-milkdown-block-drag.spec.ts _(native shells)_
 - The lifted ghost shows the WHOLE block from its very first frame, sits over
   the block it was lifted from (padded by the card's own breathing room, so it
   reads against the drop-indicator line, which is drawn in viewport space), and
@@ -565,7 +565,7 @@ hand-reviewed goldens, one or more per line below)
   cropped it to one unrendered line on Android; that rule is gone — see
   Performance.) →
   src/features/editor/milkdown/mobileBlockDnd.ts `createGhost`
-  `GHOST_MAX_HEIGHT_FRACTION`, tests/editor-embed-milkdown.spec.ts
+  `GHOST_MAX_HEIGHT_FRACTION`, tests/editor-embed-milkdown-block-drag.spec.ts
   _(native shells)_
 - On desktop a ⠿ handle appears in the left gutter beside the top-level block
   under the pointer — in the GUTTER, 4px left of the text column, never over a
@@ -589,11 +589,11 @@ hand-reviewed goldens, one or more per line below)
   the lift. → src/features/editor/milkdown/handleBlockDrag.ts,
   src/features/editor/milkdown/handleBlockDrag.test.ts,
   src/features/editor/milkdown/blockDragSession.ts,
-  tests/editor-embed-milkdown.spec.ts _(desktop)_
+  tests/editor-embed-milkdown-block-drag.spec.ts _(desktop)_
 - While the desktop ⠿ handle has a block lifted, the pointer is the grabbing
   cursor everywhere in the window, and the mouse wheel still scrolls the note
   under the pointer. → src/features/editor/milkdown/handleBlockDrag.ts
-  `showCursorLayer`, tests/editor-embed-milkdown.spec.ts _(desktop)_
+  `showCursorLayer`, tests/editor-embed-milkdown-block-drag.spec.ts _(desktop)_
 - A block drag only ever lifts a TOP-LEVEL block, on both gestures. A press
   anywhere inside a list — bullet, ordered or task, at any nesting depth —
   lifts the WHOLE top-level list as one block, and the same goes for anything
@@ -606,14 +606,14 @@ hand-reviewed goldens, one or more per line below)
   two depending on what was grabbed.) → src/features/editor/milkdown/mobileBlockDnd.ts
   `onPointerDown`, src/features/editor/milkdown/handleSource.ts `handleSourceFor`,
   src/features/editor/milkdown/blockDragCurtain.ts,
-  src/features/editor/milkdown/handleSource.test.ts, tests/editor-embed-milkdown.spec.ts
+  src/features/editor/milkdown/handleSource.test.ts, tests/editor-embed-milkdown-block-drag.spec.ts
 - A dragged block only lands in a gap between top-level blocks: just below a
   blockquote is NOT "inside the blockquote", however the schema would read that
   position, and a point between two items of a list is the gap above or below
   the whole list. → src/features/editor/milkdown/blockDragGeometry.ts
   `resolveDropTarget`, src/features/editor/milkdown/blockMove.ts `moveBlock`,
   src/features/editor/milkdown/blockDragGeometry.test.ts,
-  src/features/editor/milkdown/blockMove.test.ts, tests/editor-embed-milkdown.spec.ts
+  src/features/editor/milkdown/blockMove.test.ts, tests/editor-embed-milkdown-block-drag.spec.ts
 - The drop line is the fallback when the preview cannot run: when the editor's
   rendered blocks do not line up one-to-one with the document's top-level
   blocks at the lift, or when the note changes under the drag (a host
@@ -629,7 +629,7 @@ hand-reviewed goldens, one or more per line below)
   release checks the layout again itself, so a change in the very moment of
   release is not missed. It does not fall back to the drop line. Verified in
   Chromium (Playwright) 2026-10-08. → src/features/editor/milkdown/blockDragCurtain.ts
-  `watch` `followScroll` `remeasure` `release`, tests/editor-embed-milkdown.spec.ts
+  `watch` `followScroll` `remeasure` `release`, tests/editor-embed-milkdown-block-drag.spec.ts
 - The desktop ⠿ handle's lifted block is a ghost card the page draws, at the
   block's own on-screen size, never an OS drag image: a clone of the block over
   the block itself (padded by the card's breathing room, like the long press's),
@@ -638,7 +638,7 @@ hand-reviewed goldens, one or more per line below)
   the OS-drawn drag image did on Linux (QA #012: roughly 200% size on a
   fractionally scaled WebKitGTK display, which nothing the page did could fix).
   → src/features/editor/milkdown/blockDragSession.ts,
-  tests/editor-embed-milkdown.spec.ts
+  tests/editor-embed-milkdown-block-drag.spec.ts
 - There is ONE drop slot per boundary between top-level blocks, on both drag
   gestures. Below block A and above the block directly under it are the same
   place, so they are one target: one slot opening in the live-reflow preview
@@ -655,7 +655,7 @@ hand-reviewed goldens, one or more per line below)
   src/features/editor/milkdown/blockDragGeometry.ts `resolveDropTarget`,
   src/features/editor/milkdown/blockDragSession.ts,
   src/features/editor/milkdown/blockDragGeometry.test.ts,
-  tests/editor-embed-milkdown.spec.ts
+  tests/editor-embed-milkdown-block-drag.spec.ts
 - In the live-reflow preview, which slot is open is judged against the blocks
   where the preview DRAWS them, not where they sat at the lift: the slot moves
   past a block once the pointer passes that block's drawn middle (its own
@@ -665,7 +665,7 @@ hand-reviewed goldens, one or more per line below)
   upper half — a whole paragraph-height inside the paragraph's own drawn slot.
   The slot cannot flip back and forth: passing a block moves it to the other
   side of the slot, away from the pointer. → src/features/editor/milkdown/blockDragCurtain.ts
-  `reflowGapAt`, tests/editor-embed-milkdown.spec.ts
+  `reflowGapAt`, tests/editor-embed-milkdown-block-drag.spec.ts
 - The dragged block's own two boundaries open no slot, draw no line and tick no
   haptic on either gesture, because a drop there is a no-op: the finger holding
   a block over the gap it already sits against would otherwise show the
@@ -674,7 +674,7 @@ hand-reviewed goldens, one or more per line below)
   so the line — and the dimmed source block underneath at lift — stay visible
   through the card wherever it overlaps a boundary. → src/features/editor/milkdown/blockMove.ts
   `isNoOpDrop`, src/features/editor/milkdown/blockDragSession.ts,
-  src/features/editor/milkdown/blockMove.test.ts, tests/editor-embed-milkdown.spec.ts
+  src/features/editor/milkdown/blockMove.test.ts, tests/editor-embed-milkdown-block-drag.spec.ts
 - A block drag is haptic three ways on both native shells: one firmer impact
   when the block lifts, a light tick each time the drop slot (or the indicator
   line, where the preview falls back) lands on a DIFFERENT top-level boundary,
@@ -687,7 +687,7 @@ hand-reviewed goldens, one or more per line below)
   apps/ios/Sources/Editor/EditorWebView.swift `moveHapticFeedback`,
   apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt
   `performBlockDragHaptic`,
-  tests/editor-embed-milkdown.spec.ts _(native shells)_
+  tests/editor-embed-milkdown-block-drag.spec.ts _(native shells)_
 - On Android, a finger landing on a block silences the WebView's OWN long-press
   haptic for the length of the press, so the lift is felt once rather than as
   two impacts an eighth of a second apart. Chromium's long-press recogniser
@@ -713,7 +713,7 @@ hand-reviewed goldens, one or more per line below)
   down like any block press. A tester's report — holding an empty line lifted
   a blank "phantom" card while, by the next line's mechanism, the keyboard
   rose underneath it — made the two visibly collide. →
-  src/features/editor/milkdown/mobileBlockDnd.ts, tests/editor-embed-milkdown.spec.ts
+  src/features/editor/milkdown/mobileBlockDnd.ts, tests/editor-embed-milkdown-block-drag.spec.ts
   _(native shells)_
 - A block press that begins with the editor unfocused never focuses it or
   raises the keyboard, however long it lasts and whether or not it lifts; a
@@ -727,7 +727,7 @@ hand-reviewed goldens, one or more per line below)
   on text blocks as well as empty ones. A capture-phase `focus` listener on
   the document undoes it for a press that began unfocused. →
   src/features/editor/milkdown/mobileBlockDnd.ts, packages/editor/src/bridge.ts
-  `FocusMessage`, tests/editor-embed-milkdown.spec.ts _(native shells, Android)_
+  `FocusMessage`, tests/editor-embed-milkdown-block-drag.spec.ts _(native shells, Android)_
 - A block drag holding the pointer within 64px of the editor scroller's top or
   bottom edge scrolls the note continuously — 200px/s at the zone's inner lip
   ramping to 1400px/s at the edge — so a block can be dropped at a boundary that
@@ -741,7 +741,7 @@ hand-reviewed goldens, one or more per line below)
   src/features/editor/milkdown/blockDragGeometry.ts `createDragAutoScroller`,
   src/features/editor/milkdown/blockDragSession.ts,
   src/features/editor/milkdown/blockDragGeometry.test.ts,
-  tests/editor-embed-milkdown.spec.ts _(native shells)_
+  tests/editor-embed-milkdown-block-drag.spec.ts _(native shells)_
 - Dropping a top-level block never scrolls the note: the blocks on screen at the
   release stay exactly where the live preview drew them, and the dropped block
   lands where the preview showed it — also when edge auto-scroll carried the
@@ -758,7 +758,7 @@ hand-reviewed goldens, one or more per line below)
   Verified in Chromium (Playwright) 2026-10-08. →
   src/features/editor/milkdown/blockDragCurtain.ts `holdScrollThroughDrop`
   `holdScrollExtent`, src/features/editor/milkdown/blockDragSession.ts,
-  tests/editor-embed-milkdown.spec.ts
+  tests/editor-embed-milkdown-block-drag.spec.ts
 - Only the dropped block moves at the release, snapping into its slot: a
   neighbour still sliding out of the way when the finger lifts finishes its
   slide, and the move is committed (and the note reported changed) once the
@@ -770,7 +770,7 @@ hand-reviewed goldens, one or more per line below)
   lifts until it has committed. Verified in Chromium (Playwright) 2026-10-09. →
   src/features/editor/milkdown/blockDragSession.ts `land`,
   src/features/editor/milkdown/blockDragCurtain.ts `land`,
-  tests/editor-embed-milkdown.spec.ts
+  tests/editor-embed-milkdown-block-drag.spec.ts
 - A finger landing on a block in the long-press block drag suspends the
   platform's DELAYED text interaction from touch-down — the magnifier loupe and
   tap-and-a-half select — for as long as the press lasts, and restores it the
@@ -783,7 +783,7 @@ hand-reviewed goldens, one or more per line below)
   src/features/editor/milkdown/mobileBlockDnd.ts,
   apps/ios/Sources/Editor/EditorWebView.swift `delayedTextInteractionGestures`,
   packages/editor/src/bridge.ts `BlockPressMessage`,
-  tests/editor-embed-milkdown.spec.ts _(native shells, iOS)_
+  tests/editor-embed-milkdown-block-drag.spec.ts _(native shells, iOS)_
 - A tap still places the caret and raises the keyboard, and a double-tap still
   selects a word and shows the platform Cut/Copy/Paste callout, during and after
   that press-level suspension: only the hold-triggered recognisers stand down,
@@ -2023,7 +2023,7 @@ unchanged by it.
   dropped: the stream still completes exactly once and the save lock below is
   unchanged. The serializer's idle cache priming yields the same way. →
   milkdown/interactionHold.ts, milkdown/progressiveLoad.ts
-  `createYieldingIdleScheduler`, tests/editor-embed-milkdown.spec.ts
+  `createYieldingIdleScheduler`, tests/editor-embed-milkdown-progressive.spec.ts
 - Chunk boundaries are only ever taken where a chunk
   parses to the same document the whole note would (never inside front matter,
   never at a `---`), and a chunk that parses to nothing aborts the whole thing
@@ -2074,7 +2074,7 @@ unchanged by it.
   Desktop component reads use the same complete-document serialization. A pinned
   `role="status"` bar reads "Loading the rest of this note…" while it runs, and
   the streamed appends are not undoable. → milkdown/hostHandle.ts `flush`, `getContent`,
-  milkdown/progressiveLoad.ts, tests/editor-embed-milkdown.spec.ts
+  milkdown/progressiveLoad.ts, tests/editor-embed-milkdown-progressive.spec.ts
 - Every top-level block is rendered eagerly; the editor applies no
   `content-visibility` containment. A Chromium-only containment rule ran from
   #106 until 2026-09-05 and was retired after measuring it against eager
@@ -2086,7 +2086,7 @@ unchanged by it.
   rule also painted holes on Apple WebKit, so all three engines now render
   alike. → milkdownEditor.css (the comment where the rule was),
   docs/plan/milkdown-transition.md §5 "Containment retired",
-  tests/editor-embed-milkdown.spec.ts
+  tests/editor-embed-milkdown-progressive.spec.ts
 - The FIRST focus of an opened note — the tap that starts typing — is budgeted
   at **under 1 s at real-note sizes** on the reference phone and measured for
   every fixture, blurred again before the keystroke loop so the keystroke unit
@@ -2444,7 +2444,7 @@ left open because closing it is a behavior change, not a refactor:
   - _History (resolved):_ Chromium 147's empty-editable surrounding-text path
     tripped a `CHECK()` (`SIGTRAP`) when FUTO Keyboard queried it on backspace.
     This was **fixed upstream by a FUTO Keyboard update**, so the in-app IME
-    shield is no longer required. → docs/learnings/ime-shield-workaround.md
+    shield is no longer required.
   - The in-app IME shield has been **removed** from the shared editor
     (`imeShieldPlugin` / `imeShield.ts`) and the `just verify-ime-shield` guard
     is gone. The native Compose app never carried it and is fine without it.

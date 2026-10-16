@@ -19,7 +19,11 @@ This is a **single-context** repo: one `CONTEXT.md` + `docs/adr/` at the repo ro
 ├── CONTEXT.md
 ├── docs/adr/
 │   ├── 0001-shells-are-projections.md
-│   └── 0002-roundtrip-normalization-accepted.md
+│   ├── 0002-roundtrip-normalization-accepted.md
+│   ├── 0003-hosted-sync-client-flow.md
+│   ├── 0004-license-reuse-is-never-rejected.md
+│   ├── 0005-license-purchase-follows-store-rules.md
+│   └── 0010-every-platform-links-out-to-buy.md
 └── src/
 ```
 

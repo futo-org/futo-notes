@@ -26,7 +26,7 @@ iOS 27 iPhone 17 Pro simulator `futo-qa-0`, debug app using `release-ffi` and
 software-keyboard input: passed both variants. The clean giant Back was observed
 in 2,595 ms including accessibility polling; the small edit survived, and the
 giant stayed byte-identical. The next small note opened and accepted input. Protocol and native unit checks are
-recorded in `docs/plan/editor-owns-the-document.md`.
+recorded in commit c10fb812 (bridge v9) and its tests.
 
 ## Not proven
 

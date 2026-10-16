@@ -13,7 +13,7 @@ readable `.md` files on disk.
 Deleted from `main` here, with this plan:
 - `docs/adr/0003-tree-crdt-substrate.md`. It chose a tree CRDT through y-prosemirror. This plan
   picks markdown text instead (see "Why markdown text, not y-prosemirror").
-- `docs/archive/future-realtime-collab.md`, the April 2026 exploration notes.
+- The April 2026 realtime-collab exploration notes (`future-realtime-collab.md`, since removed).
 
 Superseded on branches that were never merged. They're kept only as evidence of what was tried:
 - **App** `origin/claude/sync-system-redesign-4bbda4` (Mason, 2026-08-12):

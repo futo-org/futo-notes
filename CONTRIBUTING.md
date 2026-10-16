@@ -28,7 +28,7 @@ and worktrees sharing a slot; presence alone does not prove a working build or a
 
 ```bash
 just setup        # check tools and install pinned workspace dependencies
-just tauri-dev    # run the desktop app (Wayland-first, port 5180)
+just tauri-dev    # run the desktop app (Wayland-first, Vite port 5200 + worktree slot)
 just verify-run check  # lint + tests + build sanity, with a retained evidence bundle
 ```
 
@@ -67,10 +67,11 @@ This repo ships shared Claude Code config under `.claude/`:
 - **Shared settings** (`.claude/settings.json`) — a small project permission
   allowlist plus the repo's hooks. Personal overrides go in
   `.claude/settings.local.json` (gitignored).
-- **Hooks** (`scripts/hooks/`, wired from `.claude/settings.json`) — deny
-  process-name kills, `git stash` in a linked worktree, and OS-level input;
-  print `just orient` at session start; give each subagent a private scratch
-  directory. A denial names the sanctioned alternative.
+- **Hooks** (`scripts/hooks/`, wired from `.claude/settings.json`) — print
+  `just orient` at session start and give each subagent a private scratch
+  directory. No hook denies process-name kills, `git stash` in a linked worktree,
+  or OS-level input (the deny hook was removed in 34040eb9); follow those rules by
+  hand — see AGENTS.md §5, M24 and M25.
 
 ### Third-party skills (optional)
 

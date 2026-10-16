@@ -63,7 +63,7 @@ and the OS deep link, plus Remove back to Unlicensed. What still does not work i
 **buying** one — see the purchase-delivery Gap.
 
 2026-09-16 replaced the one-line License row with the **License card** on all
-three clients (`docs/plan/license-ship.md`), each driven on the commit that
+three clients (ship plan f0968f51, since removed), each driven on the commit that
 shipped it. _(desktop)_ Unlicensed, Licensed and the reveal/copy path through
 the dev build's webview bridge: the coin measured 160×160 inside the 184×184
 well, Copy put the exact 42-character normalized key on the pasteboard, and
@@ -614,13 +614,13 @@ them.
 `apps/android/app/src/main/java/com/futo/notes/license/LicenseCopy.kt` — one
 drift-registered concept, `license-card-copy`
 
-| State          | Badge        | Key                | Licensed since                      | Term                                | Actions                                             |
-| -------------- | ------------ | ------------------ | ----------------------------------- | ----------------------------------- | --------------------------------------------------- |
-| **Unlicensed** | "Unlicensed" | blank              | blank                               | blank                               | **Buy a license** · I already paid · Lost your key? |
-| **Licensed**   | none         | masked, revealable | "{date}", blank with no `issued_at` | "Perpetual" or "Valid until {date}" | Remove license                                      |
-| **Expired**    | "Expired"    | masked, revealable | "{date}"                            | "Expired {date}"                    | **Renew** · I already paid · Lost your key?         |
+| State          | Badge     | Key                | Actions (checkout available)                        | Actions (key-only: iOS non-US or unknown storefront; the App Store controls are listed under Controls below) |
+| -------------- | --------- | ------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **Unlicensed** | none      | absent             | **Buy a license** · I already paid · Lost your key? | I already paid                                       |
+| **Licensed**   | none      | masked, revealable | Remove license                                      | Remove license                                       |
+| **Expired**    | "Expired" | masked, revealable | **Renew** · I already paid · Lost your key?         | I already paid                                       |
 
-The actions above are the full checkout surface. _(ios, non-US or unknown storefront)_
+The first Actions column is the full checkout surface. _(ios, non-US or unknown storefront)_
 Unlicensed and Expired offer only **I already paid**; Licensed
 still offers Remove. The key-only Unlicensed plate has no payment headline.
 Unlicensed and Expired use `license.keyOnlyExplanation` ("Have a FUTO Notes
@@ -642,8 +642,8 @@ it does nothing. Licensed shows the ordinary thank-you and Remove. →
 `LicenseSettingsSection.kt` (`licenseWebsitePath`), `LicenseSurfaceTest`
 "playNamesTheWebsiteAsTextThatCannotBeTapped"
 
-The Key column is the whole table on every platform: the row is absent rather
-than blank when Unlicensed, and the two date columns do not exist anywhere.
+Key is the whole ledger on every platform: the row is absent rather
+than blank when Unlicensed, and the date rows (Licensed since, Term) do not exist anywhere.
 **Unlicensed wears no badge either** — the section heading says "License", and on
 desktop the sidebar already says "Unlicensed"; a third copy of the word was
 chrome.
@@ -746,20 +746,6 @@ one catalog entry, `license.enterKey`, so all three shells moved together
   false failure. →
   `apps/ios/Sources/License/LicenseSettingsSection.swift`,
   `apps/android/app/src/main/java/com/futo/notes/ui/LicenseSettingsSection.kt`
-- **Term** is blank with no license: "Perpetual" there would be a claim the app
-  cannot make. It is "Perpetual" when `expires_at` is null **and** for a v1
-  activation, which is perpetual by format rather than by guess; "Valid until
-  {date}" while a v2 expiry is still in the future; "Expired {date}" once it has
-  passed. → `licenseCopy.test.ts` "reads a license with no expiry as Perpetual",
-  _(ios)_ `LicenseCopyTests`, _(android)_ `LicenseCopyTest`
-- **With no `issued_at` — a v1 activation — the "Licensed since" row is present
-  and blank.** There is no dateless variant of the line, no placeholder date,
-  and the activation-fetch time is never used as a stand-in. Production mints v1
-  today, so a blank "Licensed since" row is what a real buyer sees: the coin,
-  the key and the "Perpetual" term carry the state on their own. Observed on the
-  simulator 2026-09-16. → `licenseCopy.test.ts` "leaves the since row blank for
-  a v1 license and calls the term perpetual"; _(ios)_ `LicenseCopyTests`;
-  _(android)_ `LicenseCopyTest`
 - **The card shows the stored key masked to its last group** — every character
   before that group replaced by a middle dot, its hyphens left where they are
   (`··-····-····-····-····-····-····-····-RS78` for a key carrying an org

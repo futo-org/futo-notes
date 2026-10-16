@@ -5,7 +5,7 @@
 //! the summary counters throw away. The worst sync incidents this project has
 //! had (conflict-copy spam, the 1081-object explosion) came from usage nobody
 //! scripted and were diagnosed by forensic archaeology; this turns that into a
-//! query. See docs/plan/agentic-first.md §3 and docs/spec/sync.md.
+//! query. See docs/spec/sync.md.
 //!
 //! Everything here is observation only. Nothing in this module can change what a
 //! cycle decides, and a disabled journal costs one null check per run.

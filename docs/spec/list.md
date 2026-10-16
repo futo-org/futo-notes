@@ -662,7 +662,7 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   - **Android native**: in-list folder row long-press → "Delete folder", with a
     "Folder deleted; moved N notes" toast. Deleting the folder a pushed screen is
     showing pops that screen (see [Folder browsing](#folder-browsing)). →
-    NoteListScreen.kt, FolderDeleteToastTest.kt
+    NoteListScreen.kt
   - The native shells share the Rust primitive (rejects the vault root and
     path traversal; a missing folder is a no-op; relinks each moved note).
     Remaining images and other files move up with their relative subfolder

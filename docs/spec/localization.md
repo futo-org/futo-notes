@@ -10,8 +10,8 @@ editor resolve from the catalogs on desktop, Android, and iOS.
   selection, and non-ASCII tag rules remain separate work.
 - Localized UI includes visible labels, navigation, settings, menus, tooltips,
   alerts, toasts, errors, empty states, permission explanations, accessibility
-  text, editor controls, CodeMirror phrases, share-sheet titles, and other text
-  authored by FUTO Notes.
+  text, editor controls, share-sheet titles, and other text authored by FUTO
+  Notes.
 - The operating system continues to own and localize its own text. Text that FUTO
   Notes must provide to an operating-system surface is sourced from the shared
   catalog and generated into that platform's required resource format.
@@ -258,10 +258,8 @@ editor resolve from the catalogs on desktop, Android, and iOS.
 ## Editor integration
 
 - The host gives the embedded editor the effective language. A language change
-  reconfigures editor labels and CodeMirror phrases without reloading the note or
-  changing its content.
-- FUTO editor text and the CodeMirror phrase map resolve through the same shared
-  catalog and language matcher.
+  reconfigures editor labels without reloading the note or changing its content.
+- FUTO editor text resolves through the same shared catalog and language matcher.
 - The shared toolbar manifest carries a localization path instead of an English
   label. Generated Swift and Kotlin toolbar specifications carry that path, while
   command identity, order, visibility, icons, and behavior remain unchanged.

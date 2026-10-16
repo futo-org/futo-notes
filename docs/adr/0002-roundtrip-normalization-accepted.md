@@ -3,7 +3,7 @@
 The editor contract historically required byte fidelity ("diff discipline"): saving changed only
 the bytes the user actually touched, and untouched content stayed byte-exact — marker style
 (`__` vs `**`, `1)` vs `1.`), whitespace, escapes, CRLF. That requirement was the fixed Tier-3
-criterion of the rich-text bake-off (`docs/plan/rich-text-editor-bakeoff.md`) and the stated
+criterion of the rich-text bake-off (commit 6d3c50b0) and the stated
 reason tree-owned editors (TipTap, Milkdown, Lexical) were
 rejected without a probe: parse → tree → serialize re-spells syntax (`- item` → `* item`,
 `*em*` → `_em_`) and rewrites the whole file on the first edit. The bake-off's P4 probe proved
@@ -63,6 +63,7 @@ never syncs as an edit. See `docs/plan/crdt-sync-and-sharing.md`, which replaces
 (tree CRDT). The editor shipped first on existing file sync. The editor choice and execution plan now live in
 `docs/plan/milkdown-transition.md`.
 
-Origin: Milkdown evaluation discussion (https://milkdown.dev/), 2026-08-27. Prior art:
-`docs/plan/rich-text-editor-bakeoff.md`, `docs/plan/p1-zero-visible-syntax.md` (branch
-`five-editor-bakeoff`), `docs/plan/editor-decision.md`, spike branch `spike/milkdown-editor`.
+Origin: Milkdown evaluation discussion (https://milkdown.dev/), 2026-08-27. Prior art: the
+rich-text bake-off (commit 6d3c50b0), the P1 zero-visible-syntax plan (branch
+`five-editor-bakeoff`), the editor-strategy decision scorecard (commit 5fe5d442), spike branch
+`spike/milkdown-editor`.

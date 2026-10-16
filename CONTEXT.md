@@ -103,7 +103,9 @@ _Avoid_: collision-inferred rename, rename detection
 
 **License**:
 What a user buys. It unlocks nothing functional — every feature works identically with or
-without one. It removes the ambient *Unlicensed* label and shows a *Supporter* badge.
+without one. It removes the ambient *Unlicensed* label and leaves nothing in its place — a
+license shows no badge outside Settings, where the License card becomes a plate showing the
+masked key (docs/spec/license.md).
 _Avoid_: subscription, membership, donation, pro/premium, upgrade
 
 **License key**:
@@ -135,5 +137,6 @@ _Avoid_: subscriber, backer, patron, pro user
 
 **Link out**:
 Sending a buyer to the storefront in the system browser rather than transacting inside the
-app. The buy destination on every platform.
+app. Not every platform has one (ADR-0005): iOS links out only on the US storefront, Android
+`play` is key-only with no buy link, and Android `direct` opens a Custom Tab.
 _Avoid_: in-app purchase, checkout flow, paywall
