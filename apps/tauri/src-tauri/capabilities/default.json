@@ -5,8 +5,6 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "dialog:allow-ask",
-    "dialog:allow-message",
     "dialog:allow-open",
     "dialog:allow-save",
     "process:allow-restart",
@@ -24,7 +22,6 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-start-dragging",
     "core:window:allow-set-theme",
-    "core:window:allow-set-title",
     "mcp-bridge:default",
     "fs:default",
     { "identifier": "fs:scope", "allow": [{ "path": "$HOME/**" }, { "path": "/tmp/**" }] },

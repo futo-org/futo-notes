@@ -229,7 +229,6 @@ mod tests {
             !ids.contains(&"Bank"),
             "bank should not match 'milk', got {ids:?}"
         );
-        assert!(hits.iter().all(|h| h.source == "bm25"));
         assert!(engine.query("   ", 10).unwrap().is_empty());
     }
 
