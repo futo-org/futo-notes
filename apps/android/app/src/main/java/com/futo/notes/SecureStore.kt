@@ -23,10 +23,11 @@ import javax.crypto.spec.GCMParameterSpec
  * scoped by notes root, because a device can hold a key for one vault while the
  * storage mode points the app at another.
  *
- * The vault key and session token have no caller yet. They exist because the
- * hosted flow holds a vault key instead of a password (client ADR 0003), and the
- * other two shells — the desktop keyring and the iOS Keychain — grew the same
- * three operations in the same change.
+ * The vault key and session token are read and written by
+ * KeystoreVaultSecretStore. They exist because the hosted flow holds a vault key
+ * instead of a password (client ADR 0003), and the other two shells — the
+ * desktop keyring and the iOS Keychain — grew the same three operations in the
+ * same change.
  */
 class SecureStore(private val prefs: SharedPreferences) {
 

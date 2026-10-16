@@ -23,8 +23,8 @@ import com.futo.notes.ui.EditorMailbox
  * than by ~7 hand-synced set/clear sites.
  *
  * These pin the extracted, FFI-free register ([PendingEditorDraft]) — the only
- * piece testable without a device (apps/android ships JUnit only, and the
- * FFI-backed NotesStore can't be constructed in a JVM test). The AnimatedContent
+ * piece testable in a JVM unit test (the FFI-backed NotesStore can't be
+ * constructed there). The AnimatedContent
  * cross-fade overlap timing and the on-disk conditional write are covered by
  * device QA.
  */

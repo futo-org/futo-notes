@@ -996,7 +996,7 @@ class EditorHost private constructor(appContext: Context) {
             eval("window.FutoEditor && window.FutoEditor.flush(${JSONObject.quote(token)});")
         }
 
-    /** Run a shared editor command (TOOLBAR_EXEC in markdownToolbar.ts). */
+    /** Run a shared editor command (toolbarExec.ts in src/features/editor/milkdown). */
     fun exec(commandId: String) {
         eval("window.FutoEditor && window.FutoEditor.exec(${JSONObject.quote(commandId)});")
     }

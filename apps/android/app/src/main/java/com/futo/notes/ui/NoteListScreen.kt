@@ -521,8 +521,7 @@ internal fun NoteListScreen(
 }
 
 /** Toast body for a MOVE-UP folder delete [list.md]. Pluralizes the
- *  moved-note count ("moved 1 note" / "moved N notes") — pinned by
- *  FolderDeleteToastTest. */
+ *  moved-note count ("moved 1 note" / "moved N notes"). */
 internal fun folderDeletedMessage(moved: UInt): LocalizedMessage = LocalizedMessage(
     "folders.delete.movedNotes",
     mapOf("count" to moved.toLong()),
