@@ -89,11 +89,6 @@ export function blockFormatAtPos(at: ResolvedPos): BlockFormat {
   return ancestorDepth(at, 'blockquote') > 0 ? { kind: 'quote' } : { kind: 'none' };
 }
 
-/** The block kind at the selection head. */
-export function blockFormatAt(state: EditorState): BlockFormat {
-  return blockFormatAtPos(state.selection.$from);
-}
-
 /**
  * A plugin-free copy of `state`, which is what every intermediate step below
  * runs against.
@@ -488,7 +483,7 @@ export function setBlockFormat(target: BlockFormat): Command {
  * Whether `at` sits inside a list item or a blockquote — the two containers
  * `changeBlockIndent` acts on. Used to decide Indent/Outdent visibility for a
  * bare caret (the desktop selection toolbar, the `cursorContext` bridge
- * message): `blockFormatAt` cannot serve this, because it reports only the
+ * message): `blockFormatAtPos` cannot serve this, because it reports only the
  * INNERMOST block's own kind — a heading nested inside a quote reports
  * `heading`, not `quote`, which would hide the buttons exactly where they
  * should show.

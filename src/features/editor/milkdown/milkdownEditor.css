@@ -79,8 +79,7 @@
 
 /* THE APP SHELL OWNS ITS OWN SCROLL, so there the editable must not claim it.
  * `.note-body` is the desktop shell's scroller — the title and the tag bar
- * scroll away with the text, which is what the CodeMirror editor did too
- * (`.cm-scroller` was `overflow: visible` for exactly this reason) and what
+ * scroll away with the text, which is what
  * `NoteWorkspace.svelte`'s `handleNoteBodyMouseDown` deselect zone is built
  * on. Nothing above `.futo-milkdown` there has a definite height, so the
  * `height: 100%` above resolves to auto and the editable grows to its whole
@@ -365,8 +364,7 @@
   content: '\200b';
 }
 
-/* A task item gives its marker column to the checkbox, exactly as the
- * CodeMirror editor does (listDecorations.ts CHECKBOX_SLOT): the item's own
+/* A task item gives its marker column to the checkbox: the item's own
  * padding IS the slot, and the widget is positioned into it. That keeps the
  * box inside the item's box — no negative offsets reaching back into the
  * list's or the editor's padding, and so nothing that can drift into the
@@ -440,8 +438,7 @@
 /* `#tag` decoration (tagDecorations.ts). Colour only — no box, no
  * background: the document holds a tag as plain text, so its glyphs must stay
  * on the text baseline at the text's own advance width or typing inside a tag
- * would shift the line. Same variable the CodeMirror editor's `.cm-md-tag`
- * uses. */
+ * would shift the line. */
 .futo-milkdown .ProseMirror .futo-tag {
   color: var(--color-primary, #f26b1f);
 }

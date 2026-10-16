@@ -343,9 +343,7 @@ function createNoteCommands(
    * note switch replays the PREVIOUS note's steps into this document, and the
    * save that follows writes them to THIS note's file. See `resetHistory`.
    *
-   * There is no per-note undo stash: the CodeMirror
-   * editor kept one (`noteHistory.ts`, keyed by note id) and this engine does
-   * not.
+   * There is no per-note undo stash.
    */
   function openNote(noteId: string | null, text: string): void {
     setContent(noteId ?? '', text);
@@ -414,8 +412,6 @@ function createViewCommands(deps: HostHandleDeps) {
    * another app hours ago, which is precisely when an external file change
    * arrives: the deferral is never settled (no blur event follows a window
    * switch) and the note stops mirroring disk for the rest of the session.
-   * CodeMirror's `hasFocus` gated on the document the same way; the Milkdown
-   * port dropped the gate.
    */
   function hasFocus(): boolean {
     return (pmView()?.hasFocus() ?? false) && document.hasFocus();
@@ -478,8 +474,7 @@ function createViewCommands(deps: HostHandleDeps) {
    * verbatim). One empty transaction, nothing else touched.
    *
    * The obvious alternative — rebuilding the whole EditorState around the live
-   * doc, which is what `replaceAll(md, true)` and CodeMirror's `swapEditorState`
-   * do — is NOT usable here: `EditorState.create` builds a new plugin array, so
+   * doc, which is what `replaceAll(md, true)` does — is NOT usable here: `EditorState.create` builds a new plugin array, so
    * `view.updateState` sees changed plugins and destroys every plugin view. The
    * ⠿ block handle is parented outside the ProseMirror DOM by
    * @milkdown/plugin-block's BlockProvider, and that teardown detaches it for

@@ -1,6 +1,7 @@
 import { listen } from '@tauri-apps/api/event';
 import { isTauri } from '$lib/platform';
 import type { NoteSession, ParkedDraftSnapshot } from '$features/notes/noteSession.svelte';
+import { idLeaf } from '$lib/platform/pathSafety';
 import { writeSuppressor } from '$lib/platform/writeSuppression';
 import { createSyncCoordinator, type SyncCoordinator } from './syncCoordinator';
 import type { FileChangeEvent } from '$lib/platform/types';
@@ -306,8 +307,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
 
   const externalChanges = createExternalChangeCoordinator({
     followRename: (fromId, toId) => {
-      const slash = toId.lastIndexOf('/');
-      applyReportedRename(fromId, toId, slash === -1 ? toId : toId.slice(slash + 1));
+      applyReportedRename(fromId, toId, idLeaf(toId));
     },
     session: deps.session,
     notifySaved,

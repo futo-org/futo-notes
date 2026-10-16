@@ -205,8 +205,8 @@ export function scanTags(content: string): TagMatch[] {
 /**
  * Raw `TAG_REGEX` capture-group-1 values (names without `#`) in document order,
  * with duplicates (callers dedup). The linear equivalent of iterating
- * `TAG_REGEX` — exposed for conformance and reused by the editor's tag
- * decorations.
+ * `TAG_REGEX` — exposed for conformance. The editor's tag decorations read
+ * `scanTags` directly, since they need the positions too.
  */
 export function tagRegexMatches(content: string): string[] {
   return scanTags(content).map((m) => m.name);

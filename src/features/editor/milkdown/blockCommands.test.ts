@@ -5,7 +5,7 @@ import { EditorState, TextSelection, type Transaction } from '@milkdown/kit/pros
 
 import {
   blockCommand,
-  blockFormatAt,
+  blockFormatAtPos,
   changeBlockIndent,
   inIndentableContainer,
   type BlockCommandId,
@@ -68,22 +68,30 @@ function shape(node: ProseNode): unknown {
 
 const shapes = (root: ProseNode): unknown[] => root.children.map(shape);
 
-describe('blockFormatAt', () => {
+describe('blockFormatAtPos', () => {
   it('reads the innermost block structure at the caret', () => {
-    expect(blockFormatAt(stateAtFirstText(doc(p('plain')))).kind).toBe('none');
-    expect(blockFormatAt(stateAtFirstText(doc(h(2, 'title'))))).toEqual({
+    expect(blockFormatAtPos(stateAtFirstText(doc(p('plain'))).selection.$from).kind).toBe('none');
+    expect(blockFormatAtPos(stateAtFirstText(doc(h(2, 'title'))).selection.$from)).toEqual({
       kind: 'heading',
       level: 2,
     });
-    expect(blockFormatAt(stateAtFirstText(doc(quote(p('q'))))).kind).toBe('quote');
-    expect(blockFormatAt(stateAtFirstText(doc(bullets(item('a'))))).kind).toBe('bullet');
-    expect(blockFormatAt(stateAtFirstText(doc(ordered(item('a'))))).kind).toBe('ordered');
-    expect(blockFormatAt(stateAtFirstText(doc(bullets(item('a', false))))).kind).toBe('task');
+    expect(blockFormatAtPos(stateAtFirstText(doc(quote(p('q')))).selection.$from).kind).toBe(
+      'quote',
+    );
+    expect(blockFormatAtPos(stateAtFirstText(doc(bullets(item('a')))).selection.$from).kind).toBe(
+      'bullet',
+    );
+    expect(blockFormatAtPos(stateAtFirstText(doc(ordered(item('a')))).selection.$from).kind).toBe(
+      'ordered',
+    );
+    expect(
+      blockFormatAtPos(stateAtFirstText(doc(bullets(item('a', false)))).selection.$from).kind,
+    ).toBe('task');
   });
 
   it('reads a list item wrapping a heading as a list, not a heading', () => {
     const nested = doc(bullets(s.nodes.list_item.create(null, h(1, 'x'))));
-    expect(blockFormatAt(stateAtFirstText(nested)).kind).toBe('bullet');
+    expect(blockFormatAtPos(stateAtFirstText(nested).selection.$from).kind).toBe('bullet');
   });
 });
 
@@ -200,14 +208,16 @@ describe('blockCommand — one transaction', () => {
 
 describe('blockCommand — a code block is literal text', () => {
   it('reads a code block as its own kind, not as plain text', () => {
-    expect(blockFormatAt(stateAtFirstText(doc(code('one\ntwo')))).kind).toBe('code');
+    expect(blockFormatAtPos(stateAtFirstText(doc(code('one\ntwo'))).selection.$from).kind).toBe(
+      'code',
+    );
   });
 
   // The caret's OWN textblock is the innermost structure, so a fence indented
   // under a list item is code — not the bullet the list item would report.
   it('reads a code block inside a list item as code, not as a bullet', () => {
     const inItem = doc(bullets(s.nodes.list_item.create({ checked: null }, [p('a'), code('cc')])));
-    expect(blockFormatAt(stateAtText(inItem, 'cc')).kind).toBe('code');
+    expect(blockFormatAtPos(stateAtText(inItem, 'cc').selection.$from).kind).toBe('code');
   });
 });
 
@@ -242,9 +252,9 @@ describe('inIndentableContainer', () => {
     expect(inIndentableContainer(stateAtFirstText(doc(quote(p('a')))).selection.$from)).toBe(true);
   });
 
-  it('is true for a heading or a code fence nested inside a quote — unlike blockFormatAt, which reports the innermost kind', () => {
+  it('is true for a heading or a code fence nested inside a quote — unlike blockFormatAtPos, which reports the innermost kind', () => {
     const heading = stateAtFirstText(doc(quote(h(2, 'x'))));
-    expect(blockFormatAt(heading).kind).toBe('heading');
+    expect(blockFormatAtPos(heading.selection.$from).kind).toBe('heading');
     expect(inIndentableContainer(heading.selection.$from)).toBe(true);
   });
 

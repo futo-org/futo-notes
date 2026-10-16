@@ -2,11 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { installPerfCourse } from './installPerfCourse';
-import {
-  beginInteraction,
-  isKeystrokeTripwireEnabled,
-  setKeystrokeTripwire,
-} from './interactionLedger';
+import { beginInteraction, noteKeystroke, setKeystrokeTripwire } from './interactionLedger';
 import {
   countPerfEvents,
   drainPerfEvents,
@@ -127,7 +123,11 @@ describe('installPerfCourse', () => {
     const target = {} as Window;
     installPerfCourse(target);
 
-    expect(isKeystrokeTripwireEnabled()).toBe(true);
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb));
+    noteKeystroke();
+    expect(frames).toHaveLength(1);
+    frames[0]?.(0);
     beginInteraction('note-open', 'note-b');
     expect(target.__perfCourse?.interactions('note-open').map((r) => r.subject)).toEqual([
       'note-b',

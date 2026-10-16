@@ -1,4 +1,5 @@
 import { getFS, hasFileSystem, platformName } from '$lib/platform';
+import { errorText } from '$shared/errorText';
 
 const CRASHLOGS_DIR = '.crashlogs';
 const LS_QUEUE_KEY = 'futo_crash_queue';
@@ -111,7 +112,7 @@ export function installGlobalHandlers(): void {
   window.onunhandledrejection = (event: PromiseRejectionEvent) => {
     const reason = event.reason;
     captureError(
-      reason instanceof Error ? reason.message : String(reason),
+      errorText(reason),
       reason instanceof Error ? reason.stack : undefined,
       'unhandled_rejection',
     );

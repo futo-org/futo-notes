@@ -121,10 +121,8 @@ function looksLikeContentUriImage(
 }
 
 /**
- * What a clipboard paste carries, image-wise. Both editor engines classify a
- * paste through this one function so the two paste handlers cannot drift on
- * WHICH pastes count as an image (`installNativeImagePaste.ts` for CodeMirror,
- * `milkdown/imagePasteSink.ts` for Milkdown) — only on how they capture it.
+ * What a clipboard paste carries, image-wise. The paste sink
+ * (`imagePasteSink.ts`) classifies a paste through this one function.
  */
 export type ImagePasteAction =
   { kind: 'file'; file: File } | { kind: 'hiddenBitmap' } | { kind: 'none' };

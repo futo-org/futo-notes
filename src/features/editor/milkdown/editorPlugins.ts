@@ -139,7 +139,7 @@ function configureEditor(ctx: Ctx, assembly: EditorAssembly): void {
    * image paste as HTML content first. Returning true means "this was
    * an image, do not paste it as text". */
   /* `handleKeyDown` rides it for the same precedence reason: the
-   * CM6-parity Enter/Tab behaviors in keyboardParity.ts must win over
+   * Enter/Tab behaviors in keyboardParity.ts must win over
    * the gfm preset's own table keymap (bare Enter there is
    * `exitTable`) without depending on plugin registration order — and
    * the code-block guard on the commonmark preset's block-type chords

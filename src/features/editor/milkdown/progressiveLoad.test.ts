@@ -67,7 +67,7 @@ describe('appendChunkContent', () => {
   });
 
   // The `addToHistory: false` flag itself — "Ctrl-Z cannot un-load a chunk" —
-  // is proven end to end by tests/editor-embed-milkdown.spec.ts's "streamed
+  // is proven end to end by tests/editor-embed-milkdown-progressive.spec.ts's "streamed
   // appends are not undoable — Ctrl-Z after an open keeps the note".
 
   it('dispatches nothing for an empty chunk', () => {

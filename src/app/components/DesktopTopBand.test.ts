@@ -115,7 +115,7 @@ describe('DesktopTopBand', () => {
       Array.from(controls.querySelectorAll('button')).map((button) =>
         button.getAttribute('aria-label'),
       ),
-    ).toEqual(['Close', 'Minimize', 'Maximize']);
+    ).toEqual(['Close window', 'Minimize window', 'Maximize window']);
   });
 
   it('renders split desktop layouts on both sides of the tab strip', async () => {
@@ -132,11 +132,11 @@ describe('DesktopTopBand', () => {
       Array.from(target.querySelectorAll('.window-controls-left button')).map((button) =>
         button.getAttribute('aria-label'),
       ),
-    ).toEqual(['Close']);
+    ).toEqual(['Close window']);
     expect(
       Array.from(target.querySelectorAll('.window-controls-right button')).map((button) =>
         button.getAttribute('aria-label'),
       ),
-    ).toEqual(['Minimize', 'Maximize']);
+    ).toEqual(['Minimize window', 'Maximize window']);
   });
 });

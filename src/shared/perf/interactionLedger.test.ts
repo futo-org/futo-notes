@@ -6,7 +6,6 @@ import {
   clearInteractions,
   endInteraction,
   getInteractions,
-  isKeystrokeTripwireEnabled,
   keystrokeFrameSamplesMs,
   markInteraction,
   noteKeystroke,
@@ -118,7 +117,6 @@ describe('keystroke tripwire', () => {
   it('is off by default: an edit records nothing and asks for no frame', () => {
     const raf = vi.fn();
     vi.stubGlobal('requestAnimationFrame', raf);
-    expect(isKeystrokeTripwireEnabled()).toBe(false);
     noteKeystroke();
     expect(raf).not.toHaveBeenCalled();
     expect(getInteractions('keystroke')).toHaveLength(0);

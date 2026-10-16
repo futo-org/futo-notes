@@ -23,7 +23,7 @@
     if (id === null) return localizedText('tabs.home');
     if (id === 'new') return localizedText('tabs.newNote');
     const title = titleById.get(id);
-    if (title) return title.split('/').pop() || title;
+    if (title) return idLeaf(title) || title;
     return idLeaf(id);
   }
 

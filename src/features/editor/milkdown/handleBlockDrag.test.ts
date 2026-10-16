@@ -4,7 +4,7 @@
  * view: that it cuts the plugin's own mouse/HTML5 drag off, that a click does
  * nothing, and what a lift, Escape and a release do. The real engine's side —
  * Playwright's drag interception, the ghost's on-screen box — is
- * tests/editor-embed-milkdown.spec.ts.
+ * tests/editor-embed-milkdown-block-drag.spec.ts.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TextSelection } from '@milkdown/kit/prose/state';

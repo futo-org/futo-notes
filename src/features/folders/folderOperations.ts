@@ -61,8 +61,6 @@ export function validateFolderNameForDisplay(name: string): LocalizedMessage | n
       };
     case 'reserved_name':
       return { path: 'folders.validation.reservedName', arguments: { folderName: name } };
-    case 'case_collision':
-      return { path: 'folders.duplicateName' };
     case 'depth_exceeded':
       return { path: 'folders.validation.tooDeep', arguments: { maxDepth: MAX_FOLDER_DEPTH } };
   }

@@ -15,8 +15,6 @@ export function titleValidationMessage(kind: FilenameIssueKind): LocalizedMessag
       return { path: 'notes.title.tooLong', arguments: { maxLength: MAX_TITLE_LENGTH } };
     case 'reserved_name':
       return { path: 'notes.title.forbiddenCharacter' };
-    case 'case_collision':
-      return { path: 'notes.title.duplicate' };
     case 'depth_exceeded':
       throw new Error('A note title cannot have a depth validation issue');
   }

@@ -1,6 +1,6 @@
 /**
  * Where a vault-relative image reference turns into something a browser can
- * load — the single owner of that mapping for every editor engine.
+ * load — the single owner of that mapping.
  *
  * Notes reference images by bare filename (`![](image-1712.png)`), which is
  * what has to stay on disk. What resolves that filename differs per shell:
@@ -11,11 +11,6 @@
  *   - Tauri desktop: there is no base URL. Each file resolves individually
  *     through the asset protocol (or a `blob:` fallback when the asset
  *     protocol cannot decode), so the resolved URL is registered per file.
- *
- * This module lives outside `features/editor/live-preview/` on purpose: that
- * directory is CodeMirror-only and is deleted with CM6 at the Milkdown swap
- * (docs/plan/milkdown-transition.md §7), while both engines need this mapping.
- * `features/images/` already owns renderable vault URLs (src/AGENTS.md).
  */
 
 /** Per-file resolved URLs, which win over the base URL when present. */

@@ -15,10 +15,9 @@
  * and Link is the one command with a UI of its own — the URL field — because
  * the desktop otherwise has nowhere to type a link's address.
  *
- * Desktop only, via `resolveSelectionToolbar` — see its comment for why. This
- * replaces the CodeMirror editor's floating selection toolbar, deleted with
- * that engine (docs/plan/desktop-editor-parity.md D1, docs/spec/editor.md
- * "Interactive elements"). Covered by `tests/selection-toolbar.spec.ts`.
+ * Desktop only, via `resolveSelectionToolbar` — see its comment for why.
+ * Spec: docs/spec/editor.md "Interactive elements". Covered by
+ * `tests/selection-toolbar.spec.ts`.
  */
 import type { Editor } from '@milkdown/kit/core';
 import type { Ctx, MilkdownPlugin } from '@milkdown/kit/ctx';

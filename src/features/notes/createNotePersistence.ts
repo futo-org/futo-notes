@@ -1,6 +1,6 @@
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import { hasFileSystem } from '$lib/platform';
-import { idLeaf } from '$lib/platform/pathSafety';
+import { idLeaf, idParent } from '$lib/platform/pathSafety';
 import { sanitizeFilename, validateTitle } from '$lib/rules';
 import type { LocalizedMessage } from '$shared/localization';
 
@@ -102,8 +102,8 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
 
       let newId = sanitizeFilename(newTitle);
       if (state.originalId) {
-        const slash = state.originalId.lastIndexOf('/');
-        if (slash !== -1) newId = `${state.originalId.slice(0, slash + 1)}${newId}`;
+        const parent = idParent(state.originalId);
+        if (parent) newId = `${parent}/${newId}`;
       } else {
         const pendingFolder = options.getPendingFolder();
         if (pendingFolder) newId = `${pendingFolder}/${newId}`;

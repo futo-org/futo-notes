@@ -19,7 +19,7 @@
  * The DOM geometry, the frame clock and the scroller are all stubs on purpose:
  * this asserts the arithmetic and lifecycle, which is exactly what is
  * unreadable from a browser run. The real touch stream through the real editor
- * is `tests/editor-embed-milkdown.spec.ts`.
+ * is `tests/editor-embed-milkdown-block-drag.spec.ts`.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';

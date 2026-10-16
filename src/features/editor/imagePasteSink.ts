@@ -17,13 +17,11 @@
  *     command reads it off the OS clipboard.
  *
  * WHICH pastes count as an image is not decided here — `classifyImagePaste` in
- * `./imagePaste.ts` owns that, for both engines.
+ * `./imagePaste.ts` owns that.
  *
- * Consumers: the Milkdown editor installs `createImagePasteHandler` as
- * ProseMirror's `handlePaste` prop and inserts the filename itself
- * (`milkdown/MilkdownEditor.svelte`); the CodeMirror editor inside a native
- * Reached from the editor's own ProseMirror `handlePaste` prop
- * (milkdown/editorPlugins.ts) on every platform.
+ * The editor installs `createImagePasteHandler` as ProseMirror's `handlePaste`
+ * prop and inserts the filename itself (`milkdown/MilkdownEditor.svelte`), on
+ * every platform.
  */
 import {
   hasNativeBridgeHost,

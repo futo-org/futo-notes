@@ -2,10 +2,8 @@
  * How a `[[target]]` renders: the text on screen, and whether it is broken.
  *
  * The rules themselves are NOT here — resolution and shortest-unique-suffix
- * come from the conformance-locked `$shared/note/wikilinks` index that the CM6
- * decorations, the Rust store and the rename rewriter all share. This module
- * only says which of its two answers a rendered link uses, so the Milkdown node
- * view and its tests agree with `live-preview/wikilinkDecorations.ts`.
+ * come from the conformance-locked `$shared/note/wikilinks` index. This module
+ * only says which of its two answers a rendered link uses.
  */
 import type { WikilinkIndex } from '$shared/note/wikilinks';
 
@@ -13,9 +11,9 @@ import type { WikilinkIndex } from '$shared/note/wikilinks';
 export const WIKILINK_CLASS = 'cm-md-link cm-md-wikilink';
 /**
  * Added when the target resolves to nothing — absent OR ambiguous, which
- * `resolveWikilink` deliberately treats the same. Shared with the CodeMirror
- * editor so one stylesheet rule (`markdown-links.css`) covers both engines and
- * the "muted, identifiable before you tap it" spec line has a single owner.
+ * `resolveWikilink` deliberately treats the same, so one stylesheet rule
+ * paints both and the "muted, identifiable before you tap it" spec line has a
+ * single owner.
  */
 export const WIKILINK_BROKEN_CLASS = 'cm-md-wikilink-broken';
 
