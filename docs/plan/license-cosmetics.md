@@ -29,10 +29,13 @@ summary` form with a `Verified:` line.
 | D7 | Desktop | No picker, so no visible change. Desktop still projects the Rust rule (M1) so a future desktop cosmetic is one shell change. The card's new sentence renders on native only. |
 | D8 | Rust owns the rule | What a license includes is one Rust answer (`license_includes`), projected through UniFFI and Tauri. No Swift/Kotlin/TS copy. Shells only ask. |
 | D9 | The spec principle changes | "Nothing is gated" becomes "Nothing that works is gated." Rewritten in the same MR as M1, with ADR-0006 recording the decision and the CEO's sign-off. |
-| D10 | License sync (M6) is its own MR, after this plan is approved | It touches the sync payload (AGENTS.md §11.6). This document is the ask; M6 does not start until @justin OKs its section. |
+| D10 | License sync (M6) is its own MR, after this plan is approved | It touches the sync payload (AGENTS.md §11.6). This document is the ask; M6 does not start until @justin OKs its section. **Amended by D16:** M6 is now required before the iOS IAP ships; it is still its own MR and still waits for that OK (open question 3). |
 | D11 | Picker treatment | **Concept A**: coin badges on every tile but the current one, one footnote under the grid, a sheet on tap. Concept B (an ask card inside the picker) is rejected. (@justin 2026-10-15) |
 | D12 | The License card does not change | No new sentence on the Unlicensed card. The App icon row hint is the only Settings-level touch. `license.explanationIncludes` is **not** added. (@justin 2026-10-15) |
 | D13 | Picker once Licensed | The coin **stays** on every icon but Standard, so the picker still shows which ones came with the license. No footnote, no ask, no sheet. (@justin 2026-10-15) |
+| D14 | The icon restriction applies to everyone | Every country, every platform. No per-country rule (D1 stands). (@justin 2026-10-16) |
+| D15 | iOS sells the license as a non-consumable IAP; no server work | Outside the US, steering is banned (ADR-0005) and a bare key field that unlocks a feature conflicts with guideline 3.1.1, so iOS adopts ADR-0005 option B at the license price, which puts the key field under 3.1.3(b). FUTOpay/lib-polar does not change; an IAP purchase is **not** converted into a FUTOpay key. A license has two proofs, the FUTOpay pair or an App Store signed transaction (JWS), and Rust `evaluate` accepts either (D8); the Apple proof is verified **offline in Rust** against a pinned Apple root. ADR-0007. (@justin 2026-10-16) |
+| D16 | M6 is required before the IAP ships | The license proof (either kind) must follow the vault so a purchase on one device covers the user's other synced devices. M6 carries both proofs. Carrier choice (open question 3) is still @justin's to confirm. (@justin 2026-10-16) |
 
 ## 1. The picker when the license does not include icons (M2, M3)
 
@@ -190,10 +193,28 @@ fixture and asserting the picker is on screen with the header; Android `LicenseL
 Reused: `license.buy`, `license.renew`, `license.enterKey`, `license.keyOnlyExplanation`,
 `license.activated`, `license.explanationLicensed`, `license.coinAccessibilityLabel`.
 
-## 7. M6 — the license follows the vault (ask-first; own MR)
+## 7. M6 — the license follows the vault (REQUIRED before M7 ships; ask-first; own MR)
 
 Problem: the license is entered per device (license.md Gap "License sync"). Once a license
-includes something visible, a second phone that is synced but Unlicensed reads as broken.
+includes something visible, a second phone that is synced but Unlicensed reads as broken. Since
+D15/D16 this is **required**: an App Store purchase proof is bound to an Apple account and is
+otherwise useless on the buyer's Android phone or desktop. M6 carries "the license proof", which
+is either the FUTOpay pair or an App Store signed transaction (a JWS string, a few KB). The
+carrier is the one the Feasibility note below recommends (option (a): a dedicated engine slot at
+a reserved non-note path); **confirming it is still @justin's call (§ 9, Q3)**, and M6 does not
+start before that OK. Additions for the second proof:
+
+- The object holds a small tagged value (`{"kind":"futopay-pair",...}` or
+  `{"kind":"apple-jws","jws":"..."}`). One object, one proof: when a device holds both, publish
+  the one `evaluate` ranks Licensed, preferring the FUTOpay pair (portable, carries `issued_at`).
+- A pulled proof of either kind goes to Rust `evaluate` as if typed or bought; nothing is trusted
+  for arriving by sync. A synced Apple proof verifies on **Android and desktop** too: it is pure
+  Rust, offline, no Apple call. On Android `play` that is allowed (Google lets any app be
+  consumption-only: access bought elsewhere may be honored; it just cannot be sold there).
+- A synced Apple proof gives **no revocation signal off iOS**. Only an iOS device that sees
+  StoreKit report a revocation removes the proof and syncs the tombstone (the tombstone-wins rule, § 9 Q9); Android and desktop keep honoring the stored JWS until then.
+- Self-hosted sync: unchanged, the object is an opaque encrypted blob on any server.
+- Users without sync keep a per-device license. State this in the spec; do not paper over it.
 
 Proposed shape, to be confirmed before any code:
 
@@ -320,6 +341,100 @@ release for something the server cannot interpret, and the in-frame variant brea
 clients loudly. Also reject a reserved hidden *file* in the vault: the scan skips it and
 delete-detection would treat it as gone. Open for the later MR: the offline-Remove rule.
 
+## 7b. M7 — in-app purchase on iOS (REQUIRES M6; own MR)
+
+Decisions D15, D16; [ADR-0007](../adr/0007-ios-sells-the-license-in-app.md). Not started. Nothing
+ships to a store before M6 is merged and verified.
+
+**Rust (`crates/futo-notes-license`)**
+
+- A second proof type next to `LicensePair`: `LicenseProof::Futopay(LicensePair) |
+  LicenseProof::AppStore(String /* JWS */)`. `evaluate` takes a `LicenseProof`; the Futopay arm
+  is today's code, byte for byte. `LicenseDetails` gains no new field the shells must branch on
+  (`key` becomes the original transaction id for an Apple proof, rendered by the card as it
+  renders a key today; decide the display in review). Rule stays single (D8).
+- `verify_app_store_jws(jws, &AppStoreConfig, now)`: split on `.`; header `alg == "ES256"` and
+  an `x5c` array; the chain is validated to a **pinned Apple root** (Apple Root CA - G3 DER
+  embedded, SHA-256 fingerprint asserted in a test; per Apple's engineer use all Apple Root CAs,
+  so the anchor list is an array and the first task is to decide whether G3 alone is enough);
+  the leaf and intermediate role constraints are checked as Apple's `ChainVerifier` does (read
+  that source first; a chain that ends at Apple's root is **not** sufficient); certificate
+  validity is checked at the signed `signedDate`, not at `now` (decide, § 9 Q8); ES256 signature over
+  `header.payload` with the leaf key; only then decode the payload. Use RustCrypto (`p256`,
+  `x509-cert`), already the family of the RSA crate this crate uses; no OpenSSL, no network.
+- Claims: `bundleId` equals the config's; `productId` equals the config's (a new constant next to
+  `PRODUCT_SLUG`); `type` is Non-Consumable; `environment` matches the config (Production for the
+  release id, Sandbox for `.dev`/staging; see Q7 for the release-binary sandbox case);
+  `revocationDate` absent; `inAppOwnershipType` is `PURCHASED`. Each failure is a distinct
+  `InvalidReason` variant (diagnostic only, like today's).
+- `AppStoreConfig` rides `LicenseConfig` (`trust_anchors`, `bundle_id`, `product_id`,
+  `environment`). Tests construct their own; `Environment::config()` supplies Apple's root.
+- **Fixtures and the trust anchor.**
+  - The real chain: capture once from a sandbox purchase in the `.dev` build (TestFlight/App Store
+    Connect sandbox tester) or from Xcode, check the JWS in as `tests/fixtures/license/appstore/
+    sandbox-*.jws.txt` with the date captured, and keep the file as a **conformance golden**.
+    Apple's leaf certificates expire, which is why the test passes a fixed `now`/`signedDate`
+    instead of the wall clock.
+  - Xcode StoreKit testing (`.storekit` file, `StoreKitTest`) signs with a **local** certificate
+    that is itself a root and has no chain (Apple, "Setting up StoreKit Testing in Xcode"; export
+    with Editor > Save Public Certificate). It is not Apple's root and must never be a trust
+    anchor in a release. Tests inject it as the anchor through `AppStoreConfig.trust_anchors`;
+    release configs have exactly Apple's. A test asserts that the release `Environment::config()`
+    anchor set contains no non-Apple certificate, and that a Xcode-signed fixture is **Invalid**
+    under it.
+  - Synthetic fixtures for every rejection path (wrong bundle, wrong product, Production in a
+    Sandbox config, Sandbox in a Production config, revoked, family-shared, tampered payload,
+    `alg: none`, truncated chain, leaf signed by a non-Apple root, chain with a non-purchase
+    leaf): generated by a test helper that mints a throwaway CA and signs payloads (so the test
+    covers the verifier without Apple). The real golden proves we match Apple's real shape.
+- FFI/Tauri: `evaluate` and `license_row_actions` accept the new proof; a contract test mirrors
+  the Rust one. Desktop and Android never present a purchase; they only verify a synced proof.
+
+**iOS shell (`apps/ios/Sources/License/`)**
+
+- `LicenseStoreKit` (new): load the product, **Buy** runs `product.purchase()`; on `.success` hand
+  `VerificationResult.jwsRepresentation` to Rust; finish the transaction only after Rust says
+  Licensed. We do not trust StoreKit's `.verified` as our rule (D8): Rust decides, StoreKit only
+  delivers the string. `.pending` and `.userCancelled` are not errors.
+- **Restore Purchases** (`AppStore.sync()` then read `currentEntitlements`), always visible next
+  to the key field; required by guideline 3.1.1.
+- Observe `Transaction.updates` for the app's life and re-read `currentEntitlements` at launch.
+  A revocation (the transaction is absent from entitlements, or `revocationDate` is set) removes
+  the stored proof and, via M6, the synced one. A revoked Apple proof never removes a FUTOpay
+  pair the user also holds.
+- Storage: the Apple JWS lives where the pair lives (`LicenseStorage`, `UserDefaults`, bundle-id
+  scoped), as one more string. Stored verbatim.
+- Surface: Buy (IAP) and the key field in every storefront; the StoreKit sheet shows the price, so
+  `LicenseCopy` still never states one. The US storefront's website link-out is an open question
+  (§ 9 Q6); `LicenseStorefront` keeps governing it, and outside the US nothing but IAP and the
+  key. The picker's key-only sheet becomes an IAP sheet: Buy and "I already paid" both present.
+- Tests: `LicenseModelTests` with a fake store (purchase success, cancel, pending, restore,
+  revocation removes proof, a revoked Apple proof leaves a FUTOpay pair); a StoreKit configuration
+  file (`apps/ios/Tests/...storekit`) used by UI tests through `SKTestSession`, with its saved
+  public certificate as the injected anchor under `#if DEBUG` only.
+
+**Android and desktop shells**: no purchase surface. They verify a synced Apple proof through the
+same Rust call. Android `play` stays key-only; a synced Apple proof is "access bought elsewhere".
+
+**App Store Connect setup (human checklist, @justin; no agent can do it)**
+
+1. Create the non-consumable IAP with the product id the Rust constant names, at the license
+   price tier, Family Sharing **off**; localized name/description; review screenshot.
+2. Enrol in the Small Business Program if eligible (commission rate), and confirm the tax and
+   banking agreements for paid apps/IAP are in place.
+3. Create sandbox tester accounts for QA; create a TestFlight build.
+4. App Review notes: the app is free, the license is one non-consumable IAP, Restore Purchases
+   is in Settings > License, the key field serves buyers from other platforms and the same thing is
+   available as IAP (3.1.3(b)), and how to test with the sandbox account. Decide Q7 first.
+5. Re-read guidelines 3.1.1, 3.1.1(a), 3.1.3(b) before the submission; update ADR-0007's snapshot.
+
+**Verification**: `cargo test -p futo-notes-license -p futo-notes-ffi`; `just ios-native` with the
+StoreKit configuration file on a simulator: buy, restore after reinstall, refund (Xcode transaction
+manager) removing the proof; a sandbox purchase on a device or sim signed into a sandbox tester,
+checking the real chain verifies; then the M6 sync scenarios with an iOS purchase appearing as
+Licensed on a second synced device (an Android emulator and desktop), and a refund propagating
+only after the iOS device observes it. Per platform rules, drive iOS, Android and desktop.
+
 ## 8. Order and sizing
 
 | Milestone | Scope | MR |
@@ -328,7 +443,10 @@ delete-detection would treat it as gone. Open for the later MR: the offline-Remo
 | M2, M3 | iOS and Android picker and row | same feature MR |
 | M4 | Buy URL `from` | same feature MR (small, independent commit) |
 | M5 | Post-activation landing | same feature MR, last |
-| M6 | License follows the vault | **separate MR after OK on § 7** |
+| M6 | License follows the vault (both proofs) | **separate MR after OK on § 7; REQUIRED before M7 ships (D16)** |
+| M7 | iOS in-app purchase | **separate MR, after M6**; Rust verifier first (largest risk), then the shell. Needs the App Store Connect checklist done by @justin before review. Rough size: M6 large (sync engine, `/slow-review`), M7 medium-large |
+
+M1–M5 are unchanged and independent of M6/M7. M6 and M7 are the critical path to a store release that includes icons on iOS outside the US; until then, ADR-0005's key-only shape (and its review risk) is what ships.
 
 Time box: M1–M5 is one merge request. If it is not green in a week, ship M1–M3 and move M4–M5
 to a follow-up rather than growing the MR.
@@ -348,6 +466,8 @@ Taken as written (2026-10-15, the docs/catalog pass; reopen with @justin if wron
 - Q5: not in scope.
 - Q3: still pending M6's feasibility note.
 
+D14-D16 (2026-10-16): the icon restriction applies everywhere; iOS sells the license as an IAP (ADR-0007); M6 is required first. Q6-Q10 below are new.
+
 This pass is **iPhone only**: Android UI (M3) and desktop UI are deferred, and the specs record Android as a Gap.
 
 1. D3: should Expired keep the picker open (a lapsed buyer keeps choosing) or close it as
@@ -361,6 +481,24 @@ This pass is **iPhone only**: Android UI (M3) and desktop UI are deferred, and t
    shows the License card's paragraph as "FUTO Notes is paid for by you, not by ads or by
    selling your data." Justin chose the sketch wording: `license.explanation` now says exactly
    that, replacing the FUTO mission paragraph.
+6. **US build (ADR-0007)**: with IAP, does the US storefront show website link-out *and* IAP,
+   or IAP only? Link-out is 0% commission today but leaves the proof in a FUTOpay key; IAP-only is
+   one flow everywhere. ADR-0005 recorded your preference order as link out, then text, then IAP.
+7. **Sandbox in the release binary**: TestFlight and App Review purchases are Sandbox
+   transactions in the `com.futo.notes` binary. A strict rule (Production only on release)
+   fails the reviewer's purchase. Options: (a) accept Sandbox in the release config only when the
+   running app's own `AppTransaction.environment` is not Production (a shell-supplied input;
+   unverified that review builds report Sandbox there); (b) accept Sandbox everywhere, which lets
+   anyone with a sandbox account for our bundle mint a license; (c) ship a review-only build. We
+   propose (a); confirm before M7.
+8. **Chain validation time and roots**: validate certificate dates at the signed time rather than
+   now, and which Apple roots to trust (G3 only, or all of them per Apple's guidance). Needs
+   a read of Apple's `ChainVerifier` source before coding.
+9. **Offline-Remove / refund rule**: M6's tombstone-wins decision now also governs refunds
+   (a revoked Apple proof removes the synced copy; an offline device republishing it must not
+   win). Needs the same explicit rule as § 7.
+10. **Display**: what does the Licensed card show for an Apple proof (no key to show, no
+    `issued_at` from the pair; `purchaseDate` is in the JWS)?
 
 ## 10. Sketches
 

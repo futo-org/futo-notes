@@ -1,5 +1,8 @@
 # The license purchase follows each store's rules, gated by storefront on iOS
 
+> **iOS option A superseded 2026-10-16** by [ADR-0007](0007-ios-sells-the-license-in-app.md):
+> iOS adopts option B, a non-consumable IAP. The Android rows and the rest stand.
+
 Supersedes [ADR-0003 "Every platform links out to buy"](0003-every-platform-links-out-to-buy.md)
 on one point: that ADR, and the store-posture decision of 2026-09-09, shipped the Buy link
 **worldwide** on every surface and accepted the review risk. On 2026-09-24 @justin reversed

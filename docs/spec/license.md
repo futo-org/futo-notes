@@ -948,6 +948,20 @@ and the decision, not the rules, is what this section records.
   may exist in Polar for both; nothing in the client relies on that.
 - Per-region pricing, currencies, and tax are the storefront's business.
 
+> **Gap:** _(ios)_ Target store posture, decided 2026-10-16, **not implemented**
+> (ADR-0007, plan M6/M7). iOS sells the license as a non-consumable in-app purchase at the license
+> price, in every storefront, with Restore Purchases and the key field; the StoreKit sheet shows
+> the price. A license has two proofs, a FUTOpay key + activation pair or an App Store signed
+> transaction (JWS); Rust `evaluate` accepts either and verifies the Apple one offline against a
+> pinned Apple root (bundle id, product id, environment, no `revocationDate`), with no server
+> call and no FUTOpay change. The proof travels in the E2EE vault (license sync, required
+> before the IAP ships), so a purchase covers the user's other synced devices; Android and desktop
+> verify a synced Apple proof but never sell it. Limits: a user without sync is licensed only on the
+> device that bought or entered it, and a refund reaches other devices only after an iOS device
+> sees the revocation and syncs. Until built, the 2026-09-24 posture above is what ships and
+> its "fallback, not built here" line is still current. Open: US link-out alongside IAP, Sandbox
+> in the release binary (plan § 9 Q6-Q10).
+
 > **Gap:** License sync — the license is entered per device. Carrying it in the
 > E2EE sync payload so one entry licenses every synced device is intended but
 > not designed; it touches the sync payload (AGENTS.md §11.6) and must be its own
