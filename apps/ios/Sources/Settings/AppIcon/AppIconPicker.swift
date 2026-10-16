@@ -149,13 +149,15 @@ struct AppIconPicker: View {
             }
         } label: {
             VStack(spacing: 8) {
-                ZStack(alignment: .bottomTrailing) {
-                    Image(icon.previewName)
-                        .resizable().scaledToFit()
-                        .frame(width: 80, height: 80)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                    if coined { CoinBadge(diameter: 26) }
-                }
+                Image(icon.previewName)
+                    .resizable().scaledToFit()
+                    .frame(width: 80, height: 80)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .overlay(alignment: .bottomTrailing) {
+                        // Overhangs the corner (centre on the rounded corner) so
+                        // the coin never reads as part of the icon's artwork.
+                        if coined { CoinBadge(diameter: 26).offset(x: 8, y: 8) }
+                    }
                 Text(name)
                     .multilineTextAlignment(.center)
                 Image(systemName: "checkmark.circle.fill")
@@ -257,14 +259,16 @@ private struct AppIconAskSheet: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            ZStack(alignment: .bottomTrailing) {
-                Image(icon.previewName)
-                    .resizable().scaledToFit()
-                    .frame(width: 88, height: 88)
-                    .clipShape(RoundedRectangle(cornerRadius: 18))
-                CoinBadge(diameter: 34)
-            }
-            .padding(.top, 20)
+            Image(icon.previewName)
+                .resizable().scaledToFit()
+                .frame(width: 88, height: 88)
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+                .overlay(alignment: .bottomTrailing) {
+                    // Same overhang as the grid tiles, scaled to the larger artwork.
+                    CoinBadge(diameter: 34).offset(x: 11, y: 11)
+                }
+                .padding(.top, 20)
+                .padding(.bottom, 4)
             .accessibilityHidden(true)
 
             Text(localization.localizedText("settings.appIcon.license.sheetTitle"))
