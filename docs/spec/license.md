@@ -948,19 +948,24 @@ and the decision, not the rules, is what this section records.
   may exist in Polar for both; nothing in the client relies on that.
 - Per-region pricing, currencies, and tax are the storefront's business.
 
-> **Gap:** _(ios)_ Target store posture, decided 2026-10-16, **not implemented**
-> (ADR-0007, plan M6/M7). iOS sells the license as a non-consumable in-app purchase at the license
-> price, in every storefront, with Restore Purchases and the key field; the StoreKit sheet shows
-> the price. A license has two proofs, a FUTOpay key + activation pair or an App Store signed
-> transaction (JWS); Rust `evaluate` accepts either and verifies the Apple one offline against a
-> pinned Apple root (bundle id, product id, environment, no `revocationDate`), with no server
-> call and no FUTOpay change. The proof travels in the E2EE vault (license sync, required
-> before the IAP ships), so a purchase covers the user's other synced devices; Android and desktop
-> verify a synced Apple proof but never sell it. Limits: a user without sync is licensed only on the
-> device that bought or entered it, and a refund reaches other devices only after an iOS device
-> sees the revocation and syncs. Until built, the 2026-09-24 posture above is what ships and
-> its "fallback, not built here" line is still current. Open: US link-out alongside IAP, Sandbox
-> in the release binary (plan § 9 Q6-Q10).
+> **Gap:** _(all platforms)_ Target store posture, decided 2026-10-16, **not implemented**
+> (ADR-0007, plan D17-D22, M6, M7). Every device gets a working Buy: **the website** where the
+> rules allow a link without a paid program (iOS US storefront, Android `direct`, desktop), **the
+> store's in-app purchase** elsewhere (iOS every other storefront, Android `play`). This replaces
+> the key-only surfaces above; the key field and deep link stay everywhere. iOS sells a
+> non-consumable StoreKit purchase with Restore Purchases; Android `play` sells a Play Billing
+> one-time product with Restore (`queryPurchasesAsync`), acknowledged client-side; Android `direct`
+> carries no Play dependency. A license has three proofs, a FUTOpay key + activation pair, an App
+> Store signed transaction, or a Google Play signed purchase; Rust `evaluate` accepts any and
+> verifies the store ones offline (Apple against the three pinned Apple roots, Google against the
+> app's Play public key; bundle/package, product, environment, purchased state), with no server
+> call and no FUTOpay change. Proofs travel in the E2EE vault (license sync, required before any
+> IAP ships). Limits: a user without sync is licensed only on the device that bought or entered it;
+> refunds are out of scope, so a refunded purchase's stored proof keeps verifying; a Play
+> license-tester purchase is indistinguishable offline from a real one. The store's sheet shows the
+> price; copy never states one; `license.keyOnlyExplanation` and the key-only footnote retire.
+> Until built, the 2026-09-24 posture above is what ships. Open: Google paid-program regions and
+> Apple EU/Japan (plan § 9 D-A, D-B, D-C).
 
 > **Gap:** License sync — the license is entered per device. Carrying it in the
 > E2EE sync payload so one entry licenses every synced device is intended but

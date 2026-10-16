@@ -1,7 +1,9 @@
 # The license purchase follows each store's rules, gated by storefront on iOS
 
-> **iOS option A superseded 2026-10-16** by [ADR-0007](0007-ios-sells-the-license-in-app.md):
-> iOS adopts option B, a non-consumable IAP. The Android rows and the rest stand.
+> **Key-only surfaces superseded 2026-10-16** by [ADR-0007](0007-ios-sells-the-license-in-app.md):
+> every device gets a functional Buy (website where allowed, the store's in-app purchase where
+> not), so iOS outside the US and Android `play` are no longer key-only. The US iOS and Android
+> `direct` rows stand; the EU/Japan and Google-program cost analysis here is still the snapshot.
 
 Supersedes [ADR-0003 "Every platform links out to buy"](0003-every-platform-links-out-to-buy.md)
 on one point: that ADR, and the store-posture decision of 2026-09-09, shipped the Buy link
