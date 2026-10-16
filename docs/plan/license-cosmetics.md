@@ -42,6 +42,10 @@ summary` form with a `Verified:` line.
 | D20 | Sandbox purchases are accepted when the app is not an App Store install | Q7 resolved: yes. The iOS shell reports `AppTransaction.environment`; Android and desktop are never App Store installs. A production store install never accepts a Sandbox proof. (@justin 2026-10-16) |
 | D21 | US iOS: Buy points to the website | Q6 resolved. IAP and Restore stay in the binary (§ 7b, D-C). (@justin 2026-10-16) |
 | D22 | Google Play proof is verified offline | The signed `Purchase.getOriginalJson()` + `getSignature()` is verified in Rust against the app's Play Console public key; acknowledgement is client-side. No Developer API call, no server. § 7b M7.1, M7.3. |
+| D23 | Google Play uses Play Billing everywhere | D-A resolved: the `play` build never links out, in any region (no External Content Links, External Offers or billing-choice enrollment). (@justin 2026-10-16) |
+| D24 | Apple EU, Japan and Brazil use the in-app purchase | D-B resolved: no link-out entitlements; every non-US storefront runs StoreKit. (@justin 2026-10-16) |
+| D25 | US iOS keeps IAP and Restore live behind the website Buy | D-C resolved as recommended: a secondary US "Buy in the App Store" is added only if App Review objects. (@justin 2026-10-16) |
+| D26 | A store proof shows its source on the Licensed card | Q10 resolved: "Purchased via the App Store / Google Play, {date}", no key. (@justin 2026-10-16) |
 
 ## 1. The picker when the license does not include icons (M2, M3)
 
@@ -960,16 +964,9 @@ One reconciled set (2026-10-16). Earlier per-pass notes were merged here.
   is exactly Apple's roots.
 
 **Open, for @justin (recommendations in § 7b M7.0).**
-- **D-A** Google Play where a link needs a paid program (US External Content Links, EEA/UK billing
-  choice or External Offers): enroll and link out, or Play Billing. Recommend Play Billing everywhere
-  on `play` for v1.
-- **D-B** Apple EU / Japan / Brazil: entitlement link-out or StoreKit IAP. Recommend IAP.
-- **D-C** US iOS and guideline 3.1.3(b): ship website Buy as decided; keep IAP and Restore live; add a
-  secondary US "Buy in the App Store" only if App Review objects.
-- **Q10** Display of a store proof on the Licensed card: "Purchased via the App Store / Google Play,
-  {date}", no key. Proposed in § 7b M7.1; confirm.
+- D-A, D-B, D-C and Q10: **resolved 2026-10-16** as D23–D26.
 - **Q11** Create `com.futo.notes.dev` as a second Play app (internal track) for staging purchases.
-  Recommend yes.
+  Asked why it is needed; see § 7b M7.5 item 5.
 
 Unverified, to settle by a real fixture or a Play Console look: the Google signature hash (SHA-1 per
 the long-standing sample) and key format, Google's current fee figures, Apple's role OIDs.
