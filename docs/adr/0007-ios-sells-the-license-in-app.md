@@ -1,5 +1,11 @@
 # Buy everywhere: the website where allowed, the store's purchase where not
 
+> **Offline verification superseded 2026-10-16** by [ADR-0008](0008-store-purchases-are-redeemed-for-a-key.md):
+> a store purchase is redeemed on FUTOpay for an ordinary license key, so items 4, 5, 7 and 8 below
+> and both "what offline verification is, and is not" sections no longer describe the design. The
+> routing (items 1-2), refunds out of scope (3), the deferred M6 carrier (6) and the store surfaces
+> (9) stand. Kept whole as the record of what was weighed.
+
 Decided by @justin on 2026-10-16 (file name kept from the iOS-only first version, so links hold).
 Supersedes [ADR-0005](0005-license-purchase-follows-store-rules.md)'s key-only surfaces
 (option A on iOS outside the US, Android `play` key-only) and, where a store forces an in-app
@@ -169,5 +175,5 @@ Consequences the design accepts (Apple half; the Google half is below):
   `environment`, `revocationDate`, `signedDate`) are from the model's general knowledge plus the
   pages above, and the first implementation task is to confirm them against a real fixture.
 
-Plan: [`docs/plan/license-cosmetics.md`](../plan/license-cosmetics.md) (D14-D22, M7, M6).
+Plan: [`docs/plan/license-cosmetics.md`](../plan/license-cosmetics.md) (D14-D22, D28-D29, M7, M6).
 Behavioral truth: `docs/spec/license.md` § Store posture (a Gap until built).

@@ -949,30 +949,39 @@ and the decision, not the rules, is what this section records.
 - Per-region pricing, currencies, and tax are the storefront's business.
 
 > **Gap:** _(all platforms)_ Target store posture, decided 2026-10-16, **not implemented**
-> (ADR-0007, plan D17-D22, M6, M7). Every device gets a working Buy: **the website** where the
-> rules allow a link without a paid program (iOS US storefront, Android `direct`, desktop), **the
-> store's in-app purchase** elsewhere (iOS every other storefront, Android `play`). This replaces
-> the key-only surfaces above; the key field and deep link stay everywhere. iOS sells a
-> non-consumable StoreKit purchase with Restore Purchases; Android `play` sells a Play Billing
-> one-time product with Restore (`queryPurchasesAsync`), acknowledged client-side; Android `direct`
-> carries no Play dependency. A license has three proofs, a FUTOpay key + activation pair, an App
-> Store signed transaction, or a Google Play signed purchase; Rust `evaluate` accepts any and
-> verifies the store ones offline (Apple against the three pinned Apple roots, Google against the
-> app's Play public key; bundle/package, product, environment, purchased state), with no server
-> call and no FUTOpay change. Proofs do not yet travel in the E2EE vault: license sync (M6) is **deferred** (plan D28), not required for any IAP. A license is per device; a store purchase reaches the user's other devices on the **same store** through that store's Restore (Apple ID; Google account), never other platforms; a FUTOpay key works anywhere it is entered. Limits: a store purchase never licenses another platform, and no copy may claim "your license is on all your devices";
-> refunds are out of scope, so a refunded purchase's stored proof keeps verifying; a Play
-> license-tester purchase is indistinguishable offline from a real one. The store's sheet shows the
-> price; copy never states one; `license.keyOnlyExplanation` and the key-only footnote retire.
-> Until built, the 2026-09-24 posture above is what ships. Open: Google paid-program regions and
-> Apple EU/Japan (plan § 9 D-A, D-B, D-C).
+> (ADR-0007 for the surfaces, ADR-0008 for what a purchase becomes; plan D17-D29, M7, M8). Every
+> device gets a working Buy: **the website** where the rules allow a link without a paid program
+> (iOS US storefront, Android `direct`, desktop), **the store's in-app purchase** elsewhere (iOS
+> every other storefront, Android `play`). This replaces the key-only surfaces above; the key field
+> and deep link stay everywhere. iOS sells a non-consumable StoreKit purchase with Restore
+> Purchases; Android `play` sells a Play Billing one-time product with Restore
+> (`queryPurchasesAsync`); Android `direct` carries no Play dependency. **A store purchase is
+> redeemed for an ordinary FUTOpay key:** on the purchase tap the app sends the store's signed
+> proof once to FUTOpay, which verifies it (Apple's library; the Play public-key signature) and
+> answers a key + activation that the unchanged Rust `evaluate` verifies like any typed pair. The
+> client never verifies a store proof and holds only FUTOpay pairs, so the Licensed card is the
+> normal key card and the key works on every platform where it is entered. Until the redemption
+> succeeds nothing is granted: the card shows a pending state ("Purchase received, not yet
+> activated") with Try again and Restore, the transaction stays unfinished and the Play purchase
+> unacknowledged; Buy, Try again and Restore are the only network triggers (the "exactly one GET"
+> principle becomes "at most one request per explicit user action"). Restore re-redeems and gets
+> the same key back. License sync (M6) is **deferred** (plan D28); a license is still per device and
+> nothing travels on its own, so no copy may claim "your license is on all your devices". Refunds
+> are out of scope, so a refunded purchase keeps a working key; Sandbox and license-tester purchases
+> mint real keys (containment: plan Q12 and the tester lists). The store's sheet shows the price;
+> copy never states one; `license.keyOnlyExplanation` and the key-only footnote retire. FUTOpay
+> must carry the redeem endpoints in production before any store submission. Until built, the
+> 2026-09-24 posture above is what ships.
 
 > **Gap:** License sync — the license is entered per device. Carrying it in the
 > E2EE sync payload so one entry licenses every synced device is **deferred**
 > (plan M6, decision D28 2026-10-16), not cancelled, and no longer required before
 > the store purchases ship. It touches the sync payload (AGENTS.md §11.6) and must
-> be its own change. Until then a store purchase reaches other devices only through
-> that store's Restore on the same store (Apple ID across iPhone/iPad; Google
-> account across Android Play installs), not across platforms.
+> be its own change. Until then a store purchase, which ends as an ordinary key
+> (ADR-0008), reaches other devices the way a website key does: by entering the
+> key the card reveals, or through that store's Restore on the same store (Apple
+> ID across iPhone/iPad; Google account across Android Play installs). M6 carries
+> one proof kind, the pair.
 
 > **Gap:** The `platform` and `from` attribution the Buy URL carries is not
 > recorded by the server. Checked against `~/Developer/lib-polar` 2026-10-15

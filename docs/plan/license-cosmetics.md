@@ -34,20 +34,24 @@ summary` form with a `Verified:` line.
 | D12 | The License card does not change | No new sentence on the Unlicensed card. The App icon row hint is the only Settings-level touch. `license.explanationIncludes` is **not** added. (@justin 2026-10-15) |
 | D13 | Picker once Licensed | The coin **stays** on every icon but Standard, so the picker still shows which ones came with the license. No footnote, no ask, no sheet. (@justin 2026-10-15) |
 | D14 | The icon restriction applies to everyone | Every country, every platform. No per-country rule (D1 stands). (@justin 2026-10-16) |
-| D15 | iOS sells the license as a non-consumable IAP; no server work (extended to both stores by D17) | Outside the US, steering is banned (ADR-0005) and a bare key field that unlocks a feature conflicts with guideline 3.1.1, so iOS adopts ADR-0005 option B at the license price, which puts the key field under 3.1.3(b). FUTOpay/lib-polar does not change; an IAP purchase is **not** converted into a FUTOpay key. A license has two proofs, the FUTOpay pair or an App Store signed transaction (JWS), and Rust `evaluate` accepts either (D8); the Apple proof is verified **offline in Rust** against a pinned Apple root. ADR-0007. (@justin 2026-10-16) |
+| D15 | iOS sells the license as a non-consumable IAP; no server work (extended to both stores by D17) | Outside the US, steering is banned (ADR-0005) and a bare key field that unlocks a feature conflicts with guideline 3.1.1, so iOS adopts ADR-0005 option B at the license price, which puts the key field under 3.1.3(b). FUTOpay/lib-polar does not change; an IAP purchase is **not** converted into a FUTOpay key. A license has two proofs, the FUTOpay pair or an App Store signed transaction (JWS), and Rust `evaluate` accepts either (D8); the Apple proof is verified **offline in Rust** against a pinned Apple root. ADR-0007. (@justin 2026-10-16) **Superseded by D29:** the IAP stands; the proof is redeemed for a FUTOpay key on the server. |
 | D16 | M6 is required before the IAP ships | The license proof (either kind) must follow the vault so a purchase on one device covers the user's other synced devices. M6 carries both proofs. Carrier choice (open question 3) is still @justin's to confirm. (@justin 2026-10-16) **Superseded by D28 (2026-10-16): M6 is deferred and the IAP ships without it.** |
 | D17 | Buy everywhere: website where allowed, store purchase where not | Every device has a functional Buy button. Buy opens our website (FUTOpay checkout) wherever the platform allows a link without a paid program we chose not to join; where it does not, Buy runs the store's in-app purchase (StoreKit, Play Billing). Supersedes ADR-0005's "key-only, no Buy" surfaces and D6. The routing table is § 7b M7.0, owned by one Rust function (D8). (@justin 2026-10-16) |
 | D18 | Refunds are out of scope | Nothing is designed for revocation: no refund handling, no tombstone-for-refund, no revocation or OCSP checks. A stored proof keeps verifying. (@justin 2026-10-16) |
-| D19 | No server work | FUTOpay/lib-polar is unchanged. A store purchase is never converted to a FUTOpay key and never sent to FUTO; the store's signed proof (Apple JWS, Google signed purchase) is verified offline in Rust and travels by license sync (M6, required before any IAP ships). This rejects § 7c. (@justin 2026-10-16) **Amended by D28:** "travels by license sync" now reads "would travel by license sync once M6 exists"; until then the proof stays on the device and moves only by same-store Restore. |
-| D20 | Sandbox purchases are accepted when the app is not an App Store install | Q7 resolved: yes. The iOS shell reports `AppTransaction.environment`; Android and desktop are never App Store installs. A production store install never accepts a Sandbox proof. (@justin 2026-10-16) |
+| D19 | No server work | FUTOpay/lib-polar is unchanged. A store purchase is never converted to a FUTOpay key and never sent to FUTO; the store's signed proof (Apple JWS, Google signed purchase) is verified offline in Rust and travels by license sync (M6, required before any IAP ships). This rejects § 7c. (@justin 2026-10-16) **Amended by D28:** "travels by license sync" now reads "would travel by license sync once M6 exists"; until then the proof stays on the device and moves only by same-store Restore. **Superseded by D29 (2026-10-16): § 7c is adopted; lib-polar gains the redeem endpoints.** |
+| D20 | Sandbox purchases are accepted when the app is not an App Store install | Q7 resolved: yes. The iOS shell reports `AppTransaction.environment`; Android and desktop are never App Store installs. A production store install never accepts a Sandbox proof. (@justin 2026-10-16) **Superseded by D29:** the client has no Sandbox rule; production FUTOpay accepts Sandbox transactions (App Review needs it) under the containment in § 7c.2 and Q12. |
 | D21 | US iOS: Buy points to the website | Q6 resolved. IAP and Restore stay in the binary (§ 7b, D-C). (@justin 2026-10-16) |
-| D22 | Google Play proof is verified offline | The signed `Purchase.getOriginalJson()` + `getSignature()` is verified in Rust against the app's Play Console public key; acknowledgement is client-side. No Developer API call, no server. § 7b M7.1, M7.3. |
+| D22 | Google Play proof is verified offline | The signed `Purchase.getOriginalJson()` + `getSignature()` is verified in Rust against the app's Play Console public key; acknowledgement is client-side. No Developer API call, no server. § 7b M7.1, M7.3. **Superseded by D29:** the signed purchase is sent to lib-polar, which verifies the same signature and answers with a FUTOpay key (§ 7c.5). |
 | D23 | Google Play uses Play Billing everywhere | D-A resolved: the `play` build never links out, in any region (no External Content Links, External Offers or billing-choice enrollment). (@justin 2026-10-16) |
 | D24 | Apple EU, Japan and Brazil use the in-app purchase | D-B resolved: no link-out entitlements; every non-US storefront runs StoreKit. (@justin 2026-10-16) |
 | D25 | US iOS keeps IAP and Restore live behind the website Buy | D-C resolved as recommended: a secondary US "Buy in the App Store" is added only if App Review objects. (@justin 2026-10-16) |
-| D26 | A store proof shows its source on the Licensed card | Q10 resolved: "Purchased via the App Store / Google Play, {date}", no key. (@justin 2026-10-16) |
+| D26 | A store proof shows its source on the Licensed card | Q10 resolved: "Purchased via the App Store / Google Play, {date}", no key. (@justin 2026-10-16) **Superseded by D29:** a store purchase ends as an ordinary FUTOpay pair, so the Licensed card is the normal key card (tap-to-reveal and all); no source line. |
 | D27 | No second Play app | Q11 resolved: no `com.futo.notes.dev` Play app. Real purchase testing uses `com.futo.notes` on the internal testing track with license testers; debug builds and automated tests use a fake `BillingClient`. A `.dev` build never runs a real Play purchase. (@justin 2026-10-16) |
-| D28 | Punt on license sync (M6) | M6 is **deferred, not cancelled**, and the store purchases (M7) no longer wait for it. Supersedes D16; amends D10 and D19. Without M6 a license is per device, as today. A store purchase reaches the user's other devices **on the same store** through that store's Restore (Apple ID across iPhone and iPad; Google account across Android Play installs). It does **not** reach other platforms: an App Store purchase does not license Android or desktop, and a Play purchase does not license iOS or desktop. A website/FUTOpay key still works anywhere it is entered. Consequence for copy: the store-purchase card copy and any "your license is on all your devices" claim are off-limits. (@justin 2026-10-16) |
+| D28 | Punt on license sync (M6) | M6 is **deferred, not cancelled**, and the store purchases (M7) no longer wait for it. Supersedes D16; amends D10 and D19. Without M6 a license is per device, as today. A store purchase reaches the user's other devices **on the same store** through that store's Restore (Apple ID across iPhone and iPad; Google account across Android Play installs). It does **not** reach other platforms: an App Store purchase does not license Android or desktop, and a Play purchase does not license iOS or desktop. A website/FUTOpay key still works anywhere it is entered. Consequence for copy: the store-purchase card copy and any "your license is on all your devices" claim are off-limits. (@justin 2026-10-16) **Amended by D29:** a store purchase now yields a real key, so it reaches any platform the way a website key does (type or paste the key, which the card reveals); still nothing travels on its own until M6. |
+| D29 | **Store purchases are redeemed for a FUTOpay key (§ 7c adopted, for both stores)** | Supersedes D15's "no server work", D19, D20, D22 and D26; ADR-0007 items 4, 5, 7, 8 are superseded by [ADR-0008](../adr/0008-store-purchases-are-redeemed-for-a-key.md). On a StoreKit or Play Billing purchase the app makes **one user-initiated POST** to FUTOpay (lib-polar) carrying the store's signed proof; the server verifies it (Apple's own library for the JWS; the Play public-key signature for Google), mints or re-serves a key through the existing `create_key_func`, and answers `{license_key, activation}`. The client then holds **only FUTOpay pairs**, everywhere, verified by the unchanged `evaluate`: no `LicenseProof` enum, no Apple roots in the binary, no Rust chain verifier. Restore re-redeems and gets the same key back. Until the redemption succeeds the card shows a pending state with Try again; the transaction stays unfinished and the Play purchase unacknowledged. Refunds stay out of scope (D18). M6, when picked up, carries one proof kind. Costs accepted: a FUTOpay dependency at purchase, at Restore and during App Review; the JWS or Play receipt leaves the device (to FUTO only); one lib-polar MR (M8) that must be live in production before a store submission. (@justin 2026-10-16) |
+| D30 | Sandbox containment on production FUTOpay | Q12 resolved: (a) now, accept Sandbox transactions and flag the row `environment=Sandbox` for audit; (b) short-expiry v2 activations for Sandbox redemptions once `feat/futo-notes-v2-activation` lands. Google's twin (the Developer API) stays unbuilt. (@justin 2026-10-16) |
+| D31 | The pending card never retries on its own | Q13 resolved: no. Buy, Try again and Restore are the only three network triggers; no retry on launch, on opening Settings or on opening the card. (@justin 2026-10-16) |
+| D32 | One lib-polar MR | Q14 resolved: Apple (L1-L6) and Google (L7-L10) land together in a single lib-polar MR, deployed to staging as one, then production as one. (@justin 2026-10-16) |
 
 ## 1. The picker when the license does not include icons (M2, M3)
 
@@ -207,7 +211,7 @@ Reused: `license.buy`, `license.renew`, `license.enterKey`, `license.keyOnlyExpl
 
 ## 7. M6 — the license follows the vault (DEFERRED by D28; ask-first; own MR)
 
-**Deferred 2026-10-16 (D28).** M6 is not scheduled and M7 does not wait for it. Everything below is kept for when it is picked up: the feasibility note, the decided carrier (Q3: the hidden engine slot), and the rules. The "REQUIRED" wording below is historical (D16, superseded). Without M6 a license is per device, as today. A store purchase reaches the user's other devices **on the same store** through that store's Restore (Apple ID across iPhone and iPad; Google account across Android Play installs). It does **not** reach other platforms: an App Store purchase does not license Android or desktop, and a Play purchase does not license iOS or desktop. A website/FUTOpay key still works anywhere it is entered.
+**Deferred 2026-10-16 (D28).** M6 is not scheduled and M7 does not wait for it. Everything below is kept for when it is picked up: the feasibility note, the decided carrier (Q3: the hidden engine slot), and the rules. The "REQUIRED" wording below is historical (D16, superseded). Without M6 a license is per device, as today. A store purchase reaches the user's other devices **on the same store** through that store's Restore (Apple ID across iPhone and iPad; Google account across Android Play installs). It does **not** reach other platforms: an App Store purchase does not license Android or desktop, and a Play purchase does not license iOS or desktop. A website/FUTOpay key still works anywhere it is entered. **D29 (same day):** a store purchase is redeemed for a FUTOpay key, so M6 only ever carries one proof kind (the pair) and the three-kind text below is historical; § 7c.3 "M6 gets smaller" is the current shape. A store buyer reaches another platform today by revealing the key on the card and entering it there, as with a website key.
 
 Problem: the license is entered per device (license.md Gap "License sync"). Once a license
 includes something visible, a second phone that is synced but Unlicensed reads as broken. Since
@@ -357,15 +361,21 @@ delete-detection would treat it as gone. Open for the later MR: the offline-Remo
 
 ## 7b. M7 — Buy everywhere: website where allowed, store purchase where not (does not wait for M6, D28; own MRs)
 
-Decisions D15-D22; [ADR-0007](../adr/0007-ios-sells-the-license-in-app.md) (now covers both stores).
-Rewritten 2026-10-16 from "M7 — in-app purchase on iOS"; the iOS verifier detail of the old § 7b is kept
-under M7.1. Scoping only; nothing started. M6 is deferred (D28) and is not a dependency: a store purchase is per device, and Restore is the cross-device path on the same store.
+Decisions D15-D29; [ADR-0007](../adr/0007-ios-sells-the-license-in-app.md) for the routing and
+the store surfaces, [ADR-0008](../adr/0008-store-purchases-are-redeemed-for-a-key.md) for what a
+purchase becomes. Rewritten 2026-10-16 twice: from "M7 — in-app purchase on iOS", then again under
+D29, which replaced the offline Rust verifiers of M7.1 with the server redemption of § 7c. Scoping
+only; nothing started. M6 is deferred (D28) and is not a dependency: a store purchase ends as a
+FUTOpay key, Restore is the automatic cross-device path on the same store, and the key itself goes
+anywhere a website key goes.
 
 **The rule (D17).** Every device has a working Buy button. Buy opens our website (the FUTOpay
 checkout) wherever the platform's rules allow a link without a paid program we chose not to join;
 where they do not, Buy runs the store's own in-app purchase. Refunds are out of scope (D18): no
-revocation handling anywhere. No server work (D19): a store purchase is never converted to a
-FUTOpay key and never sent to FUTO; the store's signed proof is verified offline in Rust.
+revocation handling anywhere. **A store purchase becomes a FUTOpay key (D29):** the store's signed
+proof is sent once, on the user's tap, to lib-polar, which verifies it and answers with an ordinary
+key + activation; the client never verifies a store proof itself. The server design, the lib-polar
+task list and the Google half are § 7c; this section is the client and the store setup.
 
 ### M7.0 Routing table (rules read 2026-10-16; re-read before each submission)
 
@@ -408,73 +418,51 @@ pages and secondary summaries, so confirm in Play Console before deciding):
   objects, the fallback is a secondary "Buy in the App Store" button in the US, not a rewrite.
   **Recommend: ship as decided; put the 3.1.1(a) argument in the review notes.**
 
-### M7.1 Rust (`crates/futo-notes-license`, `crates/futo-notes-ffi`): proofs and routing (size L)
+### M7.1 Rust (`crates/futo-notes-license`, `crates/futo-notes-ffi`): redemption and routing (size S-M)
 
-**`LicenseProof`.** `LicenseProof::Futopay(LicensePair) | AppStore(String /* JWS */) |
-GooglePlay { original_json: String, signature: String }`. `evaluate` takes a `LicenseProof` and
-returns the same `LicenseState`; the Futopay arm is today's code, byte for byte. Rule stays single
-(D8): shells deliver strings, Rust answers. `LicenseDetails` grows no field shells branch on;
-display (Q10) is `source` + a date: "Purchased via the App Store / Google Play, {purchase date}"
-(Apple `purchaseDate`, Google `purchaseTime`), no key shown. Proofs are stored verbatim, tagged by
-kind, in the shell's `LicenseStorage` (the pair today).
+Under D29 there is **no** `LicenseProof` enum, no Apple roots, no JWS or Play verifier and no
+`evaluate` change in this repo: a store purchase is redeemed for a pair and the pair goes through
+today's code byte for byte. The offline-verifier design that stood here between D15 and D29 is in
+the git history of this file and in ADR-0007; it is not carried forward.
 
-**Apple arm** `verify_app_store_jws(jws, &AppStoreConfig, now)`. Split on `.`; header `alg ==
-"ES256"` with an `x5c` array; chain of exactly three certificates to **all three Apple roots**
-(Apple Inc. Root, G2, G3, the Q8 proposal) with the leaf OID `1.2.840.113635.100.6.11.1` and
-intermediate OID `1.2.840.113635.100.6.2.1` present (re-confirm the OIDs against a checked-out
-`app-store-server-library`); certificate validity evaluated at the signed `signedDate`, not at
-`now`; ES256 over `header.payload`; only then decode. RustCrypto (`p256`, `x509-cert`), no network,
-no revocation check (D18). Claims: `bundleId`, `productId`, `type` Non-Consumable,
-`inAppOwnershipType == PURCHASED` (a `FAMILY_SHARED` proof is rejected), `environment` per the
-rule below. Each failure is a distinct `InvalidReason` (diagnostic only).
+**Redeem workflow.** `redeem_store_purchase(receipt: StoreReceipt, config, transport) ->
+Result<AcceptedLicense, RedeemError>` next to `enter_license_key`, with
+`StoreReceipt::AppStore { jws } | GooglePlay { original_json, signature }`. It builds one `POST`
+(`redeem_url(config, store)`, joining the existing `activation_url` in `config.rs` so host and org
+key are selected together by `Environment`), sends the receipt as JSON, parses
+`{"license_key", "activation"}`, and hands the pair to the existing `evaluate` exactly as a typed
+or deep-linked pair: product and key-prefix checks, the baked org key, the dev/prod split. The
+server's answer is untrusted until the signature verifies, so a wrong or hostile server cannot
+make anything Licensed. Reuses `AcceptedLicense`. Nothing is stored before `evaluate` says
+Licensed.
 
-**Google arm** `verify_google_play(original_json, signature_b64, &GooglePlayConfig)`. Verify the
-Base64 signature over the exact UTF-8 bytes of `original_json` with RSASSA-PKCS1-v1_5 (Google's
-reference for `Purchase.getSignature()`: "signed with the private key of the developer... RSASSA-
-PKCS1-v1_5", Android reference read 2026-10-16) using the app's Base64 X.509 public key from Play
-Console. The hash is SHA-1 in Google's long-standing sample (`SHA1withRSA`); the fetched docs do not
-state it, so the **first task** is to confirm hash and key format against a real signed purchase.
-Only after the signature verifies, parse the JSON and check: `packageName` equals the config's,
-`productId` (or the single `productIds` entry) equals the config's, `purchaseState == 0`
-(PURCHASED; pending and canceled are rejected), `quantity` is 1. `acknowledged` is not part of the
-rule (the shell acknowledges). Use the `rsa` crate this crate already carries; no new transport.
+**Answers map as:** 200 with a verifying pair -> Licensed (store it, finish/acknowledge); 200 with
+a pair that does not verify, or 4xx (bad receipt, wrong bundle/package/product/environment) ->
+`RedeemError::Rejected` ("couldn't verify this purchase", nothing stored, transaction left
+unfinished, support path); transport failure or 5xx -> `RedeemError::Unavailable` (pending state,
+Try again). No retry inside Rust; a retry is a tap.
 
-**Config and the dev/prod split.**
-- `LicenseConfig` gains `app_store: AppStoreConfig {trust_anchors, bundle_id, product_id}` and
-  `google_play: GooglePlayConfig {public_key_base64, package_name, product_id}`. `Environment::config()`
-  supplies production values for `com.futo.notes` / package `com.futo.notes` and staging values for
-  `.dev`. Tests build their own.
-- **Apple.** Production proofs verify only where `bundleId` is the release id. **Sandbox proofs are
-  accepted when the running app is not an App Store install** (D20, Q7 resolved): the iOS shell passes
-  `install_environment` from `AppTransaction.shared.environment` (`.production` means a store
-  install); a TestFlight or App Review build reports Sandbox and accepts Sandbox proofs. A
-  production store install never accepts a Sandbox proof, including one that arrives through sync (once M6 exists).
-  Android and desktop builds are never App Store installs, so they would accept a synced Sandbox proof:
-  the containment is that minting one needs a sandbox tester under our team's App Store Connect.
-  Xcode StoreKit testing signs with a local root without a chain: tests inject it as the anchor;
-  the release anchor set is **exactly Apple's three roots** (a test asserts the set, and that an
-  Xcode-signed fixture is Invalid under the release config); the Xcode anchor exists only in test code (Q8).
-- **Google.** The public key is per app listing in Play Console (Monetize > Monetization setup),
-  so `com.futo.notes` has one and `com.futo.notes.dev` has none: there is no second Play app (D27),
-  so a `.dev` build only ever sees fake-`BillingClient` purchases signed by a test key in test code,
-  and real signed purchases are exercised on `com.futo.notes` via the internal track. License testers and test cards produce purchases **signed like real ones**, and
-  nothing in `getOriginalJson()` marks them as tests (the test flag lives on the Developer API's
-  purchase resource, which we do not call), so a release build cannot tell a tester purchase from a
-  real one. Accepted: testers are a list in our Play Console. Old `android.test.purchased` static
-  responses no longer exist, so tests inject signed fixtures.
-- Product ids: new constants next to `PRODUCT_SLUG`, one per store, e.g. `futo_notes_license`.
+**Transport.** `ActivationTransport` is GET-only today; add `post_json` (same timeouts, no
+redirects, no retry) and implement it in `Pay2Transport`
+(`crates/futo-notes-ffi/src/license/transport.rs`). The "exactly one GET" rule in
+`crates/futo-notes-license/AGENTS.md` and in license.md § Principles becomes "at most one request
+per explicit user action: a bare key's GET, or a redemption's POST". The "unavailable" transport
+that panics on any request stays for every offline path, so a new network call still fails loudly
+in tests.
 
-**Fixtures.**
-- Apple: one real golden (captured once from a sandbox purchase in the `.dev` build or TestFlight,
-  `tests/fixtures/license/appstore/sandbox-*.jws.txt`, with the capture date; evaluated at the fixed
-  `signedDate`, since Apple's leaf expires) plus a throwaway-CA test helper that mints every rejection
-  (wrong bundle, wrong product, Production vs Sandbox mismatch, family-shared, tampered payload,
-  `alg: none`, truncated chain, non-Apple root, leaf without the role OID).
-- Google: a **minted test RSA key pair** and a helper that signs JSON, covering: valid; wrong
-  package; wrong product; pending (`purchaseState` 2); canceled (1); tampered JSON; signature from
-  another key; wrong key format; quantity 2. Plus one real golden from a license-tester purchase
-  on the internal track (no expiry, so it never rots; this proves our hash and key-format claim).
-- All of them in `tests/conformance/license.json` so Swift, Kotlin and the Tauri shell read the same table.
+**FFI.** `license_redeem_app_store(jws, bundle_id)` and `license_redeem_google_play(original_json,
+signature, package_name)` in `contract.rs`, mirroring `license_enter_key`. Tauri gets nothing:
+desktop never purchases from a store.
+
+**Config.** `LicenseConfig` gains nothing store-specific beyond the redeem path; the Apple app id,
+Play public key and product maps live on the server (§ 7c.2, § 7c.5). Product ids stay client
+constants next to `PRODUCT_SLUG` (one per store, e.g. `futo_notes_license`) because the shells
+need them to load the store product.
+
+**Conformance.** Extend `tests/conformance/license.json` with redeem cases shared by Swift, Kotlin
+and the Tauri shell: 200 with a signed pair -> Licensed; 200 with a tampered pair -> Rejected; 4xx
+-> Rejected; 5xx and transport failure -> Unavailable; a Production pair in a `.dev` config ->
+Rejected. No store fixtures live in this repo.
 
 **Routing in Rust (D8).** Replaces `license_link_out(platform, storefront_country, build_allows) ->
 bool` and the `link_out: bool` of `license_row_actions`:
@@ -492,20 +480,31 @@ and Direct rows. Key-only is no longer a shape: `link_out == false` disappears.
 
 ### M7.2 iOS shell (`apps/ios/Sources/License/`, size M)
 
-- `LicenseStoreKit` (new): load the product; Buy runs `product.purchase()`; on `.success` hand
-  `VerificationResult.jwsRepresentation` to Rust; finish the transaction only after Rust says
-  Licensed (StoreKit's `.verified` is not our rule). `.pending` and `.userCancelled` are not errors.
-- `AppTransaction.shared.environment` feeds `install_environment`.
-- **Restore Purchases** (`AppStore.sync()`, then `Transaction.currentEntitlements`), shown on the
-  StoreIap route and in the US as well, a button next to the key field. Required by 3.1.1. Since D28 it is also **the only cross-device path** for a store purchase (iPhone to iPad on the same Apple ID); it does not reach Android or desktop.
-- `Transaction.updates` observed for the app's life (completes purchases made elsewhere or
-  interrupted); an unfinished transaction is adopted automatically, a finished one only through the
-  Restore tap, so **Remove license** is not undone at the next launch (D18: no revocation either way).
+- `LicenseStoreKit` (new): load the product; Buy runs `product.purchase()`; on `.success` the same
+  tap continues into `license_redeem_app_store(jwsRepresentation)` (one POST, § 7c.1). Licensed ->
+  store the pair, `transaction.finish()`, M5 landing. Unavailable -> keep the JWS in a **pending
+  slot** in `LicenseStorage` (never evaluated, never shown as Licensed) and leave the transaction
+  unfinished; the card shows "Purchase received, not yet activated" with **Try again** and
+  **Restore**. Rejected -> store nothing, "couldn't verify this purchase", support path. `.pending`
+  and `.userCancelled` are not errors. StoreKit's `.verified` is never our rule; the server's is.
+- **Restore Purchases** (`AppStore.sync()`, then `Transaction.currentEntitlements`, redeem the
+  license product's JWS the same way; the server is idempotent on `originalTransactionId`, so the
+  same key comes back), shown on the StoreIap route and in the US as well, a button next to the key
+  field. Required by 3.1.1. It is the automatic same-store path (iPhone to iPad on one Apple ID); the
+  key the card reveals is the path to Android and desktop, as for any key.
+- `Transaction.updates` observed for the app's life only to *deliver* an unfinished transaction
+  into the pending slot; it never calls the network. Redemption is always a tap (Buy, Try again,
+  Restore), so **Remove license** is not undone at the next launch and the zero-background-network
+  principle holds (Q13: no retry-on-open either).
 - `LicenseStorefront` keeps feeding the route (`license_buy_route`); the debug `-FUTOLicenseStorefront`
   override stays.
-- Tests: `LicenseModelTests` with a fake store (success, cancel, pending, restore, Remove stays
-  removed); a `.storekit` configuration file with `SKTestSession`, its saved public certificate the
-  injected anchor under `#if DEBUG`.
+- Tests: `LicenseModelTests` with a fake store and a fake redeem (success; cancel; `.pending`;
+  transport failure leaves the pending slot and the transaction unfinished; Try again succeeds;
+  Restore returns the same key; 4xx stores nothing; Remove stays removed). A `.storekit`
+  configuration file for UI tests with the redeem **faked**: the server cannot verify
+  `XCODE`-environment transactions by design (§ 7c.2). The real end-to-end check is a Sandbox
+  purchase on a TestFlight build of `com.futo.notes` against staging FUTOpay
+  (`FUTO_LICENSE_ENV=staging`), which needs M8 on staging first.
 
 ### M7.3 Android shell, `play` flavor only (size M)
 
@@ -520,28 +519,39 @@ and Direct rows. Key-only is no longer a shape: `link_out == false` disappears.
 - **Flow.** `BillingClient` with `enablePendingPurchases(...enableOneTimeProducts())` and
   `enableAutoServiceReconnection()`; `queryProductDetailsAsync` (INAPP, do not cache `ProductDetails`);
   `launchBillingFlow`; in `onPurchasesUpdated` hand `getOriginalJson()` + `getSignature()` for each
-  `PURCHASED` purchase to Rust; **only if Rust says Licensed, `acknowledgePurchase` immediately**, retry on every
-  connect and `onResume`. PENDING shows a "waiting for payment" line and grants nothing.
+  `PURCHASED` purchase to `license_redeem_google_play` (one POST, § 7c.5), on the same tap. Licensed
+  -> store the pair, **then `acknowledgePurchase` immediately**, M5 landing. Unavailable -> keep the
+  receipt in the pending slot, do not acknowledge, show the pending card with Try again and Restore.
+  Rejected -> store nothing, do not acknowledge. PENDING (`purchaseState` 2) shows a "waiting for
+  payment" line and grants nothing; Play delivers it as PURCHASED later through `queryPurchasesAsync`.
 - **Restore.** `queryPurchasesAsync(INAPP)` after connect, on `onResume` and on the Restore tap
-  (Google recommends it for network loss, multiple devices and PENDING-to-PURCHASED). An
-  unacknowledged purchase is adopted and acknowledged automatically; an acknowledged one only on the
-  Restore tap, as on iOS.
-- **Acknowledgement is client-side only, by decision.** Google's page: acknowledge or consume "on the client
-  side through your app" is allowed, server-side is preferred; an unacknowledged purchase is
-  **refunded automatically after three days**. So a crash between "Rust verified" and "acknowledged"
-  is the one real failure: the retry at the next launch within three days fixes it; after three days
-  the user is refunded and the proof we stored keeps verifying (accepted under D18; the stored proof is
-  one the store later refunded, the same bearer-proof limit as ADR-0004).
+  (Google recommends it for network loss, multiple devices and PENDING-to-PURCHASED). A purchase
+  found this way is **delivered into the pending slot**; redemption is a tap (Restore, Try again),
+  never automatic (zero background network, as on iOS). The server is idempotent on `purchaseToken`,
+  so a reinstall's Restore gets the same key back.
+- **Acknowledgement is client-side, after the key verifies.** Google's page: acknowledge "on the
+  client side through your app" is allowed, server-side is preferred; an unacknowledged purchase is
+  **refunded automatically after three days**. Under D29 that is the right outcome: a purchase that
+  was never redeemed (server down for three days, user never tapped Try again) refunds itself and
+  nothing was granted. The residual failure is a crash between "pair stored" and "acknowledged";
+  the acknowledge retry on every connect and `onResume` (no network of ours, it is a Play call)
+  closes it within the three days. Server-side acknowledgement needs the Developer API and is not
+  built (§ 7c.5).
 - Region: only needed if D-A flips to enrolling (`getBillingConfigAsync` gives the Play country).
-- Tests: a `BillingClient` fake behind `LicenseStore` (purchase ok, cancel, pending then purchased,
-  already-owned, service disconnected, acknowledge failure retried); Play Billing has no replacement for
-  the removed static test SKUs, so end-to-end runs use license testers on the internal track.
+- Tests: a `BillingClient` fake behind `LicenseStore` plus a fake redeem (purchase ok; cancel;
+  pending then purchased; already-owned; service disconnected; transport failure keeps the pending
+  slot and does not acknowledge; Try again succeeds; acknowledge failure retried; Restore returns the
+  same key). Play Billing has no replacement for the removed static test SKUs, so end-to-end runs use
+  license testers on the internal track against staging FUTOpay (M8 on staging first).
 
 ### M7.4 UI and copy (size S, both shells plus Tauri strings)
 
 - **The License card.** Unlicensed/Expired: `[Buy]`, "I already paid", and either "Lost your key?"
   (Website) or "Restore purchase" (StoreIap). Buy on StoreIap opens the store sheet directly (the
-  sheet shows the price; copy never states one). Licensed: unchanged.
+  sheet shows the price; copy never states one). **Pending** (new fourth state, native only):
+  "Purchase received, not yet activated", `[Try again]`, `[Restore purchase]`, and the support line.
+  Licensed: unchanged, the normal key card (D29 supersedes D26: a store purchase is a key like any
+  other, tap-to-reveal and all).
 - **The app-icon sheet** (D4, D11): Buy everywhere. The key-only sheet (`license.keyOnlyExplanation`
   plus "I already paid") retires; the one sheet shows Buy and "I already paid".
 - **D5 vocabulary.** "Unlocks" is allowed on every surface: where a store forbids a link the license
@@ -552,8 +562,10 @@ and Direct rows. Key-only is no longer a shape: `link_out == false` disappears.
   Return everywhere (today suppressed key-only): `license.unlicensedHeadline`, `license.explanation`.
   `settings.appIcon.license.footnote` and `sheetBody` ("Purchasing a FUTO Notes license unlocks...")
   now apply on every surface. Add: `license.restore` ("Restore purchase"), `license.restoreNothing`,
-  `license.purchasePending`, `license.purchaseFailed`, `license.storeUnavailable`.
-  `license.buy`, `license.renew`, `license.enterKey` are reused. Cancel shows nothing.
+  `license.purchasePending` ("Purchase received, not yet activated"), `license.tryAgain`,
+  `license.purchaseRejected` ("We couldn't verify this purchase", with the support line),
+  `license.storeUnavailable`. `license.buy`, `license.renew`, `license.enterKey` are reused.
+  Cancel shows nothing.
   Run `pnpm run check:languages`; drop the key-only assertions in `LicenseSurfaceTests`,
   `LicenseSurfaceTest` and `licenseCopy.test.ts`.
 - ADR-0006's D6 line ("key-only builds get...") and ADR-0005's key-only rows are superseded by ADR-0007.
@@ -566,16 +578,20 @@ and Direct rows. Key-only is no longer a shape: `link_out == false` disappears.
 2. Join the **Small Business Program** if eligible (15% instead of 30%); confirm the rate.
 3. Create the **non-consumable** IAP with the product id the Rust constant names, the license price tier,
    Family Sharing off, localized name and description, review screenshot.
-4. Sandbox tester accounts; a TestFlight build.
+4. Sandbox tester accounts; a TestFlight build. Copy the app's numeric **Apple ID** (App Store
+   Connect > App Information) into the lib-polar config (`APPLE__APP_APPLE_ID`, § 7c.2).
 5. Review notes: free app; the license is one non-consumable IAP; Restore Purchases and the key field
    are in Settings > License; US storefront shows a website link under 3.1.1(a); how to test with the
    sandbox account. Re-read 3.1.1, 3.1.1(a), 3.1.3(b) before submitting (update ADR-0007's snapshot).
+6. **Do not submit before production FUTOpay has M8 live with Sandbox acceptance on** (§ 7c.2
+   Deploy): App Review's purchase is a Sandbox transaction against production FUTOpay, and a failed
+   redemption is a 2.1 rejection with no client-side fix.
 
 **Google Play Console**
 1. Merchant account and payments profile (the Play account's payment details and tax info).
 2. Create the **one-time in-app product** (`futo_notes_license`), price, activated, for `com.futo.notes`.
-3. Copy the app's **Base64 RSA public key** (Monetize > Monetization setup) into the staging and
-   production configs (a public key; commit it).
+3. Copy the app's **Base64 RSA public key** (Monetize > Monetization setup) into the **lib-polar**
+   staging and production configs (`GOOGLE__PLAY_PUBLIC_KEY_BASE64`, § 7c.5), not into the client.
 4. License testers (Settings > License testing) with test cards; an internal-testing release of the
    `play` AAB (billing needs a Play-installed build).
 5. No second Play app (D27): staging purchases use license testers on `com.futo.notes`'s internal
@@ -588,50 +604,65 @@ and Direct rows. Key-only is no longer a shape: `link_out == false` disappears.
 
 | Piece | Size | Needs |
 |---|---|---|
-| M6 license follows the vault, three proof kinds | L (sync engine, `/slow-review`) | **deferred (D28)**; @justin OK on § 7 when picked up |
-| M7.1 Rust: `LicenseProof`, Apple verifier, Google verifier, routing, fixtures | L (Apple ~60%, Google S-M, routing S) | before shells; no M6 dependency |
-| M7.2 iOS StoreKit shell | M | M7.1, App Store Connect product |
-| M7.3 Android `play` Billing shell | M | M7.1, Play product and key |
+| M6 license follows the vault, one proof kind (the pair) | L (sync engine, `/slow-review`) | **deferred (D28)**; @justin OK on § 7 when picked up |
+| M8 lib-polar: Apple redeem (L1-L6) + Google redeem (L7-L10), staging then production | M (other repo, its own review loop) | **start now**; gates every end-to-end test and the submission |
+| M7.1 Rust: redeem workflow, `post_json` transport, FFI, routing, conformance | S-M | before shells; no M6 dependency |
+| M7.2 iOS StoreKit shell + pending state | M | M7.1, App Store Connect product; M8 on staging for the real check |
+| M7.3 Android `play` Billing shell + pending state | M | M7.1, Play product; M8 on staging for the real check |
 | M7.4 UI/copy/spec | S | M7.2/M7.3 |
 | M7.5 store setup | human, days of calendar time (agreements, review) | start now, it gates QA |
 
-**Order.** M7.1 first, then M7.2 and M7.3 in parallel, M7.4 with them, M7.5 started immediately.
-M6 is deferred (D28) and does not gate submission. A store build before M7 keeps
-shipping today's key-only shape (ADR-0005).
+**Order.** M8 (lib-polar) and M7.5 start immediately, since both are calendar-bound. M7.1 in
+parallel, then M7.2 and M7.3 together with M7.4. Real purchase QA needs M8 on staging; submission
+needs M8 on production. M6 is deferred (D28) and does not gate submission. A store build before M7
+keeps shipping today's key-only shape (ADR-0005).
 
-**Tests.** Rust: the fixtures above, run through `cargo test -p futo-notes-license -p futo-notes-ffi`,
-and the conformance JSON shared with the shells. iOS: `LicenseModelTests` with a fake, StoreKit
-config file tests. Android: `BillingClient` fakes, the `direct`-has-no-billing Gradle check, and the
-existing `LicenseSurfaceTest`. Cross-platform sync (`tests/cross-platform-sync.mjs`), **only when M6 is picked up (D28)**: **each proof
-kind** buys or is entered on one client and shows Licensed on a second (Apple proof on Android and
-desktop, Google proof on iOS and desktop, FUTOpay pair on all), including a device that cannot
-verify the winner keeping its own. Per the platform-coverage rule, drive iOS, Android and desktop.
+**Tests.** Rust: `cargo test -p futo-notes-license -p futo-notes-ffi` with the redeem conformance
+cases. iOS: `LicenseModelTests` with fake store and fake redeem, StoreKit config file tests.
+Android: `BillingClient` and redeem fakes, the `direct`-has-no-billing Gradle check, the existing
+`LicenseSurfaceTest`. lib-polar: § 7c.2 and § 7c.5 (throwaway CA, minted RSA key, one real golden
+each). End to end, driven on real devices per the coverage rule: a Sandbox purchase on a TestFlight
+build and a license-tester purchase on the internal track, each against staging FUTOpay, each ending
+Licensed with a normal key card; Restore on a reinstall returns the same key; the revealed key
+activates desktop and the other phone by paste. Cross-platform sync
+(`tests/cross-platform-sync.mjs`) only when M6 is picked up: one proof kind, the pair.
 
 **Risks.**
-1. The Apple verifier is the largest unverified piece (OIDs, validity-at-signed-date, the real chain);
-   the golden fixture is what settles it.
-2. Google's hash/key format are from memory of the long-standing sample, not from a fetched page.
+1. **FUTOpay is on the purchase path.** A FUTOpay outage means money taken and no key until Try
+   again; Apple keeps the transaction, Play refunds an unacknowledged purchase after three days.
+   App Review runs against production FUTOpay, so an outage or a wrong `APPLE__APP_APPLE_ID` during
+   review is a 2.1 rejection: M7.5 step 6.
+2. **M8 is in another repo with its own review cadence** and gates everything; start it first. A
+   server bug is fixed in minutes with no app release, which is the upside of the same fact.
 3. Fee figures for Google differ between Google's pages and summaries; D-A needs a Play Console check.
-4. A tester-signed Play purchase is indistinguishable offline from a real one; a Sandbox Apple proof
-   verifies off a store install (D20). Both bounded by who holds our tester lists.
-5. Google's three-day refund after a missed acknowledgement; mitigated by the acknowledge-after-Rust
-   retry loop.
+4. Sandbox and license-tester purchases are real signatures that mint **production** keys; bounded
+   by our tester lists and by the Q12 containment (flag now, short-expiry v2 later). The Apple
+   library's exception and payload names and Google's hash/key format are confirmed by the first real
+   fixture of each (§ 7c.2, § 7c.5).
+5. Google's three-day refund after a missed acknowledgement; mitigated by acknowledging only after
+   the pair is stored and retrying on every connect and `onResume`.
 6. 3.1.3(b) in the US (D-C) and the US commission ruling can change the table; routing is one Rust
    function for that reason.
-7. Store proofs are bearer strings and refunded purchases keep verifying (D18, ADR-0004).
+7. Keys are bearer strings and refunded purchases keep a working key (D18, ADR-0004).
 8. `play` outside a program cannot say where to buy beyond the store: acceptable, the store sheet is the Buy.
+9. Privacy: the JWS (with `originalTransactionId`) or the Play receipt (with `purchaseToken`) goes to
+   FUTO, once, on a tap; nothing else about the device does. State it in the privacy copy and the
+   Data safety form.
 
-## 7c. Alternative: Apple receipts become FUTOpay keys — scoping (2026-10-16)
+## 7c. M8 — store purchases are redeemed for a FUTOpay key (ADOPTED, D29; lib-polar MR + client)
 
-> **Rejected 2026-10-16 (D19, no server work).** Kept as the record of what was weighed. Its
-> recommendation for 7c is withdrawn; M7 (§ 7b) is the design.
+> **Adopted 2026-10-16 (D29), after being rejected the same morning under D19.** This is the
+> design; § 7b is the client and store-setup half and points here. [ADR-0008](../adr/0008-store-purchases-are-redeemed-for-a-key.md)
+> records the decision. § 7c.1-7c.4 are the Apple scoping as written before the decision (the
+> "if chosen" wording is now "as decided"); **§ 7c.5 adds the Google Play half**, which the
+> original scoping did not cover.
 
-Scoping only; nothing built, nothing decided. An alternative to the offline-proof design of
-ADR-0007 / § 7b: the app sends the StoreKit 2 signed transaction to **FUTOpay (lib-polar)**,
-which verifies it with Apple's official Python library and answers with an ordinary FUTOpay
-license key + activation. The client then holds **only** a FUTOpay pair, on every platform. If
-chosen it supersedes ADR-0007's "No server work", "two possible proofs" and "never sent to
-FUTO" clauses (D15) and replaces the Rust verifier half of M7. Read for this section
+The app sends the store's signed proof (StoreKit 2 signed transaction; Play signed purchase) to
+**FUTOpay (lib-polar)**, which verifies it (Apple's official Python library; the Play public-key
+signature) and answers with an ordinary FUTOpay license key + activation. The client then holds
+**only** FUTOpay pairs, on every platform. This supersedes ADR-0007's "No server work", "three
+possible proofs", "verified offline in Rust" and "never sent to FUTO" clauses and replaces the Rust
+verifier half of the pre-D29 M7. Read for this section
 (2026-10-16): ADR-0005/0007; this plan §§ 0, 7, 7b, 8, 9; `crates/futo-notes-license`
 (`enter.rs`, `activation.rs`, `config.rs`, `AGENTS.md`); `crates/futo-notes-ffi/src/license/`;
 `apps/ios/Sources/License/`; `docs/spec/license.md` (principles, entering a key); lib-polar
@@ -906,7 +937,7 @@ no client-side fix; (3) a server bug is fixed in minutes, a verifier bug in the 
 needs a release; (4) FUTOpay being ever retired strands Restore (existing keys keep verifying
 offline); (5) the Sandbox-mints-production-keys exposure.
 
-**Recommendation.** Take 7c. It deletes the riskiest, least-verified piece of ADR-0007 (a
+**Recommendation, taken as D29.** Take 7c. It deletes the riskiest, least-verified piece of ADR-0007 (a
 hand-written Rust copy of Apple's `ChainVerifier`, which ADR-0007 itself says nobody has read),
 reuses the one mint path and the one client rule that already ship, and gives Android and
 desktop a real key. Its price is a hard FUTOpay dependency at purchase and review time and a
@@ -924,6 +955,93 @@ same way); what fronts pay2 (rate limit), the deployment repo's env handling, an
 Sandbox `originalTransactionId` is reused across tester resets were not checked; no code was
 run in either repo.
 
+### 7c.5 Google Play redemption (added with D29, 2026-10-16)
+
+The Apple scoping above generalizes to Play with a simpler verifier and one different identity.
+Sources are the ones ADR-0007's Google section lists (read 2026-10-16); nothing here was run.
+
+**Endpoint.** `POST /api/v1/redeem/google/{org_slug}`, body
+`{"original_json": "<Purchase.getOriginalJson()>", "signature": "<Purchase.getSignature()>"}`,
+in the same new module as the Apple route (or `api/public/google.py`), bound from
+`bind_public_api`. Answer shape and status codes identical to Apple's.
+
+**Verification.** Two options; **(a) is the v1 choice**, (b) the upgrade path.
+
+- **(a) Signature only, no Google call.** Verify the Base64 `signature` over the exact UTF-8 bytes
+  of `original_json` with RSASSA-PKCS1-v1_5 and the app's Play public key
+  (`GOOGLE__PLAY_PUBLIC_KEY_BASE64`, the Base64 X.509 SubjectPublicKeyInfo from Play Console >
+  Monetize > Monetization setup), using the RSA library lib-polar already signs org keys with.
+  Hash: SHA-1 per Google's long-standing sample (`SHA1withRSA`); the fetched pages do not state it,
+  so the **first task is to confirm hash and key format against a real license-tester purchase**
+  (the real golden below). Only after the signature verifies, parse the JSON and check
+  `packageName == GOOGLE__PACKAGE_NAME` (`com.futo.notes`), `productId` (or the single
+  `productIds` entry) maps to a FUTOpay product, `purchaseState == 0` (PURCHASED; 1 canceled and
+  2 pending are rejected with a 4xx), `quantity` absent or 1. Same posture as Apple with
+  `enable_online_checks=False`: no outbound call, no new secret, no availability dependency on
+  Google.
+- **(b) Google Play Developer API** (`purchases.products.get` with a service account linked in Play
+  Console): confirms the purchase against Google's records, exposes `purchaseType == 0` (a
+  license-tester purchase, which the client JSON never marks), detects voided purchases, and
+  would allow server-side acknowledgement. Costs a service-account secret, API enablement, a
+  Google client dependency and an outbound call on the purchase path. Not built for v1; it is the
+  containment to reach for if tester-minted production keys ever matter (the Google twin of Q12).
+
+**Identity and idempotency.** The key is `purchaseToken` (unique per purchase, present on test
+purchases; `orderId` is **absent** on license-tester purchases, so it cannot be the key). Table
+`google_purchases`: `purchase_token` PRIMARY KEY, `license_key`, `org_slug`, `product_id`,
+`play_product_id`, `package_name`, `order_id` (nullable), `purchase_time`, `t_created`,
+`t_last_redeemed`, `redeem_count`; registered in `_PUBLIC_TABLES` like `apple_transactions`.
+First sight mints through the same `create_key_func` (`customer_email="google:<sha256(purchaseToken), hex>"`,
+the token itself is a bearer secret and is not stored in that column); replay returns the same
+pair; two concurrent first redemptions yield one row (same lock or `ON CONFLICT` pattern as Apple).
+
+**Acknowledgement stays client-side** (§ 7b M7.3): the server never acknowledges (that needs (b)),
+and Google's three-day auto-refund of an unacknowledged purchase is the correct outcome for a
+purchase that was never redeemed.
+
+**Staging vs production.** There is no second Play app (D27), so **both** FUTOpay deployments
+configure the same `com.futo.notes` public key and package name, and which server a tester
+purchase reaches is decided by the build's `FUTO_LICENSE_ENV`. A license-tester purchase on the
+internal track is signed like a real one and mints a key wherever it is redeemed; against
+production that is a production key. Containment is the tester list in Play Console, plus (b)
+later if wanted. Debug builds and automated tests use a fake `BillingClient` and a fake redeem;
+they never reach the endpoint.
+
+**Config.** Non-secret: `GOOGLE__PACKAGE_NAME`, `GOOGLE__PLAY_PUBLIC_KEY_BASE64`, and a per-product
+map from the Play product id to the FUTOpay org/product slug in the same `.env` style as the Apple
+map. No new secret for (a).
+
+**Tests (lib-polar).** A minted test RSA key pair and a helper that signs JSON: valid mint; replay
+returns the same key; concurrent first redemptions yield one row; wrong package; wrong product;
+pending (2); canceled (1); tampered JSON; signature from another key; wrong key format; quantity 2;
+missing `orderId` still mints. One real golden from a license-tester purchase on the internal
+track (no expiry, so it never rots); it is what proves the hash and key-format claim.
+
+#### lib-polar task list (Google half; continues the Apple L1-L6)
+
+| # | Task | Size | Files |
+|---|---|---|---|
+| L7 | Config (`GOOGLE__*`, product map) + `GoogleVerifier` (RSA PKCS1 v1.5 over `original_json`, claim checks) | S | `common.py` (config), new `licensing/google.py`, `env.example` |
+| L8 | `google_purchases` table + manager getter/insert, race-safe first-redeem | S | `database/dto.py`, `database/db_manager.py` |
+| L9 | `POST /api/v1/redeem/google/{org}` route, same answer shape and codes as Apple | S-M | `api/public/google.py` (or shared `redeem.py`), `api/public/__init__.py` |
+| L10 | Tests with a minted key (+ one real golden) | S-M | `tests/test_google_redeem.py` |
+
+Whole lib-polar side, Apple + Google: **M** (L1-L10), **one MR** (D32); the Apple half is
+the larger. Deploy ordering as § 7c.2: staging first (every end-to-end test needs it), production
+before any store submission.
+
+#### Client task list under D29 (replaces the pre-D29 M7.1 verifier work; § 7b has the detail)
+
+| # | Task | Size | Files |
+|---|---|---|---|
+| A1 | Rust redeem workflow for both receipts + `redeem_url` + `post_json` transport + FFI exports + conformance cases | S-M | `crates/futo-notes-license/src/{enter,config,lib}.rs` (or new `redeem.rs`), `crates/futo-notes-ffi/src/license/{contract,transport,mod}.rs`, `tests/conformance/license.json`, `scripts/gen-license-fixture.mjs` |
+| A2 | iOS StoreKit layer: Buy, Restore, pending slot, finish-after-pair | M | new `LicenseStoreKit.swift`, `LicenseStorage.swift`, `LicenseModel.swift` |
+| A3 | Android `play` Billing layer: Buy, Restore, pending slot, acknowledge-after-pair, flavor split + Gradle check | M | `app/src/play/.../PlayLicenseStore.kt`, `app/src/direct/.../NoLicenseStore.kt`, `LicenseModel.kt`, `app/build.gradle.kts` |
+| A4 | UI + copy on both shells: pending state, Try again, Restore, Buy in the picker sheet, catalog | S-M | `LicenseSettingsSection.swift`, `LicenseCopy.swift`, `AppIconPicker.swift`, the Android equivalents, `languages/en.json` |
+| A5 | Tests: fake store + fake redeem on both shells, StoreKit config file, TestFlight / internal-track QA against staging | M | `apps/ios/Tests/...`, `apps/android/.../test`, `*.storekit` |
+| A6 | Spec + ADR + plan edits; the `AGENTS.md` network rule; store checklist (§ 7b M7.5) | S | `docs/spec/license.md`, `crates/futo-notes-license/AGENTS.md`, this plan |
+| A7 | M6 simplified to one proof kind (deferred, D28; own MR when picked up) | L | `crates/futo-notes-sync/...` |
+
 ## 8. Order and sizing
 
 | Milestone | Scope | MR |
@@ -932,17 +1050,19 @@ run in either repo.
 | M2, M3 | iOS and Android picker and row | same feature MR |
 | M4 | Buy URL `from` | same feature MR (small, independent commit) |
 | M5 | Post-activation landing | same feature MR, last |
-| M6 | License follows the vault (three proof kinds, hidden engine slot) | **separate MR; DEFERRED (D28), no longer required before any IAP ships (D16 superseded)**. Size L (sync engine, `/slow-review`) |
-| M7.1 | Rust: `LicenseProof`, Apple JWS verifier, Google signed-purchase verifier, `license_buy_route`, fixtures | separate MR, no M6 dependency. Size L (Apple verifier ~60%) |
-| M7.2 | iOS StoreKit 2: purchase, Restore, `AppTransaction.environment` | after M7.1. Size M |
-| M7.3 | Android `play`: Play Billing (flavor-only), acknowledge, restore | after M7.1, parallel with M7.2. Size M |
-| M7.4 | UI + catalog + spec closure (Buy everywhere, key-only retires) | with M7.2/M7.3. Size S |
-| M7.5 | Store setup (App Store Connect, Play Console) | human, **start now**, calendar-time gate for QA |
+| M6 | License follows the vault (one proof kind, hidden engine slot) | **separate MR; DEFERRED (D28), no longer required before any IAP ships (D16 superseded)**. Size L (sync engine, `/slow-review`) |
+| M8 | lib-polar: `POST /api/v1/redeem/{apple,google}/{org}`, verify, mint via `create_key_func`, tables, tests, deploy staging then production (§ 7c) | **other repo, its own MR, start now**; gates all end-to-end QA and the submission. Size M |
+| M7.1 | Rust: redeem workflow, `post_json` transport, FFI, `license_buy_route`, conformance | separate MR, no M6 dependency. Size S-M |
+| M7.2 | iOS StoreKit 2: purchase, Restore, pending state, redeem | after M7.1. Size M |
+| M7.3 | Android `play`: Play Billing (flavor-only), pending state, redeem, acknowledge | after M7.1, parallel with M7.2. Size M |
+| M7.4 | UI + catalog + spec closure (Buy everywhere, key-only retires, pending state) | with M7.2/M7.3. Size S |
+| M7.5 | Store setup (App Store Connect, Play Console; server ids into M8's config) | human, **start now**, calendar-time gate for QA |
 
-M1-M5 are unchanged and independent of M6/M7. M7 is the critical path to a store release
-that includes icons off the web-link surfaces (M6 is deferred, D28); until then ADR-0005's key-only shape (and its review
-risk) is what ships. Dependencies: M7.1 before the shells, M7.5 before real
-purchase QA. Details, routing table, tests and risks: § 7b.
+M1-M5 are unchanged and independent of M6/M7/M8. M8 and M7 together are the critical path to a
+store release that includes icons off the web-link surfaces (M6 is deferred, D28); until then
+ADR-0005's key-only shape (and its review risk) is what ships. Dependencies: M7.1 before the
+shells; M8 on staging and M7.5 before real purchase QA; M8 on production before submission.
+Details: routing table, client and store setup in § 7b; server design and task lists in § 7c.
 
 Time box: M1-M5 is one merge request. If it is not green in a week, ship M1-M3 and move M4-M5
 to a follow-up rather than growing the MR.
@@ -956,24 +1076,31 @@ One reconciled set (2026-10-16). Earlier per-pass notes were merged here.
 - Q1 Expired closes the picker; Q2 the toast is enough on desktop; Q4 the row hint shows everywhere;
   Q5 the card paragraph is the sketch wording (`license.explanation`). Taken as written, reopen if wrong.
 - **Refunds out of scope** (D18; Q9 reduces to "a Remove tombstone wins over an offline device").
-- **Buy everywhere** (D17), **US iOS -> website** (D21, Q6), **no server work** (D19; § 7c is the
-  considered alternative, not chosen; ADR-0007 stands), **Sandbox accepted off a store install** (D20, Q7).
+- **Buy everywhere** (D17), **US iOS -> website** (D21, Q6).
+- **D29, store purchases are redeemed for a FUTOpay key, 2026-10-16:** § 7c adopted for both
+  stores (ADR-0008); supersedes D19 "no server work", D20 (Sandbox moves server-side), D22 (Google
+  offline) and D26 (the card is the normal key card). The client never verifies a store proof. Q8
+  below is moot in this repo (the Apple library owns roots and chain rules).
 - **D28, punt on license sync (M6), 2026-10-16:** M6 is deferred, not cancelled; M7 ships without it; D16 is superseded. Q3 below stays decided for when M6 is picked up.
 - **Q3, M6 carrier: the hidden engine slot**, a reserved path kept in engine state, never a file in
   the notes folder; any valid proof counts, duplicates keep one, a Remove tombstone beats an offline
   device (@justin 2026-10-16; § 7 Feasibility option (a)).
-- **Q8, Apple roots: all three** (Apple Root CA, G2, G3), pinned in the binary, with the Apple
+- **Q8, Apple roots: all three** (Apple Root CA, G2, G3), under D29 as DER files in lib-polar (§ 7c.2) rather than in the binary, with the Apple
   library's chain rules (three certificates; leaf OID `1.2.840.113635.100.6.11.1`, intermediate
   `1.2.840.113635.100.6.2.1`, re-confirm against a checkout; validity at the signed date).
   Tests inject the Xcode StoreKit anchor in test code only; a test asserts the release anchor set
   is exactly Apple's roots.
 
 **Open, for @justin (recommendations in § 7b M7.0).**
-- D-A, D-B, D-C and Q10: **resolved 2026-10-16** as D23–D26.
+- D-A, D-B, D-C and Q10: **resolved 2026-10-16** as D23–D26 (D26 since superseded by D29).
 - Q11: **resolved 2026-10-16** as D27 (no second Play app).
+- Q12 (Sandbox containment), Q13 (retry on open) and Q14 (one lib-polar MR or two): **resolved
+  2026-10-16** as D30, D31, D32. Nothing is open.
 
 Unverified, to settle by a real fixture or a Play Console look: the Google signature hash (SHA-1 per
-the long-standing sample) and key format, Google's current fee figures, Apple's role OIDs.
+the long-standing sample) and key format, Google's current fee figures, the Apple library's exact
+exception and payload names (§ 7c.2 read it through a summarizing fetch), and whether a Sandbox
+`originalTransactionId` survives a tester reset.
 
 ## 10. Sketches
 
