@@ -335,6 +335,9 @@ to a follow-up rather than growing the MR.
 ## 9. Open questions for @justin
 
 Resolved 2026-10-15: picker treatment is A (D11).
+Resolved 2026-10-16 (@justin): M6 waits for its own MR (feasibility is in § 7); iOS
+Expired → Renew is accepted on unit coverage (no expired staging fixture, no simulator
+clock control — the same bar as the License card).
 
 Taken as written (2026-10-15, the docs/catalog pass; reopen with @justin if wrong):
 
