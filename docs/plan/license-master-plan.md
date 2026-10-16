@@ -56,7 +56,7 @@ Status legend: `done` · `in MR` (on a branch, not merged) · `next` · `blocked
 
 | # | Workstream | Repo | Design | Size | Depends on | Status (2026-10-16) |
 |---|---|---|---|---|---|---|
-| W1 | Cosmetics on iOS + Rust + desktop projection: M1, M2 (iOS), M4, M5 (iOS) | futo-notes | cosmetics § 2-5 | done on branch | — | **in MR**: branch `feat/license-cosmetics-ios` (this plan's branch); needs `/mr-qa` on iOS + desktop, then merge |
+| W1 | Cosmetics on iOS + Rust + desktop projection: M1, M2 (iOS), M4, M5 (iOS) | futo-notes | cosmetics § 2-5 | done on branch | — | **in MR** !426 (`feat/license-cosmetics-ios`); needs `/mr-qa` on iOS + desktop, then merge |
 | W2 | Cosmetics on Android: M3 (picker, sheet, row hint) and the M5 landing | futo-notes | cosmetics § 1, 3, 5; sketch `05-android-and-second-device.png` | M | W1 merged (or rebased onto it) | **next**; own MR (recommended, see § 4) |
 | W3 | M8 lib-polar: Apple + Google redemption, one MR (D32); staging then production | lib-polar | cosmetics § 7c.1-7c.2 (Apple, L1-L6), § 7c.5 (Google, L7-L10), ADR-0008 | M | nothing in this repo; needs the App Store numeric app id and the Play public key from W5 for its config | **next, start now**: it is the long pole and gates W6 |
 | W4 | M7.1 Rust: `redeem_store_purchase`, `post_json` transport, FFI exports, `license_buy_route`, conformance | futo-notes | cosmetics § 7b M7.1, § 7c.3 (A1) | S-M | W1 merged (shares `contract.rs`) | **next**, parallel with W3 |
@@ -74,8 +74,8 @@ be merged before W7's Play submission.
 iOS picker/sheet/row hint/landing, `from=` on the Buy URL, copy, all the docs). Run `/mr-qa` on
 it: iOS (native, simulator) and desktop (the Tauri view carries `includes`; desktop renders
 nothing new, so the check is "nothing regressed" on the License card). Android is untouched in
-behavior but compiles; include an Android compile + unit run. Open the MR against `main` if it
-does not exist (title: "License cosmetics: app icons come with a license (iOS)"). SHIP means merge.
+behavior but compiles; include an Android compile + unit run. The MR is !426
+(<https://gitlab.futo.org/futo-notes/futo-notes/-/merge_requests/426>). SHIP means merge.
 The key-only copy variants currently in the iOS build (`footnoteKeyOnly`, `keyOnlyExplanation`)
 are correct for today's shipped posture (ADR-0005) and retire in W6 (M7.4); do not remove them in W1.
 
@@ -199,4 +199,4 @@ From `docs/spec/license.md` on 2026-10-16:
 ## 9. Log (living, append only)
 
 - 2026-10-16 — Program defined. D29 (redeem for a key, ADR-0008) and D30-D32 recorded; W1 is
-  on `feat/license-cosmetics-ios`, nothing else started. lib-polar `main` at `1d6c4f2`.
+  on `feat/license-cosmetics-ios` as MR !426, nothing else started. lib-polar `main` at `1d6c4f2`.
