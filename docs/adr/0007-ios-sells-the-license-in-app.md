@@ -31,7 +31,7 @@ and gives Google Play the same shape.
    purchase** (`Purchase.getOriginalJson()` + `getSignature()`). Rust `evaluate` (D8) accepts any
    and answers Licensed; shells only ask. Both store proofs are verified **offline in Rust**. No
    call to Apple, Google or FUTO.
-6. **License sync (plan M6) is required before any IAP ships.** The proofs travel inside the E2EE
+6. **License sync (plan M6) is deferred (plan D28, 2026-10-16); it is not required before any IAP ships.** Without M6 a license is per device, as today. A store purchase reaches the user's other devices **on the same store** through that store's Restore (Apple ID across iPhone and iPad; Google account across Android Play installs). It does **not** reach other platforms: an App Store purchase does not license Android or desktop, and a Play purchase does not license iOS or desktop. A website/FUTOpay key still works anywhere it is entered. Once M6 exists the proofs would travel inside the E2EE
    vault so a purchase on one device covers the user's other synced devices. Carrier, decided
    2026-10-16: the hidden slot in the sync engine (reserved path in engine state, never a file in the
    notes folder). Any valid proof counts, duplicates keep one, and a Remove tombstone wins over an
@@ -120,7 +120,7 @@ Consequences the design accepts (Apple half; the Google half is below):
   must not pass.
 - **Offline means no revocation check.** The library's online flag is what turns on revocation
   and current-date expiry. Offline, a stored JWS keeps verifying forever, even after a refund:
-  `revocationDate` is present only in a JWS signed after the refund. Refunds are out of scope (item 3), so a stored proof keeps verifying and no removal syncs for a refund. Users without sync get the license only on the device that bought or entered it.
+  `revocationDate` is present only in a JWS signed after the refund. Refunds are out of scope (item 3), so a stored proof keeps verifying and no removal syncs for a refund. Without M6 (deferred, D28) the license is per device; Restore is the same-store cross-device path.
   Certificate validity is checked at the signed time (`signedDate`, which is itself signed), not
   today, or every proof would expire with Apple's leaf certificate. Whether the library does the
   same offline is unconfirmed.
@@ -146,7 +146,7 @@ Consequences the design accepts (Apple half; the Google half is below):
   binding the entitlement to an Apple account. The second cost is bounded by this design: the key
   still works, and the proof is portable inside the vault. It is not portable to a person with no
   iOS purchase and no key.
-- **"One license, all platforms" survives, on conditions.** An Apple proof synced to Android or
+- **"One license, all platforms" does not hold until M6 exists (D28).** Today a store purchase covers the same store only (via Restore); a FUTOpay key works anywhere it is entered. Once M6 exists: an Apple proof synced to Android or
   desktop verifies there too (Rust, offline). A Google proof verifies on iOS and desktop the same way. A FUTOpay key or Apple proof on Android `play` is honored as access bought elsewhere (Google allows consumption-only apps). On self-hosted sync the carrier is an
   opaque encrypted object, so the server needs no change. A person who never syncs sees nothing
   on their other devices.

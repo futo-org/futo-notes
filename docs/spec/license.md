@@ -959,8 +959,7 @@ and the decision, not the rules, is what this section records.
 > Store signed transaction, or a Google Play signed purchase; Rust `evaluate` accepts any and
 > verifies the store ones offline (Apple against the three pinned Apple roots, Google against the
 > app's Play public key; bundle/package, product, environment, purchased state), with no server
-> call and no FUTOpay change. Proofs travel in the E2EE vault (license sync, required before any
-> IAP ships). Limits: a user without sync is licensed only on the device that bought or entered it;
+> call and no FUTOpay change. Proofs do not yet travel in the E2EE vault: license sync (M6) is **deferred** (plan D28), not required for any IAP. A license is per device; a store purchase reaches the user's other devices on the **same store** through that store's Restore (Apple ID; Google account), never other platforms; a FUTOpay key works anywhere it is entered. Limits: a store purchase never licenses another platform, and no copy may claim "your license is on all your devices";
 > refunds are out of scope, so a refunded purchase's stored proof keeps verifying; a Play
 > license-tester purchase is indistinguishable offline from a real one. The store's sheet shows the
 > price; copy never states one; `license.keyOnlyExplanation` and the key-only footnote retire.
@@ -968,9 +967,12 @@ and the decision, not the rules, is what this section records.
 > Apple EU/Japan (plan § 9 D-A, D-B, D-C).
 
 > **Gap:** License sync — the license is entered per device. Carrying it in the
-> E2EE sync payload so one entry licenses every synced device is intended but
-> not designed; it touches the sync payload (AGENTS.md §11.6) and must be its own
-> change.
+> E2EE sync payload so one entry licenses every synced device is **deferred**
+> (plan M6, decision D28 2026-10-16), not cancelled, and no longer required before
+> the store purchases ship. It touches the sync payload (AGENTS.md §11.6) and must
+> be its own change. Until then a store purchase reaches other devices only through
+> that store's Restore on the same store (Apple ID across iPhone/iPad; Google
+> account across Android Play installs), not across platforms.
 
 > **Gap:** The `platform` and `from` attribution the Buy URL carries is not
 > recorded by the server. Checked against `~/Developer/lib-polar` 2026-10-15

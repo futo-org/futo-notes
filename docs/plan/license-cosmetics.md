@@ -29,16 +29,16 @@ summary` form with a `Verified:` line.
 | D7 | Desktop | No picker, so no visible change. Desktop still projects the Rust rule (M1) so a future desktop cosmetic is one shell change. The card's new sentence renders on native only. |
 | D8 | Rust owns the rule | What a license includes is one Rust answer (`license_includes`), projected through UniFFI and Tauri. No Swift/Kotlin/TS copy. Shells only ask. |
 | D9 | The spec principle changes | "Nothing is gated" becomes "Nothing that works is gated." Rewritten in the same MR as M1, with ADR-0006 recording the decision and the CEO's sign-off. |
-| D10 | License sync (M6) is its own MR, after this plan is approved | It touches the sync payload (AGENTS.md §11.6). This document is the ask; M6 does not start until @justin OKs its section. **Amended by D16:** M6 is now required before the iOS IAP ships; it is still its own MR and still waits for that OK (open question 3). |
+| D10 | License sync (M6) is its own MR, after this plan is approved | It touches the sync payload (AGENTS.md §11.6). This document is the ask; M6 does not start until @justin OKs its section. **Amended by D16:** M6 is now required before the iOS IAP ships; it is still its own MR and still waits for that OK (open question 3). **Superseded in part by D28:** M6 is deferred, not required for the IAP. |
 | D11 | Picker treatment | **Concept A**: coin badges on every tile but the current one, one footnote under the grid, a sheet on tap. Concept B (an ask card inside the picker) is rejected. (@justin 2026-10-15) |
 | D12 | The License card does not change | No new sentence on the Unlicensed card. The App icon row hint is the only Settings-level touch. `license.explanationIncludes` is **not** added. (@justin 2026-10-15) |
 | D13 | Picker once Licensed | The coin **stays** on every icon but Standard, so the picker still shows which ones came with the license. No footnote, no ask, no sheet. (@justin 2026-10-15) |
 | D14 | The icon restriction applies to everyone | Every country, every platform. No per-country rule (D1 stands). (@justin 2026-10-16) |
 | D15 | iOS sells the license as a non-consumable IAP; no server work (extended to both stores by D17) | Outside the US, steering is banned (ADR-0005) and a bare key field that unlocks a feature conflicts with guideline 3.1.1, so iOS adopts ADR-0005 option B at the license price, which puts the key field under 3.1.3(b). FUTOpay/lib-polar does not change; an IAP purchase is **not** converted into a FUTOpay key. A license has two proofs, the FUTOpay pair or an App Store signed transaction (JWS), and Rust `evaluate` accepts either (D8); the Apple proof is verified **offline in Rust** against a pinned Apple root. ADR-0007. (@justin 2026-10-16) |
-| D16 | M6 is required before the IAP ships | The license proof (either kind) must follow the vault so a purchase on one device covers the user's other synced devices. M6 carries both proofs. Carrier choice (open question 3) is still @justin's to confirm. (@justin 2026-10-16) |
+| D16 | M6 is required before the IAP ships | The license proof (either kind) must follow the vault so a purchase on one device covers the user's other synced devices. M6 carries both proofs. Carrier choice (open question 3) is still @justin's to confirm. (@justin 2026-10-16) **Superseded by D28 (2026-10-16): M6 is deferred and the IAP ships without it.** |
 | D17 | Buy everywhere: website where allowed, store purchase where not | Every device has a functional Buy button. Buy opens our website (FUTOpay checkout) wherever the platform allows a link without a paid program we chose not to join; where it does not, Buy runs the store's in-app purchase (StoreKit, Play Billing). Supersedes ADR-0005's "key-only, no Buy" surfaces and D6. The routing table is § 7b M7.0, owned by one Rust function (D8). (@justin 2026-10-16) |
 | D18 | Refunds are out of scope | Nothing is designed for revocation: no refund handling, no tombstone-for-refund, no revocation or OCSP checks. A stored proof keeps verifying. (@justin 2026-10-16) |
-| D19 | No server work | FUTOpay/lib-polar is unchanged. A store purchase is never converted to a FUTOpay key and never sent to FUTO; the store's signed proof (Apple JWS, Google signed purchase) is verified offline in Rust and travels by license sync (M6, required before any IAP ships). This rejects § 7c. (@justin 2026-10-16) |
+| D19 | No server work | FUTOpay/lib-polar is unchanged. A store purchase is never converted to a FUTOpay key and never sent to FUTO; the store's signed proof (Apple JWS, Google signed purchase) is verified offline in Rust and travels by license sync (M6, required before any IAP ships). This rejects § 7c. (@justin 2026-10-16) **Amended by D28:** "travels by license sync" now reads "would travel by license sync once M6 exists"; until then the proof stays on the device and moves only by same-store Restore. |
 | D20 | Sandbox purchases are accepted when the app is not an App Store install | Q7 resolved: yes. The iOS shell reports `AppTransaction.environment`; Android and desktop are never App Store installs. A production store install never accepts a Sandbox proof. (@justin 2026-10-16) |
 | D21 | US iOS: Buy points to the website | Q6 resolved. IAP and Restore stay in the binary (§ 7b, D-C). (@justin 2026-10-16) |
 | D22 | Google Play proof is verified offline | The signed `Purchase.getOriginalJson()` + `getSignature()` is verified in Rust against the app's Play Console public key; acknowledgement is client-side. No Developer API call, no server. § 7b M7.1, M7.3. |
@@ -47,6 +47,7 @@ summary` form with a `Verified:` line.
 | D25 | US iOS keeps IAP and Restore live behind the website Buy | D-C resolved as recommended: a secondary US "Buy in the App Store" is added only if App Review objects. (@justin 2026-10-16) |
 | D26 | A store proof shows its source on the Licensed card | Q10 resolved: "Purchased via the App Store / Google Play, {date}", no key. (@justin 2026-10-16) |
 | D27 | No second Play app | Q11 resolved: no `com.futo.notes.dev` Play app. Real purchase testing uses `com.futo.notes` on the internal testing track with license testers; debug builds and automated tests use a fake `BillingClient`. A `.dev` build never runs a real Play purchase. (@justin 2026-10-16) |
+| D28 | Punt on license sync (M6) | M6 is **deferred, not cancelled**, and the store purchases (M7) no longer wait for it. Supersedes D16; amends D10 and D19. Without M6 a license is per device, as today. A store purchase reaches the user's other devices **on the same store** through that store's Restore (Apple ID across iPhone and iPad; Google account across Android Play installs). It does **not** reach other platforms: an App Store purchase does not license Android or desktop, and a Play purchase does not license iOS or desktop. A website/FUTOpay key still works anywhere it is entered. Consequence for copy: the store-purchase card copy and any "your license is on all your devices" claim are off-limits. (@justin 2026-10-16) |
 
 ## 1. The picker when the license does not include icons (M2, M3)
 
@@ -204,7 +205,9 @@ fixture and asserting the picker is on screen with the header; Android `LicenseL
 Reused: `license.buy`, `license.renew`, `license.enterKey`, `license.keyOnlyExplanation`,
 `license.activated`, `license.explanationLicensed`, `license.coinAccessibilityLabel`.
 
-## 7. M6 — the license follows the vault (REQUIRED before M7 ships; ask-first; own MR)
+## 7. M6 — the license follows the vault (DEFERRED by D28; ask-first; own MR)
+
+**Deferred 2026-10-16 (D28).** M6 is not scheduled and M7 does not wait for it. Everything below is kept for when it is picked up: the feasibility note, the decided carrier (Q3: the hidden engine slot), and the rules. The "REQUIRED" wording below is historical (D16, superseded). Without M6 a license is per device, as today. A store purchase reaches the user's other devices **on the same store** through that store's Restore (Apple ID across iPhone and iPad; Google account across Android Play installs). It does **not** reach other platforms: an App Store purchase does not license Android or desktop, and a Play purchase does not license iOS or desktop. A website/FUTOpay key still works anywhere it is entered.
 
 Problem: the license is entered per device (license.md Gap "License sync"). Once a license
 includes something visible, a second phone that is synced but Unlicensed reads as broken. Since
@@ -352,11 +355,11 @@ release for something the server cannot interpret, and the in-frame variant brea
 clients loudly. Also reject a reserved hidden *file* in the vault: the scan skips it and
 delete-detection would treat it as gone. Open for the later MR: the offline-Remove rule.
 
-## 7b. M7 — Buy everywhere: website where allowed, store purchase where not (REQUIRES M6; own MRs)
+## 7b. M7 — Buy everywhere: website where allowed, store purchase where not (does not wait for M6, D28; own MRs)
 
 Decisions D15-D22; [ADR-0007](../adr/0007-ios-sells-the-license-in-app.md) (now covers both stores).
 Rewritten 2026-10-16 from "M7 — in-app purchase on iOS"; the iOS verifier detail of the old § 7b is kept
-under M7.1. Scoping only; nothing started. Nothing ships to a store before M6 is merged and verified.
+under M7.1. Scoping only; nothing started. M6 is deferred (D28) and is not a dependency: a store purchase is per device, and Restore is the cross-device path on the same store.
 
 **The rule (D17).** Every device has a working Buy button. Buy opens our website (the FUTOpay
 checkout) wherever the platform's rules allow a link without a paid program we chose not to join;
@@ -445,8 +448,8 @@ rule (the shell acknowledges). Use the `rsa` crate this crate already carries; n
   accepted when the running app is not an App Store install** (D20, Q7 resolved): the iOS shell passes
   `install_environment` from `AppTransaction.shared.environment` (`.production` means a store
   install); a TestFlight or App Review build reports Sandbox and accepts Sandbox proofs. A
-  production store install never accepts a Sandbox proof, including one that arrives through sync.
-  Android and desktop builds are never App Store installs, so they accept a synced Sandbox proof:
+  production store install never accepts a Sandbox proof, including one that arrives through sync (once M6 exists).
+  Android and desktop builds are never App Store installs, so they would accept a synced Sandbox proof:
   the containment is that minting one needs a sandbox tester under our team's App Store Connect.
   Xcode StoreKit testing signs with a local root without a chain: tests inject it as the anchor;
   the release anchor set is **exactly Apple's three roots** (a test asserts the set, and that an
@@ -494,7 +497,7 @@ and Direct rows. Key-only is no longer a shape: `link_out == false` disappears.
   Licensed (StoreKit's `.verified` is not our rule). `.pending` and `.userCancelled` are not errors.
 - `AppTransaction.shared.environment` feeds `install_environment`.
 - **Restore Purchases** (`AppStore.sync()`, then `Transaction.currentEntitlements`), shown on the
-  StoreIap route and in the US as well, a button next to the key field. Required by 3.1.1.
+  StoreIap route and in the US as well, a button next to the key field. Required by 3.1.1. Since D28 it is also **the only cross-device path** for a store purchase (iPhone to iPad on the same Apple ID); it does not reach Android or desktop.
 - `Transaction.updates` observed for the app's life (completes purchases made elsewhere or
   interrupted); an unfinished transaction is adopted automatically, a finished one only through the
   Restore tap, so **Remove license** is not undone at the next launch (D18: no revocation either way).
@@ -585,21 +588,21 @@ and Direct rows. Key-only is no longer a shape: `link_out == false` disappears.
 
 | Piece | Size | Needs |
 |---|---|---|
-| M6 license follows the vault, three proof kinds | L (sync engine, `/slow-review`) | @justin OK on § 7; first |
-| M7.1 Rust: `LicenseProof`, Apple verifier, Google verifier, routing, fixtures | L (Apple ~60%, Google S-M, routing S) | independent of M6; before shells |
+| M6 license follows the vault, three proof kinds | L (sync engine, `/slow-review`) | **deferred (D28)**; @justin OK on § 7 when picked up |
+| M7.1 Rust: `LicenseProof`, Apple verifier, Google verifier, routing, fixtures | L (Apple ~60%, Google S-M, routing S) | before shells; no M6 dependency |
 | M7.2 iOS StoreKit shell | M | M7.1, App Store Connect product |
 | M7.3 Android `play` Billing shell | M | M7.1, Play product and key |
 | M7.4 UI/copy/spec | S | M7.2/M7.3 |
 | M7.5 store setup | human, days of calendar time (agreements, review) | start now, it gates QA |
 
-**Order.** M7.1 and M6 in parallel (separate MRs), then M7.2 and M7.3 in parallel, M7.4 with them,
-M7.5 started immediately. Nothing is submitted before M6 is verified. A store build before M7 keeps
+**Order.** M7.1 first, then M7.2 and M7.3 in parallel, M7.4 with them, M7.5 started immediately.
+M6 is deferred (D28) and does not gate submission. A store build before M7 keeps
 shipping today's key-only shape (ADR-0005).
 
 **Tests.** Rust: the fixtures above, run through `cargo test -p futo-notes-license -p futo-notes-ffi`,
 and the conformance JSON shared with the shells. iOS: `LicenseModelTests` with a fake, StoreKit
 config file tests. Android: `BillingClient` fakes, the `direct`-has-no-billing Gradle check, and the
-existing `LicenseSurfaceTest`. Cross-platform sync (`tests/cross-platform-sync.mjs`): **each proof
+existing `LicenseSurfaceTest`. Cross-platform sync (`tests/cross-platform-sync.mjs`), **only when M6 is picked up (D28)**: **each proof
 kind** buys or is entered on one client and shows Licensed on a second (Apple proof on Android and
 desktop, Google proof on iOS and desktop, FUTOpay pair on all), including a device that cannot
 verify the winner keeping its own. Per the platform-coverage rule, drive iOS, Android and desktop.
@@ -929,16 +932,16 @@ run in either repo.
 | M2, M3 | iOS and Android picker and row | same feature MR |
 | M4 | Buy URL `from` | same feature MR (small, independent commit) |
 | M5 | Post-activation landing | same feature MR, last |
-| M6 | License follows the vault (three proof kinds, hidden engine slot) | **separate MR; REQUIRED before any IAP ships (D16)**. Size L (sync engine, `/slow-review`) |
-| M7.1 | Rust: `LicenseProof`, Apple JWS verifier, Google signed-purchase verifier, `license_buy_route`, fixtures | separate MR, parallel with M6. Size L (Apple verifier ~60%) |
+| M6 | License follows the vault (three proof kinds, hidden engine slot) | **separate MR; DEFERRED (D28), no longer required before any IAP ships (D16 superseded)**. Size L (sync engine, `/slow-review`) |
+| M7.1 | Rust: `LicenseProof`, Apple JWS verifier, Google signed-purchase verifier, `license_buy_route`, fixtures | separate MR, no M6 dependency. Size L (Apple verifier ~60%) |
 | M7.2 | iOS StoreKit 2: purchase, Restore, `AppTransaction.environment` | after M7.1. Size M |
 | M7.3 | Android `play`: Play Billing (flavor-only), acknowledge, restore | after M7.1, parallel with M7.2. Size M |
 | M7.4 | UI + catalog + spec closure (Buy everywhere, key-only retires) | with M7.2/M7.3. Size S |
 | M7.5 | Store setup (App Store Connect, Play Console) | human, **start now**, calendar-time gate for QA |
 
-M1-M5 are unchanged and independent of M6/M7. M6 and M7 are the critical path to a store release
-that includes icons off the web-link surfaces; until then ADR-0005's key-only shape (and its review
-risk) is what ships. Dependencies: M6 first for shipping, M7.1 before the shells, M7.5 before real
+M1-M5 are unchanged and independent of M6/M7. M7 is the critical path to a store release
+that includes icons off the web-link surfaces (M6 is deferred, D28); until then ADR-0005's key-only shape (and its review
+risk) is what ships. Dependencies: M7.1 before the shells, M7.5 before real
 purchase QA. Details, routing table, tests and risks: § 7b.
 
 Time box: M1-M5 is one merge request. If it is not green in a week, ship M1-M3 and move M4-M5
@@ -949,12 +952,13 @@ to a follow-up rather than growing the MR.
 One reconciled set (2026-10-16). Earlier per-pass notes were merged here.
 
 **Decided.**
-- Picker treatment A (D11). iOS Expired -> Renew accepted on unit coverage. M6 waits for its own MR.
+- Picker treatment A (D11). iOS Expired -> Renew accepted on unit coverage. M6 waits for its own MR (deferred, D28).
 - Q1 Expired closes the picker; Q2 the toast is enough on desktop; Q4 the row hint shows everywhere;
   Q5 the card paragraph is the sketch wording (`license.explanation`). Taken as written, reopen if wrong.
 - **Refunds out of scope** (D18; Q9 reduces to "a Remove tombstone wins over an offline device").
 - **Buy everywhere** (D17), **US iOS -> website** (D21, Q6), **no server work** (D19; § 7c is the
   considered alternative, not chosen; ADR-0007 stands), **Sandbox accepted off a store install** (D20, Q7).
+- **D28, punt on license sync (M6), 2026-10-16:** M6 is deferred, not cancelled; M7 ships without it; D16 is superseded. Q3 below stays decided for when M6 is picked up.
 - **Q3, M6 carrier: the hidden engine slot**, a reserved path kept in engine state, never a file in
   the notes folder; any valid proof counts, duplicates keep one, a Remove tombstone beats an offline
   device (@justin 2026-10-16; § 7 Feasibility option (a)).
@@ -979,4 +983,4 @@ the long-standing sample) and key format, Google's current fee figures, Apple's 
 | `license-cosmetics/02-picker-unlicensed.png` | The picker unlicensed: A (chosen) beside B (rejected) |
 | `license-cosmetics/03-tap-sheet.png` | The sheet on tapping a coined tile, link-out and key-only builds |
 | `license-cosmetics/04-after-activation.png` | The landing right after activation, and the licensed picker on any later visit |
-| `license-cosmetics/05-android-and-second-device.png` | Android's bottom sheet, and a second synced device after M6 |
+| `license-cosmetics/05-android-and-second-device.png` | Android's bottom sheet, and a second synced device (a picture of M6, which D28 defers) |
