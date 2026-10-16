@@ -69,12 +69,12 @@ describe('Rust dependency boundaries', () => {
       ['futo-notes-core', 'serde'],
       ['futo-notes-model', 'serde'],
       ['futo-notes-sync', 'futo-notes-core'],
-      ['futo-notes-ffi', 'futo-notes-inference'],
+      ['futo-notes-ffi', 'ort'],
     ]);
 
     expect(dependencyBoundaryViolations(graph)).toContainEqual({
       root: 'futo-notes-ffi',
-      dependency: 'futo-notes-inference',
+      dependency: 'ort',
       reason: 'the native FFI facade must stay free of ORT/SPLADE',
     });
   });

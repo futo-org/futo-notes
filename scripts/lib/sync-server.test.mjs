@@ -1,6 +1,6 @@
 // What these pin: the sync server is a separate repo that got rewritten in Go,
 // and four launchers had `bun src/index.ts` hard-coded — so the rewrite broke
-// the cross-platform suite, `just qa-server`, scripts/start-test-server.sh and
+// the cross-platform suite, `just qa-server`, a standalone start script and
 // two CI jobs at once, and one of them was still red days later. The fix was a
 // single owner (sync-server.mjs) plus a pinned release; these tests hold both.
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
@@ -22,12 +22,11 @@ import {
 
 const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..');
 
-/** Every file that starts a sync server. Adding a sixth belongs in this list. */
+/** Every file that starts a sync server. Adding another belongs in this list. */
 const LAUNCHERS = [
   'tests/lib/sync-test-server.mjs',
   'tests/sync-integration.mjs',
   'scripts/qa.mjs',
-  'scripts/start-test-server.sh',
   '.gitlab-ci.yml',
 ];
 

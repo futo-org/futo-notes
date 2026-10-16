@@ -158,7 +158,7 @@ test-android-perf *args:
     exit 1
   }
   just android-native
-  node tests/android-editor-perf.mjs {{args}}
+  node tests/android-editor-perf.mjs "$@"
 
 # The FAST loop for the numbers above: the freshly built editor.html in the
 # phone's own Chrome (same Chromium build as its System WebView), measured with
@@ -175,7 +175,7 @@ test-android-perf-quick *args:
     echo 'Set ANDROID_SERIAL to the phone (adb devices -l).' >&2
     exit 1
   }
-  node tests/android-editor-perf-quick.mjs {{args}}
+  node tests/android-editor-perf-quick.mjs "$@"
 
 # Storage-migration stories on the REAL app; CLEARS debug data — claim a device first.
 test-android-storage:

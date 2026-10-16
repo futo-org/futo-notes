@@ -24,7 +24,7 @@ const SWEEP_LAST_RUN =
 
 // Which papercut tags usually mean "this area". Keys are matched as path
 // prefixes against the files in the diff; two-segment keys win over one.
-export const AREA_TAGS = {
+const AREA_TAGS = {
   'apps/ios': ['ios', 'ios-qa'],
   'apps/android': ['android'],
   'apps/tauri': ['desktop', 'tauri'],
@@ -41,7 +41,7 @@ export const AREA_TAGS = {
 };
 
 /** Map changed paths to AREA_TAGS keys (longest matching prefix). */
-export function areasOf(changedFiles) {
+function areasOf(changedFiles) {
   const keys = Object.keys(AREA_TAGS).sort((a, b) => b.length - a.length);
   const areas = new Set();
   for (const file of changedFiles) {
@@ -52,7 +52,7 @@ export function areasOf(changedFiles) {
 }
 
 /** Open cuts whose tags intersect the tags of the touched areas, major first. */
-export function matchPapercuts(openCuts, areas) {
+function matchPapercuts(openCuts, areas) {
   const wanted = new Set();
   for (const area of areas) for (const tag of AREA_TAGS[area] ?? []) wanted.add(tag);
   if (wanted.size === 0) return [];
@@ -63,7 +63,7 @@ export function matchPapercuts(openCuts, areas) {
 }
 
 /** Parse the append-only log into the open set (cuts without a resolve). */
-export function loadPapercuts(file, fsImpl = fs) {
+function loadPapercuts(file, fsImpl = fs) {
   if (!fsImpl.existsSync(file)) return { open: [], total: 0 };
   const entries = fsImpl
     .readFileSync(file, 'utf8')
@@ -125,7 +125,7 @@ const readJson = (file) => {
 };
 
 /** Gather every fact `formatOrientation` prints. Read-only; never fetches. */
-export function gather(cwd = process.cwd(), base = 'origin/main') {
+function gather(cwd = process.cwd(), base = 'origin/main') {
   const root = git(['rev-parse', '--show-toplevel'], cwd);
   if (!root) return { root: null, error: `${cwd} is not inside a git checkout` };
   const commonDir = path.resolve(root, git(['rev-parse', '--git-common-dir'], root) || '.git');
@@ -240,7 +240,7 @@ export function gather(cwd = process.cwd(), base = 'origin/main') {
   };
 }
 
-export function formatOrientation(d) {
+function formatOrientation(d) {
   if (!d.root) return `orient: ${d.error}`;
   const L = [];
   L.push(`FUTO Notes orientation — ${d.root}`);

@@ -122,7 +122,7 @@ for window in windows {
 // ---------------------------------------------------------------------------
 
 /** Parse the Swift program's TSV into window records, dropping junk lines. */
-export function parseWindowRecords(tsv) {
+function parseWindowRecords(tsv) {
   const records = [];
   for (const rawLine of tsv.split('\n')) {
     // Only line endings are stripped, never trailing tabs: an unnamed window's
@@ -146,7 +146,7 @@ export function parseWindowRecords(tsv) {
  * Recording permission is granted) this degrades to largest-area, which
  * discriminates the same way on measured data.
  */
-export function selectWindows(records, pid) {
+function selectWindows(records, pid) {
   const candidates = records.filter(
     (record) =>
       record.pid === pid &&
@@ -164,7 +164,7 @@ export function selectWindows(records, pid) {
  * Where the capture is written: `--out` verbatim, else test-screenshots/ next
  * to every other QA artifact, named so parallel worktrees cannot collide.
  */
-export function captureDestination(window, { out = null, defaultDir } = {}) {
+function captureDestination(window, { out = null, defaultDir } = {}) {
   return out ?? path.join(defaultDir, `qa-${window.pid}-${window.id}.png`);
 }
 
@@ -185,7 +185,7 @@ export function captureDestination(window, { out = null, defaultDir } = {}) {
  * good screenshot. A contentless frame is 1 colour at 100%. The trigger sits at
  * 99%, which no real UI has approached, however sparse.
  */
-export function analyzeFrame({ width, height, data }) {
+function analyzeFrame({ width, height, data }) {
   const counts = new Map();
   for (let index = 0; index < data.length; index += 4) {
     const rgb = (data[index] << 16) | (data[index + 1] << 8) | data[index + 2];
@@ -207,12 +207,12 @@ export function analyzeFrame({ width, height, data }) {
 const SUSPECT_DOMINANT_SHARE = 0.99;
 
 /** True when a capture carries no discernible content. */
-export function isSuspectFrame({ distinct, dominantShare }) {
+function isSuspectFrame({ distinct, dominantShare }) {
   return distinct <= 2 || dominantShare >= SUSPECT_DOMINANT_SHARE;
 }
 
 /** Split argv into a command, its argument, and flags. */
-export function parseArgs(argv) {
+function parseArgs(argv) {
   const positional = [];
   let out = null;
   for (let index = 0; index < argv.length; index++) {

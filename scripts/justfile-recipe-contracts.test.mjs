@@ -2,9 +2,8 @@
 // that names the wrong thing. Each assertion below stands for a papercut an
 // agent actually hit and lost time to, so the recipe shape is worth pinning.
 //
-// These parse the justfile as text rather than running `just`: the pinned CI
-// image has no `just` at all (see .gitlab-ci.yml), and this file runs inside
-// `pnpm run test:full`.
+// These parse the justfile as text rather than running `just`, so the
+// assertions need no `just` binary; this file runs inside `pnpm run test:full`.
 
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -46,7 +45,7 @@ describe('fresh-worktree install guard', () => {
   // toolbar-spec-check with 'Command "tsx" not found', which reads as a broken
   // toolchain rather than "this worktree was never installed".
   it('gates the umbrella recipes on node_modules existing', () => {
-    expect(dependencies('check')).toContain('_require-node-modules');
+    expect(dependencies('check')).toContain('check-node-modules');
     expect(dependencies('build')).toContain('_require-node-modules');
   });
 
@@ -74,14 +73,26 @@ describe('argument passing', () => {
     expect(justfile).toMatch(/^set positional-arguments(?: := true)?$/m);
   });
 
-  it.each(['journal', 'android-drive', 'qa-shot', 'test-one'])(
-    'forwards user-supplied text verbatim in `%s`',
-    (recipe) => {
-      const recipeBody = body(recipe);
-      expect(recipeBody).toContain('"$@"');
-      expect(recipeBody).not.toContain('{{args}}');
-    },
-  );
+  it.each([
+    'journal',
+    'android-drive',
+    'qa-shot',
+    'test-one',
+    'test-android-perf',
+    'test-android-perf-quick',
+    'bench-block-drag',
+    'bench-editor',
+    'bench-climb-gate',
+    'qa-server',
+    'chunk-census',
+    'gauntlet-milkdown-foreign',
+    'milkdown-census',
+    'quality',
+  ])('forwards user-supplied text verbatim in `%s`', (recipe) => {
+    const recipeBody = body(recipe);
+    expect(recipeBody).toContain('"$@"');
+    expect(recipeBody).not.toContain('{{args}}');
+  });
 });
 
 // Exercise the public recipe body with recording commands, never a real device.

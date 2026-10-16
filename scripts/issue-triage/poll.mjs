@@ -6,7 +6,7 @@
  * This tier is deliberately boring and LLM-free so a flaky agent run can never
  * lose an issue notification. A systemd user timer runs it every 15 minutes;
  * because it is poll-based, downtime only delays notifications, never drops
- * them (docs/plan/github-issue-triage.md, "Architecture: two tiers").
+ * them (scripts/issue-triage/DESIGN.md, "Architecture: two tiers").
  *
  * Exit codes: 0 on success, 1 on any GitHub/Zulip failure. The failure is both
  * a red systemd unit and — via the unit's OnFailure= handler, alertFailure.mjs
@@ -45,12 +45,11 @@ const REPO = 'futo-org/futo-notes';
  * @param {{
  *   issue: object,
  *   dryRun: boolean,
- *   stateDirectory: string,
- *   postAlertImpl: typeof postAlert
+ *   stateDirectory: string
  * }} params
  * @returns {Promise<string>} the tier-1 classification kind
  */
-async function processIssue({ issue, dryRun, stateDirectory, postAlertImpl }) {
+async function processIssue({ issue, dryRun, stateDirectory }) {
   const classification = classifyIssue(issue);
   const topic = topicForIssue(issue.number, issue.title);
   const content = formatAlert({ issue, classification });
@@ -63,7 +62,7 @@ async function processIssue({ issue, dryRun, stateDirectory, postAlertImpl }) {
     return classification.kind;
   }
 
-  const posted = await postAlertImpl({ topic, content });
+  const posted = await postAlert({ topic, content });
 
   await updateState((state) => {
     state.issues[issue.number] = {
@@ -85,15 +84,12 @@ async function processIssue({ issue, dryRun, stateDirectory, postAlertImpl }) {
 /**
  * Orchestrate one poll cycle: read state, fetch new issues, post each, advance
  * the watermark.
- * @param {{ dryRun: boolean, stateDirectory?: string, dependencies?: object }} options
+ * @param {{ dryRun: boolean, stateDirectory?: string }} options
  * @returns {Promise<{ posted: number, queued: number }>}
  */
-export async function runPoll({ dryRun, stateDirectory = stateDir(), dependencies = {} }) {
-  const fetchIssuesSinceImpl = dependencies.fetchIssuesSince ?? fetchIssuesSince;
-  const postAlertImpl = dependencies.postAlert ?? postAlert;
-
+export async function runPoll({ dryRun, stateDirectory = stateDir() }) {
   const state = loadState(stateDirectory);
-  const issues = await fetchIssuesSinceImpl({ repo: REPO, since: state.watermark });
+  const issues = await fetchIssuesSince({ repo: REPO, since: state.watermark });
 
   // Only issues never seen before, oldest first so topics read in order.
   const fresh = issues
@@ -102,7 +98,7 @@ export async function runPoll({ dryRun, stateDirectory = stateDir(), dependencie
 
   let queued = 0;
   for (const issue of fresh) {
-    const kind = await processIssue({ issue, dryRun, stateDirectory, postAlertImpl });
+    const kind = await processIssue({ issue, dryRun, stateDirectory });
     if (kind === 'bug') queued += 1;
   }
 
@@ -120,7 +116,7 @@ export async function runPoll({ dryRun, stateDirectory = stateDir(), dependencie
   // cannot cost an issue notification. A dry run must not clear the outage.
   const recovered = dryRun ? null : endOutage(stateDirectory);
   if (recovered) {
-    await postAlertImpl({
+    await postAlert({
       topic: HEALTH_TOPIC,
       content: formatRecoveryAlert({
         sinceIso: recovered.firstFailureAt,

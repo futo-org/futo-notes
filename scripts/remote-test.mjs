@@ -41,22 +41,22 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // Tailscale hostname first; the tailnet IP is only a fallback for when MagicDNS
 // is not answering (this is a laptop-adjacent tailnet, so that happens).
-export const DEFAULT_HOST = 'jfedora';
-export const FALLBACK_HOSTS = ['100.90.52.106'];
-export const DEFAULT_USER = 'justin';
+const DEFAULT_HOST = 'jfedora';
+const FALLBACK_HOSTS = ['100.90.52.106'];
+const DEFAULT_USER = 'justin';
 
 // A dedicated CI worktree, NOT the box's own ~/Developer/futo-notes checkout —
 // that one is somebody's live working tree and gets `git checkout --force`d
 // out from under them otherwise.
-export const DEFAULT_REMOTE_DIR = '$HOME/ci/futo-main';
-export const DEFAULT_SOURCE_REPO = '$HOME/Developer/futo-notes';
+const DEFAULT_REMOTE_DIR = '$HOME/ci/futo-main';
+const DEFAULT_SOURCE_REPO = '$HOME/Developer/futo-notes';
 
 // Gradle 8.14.3 (apps/android/gradle/wrapper) cannot run on Java 25, and
 // Fedora's default JDK is 25 — gradle fails with a bare "What went wrong:
 // 25.0.4", which names neither Java nor the version constraint. The app targets
 // jvmTarget 17 and Gradle 8.14 fully supports 21, so pick a 21 (or 17) JDK
 // rather than whatever `java` resolves to. Override with $FUTO_REMOTE_JAVA_HOME.
-export const GRADLE_JDK_CANDIDATES = [
+const GRADLE_JDK_CANDIDATES = [
   '/usr/lib/jvm/java-21-openjdk',
   '/usr/lib/jvm/temurin-21-jdk',
   '/usr/lib/jvm/java-21-temurin-jdk',
@@ -65,10 +65,10 @@ export const GRADLE_JDK_CANDIDATES = [
 ];
 
 // Distinguishable from any suite's own failure: the run never started.
-export const EXIT_REFUSED = 2;
-export const EXIT_LOCKED = 75; // EX_TEMPFAIL
+const EXIT_REFUSED = 2;
+const EXIT_LOCKED = 75; // EX_TEMPFAIL
 // The remote checkout moved mid-run: the result is void, not a test failure.
-export const EXIT_MOVED = 76;
+const EXIT_MOVED = 76;
 
 // ---------------------------------------------------------------------------
 // Policy: what may and may not run on a Linux box
@@ -89,7 +89,7 @@ const REASONS = {
 
 // Matched against the recipe name AFTER justfile alias resolution, so
 // `node scripts/remote-test.mjs in` (alias for ios-native) is refused too.
-export const REFUSED = [
+const REFUSED = [
   // Xcode / iOS simulator / Swift toolchain.
   ['build-rust-ios', 'macos'],
   ['build-ios-native', 'macos'],
@@ -123,7 +123,7 @@ export const REFUSED = [
 // of which touch a real web engine, so a Linux `check` is equivalent to a macOS
 // one. `prepush` IS here, because it adds the full Playwright suite and
 // cross-platform sync (both of which boot a browser engine) on top of `check`.
-export const CAVEATED = [
+const CAVEATED = [
   [
     /^(test-e2e|test-e2e-rest)$/,
     'Playwright here runs Linux Chromium/WebKit builds. Behavior and state are equivalent; ' +
@@ -209,7 +209,7 @@ export function ndkVersionFromGradle(gradleText) {
  * reads none of the box's profile — node lives in fnm and is simply absent from
  * PATH without this.
  */
-export function remoteEnvPreamble({ ndkVersion }) {
+function remoteEnvPreamble({ ndkVersion }) {
   return [
     // No .bun/bin any more: the sync test server used to be a bun project, and
     // its absence from a non-interactive PATH killed the cross-platform suite
@@ -258,7 +258,7 @@ export function remoteEnvPreamble({ ndkVersion }) {
   ].join('\n');
 }
 
-export function shQuote(value) {
+function shQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
@@ -285,7 +285,7 @@ export function shQuote(value) {
 // between phases the lock leaks — bounded by the holder file, which records
 // phase=transfer and a timestamp so the next user can see it is stale and clear
 // it with --force-lock.
-export function buildLockScript({ remoteDir, holder, forceLock, waitSeconds = 0, nonce }) {
+function buildLockScript({ remoteDir, holder, forceLock, waitSeconds = 0, nonce }) {
   const lockDir = `${remoteDir}.lock`;
   return `
 set -uo pipefail
@@ -332,7 +332,7 @@ printf '%s\\n' ${shQuote(nonce)} > "$LOCK_DIR/nonce"
 // never a pattern match. `--kill` is for a run that is genuinely wedged; it
 // leaves the lock in place if the group is already gone so a normal exit can
 // still clean up after itself.
-export function buildKillScript({ remoteDir }) {
+function buildKillScript({ remoteDir }) {
   const lockDir = `${remoteDir}.lock`;
   return `
 set -u
@@ -370,7 +370,7 @@ echo "remote-test: killed process group $PGID and released the lock." >&2
 
 // Release a lock we still own (nonce match). Used when we fail between phases,
 // so a transfer error does not strand the worktree locked.
-export function buildUnlockScript({ remoteDir, nonce }) {
+function buildUnlockScript({ remoteDir, nonce }) {
   const lockDir = `${remoteDir}.lock`;
   return `
 set -u
@@ -381,7 +381,7 @@ fi
 `;
 }
 
-export function buildRunScript({
+function buildRunScript({
   remoteDir,
   sourceRepo,
   mode,
@@ -532,7 +532,7 @@ exit $STATUS
 // directories. Returns [] when node_modules is absent, in which case the check
 // degrades to the old presence-only report rather than lying in the other
 // direction.
-export function pinnedPlaywrightBrowsers(root = ROOT) {
+function pinnedPlaywrightBrowsers(root = ROOT) {
   try {
     const manifest = JSON.parse(
       readFileSync(path.join(root, 'node_modules/playwright-core/browsers.json'), 'utf8'),
@@ -546,7 +546,7 @@ export function pinnedPlaywrightBrowsers(root = ROOT) {
   }
 }
 
-export function buildDoctorScript({ remoteDir, sourceRepo, ndkVersion, pinnedBrowsers = [] }) {
+function buildDoctorScript({ remoteDir, sourceRepo, ndkVersion, pinnedBrowsers = [] }) {
   return `
 set -uo pipefail
 ${remoteEnvPreamble({ ndkVersion })}
@@ -694,7 +694,7 @@ const SUDO_HINTS = {
 // Local side
 // ---------------------------------------------------------------------------
 
-export const RSYNC_EXCLUDES = [
+const RSYNC_EXCLUDES = [
   '.git',
   'node_modules',
   'target',
@@ -712,10 +712,10 @@ export const RSYNC_EXCLUDES = [
 // A doctor run is only a hard failure when the box cannot run ANY suite.
 // Everything else (NDK, KVM, Postgres, browsers) gates a specific suite and is
 // reported as WARN/MISS with the command that fixes it.
-export const DOCTOR_REQUIRED = ['fnm', 'node', 'pnpm', 'cargo', 'just', 'git', 'rsync'];
+const DOCTOR_REQUIRED = ['fnm', 'node', 'pnpm', 'cargo', 'just', 'git', 'rsync'];
 
 /** `CHECK|name|status|detail` lines → rows, tolerating `|` inside detail. */
-export function parseDoctorOutput(stdout) {
+function parseDoctorOutput(stdout) {
   return stdout
     .split('\n')
     .filter((line) => line.startsWith('CHECK|'))
@@ -738,7 +738,7 @@ function reachable(target) {
   return probe.status === 0;
 }
 
-export function parseCliArgs(argv) {
+function parseCliArgs(argv) {
   const opts = {
     doctor: false,
     mode: 'git',

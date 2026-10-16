@@ -1,7 +1,7 @@
 /**
  * Zulip integration for the triage poller: post one message per new issue to
  * the #futo-notes-alerts channel, one topic per issue so every follow-up
- * (repro result, MR link) stays threaded (docs/plan/github-issue-triage.md).
+ * (repro result, MR link) stays threaded (scripts/issue-triage/DESIGN.md).
  *
  * Posting here is the authorized output of this system. Credentials come from
  * the environment (ZULIP_TRIAGE_BOT_EMAIL / ZULIP_TRIAGE_BOT_KEY), supplied by

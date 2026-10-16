@@ -3,7 +3,6 @@
 # ── Parallel QA isolation (multiple worktrees, one machine; model: scripts/qa.mjs) ──
 
 # Claim (create + boot if needed) this worktree's pooled simulator/emulator.
-[positional-arguments]
 qa-claim target="all" *flags:
   @node scripts/qa.mjs claim "$@"
 
@@ -16,7 +15,6 @@ ports:
   @node scripts/lib/slot.mjs
 
 # Release this worktree's devices; `ios`/`android` limits it to one (--shutdown powers them off).
-[positional-arguments]
 qa-release *flags:
   @node scripts/qa.mjs release "$@"
 
@@ -36,10 +34,9 @@ qa-clone-target dest:
 
 # Start this worktree's isolated sync server; --standin for hosted test mode — see justfile-notes.md.
 qa-server *flags:
-  @node scripts/qa.mjs server-start {{flags}}
+  @node scripts/qa.mjs server-start "$@"
 
 # Stop it (add --drop to also delete its database and blobs).
-[positional-arguments]
 qa-server-stop *flags:
   @node scripts/qa.mjs server-stop "$@"
 
@@ -111,7 +108,6 @@ sim-udid:
   echo "$UDIDS"
 
 # Screenshot the target simulator ($SIM, else booted), isolated by worktree and device.
-[positional-arguments]
 sim-screenshot name="sim":
   #!/usr/bin/env bash
   set -euo pipefail
@@ -126,7 +122,6 @@ sim-appearance mode="dark":
   xcrun simctl ui "${SIM:-booted}" appearance {{mode}}
 
 # Screenshot the connected Android device/emulator, isolated by worktree and device.
-[positional-arguments]
 emu-screenshot name="emu":
   #!/usr/bin/env bash
   set -euo pipefail
@@ -156,18 +151,15 @@ cdp-forward:
   echo "  export CDP_PORT=${PORT}   # then: node scripts/cdp-invoke.mjs \"document.title\""
 
 # Drive the native Android app: read its state, tap labels, run debug hooks.
-[positional-arguments]
 android-drive *args:
   @node scripts/android-drive.mjs "$@"
 
 # Screenshot this worktree's desktop QA window WITHOUT activating it; see justfile-notes.md.
 #   just qa-shot list | pid <pid> | port <port> [--out <path>]
-[positional-arguments]
 qa-shot *args:
   @node scripts/qa-shot.mjs "$@"
 
 # Resolve a desktop QA target safely — the ONLY sanctioned port/PID → process lookup.
 #   just qa-target list | status | pid <pid> | port <port> | kill
-[positional-arguments]
 qa-target *args:
   @node scripts/qa-target.mjs "$@"

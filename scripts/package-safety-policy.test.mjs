@@ -11,7 +11,7 @@ const workspaceManifest = load(readFileSync(join(ROOT, 'pnpm-workspace.yaml'), '
 
 describe('package safety policy', () => {
   it('grants install scripts only to the approved dependencies', () => {
-    expect(workspaceManifest.onlyBuiltDependencies).toEqual(['esbuild', 'protobufjs']);
+    expect(workspaceManifest.onlyBuiltDependencies).toEqual(['esbuild']);
   });
 
   it('pins the shared Lezer runtime exactly, so the bundle carries one copy', () => {

@@ -1,14 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import {
-  BCA_VERSION,
-  SHA256_BY_TARGET,
-  downloadUrl,
-  gateArgs,
-  tarballName,
-  targetFor,
-} from './bca-quality.mjs';
+import { BCA_VERSION, SHA256_BY_TARGET, gateArgs, targetFor } from './bca-quality.mjs';
 
 const ROOT = join(import.meta.dirname, '..');
 
@@ -25,16 +18,6 @@ describe('bca-quality target selection', () => {
 });
 
 describe('bca-quality release pin', () => {
-  it('names assets with the pinned version and target', () => {
-    const target = 'x86_64-unknown-linux-gnu';
-    expect(tarballName(BCA_VERSION, target)).toBe(
-      `big-code-analysis-${BCA_VERSION}-${target}.tar.gz`,
-    );
-    expect(downloadUrl(BCA_VERSION, target)).toBe(
-      `https://github.com/dekobon/big-code-analysis/releases/download/v${BCA_VERSION}/big-code-analysis-${BCA_VERSION}-${target}.tar.gz`,
-    );
-  });
-
   it('carries a 64-hex sha256 for every target it can install', () => {
     expect(Object.keys(SHA256_BY_TARGET).length).toBeGreaterThan(0);
     for (const [target, sha] of Object.entries(SHA256_BY_TARGET)) {

@@ -31,17 +31,11 @@ import { HEALTH_TOPIC, formatFailureAlert, postAlert } from './zulipAlerts.mjs';
 /**
  * @param {{
  *   nowMs?: number,
- *   stateDirectory?: string,
- *   dependencies?: { postAlert?: typeof postAlert }
+ *   stateDirectory?: string
  * }} [options]
  * @returns {Promise<{ alerted: boolean, throttled: boolean }>}
  */
-export async function reportFailure({
-  nowMs = Date.now(),
-  stateDirectory = stateDir(),
-  dependencies = {},
-} = {}) {
-  const postAlertImpl = dependencies.postAlert ?? postAlert;
+export async function reportFailure({ nowMs = Date.now(), stateDirectory = stateDir() } = {}) {
   const opened = beginOutage(loadHealth(stateDirectory), nowMs);
 
   if (!shouldAlert(opened, nowMs)) {
@@ -53,7 +47,7 @@ export async function reportFailure({
 
   // Post before persisting the alert stamp: a crash in between costs a repeat
   // message, whereas the reverse order could swallow the only alarm.
-  await postAlertImpl({
+  await postAlert({
     topic: HEALTH_TOPIC,
     content: formatFailureAlert({
       error: opened.lastError,

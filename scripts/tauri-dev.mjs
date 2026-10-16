@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Worktree-aware wrapper for `pnpm run tauri:dev`.
+ * Worktree-aware wrapper for `just tauri-dev`.
  *
  * When run from the main repo:
  *   - Points notes to ~/Documents/fake-notes (never touches ~/Documents/futo-notes)

@@ -12,7 +12,6 @@ test:
   pnpm run test:minimal
 
 # Run ONE test file or -t pattern (installs deps if the worktree is fresh).
-[positional-arguments]
 test-one *args:
   #!/usr/bin/env bash
   set -euo pipefail
@@ -40,7 +39,6 @@ test-cross-platform *args: editor-deps
   pnpm run test:cross-platform "$@"
 
 # The Rust server-backed sync suites against REAL servers (two server modes); see justfile-notes.md.
-[positional-arguments]
 test-sync-integration *args:
   node tests/sync-integration.mjs "$@"
 
@@ -57,20 +55,17 @@ test-rust-full:
   node --experimental-strip-types tests/conformance/title-rules-differential.mjs
 
 # Shared search engine correctness; see crates/futo-notes-search/benches/search.rs.
-[positional-arguments]
 test-search *args:
   cargo test -p futo-notes-search "$@"
 
 # Reproducible synthetic-vault benchmarks (Criterion; target/criterion). Override
 # SEARCH_BENCH_NOTES for a different corpus size.
-[positional-arguments]
 bench-search *args:
   cargo bench -p futo-notes-search --bench search -- "$@"
 
 # Vault-open cost (bootstrap_with_search, bootstrap, startup_listing) over a
 # realistic synthetic vault; see crates/futo-notes-store/benches/vault_open.rs.
 # Override VAULT_BENCH_NOTES for a different corpus size.
-[positional-arguments]
 bench-vault *args:
   cargo bench -p futo-notes-store --bench vault_open -- "$@"
 
@@ -80,12 +75,11 @@ bench-vault *args:
 # docs/remote-testing.md). `remote-sync` is the one wrapper kept as a `just` recipe.
 
 # Cross-platform E2EE sync against the pinned sync-server release, remotely.
-[positional-arguments]
 remote-sync *flags:
   node scripts/remote-test.mjs "$@" test-cross-platform
 
 # The normal pre-merge umbrella: specs, arch gates, Rust conformance, lint, tests, build.
-check: check-node-modules check-node-version _require-install _require-node-modules toolbar-spec-check title-spec-check coin-check arch-gate lint-swift test-rust rust-format-check rust-lint
+check: check-node-modules check-node-version _require-node-modules toolbar-spec-check title-spec-check coin-check arch-gate lint-swift test-rust rust-format-check rust-lint
   #!/usr/bin/env bash
   # pipefail: see `build:` above — a failing tsc/vite build must not hide behind `| tail`.
   set -euo pipefail

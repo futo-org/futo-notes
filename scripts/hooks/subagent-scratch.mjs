@@ -15,7 +15,7 @@ import { pathToFileURL } from 'node:url';
 const SAFE = /[^A-Za-z0-9._-]/g;
 
 /** Deterministic, per-(session, agent) directory under the OS temp root. */
-export function scratchDirFor({ sessionId, agentId, tmpdir = os.tmpdir(), uid = uidOf() }) {
+function scratchDirFor({ sessionId, agentId, tmpdir = os.tmpdir(), uid = uidOf() }) {
   const clean = (s, fallback) =>
     String(s || fallback)
       .replace(/\.\.+/g, '_')
@@ -33,7 +33,7 @@ function uidOf() {
   }
 }
 
-export function contextFor(dir) {
+function contextFor(dir) {
   return [
     `Your private scratch directory is ${dir} (created for you; empty).`,
     'Use it for any temporary file another lane could also write — backups, probe scripts, captures.',
@@ -41,7 +41,7 @@ export function contextFor(dir) {
   ].join(' ');
 }
 
-export function decide(input, { mkdir = (p) => fs.mkdirSync(p, { recursive: true }) } = {}) {
+function decide(input, { mkdir = (p) => fs.mkdirSync(p, { recursive: true }) } = {}) {
   const dir = scratchDirFor({ sessionId: input?.session_id, agentId: input?.agent_id });
   mkdir(dir);
   return {

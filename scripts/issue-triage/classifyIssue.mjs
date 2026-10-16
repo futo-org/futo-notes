@@ -4,7 +4,7 @@
  * for an autonomous reproduction attempt (tier 2).
  *
  * This is a deliberately conservative, pure heuristic over the title and body.
- * The rule (docs/plan/github-issue-triage.md, "Classification"): when unsure,
+ * The rule (scripts/issue-triage/DESIGN.md, "Classification"): when unsure,
  * classify DOWN, never up — a misfiled feature request must never trigger an
  * agent run. Tier 2's agent re-classifies before doing anything expensive, so a
  * missed bug here only delays triage; a false "bug" here wastes a repro run.

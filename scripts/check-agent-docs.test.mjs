@@ -7,7 +7,6 @@ import { describe, expect, it } from 'vitest';
 import {
   collectInstructionFiles,
   extractReferences,
-  parsePackageScripts,
   resolvePathCheckTarget,
   validateRequiredVerificationChains,
   validateReferences,
@@ -55,15 +54,6 @@ describe('validateRequiredVerificationChains', () => {
           'shared note-rule verification chain is missing: pnpm run test:editor:minimal, just test-rust',
       },
     ]);
-  });
-});
-
-describe('parsePackageScripts', () => {
-  it('reads the scripts object keys', () => {
-    const scripts = parsePackageScripts(
-      JSON.stringify({ scripts: { build: 'vite build', test: 'vitest' } }),
-    );
-    expect(scripts).toEqual(new Set(['build', 'test']));
   });
 });
 
