@@ -7,10 +7,10 @@ import { defineConfig, devices } from '@playwright/test';
 // not build the native editor bundle.
 //
 // The bundle ships ONE editor: the `editor-embed-milkdown*` specs drive it,
-// one per surface (bridge contract, toolbar, interactive keys, parity,
-// wikilinks, compat canaries, deep nesting), `editor-embed-ime` covers what the
-// editor tells the keyboard, and `editor-embed-webview-floor` holds the
-// legacy-Android-WebView floor. They live here for the same reason: they need
+// one per surface (bridge contract, block drag, progressive open, toolbar,
+// interactive keys, parity, wikilinks, compat canaries, deep nesting),
+// `editor-embed-ime` covers what the editor tells the keyboard, and
+// `editor-embed-webview-floor` holds the legacy-Android-WebView floor. They live here for the same reason: they need
 // the built bundle over file://. `testMatch` takes the whole `editor-embed-*`
 // family on purpose — naming the files one by one is how a new spec silently
 // stops being run (AGENTS.md M11), and the root playwright config already

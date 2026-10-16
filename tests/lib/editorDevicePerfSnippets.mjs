@@ -107,7 +107,7 @@ export function firstFocusSnippet() {
 export function keystrokeSnippet(samples, { focused = false } = {}) {
   return `
     const view = window.__futoProseMirrorView?.();
-    if (!view) throw new Error('no ProseMirror view (did the page load the CodeMirror editor?)');
+    if (!view) throw new Error('no ProseMirror view (did the editor mount?)');
     ${focused ? "view.focus(); if (!view.hasFocus()) throw new Error('editor did not take focus');" : ''}
     const synchronousSamplesMs = [];
     const settledToPaintSamplesMs = [];

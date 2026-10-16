@@ -7,7 +7,7 @@ import { EDITOR, editorMarkdown, openNewNote, TYPE_DELAY_MS } from './lib/deskto
  * `src/features/editor/milkdown/slash/`.
  *
  * This is the CodeMirror block-command menu's replacement
- * (docs/plan/desktop-editor-parity.md D2). Assertions are on the note's
+ * (desktop editor parity D2). Assertions are on the note's
  * MARKDOWN, not on the rendered DOM: what a menu pick is worth is what gets
  * saved.
  */

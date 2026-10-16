@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { gauntletArtifactCapture } from './tests/editor-gauntlet/artifactCapture';
 
 // Dedicated config for the editor gauntlet.
 //
@@ -13,6 +14,9 @@ import { defineConfig, devices } from '@playwright/test';
 // finishes in seconds look like it hangs.
 
 const isCI = !!process.env.CI;
+// The foreign sweep's report fingerprints this, so it must be the value the
+// run actually used.
+const captureOff = gauntletArtifactCapture() === 'off-retry-on-failure';
 
 export default defineConfig({
   testDir: './tests/editor-gauntlet',
@@ -35,9 +39,9 @@ export default defineConfig({
   ],
   use: {
     hasTouch: true,
-    trace: 'retain-on-failure',
-    video: 'retain-on-failure',
-    screenshot: 'only-on-failure',
+    trace: captureOff ? 'off' : 'retain-on-failure',
+    video: captureOff ? 'off' : 'retain-on-failure',
+    screenshot: captureOff ? 'off' : 'only-on-failure',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], hasTouch: true } }],
 });

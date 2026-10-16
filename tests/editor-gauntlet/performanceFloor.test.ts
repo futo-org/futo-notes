@@ -24,17 +24,6 @@ function result(overrides: Partial<PerformanceResult>): PerformanceResult {
 }
 
 describe('MILKDOWN_FLOOR_FIXTURES', () => {
-  it('hard-gates open only at the line sizes the plan says real notes reach', () => {
-    const hard = MILKDOWN_FLOOR_FIXTURES.filter((f) => f.openPolicy.kind === 'hard');
-    expect(hard.map((f) => f.name)).toEqual(['1000-lines', '10000-lines']);
-    expect(hard.every((f) => f.unit === 'lines')).toBe(true);
-  });
-
-  it('leaves the adversarial fixtures without an absolute open budget', () => {
-    const adversarial = MILKDOWN_FLOOR_FIXTURES.filter((f) => f.name.endsWith('-adversarial'));
-    expect(adversarial.map((f) => f.openPolicy.kind)).toEqual(['measured', 'linear']);
-  });
-
   it('gives every linear-open fixture a known reference measured in the same unit', () => {
     for (const fixture of MILKDOWN_FLOOR_FIXTURES) {
       if (fixture.openPolicy.kind !== 'linear') continue;

@@ -1,14 +1,13 @@
-import { expect, test as base, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
-import { EDITOR_URL } from './editorEmbedBundle';
 import {
   clearMessages,
   flushFrames,
   messagesOfType,
-  openEmbed,
   type BridgeMessage,
   type FakeHostWindow,
 } from './lib/editorEmbedHost';
+import { embedTest } from './lib/editorEmbedSpec';
 
 /**
  * Find in note over the futoBridge, Milkdown engine — executable.
@@ -24,13 +23,7 @@ import {
  * `nativeShell: true`, and a web bar under a native one would be two bars.
  */
 
-const test = base.extend<{ page: Page }>({
-  page: async ({ browser }, use) => {
-    const { context, page } = await openEmbed(browser, EDITOR_URL);
-    await use(page);
-    await context.close();
-  },
-});
+const test = embedTest;
 
 const PANEL = '.futo-find-panel';
 const MATCH = '.futo-find-match';

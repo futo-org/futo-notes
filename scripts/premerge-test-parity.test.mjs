@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -8,6 +11,7 @@ import {
   androidEmulatorScript,
   androidSyncLegScript,
   topLevelBlock,
+  ROOT,
 } from './premerge-test-parity.helpers.mjs';
 
 describe('pre-merge CI routing contracts', () => {

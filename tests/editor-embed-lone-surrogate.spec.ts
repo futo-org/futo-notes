@@ -1,7 +1,5 @@
 import { expect, test as base, type Page } from '@playwright/test';
 
-import { BRIDGE_VERSION } from '@futo-notes/editor';
-
 import { EDITOR_URL } from './editorEmbedBundle';
 import {
   clearMessages,
@@ -10,8 +8,10 @@ import {
   getContent,
   installFakeAndroidHost,
   messagesOfType,
+  openEmbed,
   type FakeHostWindow,
 } from './lib/editorEmbedHost';
+import { hostConfig, initialize } from './lib/editorEmbedSpec';
 
 /**
  * A lone UTF-16 surrogate never leaves the editor (RC-48, maintainer decision 16A).
@@ -40,25 +40,8 @@ function isWellFormed(text: string): boolean {
 
 const test = base.extend<{ page: Page }>({
   page: async ({ browser }, use) => {
-    const context = await browser.newContext({ hasTouch: true });
-    await context.addInitScript(installFakeAndroidHost);
-    const page = await context.newPage();
-    await page.goto(EDITOR_URL);
-    await page.waitForFunction(() =>
-      (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
-    );
-    await page.evaluate(
-      (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
-      JSON.stringify({
-        bridgeVersion: BRIDGE_VERSION,
-        noteId: 'test-note',
-        theme: 'light',
-        content: '',
-        nativeToolbar: true,
-        contentPaddingInlinePx: 14,
-      }),
-    );
-    await flushFrames(page);
+    const { context, page } = await openEmbed(browser, EDITOR_URL);
+    await initialize(page, hostConfig());
     await use(page);
     await context.close();
   },

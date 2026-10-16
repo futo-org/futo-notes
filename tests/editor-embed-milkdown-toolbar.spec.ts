@@ -1,17 +1,16 @@
-import { expect, test as base, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 import { BRIDGE_VERSION, TOOLBAR_EXEC_IDS } from '@futo-notes/editor';
-import { EDITOR_URL } from './editorEmbedBundle';
 import {
   clearMessages,
   flushFrames,
   focusEditor,
   getContent,
-  installFakeAndroidHost,
   messagesOfType,
   waitForMessages,
   type FakeHostWindow,
 } from './lib/editorEmbedHost';
+import { embedTest, hostSetContent, settleChangeDebounce } from './lib/editorEmbedSpec';
 
 /**
  * Toolbar command parity, Milkdown engine — executable.
@@ -29,39 +28,13 @@ import {
  * commands are bare `wrapIn`s, so all of that lives in
  * `src/features/editor/milkdown/blockCommands.ts`.
  *
- * Engine-independent bridge contract, the load-echo guard, the undo boundary
- * and the block drag are in `editor-embed-milkdown.spec.ts`.
+ * Engine-independent bridge contract, the load-echo guard and the undo boundary
+ * are in `editor-embed-milkdown.spec.ts`; the block drag is in
+ * `editor-embed-milkdown-block-drag.spec.ts`.
  */
 
-/** @milkdown/plugin-listener debounces `markdownUpdated` by 200 ms (trailing). */
-const CHANGE_DEBOUNCE_MS = 200;
-
-const test = base.extend<{ page: Page }>({
-  page: async ({ browser }, use) => {
-    const context = await browser.newContext({ hasTouch: true });
-    await context.addInitScript(installFakeAndroidHost);
-    const page = await context.newPage();
-    await page.goto(EDITOR_URL);
-    await page.waitForFunction(() =>
-      (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
-    );
-    await use(page);
-    await context.close();
-  },
-});
-
-async function settle(page: Page): Promise<void> {
-  await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 80);
-  await flushFrames(page);
-}
-
-async function hostSetContent(page: Page, markdown: string): Promise<void> {
-  await page.evaluate(
-    (md) => (window as unknown as FakeHostWindow).FutoEditor.setContent('test-note', md),
-    markdown,
-  );
-  await settle(page);
-}
+const test = embedTest;
+const settle = settleChangeDebounce;
 
 async function exec(page: Page, ...ids: string[]): Promise<void> {
   for (const id of ids) {
