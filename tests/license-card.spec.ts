@@ -138,7 +138,7 @@ test.describe('License card', () => {
     // sits above the button rather than under it.
     await expect(page.locator('.license-pitch-headline')).toHaveText('Pay for FUTO Notes');
     await expect(page.locator('.license-pitch')).toHaveCount(1);
-    await expect(page.locator('.license-pitch')).toContainText("FUTO's mission");
+    await expect(page.locator('.license-pitch')).toContainText('is paid for by you');
     await expect(page.locator('.license-explanation')).toHaveCount(0);
 
     await expect(buyButton(page)).toBeVisible();
@@ -192,7 +192,7 @@ test.describe('License card', () => {
     // headline, and Renew rather than Buy.
     await expect(page.locator('.license-pitch-headline')).toHaveCount(0);
     await expect(page.locator('.license-pitch')).toHaveCount(1);
-    await expect(page.locator('.license-pitch')).toContainText("FUTO's mission");
+    await expect(page.locator('.license-pitch')).toContainText('is paid for by you');
 
     await expect(
       page.locator('.license-plate').getByRole('button', { name: 'Renew', exact: true }),

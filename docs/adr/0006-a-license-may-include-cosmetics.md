@@ -20,7 +20,7 @@ Plan: [`docs/plan/license-cosmetics.md`](../plan/license-cosmetics.md). Behavior
 | D2 | The gate is on choosing, never on keeping. A removed or expired license leaves the icon set; only Full reset changes it, to Standard. |
 | D3 | Expired does not include the icons: Unlicensed with a story, asking "Renew" where Buy would be. |
 | D4 | The ask appears only where the user walked in: the picker (badges, footnote, sheet) and the Settings row hint. Never on launch, never a popup, never in the editor or the list. |
-| D5 | Vocabulary: "included with a license", "comes with a license". Never "paywall", "unlock", "premium"; "free" and "donate" stay banned. |
+| D5 | Vocabulary: "included with a license", "comes with a license", and "unlock(s)" for what a license includes (cosmetics), allowed by @justin 2026-10-16 on link-out builds only; key-only builds (App Store 3.1.1) keep "included with a license". Never "paywall", "premium"; "free" and "donate" stay banned. |
 | D6 | Store posture is unchanged ([ADR-0005](0005-license-purchase-follows-store-rules.md)). Key-only builds get `license.keyOnlyExplanation` and "I already paid": no Buy, no website. |
 | D7 | Desktop has no picker, so no visible change; it still projects the Rust rule. |
 | D8 | Rust owns the rule (`license_includes`), projected through UniFFI and Tauri. No Swift/Kotlin/TS copy. |

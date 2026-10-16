@@ -25,6 +25,13 @@ struct AppIconPickerShape: Equatable {
     /// licensed nor unlicensed, so no ask is drawn and a tap does nothing.
     var resolved = true
 
+    /// The footnote's catalog key. Key-only builds keep "included with a license":
+    /// "unlocks" is for link-out builds only (App Store 3.1.1, ADR-0006 D5).
+    var footnoteKey: String {
+        sheet == .keyOnly
+            ? "settings.appIcon.license.footnoteKeyOnly" : "settings.appIcon.license.footnote"
+    }
+
     /// Where a tap on `icon` goes: the ask sheet, or the icon change.
     func asks(_ icon: AppIcon) -> Bool { sheet != nil && coined.contains(icon) }
 }
@@ -182,7 +189,7 @@ struct AppIconPicker: View {
     private var footnote: some View {
         // The coin is part of the text run, so it follows "license." on the
         // last line instead of floating at the far edge.
-        let text = localization.localizedText("settings.appIcon.license.footnote")
+        let text = localization.localizedText(shape.footnoteKey)
         // A no-break space keeps the coin with the last word, never orphaned.
         return Text("\(text)\u{00A0}\(Self.inlineCoin)")
             .multilineTextAlignment(.center)

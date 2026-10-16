@@ -24,7 +24,7 @@ summary` form with a `Verified:` line.
 | D2 | The gate is on choosing, never on keeping | A removed or expired license leaves whatever icon is set. Nothing in the app ever changes the icon on its own except Full reset (unchanged: it restores Standard). |
 | D3 | Expired | Expired does **not** include the icons: Expired is Unlicensed with a story. The picker shows the same ask, with "Renew" where Buy would be. |
 | D4 | Where the ask may appear (the nag budget) | Only where the user walked in: the picker (coin badges, footnote, the sheet on tap) and the License card's one new sentence. Never on launch, never a popup, never in the editor or the list. |
-| D5 | Vocabulary | "included with a license", "comes with a license". **Never** "paywall", "unlock", "premium". "free" and "donate" stay banned (license.md § Principles). |
+| D5 | Vocabulary | "included with a license", "comes with a license", and "unlock(s)" for what a license includes (cosmetics): allowed on **link-out builds only**, @justin 2026-10-16 (the footnote and sheet say "unlocks the ability to change the app icon"). Key-only builds (no Buy in `licenseRowActions`; App Store 3.1.1) keep "included with a license" (`settings.appIcon.license.footnoteKeyOnly`; their sheet is `license.keyOnlyExplanation`). **Never** "paywall", "premium". "free" and "donate" stay banned (license.md § Principles). |
 | D6 | Store posture | Unchanged (ADR-0005). Key-only builds (iOS outside the US, Android `play`) get the key-only ask: `license.keyOnlyExplanation` + "I already paid", no Buy, no "Lost your key?", no website. |
 | D7 | Desktop | No picker, so no visible change. Desktop still projects the Rust rule (M1) so a future desktop cosmetic is one shell change. The card's new sentence renders on native only. |
 | D8 | Rust owns the rule | What a license includes is one Rust answer (`license_includes`), projected through UniFFI and Tauri. No Swift/Kotlin/TS copy. Shells only ask. |
@@ -179,9 +179,10 @@ fixture and asserting the picker is on screen with the header; Android `LicenseL
 | Key | English |
 |---|---|
 | `settings.appIcon.license.rowHint` | With a license |
-| `settings.appIcon.license.footnote` | Choosing an app icon is included with a FUTO Notes license. |
+| `settings.appIcon.license.footnote` | Purchasing a FUTO Notes license unlocks the ability to change the app icon. |
+| `settings.appIcon.license.footnoteKeyOnly` | Choosing an app icon is included with a FUTO Notes license. (key-only builds) |
 | `settings.appIcon.license.sheetTitle` | Included with a license |
-| `settings.appIcon.license.sheetBody` | Choosing an app icon comes with a FUTO Notes license. Everything else in the app works without one. |
+| `settings.appIcon.license.sheetBody` | Purchasing a FUTO Notes license unlocks the ability to change the app icon. |
 | `settings.appIcon.license.notNow` | Not now |
 | `settings.appIcon.license.landing` | Your license includes choosing your app icon. Pick one. |
 | `settings.appIcon.license.a11yIncluded` | {iconName}, included with a license |
@@ -356,10 +357,10 @@ This pass is **iPhone only**: Android UI (M3) and desktop UI are deferred, and t
    feasibility note is written.
 4. Does the row hint ("With a license") belong on key-only builds, where the row cannot lead
    to a purchase? Written: yes, the hint names a fact, not a sale.
-5. The reviewed Settings sketch (`01-settings-row-hint.png`) shows the License card's
-   paragraph as "FUTO Notes is paid for by you, not by ads or by selling your data." instead
-   of today's `license.explanation`. Was that a sketch shortcut, or a copy change to make? Not
-   in scope here unless you say so.
+5. **Resolved (@justin 2026-10-16):** the reviewed Settings sketch (`01-settings-row-hint.png`)
+   shows the License card's paragraph as "FUTO Notes is paid for by you, not by ads or by
+   selling your data." Justin chose the sketch wording: `license.explanation` now says exactly
+   that, replacing the FUTO mission paragraph.
 
 ## 10. Sketches
 

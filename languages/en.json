@@ -210,9 +210,10 @@
         "changing": "Changing app icon…",
         "license": {
           "rowHint": "With a license",
-          "footnote": "Choosing an app icon is included with a FUTO Notes license.",
+          "footnote": "Purchasing a FUTO Notes license unlocks the ability to change the app icon.",
+          "footnoteKeyOnly": "Choosing an app icon is included with a FUTO Notes license.",
           "sheetTitle": "Included with a license",
-          "sheetBody": "Choosing an app icon comes with a FUTO Notes license. Everything else in the app works without one.",
+          "sheetBody": "Purchasing a FUTO Notes license unlocks the ability to change the app icon.",
           "notNow": "Not now",
           "landing": "Your license includes choosing your app icon. Pick one.",
           "a11yIncluded": "{iconName}, included with a license"
@@ -1085,7 +1086,7 @@
     },
     "license": {
       "sectionTitle": "License",
-      "explanation": "FUTO's mission is for open-source software and non-malicious software business practices to become a sustainable income source for projects and their developers. That is why FUTO Notes asks you to pay for it, rather than serving you ads or selling your data.",
+      "explanation": "FUTO Notes is paid for by you, not by ads or by selling your data.",
       "keyOnlyExplanation": "Have a FUTO Notes license? Enter your key to activate it on this device.",
       "unlicensedHeadline": "Pay for FUTO Notes",
       "explanationLicensed": "Thank you for purchasing FUTO Notes.",

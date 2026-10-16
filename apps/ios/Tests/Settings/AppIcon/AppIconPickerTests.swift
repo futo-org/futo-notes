@@ -17,6 +17,7 @@ struct AppIconPickerTests {
         let footnote: Bool
         let sheet: AppIconPickerShape.Sheet?
         var resolved = true
+        var footnoteKey = "settings.appIcon.license.footnote"
 
         var testDescription: String { name }
     }
@@ -35,7 +36,7 @@ struct AppIconPickerTests {
         Row(
             name: "key-only build: the key-only sheet, still coins and the footnote",
             status: .unlicensed, linkOut: false, coined: all.subtracting([.darkStandard]),
-            footnote: true, sheet: .keyOnly),
+            footnote: true, sheet: .keyOnly, footnoteKey: "settings.appIcon.license.footnoteKeyOnly"),
         Row(
             name: "licensed: coin on every tile but Standard, no footnote, nothing to ask",
             status: .licensed, linkOut: true, selected: .website,
@@ -61,6 +62,7 @@ struct AppIconPickerTests {
         #expect(shape.footnote == row.footnote)
         #expect(shape.sheet == row.sheet)
         #expect(shape.resolved == row.resolved)
+        #expect(shape.footnoteKey == row.footnoteKey)
         #expect(AppIcon.allCases.allSatisfy { shape.asks($0) == (row.sheet != nil && row.coined.contains($0)) })
     }
 }

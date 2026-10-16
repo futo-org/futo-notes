@@ -171,8 +171,11 @@ fixture would close that on all three platforms at once.
   its footnote and sheet, and the App icon row's hint in Settings. Never on
   launch, never a popup, never in the editor or the note list. The License card
   does not change for this.
-- **Vocabulary:** "included with a license", "comes with a license". Never
-  "paywall", "unlock", "premium", "free" or "donate".
+- **Vocabulary:** "included with a license", "comes with a license", and
+  "unlock(s)" for what a license includes (cosmetics; allowed on link-out builds
+  only, @justin 2026-10-16: the footnote and sheet say a license "unlocks the
+  ability to change the app icon"). Key-only builds never say "unlock": their
+  footnote is `settings.appIcon.license.footnoteKeyOnly`, "included with a license". Never "paywall", "premium", "free" or "donate".
 - **Key-only builds** (iOS outside the US, Android `play`) get the key-only ask:
   `license.keyOnlyExplanation` and "I already paid", no Buy, no "Lost your
   key?", no website (ADR-0005). The row hint still shows there: it states a
@@ -693,21 +696,20 @@ one catalog entry, `license.enterKey`, so all three shells moved together
   issue. The wording follows Grayjay's `buy_text` and FUTO Keyboard's
   `payment_screen_sales_point_development_body`, which share the mission
   sentence verbatim and neither of which calls its app free:
-  - Unlicensed and Expired (`license.explanation`): "FUTO's mission is for
-    open-source software and non-malicious software business practices to become
-    a sustainable income source for projects and their developers. That is why
-    FUTO Notes asks you to pay for it, rather than serving you ads or selling
-    your data."
+  - Unlicensed and Expired (`license.explanation`): "FUTO Notes is paid for by
+    you, not by ads or by selling your data." (@justin 2026-10-16, the wording
+    of the reviewed Settings sketch; it replaced the longer FUTO mission
+    paragraph that the siblings share.)
   - Unlicensed **leads with the ask** and puts the reason **above**
     the Buy button, not under it: the headline `license.unlicensedHeadline`
-    ("Pay for FUTO Notes"), then the mission paragraph, then the one filled
+    ("Pay for FUTO Notes"), then the explanation paragraph, then the one filled
     button. Desktop first; both native shells followed 2026-09-18, where the
     explanation had sat below the button — iOS last of all, Android between the
     button and the links. That is the shape all three sibling FUTO-model apps use — Grayjay's
     Buy screen, FUTO Keyboard's Payment screen and Immich's purchase panel are
     each a heading, the reason, one pay button and a way in for someone who has
     already paid — and an argument printed under the button it argues for is a
-    footnote (@justin 2026-09-18). **The mission paragraph is the only
+    footnote (@justin 2026-09-18). **The explanation paragraph is the only
     paragraph.** A second one in the plate's own voice ("Nothing here is locked,
     and a license unlocks nothing — we would rather ask than force the issue.",
     `license.unlicensedPitch`) lived here for one day and went out 2026-09-18
