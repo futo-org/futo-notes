@@ -46,6 +46,7 @@ summary` form with a `Verified:` line.
 | D24 | Apple EU, Japan and Brazil use the in-app purchase | D-B resolved: no link-out entitlements; every non-US storefront runs StoreKit. (@justin 2026-10-16) |
 | D25 | US iOS keeps IAP and Restore live behind the website Buy | D-C resolved as recommended: a secondary US "Buy in the App Store" is added only if App Review objects. (@justin 2026-10-16) |
 | D26 | A store proof shows its source on the Licensed card | Q10 resolved: "Purchased via the App Store / Google Play, {date}", no key. (@justin 2026-10-16) |
+| D27 | No second Play app | Q11 resolved: no `com.futo.notes.dev` Play app. Real purchase testing uses `com.futo.notes` on the internal testing track with license testers; debug builds and automated tests use a fake `BillingClient`. A `.dev` build never runs a real Play purchase. (@justin 2026-10-16) |
 
 ## 1. The picker when the license does not include icons (M2, M3)
 
@@ -574,8 +575,8 @@ and Direct rows. Key-only is no longer a shape: `link_out == false` disappears.
    production configs (a public key; commit it).
 4. License testers (Settings > License testing) with test cards; an internal-testing release of the
    `play` AAB (billing needs a Play-installed build).
-5. Recommended: create `com.futo.notes.dev` as a second Play app, internal track only, with its own
-   product and key, to back the staging config.
+5. No second Play app (D27): staging purchases use license testers on `com.futo.notes`'s internal
+   track.
 6. Enroll in Play's **15% service fee tier** if offered/required for the lower rate (the fee page
    says the 15% rate requires enrollment). Update the Data safety form and the store listing for
    purchases (listing text must not name our website for purchase).
@@ -965,8 +966,7 @@ One reconciled set (2026-10-16). Earlier per-pass notes were merged here.
 
 **Open, for @justin (recommendations in § 7b M7.0).**
 - D-A, D-B, D-C and Q10: **resolved 2026-10-16** as D23–D26.
-- **Q11** Create `com.futo.notes.dev` as a second Play app (internal track) for staging purchases.
-  Asked why it is needed; see § 7b M7.5 item 5.
+- Q11: **resolved 2026-10-16** as D27 (no second Play app).
 
 Unverified, to settle by a real fixture or a Play Console look: the Google signature hash (SHA-1 per
 the long-standing sample) and key format, Google's current fee figures, Apple's role OIDs.
