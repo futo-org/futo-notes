@@ -662,8 +662,6 @@ struct NoteEditorView: View {
         }
     }
 
-    /// Debounced inline-title rename (Android parity): reschedule on each
-    /// keystroke and rename once typing settles. Cancelled on leave/delete.
     private func retargetNoteId(_ id: String) async {
         guard id != noteId else { return }
         let oldId = noteId
@@ -682,6 +680,8 @@ struct NoteEditorView: View {
         noteId = id
     }
 
+    /// Debounced inline-title rename (Android parity): reschedule on each
+    /// keystroke and rename once typing settles. Cancelled on leave/delete.
     private func scheduleRename(_ newTitle: String) {
         session.schedule(.rename) {
             try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5s debounce
@@ -1282,15 +1282,6 @@ private struct FindInNoteBar: View {
             .background(Theme.surface, in: Capsule())
         }
         .task { fieldFocused = true }
-    }
-}
-
-func editorMoveSourceId(currentId: String, disposition: FlushDisposition) -> String {
-    switch disposition {
-    case .parkedConflict(let parkedId):
-        return parkedId
-    case .wrote, .converged, .recreated:
-        return currentId
     }
 }
 
