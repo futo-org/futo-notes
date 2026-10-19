@@ -12,6 +12,7 @@ import uniffi.futo_notes_ffi.BuySource
 import uniffi.futo_notes_ffi.LicenseAcceptance
 import uniffi.futo_notes_ffi.LicenseAction
 import uniffi.futo_notes_ffi.LicenseException
+import uniffi.futo_notes_ffi.LicenseInclusion
 import uniffi.futo_notes_ffi.LicenseLinkOutcome
 import uniffi.futo_notes_ffi.LicenseLinks
 import uniffi.futo_notes_ffi.LicensePlatform
@@ -19,6 +20,7 @@ import uniffi.futo_notes_ffi.LicenseView
 import uniffi.futo_notes_ffi.licenseEnterKey
 import uniffi.futo_notes_ffi.licenseEvaluate
 import uniffi.futo_notes_ffi.licenseHandleDeepLink
+import uniffi.futo_notes_ffi.licenseIncludes
 import uniffi.futo_notes_ffi.licenseLinks
 import uniffi.futo_notes_ffi.licenseLinkOut
 import uniffi.futo_notes_ffi.licenseRowActions
@@ -60,7 +62,23 @@ class LicenseModel(
      * and correcting itself — the same loading-is-not-empty distinction
      * `hasBootstrapped` draws for the note list.
      */
-    var view by mutableStateOf<LicenseView?>(null)
+    var view: LicenseView?
+        get() = evaluated
+        private set(value) {
+            evaluated = value
+            // The one place `includes` is derived, so it can never disagree
+            // with the state it came from: load, apply, remove and Full reset
+            // all assign `view`. One FFI call per change, never per render.
+            includes = value?.let { licenseIncludes(it.status).toSet() } ?: emptySet()
+        }
+    private var evaluated by mutableStateOf<LicenseView?>(null)
+
+    /**
+     * What the current license includes beyond the card (cosmetic only —
+     * docs/spec/license.md § What a license includes). Rust's answer; this
+     * shell only asks. Empty until the license has been evaluated.
+     */
+    var includes by mutableStateOf(emptySet<LicenseInclusion>())
         private set
 
     /** True only while the one activation request is in flight. */
@@ -76,6 +94,11 @@ class LicenseModel(
      * library on the main thread there (M1). Settings is where these are read.
      */
     val links: LicenseLinks by lazy { licenseLinks(LicensePlatform.ANDROID, bundleId, BuySource.LICENSE_CARD) }
+
+    /** The same destinations with Buy attributed to the App icon picker's ask (`from=app-icon`). */
+    val appIconLinks: LicenseLinks by lazy {
+        licenseLinks(LicensePlatform.ANDROID, bundleId, BuySource.APP_ICON_PICKER)
+    }
 
     /**
      * How a message reaches the user. Assigned by the activity so the license

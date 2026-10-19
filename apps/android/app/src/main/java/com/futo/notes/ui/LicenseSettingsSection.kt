@@ -26,6 +26,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -102,7 +103,11 @@ internal fun licenseExplanationPath(status: LicenseStatus, linkOut: Boolean): St
  * `licenseLinkOut` gives both shells the same storefront policy.
  */
 @Composable
-fun LicenseSettingsSection(license: LicenseModel) {
+fun LicenseSettingsSection(
+    license: LicenseModel,
+    /** Bumped by the App icon picker's "I already paid": open the key field. */
+    keyEntryRequest: Int = 0,
+) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
     val context = LocalContext.current
@@ -155,6 +160,10 @@ fun LicenseSettingsSection(license: LicenseModel) {
             }
             LicenseAction.REMOVE -> license.remove()
         }
+    }
+
+    LaunchedEffect(keyEntryRequest) {
+        if (keyEntryRequest > 0 && license.view?.status != LicenseStatus.LICENSED) act(LicenseAction.ENTER_KEY)
     }
 
     val actions = license.actions()

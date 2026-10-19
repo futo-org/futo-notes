@@ -10,6 +10,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.futo.notes.ui.settings.appicon.AppIconController
 import com.futo.notes.ui.settings.appicon.AppIconSheet
+import com.futo.notes.ui.settings.appicon.CoinBadge
+import com.futo.notes.browser.openInCustomTab
+import com.futo.notes.license.LICENSE_LOG_TAG
+import uniffi.futo_notes_ffi.LicenseInclusion
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -118,12 +122,25 @@ fun SettingsScreen(
     var crashAlwaysSend by remember { mutableStateOf(prefs.getBoolean(Prefs.CRASH_ALWAYS_SEND, false)) }
     val appIcons = remember { AppIconController(context) }
     var showAppIcons by remember { mutableStateOf(false) }
+    // The one-time header above the picker's grid after an activation. Set when
+    // the landing opens the picker and dropped when it closes: nothing is
+    // persisted, so reopening shows the plain grid.
+    var showsLanding by remember { mutableStateOf(false) }
+    // Bumped by the picker's "I already paid"; the License card opens its key
+    // field on each change.
+    var keyEntryRequest by remember { mutableStateOf(0) }
+    val scrollState = rememberScrollState()
     LifecycleResumeEffect(appIcons) {
         scope.launch { appIcons.refresh() }
         onPauseOrDispose {}
     }
     var confirmReset by remember { mutableStateOf(false) }
     var resetting by remember { mutableStateOf(false) }
+
+    LaunchedEffect(keyEntryRequest) {
+        // The License card is the first group: "I already paid" brings it back.
+        if (keyEntryRequest > 0) scrollState.animateScrollTo(0)
+    }
 
     Box {
     Scaffold(
@@ -150,14 +167,14 @@ fun SettingsScreen(
         },
     ) { padding ->
         Column(
-            modifier = Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            modifier = Modifier.padding(padding).verticalScroll(scrollState).padding(horizontal = 16.dp),
         ) {
             Spacer(Modifier.height(8.dp))
 
             // FIRST, at the top: mobile has no ambient "Unlicensed" label
             // outside Settings, so this row's status text IS the label
             // (docs/spec/license.md § States and copy).
-            LicenseSettingsSection(license)
+            LicenseSettingsSection(license, keyEntryRequest)
 
             // The whole Sync surface is one "Sync" row: cloud icon,
             // connected-vs-local status, SYNCED/LOCAL badge. No separate account
@@ -198,6 +215,19 @@ fun SettingsScreen(
                     onClick = { showAppIcons = true },
                     leading = { Image(painterResource(appIcons.selected.preview), null, Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))) },
                 ) {
+                    // While the license does not include icons — on key-only
+                    // builds too: it names a fact, not a sale. Unknown (still
+                    // loading) is not "unlicensed", so it says nothing.
+                    if (license.view != null && LicenseInclusion.APP_ICON !in license.includes) {
+                        CoinBadge(18.dp, ring = false)
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            localization.localizedText("settings.appIcon.license.rowHint"),
+                            style = FutoType.caption,
+                            color = c.textMuted,
+                        )
+                        Spacer(Modifier.width(4.dp))
+                    }
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = c.textMuted)
                 }
             }
@@ -334,7 +364,28 @@ fun SettingsScreen(
 
     if (showAppIcons) {
         LaunchedEffect(Unit) { appIcons.refresh() }
-        AppIconSheet(appIcons, onSelect = { icon -> scope.launch { appIcons.select(icon) } }) { showAppIcons = false }
+        val view = license.view
+        val rowActions = remember(view, license.linkOut) { license.actions() }
+        AppIconSheet(
+            appIcons,
+            includes = view?.let { license.includes },
+            rowActions = rowActions,
+            showsLanding = showsLanding,
+            onSelect = { icon -> scope.launch { appIcons.select(icon) } },
+            onBuy = {
+                runCatching { openInCustomTab(context, license.appIconLinks.buy) }
+                    .onFailure { android.util.Log.w(LICENSE_LOG_TAG, "nothing on this device opens checkout", it) }
+            },
+            onAlreadyPaid = {
+                showAppIcons = false
+                showsLanding = false
+                // Scrolls to the card and opens its key field.
+                keyEntryRequest += 1
+            },
+        ) {
+            showAppIcons = false
+            showsLanding = false
+        }
     }
 
     // Modal confirmation [settings.md]: a stray double-tap on the row must not
