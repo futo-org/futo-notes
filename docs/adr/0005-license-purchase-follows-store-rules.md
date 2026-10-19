@@ -58,6 +58,18 @@ each surface may have:
   district court's rate after the Ninth Circuit's December 2025 ruling; Google's US fees start
   October–December 2026. Re-read both before each store submission that touches this surface.
 
+## Amendment 2026-10-19: Play names the website
+
+Android `play` stops being key-only. Google's consumption-only guidance (Play Console Help
+10281818) lets an app say where its content is sold as long as nothing in the app leads there,
+so the `play` card shows the payment headline and reason, the storefront address
+(`pay.futo.org`) as plain text, the key field and "Lost your key?". Still no Buy, no link, no
+copy button, no QR code and no price. US `play` is not flipped to link-out: that needs the
+External Content Links program. The decision is a third purchase surface owned by Rust
+(`license_purchase_surface`: link out, name the website, key only); the flavor reports only
+its distribution (@justin, research in `docs/plan/license-ios-app-store/research-2026-10-19.md`
+on the iOS App Store branch).
+
 Implementation plan: [`docs/plan/license-store-compliance.md`](../plan/license-store-compliance.md).
 Behavioral truth: `docs/spec/license.md` § Store posture.
 
