@@ -81,6 +81,15 @@ class LicenseModel(
     var includes by mutableStateOf(emptySet<LicenseInclusion>())
         private set
 
+    /**
+     * Set when an activation succeeds and the new license includes the app
+     * icon: the shell should land on the picker (settings.md § Native app
+     * icons). One-shot and never persisted — whoever takes it, or decides there
+     * is nowhere to land, calls [consumeLanding].
+     */
+    var pendingLanding by mutableStateOf(false)
+        private set
+
     /** True only while the one activation request is in flight. */
     var busy by mutableStateOf(false)
         private set
@@ -206,6 +215,11 @@ class LicenseModel(
         }
     }
 
+    /** One activation lands exactly once. */
+    fun consumeLanding() {
+        pendingLanding = false
+    }
+
     /**
      * Returns the device to Unlicensed. No confirmation — it is reversible by
      * re-entering the key — and idempotent.
@@ -214,6 +228,7 @@ class LicenseModel(
         storage.clear()
         settled = true
         stateRevision += 1
+        pendingLanding = false
         view = licenseEvaluate(null, bundleId)
     }
 
@@ -244,6 +259,7 @@ class LicenseModel(
         settled = true
         stateRevision += 1
         view = acceptance.view
+        pendingLanding = LicenseInclusion.APP_ICON in includes
         announce(LocalizedMessage("license.activated"))
         if (BuildConfig.DEBUG) Log.i(LICENSE_LOG_TAG, "license applied: ${acceptance.view.status}")
     }

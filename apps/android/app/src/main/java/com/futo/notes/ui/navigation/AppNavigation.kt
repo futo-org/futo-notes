@@ -180,6 +180,8 @@ internal class AppNavigator internal constructor(
 internal fun AppNavigation(
     hasBootstrapped: Boolean,
     availableFolderPaths: List<String>,
+    /** Effects that act on the stack itself, composed once (not per animated entry). */
+    effects: @Composable (navigator: AppNavigator) -> Unit = {},
     content: @Composable (
         screen: Screen,
         navigator: AppNavigator,
@@ -202,6 +204,7 @@ internal fun AppNavigation(
     }
 
     BackHandler(enabled = navigator.canGoBack, onBack = navigator::goBack)
+    effects(navigator)
 
     AnimatedContent(
         targetState = navigator.currentEntry,

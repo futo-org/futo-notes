@@ -137,6 +137,18 @@ fun SettingsScreen(
     var confirmReset by remember { mutableStateOf(false) }
     var resetting by remember { mutableStateOf(false) }
 
+    // An activation that includes the app icon lands on the picker (license.md
+    // § Deep link). Taken now, whatever happens next: a landing is for the
+    // moment of activation and is never kept for a later visit. A Full reset
+    // dialog already up keeps the toast alone as the landing.
+    LaunchedEffect(license.pendingLanding) {
+        if (!license.pendingLanding) return@LaunchedEffect
+        license.consumeLanding()
+        if (confirmReset || resetting) return@LaunchedEffect
+        showsLanding = true
+        // Already open (the user paid from its ask): it only gains the header.
+        showAppIcons = true
+    }
     LaunchedEffect(keyEntryRequest) {
         // The License card is the first group: "I already paid" brings it back.
         if (keyEntryRequest > 0) scrollState.animateScrollTo(0)
