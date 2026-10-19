@@ -43,6 +43,10 @@ pub const KEY_ALPHABET: &str = "ABCDEFGHJKMNPQRSTUVWXYZ123456789";
 /// this org.
 pub const ORG_SLUG: &str = "futo-notes";
 
+/// The iOS App Store-only purchase (ADR-0009): one non-consumable, Family
+/// Sharing off, verified by StoreKit on the device. No server ever sees it.
+pub const APP_STORE_PRODUCT_ID: &str = "com.futo.notes.license";
+
 /// Where "Lost your key?" goes. There is no in-app restore flow.
 pub const SUPPORT_MAILTO: &str = "mailto:support@futo.tech";
 

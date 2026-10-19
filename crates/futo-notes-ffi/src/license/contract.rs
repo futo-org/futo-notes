@@ -2,12 +2,14 @@
 //! back. Records and enums only — no copy, no storage, no platform branching.
 
 use futo_notes_license::{
-    buy_url, enter_license_key, evaluate, license_includes as core_license_includes,
+    buy_url, enter_license_key, evaluate, evidence_includes as core_evidence_includes,
+    license_includes as core_license_includes, license_plate as core_license_plate,
     license_purchase_surface as core_license_purchase_surface, parse_deep_link,
     ActivationTransport, BuySource as CoreBuySource, Distribution, EnterKeyError, Environment,
-    LicenseConfig, LicenseInclusion as CoreLicenseInclusion, LicenseState,
+    LicenseConfig, LicenseEvidence as CoreLicenseEvidence,
+    LicenseInclusion as CoreLicenseInclusion, LicensePlate as CoreLicensePlate, LicenseState,
     LicenseStatus as CoreLicenseStatus, OffsetDateTime, Platform, PurchaseSurface, TransportError,
-    DEEP_LINK_SCHEME, SUPPORT_MAILTO,
+    APP_STORE_PRODUCT_ID, DEEP_LINK_SCHEME, SUPPORT_MAILTO,
 };
 
 use super::transport::Pay2Transport;
@@ -232,6 +234,10 @@ pub enum LicenseAction {
     /// Returns the device to Unlicensed. No confirmation: it is reversible by
     /// re-entering the key.
     Remove,
+    /// Starts the App Store-only purchase (iOS, ADR-0009). Never offered off iOS.
+    BuyInAppStore,
+    /// Restores the App Store purchase for this Apple Account (App Review 3.1.1).
+    RestorePurchases,
 }
 
 /// Which controls the row offers, in the order it offers them.
@@ -263,6 +269,98 @@ pub fn license_surface_row_actions(
         ],
         (_, NameWebsite) => vec![LicenseAction::EnterKey, LicenseAction::LostKey],
         (_, KeyOnly) => vec![LicenseAction::EnterKey],
+    }
+}
+
+/// The two facts a device can hold about having paid
+/// (`futo_notes_license::LicenseEvidence`). `app_store` is always false off iOS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct LicenseEvidence {
+    pub key: LicenseStatus,
+    pub app_store: bool,
+}
+
+impl From<LicenseEvidence> for CoreLicenseEvidence {
+    fn from(evidence: LicenseEvidence) -> Self {
+        Self {
+            key: evidence.key.into(),
+            app_store: evidence.app_store,
+        }
+    }
+}
+
+/// Which License card to show. A Licensed key wins over the App Store purchase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum LicensePlate {
+    Unlicensed,
+    Licensed,
+    /// The App Store purchase is owned and no Licensed key is stored.
+    AppStore,
+    Expired,
+}
+
+/// `futo_notes_license::license_plate`.
+#[uniffi::export]
+pub fn license_plate(evidence: LicenseEvidence) -> LicensePlate {
+    match core_license_plate(evidence.into()) {
+        CoreLicensePlate::Unlicensed => LicensePlate::Unlicensed,
+        CoreLicensePlate::Licensed => LicensePlate::Licensed,
+        CoreLicensePlate::AppStore => LicensePlate::AppStore,
+        CoreLicensePlate::Expired => LicensePlate::Expired,
+    }
+}
+
+/// What everything this device holds includes: a Licensed key, or the App
+/// Store purchase, includes the same things (3.1.3(b) parity).
+#[uniffi::export]
+pub fn license_evidence_includes(evidence: LicenseEvidence) -> Vec<LicenseInclusion> {
+    core_evidence_includes(evidence.into())
+        .into_iter()
+        .map(Into::into)
+        .collect()
+}
+
+/// The App Store product the iOS shell loads, so Swift does not hardcode it.
+#[uniffi::export]
+pub fn license_app_store_product_id() -> String {
+    APP_STORE_PRODUCT_ID.to_string()
+}
+
+/// [`license_surface_row_actions`] once the App Store purchase is in play.
+///
+/// `app_store_offered` is true only on an iOS build whose product loaded.
+/// Link-out gives the website and the App Store equal weight, in that order;
+/// key-only keeps the key field first and the App Store second (ADR-0009). The
+/// App Store plate offers only the key field: a purchase cannot be removed
+/// from an Apple Account, and a key bought later still has somewhere to go.
+#[uniffi::export]
+pub fn license_evidence_row_actions(
+    evidence: LicenseEvidence,
+    surface: LicensePurchaseSurface,
+    app_store_offered: bool,
+) -> Vec<LicenseAction> {
+    use LicenseAction::*;
+    let plate = license_plate(evidence);
+    if plate == LicensePlate::AppStore {
+        return vec![EnterKey];
+    }
+    let status = evidence.key;
+    if !app_store_offered || plate == LicensePlate::Licensed {
+        return license_surface_row_actions(status, surface);
+    }
+    let buy = if plate == LicensePlate::Expired {
+        Renew
+    } else {
+        Buy
+    };
+    match surface {
+        LicensePurchaseSurface::LinkOut => {
+            vec![buy, BuyInAppStore, EnterKey, RestorePurchases, LostKey]
+        }
+        LicensePurchaseSurface::NameWebsite => {
+            vec![EnterKey, BuyInAppStore, RestorePurchases, LostKey]
+        }
+        LicensePurchaseSurface::KeyOnly => vec![EnterKey, BuyInAppStore, RestorePurchases],
     }
 }
 
@@ -978,6 +1076,84 @@ mod tests {
                 vec![LicenseAction::Remove]
             );
         }
+    }
+
+    /// The App Store table (docs/plan/license-ios-app-store.md § 4). Display
+    /// order matters: link-out gives the website and the App Store equal weight
+    /// side by side; key-only keeps the key field first.
+    #[test]
+    fn the_app_store_purchase_joins_the_row_where_it_is_offered() {
+        use LicenseAction::*;
+        use LicensePurchaseSurface::*;
+        let unowned = |key| LicenseEvidence {
+            key,
+            app_store: false,
+        };
+        for (key, buy) in [
+            (LicenseStatus::Unlicensed, Buy),
+            (LicenseStatus::Expired, Renew),
+        ] {
+            assert_eq!(
+                license_evidence_row_actions(unowned(key), LinkOut, true),
+                vec![buy, BuyInAppStore, EnterKey, RestorePurchases, LostKey]
+            );
+            assert_eq!(
+                license_evidence_row_actions(unowned(key), KeyOnly, true),
+                vec![EnterKey, BuyInAppStore, RestorePurchases]
+            );
+            // No product loaded (or not iOS): exactly the key-only table.
+            for surface in [LinkOut, NameWebsite, KeyOnly] {
+                assert_eq!(
+                    license_evidence_row_actions(unowned(key), surface, false),
+                    license_surface_row_actions(key, surface)
+                );
+            }
+        }
+        for surface in [LinkOut, NameWebsite, KeyOnly] {
+            for offered in [true, false] {
+                // A purchase cannot be removed from an Apple Account.
+                for key in [LicenseStatus::Unlicensed, LicenseStatus::Expired] {
+                    assert_eq!(
+                        license_evidence_row_actions(
+                            LicenseEvidence {
+                                key,
+                                app_store: true
+                            },
+                            surface,
+                            offered
+                        ),
+                        vec![EnterKey]
+                    );
+                }
+                for app_store in [true, false] {
+                    assert_eq!(
+                        license_evidence_row_actions(
+                            LicenseEvidence {
+                                key: LicenseStatus::Licensed,
+                                app_store
+                            },
+                            surface,
+                            offered
+                        ),
+                        vec![Remove]
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn evidence_maps_through_to_the_crate_rule() {
+        let owned = LicenseEvidence {
+            key: LicenseStatus::Expired,
+            app_store: true,
+        };
+        assert_eq!(license_plate(owned), LicensePlate::AppStore);
+        assert_eq!(
+            license_evidence_includes(owned),
+            license_includes(LicenseStatus::Licensed)
+        );
+        assert_eq!(license_app_store_product_id(), "com.futo.notes.license");
     }
 
     #[test]

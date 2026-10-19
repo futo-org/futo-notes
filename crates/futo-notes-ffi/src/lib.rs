@@ -4,11 +4,13 @@ mod notes;
 mod sync;
 
 pub use license::{
-    license_deep_link_scheme, license_enter_key, license_evaluate, license_handle_deep_link,
-    license_includes, license_link_out, license_links, license_purchase_surface,
+    license_app_store_product_id, license_deep_link_scheme, license_enter_key, license_evaluate,
+    license_evidence_includes, license_evidence_row_actions, license_handle_deep_link,
+    license_includes, license_link_out, license_links, license_plate, license_purchase_surface,
     license_row_actions, license_surface_row_actions, BuySource, LicenseAcceptance, LicenseAction,
-    LicenseDistribution, LicenseError, LicenseInclusion, LicenseLinkOutcome, LicenseLinks,
-    LicensePair, LicensePlatform, LicensePurchaseSurface, LicenseStatus, LicenseView,
+    LicenseDistribution, LicenseError, LicenseEvidence, LicenseInclusion, LicenseLinkOutcome,
+    LicenseLinks, LicensePair, LicensePlate, LicensePlatform, LicensePurchaseSurface,
+    LicenseStatus, LicenseView,
 };
 pub use localization::{localization_maximize_language_tag, localization_plural_category};
 pub use notes::{

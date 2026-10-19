@@ -218,6 +218,7 @@
           "sheetBodyWebsite": "Choosing an app icon is included with a FUTO Notes license. Licenses are sold on FUTO's website at {url}. Already bought one? Enter your key in Settings.",
           "notNow": "Not now",
           "landing": "Your license includes choosing your app icon. Pick one.",
+          "landingAppStore": "Your purchase includes choosing your app icon. Pick one.",
           "a11yIncluded": "{iconName}, included with a license"
         }
       }
@@ -1112,6 +1113,15 @@
       "keyInvalid": "This license key isn't valid",
       "linkInvalid": "This license link isn't valid",
       "offline": "Connect to the internet to activate this key",
+      "appStore": {
+        "buy": "Buy in the App Store",
+        "scope": "Works in FUTO Notes on iPhone and iPad with your Apple Account. It doesn't come with a license key, so it can't be used on other platforms.",
+        "scopeUS": "Works in FUTO Notes on iPhone and iPad with your Apple Account. It doesn't come with a license key. To use FUTO Notes on every platform, buy a license on FUTO's website instead.",
+        "restore": "Restore Purchases",
+        "nothingToRestore": "No App Store purchase to restore for this Apple Account.",
+        "purchasedTitle": "Purchased in the App Store",
+        "purchasedBody": "Works on iPhone and iPad with this Apple Account. There is no license key for this purchase."
+      },
       "card": {
         "eyebrow": "Client license",
         "productName": "FUTO Notes",

@@ -138,4 +138,7 @@ internal fun LicenseAction.catalogPath(): String = when (this) {
     LicenseAction.ENTER_KEY -> "license.enterKey"
     LicenseAction.LOST_KEY -> "license.lostKey"
     LicenseAction.REMOVE -> "license.remove"
+    // iOS only (ADR-0009); Rust never offers these to Android.
+    LicenseAction.BUY_IN_APP_STORE -> "license.appStore.buy"
+    LicenseAction.RESTORE_PURCHASES -> "license.appStore.restore"
 }

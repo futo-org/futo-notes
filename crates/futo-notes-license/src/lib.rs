@@ -73,9 +73,10 @@ mod state;
 
 pub use config::{
     activation_url, buy_url, license_link_out, license_purchase_surface, BuySource, Distribution,
-    Environment, LicenseConfig, Platform, PurchaseSurface, CHECKOUT_PRODUCT_SLUG, DEEP_LINK_HOST,
-    DEEP_LINK_SCHEME, DEV_BUNDLE_ID_SUFFIX, KEY_ALPHABET, ORG_SLUG, PRODUCTION_PUBLIC_KEY_BASE64,
-    PRODUCT_SLUG, STAGING_PUBLIC_KEY_BASE64, SUPPORT_MAILTO,
+    Environment, LicenseConfig, Platform, PurchaseSurface, APP_STORE_PRODUCT_ID,
+    CHECKOUT_PRODUCT_SLUG, DEEP_LINK_HOST, DEEP_LINK_SCHEME, DEV_BUNDLE_ID_SUFFIX, KEY_ALPHABET,
+    ORG_SLUG, PRODUCTION_PUBLIC_KEY_BASE64, PRODUCT_SLUG, STAGING_PUBLIC_KEY_BASE64,
+    SUPPORT_MAILTO,
 };
 pub use enter::{
     enter_license_key, AcceptedLicense, ActivationTransport, EnterKeyError, HttpResponse,
@@ -84,8 +85,8 @@ pub use enter::{
 pub use input::{parse_deep_link, recognize_input, LicenseInput, LicensePair};
 pub use key::{is_valid_license_key, normalize_license_key};
 pub use state::{
-    evaluate, license_includes, InvalidReason, LicenseDetails, LicenseInclusion, LicenseState,
-    LicenseStatus,
+    evaluate, evidence_includes, license_includes, license_plate, InvalidReason, LicenseDetails,
+    LicenseEvidence, LicenseInclusion, LicensePlate, LicenseState, LicenseStatus,
 };
 
 /// Re-exported so shells and the FFI projection do not have to agree on a
