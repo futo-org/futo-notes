@@ -1115,6 +1115,7 @@
       "offline": "Connect to the internet to activate this key",
       "appStore": {
         "buy": "Buy in the App Store",
+        "or": "or",
         "scope": "Works in FUTO Notes on iPhone and iPad with your Apple Account. It doesn't come with a license key, so it can't be used on other platforms.",
         "scopeUS": "Works in FUTO Notes on iPhone and iPad with your Apple Account. It doesn't come with a license key. To use FUTO Notes on every platform, buy a license on FUTO's website instead.",
         "restore": "Restore Purchases",

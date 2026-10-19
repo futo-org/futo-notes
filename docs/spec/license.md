@@ -667,8 +667,10 @@ Android or sync.
 
   In the US, Buy/Renew and Buy in the App Store are **both filled, same style
   and size** (the Ninth Circuit lets Apple forbid a web button more prominent
-  than its own). Elsewhere the key leads and Buy in the App Store is an
-  **outlined**, labeled secondary button. Under it: `license.appStore.scopeUS`
+  than its own), separated by an **"or" rule** (`license.appStore.or`) so the
+  App Store caption cannot read as describing both (@justin 2026-10-19).
+  Elsewhere the key leads and Buy in the App Store is an **outlined**, labeled
+  secondary button. Directly under it, and only it: `license.appStore.scopeUS`
   in the US (it may point at the website), `license.appStore.scope` elsewhere
   (never the website, a price, or "everywhere"). → `licenseControlGroups`,
   `AppStorePurchaseTests` "testUSCardOffersBothBuysWithEqualWeight",

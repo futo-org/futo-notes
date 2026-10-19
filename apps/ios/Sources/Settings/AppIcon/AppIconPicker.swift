@@ -311,11 +311,17 @@ private struct AppIconAskSheet: View {
                     if let url = URL(string: buyURL) { openURL(url) }
                 }
                 if appStore {
-                    filled(
-                        "license.appStore.buy", id: "app-icon-ask-buy-app-store", onBuyInAppStore
-                    )
-                    .disabled(appStoreBusy)
-                    scope("license.appStore.scopeUS")
+                    // Two ways to pay, visibly two: the caption is the App
+                    // Store button's alone.
+                    LicenseOrRule(text: localization.localizedText("license.appStore.or"))
+                    VStack(spacing: 8) {
+                        filled(
+                            "license.appStore.buy", id: "app-icon-ask-buy-app-store",
+                            onBuyInAppStore
+                        )
+                        .disabled(appStoreBusy)
+                        scope("license.appStore.scopeUS")
+                    }
                 }
                 HStack(spacing: 32) {
                     link("license.enterKey", id: "app-icon-ask-already-paid", onAlreadyPaid)

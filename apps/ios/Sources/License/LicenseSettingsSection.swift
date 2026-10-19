@@ -291,12 +291,19 @@ struct LicenseSettingsSection: View {
         }
     }
 
-    /// Every control, in Rust's order (`licenseControlGroups`). The App Store
-    /// caption follows the last button of the group it qualifies.
+    /// Every control, in Rust's order (`licenseControlGroups`). Buy in the
+    /// App Store carries its scope caption directly under it, and in the US an
+    /// "or" rule separates it from Buy a license, so the caption cannot read as
+    /// if it described both (@justin 2026-10-19).
     @ViewBuilder private var controls: some View {
         let groups = licenseControlGroups(actions)
         ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
             switch group {
+            case .filled(.buyInAppStore):
+                if index > 0, groups[index - 1].isFilled { orRule }
+                appStoreBlock { filledButton(for: .buyInAppStore, fullWidth: true) }
+            case .outlined(.buyInAppStore):
+                appStoreBlock { outlinedButton(for: .buyInAppStore) }
             case .filled(let action):
                 // Two filled buttons are one width: equal weight is equal size.
                 filledButton(for: action, fullWidth: groups.filter(\.isFilled).count > 1)
@@ -305,30 +312,23 @@ struct LicenseSettingsSection: View {
             case .text(let run):
                 textRow(run)
             }
-            if Self.endsAppStoreButtons(groups, at: index) {
-                Text(localization.localizedText(licenseAppStoreScopePath(linkOut: linkOut)))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("license-app-store-scope")
-            }
         }
     }
 
-    private static func endsAppStoreButtons(_ groups: [LicenseControlGroup], at index: Int) -> Bool
-    {
-        let isButton: (LicenseControlGroup) -> Bool = {
-            if case .text = $0 { return false }
-            return true
+    /// The App Store button and what it is not, kept together.
+    private func appStoreBlock(@ViewBuilder _ button: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            button()
+            Text(localization.localizedText(licenseAppStoreScopePath(linkOut: linkOut)))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("license-app-store-scope")
         }
-        guard isButton(groups[index]) else { return false }
-        if index + 1 < groups.count, isButton(groups[index + 1]) { return false }
-        // The run of buttons ending here holds Buy in the App Store.
-        var start = index
-        while start > 0, isButton(groups[start - 1]) { start -= 1 }
-        return groups[start...index].contains {
-            $0 == .filled(.buyInAppStore) || $0 == .outlined(.buyInAppStore)
-        }
+    }
+
+    private var orRule: some View {
+        LicenseOrRule(text: localization.localizedText("license.appStore.or"))
     }
 
     /// Neighbouring text buttons on one line when they fit, stacked when they
@@ -633,5 +633,23 @@ struct LicenseSettingsSection: View {
     private func open(_ destination: String) {
         guard let url = URL(string: destination) else { return }
         openURL(url)
+    }
+}
+
+/// A hairline either side of "or": two ways to pay, visibly two.
+struct LicenseOrRule: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Rectangle().fill(Color(.separator)).frame(height: 1)
+            Text(text)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .fixedSize()
+            Rectangle().fill(Color(.separator)).frame(height: 1)
+        }
+        .accessibilityHidden(true)
+        .accessibilityIdentifier("license-or")
     }
 }
