@@ -13,6 +13,7 @@ import com.futo.notes.ui.theme.FutoNotesTheme
 import com.futo.notes.localization.ProvideLocalization
 import uniffi.futo_notes_ffi.LicenseAction
 import uniffi.futo_notes_ffi.LicenseInclusion
+import uniffi.futo_notes_ffi.LicensePurchaseSurface
 import kotlinx.coroutines.launch
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -42,6 +43,7 @@ class AppIconSheetTest {
     private fun showSheet(
         includes: Set<LicenseInclusion>? = licensed,
         rowActions: List<LicenseAction> = listOf(LicenseAction.REMOVE),
+        surface: LicensePurchaseSurface = LicensePurchaseSurface.LINK_OUT,
         includesState: MutableState<Set<LicenseInclusion>?>? = null,
     ) {
         val controller = AppIconController(icons)
@@ -54,6 +56,8 @@ class AppIconSheetTest {
                     controller,
                     includes = includesState?.value ?: includes,
                     rowActions = rowActions,
+                    surface = surface,
+                    website = "pay.futo.org",
                     onSelect = { icon -> scope.launch { controller.select(icon) } },
                     onBuy = { bought++ },
                     onAlreadyPaid = { alreadyPaid++; shown = false },
@@ -143,7 +147,7 @@ class AppIconSheetTest {
     }
 
     @Test fun keyOnlyAsksForTheKeyWithNoBuyAndNoUnlock() {
-        showSheet(includes = emptySet(), rowActions = listOf(LicenseAction.ENTER_KEY))
+        showSheet(includes = emptySet(), rowActions = listOf(LicenseAction.ENTER_KEY), surface = LicensePurchaseSurface.KEY_ONLY)
         compose.onNodeWithText("Choosing an app icon is included with a FUTO Notes license.", substring = true)
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("unlocks", substring = true).assertDoesNotExist()
@@ -184,5 +188,27 @@ class AppIconSheetTest {
         compose.waitForIdle()
         compose.onNodeWithTag("app-icon-ask-title").assertDoesNotExist()
         compose.onNodeWithText("Change app icon to \"FUTO\"?").assertDoesNotExist()
+    }
+
+    /** `play`: the ask names the website as plain text, with no Buy and no "unlocks". */
+    @Test fun playNamesTheWebsiteInTheAskAsTextThatCannotBeTapped() {
+        showSheet(
+            includes = emptySet(),
+            rowActions = listOf(LicenseAction.ENTER_KEY, LicenseAction.LOST_KEY),
+            surface = LicensePurchaseSurface.NAME_WEBSITE,
+        )
+        compose.onNodeWithText("Choosing an app icon is included with a FUTO Notes license, sold on FUTO's website.", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("unlocks", substring = true).assertDoesNotExist()
+        compose.onNodeWithTag("app-icon-futo").performScrollTo().performClick()
+        compose.onNodeWithTag("app-icon-ask-body")
+            .assertTextEquals(
+                "Choosing an app icon is included with a FUTO Notes license. Licenses are sold on FUTO's " +
+                    "website at pay.futo.org. Already bought one? Enter your key in Settings.",
+            )
+            .assertHasNoClickAction()
+        compose.onNodeWithTag("app-icon-ask-buy").assertDoesNotExist()
+        compose.onNodeWithTag("app-icon-ask-already-paid").assertTextEquals("I already paid")
+        assertEquals(0, icons.calls)
     }
 }

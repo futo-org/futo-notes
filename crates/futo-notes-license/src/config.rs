@@ -52,6 +52,14 @@ pub const DEV_BUNDLE_ID_SUFFIX: &str = ".dev";
 const PRODUCTION_PAY2_BASE_URL: &str = "https://pay2.futo.org";
 const STAGING_PAY2_BASE_URL: &str = "https://staging-pay2.futo.org";
 
+/// The storefront's address as a person types it, for builds that may name the
+/// website but not link to it ([`PurchaseSurface::NameWebsite`]). Production is
+/// `pay.futo.org`, which serves the same storefront as `pay2.futo.org` and is
+/// shorter to read off a phone (@justin 2026-10-19). Staging has no short
+/// alias, so a `.dev` build names its own host: never production (M3).
+const PRODUCTION_WEBSITE_ADDRESS: &str = "pay.futo.org";
+const STAGING_WEBSITE_ADDRESS: &str = "staging-pay2.futo.org";
+
 /// The real FUTO Notes **production** org public key (SHA-256 of this DER
 /// SubjectPublicKeyInfo is `2034d795…aa68`, pinned by
 /// `the_production_key_is_the_real_production_org_key` below).
@@ -169,6 +177,15 @@ impl Environment {
         }
     }
 
+    /// The storefront address a [`PurchaseSurface::NameWebsite`] build shows
+    /// as plain text: no scheme, never a link.
+    pub const fn website_address(self) -> &'static str {
+        match self {
+            Environment::Production => PRODUCTION_WEBSITE_ADDRESS,
+            Environment::Staging => STAGING_WEBSITE_ADDRESS,
+        }
+    }
+
     /// The key and base URL this environment verifies and activates against.
     pub const fn config(self) -> LicenseConfig<'static> {
         match self {
@@ -217,18 +234,64 @@ impl Platform {
     }
 }
 
-/// Whether this distribution may offer checkout in the current storefront.
-/// An unknown iOS storefront cannot offer an external purchase link.
+/// Where a build is installed from. It decides what the License card may say
+/// about buying (docs/spec/license.md § Store posture); the shell reports the
+/// fact and this crate decides what it means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Distribution {
+    Desktop,
+    /// The App Store; the storefront country decides the surface.
+    IosAppStore,
+    /// GitLab releases, Obtainium, F-Droid: no store policy applies.
+    AndroidDirect,
+    /// Google Play.
+    AndroidPlay,
+}
+
+/// What the License card and the app icon ask may do about buying.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PurchaseSurface {
+    /// Buy / Renew open checkout in the browser.
+    LinkOut,
+    /// No Buy: the card names the website in plain, non-tappable text. Google
+    /// Play's consumption-only rule allows saying where to buy without a link
+    /// (Play Console Help 10281818, ADR-0005).
+    NameWebsite,
+    /// No Buy and no website: the key field and the deep link only.
+    KeyOnly,
+}
+
+/// The one storefront rule. An unknown iOS storefront fails closed to
+/// [`PurchaseSurface::KeyOnly`]. Android `play` names the website worldwide: the
+/// consumption-only rule has no country exception, so it takes no country.
+pub fn license_purchase_surface(
+    distribution: Distribution,
+    storefront_country: Option<&str>,
+) -> PurchaseSurface {
+    match distribution {
+        Distribution::Desktop | Distribution::AndroidDirect => PurchaseSurface::LinkOut,
+        Distribution::IosAppStore if storefront_country == Some("USA") => PurchaseSurface::LinkOut,
+        Distribution::IosAppStore => PurchaseSurface::KeyOnly,
+        Distribution::AndroidPlay => PurchaseSurface::NameWebsite,
+    }
+}
+
+/// Whether checkout may be linked: [`license_purchase_surface`] said as a yes
+/// or no, for the iOS shell, which still asks this way. `build_allows` false
+/// turns iOS off and is how an Android caller says `play`.
 pub fn license_link_out(
     platform: Platform,
     storefront_country: Option<&str>,
     build_allows: bool,
 ) -> bool {
-    match platform {
-        Platform::Ios => build_allows && storefront_country == Some("USA"),
-        Platform::Android => build_allows,
-        Platform::Desktop => true,
-    }
+    let distribution = match platform {
+        Platform::Desktop => Distribution::Desktop,
+        Platform::Ios if !build_allows => return false,
+        Platform::Ios => Distribution::IosAppStore,
+        Platform::Android if build_allows => Distribution::AndroidDirect,
+        Platform::Android => Distribution::AndroidPlay,
+    };
+    license_purchase_surface(distribution, storefront_country) == PurchaseSurface::LinkOut
 }
 
 /// The Buy / Renew destination: this environment's **generated checkout**,
@@ -329,6 +392,44 @@ fn percent_encode_path_segment(segment: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The whole truth table. Changing a row is a store-policy decision.
+    #[test]
+    fn the_purchase_surface_follows_distribution_and_storefront() {
+        use Distribution::*;
+        use PurchaseSurface::*;
+        for country in [None, Some("USA"), Some("FRA")] {
+            assert_eq!(license_purchase_surface(Desktop, country), LinkOut);
+            assert_eq!(license_purchase_surface(AndroidDirect, country), LinkOut);
+            assert_eq!(license_purchase_surface(AndroidPlay, country), NameWebsite);
+        }
+        assert_eq!(license_purchase_surface(IosAppStore, Some("USA")), LinkOut);
+        for country in [None, Some("FRA"), Some("JPN"), Some(""), Some("usa")] {
+            assert_eq!(license_purchase_surface(IosAppStore, country), KeyOnly);
+        }
+    }
+
+    #[test]
+    fn the_website_address_is_split_like_checkout() {
+        assert_eq!(Environment::Production.website_address(), "pay.futo.org");
+        assert_eq!(
+            Environment::Staging.website_address(),
+            "staging-pay2.futo.org"
+        );
+        // Typed by a person and never a link: no scheme, no path.
+        for env in [Environment::Production, Environment::Staging] {
+            let address = env.website_address();
+            assert!(
+                !address.contains("://") && !address.contains('/'),
+                "{address}"
+            );
+        }
+        // A dev build names the storefront it would buy on.
+        assert!(Environment::Staging
+            .config()
+            .pay2_base_url
+            .ends_with(Environment::Staging.website_address()));
+    }
 
     #[test]
     fn checkout_availability_follows_storefront_and_distribution() {

@@ -20,6 +20,11 @@
     "deepLinkScheme": "futonotes",
     "keyAlphabet": "ABCDEFGHJKMNPQRSTUVWXYZ123456789",
     "supportMailto": "mailto:support@futo.tech",
+    "websiteAddress": {
+      "$comment": "What a NameWebsite build (Android play) shows as plain, non-tappable text: the storefront as a person types it. Production is pay.futo.org, which serves the same storefront as pay2.futo.org (@justin 2026-10-19); staging has no short alias and names its own host. Environment-split like buyUrls (M3).",
+      "production": "pay.futo.org",
+      "staging": "staging-pay2.futo.org"
+    },
     "buyUrls": {
       "$comment": "The Buy / Renew destination, opened in the system browser. It is the generated checkout on the environment's own pay2 host \u2014 there is no pay.futo.tech landing page and there will not be one (product decision 2026-09-10). Environment-split like the verification key and the activation host (M3), so a .dev build reaches staging checkout. The product segment is the STOREFRONT slug, `futo-notes-license` \u2014 not `futo-notes`, which is the product field inside an activation payload and names nothing in the storefront (its /price answers \"Product not found: futo-notes\", observed 2026-09-10). `platform` and `from` (the surface that sent the buyer; the fixture pins `license-card`, the other source is exact-string tested in config.rs) are attribution only; `success` is the buyer's return marker and is `redirect-to-organization-page` because the buyer pays in the system browser: FUTOpay answers that marker with the license key page (the key as HTML plus the Activate deep link), while an empty value answers with the raw activation JSON \u2014 the contract of the in-app-WebView clients this app never runs, and what a buyer who just paid saw on staging 2026-09-11.",
       "production": {
@@ -61,6 +66,16 @@
     {"name": "Play Android", "platform": "android", "storefrontCountry": null, "buildAllows": false, "expected": false},
     {"name": "Android ignores country", "platform": "android", "storefrontCountry": "FRA", "buildAllows": true, "expected": true},
     {"name": "desktop unchanged", "platform": "desktop", "storefrontCountry": null, "buildAllows": false, "expected": true}
+  ],
+  "purchaseSurface": [
+    {"name": "desktop", "distribution": "desktop", "storefrontCountry": null, "expected": "linkOut"},
+    {"name": "US iOS", "distribution": "iosAppStore", "storefrontCountry": "USA", "expected": "linkOut"},
+    {"name": "non-US iOS", "distribution": "iosAppStore", "storefrontCountry": "FRA", "expected": "keyOnly"},
+    {"name": "unknown iOS storefront fails closed", "distribution": "iosAppStore", "storefrontCountry": null, "expected": "keyOnly"},
+    {"name": "lowercase is not the US storefront", "distribution": "iosAppStore", "storefrontCountry": "usa", "expected": "keyOnly"},
+    {"name": "direct Android", "distribution": "androidDirect", "storefrontCountry": null, "expected": "linkOut"},
+    {"name": "Play Android", "distribution": "androidPlay", "storefrontCountry": null, "expected": "nameWebsite"},
+    {"name": "Play Android in the US still only names the website", "distribution": "androidPlay", "storefrontCountry": "USA", "expected": "nameWebsite"}
   ],
   "licenseKey": [
     {

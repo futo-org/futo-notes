@@ -49,6 +49,7 @@ import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 import uniffi.futo_notes_ffi.LicenseAction
 import uniffi.futo_notes_ffi.LicenseInclusion
+import uniffi.futo_notes_ffi.LicensePurchaseSurface
 
 /**
  * The App icon picker. Choosing an icon is included with a license
@@ -62,6 +63,9 @@ fun AppIconSheet(
     controller: AppIconController,
     includes: Set<LicenseInclusion>?,
     rowActions: List<LicenseAction>,
+    surface: LicensePurchaseSurface,
+    /** The storefront address `play` names as plain text (Rust's `LicenseLinks.website`). */
+    website: String,
     onSelect: (AppIcon) -> Unit,
     onBuy: () -> Unit,
     onAlreadyPaid: () -> Unit,
@@ -71,7 +75,7 @@ fun AppIconSheet(
 ) {
     val localization = LocalLocalization.current
     val colors = FutoTheme.colors
-    val shape = appIconPickerShape(controller.selected, includes, rowActions)
+    val shape = appIconPickerShape(controller.selected, includes, rowActions, surface)
     // Disabling the launcher alias that rooted the task makes Android finish
     // that task, so a change is confirmed first (Signal's convention). Full
     // reset calls controller.reset() directly and never passes through here.
@@ -135,6 +139,7 @@ fun AppIconSheet(
         AppIconAskSheet(
             icon = askedIcon,
             ask = ask,
+            website = website,
             onBuy = onBuy,
             onAlreadyPaid = { asking = null; onAlreadyPaid() },
             onNotNow = { asking = null },
@@ -312,6 +317,7 @@ private fun LandingHeader() {
 private fun AppIconAskSheet(
     icon: AppIcon,
     ask: AppIconPickerShape.Ask,
+    website: String,
     onBuy: () -> Unit,
     onAlreadyPaid: () -> Unit,
     onNotNow: () -> Unit,
@@ -337,11 +343,15 @@ private fun AppIconAskSheet(
                 modifier = Modifier.semantics { heading() }.testTag("app-icon-ask-title"),
             )
             Spacer(Modifier.height(8.dp))
+            // Plain text throughout: the named website is never a link.
             Text(
-                localization.localizedText(
-                    if (ask is AppIconPickerShape.Ask.LinkOut) "settings.appIcon.license.sheetBody"
-                    else "license.keyOnlyExplanation",
-                ),
+                when (ask) {
+                    is AppIconPickerShape.Ask.LinkOut -> localization.localizedText("settings.appIcon.license.sheetBody")
+                    AppIconPickerShape.Ask.NameWebsite -> localization.localizedText(
+                        "settings.appIcon.license.sheetBodyWebsite", mapOf("url" to website),
+                    )
+                    AppIconPickerShape.Ask.KeyOnly -> localization.localizedText("license.keyOnlyExplanation")
+                },
                 style = FutoType.body,
                 color = colors.textMuted,
                 textAlign = TextAlign.Center,
@@ -356,7 +366,7 @@ private fun AppIconAskSheet(
                         Link(localization.localizedText("settings.appIcon.license.notNow"), "app-icon-ask-not-now", onNotNow)
                     }
                 }
-                AppIconPickerShape.Ask.KeyOnly -> {
+                AppIconPickerShape.Ask.NameWebsite, AppIconPickerShape.Ask.KeyOnly -> {
                     Filled(localization.localizedText(LicenseAction.ENTER_KEY.catalogPath()), "app-icon-ask-already-paid", onAlreadyPaid)
                     Link(localization.localizedText("settings.appIcon.license.notNow"), "app-icon-ask-not-now", onNotNow)
                 }

@@ -15,11 +15,12 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 
 use futo_notes_license::{
-    activation_url, buy_url, enter_license_key, evaluate, is_valid_license_key,
-    normalize_license_key, parse_deep_link, recognize_input, AcceptedLicense, ActivationTransport,
-    BuySource, EnterKeyError, Environment, HttpResponse, InvalidReason, LicenseConfig,
-    LicenseInput, LicensePair, LicenseState, OffsetDateTime, Platform, TransportError,
-    CHECKOUT_PRODUCT_SLUG, DEEP_LINK_SCHEME, KEY_ALPHABET, ORG_SLUG, PRODUCT_SLUG, SUPPORT_MAILTO,
+    activation_url, buy_url, enter_license_key, evaluate, is_valid_license_key, license_link_out,
+    license_purchase_surface, normalize_license_key, parse_deep_link, recognize_input,
+    AcceptedLicense, ActivationTransport, BuySource, Distribution, EnterKeyError, Environment,
+    HttpResponse, InvalidReason, LicenseConfig, LicenseInput, LicensePair, LicenseState,
+    OffsetDateTime, Platform, PurchaseSurface, TransportError, CHECKOUT_PRODUCT_SLUG,
+    DEEP_LINK_SCHEME, KEY_ALPHABET, ORG_SLUG, PRODUCT_SLUG, SUPPORT_MAILTO,
 };
 use serde_json::Value;
 
@@ -170,6 +171,17 @@ fn constants_match_the_fixture() {
         );
     }
 
+    // What a NameWebsite build shows as plain text, split the same way.
+    let website = &constants["websiteAddress"];
+    assert_eq!(
+        Environment::Production.website_address(),
+        text(website, "production")
+    );
+    assert_eq!(
+        Environment::Staging.website_address(),
+        text(website, "staging")
+    );
+
     let environments = &constants["environments"];
     // The dev/prod split is data here, not a compile flag, so a shell cannot
     // land a `.dev` build on the production key (M3).
@@ -211,6 +223,56 @@ fn constants_match_the_fixture() {
              would report every license as malformed instead"
         );
     }
+}
+
+/// What each distribution may do about buying. `linkOut` is the same rule
+/// asked as a yes/no (the iOS shell still asks that way), so both tables are
+/// held here.
+#[test]
+fn purchase_surface_vectors() {
+    let fixture = fixture();
+    let cases = fixture["purchaseSurface"]
+        .as_array()
+        .expect("purchaseSurface");
+    let mut failures = Vec::new();
+    for case in cases {
+        let distribution = match text(case, "distribution") {
+            "desktop" => Distribution::Desktop,
+            "iosAppStore" => Distribution::IosAppStore,
+            "androidDirect" => Distribution::AndroidDirect,
+            "androidPlay" => Distribution::AndroidPlay,
+            other => panic!("unknown distribution {other}"),
+        };
+        let expected = match text(case, "expected") {
+            "linkOut" => PurchaseSurface::LinkOut,
+            "nameWebsite" => PurchaseSurface::NameWebsite,
+            "keyOnly" => PurchaseSurface::KeyOnly,
+            other => panic!("unknown surface {other}"),
+        };
+        let actual = license_purchase_surface(distribution, case["storefrontCountry"].as_str());
+        if actual != expected {
+            failures.push(format!(
+                "{}: {actual:?} != {expected:?}",
+                text(case, "name")
+            ));
+        }
+    }
+    for case in fixture["linkOut"].as_array().expect("linkOut") {
+        let platform = match text(case, "platform") {
+            "ios" => Platform::Ios,
+            "android" => Platform::Android,
+            _ => Platform::Desktop,
+        };
+        let actual = license_link_out(
+            platform,
+            case["storefrontCountry"].as_str(),
+            case["buildAllows"].as_bool().expect("buildAllows"),
+        );
+        if Some(actual) != case["expected"].as_bool() {
+            failures.push(format!("linkOut {}: {actual}", text(case, "name")));
+        }
+    }
+    report("purchase surface", failures, cases.len());
 }
 
 #[test]

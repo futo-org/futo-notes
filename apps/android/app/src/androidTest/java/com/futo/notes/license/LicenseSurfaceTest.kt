@@ -27,13 +27,16 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.futo.notes.BuildConfig
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.Localization
 import com.futo.notes.ui.LicenseSettingsSection
-import com.futo.notes.ui.licenseExplanationPath
 import com.futo.notes.ui.theme.FutoNotesTheme
 import kotlinx.coroutines.awaitCancellation
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.assertHasNoClickAction
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.semantics.SemanticsProperties
+import com.futo.notes.ui.LICENSE_WEBSITE_TAG
 import org.junit.After
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -43,17 +46,18 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import uniffi.futo_notes_ffi.LicenseAction
-import uniffi.futo_notes_ffi.LicensePlatform
+import uniffi.futo_notes_ffi.LicenseDistribution
+import uniffi.futo_notes_ffi.LicensePurchaseSurface
 import uniffi.futo_notes_ffi.LicenseStatus
 import uniffi.futo_notes_ffi.licenseDeepLinkScheme
 import uniffi.futo_notes_ffi.licenseEvaluate
-import uniffi.futo_notes_ffi.licenseLinkOut
-import uniffi.futo_notes_ffi.licenseRowActions
+import uniffi.futo_notes_ffi.licensePurchaseSurface
+import uniffi.futo_notes_ffi.licenseSurfaceRowActions
 
 /**
  * What the BUILD promises about the license surface, where no test of the Rust
  * rules can see it — the manifest's URL scheme — plus the rendered License
- * plate. The store-posture flag is `LicenseLinkOutTest`'s, on both flavors.
+ * plate. The per-flavor distribution is `LicenseDistributionTest`'s, on both flavors.
  * Mirrors iOS `LicenseSurfaceTests`.
  */
 @RunWith(AndroidJUnit4::class)
@@ -100,62 +104,92 @@ class LicenseSurfaceTest {
     }
 
     @Test
-    fun linkOutFollowsTheSharedCasesAndFlavor() {
+    fun thePurchaseSurfaceFollowsTheSharedCasesAndFlavor() {
         val fixture = JSONObject(
             InstrumentationRegistry.getInstrumentation().context.assets
                 .open("license.json").bufferedReader().use { it.readText() },
-        ).getJSONArray("linkOut")
-        assertEquals(10, fixture.length())
+        ).getJSONArray("purchaseSurface")
+        assertEquals(8, fixture.length())
         for (index in 0 until fixture.length()) {
             val testCase = fixture.getJSONObject(index)
-            val platform = when (testCase.getString("platform")) {
-                "ios" -> LicensePlatform.IOS
-                "android" -> LicensePlatform.ANDROID
-                else -> LicensePlatform.DESKTOP
+            val distribution = when (testCase.getString("distribution")) {
+                "desktop" -> LicenseDistribution.DESKTOP
+                "iosAppStore" -> LicenseDistribution.IOS_APP_STORE
+                "androidDirect" -> LicenseDistribution.ANDROID_DIRECT
+                else -> LicenseDistribution.ANDROID_PLAY
+            }
+            val expected = when (testCase.getString("expected")) {
+                "linkOut" -> LicensePurchaseSurface.LINK_OUT
+                "nameWebsite" -> LicensePurchaseSurface.NAME_WEBSITE
+                else -> LicensePurchaseSurface.KEY_ONLY
             }
             assertEquals(
-                testCase.getString("name"), testCase.getBoolean("expected"),
-                licenseLinkOut(
-                    platform,
+                testCase.getString("name"), expected,
+                licensePurchaseSurface(
+                    distribution,
                     if (testCase.isNull("storefrontCountry")) null else testCase.getString("storefrontCountry"),
-                    testCase.getBoolean("buildAllows"),
                 ),
             )
         }
-        assertEquals(BuildConfig.FLAVOR == "direct", BuildConfig.LICENSE_LINK_OUT)
-        assertEquals("license.keyOnlyExplanation", licenseExplanationPath(LicenseStatus.UNLICENSED, false))
-        assertEquals("license.explanation", licenseExplanationPath(LicenseStatus.UNLICENSED, true))
-        assertEquals("license.keyOnlyExplanation", licenseExplanationPath(LicenseStatus.EXPIRED, false))
-        assertEquals("license.explanationLicensed", licenseExplanationPath(LicenseStatus.LICENSED, false))
     }
 
     /**
-     * Both values of the flag, at the seam the row actually renders from, so
-     * the consumption-only shape is exercised without a build flip: Buy, Renew
-     * and Lost-your-key disappear and the key field stays.
+     * Every surface at the seam the row renders from, so `play`'s shape is
+     * exercised without a build flip: no Buy or Renew, but "Lost your key?"
+     * stays, because help leads to no payment.
      */
     @Test
-    fun linkOutFalseKeepsTheKeyFieldAndHidesEveryWayOut() {
+    fun namingTheWebsiteKeepsTheKeyFieldAndHelpButNoCheckout() {
         assertEquals(
             listOf(LicenseAction.BUY, LicenseAction.ENTER_KEY, LicenseAction.LOST_KEY),
-            licenseRowActions(LicenseStatus.UNLICENSED, true),
+            licenseSurfaceRowActions(LicenseStatus.UNLICENSED, LicensePurchaseSurface.LINK_OUT),
         )
         assertEquals(
             listOf(LicenseAction.RENEW, LicenseAction.ENTER_KEY, LicenseAction.LOST_KEY),
-            licenseRowActions(LicenseStatus.EXPIRED, true),
+            licenseSurfaceRowActions(LicenseStatus.EXPIRED, LicensePurchaseSurface.LINK_OUT),
         )
-        assertEquals(
-            listOf(LicenseAction.ENTER_KEY),
-            licenseRowActions(LicenseStatus.UNLICENSED, false),
-        )
-        assertEquals(
-            listOf(LicenseAction.ENTER_KEY),
-            licenseRowActions(LicenseStatus.EXPIRED, false),
-        )
+        for (status in listOf(LicenseStatus.UNLICENSED, LicenseStatus.EXPIRED)) {
+            assertEquals(
+                listOf(LicenseAction.ENTER_KEY, LicenseAction.LOST_KEY),
+                licenseSurfaceRowActions(status, LicensePurchaseSurface.NAME_WEBSITE),
+            )
+        }
         assertEquals(
             listOf(LicenseAction.REMOVE),
-            licenseRowActions(LicenseStatus.LICENSED, false),
+            licenseSurfaceRowActions(LicenseStatus.LICENSED, LicensePurchaseSurface.NAME_WEBSITE),
         )
+    }
+
+    /**
+     * `play` names the website and nothing more: the address is plain text with
+     * no click action and no link annotation (Google Play's consumption-only
+     * rule), under the same headline and reason `direct` shows, with no Buy.
+     */
+    @Test
+    fun playNamesTheWebsiteAsTextThatCannotBeTapped() {
+        val localization = Localization.fromGeneratedCatalogs(listOf("en"), "en-US")
+        val license = LicenseModel(
+            LicenseStorage(preferences),
+            LicenseFixture.DEV_APPLICATION_ID,
+            distribution = LicenseDistribution.ANDROID_PLAY,
+        )
+        license.showMessage = {}
+        license.applyEvaluated(licenseEvaluate(null, LicenseFixture.DEV_APPLICATION_ID))
+
+        showPlate(license, localization)
+
+        compose.onNodeWithText(localization.localizedText("license.unlicensedHeadline")).assertExists()
+        compose.onNodeWithText(localization.localizedText("license.explanation")).assertExists()
+        val website = compose.onNodeWithTag(LICENSE_WEBSITE_TAG).performScrollTo()
+        website.assertTextEquals(
+            localization.localizedText("license.websiteExplanation", mapOf("url" to "staging-pay2.futo.org")),
+        )
+        website.assertHasNoClickAction()
+        val text = website.fetchSemanticsNode().config[SemanticsProperties.Text].single()
+        assertTrue("the address must not be a link", text.getLinkAnnotations(0, text.length).isEmpty())
+        compose.onNodeWithText(localization.localizedText("license.buy")).assertDoesNotExist()
+        compose.onNodeWithText(localization.localizedText("license.lostKey")).assertExists()
+        compose.onNodeWithText(localization.localizedText("license.enterKey")).assertExists()
     }
 
     /**
@@ -269,12 +303,12 @@ class LicenseSurfaceTest {
     @Test
     fun unlicensedLeadsWithTheAskAndCarriesNoCardChrome() {
         val localization = Localization.fromGeneratedCatalogs(listOf("en"), "en-US")
-        // Link-out pinned on: this asserts the Buy surface, which the Play
-        // flavor hides by design (covered by linkOutFalseKeepsTheKeyField...).
+        // Direct pinned: this asserts the Buy surface, which the Play flavor
+        // replaces by design (playNamesTheWebsiteAsTextThatCannotBeTapped).
         val license = LicenseModel(
             LicenseStorage(preferences),
             LicenseFixture.DEV_APPLICATION_ID,
-            buildAllowsLinkOut = true,
+            distribution = LicenseDistribution.ANDROID_DIRECT,
         )
         license.showMessage = {}
         license.applyEvaluated(licenseEvaluate(null, LicenseFixture.DEV_APPLICATION_ID))

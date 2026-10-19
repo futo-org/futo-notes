@@ -174,15 +174,22 @@ fixture would close that on all three platforms at once.
 - **Vocabulary:** "included with a license", "comes with a license", and
   "unlock(s)" for what a license includes (cosmetics; allowed on link-out builds
   only, @justin 2026-10-16: the footnote and sheet say a license "unlocks the
-  ability to change the app icon"). Key-only builds never say "unlock": their
-  footnote is `settings.appIcon.license.footnoteKeyOnly`, "included with a license". Never "paywall", "premium", "free" or "donate".
-- **Key-only builds** (iOS outside the US, Android `play`) get the key-only ask:
+  ability to change the app icon"). Builds without a link never say "unlock":
+  key-only builds' footnote is `settings.appIcon.license.footnoteKeyOnly`,
+  "included with a license"; Android `play`'s is
+  `settings.appIcon.license.footnoteWebsite`, "…, sold on FUTO's website". Never "paywall", "premium", "free" or "donate".
+- **Key-only builds** (iOS outside the US) get the key-only ask:
   `license.keyOnlyExplanation` and "I already paid", no Buy, no "Lost your
   key?", no website (ADR-0005). The row hint still shows there: it states a
   fact, not a sale.
+- _(android, `play`)_ The ask **names the website** in plain text:
+  `settings.appIcon.license.sheetBodyWebsite` with the address from
+  `LicenseLinks.website`, a filled **I already paid**, and **Not now**. No Buy,
+  no link, no price (ADR-0005, 2026-10-19 amendment). → `AppIconSheet.kt`,
+  `AppIconSheetTest` "playNamesTheWebsiteInTheAskAsTextThatCannotBeTapped"
 - _(ios, android)_ Implemented: the picker, sheet, row hint and landing, see
-  settings.md § Native app icons. Android's `play` flavor is the key-only
-  build, `direct` the link-out one, by `license_row_actions`.
+  settings.md § Native app icons. Android `direct` is the link-out build and
+  `play` the name-the-website one, by `license_purchase_surface`.
 
 > **Gap:** _(desktop)_ The behaviors above are specified but only the native
 > shells render them; the desktop webview has no picker and needs no UI.
@@ -345,7 +352,7 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   `/price` answered `Product not found: futo-notes`), so Buy led nowhere on
   every client. → `CHECKOUT_PRODUCT_SLUG` and `PRODUCT_SLUG`,
   `the_checkout_slug_is_not_the_activation_payloads_product`
-- **Checkout availability follows the distribution and storefront.** Desktop links out as before. _(ios)_ Only the US StoreKit storefront offers Buy or Renew, opened by `openURL` in the default browser; another or unknown storefront has the key field and deep link, with no checkout link. _(android)_ `direct` offers Buy or Renew worldwide in a Custom Tab (falling back to `ACTION_VIEW` when no provider exists); `play` has the key field and deep link only. No shell renders checkout in a WebView. The return path is the `futonotes://license/{key}/{activation}` deep link. → `license_link_out`, `license_row_actions`, `LicenseStorefront.swift`, `browser/CustomTabs.kt`, `license/LicenseLinkActivity.kt`
+- **Checkout availability follows the distribution and storefront.** Desktop links out as before. _(ios)_ Only the US StoreKit storefront offers Buy or Renew, opened by `openURL` in the default browser; another or unknown storefront has the key field and deep link, with no checkout link. _(android)_ `direct` offers Buy or Renew worldwide in a Custom Tab (falling back to `ACTION_VIEW` when no provider exists); `play` has no Buy or Renew and names the website as plain text instead (§ States and copy), with the key field and deep link. No shell renders checkout in a WebView. The return path is the `futonotes://license/{key}/{activation}` deep link. Which of the three surfaces (link out, name the website, key only) a build gets is Rust's answer from its distribution and storefront. → `license_purchase_surface`, `license_link_out` (iOS), `license_surface_row_actions`, `license_row_actions` (iOS), `LicenseStorefront.swift`, `browser/CustomTabs.kt`, `license/LicenseLinkActivity.kt`
 - The Buy destination is **per environment**, like the verification key and the
   activation host (AGENTS.md M3): `{pay2}` is `https://pay2.futo.org` for
   `com.futo.notes` and `https://staging-pay2.futo.org` for `com.futo.notes.dev`,
@@ -594,14 +601,27 @@ drift-registered concept, `license-card-copy`
 | **Licensed**   | none         | masked, revealable | "{date}", blank with no `issued_at` | "Perpetual" or "Valid until {date}" | Remove license                                      |
 | **Expired**    | "Expired"    | masked, revealable | "{date}"                            | "Expired {date}"                    | **Renew** · I already paid · Lost your key?         |
 
-The actions above are the full checkout surface. _(ios, non-US or unknown storefront;
-android, `play`)_ Unlicensed and Expired offer only **I already paid**; Licensed
+The actions above are the full checkout surface. _(ios, non-US or unknown storefront)_
+Unlicensed and Expired offer only **I already paid**; Licensed
 still offers Remove. The key-only Unlicensed plate has no payment headline.
 Unlicensed and Expired use `license.keyOnlyExplanation` ("Have a FUTO Notes
 license? Enter your key to activate it on this device.") rather than the
 payment explanation. The same `license_link_out` answer controls both copy and
-actions. → `license_row_actions`, `LicenseSettingsSection.swift`,
-`LicenseSettingsSection.kt`
+actions. → `license_row_actions`, `LicenseSettingsSection.swift`
+
+_(android, `play`)_ Unlicensed and Expired **name the website**: the payment
+headline `license.unlicensedHeadline` and `license.explanation` as on `direct`,
+then `license.websiteExplanation` ("Licenses are sold on FUTO's website at
+{url}. Already bought one? Enter your key to activate it on this device."),
+then **I already paid** · **Lost your key?**. No Buy or Renew, no filled
+button, no price. `{url}` is `LicenseLinks.website`, environment-split like Buy
+(M3): `pay.futo.org` in production (the same storefront as `pay2.futo.org`),
+`staging-pay2.futo.org` on a `.dev` build. It is **plain text**: no link
+annotation, no autolink, no click handler, no copy button, no QR code; tapping
+it does nothing. Licensed shows the ordinary thank-you and Remove. →
+`license_purchase_surface`, `license_surface_row_actions`,
+`LicenseSettingsSection.kt` (`licenseWebsitePath`), `LicenseSurfaceTest`
+"playNamesTheWebsiteAsTextThatCannotBeTapped"
 
 The Key column is the whole table on every platform: the row is absent rather
 than blank when Unlicensed, and the two date columns do not exist anywhere.
@@ -618,9 +638,10 @@ one catalog entry, `license.enterKey`, so all three shells moved together
 - When checkout is available, Buy/Renew is the **only filled button on the
   card**. Enter license key, Lost your key? and Remove license are text links
   beside it. The key-only surface has no filled button. _(native shells)_ Which controls
-  exist at all is Rust's answer, `license_row_actions`, which also owns what
-  `LICENSE_LINK_OUT` hides; _(desktop)_ the plate still derives its two buttons
-  inline, because desktop has no `LICENSE_LINK_OUT` to obey (drift concept
+  exist at all is Rust's answer, `license_surface_row_actions` (iOS:
+  `license_row_actions`), which also owns what each purchase surface hides;
+  _(desktop)_ the plate still derives its two buttons inline, because desktop
+  is always link-out (drift concept
   `license-row-actions`).
 - **The Licensed state wears no badge on any platform**, and neither does
   Unlicensed. The coin in the well is the statement; the word placed over the
@@ -935,11 +956,12 @@ and the decision, not the rules, is what this section records.
 - **Decision 2026-09-24 — follow each store's rules** (@justin; ADR-0005,
   plan `docs/plan/license-store-compliance.md`):
   - _(ios)_ One binary reads `Storefront.current` and `Storefront.updates`. The **US** storefront offers the full surface, with Buy in the default browser. Every other or unknown storefront has the key field and deep link only; it has no Buy, Renew, Lost-your-key, payment headline, or payment explanation. The initial answer is key-only until StoreKit responds. EU and Japan are not special-cased. → `license_link_out`, `LicenseStorefront.swift`
-  - _(android)_ `direct` offers the full surface worldwide and opens Buy in a Custom Tab; `play` accepts keys and deep links only, worldwide. Both flavors keep the same app identity and signing, so installing one over the other preserves notes. → `BuildConfig.LICENSE_LINK_OUT`, `LicenseModel.kt`, `browser/CustomTabs.kt`
+  - _(android)_ `direct` offers the full surface worldwide and opens Buy in a Custom Tab; `play` names the website in plain text and accepts keys and deep links, worldwide (revised 2026-10-19, below). Both flavors keep the same app identity and signing, so installing one over the other preserves notes. The flavor reports only its distribution; Rust decides the surface. → `BuildConfig.LICENSE_DISTRIBUTION`, `license_purchase_surface`, `LicenseModel.kt`, `browser/CustomTabs.kt`
   - _(desktop)_ Unchanged.
   - If Apple rejects the key field outside the US (3.1.1), the fallback is a non-consumable IAP at the same price (3.1.3(b)), not built.
   - **In-app purchase is deferred (2026-10-19, @justin).** No StoreKit or Play Billing purchase flow and no change to FUTOpay (lib-polar) is planned for now; deferred, not cancelled. The 2026-10-16 design (a store purchase redeemed on FUTOpay for an ordinary key) is kept as the record in ADR-0007 and ADR-0008. This posture, with the key-only surfaces above, is what ships.
-  - **The key-only wording is under review (2026-10-19).** How far the copy on the key-only surfaces (iOS outside the US, Android `play`) may steer a buyer toward the website is being researched against each store's rules. Until that lands, the rules above stand.
+  - **The key-only wording is under review (2026-10-19).** How far the copy on the key-only surface (iOS outside the US) may steer a buyer toward the website is being researched against Apple's rules. Until that lands, the rules above stand.
+  - **Android `play` names the website (2026-10-19, @justin; ADR-0005 amendment).** Google's consumption-only rule lets an app say where to buy as long as nothing leads there (Play Console Help 10281818), so `play` shows the payment headline, the reason, and the storefront address as plain, non-tappable text, plus "Lost your key?". No Buy, no link, no copy button, no QR code, no price. Not flipped to link-out in the US: that needs the External Content Links program. → `license_purchase_surface` (`NameWebsite`)
   - _(Android, F-Droid)_ Offline verification adds no anti-feature; the single activation request to pay2 may earn a Tethered/NonFreeNet label. Accepted.
 - **Verification 2026-09-24.** _(ios)_ Debug UI tests drove USA (Buy opened Safari), FRA and `none` (key-only copy and deep-link activation). A Release UI test compared the unforced surface with `Storefront.current`; Release contained no `-FUTOLicenseStorefront` string. On the claimed simulator, StoreKit reported a US storefront without a signed-in App Store account, so the US purchase surface appeared. An absent account is not proof of `nil`; only `nil` itself fails closed. _(android)_ The pooled emulator showed direct checkout in Chrome's Custom Tab, a deep link returning to one existing `MainActivity`, Back returning to Settings, and Play's key-only surface activating both a pasted pair and a cold-start deep link. → `LicenseSurfaceTests`, `LicensePlateTests`, `LicenseSurfaceTest`, `LicenseLinkActivity.kt`
 - **Never** frame the purchase as a donation in the app or the store listing
