@@ -119,6 +119,13 @@ if ($installed -ne "tauri-cli $TauriCliVersion") {
     cargo binstall "tauri-cli@$TauriCliVersion" --no-confirm --locked --force
     Refresh-Path
 }
-cargo tauri --version
+# Fail red if the binary on PATH is not the pinned one (a template-baked or
+# cached cargo-tauri that shadows the fresh install would otherwise build the
+# release with an unpinned CLI).
+$final = (cargo tauri --version)
+Write-Host $final
+if ($final -ne "tauri-cli $TauriCliVersion") {
+    throw "tauri-cli on PATH is '$final', expected 'tauri-cli $TauriCliVersion'"
+}
 
 Write-Host "=== All dependencies installed ==="

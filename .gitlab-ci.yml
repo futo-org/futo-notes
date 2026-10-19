@@ -244,6 +244,7 @@ collect-secrets-from-op:
     - |
       # Pinned, and the cached binary is checked by version: tauri-cli 2.12.3
       # changed the AppImage GTK hook patch-appimage.mjs rewrites (v1.9.0 tag).
+      # Copies of this pin are listed in scripts/drift-registry.json (tauri-cli-pin).
       TAURI_CLI_VERSION=2.11.4
       if cargo tauri --version 2>/dev/null | grep -Fx "tauri-cli $TAURI_CLI_VERSION" >/dev/null; then
         echo "cargo-tauri $TAURI_CLI_VERSION already installed (cached)"
