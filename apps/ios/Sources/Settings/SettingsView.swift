@@ -6,6 +6,7 @@ import UIKit
 /// storage readout, issue reporting, about, and the danger-zone full reset.
 /// Sync details/actions stay in SyncView — the Sync row just opens it.
 struct SettingsView: View {
+    private static let licenseCardID = "license-card"
     static let systemSettingsURL = URL(string: UIApplication.openSettingsURLString)!
 
     @EnvironmentObject private var store: NotesStore
@@ -26,6 +27,16 @@ struct SettingsView: View {
 
     @State private var appIcons = AppIconController()
     @State private var showAppIcons = false
+    /// The one-time header above the picker's grid after an activation. Set when
+    /// the landing opens the picker and dropped when it closes: nothing is
+    /// persisted, so reopening shows the plain grid.
+    @State private var showsLanding = false
+    /// Bumped by "I already paid" in the picker's sheet; the License card opens
+    /// its key field on each change.
+    @State private var keyEntryRequest = 0
+    /// The icon whose ask sheet is up over the picker. Lives here, not in the
+    /// picker, so it survives the picker being re-created on foregrounding.
+    @State private var askingIcon: AppIcon?
     @Environment(\.scenePhase) private var scenePhase
     @State private var showSync = false
     /// Full reset is guarded by a modal confirmation dialog: tapping the row
@@ -42,7 +53,11 @@ struct SettingsView: View {
                 // there is no ambient label anywhere else on this platform, so
                 // this row's status text IS the label (docs/spec/license.md
                 // § States and copy).
-                LicenseSettingsSection(license: license, linkOut: licenseStorefront.linkOut)
+                LicenseSettingsSection(
+                    license: license, linkOut: licenseStorefront.linkOut,
+                    keyEntryRequest: keyEntryRequest
+                )
+                .id(Self.licenseCardID)
 
                 // The whole Sync surface is one "Sync" row: cloud
                 // icon, connected-vs-local status, SYNCED/LOCAL badge. No
@@ -101,6 +116,10 @@ struct SettingsView: View {
                             Text(localization.localizedText(appIcons.selected.labelKey))
                                 .foregroundStyle(.primary)
                             Spacer()
+                            // Unknown (still loading) is not "unlicensed".
+                            if license.view != nil && !license.includes.contains(.appIcon) {
+                                appIconHint
+                            }
                             Image(systemName: "chevron.right").foregroundStyle(.secondary)
                         }
                     }
@@ -193,6 +212,27 @@ struct SettingsView: View {
                     #endif
                 }
             }
+            .onChange(of: license.pendingLanding, initial: true) { _, pending in
+                guard pending else { return }
+                // Taken now, whatever happens next: a landing is for the moment
+                // of activation and is never kept for a later visit.
+                license.consumeLanding()
+                // The OS cannot change icons (the picker would only say so),
+                // or something Settings owns is already up and SwiftUI would
+                // drop the presentation: the toast alone is the landing.
+                guard appIcons.available, !showSync, !showResetConfirm, !resetting else { return }
+                showsLanding = true
+                // Already open (the user paid from its sheet): it only gains
+                // the header.
+                showAppIcons = true
+            }
+            .onChange(of: showAppIcons) { _, shown in
+                if !shown {
+                    showsLanding = false
+                    askingIcon = nil
+                }
+            }
+            .modifier(ScrollOnChange(id: Self.licenseCardID, trigger: keyEntryRequest))
             .navigationTitle(localization.localizedText("settings.heading"))
             .navigationBarTitleDisplayMode(.inline)
             .tint(Theme.primary)
@@ -203,7 +243,14 @@ struct SettingsView: View {
                 }
             }
             .sheet(isPresented: $showAppIcons) {
-                AppIconPicker(controller: appIcons)
+                AppIconPicker(
+                    controller: appIcons, license: license, linkOut: licenseStorefront.linkOut,
+                    showsLanding: showsLanding, asking: $askingIcon,
+                    onAlreadyPaid: {
+                        showAppIcons = false
+                        // Scrolls to the card and opens its key field.
+                        keyEntryRequest += 1
+                    })
             }
             .sheet(isPresented: $showSync) {
                 SyncView()
@@ -232,6 +279,19 @@ struct SettingsView: View {
         }
         .transientMessageBanner(store)
         .interactiveDismissDisabled(resetting)
+    }
+
+    /// The coin and "With a license" on the App icon row while the license does
+    /// not include icons — on key-only builds too: it names a fact, not a sale.
+    private var appIconHint: some View {
+        HStack(spacing: 6) {
+            CoinBadge(diameter: 18, ring: false)
+            Text(localization.localizedText("settings.appIcon.license.rowHint"))
+                .font(.subheadline)
+                // The row is a tinted Button: `.secondary` derives from the
+                // tint, so name the grey outright.
+                .foregroundStyle(Color(.secondaryLabel))
+        }
     }
 
     /// SYNCED / LOCAL pill shown on the single "Sync" row.
@@ -279,6 +339,21 @@ struct SettingsView: View {
             )
         } catch {
             store.showTransient(LocalizedMessage("settings.danger.failed"))
+        }
+    }
+}
+
+/// Scrolls to `id` whenever `trigger` changes. A modifier so the `Form` does not
+/// need a `ScrollViewReader` wrapped around (and re-indented under) it.
+private struct ScrollOnChange<Trigger: Equatable>: ViewModifier {
+    let id: String
+    let trigger: Trigger
+
+    func body(content: Content) -> some View {
+        ScrollViewReader { proxy in
+            content.onChange(of: trigger) {
+                withAnimation { proxy.scrollTo(id, anchor: .top) }
+            }
         }
     }
 }

@@ -1,5 +1,12 @@
 # The license purchase follows each store's rules, gated by storefront on iOS
 
+> **2026-10-16, then deferred 2026-10-19:** [ADR-0007](0007-ios-sells-the-license-in-app.md)
+> proposed replacing the key-only surfaces (iOS outside the US, Android `play`) with an in-app
+> purchase. On 2026-10-19 that was deferred, so those surfaces stay key-only and this ADR is in
+> force as written. The key-only wording is under review (how far the copy may steer a buyer to
+> the website); until that lands, nothing here changes. The EU/Japan and Google-program cost
+> analysis is still the snapshot.
+
 Supersedes [ADR-0003 "Every platform links out to buy"](0003-every-platform-links-out-to-buy.md)
 on one point: that ADR, and the store-posture decision of 2026-09-09, shipped the Buy link
 **worldwide** on every surface and accepted the review risk. On 2026-09-24 @justin reversed

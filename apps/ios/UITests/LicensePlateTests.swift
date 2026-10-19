@@ -104,6 +104,11 @@ final class LicensePlateTests: XCTestCase {
         //    activate-redirect page does after a purchase ──────────────────────
         XCUIDevice.shared.system.open(deepLink)
 
+        // The license includes the app icon, so activating lands on the picker
+        // over Settings; this story is about the card underneath it.
+        let picker = app.navigationBars["App icon"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 15), "the activation did not land")
+        picker.buttons["Done"].tap()
         let masked = app.buttons["license-key-masked"]
         XCTAssertTrue(masked.waitForExistence(timeout: 15), "the link did not license the device")
         // The burst is a decorative canvas with nothing in the accessibility

@@ -14,6 +14,7 @@ interface LicenseViewFixture {
   issuedAt: string | null;
   expiresAt: string | null;
   key: string | null;
+  includes: 'appIcon'[];
 }
 
 const KEY = 'AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV';
@@ -25,12 +26,14 @@ const UNLICENSED: LicenseViewFixture = {
   issuedAt: null,
   expiresAt: null,
   key: null,
+  includes: [],
 };
 const LICENSED_V2: LicenseViewFixture = {
   state: 'licensed',
   issuedAt: '2026-06-15T12:00:00Z',
   expiresAt: '2029-06-15T12:00:00Z',
   key: KEY,
+  includes: ['appIcon'],
 };
 /** A v1 activation: no issue date and no expiry, which is what production
  *  mints today. It renders the same card as a v2 one — since 2026-09-17 the
@@ -41,12 +44,14 @@ const LICENSED_V1: LicenseViewFixture = {
   issuedAt: null,
   expiresAt: null,
   key: KEY,
+  includes: ['appIcon'],
 };
 const EXPIRED: LicenseViewFixture = {
   state: 'expired',
   issuedAt: '2024-01-02T12:00:00Z',
   expiresAt: '2025-01-02T12:00:00Z',
   key: KEY,
+  includes: [],
 };
 
 /** When set, any key the user submits activates and lands on this view — which
@@ -61,7 +66,7 @@ async function mockLicense(
       status: 200,
       contentType: 'text/javascript',
       body: `
-        export const UNLICENSED = { state: 'unlicensed', issuedAt: null, expiresAt: null, key: null };
+        export const UNLICENSED = { state: 'unlicensed', issuedAt: null, expiresAt: null, key: null, includes: [] };
         const VIEW = ${JSON.stringify(view)};
         const ACTIVATED = ${JSON.stringify(activatesTo ?? null)};
         export async function readLicenseStatus() { return VIEW; }
@@ -133,7 +138,7 @@ test.describe('License card', () => {
     // sits above the button rather than under it.
     await expect(page.locator('.license-pitch-headline')).toHaveText('Pay for FUTO Notes');
     await expect(page.locator('.license-pitch')).toHaveCount(1);
-    await expect(page.locator('.license-pitch')).toContainText("FUTO's mission");
+    await expect(page.locator('.license-pitch')).toContainText('is paid for by you');
     await expect(page.locator('.license-explanation')).toHaveCount(0);
 
     await expect(buyButton(page)).toBeVisible();
@@ -187,7 +192,7 @@ test.describe('License card', () => {
     // headline, and Renew rather than Buy.
     await expect(page.locator('.license-pitch-headline')).toHaveCount(0);
     await expect(page.locator('.license-pitch')).toHaveCount(1);
-    await expect(page.locator('.license-pitch')).toContainText("FUTO's mission");
+    await expect(page.locator('.license-pitch')).toContainText('is paid for by you');
 
     await expect(
       page.locator('.license-plate').getByRole('button', { name: 'Renew', exact: true }),

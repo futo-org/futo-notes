@@ -262,12 +262,34 @@ pub fn license_link_out(
 /// simply be present: the deployed FUTOpay 422s a `checkout-ready` without it.
 /// `platform` is attribution only and never changes price, product, or
 /// entitlement.
-pub fn buy_url(config: LicenseConfig<'_>, platform: Platform) -> String {
+/// `from` is attribution only too: which surface the buyer tapped Buy on. It
+/// rides the click the user already makes; nothing is requested or stored
+/// before it. Every caller names its [`BuySource`]; there is no default.
+pub fn buy_url(config: LicenseConfig<'_>, platform: Platform, source: BuySource) -> String {
     format!(
-        "{}/checkout/polar/{ORG_SLUG}/{CHECKOUT_PRODUCT_SLUG}/checkout-ready?platform={}&success=redirect-to-organization-page",
+        "{}/checkout/polar/{ORG_SLUG}/{CHECKOUT_PRODUCT_SLUG}/checkout-ready?platform={}&from={}&success=redirect-to-organization-page",
         config.pay2_base_url.trim_end_matches('/'),
-        platform.slug()
+        platform.slug(),
+        source.slug()
     )
+}
+
+/// Which surface sent the buyer to checkout (the Buy URL's `from`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuySource {
+    /// The License card's Buy / Renew button.
+    LicenseCard,
+    /// The app icon picker's "included with a license" sheet.
+    AppIconPicker,
+}
+
+impl BuySource {
+    pub fn slug(self) -> &'static str {
+        match self {
+            BuySource::LicenseCard => "license-card",
+            BuySource::AppIconPicker => "app-icon",
+        }
+    }
 }
 
 /// The one endpoint this crate ever calls, and only from
@@ -423,14 +445,26 @@ mod tests {
     #[test]
     fn the_checkout_slug_is_not_the_activation_payloads_product() {
         assert_ne!(PRODUCT_SLUG, CHECKOUT_PRODUCT_SLUG);
-        assert!(buy_url(Environment::Staging.config(), Platform::Desktop)
-            .contains("/futo-notes/futo-notes-license/"));
+        assert!(buy_url(
+            Environment::Staging.config(),
+            Platform::Desktop,
+            BuySource::LicenseCard
+        )
+        .contains("/futo-notes/futo-notes-license/"));
     }
 
     #[test]
     fn a_dev_build_can_never_open_production_checkout() {
-        let staging = buy_url(Environment::Staging.config(), Platform::Desktop);
-        let production = buy_url(Environment::Production.config(), Platform::Desktop);
+        let staging = buy_url(
+            Environment::Staging.config(),
+            Platform::Desktop,
+            BuySource::LicenseCard,
+        );
+        let production = buy_url(
+            Environment::Production.config(),
+            Platform::Desktop,
+            BuySource::LicenseCard,
+        );
         assert!(staging.starts_with(STAGING_PAY2_BASE_URL), "{staging}");
         assert!(
             production.starts_with(PRODUCTION_PAY2_BASE_URL),
@@ -439,11 +473,35 @@ mod tests {
         assert!(!staging.contains("//pay2.futo.org"), "{staging}");
     }
 
+    #[test]
+    fn the_buy_url_names_its_source_after_the_platform() {
+        for (env, host) in [
+            (Environment::Production, "https://pay2.futo.org"),
+            (Environment::Staging, "https://staging-pay2.futo.org"),
+        ] {
+            for (source, from) in [
+                (BuySource::LicenseCard, "license-card"),
+                (BuySource::AppIconPicker, "app-icon"),
+            ] {
+                assert_eq!(
+                    buy_url(env.config(), Platform::Ios, source),
+                    format!(
+                        "{host}/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=ios&from={from}&success=redirect-to-organization-page"
+                    )
+                );
+            }
+        }
+    }
+
     /// The buyer pays in the system browser, so both ends of the flow must be
     /// pages a human reads.
     #[test]
     fn the_buy_url_asks_for_a_page_a_browser_can_render() {
-        let url = buy_url(Environment::Production.config(), Platform::Android);
+        let url = buy_url(
+            Environment::Production.config(),
+            Platform::Android,
+            BuySource::LicenseCard,
+        );
         // `/price` and `/info` on the same path are JSON APIs for the in-app
         // sheets; handing either to the system browser would show a buyer a
         // blob of JSON instead of a checkout.

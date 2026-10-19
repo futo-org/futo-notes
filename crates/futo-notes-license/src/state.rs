@@ -48,6 +48,18 @@ pub enum LicenseState {
     Invalid(InvalidReason),
 }
 
+impl LicenseState {
+    /// The card state this verdict renders as — the one mapping every shell
+    /// uses. `Invalid` flattens to `Unlicensed`: the reason is diagnostic only.
+    pub fn status(&self) -> LicenseStatus {
+        match self {
+            LicenseState::Licensed(_) => LicenseStatus::Licensed,
+            LicenseState::Expired(_) => LicenseStatus::Expired,
+            LicenseState::Invalid(_) => LicenseStatus::Unlicensed,
+        }
+    }
+}
+
 /// Why a pair was rejected.
 ///
 /// **Diagnostic only.** No user ever sees this: every reason renders as the one
@@ -132,5 +144,50 @@ pub fn evaluate(
         LicenseState::Expired(details)
     } else {
         LicenseState::Licensed(details)
+    }
+}
+
+/// The three states a License card can be in. [`LicenseState::Invalid`] is not
+/// one of them: a stored pair that stopped verifying reads as `Unlicensed`,
+/// exactly like no license at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LicenseStatus {
+    Unlicensed,
+    Licensed,
+    Expired,
+}
+
+/// What a license includes beyond the card. Cosmetic only, by policy
+/// (docs/spec/license.md): a working feature never appears here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LicenseInclusion {
+    /// Choosing the app icon (native shells).
+    AppIcon,
+}
+
+/// The one place the inclusion policy lives. Licensed includes everything
+/// listed; Unlicensed and Expired include nothing (Expired is Unlicensed with
+/// a story). Shells ask; none of them keeps a copy of this table.
+pub fn license_includes(status: LicenseStatus) -> Vec<LicenseInclusion> {
+    match status {
+        LicenseStatus::Licensed => vec![LicenseInclusion::AppIcon],
+        LicenseStatus::Unlicensed | LicenseStatus::Expired => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod includes_tests {
+    use super::*;
+
+    /// Adding an inclusion is a policy change: it must be a deliberate edit here.
+    #[test]
+    fn only_licensed_includes_the_app_icon() {
+        for (status, expected) in [
+            (LicenseStatus::Licensed, vec![LicenseInclusion::AppIcon]),
+            (LicenseStatus::Unlicensed, vec![]),
+            (LicenseStatus::Expired, vec![]),
+        ] {
+            assert_eq!(license_includes(status), expected, "{status:?}");
+        }
     }
 }

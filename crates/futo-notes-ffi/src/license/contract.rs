@@ -2,9 +2,11 @@
 //! back. Records and enums only — no copy, no storage, no platform branching.
 
 use futo_notes_license::{
-    buy_url, enter_license_key, evaluate, parse_deep_link, ActivationTransport, EnterKeyError,
-    Environment, LicenseConfig, LicenseState, OffsetDateTime, Platform, TransportError,
-    DEEP_LINK_SCHEME, SUPPORT_MAILTO,
+    buy_url, enter_license_key, evaluate, license_includes as core_license_includes,
+    parse_deep_link, ActivationTransport, BuySource as CoreBuySource, EnterKeyError, Environment,
+    LicenseConfig, LicenseInclusion as CoreLicenseInclusion, LicenseState,
+    LicenseStatus as CoreLicenseStatus, OffsetDateTime, Platform, TransportError, DEEP_LINK_SCHEME,
+    SUPPORT_MAILTO,
 };
 
 use super::transport::Pay2Transport;
@@ -214,6 +216,67 @@ pub fn license_row_actions(status: LicenseStatus, link_out: bool) -> Vec<License
     }
 }
 
+impl From<CoreLicenseStatus> for LicenseStatus {
+    fn from(status: CoreLicenseStatus) -> Self {
+        match status {
+            CoreLicenseStatus::Unlicensed => LicenseStatus::Unlicensed,
+            CoreLicenseStatus::Licensed => LicenseStatus::Licensed,
+            CoreLicenseStatus::Expired => LicenseStatus::Expired,
+        }
+    }
+}
+
+impl From<LicenseStatus> for CoreLicenseStatus {
+    fn from(status: LicenseStatus) -> Self {
+        match status {
+            LicenseStatus::Unlicensed => CoreLicenseStatus::Unlicensed,
+            LicenseStatus::Licensed => CoreLicenseStatus::Licensed,
+            LicenseStatus::Expired => CoreLicenseStatus::Expired,
+        }
+    }
+}
+
+/// What a license includes beyond the card. Cosmetic only, by policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum LicenseInclusion {
+    /// Choosing the app icon.
+    AppIcon,
+}
+
+impl From<CoreLicenseInclusion> for LicenseInclusion {
+    fn from(inclusion: CoreLicenseInclusion) -> Self {
+        match inclusion {
+            CoreLicenseInclusion::AppIcon => LicenseInclusion::AppIcon,
+        }
+    }
+}
+
+/// What this status includes. The rule is `futo_notes_license::license_includes`;
+/// shells derive their `includes` set from it whenever the view changes.
+#[uniffi::export]
+pub fn license_includes(status: LicenseStatus) -> Vec<LicenseInclusion> {
+    core_license_includes(status.into())
+        .into_iter()
+        .map(Into::into)
+        .collect()
+}
+
+/// Attribution only: which surface sent the buyer to checkout (`from=`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum BuySource {
+    LicenseCard,
+    AppIconPicker,
+}
+
+impl From<BuySource> for CoreBuySource {
+    fn from(source: BuySource) -> Self {
+        match source {
+            BuySource::LicenseCard => CoreBuySource::LicenseCard,
+            BuySource::AppIconPicker => CoreBuySource::AppIconPicker,
+        }
+    }
+}
+
 /// The URL scheme this app answers.
 ///
 /// Exported so a shell's *build-time* registration — iOS `CFBundleURLTypes`,
@@ -231,11 +294,16 @@ pub fn license_deep_link_scheme() -> String {
 /// environment's pay2 host, so a `.dev` build sends a buyer to staging
 /// checkout and can never open the production storefront.
 #[uniffi::export]
-pub fn license_links(platform: LicensePlatform, bundle_id: String) -> LicenseLinks {
+pub fn license_links(
+    platform: LicensePlatform,
+    bundle_id: String,
+    source: BuySource,
+) -> LicenseLinks {
     LicenseLinks {
         buy: buy_url(
             Environment::for_bundle_id(&bundle_id).config(),
             platform.into(),
+            source.into(),
         ),
         support: SUPPORT_MAILTO.to_string(),
     }
@@ -396,14 +464,8 @@ fn epoch_millis(value: OffsetDateTime) -> i64 {
 
 fn view_of(state: &LicenseState) -> LicenseView {
     match state {
-        LicenseState::Licensed(details) => LicenseView {
-            status: LicenseStatus::Licensed,
-            issued_at_millis: details.issued_at.map(epoch_millis),
-            expires_at_millis: details.expires_at.map(epoch_millis),
-            key: Some(details.key.clone()),
-        },
-        LicenseState::Expired(details) => LicenseView {
-            status: LicenseStatus::Expired,
+        LicenseState::Licensed(details) | LicenseState::Expired(details) => LicenseView {
+            status: state.status().into(),
             issued_at_millis: details.issued_at.map(epoch_millis),
             expires_at_millis: details.expires_at.map(epoch_millis),
             key: Some(details.key.clone()),
@@ -854,19 +916,51 @@ mod tests {
     #[test]
     fn the_buy_url_carries_the_platform() {
         assert_eq!(
-            license_links(LicensePlatform::Ios, "com.futo.notes".into()).buy,
+            license_links(
+                LicensePlatform::Ios,
+                "com.futo.notes".into(),
+                BuySource::LicenseCard
+            )
+            .buy,
             "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
-             /checkout-ready?platform=ios&success=redirect-to-organization-page"
+             /checkout-ready?platform=ios&from=license-card&success=redirect-to-organization-page"
         );
         assert_eq!(
-            license_links(LicensePlatform::Android, "com.futo.notes".into()).buy,
+            license_links(LicensePlatform::Android, "com.futo.notes".into(), BuySource::LicenseCard).buy,
             "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
-             /checkout-ready?platform=android&success=redirect-to-organization-page"
+             /checkout-ready?platform=android&from=license-card&success=redirect-to-organization-page"
         );
         assert_eq!(
-            license_links(LicensePlatform::Ios, "com.futo.notes".into()).support,
+            license_links(
+                LicensePlatform::Ios,
+                "com.futo.notes".into(),
+                BuySource::LicenseCard
+            )
+            .support,
             "mailto:support@futo.tech"
         );
+    }
+
+    #[test]
+    fn the_buy_url_carries_the_source() {
+        assert!(license_links(
+            LicensePlatform::Ios,
+            "com.futo.notes".into(),
+            BuySource::AppIconPicker
+        )
+        .buy
+        .contains("&from=app-icon&"));
+    }
+
+    /// The FFI mapping, not the policy (the crate owns that): a status reaches
+    /// the crate's rule as the same status, and the answer comes back mapped.
+    #[test]
+    fn includes_maps_the_status_through_to_the_crate_rule() {
+        assert_eq!(
+            license_includes(LicenseStatus::Licensed),
+            vec![LicenseInclusion::AppIcon]
+        );
+        assert!(license_includes(LicenseStatus::Expired).is_empty());
     }
 
     /// The defect this split fixed: a `.dev` build's Buy button opened the
@@ -875,9 +969,9 @@ mod tests {
     #[test]
     fn a_dev_build_buys_on_staging() {
         assert_eq!(
-            license_links(LicensePlatform::Android, "com.futo.notes.dev".into()).buy,
+            license_links(LicensePlatform::Android, "com.futo.notes.dev".into(), BuySource::LicenseCard).buy,
             "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license\
-             /checkout-ready?platform=android&success=redirect-to-organization-page"
+             /checkout-ready?platform=android&from=license-card&success=redirect-to-organization-page"
         );
     }
 

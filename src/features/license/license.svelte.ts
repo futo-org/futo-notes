@@ -12,6 +12,7 @@ import {
   submitLicenseKey,
   takePendingLicenseLink,
   UNLICENSED,
+  type LicenseInclusion,
   type LicenseLinks,
   type LicenseOutcome,
   type LicenseView,
@@ -38,6 +39,11 @@ const LINK_TOASTS: Readonly<Record<LicenseOutcome, string>> = {
 class LicenseModel {
   view = $state<LicenseView>(UNLICENSED);
   links = $state<LicenseLinks>({ buy: '', support: '' });
+  /// What the current license includes: Rust's answer, carried on the view.
+  /// Desktop renders nothing from it.
+  get includes(): LicenseInclusion[] {
+    return this.view.includes;
+  }
   /// True only while the one activation request is in flight.
   busy = $state(false);
   /// Counts the moments this device *became* licensed, so a surface showing

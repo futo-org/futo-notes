@@ -13,10 +13,28 @@ import SwiftUI
 final class LicenseModel: ObservableObject {
     /// `nil` until [load] has read and evaluated the stored pair off the main
     /// actor. The shell renders immediately and fills this reactively (M1).
-    @Published private(set) var view: LicenseView?
+    @Published private(set) var view: LicenseView? {
+        // The one place `includes` is derived, so it can never disagree with
+        // the state it came from: load, apply, remove and Full reset all assign
+        // `view`. One FFI call per change, never per render.
+        didSet { includes = view.map { Set(licenseIncludes(status: $0.status)) } ?? [] }
+    }
+    /// What the current license includes beyond the card (cosmetic only —
+    /// docs/spec/license.md § What a license includes). Rust's answer; this
+    /// shell only asks. Empty until the license has been evaluated.
+    @Published private(set) var includes: Set<LicenseInclusion> = []
+    /// Set when an activation succeeds and the new license includes the app
+    /// icon: the shell should land on the picker (settings.md § Native app
+    /// icons). One-shot and never persisted — whoever presents it calls
+    /// `consumeLanding()`.
+    @Published private(set) var pendingLanding = false
     /// The Buy / Renew and "Lost your key?" destinations, from Rust, so no
-    /// shell hardcodes a URL and all three platforms agree.
+    /// shell hardcodes a URL and all three platforms agree. Buy is attributed
+    /// to the License card.
     let links: LicenseLinks
+    /// The same destinations with Buy attributed to the App icon picker's
+    /// sheet (`from=app-icon`).
+    let appIconLinks: LicenseLinks
     /// True only while the one activation request is in flight.
     @Published private(set) var busy = false
 
@@ -56,7 +74,8 @@ final class LicenseModel: ObservableObject {
         self.bundleId = bundleId
         self.enterLicenseKey = enterLicenseKey
         self.view = nil
-        self.links = licenseLinks(platform: .ios, bundleId: bundleId)
+        self.links = licenseLinks(platform: .ios, bundleId: bundleId, source: .licenseCard)
+        self.appIconLinks = licenseLinks(platform: .ios, bundleId: bundleId, source: .appIconPicker)
     }
 
     /// Reads preferences and performs RSA verification away from the actor that
@@ -126,11 +145,18 @@ final class LicenseModel: ObservableObject {
         }
     }
 
+    /// The presenter calls this when it takes the landing (or decides there is
+    /// nowhere to land), so one activation lands exactly once.
+    func consumeLanding() {
+        pendingLanding = false
+    }
+
     /// Returns the device to Unlicensed. No confirmation — it is reversible by
     /// re-entering the key — and idempotent.
     func remove() {
         storage.clear()
         stateRevision += 1
+        pendingLanding = false
         view = licenseEvaluate(stored: nil, bundleId: bundleId)
     }
 
@@ -156,6 +182,7 @@ final class LicenseModel: ObservableObject {
         storage.write(acceptance.pair)
         stateRevision += 1
         view = acceptance.view
+        pendingLanding = includes.contains(.appIcon)
         announce(LocalizedMessage("license.activated"))
     }
 }

@@ -51,6 +51,58 @@ struct LicenseModelTests {
         #expect(release.support == "mailto:support@futo.tech")
     }
 
+    /// The two Buy buttons are attributed to where the user walked in from
+    /// (M4); everything else about the links is shared. The URL format is the
+    /// crate's — this pins that each shell surface asks for its own source.
+    @Test("the card and the picker sheet carry their own Buy attribution")
+    func buyIsAttributedPerSource() {
+        let license = model().0
+
+        #expect(license.links.buy.contains("from=license-card"))
+        #expect(license.appIconLinks.buy.contains("from=app-icon"))
+        #expect(license.links.support == license.appIconLinks.support)
+    }
+
+    /// `includes` is Rust's answer for the current `view`, kept in step through
+    /// load, activation and removal — never read from anywhere else.
+    @Test("includes follows the license through load, activation and removal")
+    func includesFollowsTheLicense() async {
+        let (license, _) = model()
+        #expect(license.includes.isEmpty)
+
+        await license.load()
+        #expect(license.includes.isEmpty)
+
+        license.handle(URL(string: LicenseFixture.deepLink)!)
+        #expect(license.includes == [.appIcon])
+
+        license.remove()
+        #expect(license.includes.isEmpty)
+    }
+
+    /// An activation that includes the app icon asks the shell to land on the
+    /// picker, once. Reading a stored license at launch is not an activation.
+    @Test("only an activation asks to land on the picker, and only once")
+    func activationRequestsTheLanding() async {
+        let defaults = InMemoryLicenseDefaults()
+        LicenseStorage(defaults: defaults).write(
+            LicensePair(key: LicenseFixture.key, activation: LicenseFixture.activation))
+        let license = LicenseModel(
+            storage: LicenseStorage(defaults: defaults), bundleId: LicenseFixture.devBundleId)
+
+        await license.load()
+        #expect(!license.pendingLanding)
+
+        license.handle(URL(string: LicenseFixture.deepLink)!)
+        #expect(license.pendingLanding)
+
+        license.consumeLanding()
+        #expect(!license.pendingLanding)
+
+        license.handle(URL(string: "futonotes://license/not-a-key/not-an-activation")!)
+        #expect(!license.pendingLanding)
+    }
+
     /// Preferences and RSA verification must stay off the actor that paints the
     /// shell. Construction happens on that actor, so it may retain the storage
     /// handle but cannot read it (M1).

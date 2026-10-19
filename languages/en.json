@@ -207,7 +207,17 @@
         "failed": "Could not change the app icon. Please try again.",
         "resetFailed": "Your notes were reset, but the app icon could not be restored. Please choose Standard in Settings.",
         "unavailable": "Changing app icons is unavailable on this device.",
-        "changing": "Changing app icon…"
+        "changing": "Changing app icon…",
+        "license": {
+          "rowHint": "With a license",
+          "footnote": "Purchasing a FUTO Notes license unlocks the ability to change the app icon.",
+          "footnoteKeyOnly": "Choosing an app icon is included with a FUTO Notes license.",
+          "sheetTitle": "Included with a license",
+          "sheetBody": "Purchasing a FUTO Notes license unlocks the ability to change the app icon.",
+          "notNow": "Not now",
+          "landing": "Your license includes choosing your app icon. Pick one.",
+          "a11yIncluded": "{iconName}, included with a license"
+        }
       }
     },
     "notes": {
@@ -1076,7 +1086,7 @@
     },
     "license": {
       "sectionTitle": "License",
-      "explanation": "FUTO's mission is for open-source software and non-malicious software business practices to become a sustainable income source for projects and their developers. That is why FUTO Notes asks you to pay for it, rather than serving you ads or selling your data.",
+      "explanation": "FUTO Notes is paid for by you, not by ads or by selling your data.",
       "keyOnlyExplanation": "Have a FUTO Notes license? Enter your key to activate it on this device.",
       "unlicensedHeadline": "Pay for FUTO Notes",
       "explanationLicensed": "Thank you for purchasing FUTO Notes.",

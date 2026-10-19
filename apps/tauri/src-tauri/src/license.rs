@@ -15,9 +15,10 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use futo_notes_license::{
-    buy_url, enter_license_key, evaluate, parse_deep_link, ActivationTransport, EnterKeyError,
-    Environment, HttpResponse, LicensePair, LicenseState, OffsetDateTime, Platform, TransportError,
-    SUPPORT_MAILTO,
+    buy_url, enter_license_key, evaluate, license_includes as core_license_includes,
+    parse_deep_link, ActivationTransport, BuySource, EnterKeyError, Environment, HttpResponse,
+    LicenseInclusion, LicensePair, LicenseState, LicenseStatus, OffsetDateTime, Platform,
+    TransportError, SUPPORT_MAILTO,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
@@ -42,6 +43,11 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 pub struct LicenseView {
     /// `unlicensed` | `licensed` | `expired`.
     pub state: &'static str,
+    /// What this state includes beyond the card, as camelCase names
+    /// (`appIcon`) — the crate's `license_includes` answer. Desktop renders
+    /// nothing from it (no picker); it is projected so the TS shell holds no
+    /// copy of the rule.
+    pub includes: Vec<&'static str>,
     /// `issued_at` — the source of the card's "Licensed since {date}". `None`
     /// for a v1 activation, which carries no purchase time: the row renders
     /// blank and the ambient label is dropped, never a stand-in date.
@@ -210,14 +216,9 @@ fn rfc3339(value: OffsetDateTime) -> Option<String> {
 /// verifying looks exactly like no license at all.
 fn view_of(state: &LicenseState) -> LicenseView {
     match state {
-        LicenseState::Licensed(details) => LicenseView {
-            state: STATE_LICENSED,
-            issued_at: details.issued_at.and_then(rfc3339),
-            expires_at: details.expires_at.and_then(rfc3339),
-            key: Some(details.key.clone()),
-        },
-        LicenseState::Expired(details) => LicenseView {
-            state: STATE_EXPIRED,
+        LicenseState::Licensed(details) | LicenseState::Expired(details) => LicenseView {
+            state: state_name(state.status()),
+            includes: includes_of(state.status()),
             issued_at: details.issued_at.and_then(rfc3339),
             expires_at: details.expires_at.and_then(rfc3339),
             key: Some(details.key.clone()),
@@ -228,11 +229,31 @@ fn view_of(state: &LicenseState) -> LicenseView {
 
 fn unlicensed_view() -> LicenseView {
     LicenseView {
-        state: STATE_UNLICENSED,
+        state: state_name(LicenseStatus::Unlicensed),
+        includes: includes_of(LicenseStatus::Unlicensed),
         issued_at: None,
         expires_at: None,
         key: None,
     }
+}
+
+/// The wire name of a status; the pairing with the crate's enum is the only
+/// mapping here.
+fn state_name(status: LicenseStatus) -> &'static str {
+    match status {
+        LicenseStatus::Unlicensed => STATE_UNLICENSED,
+        LicenseStatus::Licensed => STATE_LICENSED,
+        LicenseStatus::Expired => STATE_EXPIRED,
+    }
+}
+
+fn includes_of(status: LicenseStatus) -> Vec<&'static str> {
+    core_license_includes(status)
+        .into_iter()
+        .map(|inclusion| match inclusion {
+            LicenseInclusion::AppIcon => "appIcon",
+        })
+        .collect()
 }
 
 /// Which toast an unsuccessful entry earns. `NotFound` and `Invalid` are the
@@ -388,7 +409,7 @@ pub async fn license_remove(app: AppHandle) -> Result<LicenseView, String> {
 pub async fn license_links(app: AppHandle) -> LicenseLinks {
     let config = Environment::for_bundle_id(&app.config().identifier).config();
     LicenseLinks {
-        buy: buy_url(config, Platform::Desktop),
+        buy: buy_url(config, Platform::Desktop, BuySource::LicenseCard),
         support: SUPPORT_MAILTO.to_string(),
     }
 }
@@ -530,6 +551,13 @@ mod tests {
                     expires_at: Option<&str>,
                     key: Option<&str>| LicenseView {
             state,
+            // Only a licensed state includes the app icon (the crate's rule,
+            // projected as camelCase names).
+            includes: if state == "licensed" {
+                vec!["appIcon"]
+            } else {
+                vec![]
+            },
             issued_at: issued_at.map(str::to_owned),
             expires_at: expires_at.map(str::to_owned),
             key: key.map(str::to_owned),
