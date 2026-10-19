@@ -935,7 +935,9 @@ and the decision, not the rules, is what this section records.
   - _(ios)_ One binary reads `Storefront.current` and `Storefront.updates`. The **US** storefront offers the full surface, with Buy in the default browser. Every other or unknown storefront has the key field and deep link only; it has no Buy, Renew, Lost-your-key, payment headline, or payment explanation. The initial answer is key-only until StoreKit responds. EU and Japan are not special-cased. → `license_link_out`, `LicenseStorefront.swift`
   - _(android)_ `direct` offers the full surface worldwide and opens Buy in a Custom Tab; `play` accepts keys and deep links only, worldwide. Both flavors keep the same app identity and signing, so installing one over the other preserves notes. → `BuildConfig.LICENSE_LINK_OUT`, `LicenseModel.kt`, `browser/CustomTabs.kt`
   - _(desktop)_ Unchanged.
-  - If Apple rejects the key field outside the US (3.1.1), the fallback is a non-consumable IAP at the same price (3.1.3(b)), not built here.
+  - If Apple rejects the key field outside the US (3.1.1), the fallback is a non-consumable IAP at the same price (3.1.3(b)), not built.
+  - **In-app purchase is deferred (2026-10-19, @justin).** No StoreKit or Play Billing purchase flow and no change to FUTOpay (lib-polar) is planned for now; deferred, not cancelled. The 2026-10-16 design (a store purchase redeemed on FUTOpay for an ordinary key) is kept as the record in ADR-0007 and ADR-0008. This posture, with the key-only surfaces above, is what ships.
+  - **The key-only wording is under review (2026-10-19).** How far the copy on the key-only surfaces (iOS outside the US, Android `play`) may steer a buyer toward the website is being researched against each store's rules. Until that lands, the rules above stand.
   - _(Android, F-Droid)_ Offline verification adds no anti-feature; the single activation request to pay2 may earn a Tethered/NonFreeNet label. Accepted.
 - **Verification 2026-09-24.** _(ios)_ Debug UI tests drove USA (Buy opened Safari), FRA and `none` (key-only copy and deep-link activation). A Release UI test compared the unforced surface with `Storefront.current`; Release contained no `-FUTOLicenseStorefront` string. On the claimed simulator, StoreKit reported a US storefront without a signed-in App Store account, so the US purchase surface appeared. An absent account is not proof of `nil`; only `nil` itself fails closed. _(android)_ The pooled emulator showed direct checkout in Chrome's Custom Tab, a deep link returning to one existing `MainActivity`, Back returning to Settings, and Play's key-only surface activating both a pasted pair and a cold-start deep link. → `LicenseSurfaceTests`, `LicensePlateTests`, `LicenseSurfaceTest`, `LicenseLinkActivity.kt`
 - **Never** frame the purchase as a donation in the app or the store listing
@@ -948,40 +950,12 @@ and the decision, not the rules, is what this section records.
   may exist in Polar for both; nothing in the client relies on that.
 - Per-region pricing, currencies, and tax are the storefront's business.
 
-> **Gap:** _(all platforms)_ Target store posture, decided 2026-10-16, **not implemented**
-> (ADR-0007 for the surfaces, ADR-0008 for what a purchase becomes; plan D17-D29, M7, M8). Every
-> device gets a working Buy: **the website** where the rules allow a link without a paid program
-> (iOS US storefront, Android `direct`, desktop), **the store's in-app purchase** elsewhere (iOS
-> every other storefront, Android `play`). This replaces the key-only surfaces above; the key field
-> and deep link stay everywhere. iOS sells a non-consumable StoreKit purchase with Restore
-> Purchases; Android `play` sells a Play Billing one-time product with Restore
-> (`queryPurchasesAsync`); Android `direct` carries no Play dependency. **A store purchase is
-> redeemed for an ordinary FUTOpay key:** on the purchase tap the app sends the store's signed
-> proof once to FUTOpay, which verifies it (Apple's library; the Play public-key signature) and
-> answers a key + activation that the unchanged Rust `evaluate` verifies like any typed pair. The
-> client never verifies a store proof and holds only FUTOpay pairs, so the Licensed card is the
-> normal key card and the key works on every platform where it is entered. Until the redemption
-> succeeds nothing is granted: the card shows a pending state ("Purchase received, not yet
-> activated") with Try again and Restore, the transaction stays unfinished and the Play purchase
-> unacknowledged; Buy, Try again and Restore are the only network triggers (the "exactly one GET"
-> principle becomes "at most one request per explicit user action"). Restore re-redeems and gets
-> the same key back. License sync (M6) is **deferred** (plan D28); a license is still per device and
-> nothing travels on its own, so no copy may claim "your license is on all your devices". Refunds
-> are out of scope, so a refunded purchase keeps a working key; Sandbox and license-tester purchases
-> mint real keys (containment: plan Q12 and the tester lists). The store's sheet shows the price;
-> copy never states one; `license.keyOnlyExplanation` and the key-only footnote retire. FUTOpay
-> must carry the redeem endpoints in production before any store submission. Until built, the
-> 2026-09-24 posture above is what ships.
-
 > **Gap:** License sync — the license is entered per device. Carrying it in the
 > E2EE sync payload so one entry licenses every synced device is **deferred**
-> (plan M6, decision D28 2026-10-16), not cancelled, and no longer required before
-> the store purchases ship. It touches the sync payload (AGENTS.md §11.6) and must
-> be its own change. Until then a store purchase, which ends as an ordinary key
-> (ADR-0008), reaches other devices the way a website key does: by entering the
-> key the card reveals, or through that store's Restore on the same store (Apple
-> ID across iPhone/iPad; Google account across Android Play installs). M6 carries
-> one proof kind, the pair.
+> (plan M6, decision D28 2026-10-16), not cancelled. It touches the sync payload
+> (AGENTS.md §11.6) and must be its own change. Until then a license reaches
+> another device by entering the key the card reveals (or the deep link) on that
+> device.
 
 > **Gap:** The `platform` and `from` attribution the Buy URL carries is not
 > recorded by the server. Checked against `~/Developer/lib-polar` 2026-10-15
