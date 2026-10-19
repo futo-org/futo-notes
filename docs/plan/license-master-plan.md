@@ -131,7 +131,7 @@ In order; each is a line to tick in § 9 with evidence.
    License card unchanged.
 3. `release-notes/v<X.Y.Z>.md` written in the release MR, on the tagged commit (format and limits:
    `release-notes/README.md`; verify with `just release-notes-check`). Copy for the store listing
-   follows the key-only wording in force and does not describe buying or pricing.
+   may say a license can be bought (iOS sells one in the app, W10) but never names the website or a price: the App Store text is metadata shared across storefronts (3.1.1(a)).
 4. A stable tag publishes to Play production and Apple review, so it needs @justin's OK. Use
    `/release`.
 

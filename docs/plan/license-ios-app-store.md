@@ -30,13 +30,13 @@ These block real-purchase testing only. Everything else runs against a local Sto
 configuration file, so start without them.
 
 1. Accept the Paid Apps Agreement; tax and banking.
-2. Create the non-consumable. **Product id: open decision (§ 9), recommended
-   `com.futo.notes.license`.** Family Sharing **off**. Price: open decision (§ 9). Display name and
+2. Create the non-consumable: product id `com.futo.notes.license`, $14.99 USD, Family Sharing
+   **off** (§ 9). Display name and
    description: the description is metadata and must not mention the website or a key price
    (recommended: "Included-with-a-license features in FUTO Notes for iPhone and iPad. Doesn't
    include a license key.").
-3. Check whether the app is offered on Apple silicon Macs ("Designed for iPad"). If it is, either
-   turn that off or the copy must say "Apple devices" instead of "iPhone and iPad" (§ 6).
+3. Turn off availability on Apple silicon Macs ("Designed for iPad"), so "iPhone and iPad" in
+   the copy stays true (§ 9.3).
 4. A review screenshot of the purchase, and review notes: "Settings › License › Buy in the App
    Store. A license key bought on the web is accepted under 3.1.3(b); the same items are sold here
    as an in-app purchase."
@@ -132,11 +132,10 @@ Recommended shape (adjust names to what W9 landed):
 | `license.appStore.purchasedBody` | AppStore plate | Works on iPhone and iPad with this Apple Account. There is no license key for this purchase. |
 
 Rules: outside the US, never the website, FUTO's store, a price, or "buy a license to use it
-everywhere" (3.1.1(a), 3.1.3). `scopeUS` is chosen by the same storefront answer as Buy. If the
-app is on Apple silicon Macs (§ 2.3), replace "iPhone and iPad" with "Apple devices". Never
+everywhere" (3.1.1(a), 3.1.3). `scopeUS` is chosen by the same storefront answer as Buy. Never
 "paywall", "premium", "free", "donate"; keep "included with a license" outside the US; the button
-says "Buy", not "unlock". The US website button keeps its existing key and wording. Whether "unlock"
-may now appear on every iOS storefront is open (§ 9); until decided, don't.
+says "Buy", not "unlock". The US website button keeps its existing key and wording. No "unlock" on
+iOS (§ 9.5).
 
 ## 7. Tests and verification (the bar: AGENTS.md §7.3, §7.6)
 
@@ -165,14 +164,18 @@ Small per-concern commits (`feat(license):` Rust, `feat(ios):` shell, `docs(spec
 the Mac verification above. Do not merge, and do not tag: a stable tag goes straight to App Review.
 Update W10 in the master plan and § 9 there.
 
-## 9. Open decisions for @justin
+## 9. Decisions (@justin, 2026-10-19)
 
-1. Product id: recommended `com.futo.notes.license` (one product; a `.dev` product only if the dev
-   bundle id needs its own).
-2. Price tier. The web price is $14.99 USD. Apple takes 15% under the Small Business Program;
-   nothing requires the prices to match. Our copy never shows a price either way; StoreKit's sheet
-   does.
-3. Mac availability of the iOS app (§ 2.3) → "iPhone and iPad" vs "Apple devices".
-4. Outside the US, keep "It doesn't come with a license key" in `scope` (recommended, low risk) or
-   drop it for zero exposure.
-5. Whether "unlock" is now allowed on every iOS storefront (an IAP exists everywhere). Default: no.
+1. Product id: **`com.futo.notes.license`**. One product; a `.dev` product only if the dev bundle
+   id turns out to need its own.
+2. Price: **$14.99 USD**, the same as the web license. Apple's standard 30% applies (no Small
+   Business Program). Our copy never shows a price; StoreKit's sheet does.
+3. The iOS app is **not** offered on Apple silicon Macs, so the copy says "iPhone and iPad".
+4. Outside the US, `license.appStore.scope` **keeps** "It doesn't come with a license key".
+5. "Unlock" stays **off** every iOS storefront for now (the existing US website button keeps its
+   wording).
+6. manifest-inventory !5 (FUTO Notes listed on pay.futo.org) merges before the release.
+7. The release **waits for this work**: the iOS icon gate does not go to App Review without the
+   in-app purchase.
+
+@justin is setting up App Store Connect (§ 2) on 2026-10-19, minus the Small Business Program.
