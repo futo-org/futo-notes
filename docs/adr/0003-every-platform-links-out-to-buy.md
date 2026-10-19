@@ -9,6 +9,10 @@
 > Android `play`). On 2026-10-19 that was deferred, so "no IAP" and "the client never displays a
 > price" stand again, as amended by ADR-0005.
 
+> **2026-10-19:** [ADR-0009](0009-ios-sells-an-app-store-only-purchase.md) adds one App Store-only
+> in-app purchase on iOS (no key, no server) so the key field satisfies App Review 3.1.3(b). "No IAP"
+> now holds for Android and desktop only.
+
 We planned to buy in-app on mobile, copying FUTO Music, which uses the FUTOpay Android client's
 slide-up sheet. Reading that client showed its payment step is a WebView on Polar's hosted
 checkout (`create-checkout` → `checkout_url` → watch for `success_url`), not a native card form
