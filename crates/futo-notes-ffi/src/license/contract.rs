@@ -3,10 +3,11 @@
 
 use futo_notes_license::{
     buy_url, enter_license_key, evaluate, license_includes as core_license_includes,
-    parse_deep_link, ActivationTransport, BuySource as CoreBuySource, EnterKeyError, Environment,
+    license_purchase_surface as core_license_purchase_surface, parse_deep_link,
+    ActivationTransport, BuySource as CoreBuySource, Distribution, EnterKeyError, Environment,
     LicenseConfig, LicenseInclusion as CoreLicenseInclusion, LicenseState,
-    LicenseStatus as CoreLicenseStatus, OffsetDateTime, Platform, TransportError, DEEP_LINK_SCHEME,
-    SUPPORT_MAILTO,
+    LicenseStatus as CoreLicenseStatus, OffsetDateTime, Platform, PurchaseSurface, TransportError,
+    DEEP_LINK_SCHEME, SUPPORT_MAILTO,
 };
 
 use super::transport::Pay2Transport;
@@ -153,6 +154,47 @@ pub fn license_link_out(
     )
 }
 
+/// Where this build is installed from. The shell reports it; Rust decides what
+/// it means for buying ([`license_purchase_surface`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum LicenseDistribution {
+    Desktop,
+    IosAppStore,
+    AndroidDirect,
+    AndroidPlay,
+}
+
+/// What the License card and the app icon ask may do about buying.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum LicensePurchaseSurface {
+    /// Buy / Renew open checkout in the browser.
+    LinkOut,
+    /// No Buy: name [`LicenseLinks::website`] in plain, non-tappable text.
+    NameWebsite,
+    /// The key field and the deep link only.
+    KeyOnly,
+}
+
+/// The storefront rule (`futo_notes_license::license_purchase_surface`).
+/// An unknown iOS storefront fails closed to key-only.
+#[uniffi::export]
+pub fn license_purchase_surface(
+    distribution: LicenseDistribution,
+    storefront_country: Option<String>,
+) -> LicensePurchaseSurface {
+    let distribution = match distribution {
+        LicenseDistribution::Desktop => Distribution::Desktop,
+        LicenseDistribution::IosAppStore => Distribution::IosAppStore,
+        LicenseDistribution::AndroidDirect => Distribution::AndroidDirect,
+        LicenseDistribution::AndroidPlay => Distribution::AndroidPlay,
+    };
+    match core_license_purchase_surface(distribution, storefront_country.as_deref()) {
+        PurchaseSurface::LinkOut => LicensePurchaseSurface::LinkOut,
+        PurchaseSurface::NameWebsite => LicensePurchaseSurface::NameWebsite,
+        PurchaseSurface::KeyOnly => LicensePurchaseSurface::KeyOnly,
+    }
+}
+
 impl From<LicensePlatform> for Platform {
     fn from(platform: LicensePlatform) -> Self {
         match platform {
@@ -170,6 +212,9 @@ impl From<LicensePlatform> for Platform {
 pub struct LicenseLinks {
     pub buy: String,
     pub support: String,
+    /// The storefront as a person types it (`pay.futo.org`), for
+    /// [`LicensePurchaseSurface::NameWebsite`]. Plain text only: never a link.
+    pub website: String,
 }
 
 /// One control on the License row.
@@ -192,28 +237,45 @@ pub enum LicenseAction {
 /// Which controls the row offers, in the order it offers them.
 ///
 /// This is the spec's States-and-copy table (docs/spec/license.md), owned once
-/// so the two native shells cannot drift apart on it — and so the meaning of
-/// `link_out` is the result of [`license_link_out`]: `false`
-/// hides everything that leaves the app for a storefront, and keeps the key
-/// field and the deep link (the consumption-only shape).
+/// so the native shells cannot drift apart on it. Only
+/// [`LicensePurchaseSurface::LinkOut`] offers Buy / Renew; naming the website
+/// keeps "Lost your key?" (help that leads to no payment); key-only keeps the
+/// key field alone (and the deep link, which is not a control).
 #[uniffi::export]
-pub fn license_row_actions(status: LicenseStatus, link_out: bool) -> Vec<LicenseAction> {
-    match status {
-        // Remove is not a link out, so it survives the flag: a licensed user
-        // can always hand the device on.
-        LicenseStatus::Licensed => vec![LicenseAction::Remove],
-        LicenseStatus::Unlicensed if link_out => vec![
+pub fn license_surface_row_actions(
+    status: LicenseStatus,
+    surface: LicensePurchaseSurface,
+) -> Vec<LicenseAction> {
+    use LicensePurchaseSurface::*;
+    match (status, surface) {
+        // Remove is not a way out of the app, so every surface keeps it: a
+        // licensed user can always hand the device on.
+        (LicenseStatus::Licensed, _) => vec![LicenseAction::Remove],
+        (LicenseStatus::Unlicensed, LinkOut) => vec![
             LicenseAction::Buy,
             LicenseAction::EnterKey,
             LicenseAction::LostKey,
         ],
-        LicenseStatus::Expired if link_out => vec![
+        (LicenseStatus::Expired, LinkOut) => vec![
             LicenseAction::Renew,
             LicenseAction::EnterKey,
             LicenseAction::LostKey,
         ],
-        LicenseStatus::Unlicensed | LicenseStatus::Expired => vec![LicenseAction::EnterKey],
+        (_, NameWebsite) => vec![LicenseAction::EnterKey, LicenseAction::LostKey],
+        (_, KeyOnly) => vec![LicenseAction::EnterKey],
     }
+}
+
+/// [`license_surface_row_actions`] for a shell that still asks
+/// [`license_link_out`] (iOS): `true` is link-out, `false` key-only.
+#[uniffi::export]
+pub fn license_row_actions(status: LicenseStatus, link_out: bool) -> Vec<LicenseAction> {
+    let surface = if link_out {
+        LicensePurchaseSurface::LinkOut
+    } else {
+        LicensePurchaseSurface::KeyOnly
+    };
+    license_surface_row_actions(status, surface)
 }
 
 impl From<CoreLicenseStatus> for LicenseStatus {
@@ -299,13 +361,11 @@ pub fn license_links(
     bundle_id: String,
     source: BuySource,
 ) -> LicenseLinks {
+    let environment = Environment::for_bundle_id(&bundle_id);
     LicenseLinks {
-        buy: buy_url(
-            Environment::for_bundle_id(&bundle_id).config(),
-            platform.into(),
-            source.into(),
-        ),
+        buy: buy_url(environment.config(), platform.into(), source.into()),
         support: SUPPORT_MAILTO.to_string(),
+        website: environment.website_address().to_string(),
     }
 }
 
@@ -891,6 +951,60 @@ mod tests {
             false
         ));
         assert!(license_link_out(LicensePlatform::Desktop, None, false));
+    }
+
+    /// The full table per surface. `play` names the website: no Buy or Renew,
+    /// but "Lost your key?" stays, because help leads to no payment.
+    #[test]
+    fn naming_the_website_keeps_help_and_drops_checkout() {
+        use LicensePurchaseSurface::*;
+        for status in [LicenseStatus::Unlicensed, LicenseStatus::Expired] {
+            assert_eq!(
+                license_surface_row_actions(status, NameWebsite),
+                vec![LicenseAction::EnterKey, LicenseAction::LostKey]
+            );
+            assert_eq!(
+                license_surface_row_actions(status, KeyOnly),
+                vec![LicenseAction::EnterKey]
+            );
+            assert_eq!(
+                license_surface_row_actions(status, LinkOut),
+                license_row_actions(status, true)
+            );
+        }
+        for surface in [LinkOut, NameWebsite, KeyOnly] {
+            assert_eq!(
+                license_surface_row_actions(LicenseStatus::Licensed, surface),
+                vec![LicenseAction::Remove]
+            );
+        }
+    }
+
+    #[test]
+    fn the_purchase_surface_maps_through_to_the_crate_rule() {
+        use LicenseDistribution::*;
+        use LicensePurchaseSurface::*;
+        assert_eq!(license_purchase_surface(AndroidPlay, None), NameWebsite);
+        assert_eq!(
+            license_purchase_surface(AndroidPlay, Some("USA".into())),
+            NameWebsite
+        );
+        assert_eq!(license_purchase_surface(AndroidDirect, None), LinkOut);
+        assert_eq!(license_purchase_surface(Desktop, None), LinkOut);
+        assert_eq!(
+            license_purchase_surface(IosAppStore, Some("USA".into())),
+            LinkOut
+        );
+        assert_eq!(license_purchase_surface(IosAppStore, None), KeyOnly);
+    }
+
+    /// The display address is environment-split like Buy (M3).
+    #[test]
+    fn the_website_is_named_per_environment() {
+        let links =
+            |id: &str| license_links(LicensePlatform::Android, id.into(), BuySource::LicenseCard);
+        assert_eq!(links("com.futo.notes").website, "pay.futo.org");
+        assert_eq!(links("com.futo.notes.dev").website, "staging-pay2.futo.org");
     }
 
     /// `link_out = false` is the consumption-only shape: it hides Buy, Renew
