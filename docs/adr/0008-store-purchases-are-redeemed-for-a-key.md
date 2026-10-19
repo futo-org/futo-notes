@@ -1,5 +1,10 @@
 # Store purchases are redeemed for a FUTOpay key
 
+> **Status: Deferred 2026-10-19.** This design only matters if a store purchase is built, and
+> in-app purchase is deferred ([ADR-0007](0007-ios-sells-the-license-in-app.md)). The redemption
+> endpoint (lib-polar!62) is not being built. Nothing in this ADR is in force; every license is a
+> FUTOpay key, bought on the website. The body below is the record of the reasoning, kept whole.
+
 Decided by @justin on 2026-10-16. Supersedes [ADR-0007](0007-ios-sells-the-license-in-app.md)
 items 4 (no server work), 5 (three proofs, verified offline in Rust), 7 (the client's Sandbox rule)
 and 8 (Apple roots in the binary), and its two "what offline verification is, and is not" sections.

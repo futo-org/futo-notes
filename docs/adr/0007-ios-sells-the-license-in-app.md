@@ -1,5 +1,13 @@
 # Buy everywhere: the website where allowed, the store's purchase where not
 
+> **Status: Deferred 2026-10-19.** @justin dropped in-app purchase for now: no StoreKit or Play
+> Billing purchase flow, no lib-polar change. Deferred, not cancelled. In force instead is the
+> posture of [ADR-0003](0003-every-platform-links-out-to-buy.md) and
+> [ADR-0005](0005-license-purchase-follows-store-rules.md): where store rules allow a link, Buy
+> opens the FUTOpay website (desktop, iOS US storefront, Android `direct`); iOS outside the US and
+> Android `play` stay key-only, and how far their copy may steer a buyer is under review. The body
+> below is the record of the reasoning, kept whole.
+
 > **Offline verification superseded 2026-10-16** by [ADR-0008](0008-store-purchases-are-redeemed-for-a-key.md):
 > a store purchase is redeemed on FUTOpay for an ordinary license key, so items 4, 5, 7 and 8 below
 > and both "what offline verification is, and is not" sections no longer describe the design. The
