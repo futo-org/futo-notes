@@ -2,6 +2,7 @@ name: FutoNotesNative
 options:
   bundleIdPrefix: com.futo.notes
   preGenCommand: node ../../scripts/generate-native-language-resources.mjs --ios
+  postGenCommand: node ../../scripts/ios-scheme-test-storekit.mjs
   deploymentTarget:
     iOS: "18.0"
   createIntermediateGroups: true
@@ -25,6 +26,9 @@ targets:
       testTargets:
         - FutoNotesNativeTests
         - FutoNotesNativeUITests
+      # Run from Xcode buys, restores and refunds the App Store-only purchase
+      # (ADR-0009) with no App Store account. Tests open their own SKTestSession.
+      storeKitConfiguration: StoreKit/FutoNotes.storekit
     sources:
       - path: Sources
       - path: Resources
@@ -157,6 +161,8 @@ targets:
         buildPhase: resources
       - path: ../../tests/localization/cases.json
         buildPhase: resources
+      - path: StoreKit/FutoNotes.storekit
+        buildPhase: resources
     dependencies:
       - target: FutoNotesNative
     settings:
@@ -193,6 +199,8 @@ targets:
       # its consumers to prevent. The file carries no app import for this
       # reason; `InMemoryLicenseDefaults.swift` next to it does, and stays out.
       - path: Tests/License/LicenseFixture.swift
+      - path: StoreKit/FutoNotes.storekit
+        buildPhase: resources
     dependencies:
       - target: FutoNotesNative
     settings:

@@ -33,6 +33,16 @@ struct FutoNotesApp: App {
                 .environmentObject(license)
                 .environmentObject(licenseStorefront)
                 .task { await licenseStorefront.observe() }
+                // The App Store-only purchase (ADR-0009): transactions, refunds
+                // and the product, for the life of the app.
+                // Not while hosting the unit tests: StoreKit caches a product
+                // lookup for the process, and the tests' SKTestSession has to
+                // be in place before the first one.
+                .task {
+                    guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
+                    else { return }
+                    await license.appStore.observe()
+                }
                 .environment(\.localization, localization)
                 .tint(Theme.primary)
                 .appearanceOverride(ThemeMode.resolve(themeMode))

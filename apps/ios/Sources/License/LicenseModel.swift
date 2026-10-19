@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import SwiftUI
 
@@ -14,15 +15,23 @@ final class LicenseModel: ObservableObject {
     /// `nil` until [load] has read and evaluated the stored pair off the main
     /// actor. The shell renders immediately and fills this reactively (M1).
     @Published private(set) var view: LicenseView? {
-        // The one place `includes` is derived, so it can never disagree with
-        // the state it came from: load, apply, remove and Full reset all assign
-        // `view`. One FFI call per change, never per render.
-        didSet { includes = view.map { Set(licenseIncludes(status: $0.status)) } ?? [] }
+        didSet { deriveFromEvidence() }
     }
-    /// What the current license includes beyond the card (cosmetic only —
-    /// docs/spec/license.md § What a license includes). Rust's answer; this
+    /// This Apple Account owns the App Store-only purchase (ADR-0009). Mirrors
+    /// `appStore.owned`; the second of the two facts Rust is asked about.
+    @Published private(set) var appStoreOwned = false {
+        didSet { deriveFromEvidence() }
+    }
+    /// The App Store product loaded, so its controls may be offered.
+    @Published private(set) var appStoreOffered = false
+    /// What everything this device holds includes beyond the card (cosmetic
+    /// only — docs/spec/license.md § What a license includes): a Licensed key
+    /// and the App Store purchase include the same things. Rust's answer; this
     /// shell only asks. Empty until the license has been evaluated.
     @Published private(set) var includes: Set<LicenseInclusion> = []
+    /// Which card to show, Rust's answer. `nil` until the license has been
+    /// evaluated.
+    @Published private(set) var plate: LicensePlate?
     /// Set when an activation succeeds and the new license includes the app
     /// icon: the shell should land on the picker (settings.md § Native app
     /// icons). One-shot and never persisted — whoever presents it calls
@@ -37,6 +46,8 @@ final class LicenseModel: ObservableObject {
     let appIconLinks: LicenseLinks
     /// True only while the one activation request is in flight.
     @Published private(set) var busy = false
+    /// True while an App Store purchase or restore is in flight.
+    @Published private(set) var appStoreBusy = false
 
     /// How a message reaches the user. Assigned by the app so the license
     /// module never has to know which banner is on screen; the strings are
@@ -61,6 +72,8 @@ final class LicenseModel: ObservableObject {
     private let bundleId: String
     private let enterLicenseKey: (String, String) async throws -> LicenseAcceptance
     private var stateRevision = 0
+    let appStore: LicenseAppStore
+    private var appStoreObservers: Set<AnyCancellable> = []
 
     init(
         storage: LicenseStorage = LicenseStorage(),
@@ -68,14 +81,81 @@ final class LicenseModel: ObservableObject {
         enterLicenseKey: @escaping (String, String) async throws -> LicenseAcceptance = {
             input, bundleId in
             try await licenseEnterKey(input: input, bundleId: bundleId)
-        }
+        },
+        // Optional rather than a default instance: a default argument is
+        // built in the caller's (nonisolated) context.
+        appStore: LicenseAppStore? = nil
     ) {
         self.storage = storage
         self.bundleId = bundleId
         self.enterLicenseKey = enterLicenseKey
+        let appStore = appStore ?? LicenseAppStore()
+        self.appStore = appStore
         self.view = nil
         self.links = licenseLinks(platform: .ios, bundleId: bundleId, source: .licenseCard)
         self.appIconLinks = licenseLinks(platform: .ios, bundleId: bundleId, source: .appIconPicker)
+        appStore.$owned.removeDuplicates().sink { [weak self] in self?.appStoreOwned = $0 }
+            .store(in: &appStoreObservers)
+        appStore.$offered.removeDuplicates().sink { [weak self] in self?.appStoreOffered = $0 }
+            .store(in: &appStoreObservers)
+    }
+
+    /// The controls the card and the icon sheet offer, in display order —
+    /// Rust's table for this evidence, storefront and build. Empty until the
+    /// license has been evaluated.
+    func rowActions(linkOut: Bool) -> [LicenseAction] {
+        guard let view else { return [] }
+        return licenseEvidenceRowActions(
+            evidence: LicenseEvidence(key: view.status, appStore: appStoreOwned),
+            surface: linkOut ? .linkOut : .keyOnly, appStoreOffered: appStoreOffered)
+    }
+
+    /// Buy in the App Store. A completed purchase lands on the picker exactly
+    /// like a key activation (M5); Ask to Buy and a cancel say nothing.
+    func buyInAppStore() async {
+        guard !appStoreBusy else { return }
+        appStoreBusy = true
+        defer { appStoreBusy = false }
+        let included = includes.contains(.appIcon)
+        if await appStore.buy() {
+            land(wasIncluded: included)
+        }
+    }
+
+    /// Restore Purchases. Says so when the account owns nothing to restore.
+    func restorePurchases() async {
+        guard !appStoreBusy else { return }
+        appStoreBusy = true
+        defer { appStoreBusy = false }
+        let included = includes.contains(.appIcon)
+        if await appStore.restore() {
+            land(wasIncluded: included)
+        } else {
+            announce(LocalizedMessage("license.appStore.nothingToRestore"))
+        }
+    }
+
+    /// The one place `includes` and `plate` are derived, so they can never
+    /// disagree with the evidence they came from: load, apply, remove, Full
+    /// reset and every App Store change land here. One FFI call per change,
+    /// never per render.
+    private func deriveFromEvidence() {
+        guard let view else {
+            includes = []
+            plate = nil
+            return
+        }
+        let evidence = LicenseEvidence(key: view.status, appStore: appStoreOwned)
+        includes = Set(licenseEvidenceIncludes(evidence: evidence))
+        plate = licensePlate(evidence: evidence)
+    }
+
+    /// Only when the purchase newly includes the icon: a buyer who already had
+    /// a Licensed key has nothing new to pick.
+    private func land(wasIncluded: Bool) {
+        if !wasIncluded && includes.contains(.appIcon) {
+            pendingLanding = true
+        }
     }
 
     /// Reads preferences and performs RSA verification away from the actor that

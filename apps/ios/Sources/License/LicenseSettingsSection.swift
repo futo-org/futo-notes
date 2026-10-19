@@ -36,9 +36,13 @@ struct LicensePlateShape: Equatable {
 }
 
 /// `nil` while the stored pair is still being read: the plate renders its frame
-/// and claims nothing (M1).
-func licensePlateShape(_ card: LicenseCardModel?, linkOut: Bool) -> LicensePlateShape {
-    guard let card else {
+/// and claims nothing (M1). The App Store plate has no key to put a letterhead
+/// on — not even an expired one beside the purchase — and says what it is in
+/// its own title instead.
+func licensePlateShape(_ card: LicenseCardModel?, linkOut: Bool, appStorePlate: Bool = false)
+    -> LicensePlateShape
+{
+    guard let card, !appStorePlate else {
         return LicensePlateShape(well: false, letterhead: false, keyRow: false, headline: false)
     }
     let stored = card.maskedKey != nil
@@ -47,6 +51,50 @@ func licensePlateShape(_ card: LicenseCardModel?, linkOut: Bool) -> LicensePlate
         letterhead: stored,
         keyRow: stored,
         headline: !stored && linkOut)
+}
+
+/// How the card lays out Rust's row actions, in Rust's order.
+///
+/// Buy and Renew are filled. Buy in the App Store is filled beside them where
+/// the website is offered — App Review lets Apple forbid a web button more
+/// prominent than its own, so the two get equal weight — and an outlined,
+/// labeled secondary button where the key field leads (ADR-0009). Everything
+/// else is a text button, and neighbouring text buttons share a row.
+enum LicenseControlGroup: Hashable {
+    case filled(LicenseAction)
+    case outlined(LicenseAction)
+    case text([LicenseAction])
+
+    var isFilled: Bool {
+        if case .filled = self { return true }
+        return false
+    }
+}
+
+func licenseControlGroups(_ actions: [LicenseAction]) -> [LicenseControlGroup] {
+    let linksOut = actions.contains(.buy) || actions.contains(.renew)
+    var groups: [LicenseControlGroup] = []
+    for action in actions {
+        switch action {
+        case .buy, .renew:
+            groups.append(.filled(action))
+        case .buyInAppStore:
+            groups.append(linksOut ? .filled(action) : .outlined(action))
+        default:
+            if case .text(let run) = groups.last {
+                groups[groups.count - 1] = .text(run + [action])
+            } else {
+                groups.append(.text([action]))
+            }
+        }
+    }
+    return groups
+}
+
+/// The caption under Buy in the App Store: what the purchase is not. Only the
+/// US card may point at the website (ADR-0009 decision 6).
+func licenseAppStoreScopePath(linkOut: Bool) -> String {
+    linkOut ? "license.appStore.scopeUS" : "license.appStore.scope"
 }
 
 func licenseExplanationPath(status: LicenseStatus, linkOut: Bool) -> String {
@@ -123,7 +171,15 @@ struct LicenseSettingsSection: View {
         license.view.map { licenseCardModel($0, localization) }
     }
 
-    private var shape: LicensePlateShape { licensePlateShape(card, linkOut: linkOut) }
+    private var shape: LicensePlateShape {
+        licensePlateShape(card, linkOut: linkOut, appStorePlate: license.plate == .appStore)
+    }
+
+    /// Rust's controls for this evidence and storefront; none while the key
+    /// field is open.
+    private var actions: [LicenseAction] {
+        entering ? [] : license.rowActions(linkOut: linkOut)
+    }
 
     var body: some View {
         Section(localization.localizedText("license.sectionTitle")) {
@@ -164,7 +220,7 @@ struct LicenseSettingsSection: View {
             }
 
             stateBody(for: license.view?.status)
-            secondaryControls
+            controls
         }
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -184,36 +240,106 @@ struct LicenseSettingsSection: View {
     /// state to name.
     private var statusName: String {
         guard let card else { return "" }
+        if license.plate == .appStore {
+            return localization.localizedText("license.appStore.purchasedTitle")
+        }
         if let badge = card.badge { return badge }
         return localization.localizedText(
             card.status == .licensed ? "license.statusLicensed" : "license.unlicensed")
     }
 
-    /// The reason, the one filled button, and — once Licensed — the thank-you
-    /// in its place. Unlicensed and Expired read identically here; only the
-    /// button's word differs.
+    /// The reason above the controls it argues for, and — once Licensed — the
+    /// thank-you in its place. Unlicensed and Expired read identically here;
+    /// only the button's word differs.
     @ViewBuilder private func stateBody(for status: LicenseStatus?) -> some View {
         if status == nil {
             EmptyView()
         } else if entering {
             keyField
+        } else if license.plate == .appStore {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(localization.localizedText("license.appStore.purchasedTitle"))
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .accessibilityIdentifier("license-app-store-title")
+                Text(localization.localizedText("license.appStore.purchasedBody"))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("license-explanation")
+            }
+            .fixedSize(horizontal: false, vertical: true)
         } else if status == .licensed {
-            Text(localization.localizedText(licenseExplanationPath(status: .licensed, linkOut: linkOut)))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("license-explanation")
+            Text(
+                localization.localizedText(
+                    licenseExplanationPath(status: .licensed, linkOut: linkOut))
+            )
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("license-explanation")
         } else if let status {
             // The mission paragraph is the ONLY paragraph, and it sits above
             // the button it argues for: an argument printed under its own
             // button is a footnote (@justin 2026-09-18).
-            Text(localization.localizedText(licenseExplanationPath(status: status, linkOut: linkOut)))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("license-explanation")
-            ForEach(primaryActions, id: \.self) { action in
-                filledButton(for: action)
+            Text(
+                localization.localizedText(licenseExplanationPath(status: status, linkOut: linkOut))
+            )
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("license-explanation")
+        }
+    }
+
+    /// Every control, in Rust's order (`licenseControlGroups`). The App Store
+    /// caption follows the last button of the group it qualifies.
+    @ViewBuilder private var controls: some View {
+        let groups = licenseControlGroups(actions)
+        ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
+            switch group {
+            case .filled(let action):
+                // Two filled buttons are one width: equal weight is equal size.
+                filledButton(for: action, fullWidth: groups.filter(\.isFilled).count > 1)
+            case .outlined(let action):
+                outlinedButton(for: action)
+            case .text(let run):
+                textRow(run)
+            }
+            if Self.endsAppStoreButtons(groups, at: index) {
+                Text(localization.localizedText(licenseAppStoreScopePath(linkOut: linkOut)))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("license-app-store-scope")
+            }
+        }
+    }
+
+    private static func endsAppStoreButtons(_ groups: [LicenseControlGroup], at index: Int) -> Bool
+    {
+        let isButton: (LicenseControlGroup) -> Bool = {
+            if case .text = $0 { return false }
+            return true
+        }
+        guard isButton(groups[index]) else { return false }
+        if index + 1 < groups.count, isButton(groups[index + 1]) { return false }
+        // The run of buttons ending here holds Buy in the App Store.
+        var start = index
+        while start > 0, isButton(groups[start - 1]) { start -= 1 }
+        return groups[start...index].contains {
+            $0 == .filled(.buyInAppStore) || $0 == .outlined(.buyInAppStore)
+        }
+    }
+
+    /// Neighbouring text buttons on one line when they fit, stacked when they
+    /// don't (three of them overflow a phone at larger text sizes).
+    private func textRow(_ run: [LicenseAction]) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 20) {
+                ForEach(run, id: \.self) { textButton(for: $0) }
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(run, id: \.self) { textButton(for: $0) }
             }
         }
     }
@@ -330,31 +456,6 @@ struct LicenseSettingsSection: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Buy/Renew is the one filled button; everything else is a text button.
-    /// The list itself is Rust's (`licenseRowActions`).
-    private var primaryActions: [LicenseAction] {
-        guard let view = license.view, !entering else { return [] }
-        return licenseRowActions(status: view.status, linkOut: linkOut).filter(Self.isPrimary)
-    }
-
-    @ViewBuilder private var secondaryControls: some View {
-        if let view = license.view, !entering {
-            let secondary = licenseRowActions(status: view.status, linkOut: linkOut)
-                .filter { !Self.isPrimary($0) }
-            if !secondary.isEmpty {
-                HStack(spacing: 20) {
-                    ForEach(secondary, id: \.self) { action in
-                        textButton(for: action)
-                    }
-                }
-            }
-        }
-    }
-
-    private static func isPrimary(_ action: LicenseAction) -> Bool {
-        action == .buy || action == .renew
-    }
-
     /// One text field for all three accepted shapes (a bare key, `key/activation`,
     /// or a `futonotes://` link) — recognising which is Rust's job, not this
     /// view's. A field with no submit is not operable, so Activate and Cancel
@@ -411,14 +512,34 @@ struct LicenseSettingsSection: View {
         }
     }
 
-    private func filledButton(for action: LicenseAction) -> some View {
+    private func filledButton(for action: LicenseAction, fullWidth: Bool = false) -> some View {
         Button {
             perform(action)
         } label: {
-            filledLabel(localization.localizedText(Self.copyPath(for: action)))
-                .frame(maxWidth: .infinity)
+            filledLabel(
+                localization.localizedText(Self.copyPath(for: action)), fullWidth: fullWidth
+            )
+            .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
+        .disabled(action == .buyInAppStore && license.appStoreBusy)
+        .accessibilityIdentifier(Self.identifier(for: action))
+    }
+
+    private func outlinedButton(for action: LicenseAction) -> some View {
+        Button {
+            perform(action)
+        } label: {
+            Text(localization.localizedText(Self.copyPath(for: action)))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.primary)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 11)
+                .frame(maxWidth: .infinity)
+                .overlay(Capsule().stroke(Theme.primary, lineWidth: 1.5))
+        }
+        .buttonStyle(.plain)
+        .disabled(license.appStoreBusy)
         .accessibilityIdentifier(Self.identifier(for: action))
     }
 
@@ -434,10 +555,11 @@ struct LicenseSettingsSection: View {
 
     /// The filled button keeps the app orange; the plate's gold is for the
     /// eyebrow, the status chip and the text buttons only.
-    private func filledLabel(_ text: String) -> some View {
+    private func filledLabel(_ text: String, fullWidth: Bool = false) -> some View {
         Text(text)
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.white)
+            .frame(maxWidth: fullWidth ? .infinity : nil)
             .padding(.horizontal, 18)
             .padding(.vertical, 11)
             .background(Theme.primary, in: Capsule())
@@ -456,6 +578,8 @@ struct LicenseSettingsSection: View {
         case .enterKey: return "license.enterKey"
         case .lostKey: return "license.lostKey"
         case .remove: return "license.remove"
+        case .buyInAppStore: return "license.appStore.buy"
+        case .restorePurchases: return "license.appStore.restore"
         }
     }
 
@@ -466,6 +590,8 @@ struct LicenseSettingsSection: View {
         case .enterKey: return "license-enter-key"
         case .lostKey: return "license-lost-key"
         case .remove: return "license-remove"
+        case .buyInAppStore: return "license-buy-app-store"
+        case .restorePurchases: return "license-restore-purchases"
         }
     }
 
@@ -481,6 +607,10 @@ struct LicenseSettingsSection: View {
             fieldFocused = true
         case .remove:
             license.remove()
+        case .buyInAppStore:
+            Task { await license.buyInAppStore() }
+        case .restorePurchases:
+            Task { await license.restorePurchases() }
         }
     }
 

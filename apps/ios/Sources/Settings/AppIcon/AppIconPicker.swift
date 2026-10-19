@@ -24,6 +24,9 @@ struct AppIconPickerShape: Equatable {
     /// False while the license is still being read: unknown is neither
     /// licensed nor unlicensed, so no ask is drawn and a tap does nothing.
     var resolved = true
+    /// The ask also offers Buy in the App Store (iOS, ADR-0009): Rust put it in
+    /// the row actions, so the product loaded and nothing includes icons yet.
+    var appStore = false
 
     /// The footnote's catalog key. Key-only builds keep "included with a license":
     /// "unlocks" is for link-out builds only (App Store 3.1.1, ADR-0006 D5).
@@ -58,7 +61,8 @@ func appIconPickerShape(
     return AppIconPickerShape(
         coined: Set(AppIcon.allCases.filter { $0 != selected }),
         footnote: true,
-        sheet: primary.map { .linkOut(primary: $0) } ?? .keyOnly)
+        sheet: primary.map { .linkOut(primary: $0) } ?? .keyOnly,
+        appStore: rowActions.contains(.buyInAppStore))
 }
 
 struct AppIconPicker: View {
@@ -84,8 +88,7 @@ struct AppIconPicker: View {
         appIconPickerShape(
             selected: controller.selected,
             includes: license.view == nil ? nil : license.includes,
-            rowActions: license.view.map { licenseRowActions(status: $0.status, linkOut: linkOut) }
-                ?? [],
+            rowActions: license.rowActions(linkOut: linkOut),
             available: controller.available)
     }
 
@@ -130,7 +133,9 @@ struct AppIconPicker: View {
         .transientMessageBanner(store)
         .sheet(item: $asking) { icon in
             AppIconAskSheet(
-                icon: icon, sheet: shape.sheet ?? .keyOnly, buyURL: license.appIconLinks.buy,
+                icon: icon, sheet: shape.sheet ?? .keyOnly, appStore: shape.appStore,
+                appStoreBusy: license.appStoreBusy, buyURL: license.appIconLinks.buy,
+                onBuyInAppStore: { Task { await license.buyInAppStore() } },
                 onAlreadyPaid: onAlreadyPaid, onNotNow: { asking = nil })
         }
         // A license arriving while the ask is up (bought from its sheet, or a
@@ -216,9 +221,14 @@ struct AppIconPicker: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(localization.localizedText("license.explanationLicensed"))
                     .font(.subheadline.bold())
-                Text(localization.localizedText("settings.appIcon.license.landing"))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                Text(
+                    localization.localizedText(
+                        license.plate == .appStore
+                            ? "settings.appIcon.license.landingAppStore"
+                            : "settings.appIcon.license.landing")
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -257,7 +267,12 @@ struct CoinBadge: View {
 private struct AppIconAskSheet: View {
     let icon: AppIcon
     let sheet: AppIconPickerShape.Sheet
+    /// Offer Buy in the App Store: beside Buy with equal weight where the
+    /// website is offered, under "I already paid" where the key leads.
+    let appStore: Bool
+    let appStoreBusy: Bool
     let buyURL: String
+    let onBuyInAppStore: () -> Void
     let onAlreadyPaid: () -> Void
     let onNotNow: () -> Void
 
@@ -276,13 +291,13 @@ private struct AppIconAskSheet: View {
                 }
                 .padding(.top, 20)
                 .padding(.bottom, 4)
-            .accessibilityHidden(true)
+                .accessibilityHidden(true)
 
             Text(localization.localizedText("settings.appIcon.license.sheetTitle"))
                 .font(.title3.bold())
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("app-icon-ask-title")
-            Text(body_)
+            Text(bodyText)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -291,8 +306,16 @@ private struct AppIconAskSheet: View {
 
             switch sheet {
             case .linkOut(let primary):
-                filled(primary == .renew ? "license.renew" : "license.buy", id: "app-icon-ask-buy") {
+                filled(primary == .renew ? "license.renew" : "license.buy", id: "app-icon-ask-buy")
+                {
                     if let url = URL(string: buyURL) { openURL(url) }
+                }
+                if appStore {
+                    filled(
+                        "license.appStore.buy", id: "app-icon-ask-buy-app-store", onBuyInAppStore
+                    )
+                    .disabled(appStoreBusy)
+                    scope("license.appStore.scopeUS")
                 }
                 HStack(spacing: 32) {
                     link("license.enterKey", id: "app-icon-ask-already-paid", onAlreadyPaid)
@@ -300,6 +323,13 @@ private struct AppIconAskSheet: View {
                 }
             case .keyOnly:
                 filled("license.enterKey", id: "app-icon-ask-already-paid", onAlreadyPaid)
+                if appStore {
+                    outlined(
+                        "license.appStore.buy", id: "app-icon-ask-buy-app-store", onBuyInAppStore
+                    )
+                    .disabled(appStoreBusy)
+                    scope("license.appStore.scope")
+                }
                 link("settings.appIcon.license.notNow", id: "app-icon-ask-not-now", onNotNow)
             }
             Spacer(minLength: 0)
@@ -308,11 +338,12 @@ private struct AppIconAskSheet: View {
         .padding(.bottom, 16)
         .frame(maxWidth: .infinity)
         .background(Theme.surface)
-        .presentationDetents([.medium])
+        // The App Store button and its caption do not fit the medium detent.
+        .presentationDetents(appStore ? [.large] : [.medium])
         .presentationDragIndicator(.visible)
     }
 
-    private var body_: String {
+    private var bodyText: String {
         switch sheet {
         case .linkOut: localization.localizedText("settings.appIcon.license.sheetBody")
         case .keyOnly: localization.localizedText("license.keyOnlyExplanation")
@@ -330,6 +361,28 @@ private struct AppIconAskSheet: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(id)
+    }
+
+    private func outlined(_ path: String, id: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(localization.localizedText(path))
+                .font(.headline)
+                .foregroundStyle(Theme.primary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .overlay(Capsule().stroke(Theme.primary, lineWidth: 1.5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(id)
+    }
+
+    private func scope(_ path: String) -> some View {
+        Text(localization.localizedText(path))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("app-icon-ask-app-store-scope")
     }
 
     private func link(_ path: String, id: String, _ action: @escaping () -> Void) -> some View {
