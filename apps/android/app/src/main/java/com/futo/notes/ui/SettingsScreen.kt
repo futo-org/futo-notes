@@ -4,16 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Image
-import androidx.compose.ui.res.painterResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.futo.notes.ui.settings.appicon.AppIconController
-import com.futo.notes.ui.settings.appicon.AppIconSheet
-import com.futo.notes.ui.settings.appicon.CoinBadge
-import com.futo.notes.browser.openInCustomTab
-import com.futo.notes.license.LICENSE_LOG_TAG
-import uniffi.futo_notes_ffi.LicenseInclusion
+import com.futo.notes.ui.settings.appicon.AppIconSettingsGroup
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -60,7 +54,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -121,11 +114,6 @@ fun SettingsScreen(
     var crashEnabled by remember { mutableStateOf(prefs.getBoolean(Prefs.CRASH_ENABLED, true)) }
     var crashAlwaysSend by remember { mutableStateOf(prefs.getBoolean(Prefs.CRASH_ALWAYS_SEND, false)) }
     val appIcons = remember { AppIconController(context) }
-    var showAppIcons by remember { mutableStateOf(false) }
-    // The one-time header above the picker's grid after an activation. Set when
-    // the landing opens the picker and dropped when it closes: nothing is
-    // persisted, so reopening shows the plain grid.
-    var showsLanding by remember { mutableStateOf(false) }
     // Bumped by the picker's "I already paid"; the License card opens its key
     // field on each change.
     var keyEntryRequest by remember { mutableStateOf(0) }
@@ -137,18 +125,6 @@ fun SettingsScreen(
     var confirmReset by remember { mutableStateOf(false) }
     var resetting by remember { mutableStateOf(false) }
 
-    // An activation that includes the app icon lands on the picker (license.md
-    // § Deep link). Taken now, whatever happens next: a landing is for the
-    // moment of activation and is never kept for a later visit. A Full reset
-    // dialog already up keeps the toast alone as the landing.
-    LaunchedEffect(license.pendingLanding) {
-        if (!license.pendingLanding) return@LaunchedEffect
-        license.consumeLanding()
-        if (confirmReset || resetting) return@LaunchedEffect
-        showsLanding = true
-        // Already open (the user paid from its ask): it only gains the header.
-        showAppIcons = true
-    }
     LaunchedEffect(keyEntryRequest) {
         // The License card is the first group: "I already paid" brings it back.
         if (keyEntryRequest > 0) scrollState.animateScrollTo(0)
@@ -221,28 +197,13 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsGroup(localization.localizedText("settings.appIcon.heading")) {
-                SettingsRow(
-                    title = localization.localizedText(appIcons.selected.labelKey),
-                    onClick = { showAppIcons = true },
-                    leading = { Image(painterResource(appIcons.selected.preview), null, Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))) },
-                ) {
-                    // While the license does not include icons — on key-only
-                    // builds too: it names a fact, not a sale. Unknown (still
-                    // loading) is not "unlicensed", so it says nothing.
-                    if (license.view != null && LicenseInclusion.APP_ICON !in license.includes) {
-                        CoinBadge(18.dp, ring = false)
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            localization.localizedText("settings.appIcon.license.rowHint"),
-                            style = FutoType.caption,
-                            color = c.textMuted,
-                        )
-                        Spacer(Modifier.width(4.dp))
-                    }
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = c.textMuted)
-                }
-            }
+            AppIconSettingsGroup(
+                appIcons,
+                license,
+                landingBlocked = confirmReset || resetting,
+                // Scrolls to the card and opens its key field.
+                onAlreadyPaid = { keyEntryRequest += 1 },
+            )
 
             SettingsGroup(localization.localizedText("settings.language.heading")) {
                 SettingsRow(
@@ -374,31 +335,6 @@ fun SettingsScreen(
         }
     }
 
-    if (showAppIcons) {
-        LaunchedEffect(Unit) { appIcons.refresh() }
-        val view = license.view
-        val rowActions = remember(view, license.linkOut) { license.actions() }
-        AppIconSheet(
-            appIcons,
-            includes = view?.let { license.includes },
-            rowActions = rowActions,
-            showsLanding = showsLanding,
-            onSelect = { icon -> scope.launch { appIcons.select(icon) } },
-            onBuy = {
-                runCatching { openInCustomTab(context, license.appIconLinks.buy) }
-                    .onFailure { android.util.Log.w(LICENSE_LOG_TAG, "nothing on this device opens checkout", it) }
-            },
-            onAlreadyPaid = {
-                showAppIcons = false
-                showsLanding = false
-                // Scrolls to the card and opens its key field.
-                keyEntryRequest += 1
-            },
-        ) {
-            showAppIcons = false
-            showsLanding = false
-        }
-    }
 
     // Modal confirmation [settings.md]: a stray double-tap on the row must not
     // be able to wipe the vault — only confirming in this dialog deletes.
@@ -411,35 +347,13 @@ fun SettingsScreen(
                 confirmReset = false
                 resetting = true
                 scope.launch {
-                    // Close writer admission, join sync and discard its stored
-                    // credential, then drain old work before wiping the vault.
-                    store.suppressAutoPush = true
                     try {
-                        withContext(NonCancellable) {
-                            store.deleteAll { sync.disconnectForReset() }
-                            // The license is a preference, and Full reset wipes
-                            // preferences (docs/spec/license.md § Storage).
-                            // Last, because it touches nothing the step above
-                            // needs — and silently, since the user is already
-                            // looking at the result of a reset. A throwing
-                            // deleteAll skips it: nothing was wiped.
-                            license.clearForFullReset()
-                            try { appIcons.reset() }
-                            catch (_: Exception) {
-                                android.widget.Toast.makeText(context,
-                                    localization.localizedText("settings.appIcon.resetFailed"),
-                                    android.widget.Toast.LENGTH_LONG).show()
-                            }
+                        fullReset(store, sync, license, appIcons) { path ->
+                            android.widget.Toast.makeText(
+                                context, localization.localizedText(path), android.widget.Toast.LENGTH_LONG,
+                            ).show()
                         }
-                    } catch (e: Exception) {
-                        android.widget.Toast.makeText(
-                            context,
-                            localization.localizedText("settings.danger.failed"),
-                            android.widget.Toast.LENGTH_LONG,
-                        ).show()
                     } finally {
-                        sync.finishReset()
-                        store.suppressAutoPush = false
                         resetting = false
                     }
                 }
@@ -448,30 +362,69 @@ fun SettingsScreen(
         )
     }
 
-    if (resetting) {
-        // Blocking overlay — swallow every tap AND Back while the vault is
-        // wiped; Back would otherwise leave Settings mid-delete.
-        BackHandler {}
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(c.surfaceInverse.copy(alpha = 0.45f))
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
-            contentAlignment = Alignment.Center,
-        ) {
-            Surface(color = c.surface, shape = RoundedCornerShape(FutoRadius.md)) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(20.dp)) {
-                    CircularProgressIndicator(color = c.accent, strokeWidth = 2.5.dp, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(14.dp))
-                    Text(
-                        localization.localizedText("settings.danger.deleting"),
-                        style = FutoType.body,
-                        color = c.textPrimary,
-                    )
-                }
+    if (resetting) ResettingOverlay()
+    }
+}
+
+/**
+ * Full reset [settings.md]: close writer admission, join sync and discard its
+ * stored credential, then drain old work before wiping the vault. Failures are
+ * shown through [toast] as catalog paths.
+ */
+private suspend fun fullReset(
+    store: NotesStore,
+    sync: SyncManager,
+    license: LicenseModel,
+    appIcons: AppIconController,
+    toast: (String) -> Unit,
+) {
+    store.suppressAutoPush = true
+    try {
+        withContext(NonCancellable) {
+            store.deleteAll { sync.disconnectForReset() }
+            // The license is a preference, and Full reset wipes preferences
+            // (docs/spec/license.md § Storage). Last, because it touches nothing
+            // the step above needs — and silently, since the user is already
+            // looking at the result of a reset. A throwing deleteAll skips it:
+            // nothing was wiped.
+            license.clearForFullReset()
+            try { appIcons.reset() } catch (_: Exception) { toast("settings.appIcon.resetFailed") }
+        }
+    } catch (e: Exception) {
+        toast("settings.danger.failed")
+    } finally {
+        sync.finishReset()
+        store.suppressAutoPush = false
+    }
+}
+
+/**
+ * Blocking overlay — swallows every tap AND Back while the vault is wiped;
+ * Back would otherwise leave Settings mid-delete.
+ */
+@Composable
+private fun ResettingOverlay() {
+    val c = FutoTheme.colors
+    val localization = LocalLocalization.current
+    BackHandler {}
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(c.surfaceInverse.copy(alpha = 0.45f))
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(color = c.surface, shape = RoundedCornerShape(FutoRadius.md)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(20.dp)) {
+                CircularProgressIndicator(color = c.accent, strokeWidth = 2.5.dp, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(14.dp))
+                Text(
+                    localization.localizedText("settings.danger.deleting"),
+                    style = FutoType.body,
+                    color = c.textPrimary,
+                )
             }
         }
-    }
     }
 }
 

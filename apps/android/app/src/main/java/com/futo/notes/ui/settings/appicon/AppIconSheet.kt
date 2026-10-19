@@ -98,17 +98,7 @@ fun AppIconSheet(
             },
         )
         if (showsLanding) LandingHeader()
-        if (controller.changing) {
-            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(24.dp), color = colors.accent)
-                Spacer(Modifier.width(12.dp))
-                Text(localization.localizedText("settings.appIcon.changing"), color = colors.textPrimary)
-            }
-        }
-        if (controller.failed) {
-            Text(localization.localizedText("settings.appIcon.failed"),
-                color = colors.danger, modifier = Modifier.padding(16.dp))
-        }
+        ChangeStatus(controller)
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
@@ -117,37 +107,17 @@ fun AppIconSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(AppIcon.entries, key = { it.id }) { icon ->
-                val isSelected = controller.selected == icon
-                val label = localization.localizedText(icon.labelKey)
-                val coined = icon in shape.coined
-                val a11yLabel = if (coined) {
-                    localization.localizedText("settings.appIcon.license.a11yIncluded", mapOf("iconName" to label))
-                } else {
-                    label
-                }
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable(enabled = !controller.changing && shape.resolved) {
-                            when {
-                                shape.asks(icon) -> asking = icon
-                                icon != controller.selected -> pending = icon
-                            }
-                        }
-                        .semantics {
-                            selected = isSelected
-                            contentDescription = a11yLabel
-                        }
-                        .testTag("app-icon-" + icon.id)
-                        .padding(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                AppIconTile(
+                    icon,
+                    selected = controller.selected == icon,
+                    coined = icon in shape.coined,
+                    enabled = !controller.changing && shape.resolved,
                 ) {
-                    IconArtwork(icon, size = 80.dp, coinDiameter = 26.dp, coined = coined)
-                    Spacer(Modifier.height(8.dp))
-                    Text(label, color = colors.textPrimary)
-                    Box(Modifier.height(28.dp), contentAlignment = Alignment.Center) {
-                        if (isSelected) Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = colors.accent)
+                    // The ask, the confirm before an OS change, or nothing for
+                    // the current icon.
+                    when {
+                        shape.asks(icon) -> asking = icon
+                        icon != controller.selected -> pending = icon
                     }
                 }
             }
@@ -157,15 +127,7 @@ fun AppIconSheet(
         }
     }
     pending?.let { icon ->
-        ConfirmDialog(
-            title = localization.localizedText("settings.appIcon.confirm.title",
-                mapOf("iconName" to localization.localizedText(icon.labelKey))),
-            body = localization.localizedText("settings.appIcon.confirm.body"),
-            confirmLabel = localization.localizedText("settings.appIcon.confirm.action"),
-            destructive = false,
-            onConfirm = { pending = null; onSelect(icon) },
-            onDismiss = { pending = null },
-        )
+        ConfirmIconChange(icon, onConfirm = { pending = null; onSelect(icon) }, onDismiss = { pending = null })
     }
     val ask = shape.ask
     val askedIcon = asking
@@ -178,6 +140,75 @@ fun AppIconSheet(
             onNotNow = { asking = null },
         )
     }
+}
+
+/** While an OS change is pending, and after one failed. */
+@Composable
+private fun ChangeStatus(controller: AppIconController) {
+    val localization = LocalLocalization.current
+    val colors = FutoTheme.colors
+    if (controller.changing) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(Modifier.size(24.dp), color = colors.accent)
+            Spacer(Modifier.width(12.dp))
+            Text(localization.localizedText("settings.appIcon.changing"), color = colors.textPrimary)
+        }
+    }
+    if (controller.failed) {
+        Text(localization.localizedText("settings.appIcon.failed"),
+            color = colors.danger, modifier = Modifier.padding(16.dp))
+    }
+}
+
+/** One choice in the grid: artwork (coined or not), name, and the selection check. */
+@Composable
+private fun AppIconTile(icon: AppIcon, selected: Boolean, coined: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val localization = LocalLocalization.current
+    val colors = FutoTheme.colors
+    val label = localization.localizedText(icon.labelKey)
+    val a11yLabel = if (coined) {
+        localization.localizedText("settings.appIcon.license.a11yIncluded", mapOf("iconName" to label))
+    } else {
+        label
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics {
+                this.selected = selected
+                contentDescription = a11yLabel
+            }
+            .testTag("app-icon-" + icon.id)
+            .padding(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        IconArtwork(icon, size = 80.dp, coinDiameter = 26.dp, coined = coined)
+        Spacer(Modifier.height(8.dp))
+        Text(label, color = colors.textPrimary)
+        Box(Modifier.height(28.dp), contentAlignment = Alignment.Center) {
+            if (selected) Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = colors.accent)
+        }
+    }
+}
+
+/**
+ * Disabling the launcher alias that rooted the task makes Android finish that
+ * task, so a change is confirmed first (Signal's convention).
+ */
+@Composable
+private fun ConfirmIconChange(icon: AppIcon, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    val localization = LocalLocalization.current
+    ConfirmDialog(
+        title = localization.localizedText("settings.appIcon.confirm.title",
+            mapOf("iconName" to localization.localizedText(icon.labelKey))),
+        body = localization.localizedText("settings.appIcon.confirm.body"),
+        confirmLabel = localization.localizedText("settings.appIcon.confirm.action"),
+        destructive = false,
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
+    )
 }
 
 /**

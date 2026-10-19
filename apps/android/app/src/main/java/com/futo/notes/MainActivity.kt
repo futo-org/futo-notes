@@ -67,8 +67,8 @@ import com.futo.notes.ui.NoteEditorScreen
 import com.futo.notes.ui.NoteListScreen
 import com.futo.notes.ui.SearchScreen
 import com.futo.notes.ui.SettingsScreen
-import com.futo.notes.ui.navigation.LicenseLanding
-import com.futo.notes.ui.navigation.licenseLandingRoute
+import com.futo.notes.ui.navigation.DropLicenseLandingWithoutShell
+import com.futo.notes.ui.navigation.LicenseLandingEffect
 import com.futo.notes.ui.StorageOnboarding
 import com.futo.notes.ui.StorageRegrantScreen
 import com.futo.notes.ui.SyncScreen
@@ -290,15 +290,7 @@ class MainActivity : ComponentActivity() {
                     pendingLicenseLink.value = null
                     license.handle(licenseLink)
                 }
-                // No shell to land in (first-run storage choice, a lost grant,
-                // a failed recovery): the toast alone is the landing, never one
-                // kept until the shell appears. A shell still loading keeps it,
-                // and AppShell decides once it composes.
-                val noShell = showOnboarding.value || showRegrant.value ||
-                    storageRecoveryFailure.value != null
-                LaunchedEffect(license.pendingLanding, noShell) {
-                    if (license.pendingLanding && noShell) license.consumeLanding()
-                }
+                DropLicenseLandingWithoutShell(license, noShell = hasNoShell())
                 LaunchedEffect(currentLocalization.effectiveLanguage.tag) {
                     EditorHost.prewarm(this@MainActivity)
                     EditorHost.get(this@MainActivity).setLocalization(currentLocalization)
@@ -457,6 +449,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * No shell to land in: the first-run storage choice, a lost grant, or a
+     * failed recovery. A shell that is still loading is not this.
+     */
+    private fun hasNoShell(): Boolean =
+        showOnboarding.value || showRegrant.value || storageRecoveryFailure.value != null
+
     /** The normal app once the vault location is known. */
     @Composable
     private fun AppShell(
@@ -469,18 +468,7 @@ class MainActivity : ComponentActivity() {
             hasBootstrapped = s.hasBootstrapped,
             availableFolderPaths = s.folders,
             effects = { navigator ->
-                // An activation that includes the app icon lands on the picker
-                // over Settings (docs/spec/license.md § Deep link). Settings
-                // takes the landing itself once it is showing; anything else
-                // up drops it on the spot, so it is never kept for later.
-                LaunchedEffect(license.pendingLanding) {
-                    if (!license.pendingLanding) return@LaunchedEffect
-                    when (licenseLandingRoute(navigator.currentScreen, modalUp = pendingCrashJson.value != null)) {
-                        LicenseLanding.OPEN_SETTINGS -> navigator.openSettings()
-                        LicenseLanding.SETTINGS_TAKES_IT -> Unit
-                        LicenseLanding.DROP -> license.consumeLanding()
-                    }
-                }
+                LicenseLandingEffect(license, navigator, modalUp = pendingCrashJson.value != null)
             },
         ) { screen, navigator, noteListState ->
             when (screen) {
