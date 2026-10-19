@@ -404,7 +404,7 @@ impl HostedSetup {
         let Some(token) = blocking_secrets(secrets, |store| store.session_token()).await? else {
             return Ok(None);
         };
-        match self.http.clone().token(token.clone()).current_user().await {
+        match self.http()?.token(token.clone()).current_user().await {
             Ok(Some(user)) => {
                 let session = HostedSession {
                     user_id: user.id,

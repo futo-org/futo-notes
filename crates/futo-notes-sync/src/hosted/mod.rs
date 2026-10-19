@@ -249,7 +249,7 @@ pub struct HostedSetup {
     server_url: String,
     /// Built once and cloned per call, so every step shares one connection
     /// pool instead of opening a socket per poll.
-    http: Http,
+    clients: HttpClients,
     session: Mutex<Option<HostedSession>>,
     /// This account's one collection, once resolved. Cached because every
     /// vault step needs it and claiming it is idempotent, not because the
@@ -287,12 +287,12 @@ impl HostedSetup {
     /// [`HostedSetup::hosted`]. An address that is not a usable http(s) URL
     /// fails here, before any request, as [`HostedError::Network`].
     pub fn at(server: &str) -> Result<Self, HostedError> {
-        let http = HttpClients::new()
-            .and_then(|clients| clients.for_base(server))
+        let clients = HttpClients::new()
+            .and_then(|clients| clients.for_base(server).map(|_| clients))
             .map_err(|error| HostedError::Network(error.message))?;
         Ok(Self {
             server_url: server.trim().trim_end_matches('/').to_owned(),
-            http,
+            clients,
             session: Mutex::new(None),
             collection_id: Mutex::new(None),
             key_material: Mutex::new(None),
@@ -333,7 +333,7 @@ impl HostedSetup {
     /// Step 1: mint a Login Hand-off. Takes no credentials. Open the returned
     /// URL, then call [`HostedSetup::await_sign_in`] with the same handoff.
     pub async fn begin_sign_in(&self) -> Result<SignInHandoff, HostedError> {
-        self.http.mint_handoff().await
+        self.http()?.mint_handoff().await
     }
 
     /// Step 2: poll the ticket, backing off, until the person finishes in the
@@ -345,7 +345,7 @@ impl HostedSetup {
         let ticket = handoff.ticket.clone();
         let waited = self
             .wait(self.sign_in_schedule, || async {
-                match self.http.redeem_handoff(&ticket).await? {
+                match self.http()?.redeem_handoff(&ticket).await? {
                     HandoffPoll::Pending => Ok(None),
                     HandoffPoll::Session(session) => Ok(Some(Some(session))),
                     HandoffPoll::Gone => Ok(Some(None)),
@@ -429,7 +429,13 @@ impl HostedSetup {
             .await?
             .map(|session| session.token)
             .ok_or(HostedError::NotSignedIn)?;
-        Ok(self.http.clone().token(token))
+        Ok(self.http()?.token(token))
+    }
+
+    fn http(&self) -> Result<Http, HostedError> {
+        self.clients
+            .for_base(&self.server_url)
+            .map_err(|error| HostedError::Network(error.message))
     }
 
     /// Runs `step` until it answers, the app cancels, or the schedule runs

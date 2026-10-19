@@ -19,7 +19,7 @@ const RECONNECT_BACKOFF_MIN: Duration = Duration::from_secs(1);
 const RECONNECT_BACKOFF_MAX: Duration = Duration::from_secs(30);
 
 enum ConnectionOutcome {
-    Connected(reqwest::Response),
+    Connected(reqwest::Response, u64),
     Reconnect,
     Stop,
 }
@@ -57,7 +57,7 @@ pub(super) async fn run_live_task(
     );
 
     loop {
-        let response = match connect_event_stream(
+        let (response, generation) = match connect_event_stream(
             &state,
             &clients,
             listener.as_ref(),
@@ -67,7 +67,7 @@ pub(super) async fn run_live_task(
         )
         .await
         {
-            ConnectionOutcome::Connected(response) => response,
+            ConnectionOutcome::Connected(response, generation) => (response, generation),
             ConnectionOutcome::Reconnect => {
                 if wait_for_reconnect(
                     &mut reconnect_backoff,
@@ -90,6 +90,7 @@ pub(super) async fn run_live_task(
         if matches!(
             run_connected_stream(
                 response,
+                generation,
                 &live_cycle,
                 &mut cancel,
                 &mut note_changed,
@@ -144,7 +145,7 @@ async fn connect_event_stream(
         return ConnectionOutcome::Stop;
     };
     match response {
-        Ok(response) => ConnectionOutcome::Connected(response),
+        Ok(response) => ConnectionOutcome::Connected(response, http.pool_generation()),
         Err(error) if error.is(401) => {
             listener.on_error(format!("auth: {error}"));
             ConnectionOutcome::Stop

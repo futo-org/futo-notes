@@ -115,6 +115,8 @@ pub(crate) async fn cycle_with_checkpoint_and_clients(
         }
     };
 
+    let http = connect::client(clients, state).map_err(|kind| abandon(kind, state, phases))?;
+
     // The vault folder has to be there before anything in the cycle touches
     // disk. github#44: it was not, every apply failed, the user was told "3
     // notes couldn't be downloaded (will retry)" and audited a healthy server —
@@ -132,8 +134,6 @@ pub(crate) async fn cycle_with_checkpoint_and_clients(
             phases,
         ));
     }
-
-    let http = connect::client(clients, state).map_err(|kind| abandon(kind, state, phases))?;
 
     let (bootstrap, ready) = if needs_bootstrap(state) {
         let started = std::time::Instant::now();
