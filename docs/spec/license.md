@@ -162,6 +162,13 @@ fixture would close that on all three platforms at once.
   Swift, Kotlin, or TypeScript copy of the rule. Desktop projects the answer but
   renders nothing from it (no picker). → `license_includes`,
   `LicenseInclusion`
+- _(ios)_ **The App Store purchase includes exactly what a Licensed key
+  includes** (ADR-0009, App Review 3.1.3(b) parity), whatever the stored key
+  says. The shell reports two facts, the key's status and whether this Apple
+  Account owns the purchase; Rust answers what they include and which plate
+  shows. A Licensed key wins the plate. A unit test holds the App Store row equal
+  to the Licensed row. → `evidence_includes`, `license_plate`,
+  `LicenseEvidence`, `tests/conformance/license.json` `appStoreEvidence`
 - **The gate is on choosing, never on keeping.** Removing a license, or one
   expiring, leaves whatever icon is set. Nothing in the app ever changes the
   icon on its own except Full reset, which restores Standard.
@@ -182,6 +189,13 @@ fixture would close that on all three platforms at once.
   `license.keyOnlyExplanation` and "I already paid", no Buy, no "Lost your
   key?", no website (ADR-0005). The row hint still shows there: it states a
   fact, not a sale.
+- _(ios)_ When the App Store product loaded, the ask also offers **Buy in the
+  App Store** with the `license.appStore.scope` caption (`scopeUS` in the US):
+  filled beside Buy with equal weight in the US, outlined under "I already
+  paid" elsewhere. A completed purchase drops the sheet and lands on the picker
+  like a key activation, with `settings.appIcon.license.landingAppStore`. →
+  `AppIconPicker.swift`, `AppStorePurchaseTests`
+  "testBuyingFromTheIconSheetLandsInThePicker"
 - _(android, `play`)_ The ask **names the website** in plain text:
   `settings.appIcon.license.sheetBodyWebsite` with the address from
   `LicenseLinks.website`, a filled **I already paid**, and **Not now**. No Buy,
@@ -394,7 +408,10 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   _(ios)_ `licenseLinks(platform:bundleId:).support`, opened with `openURL`;
   _(android)_ the same `support` constant, opened with the same `ACTION_VIEW`
   intent as Buy — the OS hands a `mailto:` to the mail client
-- No IAP, no Play Billing, no in-app price, no in-app checkout on any platform.
+- No Play Billing, no in-app price in our own copy, and no in-app checkout of
+  the license key on any platform. _(ios)_ The one exception is the App
+  Store-only purchase (ADR-0009, § App Store purchase): StoreKit's own sheet
+  shows its price; it mints no key.
 
 ## Entering a key
 
@@ -629,6 +646,65 @@ than blank when Unlicensed, and the two date columns do not exist anywhere.
 desktop the sidebar already says "Unlicensed"; a third copy of the word was
 chrome.
 
+### App Store purchase _(ios)_
+
+ADR-0009. One StoreKit 2 non-consumable, `com.futo.notes.license`
+(`APP_STORE_PRODUCT_ID`, read by the shell through
+`license_app_store_product_id`), Family Sharing off. StoreKit verifies it on the
+device; no server sees it, no key is minted, and nothing reaches desktop,
+Android or sync.
+
+- **Offered only when the product loads.** No product (or StoreKit failing)
+  means no App Store controls; the card never waits on it (M1).
+- **Controls**, in display order — Rust's `license_evidence_row_actions`:
+
+  | Plate | US (link out) | Elsewhere (key only) |
+  |---|---|---|
+  | Unlicensed | **Buy a license** · **Buy in the App Store** · I already paid · Restore Purchases · Lost your key? | I already paid · Buy in the App Store · Restore Purchases |
+  | Expired | **Renew** · **Buy in the App Store** · I already paid · Restore Purchases · Lost your key? | I already paid · Buy in the App Store · Restore Purchases |
+  | App Store | I already paid | I already paid |
+  | Licensed (key) | Remove license | Remove license |
+
+  In the US, Buy/Renew and Buy in the App Store are **both filled, same style
+  and size** (the Ninth Circuit lets Apple forbid a web button more prominent
+  than its own). Elsewhere the key leads and Buy in the App Store is an
+  **outlined**, labeled secondary button. Under it: `license.appStore.scopeUS`
+  in the US (it may point at the website), `license.appStore.scope` elsewhere
+  (never the website, a price, or "everywhere"). → `licenseControlGroups`,
+  `AppStorePurchaseTests` "testUSCardOffersBothBuysWithEqualWeight",
+  "testNonUSCardKeepsTheKeyFirst"
+- **The App Store plate**: "Purchased in the App Store"
+  (`license.appStore.purchasedTitle`) and `license.appStore.purchasedBody`; no
+  well, letterhead or key row — not even for an expired key stored beside it —
+  and **no Remove**: a purchase cannot be removed from an Apple Account. I
+  already paid stays so a key bought later has somewhere to go. Removing a
+  Licensed key falls back to this plate when the purchase is owned.
+- **Buy** runs `Product.purchase()`. Success lands on the picker (M5). Ask to
+  Buy (pending) and a cancel change nothing and say nothing.
+- **Restore Purchases** runs `AppStore.sync()` only from its tap (it can show an
+  Apple Account sign-in), then re-reads entitlements; nothing owned toasts
+  `license.appStore.nothingToRestore`. A purchase already on the account is
+  owned at launch with no tap (`Transaction.currentEntitlements`).
+- **Refunds and revocations** arrive on `Transaction.updates`, listened to for
+  the life of the app: ownership clears live, the icon already set stays (the
+  gate is on choosing), and the picker asks again. Only verified transactions
+  without a `revocationDate` count. → `LicenseAppStore.swift`,
+  `LicenseAppStoreTests`, `AppStorePurchaseTests` "testRefundReturnsTheAsk"
+- Debug and tests use `apps/ios/StoreKit/FutoNotes.storekit`, the scheme's
+  StoreKit configuration for both Run and Test (`scripts/ios-scheme-test-storekit.mjs`
+  adds the Test one after `xcodegen`; without it `xcodebuild` starts no local
+  StoreKit server). Tests open their own `SKTestSession`; the unit-test host
+  skips the app's launch-time StoreKit observer so the session is in place
+  before the first product lookup. _(Debug only)_ `-FUTOAppStoreOffered` shows
+  the App Store controls with no product loaded (screenshots; Buy does nothing).
+- **Verification 2026-10-19.** Xcode 27.1, `futo-appstore-ios27` (iPhone Duo,
+  iOS 27.1): `LicenseAppStoreTests` 10/10 and the whole unit bundle 268/268;
+  `AppStorePurchaseTests` 5/5 (US and FRA cards, icon-sheet purchase landing,
+  Restore, refund), `LicensePlateTests` 3/3. `SKTestSession` cannot configure an
+  iOS 26.5 simulator from Xcode 27.1 (`SKInternalErrorDomain` 3: "Fetching the
+  Octane server port is no longer supported"), so local StoreKit testing needs a
+  runtime matching Xcode. A real TestFlight purchase is still to do.
+
 The key-entry action is **"I already paid"** on every platform, which is what
 Grayjay (`i_already_paid`) and FUTO Keyboard (`payment_screen_already_paid_button`)
 both call it: it names the person's situation rather than the mechanism. It is
@@ -636,8 +712,10 @@ one catalog entry, `license.enterKey`, so all three shells moved together
 (@justin 2026-09-18).
 
 - When checkout is available, Buy/Renew is the **only filled button on the
-  card**. Enter license key, Lost your key? and Remove license are text links
-  beside it. The key-only surface has no filled button. _(native shells)_ Which controls
+  card** — except _(ios, US)_ beside Buy in the App Store, filled with equal
+  weight (§ App Store purchase). Enter license key, Lost your key? and Remove
+  license are text links beside it. The key-only surface has no filled button
+  (_(ios)_ Buy in the App Store is outlined there). _(native shells)_ Which controls
   exist at all is Rust's answer, `license_surface_row_actions` (iOS:
   `license_row_actions`), which also owns what each purchase surface hides;
   _(desktop)_ the plate still derives its two buttons inline, because desktop
@@ -958,9 +1036,8 @@ and the decision, not the rules, is what this section records.
   - _(ios)_ One binary reads `Storefront.current` and `Storefront.updates`. The **US** storefront offers the full surface, with Buy in the default browser. Every other or unknown storefront has the key field and deep link only; it has no Buy, Renew, Lost-your-key, payment headline, or payment explanation. The initial answer is key-only until StoreKit responds. EU and Japan are not special-cased. → `license_link_out`, `LicenseStorefront.swift`
   - _(android)_ `direct` offers the full surface worldwide and opens Buy in a Custom Tab; `play` names the website in plain text and accepts keys and deep links, worldwide (revised 2026-10-19, below). Both flavors keep the same app identity and signing, so installing one over the other preserves notes. The flavor reports only its distribution; Rust decides the surface. → `BuildConfig.LICENSE_DISTRIBUTION`, `license_purchase_surface`, `LicenseModel.kt`, `browser/CustomTabs.kt`
   - _(desktop)_ Unchanged.
-  - If Apple rejects the key field outside the US (3.1.1), the fallback is a non-consumable IAP at the same price (3.1.3(b)), not built.
-  - **In-app purchase is deferred (2026-10-19, @justin).** No StoreKit or Play Billing purchase flow and no change to FUTOpay (lib-polar) is planned for now; deferred, not cancelled. The 2026-10-16 design (a store purchase redeemed on FUTOpay for an ordinary key) is kept as the record in ADR-0007 and ADR-0008. This posture, with the key-only surfaces above, is what ships.
-  - **The key-only wording is under review (2026-10-19).** How far the copy on the key-only surface (iOS outside the US) may steer a buyer toward the website is being researched against Apple's rules. Until that lands, the rules above stand.
+  - _(ios)_ **An App Store-only purchase sits beside the key field on every storefront (ADR-0009, 2026-10-19).** A license key enables the icon picker in the app, which 3.1.1 allows only under 3.1.3(b), "provided those items are also available as in-app purchases within the app". The non-consumable in § App Store purchase is that in-app purchase. It mints no key and FUTOpay never sees it; Android, desktop and lib-polar are unchanged. Outside the US the copy may state its limits ("no license key", "can't be used on other platforms") but never the website or a price.
+  - **Store purchases redeemed for a key stay deferred (2026-10-19, @justin).** No Play Billing flow and no change to FUTOpay (lib-polar) is planned; the 2026-10-16 design (a store purchase redeemed on FUTOpay for an ordinary key) is kept as the record in ADR-0007 and ADR-0008.
   - **Android `play` names the website (2026-10-19, @justin; ADR-0005 amendment).** Google's consumption-only rule lets an app say where to buy as long as nothing leads there (Play Console Help 10281818), so `play` shows the payment headline, the reason, and the storefront address as plain, non-tappable text, plus "Lost your key?". No Buy, no link, no copy button, no QR code, no price. Not flipped to link-out in the US: that needs the External Content Links program. → `license_purchase_surface` (`NameWebsite`)
   - _(Android, F-Droid)_ Offline verification adds no anti-feature; the single activation request to pay2 may earn a Tethered/NonFreeNet label. Accepted.
 - **Verification 2026-09-24.** _(ios)_ Debug UI tests drove USA (Buy opened Safari), FRA and `none` (key-only copy and deep-link activation). A Release UI test compared the unforced surface with `Storefront.current`; Release contained no `-FUTOLicenseStorefront` string. On the claimed simulator, StoreKit reported a US storefront without a signed-in App Store account, so the US purchase surface appeared. An absent account is not proof of `nil`; only `nil` itself fails closed. _(android)_ The pooled emulator showed direct checkout in Chrome's Custom Tab, a deep link returning to one existing `MainActivity`, Back returning to Settings, and Play's key-only surface activating both a pasted pair and a cold-start deep link. → `LicenseSurfaceTests`, `LicensePlateTests`, `LicenseSurfaceTest`, `LicenseLinkActivity.kt`
