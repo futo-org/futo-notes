@@ -189,10 +189,11 @@ fixture would close that on all three platforms at once.
   `license.keyOnlyExplanation` and "I already paid", no Buy, no "Lost your
   key?", no website (ADR-0005). The row hint still shows there: it states a
   fact, not a sale.
-- _(ios)_ When the App Store product loaded, the ask also offers **Buy in the
-  App Store** with the `license.appStore.scope` caption (`scopeUS` in the US):
-  filled beside Buy with equal weight in the US, outlined under "I already
-  paid" elsewhere. A completed purchase drops the sheet and lands on the picker
+- _(ios)_ When the App Store product loaded, the ask also offers **Buy in App
+  Store**: in the US as the card's captioned pair (§ App Store purchase), with
+  "I already paid" and "Not now" as two equal quiet buttons under it;
+  elsewhere outlined under "I already paid" with the `license.appStore.scope`
+  caption. A completed purchase drops the sheet and lands on the picker
   like a key activation, with `settings.appIcon.license.landingAppStore`. →
   `AppIconPicker.swift`, `AppStorePurchaseTests`
   "testBuyingFromTheIconSheetLandsInThePicker"
@@ -660,19 +661,23 @@ Android or sync.
 
   | Plate | US (link out) | Elsewhere (key only) |
   |---|---|---|
-  | Unlicensed | **Buy a license** · **Buy in the App Store** · I already paid · Restore Purchases · Lost your key? | I already paid · Buy in the App Store · Restore Purchases |
-  | Expired | **Renew** · **Buy in the App Store** · I already paid · Restore Purchases · Lost your key? | I already paid · Buy in the App Store · Restore Purchases |
+  | Unlicensed | **Buy a license** · **Buy in App Store** · I already paid · Restore Purchases · Lost your key? | I already paid · Buy in App Store · Restore Purchases |
+  | Expired | **Renew** · **Buy in App Store** · I already paid · Restore Purchases · Lost your key? | I already paid · Buy in App Store · Restore Purchases |
   | App Store | I already paid | I already paid |
   | Licensed (key) | Remove license | Remove license |
 
-  In the US, Buy/Renew and Buy in the App Store are **both filled, same style
-  and size** (the Ninth Circuit lets Apple forbid a web button more prominent
-  than its own), separated by an **"or" rule** (`license.appStore.or`) so the
-  App Store caption cannot read as describing both (@justin 2026-10-19).
-  Elsewhere the key leads and Buy in the App Store is an **outlined**, labeled
-  secondary button. Directly under it, and only it: `license.appStore.scopeUS`
-  in the US (it may point at the website), `license.appStore.scope` elsewhere
-  (never the website, a price, or "everywhere"). → `licenseControlGroups`,
+  In the US, Buy/Renew and Buy in App Store are **one pair, side by side,
+  both filled, same style and size** (the Ninth Circuit lets Apple forbid a
+  web button more prominent than its own), website first, stacked only when a
+  label would not fit. Each has its own one-line caption under it:
+  `license.buyCaption` ("Every platform, with a license key") and
+  `license.appStore.caption` ("iPhone and iPad, no license key"). The card
+  holds only the headline, the supporter coin and the pair; I already paid
+  (with `license.enterKeyHint`), Restore Purchases and Lost your key? are list
+  rows in their own group under it (@justin 2026-10-19). Elsewhere the key
+  leads and Buy in App Store is an **outlined**, labeled secondary button with
+  `license.appStore.scope` directly under it (never the website, a price, or
+  "everywhere"). → `licenseControlGroups`, `LicenseBuyPair`,
   `AppStorePurchaseTests` "testUSCardOffersBothBuysWithEqualWeight",
   "testNonUSCardKeepsTheKeyFirst"
 - **The App Store plate**: "Purchased in the App Store"
@@ -716,7 +721,8 @@ one catalog entry, `license.enterKey`, so all three shells moved together
 - When checkout is available, Buy/Renew is the **only filled button on the
   card** — except _(ios, US)_ beside Buy in the App Store, filled with equal
   weight (§ App Store purchase). Enter license key, Lost your key? and Remove
-  license are text links beside it. The key-only surface has no filled button
+  license are text links beside it (_(ios, US)_ list rows under the pair). The
+  key-only surface has no filled button
   (_(ios)_ Buy in the App Store is outlined there). _(native shells)_ Which controls
   exist at all is Rust's answer, `license_surface_row_actions` (iOS:
   `license_row_actions`), which also owns what each purchase surface hides;

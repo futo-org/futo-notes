@@ -160,20 +160,17 @@ struct LicenseSurfaceTests {
                     well: false, letterhead: false, keyRow: false, headline: false))
     }
 
-    /// US: the website and the App Store are equal-weight filled buttons, in
-    /// that order. Elsewhere the key leads and the App Store is outlined
-    /// (ADR-0009 decision 4). The caption says what the purchase is not.
+    /// US: the website and the App Store are one equal-weight pair, in that
+    /// order, and the text actions under it become list rows. Elsewhere the key
+    /// leads and the App Store is outlined (ADR-0009 decision 4).
     @Test("the card lays Rust's actions out with equal weight only in the US")
     func appStoreControlGroups() {
         #expect(
             licenseControlGroups([.buy, .buyInAppStore, .enterKey, .restorePurchases, .lostKey])
-                == [
-                    .filled(.buy), .filled(.buyInAppStore),
-                    .text([.enterKey, .restorePurchases, .lostKey]),
-                ])
+                == [.pair(.buy), .rows([.enterKey, .restorePurchases, .lostKey])])
         #expect(
             licenseControlGroups([.renew, .buyInAppStore, .enterKey, .restorePurchases, .lostKey])
-                .prefix(2) == [.filled(.renew), .filled(.buyInAppStore)])
+                .first == .pair(.renew))
         #expect(
             licenseControlGroups([.enterKey, .buyInAppStore, .restorePurchases])
                 == [.text([.enterKey]), .outlined(.buyInAppStore), .text([.restorePurchases])])
@@ -181,8 +178,6 @@ struct LicenseSurfaceTests {
             licenseControlGroups([.buy, .enterKey, .lostKey]) == [
                 .filled(.buy), .text([.enterKey, .lostKey]),
             ])
-        #expect(licenseAppStoreScopePath(linkOut: true) == "license.appStore.scopeUS")
-        #expect(licenseAppStoreScopePath(linkOut: false) == "license.appStore.scope")
     }
 
     /// Before the stored pair has been read there is no state to claim, so the

@@ -27,8 +27,8 @@ final class AppStorePurchaseTests: XCTestCase {
     }
 
     #if DEBUG
-        /// US: the website and the App Store side by side with equal weight, the
-        /// caption under them, and Restore with the text controls.
+        /// US: the website and the App Store side by side with equal weight, a
+        /// caption under each, and the rest as list rows under the card.
         @MainActor
         func testUSCardOffersBothBuysWithEqualWeight() {
             let app = launchToSettings(storefront: "USA")
@@ -37,16 +37,38 @@ final class AppStorePurchaseTests: XCTestCase {
             XCTAssertTrue(appStore.waitForExistence(timeout: 15), "the product never loaded")
             XCTAssertTrue(buy.exists)
             XCTAssertLessThan(
-                buy.frame.minY, appStore.frame.minY, "website first, then the App Store")
+                buy.frame.minX, appStore.frame.minX, "website first, then the App Store")
+            XCTAssertEqual(buy.frame.minY, appStore.frame.minY, accuracy: 0.5, "side by side")
+            XCTAssertEqual(buy.frame.width, appStore.frame.width, accuracy: 0.5, "equal weight")
             XCTAssertEqual(buy.frame.height, appStore.frame.height, accuracy: 0.5, "equal weight")
             XCTAssertEqual(
+                app.staticTexts["license-buy-caption"].label,
+                "Every platform,\nwith a license key")
+            XCTAssertEqual(
                 app.staticTexts["license-app-store-scope"].label,
-                "Works in FUTO Notes on iPhone and iPad with your Apple Account. It doesn't come with a license key. To use FUTO Notes on every platform, buy a license on FUTO's website instead."
-            )
+                "iPhone and iPad,\nno license key")
             XCTAssertTrue(app.buttons["license-enter-key"].exists)
             XCTAssertTrue(app.buttons["license-restore-purchases"].exists)
             XCTAssertTrue(app.buttons["license-lost-key"].exists)
             attach(app, named: "us-unlicensed")
+
+            // The icon ask offers the same pair.
+            let row = app.buttons["settings-app-icon"]
+            while !row.isHittable { app.swipeUp() }
+            row.tap()
+            let tile = app.buttons.matching(
+                NSPredicate(format: "label ENDSWITH %@", "included with a license")
+            ).firstMatch
+            XCTAssertTrue(tile.waitForExistence(timeout: 10))
+            tile.tap()
+            let sheetBuy = app.buttons["app-icon-ask-buy"]
+            let sheetAppStore = app.buttons["app-icon-ask-buy-app-store"]
+            XCTAssertTrue(sheetAppStore.waitForExistence(timeout: 10))
+            XCTAssertEqual(sheetBuy.frame.minY, sheetAppStore.frame.minY, accuracy: 0.5)
+            XCTAssertEqual(sheetBuy.frame.width, sheetAppStore.frame.width, accuracy: 0.5)
+            XCTAssertTrue(app.buttons["app-icon-ask-already-paid"].exists)
+            XCTAssertTrue(app.buttons["app-icon-ask-not-now"].exists)
+            attach(app, named: "us-icon-sheet")
         }
 
         /// Elsewhere: the key leads, the App Store is a labeled secondary button,

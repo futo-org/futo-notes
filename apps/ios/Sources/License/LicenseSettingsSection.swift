@@ -55,31 +55,36 @@ func licensePlateShape(_ card: LicenseCardModel?, linkOut: Bool, appStorePlate: 
 
 /// How the card lays out Rust's row actions, in Rust's order.
 ///
-/// Buy and Renew are filled. Buy in the App Store is filled beside them where
-/// the website is offered — App Review lets Apple forbid a web button more
-/// prominent than its own, so the two get equal weight — and an outlined,
-/// labeled secondary button where the key field leads (ADR-0009). Everything
-/// else is a text button, and neighbouring text buttons share a row.
+/// Buy and Renew are filled. Where the website is offered, Buy in the App Store
+/// sits beside them as a pair: same style, same size, each with a one-line
+/// caption saying what it buys — App Review lets Apple forbid a web button more
+/// prominent than its own, so the two get equal weight. The card around a pair
+/// then holds only the choice; the text actions after it become a list of
+/// their own (@justin 2026-10-19). Where the key field leads, Buy in the App
+/// Store is an outlined, labeled secondary button (ADR-0009) and neighbouring
+/// text buttons share a row.
 enum LicenseControlGroup: Hashable {
     case filled(LicenseAction)
     case outlined(LicenseAction)
     case text([LicenseAction])
-
-    var isFilled: Bool {
-        if case .filled = self { return true }
-        return false
-    }
+    /// Buy or Renew, then Buy in the App Store, side by side.
+    case pair(LicenseAction)
+    /// The text actions under a pair, as list rows.
+    case rows([LicenseAction])
 }
 
 func licenseControlGroups(_ actions: [LicenseAction]) -> [LicenseControlGroup] {
-    let linksOut = actions.contains(.buy) || actions.contains(.renew)
     var groups: [LicenseControlGroup] = []
     for action in actions {
         switch action {
         case .buy, .renew:
             groups.append(.filled(action))
         case .buyInAppStore:
-            groups.append(linksOut ? .filled(action) : .outlined(action))
+            if case .filled(let web) = groups.last {
+                groups[groups.count - 1] = .pair(web)
+            } else {
+                groups.append(.outlined(action))
+            }
         default:
             if case .text(let run) = groups.last {
                 groups[groups.count - 1] = .text(run + [action])
@@ -88,13 +93,10 @@ func licenseControlGroups(_ actions: [LicenseAction]) -> [LicenseControlGroup] {
             }
         }
     }
-    return groups
-}
-
-/// The caption under Buy in the App Store: what the purchase is not. Only the
-/// US card may point at the website (ADR-0009 decision 6).
-func licenseAppStoreScopePath(linkOut: Bool) -> String {
-    linkOut ? "license.appStore.scopeUS" : "license.appStore.scope"
+    guard groups.contains(where: { if case .pair = $0 { true } else { false } }) else {
+        return groups
+    }
+    return groups.map { if case .text(let run) = $0 { .rows(run) } else { $0 } }
 }
 
 func licenseExplanationPath(status: LicenseStatus, linkOut: Bool) -> String {
@@ -181,6 +183,13 @@ struct LicenseSettingsSection: View {
         entering ? [] : license.rowActions(linkOut: linkOut)
     }
 
+    /// The list under a pair; empty everywhere else.
+    private var rowActions: [LicenseAction] {
+        licenseControlGroups(actions).flatMap { group -> [LicenseAction] in
+            if case .rows(let run) = group { run } else { [] }
+        }
+    }
+
     var body: some View {
         Section(localization.localizedText("license.sectionTitle")) {
             plate
@@ -193,6 +202,13 @@ struct LicenseSettingsSection: View {
                         perform(.enterKey)
                     }
                 }
+        }
+        // The rows read as the card's continuation, not the next topic.
+        .listSectionSpacing(rowActions.isEmpty ? .default : .custom(12))
+        if !rowActions.isEmpty {
+            Section {
+                ForEach(rowActions, id: \.self) { actionRow(for: $0) }
+            }
         }
     }
 
@@ -211,18 +227,18 @@ struct LicenseSettingsSection: View {
             if shape.keyRow {
                 keyRow
             }
-            if shape.headline {
-                Text(localization.localizedText("license.unlicensedHeadline"))
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("license-headline")
+            if shape.headline && !entering {
+                ask
+            } else {
+                if shape.headline {
+                    headline
+                }
+                stateBody(for: license.view?.status)
             }
-
-            stateBody(for: license.view?.status)
             controls
         }
-        .padding(.vertical, 6)
+        .padding(.top, 6)
+        .padding(.bottom, rowActions.isEmpty ? 6 : 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         // Where the state is machine-readable from, in EVERY state. It used to
         // hang off the well, and the well is now gone from two of the three
@@ -246,6 +262,37 @@ struct LicenseSettingsSection: View {
         if let badge = card.badge { return badge }
         return localization.localizedText(
             card.status == .licensed ? "license.statusLicensed" : "license.unlicensed")
+    }
+
+    private var headline: some View {
+        Text(localization.localizedText("license.unlicensedHeadline"))
+            .font(.title2.bold())
+            .foregroundStyle(.primary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("license-headline")
+    }
+
+    /// Unlicensed with the website offered: the headline and its reason as one
+    /// block, with the supporter coin beside them as the card's mark.
+    private var ask: some View {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                headline
+                if let status = license.view?.status {
+                    Text(
+                        localization.localizedText(
+                            licenseExplanationPath(status: status, linkOut: linkOut))
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("license-explanation")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            CoinBadge(diameter: 30, ring: false)
+                .padding(.top, 1)
+        }
     }
 
     /// The reason above the controls it argues for, and — once Licensed — the
@@ -291,44 +338,102 @@ struct LicenseSettingsSection: View {
         }
     }
 
-    /// Every control, in Rust's order (`licenseControlGroups`). Buy in the
-    /// App Store carries its scope caption directly under it, and in the US an
-    /// "or" rule separates it from Buy a license, so the caption cannot read as
-    /// if it described both (@justin 2026-10-19).
+    /// Every control, in Rust's order (`licenseControlGroups`). The rows under
+    /// a pair are not here: they are their own Section (`body`).
     @ViewBuilder private var controls: some View {
         let groups = licenseControlGroups(actions)
-        ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
+        ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
             switch group {
-            case .filled(.buyInAppStore):
-                if index > 0, groups[index - 1].isFilled { orRule }
-                appStoreBlock { filledButton(for: .buyInAppStore, fullWidth: true) }
+            case .pair(let web):
+                LicenseBuyPair(
+                    web: pairChoice(for: web),
+                    appStore: pairChoice(for: .buyInAppStore),
+                    appStoreBusy: license.appStoreBusy
+                )
+                .padding(.top, 4)
             case .outlined(.buyInAppStore):
-                appStoreBlock { outlinedButton(for: .buyInAppStore) }
+                // What the purchase is not, directly under it.
+                VStack(alignment: .leading, spacing: 8) {
+                    outlinedButton(for: .buyInAppStore)
+                    Text(localization.localizedText("license.appStore.scope"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("license-app-store-scope")
+                }
             case .filled(let action):
-                // Two filled buttons are one width: equal weight is equal size.
-                filledButton(for: action, fullWidth: groups.filter(\.isFilled).count > 1)
+                filledButton(for: action)
             case .outlined(let action):
                 outlinedButton(for: action)
             case .text(let run):
                 textRow(run)
+            case .rows:
+                EmptyView()
             }
         }
     }
 
-    /// The App Store button and what it is not, kept together.
-    private func appStoreBlock(@ViewBuilder _ button: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            button()
-            Text(localization.localizedText(licenseAppStoreScopePath(linkOut: linkOut)))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("license-app-store-scope")
-        }
+    private func pairChoice(for action: LicenseAction) -> LicenseBuyPair.Choice {
+        LicenseBuyPair.Choice(
+            title: localization.localizedText(Self.copyPath(for: action)),
+            caption: localization.localizedText(
+                action == .buyInAppStore ? "license.appStore.caption" : "license.buyCaption"),
+            leavesApp: action != .buyInAppStore,
+            id: Self.identifier(for: action),
+            captionID: action == .buyInAppStore
+                ? "license-app-store-scope" : "license-buy-caption",
+            action: { perform(action) })
     }
 
-    private var orRule: some View {
-        LicenseOrRule(text: localization.localizedText("license.appStore.or"))
+    /// One list row under the pair: the app's orange glyph, the action, and
+    /// where it goes — on into the key field, or out of the app.
+    private func actionRow(for action: LicenseAction) -> some View {
+        Button {
+            perform(action)
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: Self.rowSymbol(for: action))
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(Theme.primary)
+                    .frame(width: 26)
+                VStack(alignment: .leading, spacing: 1) {
+                    // Label colours, not `.primary`: inside a Form button that
+                    // resolves to the tint, and the rows are not links.
+                    Text(localization.localizedText(Self.copyPath(for: action)))
+                        .foregroundStyle(Color(.label))
+                    if action == .enterKey {
+                        Text(localization.localizedText("license.enterKeyHint"))
+                            .font(.footnote)
+                            .foregroundStyle(Color(.secondaryLabel))
+                    }
+                }
+                Spacer(minLength: 8)
+                switch action {
+                case .enterKey:
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color(.tertiaryLabel))
+                case .lostKey:
+                    Image(systemName: "arrow.up.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color(.tertiaryLabel))
+                default:
+                    EmptyView()
+                }
+            }
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier(Self.identifier(for: action))
+    }
+
+    private static func rowSymbol(for action: LicenseAction) -> String {
+        switch action {
+        case .enterKey: return "key.horizontal"
+        case .restorePurchases: return "arrow.clockwise"
+        case .lostKey: return "questionmark.circle"
+        default: return "circle"
+        }
     }
 
     /// Neighbouring text buttons on one line when they fit, stacked when they
@@ -512,17 +617,14 @@ struct LicenseSettingsSection: View {
         }
     }
 
-    private func filledButton(for action: LicenseAction, fullWidth: Bool = false) -> some View {
+    private func filledButton(for action: LicenseAction) -> some View {
         Button {
             perform(action)
         } label: {
-            filledLabel(
-                localization.localizedText(Self.copyPath(for: action)), fullWidth: fullWidth
-            )
-            .frame(maxWidth: .infinity)
+            filledLabel(localization.localizedText(Self.copyPath(for: action)))
+                .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
-        .disabled(action == .buyInAppStore && license.appStoreBusy)
         .accessibilityIdentifier(Self.identifier(for: action))
     }
 
@@ -555,11 +657,10 @@ struct LicenseSettingsSection: View {
 
     /// The filled button keeps the app orange; the plate's gold is for the
     /// eyebrow, the status chip and the text buttons only.
-    private func filledLabel(_ text: String, fullWidth: Bool = false) -> some View {
+    private func filledLabel(_ text: String) -> some View {
         Text(text)
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.white)
-            .frame(maxWidth: fullWidth ? .infinity : nil)
             .padding(.horizontal, 18)
             .padding(.vertical, 11)
             .background(Theme.primary, in: Capsule())
@@ -636,20 +737,74 @@ struct LicenseSettingsSection: View {
     }
 }
 
-/// A hairline either side of "or": two ways to pay, visibly two.
-struct LicenseOrRule: View {
-    let text: String
+/// The two ways to pay where both are offered: the website and the App Store,
+/// side by side, filled, one size — equal weight is equal size — each with a
+/// one-line caption under it saying what it buys. Shared by the License card
+/// and the app icon ask so the choice reads the same in both places.
+///
+/// Side by side until either label would truncate (larger text sizes), then
+/// stacked, website first.
+struct LicenseBuyPair: View {
+    struct Choice {
+        let title: String
+        let caption: String
+        /// Buy and Renew open the website; the arrow says so.
+        let leavesApp: Bool
+        let id: String
+        let captionID: String
+        let action: () -> Void
+    }
+
+    let web: Choice
+    let appStore: Choice
+    let appStoreBusy: Bool
 
     var body: some View {
-        HStack(spacing: 10) {
-            Rectangle().fill(Color(.separator)).frame(height: 1)
-            Text(text)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
-                .fixedSize()
-            Rectangle().fill(Color(.separator)).frame(height: 1)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 12) {
+                column(web, singleLine: true)
+                column(appStore, singleLine: true)
+            }
+            VStack(spacing: 14) {
+                column(web, singleLine: false)
+                column(appStore, singleLine: false)
+            }
         }
-        .accessibilityHidden(true)
-        .accessibilityIdentifier("license-or")
+    }
+
+    private func column(_ choice: Choice, singleLine: Bool) -> some View {
+        VStack(spacing: 8) {
+            Button(action: choice.action) {
+                HStack(spacing: 5) {
+                    Text(choice.title)
+                        .lineLimit(singleLine ? 1 : nil)
+                        .fixedSize(horizontal: singleLine, vertical: false)
+                    if choice.leavesApp {
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption2.weight(.heavy))
+                            .accessibilityHidden(true)
+                    }
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(Theme.primary, in: Capsule())
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(!choice.leavesApp && appStoreBusy)
+            .accessibilityIdentifier(choice.id)
+            Text(choice.caption)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                // Ideal width zero: only the button labels decide whether the
+                // pair fits side by side; the captions wrap to whatever is left.
+                .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity)
+                .accessibilityIdentifier(choice.captionID)
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 }

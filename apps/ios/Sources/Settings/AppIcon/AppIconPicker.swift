@@ -279,7 +279,31 @@ private struct AppIconAskSheet: View {
     @Environment(\.localization) private var localization
     @Environment(\.openURL) private var openURL
 
+    /// The ask's own height, so a sheet with the App Store in it stops where
+    /// its content does instead of opening onto empty space at the large
+    /// detent.
+    @State private var contentHeight: CGFloat = 0
+
     var body: some View {
+        VStack(spacing: 0) {
+            content
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) {
+                    contentHeight = $0
+                }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity)
+        .background(Theme.surface)
+        .presentationDetents(detents)
+        .presentationDragIndicator(.visible)
+    }
+
+    private var detents: Set<PresentationDetent> {
+        guard appStore else { return [.medium] }
+        return contentHeight > 0 ? [.height(contentHeight)] : [.large]
+    }
+
+    private var content: some View {
         VStack(spacing: 14) {
             Image(icon.previewName)
                 .resizable().scaledToFit()
@@ -305,23 +329,36 @@ private struct AppIconAskSheet: View {
                 .accessibilityIdentifier("app-icon-ask-body")
 
             switch sheet {
+            case .linkOut(let primary) where appStore:
+                // The same pair as the License card: two ways to pay, each
+                // saying what it buys.
+                LicenseBuyPair(
+                    web: LicenseBuyPair.Choice(
+                        title: localization.localizedText(
+                            primary == .renew ? "license.renew" : "license.buy"),
+                        caption: localization.localizedText("license.buyCaption"),
+                        leavesApp: true, id: "app-icon-ask-buy",
+                        captionID: "app-icon-ask-buy-caption",
+                        action: { if let url = URL(string: buyURL) { openURL(url) } }),
+                    appStore: LicenseBuyPair.Choice(
+                        title: localization.localizedText("license.appStore.buy"),
+                        caption: localization.localizedText("license.appStore.caption"),
+                        leavesApp: false, id: "app-icon-ask-buy-app-store",
+                        captionID: "app-icon-ask-app-store-scope",
+                        action: onBuyInAppStore),
+                    appStoreBusy: appStoreBusy
+                )
+                .padding(.top, 10)
+                HStack(spacing: 10) {
+                    secondary("license.enterKey", id: "app-icon-ask-already-paid", onAlreadyPaid)
+                    secondary(
+                        "settings.appIcon.license.notNow", id: "app-icon-ask-not-now", onNotNow)
+                }
+                .padding(.top, 4)
             case .linkOut(let primary):
                 filled(primary == .renew ? "license.renew" : "license.buy", id: "app-icon-ask-buy")
                 {
                     if let url = URL(string: buyURL) { openURL(url) }
-                }
-                if appStore {
-                    // Two ways to pay, visibly two: the caption is the App
-                    // Store button's alone.
-                    LicenseOrRule(text: localization.localizedText("license.appStore.or"))
-                    VStack(spacing: 8) {
-                        filled(
-                            "license.appStore.buy", id: "app-icon-ask-buy-app-store",
-                            onBuyInAppStore
-                        )
-                        .disabled(appStoreBusy)
-                        scope("license.appStore.scopeUS")
-                    }
                 }
                 HStack(spacing: 32) {
                     link("license.enterKey", id: "app-icon-ask-already-paid", onAlreadyPaid)
@@ -338,15 +375,9 @@ private struct AppIconAskSheet: View {
                 }
                 link("settings.appIcon.license.notNow", id: "app-icon-ask-not-now", onNotNow)
             }
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, 24)
-        .padding(.bottom, 16)
-        .frame(maxWidth: .infinity)
-        .background(Theme.surface)
-        // The App Store button and its caption do not fit the medium detent.
-        .presentationDetents(appStore ? [.large] : [.medium])
-        .presentationDragIndicator(.visible)
+        .padding(.bottom, 24)
     }
 
     private var bodyText: String {
@@ -389,6 +420,23 @@ private struct AppIconAskSheet: View {
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityIdentifier("app-icon-ask-app-store-scope")
+    }
+
+    /// The two ways out of the ask beside the pair: quiet, equal, and still a
+    /// full-size target.
+    private func secondary(_ path: String, id: String, _ action: @escaping () -> Void)
+        -> some View
+    {
+        Button(action: action) {
+            Text(localization.localizedText(path))
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(Color.primary.opacity(0.06), in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(id)
     }
 
     private func link(_ path: String, id: String, _ action: @escaping () -> Void) -> some View {
