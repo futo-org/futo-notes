@@ -180,14 +180,12 @@ fixture would close that on all three platforms at once.
   `license.keyOnlyExplanation` and "I already paid", no Buy, no "Lost your
   key?", no website (ADR-0005). The row hint still shows there: it states a
   fact, not a sale.
-- _(ios)_ Implemented: the picker, sheet, row hint and landing, see
-  settings.md § Native app icons.
+- _(ios, android)_ Implemented: the picker, sheet, row hint and landing, see
+  settings.md § Native app icons. Android's `play` flavor is the key-only
+  build, `direct` the link-out one, by `license_row_actions`.
 
-> **Gap:** _(android, desktop)_ The behaviors above are specified but only iOS
-> renders them (2026-10-15, the first pass of
-> `docs/plan/license-cosmetics.md`). Android's icon sheet still lets any user
-> pick any icon, with no coin, footnote, sheet, row hint or landing; the
-> desktop webview has no picker and needs no UI. Android closes in M3.
+> **Gap:** _(desktop)_ The behaviors above are specified but only the native
+> shells render them; the desktop webview has no picker and needs no UI.
 
 ## The license
 
@@ -525,7 +523,7 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   `license::tests::a_parked_link_outcome_is_delivered_exactly_once`,
   `license.svelte.test.ts` "does not let the startup snapshot overwrite a license"
 
-- **Landing after activation** _(ios)_. When an activation succeeds (deep link,
+- **Landing after activation** _(ios, android)_. When an activation succeeds (deep link,
   cold or warm; or a key or pair entered on the card) and the license now
   includes the app icon, the `license.activated` toast still shows, Settings is
   presented if it is not already, and the App icon picker opens over it with a
@@ -547,10 +545,14 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   presented after, never gating the shell.
 - If the OS cannot change icons (`supportsAlternateIcons == false`) the landing
   is skipped entirely.
+- _(android)_ Settings is a screen on the navigation stack, not a sheet: from
+  the note list, a folder, a note or Search it is pushed and opens the picker;
+  already on Settings, the picker opens over it. On Sync, Storage location or
+  Feedback (screens Settings owns), under the crash-report dialog, or with no
+  shell yet (first-run storage choice), the landing is dropped and the toast
+  alone shows. The toast is a system toast, so it shows over the picker. →
+  `LicenseLanding.kt`, `LicenseLandingTest`, `AppIconLandingTest`
 - _(desktop)_ The toast alone is the landing: there is no picker to land on.
-
-> **Gap:** _(android)_ The landing is not implemented (see What a license
-> includes). Android shows the toast only.
 
 ## States and copy
 

@@ -4,12 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Image
-import androidx.compose.ui.res.painterResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.futo.notes.ui.settings.appicon.AppIconController
-import com.futo.notes.ui.settings.appicon.AppIconSheet
+import com.futo.notes.ui.settings.appicon.AppIconSettingsGroup
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -56,7 +54,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -117,13 +114,21 @@ fun SettingsScreen(
     var crashEnabled by remember { mutableStateOf(prefs.getBoolean(Prefs.CRASH_ENABLED, true)) }
     var crashAlwaysSend by remember { mutableStateOf(prefs.getBoolean(Prefs.CRASH_ALWAYS_SEND, false)) }
     val appIcons = remember { AppIconController(context) }
-    var showAppIcons by remember { mutableStateOf(false) }
+    // Bumped by the picker's "I already paid"; the License card opens its key
+    // field on each change.
+    var keyEntryRequest by remember { mutableStateOf(0) }
+    val scrollState = rememberScrollState()
     LifecycleResumeEffect(appIcons) {
         scope.launch { appIcons.refresh() }
         onPauseOrDispose {}
     }
     var confirmReset by remember { mutableStateOf(false) }
     var resetting by remember { mutableStateOf(false) }
+
+    LaunchedEffect(keyEntryRequest) {
+        // The License card is the first group: "I already paid" brings it back.
+        if (keyEntryRequest > 0) scrollState.animateScrollTo(0)
+    }
 
     Box {
     Scaffold(
@@ -150,14 +155,14 @@ fun SettingsScreen(
         },
     ) { padding ->
         Column(
-            modifier = Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            modifier = Modifier.padding(padding).verticalScroll(scrollState).padding(horizontal = 16.dp),
         ) {
             Spacer(Modifier.height(8.dp))
 
             // FIRST, at the top: mobile has no ambient "Unlicensed" label
             // outside Settings, so this row's status text IS the label
             // (docs/spec/license.md § States and copy).
-            LicenseSettingsSection(license)
+            LicenseSettingsSection(license, keyEntryRequest)
 
             // The whole Sync surface is one "Sync" row: cloud icon,
             // connected-vs-local status, SYNCED/LOCAL badge. No separate account
@@ -192,15 +197,13 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsGroup(localization.localizedText("settings.appIcon.heading")) {
-                SettingsRow(
-                    title = localization.localizedText(appIcons.selected.labelKey),
-                    onClick = { showAppIcons = true },
-                    leading = { Image(painterResource(appIcons.selected.preview), null, Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))) },
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = c.textMuted)
-                }
-            }
+            AppIconSettingsGroup(
+                appIcons,
+                license,
+                landingBlocked = confirmReset || resetting,
+                // Scrolls to the card and opens its key field.
+                onAlreadyPaid = { keyEntryRequest += 1 },
+            )
 
             SettingsGroup(localization.localizedText("settings.language.heading")) {
                 SettingsRow(
@@ -332,10 +335,6 @@ fun SettingsScreen(
         }
     }
 
-    if (showAppIcons) {
-        LaunchedEffect(Unit) { appIcons.refresh() }
-        AppIconSheet(appIcons, onSelect = { icon -> scope.launch { appIcons.select(icon) } }) { showAppIcons = false }
-    }
 
     // Modal confirmation [settings.md]: a stray double-tap on the row must not
     // be able to wipe the vault — only confirming in this dialog deletes.
@@ -348,35 +347,13 @@ fun SettingsScreen(
                 confirmReset = false
                 resetting = true
                 scope.launch {
-                    // Close writer admission, join sync and discard its stored
-                    // credential, then drain old work before wiping the vault.
-                    store.suppressAutoPush = true
                     try {
-                        withContext(NonCancellable) {
-                            store.deleteAll { sync.disconnectForReset() }
-                            // The license is a preference, and Full reset wipes
-                            // preferences (docs/spec/license.md § Storage).
-                            // Last, because it touches nothing the step above
-                            // needs — and silently, since the user is already
-                            // looking at the result of a reset. A throwing
-                            // deleteAll skips it: nothing was wiped.
-                            license.clearForFullReset()
-                            try { appIcons.reset() }
-                            catch (_: Exception) {
-                                android.widget.Toast.makeText(context,
-                                    localization.localizedText("settings.appIcon.resetFailed"),
-                                    android.widget.Toast.LENGTH_LONG).show()
-                            }
+                        fullReset(store, sync, license, appIcons) { path ->
+                            android.widget.Toast.makeText(
+                                context, localization.localizedText(path), android.widget.Toast.LENGTH_LONG,
+                            ).show()
                         }
-                    } catch (e: Exception) {
-                        android.widget.Toast.makeText(
-                            context,
-                            localization.localizedText("settings.danger.failed"),
-                            android.widget.Toast.LENGTH_LONG,
-                        ).show()
                     } finally {
-                        sync.finishReset()
-                        store.suppressAutoPush = false
                         resetting = false
                     }
                 }
@@ -385,30 +362,69 @@ fun SettingsScreen(
         )
     }
 
-    if (resetting) {
-        // Blocking overlay — swallow every tap AND Back while the vault is
-        // wiped; Back would otherwise leave Settings mid-delete.
-        BackHandler {}
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(c.surfaceInverse.copy(alpha = 0.45f))
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
-            contentAlignment = Alignment.Center,
-        ) {
-            Surface(color = c.surface, shape = RoundedCornerShape(FutoRadius.md)) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(20.dp)) {
-                    CircularProgressIndicator(color = c.accent, strokeWidth = 2.5.dp, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(14.dp))
-                    Text(
-                        localization.localizedText("settings.danger.deleting"),
-                        style = FutoType.body,
-                        color = c.textPrimary,
-                    )
-                }
+    if (resetting) ResettingOverlay()
+    }
+}
+
+/**
+ * Full reset [settings.md]: close writer admission, join sync and discard its
+ * stored credential, then drain old work before wiping the vault. Failures are
+ * shown through [toast] as catalog paths.
+ */
+private suspend fun fullReset(
+    store: NotesStore,
+    sync: SyncManager,
+    license: LicenseModel,
+    appIcons: AppIconController,
+    toast: (String) -> Unit,
+) {
+    store.suppressAutoPush = true
+    try {
+        withContext(NonCancellable) {
+            store.deleteAll { sync.disconnectForReset() }
+            // The license is a preference, and Full reset wipes preferences
+            // (docs/spec/license.md § Storage). Last, because it touches nothing
+            // the step above needs — and silently, since the user is already
+            // looking at the result of a reset. A throwing deleteAll skips it:
+            // nothing was wiped.
+            license.clearForFullReset()
+            try { appIcons.reset() } catch (_: Exception) { toast("settings.appIcon.resetFailed") }
+        }
+    } catch (e: Exception) {
+        toast("settings.danger.failed")
+    } finally {
+        sync.finishReset()
+        store.suppressAutoPush = false
+    }
+}
+
+/**
+ * Blocking overlay — swallows every tap AND Back while the vault is wiped;
+ * Back would otherwise leave Settings mid-delete.
+ */
+@Composable
+private fun ResettingOverlay() {
+    val c = FutoTheme.colors
+    val localization = LocalLocalization.current
+    BackHandler {}
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(c.surfaceInverse.copy(alpha = 0.45f))
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(color = c.surface, shape = RoundedCornerShape(FutoRadius.md)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(20.dp)) {
+                CircularProgressIndicator(color = c.accent, strokeWidth = 2.5.dp, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(14.dp))
+                Text(
+                    localization.localizedText("settings.danger.deleting"),
+                    style = FutoType.body,
+                    color = c.textPrimary,
+                )
             }
         }
-    }
     }
 }
 

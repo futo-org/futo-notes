@@ -26,6 +26,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +49,7 @@ import com.futo.notes.license.LicenseModel
 import com.futo.notes.license.catalogPath
 import com.futo.notes.license.licenseCardModel
 import com.futo.notes.localization.LocalLocalization
+import com.futo.notes.localization.Localization
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
@@ -102,7 +104,11 @@ internal fun licenseExplanationPath(status: LicenseStatus, linkOut: Boolean): St
  * `licenseLinkOut` gives both shells the same storefront policy.
  */
 @Composable
-fun LicenseSettingsSection(license: LicenseModel) {
+fun LicenseSettingsSection(
+    license: LicenseModel,
+    /** Bumped by the App icon picker's "I already paid": open the key field. */
+    keyEntryRequest: Int = 0,
+) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
     val context = LocalContext.current
@@ -157,6 +163,10 @@ fun LicenseSettingsSection(license: LicenseModel) {
         }
     }
 
+    LaunchedEffect(keyEntryRequest) {
+        if (opensKeyEntry(keyEntryRequest, license.view?.status)) act(LicenseAction.ENTER_KEY)
+    }
+
     val actions = license.actions()
     val primaryAction =
         actions.firstOrNull { it == LicenseAction.BUY || it == LicenseAction.RENEW }
@@ -167,11 +177,7 @@ fun LicenseSettingsSection(license: LicenseModel) {
     // plate, which is always here, carries it. Licensed and Unlicensed have no
     // badge to borrow (the coin says one, the ask says the other), so each
     // reads its own catalog entry.
-    val statusName = when (card?.status) {
-        null -> null
-        LicenseStatus.LICENSED -> localization.localizedText("license.statusLicensed")
-        else -> card.badge ?: localization.localizedText("license.unlicensed")
-    }
+    val statusName = card?.let { licenseStatusName(it, localization) }
 
     // The same label + bordered card every other Settings group is built from:
     // the plate is one of the sheet's cards, not a slab of its own material.
@@ -200,39 +206,7 @@ fun LicenseSettingsSection(license: LicenseModel) {
 
             Column(Modifier.fillMaxWidth()) {
                 if (card?.maskedKey != null) {
-                    // The letterhead, and only where there is a card to put it
-                    // on. Licensed wears no badge: the coin is the statement.
-                    card.badge?.let { badge ->
-                        PlateBadge(badge)
-                        Spacer(Modifier.height(10.dp))
-                    }
-                    Text(
-                        localization.localizedText("license.card.eyebrow").uppercase(),
-                        style = FutoType.micro,
-                        color = c.plateAccent,
-                    )
-                    Text(
-                        localization.localizedText("license.card.productName").uppercase(),
-                        style = FutoType.plateName,
-                        color = c.textPrimary,
-                    )
-
-                    // Key is the whole ledger. One blank row would be the same
-                    // void the empty well was, so with no key there is no
-                    // ledger at all.
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        localization.localizedText("license.card.keyLabel").uppercase(),
-                        style = FutoType.micro,
-                        color = c.textMuted,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    PlateKeyValue(
-                        card = card,
-                        storedKey = view?.key,
-                        revealed = revealed,
-                        onReveal = { revealed = true },
-                    )
+                    PlateLetterhead(card, storedKey = view?.key, revealed = revealed, onReveal = { revealed = true })
                 } else if (card != null && license.linkOut) {
                     Text(
                         localization.localizedText("license.unlicensedHeadline"),
@@ -250,47 +224,102 @@ fun LicenseSettingsSection(license: LicenseModel) {
                         onCancel = ::cancelEntry,
                     )
                 } else if (card != null) {
-                    Spacer(Modifier.height(14.dp))
-                    // Never "free to use": Unlicensed and Expired ask, Licensed
-                    // thanks. The mission paragraph is the ONLY paragraph, and
-                    // it sits ABOVE the button it argues for — an argument
-                    // printed under its own button is a footnote.
-                    Text(
-                        localization.localizedText(
-                            licenseExplanationPath(card.status, license.linkOut),
-                        ),
-                        style = FutoType.caption,
-                        color = c.textMuted,
-                    )
-                    if (primaryAction != null) {
-                        Spacer(Modifier.height(16.dp))
-                        // The ONE filled button on the plate, and it keeps the
-                        // app's own primary colour: the gold is for the eyebrow,
-                        // the badge and the plate's links, never a fill.
-                        Button(
-                            onClick = { act(primaryAction) },
-                            shape = RoundedCornerShape(FutoRadius.sm),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(localization.localizedText(primaryAction.catalogPath()))
-                        }
-                    }
+                    PlateAsk(card, license.linkOut, primaryAction, onAct = ::act)
                 }
 
-                if (!entering && otherActions.isNotEmpty()) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        for (action in otherActions) {
-                            PlateLink(
-                                label = localization.localizedText(action.catalogPath()),
-                                onClick = { act(action) },
-                            )
-                        }
-                    }
-                }
+                if (!entering) PlateLinks(otherActions, onAct = ::act)
             }
+        }
+    }
+}
+
+/** The state as one word, for assistive technology (see [LicenseSettingsSection]). */
+private fun licenseStatusName(card: LicenseCardModel, localization: Localization): String = when (card.status) {
+    LicenseStatus.LICENSED -> localization.localizedText("license.statusLicensed")
+    else -> card.badge ?: localization.localizedText("license.unlicensed")
+}
+
+/** "I already paid" in the App icon picker opens the key field, unless already Licensed. */
+private fun opensKeyEntry(request: Int, status: LicenseStatus?): Boolean =
+    request > 0 && status != LicenseStatus.LICENSED
+
+/**
+ * The letterhead, and only where there is a card to put it on. Licensed wears
+ * no badge: the coin is the statement.
+ */
+@Composable
+private fun PlateLetterhead(card: LicenseCardModel, storedKey: String?, revealed: Boolean, onReveal: () -> Unit) {
+    val c = FutoTheme.colors
+    val localization = LocalLocalization.current
+    card.badge?.let { badge ->
+        PlateBadge(badge)
+        Spacer(Modifier.height(10.dp))
+    }
+    Text(
+        localization.localizedText("license.card.eyebrow").uppercase(),
+        style = FutoType.micro,
+        color = c.plateAccent,
+    )
+    Text(
+        localization.localizedText("license.card.productName").uppercase(),
+        style = FutoType.plateName,
+        color = c.textPrimary,
+    )
+
+    // Key is the whole ledger. One blank row would be the same void the empty
+    // well was, so with no key there is no ledger at all.
+    Spacer(Modifier.height(16.dp))
+    Text(
+        localization.localizedText("license.card.keyLabel").uppercase(),
+        style = FutoType.micro,
+        color = c.textMuted,
+    )
+    Spacer(Modifier.height(2.dp))
+    PlateKeyValue(card = card, storedKey = storedKey, revealed = revealed, onReveal = onReveal)
+}
+
+/**
+ * Never "free to use": Unlicensed and Expired ask, Licensed thanks. The mission
+ * paragraph is the ONLY paragraph, and it sits ABOVE the button it argues for —
+ * an argument printed under its own button is a footnote.
+ */
+@Composable
+private fun PlateAsk(
+    card: LicenseCardModel,
+    linkOut: Boolean,
+    primaryAction: LicenseAction?,
+    onAct: (LicenseAction) -> Unit,
+) {
+    val localization = LocalLocalization.current
+    Spacer(Modifier.height(14.dp))
+    Text(
+        localization.localizedText(licenseExplanationPath(card.status, linkOut)),
+        style = FutoType.caption,
+        color = FutoTheme.colors.textMuted,
+    )
+    if (primaryAction != null) {
+        Spacer(Modifier.height(16.dp))
+        // The ONE filled button on the plate, and it keeps the app's own
+        // primary colour: the gold is for the eyebrow, the badge and the
+        // plate's links, never a fill.
+        Button(
+            onClick = { onAct(primaryAction) },
+            shape = RoundedCornerShape(FutoRadius.sm),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(localization.localizedText(primaryAction.catalogPath()))
+        }
+    }
+}
+
+/** Every control on the plate that is not the one filled button, in Rust's order. */
+@Composable
+private fun PlateLinks(actions: List<LicenseAction>, onAct: (LicenseAction) -> Unit) {
+    if (actions.isEmpty()) return
+    val localization = LocalLocalization.current
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+        for (action in actions) {
+            PlateLink(label = localization.localizedText(action.catalogPath()), onClick = { onAct(action) })
         }
     }
 }
