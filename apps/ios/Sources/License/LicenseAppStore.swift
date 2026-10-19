@@ -60,24 +60,20 @@ import StoreKit
         offered = product != nil
     }
 
-    /// Answers whether the account owns the product afterwards. Ask to Buy
+    /// Answers whether this purchase completed and verified. Ask to Buy
     /// (`.pending`) and a cancel change nothing and show nothing: StoreKit's
-    /// own sheet already said what happened.
+    /// own sheet already said what happened. It never answers from earlier
+    /// ownership, so a pending tap cannot land the user as if they had bought.
     func buy() async -> Bool {
         guard let product else { return false }
         do {
-            switch try await product.purchase() {
-            case .success(let result):
-                await apply(result)
-            case .pending, .userCancelled:
-                break
-            @unknown default:
-                break
+            if case .success(let result) = try await product.purchase() {
+                return await apply(result)
             }
         } catch {
             print("[license] App Store purchase failed: \(error)")
         }
-        return owned
+        return false
     }
 
     /// Only from the Restore Purchases tap: `AppStore.sync()` can put up an
@@ -110,10 +106,13 @@ import StoreKit
     /// re-read from the current entitlements rather than taken from this one
     /// transaction: updates do not arrive in purchase order, so an older,
     /// unfinished purchase delivered after a refund must not undo it.
-    private func apply(_ result: VerificationResult<Transaction>) async {
+    /// Answers whether the account owns the product afterwards.
+    @discardableResult
+    private func apply(_ result: VerificationResult<Transaction>) async -> Bool {
         guard case .verified(let transaction) = result, transaction.productID == productID
-        else { return }
+        else { return false }
         await transaction.finish()
         await refreshOwned()
+        return owned
     }
 }

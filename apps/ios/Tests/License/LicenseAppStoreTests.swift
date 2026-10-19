@@ -60,13 +60,18 @@ struct LicenseAppStoreTests {
     }
 
     /// Ask to Buy: the purchase waits on a parent and changes nothing yet.
+    /// Compared with what was owned before rather than with "not owned": a
+    /// cleared session can still list an earlier test's purchase (CI job
+    /// 270810 failed here on exactly that), and `buy()` must answer false for
+    /// a pending purchase either way.
     @Test("a pending purchase changes nothing")
     func pendingChangesNothing() async throws {
         let session = try session()
         session.askToBuyEnabled = true
         let store = await loaded()
+        let ownedBefore = store.owned
         #expect(await store.buy() == false)
-        #expect(!store.owned)
+        #expect(store.owned == ownedBefore)
     }
 
     @Test("restore finds a purchase made on this account")
