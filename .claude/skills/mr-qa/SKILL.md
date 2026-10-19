@@ -126,7 +126,9 @@ drifts mid-session.
    frontmatter pins Opus — and escalate to Opus only after a Sonnet attempt
    failed — a wrong fix is the most expensive thing this pipeline
    can emit.
-5. **Monitor — idle ≠ progress.** `idle_notification {reason: available}`
+5. **Codex sanity review** — once per MR, launched alongside the legs, never
+   blocking them. See [Codex review](#codex-review--one-pass-reviewer-only).
+6. **Monitor — idle ≠ progress.** `idle_notification {reason: available}`
    fires both while an agent parks on a long cold build AND when it has
    stalled/died. On each idle (or on a timer) verify actual progress: a live
    build process (`pgrep -af "worktrees/mr-<iid>" | grep -E
@@ -135,13 +137,54 @@ drifts mid-session.
    `SendMessage`; on a second stall (two strikes) take over the remaining
    checks yourself — the agent leaves its Tauri instances + qa-server running,
    so drive them directly or run `pnpm run test:cross-platform`.
-6. **Aggregate**: one verdict table per MR (stories + sync legs, with evidence
-   paths), FAIL details quoting the spec, and a cross-MR isolation note (any
-   collision finding is a bug in the isolation layer — report it loudly).
-7. **Verdict + merge** — see the next section. The pass is not done until this
+7. **Aggregate**: one verdict table per MR (stories + sync legs, with evidence
+   paths), FAIL details quoting the spec, the Codex line, and a cross-MR
+   isolation note (any collision finding is a bug in the isolation layer —
+   report it loudly).
+8. **Verdict + merge** — see the next section. The pass is not done until this
    step is.
-8. **Teardown** per the shared session protocol (delegate it to a subagent).
+9. **Teardown** per the shared session protocol (delegate it to a subagent).
    Then **delete old worktrees, always** — see below.
+
+## Codex review — one pass, reviewer only
+
+A second model reads each MR's diff adversarially, as a sanity check on what
+device QA can't see (an error path, a race, a data-loss branch). It is one
+read, not a conversation: no re-review after fixes, no arguing findings back
+and forth, and Codex never writes code — it runs in a read-only sandbox, and
+anything it finds that needs fixing goes to `fixer` like any other finding.
+
+Use the newest Sol model the CLI offers (6.1 at time of writing; resolve it
+rather than hard-coding it):
+
+```bash
+model=$(codex debug models | jq -r '.models[].slug' | grep -E '^gpt-[0-9.]+-sol$' | sort -V | tail -1)
+cd .claude/worktrees/mr-<iid>
+codex exec -m "$model" -c model_reasoning_effort=medium -s read-only --ephemeral \
+  -o "<scratchpad>/codex-mr-<iid>.md" \
+  "Adversarially review this merge request: \`git diff origin/<target>...HEAD\`. \
+You are a reviewer only — do not edit files. Report only defects that would \
+break behavior, lose or corrupt user data, or open a security hole, each as \
+HIGH|MEDIUM | file:line | one-sentence failure scenario. No style, naming, \
+or nitpicks. If nothing qualifies, reply exactly: NO BLOCKERS" >/dev/null 2>&1
+```
+
+`codex exec review --base` rejects a custom prompt, which is why this uses plain
+`exec`. Run it in the background; read only the `-o` file, never the log.
+
+Triage each finding once, by reading the cited code (a Sonnet subagent if
+there are several):
+
+- **HIGH, confirmed** → treated like a QA FAIL: fixed on the branch or the MR
+  is NO SHIP. A fixer's change gets the normal gates and QA re-check, not a
+  second Codex run.
+- **HIGH, not real** → dismissed with a one-line reason in the report.
+- **MEDIUM** → listed in the report; it does not gate SHIP. Mention it in the
+  MR comment for a NO SHIP so the author sees it.
+
+The report carries one line per MR: `Codex (<model>): NO BLOCKERS`, or the
+findings with their triage. If Codex couldn't run (auth expired, CLI missing,
+timeout), say so on that line; that alone does not make an MR NO SHIP.
 
 ## Delete old worktrees, always
 
@@ -197,6 +240,7 @@ call:
   on the new head. Green CI and unit tests do not stand in for the re-drive.
   This has already been violated: !407 merged after a fresh-iOS fix that iOS
   never re-ran.
+- No confirmed HIGH Codex finding left unfixed.
 - Coverage actually matched the diff, from this pass or a legitimately
   carried-over one. An `apps/ios` MR whose iOS leg was impossible is NO SHIP
   (insufficient coverage), however clean the desktop leg looked.
