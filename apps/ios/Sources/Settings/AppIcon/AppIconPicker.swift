@@ -349,12 +349,9 @@ private struct AppIconAskSheet: View {
                     appStoreBusy: appStoreBusy
                 )
                 .padding(.top, 10)
-                HStack(spacing: 10) {
-                    secondary("license.enterKey", id: "app-icon-ask-already-paid", onAlreadyPaid)
-                    secondary(
-                        "settings.appIcon.license.notNow", id: "app-icon-ask-not-now", onNotNow)
-                }
-                .padding(.top, 4)
+                secondary("settings.appIcon.license.notNow", id: "app-icon-ask-not-now", onNotNow)
+                    .padding(.top, 4)
+                link("license.enterKey", id: "app-icon-ask-already-paid", onAlreadyPaid)
             case .linkOut(let primary):
                 filled(primary == .renew ? "license.renew" : "license.buy", id: "app-icon-ask-buy")
                 {
@@ -422,8 +419,7 @@ private struct AppIconAskSheet: View {
             .accessibilityIdentifier("app-icon-ask-app-store-scope")
     }
 
-    /// The two ways out of the ask beside the pair: quiet, equal, and still a
-    /// full-size target.
+    /// Not now beside the pair: quiet, and still a full-size target.
     private func secondary(_ path: String, id: String, _ action: @escaping () -> Void)
         -> some View
     {

@@ -191,7 +191,8 @@ fixture would close that on all three platforms at once.
   fact, not a sale.
 - _(ios)_ When the App Store product loaded, the ask also offers **Buy in App
   Store**: in the US as the card's captioned pair (§ App Store purchase), with
-  "I already paid" and "Not now" as two equal quiet buttons under it;
+  a full-width quiet "Not now" under it and "I already paid" as a text
+  button below that;
   elsewhere outlined under "I already paid" with the `license.appStore.scope`
   caption. A completed purchase drops the sheet and lands on the picker
   like a key activation, with `settings.appIcon.license.landingAppStore`. →
@@ -673,8 +674,9 @@ Android or sync.
   `license.buyCaption` ("Every platform, with a license key") and
   `license.appStore.caption` ("iPhone and iPad, no license key"). The card
   holds only the headline, the supporter coin and the pair; I already paid
-  (with `license.enterKeyHint`), Restore Purchases and Lost your key? are list
-  rows in their own group under it (@justin 2026-10-19). Elsewhere the key
+  (with `license.enterKeyHint` trailing on the same line), Restore Purchases
+  and Lost your key? are compact list rows in their own group under it
+  (@justin 2026-10-19). Elsewhere the key
   leads and Buy in App Store is an **outlined**, labeled secondary button with
   `license.appStore.scope` directly under it (never the website, a price, or
   "everywhere"). → `licenseControlGroups`, `LicenseBuyPair`,

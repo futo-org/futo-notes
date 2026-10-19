@@ -207,8 +207,13 @@ struct LicenseSettingsSection: View {
         .listSectionSpacing(rowActions.isEmpty ? .default : .custom(12))
         if !rowActions.isEmpty {
             Section {
-                ForEach(rowActions, id: \.self) { actionRow(for: $0) }
+                ForEach(rowActions, id: \.self) {
+                    actionRow(for: $0)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                }
             }
+            // Secondary to the pair above: compact rows, not full list rows.
+            .environment(\.defaultMinListRowHeight, 36)
         }
     }
 
@@ -391,37 +396,37 @@ struct LicenseSettingsSection: View {
         Button {
             perform(action)
         } label: {
-            HStack(spacing: 14) {
+            HStack(spacing: 10) {
                 Image(systemName: Self.rowSymbol(for: action))
-                    .font(.body.weight(.medium))
+                    .font(.footnote.weight(.medium))
                     .foregroundStyle(Theme.primary)
-                    .frame(width: 26)
-                VStack(alignment: .leading, spacing: 1) {
-                    // Label colours, not `.primary`: inside a Form button that
-                    // resolves to the tint, and the rows are not links.
-                    Text(localization.localizedText(Self.copyPath(for: action)))
-                        .foregroundStyle(Color(.label))
-                    if action == .enterKey {
-                        Text(localization.localizedText("license.enterKeyHint"))
-                            .font(.footnote)
-                            .foregroundStyle(Color(.secondaryLabel))
-                    }
-                }
+                    .frame(width: 20)
+                // Label colours, not `.primary`: inside a Form button that
+                // resolves to the tint, and the rows are not links.
+                Text(localization.localizedText(Self.copyPath(for: action)))
+                    .font(.subheadline)
+                    .foregroundStyle(Color(.label))
+                    .layoutPriority(1)
                 Spacer(minLength: 8)
+                if action == .enterKey {
+                    Text(localization.localizedText("license.enterKeyHint"))
+                        .font(.footnote)
+                        .foregroundStyle(Color(.secondaryLabel))
+                        .lineLimit(1)
+                }
                 switch action {
                 case .enterKey:
                     Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
+                        .font(.caption2.weight(.semibold))
                         .foregroundStyle(Color(.tertiaryLabel))
                 case .lostKey:
                     Image(systemName: "arrow.up.right")
-                        .font(.footnote.weight(.semibold))
+                        .font(.caption2.weight(.semibold))
                         .foregroundStyle(Color(.tertiaryLabel))
                 default:
                     EmptyView()
                 }
             }
-            .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
         .accessibilityIdentifier(Self.identifier(for: action))
