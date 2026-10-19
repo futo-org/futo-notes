@@ -119,11 +119,13 @@ private fun AppIconPicker(
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) { controller.refresh() }
     val view = license.view
-    val rowActions = remember(view, license.linkOut) { license.actions() }
+    val rowActions = remember(view) { license.actions() }
     AppIconSheet(
         controller,
         includes = view?.let { license.includes },
         rowActions = rowActions,
+        surface = license.surface,
+        website = license.links.website,
         showsLanding = showsLanding,
         onSelect = { icon -> scope.launch { controller.select(icon) } },
         onBuy = {

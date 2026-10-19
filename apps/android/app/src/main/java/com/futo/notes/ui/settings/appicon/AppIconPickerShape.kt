@@ -2,14 +2,14 @@ package com.futo.notes.ui.settings.appicon
 
 import uniffi.futo_notes_ffi.LicenseAction
 import uniffi.futo_notes_ffi.LicenseInclusion
+import uniffi.futo_notes_ffi.LicensePurchaseSurface
 
 /**
  * What the picker puts on screen, before any of it is drawn.
  *
- * A pure function of the license's `includes` and Rust's `licenseRowActions`,
- * so the rendering is testable on the JVM and no storefront logic lives here:
- * whether the ask is link-out or key-only is only "does the row-action list
- * contain Buy or Renew" (docs/spec/settings.md § Native app icons). Mirrors iOS
+ * A pure function of the license's `includes` and Rust's purchase surface and
+ * row actions, so the rendering is testable on the JVM and no storefront logic
+ * lives here (docs/spec/settings.md § Native app icons). Mirrors iOS
  * `AppIconPickerShape`.
  */
 data class AppIconPickerShape(
@@ -29,19 +29,25 @@ data class AppIconPickerShape(
         /** Buy (or Renew when Expired) is the filled button. */
         data class LinkOut(val primary: LicenseAction) : Ask
 
+        /**
+         * `play`: the website named in plain text; "I already paid" is the
+         * filled button.
+         */
+        data object NameWebsite : Ask
+
         /** Key-only builds: "I already paid" is the filled button, nothing else. */
         data object KeyOnly : Ask
     }
 
     /**
-     * Key-only builds keep "included with a license": "unlocks" is for link-out
-     * builds only (docs/spec/license.md § What a license includes).
+     * Only link-out builds say "unlocks" (docs/spec/license.md § What a
+     * license includes); `play` names the website, key-only builds neither.
      */
     val footnoteKey: String
-        get() = if (ask == Ask.KeyOnly) {
-            "settings.appIcon.license.footnoteKeyOnly"
-        } else {
-            "settings.appIcon.license.footnote"
+        get() = when (ask) {
+            Ask.KeyOnly -> "settings.appIcon.license.footnoteKeyOnly"
+            Ask.NameWebsite -> "settings.appIcon.license.footnoteWebsite"
+            else -> "settings.appIcon.license.footnote"
         }
 
     /** Where a tap on [icon] goes: the ask, or the icon change. */
@@ -52,6 +58,7 @@ fun appIconPickerShape(
     selected: AppIcon,
     includes: Set<LicenseInclusion>?,
     rowActions: List<LicenseAction>,
+    surface: LicensePurchaseSurface,
 ): AppIconPickerShape {
     if (includes == null) {
         return AppIconPickerShape(coined = emptySet(), footnote = false, ask = null, resolved = false)
@@ -66,9 +73,10 @@ fun appIconPickerShape(
         )
     }
     val primary = rowActions.firstOrNull { it == LicenseAction.BUY || it == LicenseAction.RENEW }
-    return AppIconPickerShape(
-        coined = AppIcon.entries.toSet() - selected,
-        footnote = true,
-        ask = primary?.let { AppIconPickerShape.Ask.LinkOut(it) } ?: AppIconPickerShape.Ask.KeyOnly,
-    )
+    val ask = when {
+        primary != null -> AppIconPickerShape.Ask.LinkOut(primary)
+        surface == LicensePurchaseSurface.NAME_WEBSITE -> AppIconPickerShape.Ask.NameWebsite
+        else -> AppIconPickerShape.Ask.KeyOnly
+    }
+    return AppIconPickerShape(coined = AppIcon.entries.toSet() - selected, footnote = true, ask = ask)
 }

@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -55,6 +56,7 @@ import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 import kotlinx.coroutines.launch
 import uniffi.futo_notes_ffi.LicenseAction
+import uniffi.futo_notes_ffi.LicensePurchaseSurface
 import uniffi.futo_notes_ffi.LicenseStatus
 
 /** The well is 184dp and the coin 160dp on every platform (D1/D5). It is
@@ -64,13 +66,27 @@ import uniffi.futo_notes_ffi.LicenseStatus
  *  while Licensed: an empty circle read as something that had failed to load
  *  rather than as "no license". */
 private val WELL_DIAMETER = 184.dp
+
+/** The plain-text sentence that names the website on `play`. */
+internal const val LICENSE_WEBSITE_TAG = "license-website"
 private val COIN_DIAMETER = 160.dp
 
-internal fun licenseExplanationPath(status: LicenseStatus, linkOut: Boolean): String = when {
+internal fun licenseExplanationPath(status: LicenseStatus, surface: LicensePurchaseSurface): String = when {
     status == LicenseStatus.LICENSED -> "license.explanationLicensed"
-    linkOut -> "license.explanation"
-    else -> "license.keyOnlyExplanation"
+    surface == LicensePurchaseSurface.KEY_ONLY -> "license.keyOnlyExplanation"
+    else -> "license.explanation"
 }
+
+/**
+ * The sentence that names the website, or `null` where none is said: only a
+ * [LicensePurchaseSurface.NAME_WEBSITE] build (`play`) that is not Licensed.
+ */
+internal fun licenseWebsitePath(status: LicenseStatus, surface: LicensePurchaseSurface): String? =
+    if (status != LicenseStatus.LICENSED && surface == LicensePurchaseSurface.NAME_WEBSITE) {
+        "license.websiteExplanation"
+    } else {
+        null
+    }
 
 /**
  * The License plate — the FIRST group of Settings on mobile, and the only place
@@ -101,7 +117,7 @@ internal fun licenseExplanationPath(status: LicenseStatus, linkOut: Boolean): St
  *
  * Which controls each state offers is Rust's answer (`licenseRowActions` via
  * [LicenseModel.actions]), so Android and iOS render the same table and the
- * `licenseLinkOut` gives both shells the same storefront policy.
+ * `licensePurchaseSurface` gives every shell the same storefront policy.
  */
 @Composable
 fun LicenseSettingsSection(
@@ -207,7 +223,7 @@ fun LicenseSettingsSection(
             Column(Modifier.fillMaxWidth()) {
                 if (card?.maskedKey != null) {
                     PlateLetterhead(card, storedKey = view?.key, revealed = revealed, onReveal = { revealed = true })
-                } else if (card != null && license.linkOut) {
+                } else if (card != null && license.surface != LicensePurchaseSurface.KEY_ONLY) {
                     Text(
                         localization.localizedText("license.unlicensedHeadline"),
                         style = FutoType.plateAsk,
@@ -224,7 +240,7 @@ fun LicenseSettingsSection(
                         onCancel = ::cancelEntry,
                     )
                 } else if (card != null) {
-                    PlateAsk(card, license.linkOut, primaryAction, onAct = ::act)
+                    PlateAsk(card, license.surface, license.links.website, primaryAction, onAct = ::act)
                 }
 
                 if (!entering) PlateLinks(otherActions, onAct = ::act)
@@ -286,17 +302,30 @@ private fun PlateLetterhead(card: LicenseCardModel, storedKey: String?, revealed
 @Composable
 private fun PlateAsk(
     card: LicenseCardModel,
-    linkOut: Boolean,
+    surface: LicensePurchaseSurface,
+    website: String,
     primaryAction: LicenseAction?,
     onAct: (LicenseAction) -> Unit,
 ) {
     val localization = LocalLocalization.current
     Spacer(Modifier.height(14.dp))
     Text(
-        localization.localizedText(licenseExplanationPath(card.status, linkOut)),
+        localization.localizedText(licenseExplanationPath(card.status, surface)),
         style = FutoType.caption,
         color = FutoTheme.colors.textMuted,
     )
+    licenseWebsitePath(card.status, surface)?.let { path ->
+        Spacer(Modifier.height(8.dp))
+        // Names the website and nothing more: plain text, no link, no copy
+        // button (Google Play's consumption-only rule, docs/spec/license.md
+        // § Store posture).
+        Text(
+            localization.localizedText(path, mapOf("url" to website)),
+            style = FutoType.caption,
+            color = FutoTheme.colors.textMuted,
+            modifier = Modifier.testTag(LICENSE_WEBSITE_TAG),
+        )
+    }
     if (primaryAction != null) {
         Spacer(Modifier.height(16.dp))
         // The ONE filled button on the plate, and it keeps the app's own

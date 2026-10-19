@@ -92,27 +92,36 @@ android {
     //
     // BuildConfig.IS_PLAY_BUILD is the seam for Play-only behavior; nothing
     // reads it yet. Per-flavor constants belong HERE, as buildConfigField
-    // entries on the two flavors below (LICENSE_LINK_OUT is the first one); a
+    // entries on the two flavors below (LICENSE_DISTRIBUTION is the first one); a
     // `if (BuildConfig.IS_PLAY_BUILD)` branch in shared Kotlin is the
     // second choice, and a flavor-specific source set (app/src/play,
     // app/src/direct) the third — each of those needs both flavors compiled,
     // which CI and `just build-android-native` do.
     //
-    // LICENSE_LINK_OUT is the store-posture flag (docs/spec/license.md § Store
-    // posture): direct offers checkout worldwide; play accepts keys and deep
-    // links only. Rust's licenseLinkOut and licenseRowActions own the resulting
-    // controls. This is a build constant, never a user preference.
+    // LICENSE_DISTRIBUTION says where the build is installed from, and nothing
+    // more: Rust's licensePurchaseSurface decides what that means (direct links
+    // out to checkout; play names the website without a link,
+    // docs/spec/license.md § Store posture) and licenseSurfaceRowActions owns
+    // the resulting controls. This is a build constant, never a user preference.
     flavorDimensions += "distribution"
     productFlavors {
         create("direct") {
             dimension = "distribution"
             buildConfigField("boolean", "IS_PLAY_BUILD", "false")
-            buildConfigField("boolean", "LICENSE_LINK_OUT", "true")
+            buildConfigField(
+                "uniffi.futo_notes_ffi.LicenseDistribution",
+                "LICENSE_DISTRIBUTION",
+                "uniffi.futo_notes_ffi.LicenseDistribution.ANDROID_DIRECT",
+            )
         }
         create("play") {
             dimension = "distribution"
             buildConfigField("boolean", "IS_PLAY_BUILD", "true")
-            buildConfigField("boolean", "LICENSE_LINK_OUT", "false")
+            buildConfigField(
+                "uniffi.futo_notes_ffi.LicenseDistribution",
+                "LICENSE_DISTRIBUTION",
+                "uniffi.futo_notes_ffi.LicenseDistribution.ANDROID_PLAY",
+            )
         }
     }
 

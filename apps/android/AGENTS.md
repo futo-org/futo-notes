@@ -94,14 +94,16 @@ their notes when they switch. Never give a flavor its own id or suffix;
 `BuildConfig.IS_PLAY_BUILD` is the seam. Reach for it only for behavior that
 Google Play's policies require and other channels do not — nothing else is a
 flavor difference. Today nothing reads it, and the flavors still behave
-identically except for license checkout: `LICENSE_LINK_OUT` is `true` on `direct`
-and `false` on `play`.
+identically except for license checkout: `LICENSE_DISTRIBUTION` is
+`ANDROID_DIRECT` on `direct` and `ANDROID_PLAY` on `play`, and Rust's
+`licensePurchaseSurface` turns that into link-out or name-the-website. The flavor
+reports where it ships from; it never decides what that means.
 
 In order of preference:
 
 1. A `buildConfigField` on each flavor in `app/build.gradle.kts` —
-   `LICENSE_LINK_OUT` is the worked example (a constant, one line per flavor,
-   locked on both by `LicenseLinkOutTest`).
+   `LICENSE_DISTRIBUTION` is the worked example (a constant, one line per
+   flavor, locked on both by `LicenseDistributionTest`).
 2. `if (BuildConfig.IS_PLAY_BUILD)` in shared `main` Kotlin.
 3. A flavor source set (`app/src/play`, `app/src/direct`) — last resort, and it
    needs the same no-op-sibling discipline the Source sets section below

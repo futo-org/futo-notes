@@ -11,19 +11,21 @@ import kotlinx.coroutines.withContext
 import uniffi.futo_notes_ffi.BuySource
 import uniffi.futo_notes_ffi.LicenseAcceptance
 import uniffi.futo_notes_ffi.LicenseAction
+import uniffi.futo_notes_ffi.LicenseDistribution
 import uniffi.futo_notes_ffi.LicenseException
 import uniffi.futo_notes_ffi.LicenseInclusion
 import uniffi.futo_notes_ffi.LicenseLinkOutcome
 import uniffi.futo_notes_ffi.LicenseLinks
 import uniffi.futo_notes_ffi.LicensePlatform
+import uniffi.futo_notes_ffi.LicensePurchaseSurface
 import uniffi.futo_notes_ffi.LicenseView
 import uniffi.futo_notes_ffi.licenseEnterKey
 import uniffi.futo_notes_ffi.licenseEvaluate
 import uniffi.futo_notes_ffi.licenseHandleDeepLink
 import uniffi.futo_notes_ffi.licenseIncludes
 import uniffi.futo_notes_ffi.licenseLinks
-import uniffi.futo_notes_ffi.licenseLinkOut
-import uniffi.futo_notes_ffi.licenseRowActions
+import uniffi.futo_notes_ffi.licensePurchaseSurface
+import uniffi.futo_notes_ffi.licenseSurfaceRowActions
 
 /**
  * The Android shell's license state.
@@ -39,19 +41,22 @@ class LicenseModel(
     private val storage: LicenseStorage,
     private val bundleId: String,
     /**
-     * The build-time store-posture flag (docs/spec/license.md § Store posture),
-     * per flavor in `app/build.gradle.kts`. A constructor parameter rather than
-     * a direct read of the constant so both of its values are exercised by
-     * tests without a build flip.
+     * Where this build is installed from, per flavor in `app/build.gradle.kts`.
+     * What it means for buying is Rust's answer ([surface]). A constructor
+     * parameter rather than a direct read of the constant so both flavors'
+     * values are exercised by tests without a build flip.
      */
-    buildAllowsLinkOut: Boolean = BuildConfig.LICENSE_LINK_OUT,
+    distribution: LicenseDistribution = BuildConfig.LICENSE_DISTRIBUTION,
     private val enterLicenseKey: suspend (String, String) -> LicenseAcceptance = { input, id ->
         licenseEnterKey(input, id)
     },
 ) {
-    val linkOut: Boolean by lazy {
-        licenseLinkOut(LicensePlatform.ANDROID, null, buildAllowsLinkOut)
-    }
+    /**
+     * What the card and the app icon ask may do about buying
+     * (docs/spec/license.md § Store posture): `direct` links out, `play` names
+     * the website in plain text. Android has no storefront country to report.
+     */
+    val surface: LicensePurchaseSurface by lazy { licensePurchaseSurface(distribution, null) }
 
     /**
      * `null` until [load] has read the stored pair and Rust has judged it.
@@ -156,7 +161,7 @@ class LicenseModel(
 
     /** Which controls the row offers, in the order Rust puts them in. */
     fun actions(): List<LicenseAction> =
-        view?.let { licenseRowActions(it.status, linkOut) } ?: emptyList()
+        view?.let { licenseSurfaceRowActions(it.status, surface) } ?: emptyList()
 
     /**
      * Recognise the input, activate it if it was a bare key, verify, and store
