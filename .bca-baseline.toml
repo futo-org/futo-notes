@@ -116,22 +116,22 @@ value = 24.0
 body_hash = "3d3458a5c9244f91"
 
 [[entry]]
-path = "apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt"
-qualified = "EditorHost::handle"
+path = "apps/android/app/src/main/java/com/futo/notes/ui/EditorHostMessages.kt"
+qualified = "handle"
 metric = "cognitive"
 value = 25.0
 body_hash = "7f17f606051712d0"
 
 [[entry]]
-path = "apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt"
-qualified = "EditorHost::handle"
+path = "apps/android/app/src/main/java/com/futo/notes/ui/EditorHostMessages.kt"
+qualified = "handle"
 metric = "cyclomatic"
 value = 40.0
 body_hash = "7f17f606051712d0"
 
 [[entry]]
-path = "apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt"
-qualified = "EditorHost::insertImageAndWait"
+path = "apps/android/app/src/main/java/com/futo/notes/ui/EditorHostContent.kt"
+qualified = "insertImageAndWait"
 metric = "cognitive"
 value = 21.0
 body_hash = "0143aa538bcdd297"
