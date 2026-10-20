@@ -111,12 +111,21 @@ if (-not (Get-Command cargo-binstall -ErrorAction SilentlyContinue)) {
     Refresh-Path
 }
 
-# tauri-cli
-if (-not (Get-Command cargo-tauri -ErrorAction SilentlyContinue)) {
-    Write-Host "Installing tauri-cli..."
-    cargo binstall tauri-cli --no-confirm --locked
+# tauri-cli, pinned to match .setup-rust in .gitlab-ci.yml
+$TauriCliVersion = "2.11.4"
+$installed = if (Get-Command cargo-tauri -ErrorAction SilentlyContinue) { (cargo tauri --version) } else { "" }
+if ($installed -ne "tauri-cli $TauriCliVersion") {
+    Write-Host "Installing tauri-cli $TauriCliVersion..."
+    cargo binstall "tauri-cli@$TauriCliVersion" --no-confirm --locked --force
     Refresh-Path
 }
-cargo tauri --version
+# Fail red if the binary on PATH is not the pinned one (a template-baked or
+# cached cargo-tauri that shadows the fresh install would otherwise build the
+# release with an unpinned CLI).
+$final = (cargo tauri --version)
+Write-Host $final
+if ($final -ne "tauri-cli $TauriCliVersion") {
+    throw "tauri-cli on PATH is '$final', expected 'tauri-cli $TauriCliVersion'"
+}
 
 Write-Host "=== All dependencies installed ==="

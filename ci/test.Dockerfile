@@ -33,7 +33,7 @@ RUN rustup toolchain install 1.89.0 --component rustfmt --component clippy && \
     rustup default 1.89.0 && \
     curl -L --proto '=https' --tlsv1.2 -sSf \
       https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash && \
-    cargo binstall tauri-cli sccache --no-confirm --locked
+    cargo binstall tauri-cli@2.11.4 sccache --no-confirm --locked
 
 # Baked so every job's `fnm use` is an offline no-op. fnm is installed rather
 # than inherited, because the base image belongs to another team. COPY rather
