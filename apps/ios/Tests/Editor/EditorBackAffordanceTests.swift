@@ -11,12 +11,13 @@ private final class BundleToken {}
 /// in `finishLeave` instead of vetoing the exit.
 ///
 /// This is a SOURCE SCAN (same shape as `BridgeCallSurfaceTests`): it reads
-/// `NoteEditorView.swift`, so hiding the button again fails here instead of
-/// shipping a note you cannot swipe out of.
+/// `NoteEditorView.swift` and its `NoteEditorView+*.swift` extensions, so
+/// hiding the button again fails here instead of shipping a note you cannot
+/// swipe out of.
 @Suite("Editor back affordance")
 struct EditorBackAffordanceTests {
-    /// `NoteEditorView.swift`, bundled as a resource by the test target's
-    /// postCompileScripts (Xcode's resource phase refuses to copy `.swift`).
+    /// `NoteEditorView.swift` plus its extensions, bundled as a resource by the
+    /// test target's postCompileScripts (Xcode's resource phase refuses to copy `.swift`).
     private func editorViewSource() throws -> String {
         let bundle = Bundle(for: BundleToken.self)
         let url = try #require(
@@ -44,14 +45,14 @@ struct EditorBackAffordanceTests {
         let disappear = try #require(source.range(of: ".onDisappear {"))
         #expect(source[disappear.upperBound...].prefix(900).contains("finishLeave()"))
 
-        let leave = try #require(source.range(of: "private func finishLeave()"))
+        let leave = try #require(source.range(of: "func finishLeave()"))
         #expect(source[leave.upperBound...].prefix(400).contains(".navigate,"))
     }
 
     @Test("the pop is never gated on the commit: finishLeave cannot suspend")
     func finishLeaveNeverBlocksThePop() throws {
         let source = try editorViewSource()
-        let leave = try #require(source.range(of: "private func finishLeave()"))
+        let leave = try #require(source.range(of: "func finishLeave()"))
         // A function that is not `async` cannot await, so this one check is
         // the whole guarantee: the drain and commit run in the closures it
         // hands the session and in its detached Task, all after the pop. An
@@ -74,7 +75,7 @@ struct EditorBackAffordanceTests {
         let calls = source.components(separatedBy: "requestNavigation {").count - 1
         #expect(
             calls == 1, "requestNavigation has \(calls) callers; Back must pop first (finishLeave)")
-        let push = try #require(source.range(of: "private func openLinkedNote("))
+        let push = try #require(source.range(of: "func openLinkedNote("))
         let pushBody = source[push.upperBound...].prefix(300)
         #expect(
             pushBody.contains("requestNavigation {"), "the one caller must be the wikilink push")
@@ -88,7 +89,7 @@ struct EditorBackAffordanceTests {
             "The native close control must use the visible-editor dismissal path"
         )
 
-        let dismiss = try #require(source.range(of: "private func dismissFind()"))
+        let dismiss = try #require(source.range(of: "func dismissFind()"))
         let dismissBody = source[dismiss.upperBound...].prefix(240)
         #expect(dismissBody.contains("EditorHost.shared.closeFind()"))
         #expect(

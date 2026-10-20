@@ -46,7 +46,7 @@ simulator destination `just build-ios-native` uses and the single concrete simul
   so the shell renders immediately. Never await work before first render.
 - **`ToolbarSpec.swift` and `TitleSpec.swift` are generated** from `packages/editor/src/toolbar.ts`
   and `filename.ts`. Edit the manifest and run `just toolbar-spec` / `just title-spec`.
-- A new `futoBridge` message needs a hand-written host in `EditorWebView.swift` **and** its Android
+- A new `futoBridge` message needs a hand-written host in `EditorHost+MessageHandler.swift` **and** its Android
   counterpart — the contract in `packages/editor/src/bridge.ts` is the source of truth.
 
 ## Testing and QA
