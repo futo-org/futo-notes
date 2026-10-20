@@ -14,7 +14,7 @@
   ],
   "locks": [
     {
-      "path": "crates/futo-notes-store/src/tests.rs",
+      "path": "crates/futo-notes-store/src/tests/sort_order.rs",
       "kind": "test"
     },
     {

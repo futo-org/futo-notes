@@ -141,7 +141,9 @@ A differential that skips something quietly is worse than no differential (M11):
   differentiate against. The shells reach the rules through Tauri and UniFFI. The fixture carries a
   test-only RSA key pair, so the v2 FUTOpay activation contract is provable before lib-polar ships
   it; `scripts/gen-license-fixture.mjs` derives the signatures (and only the signatures) that a
-  reviewer cannot author by hand. Locked by
+  reviewer cannot author by hand. It is split to stay readable: `license.json` plus the
+  parts in `license/` (`keys`, `enterKey`, and `evaluate` in three slices), merged by key —
+  arrays under the same key concatenate in filename order. Locked by
   `crates/futo-notes-license/tests/conformance.rs`.
 
 - **`path-safety.json`.** `safe_note_path` takes a vault root and returns a resolved

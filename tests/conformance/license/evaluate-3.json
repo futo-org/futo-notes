@@ -1,0 +1,150 @@
+{
+  "evaluate": [
+    {
+      "name": "the payload segment uses standard base64's + and /, not base64url",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "v2.a+b/c=.c2lnbmF0dXJl",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedBase64"
+      }
+    },
+    {
+      "name": "the signature segment is not base64url",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "v2.cGF5bG9hZA.not base64!",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedBase64"
+      }
+    },
+    {
+      "name": "a well-formed but wrong-length signature is a signature failure, not a parse failure",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "v2.cGF5bG9hZA.c2lnbmF0dXJl",
+      "expected": {
+        "state": "invalid",
+        "reason": "signatureMismatch"
+      }
+    },
+    {
+      "name": "a correctly signed payload that is not JSON",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payloadRaw": "this is not json"
+      },
+      "activation": "v2.dGhpcyBpcyBub3QganNvbg.3YyVnlsfG-BulM_VSVe1RByAK8J12TC4Vw7xj6xcBJmMNbMl8pJGfSLrZMLoVd7w_KRnMGv05AAjeYMXdlpaM5zQa_wXjbDTejPu1X6XRTzE6VHwW8s1JI183MirgIxAF8JGM1IraRBDK_UAPWduVDTXvxXPt0HsSuP2IvdbNX-hkd0cV-3QGUkcBK407A69bPen3kmcZwD7CGRU-4A5J2KwXse0wiBSDOJHgjooD6T4q4MeBnXzEwYtWsa-RpExJAn3j5ASEaBwnKOQscWBN9E6tVTuYyLwo7fJmvq9y-tLt5Wrv9zwfoXJbLgBqu0Z-APs6lG8zSitA7fmZilnGQ",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedPayload"
+      }
+    },
+    {
+      "name": "a correctly signed payload with expires_at missing entirely — null must be explicit",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIn0.RLyxIeiYBzUwL3ntaSl5TU-67jk47FWZg5PCSFrwQHdi1W7RefKE5HM_t7p5bFYZTrAwavYwG50HOZXZeNqF4I3CBW4wYvkeCBFip2R0VtijZ2hq-kt53kaP6oOctDySLU6J8B3iEri55nu2BAZCr-b4yRq3hA8wDKuTzgQDzoYZKxgUGzium1eJWRfoFoMu5KRxNX8QV85Z_dXm-QHFAo74aCgbmc35vPyra3uQjb29lE99G53__c9X10ltxlmXLhjvj9hjdxAWEYpROd2kPtKS1gb0H-pQQVwcY5hWOy9mpyXXa4cn_uocTjJOexvX9tGWum25Lalm4VaK932WAw",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedPayload"
+      }
+    },
+    {
+      "name": "a correctly signed payload whose issued_at is not RFC 3339",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "yesterday",
+          "expires_at": "2029-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6Inllc3RlcmRheSIsImV4cGlyZXNfYXQiOiIyMDI5LTAxLTE1VDEwOjMwOjAwWiJ9.OT3D0L57gEJodQ3tq-i_MdghUDAG06MG88b004UAPRTU_2wKZvWXqdyoxj9q9fGNnJug2_uUUWhNNKOGLhE2RiOfuIykxQxgl9uj65MSjIQbAfbZtak1ql8ZVA6Eej2Seuuves5NKrFs2qjAPTXTyXbt_sT2yNif1swczA-Ejb8GiAsgCx6B9Pzetm7iHsH3xV9rPIF5WxHgeLWkiE0g7d8KzHMa6GqZmdzLjh_rY_Gpg3C_G5qh3D5NkLBCl8stxVyeH3UIRCwKYpYm-DM2pPyZCqMqRH541WTi7gW0QVxHh9tkhNDhIMMHfVRhG_dnBPcIjF-CpvA1waDSw7RZnw",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedPayload"
+      }
+    },
+    {
+      "name": "a correctly signed payload whose expires_at is not RFC 3339",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "never"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6Im5ldmVyIn0.Vr_9daPPaS3kNPGSZgn0a4B3CduNupTMrjxGUrMnBTzu9UXlL6YWMZg-tW0Z0DuL1dDNWx1GV_qLtFy__FPUEGTcY0sKZQN80VMPr6a6P0btnZ8mEb_8g33_K9jTUos4wWgvzfSZRcnbK9Osul57OZ_cuyzZTxdzmAYhMtz8HAVk94U21fBMqK7ekXhLsKo5P-QIROqsam0LwJbj201CDfY3Og0JtA9OB0zCzmeBa9TTC10kjnmHlDnF1tImYKkw6yuTZoXYmfNol33rCXn7UrQPD6vW1XBhJC0QeAZbrwj3tsa96WPpwtbOn53oePXoQfl7MA-zd2_BIWwi28zZ9g",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedPayload"
+      }
+    },
+    {
+      "name": "unknown payload fields are ignored — the server may add fields without breaking clients",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2029-01-15T10:30:00Z",
+          "seats": 3
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIiwic2VhdHMiOjN9.o7KC23K54vNdmii5MFipU4lTovwa4BXL84esDVWjA9yZh72W27fPuObkDNsSZuf_BJJLnfjuXsGIhGRXWg7H-MeTeBHEC4D9YOMYFqAo5hIBGt3VMWiVKo7LHpaBLUQT9jIg2Mpg8D8X2Kzjgb3JppMXbaDh_JAgmhkuYWqTCd6miyS_9xSnNaPrcFbyLwG3hU01GCQJEui033BqkJF3N2lvU4su5O3QpS7hDcQmibs4aFERjnka6KVBiqmwOlM7O8Vg7mJoEYr6AvcGrt4NkvBkC7fttgHVH6noGqyvh-NwVif734fXsHDAteJVghJLAtCYhPX4otd_fCXUnLzJHA",
+      "expected": {
+        "state": "licensed",
+        "issuedAt": "2026-01-15T10:30:00Z",
+        "expiresAt": "2029-01-15T10:30:00Z"
+      }
+    },
+    {
+      "name": "a malformed stored key is rejected before anything else is considered",
+      "key": "hello",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2029-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.UW-vdWiyHl70QilqDEJH0xHKaJAuqfArW_UqEIoIqytuSl-y5bwaHh-0r1KSLqGjs9q7E77X3UshG4iBnyheH84FslCUGrs5CV0QUeUd1SLym_g2dAi4XkI7RN8QoDKVY9V4ddYd13lbvIATbgMxA_MDlKalkmvUhJ0gkxjoN2jQnf4SmUivPp38ZuwscHrorA-iy1BQhobXS3lbws9ENO4FcknQ1A5TzWvQJ1hkUagQpWnXj1NIyOYcfqHaWSe0TD5HdXKacDVQftb_puM8YbQ5uHYSxgMdQ_rol6dKYijX0u7IhN9WuKnCTL26_bwpwbEUtAmNDr9SKVU1iO9_Gg",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedKey"
+      }
+    }
+  ]
+}
