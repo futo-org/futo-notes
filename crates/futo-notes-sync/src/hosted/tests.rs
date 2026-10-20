@@ -5,6 +5,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -61,7 +62,7 @@ async fn server_answering_invalid_session() -> MockServer {
     server
 }
 
-fn signed_in(setup: &HostedSetup) {
+pub(super) fn signed_in(setup: &HostedSetup) {
     *setup.session.lock().unwrap() = Some(HostedSession {
         user_id: "user".into(),
         email: "person@standin.test".into(),
@@ -433,4 +434,75 @@ async fn a_saved_vault_cannot_be_read_without_a_secret_store() {
         setup.has_saved_vault().await.unwrap_err(),
         HostedError::SecretStore(_)
     ));
+}
+
+/// A signed-in setup talking to an HTTPS server whose private root this
+/// device trusts through a file it can empty out, plus every request the
+/// server has received. The server answers each request `status` + `body`.
+pub(super) struct RevocableTrust {
+    pub(super) setup: HostedSetup,
+    pub(super) revoke: Box<dyn Fn()>,
+    pub(super) requests: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+pub(super) async fn revocable_trust(status: u16, body: &'static str) -> RevocableTrust {
+    use crate::tls::test_support::{
+        file_backed_trust, private_authority, remove_trusted_root, serve_https_replying,
+    };
+    let authority = private_authority("futo notes hosted test authority");
+    let (address, _, requests) = serve_https_replying(&authority, status, body).await;
+    let (trust_path, verifier) = file_backed_trust(&authority);
+    let setup = HostedSetup::over(
+        &format!("https://{address}"),
+        HttpClients::with_verifier(Some(verifier)),
+    )
+    .unwrap();
+    signed_in(&setup);
+    RevocableTrust {
+        setup,
+        revoke: Box::new(move || remove_trusted_root(&trust_path)),
+        requests,
+    }
+}
+
+/// Polls until `count` requests have reached the server.
+pub(super) async fn until_requests(requests: &std::sync::Mutex<Vec<String>>, count: usize) {
+    while requests.lock().unwrap().len() < count {
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+}
+
+const NOT_ENTITLED: &str = r#"{"entitled":false,"state":"none","plan":{"storage_quota_bytes":1,"blob_max_bytes":1},"usage":{"bytes_used":0}}"#;
+
+/// The trust check is not a once-per-wait gate: a root removed while the
+/// entitlement wait is polling must fail the next poll, before that poll puts
+/// the session token on a connection the device no longer trusts.
+#[tokio::test]
+async fn a_root_removed_during_the_entitlement_wait_fails_the_next_poll() {
+    let rig = revocable_trust(200, NOT_ENTITLED).await;
+    let slow = PollSchedule {
+        first: Duration::from_millis(150),
+        max: Duration::from_millis(150),
+        give_up_after: Duration::from_secs(3),
+    };
+    let setup = rig.setup.with_schedules(slow, slow);
+
+    let wait = setup.await_entitled();
+    let revoke = async {
+        until_requests(&rig.requests, 2).await;
+        (rig.revoke)();
+        rig.requests.lock().unwrap().len()
+    };
+    let (outcome, sent_before_revocation) = tokio::join!(wait, revoke);
+
+    let error = outcome.expect_err("the wait must end on the untrusted certificate");
+    assert!(
+        matches!(&error, HostedError::Network(message) if message.contains("invalid peer certificate")),
+        "expected a certificate rejection, got: {error:?}"
+    );
+    assert_eq!(
+        rig.requests.lock().unwrap().len(),
+        sent_before_revocation,
+        "a poll was sent after the root was removed"
+    );
 }

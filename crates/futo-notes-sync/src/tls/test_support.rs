@@ -1,7 +1,7 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use rcgen::{BasicConstraints, CertificateParams, DnType, IsCa, Issuer, KeyPair};
 use rustls::client::danger::ServerCertVerifier;
@@ -48,6 +48,19 @@ pub(crate) fn private_authority(common_name: &str) -> PrivateAuthority {
 }
 
 pub(crate) async fn serve_https(authority: &PrivateAuthority) -> (SocketAddr, Arc<AtomicUsize>) {
+    let (address, handshakes, _) =
+        serve_https_replying(authority, 200, r#"{"auth_mode":"password","objects":[]}"#).await;
+    (address, handshakes)
+}
+
+/// [`serve_https`] answering every non-SSE request with `status` and `body`,
+/// and recording each request's head, so a test can say what a client did or
+/// did not send.
+pub(crate) async fn serve_https_replying(
+    authority: &PrivateAuthority,
+    status: u16,
+    body: &'static str,
+) -> (SocketAddr, Arc<AtomicUsize>, Arc<Mutex<Vec<String>>>) {
     let mut config = rustls::ServerConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
     ))
@@ -65,10 +78,13 @@ pub(crate) async fn serve_https(authority: &PrivateAuthority) -> (SocketAddr, Ar
     let address = listener.local_addr().unwrap();
     let handshakes = Arc::new(AtomicUsize::new(0));
     let counted = handshakes.clone();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let recorded = requests.clone();
     tokio::spawn(async move {
         while let Ok((stream, _)) = listener.accept().await {
             let acceptor = acceptor.clone();
             let counted = counted.clone();
+            let recorded = recorded.clone();
             tokio::spawn(async move {
                 let Ok(mut tls) = acceptor.accept(stream).await else {
                     return;
@@ -83,18 +99,21 @@ pub(crate) async fn serve_https(authority: &PrivateAuthority) -> (SocketAddr, Ar
                             Ok(read) => request.extend_from_slice(&chunk[..read]),
                         }
                     }
+                    recorded
+                        .lock()
+                        .unwrap()
+                        .push(String::from_utf8_lossy(&request).into_owned());
                     if request.starts_with(b"GET /api/sync/events ") {
                         let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n\r\nevent: ready\ndata: {}\n\n";
                         let _ = tls.write_all(head.as_bytes()).await;
                         std::future::pending::<()>().await;
                     }
-                    let body = br#"{"auth_mode":"password","objects":[]}"#;
                     let head = format!(
-                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n",
+                        "HTTP/1.1 {status} OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n",
                         body.len()
                     );
                     if tls.write_all(head.as_bytes()).await.is_err()
-                        || tls.write_all(body).await.is_err()
+                        || tls.write_all(body.as_bytes()).await.is_err()
                     {
                         return;
                     }
@@ -102,7 +121,7 @@ pub(crate) async fn serve_https(authority: &PrivateAuthority) -> (SocketAddr, Ar
             });
         }
     });
-    (address, handshakes)
+    (address, handshakes, requests)
 }
 
 pub(crate) fn trust_file(der: &[u8]) -> PathBuf {

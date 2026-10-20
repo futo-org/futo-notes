@@ -26,7 +26,7 @@ use std::sync::Mutex;
 
 use tokio::sync::Notify;
 
-use crate::server::{HandoffPoll, Http, HttpClients};
+use crate::server::{HandoffPoll, Http, HttpClients, HttpError};
 
 pub use address::{hosted_server, HOSTED_SERVER};
 pub use capability::{probe_sign_in_flow, SignInFlow};
@@ -287,7 +287,11 @@ impl HostedSetup {
     /// [`HostedSetup::hosted`]. An address that is not a usable http(s) URL
     /// fails here, before any request, as [`HostedError::Network`].
     pub fn at(server: &str) -> Result<Self, HostedError> {
-        let clients = HttpClients::new()
+        Self::over(server, HttpClients::new())
+    }
+
+    fn over(server: &str, clients: Result<HttpClients, HttpError>) -> Result<Self, HostedError> {
+        let clients = clients
             .and_then(|clients| clients.for_base(server).map(|_| clients))
             .map_err(|error| HostedError::Network(error.message))?;
         Ok(Self {
@@ -396,11 +400,13 @@ impl HostedSetup {
     /// lands, which is why nothing about the checkout itself can be trusted
     /// to say whether payment succeeded.
     pub async fn await_entitled(&self) -> Result<EntitlementOutcome, HostedError> {
-        let http = self.authorized().await?;
         let last = Mutex::new(None);
         let waited = self
             .wait(self.entitlement_schedule, || async {
-                let status = http.billing().await?;
+                // Per poll, not per wait: `authorized` is where the TLS trust
+                // is re-checked, and a root removed during a five-minute wait
+                // must end it rather than vouch for the rest of it.
+                let status = self.authorized().await?.billing().await?;
                 let entitled = status.entitled;
                 *last.lock().expect("billing status lock") = Some(status.clone());
                 Ok(entitled.then_some(status))
