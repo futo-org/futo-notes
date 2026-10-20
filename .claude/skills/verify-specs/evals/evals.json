@@ -5,7 +5,7 @@
       "prompt": "/verify-specs",
       "should_trigger": true,
       "expected_scope": "full",
-      "assert": "Full run: all 9 surfaces × all platforms this OS supports + sync mesh. Provisions the 4-worktree default topology (or downshifts on a small machine) and fans out via workflow.js at Sonnet effort=low."
+      "assert": "Full run: all 9 surfaces × all platforms this OS supports + sync mesh. Provisions the 4-worktree default topology (or downshifts on a small machine) and fans out via workflow.js at Sonnet effort=medium."
     },
     {
       "prompt": "/verify-specs everything since the last tagged release",

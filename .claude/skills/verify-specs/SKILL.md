@@ -1,6 +1,6 @@
 ---
 name: verify-specs
-description: Run the behavioral spec in docs/spec/ against the real apps — a parallel, story-driven QA sweep across desktop, iOS, and Android plus cross-client sync. Use when the user says "verify specs", "run the specs", "spec pass", "QA the specs", "check the app against the spec", or "/verify-specs [scope]". A bare run does the full spec (all surfaces × all platforms + sync mesh); a scope phrase ("since the last tagged release", "just the editor") narrows to the surfaces/platforms the diff touched; "release smoke" / "smoke test before the release" runs the diff deep plus a fixed baseline smoke checklist on every platform and ends in a GO / NO GO. Fans out Sonnet low-effort app-qa legs, escalates FAILs to high effort, and is built to survive session-limit deaths without losing work.
+description: Run the behavioral spec in docs/spec/ against the real apps — a parallel, story-driven QA sweep across desktop, iOS, and Android plus cross-client sync. Use when the user says "verify specs", "run the specs", "spec pass", "QA the specs", "check the app against the spec", or "/verify-specs [scope]". A bare run does the full spec (all surfaces × all platforms + sync mesh); a scope phrase ("since the last tagged release", "just the editor") narrows to the surfaces/platforms the diff touched; "release smoke" / "smoke test before the release" runs the diff deep plus a fixed baseline smoke checklist on every platform and ends in a GO / NO GO. Fans out Sonnet medium-effort app-qa legs, escalates FAILs to high effort, and is built to survive session-limit deaths without losing work.
 ---
 
 # Verify Specs — parallel spec QA that resumes after a session death
@@ -33,7 +33,7 @@ Step 1  Scope        full | diff-since-tag → {surfaces, platforms}
 Step 2  Provision    worktrees · qa-claim · pre-build · qa-server   (INLINE — git/shell)
         └─ write test-screenshots/verify-specs/run.json (manifest + runId)  ← durable
 Step 3  Fan out      Workflow(workflow.js, args=manifest)                    (parallel)
-        per leg:   app-qa sonnet effort=low  ── sweep ──▶ FAIL? ── high ──▶ verify
+        per leg:   app-qa sonnet effort=medium ── sweep ──▶ FAIL? ── high ──▶ verify
 Step 4  Aggregate    confirmed FAILs (upheld) · overturned · per-leg tables · ledgers
 Step 5  Teardown     qa-release --shutdown · qa-server-stop --drop · remove worktrees
 ```
@@ -48,9 +48,13 @@ out over fully-provisioned legs.
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-LAST_TAG=$(git describe --tags --abbrev=0)
+LAST_TAG=$(git describe --tags --abbrev=0 --exclude '*-*')   # skip pre-release tags (v1.7.2-6, -milkdown.3)
 echo "last tag: $LAST_TAG"
 ```
+
+A hotfix tagged on a `release/*` branch (e.g. v1.8.1) is not an ancestor of
+main, so this lands on the main-line release it was cut from — the right base
+for "what ships next". Say so in the scope report.
 
 - **Full run** (no scope phrase): every spec surface, all platforms this OS
   supports (`uname -s`: Darwin → desktop+iOS+Android; Linux → desktop+Android),
@@ -83,7 +87,7 @@ the shell-integration delta —
 
 > futoBridge round-trips, toolbar actions, keyboard/IME (insets,
 > scroll-during-IME), tap/selection/focus handoff, image insertion,
-> safe areas — plus every editor story explicitly tagged *(iOS)* / *(Android)*.
+> safe areas — plus every editor story explicitly tagged _(iOS)_ / _(Android)_.
 
 This applies in both modes. It does NOT apply to `list`/`nav`/`search`/
 `settings`/`tabs` — those are native SwiftUI/Compose implementations per
@@ -98,22 +102,31 @@ death) — one entry per leg:
 ```jsonc
 {
   "runNote": "full run @ HEAD (v1.6.0..HEAD scope: editor,sync,list,app)",
-  "effort": { "sweep": "low", "verify": "high" },
+  "effort": { "sweep": "medium", "verify": "high" },
   "legs": [
     {
-      "id": "A-ios", "platform": "ios", "idPrefix": "ed",
+      "id": "A-ios",
+      "platform": "ios",
+      "idPrefix": "ed",
       "worktree": "/abs/path/.claude/worktrees/extra-A",
       "surfaces": ["editor", "app"],
       "focus": "Shell-integration delta only: futoBridge, toolbar, keyboard/IME, …",
-      "device": "iOS sim <udid>", "deviceEnv": "export SIM=<udid>",
-      "ledger": "/abs/path/extra-A/test-screenshots/A-ios-ledger.md"
+      "device": "iOS sim <udid>",
+      "deviceEnv": "export SIM=<udid>",
+      "ledger": "/abs/path/extra-A/test-screenshots/A-ios-ledger.md",
     },
-    { "id": "mesh", "platform": "sync-mesh", "surfaces": ["sync"],
-      "worktree": "/abs/main", "device": "desktop + iOS <udid> + Android <serial>",
+    {
+      "id": "mesh",
+      "platform": "sync-mesh",
+      "surfaces": ["sync"],
+      "worktree": "/abs/main",
+      "device": "desktop + iOS <udid> + Android <serial>",
       "deviceEnv": "export SIM=<udid> ANDROID_SERIAL=<serial>",
-      "serverUrl": "http://127.0.0.1:31NN", "password": "testing123",
-      "ledger": "/abs/main/test-screenshots/mesh-ledger.md" }
-  ]
+      "serverUrl": "http://127.0.0.1:31NN",
+      "password": "testing123",
+      "ledger": "/abs/main/test-screenshots/mesh-ledger.md",
+    },
+  ],
 }
 ```
 
@@ -125,9 +138,13 @@ exactly the flows named and stops, instead of sweeping its whole surface and
 reporting the remainder as SKIP noise:
 
 ```jsonc
-{ "id": "A-ios", "platform": "ios", "surfaces": ["editor"],
+{
+  "id": "A-ios",
+  "platform": "ios",
+  "surfaces": ["editor"],
   "focus": "only the toolbar-overflow and IME-scroll stories from the last run",
-  "ledger": "/abs/path/extra-A/test-screenshots/A-ios-ledger.md" }
+  "ledger": "/abs/path/extra-A/test-screenshots/A-ios-ledger.md",
+}
 ```
 
 Omit it for a full sweep — that is the default and what a bare run uses. Reach
@@ -153,23 +170,27 @@ Workflow({
 ```
 
 The workflow (`workflow.js` next to this file) runs each leg as an `app-qa`
-agent at **Sonnet effort=low** (the sweep); the moment a leg's sweep returns any
+agent at **Sonnet effort=medium** (the sweep); the moment a leg's sweep returns any
 FAIL it spawns a **Sonnet effort=high** app-qa to independently refute those
 FAILs — pipelined, so verification overlaps other legs' sweeps. The
 `agentType`/`model`/`effort` are set per-call inside `workflow.js` because the
-Agent tool has no per-call effort override.
+Agent tool has no per-call effort override. Keep the sweep at medium: at low,
+legs stop after ~8 stories and log the rest as "not run (budget)", which is no
+basis for a verdict. The sweep brief also sets a coverage floor (every in-scope
+bullet and `changes` line gets a driven verdict); a ledger full of "not run"
+rows means the leg needs a re-run, not a SKIP count.
 
 **Capture the `runId`** the Workflow tool returns immediately, and append it to
 `run.json`. It is your resume handle.
 
 ## Step 4 — Survive session limits (expect a death; minimize lost work)
 
-Session limits *will* hit mid-run (8–9 concurrent QA agents burn ~2.5M
+Session limits _will_ hit mid-run (8–9 concurrent QA agents burn ~2.5M
 tokens/hour). Three layers make a death cheap:
 
 1. **Ledgers (ground truth, survive anything).** Every leg appends each
    story's verdict to its ledger the instant it's decided — the brief tells it
-   to, and to *resume from* an existing ledger without re-running done stories.
+   to, and to _resume from_ an existing ledger without re-running done stories.
    Even a killed leg loses only the story it was mid-way through.
 2. **Workflow resume (within-session).** On resume, re-invoke
    `Workflow({ scriptPath, args, resumeFromRunId: <runId from run.json> })`
@@ -198,10 +219,10 @@ verdict }`. Use the shared session verdict format:
 
 - One verdict table per leg (story id → spec line → verdict → evidence path),
   reading the deep detail from each leg's ledger.
-- **Confirmed FAILs** (sweep FAIL *upheld* by the high-effort pass) with
+- **Confirmed FAILs** (sweep FAIL _upheld_ by the high-effort pass) with
   expected (quote the spec) vs actual vs repro. These are the real findings.
 - **Overturned** (sweep FAIL the verify pass disproved) — report as a
-  false-alarm line, and if it recurs, it's a signal the low-effort sweep is too
+  false-alarm line, and if it recurs, it's a signal the sweep is too
   trigger-happy on that surface.
 - Distinguish **BLOCKED** (environment can't exercise it — e.g. no route to the
   sync-server package registry → sync mesh blocked; Linux → iOS blocked) from
@@ -220,5 +241,7 @@ delivered and the user is done; its presence is the resume signal.
 - Full spec, 3 platforms + mesh: target **≤1h** on a strong machine with a warm
   pool. Report actual tokens and wall clock.
 - Scoped runs (the common case): a few 100k tokens, well under an hour.
+- Release smoke across every surface (11 legs incl. Linux and mesh, 2026-10-14):
+  about 2.5M subagent tokens at a medium sweep.
 - Failures cost more than passes (the high-effort verify pass). A run with many
   FAILs will run longer and hotter than a clean one.
