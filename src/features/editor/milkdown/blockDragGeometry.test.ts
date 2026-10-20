@@ -75,21 +75,49 @@ class FrameClock {
   }
 }
 
+/** Gives a real element the layout jsdom does not compute: a client rect, and
+ * the scroll metrics of a box of that height. `scrollTop` stays the element's
+ * own, so a write is read back. */
+function layOut(el: HTMLElement, top: number, bottom: number, scrollHeight: number): HTMLElement {
+  Object.defineProperty(el, 'scrollHeight', { configurable: true, value: scrollHeight });
+  Object.defineProperty(el, 'clientHeight', { configurable: true, value: bottom - top });
+  let scrollTop = 0;
+  Object.defineProperty(el, 'scrollTop', {
+    configurable: true,
+    get: () => scrollTop,
+    set: (v: number) => {
+      scrollTop = v;
+    },
+  });
+  el.getBoundingClientRect = () =>
+    ({ top, bottom, left: 0, right: 390, width: 390, height: bottom - top }) as DOMRect;
+  return el;
+}
+
+/** The embed's layout: the editable itself is the scroll box. */
 function fakeView(scrollHeight = 6000, clientHeight = VIEW_BOTTOM - VIEW_TOP) {
-  const dom = {
-    scrollTop: 0,
+  const dom = layOut(
+    document.createElement('div'),
+    VIEW_TOP,
+    VIEW_TOP + clientHeight,
     scrollHeight,
-    clientHeight,
-    getBoundingClientRect: () => ({
-      top: VIEW_TOP,
-      bottom: VIEW_BOTTOM,
-      left: 0,
-      right: 390,
-      width: 390,
-      height: VIEW_BOTTOM - VIEW_TOP,
-    }),
-  };
+  );
+  dom.style.overflowY = 'auto';
+  document.body.append(dom);
   return { view: { dom } as unknown as ProseView, dom };
+}
+
+/** The desktop shell's layout: `.note-body` scrolls the title and the editor
+ * together, and the editable is a plain box as tall as its content, running
+ * far past the bottom of the window. */
+function fakeDesktopView() {
+  const body = layOut(document.createElement('div'), VIEW_TOP, VIEW_BOTTOM, 6000);
+  body.style.overflowY = 'auto';
+  const dom = layOut(document.createElement('div'), VIEW_TOP + 80, VIEW_TOP + 5900, 5820);
+  dom.style.overflowY = 'visible';
+  body.append(dom);
+  document.body.append(body);
+  return { view: { dom } as unknown as ProseView, dom, body };
 }
 
 /* ---- drop slots: one per gap between top-level siblings ------------------ *
@@ -355,7 +383,10 @@ describe('createDragAutoScroller', () => {
     clock = new FrameClock();
     clock.install();
   });
-  afterEach(() => clock.restore());
+  afterEach(() => {
+    clock.restore();
+    document.body.replaceChildren();
+  });
 
   it('keeps scrolling a stationary pointer held in the bottom edge zone', () => {
     const { view, dom } = fakeView();
@@ -474,6 +505,26 @@ describe('createDragAutoScroller', () => {
     expect(clock.pending).toBe(0);
     clock.frames(30);
     expect(dom.scrollTop).toBe(0);
+  });
+
+  it("scrolls the shell's scroller on desktop, where the editable is not the scroll box", () => {
+    // Issue #270: the edge zone was measured against the editable, whose box
+    // ends thousands of px below the window on desktop, and `scrollTop` was
+    // written to an element that cannot scroll. Holding the window's bottom
+    // edge did nothing.
+    const { view, dom, body } = fakeDesktopView();
+    const scroller = createDragAutoScroller(view);
+
+    scroller.update(VIEW_BOTTOM - 12);
+    clock.frames(11);
+    expect(body.scrollTop).toBeGreaterThan(0);
+    expect(dom.scrollTop).toBe(0);
+
+    const scrolled = body.scrollTop;
+    scroller.update(VIEW_TOP + 12);
+    clock.frames(4);
+    expect(body.scrollTop).toBeLessThan(scrolled);
+    scroller.stop();
   });
 
   it('caps a stalled frame so a hitch costs distance, not position', () => {
