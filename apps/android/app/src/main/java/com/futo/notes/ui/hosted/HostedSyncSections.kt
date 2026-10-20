@@ -57,6 +57,21 @@ import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 import kotlinx.coroutines.launch
+import com.futo.notes.sync.hosted.backToAccount
+import com.futo.notes.sync.hosted.beginChangeVaultPassword
+import com.futo.notes.sync.hosted.cancelPairing
+import com.futo.notes.sync.hosted.changeVaultPassword
+import com.futo.notes.sync.hosted.chooseDoor
+import com.futo.notes.sync.hosted.closeScanner
+import com.futo.notes.sync.hosted.continueAfterRecoveryKey
+import com.futo.notes.sync.hosted.copyRecoveryKey
+import com.futo.notes.sync.hosted.createVault
+import com.futo.notes.sync.hosted.newRecoveryKey
+import com.futo.notes.sync.hosted.openScanner
+import com.futo.notes.sync.hosted.shareRecoveryKey
+import com.futo.notes.sync.hosted.showPairingCode
+import com.futo.notes.sync.hosted.unlockWithPassword
+import com.futo.notes.sync.hosted.unlockWithRecoveryKey
 
 /**
  * The hosted sync surface on the Sync screen: the wizard, the account card, the
