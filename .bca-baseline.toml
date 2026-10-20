@@ -256,7 +256,7 @@ value = 18.0
 body_hash = "641542fff8c0bf86"
 
 [[entry]]
-path = "crates/futo-notes-ffi/src/sync/hosted.rs"
+path = "crates/futo-notes-ffi/src/sync/hosted/errors.rs"
 qualified = "HostedError::from"
 metric = "cyclomatic"
 value = 25.0

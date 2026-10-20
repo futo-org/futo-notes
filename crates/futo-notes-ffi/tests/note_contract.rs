@@ -2,12 +2,15 @@ use std::fs;
 
 use futo_notes_ffi::{
     extract_tags, extract_wikilinks, image_extensions, make_id, make_preview, make_rich_preview,
-    sanitize_title, split_id, validate_title, FlushDisposition, FlushDraftResult, NoteBootstrap,
-    NoteError, NoteIdParts, NoteMetadata, NoteMutation, NoteSnapshot, NoteSortKey, NoteSortOrder,
-    NoteStore, RenamePair, SearchHit, SortDirection, TitleIssue,
+    sanitize_title, split_id, validate_title, NoteBootstrap, NoteError, NoteIdParts, NoteSnapshot,
+    NoteSortKey, NoteSortOrder, NoteStore, RenamePair, SortDirection,
 };
 
+#[path = "note_contract/flush_draft.rs"]
+mod flush_draft;
 mod support;
+#[path = "note_contract/wire_shape.rs"]
+mod wire_shape;
 
 use support::{path_string, TempTree};
 
@@ -380,70 +383,6 @@ fn raw_save_primitives_stay_off_the_note_store_ffi_surface() {
     );
 }
 
-// The one draft-saving verb (persist-or-park, issue #37) projects all four
-// flush dispositions and their mutations through the FFI.
-#[test]
-fn flush_draft_projects_every_disposition() {
-    let temp = TempTree::new();
-    let notes_root = temp.path("vault");
-    fs::create_dir_all(&notes_root).unwrap();
-    let store = NoteStore::new(path_string(&notes_root));
-
-    fs::write(notes_root.join("note.md"), "base").unwrap();
-    let wrote = store
-        .flush_draft("note".to_owned(), "base".to_owned(), "draft".to_owned())
-        .unwrap();
-    assert_eq!(wrote.disposition, FlushDisposition::Wrote);
-    let mutation = wrote.mutation.expect("a write projects a mutation");
-    assert_eq!(mutation.final_id.as_deref(), Some("note"));
-    assert_eq!(store.read("note".to_owned()).unwrap(), "draft");
-
-    let converged = store
-        .flush_draft("note".to_owned(), "stale".to_owned(), "draft".to_owned())
-        .unwrap();
-    assert_eq!(converged.disposition, FlushDisposition::Converged);
-    assert!(converged.mutation.is_none());
-
-    let parked = store
-        .flush_draft("note".to_owned(), "stale".to_owned(), "diverged".to_owned())
-        .unwrap();
-    let FlushDisposition::ParkedConflict { parked_id } = parked.disposition else {
-        panic!("expected the diverged draft to be parked");
-    };
-    assert!(parked_id.starts_with("note (conflict "));
-    assert_eq!(store.read(parked_id.clone()).unwrap(), "diverged");
-    assert_eq!(
-        store.read("note".to_owned()).unwrap(),
-        "draft",
-        "diverged note untouched"
-    );
-    assert!(
-        parked.mutation.is_some(),
-        "a fresh park projects a mutation"
-    );
-
-    // Park idempotency across the FFI: the identical draft reports the same
-    // copy and mints nothing new.
-    let reparked = store
-        .flush_draft("note".to_owned(), "stale".to_owned(), "diverged".to_owned())
-        .unwrap();
-    assert_eq!(
-        reparked.disposition,
-        FlushDisposition::ParkedConflict { parked_id }
-    );
-    assert!(reparked.mutation.is_none());
-
-    store.delete("note".to_owned()).unwrap();
-    let recreated = store
-        .flush_draft("note".to_owned(), "draft".to_owned(), "survivor".to_owned())
-        .unwrap();
-    assert_eq!(recreated.disposition, FlushDisposition::Recreated);
-    let mutation = recreated.mutation.expect("a recreate projects a mutation");
-    assert_eq!(mutation.final_id.as_deref(), Some("note"));
-    assert_eq!(mutation.upserted[0].position, 0);
-    assert_eq!(store.read("note".to_owned()).unwrap(), "survivor");
-}
-
 #[test]
 fn bootstrap_makes_existing_note_content_searchable_through_bm25() {
     let temp = TempTree::new();
@@ -479,100 +418,6 @@ fn bootstrap_makes_existing_note_content_searchable_through_bm25() {
             .any(|hit| hit.note_id == "alpha" && hit.source == "bm25"),
         "expected alpha BM25 hit"
     );
-}
-
-/// Compile-time only: every record is built and destructured without `..`, so
-/// adding, removing or renaming a field on the mobile wire shape breaks this
-/// file and forces the shells' side of the change to be looked at. The values
-/// themselves are exercised with real store output by the tests above.
-#[test]
-fn note_records_and_threading_keep_the_full_semantic_shape() {
-    fn assert_send_sync<T: Send + Sync>() {}
-    assert_send_sync::<NoteStore>();
-
-    let NoteMetadata {
-        id: _,
-        title: _,
-        folder: _,
-        modified_ms: _,
-        preview: _,
-        rich_preview: _,
-        tags: _,
-    } = NoteMetadata {
-        id: "folder/note.md".to_owned(),
-        title: "note".to_owned(),
-        folder: "folder".to_owned(),
-        modified_ms: 42,
-        preview: "preview".to_owned(),
-        rich_preview: "rich".to_owned(),
-        tags: vec!["tag".to_owned()],
-    };
-
-    let NoteMutation {
-        upserted: _,
-        removed: _,
-        folders: _,
-        final_id: _,
-        final_folder: _,
-        relinked: _,
-        final_body: _,
-        warnings: _,
-    } = NoteMutation {
-        upserted: Vec::new(),
-        removed: vec!["before.md".to_owned()],
-        folders: vec!["folder".to_owned()],
-        final_id: Some("after.md".to_owned()),
-        final_folder: Some("folder".to_owned()),
-        relinked: vec!["after.md".to_owned()],
-        final_body: Some("body".to_owned()),
-        warnings: vec!["warning".to_owned()],
-    };
-
-    let NoteBootstrap {
-        snapshot: NoteSnapshot {
-            notes: _,
-            folders: _,
-        },
-        seeded: _,
-        migrated: _,
-        warnings: _,
-    } = NoteBootstrap {
-        snapshot: NoteSnapshot {
-            notes: Vec::new(),
-            folders: vec!["folder".to_owned()],
-        },
-        seeded: 1,
-        migrated: 2,
-        warnings: vec!["warning".to_owned()],
-    };
-
-    let FlushDraftResult {
-        disposition: _,
-        mutation: _,
-    } = FlushDraftResult {
-        disposition: FlushDisposition::ParkedConflict {
-            parked_id: "note (conflict 2026-07-21)".to_owned(),
-        },
-        mutation: None,
-    };
-
-    let TitleIssue {
-        kind: _,
-        message: _,
-    } = TitleIssue {
-        kind: "empty".to_owned(),
-        message: "message".to_owned(),
-    };
-
-    let SearchHit {
-        note_id: _,
-        score: _,
-        source: _,
-    } = SearchHit {
-        note_id: "note.md".to_owned(),
-        score: 1.25,
-        source: "bm25".to_owned(),
-    };
 }
 
 #[test]
