@@ -111,7 +111,7 @@ just android-drive hook nonesuch           # errors listing the hooks that DO ex
 
 Every call waits for the app's own ack, so a broadcast that reached nothing fails
 at the call — `am broadcast` alone reports success either way. Adding a hook is a
-few lines in `MainActivity.testHooks()`; see `apps/android/AGENTS.md`.
+few lines in `MainActivity.testHooks()` (`MainActivityTestHooks.kt`); see `apps/android/AGENTS.md`.
 
 ### Raw adb, when you need a gesture the driver doesn't expose
 
@@ -224,7 +224,7 @@ content.
 The emulator cannot reach the host's `127.0.0.1` — use **`10.0.2.2`** for any
 host-side service (sync server URL in Settings, etc.). There is no sync hook yet,
 so connect through Settings → Sync in the app UI; if you find yourself tapping
-that flow repeatedly, add one to `MainActivity.testHooks()` instead. Server
+that flow repeatedly, add one to `MainActivity.testHooks()` (`MainActivityTestHooks.kt`) instead. Server
 setup: see "Features that need a sync server" in SKILL.md.
 
 ## Known gotchas
