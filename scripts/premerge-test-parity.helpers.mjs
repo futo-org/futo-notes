@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { readCirrusCiSource } from './lib/cirrus-ci.mjs';
 import { readGitlabCiSource, readGitlabCiSources } from './lib/gitlab-ci.mjs';
 import { justfilePaths, readJustfileSource } from './lib/justfile.mjs';
 
@@ -17,7 +18,7 @@ export const justfileSources = Object.fromEntries(
 export const gitlabPipeline = readGitlabCiSource(ROOT);
 export const gitlabPipelineSources = readGitlabCiSources(ROOT);
 export const packageScripts = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).scripts;
-export const cirrusTasks = readFileSync(join(ROOT, '.cirrus.yml'), 'utf8');
+export const cirrusTasks = readCirrusCiSource(ROOT);
 export const androidInstrumentationScript = readFileSync(
   join(ROOT, 'scripts/ci-android-instrumentation.sh'),
   'utf8',

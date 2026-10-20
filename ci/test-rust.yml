@@ -133,6 +133,8 @@ test:rust:macos:
         - crates/futo-notes-search/**/*
         - crates/futo-notes-store/**/*
         - crates/futo-notes-sync/**/*
+        - .cirrus.star
+        - ci/cirrus/*.yml
         - .cirrus.yml
         - ci/*.yml
         - .gitlab-ci.yml
@@ -149,6 +151,8 @@ test:rust:macos:
         - crates/**/*
         - apps/tauri/src-tauri/**/*
         - scripts/build-rust-ios.sh
+        - .cirrus.star
+        - ci/cirrus/*.yml
         - .cirrus.yml
         - ci/*.yml
         - .gitlab-ci.yml

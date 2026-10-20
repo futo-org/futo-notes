@@ -96,6 +96,8 @@ test:ios-native:
         - src/features/folders/**/*
         - svelte.config.js
         - scripts/build-rust-ios.sh
+        - .cirrus.star
+        - ci/cirrus/*.yml
         - .cirrus.yml
         - ci/*.yml
         - .gitlab-ci.yml

@@ -2,7 +2,7 @@
   "concept": "tauri-cli-pin",
   "description": "The pinned tauri-cli version every CI build installs (v1.9.0: unpinned 2.12.3 broke patch-appimage on the AppImage tag build). GitLab Linux (.setup-rust), the baked test image, the Windows VM installer, and the Cirrus macOS builds must name the same version.",
   "lockStatus": "unlocked",
-  "note": "Each copy's pattern is the literal pinned version, so bumping one copy without the rest fails check-drift until every site is reviewed. The scan covers ci/ for a new tauri-cli install site; the scan reads only the extensions below, so the GitLab job files (ci/*.yml) and the dotfile .cirrus.yml stay registered by hand. The GitLab and Windows installers also assert the installed version at runtime (a cached or template-baked binary is reinstalled, not trusted).",
+  "note": "Each copy's pattern is the literal pinned version, so bumping one copy without the rest fails check-drift until every site is reviewed. The scan covers ci/ for a new tauri-cli install site; the scan reads only the extensions below, so the GitLab job files (ci/*.yml) and the Cirrus files (.cirrus.yml, ci/cirrus/*.yml) stay registered by hand. The GitLab and Windows installers also assert the installed version at runtime (a cached or template-baked binary is reinstalled, not trusted).",
   "copies": [
     {
       "location": "ci/templates.yml",
@@ -18,6 +18,10 @@
     },
     {
       "location": ".cirrus.yml",
+      "pattern": "cargo install tauri-cli --version 2\\.11\\.4"
+    },
+    {
+      "location": "ci/cirrus/macos-build.yml",
       "pattern": "cargo install tauri-cli --version 2\\.11\\.4"
     }
   ],

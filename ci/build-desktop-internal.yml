@@ -139,6 +139,8 @@ build:desktop-internal:macos:
       changes:
         - ci/*.yml
         - .gitlab-ci.yml
+        - .cirrus.star
+        - ci/cirrus/*.yml
         - .cirrus.yml
       when: manual
       allow_failure: true
