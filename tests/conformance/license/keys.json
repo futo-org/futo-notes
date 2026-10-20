@@ -1,0 +1,93 @@
+{
+  "keys": {
+    "org": {
+      "$comment": "Stands in for the FUTO Notes FUTOpay org key pair.",
+      "publicKeySpkiBase64": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5ZARcpH7Gj6Lr3kDHIJF6ddjYhgVMsWD6n2/YvPMMbcdTrhWTUBMLHd0OrjuppvAJJ85p6MieIv/YsEjdiqjb/f1JNzelXzcmMIy502SSbV8uxnSoZ8xKa4Vv46+AR+iLV3jgYmFMbFJ16oIZKnLHihLLujLtmuGaYJPccIGDxzyGdQ+gPY9wMuROOPd24RkfVfkGpG6XRgod901AdJiYyae7lpM+UjIweOyfGRny9cbwC4xUDGDSF+G//rUGiWJ4gjeQOvjw+uMWVc3Rdd+NLw4/hnBecbLaTziWl4aLE6gL+ZUPF3Bom+PZczy3cFUnJhTJaIlSNf8ysZI+Tt0EwIDAQAB",
+      "privateKeyPkcs8Base64": "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDlkBFykfsaPouveQMcgkXp12NiGBUyxYPqfb9i88wxtx1OuFZNQEwsd3Q6uO6mm8AknzmnoyJ4i/9iwSN2KqNv9/Uk3N6VfNyYwjLnTZJJtXy7GdKhnzEprhW/jr4BH6ItXeOBiYUxsUnXqghkqcseKEsu6Mu2a4Zpgk9xwgYPHPIZ1D6A9j3Ay5E4493bhGR9V+QakbpdGCh33TUB0mJjJp7uWkz5SMjB47J8ZGfL1xvALjFQMYNIX4b/+tQaJYniCN5A6+PD64xZVzdF1340vDj+GcF5xstpPOJaXhosTqAv5lQ8XcGib49lzPLdwVScmFMloiVI1/zKxkj5O3QTAgMBAAECggEABgglDTecu3HNRc0OMd+SarSIHfm4BN9/udeYAceaI+xFzt21Fs6LsddprGlTi/knsU6luyvkKfqzuSqN/frc1IJVZKSRDKh9O15O7BjzsRAduOTSzgBa0FeMpr3fbDQilMKUycCNSWL5J7uGAO8dMSup3g+r2p00qO0NnVWVxyvUyrgRx+i10Vxkhi2VfwjTsMbT/9wArtmijvo6jVeM7kkSZjYOPNu++Q56JPrqvBH0FHyUKKPnT/7HTDAsZPOKVr+eg4PUyLhF7z+3TKuzM+waSwi4H0jq7E5Gq6UZoBwY3t/taxqogwaye6whKvfZQgao4od/+KH/NnHhc0PloQKBgQD3PrN9vuHxo/XZsLUcPfBDn94opok6j38EEKEbbcSUEiujbYiGJ48DnzCsEEUAgOJYew5HQk+1JPSCGqRUNc0w8wZlP1fdUc/e73EeVKbqEzkDS29RAncvDHBropgrW1wfPr2GuBggkxa9JYmKgZ3Fh02LEzGgpMiRYTA5HJvvWwKBgQDtsROYnzgEciMKGr/msI9Dagjt5ZzJHdRmBZgLXtEcPadUzvMCvmbXJz2y9CQ0AWnjUOt9DPsVz0KwA3Jco9Wg2B8gO82pmOan1eGOVFlU2yYdJeD51NCe20hN/t5sG+pUft3VGAhvwBPp+31DB9gA+ot2uXslxfXfThHEK4MjqQKBgCNePdDsIGgvuziT1aSfm6Ig2WfZQuI0qsfLFTDWR/uiicmMHq6KNCQhfpXukeBbj4V2vPkmnD5edfeylfVR6PNqoGyVXh1T2bebawQaufHcJBi7jsX441HApshO7xOsswXpNLVz2ke2otcV6pH8rrQWAdq2OTAwwlxBmeNhm1DnAoGAe8BK7JZQ6velyJf+u5PHMxkcxwdZ5tfyAp/89kaKZsKuwRfyK8aH8pLKq8YypyTpRWGXCYddnpBHLy7MNvFRwyliozyfqiIiTNWtVpYR4H0szdYv2ML1Tw/qCDmfAfhSu2VGB7E4iz4c4CCAqgqGapQHUmvlctgrV/TkiRcCcukCgYEA7aQEOa1/G6Gz8psO9fg2JdDud6D5V/EqOYeWmbptXz368gOT/Gy9cqRLSt9chBlAhhdaBSsSIRUKB6IE1GRbBnwxhe5upt38odvvlmLxMtxMqmfZLikmprEyLoqq0nEgcy8fS4EhQYEIZ+vNZsVN+51+U8IPiiHU4wDchOn5gvE="
+    },
+    "otherOrg": {
+      "$comment": "A different org's key pair — proves a signature from the wrong signer is rejected rather than merely mis-parsed.",
+      "publicKeySpkiBase64": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAr+SOvspK5XCFyVvX5b9Zbbq6XXCqNO7Thv1EaS64sZBsLmuSl82/0ATJc4fVWbsjm9H1SKBUMCKxRJ42Ae2gZeSfBVghUCPDyiHz4CgldaxmEZ9qDTlUKqFxkMLk5aWDbZu9pX6sqtnFBgivK5CytQiqaUP7hEXKdHRBg/EtUO6c52JrdMlaujCkat2tAXmYMNbaxvEBhueE2vUhx+2PrRsL/W6UHZFcv/cFxldLNCnQ9pmTR/ae8HF4gHPVuz8YSqDHOB4bBkLXEITy70g9iipEcB/VSmbtNmpMffQk06CMxrBtavApZ5sMumKpCr2Rj+JuXynOEwK8U68UoMub/wIDAQAB",
+      "privateKeyPkcs8Base64": "MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCv5I6+ykrlcIXJW9flv1lturpdcKo07tOG/URpLrixkGwua5KXzb/QBMlzh9VZuyOb0fVIoFQwIrFEnjYB7aBl5J8FWCFQI8PKIfPgKCV1rGYRn2oNOVQqoXGQwuTlpYNtm72lfqyq2cUGCK8rkLK1CKppQ/uERcp0dEGD8S1Q7pznYmt0yVq6MKRq3a0BeZgw1trG8QGG54Ta9SHH7Y+tGwv9bpQdkVy/9wXGV0s0KdD2mZNH9p7wcXiAc9W7PxhKoMc4HhsGQtcQhPLvSD2KKkRwH9VKZu02akx99CTToIzGsG1q8Clnmwy6YqkKvZGP4m5fKc4TArxTrxSgy5v/AgMBAAECggEAAPPo/gmUfEeuwdd4hOsTbe+8ALOSiHTeunV2wGcbYwLYQywcACyCJHtSKAkNU84atEZf4MPVkOkvMqL0we/qlYK2hc3jaE65ScgDTSyKf2euqdvGNEoiNZToS5Nyr/fEjXxxe4sDHm3NjmnPoRnIjgh8+9L9csr5/MWAcVmGGFEgRXHWhUoyYSbCrhNlUghwLDOH4ifowSWvT0P/ShPvKmjw/YwVKfDqjHmPiLJMFUyPyBhg0gbiCmDiYpudaJ3gVvgkH2VxyPllvAmrldJO0foZSy/LHGTaGVtQd+sOMr1z7vTm3GjNLsMBbGmnGAmji3/DR/VoXAolATFBn/rGaQKBgQDdB4RqFko1FKUIIoDW5nPpOLgS8wo6N/PjtVEFncP1GUSkDj50iHmpKel21WCWYu1aC+FKvRsPzZMskN+CUTefOlPx9u8J/7QW36Gm0WLPAtGZJOjnvlKSkoVIhcvTIr+wrd/wR28KW202Uh0KjnY1/MNC5ataXFDx5Kf/IhBNrQKBgQDLuNj7ggke58m/vGjPTmVx7vWdgdezE4CkETps4HJDEq279C7jtjTqHBqIRAPYcZUa3C6b5qeW4UzMqaFLUJWQ+OCZA3qncG6ClNUlit0JXZRT1OMQBrKlfKfYiLnnHJPvRaShsRawTxutAF/veZZC9Pkbz4hRf4Z9wFOntrDt2wKBgG+V4fWk9yXBHGf081KK2a2+Yr++T0WBBfHJkfPh6BIPBaZFQqaWV8VdUW4a3z5NB0LUiJKw0b6yrEBti0lBM3GBguu/HILRwtthXzzWrKmR5LsJ9UM5xHoW2o74bSRUgK3zugCWL6rs6T/pSJwRvAAZcYKObGmb/YmBRIb7bXupAoGABM8ROCaipnscNQ1yf+o+1MiqPZSSDeUY9UZ+1ZEawWCQf05NSQzFBP2y1qKcYKCVv3ORGhcAv7wDvxUF/KwjS6/ERXhijc9GnIh8240CmLT/ylbNIVS3JNbjc2YO1VjEWTKQp0xx16mWYqgOm62IEX6M3s4wTpQvDYrbrqrOVF8CgYAh+LBxGRl1ExhaFuehRI3XEBKGuRaIwAZsFJwQJsHYp9hFqP3GNs6/QtaDelzYJv7WW6gXiyUdF0JjIux4Uo2hq+aeOVsUHupV7fY/OfFfCZYaJeaJC2rkHxyADKGcZmFBNPq6DbPT8G+TGASudlETnTfWlDv02FIcIh8MSrjgmg=="
+    }
+  },
+  "constants": {
+    "$comment": "The baked-in constants every shell must agree on. Selection between environments follows the existing dev/prod split (M3).",
+    "productSlug": "futo-notes",
+    "checkoutProductSlug": "futo-notes-license",
+    "orgSlug": "futo-notes",
+    "deepLinkScheme": "futonotes",
+    "keyAlphabet": "ABCDEFGHJKMNPQRSTUVWXYZ123456789",
+    "supportMailto": "mailto:support@futo.tech",
+    "appStoreProductId": "com.futo.notes.license",
+    "websiteAddress": {
+      "$comment": "What a NameWebsite build (Android play) shows as plain, non-tappable text: the storefront as a person types it. Production is pay.futo.org, which serves the same storefront as pay2.futo.org (@justin 2026-10-19); staging has no short alias and names its own host. Environment-split like buyUrls (M3).",
+      "production": "pay.futo.org",
+      "staging": "staging-pay2.futo.org"
+    },
+    "buyUrls": {
+      "$comment": "The Buy / Renew destination, opened in the system browser. It is the generated checkout on the environment's own pay2 host — there is no pay.futo.tech landing page and there will not be one (product decision 2026-09-10). Environment-split like the verification key and the activation host (M3), so a .dev build reaches staging checkout. The product segment is the STOREFRONT slug, `futo-notes-license` — not `futo-notes`, which is the product field inside an activation payload and names nothing in the storefront (its /price answers \"Product not found: futo-notes\", observed 2026-09-10). `platform` and `from` (the surface that sent the buyer; the fixture pins `license-card`, the other source is exact-string tested in config.rs) are attribution only; `success` is the buyer's return marker and is `redirect-to-organization-page` because the buyer pays in the system browser: FUTOpay answers that marker with the license key page (the key as HTML plus the Activate deep link), while an empty value answers with the raw activation JSON — the contract of the in-app-WebView clients this app never runs, and what a buyer who just paid saw on staging 2026-09-11.",
+      "production": {
+        "desktop": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=desktop&from=license-card&success=redirect-to-organization-page",
+        "ios": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=ios&from=license-card&success=redirect-to-organization-page",
+        "android": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=android&from=license-card&success=redirect-to-organization-page"
+      },
+      "staging": {
+        "desktop": "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=desktop&from=license-card&success=redirect-to-organization-page",
+        "ios": "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=ios&from=license-card&success=redirect-to-organization-page",
+        "android": "https://staging-pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=android&from=license-card&success=redirect-to-organization-page"
+      }
+    },
+    "environments": {
+      "production": {
+        "pay2BaseUrl": "https://pay2.futo.org",
+        "bundleIds": ["com.futo.notes"]
+      },
+      "staging": {
+        "pay2BaseUrl": "https://staging-pay2.futo.org",
+        "bundleIds": ["com.futo.notes.dev"]
+      },
+      "$comment": "Which build talks to which org. The `.dev` id suffix IS the dev/prod split (M3) and is the only selector, because the native shells compile the FFI with `release-ffi` for their dev apps too — a compile-profile test would put a .dev phone build on the production key."
+    }
+  },
+  "namedActivations": {
+    "$comment": "Activations the enterKey cases refer to as @name, so a long base64 blob does not have to be repeated inline.",
+    "valid": {
+      "name": "@valid",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "futo-notes",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2029-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZnV0by1ub3RlcyIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.UW-vdWiyHl70QilqDEJH0xHKaJAuqfArW_UqEIoIqytuSl-y5bwaHh-0r1KSLqGjs9q7E77X3UshG4iBnyheH84FslCUGrs5CV0QUeUd1SLym_g2dAi4XkI7RN8QoDKVY9V4ddYd13lbvIATbgMxA_MDlKalkmvUhJ0gkxjoN2jQnf4SmUivPp38ZuwscHrorA-iy1BQhobXS3lbws9ENO4FcknQ1A5TzWvQJ1hkUagQpWnXj1NIyOYcfqHaWSe0TD5HdXKacDVQftb_puM8YbQ5uHYSxgMdQ_rol6dKYijX0u7IhN9WuKnCTL26_bwpwbEUtAmNDr9SKVU1iO9_Gg"
+    },
+    "grayjay": {
+      "name": "@grayjay",
+      "sign": {
+        "with": "org",
+        "format": "v2",
+        "payload": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "product": "grayjay",
+          "issued_at": "2026-01-15T10:30:00Z",
+          "expires_at": "2029-01-15T10:30:00Z"
+        }
+      },
+      "activation": "v2.eyJrZXkiOiJGTi1BQjEyLUNEMzQtRUY1Ni1HSDc4LUpLMTItTU4zNC1QUTU2LVJTNzgiLCJwcm9kdWN0IjoiZ3JheWpheSIsImlzc3VlZF9hdCI6IjIwMjYtMDEtMTVUMTA6MzA6MDBaIiwiZXhwaXJlc19hdCI6IjIwMjktMDEtMTVUMTA6MzA6MDBaIn0.obe8NmjlgrUpFA3vZ2DJ_d44sYPkezrm61csZObaVbmwIPOQvlkDtKPQMiScG6j1-01nf9WpPRuxMiEOhzx96OOfTDlJz0dJa-BA7Ra_I4wPLFrYe834I7A34qrryfDI8vUZsYdme0opJoqAnNpDxhCKfTBFV8UzIFMDlNGfpNldLoztT_gAusTNc0BGC48dVWJf8rbDDFY1ODoZ4W925IDn0uHC5coJ3IIoG2gWEOFWa-c4IHbcoQ1ph3nXhEThS-sxGjUsCvN2zkoDpun2B-jCidrcwkpDTKRs5uguN--RRcCGCdOrMMJAx3OOGfNfCwEtmIOp8sbx90p6hoHULw"
+    },
+    "v1": {
+      "name": "@v1",
+      "sign": {
+        "with": "org",
+        "format": "v1",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      },
+      "activation": "UTPJvUenvlIJ3rPKIgHILrXMpw_ihB1h-r72vNDQjRWbKkPGnHdlvYQO-0381ddamINpXIy8u9KmVvNDfkIsiM0_cKV3FoVds6J0Go9wci1w6v3Ot9XyKeOMlLtqpaatI3fh6fjXi26_0CkU5WHCVJPMUXcjng3xNz_-09WGg_1mCOoE-aDVFeyPtq8oByCv-5Vh7rqQf3VUI6e3NLT688bwlRyQ-x0gRYsxl6hUl7YMdDgNXZRBQ7xge6zsKs0-3k2CppVje_ctg8252ryaSumJtQtcMsGwiTcyPw3L1zliiti-fKu1HzvmYsDsrtMxy9eiDZf6ZgeDAotpurlQcQ"
+    }
+  }
+}

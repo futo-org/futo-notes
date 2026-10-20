@@ -1,5 +1,6 @@
-// Fills in the *inputs* of tests/conformance/license.json that a human cannot
-// author by hand: the test-only RSA key pairs and the base64url signatures.
+// Fills in the *inputs* of tests/conformance/license.json (and the parts beside
+// it in tests/conformance/license/) that a human cannot author by hand: the
+// test-only RSA key pairs and the base64url signatures.
 //
 // It NEVER reads or writes an `expected` value. That line matters: the fixture
 // generator this repo deleted in !201 computed goldens by executing the
@@ -45,6 +46,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURE = path.join(ROOT, 'tests/conformance/license.json');
+const FIXTURE_PARTS_DIR = path.join(ROOT, 'tests/conformance/license');
 const CHECK = process.argv.includes('--check');
 
 const base64url = (buffer) => buffer.toString('base64url');
@@ -189,7 +191,19 @@ if (process.argv.includes('--staging')) {
   process.exit(0);
 }
 
-const fixture = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
+// The fixture is license.json plus every license/*.json part, each a JSON object
+// of top-level keys. This script only edits values in place, so each part is
+// read, edited, and written back on its own.
+const parts = [
+  FIXTURE,
+  ...fs
+    .readdirSync(FIXTURE_PARTS_DIR)
+    .filter((name) => name.endsWith('.json'))
+    .sort()
+    .map((name) => path.join(FIXTURE_PARTS_DIR, name)),
+].map((file) => ({ file, before: fs.readFileSync(file, 'utf8') }));
+for (const part of parts) part.data = JSON.parse(part.before);
+const fixture = { keys: parts.find((part) => part.data.keys)?.data.keys };
 const stale = [];
 
 for (const [name, pair] of Object.entries(fixture.keys)) {
@@ -216,7 +230,7 @@ const privateKeys = Object.fromEntries(
 );
 
 let rewritten = 0;
-for (const testCase of signedCases(fixture)) {
+for (const testCase of signedCases(parts.map((part) => part.data))) {
   const { sign } = testCase;
   const privateKey = privateKeys[sign.with];
   if (!privateKey) throw new Error(`case "${testCase.name}" signs with unknown key "${sign.with}"`);
@@ -232,15 +246,21 @@ for (const testCase of signedCases(fixture)) {
 
 if (stale.length > 0) {
   console.error(
-    `tests/conformance/license.json is stale — run node scripts/gen-license-fixture.mjs:\n` +
+    `tests/conformance/license.json (or a part in license/) is stale — run node scripts/gen-license-fixture.mjs:\n` +
       stale.map((line) => `  - ${line}`).join('\n'),
   );
   process.exit(1);
 }
 
 if (CHECK) {
-  console.log('tests/conformance/license.json signatures are current.');
+  console.log('tests/conformance/license signatures are current.');
 } else {
-  fs.writeFileSync(FIXTURE, `${JSON.stringify(fixture, null, 2)}\n`);
-  console.log(`rewrote ${rewritten} activation(s) in tests/conformance/license.json`);
+  for (const { file, before, data } of parts) {
+    // Only a part this run changed is rewritten, so the others keep their
+    // reviewed formatting.
+    if (JSON.stringify(data) !== JSON.stringify(JSON.parse(before))) {
+      fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
+    }
+  }
+  console.log(`rewrote ${rewritten} activation(s) in tests/conformance/license`);
 }

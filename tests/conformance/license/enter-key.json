@@ -1,0 +1,277 @@
+{
+  "enterKey": [
+    {
+      "name": "a pasted key/activation pair verifies with no network at all",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/@valid",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "unavailable"
+      },
+      "requests": [],
+      "expected": {
+        "ok": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "activation": "@valid",
+          "state": "licensed"
+        }
+      }
+    },
+    {
+      "name": "a pasted pair whose activation is in the v1 format verifies offline too",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/@v1",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "unavailable"
+      },
+      "requests": [],
+      "expected": {
+        "ok": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "activation": "@v1",
+          "state": "licensed"
+        }
+      }
+    },
+    {
+      "name": "a deep link verifies with no network at all",
+      "input": "futonotes://license/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/@valid",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "unavailable"
+      },
+      "requests": [],
+      "expected": {
+        "ok": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "activation": "@valid",
+          "state": "licensed"
+        }
+      }
+    },
+    {
+      "name": "an already-expired pair is still accepted and stored, as Expired",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/@valid",
+      "now": "2030-02-01T00:00:00Z",
+      "transport": {
+        "kind": "unavailable"
+      },
+      "requests": [],
+      "expected": {
+        "ok": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "activation": "@valid",
+          "state": "expired"
+        }
+      }
+    },
+    {
+      "name": "a pair for the wrong product is rejected offline and never stored",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78/@grayjay",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "unavailable"
+      },
+      "requests": [],
+      "expected": {
+        "error": "invalid",
+        "reason": "wrongProduct"
+      }
+    },
+    {
+      "name": "a bare key makes exactly one request and is activated from its response",
+      "input": "fn-ab12-cd34-ef56-gh78-jk12-mn34-pq56-rs78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "response",
+        "status": 200,
+        "body": "@valid"
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "ok": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "activation": "@valid",
+          "state": "licensed"
+        }
+      }
+    },
+    {
+      "name": "a bare key activated by a v1 response — what the deployed pay2 actually returns — is Licensed",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "response",
+        "status": 200,
+        "body": "@v1"
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "ok": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "activation": "@v1",
+          "state": "licensed"
+        }
+      }
+    },
+    {
+      "name": "the response body is trimmed before it is used",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "response",
+        "status": 200,
+        "body": "  @valid\n"
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "ok": {
+          "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+          "activation": "@valid",
+          "state": "licensed"
+        }
+      }
+    },
+    {
+      "name": "404 means the key is not a license",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "response",
+        "status": 404,
+        "body": "not found"
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "error": "notFound"
+      }
+    },
+    {
+      "name": "a transport failure asks the user to connect, and stores nothing",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "failure",
+        "message": "dns error: no such host"
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "error": "transport"
+      }
+    },
+    {
+      "name": "a server error is not proof the key is invalid, so it reads as a transport failure",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "response",
+        "status": 500,
+        "body": "internal server error"
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "error": "transport"
+      }
+    },
+    {
+      "name": "200 with an activation that does not verify is an invalid key",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "response",
+        "status": 200,
+        "body": "v2.cGF5bG9hZA.c2lnbmF0dXJl"
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "error": "invalid",
+        "reason": "signatureMismatch"
+      }
+    },
+    {
+      "name": "200 with an empty body is an invalid key, not a crash",
+      "input": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "response",
+        "status": 200,
+        "body": ""
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "error": "invalid",
+        "reason": "malformedActivation"
+      }
+    },
+    {
+      "name": "a malformed bare key never reaches the network",
+      "input": "hello",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "unavailable"
+      },
+      "requests": [],
+      "expected": {
+        "error": "invalid",
+        "reason": "malformedKey"
+      }
+    },
+    {
+      "name": "an unrecognised input never reaches the network",
+      "input": "https://pay2.futo.org/checkout/polar/futo-notes/futo-notes-license/checkout-ready?platform=desktop&from=license-card&success=redirect-to-organization-page",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "unavailable"
+      },
+      "requests": [],
+      "expected": {
+        "error": "invalid",
+        "reason": "unrecognizedInput"
+      }
+    },
+    {
+      "name": "empty input never reaches the network",
+      "input": "   ",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "unavailable"
+      },
+      "requests": [],
+      "expected": {
+        "error": "invalid",
+        "reason": "unrecognizedInput"
+      }
+    },
+    {
+      "name": "a key with no org prefix builds the same one-request URL",
+      "input": "AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "transport": {
+        "kind": "response",
+        "status": 404,
+        "body": "not found"
+      },
+      "requests": [
+        "https://pay2.example.test/api/v1/activate/AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      ],
+      "expected": {
+        "error": "notFound"
+      }
+    }
+  ]
+}
