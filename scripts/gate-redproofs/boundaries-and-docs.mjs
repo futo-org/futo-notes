@@ -108,7 +108,7 @@ export const BOUNDARIES_AND_DOCS_PROOFS = [
     inject: (wt) =>
       seed.append(wt, 'README.md', '\nSeeded: `just redproof-sentinel-no-such-recipe`.\n'),
     expect: ['README.md', 'just redproof-sentinel-no-such-recipe — no such justfile recipe'],
-    fix: 'readJustCommands()/extractReferences() in scripts/check-agent-docs.mjs stopped seeing inline-backtick just references — agents follow these files literally, so a stale command sends them down a dead end.',
+    fix: 'readJustCommands()/extractReferences() in scripts/check-agent-docs.mjs and scripts/check-agent-docs/references.mjs stopped seeing inline-backtick just references — agents follow these files literally, so a stale command sends them down a dead end.',
   },
   {
     gate: 'agent-docs',
@@ -130,7 +130,7 @@ export const BOUNDARIES_AND_DOCS_PROOFS = [
       'README.md',
       'pnpm run redproof-sentinel-no-such-script — no such package.json script',
     ],
-    fix: 'parsePackageScripts()/extractReferences() in scripts/check-agent-docs.mjs stopped validating pnpm references.',
+    fix: 'parsePackageScripts()/extractReferences() in scripts/check-agent-docs.mjs and scripts/check-agent-docs/references.mjs stopped validating pnpm references.',
   },
   {
     gate: 'agent-docs',
@@ -141,7 +141,7 @@ export const BOUNDARIES_AND_DOCS_PROOFS = [
       seed.append(wt, 'README.md', '\nSeeded: `src/redproof-sentinel-missing-path.ts`.\n'),
     expect: ['README.md', 'src/redproof-sentinel-missing-path.ts — path does not exist'],
     absent: ['no such justfile recipe'],
-    fix: 'extractPathCandidate()/makePathExists() in scripts/check-agent-docs.mjs got loose enough to resolve anything — check the fallback chain (gitignore, skill-relative, prefix) for an over-broad match.',
+    fix: 'extractPathCandidate()/makePathExists() in scripts/check-agent-docs.mjs and scripts/check-agent-docs/references.mjs got loose enough to resolve anything — check the fallback chain (gitignore, skill-relative, prefix) for an over-broad match.',
   },
   {
     gate: 'agent-docs',

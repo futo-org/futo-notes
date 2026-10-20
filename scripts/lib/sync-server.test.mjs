@@ -28,7 +28,7 @@ const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
 const LAUNCHERS = [
   'tests/lib/sync-test-server.mjs',
   'tests/sync-integration.mjs',
-  'scripts/qa.mjs',
+  'scripts/qa/slot-server.mjs',
   'scripts/start-test-server.sh',
   // The whole pipeline: the root file and the ci/*.yml files it includes.
   GITLAB_CI,
