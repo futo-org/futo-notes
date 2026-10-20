@@ -57,3 +57,42 @@ describe('release: channel gate (.gitlab-ci.yml)', () => {
     }
   });
 });
+
+/**
+ * release:internal DOES create a GitLab Release for prerelease tags. GitLab resolves
+ * `permalink/latest` by released_at, so an internal release stamped "now" becomes
+ * `latest`, serves no latest.json, and 404s every production update check until the
+ * next stable release (v1.9.0-3). The release must therefore be backdated.
+ */
+function releaseInternalJob() {
+  const start = CI.search(/^release:internal:\s*$/m);
+  if (start === -1) throw new Error('could not find the release:internal job in .gitlab-ci.yml');
+  const body = CI.slice(CI.indexOf('\n', start) + 1);
+  const next = body.search(/^\S/m);
+  return next === -1 ? body : body.slice(0, next);
+}
+
+describe('release:internal never becomes permalink/latest (.gitlab-ci.yml)', () => {
+  const job = releaseInternalJob();
+  // The whole `release-cli create ...` command: backslash-continued lines.
+  const createCmd = job.match(/^\s*release-cli create(?:[^\n]*\\\n)*[^\n]*/m);
+
+  it('creates its release with release-cli', () => {
+    expect(createCmd, 'release-cli create not found in release:internal').not.toBeNull();
+  });
+
+  it('backdates the release with --released-at far in the past', () => {
+    const m = createCmd?.[0].match(/--released-at\s+"?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)"?/);
+    expect(
+      m,
+      'release:internal must pass --released-at, or its release becomes permalink/latest',
+    ).not.toBeNull();
+    // Any first-stable-release-era date would be too late; the repo's first release is
+    // long after 2020, so a date before it can never beat a stable release.
+    expect(Date.parse(m[1]) < Date.parse('2021-01-01T00:00:00Z')).toBe(true);
+  });
+
+  it('does not backdate via a variable that could resolve to "now"', () => {
+    expect(createCmd?.[0]).not.toMatch(/--released-at\s+"?\$/);
+  });
+});

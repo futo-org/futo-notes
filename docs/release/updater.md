@@ -66,11 +66,22 @@ an older-version AppImage to the new output.
 
 ## Channel = stable only
 
-The `release:` job runs only on stable semver tags (`/^v\d+\.\d+\.\d+$/`);
-prerelease tags (`-rc`/`-nightly`) still run the build jobs (for artifact
-validation) but publish no release, so `permalink/latest` only ever resolves to
-a stable release. The client never downgrades (semver compare), so installs only
-move UP to the newest stable.
+The `release:` job runs only on stable semver tags (`/^v\d+\.\d+\.\d+$/`).
+Prerelease tags (`-rc`/`-nightly`/numeric `-N`) still run the build jobs (for
+artifact validation), and `release:internal` DOES create a GitLab Release for
+them: the internal hosted-sync build, with the package-registry files linked as
+assets and no `latest.json` and no updater signatures.
+
+GitLab resolves `permalink/latest` by the release's `released_at`, and the baked
+updater endpoint is `.../releases/permalink/latest/downloads/latest.json`. An
+internal release stamped with the current time would become `latest`, serve no
+`latest.json`, and every production client's update check would 404 until the
+next stable release (this happened for a few minutes on `v1.9.0-3`). So
+`release:internal` passes `release-cli create --released-at 2000-01-01T00:00:00Z`:
+a fixed far-past date keeps every internal release behind every stable one, and
+`permalink/latest` only ever resolves to a stable release.
+`scripts/release-channel.test.mjs` fails if that flag is dropped. The client
+never downgrades (semver compare), so installs only move UP to the newest stable.
 
 Edge: a backport stable tag (older patch published after a newer minor) becomes
 `permalink/latest` by date — clients above it won't downgrade, but clients below

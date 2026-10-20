@@ -1640,8 +1640,29 @@ build:desktop-internal:linux:
     # Same Mesa/Wayland-backend AppImage patch as build:linux-appimage — no
     # updater signing follows it in this job (see the block comment above).
     - node "$CI_PROJECT_DIR/scripts/patch-appimage.mjs" --clean-dir "$CI_PROJECT_DIR/target/release/bundle/appimage"
+    # target/ comes back from the Cargo cache WITH every deb/rpm earlier
+    # prerelease builds left (v1.9.0-3's artifact held -1, -2 and -3 of each),
+    # and release:internal publishes what is here. Same cleanup + exactly-one
+    # assertion as build:linux-packages (M11, M12).
+    - rm -rf "$CI_PROJECT_DIR/target/release/bundle/deb" "$CI_PROJECT_DIR/target/release/bundle/rpm"
+    - |
+      if [ -e "$CI_PROJECT_DIR/target/release/bundle/deb" ] || [ -e "$CI_PROJECT_DIR/target/release/bundle/rpm" ]; then
+        echo "stale deb/rpm bundle dirs survived cleanup" >&2; exit 1
+      fi
     - (cd "$CI_PROJECT_DIR/apps/tauri" && cargo tauri build --bundles deb,rpm,appimage)
     - node "$CI_PROJECT_DIR/scripts/patch-appimage.mjs" --dir "$CI_PROJECT_DIR/target/release/bundle/appimage"
+    - |
+      for spec in "deb:*_${VERSION}_amd64.deb" "rpm:*-${VERSION}-1.x86_64.rpm"; do
+        kind="${spec%%:*}"; pattern="${spec#*:}"
+        dir="$CI_PROJECT_DIR/target/release/bundle/$kind"
+        total=$(find "$dir" -maxdepth 1 -type f -name "*.$kind" | wc -l)
+        matching=$(find "$dir" -maxdepth 1 -type f -name "$pattern" | wc -l)
+        if [ "$total" -ne 1 ] || [ "$matching" -ne 1 ]; then
+          echo "expected exactly one $pattern in $dir, found $matching of $total .$kind file(s):" >&2
+          find "$dir" -maxdepth 1 -type f -name "*.$kind" >&2
+          exit 1
+        fi
+      done
   after_script:
     - |
       echo "=== Internal desktop (Linux) artifacts ==="
@@ -3208,52 +3229,34 @@ release:internal:
   script:
     - VERSION="${CI_COMMIT_TAG#v}"
     - REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/futo-notes-internal/${CI_COMMIT_TAG}"
-    # Android APK (hosted sync ON, staging server — build:android-native, C3)
+    # Every artifact kind must resolve to EXACTLY ONE file: the old for-loops
+    # uploaded every match under one fixed name (last in glob order won), and
+    # the stale deb/rpm restored from the cache made that three uploads each
+    # on v1.9.0-3 (M11). No `set -e` is active, so each call aborts explicitly.
     - |
-      APK=$(find apps/android/app/build/outputs/apk/direct/release -name "*release*.apk" -type f 2>/dev/null | head -1)
-      test -n "$APK" || { echo "no release APK from build:android-native — nothing to publish" >&2; exit 1; }
-      NAME="futo-notes-internal-${VERSION}.apk"
-      echo "Uploading $NAME"
-      curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$APK" "${REGISTRY_URL}/${NAME}"
-    # Linux (deb/rpm/AppImage) — unsigned by the updater key, see the job
-    # comment on build:desktop-internal:linux.
-    - |
-      for f in target/release/bundle/deb/*.deb; do
-        [ -f "$f" ] || continue
-        NAME="futo-notes-internal_${VERSION}_amd64.deb"
-        echo "Uploading $NAME"
-        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
-      done
-    - |
-      for f in target/release/bundle/rpm/*.rpm; do
-        [ -f "$f" ] || continue
-        NAME="futo-notes-internal-${VERSION}-1.x86_64.rpm"
-        echo "Uploading $NAME"
-        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
-      done
-    - |
-      for f in target/release/bundle/appimage/*.AppImage; do
-        [ -f "$f" ] || continue
-        NAME="FUTO-Notes-Internal-${VERSION}-x86_64.AppImage"
-        echo "Uploading $NAME"
-        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
-      done
-    # macOS DMG — unsigned/un-notarized, see the job comment on
-    # build:desktop-internal:macos.
-    - |
-      DMG=$(find buildFutoNotesMacOSInternal -name "*.dmg" -type f 2>/dev/null | head -1)
-      test -n "$DMG" || { echo "no DMG from build:desktop-internal:macos — nothing to publish" >&2; exit 1; }
-      NAME="FUTO-Notes-Internal-${VERSION}-universal.dmg"
-      echo "Uploading $NAME"
-      curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$DMG" "${REGISTRY_URL}/${NAME}"
-    # Windows NSIS installer — unsigned (no Authenticode, no updater .sig),
-    # see the job comment on windows:provision:internal.
-    - |
-      EXE=$(find windows-internal-artifacts -name "*.exe" -type f 2>/dev/null | head -1)
-      test -n "$EXE" || { echo "no exe from build:desktop-internal:windows — nothing to publish" >&2; exit 1; }
-      NAME="FUTO-Notes-Internal-${VERSION}-x64-setup.exe"
-      echo "Uploading $NAME"
-      curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$EXE" "${REGISTRY_URL}/${NAME}"
+      upload_one() {
+        dir="$1"; pattern="$2"; name="$3"
+        count=$(find "$dir" -type f -name "$pattern" 2>/dev/null | wc -l)
+        if [ "$count" -ne 1 ]; then
+          echo "expected exactly one $pattern under $dir, found $count:" >&2
+          find "$dir" -type f -name "$pattern" 2>/dev/null >&2
+          return 1
+        fi
+        f=$(find "$dir" -type f -name "$pattern")
+        echo "Uploading $name"
+        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${name}"
+      }
+      # Android APK (hosted sync ON, staging server — build:android-native, C3)
+      upload_one apps/android/app/build/outputs/apk/direct/release "*release*.apk" "futo-notes-internal-${VERSION}.apk" || exit 1
+      # Linux (deb/rpm/AppImage) — unsigned by the updater key, see the job
+      # comment on build:desktop-internal:linux.
+      upload_one target/release/bundle/deb "*.deb" "futo-notes-internal_${VERSION}_amd64.deb" || exit 1
+      upload_one target/release/bundle/rpm "*.rpm" "futo-notes-internal-${VERSION}-1.x86_64.rpm" || exit 1
+      upload_one target/release/bundle/appimage "*.AppImage" "FUTO-Notes-Internal-${VERSION}-x86_64.AppImage" || exit 1
+      # macOS DMG — unsigned/un-notarized, see build:desktop-internal:macos.
+      upload_one buildFutoNotesMacOSInternal "*.dmg" "FUTO-Notes-Internal-${VERSION}-universal.dmg" || exit 1
+      # Windows NSIS installer — unsigned, see windows:provision:internal.
+      upload_one windows-internal-artifacts "*.exe" "FUTO-Notes-Internal-${VERSION}-x64-setup.exe" || exit 1
     - |
       curl -sL "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64" \
         -o /usr/local/bin/release-cli && chmod +x /usr/local/bin/release-cli
@@ -3262,8 +3265,17 @@ release:internal:
     - |
       curl -s -X DELETE -H "JOB-TOKEN: $CI_JOB_TOKEN" \
         "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}" || true
+    # Backdate the Release. GitLab resolves `releases/permalink/latest` by
+    # released_at, and the desktop updater's baked endpoint is
+    # .../releases/permalink/latest/downloads/latest.json. An internal release
+    # stamped "now" therefore becomes `latest`, has no latest.json, and every
+    # production client's update check 404s until the next stable release
+    # (v1.9.0-3: about 08:55-08:59 UTC). A fixed far-past released_at keeps it
+    # permanently behind every stable release, so it can never win.
+    # scripts/release-channel.test.mjs fails if this flag goes missing.
     - |
       release-cli create \
+        --released-at "2000-01-01T00:00:00Z" \
         --name "FUTO Notes ${CI_COMMIT_TAG} (INTERNAL — hosted sync, staging server)" \
         --tag-name "${CI_COMMIT_TAG}" \
         --description "INTERNAL FUTO-only build. Hosted sync (\"Log in with FUTO\") is ON and points at the STAGING server (staging-notes-sync.futo.org), never production. Desktop builds are unsigned (Linux, Windows) or un-notarized (macOS) — bypass Gatekeeper/SmartScreen/right-click Open as needed. Not for external distribution, and not reachable from the in-app updater (no manifest exists for this release)." \
