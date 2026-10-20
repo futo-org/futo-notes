@@ -8,6 +8,10 @@
       "pattern": "internal class EditorSession"
     },
     {
+      "location": "apps/android/app/src/main/java/com/futo/notes/ui/EditorExit.kt",
+      "pattern": "enum class EditorExit"
+    },
+    {
       "location": "apps/ios/Sources/Notes/Editor/EditorSession.swift",
       "pattern": "final class EditorSession"
     }
@@ -15,6 +19,22 @@
   "locks": [
     {
       "path": "apps/android/app/src/test/java/com/futo/notes/ui/EditorSessionTest.kt",
+      "kind": "test"
+    },
+    {
+      "path": "apps/android/app/src/test/java/com/futo/notes/ui/EditorSessionDeleteTest.kt",
+      "kind": "test"
+    },
+    {
+      "path": "apps/android/app/src/test/java/com/futo/notes/ui/EditorSessionMailboxTest.kt",
+      "kind": "test"
+    },
+    {
+      "path": "apps/android/app/src/test/java/com/futo/notes/ui/EditorSessionMoveTest.kt",
+      "kind": "test"
+    },
+    {
+      "path": "apps/android/app/src/test/java/com/futo/notes/ui/EditorSessionNavigationTest.kt",
       "kind": "test"
     },
     {
