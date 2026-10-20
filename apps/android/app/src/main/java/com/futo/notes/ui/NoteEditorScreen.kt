@@ -1,12 +1,6 @@
 package com.futo.notes.ui
 
-import android.content.Context
 import android.net.Uri
-import android.text.Editable
-import android.text.TextWatcher
-import android.view.KeyEvent
-import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.Toast
 import java.io.File
@@ -16,7 +10,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -35,20 +28,15 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -64,15 +52,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import com.futo.notes.ImagePicker
 import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NoteShare
@@ -114,71 +98,20 @@ import uniffi.futo_notes_ffi.makeId
 import uniffi.futo_notes_ffi.sanitizeTitle
 import uniffi.futo_notes_ffi.splitId
 import uniffi.futo_notes_ffi.validateTitle
-
-/** A note title that is still the auto-assigned placeholder: exactly "Untitled",
- *  or a dedup variant "Untitled-N" (the Rust store's `unique_note_id` appends `-2`,
- *  `-3`, …). Tapping such a title selects it whole so a keystroke replaces it;
- *  any other title takes the caret at the tapped character. */
-private val UNTITLED_PLACEHOLDER = Regex("""^Untitled(-\d+)?$""")
-
-internal fun isPlaceholderTitle(title: String): Boolean = UNTITLED_PLACEHOLDER.matches(title)
-
-private fun titleValidationMessage(kind: String): LocalizedMessage? = when (kind) {
-    "empty" -> LocalizedMessage("notes.title.empty")
-    "forbidden_chars" -> LocalizedMessage("notes.title.forbiddenCharacter")
-    "leading_dots" -> LocalizedMessage("notes.title.leadingDot")
-    "trailing_dots" -> LocalizedMessage("notes.title.trailingDot")
-    "too_long" -> LocalizedMessage(
-        "notes.title.tooLong",
-        mapOf("maxLength" to TitleSpec.maxLength),
-    )
-    else -> null
-}
-
-private fun SyncSummary.affectsOpenNote(id: String): Boolean =
-    id in updatedIds ||
-        id in deletedIds ||
-        renamed.any { it.fromId == id || it.toId == id }
-
-internal fun editedDuringOpenNoteGather(
-    reconciliationStartVersion: Long,
-    currentEditVersion: Long,
-): Boolean = currentEditVersion != reconciliationStartVersion
-
-internal enum class FindBackAction { DismissFind, ExitNote }
-
-/**
- * The height the editor pane is held at, or null to let it follow its box.
- * While an exit holds the interaction lock the editor is leaving: the blur
- * drops the keyboard and the format toolbar, and letting the WebView follow
- * would relayout the whole note on every frame of the keyboard animation
- * (Chromium walks the whole document for any layout inside its scroll box),
- * competing with the note list's first frames. Held at its last settled
- * height instead; an exit that stays on the note releases the lock and the
- * pane follows again.
- */
-internal fun leavingEditorHeight(interactionLocked: Boolean, settledHeightPx: Int): Int? =
-    if (interactionLocked && settledHeightPx > 0) settledHeightPx else null
-
-internal fun findBackAction(findVisible: Boolean): FindBackAction =
-    if (findVisible) FindBackAction.DismissFind else FindBackAction.ExitNote
-
-internal fun isFindStateCurrent(savedProcessToken: String, currentProcessToken: String): Boolean =
-    savedProcessToken == currentProcessToken
-
-internal fun canStepFind(total: Int): Boolean = total > 0
-
-private fun logOpenNoteDisposition(
-    disposition: OpenNoteDisposition?,
-    focused: Boolean,
-) {
-    if (disposition != null) {
-        android.util.Log.d(
-            "FutoOpenNote",
-            "disposition=${disposition.javaClass.simpleName} focused=$focused",
-        )
-    }
-}
+import com.futo.notes.awaitEditorLeaves
+import com.futo.notes.claimDraftOwnership
+import com.futo.notes.delete
+import com.futo.notes.deleteAsync
+import com.futo.notes.flushAsync
+import com.futo.notes.flushDraft
+import com.futo.notes.flushRetainedEditor
+import com.futo.notes.launchEditorLeave
+import com.futo.notes.moveNote
+import com.futo.notes.releaseDraftOwnership
+import com.futo.notes.rename
+import com.futo.notes.setDraftProvider
+import com.futo.notes.setEditorFlushWaiter
+import com.futo.notes.write
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, FlowPreview::class)
 @Composable
@@ -1453,175 +1386,5 @@ fun NoteEditorScreen(
                 )
             },
         )
-    }
-}
-
-private class FindQueryEditText(context: Context) : EditText(context) {
-    var onQueryChange: (String) -> Unit = {}
-    var onStep: (Int) -> Unit = {}
-    var onClose: () -> Unit = {}
-    private var applyingQuery = false
-
-    init {
-        isSingleLine = true
-        // hint/contentDescription are catalog-resolved by the composable, in
-        // `update` as well as `factory`, so an interface-language change
-        // re-labels a bar that is already on screen.
-        imeOptions = EditorInfo.IME_ACTION_SEARCH
-        addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                if (!applyingQuery) onQueryChange(s?.toString().orEmpty())
-            }
-            override fun afterTextChanged(s: Editable?) = Unit
-        })
-        setOnEditorActionListener { _, actionId, event ->
-            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                onStep(1)
-                true
-            } else if (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN) {
-                onStep(if (event.isShiftPressed) -1 else 1)
-                true
-            } else {
-                false
-            }
-        }
-    }
-
-    fun applyQuery(query: String) {
-        if (text.toString() == query) return
-        applyingQuery = true
-        setText(query)
-        setSelection(query.length)
-        applyingQuery = false
-    }
-
-    override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
-            onClose()
-            return true
-        }
-        return super.onKeyPreIme(keyCode, event)
-    }
-}
-
-@Composable
-private fun FindInNoteBar(
-    query: String,
-    label: String,
-    total: Int,
-    onQueryChange: (String) -> Unit,
-    onStep: (Int) -> Unit,
-    onClose: () -> Unit,
-) {
-    val c = FutoTheme.colors
-    val context = LocalContext.current
-    val localization = LocalLocalization.current
-    val queryHint = localization.localizedText("editor.find.queryHint")
-    val queryLabel = localization.localizedText("editor.find.queryLabel")
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(c.surface),
-    ) {
-        HorizontalDivider(thickness = 0.5.dp, color = c.border)
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .padding(start = 16.dp, end = 4.dp),
-        ) {
-            AndroidView(
-                factory = {
-                    FindQueryEditText(context).apply {
-                        background = null
-                        hint = queryHint
-                        contentDescription = queryLabel
-                        setPadding(0, 0, 0, 0)
-                        setTextColor(c.textPrimary.toArgb())
-                        setHintTextColor(c.textMuted.toArgb())
-                        textSize = 18f
-                        includeFontPadding = false
-                        this.onQueryChange = onQueryChange
-                        this.onStep = onStep
-                        this.onClose = onClose
-                        applyQuery(query)
-                        requestFocus()
-                        // The AndroidView can own focus before its window is
-                        // ready for IME attachment. Let the composed frame
-                        // settle, then repeat focus + show as one operation.
-                        postDelayed({
-                            requestFocus()
-                            context.getSystemService(InputMethodManager::class.java)
-                                ?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
-                            ViewCompat.getWindowInsetsController(this)
-                                ?.show(WindowInsetsCompat.Type.ime())
-                        }, 150)
-                    }
-                },
-                update = { field ->
-                    field.hint = queryHint
-                    field.contentDescription = queryLabel
-                    field.onQueryChange = onQueryChange
-                    field.onStep = onStep
-                    field.onClose = onClose
-                    field.setTextColor(c.textPrimary.toArgb())
-                    field.setHintTextColor(c.textMuted.toArgb())
-                    field.applyQuery(query)
-                },
-                modifier = Modifier
-                    .height(55.dp)
-                    .weight(1f),
-            )
-
-            Text(
-                label,
-                style = FutoType.body,
-                color = if (query.isNotEmpty() && total == 0) c.danger else c.textSecondary,
-                modifier = Modifier.padding(horizontal = 12.dp),
-            )
-
-            VerticalDivider(
-                thickness = 0.5.dp,
-                color = c.border,
-                modifier = Modifier.height(36.dp),
-            )
-
-            IconButton(
-                enabled = canStepFind(total),
-                onClick = { onStep(-1) },
-                modifier = Modifier.size(48.dp),
-            ) {
-                Icon(
-                    Icons.Filled.KeyboardArrowUp,
-                    contentDescription = localization.localizedText("editor.find.previousMatch"),
-                    tint = if (canStepFind(total)) c.textSecondary else c.textMuted,
-                )
-            }
-            IconButton(
-                enabled = canStepFind(total),
-                onClick = { onStep(1) },
-                modifier = Modifier.size(48.dp),
-            ) {
-                Icon(
-                    Icons.Filled.KeyboardArrowDown,
-                    contentDescription = localization.localizedText("editor.find.nextMatch"),
-                    tint = if (canStepFind(total)) c.textSecondary else c.textMuted,
-                )
-            }
-            IconButton(
-                onClick = onClose,
-                modifier = Modifier.size(48.dp),
-            ) {
-                Icon(
-                    Icons.Filled.Close,
-                    contentDescription = localization.localizedText("editor.find.close"),
-                    tint = c.textPrimary,
-                    modifier = Modifier.size(26.dp),
-                )
-            }
-        }
     }
 }

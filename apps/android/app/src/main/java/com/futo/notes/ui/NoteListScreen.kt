@@ -1,46 +1,31 @@
 package com.futo.notes.ui
 
 import android.widget.Toast
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.LocalIndication
-import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -51,38 +36,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.futo.notes.BuildConfig
-import androidx.compose.ui.unit.sp
-import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NotesStore
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.LocalizedMessage
-import com.futo.notes.shouldCompleteNoteAction
-import com.futo.notes.ui.components.ConfirmDialog
-import com.futo.notes.ui.components.FolderPickerSheet
 import com.futo.notes.ui.components.FutoMenu
 import com.futo.notes.ui.components.NoteSortMenu
-import com.futo.notes.ui.components.NewFolderDialog
 import com.futo.notes.ui.components.NoteCard
 import com.futo.notes.ui.components.TopBar
-import com.futo.notes.ui.components.pressScale
-import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
-import kotlinx.coroutines.launch
 
 /**
  * One folder's contents [list.md "Folder browsing"]: its immediate subfolders
@@ -190,65 +159,15 @@ internal fun NoteListScreen(
             )
         },
         floatingActionButton = {
-            // ONE plain FAB: New note, in THIS folder, one tap (github#5 — quick
-            // capture never sits behind a menu). New folder lives in the top
-            // app bar as an action icon, the Material 3 home for a secondary
-            // create action (Files by Google does the same). [list.md]
-            val interaction = remember { MutableInteractionSource() }
-            val scale = pressScale(interaction, 0.97f)
-            FloatingActionButton(
-                onClick = {
-                    // `createNote`'s reload inserts the new note at index 0
-                    // while this list is STILL composed (the editor push hasn't
-                    // removed it yet), so LazyColumn's key-based anchoring would
-                    // keep the old top row pinned and park the new note above
-                    // the viewport — corrupting the position the return-to-list
-                    // re-pin later reads. Capture at-top-ness NOW (the last
-                    // measure reflects the user's real position) and QUEUE a
-                    // top snap for the next measure. requestScrollToItem, NOT
-                    // scrollToItem: scrollToItem force-remeasures immediately —
-                    // before recomposition has delivered the reloaded list to
-                    // the LazyColumn — so it re-records the OLD top row as the
-                    // key anchor and the next real measure follows it down
-                    // anyway. requestScrollToItem defers the snap to the next
-                    // measure (which runs AFTER the recomposition carrying the
-                    // new list) and disables key anchoring for it.
-                    val atTop = isAtListTop(
-                        listState.firstVisibleItemIndex,
-                        listState.firstVisibleItemScrollOffset,
-                    )
-                    // `createNote` is suspend (FFI write on IO). Launch on the
-                    // composable's main scope; the navigate callback runs after
-                    // it returns (resumes on Main, safe for Compose state).
-                    scope.launch {
-                        // Consume the explicit outcome: open the note only on a
-                        // committed create, and SAY SO when it failed. A silent
-                        // no-op here is what github#13 reports.
-                        when (val outcome = store.createNote("Untitled", folder)) {
-                            is NoteMutationOutcome.Committed -> {
-                                if (atTop) listState.requestScrollToItem(0)
-                                onCreate(outcome.value)
-                            }
-                            NoteMutationOutcome.Failed ->
-                                Toast.makeText(
-                                    context,
-                                    localization.localizedText("notes.errors.createFailed"),
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                        }
-                    }
-                },
-                interactionSource = interaction,
-                containerColor = c.accent,
-                contentColor = Color.White,
-                shape = RoundedCornerShape(FutoRadius.lg),
-                modifier = Modifier.padding(2.dp).graphicsLayer { scaleX = scale; scaleY = scale },
-            ) {
-                Icon(
-                    Icons.Filled.Add,
-                    contentDescription = localization.localizedText("notes.newNote"),
-                )
-            }
+            NewNoteFab(
+                store = store,
+                folder = folder,
+                listState = listState,
+                scope = scope,
+                context = context,
+                localization = localization,
+                onCreate = onCreate,
+            )
         },
     ) { padding ->
         // hasBootstrapped distinguishes "still scanning" from "really empty"
@@ -329,195 +248,26 @@ internal fun NoteListScreen(
         }
     }
 
-    deleteTarget?.let { id ->
-        ConfirmDialog(
-            title = localization.localizedText("notes.delete.thisNoteQuestion"),
-            body = localization.localizedText("notes.delete.recoverableWarning"),
-            confirmLabel = localization.localizedText("common.actions.delete"),
-            onConfirm = {
-                deleteTarget = null
-                scope.launch {
-                    val outcome = store.delete(id)
-                    if (shouldCompleteNoteAction(outcome)) {
-                        Toast.makeText(
-                            context,
-                            localization.localizedText("notes.deleted"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    } else {
-                        Toast.makeText(
-                            context,
-                            localization.localizedText("notes.errors.deleteFailed"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                }
-            },
-            onDismiss = { deleteTarget = null },
-        )
-    }
-
-    if (moveTarget != null) {
-        FolderPickerSheet(
-            store = store,
-            onDismiss = { moveTarget = null },
-            onPick = { destination, isNew ->
-                val id = moveTarget ?: return@FolderPickerSheet
-                scope.launch {
-                    when (store.moveNote(id, destination, createFolder = isNew)) {
-                        is NoteMutationOutcome.Committed -> {
-                            moveTarget = null
-                            Toast.makeText(
-                                context,
-                                if (destination.isEmpty()) {
-                                    localization.localizedText("notes.movedToRoot")
-                                } else {
-                                    localization.localizedText(
-                                        "notes.movedTo",
-                                        mapOf("destination" to destination),
-                                    )
-                                },
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        }
-                        NoteMutationOutcome.Failed -> Toast.makeText(
-                            context,
-                            localization.localizedText("notes.errors.moveFailed"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                }
-            },
-        )
-    }
-
-    if (newFolderDialog) {
-        NewFolderDialog(
-            parent = folder,
-            store = store,
-            onCreate = { path ->
-                scope.launch {
-                    if (shouldCompleteNoteAction(store.createFolder(path))) {
-                        newFolderDialog = false
-                    } else {
-                        Toast.makeText(
-                            context,
-                            localization.localizedText("folders.errors.createFailed"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                }
-            },
-            onDismiss = { newFolderDialog = false },
-        )
-    }
-
-    renameFolderTarget?.let { target ->
-        val parent = target.substringBeforeLast('/', "")
-        NewFolderDialog(
-            parent = parent,
-            store = store,
-            initialName = target.substringAfterLast('/'),
-            title = localization.localizedText("folders.renameHeading"),
-            confirmLabel = localization.localizedText("common.actions.rename"),
-            excludePath = target,
-            onCreate = { newPath ->
-                renameFolderTarget = null
-                scope.launch {
-                    val finalFolder = store.renameFolder(target, newPath)
-                    if (finalFolder != null) {
-                        onFolderMoved(target, finalFolder)
-                        Toast.makeText(
-                            context,
-                            localization.localizedText("folders.renamed"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    } else {
-                        Toast.makeText(
-                            context,
-                            localization.localizedText("folders.errors.renameFailed"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                }
-            },
-            onDismiss = { renameFolderTarget = null },
-        )
-    }
-
-    moveFolderTarget?.let { target ->
-        FolderPickerSheet(
-            store = store,
-            title = localization.localizedText(
-                "folders.moveNamedHeading",
-                mapOf("folderName" to target.substringAfterLast('/')),
-            ),
-            excludePaths = listOf(target),
-            allowCreate = false,
-            onDismiss = { moveFolderTarget = null },
-            onPick = { destination, _ ->
-                moveFolderTarget = null
-                scope.launch {
-                    val finalFolder = store.moveFolder(target, destination)
-                    if (finalFolder != null) {
-                        onFolderMoved(target, finalFolder)
-                        Toast.makeText(
-                            context,
-                            if (destination.isEmpty()) {
-                                localization.localizedText("folders.movedToRoot")
-                            } else {
-                                localization.localizedText(
-                                    "folders.movedTo",
-                                    mapOf("destination" to destination),
-                                )
-                            },
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    } else {
-                        Toast.makeText(
-                            context,
-                            localization.localizedText("folders.errors.moveFailed"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                }
-            },
-        )
-    }
-
-    confirmDeleteFolder?.let { target ->
-        ConfirmDialog(
-            title = localization.localizedText("folders.delete.thisFolderQuestion"),
-            body = localization.localizedText("folders.delete.moveContentsWarning"),
-            confirmLabel = localization.localizedText("common.actions.delete"),
-            onConfirm = {
-                confirmDeleteFolder = null
-                scope.launch {
-                    // MOVE-UP delete [list.md]: Rust bails atomically, so a
-                    // null here means the folder (and its notes) are untouched.
-                    // The deleted folder leaves `store.folders`, and
-                    // AppNavigation's retainFolders effect drops any route into
-                    // it — no explicit pop needed here.
-                    val moved = store.deleteFolder(target)
-                    if (moved != null) {
-                        val message = folderDeletedMessage(moved)
-                        Toast.makeText(
-                            context,
-                            localization.localizedText(message.path, message.arguments),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    } else {
-                        Toast.makeText(
-                            context,
-                            localization.localizedText("folders.errors.deleteFailed"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                }
-            },
-            onDismiss = { confirmDeleteFolder = null },
-        )
-    }
+    NoteListDialogs(
+        store = store,
+        folder = folder,
+        scope = scope,
+        context = context,
+        localization = localization,
+        deleteTarget = deleteTarget,
+        onDeleteTargetChange = { deleteTarget = it },
+        moveTarget = moveTarget,
+        onMoveTargetChange = { moveTarget = it },
+        newFolderDialog = newFolderDialog,
+        onNewFolderDialogChange = { newFolderDialog = it },
+        renameFolderTarget = renameFolderTarget,
+        onRenameFolderTargetChange = { renameFolderTarget = it },
+        moveFolderTarget = moveFolderTarget,
+        onMoveFolderTargetChange = { moveFolderTarget = it },
+        confirmDeleteFolder = confirmDeleteFolder,
+        onConfirmDeleteFolderChange = { confirmDeleteFolder = it },
+        onFolderMoved = onFolderMoved,
+    )
 }
 
 /** Toast body for a MOVE-UP folder delete [list.md]. Pluralizes the
@@ -532,109 +282,3 @@ internal fun folderDeletedMessage(moved: UInt): LocalizedMessage = LocalizedMess
  *  absorbs overscroll settling without disturbing deep scrolls [list.md]. */
 internal fun isAtListTop(firstVisibleItemIndex: Int, firstVisibleItemScrollOffset: Int): Boolean =
     firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset <= 4
-
-/**
- * A subfolder row in the folder list. Sits in the same 16.dp gutter as
- * [NoteCard] but reads as a folder: folder icon, name, trailing chevron. Long
- * press opens Rename / Move to Folder… / Delete folder — the action set the
- * drawer's folder rows used to carry [list.md "Folder browsing"].
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun FolderCard(
-    path: String,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-) {
-    val c = FutoTheme.colors
-    val localization = LocalLocalization.current
-    val name = path.substringAfterLast('/')
-    val interaction = remember { MutableInteractionSource() }
-    val scale = pressScale(interaction, pressedScale = 0.99f)
-
-    Surface(
-        shape = RoundedCornerShape(FutoRadius.md),
-        color = c.surface,
-        border = BorderStroke(1.dp, c.border),
-        modifier = Modifier
-            .fillMaxWidth()
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(RoundedCornerShape(FutoRadius.md))
-            .combinedClickable(
-                interactionSource = interaction,
-                indication = LocalIndication.current,
-                onClick = onClick,
-                onLongClick = onLongClick,
-            )
-            // A stable, path-qualified description so automation can find one
-            // folder row among several with the same leaf name.
-            .semantics {
-                contentDescription = localization.localizedText(
-                    "folders.rowAccessibilityLabel",
-                    mapOf("folderName" to path),
-                )
-            },
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 15.dp),
-        ) {
-            Icon(Icons.Filled.Folder, contentDescription = null, tint = c.accent, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(12.dp))
-            Text(
-                text = name,
-                style = FutoType.title.copy(fontSize = 17.sp, fontWeight = FontWeight.SemiBold),
-                color = c.textPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(8.dp))
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = c.textMuted,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-    }
-}
-
-/**
- * Empty state, distinguishing the vault root from an empty folder the way iOS
- * does [list.md "Folder browsing"].
- */
-@Composable
-private fun EmptyState(isRoot: Boolean) {
-    val c = FutoTheme.colors
-    val localization = LocalLocalization.current
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                modifier = Modifier.size(72.dp).background(c.surfaceSunken, RoundedCornerShape(FutoRadius.lg)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    if (isRoot) Icons.Filled.Description else Icons.Filled.Folder,
-                    contentDescription = null,
-                    tint = c.textMuted,
-                    modifier = Modifier.size(30.dp),
-                )
-            }
-            Spacer(Modifier.height(16.dp))
-            Text(
-                localization.localizedText(
-                    if (isRoot) "notes.list.rootEmptyHeading" else "notes.list.folderEmptyHeading",
-                ),
-                style = FutoType.title,
-                color = c.textPrimary,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                localization.localizedText("notes.list.android.emptyActionHint"),
-                style = FutoType.small,
-                color = c.textTertiary,
-            )
-        }
-    }
-}

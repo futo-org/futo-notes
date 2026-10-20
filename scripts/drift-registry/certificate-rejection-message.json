@@ -12,7 +12,7 @@
       "pattern": "invalid peer certificate"
     },
     {
-      "location": "apps/android/app/src/main/java/com/futo/notes/SyncManager.kt",
+      "location": "apps/android/app/src/main/java/com/futo/notes/SyncManagerOutcome.kt",
       "pattern": "invalid peer certificate"
     },
     {
