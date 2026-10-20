@@ -176,7 +176,8 @@ async fn a_ca_installed_with_update_ca_certificates_is_honored_on_the_next_hands
     let ours = private_authority("futo notes linux trust check");
     let (address, _) = serve_https(&ours).await;
     let url = format!("https://{address}");
-    let installed = Path::new("/usr/local/share/ca-certificates/futo-notes-trust-check.crt");
+    let installed =
+        std::path::Path::new("/usr/local/share/ca-certificates/futo-notes-trust-check.crt");
     let verifier = server_cert_verifier().unwrap();
 
     let rejected = auth_mode(&url, &verifier)
