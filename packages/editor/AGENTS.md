@@ -133,9 +133,9 @@ the editor's own `parserCtx`.
   decides its escaping by parsing with the editor's own parser. No Rust, Swift or
   Kotlin code reads or writes that document, so there is no second consumer to
   keep in step and nothing for the TS↔Rust differential to compare
-  (`tests/conformance/title-rules-differential.mjs` lists the fixture in
+  (`tests/conformance/title-rules-differential.mjs` lists the fixtures in
   `FIXTURES_OUTSIDE_THE_DIFFERENTIAL`; tests/conformance/README.md says the same).
-- Spec line first, then a golden in `tests/conformance/markdown-house-style.json`
+- Spec line first, then a golden in `tests/conformance/markdown-house-style-*.json`
   (hand-reviewed; never pasted from output), then the code. The goldens run against
   the shipping parser in `src/features/editor/milkdown/markdownHouseStyle.test.ts`.
 - A node or mark it has no spelling for throws `UnknownNodeError` rather than being

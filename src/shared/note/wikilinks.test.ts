@@ -6,7 +6,9 @@ import {
   findWikilinks,
   rewriteWikilinks,
 } from './wikilinks';
-import conformance from '@/tests/conformance/wikilinks.json';
+import resolveConformance from '@/tests/conformance/wikilinks-resolve.json';
+import suffixConformance from '@/tests/conformance/wikilinks-suffix.json';
+import rewriteConformance from '@/tests/conformance/wikilinks-rewrite.json';
 
 describe('shortestUniqueSuffix', () => {
   it('returns leaf when leaf is unique', () => {
@@ -75,7 +77,11 @@ describe('resolveWikilink', () => {
 describe('buildWikilinkIndex', () => {
   // The index is an accelerator for two rules ported bit-for-bit to Rust, so it
   // is held to their answers rather than to expectations written here.
-  const groups = conformance.groups as Array<{
+  const groups = [
+    ...resolveConformance.groups,
+    ...suffixConformance.groups,
+    ...rewriteConformance.groups,
+  ] as Array<{
     op: string;
     cases: Array<{ input: Record<string, string | string[]> }>;
   }>;

@@ -14,8 +14,8 @@ shells project it rather than reconstructing the protocol.
 ## Verification
 
 - Any change: `cargo test -p futo-notes-sync`.
-- Protocol/engine change: add a scenario to `tests/cross-platform-sync.mjs`, register it in
-  `scenarios`, then run `just test-cross-platform`.
+- Protocol/engine change: add a scenario under `tests/cross-platform-sync/`, register it in
+  `scenarios` in `tests/cross-platform-sync/scenario-registry.mjs`, then run `just test-cross-platform`.
 - Server-contract change: `just test-sync-integration` (`node tests/sync-integration.mjs`). It
   starts isolated servers on this worktree's own ports, runs `server_integration` + `sse_live`
   against them, and stops them by PID — never the `:3005` demo server, never elitedesk, never

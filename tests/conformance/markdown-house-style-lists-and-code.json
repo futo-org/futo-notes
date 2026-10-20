@@ -1,0 +1,514 @@
+{
+  "description": "The editor's markdown house style (docs/spec/editor.md \"Markdown house style\", #266): what a save writes for a note, as hand-reviewed {source, expected} pairs. `source` is read with the app's own parser; `doc` instead gives an editor-made document no file could produce (ProseMirror toJSON shape). Every case also asserts that `expected` reads back as the same document and writes itself again unchanged. TypeScript only: the serializer has no Rust consumer. Runner: src/features/editor/milkdown/markdownHouseStyle.test.ts.",
+  "cases": [
+    {
+      "story": 9,
+      "name": "a tight list stays tight",
+      "source": "- a\n- b\n  - c",
+      "expected": "- a\n- b\n  - c\n"
+    },
+    {
+      "story": 9,
+      "name": "a loose list stays loose",
+      "source": "- a\n\n- b",
+      "expected": "- a\n\n- b\n"
+    },
+    {
+      "story": 9,
+      "name": "a loose item inside a tight list keeps its blank line",
+      "source": "- a\n- b\n\n  c\n- d",
+      "expected": "- a\n- b\n\n  c\n- d\n"
+    },
+    {
+      "story": 9,
+      "name": "two paragraphs in a tight item are written tight, as two lines of one paragraph (Backspace at a nested item's start)",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "b"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n  b\n"
+    },
+    {
+      "story": 9,
+      "name": "two paragraphs and a nested list in a tight item stay tight",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "b"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "bullet_list",
+                    "attrs": {
+                      "spread": false
+                    },
+                    "content": [
+                      {
+                        "type": "list_item",
+                        "attrs": {
+                          "label": "•",
+                          "listType": "bullet",
+                          "spread": false,
+                          "checked": null
+                        },
+                        "content": [
+                          {
+                            "type": "paragraph",
+                            "content": [
+                              {
+                                "type": "text",
+                                "text": "c"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n  b\n  - c\n"
+    },
+    {
+      "story": 9,
+      "name": "two paragraphs in a tight nested item are two lines of one paragraph",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "bullet_list",
+                    "attrs": {
+                      "spread": false
+                    },
+                    "content": [
+                      {
+                        "type": "list_item",
+                        "attrs": {
+                          "label": "•",
+                          "listType": "bullet",
+                          "spread": false,
+                          "checked": null
+                        },
+                        "content": [
+                          {
+                            "type": "paragraph",
+                            "content": [
+                              {
+                                "type": "text",
+                                "text": "x"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "paragraph",
+                            "content": [
+                              {
+                                "type": "text",
+                                "text": "b"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n  - x\n    b\n"
+    },
+    {
+      "name": "the joined second line keeps the escape it needs: 1. there would start a list",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "1. b"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n  1\\. b\n"
+    },
+    {
+      "name": "a paragraph joined to the one before keeps its own empty line: the item turns loose there",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "b"
+                      },
+                      {
+                        "type": "hardbreak",
+                        "attrs": {
+                          "isInline": true
+                        }
+                      },
+                      {
+                        "type": "hardbreak",
+                        "attrs": {
+                          "isInline": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "c"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n  b\n\n  c\n"
+    },
+    {
+      "name": "a paragraph after an HTML block in a tight item keeps its blank line: the block would take the line",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "html",
+                        "attrs": {
+                          "value": "<div>x</div>"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "b"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- <div>x</div>\n\n  b\n"
+    },
+    {
+      "story": 9,
+      "name": "an empty paragraph between two blocks of a tight item makes it loose",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bullet_list",
+            "attrs": {
+              "spread": false
+            },
+            "content": [
+              {
+                "type": "list_item",
+                "attrs": {
+                  "label": "•",
+                  "listType": "bullet",
+                  "spread": false,
+                  "checked": null
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "a"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "bullet_list",
+                    "attrs": {
+                      "spread": false
+                    },
+                    "content": [
+                      {
+                        "type": "list_item",
+                        "attrs": {
+                          "label": "•",
+                          "listType": "bullet",
+                          "spread": false,
+                          "checked": null
+                        },
+                        "content": [
+                          {
+                            "type": "paragraph",
+                            "content": [
+                              {
+                                "type": "text",
+                                "text": "c"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "paragraph"
+                  },
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "b"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "- a\n\n  - c\n\n\n  b\n"
+    },
+    {
+      "story": 10,
+      "name": "ordered items are numbered from the start",
+      "source": "1. a\n1. b\n1. c\n\n3) x\n7) y",
+      "expected": "1. a\n2. b\n3. c\n\n3) x\n4) y\n"
+    },
+    {
+      "story": 10,
+      "name": "1) numbering is written 1.",
+      "source": "1) a\n2) b",
+      "expected": "1. a\n2. b\n"
+    },
+    {
+      "story": 11,
+      "name": "a nested list is indented by its parent's marker width",
+      "source": "* a\n    * b\n\ntext\n\n10. x\n    - y\n\ntext\n\n1. p\n   1. q",
+      "expected": "- a\n  - b\n\ntext\n\n10. x\n    - y\n\ntext\n\n1. p\n   1. q\n"
+    },
+    {
+      "story": 12,
+      "name": "task items, an empty task item and an uppercase X",
+      "source": "- [ ] todo\n- [ ]\n* [X] done",
+      "expected": "- [ ] todo\n- [ ]\n\n* [x] done\n"
+    },
+    {
+      "story": 12,
+      "name": "an empty task item with a nested list",
+      "source": "- [ ]\n  - b",
+      "expected": "- [ ]\n  - b\n"
+    },
+    {
+      "story": 12,
+      "name": "a list item that starts with a block writes it on the marker line",
+      "source": "* > quote\n*\n  # heading",
+      "expected": "- > quote\n- # heading\n"
+    },
+    {
+      "story": 13,
+      "name": "a fence is one longer than the longest fence inside",
+      "source": "````\n```\ninner\n```\n````",
+      "expected": "````\n```\ninner\n```\n````\n"
+    },
+    {
+      "story": 13,
+      "name": "tilde and indented code are written with backticks",
+      "source": "~~~js\nx = 1\n~~~\n\n    indented",
+      "expected": "```js\nx = 1\n```\n\n```\nindented\n```\n"
+    },
+    {
+      "story": 13,
+      "name": "an empty fence",
+      "source": "```\n```",
+      "expected": "```\n```\n"
+    },
+    {
+      "story": 13,
+      "name": "inline code fences and padding",
+      "source": "`a` and `` b`c `` and `` `d `` and ``  e  ``",
+      "expected": "`a` and ``b`c`` and `` `d `` and `  e  `\n"
+    }
+  ]
+}

@@ -19,7 +19,15 @@
       "kind": "differential test"
     },
     {
-      "path": "tests/conformance/wikilinks.json",
+      "path": "tests/conformance/wikilinks-resolve.json",
+      "kind": "fixture"
+    },
+    {
+      "path": "tests/conformance/wikilinks-suffix.json",
+      "kind": "fixture"
+    },
+    {
+      "path": "tests/conformance/wikilinks-rewrite.json",
       "kind": "fixture"
     }
   ]

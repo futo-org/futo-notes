@@ -9,7 +9,7 @@
 //! in two pinned ways: the TS `WIKILINK_RE` captures the WHOLE inner text
 //! (a `|alias` stays part of the target, untrimmed) and it tolerates a `[[`
 //! inside the inner text. The port follows TS verbatim; the conformance
-//! fixture `tests/conformance/wikilinks.json` locks both sides together.
+//! fixtures `tests/conformance/wikilinks-*.json` lock both sides together.
 
 /// Extract wikilink targets from `content`. An empty target (`[[]]` or
 /// `[[ |x]]`) is skipped. Matches the resolution the TS `wikilinks.ts` uses
