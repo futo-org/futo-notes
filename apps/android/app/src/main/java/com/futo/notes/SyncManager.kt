@@ -40,8 +40,8 @@ import uniffi.futo_notes_ffi.WriteRefusal
  * [disconnect] wipes the stored password — transient failures keep it.
  */
 class SyncManager(
-    private val secure: SecureStore? = null,
-    private val prefs: SharedPreferences? = null,
+    internal val secure: SecureStore? = null,
+    internal val prefs: SharedPreferences? = null,
 ) {
     var serverUrl by mutableStateOf(
         // First-launch seed: the emulator dev server in debug, empty in release.
@@ -52,15 +52,15 @@ class SyncManager(
         prefs?.getString(Prefs.SYNC_SERVER_URL, defaultServer()) ?: defaultServer(),
     )
     var connected by mutableStateOf(false)
-        private set
+        internal set
     var statusMessage by mutableStateOf(LocalizedMessage("sync.status.notConnected"))
-        private set
+        internal set
     var busy by mutableStateOf(false)
-        private set
+        internal set
     var lastErrorDiagnostic: String? = null
-        private set
+        internal set
     internal var errorMessage by mutableStateOf<LocalizedMessage?>(null)
-        private set
+        internal set
 
     /** Whether the LAST completed cycle's writes were refused, and which way
      *  (`futo_notes_sync::WriteRefusal`). Held here because this object
@@ -69,7 +69,7 @@ class SyncManager(
      *  hosted model, which turns it into a banner with an action. Never a latch
      *  — every completed cycle writes its own answer, null included. */
     var lastWriteRefusal by mutableStateOf<WriteRefusal?>(null)
-        private set
+        internal set
 
     fun localizedStatus(localization: Localization): String =
         localization.localizedText(statusMessage.path, statusMessage.arguments)
@@ -80,39 +80,39 @@ class SyncManager(
 
     /** Whether the SSE live stream is currently connected. */
     var live by mutableStateOf(false)
-        private set
+        internal set
 
     /** Invoked on the main thread after a sync that changed the vault on disk.
      *  The complete summary lets [NotesStore] project only affected rows and
      *  lets the open editor render the engine's disposition. */
     var onLocalTreeChanged: ((SyncSummary) -> Unit)? = null
 
-    private var client: SyncClient? = null
+    internal var client: SyncClient? = null
 
     /** Vault root of the current session, stashed at connect so an expired or
      *  collapsed session can be rebuilt without the Sync screen. */
-    private var notesRoot: String? = null
+    internal var notesRoot: String? = null
 
     /** Guards against re-entrant heal attempts — collection-gone or auth expiry
      *  can surface from both the manual sync path and the live loop at once. */
-    private var healing = false
+    internal var healing = false
 
     /** Which door opened the session in [client], so [connectHosted] can tell
      *  the session it must not duplicate from the one it must replace. Set only
      *  where a session is adopted, cleared only where one is dropped.
      *  Mirrors iOS `SyncManager.sessionMode`. */
-    private var sessionMode: SessionMode? = null
+    internal var sessionMode: SessionMode? = null
 
     /** Drains connect/heal/manual/resume work before a vault migration starts
      * and rejects any new sync work until the old vault is resumed or the app
      * restarts on the migrated root. */
-    private val storageMigrationGate = StorageMigrationGate()
+    internal val storageMigrationGate = StorageMigrationGate()
 
     /** Marshals Rust live-sync callbacks onto the main thread. */
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /** Receives live-sync events from Rust (on a tokio thread → hop to main). */
-    private inner class LiveListener : SyncEventListener {
+    internal inner class LiveListener : SyncEventListener {
         override fun onSynced(summary: SyncSummary) {
             scope.launch {
                 // Success reports just "Sync complete" — never the
@@ -139,88 +139,6 @@ class SyncManager(
         }
     }
 
-    /** Connect (login + unwrap vault key), run an initial sync, then go live. */
-    suspend fun connectAndSync(notesRoot: String, password: String) {
-        storageMigrationGate.runAccessIfAvailable {
-            connectAndSyncLocked(notesRoot, password)
-        }
-    }
-
-    /** Connect while [storageMigrationGate] is already held by the caller. */
-    private suspend fun connectAndSyncLocked(notesRoot: String, password: String) {
-        // Be forgiving about whitespace, but catch the common mistake of a
-        // schemeless URL up front with an actionable message instead of letting
-        // it surface as a cryptic transport error [sync.md].
-        val url = serverUrl.trim()
-        validateServerUrl(url)?.let { error ->
-            lastErrorDiagnostic = error
-            statusMessage = LocalizedMessage("sync.status.error")
-            errorMessage = if (url.isEmpty()) {
-                LocalizedMessage("sync.errors.enterServerUrl")
-            } else {
-                LocalizedMessage("sync.errors.addServerScheme")
-            }
-            return
-        }
-        if (needsPlatformTrust(url) && !PlatformTrust.isBound) {
-            statusMessage = LocalizedMessage("sync.status.error")
-            errorMessage = LocalizedMessage("sync.errors.secureConnectionUnavailable")
-            return
-        }
-        busy = true
-        lastErrorDiagnostic = null
-        errorMessage = null
-        statusMessage = LocalizedMessage("sync.status.connecting")
-        this.notesRoot = notesRoot
-        try {
-            val c = SyncClient(notesRoot, url)
-            val info = c.connect(password)
-            // Persist the session so the next launch reconnects silently
-            // [sync.md:91]. Keystore + prefs I/O — off the main thread.
-            withContext(Dispatchers.IO) {
-                secure?.storePassword(password)
-                prefs?.edit()?.putString(Prefs.SYNC_SERVER_URL, url)?.apply()
-            }
-            afterConnect(
-                c,
-                SessionMode.SELF_HOSTED,
-                LocalizedMessage(
-                    "sync.status.connectedAndSyncing",
-                    mapOf("authMode" to info.authMode),
-                ),
-            )
-        } catch (e: Exception) {
-            connected = client != null
-            lastErrorDiagnostic = describe(e)
-            statusMessage = LocalizedMessage("sync.status.error")
-            errorMessage = failureMessage(e, "sync.errors.connectFailed")
-        } finally {
-            busy = false
-        }
-    }
-
-    /**
-     * The tail every connect shares, whichever door opened the session: adopt
-     * the client, run one ORDINARY cycle, and go live. Hosted and self-hosted
-     * differ only in how the client was authenticated — from here they are the
-     * same `syncNow` path every later trigger goes through, not a second one
-     * written for hosted. Mirrors iOS `SyncManager.afterConnect`.
-     */
-    private suspend fun afterConnect(c: SyncClient, mode: SessionMode, status: LocalizedMessage) {
-        client = c
-        sessionMode = mode
-        connected = true
-        statusMessage = status
-        val initial = c.syncNow()
-        applyOutcome(initial)
-        // Refresh the list/editor if the initial (catch-up) sync changed
-        // the local tree — pulls OR push-side merges (F2).
-        if (wroteLocalChanges(initial)) onLocalTreeChanged?.invoke(initial)
-        c.startLive(LiveListener()) // onConnected flips `live` when the stream is up
-    }
-
-    // ── Hosted sessions ─────────────────────────────────────────────────────
-
     /**
      * How this manager reaches the hosted wizard's state machine. Rust's
      * `HostedSetupClient` is a handle on this vault's Keystore entries rather
@@ -238,414 +156,6 @@ class SyncManager(
                 HostedSetupClient.hosted(KeystoreVaultSecretStore(store, notesRoot))
             }.getOrNull()
         }
-    }
-
-    /**
-     * Connect the hosted session this device already holds: Rust hands the saved
-     * vault key and session token to the engine, and one ordinary cycle runs.
-     * Called when the wizard reaches `READY` — whichever door got it there — and
-     * at every cold start that finds a saved vault.
-     *
-     * **Nothing is written to [SecureStore.storePassword].** A hosted device has
-     * no password to store, and storing one would send the next
-     * [restoreSession] down the self-hosted branch with a password no server
-     * accepts. Mirrors iOS `SyncManager.connectHosted`.
-     */
-    suspend fun connectHosted(notesRoot: String, setup: HostedSetupClientInterface) {
-        storageMigrationGate.runAccessIfAvailable {
-            connectHostedLocked(notesRoot, setup)
-        }
-    }
-
-    private suspend fun connectHostedLocked(
-        notesRoot: String,
-        setup: HostedSetupClientInterface,
-    ) {
-        val entry = hostedConnectEntry(connected, client != null, healing, sessionMode)
-        if (entry == HostedConnectEntry.SKIP) return
-        busy = true
-        // Finishing hosted setup REPLACES a live self-hosted session, rather
-        // than skipping the connect because one is running. The teardown is the
-        // real one — Rust stops the live loop and demotes this vault's sync
-        // state — because dropping the reference alone leaves an orphaned SSE
-        // loop pulling into a vault this device no longer syncs that way.
-        // Deliberately not [disconnect]: that also clears the stored password,
-        // and the single owner of that rule is Rust's `connect_sync` below,
-        // which clears it only once the hosted session is certain.
-        if (entry == HostedConnectEntry.REPLACE_SELF_HOSTED) tearDownSession()
-        lastErrorDiagnostic = null
-        errorMessage = null
-        statusMessage = LocalizedMessage("sync.status.connecting")
-        this.notesRoot = notesRoot
-        try {
-            val c = SyncClient(notesRoot, setup.serverUrl())
-            setup.connectSync(c)
-            afterConnect(
-                c, SessionMode.HOSTED, LocalizedMessage("sync.status.hostedConnectedAndSyncing"))
-        } catch (e: HostedException) {
-            lastErrorDiagnostic = describe(e)
-            applyHostedConnectFailure(e)
-        } catch (e: Exception) {
-            connected = client != null
-            lastErrorDiagnostic = describe(e)
-            statusMessage = LocalizedMessage("sync.status.error")
-            errorMessage = LocalizedMessage("sync.errors.connectFailed")
-        } finally {
-            busy = false
-        }
-    }
-
-    /**
-     * A hosted connect that did not land is usually nothing to alarm anyone
-     * about. `NotSignedIn` and `VaultLocked` mean the wizard is not finished —
-     * the ordinary state of a device that never set hosted sync up — so they
-     * read as not connected. A transport failure means the phone is offline:
-     * the two secrets are still good and the next foreground or session heal
-     * retries, so it takes the muted live line rather than the red one and
-     * throws nothing away. Mirrors iOS `applyHostedConnectFailure`.
-     */
-    private fun applyHostedConnectFailure(e: HostedException) {
-        connected = client != null
-        when (e) {
-            is HostedException.NotSignedIn, is HostedException.VaultLocked -> {
-                statusMessage = LocalizedMessage("sync.status.notConnected")
-            }
-            is HostedException.Network -> {
-                statusMessage = LocalizedMessage("sync.status.notConnected")
-                errorMessage = LocalizedMessage("sync.errors.hostedOffline")
-            }
-            else -> {
-                statusMessage = LocalizedMessage("sync.status.error")
-                errorMessage = LocalizedMessage("sync.errors.connectFailed")
-            }
-        }
-    }
-
-    /**
-     * Hosted sign out, routed through this manager so the session Rust revokes
-     * is the one actually running. `signOut` stops live sync and demotes this
-     * vault's state through the handle it is given — handed a throwaway, the
-     * live loop would outlive the session it belongs to.
-     */
-    suspend fun signOutHosted(notesRoot: String, setup: HostedSetupClientInterface) {
-        val target = client ?: SyncClient(notesRoot, setup.serverUrl())
-        try {
-            setup.signOut(target)
-        } finally {
-            // Whichever way this ended, Rust forgot the secrets and demoted the
-            // vault before it could throw, so the manager must not go on
-            // believing it holds a session.
-            forgetSession()
-        }
-    }
-
-    /**
-     * Does this vault have hosted secrets to resume? A local Keystore read in
-     * Rust, never a request — which is what lets boot restore ask it before it
-     * has a network, and treat a refusal to answer as "not hosted".
-     */
-    private suspend fun hasSavedVault(setup: HostedSetupClientInterface): Boolean =
-        runCatching { setup.hasSavedVault() }.getOrDefault(false)
-
-    suspend fun syncNow() {
-        storageMigrationGate.runAccessIfAvailable {
-            val c = client ?: return@runAccessIfAvailable
-            busy = true
-            lastErrorDiagnostic = null
-            errorMessage = null
-            statusMessage = LocalizedMessage("sync.status.syncing")
-            try {
-                val summary = c.syncNow()
-                applyOutcome(summary)
-                if (wroteLocalChanges(summary)) onLocalTreeChanged?.invoke(summary)
-            } catch (e: Exception) {
-                // Re-login for both a collapsed vault and an expired bearer token.
-                // The same-vault path keeps the persisted cursor/object map, so
-                // token expiry does not trigger a full reconcile.
-                if (isRecoverableSessionError(e)) {
-                    healSession(describe(e))
-                } else {
-                    lastErrorDiagnostic = describe(e)
-                    statusMessage = LocalizedMessage("sync.status.error")
-                    errorMessage = failureMessage(e, "sync.errors.syncFailed")
-                }
-            } finally {
-                busy = false
-            }
-        }
-    }
-
-    private fun isRecoverableSessionError(e: Exception): Boolean =
-        e is SyncException.Auth || e is SyncException.CollectionGone
-
-    internal fun failureMessage(e: Exception, fallbackPath: String): LocalizedMessage =
-        if (isCertificateRejection(describe(e))) {
-            LocalizedMessage("sync.errors.certificateNotTrusted")
-        } else {
-            LocalizedMessage(fallbackPath)
-        }
-
-    /** rustls prefixes every certificate rejection this way, whatever the
-     *  verifier's reason [sync.md]. */
-    private fun isCertificateRejection(message: String): Boolean =
-        message.contains("invalid peer certificate")
-
-    /** Re-login with the stored password to recover an expired session or
-     *  collapsed vault without deleting state. Guarded against re-entry;
-     *  mirrors iOS `healSession`. → sync.md */
-    private fun healSession(fallbackMessage: String) {
-        if (healing || storageMigrationGate.isMigrationStarted) return
-        val root = notesRoot
-        if (root == null) {
-            reportUnavailableSessionRecovery(fallbackMessage)
-            return
-        }
-        healing = true
-        client?.stopLive()
-        scope.launch {
-            try {
-                storageMigrationGate.runAccessIfAvailable {
-                    val password = withContext(Dispatchers.IO) {
-                        runCatching { secure?.loadPassword() }.getOrNull()
-                    }
-                    // The dead session's live loop stopped itself; both branches
-                    // rebuild an authenticated client while still holding the
-                    // operation gate.
-                    if (password != null) {
-                        connectAndSyncLocked(root, password)
-                        return@runAccessIfAvailable
-                    }
-                    // A hosted session rebuilt from the same two secrets. A
-                    // token the server no longer accepts is a trip to the
-                    // browser, which Rust arranges by dropping it — the wizard
-                    // then answers SIGN_IN and the vault key stays where it is.
-                    val setup = makeHostedSetup(root)
-                    if (setup == null || !hasSavedVault(setup)) {
-                        reportUnavailableSessionRecovery(fallbackMessage)
-                        return@runAccessIfAvailable
-                    }
-                    connectHostedLocked(root, setup)
-                }
-            } finally {
-                // Also release when migration began before this queued heal
-                // acquired the operation gate, or when the task is cancelled.
-                healing = false
-            }
-        }
-    }
-
-    internal fun handleLiveError(message: String) {
-        // Auth expiry and collection-gone are terminal for the old live loop,
-        // but recoverable from the securely stored password.
-        if (shouldHealLiveError(message)) {
-            healSession(message)
-        } else {
-            lastErrorDiagnostic = message
-            // A certificate rejection is reported as such whichever kind it
-            // arrives as (connect, stream or cycle) [sync.md].
-            errorMessage = LocalizedMessage(
-                if (isCertificateRejection(message)) {
-                    "sync.errors.certificateNotTrusted"
-                } else {
-                    "sync.errors.liveUnavailable"
-                },
-            )
-        }
-    }
-
-    private fun reportUnavailableSessionRecovery(message: String) {
-        lastErrorDiagnostic = message
-        statusMessage = LocalizedMessage("sync.status.error")
-        errorMessage = LocalizedMessage("sync.errors.previousFailure")
-    }
-
-    /** Single reporter for a completed cycle's outcome [sync.md]: clean →
-     *  "Sync complete" (no counts); per-item failures → the red error line,
-     *  using `failureMessage` (computed in Rust as a diagnostic) to select the
-     *  error state; visible wording comes from the shared catalog. Cleared by
-     *  the next clean cycle. */
-    internal fun applyOutcome(summary: SyncSummary) {
-        lastWriteRefusal = summary.writeRefusal
-        val message = summary.failureMessage
-        val refusal = summary.writeRefusal
-        if (refusal != null) {
-            // A refused write is the one failure that is not a fault: nothing
-            // is broken, the account simply may not write, so the status line
-            // says so in its own words instead of "Sync completed with
-            // errors", which sent people looking for a server problem that was
-            // not there (ADR 0003 decision 8). Rust names the refusal; this
-            // only chooses the sentence. Mirrors iOS `applyOutcome`.
-            lastErrorDiagnostic = message
-            statusMessage = LocalizedMessage(writeRefusalHeadline(refusal))
-            errorMessage = LocalizedMessage(writeRefusalExplanation(refusal))
-        } else if (message != null) {
-            lastErrorDiagnostic = message
-            statusMessage = LocalizedMessage("sync.status.error")
-            errorMessage = specificFileFailure(summary)
-                ?: LocalizedMessage("sync.errors.completedWithErrors")
-        } else {
-            lastErrorDiagnostic = null
-            statusMessage = LocalizedMessage("sync.status.complete")
-            errorMessage = null
-        }
-    }
-
-    private fun specificFileFailure(summary: SyncSummary): LocalizedMessage? {
-        val oversized = summary.failures.filter { it.kind == "upload" && it.statusCode == 413u.toUShort() }
-            .map { it.filename }
-        val rejected = summary.failures.filter { it.kind == "rejected" }.map { it.filename }
-        if (oversized.isNotEmpty() && rejected.isNotEmpty()) return LocalizedMessage(
-            "sync.errors.uploadsTooLargeAndUnsupported",
-            mapOf("oversized" to oversized.joinToString(", "), "unsupported" to rejected.joinToString(", ")),
-        )
-        if (oversized.isNotEmpty()) return LocalizedMessage(
-            "sync.errors.uploadsTooLarge", mapOf("filenames" to oversized.joinToString(", ")),
-        )
-        if (rejected.isNotEmpty()) return LocalizedMessage(
-            "sync.errors.unsupportedPaths", mapOf("filenames" to rejected.joinToString(", ")),
-        )
-        return null
-    }
-
-    /** Signal Rust that a local note changed so the live loop debounces and
-     *  auto-pushes the edit to peers. Fire-and-forget and non-blocking on the
-     *  Rust side — a no-op when not connected / no live task is running. The
-     *  Activity wires this to every [NotesStore] mutation via
-     *  [NotesStore.onLocalChange]. Mirrors the iOS `SyncManager.noteChanged`. */
-    fun noteChanged() {
-        if (!storageMigrationGate.isMigrationStarted) client?.noteChanged()
-    }
-
-    /** Re-open the live stream after returning to the foreground (no-op if not
-     *  connected or already live). Fire-and-forget from the Activity lifecycle. */
-    fun resumeLiveAsync() {
-        scope.launch {
-            storageMigrationGate.runAccessIfAvailable {
-                val c = client ?: return@runAccessIfAvailable
-                if (!connected || live) return@runAccessIfAvailable
-                try {
-                    c.startLive(LiveListener())
-                } catch (e: Exception) {
-                    lastErrorDiagnostic = describe(e)
-                    errorMessage = LocalizedMessage("sync.errors.liveUnavailable")
-                }
-            }
-        }
-    }
-
-    /** Tear down the live stream (e.g. app backgrounded). Keeps the session. */
-    fun pauseLive() {
-        // Storage migration owns a graceful stop. An onStop callback landing
-        // between the synchronous latch and quiescence must not abort that task.
-        if (storageMigrationGate.isMigrationStarted) return
-        client?.stopLive()
-        live = false
-    }
-
-    /** Synchronously reject new sync work before migration starts. The later
-     * suspend step drains work and performs a graceful stop. */
-    fun beginStorageMigration() {
-        storageMigrationGate.beginMigration()
-    }
-
-    /** Stop live sync and wait for any connect/manual cycle already in flight. */
-    suspend fun quiesceForStorageMigration() {
-        storageMigrationGate.runMigration {
-            client?.stopLiveAndWait()
-            live = false
-        }
-    }
-
-    /** Re-enable the old session when vault migration or preference commit fails. */
-    fun resumeAfterStorageMigrationFailure() {
-        storageMigrationGate.resume()
-        resumeLiveAsync()
-    }
-
-    /** Silent reconnect with the persisted session at startup [sync.md:91].
-     *  Fire-and-forget, off-main — never gates render (M1). Failures surface via
-     *  [statusMessage]/[lastErrorDiagnostic] but do NOT wipe what is stored (the
-     *  server may simply be unreachable); a hosted connect and an explicit
-     *  [disconnect] are what clear the password, and only an explicit sign out
-     *  clears the hosted secrets.
-     *
-     *  A self-hosted vault is the one with a password to reconnect with; a
-     *  hosted vault has none and is recognised instead by the two secrets Rust
-     *  saved. Both are local reads — no request of any kind — so a launch with
-     *  no network still knows which kind of vault this is, and a restart
-     *  resumes sync **without Settings ever being opened**.
-     *
-     *  [restoreBranch] owns the choice, including the one device that answers
-     *  to both; read its doc before changing the order here. → sync.md */
-    fun restoreSession(notesRoot: String) {
-        scope.launch {
-            storageMigrationGate.runAccessIfAvailable {
-                if (connected) return@runAccessIfAvailable
-                val password = withContext(Dispatchers.IO) {
-                    runCatching { secure?.loadPassword() }.getOrNull()
-                }
-                val setup = makeHostedSetup(notesRoot)
-                val hasHostedVault = setup != null && hasSavedVault(setup)
-                when (restoreBranch(password != null, hasHostedVault)) {
-                    RestoreBranch.HOSTED ->
-                        connectHostedLocked(notesRoot, setup ?: return@runAccessIfAvailable)
-                    RestoreBranch.SELF_HOSTED ->
-                        connectAndSyncLocked(notesRoot, password ?: return@runAccessIfAvailable)
-                    RestoreBranch.NOTHING -> return@runAccessIfAvailable
-                }
-            }
-        }
-    }
-
-    suspend fun disconnectForReset() {
-        storageMigrationGate.beginMigration()
-        storageMigrationGate.runMigration {
-            client?.stopLiveAndWait()
-            disconnect()
-        }
-    }
-
-    fun finishReset() { storageMigrationGate.resume() }
-
-    suspend fun disconnect() {
-        tearDownSession()
-        // An explicit disconnect is where the USER wipes the stored password;
-        // the other place it goes is Rust's `connect_sync` when a hosted
-        // session starts (docs/spec/sync.md, "Exactly one sync credential").
-        withContext(Dispatchers.IO) { runCatching { secure?.clearPassword() } }
-    }
-
-    /** Ends the session this manager is holding, for real: Rust stops the live
-     *  loop and demotes this vault's sync state, and nothing local is left
-     *  pointing at a client that is gone. Touches no stored secret — the
-     *  explicit [disconnect] adds the password clear, and the hosted switch
-     *  leaves it to Rust's `connect_sync`. Mirrors iOS `tearDownSession`. */
-    private suspend fun tearDownSession() {
-        try { client?.disconnect() } catch (_: Exception) {} // also stops live in Rust
-        forgetSession()
-    }
-
-    /** Drops this manager's view of a session, without touching disk or any
-     *  secret — what is left to do once Rust has revoked and demoted one. */
-    private fun forgetSession() {
-        client = null
-        sessionMode = null
-        connected = false
-        live = false
-        healing = false  // clear any stalled heal so a future session can heal
-        lastErrorDiagnostic = null
-        statusMessage = LocalizedMessage("sync.status.notConnected")
-        errorMessage = null
-    }
-
-    internal fun describe(e: Exception): String = when (e) {
-        is SyncException.Http -> "HTTP: ${e.v1}"
-        is SyncException.Crypto -> "Crypto: ${e.v1}"
-        is SyncException.Io -> "IO: ${e.v1}"
-        is SyncException.Auth -> "Auth: ${e.v1}"
-        is SyncException.CollectionGone -> e.v1
-        is SyncException.NotConnected -> "Not connected"
-        else -> e.message ?: e.toString()
     }
 
     // Visible for testing: the boolean-driven seed selection is pure (no

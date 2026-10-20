@@ -30,6 +30,8 @@ import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import com.futo.notes.disconnectForReset
+import com.futo.notes.finishReset
 
 /**
  * Full reset [settings.md]: close writer admission, join sync and discard its
