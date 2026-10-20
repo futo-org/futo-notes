@@ -1,77 +1,6 @@
 import Foundation
 import SwiftUI
 
-/// Which hosted screen to render.
-///
-/// Five of these are Rust's `SetupStep` verbatim. `recoveryKey` is not a step
-/// and deliberately has no Rust variant: it exists only for as long as this
-/// object holds the string `createVault` — or, from the account card,
-/// `newRecoveryKey` — handed back, and Rust keeps no copy to hand over twice
-/// (ADR 0003, decision 3). `changeVaultPassword` is the account card's other
-/// detour and is likewise not a step: the wizard is finished and Rust answers
-/// `ready` throughout. `loading` and `unavailable` are this shell's own — the
-/// moment before Rust has answered, and a server that does not offer hosted
-/// sync at all.
-enum HostedScreen {
-    case loading
-    case unavailable
-    case signIn
-    case subscribe
-    case createVault
-    case recoveryKey
-    case unlock
-    case account
-    case changeVaultPassword
-}
-
-/// What the sync screen says when the server would refuse a write.
-enum HostedBanner {
-    case none
-    case syncPaused
-    case vaultFull
-}
-
-/// The three doors on the unlock screen.
-enum UnlockDoor: String, CaseIterable, Identifiable {
-    case vaultPassword
-    case scan
-    case recoveryKey
-
-    var id: String { rawValue }
-}
-
-/// What the auth sheet is currently open for.
-enum HostedWait {
-    case signIn
-    case checkout
-}
-
-/// What the code THIS device is showing is doing, on the scan door of the
-/// unlock screen. Every one of these is Rust's answer rendered; nothing in this
-/// shell decides a state. `refused` is the narrower case where the relay will
-/// not serve the pairing at all — an ordinary decline reaches us as `expired`,
-/// because a person who says no on the other device sends nothing.
-enum PairingState {
-    case idle
-    case waiting
-    case received
-    case expired
-    case refused
-}
-
-/// What the scanner is doing on an already-unlocked device.
-enum ScanPhase {
-    case closed
-    /// The camera is live, waiting for a code.
-    case scanning
-    /// A code was read and parsed; the sheet names the device it came from.
-    case confirming
-    /// Send was pressed: the vault key is being sealed and posted.
-    case sending
-    /// The key is on the relay. The other device collects it.
-    case sent
-}
-
 /// Everything the hosted sync screen renders from, and everything it can do.
 ///
 /// A direct counterpart of the desktop's `createHostedSyncSettings.svelte.ts`,
@@ -79,10 +8,10 @@ enum ScanPhase {
 /// machine and should not have two shapes for it.
 @MainActor
 final class HostedSetupModel: ObservableObject {
-    @Published private(set) var screen: HostedScreen = .loading
+    @Published var screen: HostedScreen = .loading
     @Published private(set) var busy = false
-    @Published private(set) var waiting: HostedWait?
-    @Published private(set) var errorMessage: LocalizedMessage?
+    @Published var waiting: HostedWait?
+    @Published var errorMessage: LocalizedMessage?
     /// Where sign-in will happen, so a debug override is never invisible.
     @Published private(set) var serverURL = ""
     @Published private(set) var email = ""
@@ -91,28 +20,28 @@ final class HostedSetupModel: ObservableObject {
     /// nothing else reads it, and `continueAfterRecoveryKey` is the only thing
     /// that clears it. Rust hands it over once and keeps no copy, so once this
     /// is nil there is no way to show it again.
-    @Published private(set) var recoveryKey: String?
+    @Published var recoveryKey: String?
     /// True when the key on that screen replaced one a person already had.
-    @Published private(set) var recoveryKeyReplaced = false
+    @Published var recoveryKeyReplaced = false
     /// Rust's own minimum, so the Continue button and the engine cannot
     /// disagree about what a long-enough vault password is.
     @Published private(set) var minimumVaultPasswordLength = 12
 
     /// The show side of pairing: this device is the new one, drawing a code for
     /// an unlocked device to read.
-    @Published private(set) var pairing: PairingState = .idle
+    @Published var pairing: PairingState = .idle
     /// The payload to draw, straight from Rust. Non-nil only while a live code
     /// is on screen.
-    @Published private(set) var pairingPayload: String?
+    @Published var pairingPayload: String?
     /// RFC 3339, the relay's own deadline — what the countdown describes.
-    @Published private(set) var pairingExpiresAt: String?
+    @Published var pairingExpiresAt: String?
 
     /// The scan side: this device is the unlocked one, reading someone else's
     /// code.
-    @Published private(set) var scanPhase: ScanPhase = .closed
+    @Published var scanPhase: ScanPhase = .closed
     /// The parsed code waiting on a confirmation. Holding one is what makes
     /// Send possible at all; nothing else in this shell can produce one.
-    @Published private(set) var scannedPairing: (any ScannedPairing)?
+    @Published var scannedPairing: (any ScannedPairing)?
 
     /// Whether the LAST completed cycle's writes were refused, and which way.
     ///
@@ -126,14 +55,14 @@ final class HostedSetupModel: ObservableObject {
     @Published var recoveryKeySaved = false
     /// Which door the unlock screen is showing. `private(set)` because leaving
     /// the scan door has to stop a live wait, which a plain binding cannot do.
-    @Published private(set) var unlockDoor: UnlockDoor = .vaultPassword
+    @Published var unlockDoor: UnlockDoor = .vaultPassword
     @Published var selfHostedOpen = false
 
     /// The state machine this wizard renders. Deferred to the first step so a
     /// secret store that refuses becomes an on-screen sentence like any other
     /// failure, rather than a view that cannot be built.
     private let makeSetup: () throws -> HostedSetupClientProtocol
-    private let shell: HostedSetupShell
+    let shell: HostedSetupShell
     /// Signing out needs a handle on this vault to demote what is on disk,
     /// exactly as disconnect does — and, once a hosted session is running, it
     /// must be *that* handle, or the live loop outlives the session it belongs
@@ -158,8 +87,8 @@ final class HostedSetupModel: ObservableObject {
     /// camera, so the string has to be injectable — everything downstream of it
     /// is the same code either way (ADR 0003, decision 12). The live one is
     /// Rust's `complete_pairing`, which parses and nothing else.
-    private let parseScanned: (HostedSetupClientProtocol, String) throws -> any ScannedPairing
-    private var setup: HostedSetupClientProtocol?
+    let parseScanned: (HostedSetupClientProtocol, String) throws -> any ScannedPairing
+    var setup: HostedSetupClientProtocol?
     /// Whether the connect for the session this wizard is looking at has been
     /// started. Reset when it observes a signed-out device, so signing back in
     /// starts the next session's sync.
@@ -297,184 +226,6 @@ final class HostedSetupModel: ObservableObject {
         }
     }
 
-    /// Opens the new-password screen. No round trip and no current secret
-    /// asked: this device holds the vault key already, and a device paired by
-    /// QR never knew the old password (ADR 0003, decision 10).
-    func beginChangeVaultPassword() {
-        errorMessage = nil
-        screen = .changeVaultPassword
-    }
-
-    /// Re-wraps the password envelope and goes back to the account card.
-    ///
-    /// Rust re-wraps the same vault key, so every other device carries on with
-    /// what it already holds and is never told anything happened (parent spec
-    /// user story 33). A `VaultKeyChangedElsewhere` rejection leaves this
-    /// screen up with that sentence on it, because pressing the button again
-    /// is the whole remedy.
-    func changeVaultPassword(_ newPassword: String) async {
-        await step { setup in
-            try await setup.changeVaultPassword(newPassword: newPassword)
-            self.shell.announce(LocalizedMessage("sync.hosted.vaultPassword.change.changed"))
-            try await self.readStep(setup)
-        }
-    }
-
-    /// Issues a new recovery key and shows it on the same save screen the
-    /// wizard uses — the old one has stopped working by the time it appears.
-    func newRecoveryKey() async {
-        await step { setup in
-            self.recoveryKey = try await setup.newRecoveryKey()
-            self.recoveryKeyReplaced = true
-            self.recoveryKeySaved = false
-            self.screen = .recoveryKey
-        }
-    }
-
-    /// Leaves an account-card detour without doing anything.
-    func backToAccount() async {
-        await step { setup in try await self.readStep(setup) }
-    }
-
-    func copyRecoveryKey() {
-        guard let recoveryKey else { return }
-        shell.copyToPasteboard(recoveryKey)
-        shell.announce(LocalizedMessage("sync.hosted.recoveryKey.copied"))
-    }
-
-    func continueAfterRecoveryKey() async {
-        recoveryKey = nil
-        recoveryKeyReplaced = false
-        recoveryKeySaved = false
-        await step { setup in try await self.readStep(setup) }
-    }
-
-    func unlockWithPassword(_ vaultPassword: String) async {
-        await step { setup in
-            try await setup.unlockWithVaultPassword(vaultPassword: vaultPassword)
-            try await self.readStep(setup)
-        }
-    }
-
-    func unlockWithRecoveryKey(_ typed: String) async {
-        await step { setup in
-            try await setup.unlockWithRecoveryKey(typed: typed)
-            try await self.readStep(setup)
-        }
-    }
-
-    /// Moves the unlock screen to another door, stopping a live pairing wait on
-    /// the way out. A code that is already on the relay cannot be withdrawn, so
-    /// leaving abandons it rather than resuming it.
-    func chooseDoor(_ door: UnlockDoor) {
-        if unlockDoor == .scan, door != .scan { cancelPairing() }
-        unlockDoor = door
-    }
-
-    /// Opens a pairing and shows its code until the other device answers.
-    ///
-    /// One call covers the whole wait: Rust mints the one-time keypair,
-    /// publishes the public half to the relay, and polls for the sealed vault
-    /// key until the relay's own five minutes are up. What comes back decides
-    /// the state, which is why nothing here has its own timer — the countdown
-    /// on screen only describes that deadline, it does not enforce it.
-    func showPairingCode() async {
-        await step { setup in
-            self.pairing = .idle
-            self.pairingPayload = nil
-            let code = try await setup.beginPairing(deviceName: self.shell.deviceName)
-            self.pairingPayload = code.payload
-            self.pairingExpiresAt = code.expiresAt
-            self.pairing = .waiting
-            do {
-                let outcome = try await setup.awaitPairing()
-                self.pairingPayload = nil
-                if case .cancelled = outcome {
-                    self.pairing = .idle
-                    return
-                }
-                // The key arrived and is kept: this device is unlocked. Said
-                // here rather than after the step read, so the code's
-                // disappearance is explained while that read is in flight.
-                self.pairing = .received
-                try await self.readStep(setup)
-            } catch {
-                self.pairingPayload = nil
-                switch error as? HostedError {
-                // A person who declined on the other device sent nothing, so
-                // this is also what declining looks like from here. The copy
-                // says so rather than claiming to know which happened.
-                case .PairingExpired:
-                    self.pairing = .expired
-                case .PairingRefused, .PairingAlreadyKeyed:
-                    self.pairing = .refused
-                default:
-                    self.pairing = .idle
-                    throw error
-                }
-            }
-        }
-    }
-
-    /// Stops waiting and puts the three doors back. Deliberately outside
-    /// `step`: the wait it is cancelling is what holds `busy`.
-    func cancelPairing() {
-        if pairing == .waiting { setup?.cancelWait() }
-        pairing = .idle
-        pairingPayload = nil
-        pairingExpiresAt = nil
-    }
-
-    /// Opens the camera on an unlocked device (parent spec user story 15).
-    func openScanner() {
-        errorMessage = nil
-        scannedPairing = nil
-        scanPhase = .scanning
-    }
-
-    /// One code, from the camera or from a test. Parsing touches no network, no
-    /// secret store, and no vault key — all it answers is the name to put on
-    /// the confirmation sheet.
-    func readScannedCode(_ code: String) async {
-        await step { setup in
-            self.scannedPairing = try self.parseScanned(setup, code)
-            self.scanPhase = .confirming
-        }
-    }
-
-    /// The confirmation (parent spec user story 16). This is the only thing in
-    /// the app that sends a vault key anywhere.
-    func sendVaultKey() async {
-        guard let scanned = scannedPairing else { return }
-        await step { _ in
-            self.scanPhase = .sending
-            do {
-                try await scanned.send()
-            } catch {
-                // A refused or already-answered pairing cannot be retried, and
-                // a locked device has nothing to give: either way the next
-                // useful move is a fresh code, so the camera goes back on with
-                // the reason on screen.
-                self.scannedPairing = nil
-                self.scanPhase = .scanning
-                throw error
-            }
-            self.scanPhase = .sent
-        }
-    }
-
-    /// Said no on the confirmation sheet. Nothing was sent, and nothing is kept.
-    func cancelConfirmation() {
-        scannedPairing = nil
-        errorMessage = nil
-        scanPhase = .scanning
-    }
-
-    func closeScanner() {
-        scannedPairing = nil
-        scanPhase = .closed
-    }
-
     func manageSubscription() async {
         await step { setup in
             let portal = try await setup.billingPortal()
@@ -505,7 +256,7 @@ final class HostedSetupModel: ObservableObject {
     /// remembers a step, which is what makes quitting halfway and reopening
     /// land on the right screen rather than on a saved cursor that can
     /// disagree with the server (ADR 0003, decision 3).
-    private func readStep(_ setup: HostedSetupClientProtocol) async throws {
+    func readStep(_ setup: HostedSetupClientProtocol) async throws {
         switch try await setup.currentStep() {
         case .signIn:
             // Nothing below applies before there is a session, and asking for
@@ -552,7 +303,7 @@ final class HostedSetupModel: ObservableObject {
 
     /// Runs one step, reporting whatever it fails with as a sentence. Nothing
     /// else here catches, so no failure can leave the screen busy forever.
-    private func step(_ work: (HostedSetupClientProtocol) async throws -> Void) async {
+    func step(_ work: (HostedSetupClientProtocol) async throws -> Void) async {
         if busy { return }
         busy = true
         errorMessage = nil
