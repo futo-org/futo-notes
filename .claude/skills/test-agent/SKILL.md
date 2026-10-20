@@ -93,7 +93,7 @@ cd "$WORKTREE_ROOT" && cargo test -p futo-notes-sync -- --nocapture 2>&1 | tee "
 
 For cross-client scenarios (two real app instances + an isolated server), extend
 `tests/cross-platform-sync.mjs` instead of writing a new ephemeral harness — see its `scenarios`
-array and `just test-cross-platform`.
+array (`tests/cross-platform-sync/scenario-registry.mjs`) and `just test-cross-platform`.
 
 **For UI scenarios** — use Tauri MCP tools or agent-browser following `/verify`'s patterns:
 - Take before/after screenshots
