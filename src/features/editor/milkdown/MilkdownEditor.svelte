@@ -37,37 +37,18 @@
   import './milkdownEditor.css';
   import type { Editor } from '@milkdown/kit/core';
   import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
-  import type { Selection as ProseSelection } from '@milkdown/kit/prose/state';
   import { imageReferenceMarkdown } from '@futo-notes/editor';
-  import {
-    installVaultImageUrlResolver,
-    uninstallVaultImageUrlResolver,
-  } from '$features/images/vaultImageUrlResolver';
   import { deleteImage } from '$features/images/imageFiles';
-  import { onFileDrop } from '$lib/platform';
   import { localizedText } from '$shared/localization';
   import { createImageInsertTarget } from '../imageInsertTarget';
   import { dismissLinkPrompt } from './linkPrompt';
-  import {
-    dropCarriesFiles,
-    filePathsFromDrop,
-    imageFilesIn,
-    imagePathsIn,
-    resolveImageInserter,
-  } from '../imageInsert';
-  import { createImagePasteHandler, resolveImagePasteSink } from '../imagePasteSink';
-  import type { EditorLinkGesture } from '../editorLinkGesture';
   import { resolveBlockDragMode } from './blockDragMode';
   import { createBlockDrag } from './blockDrag.svelte';
   import { landPendingDrop } from './blockDragSession';
   import { assembleEditor } from './editorPlugins';
-  import { editorView, enclosingListItem } from './caretContext';
-  import { inIndentableContainer } from './blockCommands';
-  import { computeActiveFormats, computeDisabledFormats } from './formatState';
-  import type { MobileDndHapticKind } from './mobileBlockDnd';
+  import { editorView } from './caretContext';
   import { resolveSelectionToolbar } from './selectionToolbar';
   import { resolveSlashMenu } from './slash';
-  import type { FindBarState, FindMatchReport } from './find';
   import { DocumentSession } from './documentSession.svelte';
   import { createSerializationLoop } from './serializationLoop';
   import { createDocumentLoad } from './documentLoad';
@@ -76,58 +57,9 @@
   import { createHostHandle } from './hostHandle';
   import { createLinkTaps } from './linkTaps';
   import { CHECKBOX_SIZE_PX } from './taskCheckbox';
-
-  import type { DocumentRef, FlushFailureReason } from '@futo-notes/editor';
-
-  interface Props {
-    content?: string;
-    onchange?: (content: string, ref: DocumentRef, flushToken?: string) => void;
-    onedited?: (ref: DocumentRef) => void;
-    ondocumentloaded?: (ref: DocumentRef, source: 'load' | 'external') => void;
-    onflushfailed?: (ref: DocumentRef, token: string, reason: FlushFailureReason) => void;
-    onexternalrefused?: (ref: DocumentRef) => void;
-    onfocuschange?: (focused: boolean) => void;
-    oncompositionend?: () => void;
-    oncursorcontext?: (ctx: { onListLine: boolean; inContainer: boolean }) => void;
-    nativeShell?: boolean;
-    onopenlink?: (title: string, gesture: EditorLinkGesture) => void;
-    onopenurl?: (url: string) => void;
-    /* Notion-style native toolbar active-state (iOS only for now — see
-     * bridge.ts FormatStateMessage and issue #104 for the Android consumer).
-     * Fires deduped whenever the set of active toolbar-manifest ids at the
-     * cursor/selection changes. */
-    onformatstate?: (active: string[], disabled: string[]) => void;
-    /* Notion-style block drag haptics, from the long-press path both native
-     * shells mount (see bridge.ts HapticMessage / mobileBlockDnd.ts). */
-    onhaptic?: (kind: MobileDndHapticKind) => void;
-    /* Whether a block is airborne on that same long-press path. A shell whose
-     * WebView runs its own text-interaction gestures suspends them while it is
-     * (bridge.ts BlockDragMessage) — on iOS nothing the page can do stops the
-     * OS magnifier. */
-    onblockdrag?: (active: boolean) => void;
-    /* Whether a finger is DOWN on a block on that same path — posted at
-     * touch-down, so a shell can stand its WebView's DELAYED long-press
-     * recognisers down before they can win, instead of waiting for a lift that
-     * may not come (bridge.ts BlockPressMessage / mobileBlockDnd.ts). */
-    onblockpress?: (pressed: boolean) => void;
-    /* Find in note's `{query, current, total, label}` report, for the native
-     * bars (bridge.ts FindMatchesMessage). Deduped by the engine, and posted
-     * whether or not this build renders the desktop panel. */
-    onfindmatches?: (report: FindMatchReport, ref: DocumentRef) => void;
-    /* Everything a find bar renders, deduped. The desktop shell draws its bar
-     * from this; the native shells ignore it and read `onfindmatches`. */
-    onfindstate?: (state: FindBarState) => void;
-    /** The note stays readable but takes no edits: its vault refuses writes. */
-    readonly?: boolean;
-    /* The editor engine is up and holding a document. Milkdown's
-     * `Editor.make().create()` is ASYNC, so Svelte's `mount()` returns long
-     * before this — and the Android WebView gate used to read the host API that
-     * mount() publishes as proof the engine works. On a Chromium 83 WebView
-     * that meant a blank pane and no "update System WebView" notice
-     * (docs/spec/editor.md; tests/editor-embed-webview-floor.spec.ts). This is
-     * the honest signal. */
-    onenginemounted?: () => void;
-  }
+  import type { Props } from './milkdownEditorProps';
+  import { createEditorEmitters } from './editorEmitters';
+  import { createImageInput } from './imageInput';
 
   let {
     content = '',
@@ -188,6 +120,12 @@
     get onfocuschange() {
       return onfocuschange;
     },
+    get onformatstate() {
+      return onformatstate;
+    },
+    get oncursorcontext() {
+      return oncursorcontext;
+    },
     get onfindmatches() {
       return onfindmatches;
     },
@@ -228,10 +166,13 @@
   /* The document this editor holds for the host (documentSession.svelte.ts). */
   const session = new DocumentSession();
 
-  let onListLine: boolean | null = null;
-  let inContainer: boolean | null = null;
-
   const pmView = (): ProseView | null => editorView(editor);
+
+  const { emitFormatState, emitCursorContext } = createEditorEmitters({
+    pmView,
+    session,
+    props: liveProps,
+  });
 
   /* Background idle work — the streamed tail of a progressive open, the
    * serializer's cache priming — yields to the user's touch
@@ -314,46 +255,6 @@
     nudgeBlockHandle: blockDrag.nudgeBlockHandle,
   });
 
-  /* ---- images ------------------------------------------------------------ *
-   * Vault images are bare filenames; `vaultImageView.ts` is the ProseMirror
-   * node view that resolves each one against whatever this shell serves the
-   * vault over, and re-resolves itself when that arrives late. Nothing here
-   * touches rendered image DOM — a post-render sweep is what the node view
-   * replaced (see that file's header for the three bugs it had).
-   *
-   * Pasting an image is `pasteHandler` below: `imagePasteSink.ts` decides how
-   * THIS host captures the bytes, and this component only inserts whatever
-   * filename comes back. */
-  let pasteHandler: ((event: ClipboardEvent) => boolean) | null = null;
-  /* Dropping an image FILE from the OS is `dropHandler` plus `stopFileDrop`
-   * below — two paths for one gesture, because the two backends deliver it
-   * differently and neither is a choice this component gets to make:
-   *
-   *   - Every desktop platform now disables wry's native drop target
-   *     (`dragDropEnabled: false` — Linux joined macOS/Windows in QA #017,
-   *     2026-09-11), so the drop arrives as an ordinary HTML5 `drop` —
-   *     ProseMirror's `handleDrop` prop. Chromium (macOS/Windows) populates
-   *     `dataTransfer.files` with the bytes already read; WebKitGTK (Linux)
-   *     does NOT — first fix attempt claimed on `text/uri-list` CONTENT, but
-   *     a real capture (QA #017 follow-up, 2026-09-15) showed WebKitGTK
-   *     advertises `text/uri-list` in `.types` while `getData` on it returns
-   *     an empty string, and the dropped path lives only in the sibling
-   *     `text/html`'s `<a>` TEXT CONTENT (no `href`) — so the drop went
-   *     unclaimed and the `file:///…` text was inserted literally.
-   *     `filePathsFromDrop` reads that real shape now; see its own header.
-   *   - The WINDOW path (`PlatformFS`'s `onFileDrop`) stays wired as a
-   *     fallback: it was Linux's ONLY path while wry's GTK relay was on, and
-   *     that relay never fired at all on a native-Wayland compositor.
-   *
-   * Both end in `imageInsert.ts`, which is also what the `/image` picker uses.
-   * Off Tauri `onFileDrop` is a no-op subscription, so nothing here branches on
-   * platform (src/AGENTS.md rule 4.5). */
-  let dropHandler: ((event: DragEvent) => boolean) | null = null;
-  let stopFileDrop: (() => void) | null = null;
-  /* Only true where this editor installed the per-file URL producer (Tauri
-   * desktop), so the teardown removes exactly what the mount added. */
-  let ownsImageUrlResolver = false;
-
   /* The note every asynchronous image completion belongs to. ONE target for
    * all three doors — clipboard paste, the `/` menu's Image item, an OS drop —
    * so the rule is stated once rather than remembered at each of them. At
@@ -365,76 +266,11 @@
     discard: deleteImage,
   });
 
-  /* Sorted comma-joined snapshot of the last emitted format-state set, so
-   * emitFormatState() below can dedupe without the caller tracking it. */
-  let lastFormatStateKey: string | null = null;
-
-  /**
-   * Emits deduped `formatState`. `selectionOverride`, when given, is the
-   * SELECTION-JUST-APPLIED from Milkdown's `selectionUpdated` listener
-   * callback — pass it explicitly rather than reading `pmView()!.state`
-   * there: Milkdown's listener plugin runs that callback from inside
-   * `EditorState.apply(tr)`, before the default `dispatchTransaction` calls
-   * `view.updateState(...)`, so `view.state` (and its `.selection`/
-   * `.storedMarks`) is still ONE TRANSACTION BEHIND at that exact call site —
-   * `pmView()?.state.selection` there would report where the caret USED TO
-   * BE. `mounted`/the debounced change notification/`exec()` all run outside that
-   * window, so `view.state` is current for them (no override needed) — and
-   * `storedMarks` is intentionally omitted (`null`) for the override case: a
-   * plain selection-move transaction always clears storedMarks anyway, so
-   * `selection.$from.marks()` alone is correct there, whereas `exec('bold')`
-   * on a collapsed selection genuinely relies on the freshly toggled
-   * `view.state.storedMarks` to report active immediately.
-   *
-   * Disabled ids (Undo/Redo) are computed from `view.state` directly — they
-   * are not selection-dependent, so `selectionOverride` says nothing about
-   * them — which means they can lag by the same one transaction the override
-   * exists to correct for `active`. That is fine here: it self-heals at the
-   * next debounced change notification (`reportDocumentChange`'s
-   * `emitFormatState()` in serializationLoop.ts, called with fresh
-   * `view.state`), and the case that
-   * actually matters — tapping Undo/Redo itself — runs through `exec()`,
-   * which is never inside the stale window.
-   */
-  function emitFormatState(selectionOverride?: ProseSelection): void {
-    if (!onformatstate) return;
-    /* A streaming progressive open moves the selection with every chunk it
-     * appends, and there is no toolbar tap behind any of it — recomputing
-     * would be per-chunk work on the load path for a highlight nobody asked
-     * for. The completion path emits once, for the finished document. */
-    if (session.progressive?.loading) return;
-    const view = pmView();
-    if (!view) return;
-    const selection = selectionOverride ?? view.state.selection;
-    const storedMarks = selectionOverride ? null : view.state.storedMarks;
-    const active = computeActiveFormats(view, selection, storedMarks);
-    const disabled = computeDisabledFormats(view);
-    const key = `${[...active].sort().join(',')}|${[...disabled].sort().join(',')}`;
-    if (key === lastFormatStateKey) return;
-    lastFormatStateKey = key;
-    onformatstate(active, disabled);
-  }
-
-  /**
-   * Emits deduped `cursorContext` — Indent/Outdent visibility. Takes the same
-   * `selectionOverride` as `emitFormatState`, and for the same reason.
-   *
-   * `inContainer` is the honest name for the native toolbars' `when:
-   * 'inContainer'` visibility rule (list item OR blockquote —
-   * `inIndentableContainer`, blockCommands.ts); `onListLine` stays exactly
-   * what it was for anything that genuinely needs list-only semantics.
-   */
-  function emitCursorContext(selectionOverride?: ProseSelection): void {
-    const view = pmView();
-    if (!view) return;
-    const selection = selectionOverride ?? view.state.selection;
-    const inList = enclosingListItem(selection) !== null;
-    const inAnyContainer = inIndentableContainer(selection.$from);
-    if (inList === onListLine && inAnyContainer === inContainer) return;
-    onListLine = inList;
-    inContainer = inAnyContainer;
-    oncursorcontext?.({ onListLine: inList, inContainer: inAnyContainer });
-  }
+  const imageInput = createImageInput({
+    imageTarget,
+    placeCaretAtCoords,
+    getContainer: () => container,
+  });
 
   /** The page is going away or out of sight: a block drop still landing
    * commits now (its slides may never end: a hidden page's animation clock
@@ -479,8 +315,8 @@
         useSelectionToolbar: () => useSelectionToolbar,
         getEditor: () => editor,
         getPendingContent: () => session.pendingContent,
-        getPasteHandler: () => pasteHandler,
-        getDropHandler: () => dropHandler,
+        getPasteHandler: imageInput.getPasteHandler,
+        getDropHandler: imageInput.getDropHandler,
         isLoadFailed: () => session.loadFailed,
         getCurrentNoteId: () => session.currentNoteId,
         getDocumentGeneration: () => session.documentGeneration,
@@ -515,59 +351,7 @@
       }
       session.pendingContent = null;
 
-      pasteHandler = createImagePasteHandler({
-        sink: resolveImagePasteSink(),
-        insertImage: imageTarget,
-      });
-
-      const imageInserter = resolveImageInserter(imageTarget);
-
-      /* The HTML5 half (macOS/Windows/Linux). A drop carrying files, OR one
-       * advertising `text/uri-list` with none (WebKitGTK's shape — see the
-       * `dropHandler` declaration above), is ALWAYS claimed, images or not:
-       * the browser's default for an unclaimed file drop is to navigate the
-       * webview to that file, which would tear the app down mid-edit. A
-       * non-image file is therefore swallowed and ignored rather than
-       * inserted. The editor's OWN block drag matches neither shape — it
-       * never advertises `text/uri-list` — so it is never claimed here and
-       * falls through to ProseMirror's own drop handling. */
-      dropHandler = (event) => {
-        const transfer = event.dataTransfer;
-        if (dropCarriesFiles(transfer)) {
-          event.preventDefault();
-          const images = imageFilesIn(transfer);
-          if (images.length > 0) {
-            placeCaretAtCoords(event.clientX, event.clientY);
-            void imageInserter.insertFiles(images);
-          }
-          return true;
-        }
-        const paths = filePathsFromDrop(transfer);
-        if (paths.length > 0) {
-          event.preventDefault();
-          const images = imagePathsIn(paths);
-          if (images.length > 0) {
-            placeCaretAtCoords(event.clientX, event.clientY);
-            void imageInserter.insertPaths(images);
-          }
-          return true;
-        }
-        return false;
-      };
-
-      /* The window half (Linux). It fires for a drop anywhere on the window, so
-       * this editor takes only the ones that landed on IT — a drop on the
-       * sidebar is not this component's business. */
-      stopFileDrop = onFileDrop(({ paths, x, y }) => {
-        const box = container?.getBoundingClientRect();
-        if (!box) return;
-        if (x < box.left || x > box.right || y < box.top || y > box.bottom) return;
-        placeCaretAtCoords(x, y);
-        void imageInserter.insertPaths(paths);
-      });
-      /* Where images resolve per file rather than off a host base URL (Tauri
-       * desktop), the node views need something to ask. */
-      ownsImageUrlResolver = installVaultImageUrlResolver();
+      imageInput.install();
 
       if (!useMobileBlockDnd) blockDrag.mountGutterHandle(created);
     })().catch((error: unknown) => {
@@ -598,13 +382,7 @@
       serialization.cancelChangeNotification();
       serialization.stopPriming();
       serialization.detach();
-      stopFileDrop?.();
-      stopFileDrop = null;
-      dropHandler = null;
-      if (ownsImageUrlResolver) {
-        uninstallVaultImageUrlResolver();
-        ownsImageUrlResolver = false;
-      }
+      imageInput.dispose();
       detachInteractionHold();
       container.removeEventListener('click', handleClick);
       container.removeEventListener('auxclick', handleAuxClick);

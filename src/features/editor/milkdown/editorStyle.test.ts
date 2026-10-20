@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,10 +19,11 @@ import { describe, expect, it } from 'vitest';
  * under `.ProseMirror`/`.milkdown`/`.futo-milkdown`.
  */
 
-const MILKDOWN_EDITOR_CSS = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  'milkdownEditor.css',
-);
+const MILKDOWN_DIR = path.dirname(fileURLToPath(import.meta.url));
+/** `milkdownEditor.css` and the parts it `@import`s, which share its cascade. */
+const MILKDOWN_EDITOR_CSS = readdirSync(MILKDOWN_DIR)
+  .filter((name) => /^milkdownEditor(\.[a-z]+)?\.css$/.test(name))
+  .map((name) => path.join(MILKDOWN_DIR, name));
 
 /** A bare universal adjacent- or general-sibling combinator: `* + *` / `* ~ *`. */
 const UNIVERSAL_SIBLING_COMBINATOR_RE = /\*\s*[+~]\s*\*/;
@@ -35,7 +36,10 @@ function extractSelectors(styleBlock: string): string[] {
 
 describe('milkdownEditor.css', () => {
   it('never re-introduces a universal sibling combinator scoped to the editor', () => {
-    const selectors = extractSelectors(readFileSync(MILKDOWN_EDITOR_CSS, 'utf8'));
+    expect(MILKDOWN_EDITOR_CSS).toHaveLength(3);
+    const selectors = MILKDOWN_EDITOR_CSS.flatMap((file) =>
+      extractSelectors(readFileSync(file, 'utf8')),
+    );
     const offenders = selectors.filter((selector) =>
       UNIVERSAL_SIBLING_COMBINATOR_RE.test(selector),
     );
