@@ -20,7 +20,7 @@
   regardless of focus, so a phone's long-press-to-select-a-word was always
   read as "lift this block" instead — reported by QA on the 1.7.2-4 builds.
   Checked once, at touch-down; a press already in flight does not re-arbitrate
-  mid-gesture. → src/features/editor/milkdown/mobileBlockDnd.ts
+  mid-gesture. → src/features/editor/milkdown/mobileBlockDndGesture.ts
   `onPointerDown`, src/features/editor/milkdown/mobileBlockDnd.test.ts,
   tests/editor-embed-milkdown.spec.ts _(native shells)_
 - The lifted ghost shows the WHOLE block from its very first frame, sits over
@@ -36,7 +36,7 @@
   card also had to shed the editor's offscreen-block containment rule, which
   cropped it to one unrendered line on Android; that rule is gone — see
   Performance.) →
-  src/features/editor/milkdown/mobileBlockDnd.ts `createGhost`
+  src/features/editor/milkdown/blockDragVisuals.ts `createGhost`
   `GHOST_MAX_HEIGHT_FRACTION`, tests/editor-embed-milkdown.spec.ts
   _(native shells)_
 - On desktop a ⠿ handle appears in the left gutter beside the top-level block
@@ -75,7 +75,7 @@
   its landing slot, rather than some drags drawing a drop line instead. (List
   items used to drag on their own within their list, with only the line,
   because the preview handles top-level blocks only; a drag flipped between the
-  two depending on what was grabbed.) → src/features/editor/milkdown/mobileBlockDnd.ts
+  two depending on what was grabbed.) → src/features/editor/milkdown/mobileBlockDndGesture.ts
   `onPointerDown`, src/features/editor/milkdown/handleSource.ts `handleSourceFor`,
   src/features/editor/milkdown/blockDragCurtain.ts,
   src/features/editor/milkdown/handleSource.test.ts, tests/editor-embed-milkdown.spec.ts
@@ -91,7 +91,7 @@
   blocks at the lift, or when the note changes under the drag (a host
   `setContent`, a sync pull, an undo), which ends the preview and draws the line
   from the next move. → src/features/editor/milkdown/blockDragCurtain.ts
-  `measure` `ensureValid`, src/features/editor/milkdown/blockDragSession.ts
+  `measure`, blockDragCurtainWindow.ts `ensureValid`, src/features/editor/milkdown/blockDragSession.ts
 - The live-reflow preview follows the note's layout when it changes under a
   drag while the note itself does not: an image that loads, a web font that
   swaps in, a resized window or a rotated phone. The blocks are measured again
@@ -100,8 +100,9 @@
   block mid-slide carries on from where it is drawn rather than jumping. A
   release checks the layout again itself, so a change in the very moment of
   release is not missed. It does not fall back to the drop line. Verified in
-  Chromium (Playwright) 2026-10-08. → src/features/editor/milkdown/blockDragCurtain.ts
-  `watch` `followScroll` `remeasure` `release`, tests/editor-embed-milkdown.spec.ts
+  Chromium (Playwright) 2026-10-08. → src/features/editor/milkdown/blockDragCurtainClones.ts
+  `watch`, blockDragCurtainWindow.ts `followScroll` `remeasure`,
+  blockDragCurtain.ts `release`, tests/editor-embed-milkdown.spec.ts
 - The desktop ⠿ handle's lifted block is a ghost card the page draws, at the
   block's own on-screen size, never an OS drag image: a clone of the block over
   the block itself (padded by the card's breathing room, like the long press's),
@@ -136,7 +137,7 @@
   past a block flipped back the moment the pointer re-entered that block's old
   upper half — a whole paragraph-height inside the paragraph's own drawn slot.
   The slot cannot flip back and forth: passing a block moves it to the other
-  side of the slot, away from the pointer. → src/features/editor/milkdown/blockDragCurtain.ts
+  side of the slot, away from the pointer. → src/features/editor/milkdown/blockDragCurtainLayout.ts
   `reflowGapAt`, tests/editor-embed-milkdown.spec.ts
 - The dragged block's own two boundaries open no slot, draw no line and tick no
   haptic on either gesture, because a drop there is a no-op: the finger holding

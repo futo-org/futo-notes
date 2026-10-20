@@ -41,4 +41,4 @@
 - A newline at the very end of a note is not written (trailing whitespace is
   not content), so a note left ending in an empty line reloads without it. →
   packages/editor/src/milkdown-compat/trailingParagraph.ts `endsInUnwrittenBlank`,
-  milkdown/hostHandle.ts `holdsExactly`
+  milkdown/hostHandleNote.ts `holdsExactly`

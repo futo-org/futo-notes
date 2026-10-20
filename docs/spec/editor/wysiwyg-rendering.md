@@ -9,7 +9,7 @@
   document is still exactly what loaded, the editor hands the host back the
   bytes it was given rather than its own serialization; the FIRST real edit is
   what re-spells the note, and it re-spells the whole note (ADR-0002,
-  normalize-once). → milkdown/hostHandle.ts `getContent`,
+  normalize-once). → milkdown/hostHandleContent.ts `getContent`,
   docs/adr/0002-roundtrip-normalization-accepted.md,
   tests/editor-embed-milkdown.spec.ts
 - A block with no text of its own — a thematic break, a wikilink chip, the front

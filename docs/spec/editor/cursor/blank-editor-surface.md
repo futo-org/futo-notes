@@ -22,7 +22,7 @@
 - The tag bar's blank space reaches the first line of the editor at the
   pointer's column: pressing it focuses the editor and places the caret at that
   x on the first line. Tag controls and the title keep their own interactions.
-  → NoteWorkspace.svelte `reachFromTagBar`, milkdown/hostHandle.ts
+  → NoteWorkspace.svelte `reachFromTagBar`, milkdown/hostHandleView.ts
   `placeCaretAtCoords`
 - A primary press outside the desktop editor surface deselects the note without
   moving its caret and commits a pending title rename; movement during that

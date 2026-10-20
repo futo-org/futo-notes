@@ -28,8 +28,8 @@
   its blocks such as opening another note, that leaves the view clear of it, so
   its removal never moves the view either, even after the window was resized.
   Verified in Chromium (Playwright) 2026-10-08. →
-  src/features/editor/milkdown/blockDragCurtain.ts `holdScrollThroughDrop`
-  `holdScrollExtent`, src/features/editor/milkdown/blockDragSession.ts,
+  src/features/editor/milkdown/blockDragCurtain.ts `holdScrollThroughDrop`,
+  blockDragCurtainDom.ts `holdScrollExtent`, src/features/editor/milkdown/blockDragSession.ts,
   tests/editor-embed-milkdown.spec.ts
 - Only the dropped block moves at the release, snapping into its slot: a
   neighbour still sliding out of the way when the finger lifts finishes its
@@ -90,5 +90,5 @@
   block too. Verified on the emulator with gesture navigation (API 36, System
   WebView 133.0.6943.137) 2026-09-23, on a fresh one-block note and a
   five-block one. → apps/ios/Sources/Editor/EditorWebView.swift
-  `navigationPopGestures`, src/features/editor/milkdown/mobileBlockDnd.ts
+  `navigationPopGestures`, src/features/editor/milkdown/mobileBlockDndGesture.ts
   `onPointerCancel` _(native shells)_

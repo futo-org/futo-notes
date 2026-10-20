@@ -87,7 +87,7 @@
   original bytes when untouched, or settles the tail before reporting an edit.
   Desktop component reads use the same complete-document serialization. A pinned
   `role="status"` bar reads "Loading the rest of this note…" while it runs, and
-  the streamed appends are not undoable. → milkdown/hostHandle.ts `flush`, `getContent`,
+  the streamed appends are not undoable. → milkdown/hostHandleContent.ts `flush`, `getContent`,
   milkdown/progressiveLoad.ts, tests/editor-embed-milkdown.spec.ts
 - Every top-level block is rendered eagerly; the editor applies no
   `content-visibility` containment. A Chromium-only containment rule ran from

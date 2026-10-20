@@ -81,7 +81,7 @@
   back. A touch drag across cells makes no cell selection on Android (Chromium
   sends a touch drag no mouse drag), so the grip menu is the touch route to one.
   Verified on the emulator (API 36, System WebView 133.0.6943.137) 2026-09-23.
-  _(native shells)_ → src/features/editor/milkdown/hostHandle.ts
+  _(native shells)_ → src/features/editor/milkdown/hostHandleView.ts
   `blur`, src/features/editor/milkdown/table/tableGrips.ts `hideTableGrips`,
   tests/editor-embed-milkdown.spec.ts "blur() drops a highlighted range",
   tests/editor-embed-milkdown-table-grips.spec.ts "the bridge blur ends the

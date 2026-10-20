@@ -19,7 +19,7 @@
   (matching Tab's own "typing replaces" convention) — only on the LAST row,
   where there is no row below, does Enter append a new one and move into it.
   Mod+Enter exits the table into a new paragraph after it (the gfm preset's
-  own `exitTable` binding). → src/features/editor/milkdown/keyboardParity.ts
+  own `exitTable` binding). → src/features/editor/milkdown/keyboardParityTable.ts
   `insertTableRowBelow` / `appendTableRowFromLastCell`,
   tests/editor-embed-milkdown-interactive.spec.ts
 - Shift+Enter with the caret in a table cell inserts a line break in that
@@ -29,7 +29,7 @@
   Shift+Enter, `second` saved as `r1asecond`). The break saves as a literal
   `<br>` inside the cell (GFM's own way to write a multi-line cell — a real
   newline would corrupt the row) and parses back into the same break on
-  reopen. → src/features/editor/milkdown/keyboardParity.ts
+  reopen. → src/features/editor/milkdown/keyboardParityTable.ts
   `insertLineBreakInTableCell`,
   src/features/editor/milkdown/table/tableLineBreak.ts (reading the `<br>` back),
   src/features/editor/milkdown/table/tableLineBreak.test.ts
@@ -62,19 +62,19 @@
   `syncListOrderPlugin`
 - Renumbering follows an edit, so the FILE's numbering is left exactly as
   written until you type in it — a hand-numbered `1. / 1. / 1.` list stays that
-  way on disk. → milkdown/hostHandle.ts `getContent`
+  way on disk. → milkdown/hostHandleContent.ts `getContent`
 
 - Text that reaches the open note from outside it — a sync pull landing while
   you read, a host push of the note on screen — replaces the document and is not
   reported back to the host as a change of yours, so a peer's version is not
-  echoed straight back over theirs. → milkdown/hostHandle.ts `setContent` /
+  echoed straight back over theirs. → milkdown/hostHandleNote.ts `setContent` /
   milkdown/documentLoad.ts `applyExternal`,
   editor-embed/createFutoEditorApi.ts `applyExternalContent`
 
 - Undo only ever reverses edits made in the note on screen — never text from
   another note — and opening a note is not itself something undo can reverse:
   the host clears the stack on every open, and a progressively streamed note's
-  chunk appends are not undoable. → milkdown/hostHandle.ts `resetHistory`,
+  chunk appends are not undoable. → milkdown/hostHandleView.ts `resetHistory`,
   src/features/editor/milkdown/progressiveLoad.ts,
   tests/editor-embed-milkdown.spec.ts "Undo history"
 - Opening a note starts its undo empty. Leaving a note and coming back does not

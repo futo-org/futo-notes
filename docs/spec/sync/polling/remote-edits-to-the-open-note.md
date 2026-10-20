@@ -83,7 +83,7 @@
   meant the shell never saw a blur edge and the deferral was stranded
   indefinitely on superseded peer content (device-verified on
   emulator 2026-08-10). A deferral therefore always has an edge to settle on.
-  → packages/editor bridge v2; milkdown/hostHandle.ts `hasFocus` (guarded by
+  → packages/editor bridge v2; milkdown/hostHandleView.ts `hasFocus` (guarded by
   tests/editor-focus-signal.spec.ts); iOS `EditorWebView` /
   `OpenNoteReconciler`; Android
   `EditorSession.settleDeferredAdoption` / `NoteEditorScreen.kt`

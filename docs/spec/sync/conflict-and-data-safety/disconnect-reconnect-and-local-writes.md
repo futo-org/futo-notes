@@ -63,7 +63,7 @@
   the open note and sync propagated the truncation to every connected device
   (observed 2026-06-04 via a dev HMR swap; the same teardown race exists on
   note-switch/quit). → NotesShell.svelte `getEditorContent`,
-  NoteWorkspace.svelte `EditorApi.getContent`, milkdown/hostHandle.ts `getContent`
+  NoteWorkspace.svelte `EditorApi.getContent`, milkdown/hostHandleContent.ts `getContent`
 
 - A note's modified time is **server-authoritative** so note-list ordering is
   identical on every device: a real push restamps the local file to the

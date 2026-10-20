@@ -438,14 +438,14 @@ value = 17.0
 body_hash = "9c42a0b79fcc332b"
 
 [[entry]]
-path = "src/features/editor/milkdown/keyboardParity.ts"
+path = "src/features/editor/milkdown/keyboardParityCode.ts"
 qualified = "tabInCodeBlock"
 metric = "cognitive"
 value = 22.0
 body_hash = "3fa3f9d21ca5e7cd"
 
 [[entry]]
-path = "src/features/editor/milkdown/keyboardParity.ts"
+path = "src/features/editor/milkdown/keyboardParityCode.ts"
 qualified = "tabInCodeBlock"
 metric = "cyclomatic"
 value = 16.0

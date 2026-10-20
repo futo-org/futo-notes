@@ -16,7 +16,7 @@
   The embed's reveal is what iOS needs and is harmless there. Verified on the
   emulator (API 36, System WebView 133.0.6943.137) 2026-09-23. _(native
   shells)_ → src/editor-embed/main.ts `resize` listener,
-  src/features/editor/milkdown/hostHandle.ts `revealSelection`
+  src/features/editor/milkdown/hostHandleView.ts `revealSelection`
 
 - The editor reserves a tail below the last line — `max(40vh, 280px)` of bottom
   padding on the editable — so the final line can be scrolled clear of the
