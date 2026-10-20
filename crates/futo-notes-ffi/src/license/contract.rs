@@ -472,7 +472,7 @@ pub fn license_links(
 ///
 /// `bundle_id` is the dev/prod split (M3): a `.dev` build verifies against the
 /// staging org key and can never accept a production license, and vice versa.
-/// An unrecognised id is treated as production, which is the fail-closed
+/// An unrecognized id is treated as production, which is the fail-closed
 /// direction.
 #[uniffi::export]
 pub fn license_evaluate(stored: Option<LicensePair>, bundle_id: String) -> LicenseView {
@@ -490,7 +490,7 @@ pub fn license_handle_deep_link(url: String, bundle_id: String) -> LicenseLinkOu
     handle_deep_link_with(&url, &bundle_id, OffsetDateTime::now_utc(), &OfflineOnly)
 }
 
-/// Recognise the input, activate it if the user typed a bare key, verify, and
+/// Recognize the input, activate it if the user typed a bare key, verify, and
 /// hand back the pair to store — one call, so no shell sequences
 /// activate-then-verify (AGENTS.md §4.6).
 ///
@@ -823,7 +823,7 @@ mod tests {
     /// Unlicensed has no key to show — and neither does a stored pair that
     /// stopped verifying, including one from the other environment (M3).
     /// Rendering the key of a license this build just refused would tell the
-    /// user they hold something the app does not honour.
+    /// user they hold something the app does not honor.
     #[test]
     fn an_unlicensed_view_carries_no_key() {
         assert_eq!(evaluate_at(None, DEV_BUNDLE_ID, during_term()).key, None);

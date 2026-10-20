@@ -141,7 +141,7 @@ describe('requestVaultImageUrl', () => {
 
   /* A missing or unreadable file must not wedge the filename: sync delivers an
    * image alongside its note, not necessarily before it, so a later render has
-   * to be able to ask again. Modelled the way it actually happens — renders
+   * to be able to ask again. Modeled the way it actually happens — renders
    * keep asking. */
   it('lets a later render retry after the resolver rejects', async () => {
     const resolve = vi

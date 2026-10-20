@@ -509,7 +509,7 @@ test.describe('YAML front matter survives the round trip', () => {
 
   test('canary: upstream rewrites the fences and escapes the metadata value', async ({ page }) => {
     const out = await roundTrip(page, 'baseline', NOTE);
-    // Nothing in the unpatched parser recognises front matter, so the opening
+    // Nothing in the unpatched parser recognizes front matter, so the opening
     // `---` is a thematic break and the metadata lines are a setext heading.
     expect(out).toContain('***');
     expect(out).toContain('tags: \\[a, b]');
@@ -739,7 +739,7 @@ test.describe('bold or italic whose edge is punctuation next to a letter', () =>
 
 test.describe('strikethrough whose edge is punctuation next to a letter', () => {
   // The same flanking rule as bold and italic (GFM strikethrough classifies
-  // its neighbours the way `*` does), and `mdast-util-gfm-strikethrough`'s
+  // its neighbors the way `*` does), and `mdast-util-gfm-strikethrough`'s
   // `delete` handler has no `encodeInfo` at all: `~~Note:~~bar` reopened as
   // literal tildes and the next save escaped them for good.
   const STRUCK = '~~Note:~~&#x62;ar\n';
@@ -757,7 +757,7 @@ test.describe('strikethrough whose edge is punctuation next to a letter', () => 
 
 test.describe('an underscore emphasis next to a `*` run reopens as the same document', () => {
   // Guard for a dropped approach (FB-4a round 2): writing `*` in place of an
-  // `_` run that could only flank encoded ignores a neighbouring or enclosing
+  // `_` run that could only flank encoded ignores a neighboring or enclosing
   // `*` run, so `Z*b**c*` reopened with two literal `**` in the text. The house
   // style writes `*` wherever a parse says the runs do not merge, and `_` where
   // they would; either way the save reopens as the document it was.
@@ -785,7 +785,7 @@ test.describe('an underscore emphasis next to a `*` run reopens as the same docu
 test.describe('an attention run never invents a character reference (RC-104)', () => {
   // Milkdown trims a mark's edge spaces out of the mark and leaves the emptied
   // text node behind, so the first child of a link can be `''`. The remark-era
-  // encoder compared the empty neighbour with the empty previous result and
+  // encoder compared the empty neighbor with the empty previous result and
   // wrote `&#xNAN;` into the note, on the first save of any note holding the
   // shape. None of these needs a reference at all.
   const SHAPES: Record<string, string> = {

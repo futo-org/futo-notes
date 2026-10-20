@@ -83,7 +83,7 @@ enum EditorChangeDisposition: Equatable {
 private struct EditorExitPlan {
     /// Refuse a second exit while this one runs (and lock the UI for it).
     var admitsOne = false
-    /// Cancelled synchronously, before the first suspension.
+    /// Canceled synchronously, before the first suspension.
     var cancelsBeforeDrain: [EditorWork] = []
     /// Awaited, in this order, before anything is committed.
     var drains: [EditorWork] = []
@@ -104,7 +104,7 @@ private struct EditorExitPlan {
     static func of(_ exit: EditorExit) -> EditorExitPlan {
         switch exit {
         case .navigate:
-            // The adopt is CANCELLED, not only awaited: an open-note reconcile
+            // The adopt is CANCELED, not only awaited: an open-note reconcile
             // may be waiting for a posted change (up to the flush deadline against a
             // busy page). This exit takes over the mailbox wait before committing.
             return EditorExitPlan(
@@ -168,7 +168,7 @@ private struct EditorExitPlan {
 /// The body commit is always the same three steps: cancel the debounced save,
 /// await it, await the current mailbox, then hand that snapshot to the engine.
 ///
-/// Cancelling BEFORE draining is what makes delete safe: the cancels and the
+/// Canceling BEFORE draining is what makes delete safe: the cancels and the
 /// closed latch both land synchronously, in the window between the confirm tap
 /// and this session's task actually running, so nothing new is admitted and the
 /// drain only has to wait for what was already in flight.
@@ -201,10 +201,10 @@ final class EditorSession {
 
     // MARK: - The workflow registry
 
-    /// Schedule `kind`'s next run. The previous task of that kind is cancelled
+    /// Schedule `kind`'s next run. The previous task of that kind is canceled
     /// and awaited first, so consecutive requests form ONE chain — awaiting the
     /// newest waits for every older one too. The body is skipped when the chain
-    /// was cancelled or the session has closed.
+    /// was canceled or the session has closed.
     @discardableResult
     func schedule(
         _ kind: EditorWork,
@@ -221,7 +221,7 @@ final class EditorSession {
         return task
     }
 
-    /// Whether the current task may still touch the note: not cancelled, and no
+    /// Whether the current task may still touch the note: not canceled, and no
     /// destructive exit has latched. Re-check after every suspension.
     var isActive: Bool {
         !Task.isCancelled && !isClosing
@@ -233,7 +233,7 @@ final class EditorSession {
 
     /// Cancel and await one workflow before another owner gathers facts that
     /// must describe settled disk. Open-note reconciliation uses this for the
-    /// debounced draft flush: cancelling without the drain would let its FFI
+    /// debounced draft flush: canceling without the drain would let its FFI
     /// mutation land after the reconciler's disk read.
     func cancelAndDrain(_ kind: EditorWork) async {
         let pending = work[kind]
@@ -333,7 +333,7 @@ final class EditorSession {
 
             var committedBody: String?
             if plan.commitsBody {
-                // The debounced save is neutralised HERE, not at admission: a
+                // The debounced save is neutralized HERE, not at admission: a
                 // save already running has to finish (and be projected) before
                 // the exit waits for its mailbox, or it races the write it is
                 // supposed to supersede.

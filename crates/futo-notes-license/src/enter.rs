@@ -74,7 +74,7 @@ pub struct AcceptedLicense {
     pub state: LicenseState,
 }
 
-/// Recognise, activate if the input was a bare key, verify, and hand back the
+/// Recognize, activate if the input was a bare key, verify, and hand back the
 /// pair to store — one call, so no shell has to sequence these steps and get
 /// the order wrong (AGENTS.md §4.6).
 ///

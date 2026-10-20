@@ -14,7 +14,7 @@
  * a pointer down, a focus, a key — and reports "held" for a short settle window
  * after each one. The yielding scheduler (`createYieldingIdleScheduler` in
  * progressiveLoad.ts) waits a frame at a time while held, then schedules the
- * slice as before. Nothing is cancelled and nothing is reordered: a slice that
+ * slice as before. Nothing is canceled and nothing is reordered: a slice that
  * was due runs as soon as the hold lifts, so the stream's exactly-once
  * completion and the save lock behind it are untouched.
  *

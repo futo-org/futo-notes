@@ -48,7 +48,7 @@ const BLOCK_HANDLE_GRIP_SVG =
   '<circle cx="2" cy="14" r="1.5"/><circle cx="8" cy="14" r="1.5"/></svg>';
 
 /* What the handle lines up with: the block's FIRST LINE, not its middle.
- * floating-ui's `left` placement centres the handle on whatever box it is
+ * floating-ui's `left` placement centers the handle on whatever box it is
  * given, and the block's own box put it halfway down a long paragraph, a
  * code block or a list — away from the line the block starts on, which is
  * where the eye looks for it. The first line is the first character's box;
@@ -158,7 +158,7 @@ export function createBlockDrag(pmView: () => ProseView | null) {
     provider.update();
     // Registered NOW, so before the provider's own listeners (`update()` only
     // attaches those on the next frame): the press, its drag and the
-    // cancelling of the plugin's own are all handleBlockDrag.ts.
+    // canceling of the plugin's own are all handleBlockDrag.ts.
     handleDrag = mountHandleBlockDrag({
       handleEl,
       view: pmView,

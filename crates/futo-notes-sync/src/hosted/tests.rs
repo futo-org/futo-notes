@@ -121,7 +121,7 @@ async fn sign_in_again_leaves_every_byte_of_sync_state_alone() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// The steps that need a session say so, rather than sending an unauthorised
+/// The steps that need a session say so, rather than sending an unauthorized
 /// request and reporting whatever the server says about it.
 #[tokio::test]
 async fn billing_and_checkout_refuse_before_sign_in() {
@@ -183,7 +183,7 @@ async fn a_rate_limited_mint_carries_the_servers_retry_after() {
     );
 }
 
-/// The setup normalises its address the same way the engine does, so a
+/// The setup normalizes its address the same way the engine does, so a
 /// trailing slash cannot produce `//api/billing`.
 #[test]
 fn the_server_address_is_normalised() {
@@ -420,7 +420,7 @@ async fn a_saved_vault_is_both_secrets_and_is_read_without_the_network() {
     secrets.set_vault_key(&[7u8; 32]).unwrap();
     assert!(
         setup.has_saved_vault().await.unwrap(),
-        "a device holding both secrets did not recognise its own hosted vault"
+        "a device holding both secrets did not recognize its own hosted vault"
     );
 }
 

@@ -22,7 +22,7 @@ import com.futo.notes.license.LICENSE_LOG_TAG
  *
  * 1. **ES 3.1.** The driver that aborted reports OpenGL ES 3.0; the software
  *    driver that runs Filament happily reports 3.1. Filament calls ES 3.0 its
- *    feature level 1, the lowest tier it supports and the least travelled. A
+ *    feature level 1, the lowest tier it supports and the least traveled. A
  *    phone that still reports 3.0 in 2026 is a phone whose GL cannot carry a
  *    real-time PBR renderer anyway — every device this app supports (minSdk 28,
  *    2018) reports 3.1 or better.

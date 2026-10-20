@@ -191,7 +191,7 @@ class EditorSessionTest {
     }
 
     /**
-     * The blur edge is not synchronised with the cycle that produces the
+     * The blur edge is not synchronized with the cycle that produces the
      * deferral: the reconciliation suspends on its disk read while still
      * holding the session lock, and the user can blur in that window. Reading
      * the deferral before taking the lock made that settle pass see "nothing
@@ -619,7 +619,7 @@ class EditorSessionTest {
 
     /**
      * The commit outlives the screen. The screen's composition scope is
-     * cancelled when the pop animation ends; a commit still waiting on the
+     * canceled when the pop animation ends; a commit still waiting on the
      * editor or the disk then must keep going on the scope it was handed.
      */
     @Test

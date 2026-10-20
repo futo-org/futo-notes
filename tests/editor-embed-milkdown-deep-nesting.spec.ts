@@ -94,7 +94,7 @@ async function layout(page: Page): Promise<Layout> {
     const scroller = document.querySelector('.ProseMirror') as HTMLElement;
     const box = scroller.getBoundingClientRect();
     // One decimal, not whole pixels: a sub-pixel indent step still has to be
-    // recognisable as the ordinary 1.4em one.
+    // recognizable as the ordinary 1.4em one.
     const px = (n: number) => Math.round(n * 10) / 10;
     return {
       items: [...scroller.querySelectorAll('li > p')].map((p) => {

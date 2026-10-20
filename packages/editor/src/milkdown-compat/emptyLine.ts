@@ -193,7 +193,7 @@ function hoistOverLineBreaks(parent: MdastNode, index: number): void {
  * Milkdown's own serializer is never called, but never worth re-arming.
  *
  * Gaps are restored BEFORE placeholders are converted, so a legacy tag counts
- * as the block it stood for while its neighbours' gaps are measured.
+ * as the block it stood for while its neighbors' gaps are measured.
  */
 export const remarkBlankLineParagraphsPlugin = $remark(
   'remark-futo-blank-line-paragraphs',

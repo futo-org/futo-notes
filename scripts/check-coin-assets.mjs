@@ -1,4 +1,4 @@
-// The FUTO coin is modelled in Blender and exported to three files that three
+// The FUTO coin is modeled in Blender and exported to three files that three
 // different shells render. None of them can be regenerated in CI — the runners
 // have no Blender, and putting one there to rebuild a static ornament would be
 // absurd. So this gate proves the cheap half instead, which is the half that
@@ -117,7 +117,7 @@ try {
   if (!(drift.worst < HDR_TOLERANCE_QUANTA)) {
     problems.push(
       `scripts/lib/studio-env.mjs no longer reproduces assets/coin/studio-env.hdr.\n` +
-        `    worst disagreement ${drift.worst.toFixed(3)} quantisation steps ` +
+        `    worst disagreement ${drift.worst.toFixed(3)} quantization steps ` +
         `(at row ${drift.row}, column ${drift.column}); anything from ` +
         `${HDR_TOLERANCE_QUANTA} up is a real difference in the arithmetic.\n` +
         `    The studio lives in TWO places (drift-registry \`coin-studio-environment\`):\n` +
@@ -141,5 +141,5 @@ if (problems.length > 0) {
 console.log(
   `Coin asset gate OK — ${Object.keys(manifest.outputs).length} exports match build-coin.py ` +
     `(Blender ${manifest.blender}${manifest.ibl === undefined ? '' : `, ${manifest.ibl.tool}`}), ` +
-    `and studio-env.mjs rebuilds the studio to within a quantisation step.`,
+    `and studio-env.mjs rebuilds the studio to within a quantization step.`,
 );

@@ -18,7 +18,7 @@ Keyboard use, is that FUTO wants you to pay and declines to force you.
 |---|---|
 | `config.rs` | The baked-in constants: org and product slugs, deep-link scheme, key alphabet, support mailto, the two org public keys and the two pay2 hosts, and the `Environment` dev/prod split. `buy_url` and `activation_url` are both built from the selected environment, so neither is a single cross-environment constant. |
 | `key.rs` | The FUTOpay license-key grammar and normalization. |
-| `input.rs` | Recognising the three accepted input shapes, and deep-link parsing. |
+| `input.rs` | Recognizing the three accepted input shapes, and deep-link parsing. |
 | `activation.rs` | v1 and v2 activation parsing and RSA-SHA256 PKCS#1 v1.5 verification. |
 | `state.rs` | `evaluate` — the Licensed / Expired / Invalid predicate, with the clock injected. |
 | `enter.rs` | The atomic enter-a-key workflow and the one `ActivationTransport` call. |

@@ -17,7 +17,7 @@ function withSearch<T>(search: string, run: () => T): T {
 describe('resolveBlockDragMode', () => {
   // jsdom's UA is neither iOS nor Android: the host flag is the whole gate,
   // which is exactly the point — both native shells get the same gesture. A
-  // test may force either mode from the query string; an unrecognised forced
+  // test may force either mode from the query string; an unrecognized forced
   // value is ignored rather than obeyed.
   it.each([
     [true, '', 'long-press'],

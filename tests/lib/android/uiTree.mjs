@@ -1,5 +1,5 @@
 /**
- * Reads the Compose UI as labelled tap targets from a uiautomator dump.
+ * Reads the Compose UI as labeled tap targets from a uiautomator dump.
  *
  * Anchoring on a node's own text is what keeps a layout change from silently
  * tapping the wrong control, which coordinates copied from a screenshot cannot
@@ -36,7 +36,7 @@ export function decodeXmlEntities(value) {
 }
 
 /**
- * Every labelled node in a dump, with the centre point to tap.
+ * Every labeled node in a dump, with the center point to tap.
  *
  * A node carrying both `text` and a different `content-desc` yields one entry per
  * label, because either is a reasonable thing for a caller to name.
@@ -76,7 +76,7 @@ function parseBounds(raw) {
   const match = raw?.match(BOUNDS_PATTERN);
   if (!match) return null;
   const [, left, top, right, bottom] = match.map(Number);
-  // A zero-area node has no tappable centre — Compose emits these for
+  // A zero-area node has no tappable center — Compose emits these for
   // measured-but-unplaced content.
   if (right <= left || bottom <= top) return null;
   return { left, top, right, bottom };

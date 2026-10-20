@@ -84,7 +84,7 @@ for (let i = 0; i < args.length; i += 1) {
   else if (arg === '--top') top = Number(args[++i]);
   else {
     console.error(
-      `Unrecognised argument: ${arg}\nSupported: --fixture <name> (repeatable), --no-build, --samples <n>, --profile, --profile-open, --focused, --no-tripwire, --top <n>, --callers <fn>, --eval <js>, --eval-file <path>, --shot <png>, --cpu-throttle <rate>`,
+      `Unrecognized argument: ${arg}\nSupported: --fixture <name> (repeatable), --no-build, --samples <n>, --profile, --profile-open, --focused, --no-tripwire, --top <n>, --callers <fn>, --eval <js>, --eval-file <path>, --shot <png>, --cpu-throttle <rate>`,
     );
     process.exit(2);
   }

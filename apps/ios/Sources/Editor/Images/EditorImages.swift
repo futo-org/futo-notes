@@ -227,7 +227,7 @@ private final class LibraryDelegate: NSObject, PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
         guard !results.isEmpty else {
-            completion([])  // cancelled
+            completion([])  // canceled
             return
         }
         let slots = PickedImageSlots(count: results.count)

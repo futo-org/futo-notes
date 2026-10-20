@@ -517,7 +517,7 @@ hand-reviewed goldens, one or more per line below)
 ### Typing and IME
 
 - The editable asks the on-screen keyboard for autocorrect and sentence
-  capitalisation, and turns off red spellcheck squiggles and Apple's inline
+  capitalization, and turns off red spellcheck squiggles and Apple's inline
   writing suggestions (`autocorrect="on"`, `autocapitalize="sentences"`,
   `spellcheck="false"`, `writingsuggestions="false"`). A keyboard is not an
   implementation detail of the engine: the editor first shipped with autocorrect
@@ -678,7 +678,7 @@ hand-reviewed goldens, one or more per line below)
 - A block drag is haptic three ways on both native shells: one firmer impact
   when the block lifts, a light tick each time the drop slot (or the indicator
   line, where the preview falls back) lands on a DIFFERENT top-level boundary,
-  and one light impact when a release commits a reorder. A finger travelling
+  and one light impact when a release commits a reorder. A finger traveling
   inside one gap ticks nothing, a hold ticks nothing, edge auto-scroll ticks
   nothing (an auto-scroll is a hold, and a tick per boundary swept past would be
   a continuous buzz), and a release back at the source is silent (it commits
@@ -690,7 +690,7 @@ hand-reviewed goldens, one or more per line below)
   tests/editor-embed-milkdown-block-drag.spec.ts _(native shells)_
 - On Android, a finger landing on a block silences the WebView's OWN long-press
   haptic for the length of the press, so the lift is felt once rather than as
-  two impacts an eighth of a second apart. Chromium's long-press recogniser
+  two impacts an eighth of a second apart. Chromium's long-press recognizer
   trips around touch-down + 480ms, 128-141ms after the editor's 340ms lift. A
   long press anywhere the editor does NOT claim as a block press still gets the
   platform's normal buzz, and the editor's own three haptics are exempted rather
@@ -722,7 +722,7 @@ hand-reviewed goldens, one or more per line below)
   System WebView 133), touch stationary with the editor unfocused: Chromium's
   OWN long-press fires at touch-down + ~500ms and dispatches, in the same
   millisecond, `selectstart` on the block, `focus` on the editable, `focusin`,
-  then `contextmenu` — and the `focus` lands regardless of the page cancelling
+  then `contextmenu` — and the `focus` lands regardless of the page canceling
   `selectstart`/`contextmenu`/`touchend`; none of those three levers stop it,
   on text blocks as well as empty ones. A capture-phase `focus` listener on
   the document undoes it for a press that began unfocused. →
@@ -762,7 +762,7 @@ hand-reviewed goldens, one or more per line below)
   `holdScrollExtent`, src/features/editor/milkdown/blockDragSession.ts,
   tests/editor-embed-milkdown-block-drag.spec.ts
 - Only the dropped block moves at the release, snapping into its slot: a
-  neighbour still sliding out of the way when the finger lifts finishes its
+  neighbor still sliding out of the way when the finger lifts finishes its
   slide, and the move is committed (and the note reported changed) once the
   slides end, at most ~0.18s later. A scroll or a layout change in that time (a
   resized window, an image loading) commits it at once, which is a relayout of
@@ -788,7 +788,7 @@ hand-reviewed goldens, one or more per line below)
   tests/editor-embed-milkdown-block-drag.spec.ts _(native shells, iOS)_
 - A tap still places the caret and raises the keyboard, and a double-tap still
   selects a word and shows the platform Cut/Copy/Paste callout, during and after
-  that press-level suspension: only the hold-triggered recognisers stand down,
+  that press-level suspension: only the hold-triggered recognizers stand down,
   never the tap ones. An ordinary swipe scrolls and never lifts a block.
   Verified on the simulator 2026-09-01 and on an Android device 2026-09-01. →
   apps/ios/Sources/Editor/EditorWebView.swift `delayedTextInteractionGestures`,
@@ -811,7 +811,7 @@ hand-reviewed goldens, one or more per line below)
   it used to win a sideways block move: the editor started sliding away, and the
   page never heard the touch end, which left the block stuck in its lifted state
   with no finger on it. The airborne suspension therefore also disables the
-  interactive pop recognisers (the leading-edge swipe and the full-width content
+  interactive pop recognizers (the leading-edge swipe and the full-width content
   swipe) and restores them when the gesture resolves. Android needs nothing
   extra: its back gesture only starts at the screen edge, so a drag that began
   mid-screen is never taken for one, even when the lifted block is carried to
@@ -829,7 +829,7 @@ hand-reviewed goldens, one or more per line below)
 - Emphasis: bold, italic, bold-italic, strikethrough — `*` and `_` markers.
 - Code: inline (single and double backtick) and fenced (triple backticks or
   triple tildes, with optional language).
-- Fenced-code syntax colouring covers a curated language set (~35), each grammar
+- Fenced-code syntax coloring covers a curated language set (~35), each grammar
   fetched the first time a fence uses it. A fence in any other language still
   renders as a code block, just uncoloured.
   → src/features/editor/codeFenceLanguages.ts
@@ -933,7 +933,7 @@ hand-reviewed goldens, one or more per line below)
   line as `***` only where `---` would open front matter there, because a
   later line would close it (see "Markdown house style", which lists every
   place `***` is written).
-  (`+++` TOML front matter is not recognised and round-trips as the paragraph
+  (`+++` TOML front matter is not recognized and round-trips as the paragraph
   CommonMark reads it as.)
 - The block is RENDERED, as one inert metadata panel above the body: muted, monospace, with a left rule, and no
   caret. It cannot be typed into, clicked into, dragged, or reordered — the
@@ -958,7 +958,7 @@ hand-reviewed goldens, one or more per line below)
 - A `#tag` is extracted and decorated only when it is at a word boundary, does
   not start with a digit, is within the max length, and is NOT inside inline
   code or a fenced block. A tag stays PLAIN TEXT in the document — it is neither
-  a node nor a mark — and is decorated with colour only, so typing inside one
+  a node nor a mark — and is decorated with color only, so typing inside one
   never shifts the line. → packages/editor/src/tags.ts,
   src/features/editor/milkdown/tagDecorations.ts,
   src/features/editor/milkdown/tagDecorations.test.ts
@@ -1062,7 +1062,7 @@ native shells edit tags as text in the body, which is not a gap.
   wikilink still
   focuses, so it can be edited). The editor consumes a tap on a NAVIGABLE link
   (`consumesTap`) and deliberately leaves a broken one to ProseMirror.
-  Scrolling, dragging, cancelling, or holding through the block long-press
+  Scrolling, dragging, canceling, or holding through the block long-press
   threshold does not follow the touched link; a completed short tap follows it
   once, even if the WebView also emits a synthetic click.
   Android already follows on the first tap (verified emulator 2026-07-08). Each pushed iOS
@@ -1140,7 +1140,7 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   are allowed only for the bundled `editor.html` itself (exact standardized-path
   match — any other `file://` URL is denied, since `loadFileURL` grants read
   access to the whole bundle resources directory) and the `about:blank`
-  missing-bundle fallback; `http/https/mailto/tel` navigations are cancelled and
+  missing-bundle fallback; `http/https/mailto/tel` navigations are canceled and
   routed through the same scheme-guarded external open as the `openUrl` bridge
   case; every other scheme (including `javascript:`/`data:`) is denied, so a
   programmatic top-level navigation can never replace the editor. Policy is a
@@ -1355,10 +1355,10 @@ EditorWebView.swift, EditorWebView.kt
   tests/editor-embed-milkdown-toolbar.spec.ts
 - Undo and Redo are the FIRST two items, ahead of every formatting control,
   and run prosemirror-history's own commands — never a hand-rolled stack.
-  Each greys out and stops accepting taps exactly when its stack is empty (no
+  Each grays out and stops accepting taps exactly when its stack is empty (no
   visual-only disable): the editor reports this in `formatState`'s `disabled`
   field, on the same triggers and with the same dedupe as the active-format
-  set, and all three toolbar surfaces (iOS, Android, the embed fallback) grey
+  set, and all three toolbar surfaces (iOS, Android, the embed fallback) gray
   the button AND refuse the tap. Verified emulator 2026-09-11 (`enabled=false`
   on the platform semantics node, not just a dimmed icon). →
   packages/editor/src/bridge.ts `FormatStateMessage.disabled`,
@@ -1392,7 +1392,7 @@ EditorWebView.swift, EditorWebView.kt
 - **An open Link URL prompt belongs to the note it opened on.** It holds that
   note's document positions, and the editor is reused across notes, so opening
   a different note (or tearing the editor down) cancels it and leaves both
-  notes untouched. A click outside already cancelled it; a KEYBOARD note switch
+  notes untouched. A click outside already canceled it; a KEYBOARD note switch
   moves no focus and fires no pointer event, so without this the next submit
   wrote a link — or rewrote link marks over an unrelated range — in a note the
   user never opened the prompt on. The desktop selection toolbar's own inline
@@ -1485,16 +1485,16 @@ EditorWebView.swift, EditorWebView.kt
   commands mutate the doc and autosave; Indent/Outdent appear inside a list or
   quote; pickers open natively; chevron blurs). → EditorToolbar.swift,
   EditorWebView.swift `futo_overrideInputAccessoryView`
-- The toolbar band behind the buttons is the EDITOR's own background colour, so
+- The toolbar band behind the buttons is the EDITOR's own background color, so
   the bar reads as the bottom edge of the note rather than a strip pasted onto
-  the keyboard. Nothing between the note and the band shows a colour step, in
+  the keyboard. Nothing between the note and the band shows a color step, in
   light or dark. _(native shells)_
 - iOS native: the accessory is a `UIInputView` (`inputViewStyle` `.default`)
   painted `Theme.background`, and the buttons float on it in Liquid Glass
   capsules (`glassEffect` on iOS 26+, `.regularMaterial` below), one for the
   scrolling formatting items and one for the dismiss chevron, with no hairline
   behind the band. The system's `.keyboard` backdrop, used until 2026-09-23, is a
-  translucent material that came out a near miss of the editor colour right
+  translucent material that came out a near miss of the editor color right
   where the two meet, a difference a user saw on a device. `Theme.surface`
   (#F2F2F2/#171717) before that was a visible slab. Apple's own accessory in
   Safari matches the PAGE behind it (242,242,247 on the iOS 26.5 simulator,
@@ -1503,7 +1503,7 @@ EditorWebView.swift, EditorWebView.kt
 
 - Android native: the bar and both of its edge fades paint `c.surface`, and so
   does the editor screen's `Scaffold`, which is what shows through the
-  transparent editor page. The note and the band are therefore one colour by
+  transparent editor page. The note and the band are therefore one color by
   construction: #FFFFFF in light and #1F1C19 in dark, sampled on the pixels
   either side of the bar's top edge. A 1 dp `c.border` hairline marks that edge,
   where iOS deliberately draws none. Verified on the emulator (API 36)
@@ -1887,7 +1887,7 @@ unchanged by it.
   payload is NOT where RFC 2483 says it should be either: WebKitGTK
   ADVERTISES `text/uri-list` in `dataTransfer.types`, but `getData` on it
   always returns an empty string — the dropped path lives only in the
-  sibling `text/html` flavour, as an `<a>` element whose TEXT CONTENT is the
+  sibling `text/html` flavor, as an `<a>` element whose TEXT CONTENT is the
   `file://` URI, with no `href` attribute at all. Internal sidebar/tab
   dragging is untouched either way (pure in-page HTML5 DnD that wry's signal
   handlers never intercepted, and never advertises `text/uri-list`). Tauri's
@@ -2190,7 +2190,7 @@ unchanged by it.
   NativeMutationOutcomeTest / NativeMutationOutcomeTests
 - Android title edits debounce into a rename; iOS commits via the rename dialog.
   Both use the baseline-aware save-and-rename workflow after pending saves are
-  cancelled/drained. Only an actual durable result advances the saved body
+  canceled/drained. Only an actual durable result advances the saved body
   snapshot; a no-op title never marks a dirty body saved.
   → NoteEditorScreen.kt / NoteEditorView.swift
 - Leaving the editor flushes a pending save only if the content changed. The
@@ -2365,7 +2365,7 @@ EditorSessionTest.kt, EditorSessionTests.swift
   pre-suspension step as the latch), so the drain only ever waits for work that
   was already in flight, and anything queued behind the latch touches nothing at
   all — Android's `runWork` returns null, an iOS scheduled workflow sees
-  `isActive == false`. The debounced body save is the one exception, neutralised
+  `isActive == false`. The debounced body save is the one exception, neutralized
   as the first step of the commit rather than at admission (cancel, then await
   it): a save already running has to finish and be projected before the exit
   awaits its current mailbox, or the next commit races the write it supersedes. _(iOS/Android)_

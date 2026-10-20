@@ -228,7 +228,7 @@ describe('fixEmptyLinePlaceholders', () => {
       expect(types(paragraph)).toEqual(['html', 'text', 'html']);
     });
 
-    it('keeps a lone <br> under a parent it does not recognise', () => {
+    it('keeps a lone <br> under a parent it does not recognize', () => {
       // Unknown parents default to keeping: a stray literal `<br />` is
       // cosmetic, a deleted line break is data loss.
       const parent: MdastNode = { type: 'someFutureExtension', children: [br(), text('x')] };

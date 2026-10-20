@@ -407,7 +407,7 @@ class EditorLifecycleFlushTest {
         assertEquals(listOf(PendingDraft("todo", "v0", "v0 AB")), rec.writes)
     }
 
-    /** A wait that fails or is cancelled still lets the register flush as the editor last reported; a busy editor's answer of "unknown" leaves the draft as it was. */
+    /** A wait that fails or is canceled still lets the register flush as the editor last reported; a busy editor's answer of "unknown" leaves the draft as it was. */
     @Test
     fun aWaitThatCannotAnswerFlushesTheDraftAsReported() = runBlocking {
         val rec = Recorder()

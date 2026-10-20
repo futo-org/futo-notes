@@ -81,7 +81,7 @@ Rounds 2 and 3 only (low load, n = 6 per cell):
 | ime-1k    | before | 3 / 9           | 69 / 136                | 3 / 9                |
 | ime-1k    | after  | 2 / 3           | 55 / 79                 | 4 / 6                |
 
-All three rounds (n = 9 per cell; round 1 favours "after", see above):
+All three rounds (n = 9 per cell; round 1 favors "after", see above):
 
 | scenario  | build  | Back → navigate | Back → list first frame | Back → commit landed |
 | --------- | ------ | --------------- | ----------------------- | -------------------- |

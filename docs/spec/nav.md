@@ -67,7 +67,7 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 - The editor keeps the system back button, so the leading-edge swipe is the
   native, finger-tracked interactive pop, over the full-bleed editor WebView.
   The one exception is while a block is airborne in the long-press drag: both
-  pop recognisers stand down then, so moving the block sideways can't swipe the
+  pop recognizers stand down then, so moving the block sideways can't swipe the
   note away (see editor.md, "Selection").
   Hiding that button (as the editor once did, to force every exit through the
   vetoable `requestNavigation`) also disables the gesture. A system pop cannot be
@@ -133,7 +133,7 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   leading gutter (`--macos-traffic-lights-width`) for them in one place,
   independent of sidebar state — so collapsing the sidebar never exposes or
   crowds the buttons. → configureWindowChrome.ts, desktop-shell.css
-- On macOS the traffic lights sit on the sidebar toggle's centre line, with even
+- On macOS the traffic lights sit on the sidebar toggle's center line, with even
   spacing above them and to their left. → tauri.conf.json,
   configureWindowChrome.ts
 - With the sidebar collapsed the toggle carries 20px of visible air on each
@@ -235,7 +235,7 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   (which desktop_settings.rs's watcher also carried) was itself reverted by
   !277's own last commit (d916ee15) after review, so the snapshot now only
   ever carries theme. -->
-- Linux reads the portal's current colour scheme before relying on later change
+- Linux reads the portal's current color scheme before relying on later change
   signals, so switching Light/Dark back to Auto immediately resolves from the
   desktop rather than from WebKitGTK's app-pinned media query. Older portals
   fall back from `ReadOne` to `Read`. → desktop_settings.rs, theme.ts
@@ -292,7 +292,7 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   `applicationShouldTerminate:` added to tao's delegate answers
   `NSTerminateLater`, closes the window, and replies once the flush has exited
   the app (`RunEvent::ExitRequested`), so a logout or shutdown waits for the
-  flush and proceeds instead of being cancelled. The updater's install and every relaunch (vault change,
+  flush and proceeds instead of being canceled. The updater's install and every relaunch (vault change,
   Update & restart) drain the save first too (RC-87). → app_menu.rs,
   macos_terminate.rs, registerNotesShellShortcuts.ts, startNativeShell.ts,
   flushBeforeExit.ts, tests/macos-quit-flush.mjs

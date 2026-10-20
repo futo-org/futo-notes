@@ -73,7 +73,7 @@ export function transactionsTouchTable(
 
 /**
  * prosemirror-tables' `tableEditing`, with its per-transaction pass skipped
- * when no table is involved. Same plugin key, state, props and behaviour
+ * when no table is involved. Same plugin key, state, props and behavior
  * otherwise, so Milkdown's table commands and Crepe's table block keep working.
  */
 export function scopedTableEditing(options: { allowTableNodeSelection?: boolean } = {}): Plugin {

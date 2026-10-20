@@ -143,7 +143,7 @@ describe('syncCoordinator', () => {
       coord.destroy();
     });
 
-    it('clear timer is cancelled when sync starts', () => {
+    it('clear timer is canceled when sync starts', () => {
       const onStatusMessage = vi.fn();
       const coord = createSyncCoordinator(makeDeps(), makeUI({ onStatusMessage }));
 

@@ -44,7 +44,7 @@ fn sign_in_flow(auth_mode: &str, billing: bool) -> SignInFlow {
             sells_subscriptions: billing,
         },
         "dev" => SignInFlow::Dev,
-        // Anything this build does not recognise gets the password form,
+        // Anything this build does not recognize gets the password form,
         // which is what the engine already does when it drives login.
         _ => SignInFlow::Password,
     }

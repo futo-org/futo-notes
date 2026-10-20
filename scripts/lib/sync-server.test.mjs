@@ -139,7 +139,7 @@ describe('stand-in availability', () => {
     }
   });
 
-  it('refuses a value it does not recognise instead of reading it as off', () => {
+  it('refuses a value it does not recognize instead of reading it as off', () => {
     // `=yes` silently meaning "do not run the hosted scenarios" is the exact
     // shape of a suite that passes by not testing anything.
     process.env.FUTO_NOTES_E2EE_SERVER_STANDIN = 'yes';

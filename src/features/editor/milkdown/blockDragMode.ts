@@ -34,7 +34,7 @@ function asMode(value: string | null | undefined): BlockDragMode | null {
  * `tests/editor-embed-milkdown-block-drag.spec.ts` load
  * `editor.html?blockDragMode=gutter-handle` (or `=long-press`). Never set by
  * production hosts, and the sole extra input to the one gate below rather than
- * a second ad-hoc platform check. An unrecognised value is ignored, not obeyed.
+ * a second ad-hoc platform check. An unrecognized value is ignored, not obeyed.
  */
 function forcedByTest(): BlockDragMode | null {
   if (typeof window === 'undefined') return null;

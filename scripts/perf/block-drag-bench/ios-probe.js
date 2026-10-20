@@ -397,7 +397,7 @@
     view.dom.blur();
   }
 
-  // Last, so every const above is initialised before run() reads it.
+  // Last, so every const above is initialized before run() reads it.
   try {
     await run();
   } catch (e) {

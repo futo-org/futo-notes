@@ -96,8 +96,8 @@ fun PairingScannerView(modifier: Modifier = Modifier, onCode: (String) -> Unit) 
 /**
  * The brightness plane of one camera frame, as ZXing reads a picture.
  *
- * CameraX hands over YUV, whose first plane IS the greyscale image — so no
- * colour conversion happens here at all. `rowStride` is the plane's real width
+ * CameraX hands over YUV, whose first plane IS the grayscale image — so no
+ * color conversion happens here at all. `rowStride` is the plane's real width
  * in bytes and is often larger than the image, which is exactly what
  * `PlanarYUVLuminanceSource`'s `dataWidth` is for.
  */

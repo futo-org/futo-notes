@@ -29,10 +29,10 @@
  *
  * Wrap any span that builds a real Milkdown `Editor` (directly via
  * `Editor.make()`, or indirectly by mounting `MilkdownEditor.svelte`) with
- * this so the leaked native timers are captured and force-cancelled the
+ * this so the leaked native timers are captured and force-canceled the
  * instant the span completes. By then every one of ctx's `wait()` promises
  * has already settled via the real `done()` event (that is what the awaited
- * span proves) — cancelling the redundant, already-served timeout throws
+ * span proves) — canceling the redundant, already-served timeout throws
  * nothing away.
  */
 export async function withoutLeakedCtxTimers<T>(buildRealEditor: () => Promise<T>): Promise<T> {

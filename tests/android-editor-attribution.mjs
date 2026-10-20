@@ -66,7 +66,7 @@ for (let i = 0; i < args.length; i += 1) {
   else if (arg === '--keep-staged') keepStaged = true;
   else {
     console.error(
-      `Unrecognised argument: ${arg}\nSupported: --fixture <name> (repeatable), --samples <n>, --top <n>, --no-profile, --bundle <editor.html>, --keep-staged`,
+      `Unrecognized argument: ${arg}\nSupported: --fixture <name> (repeatable), --samples <n>, --top <n>, --no-profile, --bundle <editor.html>, --keep-staged`,
     );
     process.exit(2);
   }

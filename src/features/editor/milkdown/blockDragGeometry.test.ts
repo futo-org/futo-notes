@@ -137,7 +137,7 @@ const BLOCK_HEIGHT = 40;
 const BLOCK_MARGIN = 20;
 const BLOCK_LEFT = 24;
 const BLOCK_WIDTH = 300;
-/** The content column's horizontal centre — what `contentColumnX` computes. */
+/** The content column's horizontal center — what `contentColumnX` computes. */
 const BLOCK_X = BLOCK_LEFT + BLOCK_WIDTH / 2;
 
 const s = testSchema;

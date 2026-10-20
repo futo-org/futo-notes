@@ -125,11 +125,11 @@ describe('pre-merge CI routing contracts: container images and Node', () => {
 
     // `fnm use` is both the pin and the verification: it exits non-zero rather
     // than falling back to another Node. Matched as a script line, because the
-    // neighbouring comments name the command too.
+    // neighboring comments name the command too.
     const activates = /^\s+- fnm use --install-if-missing$/m;
     expect(topLevelBlock(gitlabPipeline, /^default:$/m)).toMatch(activates);
 
-    // No surface may return to a major-only installer, which cannot honour the
+    // No surface may return to a major-only installer, which cannot honor the
     // patch in .nvmrc — that inability is why each of these was replaced.
     expect(cirrusTasks).not.toMatch(/node@\d/);
     expect(cirrusTasks).not.toContain('NODE_MAJOR');

@@ -169,20 +169,20 @@ function captureDestination(window, { out = null, defaultDir } = {}) {
 }
 
 /**
- * How many distinct colours a capture holds, and the share taken by the most
+ * How many distinct colors a capture holds, and the share taken by the most
  * common one.
  *
  * Guards against the one failure this tool could otherwise hide: a capture that
  * succeeds and returns a plausible-looking but CONTENTLESS frame — a single flat
- * colour — which reads as "the app rendered nothing" and would be believed.
+ * color — which reads as "the app rendered nothing" and would be believed.
  * Losing an hour to a screenshot that lies is worse than an occasional
  * false alarm, so this fails loud (exit 5) rather than warning quietly.
  *
  * Thresholds come from measurement, not taste. Real captures (2026-08-20, both
  * themes, 800x600 to 940x668): five off-space windows ran 753-1414 distinct
- * colours at 40.3%-66.0% dominant, and a mostly-empty note view hit 307 colours
+ * colors at 40.3%-66.0% dominant, and a mostly-empty note view hit 307 colors
  * at 88.5% dominant — so a "90% means blank" rule would have failed a perfectly
- * good screenshot. A contentless frame is 1 colour at 100%. The trigger sits at
+ * good screenshot. A contentless frame is 1 color at 100%. The trigger sits at
  * 99%, which no real UI has approached, however sparse.
  */
 function analyzeFrame({ width, height, data }) {
@@ -280,12 +280,12 @@ function checkFrame(file) {
   const analysis = analyzeFrame(png);
   if (!isSuspectFrame(analysis)) {
     console.log(
-      `  frame ok: ${analysis.distinct} distinct colours, most common ${analysis.dominant} at ${(analysis.dominantShare * 100).toFixed(1)}%`,
+      `  frame ok: ${analysis.distinct} distinct colors, most common ${analysis.dominant} at ${(analysis.dominantShare * 100).toFixed(1)}%`,
     );
     return true;
   }
   console.error(
-    `  SUSPECT FRAME: ${analysis.distinct} distinct colour(s), ${analysis.dominant} covers ${(analysis.dominantShare * 100).toFixed(1)}%.`,
+    `  SUSPECT FRAME: ${analysis.distinct} distinct color(s), ${analysis.dominant} covers ${(analysis.dominantShare * 100).toFixed(1)}%.`,
   );
   console.error('  The capture succeeded but holds no content, so do NOT read a UI verdict from');
   console.error('  it. Likely the window has not painted yet (app still booting, dev server not');

@@ -7,7 +7,7 @@ import { test, expect, Page } from '@playwright/test';
 // Tauri `src/lib/platform/license.ts` answers "Unlicensed" for everything, so
 // the only way to see the other states in a browser is to replace that module.
 // The dev server serves it as a plain ESM module, so the mock is a route
-// fulfilment — no product-code test hook, and nothing here re-implements a
+// fulfillment — no product-code test hook, and nothing here re-implements a
 // rule: the fixture *is* what Rust would have answered.
 interface LicenseViewFixture {
   state: 'unlicensed' | 'licensed' | 'expired';
@@ -226,7 +226,7 @@ test.describe('License card', () => {
   // selected at all. Justin hit that on his own desktop build on 2026-09-19.
   //
   // Two assertions, because either alone would miss it: the computed value, and
-  // a real Range over the span. The desktop ships on WebKit, which honours
+  // a real Range over the span. The desktop ships on WebKit, which honors
   // `user-select: none` against the Selection API too — a scripted selection
   // there returns the empty string rather than the key.
   test('the revealed key is selectable, so select-and-copy can reach it', async ({ page }) => {
@@ -381,7 +381,7 @@ test.describe('License card', () => {
   // what the coin owes rather than restarting one.
   //
   // It reads the queue, not the screen. Two pixel-based versions of this test
-  // were red on CI for a true behaviour, and the reason is the same both times:
+  // were red on CI for a true behavior, and the reason is the same both times:
   // past a certain speed a spinning disc looks no more different between two
   // frames than a slower one does, so churn stops tracking speed exactly where
   // this test needs it to. Measuring how long the coin stayed loud instead of
@@ -426,7 +426,7 @@ test.describe('License card', () => {
 
     // No frame runs between the taps and the reading, so nothing has been paid
     // off yet: one tap owes exactly one turn and a burst owes exactly its
-    // count. The behaviour this replaced, which set the debt to one turn per
+    // count. The behavior this replaced, which set the debt to one turn per
     // click instead of adding one, owes 1 either way.
     expect(await owedAfter(1)).toBeCloseTo(1, 5);
     expect(await owedAfter(BURST)).toBeCloseTo(BURST, 5);

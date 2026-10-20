@@ -135,7 +135,7 @@ test('the header row grip cannot delete the header and cannot insert before it',
   const del = page.locator('.futo-table-grip-menu-item', { hasText: 'Delete' });
   await expect(before).toBeDisabled();
   await expect(del).toBeDisabled();
-  // A disabled entry must say why, not just look greyed out.
+  // A disabled entry must say why, not just look grayed out.
   await expect(del).toHaveAttribute('title', /header row/i);
   // Clicking a disabled button is a no-op; the table survives untouched.
   await del.click({ force: true });

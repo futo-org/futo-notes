@@ -1,7 +1,7 @@
 // Fails if a theme swap would repaint any surface at a different pace than the
 // rest of the window: a CSS `transition` over a theme-dependent property whose
-// rest value is a real colour, or a Material3 `TopAppBar(` called outside
-// TopBar (M3 springs the bar's container colour through animateColorAsState).
+// rest value is a real color, or a Material3 `TopAppBar(` called outside
+// TopBar (M3 springs the bar's container color through animateColorAsState).
 // Three separate landings fixed three instances of the same law before
 // anything held the rule. Background: docs/spec/app.md.
 //
@@ -120,9 +120,9 @@ for (const file of walk(path.join(ROOT, 'src'), ['.css', '.svelte'])) {
                 `transform/opacity properties you actually want to animate.`
               : rest === null
                 ? `Give the block an inert rest value ('${property}: transparent') so the theme ` +
-                  `colour is only reachable under :hover/:active — states an unattended theme ` +
+                  `color is only reachable under :hover/:active — states an unattended theme ` +
                   `change never enters — or drop the transition.`
-                : `Its rest value here is '${rest}', a real colour. Drop the transition — ` +
+                : `Its rest value here is '${rest}', a real color. Drop the transition — ` +
                   `press/hover feedback belongs on transform/opacity.`),
         );
       }
@@ -140,7 +140,7 @@ for (const file of walk(ANDROID_UI_DIR, ['.kt'])) {
     const called = call[0].replace(/\s*\($/, '');
     failures.push(
       `${rel}:${lineOf(text, call.index)} — calls Material3 ${called} directly. Material runs ` +
-        `the bar's container colour through animateColorAsState, so a theme swap springs the bar ` +
+        `the bar's container color through animateColorAsState, so a theme swap springs the bar ` +
         `while the Scaffold and cards snap. Use TopBar (${WRAPPER_REL}), or add the variant you ` +
         `need there so one place owns the instant background.`,
     );
@@ -196,6 +196,6 @@ if (failures.length > 0) {
 }
 
 console.log(
-  'Single-pace theming gate OK — no theme-dependent CSS transitions with a coloured rest value, ' +
+  'Single-pace theming gate OK — no theme-dependent CSS transitions with a colored rest value, ' +
     'every Android top bar routes through TopBar, and iOS applies the theme as a window trait.',
 );

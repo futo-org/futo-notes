@@ -23,13 +23,13 @@
  *    `body`, so the editor's computed value is ALREADY `none` before this
  *    plugin touches anything — and text is still selectable, because engines
  *    ignore `user-select` inside a contenteditable subtree. Setting a property
- *    to the value it already has was the whole of the old defence, which is
+ *    to the value it already has was the whole of the old defense, which is
  *    exactly why the user saw highlighting "sometimes" and could not
  *    reproduce it: nothing was ever suppressing anything.
  *  - SELECTION SUPPRESSION IS A WHOLE-GESTURE JOB, NOT A LIFT-TIME ONE.
  *    iOS's own text-selection long-press is already in flight from the instant
  *    the finger lands, so suppression runs from ARM (pointerdown on a block)
- *    to resolution, and is defence-in-depth because no single lever is
+ *    to resolution, and is defense-in-depth because no single lever is
  *    reliable in WKWebView:
  *      1. Any live range is collapsed AT ARM — a hold that starts on top of an
  *         existing selection would otherwise simply keep it, with no
@@ -39,7 +39,7 @@
  *         anyway is never *rendered*. Not applied under Chromium: the rule
  *         restyles the whole note on every toggle (see its comment) and the
  *         synchronous `selectstart` cancel in 3 already stops the selection.
- *      3. `selectstart` and `contextmenu` cancelled while armed (the callout
+ *      3. `selectstart` and `contextmenu` canceled while armed (the callout
  *         menu rides the same gesture).
  *      4. `selectionchange` watched while armed: any range that appears is
  *         re-collapsed immediately, in both the ProseMirror state and the DOM.
@@ -55,7 +55,7 @@
  *  - THE MAGNIFIER LOUPE IS NOT THE PAGE'S TO CANCEL. WKWebView's own
  *    long-press text interaction paints the OS magnifier plus a caret it drags
  *    along, right on top of the block being moved. It is a UIKit gesture
- *    recogniser, and WebKit commits to it at TOUCH-DOWN, so nothing applied
+ *    recognizer, and WebKit commits to it at TOUCH-DOWN, so nothing applied
  *    later reaches it: `pointer-events: none` and `touch-action: pan-x pan-y`
  *    on the editable subtree were both measured on a simulator with the loupe
  *    still appearing, on top of the levers already listed above. The shell that
@@ -74,8 +74,8 @@
  *    NOT have a shorter focused threshold, and it never `pointercancel`s the
  *    page. So the fix is not a smaller number, it is not depending on the
  *    number at all: `onPressActive` (bridge.ts BlockPressMessage) fires at
- *    pointerdown and the shell stands the DELAYED recognisers down there,
- *    leaving the tap recognisers (caret placement, double-tap word select)
+ *    pointerdown and the shell stands the DELAYED recognizers down there,
+ *    leaving the tap recognizers (caret placement, double-tap word select)
  *    alive. `onDragActive` still escalates to the full suspension at the lift.
  *    Both are released from the same single `disarm()`.
  *  - LISTEN ON THE DOCUMENT, NOT ON `view.dom`. Applying the source-dim
@@ -105,7 +105,7 @@
  *    with the editor unfocused: Chromium's OWN long-press fires at touch-down
  *    + ~500ms and dispatches, in this order and in the same millisecond,
  *    `selectstart` on the block, `focus` on `.ProseMirror`, `focusin`, then
- *    `contextmenu` — and the `focus` lands regardless of the page cancelling
+ *    `contextmenu` — and the `focus` lands regardless of the page canceling
  *    `selectstart`/`contextmenu`/`touchend`; none of the three levers stop it.
  *    This happens on TEXT blocks too, not only empty ones. So a capture-phase
  *    `focus` listener on the document undoes it for a press that began
@@ -455,7 +455,7 @@ export class MobileBlockDndView {
   /** `disarm()` (called from `finish()`, just before this) intentionally tears
    * down `onFocusCapture` at release so an ORDINARY short tap can still focus
    * and place a caret — that is the existing, load-bearing "tap-to-place-caret
-   * untouched" behaviour. But a press that reached the hold threshold is not
+   * untouched" behavior. But a press that reached the hold threshold is not
    * an ordinary tap, and measured in this very harness: releasing one in place
    * (no movement) still resolves to a native click that focuses the editable,
    * exactly the "however long it lasts... whether or not it lifts" case the
@@ -674,7 +674,7 @@ export class MobileBlockDndView {
     // Belt and braces: the shell has been holding WKWebView's delayed text
     // interaction down since pointerdown (`onPressActive`), so there should be
     // no range to collapse — but a host without a `blockPress` case leaves this
-    // as the page's only defence.
+    // as the page's only defense.
     this.collapseSelection();
 
     const pressed = this.pressed;

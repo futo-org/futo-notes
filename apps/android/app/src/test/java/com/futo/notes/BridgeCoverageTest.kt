@@ -25,7 +25,7 @@ class BridgeCoverageTest {
             // interaction while a block is airborne, and measured on a moto g
             // play 2023 (Android 13, System WebView 151) Chromium shows no word
             // selection, no handles, no action mode and no magnifier over the
-            // lifted block: the page's own defences in mobileBlockDnd.ts hold.
+            // lifted block: the page's own defenses in mobileBlockDnd.ts hold.
             // The one thing that DID leak — the WebView's own long-press
             // buzz — is handled from the strictly wider blockPress instead
             // (EditorWebView.setBlockPressActive), because it fires before any

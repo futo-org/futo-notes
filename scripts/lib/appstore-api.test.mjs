@@ -105,7 +105,7 @@ describe('AppStoreConnectClient', () => {
     text: async () => JSON.stringify(body),
   });
 
-  it('sends a bearer token and serialises query filters', async () => {
+  it('sends a bearer token and serializes query filters', async () => {
     const calls = [];
     const client = makeClient(async (url, init) => {
       calls.push({ url, init });

@@ -299,7 +299,7 @@ impl HostedSetup {
     /// after, for two reasons: opening the hosted screen on a self-hosted
     /// device must not cost someone the password they still need, and a
     /// connect that then fails because the phone is offline must still leave
-    /// the next launch resuming *this* vault rather than dialling the old
+    /// the next launch resuming *this* vault rather than dialing the old
     /// server.
     pub async fn connect_sync(&self, sync: &SyncSession, root: &Path) -> Result<(), HostedError> {
         let session = self

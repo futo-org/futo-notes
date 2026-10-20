@@ -331,7 +331,7 @@ private fun PlateAsk(
     if (primaryAction != null) {
         Spacer(Modifier.height(16.dp))
         // The ONE filled button on the plate, and it keeps the app's own
-        // primary colour: the gold is for the eyebrow, the badge and the
+        // primary color: the gold is for the eyebrow, the badge and the
         // plate's links, never a fill.
         Button(
             onClick = { onAct(primaryAction) },
@@ -475,7 +475,7 @@ private fun PlateLink(label: String, onClick: () -> Unit) {
 
 /**
  * One text field for all three accepted shapes (a bare key, `key/activation`,
- * or a `futonotes://` link) — recognising which is Rust's job, not this view's.
+ * or a `futonotes://` link) — recognizing which is Rust's job, not this view's.
  * A field with no submit is not operable, so Activate and Cancel come with it;
  * iOS and the desktop projection supply the same three controls.
  */

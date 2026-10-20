@@ -1,7 +1,7 @@
 # Buy everywhere: the website where allowed, the store's purchase where not
 
 > **Status: Deferred 2026-10-19.** @justin dropped in-app purchase for now: no StoreKit or Play
-> Billing purchase flow, no lib-polar change. Deferred, not cancelled. In force instead is the
+> Billing purchase flow, no lib-polar change. Deferred, not canceled. In force instead is the
 > posture of [ADR-0010](0010-every-platform-links-out-to-buy.md) and
 > [ADR-0005](0005-license-purchase-follows-store-rules.md): where store rules allow a link, Buy
 > opens the FUTOpay website (desktop, iOS US storefront, Android `direct`); iOS outside the US and
@@ -68,12 +68,12 @@ and gives Google Play the same shape.
   entitlements). The hash (SHA-1 in Google's long-standing sample) and the key format are **not stated
   by the pages read**; confirm with a real signed purchase before relying on them.
 - **Not what Google recommends.** Google's security page says purchase verification and
-  acknowledgement "should be handled in the backend": call the Developer API to confirm the purchase
+  acknowledgment "should be handled in the backend": call the Developer API to confirm the purchase
   with Google, keep every `purchaseToken` and reject duplicates, check `obfuscatedAccountId`. Without a
   server we give up: confirmation against Google's records, voided/refunded purchase detection (D3
   makes this acceptable), duplicate-token rejection (a proof is a bearer string, matching ADR-0004),
   real-time notifications.
-- **Acknowledgement can be client-side.** Google: acknowledging "on the client side through your app"
+- **Acknowledgment can be client-side.** Google: acknowledging "on the client side through your app"
   is allowed, server-side is "preferred"; an unacknowledged purchase is **refunded automatically after
   three days**. We acknowledge immediately after Rust says Licensed, retrying at every connect and
   resume. A purchase that fails our check is never acknowledged.

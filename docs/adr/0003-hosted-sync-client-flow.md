@@ -35,7 +35,7 @@ release, behind a build-time flag that is off for store builds until launch.
 4. **What the device keeps.** The 32-byte vault key and the session token go in the OS secret
    store, keyed per notes root. The vault password is never stored. A device set up by password,
    by QR, or by recovery key is indistinguishable afterwards, and a vault-password change on one
-   device touches no other. Self-hosted password mode keeps today's behaviour (password stored,
+   device touches no other. Self-hosted password mode keeps today's behavior (password stored,
    login derives the key).
 5. **QR pairing, new device shows the code.** The new device, already logged in, generates a
    one-time X25519 keypair and a pairing id and shows them plus its device name as a QR. The

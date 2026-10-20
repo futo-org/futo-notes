@@ -46,7 +46,7 @@ object FutoPalette {
     // All that is left of the Steel Ledger palette. The plate carried its own
     // gunmetal gradient, ink, dim ink and hairline until 2026-09-18, when it
     // moved onto the ordinary Settings card surface and the app's own text
-    // colours — a slab of its own material read as a foreign object in the
+    // colors — a slab of its own material read as a foreign object in the
     // sheet. Gold stays because the app has no token for it, and it is the same
     // value the desktop plate defines as --plate-accent in
     // src/features/license/LicenseSettingsSection.svelte and iOS as
@@ -82,7 +82,7 @@ data class FutoColors(
     val danger: Color = FutoPalette.Danger,
 
     /** The License plate's gold: the eyebrow, the badge border and the plate's
-     *  own links — never a fill. The one colour that card still owns. */
+     *  own links — never a fill. The one color that card still owns. */
     val plateAccent: Color = FutoPalette.PlateGoldLight,
 )
 

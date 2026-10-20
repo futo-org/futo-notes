@@ -59,7 +59,7 @@ Two environment variables are deliberately **cleared**, and both lessons cost a 
   inspected a directory that did not exist, concluded "no restored cache" and exited 0 where they
   assert 1 — five `remote-check` failures that do not reproduce on the Mac.
   The remote worktree's own `target/` is already a persistent warm cache: git mode never touches it
-  and `--rsync` excludes it. Honouring what the repo assumes is cheaper than auditing every consumer
+  and `--rsync` excludes it. Honoring what the repo assumes is cheaper than auditing every consumer
   of that variable.
 
 And one is pinned rather than cleared: **`JAVA_HOME`**. Fedora's default JDK is 25, which the pinned
@@ -75,7 +75,7 @@ stripping and debug-symbol extraction — see the comment on that `ndkVersion` l
 
 ## What a Linux run does and does not prove
 
-This is the whole judgement call, so it is stated once, plainly, and repeated by the tool at
+This is the whole judgment call, so it is stated once, plainly, and repeated by the tool at
 runtime.
 
 **Equivalent on Linux.** Rust (all crates), TypeScript type-checking and lint, the jsdom/vitest unit
@@ -109,7 +109,7 @@ prove Windows WebView2): a passing run on the wrong engine is not evidence about
    None of them start a real web engine, so a remote `check` is a true substitute for a Mac `check`
    and carries no caveat. `prepush` is caveated rather than refused precisely because it _adds_ the
    full Playwright suite and cross-platform sync on top of `check`: nothing in it is macOS-only, but
-   a green remote `prepush` is not a licence to skip the Mac.
+   a green remote `prepush` is not a license to skip the Mac.
 
 Unknown recipe names are refused too — the name is validated against the local justfile, so a typo
 fails instantly instead of after an ssh round trip.
@@ -150,7 +150,7 @@ five phantom test failures and two `Cannot find module` suites for files that ex
 not the other, and very nearly got reported as a broken `main`. A test runner that manufactures
 false red is worse than no runner.
 
-Three defences, in order of how much they can actually promise:
+Three defenses, in order of how much they can actually promise:
 
 1. **An exclusive lock** around checkout-plus-run — `mkdir` on `~/ci/futo-main.lock` as the atomic
    primitive (no `flock` dependency, works over plain ssh), released by a shell trap on
@@ -159,9 +159,9 @@ Three defences, in order of how much they can actually promise:
    `--force-lock` breaks a lock you know is stale. Silently proceeding is not an option.
 2. **Sha verification before and after the run.** Git mode asserts the checkout landed on the sha it
    asked for, and both modes re-read `HEAD` after the suite finishes and exit `76` if it moved. This
-   is the defence that covers what the lock cannot: anyone bypassing `remote-test` entirely. It
+   is the defense that covers what the lock cannot: anyone bypassing `remote-test` entirely. It
    converts silent corruption into a loud, specific error.
-3. **Serialisation on top of isolation.** `test:cross-platform` derives its port band from the
+3. **Serialization on top of isolation.** `test:cross-platform` derives its port band from the
    worktree slot (`xplatSyncBand` in `scripts/lib/slot.mjs`) and gives every server its own SQLite
    database in its own temp directory, so two different worktrees on one box no longer collide. That
    does not retire the lock: two runs in the SAME remote worktree hash to the same slot, so they want
@@ -247,6 +247,6 @@ scenarios and 51s is the single `large sync` case).
 - The box has no display in an ssh shell. `test-cross-platform` needs one and stays in the
   caveated tier rather than the refused one, because a private `kwin_wayland --virtual` compositor
   (see "Suites that need a display") gives it the real Wayland path. A bare Xvfb framebuffer is
-  still not a substitute: it reports different compositing behaviour than either shipped engine.
+  still not a substitute: it reports different compositing behavior than either shipped engine.
   Wiring the compositor into `remote-test.mjs` itself (start on a unique socket, export the env,
   kill by PID in the existing exit trap) is the obvious follow-up and has not been done.

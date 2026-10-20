@@ -91,7 +91,7 @@ struct OpenNoteReconcilerTests {
         return await reconciler.reconcile(change: change, effects: editor.effects())
     }
 
-    @Test("leave resumes a draft save cancelled for fact gathering")
+    @Test("leave resumes a draft save canceled for fact gathering")
     func leaveResumesDirtyDraftSave() async {
         let editor = FakeEditor()
         editor.snapshot.draft = "mine"
@@ -342,7 +342,7 @@ struct OpenNoteReconcilerTests {
 
         #expect(await task.value == .stale)
         #expect(!editor.events.contains("adopt:peer"))
-        // The pass had cancelled the debounced save; a cancelled pass re-arms
+        // The pass had canceled the debounced save; a canceled pass re-arms
         // it (an exit that stops short, or a dismissed move picker, cancel
         // .adopt mid-pass).
         #expect(editor.events.last == "resume-save")

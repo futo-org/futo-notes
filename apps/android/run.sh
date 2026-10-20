@@ -37,14 +37,14 @@ echo "==> JS deps"
 # the Rust build): scripts/editor-deps.sh.
 bash scripts/editor-deps.sh
 
-# hosted_server() only honours FUTO_HOSTED_SERVER in a build with
+# hosted_server() only honors FUTO_HOSTED_SERVER in a build with
 # debug_assertions on, and the default release-ffi profile inherits release,
 # where it is compiled out — so without this, setting FUTO_HOSTED_SERVER here
 # would silently do nothing and the app would still probe the real service.
 # Not unconditional: switching profiles slows the normal dev loop.
 if [ -n "${FUTO_HOSTED_SERVER:-}" ]; then
   export FUTO_ANDROID_FFI_PROFILE="${FUTO_ANDROID_FFI_PROFILE:-dev}"
-  echo "==> FUTO_HOSTED_SERVER set -> using the '$FUTO_ANDROID_FFI_PROFILE' FFI profile so the override is honoured"
+  echo "==> FUTO_HOSTED_SERVER set -> using the '$FUTO_ANDROID_FFI_PROFILE' FFI profile so the override is honored"
 fi
 
 echo "==> Building Rust core (UniFFI) -> jniLibs/<abi>/libfuto_notes_ffi.so + Kotlin bindings"

@@ -15,7 +15,7 @@ import {
  * instead keeps the unlisted ones out of the build entirely.
  *
  * A fence in an unlisted language still renders as a code block; it just is not
- * syntax-coloured. Adding one back is a single row.
+ * syntax-colored. Adding one back is a single row.
  *
  * Only the name and its aliases matter here: fence info strings are resolved by
  * `LanguageDescription.matchLanguageName`, which looks at nothing else. The

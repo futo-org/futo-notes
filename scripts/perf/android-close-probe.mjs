@@ -63,7 +63,7 @@ for (let i = 0; i < args.length; i += 1) {
   else if (arg === '--scenarios') scenarios = args[++i].split(',');
   else if (arg === '--out') out = args[++i];
   else {
-    console.error(`Unrecognised argument: ${arg}`);
+    console.error(`Unrecognized argument: ${arg}`);
     process.exit(2);
   }
 }

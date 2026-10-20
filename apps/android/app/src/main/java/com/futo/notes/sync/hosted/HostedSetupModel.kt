@@ -480,7 +480,7 @@ class HostedSetupModel(
 
     /**
      * Stops waiting and puts the three doors back. Deliberately outside [step]:
-     * the wait it is cancelling is what holds `busy`.
+     * the wait it is canceling is what holds `busy`.
      */
     fun cancelPairing() {
         if (pairing == PairingState.WAITING) setup?.cancelWait()

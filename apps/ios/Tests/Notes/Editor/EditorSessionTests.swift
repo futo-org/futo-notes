@@ -8,7 +8,7 @@ import Testing
 /// (`editorChangeDisposition`, `shouldFlushEditorOnDisappear`,
 /// `shouldHandleEditorDisappear`, `needsEditorCommitBeforeNavigation`,
 /// `shouldCompleteEditorNavigation`, `editorDeleteContent`) — each of those was
-/// a one-line predicate whose real behaviour only appeared once it was composed
+/// a one-line predicate whose real behavior only appeared once it was composed
 /// with the others.
 @Suite("Editor session")
 @MainActor
@@ -120,7 +120,7 @@ struct EditorSessionTests {
     }
 
     /// The session property that made the autosave conflict-copy regression
-    /// possible, asserted directly. Cancelling a save does NOT stop its body: the
+    /// possible, asserted directly. Canceling a save does NOT stop its body: the
     /// body resumes past its suspension point with `Task.isCancelled` already
     /// true, so a write it issued before that point is already durable. Anything
     /// the save must record afterwards therefore has to be recorded
@@ -128,9 +128,9 @@ struct EditorSessionTests {
     /// gating the baseline advance there left `savedContent` behind disk and the
     /// engine parked the editor's own write as a conflict copy.
     ///
-    /// Its neighbour above asserts that `cancelAndDrain` WAITS for this body.
+    /// Its neighbor above asserts that `cancelAndDrain` WAITS for this body.
     /// This one asserts what the body still does while it is waited on.
-    @Test("a cancelled save still resumes past its suspension point")
+    @Test("a canceled save still resumes past its suspension point")
     func cancelledSaveStillResumes() async {
         let session = EditorSession()
         let recorder = Recorder()

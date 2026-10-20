@@ -30,7 +30,7 @@ import { rewriteLoopbackHost } from './tauri-test-client.mjs';
 const EMULATOR_HOST_LOOPBACK = '10.0.2.2';
 
 /**
- * How a note-list screen is recognised: the New-note FAB's content description.
+ * How a note-list screen is recognized: the New-note FAB's content description.
  * The list is now a folder browser (root notes + top-level folders, tapping a
  * folder pushes its contents), so there is no "All notes" title to anchor on and
  * the top-bar title is whichever folder is showing. The FAB is on every folder
@@ -272,14 +272,14 @@ class AndroidNativeSyncClient {
     await this.device.tap('Sync now', { scroll: false });
   }
 
-  /** Type `value` into the labelled text field, replacing whatever is there.
+  /** Type `value` into the labeled text field, replacing whatever is there.
    *  `expectVisibleValue` re-types once if the IME dropped characters — only
    *  usable for a field that renders its value (a password renders as dots). */
   async #fillField(label, value, { expectVisibleValue = false } = {}) {
     const field = await this.device.waitFor(`the "${label}" field`, UI_TIMEOUT_MS, () =>
       this.device.findNode(label),
     );
-    // The label is drawn inside the text field's box, so its centre focuses the
+    // The label is drawn inside the text field's box, so its center focuses the
     // field itself.
     this.device.tapPoint(field.x, field.y);
     await this.device.waitFor(`the "${label}" field to accept input`, UI_TIMEOUT_MS, () =>

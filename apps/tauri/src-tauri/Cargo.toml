@@ -64,7 +64,7 @@ trash = "5"
 # swaps it, and relaunches via plugin-process.
 tauri-plugin-updater = "2"
 # Restore the window's size, position and maximized state across launches.
-# A window that reopens at the config default every time is browser behaviour;
+# A window that reopens at the config default every time is browser behavior;
 # the plugin also validates the restored rect against the attached monitors, so
 # unplugging a display cannot strand the window off-screen. Its state file is
 # keyed by the bundle identifier, so dev/release/worktree builds never share one.

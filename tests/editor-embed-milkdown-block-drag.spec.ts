@@ -110,7 +110,7 @@ async function longPressDrag(
 // drive it, there is no HTML5 drag to intercept. This is easy to break from the
 // outside without noticing: the handle is OUR element, positioned by OUR
 // getOffset, surfaced by OUR synthetic pointermove, and the plugin's own drag
-// is cancelled by listeners that only win because they are registered before
+// is canceled by listeners that only win because they are registered before
 // its own.
 const gutterHandleFixture = (query: string) =>
   base.extend<{ page: Page }>({
@@ -192,7 +192,7 @@ function curtainUp(page: Page): Promise<boolean> {
  * gap never reports the intermediate ones.
  *
  * Plain `page.mouse` calls are the whole driver: the page listens for
- * `pointerdown` on the handle, lifts once the pointer has travelled a few
+ * `pointerdown` on the handle, lifts once the pointer has traveled a few
  * pixels, follows every `pointermove`, and commits on `pointerup`. (This used to
  * ride Playwright's HTML5 drag interception over CDP, which is why the helper
  * once needed a long explanation of `Input.dispatchDragEvent`.)
@@ -235,7 +235,7 @@ function dropIndicatorTop(page: Page): Promise<number | null> {
   });
 }
 
-/** Centre of the ⠿ handle for the block containing `text`, surfaced by hover. */
+/** Center of the ⠿ handle for the block containing `text`, surfaced by hover. */
 async function surfaceHandle(page: Page, text: string): Promise<{ x: number; y: number }> {
   const block = await blockCenter(page, text);
   const range = await blockBox(page, text);
@@ -376,7 +376,7 @@ gutterHandleTest(
   'a ⠿ handle drag starts no HTML5 drag, draws the ghost card at the block size, and commits on drop',
   async ({ page }) => {
     // A column narrower than the viewport, so the card's own clamp to the screen
-    // edges (a full-width block would hit it) cannot colour the size check.
+    // edges (a full-width block would hit it) cannot color the size check.
     await page.addStyleTag({ content: '.futo-milkdown { max-width: 600px; }' });
     await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
     await clearMessages(page);
@@ -592,7 +592,7 @@ gutterHandleTest(
     expect(await curtainUp(page)).toBe(false);
     await expect(page.locator('.futo-mobile-dnd-ghost')).toHaveCount(0);
     await expect(page.locator('.futo-mobile-dnd-source')).toHaveCount(0);
-    // The held block no longer exists, so the drop is cancelled.
+    // The held block no longer exists, so the drop is canceled.
     expect(await getContent(page)).toBe('one\n\ntwo\n\nthree');
   },
 );
@@ -876,7 +876,7 @@ gutterHandleLineTest(
 
 /** A list-final document with its trailing newlines collapsed to one:
  * @milkdown/kit/plugin/trailing keeps an empty paragraph after a list-final
- * document, which is upstream behaviour and not what these assert. */
+ * document, which is upstream behavior and not what these assert. */
 const listOnly = (markdown: string): string => markdown.replace(/\n+$/, '\n');
 
 /* A drag only ever lifts a TOP-LEVEL block. The handle used to stand for the
@@ -950,7 +950,7 @@ gutterHandleTest(
  * left the whole block selected, and ProseMirror hands that selection to the
  * browser as a native range over the block's text, so it painted as highlighted
  * text. Reported: "sometimes when I use it, text or other items get selected".
- * The handle's mousedown is now cancelled before the plugin sees it (the drag is
+ * The handle's mousedown is now canceled before the plugin sees it (the drag is
  * pointer-driven), so the user's own selection is never touched, and is carried
  * along with the block when it was inside the one that moved. */
 
@@ -1062,7 +1062,7 @@ gutterHandleTest(
 );
 
 /* The handle is a mouse target: big enough to hit without aiming, and beside
- * the line a block STARTS on — floating-ui centred it on the whole block, which
+ * the line a block STARTS on — floating-ui centered it on the whole block, which
  * put it halfway down a long paragraph. */
 gutterHandleTest('the ⠿ handle is a comfortable target on the first line', async ({ page }) => {
   const long = 'wrapping words '.repeat(60).trim();
@@ -1298,7 +1298,7 @@ mobileDndTest(
 // The system can take the touch away mid-air (an incoming call, a system
 // gesture). That path posts no change and no drop haptic — and still has to
 // hand the shell's suspended text interaction back.
-mobileDndTest('a cancelled drag reports the drag as over', async ({ page, cdp }) => {
+mobileDndTest('a canceled drag reports the drag as over', async ({ page, cdp }) => {
   await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
   await clearMessages(page);
 
@@ -1312,7 +1312,7 @@ mobileDndTest('a cancelled drag reports the drag as over', async ({ page, cdp })
   await settleChangeDebounce(page);
 
   expect((await messagesOfType(page, 'blockDrag')).map((m) => m.active)).toEqual([true, false]);
-  /* The finger travelled, so the indicator ticked on the way; what a cancel
+  /* The finger traveled, so the indicator ticked on the way; what a cancel
    * must NOT produce is the landing haptic, because nothing landed. */
   const kinds = (await messagesOfType(page, 'haptic')).map((m) => m.kind);
   expect(kinds[0]).toBe('lift');
@@ -1785,7 +1785,7 @@ mobileDndTest(
 
 // Cancel (an incoming call, a system gesture) takes the touch away mid-air
 // with no drop and no doc change — and must take the loop with it.
-mobileDndTest('a cancelled drag stops the auto-scroll', async ({ page, cdp }) => {
+mobileDndTest('a canceled drag stops the auto-scroll', async ({ page, cdp }) => {
   await hostSetContent(page, scrollableNote());
   await clearMessages(page);
 
@@ -1906,7 +1906,7 @@ async function previewAtRest(page: Page): Promise<void> {
 }
 
 /** The drop invariant: releasing a reflow drag moves NOTHING on screen. Every
- * block the preview showed — the neighbours it slid out of the way and the
+ * block the preview showed — the neighbors it slid out of the way and the
  * dimmed source in its landing slot — is exactly where the real block sits
  * once the move has committed, and the note did not scroll. `release` lets
  * go; the returned layout is the real one after the drop. */
@@ -2039,7 +2039,7 @@ mobileDndTest(
 // ---- the drop invariant, across block kinds -------------------------------
 //
 // The same invariant over every top-level block kind, as the source and as the
-// neighbours it slides past, up and down, near and far, on both drag gestures.
+// neighbors it slides past, up and down, near and far, on both drag gestures.
 // The note is the one the user found the multi-line case with (desktop,
 // 2026-10-08: dragging the two-line intro paragraph down past A and B moved
 // the other blocks on release; one-line blocks did not). List items are not
@@ -2587,7 +2587,7 @@ mobileDndTest(
 // ---- the drop invariant mid-slide ------------------------------------------
 //
 // The preview's clones slide to their places over 0.18s. A release, or a
-// layout change, during that slide must not teleport a neighbour to where it
+// layout change, during that slide must not teleport a neighbor to where it
 // was going: it carries on from where it is drawn. The page's animation clock
 // is slowed and then stopped through CDP, so the slide is caught part-way
 // every time, and positions are read off what is RENDERED (the clones' rects,
@@ -2655,7 +2655,7 @@ const SLIDE_NOTE =
   'alpha\n\nbravo\n\ncharlie\n\ndelta\n\n![late image](late.svg)\n\necho\n\nfoxtrot';
 
 mobileDndTest(
-  'a release mid-slide lets the neighbours finish their slide instead of jumping',
+  'a release mid-slide lets the neighbors finish their slide instead of jumping',
   async ({ page, cdp }) => {
     await page.setViewportSize({ width: 760, height: 1200 });
     await hostSetContent(page, SLIDE_NOTE);
@@ -2721,7 +2721,7 @@ mobileDndTest(
   },
 );
 
-/* After a release mid-slide the move is not committed until the neighbours
+/* After a release mid-slide the move is not committed until the neighbors
  * have finished their slide (`ReflowCurtain.land`): until then the curtain
  * shows the note as the move will leave it, and the real note under it is
  * untouched. Nothing may cut that slide short, and nothing may leave the
@@ -3521,7 +3521,7 @@ mobileDndTest(
 );
 
 // The other half of the same tester report: on Android, Chromium's own
-// long-press forces focus onto the editable regardless of the page cancelling
+// long-press forces focus onto the editable regardless of the page canceling
 // selectstart/contextmenu/touchend (module doc's "a block press must never
 // focus the editor"). Playwright's desktop Chromium does not reproduce that
 // forced focus itself, so these simulate it mid-press with a direct .focus()

@@ -342,11 +342,11 @@ const PROOFS = [
   },
   {
     gate: 'theme-single-pace',
-    id: 'css-transition-over-a-theme-colour',
+    id: 'css-transition-over-a-theme-color',
     seeded:
       'created src/styles/redproof-sentinel-theme.css transitioning background-color at a themed rest value',
     claim:
-      'a CSS transition covering a theme-dependent property whose rest value is a real colour must fail — that is the desktop half of the law 55478cfc fixed',
+      'a CSS transition covering a theme-dependent property whose rest value is a real color must fail — that is the desktop half of the law 55478cfc fixed',
     inject: (wt) =>
       seed.write(
         wt,
@@ -370,7 +370,7 @@ const PROOFS = [
     id: 'compose-topappbar-outside-the-wrapper',
     seeded: 'created a Compose screen calling Material3 TopAppBar directly',
     claim:
-      "a raw Material3 TopAppBar in app code must fail — M3 springs the bar's container colour through animateColorAsState while the rest of the screen snaps",
+      "a raw Material3 TopAppBar in app code must fail — M3 springs the bar's container color through animateColorAsState while the rest of the screen snaps",
     inject: (wt) =>
       seed.write(
         wt,
@@ -412,7 +412,7 @@ const PROOFS = [
     id: 'wrapper-loses-its-transparent-container',
     seeded: "changed TopBar's containerColor away from Color.Transparent",
     claim:
-      "the wrapper losing its constant container colour must fail — the transparent container is the only reason M3's animateColorAsState has nothing to animate",
+      "the wrapper losing its constant container color must fail — the transparent container is the only reason M3's animateColorAsState has nothing to animate",
     inject: (wt) =>
       seed.replace(
         wt,
@@ -423,7 +423,7 @@ const PROOFS = [
     expect: ['TopBar.kt', 'Color.Transparent'],
     absent: ['redproof-sentinel-theme.css'],
     marker: 'claim',
-    fix: 'the wrapper-integrity check in scripts/check-theme-single-pace.mjs stopped firing. Routing every bar through TopBar buys nothing if the wrapper itself can go back to a themed container colour.',
+    fix: 'the wrapper-integrity check in scripts/check-theme-single-pace.mjs stopped firing. Routing every bar through TopBar buys nothing if the wrapper itself can go back to a themed container color.',
   },
   {
     gate: 'qa-input-safety',
@@ -474,7 +474,7 @@ const PROOFS = [
     // The app binary is a DIFFERENT rule's territory; if this fires too, the two
     // rules have stopped being complementary and every line needs two exceptions.
     absent: ['app-process-name-lookup'],
-    fix: "the process-name-kill rule stopped firing (or KILL_BY_PATTERN in scripts/check-qa-input-safety.mjs stopped recognising a kill in command position). Without it an instruction file can again teach the cleanup step that orphaned three peer worktrees' builds on 2026-08-19 — silently, as a wrong answer rather than an error.",
+    fix: "the process-name-kill rule stopped firing (or KILL_BY_PATTERN in scripts/check-qa-input-safety.mjs stopped recognizing a kill in command position). Without it an instruction file can again teach the cleanup step that orphaned three peer worktrees' builds on 2026-08-19 — silently, as a wrong answer rather than an error.",
   },
   {
     gate: 'qa-input-safety',

@@ -16,7 +16,7 @@ build-rust-ios:
 # `direct` distribution flavor; `FUTO_ANDROID_FLAVOR=play just android-native`
 # installs the Google Play flavor instead (same applicationId, so it replaces
 # whichever is installed). FUTO_HOSTED_SERVER, if set, switches the FFI build to
-# the `dev` profile (the only one that honours the override) and launches
+# the `dev` profile (the only one that honors the override) and launches
 # already pointed at that address — see docs/qa/hosted-sync-android.md.
 # Build + run the native Android Compose app (Rust core + WebView editor).
 android-native: _preflight-android

@@ -2,7 +2,7 @@
  * Which toolbar-manifest commands are ACTIVE at the caret, and which are
  * DISABLED outright.
  *
- * Drives the Notion-style highlight (and the Undo/Redo grey-out) on the
+ * Drives the Notion-style highlight (and the Undo/Redo gray-out) on the
  * native keyboard toolbar (bridge `formatState` — see
  * packages/editor/src/bridge.ts). Kept out of the editor component because it
  * is pure document logic: given a view/selection it answers with toolbar ids,

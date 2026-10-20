@@ -1142,7 +1142,7 @@ export class ReflowCurtain {
   }
 
   /** The release will commit this preview's move (`BlockDragSession.land`)
-   * once the neighbours still sliding are in place, so nothing jumps: calls
+   * once the neighbors still sliding are in place, so nothing jumps: calls
    * `onLanded` when the last slide ends, or LAND_CAP_MS after the release
    * whatever the slides are doing; at once when nothing is sliding, under a
    * reduced-motion setting, or in a hidden page; and early at a scroll (the
@@ -1267,7 +1267,7 @@ function visibleBox(el: HTMLElement): { top: number; left: number; width: number
 /** How far the margin of `el`'s first (`top`) or last (`bottom`) descendants
  * reaches out through that edge. In the document that margin collapses OUTSIDE
  * the block (a list's first item, say), so the block's top is its content's
- * top, and the margin joins the block's own in the gap to its neighbour. A
+ * top, and the margin joins the block's own in the gap to its neighbor. A
  * clone is absolutely positioned — a formatting context of its own — which
  * keeps the margin inside and would draw the content that much lower (2.5px
  * for a list on the reference phone) unless the clone is raised by it. */
@@ -1300,8 +1300,8 @@ function collapse(a: number, b: number): number {
 
 /** What the editor's text is drawn on, so the curtain hides the real blocks
  * without a seam: the first opaque-ish background at or above `el`, else the
- * embed's `--futo-editor-surface` (the native hosts paint their own colour
- * behind a transparent page; editor.html), else the colour scheme's paper. */
+ * embed's `--futo-editor-surface` (the native hosts paint their own color
+ * behind a transparent page; editor.html), else the color scheme's paper. */
 function backgroundBehind(el: HTMLElement): string {
   const win = el.ownerDocument.defaultView ?? window;
   for (let n: HTMLElement | null = el; n; n = n.parentElement) {

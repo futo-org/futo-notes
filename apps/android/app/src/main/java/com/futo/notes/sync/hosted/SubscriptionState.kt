@@ -10,7 +10,7 @@ import uniffi.futo_notes_ffi.BillingStatus
  *
  * `state` is the payment provider's own vocabulary, carried through Rust
  * verbatim, so this is where it becomes a sentence a person reads (ADR 0003,
- * decision 8). An unrecognised state falls back to the entitlement — the one
+ * decision 8). An unrecognized state falls back to the entitlement — the one
  * field that is always meaningful — rather than showing the raw word.
  *
  * A past-due account says when sync stops, because the grace period is the only

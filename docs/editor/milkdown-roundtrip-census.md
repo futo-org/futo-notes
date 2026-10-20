@@ -285,7 +285,7 @@ different openers, and they are a different problem:
 | residual | notes | why the escape does not apply |
 |---|---:|---|
 | `* > quote`, `* * nested`, `* # heading` | 279 | escaping would change the meaning — unlike a manual "0.", these are plausibly intentional nesting |
-| digit-dot bullets indented 4+ columns | 16 | the escape allows CommonMark's 0–3 spaces; widening it would start rewriting indented code blocks, which a string pass cannot recognise |
+| digit-dot bullets indented 4+ columns | 16 | the escape allows CommonMark's 0–3 spaces; widening it would start rewriting indented code blocks, which a string pass cannot recognize |
 | digit-dot inside code | 3 | correctly left alone |
 
 **Recommended follow-up (not done here, outside this ticket's scope):** drop the

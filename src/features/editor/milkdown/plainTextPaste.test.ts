@@ -222,7 +222,7 @@ describe('an empty paragraph that is not a document or quote child is left to th
  * newline is a second, empty paragraph). It needs no plugin of ours to be
  * involved at all, which is why it reproduces on base.
  */
-describe('multi-line plain text pasted into a table cell keeps the neighbouring cell (RC-81)', () => {
+describe('multi-line plain text pasted into a table cell keeps the neighboring cell (RC-81)', () => {
   async function pasteIntoEmptyCell(text: string): Promise<string> {
     const handle = await mountEditor('');
     handle.openNote('test-note', '| a | b |\n| --- | --- |\n| | y |\n');

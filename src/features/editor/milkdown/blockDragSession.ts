@@ -279,7 +279,7 @@ export class BlockDragSession {
 
   /** The boundary the indicator is currently drawn at. `pos` IS the boundary's
    * whole identity (blockDragGeometry.ts), so only a CHANGE of this fires
-   * `onBoundaryChange`: a finger travelling inside one gap is silent, and
+   * `onBoundaryChange`: a finger traveling inside one gap is silent, and
    * crossing from one block's lower half into the next block's upper half — the
    * same gap — is silent too, because the bar did not move. */
   private indicatorPos: number | null = null;
@@ -459,7 +459,7 @@ export class BlockDragSession {
   }
 
   /** A release that will commit the move the reflow preview shows. Its
-   * neighbours may still be sliding to their places, and committing now would
+   * neighbors may still be sliding to their places, and committing now would
    * take the curtain down and make them jump the rest of the way, so the move
    * waits under the curtain until they are there (`ReflowCurtain.land`), then
    * commits and the curtain goes, in one frame: nothing moves on screen but
@@ -489,7 +489,7 @@ export class BlockDragSession {
     curtain.land(() => this.landed());
   }
 
-  /** The landing drop's neighbours are in place (or the layout changed, or
+  /** The landing drop's neighbors are in place (or the layout changed, or
    * the note scrolled, or the document changed, or something reads the note:
    * `landPendingDrop`): the move commits, at its target mapped through
    * anything that happened since, and the curtain goes in the same frame. A move that no longer applies (its block was taken
@@ -683,7 +683,7 @@ export class BlockDragSession {
 
     // Essentially full block width, grown by the card's own padding so the
     // content stays put under the finger, then clamped so the SCALED card
-    // still clears both screen edges (the scale grows it about its centre, so
+    // still clears both screen edges (the scale grows it about its center, so
     // half the growth bleeds out of each side).
     const viewportWidth = window.innerWidth || rect.width + GHOST_PAD_X_PX * 2;
     const usable = viewportWidth - GHOST_VIEWPORT_MARGIN_PX * 2;
@@ -736,7 +736,7 @@ export class BlockDragSession {
 
   /** One line per boundary, drawn IN the gap — the geometry is the target's, so
    * a gap approached from either side puts the bar in exactly one place
-   * (blockDragGeometry.ts). The `margin-top` in the stylesheet re-centres the
+   * (blockDragGeometry.ts). The `margin-top` in the stylesheet re-centers the
    * 3px bar on `top`. */
   private showIndicator(target: DropTarget): void {
     const el = this.ensureIndicator();

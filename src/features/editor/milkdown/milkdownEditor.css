@@ -61,7 +61,7 @@
    * synthetic drag delivers a full pointer stream at screen x >= 20 and zero
    * events at x <= 15, and a horizontal drag from x = 8 pops the stack.
    * At the old 34px gutter the 20px-wide handle sat at x 6..26 — its whole
-   * left half, INCLUDING its centre, inside that dead strip, which is why
+   * left half, INCLUDING its center, inside that dead strip, which is why
    * touch block-drag looked completely inert on iOS while working in
    * Chromium and in Mobile Safari with the very same bundle. 54px puts it at
    * x 26..46 (task items at 28..48). env() keeps that true in landscape,
@@ -128,7 +128,7 @@
  * the 54px gutter is pure dead offset — the user's "gutter on the left is
  * still there, everything is still offset". Drop it back to the right side's
  * 18px. Nothing else depends on the 54px: `contentColumnX` measures the
- * column's centre, and the task checkbox sits inside its own list ITEM's
+ * column's center, and the task checkbox sits inside its own list ITEM's
  * padding (taskCheckbox.ts, `.futo-task-checkbox` at `left: 0`), not in this
  * gutter, so it still lands clear of the edge at 18px. Three classes, so it
  * beats the base rule above regardless of source order. */
@@ -435,7 +435,7 @@
   accent-color: var(--color-primary, #f26b1f);
 }
 
-/* `#tag` decoration (tagDecorations.ts). Colour only — no box, no
+/* `#tag` decoration (tagDecorations.ts). Color only — no box, no
  * background: the document holds a tag as plain text, so its glyphs must stay
  * on the text baseline at the text's own advance width or typing inside a tag
  * would shift the line. */
@@ -444,7 +444,7 @@
 }
 
 /* Find in note (find/findPlugin.ts). Painted as a background rather than a
-   selection colour so the CURRENT match can still carry the real selection
+   selection color so the CURRENT match can still carry the real selection
    on top of it and stay legible in both themes. */
 .futo-milkdown .ProseMirror .futo-find-match {
   background: var(--color-find-match);
@@ -620,7 +620,7 @@
   pointer-events: none;
 }
 
-/* Tint off the text colour rather than a surface token, so it reads on the
+/* Tint off the text color rather than a surface token, so it reads on the
  * editor background in both themes. */
 .futo-milkdown .milkdown-block-handle:hover {
   color: var(--color-text, #0f0f0f);

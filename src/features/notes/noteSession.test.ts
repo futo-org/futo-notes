@@ -883,7 +883,7 @@ describe('loadNote focus routing', () => {
     expect(deps.navigate).toHaveBeenLastCalledWith('/');
   });
 
-  it('does not let a deferred read repopulate a cancelled session', async () => {
+  it('does not let a deferred read repopulate a canceled session', async () => {
     const { readNote } = await import('./notes.svelte');
     let resolveRead!: (content: string) => void;
     let markReadStarted!: () => void;

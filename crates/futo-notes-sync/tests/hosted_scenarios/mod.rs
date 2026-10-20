@@ -426,7 +426,7 @@ pub async fn an_entitled_account_is_not_sent_to_pay_again(base: &str) {
 }
 
 /// "Manage subscription" hands out a URL to open and nothing else: this app
-/// writes no billing state, so cancelling, invoices, and cards all live behind
+/// writes no billing state, so canceling, invoices, and cards all live behind
 /// this one link (ADR 0003, decision 8). It is also what the "Vault is full"
 /// banner's button opens, which is why an entitled account must get one too.
 pub async fn the_account_card_can_open_the_billing_portal(base: &str) {
@@ -832,7 +832,7 @@ pub async fn a_finished_wizard_is_recognised_without_the_network(base: &str) {
 
     assert!(
         offline().has_saved_vault().await.expect("read"),
-        "a finished wizard left nothing a cold start could recognise"
+        "a finished wizard left nothing a cold start could recognize"
     );
 
     let root = fresh_vault();
@@ -886,7 +886,7 @@ pub async fn a_locked_device_cannot_start_syncing(base: &str) {
 /// than per-vault — so a shell restoring a session at launch cannot tell from
 /// its presence which kind of vault this is. Every shell resolves that by
 /// trying the password first, which on a device that later moved to hosted
-/// sync meant dialling the old self-hosted server at every launch and never
+/// sync meant dialing the old self-hosted server at every launch and never
 /// reaching the hosted session at all (device QA, 2026-09-16).
 ///
 /// The rule that removes the ambiguity: finishing hosted setup clears the

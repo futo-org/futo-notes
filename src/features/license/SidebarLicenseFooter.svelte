@@ -29,7 +29,7 @@
 
 <div class="sidebar-footer">
   <!-- `title`, deliberately NOT `aria-label`: an aria-label REPLACES the
-       accessible name, so labelling the button "Open license settings" is
+       accessible name, so labeling the button "Open license settings" is
        exactly how the ambient label — the one word this whole feature exists to
        show or remove — stops being announced at all. The visible text is the
        name; the tooltip only explains what clicking does. -->

@@ -3,7 +3,7 @@ import UIKit
 extension NSString {
     /// The longest prefix of `replacement` that keeps this text at most `limit`
     /// characters once it replaces `range`. Character counts are not additive —
-    /// removing text can join its neighbours into one character, and inserted
+    /// removing text can join its neighbors into one character, and inserted
     /// text can join them (a combining accent costs nothing) — so only the whole
     /// result is measured.
     func longestPrefix(of replacement: String, replacing range: NSRange, within limit: Int)

@@ -145,7 +145,7 @@ const editor = mount(MilkdownEditor, {
     },
     // Same path, posted at TOUCH-DOWN rather than at the lift: a shell's
     // protection must not be conditional on the editor's 340ms timer winning a
-    // race against its WebView's own long-press recogniser (WKWebView's fires
+    // race against its WebView's own long-press recognizer (WKWebView's fires
     // at ~655ms) (bridge.ts BlockPressMessage).
     onblockpress: (pressed: boolean) => {
       post({ type: 'blockPress', pressed });

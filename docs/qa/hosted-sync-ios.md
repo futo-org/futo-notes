@@ -35,7 +35,7 @@ just ios-native                       # sets FUTO_IOS_FFI_PROFILE=dev for you
 ```
 
 `apps/ios/run.sh` already builds the FFI with the `dev` profile, which is what the
-hosted-address override needs — `hosted_server()` honours `FUTO_HOSTED_SERVER` only
+hosted-address override needs — `hosted_server()` honors `FUTO_HOSTED_SERVER` only
 where `debug_assertions` is on, and the default `release-ffi` profile inherits `release`,
 where it is off. (Android has no such default; see that story.)
 
@@ -143,7 +143,7 @@ was already on the next screen with nothing else tapped. The password screen rea
 "Strong" for a 16-character password (10% before, 100% after). The recovery key came up
 once as `NEE4-B2XN-TCYY-1ASE-78GJ-8907-1M0~`, with Copy, Share, "FUTO cannot recover
 your vault without it. Nobody at FUTO has a copy.", "You will not be shown this key
-again.", and Continue greyed until the toggle was on. The account card read
+again.", and Continue grayed until the toggle was on. The account card read
 `person@standin.test` · `Active` · `0 B of 10 GB used`.
 
 **2 — sign out: PASS.** The confirmation says the notes stay; afterwards `Welcome.md`
@@ -220,7 +220,7 @@ note list within fifteen seconds.
 - **Pairing, sign out, Change vault password and New recovery key** were not re-walked;
   the previous run above covers them.
 - **A real camera**, as ever.
-- **Offline at boot.** The muted line and the keep-the-secrets behaviour are covered by
+- **Offline at boot.** The muted line and the keep-the-secrets behavior are covered by
   `SyncManagerRestoreTests` only; no run has pulled the network out from under a
   launching device.
 
@@ -245,7 +245,7 @@ reading `person@standin.test` · `Active` · **`555 B of 10 GB used`** · `Sync 
 the app was force-quit (`simctl terminate`) and relaunched with **both servers running**
 and nothing tapped. It connected to **`:3131` only**; `:3181` had no connection at all,
 though it was up and would have accepted one. Before the hosted connect, the same binary
-on the same device did the opposite: relaunch dialled `:3181` and never `:3131`. Same
+on the same device did the opposite: relaunch dialed `:3181` and never `:3131`. Same
 build, same device — the stored password is the whole difference, which is what the fix
 removes.
 
@@ -281,12 +281,12 @@ looked like before.
 **D9 — a stranded device resumes hosted, and the password is gone: PASS.** Built the
 stranded state with a genuinely pre-fix binary (the `connect_sync` clear and the
 `restoreBranch` order both reverted, rebuilt, installed): connect self-hosted, complete the
-hosted wizard, and that build leaves **both** credentials. Its relaunch dialled `:3181` and
+hosted wizard, and that build leaves **both** credentials. Its relaunch dialed `:3181` and
 never `:3131` — the reported bug, reproduced. Installing the fixed build over it and
 relaunching, with nothing tapped, connected `:3131` and never touched `:3181`. Then **Sign
 out** (which forgets the hosted secrets and nothing else) and relaunch: the app connected to
 **neither** server — so the heal had cleared the password. Had it survived, this is exactly
-the launch that would have dialled `:3181`, as the pre-fix build demonstrably did.
+the launch that would have dialed `:3181`, as the pre-fix build demonstrably did.
 
 ### Mechanic this run cost an hour to find
 

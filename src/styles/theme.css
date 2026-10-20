@@ -19,7 +19,7 @@
      tuned for a clearly visible step instead of reusing that one. */
   --color-code-bg: #e2e2e2;
   /* Find in note (docs/spec/editor.md): every match, and the current one.
-     Both sit UNDER the text rather than replacing its colour, so a match
+     Both sit UNDER the text rather than replacing its color, so a match
      inside a heading, a link or a fence keeps its own styling. */
   --color-find-match: #ffd8a8;
   --color-find-match-current: #ff9f45;

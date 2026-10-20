@@ -15,7 +15,7 @@ describe('Tauri capabilities', () => {
   });
 
   // The license deep link is delivered by the plugin, and the plugin only
-  // recognises a scheme the CONFIG declares — `handle_cli_arguments` drops any
+  // recognizes a scheme the CONFIG declares — `handle_cli_arguments` drops any
   // argument whose scheme is not listed, and the macOS bundle's
   // CFBundleURLTypes is generated from it. Lose this block and
   // `futonotes://license/…` silently stops arriving, with nothing to fail.

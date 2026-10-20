@@ -719,7 +719,7 @@ error: No route to host (os error 65)`) in the journal's `error` field; the
   the new root with no re-upload — provided the move carries the dotfiles.
   Android storage migration synchronously closes a session-operation gate, then
   drains credential restore/heal, connect, manual sync, and live-resume work
-  before gracefully cancelling and joining the live task and awaiting the Rust
+  before gracefully canceling and joining the live task and awaiting the Rust
   session's cycle gate. It never aborts an in-flight cycle before that cycle
   installs its advanced in-memory/checkpoint state. It then takes the store's
   exclusive vault gate, so sync/editor/store/image writes cannot race the staged
@@ -2033,7 +2033,7 @@ journal --dir` has nothing to read from a phone.
   missing note with `NoteStore.read_if_exists`, asks `classify_open_note`, and
   applies `Close` only to the visible editor (a buried wikilink editor must not
   pop the stack top). A hidden editor re-gathers on return, and the queued save
-  is cancelled and drained before the read so a clean note cannot be
+  is canceled and drained before the read so a clean note cannot be
   resurrected after the close. Android uses the same atomic distinction,
   renders `Close` through `EditorSession` for a clean deletion, and renders
   `KeepDraft(PeerDeleted)` for a dirty deletion; its close latch plus clean
@@ -2074,7 +2074,7 @@ journal --dir` has nothing to read from a phone.
   to the same saved-content baseline it later hands `flush_draft` as the
   expected-previous: it decides whether the editor reads as dirty AND what the
   next write is conditioned on. A shell therefore never needs a second value and
-  must not synthesise one — assign `base` to the baseline, pass that same
+  must not synthesize one — assign `base` to the baseline, pass that same
   baseline to the flush verb (desktop `updateNote({ base })`, iOS/Android
   `PendingDraft(base:)`), and let the returned disposition rebind the editor when
   it parks. A shell whose debounced save writes UNCONDITIONALLY instead destroys

@@ -38,7 +38,7 @@ final class StandInHostedSetupClient: HostedSetupClientProtocol {
     /// Hold the wait open so a test can cancel a LIVE one.
     var suspendAwaitPairing = false
     /// True once the held wait is actually suspended — the point from which
-    /// cancelling it is cancelling something real.
+    /// canceling it is canceling something real.
     private(set) var waitingForPairing = false
     private var heldPairingWait: CheckedContinuation<PairingOutcome, Error>?
     private var pairingCancelledEarly = false
@@ -69,7 +69,7 @@ final class StandInHostedSetupClient: HostedSetupClientProtocol {
     func cancelWait() {
         cancelWaitCount += 1
         guard let held = heldPairingWait else {
-            // Cancelled before the wait suspended; the next one ends at once.
+            // Canceled before the wait suspended; the next one ends at once.
             pairingCancelledEarly = true
             return
         }

@@ -8,7 +8,7 @@
  * opens the exact same one rather than a fork each. This module supplies the
  * other half the toolbar already had built in: WHERE the field floats when
  * there is no selection-toolbar target to hand it to, and WHAT submitting or
- * cancelling it does.
+ * canceling it does.
  *
  * POSITIONING reuses `SlashProvider` (@milkdown/kit/plugin/slash) — the same
  * floating-ui `computePosition` + `flip` the `/` menu itself and the
@@ -222,7 +222,7 @@ function openLinkFieldAt(view: ProseView, options: LinkFieldOptions): void {
 /**
  * Opens the Link URL prompt for the editor's current selection — a plain
  * caret, or a range. See this module's header comment for what submitting or
- * cancelling it does in each case.
+ * canceling it does in each case.
  */
 export function openLinkPrompt(editor: Editor): void {
   const liveView = editorView(editor);

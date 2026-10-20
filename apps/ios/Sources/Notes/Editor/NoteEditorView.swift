@@ -440,7 +440,7 @@ struct NoteEditorView: View {
             }
             session.cancel(.save)
             // Drop any pending debounced rename on leave (Android parity — its
-            // rename coroutine is cancelled the same way).
+            // rename coroutine is canceled the same way).
             session.cancel(.rename)
             // Discard an untouched quick-capture note: backing out leaves
             // nothing behind (list.md).
@@ -484,7 +484,7 @@ struct NoteEditorView: View {
     /// A native interactive pop cannot be refused once the finger starts it, so
     /// this is `requestNavigation` run after the fact: the same drain of
     /// in-flight rename/move/adopt work, the same title-then-body commit —
-    /// with nothing left to veto. The pending debounced rename is cancelled
+    /// with nothing left to veto. The pending debounced rename is canceled
     /// first so the drain reports it uncommitted and the title commits NOW
     /// rather than after its delay. The body falls back to the shell's copy
     /// when the editor cannot answer: refusing is no longer possible, and that
@@ -629,7 +629,7 @@ struct NoteEditorView: View {
         let disposition = await store.flushDraft(
             PendingDraft(id: savedId, base: base, content: newContent), ownerToken: draftToken)
         // No cancellation guard here, deliberately: by the time the flush
-        // answers, its write is durable, and this task is routinely cancelled
+        // answers, its write is durable, and this task is routinely canceled
         // by the next keystroke's `session.schedule(.save)`. Skipping the
         // baseline advance on that cancellation left `savedContent` behind
         // disk, so the next flush's `base` no longer matched — and the engine
@@ -681,7 +681,7 @@ struct NoteEditorView: View {
     }
 
     /// Debounced inline-title rename (Android parity): reschedule on each
-    /// keystroke and rename once typing settles. Cancelled on leave/delete.
+    /// keystroke and rename once typing settles. Canceled on leave/delete.
     private func scheduleRename(_ newTitle: String) {
         session.schedule(.rename) {
             try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5s debounce
@@ -1106,7 +1106,7 @@ struct NoteEditorView: View {
         session.end(
             .delete,
             effects: EditorExitEffects(
-                // The session has already cancelled every workflow and latched
+                // The session has already canceled every workflow and latched
                 // closed, so a bridge change arriving from here on is
                 // quarantined rather than applied.
                 prepare: { EditorHost.shared.blur() },
@@ -1371,7 +1371,7 @@ func isPlaceholderTitle(_ t: String) -> Bool {
 }
 
 /// Inline, tappable note title — the iOS counterpart of Android's title
-/// `BasicTextField`. Backed by `UITextField` so the tap behaviour is exact:
+/// `BasicTextField`. Backed by `UITextField` so the tap behavior is exact:
 /// beginning to edit a placeholder title selects the whole text (a keystroke
 /// replaces it), while a real title keeps UIKit's tap-positioned caret. Text
 /// edits are reported via `onChange` (the editor debounces the rename).

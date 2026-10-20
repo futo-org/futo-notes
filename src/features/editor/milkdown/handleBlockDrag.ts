@@ -12,21 +12,21 @@
  * no OS drag image exists, on any platform. A drag session never mutates the DOM
  * inside `dragstart` either, which WKWebView treats as a cancel.
  *
- * NEUTRALISING THE PLUGIN'S OWN DRAG. `BlockProvider` attaches its
+ * NEUTRALIZING THE PLUGIN'S OWN DRAG. `BlockProvider` attaches its
  * mousedown/mouseup/dragstart/dragend listeners to the handle one animation
  * frame AFTER `update()`, so the listeners added here, synchronously at mount,
  * run first on the same element and cut the event off with
  * `stopImmediatePropagation()` before the plugin sees it:
  *
- *  - `mousedown` is cancelled, which keeps the plugin from dispatching its
+ *  - `mousedown` is canceled, which keeps the plugin from dispatching its
  *    NodeSelection over the block (see `handlePressSelection.ts` for what that
  *    used to do to the user's selection) and keeps the engine from moving
  *    focus, starting a text selection or beginning a drag;
- *  - `dragstart` is cancelled and `draggable` is switched off at press, so no
+ *  - `dragstart` is canceled and `draggable` is switched off at press, so no
  *    HTML5 drag can begin even if the engine would have started one anyway.
  *
  * The gesture itself starts on `pointerdown` (a mouse's primary button only) and
- * leaves that event alone: cancelling `pointerdown` would suppress the
+ * leaves that event alone: canceling `pointerdown` would suppress the
  * compatibility `mousedown` above, and it is THAT event's cancellation which
  * reliably stops the engine's default handling.
  */
@@ -180,7 +180,7 @@ export function mountHandleBlockDrag(host: HandleBlockDragHost): { destroy(): vo
     if (sessionFor(view).landingDrop) return;
     const source = handleSourceFor(view, active);
     if (!source) return;
-    // Belt and braces with the cancelled `dragstart` below.
+    // Belt and braces with the canceled `dragstart` below.
     handleEl.draggable = false;
     press = {
       pointerId: event.pointerId,

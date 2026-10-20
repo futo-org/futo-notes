@@ -14,7 +14,7 @@ export function resolveDefaultNotesRoot(): Promise<string> {
 }
 
 export interface VaultStatus {
-  /** The same location in terms a user recognises. */
+  /** The same location in terms a user recognizes. */
   displayPath: string;
   isCustom: boolean;
   /** False once the folder has gone (an unmounted drive, a revoked sandbox grant) or refused a write. */
@@ -37,7 +37,7 @@ export function vaultStatus(): Promise<VaultStatus> {
 }
 
 /**
- * Names a directory the way the user recognises it — a folder picked inside a
+ * Names a directory the way the user recognizes it — a folder picked inside a
  * Flatpak arrives as `/run/user/<uid>/doc/<id>/<name>`, which resolves back to the
  * folder they actually chose. Read-only, so it is safe to call before the user has
  * confirmed anything; anything else is returned unchanged.

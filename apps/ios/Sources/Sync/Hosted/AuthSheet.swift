@@ -10,7 +10,7 @@ import UIKit
 /// happened (`awaitSignIn`, `awaitEntitled`). So the session is created with no
 /// callback scheme at all, which means the only way it completes on its own is
 /// the person closing it; that is reported as `onDismiss` so the wait can be
-/// cancelled and the screen left exactly where it was.
+/// canceled and the screen left exactly where it was.
 @MainActor
 final class AuthSheet: NSObject, ASWebAuthenticationPresentationContextProviding {
     private var session: ASWebAuthenticationSession?

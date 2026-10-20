@@ -9,7 +9,7 @@ import {
 } from './lib/desktopEditor';
 
 /**
- * P2 regressions: title/rename commit behaviour, and the task checkbox.
+ * P2 regressions: title/rename commit behavior, and the task checkbox.
  *
  * Deleted with the CodeMirror engine, along with the spec lines they locked:
  *
@@ -22,7 +22,7 @@ import {
  *   and asserted on markdown SOURCE: that a trailing space stays outside the
  *   closing `**`, and that a selection covering hidden `**` markers unwraps.
  *   Neither has a WYSIWYG meaning — a mark is toggled on a selection and there
- *   are no markers to include. Toolbar command behaviour is covered by
+ *   are no markers to include. Toolbar command behavior is covered by
  *   `tests/editor-embed-milkdown-toolbar.spec.ts`.
  * - `clicking body of a note with header tags places cursor at the click
  *   point`. It depended on the header tag block being HIDDEN while the editor
@@ -37,7 +37,7 @@ async function blurEditor(page: Page): Promise<void> {
 }
 
 test.describe('P2 Header + Formatting Regressions', () => {
-  // The desktop shell centres a 740px title column inside an 860px editor
+  // The desktop shell centers a 740px title column inside an 860px editor
   // column, so the body's left padding has to absorb that 60px difference plus
   // the title's own 20px. At the mobile gutter's 54px the body started 26px to
   // the LEFT of the title (docs/spec/editor.md → "Blank editor surface").

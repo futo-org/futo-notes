@@ -1,6 +1,6 @@
 // The FUTO coin, in three dimensions.
 //
-// The coin itself is NOT built here. It is modelled once in Blender by
+// The coin itself is NOT built here. It is modeled once in Blender by
 // `assets/coin/build-coin.py` and exported to `futo-coin.glb`, which this file,
 // the native iOS shell and the native Android shell all render. That is the
 // whole point of the Blender step: there is one object, and the three shells
@@ -183,7 +183,7 @@ async function openStage(
   renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
   renderer.setClearColor(0x000000, 0);
   // Khronos PBR Neutral, not ACES. ACES pushes a bright saturated highlight
-  // toward white, which on this coin turns the gold sheen into a grey smear
+  // toward white, which on this coin turns the gold sheen into a gray smear
   // exactly where it should be most golden. Neutral holds the hue.
   renderer.toneMapping = THREE.NeutralToneMapping;
   renderer.toneMappingExposure = TONE_MAPPING_EXPOSURE;
@@ -437,7 +437,7 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
 }
 
 /// Points the camera so the coin always fills the SHORTER side of its box: a
-/// box that is not square keeps the coin round and centred rather than
+/// box that is not square keeps the coin round and centered rather than
 /// stretching it.
 ///
 /// `fov` is the VERTICAL angle, so a wide box needs no change and a tall one has
@@ -481,7 +481,7 @@ function attachDragToTurn(mount: HTMLElement, target: TurnTarget): () => void {
   let pointer = -1;
   let lastX = 0;
   let lastMoveAt = 0;
-  /// Distance travelled and when the press began — together they separate a
+  /// Distance traveled and when the press began — together they separate a
   /// click from a drag that happened to end where it started.
   let travelled = 0;
   let pressedAt = 0;

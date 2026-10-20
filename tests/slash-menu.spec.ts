@@ -285,7 +285,7 @@ test.describe('slash menu', () => {
     expect(await editorMarkdown(page)).not.toContain('/link');
   });
 
-  test('cancelling the Link prompt with Escape leaves the note untouched', async ({ page }) => {
+  test('canceling the Link prompt with Escape leaves the note untouched', async ({ page }) => {
     await typeSlash(page, '/link');
     await expectMenuOpen(page);
     await page.keyboard.press('Enter');

@@ -188,7 +188,7 @@ function configureEditor(ctx: Ctx, assembly: EditorAssembly): void {
    * inside a fence still lands `The don't` with these attributes set.
    * They are declared anyway because they are what the HTML spec says
    * (autocapitalize inherits down the tree), they cost nothing, and
-   * Blink — Android's WebView — is expected to honour them, though that
+   * Blink — Android's WebView — is expected to honor them, though that
    * is UNVERIFIED here: no Android device was available. Do not read
    * this block as "autocorrect is scoped to prose on iOS"; it is not.
    *

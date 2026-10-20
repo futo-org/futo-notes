@@ -1,5 +1,5 @@
 /*
- * Fenced-code syntax colouring for the Milkdown editor.
+ * Fenced-code syntax coloring for the Milkdown editor.
  *
  * `codeFenceLanguages.ts` is the single list, a fence in an unlisted language
  * still renders as a code block just uncoloured, and a grammar is fetched the
@@ -135,7 +135,7 @@ export function createCodeHighlightPlugin(): Plugin<DecorationSet> {
     // lands in the decoration tree's root, so one per fence turns every
     // keystroke into O(fences) — 4.6 ms at 1000 fences, against 0.075 ms
     // without (AGENTS.md M5). src/styles/code-tokens.css scopes Milkdown's
-    // token colours to `.futo-milkdown .ProseMirror pre` instead, which costs
+    // token colors to `.futo-milkdown .ProseMirror pre` instead, which costs
     // nothing at runtime.
     const support = grammarFor(node.attrs.language);
     return support ? highlightFence(node, pos, support) : [];
@@ -151,7 +151,7 @@ export function createCodeHighlightPlugin(): Plugin<DecorationSet> {
       init: (_config, state) => decorateAll(state.doc),
       apply: (tr, set) => {
         // A grammar just arrived: every fence in the note may now be
-        // colourable, and this happens once per language, not per keystroke.
+        // colorable, and this happens once per language, not per keystroke.
         if (tr.getMeta(codeHighlightKey) === REFRESH) return decorateAll(tr.doc);
         if (!tr.docChanged) return set;
         return repaintBlocks(

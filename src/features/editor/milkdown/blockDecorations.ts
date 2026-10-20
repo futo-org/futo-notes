@@ -138,7 +138,7 @@ export function expandToBlocks(doc: ProseNode, from: number, to: number): [numbe
  *
  * `DecorationSet.find` returns everything that TOUCHES the range, and a node
  * decoration on the next block starts exactly where this one ends. Removing
- * what `find` returns therefore takes the neighbour's decorations with it, and
+ * what `find` returns therefore takes the neighbor's decorations with it, and
  * nothing puts them back: only the blocks inside the changed ranges get
  * rebuilt. Typing in one fence would silently un-highlight the fence below it.
  */
