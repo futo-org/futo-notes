@@ -3220,7 +3220,7 @@ release:internal:
     - REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/futo-notes-internal/${CI_COMMIT_TAG}"
     # Android APK (hosted sync ON, staging server — build:android-native, C3)
     - |
-      APK=$(find apps/android/app/build/outputs/apk/release -name "*release*.apk" -type f 2>/dev/null | head -1)
+      APK=$(find apps/android/app/build/outputs/apk/direct/release -name "*release*.apk" -type f 2>/dev/null | head -1)
       test -n "$APK" || { echo "no release APK from build:android-native — nothing to publish" >&2; exit 1; }
       NAME="futo-notes-internal-${VERSION}.apk"
       echo "Uploading $NAME"
