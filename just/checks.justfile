@@ -79,6 +79,10 @@ sync-contract-check:
 check-drift:
   node scripts/drift-check.mjs
 
+# List every tracked agent-authored file over the 5,000-token pre-commit limit.
+check-file-tokens:
+  node scripts/check-file-tokens.mjs --all
+
 # Fail if any instruction surface teaches OS-level input or a process-name kill (see the script).
 check-qa-input-safety:
   node scripts/check-qa-input-safety.mjs
