@@ -114,7 +114,7 @@
 - The relink rules also live in the shared Rust crate
   (futo-notes-model `wikilinks::{resolve_wikilink, shortest_unique_suffix,
 rewrite_wikilinks}` + `relink_note_references`), conformance-locked
-  bit-for-bit against wikilinks.ts (tests/conformance/wikilinks.json). The
+  bit-for-bit against wikilinks.ts (tests/conformance/wikilinks-*.json). The
   native shells call the single `NoteStore.rename` or `NoteStore.moveNote`
   workflow, which moves the note and rewrites backlinks vault-wide under the
   store's workflow lock (verified on emulator + simulator 2026-06-09:

@@ -2,7 +2,7 @@
 
 A save writes ONE fixed spelling, stated here line by line. A dispute about a
 byte is settled by these lines, not by the code. → packages/editor/src/markdown/
-(the serializer), tests/conformance/markdown-house-style.json (the
+(the serializer), tests/conformance/markdown-house-style-*.json (the
 hand-reviewed goldens, one or more per line below)
 
 - Opening a note never rewrites it; the first real edit re-spells the whole

@@ -28,7 +28,7 @@
   `just coin` / `just coin-check`
   Nothing in TypeScript, Swift or Kotlin restates the coin's shape or materials.
   CI has no Blender, so `just coin-check` (in `just check`) proves the cheap
-  half: the exports came from the `build-coin.py` on disk, no export was
+  half: the exports came from the `assets/coin/*.py` sources on disk, no export was
   hand-edited (M8), and the Android cubemap was prefiltered from the `.hdr`
   currently on disk. That last pairing is the one step a person can silently
   skip — a stale cubemap loads fine and just reflects last week's room on one

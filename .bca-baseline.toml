@@ -249,7 +249,7 @@ value = 21.0
 body_hash = "cd1166f48d008348"
 
 [[entry]]
-path = "crates/futo-notes-core/src/files/vault_fs/unix.rs"
+path = "crates/futo-notes-core/src/files/vault_fs/unix/no_replace.rs"
 qualified = "install_no_replace"
 metric = "cyclomatic"
 value = 18.0
@@ -277,14 +277,14 @@ value = 381.0
 body_hash = "c432e9ed707b514f"
 
 [[entry]]
-path = "crates/futo-notes-store/src/lib.rs"
+path = "crates/futo-notes-store/src/bootstrap.rs"
 qualified = "LocalNoteStore::migrate_text_files"
 metric = "cognitive"
 value = 21.0
 body_hash = "63d2ff74aca0a9dd"
 
 [[entry]]
-path = "crates/futo-notes-store/src/lib.rs"
+path = "crates/futo-notes-store/src/bootstrap.rs"
 qualified = "LocalNoteStore::migrate_text_files"
 metric = "cyclomatic"
 value = 17.0
@@ -648,21 +648,21 @@ value = 23.0
 body_hash = "d33ab0c9e01c0806"
 
 [[entry]]
-path = "src/shared/localization/localization.ts"
+path = "src/shared/localization/catalogParsing.ts"
 qualified = "flattenCatalogMessages::visit"
 metric = "cognitive"
 value = 22.0
 body_hash = "27fc69be0bb35303"
 
 [[entry]]
-path = "src/shared/localization/localization.ts"
+path = "src/shared/localization/catalogParsing.ts"
 qualified = "parseCatalog"
 metric = "cyclomatic"
 value = 21.0
 body_hash = "c0b0bc1dc7c2a1c5"
 
 [[entry]]
-path = "src/shared/localization/localization.ts"
+path = "src/shared/localization/catalogParsing.ts"
 qualified = "parseMessage"
 metric = "cyclomatic"
 value = 16.0

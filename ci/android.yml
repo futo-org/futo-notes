@@ -213,6 +213,7 @@ build:android-native:
         - scripts/ci-android-emulator.sh
         - scripts/ci-android-sync-leg.sh
         - tests/cross-platform-sync.mjs
+        - tests/cross-platform-sync/**/*
         - tests/lib/**/*
         - scripts/sync-server-pin.json
         - scripts/lib/sync-server.mjs

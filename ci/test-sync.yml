@@ -109,6 +109,7 @@ test:cross-platform-sync:
         - src/features/notes/**/*
         - src/features/sync/**/*
         - tests/cross-platform-sync.mjs
+        - tests/cross-platform-sync/**/*
         - tests/lib/**/*
         # Which server the suite runs against, and how it is resolved. A pin
         # bump changes what every sync job proves, so it must re-run them.
@@ -222,6 +223,7 @@ test:cross-platform-sync:android:
         - scripts/generate-native-language-resources.mjs
         - scripts/build-rust-android.sh
         - tests/cross-platform-sync.mjs
+        - tests/cross-platform-sync/**/*
         - tests/lib/**/*
         - scripts/sync-server-pin.json
         - scripts/lib/sync-server.mjs
