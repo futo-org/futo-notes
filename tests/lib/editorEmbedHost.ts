@@ -162,6 +162,32 @@ export async function withCaretObserved(page: Page, move: () => Promise<void>): 
     const w = window as unknown as CaretProbeWindow;
     return (w.__caretMoves ?? 0) > (w.__caretBaseline ?? 0);
   });
+  // The counter above proves a `selectionchange` was delivered since the
+  // baseline, not that it was the one for `move`: a still-pending event from
+  // the step BEFORE it (the `x` just typed, the arrow pressed a moment ago)
+  // lands inside the window and satisfies the wait while `move`'s own caret
+  // is still unread — ProseMirror then handles the next key one character
+  // behind (a Backspace that took both newlines, a Tab that indented after
+  // the `x`). So also wait for the condition itself: the editor's selection is
+  // the DOM's. Applies only to a collapsed caret in both; a range, node or
+  // cell selection has no single position to compare.
+  await page.waitForFunction(() => {
+    const view = (
+      window as unknown as {
+        __futoProseMirrorView?: () => {
+          dom: Element;
+          state: { selection: { empty: boolean; from: number } };
+          posAtDOM: (node: Node, offset: number) => number;
+        } | null;
+      }
+    ).__futoProseMirrorView?.();
+    const dom = document.getSelection();
+    if (!view || !dom?.anchorNode || !dom.isCollapsed || !view.dom.contains(dom.anchorNode)) {
+      return true;
+    }
+    const { selection } = view.state;
+    return !selection.empty || selection.from === view.posAtDOM(dom.anchorNode, dom.anchorOffset);
+  });
 }
 
 /** Waits until at least `count` messages of `type` have arrived. */

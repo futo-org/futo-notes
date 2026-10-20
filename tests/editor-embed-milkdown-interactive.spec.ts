@@ -1334,6 +1334,50 @@ test('Backspace after two Enters takes back one of them, not both', async ({ pag
   expect(await paragraphLines(page)).toEqual(['one\ntwo']);
 });
 
+// A selectionchange left over from the step before a caret move satisfies
+// `withCaretObserved`'s counter while the move's own event is still pending
+// (CI jobs 271142, 269958: the Backspace above took both newlines; 270970: the
+// Tab indented after the `x`). On demand: the move bumps the counter with a
+// selectionchange ProseMirror cannot hear (its DOM observer is stopped), then
+// lets it catch up 150 ms later.
+test('withCaretObserved returns only once the editor holds the DOM caret', async ({ page }) => {
+  await openAtEnd(page, 'abcdef');
+  await withCaretObserved(page, () =>
+    page.evaluate(() => {
+      const view = (
+        window as unknown as {
+          __futoProseMirrorView: () => { domObserver: { stop(): void; start(): void } };
+        }
+      ).__futoProseMirrorView();
+      const text = document.querySelector('.ProseMirror > p')?.firstChild;
+      if (!text) throw new Error('no paragraph text node');
+      view.domObserver.stop();
+      window.getSelection()!.collapse(text, 2);
+      document.dispatchEvent(new Event('selectionchange'));
+      setTimeout(() => {
+        view.domObserver.start();
+        document.dispatchEvent(new Event('selectionchange'));
+      }, 150);
+    }),
+  );
+  const { editor, dom } = await page.evaluate(() => {
+    const view = (
+      window as unknown as {
+        __futoProseMirrorView: () => {
+          state: { selection: { from: number } };
+          posAtDOM: (node: Node, offset: number) => number;
+        };
+      }
+    ).__futoProseMirrorView();
+    const selection = window.getSelection()!;
+    return {
+      editor: view.state.selection.from,
+      dom: view.posAtDOM(selection.anchorNode!, selection.anchorOffset),
+    };
+  });
+  expect(editor).toBe(dom);
+});
+
 test('Delete at the end of a paragraph joins the next one as a line', async ({ page }) => {
   await open(page, 'one\n\ntwo');
   await caretAtEndOf(page, 'one');
