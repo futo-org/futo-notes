@@ -789,13 +789,15 @@ struct NoteEditorView: View {
     }
 
     /// Would renaming to `raw` collide with a different existing note in the same
-    /// folder? Mirrors desktop's `hasDuplicateTitle`.
+    /// folder — case- and NFC-insensitively, as the store does? Mirrors
+    /// desktop's `hasDuplicateTitle`.
     private func isDuplicateTitle(_ raw: String) -> Bool {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         let parts = splitId(id: noteId)
         let targetId = makeId(folder: parts.folder, title: sanitizeTitle(title: trimmed))
-        return targetId != noteId && store.notes.contains { $0.id == targetId }
+        let targetKey = collisionKey(id: targetId)
+        return store.notes.contains { $0.id != noteId && collisionKey(id: $0.id) == targetKey }
     }
 
     /// Show the inline title warning. `transient` messages (forbidden char)

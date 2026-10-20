@@ -507,8 +507,8 @@ gained this model 2026-08-25, replacing its `ModalNavigationDrawer`.)_
   used in a note title"; a leading/trailing dot or a >200-char title shows a
   persistent warning and blocks the rename (*(native shells)* title input is
   capped at 200 characters instead, a paste trimmed to fit); a title that
-  duplicates another note in the same folder shows "A note with this name
-  already exists" and blocks the rename; an empty title is left un-renamed. The rules + messages come from the
+  duplicates another note in the same folder (case-insensitively) shows "A note
+  with this name already exists" and blocks the rename, never the body save; an empty title is left un-renamed. The rules + messages come from the
   shared `validate_title` exposed over FFI (futo-notes-ffi) — the same
   conformance-locked source as desktop's `validateTitle`; only the forbidden-char
   input filter is mirrored locally per shell. → futo-notes-ffi `validate_title`,
