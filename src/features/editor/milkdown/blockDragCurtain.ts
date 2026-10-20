@@ -399,6 +399,17 @@ export class ReflowCurtain {
       reflow.idleFill = 0;
       if (this.reflow !== reflow || !reflow.open) return;
       if (!this.ensureValid()) return;
+      // Every block measured from here on is measured in the layout as it is
+      // now, so the ones measured before must still be where they were: a
+      // size change above the window (an image loading) that this idle slice
+      // runs ahead of the scroll event reporting it would leave the clones
+      // drawn with the old positions beside the new ones, and the scroll
+      // follow, judging the layout by the window's first block, could be
+      // looking at one of the new.
+      if (!this.layoutMatches(reflow, this.cloneEdges(reflow))) {
+        this.remeasure(reflow);
+        return;
+      }
       reflow.originTop = this.reflowOriginTop();
       const { add } = this.planCurtainWindow(reflow, REFLOW_WINDOW_MARGIN_VIEWPORTS);
       let done = 0;
@@ -658,13 +669,7 @@ export class ReflowCurtain {
     if (!this.ensureValid()) return null;
     const reflow = this.reflow!;
     reflow.pointerY = clientY;
-    let first = Infinity;
-    let last = -1;
-    for (const i of reflow.clones.keys()) {
-      first = Math.min(first, i);
-      last = Math.max(last, i);
-    }
-    const read = [first, last, reflow.count - 1, reflow.count - 2].filter(Number.isFinite);
+    const read = [...this.cloneEdges(reflow), reflow.count - 1, reflow.count - 2];
     if (!this.layoutMatches(reflow, read)) this.remeasure(reflow);
     if (!this.sync(clientY, false)) return null;
     return this.target(clientY);
@@ -925,6 +930,17 @@ export class ReflowCurtain {
       if (!reflow.unreported.delete(entry.target)) changed = true;
     }
     if (changed) this.remeasure(reflow);
+  }
+
+  /** The first and last block the drawn window clones (none when it has none). */
+  private cloneEdges(reflow: Reflow): number[] {
+    let first = Infinity;
+    let last = -1;
+    for (const i of reflow.clones.keys()) {
+      first = Math.min(first, i);
+      last = Math.max(last, i);
+    }
+    return Number.isFinite(first) ? [first, last] : [];
   }
 
   /** Whether the blocks `only` (those of them measured), and the curtain's

@@ -3573,6 +3573,93 @@ mobileDndTest(
   },
 );
 
+/* The preview clones the rest of its window in idle time and measures each new
+ * block as it goes, while the blocks cloned before keep the positions measured
+ * then. An idle slice that lands between a layout change above the window and
+ * the scroll event that reports it (the next frame) measures the new blocks in
+ * the new layout, and the scroll follow, which judges the layout by the
+ * window's first block, finds that block where it now is: the clones from
+ * before stay where the old layout had them, 200px off, until the release.
+ * Held here so the slice runs in exactly that gap, every time. */
+mobileDndTest(
+  'reflow preview follows a layout change that lands before its idle fill runs',
+  async ({ page, cdp }) => {
+    await page.setViewportSize({ width: 760, height: 720 });
+    await hostSetContent(page, `![](late.svg)\n\n${scrollableNote(150)}`);
+    await clearMessages(page);
+    await page.evaluate(() => {
+      const dom = document.querySelector('.ProseMirror') as HTMLElement;
+      const line = [...dom.children].find((el) => el.textContent === 'Line 100') as HTMLElement;
+      dom.scrollTop += line.getBoundingClientRect().top - dom.getBoundingClientRect().top;
+    });
+    await flushFrames(page);
+
+    const lineAt = async (n: number) => {
+      const index = await page.evaluate(
+        (text) =>
+          [...document.querySelector('.ProseMirror')!.children].findIndex(
+            (el) => el.textContent === text,
+          ),
+        `Line ${n}`,
+      );
+      return { index, box: await blockBoxAt(page, index) };
+    };
+    const source = await lineAt(102);
+    const target = await lineAt(106);
+    // Idle work is held from the lift on, and run by the test: the fill that
+    // the scroll below asks for then waits for it.
+    await page.evaluate(() => {
+      const w = window as unknown as {
+        __idle: Array<() => void>;
+        requestIdleCallback: (cb: (d: unknown) => void) => number;
+      };
+      w.__idle = [];
+      w.requestIdleCallback = (cb) => {
+        w.__idle.push(() => cb({ didTimeout: false, timeRemaining: () => 50 }));
+        return w.__idle.length;
+      };
+    });
+    const runIdle = () =>
+      page.evaluate(() => {
+        const w = window as unknown as { __idle: Array<() => void> };
+        const held = w.__idle.splice(0);
+        for (const run of held) run();
+        return held.length;
+      });
+    const lifted = await liftWithTouch(page, cdp, source.index);
+    await lifted.move(target.box.top + (target.box.bottom - target.box.top) * 0.75);
+    // The curtain opens (in idle time, if the machine has none to spare).
+    await expect
+      .poll(async () => {
+        if (await curtainUp(page)) return true;
+        await runIdle();
+        return curtainUp(page);
+      })
+      .toBe(true);
+    // Opening the curtain asked for the fill of its window, which is held.
+    expect(
+      await page.evaluate(() => (window as unknown as { __idle: unknown[] }).__idle.length),
+    ).toBeGreaterThan(0);
+
+    const before = (await editorScroll(page)).top;
+    // The image above grows 200px, the browser's layout pins the screen by
+    // scrolling (both in the one forced layout), and the idle fill runs
+    // before the frame that would deliver the scroll event.
+    await page.evaluate(() => {
+      const w = window as unknown as { __idle: Array<() => void> };
+      const dom = document.querySelector('.ProseMirror') as HTMLElement;
+      const img = dom.querySelector('img') as HTMLElement;
+      img.style.width = '200px';
+      img.style.height = '200px';
+      void dom.scrollHeight;
+      const held = w.__idle.splice(0);
+      for (const run of held) run();
+    });
+    expect((await editorScroll(page)).top).toBeGreaterThan(before + 150);
+    await expectDropMatchesPreview(page, () => lifted.release());
+  },
+);
+
 /* The layout can change in the very task that releases the drag, before the
  * ResizeObserver has reported it: the release must judge the slot against the
  * layout as it is then, not the one measured. Here an image above the slot
