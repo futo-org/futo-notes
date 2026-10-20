@@ -26,7 +26,7 @@ const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
 const LAUNCHERS = [
   'tests/lib/sync-test-server.mjs',
   'tests/sync-integration.mjs',
-  'scripts/qa.mjs',
+  'scripts/qa/slot-server.mjs',
   'scripts/start-test-server.sh',
   '.gitlab-ci.yml',
 ];
