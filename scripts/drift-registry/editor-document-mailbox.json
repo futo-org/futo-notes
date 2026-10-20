@@ -22,7 +22,7 @@
       "kind": "test"
     },
     {
-      "path": "docs/spec/editor.md",
+      "path": "docs/spec/editor/editor-exits.md",
       "kind": "spec"
     }
   ],
