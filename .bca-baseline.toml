@@ -235,7 +235,7 @@ value = 26.0
 body_hash = "e413fdf268144e3e"
 
 [[entry]]
-path = "apps/tauri/src-tauri/src/sync/frontend_contract.rs"
+path = "apps/tauri/src-tauri/src/sync/frontend_contract/hosted.rs"
 qualified = "HostedErrorOutput::from"
 metric = "cyclomatic"
 value = 25.0
