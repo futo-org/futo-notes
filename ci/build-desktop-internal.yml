@@ -1,0 +1,142 @@
+# Included by .gitlab-ci.yml: internal desktop builds for Linux and macOS.
+
+# ─────────────────────────────────────────────────────────────
+# Internal, hosted-enabled desktop build (D2, taken —
+# docs/plan/hosted-sync-to-staging.md, ticket C8). Prerelease tags only
+# (v1.7.2-4, never a stable vX.Y.Z — see the negated rule below). Builds the
+# SAME deb/rpm/AppImage bundles as build:linux-packages/build:linux-appimage,
+# but with VITE_HOSTED_SYNC=true and the staging hosted address baked in
+# (mirrors build:android-native's prerelease-tag branch, C3), so "Log in with
+# FUTO" is reachable on an internal Linux build.
+#
+# M23 — an internal (staging-pointed) build must never reach the production
+# updater manifest. Enforced structurally, not by convention:
+#   1. This job never passes `--config tauri.updater-release.conf.json`
+#      (the ONLY config with `createUpdaterArtifacts: true`). Building with
+#      the base tauri.conf.json means no .sig and no minisign step can be
+#      produced here at all — there is nothing for a later step to embed
+#      into latest.json even by mistake.
+#   2. TAURI_SIGNING_PRIVATE_KEY(_PASSWORD) are unset before anything else
+#      runs, so no copy-pasted step could reach for the production key.
+#   3. release:internal (the only job that publishes this job's artifacts)
+#      never calls scripts/build-updater-manifest.mjs or
+#      scripts/verify-updater-signature.mjs, and uploads to a differently
+#      named package (futo-notes-internal) than release:'s (futo-notes) —
+#      see that job's own comment.
+build:desktop-internal:linux:
+  stage: build
+  tags:
+    - dind_fast
+  needs:
+    - job: test
+  image: ubuntu:22.04@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc
+  before_script:
+    - unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+    - apt-get update
+    - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates build-essential git file pkg-config unzip
+    - sh "$CI_PROJECT_DIR/ci/install-fnm.sh"
+    - cd "$CI_PROJECT_DIR" && eval "$(fnm env --shell bash)" && fnm use --install-if-missing
+    - corepack enable
+    - corepack prepare pnpm@10.29.2 --activate
+    - pnpm config set store-dir "$PNPM_STORE_DIR"
+    - export PATH="$CARGO_HOME/bin:$PATH"
+  cache:
+    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-cargo-tauri-desktop-internal, cache]
+  script:
+    - pnpm install --frozen-lockfile
+    - !reference [.setup-linux-deps, script]
+    - !reference [.setup-rust, script]
+    - !reference [.set-version, script]
+    - export VITE_HOSTED_SYNC=true
+    - export FUTO_HOSTED_SERVER_BAKED=https://staging-notes-sync.futo.org
+    - |
+      echo "Prerelease tag $CI_COMMIT_TAG — internal desktop build, hosted sync ON, baked hosted server: $FUTO_HOSTED_SERVER_BAKED"
+    # Same Mesa/Wayland-backend AppImage patch as build:linux-appimage — no
+    # updater signing follows it in this job (see the block comment above).
+    - node "$CI_PROJECT_DIR/scripts/patch-appimage.mjs" --clean-dir "$CI_PROJECT_DIR/target/release/bundle/appimage"
+    # target/ comes back from the Cargo cache WITH every deb/rpm earlier
+    # prerelease builds left (v1.9.0-3's artifact held -1, -2 and -3 of each),
+    # and release:internal publishes what is here. Same cleanup + exactly-one
+    # assertion as build:linux-packages (M11, M12).
+    - rm -rf "$CI_PROJECT_DIR/target/release/bundle/deb" "$CI_PROJECT_DIR/target/release/bundle/rpm"
+    - |
+      if [ -e "$CI_PROJECT_DIR/target/release/bundle/deb" ] || [ -e "$CI_PROJECT_DIR/target/release/bundle/rpm" ]; then
+        echo "stale deb/rpm bundle dirs survived cleanup" >&2; exit 1
+      fi
+    - (cd "$CI_PROJECT_DIR/apps/tauri" && cargo tauri build --bundles deb,rpm,appimage)
+    - node "$CI_PROJECT_DIR/scripts/patch-appimage.mjs" --dir "$CI_PROJECT_DIR/target/release/bundle/appimage"
+    - |
+      for spec in "deb:*_${VERSION}_amd64.deb" "rpm:*-${VERSION}-1.x86_64.rpm"; do
+        kind="${spec%%:*}"; pattern="${spec#*:}"
+        dir="$CI_PROJECT_DIR/target/release/bundle/$kind"
+        total=$(find "$dir" -maxdepth 1 -type f -name "*.$kind" | wc -l)
+        matching=$(find "$dir" -maxdepth 1 -type f -name "$pattern" | wc -l)
+        if [ "$total" -ne 1 ] || [ "$matching" -ne 1 ]; then
+          echo "expected exactly one $pattern in $dir, found $matching of $total .$kind file(s):" >&2
+          find "$dir" -maxdepth 1 -type f -name "*.$kind" >&2
+          exit 1
+        fi
+      done
+  after_script:
+    - |
+      echo "=== Internal desktop (Linux) artifacts ==="
+      find target/release/bundle -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) 2>/dev/null
+  artifacts:
+    paths:
+      - target/release/bundle/deb/*.deb
+      - target/release/bundle/rpm/*.rpm
+      - target/release/bundle/appimage/*.AppImage
+    expire_in: 4 weeks
+  rules:
+    - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+    # Manual MR rehearsal, same pattern as build:linux-appimage — lets this
+    # job's script be exercised on an MR pipeline before ever pushing the
+    # throwaway prerelease tag (M13).
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - .gitlab-ci.yml
+      when: manual
+      allow_failure: true
+
+# Internal, hosted-enabled macOS build — same D2/C8 as above. Invokes
+# buildFutoNotesMacOSInternal in .cirrus.yml, which deliberately never
+# receives MACOS_*/ASC_*/TAURI_* (only CI_* is exported to .cienv below), so
+# no Apple certificate, notarization credential, or the updater signing key
+# ever reaches this VM. The task builds with base tauri.conf.json (no
+# --config override), so it is unsigned/un-notarized and cannot produce an
+# updater artifact — same M23 enforcement as the Linux job above, applied by
+# withholding the secrets rather than by unsetting them. Testers bypass
+# Gatekeeper on the unsigned DMG (right-click → Open, or `xattr -d
+# com.apple.quarantine`), acceptable friction for an internal-only build.
+build:desktop-internal:macos:
+  stage: build
+  needs:
+    - job: test
+  tags:
+    - macscript
+  variables:
+    GIT_STRATEGY: clone
+  before_script:
+    - env | grep -E '^(CI_)' > "$CI_PROJECT_DIR/.cienv"
+  script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
+    - cirrus run buildFutoNotesMacOSInternal --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  artifacts:
+    paths:
+      - buildFutoNotesMacOSInternal/binary/*.dmg
+    expire_in: 4 weeks
+  rules:
+    - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+    # Manual MR rehearsal, same pattern as build:desktop-internal:linux (M13).
+    # Unlike build:macos (no MR rule at all — it needs MACOS_CERT_PASSWORD,
+    # a protected var unavailable on non-protected-branch MR pipelines), this
+    # job needs zero Apple secrets (see the comment above), so it can safely
+    # run there.
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - .gitlab-ci.yml
+        - .cirrus.yml
+      when: manual
+      allow_failure: true

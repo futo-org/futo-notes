@@ -1,0 +1,106 @@
+# Included by .gitlab-ci.yml: native iOS build and tests.
+
+# Native iOS build on the macscript runner via Cirrus (see .cirrus.yml,
+# task buildFutoNotesIOSNative). Tags build a signed Release IPA; branch/MR
+# pipelines run an unsigned simulator compile check.
+build:ios-native:
+  stage: build
+  needs: []
+  tags:
+    - macscript
+  variables:
+    GIT_STRATEGY: clone
+  before_script:
+    # IOS_ must pass through: the Cirrus task imports Certificates.p12 with
+    # $IOS_CERT_PASSWORD on tag builds. CI_-only here yields an empty
+    # password and "MAC verification failed during PKCS12 import".
+    - env | grep -E '^(CI_|IOS_)' > "$CI_PROJECT_DIR/.cienv"
+  script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
+    - cirrus run buildFutoNotesIOSNative --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  artifacts:
+    paths:
+      - buildFutoNotesIOSNative/binary/*.ipa
+      - buildFutoNotesIOSNative/dsyms/*-dSYMs.zip
+    expire_in: 4 weeks
+  rules:
+    # No MR rule: test:ios-native compiles the same FFI xcframework + editor
+    # bundle + app (xcodebuild test builds the app target) AND runs the Swift
+    # tests, so a second unsigned compile-check here doubled the Mac cost of
+    # every iOS-touching MR for no extra signal. test:ios-native's changes:
+    # cover this job's former MR paths (apps/ios, futo-notes-ffi, Cargo.lock,
+    # build-rust-ios.sh).
+    # Every push to the default branch builds a SIGNED IPA (no changes: filter)
+    # so publish:ios:main can ship the latest main to TestFlight. Editor/UI
+    # changes live in src/ and packages/editor and bundle into the app, so a
+    # path filter would miss most feedback-relevant changes.
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+# Native iOS tests on a concrete simulator via Cirrus. This separately
+# enforces the FutoNotesNativeTests target that build:ios-native only compiles.
+# Keep this hard gate for iOS-impacting MRs and releases while the single
+# macscript runner is constrained. Other MRs retain an optional manual run.
+# MR pipelines run the unit bundle only; main pushes and tags add the 8 UI
+# tests (~3 of the ~4 minutes of testing) — testFutoNotesIOSNative in
+# .cirrus.yml owns the tiers and the per-bundle outcome arbiter.
+test:ios-native:
+  stage: test
+  needs: []
+  tags:
+    - macscript
+  variables:
+    GIT_STRATEGY: clone
+  before_script:
+    - env | grep -E '^(CI_|IOS_)' > "$CI_PROJECT_DIR/.cienv"
+  script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
+    - cirrus run testFutoNotesIOSNative --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  artifacts:
+    when: always
+    paths:
+      - testFutoNotesIOSNative/ios_test_results/**/*
+    expire_in: 1 week
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      changes: &native-ios-test-changes
+        - apps/ios/**/*
+        # FFI paths formerly covered by build:ios-native's MR rule — this job
+        # builds the same xcframework + app and runs the Swift tests on top.
+        - crates/futo-notes-ffi/**/*
+        - Cargo.lock
+        - languages/**/*
+        - tests/localization/**/*
+        - scripts/generate-native-language-resources.mjs
+        - tests/conformance/**/*
+        - packages/editor/src/bridge.ts
+        # .cirrus.yml builds editor.html (vite.editor.config.ts) and the Swift
+        # bridge tests run against it, so every input of that bundle counts —
+        # not just bridge.ts (RC-21 / L1-005). Same set as
+        # test:e2e:editor-embed's MR `changes:` (parity-tested).
+        - src/editor-embed/**/*
+        - src/features/editor/**/*
+        - src/styles/**/*
+        - src/features/images/**/*
+        - packages/editor/**/*
+        - editor.html
+        - vite.editor.config.ts
+        - src/lib/platform/**/*
+        - src/lib/localNoteStore.ts
+        - src/lib/rules.ts
+        - src/shared/**/*
+        - src/features/sync/**/*
+        - src/features/notes/**/*
+        - src/features/folders/**/*
+        - svelte.config.js
+        - scripts/build-rust-ios.sh
+        - .cirrus.yml
+        - .gitlab-ci.yml
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *native-ios-test-changes
+    - if: $CI_COMMIT_TAG

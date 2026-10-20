@@ -1,0 +1,170 @@
+# Included by .gitlab-ci.yml: Linux release packages and AppImage.
+
+# ─────────────────────────────────────────────────────────────
+# Builds (tags only)
+# ─────────────────────────────────────────────────────────────
+
+# .deb/.rpm install against the host's webkit2gtk, so building on the oldest
+# Ubuntu that ships libwebkit2gtk-4.1 (22.04, glibc 2.35) gives forward-compat
+# with older distros. Building on rolling/latest would link against a newer
+# glibc and break on anything older.
+build:linux-packages:
+  stage: build
+  # Pin to the fast office runner — see build:android-native.
+  tags:
+    - dind_fast
+  needs:
+    - job: test
+  image: ubuntu:22.04@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc
+  before_script: &linux-before-script
+    # Protected tag variables are present before setup begins. Preserve the
+    # updater key only as a non-exported shell value, then remove both signing
+    # variables before apt, curl, package managers, or build tools run.
+    - . "$CI_PROJECT_DIR/scripts/prepare-appimage-signing-environment.sh"
+    - apt-get update
+    - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates build-essential git file pkg-config unzip
+    # nodesource could only ever pin a major line, and this job builds the binary
+    # we sign. ci/install-fnm.sh owns the pinned release and checksums it.
+    - sh "$CI_PROJECT_DIR/ci/install-fnm.sh"
+    - cd "$CI_PROJECT_DIR" && eval "$(fnm env --shell bash)" && fnm use --install-if-missing
+    - corepack enable
+    - corepack prepare pnpm@10.29.2 --activate
+    - pnpm config set store-dir "$PNPM_STORE_DIR"
+    - export PATH="$CARGO_HOME/bin:$PATH"
+  cache:
+    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-cargo-tauri-linux-packages, cache]
+  script:
+    - pnpm install --frozen-lockfile
+    - !reference [.setup-linux-deps, script]
+    - !reference [.setup-rust, script]
+    - !reference [.set-version, script]
+    # target/ comes back from the Cargo cache WITH every deb/rpm earlier builds
+    # left in it (v1.8.1's registry package holds two of each name; pipeline
+    # 38296's artifact held 1.9.0, 1.9.0-1 and 1.9.0-2). `release` uploads
+    # whatever is here, so a stale package can be published as this version.
+    # Remove only the generated deb/rpm bundle dirs and verify the cleanup (M12).
+    - rm -rf "$CI_PROJECT_DIR/target/release/bundle/deb" "$CI_PROJECT_DIR/target/release/bundle/rpm"
+    - |
+      if [ -e "$CI_PROJECT_DIR/target/release/bundle/deb" ] || [ -e "$CI_PROJECT_DIR/target/release/bundle/rpm" ]; then
+        echo "stale deb/rpm bundle dirs survived cleanup" >&2; exit 1
+      fi
+    - cd apps/tauri && cargo tauri build --bundles deb,rpm
+    # Exactly one package per kind, and it is THIS version's (M11).
+    - |
+      for spec in "deb:*_${VERSION}_amd64.deb" "rpm:*-${VERSION}-1.x86_64.rpm"; do
+        kind="${spec%%:*}"; pattern="${spec#*:}"
+        dir="$CI_PROJECT_DIR/target/release/bundle/$kind"
+        total=$(find "$dir" -maxdepth 1 -type f -name "*.$kind" | wc -l)
+        matching=$(find "$dir" -maxdepth 1 -type f -name "$pattern" | wc -l)
+        if [ "$total" -ne 1 ] || [ "$matching" -ne 1 ]; then
+          echo "expected exactly one $pattern in $dir, found $matching of $total .$kind file(s):" >&2
+          find "$dir" -maxdepth 1 -type f -name "*.$kind" >&2
+          exit 1
+        fi
+      done
+  after_script:
+    - |
+      echo "=== Linux package artifacts ==="
+      find target/release/bundle -type f \( -name "*.deb" -o -name "*.rpm" \) 2>/dev/null
+  artifacts:
+    paths:
+      - target/release/bundle/deb/*.deb
+      - target/release/bundle/rpm/*.rpm
+    expire_in: 4 weeks
+  rules:
+    - if: $CI_COMMIT_TAG
+
+# AppImage bundles its entire userland (WebKitGTK, GLib, GStreamer, libwayland,
+# ...) and relies on the *host's* Mesa at runtime. The post-bundle patch handles
+# two launch failures. First, linuxdeploy bundles a libwayland-client.so.0 that
+# mismatches the host's Mesa 26 libEGL and aborts WebKit with EGL_BAD_PARAMETER;
+# deleting it makes host libwayland and host libEGL load together. Second,
+# tauri-bundler's GTK hook unconditionally exports GDK_BACKEND=x11; rewriting
+# that line makes unset environments prefer native Wayland with an X11 fallback
+# while preserving a user-selected backend. Both fixes live in
+# scripts/patch-appimage.mjs and ship in the same extract→modify→repack pass.
+#
+# Base is ubuntu:22.04 for the widest glibc floor (2.35). jammy-security
+# already ships WebKitGTK 2.50 (libwebkit2gtk-4.1 2.50.4-0ubuntu0.22.04.1),
+# which is new enough to use the EGL platform API — so noble buys us nothing
+# extra here and costs us glibc compat on older target distros.
+build:linux-appimage:
+  stage: build
+  # Pin to the fast office runner — see build:android-native.
+  tags:
+    - dind_fast
+  needs:
+    - job: test
+  image: ubuntu:22.04@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc
+  before_script: *linux-before-script
+  cache:
+    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-cargo-tauri-linux-appimage, cache]
+  script:
+    - pnpm install --frozen-lockfile
+    - !reference [.setup-linux-deps, script]
+    - !reference [.setup-rust, script]
+    - !reference [.set-version, script]
+    # A Cargo cache can restore an AppImage from an older version. Remove only
+    # the generated AppImage bundle directory and verify cleanup before build.
+    - node "$CI_PROJECT_DIR/scripts/patch-appimage.mjs" --clean-dir "$CI_PROJECT_DIR/target/release/bundle/appimage"
+    - (cd "$CI_PROJECT_DIR/apps/tauri" && cargo tauri build --bundles appimage)
+    # Strip the incompatible libwayland client and prefer Wayland in the GTK hook.
+    # Script downloads a pinned appimagetool release and verifies its SHA-256.
+    - node "$CI_PROJECT_DIR/scripts/patch-appimage.mjs" --dir "$CI_PROJECT_DIR/target/release/bundle/appimage"
+    # Updater signature — minisign the FINAL (patched) AppImage so the .sig
+    # matches the bytes clients download. MUST be the last touch on the artifact.
+    # Tags use the protected production key. MR rehearsals cannot receive
+    # protected variables, so they sign and verify with the committed localdev
+    # fixture key, which production clients reject by construction.
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        test -n "$RELEASE_SIGNING_KEY" || { echo "TAURI_SIGNING_PRIVATE_KEY is not set"; exit 1; }
+        SIGNING_KEY="$RELEASE_SIGNING_KEY"
+        VERIFY_CONFIG="$CI_PROJECT_DIR/apps/tauri/src-tauri/tauri.conf.json"
+      else
+        SIGNING_KEY="$(cat "$CI_PROJECT_DIR/keys/localdev-updater.key")"
+        VERIFY_CONFIG="$CI_PROJECT_DIR/apps/tauri/src-tauri/tauri.updater-localdev.conf.json"
+        echo "MR rehearsal: signing with the non-production localdev fixture key"
+      fi
+
+      mapfile -d '' APPIMAGES < <(find "$CI_PROJECT_DIR/target/release/bundle/appimage" -maxdepth 1 -type f -name "*.AppImage" -print0)
+      if [ "${#APPIMAGES[@]}" -ne 1 ]; then
+        echo "expected exactly one AppImage, found ${#APPIMAGES[@]}"
+        exit 1
+      fi
+
+      for f in "${APPIMAGES[@]}"; do
+        (cd "$CI_PROJECT_DIR/apps/tauri" && TAURI_SIGNING_PRIVATE_KEY="$SIGNING_KEY" cargo tauri signer sign -p "" "$f")
+        test -f "$f.sig" || { echo "signing produced no $f.sig"; exit 1; }
+        VERIFY_KEY="$(node -e 'const fs = require("node:fs"); const c = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(c.plugins.updater.pubkey)' "$VERIFY_CONFIG")"
+        node "$CI_PROJECT_DIR/scripts/verify-updater-signature.mjs" \
+          --pubkey "$VERIFY_KEY" \
+          --artifact "$f" \
+          --sig "$f.sig"
+      done
+      VERIFY_STATUS=$?
+      unset SIGNING_KEY RELEASE_SIGNING_KEY
+      exit "$VERIFY_STATUS"
+  after_script:
+    - |
+      echo "=== Linux AppImage artifact ==="
+      find "$CI_PROJECT_DIR/target/release/bundle" -type f \( -name "*.AppImage" -o -name "*.AppImage.sig" \) 2>/dev/null
+  artifacts:
+    paths:
+      - target/release/bundle/appimage/*.AppImage
+      - target/release/bundle/appimage/*.AppImage.sig
+    expire_in: 4 weeks
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - .gitlab-ci.yml
+        - scripts/patch-appimage.mjs
+        - scripts/patch-appimage.test.mjs
+        - scripts/prepare-appimage-signing-environment.sh
+        - scripts/release-build.mjs
+        - scripts/release-build.test.mjs
+      when: manual
+      allow_failure: true

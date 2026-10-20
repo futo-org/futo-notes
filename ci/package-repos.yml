@@ -1,0 +1,90 @@
+# Included by .gitlab-ci.yml: F-Droid index and the FUTO package repository.
+
+# ─────────────────────────────────────────────────────────────
+# Publish to the FUTO F-Droid repo (app.futo.org/fdroid)
+# ─────────────────────────────────────────────────────────────
+# After `release` uploads the signed APK to the generic package registry,
+# add/update this tag's entry in fdroid/repo-v2 (apps/Notes/index.yml). The
+# entry's URL is the version-pinned package asset; pushing to repo-v2 master
+# triggers ITS pipeline to download the APK, verify the sha256, and rebuild
+# the signed F-Droid index. Requires a CI variable FDROID_DEPLOY_KEY: a
+# base64-encoded SSH private key (single line so it can be masked, matching
+# the KEYSTORE_BASE64 convention) whose public half is a WRITE deploy key on
+# fdroid/repo-v2.
+# The APK must be release-signed (i.e. KEYSTORE_BASE64 set) — F-Droid pins
+# the signer, so an unsigned/debug-signed build would break updates.
+update-fdroid:
+  stage: trigger
+  image: alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+  interruptible: false
+  needs:
+    - job: release # ensure the package asset is uploaded first
+    - job: build:android-native # the signed APK, to compute its sha256
+      artifacts: true
+  before_script:
+    - apk add --no-cache python3 git openssh-client
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - eval $(ssh-agent -s)
+    - printf '%s' "$FDROID_DEPLOY_KEY" | base64 -d > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - ssh-add ~/.ssh/id_ed25519
+    - ssh-keyscan -t rsa,ecdsa,ed25519 gitlab.futo.org >> ~/.ssh/known_hosts 2>/dev/null
+  script:
+    - python3 scripts/update-fdroid-index.py
+  rules:
+    # STABLE tags only. Also structurally required: this job `needs: release`,
+    # which exists only on stable tags — a bare-tag rule made prerelease-tag
+    # pipelines fail creation ("needs 'release' which was not created").
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
+
+# ─────────────────────────────────────────────────────────────
+# Publish to the FUTO Linux package repo (pkg.futoinfra.com)
+# ─────────────────────────────────────────────────────────────
+# After `release` has uploaded the .deb/.rpm to the GitLab generic package
+# registry, hand the same URLs off to the FUTO packaging pipeline so it can
+# ingest them into the apt/yum repo. Two jobs: a prep job that computes the
+# version + the exact registry URLs (matching `release`'s NAME scheme) and
+# emits them as dotenv, and a multi-project trigger that passes them to
+# devops/cloudflare/pkg.futoinfra.com on main. The trigger keyword
+# authenticates via CI_JOB_TOKEN; the target project allowlists this project.
+
+pkg-futoinfra:prep:
+  stage: trigger
+  needs:
+    - job: release
+  before_script: []
+  script:
+    - |
+      VERSION="${CI_COMMIT_TAG#v}"
+      REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/futo-notes/${CI_COMMIT_TAG}"
+      {
+        echo "PKG_VERSION=${VERSION}"
+        echo "PKG_DEB_URLS=${REGISTRY_URL}/futo-notes_${VERSION}_amd64.deb"
+        echo "PKG_RPM_URLS=${REGISTRY_URL}/futo-notes-${VERSION}-1.x86_64.rpm"
+      } > pkg.env
+      echo "=== pkg.futoinfra.com trigger vars ==="
+      cat pkg.env
+  artifacts:
+    reports:
+      dotenv: pkg.env
+  rules:
+    # STABLE tags only — needs: release, which exists only on stable tags
+    # (see update-fdroid).
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
+
+pkg-futoinfra:trigger:
+  stage: trigger
+  needs:
+    - job: pkg-futoinfra:prep
+      artifacts: true
+  variables:
+    BINARY: futo-notes
+    VERSION: $PKG_VERSION
+    DEB_URLS: $PKG_DEB_URLS
+    RPM_URLS: $PKG_RPM_URLS
+  trigger:
+    project: devops/cloudflare/pkg.futoinfra.com
+    branch: main
+  rules:
+    # STABLE tags only — chained off pkg-futoinfra:prep (see update-fdroid).
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/

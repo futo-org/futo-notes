@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   buildCommandEnvironment,
@@ -13,6 +12,7 @@ import {
   patchAppImage,
 } from './release-build.mjs';
 import { KNOWN_PLATFORMS } from './build-updater-manifest.mjs';
+import { readGitlabCiSource } from './lib/gitlab-ci.mjs';
 
 describe('parseFlags', () => {
   it('parses --key value pairs', () => {
@@ -215,7 +215,7 @@ describe('AppImage artifact finalization', () => {
 
 describe('AppImage CI rehearsal', () => {
   it('removes updater keys before the first Linux release setup command', () => {
-    const ci = readFileSync(new URL('../.gitlab-ci.yml', import.meta.url), 'utf8');
+    const ci = readGitlabCiSource(fileURLToPath(new URL('..', import.meta.url)));
     const linuxSetup = ci.slice(
       ci.indexOf('before_script: &linux-before-script'),
       ci.indexOf('# AppImage bundles its entire userland'),
@@ -228,7 +228,7 @@ describe('AppImage CI rehearsal', () => {
   });
 
   it('uses the fixture key only for MRs and verifies the one produced artifact', () => {
-    const ci = readFileSync(new URL('../.gitlab-ci.yml', import.meta.url), 'utf8');
+    const ci = readGitlabCiSource(fileURLToPath(new URL('..', import.meta.url)));
     const job = ci.slice(
       ci.indexOf('build:linux-appimage:'),
       ci.indexOf('build:ci-android-image:'),
@@ -244,7 +244,7 @@ describe('AppImage CI rehearsal', () => {
   });
 
   it('leaves signature verification as the AppImage signing block exit status', () => {
-    const ci = readFileSync(new URL('../.gitlab-ci.yml', import.meta.url), 'utf8');
+    const ci = readGitlabCiSource(fileURLToPath(new URL('..', import.meta.url)));
     const job = ci.slice(
       ci.indexOf('build:linux-appimage:'),
       ci.indexOf('build:ci-android-image:'),
@@ -269,7 +269,7 @@ describe('AppImage CI rehearsal', () => {
   });
 
   it('falls back to the checked-in desktop version when an MR has no tag', () => {
-    const ci = readFileSync(new URL('../.gitlab-ci.yml', import.meta.url), 'utf8');
+    const ci = readGitlabCiSource(fileURLToPath(new URL('..', import.meta.url)));
     const setVersion = ci.slice(
       ci.indexOf('.set-version:'),
       ci.indexOf('.setup-futo-notes-server:'),
@@ -320,7 +320,7 @@ describe('AppImage CI rehearsal', () => {
   });
 
   it('retains the AppImage Cargo cache after failed tag-only rehearsals', () => {
-    const ci = readFileSync(new URL('../.gitlab-ci.yml', import.meta.url), 'utf8');
+    const ci = readGitlabCiSource(fileURLToPath(new URL('..', import.meta.url)));
     const cache = ci.slice(
       ci.indexOf('.cache-cargo-tauri-linux-appimage:'),
       ci.indexOf('build:linux-packages:'),

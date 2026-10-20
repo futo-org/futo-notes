@@ -1,0 +1,268 @@
+# Included by .gitlab-ci.yml: internal Windows build on the Proxmox VM chain.
+
+# ─────────────────────────────────────────────────────────────
+# Internal, hosted-enabled Windows build (D2, taken —
+# docs/plan/hosted-sync-to-staging.md, ticket C8). Prerelease tags only,
+# plus the same MR manual rehearsal as build:desktop-internal:{linux,macos}.
+#
+# Reuses the EXISTING Proxmox provision→build→cleanup chain and template VM
+# (same .proxmox_auth, same proxmoxshell runner, same clone/start/agent-IP
+# script) rather than inventing a second one — the only difference from
+# windows:provision/build:windows/windows:cleanup is the VM name (so the two
+# chains never collide when both run in the same prerelease-tag pipeline)
+# and the hosted flags passed to ci/win-build.ps1. One extra VM clone, on
+# prerelease tags only.
+#
+# Deliberately UNSIGNED — no windows:sign:internal exists. Authenticode
+# signing needs the EV code-signing credential (AWS KMS FUTO-EV-signing-key)
+# in ci/sign-windows.sh; wiring that into an internal/staging-flagged job
+# would be the one platform where M23's isolation gets weaker instead of
+# matching Linux (no signing key touched) and macOS (no Apple credential
+# touched). Recommendation to the coordinator: keep it unsigned, same
+# Gatekeeper-bypass-style friction as the macOS internal build (one SmartScreen
+# "Windows protected your PC" → More info → Run anyway click-through per
+# machine) rather than grow the EV credential's blast radius to cover an
+# internal build track. Not wired without an explicit go-ahead either way.
+windows:provision:internal:
+  stage: build
+  needs:
+    - job: test
+  tags:
+    - proxmoxshell
+  before_script:
+    - !reference [.proxmox_guard]
+    - !reference [.proxmox_auth]
+  variables:
+    PROXMOX_HOST: "127.0.0.1"
+    PROXMOX_NODE: "green"
+    TEMPLATE_VMID: "101"
+    # Distinct name from windows:provision's futo-notes-win-${CI_PIPELINE_ID}
+    # — both chains run in the same prerelease-tag pipeline (the production
+    # Windows build jobs run on every tag, including prerelease, for
+    # validation), so this must never resolve to the same VM.
+    VM_NAME: "futo-notes-win-internal-${CI_PIPELINE_ID}"
+    CLONE_TYPE: "1"
+  script:
+    # Get next available VMID
+    - |
+      export NEXT_VMID=$(curl -s -k \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/cluster/nextid" | jq -r '.data')
+      if [ -z "$NEXT_VMID" ] || [ "$NEXT_VMID" = "null" ]; then
+        echo "FATAL: Proxmox cluster/nextid returned no VMID — check PROXMOX_HOST/PROXMOX_NODE reachability and PROXMOX_AUTH."
+        exit 1
+      fi
+      echo "VMID=${NEXT_VMID}" >> provision.env
+      echo "Using VMID: ${NEXT_VMID}"
+
+    # Clone the template VM and poll task until done
+    - |
+      CLONE_RESPONSE=$(curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "newid=${NEXT_VMID}&name=${VM_NAME}&full=${CLONE_TYPE}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${TEMPLATE_VMID}/clone")
+      UPID=$(echo "$CLONE_RESPONSE" | jq -r '.data')
+      if [ -z "$UPID" ] || [ "$UPID" = "null" ]; then
+        echo "FATAL: Proxmox clone request returned no task id (UPID). Response: $CLONE_RESPONSE"
+        exit 1
+      fi
+      echo "Clone task started: $UPID"
+
+    - |
+      UPID_ENCODED=$(printf '%s' "$UPID" | jq -sRr @uri)
+      LATEST_TEMP=""
+      while true; do
+        TASK_STATUS=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/tasks/${UPID_ENCODED}/status")
+        STATUS=$(echo "$TASK_STATUS" | jq -r '.data.status')
+        if [ "$STATUS" = "stopped" ]; then
+          EXIT_STATUS=$(echo "$TASK_STATUS" | jq -r '.data.exitstatus')
+          if [ "$EXIT_STATUS" = "OK" ]; then
+            echo "Clone completed successfully!"
+            break
+          else
+            echo "Clone failed: $EXIT_STATUS"
+            exit 1
+          fi
+        fi
+        TASK_LOG=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/tasks/${UPID_ENCODED}/log?limit=10000")
+        LATEST=$(echo "$TASK_LOG" | jq -r '.data | sort_by(.n) | last | .t // "waiting..."')
+        if [ "$LATEST_TEMP" != "$LATEST" ]; then
+          echo "Status: $STATUS | $LATEST"
+          LATEST_TEMP="$LATEST"
+        fi
+        sleep 5
+      done
+
+    # Start the VM
+    - |
+      source provision.env
+      curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/start"
+
+    # Wait for VM to get an IP via QEMU guest agent
+    - |
+      source provision.env
+      echo "Waiting for VM to boot and get IP..."
+      for i in $(seq 1 60); do
+        IP=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/agent/network-get-interfaces" 2>/dev/null \
+          | jq -r '.data.result[]? | select(.name != "Loopback Pseudo-Interface 1") | ."ip-addresses"[]? | select(."ip-address-type" == "ipv4") | ."ip-address"' \
+          | head -1)
+        if [ -n "$IP" ] && [ "$IP" != "null" ]; then
+          echo "VM_IP=${IP}" >> provision.env
+          echo "VM is up at: ${IP}"
+          break
+        fi
+        echo "Waiting for start and IP... (${i}/60)"
+        sleep 10
+      done
+      if [ -z "$IP" ] || [ "$IP" = "null" ]; then
+        echo "ERROR: No IP after 10 minutes"
+        exit 1
+      fi
+
+  artifacts:
+    when: always
+    reports:
+      dotenv: provision.env
+  rules:
+    - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - .gitlab-ci.yml
+        - ci/win-build.ps1
+      when: manual
+      allow_failure: true
+
+build:desktop-internal:windows:
+  stage: build
+  tags:
+    - proxmoxshell
+  needs:
+    - job: windows:provision:internal
+      artifacts: true
+  variables:
+    SSHPASS: "$PROXMOX_WIN_PASSWORD"
+  before_script: []
+  script:
+    # Wait for SSH to be ready
+    - |
+      for i in $(seq 1 30); do
+        if sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${PROXMOX_WIN_USER}@${VM_IP}" "echo ready" 2>/dev/null; then
+          echo "SSH is ready!"
+          break
+        fi
+        echo "Waiting for SSH... ($i/30)"
+        sleep 10
+      done
+
+    # Upload build scripts to VM
+    - |
+      sshpass -e scp -o StrictHostKeyChecking=no \
+        ci/win-install-deps.ps1 ci/win-build.ps1 \
+        "${PROXMOX_WIN_USER}@${VM_IP}:C:/Users/${PROXMOX_WIN_USER}/"
+
+    # Install build dependencies
+    - |
+      sshpass -e ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" \
+        "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\${PROXMOX_WIN_USER}\\win-install-deps.ps1"
+
+    # Clone repo and build — same REF/VERSION derivation as build:windows,
+    # plus -HostedSync/-HostedServer (both default off in ci/win-build.ps1,
+    # so build:windows itself is byte-for-byte unchanged).
+    - |
+      REF="${CI_COMMIT_TAG:-${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-$CI_COMMIT_REF_NAME}}"
+      VERSION="${CI_COMMIT_TAG#v}"
+      [ -n "$VERSION" ] || VERSION="0.0.0"
+      echo "Internal Windows build — hosted sync ON, baked hosted server: https://staging-notes-sync.futo.org"
+      sshpass -e ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" \
+        "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\${PROXMOX_WIN_USER}\\win-build.ps1 -RepoUrl ${CI_REPOSITORY_URL} -Branch ${REF} -Version ${VERSION} -HostedSync true -HostedServer https://staging-notes-sync.futo.org"
+
+    # Retrieve build artifacts — own directory, distinct from build:windows's
+    # windows-artifacts/, so both can coexist as separate job artifacts in the
+    # same prerelease-tag pipeline.
+    - mkdir -p windows-internal-artifacts
+    - |
+      sshpass -e scp -o StrictHostKeyChecking=no -r \
+        "${PROXMOX_WIN_USER}@${VM_IP}:C:/build/futo-notes/target/release/bundle/nsis/*" \
+        windows-internal-artifacts/
+    - |
+      echo "=== Internal Windows build artifacts (unsigned, see the job comment on windows:provision:internal) ==="
+      ls -la windows-internal-artifacts/
+
+  artifacts:
+    paths:
+      - windows-internal-artifacts/*
+    expire_in: 4 weeks
+  rules:
+    - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - .gitlab-ci.yml
+        - ci/win-build.ps1
+      when: manual
+      allow_failure: true
+
+windows:cleanup:internal:
+  stage: build
+  tags:
+    - proxmoxshell
+  needs:
+    - job: windows:provision:internal
+      artifacts: true
+    - job: build:desktop-internal:windows
+  when: always
+  before_script:
+    - !reference [.proxmox_auth]
+  variables:
+    PROXMOX_HOST: "127.0.0.1"
+    PROXMOX_NODE: "green"
+  script:
+    - |
+      if [ -z "$VMID" ]; then
+        echo "No VMID from provision; looking up VM by name futo-notes-win-internal-${CI_PIPELINE_ID}..."
+        VMID=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu" \
+          | jq -r ".data[] | select(.name==\"futo-notes-win-internal-${CI_PIPELINE_ID}\") | .vmid" | head -1)
+      fi
+      if [ -z "$VMID" ] || [ "$VMID" = "null" ]; then
+        echo "No VM found for this pipeline, nothing to clean up."
+        exit 0
+      fi
+      echo "Stopping VM $VMID..."
+      curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/stop"
+    - |
+      echo "Waiting for VM to stop..."
+      for i in $(seq 1 30); do
+        STATUS=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/current" | jq -r '.data.status')
+        if [ "$STATUS" = "stopped" ]; then
+          echo "VM stopped!"
+          break
+        fi
+        sleep 5
+      done
+    - |
+      curl -s -k -X DELETE \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}"
+      echo "VM ${VMID} deleted"
+  rules:
+    - if: '$CI_COMMIT_TAG && $CI_COMMIT_TAG !~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - .gitlab-ci.yml
+        - ci/win-build.ps1
+      when: manual
+      allow_failure: true

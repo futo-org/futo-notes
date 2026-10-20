@@ -1,0 +1,142 @@
+# Included by .gitlab-ci.yml: the stable GitLab release.
+
+release:
+  stage: release
+  interruptible: false
+  needs:
+    - job: release:gate
+    - job: build:linux-packages
+      artifacts: true
+    - job: build:linux-appimage
+      artifacts: true
+    - job: build:android-native
+      artifacts: true
+    - job: build:ios-native
+      artifacts: true
+    - job: build:macos
+      artifacts: true
+    - job: windows:sign
+      artifacts: true
+  script:
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/futo-notes/${CI_COMMIT_TAG}"
+    # Every artifact kind must resolve to EXACTLY ONE file. The old for-loops
+    # uploaded every match under one fixed name (the last one in glob order won,
+    # so a deb/rpm restored from the Cargo cache could replace this build's), and
+    # the `if [ -n ... ]` guards skipped a missing file with a green job (M11).
+    # No `set -e` is active here, so each call aborts explicitly.
+    - |
+      upload_one() {
+        dir="$1"; pattern="$2"; name="$3"
+        count=$(find "$dir" -type f -name "$pattern" 2>/dev/null | wc -l)
+        if [ "$count" -ne 1 ]; then
+          echo "expected exactly one $pattern under $dir, found $count:" >&2
+          find "$dir" -type f -name "$pattern" 2>/dev/null >&2
+          return 1
+        fi
+        f=$(find "$dir" -type f -name "$pattern")
+        echo "Uploading $name"
+        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${name}"
+      }
+      # Linux
+      upload_one target/release/bundle/deb "*.deb" "futo-notes_${VERSION}_amd64.deb" || exit 1
+      upload_one target/release/bundle/rpm "*.rpm" "futo-notes-${VERSION}-1.x86_64.rpm" || exit 1
+      upload_one target/release/bundle/appimage "*.AppImage" "FUTO-Notes-${VERSION}-x86_64.AppImage" || exit 1
+      # Android APK (direct flavor — the sideload/Obtainium/F-Droid download;
+      # the play AAB goes to Google Play via publish:android, never here)
+      upload_one apps/android/app/build/outputs/apk/direct/release "*release*.apk" "futo-notes-${VERSION}.apk" || exit 1
+      # iOS IPA + the dSYMs that symbolicate this build's crash reports
+      upload_one buildFutoNotesIOSNative "*.ipa" "FUTO-Notes-${VERSION}.ipa" || exit 1
+      upload_one buildFutoNotesIOSNative "*-dSYMs.zip" "FUTO-Notes-${VERSION}-dSYMs.zip" || exit 1
+      # macOS DMG (first-install download)
+      upload_one buildFutoNotesMacOS/binary "*.dmg" "FUTO-Notes-${VERSION}-universal.dmg" || exit 1
+      # macOS updater artifact (.app.tar.gz — what the self-updater downloads).
+      # Universal (x86_64 + arm64), same as the DMG — one tarball serves both arches.
+      upload_one buildFutoNotesMacOS/updater "*.app.tar.gz" "FUTO-Notes-${VERSION}-universal.app.tar.gz" || exit 1
+      # Windows NSIS installer
+      upload_one windows-artifacts "*.exe" "FUTO-Notes-${VERSION}-x64-setup.exe" || exit 1
+    # ── Desktop self-update manifest (latest.json) ──
+    # Assemble the multi-platform Tauri updater manifest from each desktop OS's
+    # signed artifact + its .sig, with URLs pointing at the package-registry
+    # uploads above. Embeds the .sig CONTENTS (clients verify the download against
+    # them — the .sig files themselves are not published). The baked endpoint in
+    # tauri.conf.json is the "latest" release permalink, which resolves to the
+    # release asset whose filepath is /latest.json (added to release-cli below).
+    - |
+      APPIMAGE_SIG=$(find target/release/bundle/appimage -name "*.AppImage.sig" -type f | head -1)
+      MAC_SIG=$(find buildFutoNotesMacOS/updater -name "*.app.tar.gz.sig" -type f | head -1)
+      WIN_SIG=$(find windows-artifacts -name "*.exe.sig" -type f | head -1)
+      # Hard-abort (release:gate already guards this, but don't assemble a partial
+      # manifest if a .sig is somehow absent — no `set -e` is active here).
+      if [ -z "$APPIMAGE_SIG" ] || [ -z "$MAC_SIG" ] || [ -z "$WIN_SIG" ]; then
+        echo "missing updater .sig (linux=$APPIMAGE_SIG mac=$MAC_SIG win=$WIN_SIG)"; exit 1
+      fi
+      # Verify each artifact's .sig against the PROD pubkey baked in tauri.conf.json
+      # BEFORE assembling the manifest. This is the only place that catches a
+      # signing-key/baked-pubkey mismatch (which would brick auto-update for every
+      # client — the pubkey can't be rotated on shipped installs) and a stale .sig
+      # left from before the OS-signing step (Authenticode/notarize/mesa) rewrote
+      # the bytes. The artifact path is the .sig path minus the suffix. No `set -e`
+      # here, so abort explicitly on a non-zero exit.
+      node scripts/verify-updater-signature.mjs \
+        --artifact "${APPIMAGE_SIG%.sig}" --sig "$APPIMAGE_SIG" \
+        --artifact "${MAC_SIG%.sig}"      --sig "$MAC_SIG" \
+        --artifact "${WIN_SIG%.sig}"      --sig "$WIN_SIG" \
+        || { echo "updater signature verification FAILED — refusing to publish"; exit 1; }
+      node -e "
+        const fs = require('fs');
+        const [v, reg, ls, ms, ws] = process.argv.slice(1);
+        // The macOS .app.tar.gz is a universal (x86_64 + arm64) bundle, so both
+        // darwin keys point at the SAME artifact + signature — Intel and Apple
+        // Silicon clients each match their own key and download the one tarball.
+        const macUrl = reg + '/FUTO-Notes-' + v + '-universal.app.tar.gz';
+        fs.writeFileSync('updater-spec.json', JSON.stringify({
+          version: v,
+          notes: 'FUTO Notes ' + v,
+          platforms: [
+            { platform: 'linux-x86_64',   url: reg + '/FUTO-Notes-' + v + '-x86_64.AppImage', sig: ls },
+            { platform: 'darwin-aarch64', url: macUrl,                                        sig: ms },
+            { platform: 'darwin-x86_64',  url: macUrl,                                        sig: ms },
+            { platform: 'windows-x86_64', url: reg + '/FUTO-Notes-' + v + '-x64-setup.exe',   sig: ws },
+          ],
+        }));
+      " "$VERSION" "$REGISTRY_URL" "$APPIMAGE_SIG" "$MAC_SIG" "$WIN_SIG"
+      node scripts/build-updater-manifest.mjs --spec updater-spec.json --out latest.json
+      echo "=== latest.json ==="; cat latest.json
+      echo "Uploading latest.json"
+      curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file latest.json "${REGISTRY_URL}/latest.json"
+    # Create GitLab release
+    - |
+      curl -sL "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64" \
+        -o /usr/local/bin/release-cli && chmod +x /usr/local/bin/release-cli
+    # Retag-same-version is the standing release policy (a not-yet-published
+    # tag is deleted and re-pushed at the fix commit). release-cli create is
+    # not idempotent — it 409s when a Release for the tag already exists from
+    # a prior attempt — so drop any existing Release for this tag first.
+    - |
+      curl -s -X DELETE -H "JOB-TOKEN: $CI_JOB_TOKEN" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}" || true
+    - |
+      release-cli create \
+        --name "FUTO Notes ${CI_COMMIT_TAG}" \
+        --tag-name "${CI_COMMIT_TAG}" \
+        --description "FUTO Notes release ${CI_COMMIT_TAG}" \
+        --assets-link "{\"name\":\"futo-notes_${VERSION}_amd64.deb\",\"url\":\"${REGISTRY_URL}/futo-notes_${VERSION}_amd64.deb\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"futo-notes-${VERSION}-1.x86_64.rpm\",\"url\":\"${REGISTRY_URL}/futo-notes-${VERSION}-1.x86_64.rpm\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"FUTO-Notes-${VERSION}-x86_64.AppImage\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}-x86_64.AppImage\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"futo-notes-${VERSION}.apk\",\"url\":\"${REGISTRY_URL}/futo-notes-${VERSION}.apk\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"FUTO-Notes-${VERSION}.ipa\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}.ipa\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"FUTO-Notes-${VERSION}-universal.dmg\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}-universal.dmg\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"FUTO-Notes-${VERSION}-x64-setup.exe\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}-x64-setup.exe\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"FUTO-Notes-${VERSION}-universal.app.tar.gz\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}-universal.app.tar.gz\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"latest.json\",\"url\":\"${REGISTRY_URL}/latest.json\",\"filepath\":\"/latest.json\",\"link_type\":\"other\"}"
+  rules:
+    # STABLE tags only (vX.Y.Z — no -rc/-nightly suffix). The updater endpoint is
+    # the "latest release" permalink, which GitLab resolves by release DATE, so a
+    # published prerelease would become "latest" and be served to stable clients.
+    # Gating publish to stable tags keeps the channel stable-only; the Tauri
+    # client never downgrades (semver compare), so clients only move UP to the
+    # newest stable. (Prerelease tags still run the build jobs for validation;
+    # they just don't publish a release. A future nightly channel = a second
+    # fixed manifest + a client channel setting.)
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/

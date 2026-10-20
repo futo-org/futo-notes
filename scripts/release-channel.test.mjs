@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+
+import { readGitlabCiSource } from './lib/gitlab-ci.mjs';
 
 /**
  * Channel-safety conformance guard for the desktop updater.
@@ -15,7 +16,7 @@ import { dirname, resolve } from 'node:path';
  * so a well-meaning broadening (e.g. to publish -rc to a beta release) fails CI.
  */
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const CI = readFileSync(resolve(ROOT, '.gitlab-ci.yml'), 'utf8');
+const CI = readGitlabCiSource(ROOT);
 
 /** Pull the stable-tag regex out of the `release:` job's `$CI_COMMIT_TAG =~ /.../` rule. */
 function extractStableTagRegex() {

@@ -15,9 +15,11 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { readGitlabCiSource } from './lib/gitlab-ci.mjs';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const GUARD = join(ROOT, 'scripts/ci-cargo-cache-freshness.mjs');
-const pipeline = readFileSync(join(ROOT, '.gitlab-ci.yml'), 'utf8');
+const pipeline = readGitlabCiSource(ROOT);
 
 const workspaces = [];
 
