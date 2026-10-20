@@ -81,7 +81,7 @@
     which lands wherever it lands. The constants are part of
     `supporter-coin-motion`. →
     `supporterCoin.test.ts` "turns ten times for ten clicks",
-    `tests/license-card.spec.ts` "licensed: clicking the coin spins it a full
+    `tests/license-card-coin.spec.ts` "licensed: clicking the coin spins it a full
     turn" + "licensed: eight fast clicks on the coin queue eight turns";
     _(ios)_ `SupporterCoinTests` "ten taps turn the coin ten times"; _(android)_
     `SupporterCoinTest` "ten taps turn the coin ten times"

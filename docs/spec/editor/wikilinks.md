@@ -13,7 +13,7 @@
   and opened the WHOLE note blank on every shell (issue #112, fixed
   2026-09-03). → src/features/editor/milkdown/wikilink/syntax.ts,
   src/features/editor/milkdown/wikilink/syntax.test.ts,
-  tests/editor-embed-milkdown-wikilinks.spec.ts
+  tests/editor-embed-milkdown-wikilinks-autocomplete.spec.ts
 - Clicking/tapping a wikilink navigates to the target note (desktop:
   Cmd/Ctrl+click opens it in a new tab; middle-click opens it in a background
   tab). Rapid clicks on separate links each navigate. → NotesShell.svelte

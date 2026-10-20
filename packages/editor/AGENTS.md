@@ -48,7 +48,7 @@ chip) left `view.composing` set for good off Android — input rules stop and `i
 sticks. It also deletes a selection that covers a chip before a composition starts over it (RC-97:
 ProseMirror re-dispatching that selection made Chromium drop the composition). The fork is swapped in at the same index in `commonmarkWithCompat()`; its canary is in
 `editor-embed-milkdown-compat.spec.ts`, its real-IME tests in
-`editor-embed-milkdown-wikilinks.spec.ts`.
+`editor-embed-milkdown-wikilinks-ime.spec.ts`.
 
 From the 2026-09 release-hardening campaign (FB-4a/4b/4c), all on the parse side:
 

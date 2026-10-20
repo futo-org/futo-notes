@@ -17,7 +17,7 @@
   an unlayered inherited text-color fallback on `html`, resolving the dark
   token via the unlayered `[data-theme='dark']` variables and falling back to
   the literal light token. _(Android)_ → editor.html,
-  tests/editor-embed-webview-floor.spec.ts (legacy WebView tests)
+  tests/editor-embed-webview-floor-css.spec.ts (legacy WebView tests)
 - The editor needs a System WebView engine of **Chromium 80 or newer**: the
   bundle targets ES2020, an `editor.html` `String.prototype.replaceAll` shim
   covers Chromium 80–84 (Svelte 5's runtime would otherwise throw), an
@@ -40,7 +40,7 @@
   a vendor provider numbers itself (Huawei WebView 12.x/15.x on a modern
   Chromium), so a version floor rejects working engines. _(Android)_ →
   editor.html, EditorEngineSupport.kt, EditorWebView.kt,
-  tests/editor-embed-webview-floor.spec.ts (engine preflight tests)
+  tests/editor-embed-webview-floor-css.spec.ts (engine preflight tests)
 - "The editor mounted" means the EDITOR ENGINE came up, reported by the bundle on
   `window.__futoEditorMounted` — not that the host API exists and not that the
   bridge `initialize` round-trip returned. Milkdown creates its editor

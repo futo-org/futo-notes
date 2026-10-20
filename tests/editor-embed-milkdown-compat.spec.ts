@@ -14,7 +14,7 @@
  * rather than carry it forever. Do not "fix" a red canary by relaxing it. The
  * canaries of the remark-stringify patches went with the patches when the
  * owned serializer replaced them (#266): what they guarded is now the
- * serializer's, held by its goldens (tests/conformance/markdown-house-style.json).
+ * serializer's, held by its goldens (tests/conformance/markdown-house-style-*.json).
  *
  * The `compat` half is the contract: the two loss classes the census measured
  * are gone, and an empty paragraph round-trips as a blank line — never as the

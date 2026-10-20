@@ -80,7 +80,7 @@
   scroll container, and the browser scrolls the ROOT document to reveal the
   caret, sliding the note up under the shell's native title bar as the user types
   (github#33, reported on 1.7.0 / Android 10; reproduced and fixed on a
-  Chromium-83 WebView 2026-08-21). → editor.html, tests/editor-embed-webview-floor.spec.ts
+  Chromium-83 WebView 2026-08-21). → editor.html, tests/editor-embed-webview-floor-css.spec.ts
   "pre-inset WebView"
 - The editable element is the editor's own scroll container, and it keeps the
   platform's overscroll affordance (`overscroll-behavior: contain` — iOS bounce /
