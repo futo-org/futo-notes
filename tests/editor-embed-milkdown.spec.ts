@@ -24,6 +24,7 @@ import {
   messagesOfType,
   openEmbed,
   waitForMessages,
+  withCaretObserved,
   type FakeHostWindow,
 } from './lib/editorEmbedHost';
 
@@ -569,36 +570,35 @@ test('applyExternalContent adopts differing content without a change echo', asyn
 });
 
 /**
- * Clicks the caret `chars` characters into the first paragraph. The point comes
- * from a DOM Range over the text node — the paragraph's own box is the full
- * content column, so dividing its width by the character count aims far past
- * the end of a short line.
+ * Puts the caret `chars` characters into the first paragraph, and returns once
+ * the EDITOR has read it (`withCaretObserved`).
  *
- * Waits for `document.fonts.ready` first: the embed warms Barlow
- * asynchronously (`warmEditorFonts.ts`), and a swap landing between the
- * measurement and the click moves every character's x-position, so the click
- * lands on a different character. Observed as an intermittent red on
- * "applyExternalContent with unchanged content preserves the selection" —
- * 3 of 3 on a loaded machine, then 25 of 25 green.
+ * The caret is set on the DOM selection, not clicked at a pixel measured from
+ * a Range: where a click lands depends on the glyph advances at that instant,
+ * and the embed's fonts are swapped in asynchronously (`warmEditorFonts.ts`),
+ * which `document.fonts.ready` did not make the measurement safe from. The
+ * callers are about what the host does to a caret that is somewhere in the
+ * text, not about where a click maps. Observed as an intermittent red on
+ * "applyExternalContent with unchanged content preserves the selection" (CI,
+ * test:e2e:editor-embed 2/3): "abcdefZ" for "abcZdef", the caret still at the
+ * end where `focus()` left it. Not reproducible locally in 300 loaded runs,
+ * so a click that missed the text is the likely cause, not a proven one; the
+ * product's identical-content path never touches the selection.
  */
-async function clickCaretInto(page: Page, chars: number): Promise<void> {
-  await page.evaluate(() => document.fonts.ready);
-  const point = await page.evaluate((offset) => {
-    const text = document.querySelector('.ProseMirror > p')?.firstChild;
-    if (!text) throw new Error('no paragraph text node');
-    const range = document.createRange();
-    range.setStart(text, offset);
-    range.setEnd(text, offset);
-    const rect = range.getBoundingClientRect();
-    return { x: rect.left, y: rect.top + rect.height / 2 };
-  }, chars);
-  await page.mouse.click(point.x, point.y);
+async function placeCaretInto(page: Page, chars: number): Promise<void> {
+  await withCaretObserved(page, () =>
+    page.evaluate((offset) => {
+      const text = document.querySelector('.ProseMirror > p')?.firstChild;
+      if (!text) throw new Error('no paragraph text node');
+      window.getSelection()!.collapse(text, offset);
+    }, chars),
+  );
 }
 
 test('applyExternalContent with unchanged content preserves the selection', async ({ page }) => {
   await hostSetContent(page, 'abcdef');
   await focusEditor(page);
-  await clickCaretInto(page, 3);
+  await placeCaretInto(page, 3);
   await clearMessages(page);
 
   // No-op adopt (content identical): must not reset the caret to 0 or the end.
@@ -957,7 +957,7 @@ test('a switch inside the change debounce shows the next note, even with the sam
 test('a host re-sending the note on screen leaves the caret where it was', async ({ page }) => {
   await hostSetContent(page, 'abcdef');
   await focusEditor(page);
-  await clickCaretInto(page, 3);
+  await placeCaretInto(page, 3);
 
   await page.evaluate(() =>
     (window as unknown as FakeHostWindow).FutoEditor.setContent('test-note', 'abcdef'),
@@ -1121,7 +1121,7 @@ test('formatState reports the block kind at the caret, deduped', async ({ page }
 
   // Into the paragraph: the heading is no longer active. Wait on the message
   // rather than a frame — the click has to land, move the selection, and post.
-  await clickCaretInto(page, 3);
+  await placeCaretInto(page, 3);
   expect((await waitForMessages(page, 'formatState')).at(-1)?.active).toEqual([]);
 
   // Moving WITHIN the paragraph changes nothing, so nothing new is posted.
@@ -3569,6 +3569,93 @@ mobileDndTest(
     // Anchoring kept the screen still by scrolling past the grown image.
     expect((await editorScroll(page)).top).toBeGreaterThan(before + 150);
 
+    await expectDropMatchesPreview(page, () => lifted.release());
+  },
+);
+
+/* The preview clones the rest of its window in idle time and measures each new
+ * block as it goes, while the blocks cloned before keep the positions measured
+ * then. An idle slice that lands between a layout change above the window and
+ * the scroll event that reports it (the next frame) measures the new blocks in
+ * the new layout, and the scroll follow, which judges the layout by the
+ * window's first block, finds that block where it now is: the clones from
+ * before stay where the old layout had them, 200px off, until the release.
+ * Held here so the slice runs in exactly that gap, every time. */
+mobileDndTest(
+  'reflow preview follows a layout change that lands before its idle fill runs',
+  async ({ page, cdp }) => {
+    await page.setViewportSize({ width: 760, height: 720 });
+    await hostSetContent(page, `![](late.svg)\n\n${scrollableNote(150)}`);
+    await clearMessages(page);
+    await page.evaluate(() => {
+      const dom = document.querySelector('.ProseMirror') as HTMLElement;
+      const line = [...dom.children].find((el) => el.textContent === 'Line 100') as HTMLElement;
+      dom.scrollTop += line.getBoundingClientRect().top - dom.getBoundingClientRect().top;
+    });
+    await flushFrames(page);
+
+    const lineAt = async (n: number) => {
+      const index = await page.evaluate(
+        (text) =>
+          [...document.querySelector('.ProseMirror')!.children].findIndex(
+            (el) => el.textContent === text,
+          ),
+        `Line ${n}`,
+      );
+      return { index, box: await blockBoxAt(page, index) };
+    };
+    const source = await lineAt(102);
+    const target = await lineAt(106);
+    // Idle work is held from the lift on, and run by the test: the fill that
+    // the scroll below asks for then waits for it.
+    await page.evaluate(() => {
+      const w = window as unknown as {
+        __idle: Array<() => void>;
+        requestIdleCallback: (cb: (d: unknown) => void) => number;
+      };
+      w.__idle = [];
+      w.requestIdleCallback = (cb) => {
+        w.__idle.push(() => cb({ didTimeout: false, timeRemaining: () => 50 }));
+        return w.__idle.length;
+      };
+    });
+    const runIdle = () =>
+      page.evaluate(() => {
+        const w = window as unknown as { __idle: Array<() => void> };
+        const held = w.__idle.splice(0);
+        for (const run of held) run();
+        return held.length;
+      });
+    const lifted = await liftWithTouch(page, cdp, source.index);
+    await lifted.move(target.box.top + (target.box.bottom - target.box.top) * 0.75);
+    // The curtain opens (in idle time, if the machine has none to spare).
+    await expect
+      .poll(async () => {
+        if (await curtainUp(page)) return true;
+        await runIdle();
+        return curtainUp(page);
+      })
+      .toBe(true);
+    // Opening the curtain asked for the fill of its window, which is held.
+    expect(
+      await page.evaluate(() => (window as unknown as { __idle: unknown[] }).__idle.length),
+    ).toBeGreaterThan(0);
+
+    const before = (await editorScroll(page)).top;
+    // The image above grows 200px, the browser's layout pins the screen by
+    // scrolling (both in the one forced layout), and the idle fill runs
+    // before the frame that would deliver the scroll event.
+    await page.evaluate(() => {
+      const w = window as unknown as { __idle: Array<() => void> };
+      const dom = document.querySelector('.ProseMirror') as HTMLElement;
+      const img = dom.querySelector('img') as HTMLElement;
+      img.style.width = '200px';
+      img.style.height = '200px';
+      void dom.scrollHeight;
+      const held = w.__idle.splice(0);
+      for (const run of held) run();
+    });
+    expect((await editorScroll(page)).top).toBeGreaterThan(before + 150);
     await expectDropMatchesPreview(page, () => lifted.release());
   },
 );
