@@ -3265,8 +3265,17 @@ release:internal:
     - |
       curl -s -X DELETE -H "JOB-TOKEN: $CI_JOB_TOKEN" \
         "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}" || true
+    # Backdate the Release. GitLab resolves `releases/permalink/latest` by
+    # released_at, and the desktop updater's baked endpoint is
+    # .../releases/permalink/latest/downloads/latest.json. An internal release
+    # stamped "now" therefore becomes `latest`, has no latest.json, and every
+    # production client's update check 404s until the next stable release
+    # (v1.9.0-3: about 08:55-08:59 UTC). A fixed far-past released_at keeps it
+    # permanently behind every stable release, so it can never win.
+    # scripts/release-channel.test.mjs fails if this flag goes missing.
     - |
       release-cli create \
+        --released-at "2000-01-01T00:00:00Z" \
         --name "FUTO Notes ${CI_COMMIT_TAG} (INTERNAL — hosted sync, staging server)" \
         --tag-name "${CI_COMMIT_TAG}" \
         --description "INTERNAL FUTO-only build. Hosted sync (\"Log in with FUTO\") is ON and points at the STAGING server (staging-notes-sync.futo.org), never production. Desktop builds are unsigned (Linux, Windows) or un-notarized (macOS) — bypass Gatekeeper/SmartScreen/right-click Open as needed. Not for external distribution, and not reachable from the in-app updater (no manifest exists for this release)." \
