@@ -1,0 +1,222 @@
+{
+  "_source": "Hand-reviewed behavioral goldens. Change expected values only with the corresponding docs/spec behavior change; TypeScript and Rust must both match.",
+  "description": "Wikilink resolution / display-suffix / rewrite rules (wikilinks.ts).",
+  "groups": [
+    {
+      "op": "shortestUniqueSuffix",
+      "fn": "shortestUniqueSuffix",
+      "cases": [
+        {
+          "input": {
+            "targetId": "grocery list",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "grocery list"
+        },
+        {
+          "input": {
+            "targetId": "Specs/folder-support",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "Specs/folder-support"
+        },
+        {
+          "input": {
+            "targetId": "Specs/Drafts/folder-support",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "Drafts/folder-support"
+        },
+        {
+          "input": {
+            "targetId": "Recipes/pasta",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "Recipes/pasta"
+        },
+        {
+          "input": {
+            "targetId": "Recipes/Dinner/pasta",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "Dinner/pasta"
+        },
+        {
+          "input": {
+            "targetId": "Journal/2026/June/pasta night",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "pasta night"
+        },
+        {
+          "input": {
+            "targetId": "notes",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "notes"
+        },
+        {
+          "input": {
+            "targetId": "Projects/notes",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "Projects/notes"
+        },
+        {
+          "input": {
+            "targetId": "Emoji/🎉 party",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "🎉 party"
+        },
+        {
+          "input": {
+            "targetId": "Brand/new note",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "new note"
+        },
+        {
+          "input": {
+            "targetId": "a/x",
+            "allIds": [
+              "a/x",
+              "b/a/x"
+            ]
+          },
+          "expected": "a/x"
+        },
+        {
+          "input": {
+            "targetId": "dup/x",
+            "allIds": [
+              "dup/x",
+              "dup/x"
+            ]
+          },
+          "expected": "x"
+        }
+      ]
+    }
+  ]
+}

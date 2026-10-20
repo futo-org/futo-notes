@@ -4,7 +4,7 @@
  * into (the compat presets, the inline-break view, wikilinks, the table cell
  * `<br>` reader) and nothing that only renders or edits.
  *
- * The owned serializer's goldens (`tests/conformance/markdown-house-style.json`)
+ * The owned serializer's goldens (`tests/conformance/markdown-house-style-*.json`)
  * read their sources through this, so a golden passes only if the app itself
  * would read the bytes back as the same document.
  */

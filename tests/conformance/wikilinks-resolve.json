@@ -1,0 +1,354 @@
+{
+  "_source": "Hand-reviewed behavioral goldens. Change expected values only with the corresponding docs/spec behavior change; TypeScript and Rust must both match.",
+  "description": "Wikilink resolution / display-suffix / rewrite rules (wikilinks.ts).",
+  "groups": [
+    {
+      "op": "resolveWikilink",
+      "fn": "resolveWikilink",
+      "cases": [
+        {
+          "input": {
+            "target": "grocery list",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "grocery list"
+        },
+        {
+          "input": {
+            "target": "Specs/folder-support",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "Specs/folder-support"
+        },
+        {
+          "input": {
+            "target": "pasta night",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "Journal/2026/June/pasta night"
+        },
+        {
+          "input": {
+            "target": "pasta",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": null
+        },
+        {
+          "input": {
+            "target": "folder-support",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": null
+        },
+        {
+          "input": {
+            "target": "notes",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "notes"
+        },
+        {
+          "input": {
+            "target": "leaf",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "Deep/a/b/c/leaf"
+        },
+        {
+          "input": {
+            "target": "Dinner/pasta",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "Recipes/Dinner/pasta"
+        },
+        {
+          "input": {
+            "target": "Drafts/folder-support",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "Specs/Drafts/folder-support"
+        },
+        {
+          "input": {
+            "target": "b/c/leaf",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "Deep/a/b/c/leaf"
+        },
+        {
+          "input": {
+            "target": "June/pasta night",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "Journal/2026/June/pasta night"
+        },
+        {
+          "input": {
+            "target": "missing",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": null
+        },
+        {
+          "input": {
+            "target": "Nope/pasta",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": null
+        },
+        {
+          "input": {
+            "target": "",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": null
+        },
+        {
+          "input": {
+            "target": "Specs/folder-support|alias",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": null
+        },
+        {
+          "input": {
+            "target": "café résumé",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "Unicode/café résumé"
+        },
+        {
+          "input": {
+            "target": "🎉 party",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": "Emoji/🎉 party"
+        },
+        {
+          "input": {
+            "target": "/pasta",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": null
+        }
+      ]
+    }
+  ]
+}

@@ -103,7 +103,9 @@ fn preview_conformance() {
 
 #[test]
 fn wikilinks_conformance() {
-    check_fixture("wikilinks");
+    check_fixture("wikilinks-resolve");
+    check_fixture("wikilinks-suffix");
+    check_fixture("wikilinks-rewrite");
 }
 
 /// Cross-language constants gate (architecture-hardening.md PKT-7 gate 3).

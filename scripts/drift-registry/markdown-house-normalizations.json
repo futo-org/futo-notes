@@ -19,7 +19,23 @@
       "kind": "test"
     },
     {
-      "path": "tests/conformance/markdown-house-style.json",
+      "path": "tests/conformance/markdown-house-style-marks-and-breaks.json",
+      "kind": "fixture"
+    },
+    {
+      "path": "tests/conformance/markdown-house-style-lists-and-code.json",
+      "kind": "fixture"
+    },
+    {
+      "path": "tests/conformance/markdown-house-style-tables-and-verbatim.json",
+      "kind": "fixture"
+    },
+    {
+      "path": "tests/conformance/markdown-house-style-escapes-and-empty-lines.json",
+      "kind": "fixture"
+    },
+    {
+      "path": "tests/conformance/markdown-house-style-spaces-and-typing.json",
       "kind": "fixture"
     },
     {
