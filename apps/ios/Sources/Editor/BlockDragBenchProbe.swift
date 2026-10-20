@@ -27,12 +27,16 @@
         func startIfNeeded(in webView: WKWebView) {
             guard !started, let script = Self.script else { return }
             started = true
-            if let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            if let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+                .first
+            {
                 try? FileManager.default.removeItem(
                     at: dir.appendingPathComponent("futo-bench-results.jsonl"))
             }
             webView.evaluateJavaScript(script) { _, error in
-                if let error { Self.log.error("probe failed to start: \(String(describing: error))") }
+                if let error {
+                    Self.log.error("probe failed to start: \(String(describing: error))")
+                }
             }
         }
 

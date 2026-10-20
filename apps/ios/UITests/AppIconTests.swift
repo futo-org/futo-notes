@@ -140,7 +140,8 @@ final class AppIconTests: XCTestCase {
         XCTAssertTrue(
             toast.allElementsBoundByIndex.contains { $0.isHittable },
             "the toast is hidden by the picker")
-        XCTAssertTrue(app.staticTexts["Thank you for purchasing FUTO Notes."].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.staticTexts["Thank you for purchasing FUTO Notes."].waitForExistence(timeout: 5))
         XCTAssertTrue(
             app.staticTexts["Your license includes choosing your app icon. Pick one."].exists)
         XCTAssertFalse(app.staticTexts["app-icon-footnote"].exists)
@@ -150,7 +151,8 @@ final class AppIconTests: XCTestCase {
 
         app.navigationBars["App icon"].buttons["Done"].tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.staticTexts["With a license"].exists, "the hint stayed after the license arrived")
+        XCTAssertFalse(
+            app.staticTexts["With a license"].exists, "the hint stayed after the license arrived")
         scrollToAppIconRow(app).tap()
         XCTAssertTrue(app.navigationBars["App icon"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["Thank you for purchasing FUTO Notes."].exists)
