@@ -1,0 +1,89 @@
+# Included by .gitlab-ci.yml: CI image rebuilds and the macOS release build.
+
+# Rebuild the pre-baked Android CI image (JDK + SDK/NDK + Rust targets +
+# emulator + system image + desktop Tauri deps). Manual trigger only —
+# click "Run" on this job when ci/android.Dockerfile changes. Registry auth
+# uses the runner's CI_JOB_TOKEN, so no laptop push is needed.
+#
+# Builds with Buildah (rootless, daemonless) instead of docker-in-docker: the
+# docker:27-dind SERVICE stopped starting on our runners — its health check
+# fails and the `docker` host never resolves, so `docker build` died with
+# `error during connect: … lookup docker … no such host`. Buildah needs no
+# privileged daemon and no service container, which removes that whole failure
+# class. STORAGE_DRIVER=vfs + BUILDAH_ISOLATION=chroot is the recipe for an
+# unprivileged CI container (no user-namespace / fuse-overlayfs requirement);
+# --format docker keeps the pushed manifest in the schema every consumer pulls.
+build:ci-android-image:
+  stage: build
+  needs: []
+  # Image rebuilds are intentionally manual and expensive. A new branch push
+  # must not discard a nearly-complete registry image build.
+  interruptible: false
+  image: $IMAGE_BUILDAH
+  before_script: []
+  variables:
+    STORAGE_DRIVER: vfs
+    BUILDAH_ISOLATION: chroot
+  script:
+    - buildah login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - buildah bud --format docker -f "$CI_PROJECT_DIR/ci/android.Dockerfile" -t "$CI_REGISTRY_IMAGE/ci/android:latest" "$CI_PROJECT_DIR"
+    - buildah push "$CI_REGISTRY_IMAGE/ci/android:latest"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - ci/android.Dockerfile
+      when: manual
+      allow_failure: true
+
+# Rebuild the pinned Linux test image. Keep this manual until the image build
+# succeeds; consumer jobs switch by digest in a follow-up commit so a broken
+# image can never strand the pipeline.
+build:ci-test-image:
+  stage: build
+  needs: []
+  # Image rebuilds are intentionally manual and expensive. A new branch push
+  # must not discard a nearly-complete registry image build.
+  interruptible: false
+  image: $IMAGE_BUILDAH
+  before_script: []
+  variables:
+    STORAGE_DRIVER: vfs
+    BUILDAH_ISOLATION: chroot
+  script:
+    - buildah login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - buildah bud --format docker -f "$CI_PROJECT_DIR/ci/test.Dockerfile" -t "$CI_REGISTRY_IMAGE/ci/test:latest" "$CI_PROJECT_DIR"
+    - buildah push "$CI_REGISTRY_IMAGE/ci/test:latest"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - ci/test.Dockerfile
+      when: manual
+      allow_failure: true
+
+build:macos:
+  stage: build
+  needs:
+    - job: test
+  tags:
+    - macscript
+  variables:
+    GIT_STRATEGY: clone
+  before_script:
+    # TAURI_ passes the updater signing key (TAURI_SIGNING_PRIVATE_KEY[_PASSWORD])
+    # through to the Cirrus macOS task, which builds the signed .app.tar.gz.
+    - env | grep -E '^(CI_|MACOS_|ASC_|TAURI_)' > "$CI_PROJECT_DIR/.cienv"
+  script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
+    - cirrus run buildFutoNotesMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  artifacts:
+    paths:
+      - buildFutoNotesMacOS/binary/*.dmg
+      - buildFutoNotesMacOS/updater/*
+    expire_in: 4 weeks
+  rules:
+    - if: $CI_COMMIT_TAG

@@ -1,0 +1,246 @@
+# Included by .gitlab-ci.yml: Rust workspace, macOS, and Android FFI tests.
+
+test:rust:workspace:
+  extends: .ci-test-image
+  stage: test
+  needs: []
+  # The runners only have node-local Cargo caches today. Keep Rust workspace
+  # tests on the fast office runner that already owns the warm archive until
+  # the R2 distributed cache is configured on every runner manager.
+  tags:
+    - dind_fast
+  variables:
+    CARGO_CACHE_POLICY: pull
+  cache:
+    - !reference [.cache-cargo-tauri, cache]
+  script:
+    # `cargo test --workspace` compiles the futo-notes-tauri desktop crate,
+    # which links gtk-sys/gobject-sys and needs the GTK/webkit dev libs. The
+    # default kitchensink image does not ship them, so install them here — the
+    # same pattern the linux build + cross-platform-sync jobs already use.
+    # Without this the job dies at `gobject-2.0 not found`.
+    - !reference [.setup-linux-deps, script]
+    - !reference [.setup-rust, script]
+    # One metadata traversal replaces the former standalone dep-guard job.
+    # The workspace tests already contain model conformance coverage.
+    - node scripts/check-rust-dependency-boundaries.mjs
+    # Windows is the only non-Unix target we ship, and its build is tag-only
+    # and slow, so a cfg-gating mistake in the `cfg(not(unix))` vault layer or
+    # in platform-gated test scaffolding is otherwise found at release time at
+    # the earliest. github#48's fix hit exactly that: `cargo test -p
+    # futo-notes-core` had never compiled on Windows at all. Type-checking that
+    # target needs no linker and no MSVC, and futo-notes-core is the one crate
+    # with no C dependencies (ring/zstd-sys need lib.exe), so it is the crate
+    # this can cover — which is also the crate that owns the platform branches.
+    - rustup target add x86_64-pc-windows-msvc
+    - cargo check --target x86_64-pc-windows-msvc --tests -p futo-notes-core
+    - mkdir -p dist
+    # Same command as `just rust-lint`: [workspace.lints] denies the print
+    # macros that panic (and abort the release app) once stderr is gone.
+    - cargo clippy --workspace
+    - cargo test --workspace
+    - node --experimental-strip-types "$CI_PROJECT_DIR/tests/conformance/title-rules-differential.mjs"
+  # Job 189242 exhausted the default 60m on a completely cold cache while
+  # still compiling dependencies. Give that first run enough wall time to
+  # finish and seed the existing when:always Cargo cache; warm runs remain
+  # unchanged. This is the same cold-cache policy used by the native builds.
+  timeout: 90m
+  rules:
+    - if: $CI_COMMIT_TAG
+      variables:
+        CARGO_CACHE_POLICY: pull-push
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - Cargo.lock
+      variables:
+        CARGO_CACHE_POLICY: pull-push
+    - if: $CI_MERGE_REQUEST_IID
+      changes: &rust-workspace-changes
+        - Cargo.toml
+        - Cargo.lock
+        - rust-toolchain.toml
+        - .cargo/**/*
+        - crates/**/*
+        # Every TypeScript copy the note-rule differential runs against Rust
+        # (tests/conformance/title-rules-differential.mjs). Listing only
+        # filename.ts left a tags/preview/image/wikilink drift able to merge
+        # without this job ever running.
+        - packages/editor/src/filename.ts
+        - packages/editor/src/tags.ts
+        - packages/editor/src/preview.ts
+        - packages/editor/src/images.ts
+        - src/shared/note/wikilinks.ts
+        - apps/tauri/src-tauri/**/*
+        - apps/tauri/Cargo.toml
+        - src/features/sync/syncContract.generated.ts
+        - scripts/build-rust-android.sh
+        - scripts/build-rust-ios.sh
+        - scripts/check-rust-dependency-boundaries.mjs
+        - tests/conformance/**/*
+        # CI config changes can alter this job's toolchain/system-dep setup
+        # (e.g. the GTK deps it needs to compile the tauri crate) — re-run the
+        # workspace tests so an environment break is caught on that change.
+        - ci/*.yml
+        - .gitlab-ci.yml
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *rust-workspace-changes
+      variables:
+        CARGO_CACHE_POLICY: pull-push
+
+test:rust:macos:
+  stage: test
+  tags:
+    - macscript
+  # Force a clean clone each run — the macscript runner's incremental fetch
+  # kept hitting `missing blob object / remote did not send all necessary
+  # objects` on a stale local .git.
+  variables:
+    GIT_STRATEGY: clone
+  before_script:
+    - env | grep -E '^(CI_)' > "$CI_PROJECT_DIR/.cienv"
+  script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
+    - cirrus run testRustMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  rules:
+    - if: $CI_COMMIT_TAG
+    # Auto on Rust-touching MRs, but the Cirrus task (.cirrus.yml) runs ONLY
+    # the aarch64-apple-ios compile check of the FFI dependency tree on MR
+    # pipelines — `cargo test --workspace` is already the hard Linux gate in
+    # test:rust:workspace, and duplicating it here spent ~6 min of the single
+    # contended macscript runner per Rust MR for an allow_failure result.
+    # The full macOS `cargo test --workspace` runs on main pushes and tags.
+    # allow_failure stays on MRs: this runs through Cirrus on the single
+    # macscript runner, and infra flakiness must not block merges.
+    #
+    # The MR list leaves out every path that also starts test:ios-native on
+    # an MR: that job's scripts/build-rust-ios.sh builds futo-notes-ffi for all
+    # three iOS triples, a superset of this check, so firing both spent a
+    # second VM boot on the same proof. That is futo-notes-ffi itself,
+    # Cargo.lock and build-rust-ios.sh. The other crates are listed one by one
+    # (every one sits in the FFI tree, and test:ios-native does not watch
+    # them); premerge-test-parity fails when a new crate is in neither list.
+    # apps/tauri/src-tauri is out too: the desktop crate is not in the FFI
+    # tree, so it cannot change what this MR check compiles. .cirrus.yml and
+    # .gitlab-ci.yml stay, because they can break this job's own environment.
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - Cargo.toml
+        - rust-toolchain.toml
+        - crates/futo-notes-core/**/*
+        - crates/futo-notes-license/**/*
+        - crates/futo-notes-model/**/*
+        - crates/futo-notes-search/**/*
+        - crates/futo-notes-store/**/*
+        - crates/futo-notes-sync/**/*
+        - .cirrus.star
+        - ci/cirrus/*.yml
+        - .cirrus.yml
+        - ci/*.yml
+        - .gitlab-ci.yml
+      allow_failure: true
+    # Full macOS workspace tests on Rust-touching main pushes, so a macOS-only
+    # break surfaces before tag time (M13) instead of first failing on the tag.
+    # All of crates/ and the desktop crate: this is the full test run, not the
+    # MR compile check.
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - Cargo.toml
+        - Cargo.lock
+        - rust-toolchain.toml
+        - crates/**/*
+        - apps/tauri/src-tauri/**/*
+        - scripts/build-rust-ios.sh
+        - .cirrus.star
+        - ci/cirrus/*.yml
+        - .cirrus.yml
+        - ci/*.yml
+        - .gitlab-ci.yml
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true
+
+# The full native app builds only run when a shell or futo-notes-ffi itself
+# changes, but every futo-notes crate sits in the FFI dependency tree — an
+# inner-crate change can break mobile-target compilation while desktop tests
+# stay green, and would then surface for the first time at tag time. Compile
+# and link the FFI cdylib for ONE Android ABI (same platform/profile as
+# scripts/build-rust-android.sh, so the native Cargo cache is reused) to keep
+# mobile Rust coverage on every crate change without paying for two full
+# native app builds. The iOS-target sibling check lives in the testRustMacOS
+# Cirrus task (.cirrus.yml) because Apple targets need the macOS SDK. Neither
+# check exercises the generated Swift/Kotlin bindings or shell integration —
+# that remains native-build-only coverage.
+test:rust:ffi-android:
+  stage: test
+  # Run AFTER the sync suite when both are in the pipeline: the 12-minute
+  # sync run is the critical path and must never queue behind this check
+  # (pipeline 31106 lost 7 minutes that way). optional covers pipelines where
+  # the sync job is absent; when sync is present only as a manual job
+  # (allow_failure: true), GitLab lets needing jobs proceed without waiting.
+  needs:
+    - job: test:cross-platform-sync
+      optional: true
+      artifacts: false
+  # Pin to the fast office runner — see build:android-native.
+  tags:
+    - dind_fast
+  # Never overlap the cross-platform sync suite on the pinned runner — not
+  # even one from another pipeline: a concurrent full-tree compile starves
+  # its timing-sensitive scenarios into flaking (observed: pipeline 31084's
+  # cold-cache run of this job flaked "rapid reconnect" with a bridge script
+  # timeout). Same M15 root-cause fix as the sync job's own resource_group —
+  # exclusion, not longer timeouts. The needs: above orders the two within a
+  # pipeline so the exclusion never delays the sync suite itself.
+  resource_group: cross-platform-sync
+  image: $IMAGE_ANDROID
+  # Own single-ABI cache namespace instead of the fat 3-ABI + host `native`
+  # archive: restoring that one costs more than this job's warm compile. Safe
+  # to pull-push — the resource_group serializes every holder of this key, so
+  # no concurrent writer exists.
+  cache:
+    key:
+      prefix: ffi-check
+      files:
+        - Cargo.lock
+    paths:
+      - .cargo-home/
+      - target/
+    policy: pull-push
+    when: always
+  variables:
+    GIT_DEPTH: "20"
+    # See build:android-native for why ANDROID_NDK_HOME must be set explicitly.
+    ANDROID_NDK_HOME: /opt/android-sdk/ndk/28.2.13676358
+  script:
+    - !reference [.setup-rust, script]
+    - rustup target add aarch64-linux-android
+    # cargo-ndk from source when the cached binary is missing — see
+    # build:android-native for the binstall/GLIBC constraint.
+    - |
+      if command -v cargo-ndk >/dev/null 2>&1; then
+        echo "cargo-ndk already installed (cached)"
+      else
+        cargo install cargo-ndk --locked
+      fi
+    - cargo ndk --platform 24 --target arm64-v8a build -p futo-notes-ffi --profile release-ffi --locked
+  # One ABI on a cold cache still compiles the whole dependency tree; the warm
+  # office-runner path is minutes.
+  timeout: 60m
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes: &rust-ffi-mobile-changes
+        - Cargo.toml
+        - Cargo.lock
+        - rust-toolchain.toml
+        - .cargo/**/*
+        - crates/**/*
+        - scripts/build-rust-android.sh
+        - ci/*.yml
+        - .gitlab-ci.yml
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *rust-ffi-mobile-changes
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true

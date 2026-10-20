@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { readGitlabCiSource } from './lib/gitlab-ci.mjs';
 import { readJustfileSource } from './lib/justfile.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -122,7 +123,7 @@ describe('android FFI ABI selection', () => {
     );
     // CI builds release variants only on tags, so pin its call here; a local
     // release is caught by the abiFilters guard in app/build.gradle.kts.
-    const ci = readFileSync(join(ROOT, '.gitlab-ci.yml'), 'utf8');
+    const ci = readGitlabCiSource(ROOT);
     expect(ci).not.toMatch(/\bABIS\b/);
     expect(ci).toMatch(/^\s+- bash scripts\/build-rust-android\.sh$/m);
   });

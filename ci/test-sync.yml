@@ -1,0 +1,264 @@
+# Included by .gitlab-ci.yml: cross-platform sync tests and the macOS desktop smoke test.
+
+test:cross-platform-sync:
+  extends: .ci-test-image
+  stage: test
+  needs: []
+  # Serialize across pipelines: two concurrent runs = 4 Tauri instances + 2
+  # servers on the same pinned runner, which starves the suite into flaking
+  # ("active note reload" et al. — reliably green single-pipeline, red only
+  # when overlapping). Root-cause fix per M15: contention, not timeouts.
+  resource_group: cross-platform-sync
+  # Pin to the fast office runner — see build:android-native.
+  tags:
+    - dind_fast
+  variables:
+    # Nothing in this job reads git history (the changed-file classifier runs
+    # in the `test` job); a full fetch cost ~70s of the job wall.
+    GIT_DEPTH: "20"
+    # The isolated namespace is already seeded on the pinned fast runner.
+    # Source-only MRs consume it without spending ~90s recompressing target/;
+    # tags and lockfile changes refresh it in the rules below.
+    CARGO_CACHE_POLICY: pull
+  cache:
+    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-cargo-sync, cache]
+  script:
+    - sh "$CI_PROJECT_DIR/ci/install-just.sh"
+    - pnpm install --frozen-lockfile
+    - !reference [.setup-linux-deps, script]
+    - !reference [.setup-rust, script]
+    - |
+      if command -v Xvfb >/dev/null 2>&1; then
+        echo "Xvfb already present in the image"
+      else
+        DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb
+      fi
+    - !reference [.setup-futo-notes-server, script]
+    # Rust server-backed integration suite (futo-notes-sync orchestrator
+    # against REAL servers — e.g. the disconnect→reconnect conflict-spam
+    # regressions, plus the hosted setup flow). server_integration.rs holds two
+    # families that need two server MODES: dev for the sync scenarios, stand-in
+    # (STANDIN_MODE=true) for the hosted ones. The runner starts both on
+    # slot-derived ports with their own SQLite databases and blob directories,
+    # points each family at its own, stops both by PID, and prints the server
+    # logs itself when a run fails. It exits non-zero on any failure, so there
+    # is nothing here to mask (M11).
+    #
+    # The hosted leg runs only when the pinned server can do stand-in mode
+    # ("standinMode" in scripts/sync-server-pin.json) — the release pinned today
+    # predates it, so the runner says in full that those scenarios ran against
+    # the in-test stub instead (cargo test --test hosted_setup, in
+    # test:rust:workspace). Bumping the pin to a release that carries
+    # futo-notes-server#14-#17 turns this leg on with no CI change.
+    #
+    # $CI_PROJECT_DIR-anchored: `cd` persists across script lines (M12).
+    - >-
+      node "$CI_PROJECT_DIR/tests/sync-integration.mjs" --
+      --skip measure_first_sync_large_vault
+      --skip oversize_blob_is_surfaced_skipped_and_recovers
+    # The harness builds the hooks-enabled desktop binary itself (dist/ is
+    # never cached, so its staleness checks always trigger exactly one
+    # `cargo tauri build --debug` with VITE_INCLUDE_TEST_HOOKS, including the
+    # clean -p guard against a cached hooks-free crate). A job-side pre-build
+    # here would be a second identical build.
+    # Run cross-platform sync tests under xvfb. MR rules set
+    # SYNC_SCENARIO_FLAGS to --skip-slow (registry-marked scale probes);
+    # main-branch and tag pipelines run the full scenario set.
+    - >-
+      WEBKIT_DISABLE_DMABUF_RENDERER=1
+      xvfb-run -a --server-args="-screen 0 1280x800x24"
+      node tests/cross-platform-sync.mjs $SYNC_SCENARIO_FLAGS
+  after_script:
+    - kill $(pgrep -f futo-notes-tauri) 2>/dev/null || true
+  artifacts:
+    when: always
+    paths:
+      - test-screenshots/sync-results.json
+    expire_in: 1 week
+  # A fully cold Rust compile of the desktop Tauri app blew past 30m on the
+  # v1.4.0 tag pipeline (this job is tag-only, so its cache is rarely warm).
+  # 60m lets a cold run finish and seed the cache (when: always) for retries.
+  timeout: 60m
+  rules:
+    - if: $CI_COMMIT_TAG
+      variables:
+        CARGO_CACHE_POLICY: pull-push
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - Cargo.lock
+      variables:
+        CARGO_CACHE_POLICY: pull-push
+        SYNC_SCENARIO_FLAGS: --skip-slow
+    # Sync-critical paths auto-run and BLOCK the merge — this suite guards
+    # user data, and a failure here nearly shipped a broken release twice.
+    # Tags and lockfile MRs refresh the isolated archive; ordinary source MRs
+    # reuse that seed without paying the post-test upload cost. MRs skip the
+    # registry-marked slow scale probes; the default-branch rule below runs
+    # them on every merged sync change so a scale regression still surfaces
+    # before tag time.
+    - if: $CI_MERGE_REQUEST_IID
+      changes: &sync-critical-changes
+        - crates/futo-notes-sync/**/*
+        - crates/futo-notes-core/**/*
+        # The whole desktop sync + note-session layer, not just sync*: this
+        # suite is the e2e owner of the open-note reconciliation, peer-delete
+        # and dirty-draft behavior whose unit replays were removed from
+        # syncManager.test.ts, and that code spans noteSession.svelte.ts,
+        # createExternalChangeCoordinator.ts, watcherBatch.ts and autoSync.ts.
+        - src/features/notes/**/*
+        - src/features/sync/**/*
+        - tests/cross-platform-sync.mjs
+        - tests/lib/**/*
+        # Which server the suite runs against, and how it is resolved. A pin
+        # bump changes what every sync job proves, so it must re-run them.
+        - scripts/sync-server-pin.json
+        - scripts/lib/sync-server.mjs
+        - ci/*.yml
+        - .gitlab-ci.yml
+      variables:
+        SYNC_SCENARIO_FLAGS: --skip-slow
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *sync-critical-changes
+      variables:
+        CARGO_CACHE_POLICY: pull-push
+    # Anything else that could plausibly affect sync stays one click away.
+    # Deliberate manual runs get the full scenario set.
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true
+      changes:
+        - apps/tauri/**/*
+        - src/**/*
+        - crates/**/*
+        - packages/editor/**/*
+
+# The native-Android leg of the same harness: one desktop Tauri client paired
+# with the REAL Compose app on the baked "ci" emulator. It covers the Android
+# shell glue the desktop pair cannot see (FFI session wiring, the live loop
+# across an offline window, editor save-and-push, list refresh on a live pull).
+#
+# Separate job rather than more scenarios in test:cross-platform-sync: the
+# emulator needs the Android image (SDK + AVD + swiftshader), it depends on
+# build:android-native's APK, and keeping it apart means a device problem can
+# never delay or redden the desktop mesh.
+test:cross-platform-sync:android:
+  # `build` rather than `test`: this repo orders test BEFORE build, and needs:
+  # may only point at the current or an earlier stage — the debug APK comes from
+  # build:android-native. It is still a blocking test job (release:gate.needs).
+  stage: build
+  image: $IMAGE_ANDROID
+  # Both tags resolve to the office runner: dind_fast for the warm cargo cache
+  # (see build:android-native), android_kvm because the emulator wants /dev/kvm.
+  # The boot falls back to unaccelerated with a warning if it is missing.
+  tags:
+    - dind_fast
+    - android_kvm
+  # The debug APK comes from build:android-native's artifacts instead of a
+  # second 3-ABI Rust FFI + gradle build here (8-45m depending on cache).
+  # optional: true keeps pipelines that do not build the app from failing at
+  # creation; ci-android-sync-leg.sh then fails red on the missing APK.
+  needs:
+    - job: build:android-native
+      optional: true
+      artifacts: true
+  # Share the desktop suite's exclusion: both run Tauri clients on the one
+  # pinned runner, and overlapping starves timing-sensitive scenarios (M15).
+  resource_group: cross-platform-sync
+  variables:
+    GIT_DEPTH: "20"
+    # Only build:android-native writes the native archive; this job reads the
+    # sync namespace for the desktop debug binary and must not evict it.
+    CARGO_CACHE_POLICY: pull
+    ANDROID_HOME: /opt/android-sdk
+    ANDROID_SDK_ROOT: /opt/android-sdk
+    JAVA_HOME: /opt/jdk-21
+    # The AVD baked into ci/android.Dockerfile.
+    ANDROID_CI_AVD: ci
+  cache:
+    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-cargo-sync, cache]
+  script:
+    - sh "$CI_PROJECT_DIR/ci/install-just.sh"
+    - pnpm install --frozen-lockfile
+    - !reference [.setup-linux-deps, script]
+    - !reference [.setup-rust, script]
+    # xvfb + WebKitGTK are baked into the Android image's desktop layer; the
+    # Mesa software-GL drivers are not.
+    - |
+      if dpkg -s libgl1-mesa-dri >/dev/null 2>&1; then
+        echo "Mesa DRI drivers already present in the image"
+      else
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libgl1-mesa-dri
+      fi
+    - !reference [.setup-futo-notes-server, script]
+    # Boots the emulator, installs the APK, runs the harness with
+    # --android-only (no device = red, since that is this job's whole purpose).
+    - bash "$CI_PROJECT_DIR/scripts/ci-android-sync-leg.sh"
+  after_script:
+    - kill $(pgrep -f futo-notes-tauri) 2>/dev/null || true
+  artifacts:
+    when: always
+    paths:
+      - test-screenshots/sync-results.json
+    expire_in: 1 week
+  # Emulator boot (up to 6m unaccelerated) + a possibly cold desktop Tauri
+  # debug compile + ~200s of scenarios.
+  timeout: 60m
+  rules:
+    - if: $CI_COMMIT_TAG
+    # build:android-native's changes: gate lists every path below (plus its own
+    # extras), so the job producing the APK can never be absent when this one
+    # runs. Widening this list means widening that one — and neither may gain
+    # `.gitlab-ci.yml` or docs paths, which that job deliberately excludes.
+    - if: $CI_MERGE_REQUEST_IID
+      changes: &android-sync-leg-changes
+        - apps/android/**/*
+        - crates/futo-notes-ffi/**/*
+        - Cargo.lock
+        - languages/**/*
+        - tests/localization/**/*
+        - scripts/generate-native-language-resources.mjs
+        - scripts/build-rust-android.sh
+        - tests/cross-platform-sync.mjs
+        - tests/lib/**/*
+        - scripts/sync-server-pin.json
+        - scripts/lib/sync-server.mjs
+        - scripts/ci-android-emulator.sh
+        - scripts/ci-android-sync-leg.sh
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *android-sync-leg-changes
+
+test:desktop-smoke:macos:
+  stage: test
+  tags:
+    - macscript
+  variables:
+    GIT_STRATEGY: clone
+  before_script:
+    - env | grep -E '^(CI_)' > "$CI_PROJECT_DIR/.cienv"
+  script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
+    - cirrus run testDesktopSmokeMacOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  artifacts:
+    when: always
+    paths:
+      - testDesktopSmokeMacOS/desktop_smoke/**/*
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_TAG
+    # Main pushes + tags, not MRs: the src/** filter matched essentially every
+    # MR, spending ~7 min run + ~6 min queue on the single macscript runner
+    # per MR for an allow_failure (non-blocking) result. Every merged change
+    # still gets the real-binary boot check on the main push; MRs keep the
+    # manual button below.
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - apps/tauri/**/*
+        - src/**/*
+      allow_failure: true
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true
