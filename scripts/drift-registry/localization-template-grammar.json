@@ -5,7 +5,7 @@
   "note": "The two build-time copies are what the runtime copies are generated from and validated by, so a grammar change must touch all five together or the generator silently emits tokens the runtimes cannot reproduce. Nothing mechanically ties the build-time pair to the runtime trio; the runtime trio is covered by tests/localization/cases.json, and the build-time pair by its own script tests.",
   "copies": [
     {
-      "location": "src/shared/localization/localization.ts",
+      "location": "src/shared/localization/catalogParsing.ts",
       "pattern": "function parseTemplate"
     },
     {

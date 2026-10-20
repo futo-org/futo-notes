@@ -1,4 +1,5 @@
-import { FALLBACK_TITLE } from '$lib/rules';
+import { FALLBACK_TITLE, sanitizeFilename } from '$lib/rules';
+import type { NotePreview } from '$shared/types/note';
 
 export function shouldWriteNoteToDisk(params: {
   savedTitle: string;
@@ -70,4 +71,21 @@ export function isEditorChangeEcho(params: {
 }): boolean {
   if (params.nextContent === undefined) return false;
   return params.nextContent === params.content && params.nextContent === params.savedContent;
+}
+
+export function hasDuplicateNoteTitle(
+  checkTitle: string,
+  notes: NotePreview[],
+  originalId: string | null,
+  pendingFolder: string | null,
+): boolean {
+  const leaf = sanitizeFilename(normalizeTitleForPersistence(checkTitle));
+  const slash = originalId?.lastIndexOf('/') ?? -1;
+  const parentFolder = originalId
+    ? slash === -1
+      ? ''
+      : originalId.slice(0, slash)
+    : (pendingFolder ?? '');
+  const checkId = parentFolder ? `${parentFolder}/${leaf}` : leaf;
+  return notes.some((note) => note.id === checkId && note.id !== originalId);
 }
