@@ -15,12 +15,13 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 
 use futo_notes_license::{
-    activation_url, buy_url, enter_license_key, evaluate, is_valid_license_key, license_link_out,
-    license_purchase_surface, normalize_license_key, parse_deep_link, recognize_input,
-    AcceptedLicense, ActivationTransport, BuySource, Distribution, EnterKeyError, Environment,
-    HttpResponse, InvalidReason, LicenseConfig, LicenseInput, LicensePair, LicenseState,
-    OffsetDateTime, Platform, PurchaseSurface, TransportError, CHECKOUT_PRODUCT_SLUG,
-    DEEP_LINK_SCHEME, KEY_ALPHABET, ORG_SLUG, PRODUCT_SLUG, SUPPORT_MAILTO,
+    activation_url, buy_url, enter_license_key, evaluate, evidence_includes, is_valid_license_key,
+    license_link_out, license_plate, license_purchase_surface, normalize_license_key,
+    parse_deep_link, recognize_input, AcceptedLicense, ActivationTransport, BuySource,
+    Distribution, EnterKeyError, Environment, HttpResponse, InvalidReason, LicenseConfig,
+    LicenseEvidence, LicenseInclusion, LicenseInput, LicensePair, LicensePlate, LicenseState,
+    LicenseStatus, OffsetDateTime, Platform, PurchaseSurface, TransportError, APP_STORE_PRODUCT_ID,
+    CHECKOUT_PRODUCT_SLUG, DEEP_LINK_SCHEME, KEY_ALPHABET, ORG_SLUG, PRODUCT_SLUG, SUPPORT_MAILTO,
 };
 use serde_json::Value;
 
@@ -142,6 +143,7 @@ fn constants_match_the_fixture() {
     assert_eq!(DEEP_LINK_SCHEME, text(constants, "deepLinkScheme"));
     assert_eq!(KEY_ALPHABET, text(constants, "keyAlphabet"));
     assert_eq!(SUPPORT_MAILTO, text(constants, "supportMailto"));
+    assert_eq!(APP_STORE_PRODUCT_ID, text(constants, "appStoreProductId"));
 
     assert_eq!(ORG_SLUG, text(constants, "orgSlug"));
 
@@ -273,6 +275,57 @@ fn purchase_surface_vectors() {
         }
     }
     report("purchase surface", failures, cases.len());
+}
+
+/// What the iOS App Store-only purchase changes (ADR-0009): the plate and
+/// what the device includes, for every pair of facts it can hold.
+#[test]
+fn app_store_evidence_vectors() {
+    let fixture = fixture();
+    let cases: Vec<&Value> = fixture["appStoreEvidence"]
+        .as_array()
+        .expect("appStoreEvidence")
+        .iter()
+        .filter(|case| case.get("name").is_some())
+        .collect();
+    let mut failures = Vec::new();
+    for case in &cases {
+        let evidence = LicenseEvidence {
+            key: match text(case, "key") {
+                "unlicensed" => LicenseStatus::Unlicensed,
+                "licensed" => LicenseStatus::Licensed,
+                "expired" => LicenseStatus::Expired,
+                other => panic!("unknown key status {other}"),
+            },
+            app_store: case["appStore"].as_bool().expect("appStore"),
+        };
+        let expected = &case["expected"];
+        let plate = match text(expected, "plate") {
+            "unlicensed" => LicensePlate::Unlicensed,
+            "licensed" => LicensePlate::Licensed,
+            "appStore" => LicensePlate::AppStore,
+            "expired" => LicensePlate::Expired,
+            other => panic!("unknown plate {other}"),
+        };
+        let includes: Vec<LicenseInclusion> = expected["includes"]
+            .as_array()
+            .expect("includes")
+            .iter()
+            .map(|name| match name.as_str() {
+                Some("appIcon") => LicenseInclusion::AppIcon,
+                other => panic!("unknown inclusion {other:?}"),
+            })
+            .collect();
+        if license_plate(evidence) != plate || evidence_includes(evidence) != includes {
+            failures.push(format!(
+                "{}: {:?} {:?}",
+                text(case, "name"),
+                license_plate(evidence),
+                evidence_includes(evidence)
+            ));
+        }
+    }
+    report("App Store evidence", failures, cases.len());
 }
 
 #[test]

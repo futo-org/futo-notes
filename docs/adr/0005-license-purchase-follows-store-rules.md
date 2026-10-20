@@ -7,6 +7,10 @@
 > the website); until that lands, nothing here changes. The EU/Japan and Google-program cost
 > analysis is still the snapshot.
 
+> **2026-10-19:** [ADR-0009](0009-ios-sells-an-app-store-only-purchase.md) adds one App Store-only
+> in-app purchase on iOS (no key, no server) so the key field satisfies App Review 3.1.3(b). "No IAP"
+> now holds for Android and desktop only.
+
 Supersedes [ADR-0003 "Every platform links out to buy"](0003-every-platform-links-out-to-buy.md)
 on one point: that ADR, and the store-posture decision of 2026-09-09, shipped the Buy link
 **worldwide** on every surface and accepted the review risk. On 2026-09-24 @justin reversed

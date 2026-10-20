@@ -35,23 +35,31 @@ struct LicenseSurfaceTests {
     @MainActor func storefrontCases() throws {
         let storefront = LicenseStorefront()
         #expect(!storefront.linkOut)
-        let url = try #require(Bundle(for: LicenseFixtureBundleToken.self)
-            .url(forResource: "license", withExtension: "json"))
+        let url = try #require(
+            Bundle(for: LicenseFixtureBundleToken.self)
+                .url(forResource: "license", withExtension: "json"))
         let fixture = try JSONDecoder().decode(LinkOutFixture.self, from: Data(contentsOf: url))
         #expect(fixture.linkOut.count == 10)
         for testCase in fixture.linkOut {
-            let platform: LicensePlatform = switch testCase.platform {
-            case "ios": .ios
-            case "android": .android
-            default: .desktop
-            }
-            #expect(licenseLinkOut(platform: platform,
-                storefrontCountry: testCase.storefrontCountry,
-                buildAllows: testCase.buildAllows) == testCase.expected, "\(testCase.name)")
+            let platform: LicensePlatform =
+                switch testCase.platform {
+                case "ios": .ios
+                case "android": .android
+                default: .desktop
+                }
+            #expect(
+                licenseLinkOut(
+                    platform: platform,
+                    storefrontCountry: testCase.storefrontCountry,
+                    buildAllows: testCase.buildAllows) == testCase.expected, "\(testCase.name)")
         }
         #if FUTO_DEBUG_BUILD
-        #expect(LicenseStorefront.debugCountryOverride(["app", "-FUTOLicenseStorefront", "none"])! == nil)
-        #expect(LicenseStorefront.debugCountryOverride(["app", "-FUTOLicenseStorefront", "USA"])! == "USA")
+            #expect(
+                LicenseStorefront.debugCountryOverride(["app", "-FUTOLicenseStorefront", "none"])!
+                    == nil)
+            #expect(
+                LicenseStorefront.debugCountryOverride(["app", "-FUTOLicenseStorefront", "USA"])!
+                    == "USA")
         #endif
     }
 
@@ -110,7 +118,9 @@ struct LicenseSurfaceTests {
             LicenseView(status: .unlicensed, issuedAtMillis: nil, expiresAtMillis: nil, key: nil),
             localization)
         #expect(!licensePlateShape(unlicensed, linkOut: false).headline)
-        #expect(licenseExplanationPath(status: .unlicensed, linkOut: false) == "license.keyOnlyExplanation")
+        #expect(
+            licenseExplanationPath(status: .unlicensed, linkOut: false)
+                == "license.keyOnlyExplanation")
         #expect(licenseExplanationPath(status: .unlicensed, linkOut: true) == "license.explanation")
 
         // Expired has paid once: it keeps the letterhead and the key, wears its
@@ -125,8 +135,49 @@ struct LicenseSurfaceTests {
                 == LicensePlateShape(
                     well: false, letterhead: true, keyRow: true, headline: false))
         #expect(expired.badge != nil)
-        #expect(licenseExplanationPath(status: .expired, linkOut: false) == "license.keyOnlyExplanation")
-        #expect(licenseExplanationPath(status: .licensed, linkOut: false) == "license.explanationLicensed")
+        #expect(
+            licenseExplanationPath(status: .expired, linkOut: false) == "license.keyOnlyExplanation"
+        )
+        #expect(
+            licenseExplanationPath(status: .licensed, linkOut: false)
+                == "license.explanationLicensed")
+    }
+
+    /// The App Store plate has no key: not even an expired one stored beside
+    /// the purchase gets a letterhead (ADR-0009).
+    @Test("the App Store plate draws no letterhead, key or headline")
+    func appStorePlateShape() {
+        let localization = Localization.system(
+            requestedLanguageTags: ["en"], regionalLanguageTag: "en-US")
+        let expired = licenseCardModel(
+            LicenseView(
+                status: .expired, issuedAtMillis: 1_704_196_800_000,
+                expiresAtMillis: 1_735_819_200_000, key: "AB12-CD34-EF56-GH78-JK9M-NP2Q-RS3T-6UJV"),
+            localization)
+        #expect(
+            licensePlateShape(expired, linkOut: true, appStorePlate: true)
+                == LicensePlateShape(
+                    well: false, letterhead: false, keyRow: false, headline: false))
+    }
+
+    /// US: the website and the App Store are one equal-weight pair, in that
+    /// order, and the text actions under it become list rows. Elsewhere the key
+    /// leads and the App Store is outlined (ADR-0009 decision 4).
+    @Test("the card lays Rust's actions out with equal weight only in the US")
+    func appStoreControlGroups() {
+        #expect(
+            licenseControlGroups([.buy, .buyInAppStore, .enterKey, .restorePurchases, .lostKey])
+                == [.pair(.buy), .rows([.enterKey, .restorePurchases, .lostKey])])
+        #expect(
+            licenseControlGroups([.renew, .buyInAppStore, .enterKey, .restorePurchases, .lostKey])
+                .first == .pair(.renew))
+        #expect(
+            licenseControlGroups([.enterKey, .buyInAppStore, .restorePurchases])
+                == [.text([.enterKey]), .outlined(.buyInAppStore), .text([.restorePurchases])])
+        #expect(
+            licenseControlGroups([.buy, .enterKey, .lostKey]) == [
+                .filled(.buy), .text([.enterKey, .lostKey]),
+            ])
     }
 
     /// Before the stored pair has been read there is no state to claim, so the

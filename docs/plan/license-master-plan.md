@@ -63,13 +63,15 @@ Status legend: `done` · `in MR` (on a branch, not merged) · `in progress` · `
 | W6 | M7.2 StoreKit + M7.3 Play Billing + M7.4 copy | futo-notes | cosmetics § 7b M7.2-M7.4 | M + M + S | W4 | **deferred**: no in-app purchase for now; the key-only copy stays as shipped |
 | W7 | QA + release | futo-notes | § 6 below | — | W1, W2 merged | **next after W2**; release notes in `release-notes/`; a stable tag needs @justin's OK |
 | W8 | M6 license follows the vault (one proof kind) | futo-notes | cosmetics § 7 | L, `/slow-review` | @justin OK to start | **deferred** (D28) |
+| W9 | Android `play` names the website: plain-text `pay.futo.org`, no link, no price; Rust's yes/no `license_link_out` becomes a three-way purchase surface (link out, name the website, key only) | futo-notes | research `license-ios-app-store/research-2026-10-19.md` § Android `play` | S-M | W2 | **next after W2** (same agent). FUTO Notes is unhidden on the pay storefront by manifest-inventory !5 (not merged) |
+| W10 | iOS App Store-only purchase: a StoreKit non-consumable that includes what a license includes, no key, no server | futo-notes | [`license-ios-app-store.md`](license-ios-app-store.md), [ADR-0009](../adr/0009-ios-sells-an-app-store-only-purchase.md) | M | W9 (rebase), App Store Connect setup for real purchases | **implemented 2026-10-19** on `feat/license-ios-appstore` (rebased on W9): Rust evidence rule, StoreKit shell, simulator-verified; TestFlight purchase pending |
 
-Draft MRs !427 (`feat/license-store-redeem`) and lib-polar!62 implement the deferred path. They are
-to be closed or parked; the decision is pending with @justin, and nobody closes them in the
-meantime.
+MRs !427 (`feat/license-store-redeem`) and lib-polar!62 implemented the deferred path and were
+closed 2026-10-19; their branches remain on the remotes.
 
-Critical path: W1 QA and merge, W2, W7. Nothing else is blocking, and nothing waits on lib-polar
-or on the store consoles.
+Critical path: W1 QA and merge, W2, W9, W10, W7. W10 is required before any stable tag that ships
+the iOS icon gate: without an in-app purchase, a key that enables anything in the app breaks App
+Review 3.1.1 (ADR-0009). Nothing waits on lib-polar.
 
 ## 4. Per-workstream notes (what the fresh agent needs beyond the pointers)
 
@@ -107,8 +109,9 @@ sync harness. Nothing in W1-W7 should make it harder; keep license storage shape
 
 ## 5. Explicitly not on the slate
 
-- In-app purchase (StoreKit, Play Billing) and server redemption of a store purchase: deferred
-  2026-10-19 (ADR-0007, ADR-0008), not cancelled.
+- Play Billing, and server redemption of any store purchase: deferred 2026-10-19 (ADR-0007,
+  ADR-0008), not cancelled. The one in-app purchase on the slate is W10's App Store-only
+  purchase on iOS (ADR-0009), which never becomes a key.
 - Any change to lib-polar.
 - Refund / revocation handling of any kind (D18). `revocationDate` and voided purchases are ignored.
 - Share-by-hand of a store proof (deep link / QR / file): considered 2026-10-16 and dropped in
@@ -116,20 +119,19 @@ sync harness. Nothing in W1-W7 should make it harder; keep license storage shape
 - Google Play Developer API (service account), server-side acknowledgement, Apple App Store Server
   API keys: not needed for v1 (§ 7c.5 option (b) is the upgrade path).
 - A second Play app for staging (D27), a Mac App Store or Microsoft Store build, a web client Buy.
-- Changing the key-only copy (a separate research task is working out how far it can steer users).
 - Any change to `futo-notes-server`.
 
 ## 6. Release gates (W7)
 
 In order; each is a line to tick in § 9 with evidence.
 
-1. W1 and W2 merged to `main`; `just check`, Rust, iOS and Android suites green on `main`.
+1. W1, W2, W9 and W10 merged to `main`; `just check`, Rust, iOS and Android suites green on `main`.
 2. Real-device passes recorded: the iOS picker and landing (`docs/qa/license-store-ios.md` holds
    the iOS story record; extend it for Android), the Android picker and landing, and the desktop
    License card unchanged.
 3. `release-notes/v<X.Y.Z>.md` written in the release MR, on the tagged commit (format and limits:
    `release-notes/README.md`; verify with `just release-notes-check`). Copy for the store listing
-   follows the key-only wording in force and does not describe buying or pricing.
+   may say a license can be bought (iOS sells one in the app, W10) but never names the website or a price: the App Store text is metadata shared across storefronts (3.1.1(a)).
 4. A stable tag publishes to Play production and Apple review, so it needs @justin's OK. Use
    `/release`.
 
@@ -180,3 +182,9 @@ in-app purchase as deferred in its Store posture section instead (2026-10-19).
   @justin's OK for the stable tag). Draft MR !427 (`feat/license-store-redeem`) and lib-polar!62
   implement the deferred path; they are to be closed or parked, decision pending with @justin. The
   spec's "target store posture" Gap was removed.
+- 2026-10-19 (later) — @justin: !427 and lib-polar!62 **closed**. Steering research (now in
+  `license-ios-app-store/research-2026-10-19.md`) found Android `play` may name the website in
+  plain text everywhere (Google's consumption-only rule) → W9, using `pay.futo.org`; manifest-inventory
+  !5 unhides the product there. It also found that on iOS a key enabling the icon picker breaks
+  3.1.1 in every storefront; @justin chose a low-key App Store-only purchase with no key
+  (ADR-0009) → W10, planned in `license-ios-app-store.md` for an agent on a Mac.

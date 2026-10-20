@@ -763,7 +763,7 @@
       "concept": "license-row-actions",
       "description": "Which controls the License row offers in each state (docs/spec/license.md § States and copy). The native shells do NOT decide this: they render `license_surface_row_actions` (iOS: its yes/no adapter `license_row_actions`), which also owns what each purchase surface hides. Desktop, which landed first and is always link-out, still derives its two buttons inline in Svelte.",
       "lockStatus": "partial",
-      "note": "Partial: the Rust side is a golden (`the_row_actions_are_the_specified_table`, `link_out_false_hides_every_way_out_of_the_app_and_nothing_else`) and both native shells read it — iOS through `licenseRowActions(status:linkOut:)`, Android through `LicenseModel.actions()` (`licenseSurfaceRowActions`) — so they cannot drift from each other. The desktop Svelte copy is covered only by the spec table it was written from.",
+      "note": "Partial: the Rust side is a golden (`the_row_actions_are_the_specified_table`, `link_out_false_hides_every_way_out_of_the_app_and_nothing_else`) and both native shells read it — iOS through `LicenseModel.rowActions(linkOut:)` (`licenseEvidenceRowActions`, which adds the App Store purchase's controls, ADR-0009), Android through `LicenseModel.actions()` (`licenseSurfaceRowActions`) — so they cannot drift from each other. The desktop Svelte copy is covered only by the spec table it was written from.",
       "copies": [
         {
           "location": "crates/futo-notes-ffi/src/license/contract.rs",

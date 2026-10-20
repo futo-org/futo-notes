@@ -175,9 +175,59 @@ pub fn license_includes(status: LicenseStatus) -> Vec<LicenseInclusion> {
     }
 }
 
+/// The two facts a device can hold about having paid: its license key's
+/// status, and (iOS only) whether this Apple Account owns the App Store
+/// purchase (ADR-0009). The shell reports both; this crate decides what they
+/// mean.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LicenseEvidence {
+    pub key: LicenseStatus,
+    /// StoreKit verified the App Store-only purchase on this device. Always
+    /// false off iOS.
+    pub app_store: bool,
+}
+
+/// Which License card a device shows. A Licensed key wins over an App Store
+/// purchase: it carries more (a key, Remove, the other platforms).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LicensePlate {
+    Unlicensed,
+    Licensed,
+    /// The App Store purchase is owned and no Licensed key is stored.
+    AppStore,
+    Expired,
+}
+
+pub fn license_plate(evidence: LicenseEvidence) -> LicensePlate {
+    match (evidence.key, evidence.app_store) {
+        (LicenseStatus::Licensed, _) => LicensePlate::Licensed,
+        (_, true) => LicensePlate::AppStore,
+        (LicenseStatus::Expired, false) => LicensePlate::Expired,
+        (LicenseStatus::Unlicensed, false) => LicensePlate::Unlicensed,
+    }
+}
+
+/// [`license_includes`] for everything a device holds. The App Store purchase
+/// includes exactly what a Licensed key includes, by construction: App Review
+/// 3.1.3(b) accepts a key only because the same items are sold in-app.
+pub fn evidence_includes(evidence: LicenseEvidence) -> Vec<LicenseInclusion> {
+    match license_plate(evidence) {
+        LicensePlate::Licensed | LicensePlate::AppStore => {
+            license_includes(LicenseStatus::Licensed)
+        }
+        LicensePlate::Unlicensed | LicensePlate::Expired => Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod includes_tests {
     use super::*;
+
+    const STATUSES: [LicenseStatus; 3] = [
+        LicenseStatus::Unlicensed,
+        LicenseStatus::Licensed,
+        LicenseStatus::Expired,
+    ];
 
     /// Adding an inclusion is a policy change: it must be a deliberate edit here.
     #[test]
@@ -188,6 +238,49 @@ mod includes_tests {
             (LicenseStatus::Expired, vec![]),
         ] {
             assert_eq!(license_includes(status), expected, "{status:?}");
+        }
+    }
+
+    /// 3.1.3(b) parity: whatever a key includes, the App Store purchase
+    /// includes too, whatever the key says.
+    #[test]
+    fn the_app_store_purchase_includes_what_a_licensed_key_includes() {
+        for key in STATUSES {
+            assert_eq!(
+                evidence_includes(LicenseEvidence {
+                    key,
+                    app_store: true
+                }),
+                license_includes(LicenseStatus::Licensed),
+                "{key:?}"
+            );
+            assert_eq!(
+                evidence_includes(LicenseEvidence {
+                    key,
+                    app_store: false
+                }),
+                license_includes(key),
+                "{key:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_licensed_key_wins_the_plate() {
+        use LicensePlate::*;
+        for (key, app_store, expected) in [
+            (LicenseStatus::Licensed, true, Licensed),
+            (LicenseStatus::Licensed, false, Licensed),
+            (LicenseStatus::Expired, true, AppStore),
+            (LicenseStatus::Unlicensed, true, AppStore),
+            (LicenseStatus::Expired, false, Expired),
+            (LicenseStatus::Unlicensed, false, Unlicensed),
+        ] {
+            assert_eq!(
+                license_plate(LicenseEvidence { key, app_store }),
+                expected,
+                "{key:?} app_store={app_store}"
+            );
         }
     }
 }

@@ -20,6 +20,7 @@
     "deepLinkScheme": "futonotes",
     "keyAlphabet": "ABCDEFGHJKMNPQRSTUVWXYZ123456789",
     "supportMailto": "mailto:support@futo.tech",
+    "appStoreProductId": "com.futo.notes.license",
     "websiteAddress": {
       "$comment": "What a NameWebsite build (Android play) shows as plain, non-tappable text: the storefront as a person types it. Production is pay.futo.org, which serves the same storefront as pay2.futo.org (@justin 2026-10-19); staging has no short alias and names its own host. Environment-split like buyUrls (M3).",
       "production": "pay.futo.org",
@@ -76,6 +77,15 @@
     {"name": "direct Android", "distribution": "androidDirect", "storefrontCountry": null, "expected": "linkOut"},
     {"name": "Play Android", "distribution": "androidPlay", "storefrontCountry": null, "expected": "nameWebsite"},
     {"name": "Play Android in the US still only names the website", "distribution": "androidPlay", "storefrontCountry": "USA", "expected": "nameWebsite"}
+  ],
+  "appStoreEvidence": [
+    {"$comment": "iOS only (ADR-0009). The App Store-only purchase includes exactly what a Licensed key includes (App Review 3.1.3(b) parity), and a Licensed key wins the plate because it carries more: a key, Remove, the other platforms."},
+    {"name": "no key, no purchase", "key": "unlicensed", "appStore": false, "expected": {"plate": "unlicensed", "includes": []}},
+    {"name": "an App Store purchase alone", "key": "unlicensed", "appStore": true, "expected": {"plate": "appStore", "includes": ["appIcon"]}},
+    {"name": "an App Store purchase beside an expired key", "key": "expired", "appStore": true, "expected": {"plate": "appStore", "includes": ["appIcon"]}},
+    {"name": "an expired key alone", "key": "expired", "appStore": false, "expected": {"plate": "expired", "includes": []}},
+    {"name": "a Licensed key beside an App Store purchase", "key": "licensed", "appStore": true, "expected": {"plate": "licensed", "includes": ["appIcon"]}},
+    {"name": "a Licensed key alone", "key": "licensed", "appStore": false, "expected": {"plate": "licensed", "includes": ["appIcon"]}}
   ],
   "licenseKey": [
     {

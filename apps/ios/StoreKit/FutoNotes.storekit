@@ -1,0 +1,45 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "336C7DBD-0618-4B33-8377-F9D225B4611B",
+  "nonRenewingSubscriptions" : [],
+  "products" : [
+    {
+      "displayPrice" : "14.99",
+      "familyShareable" : false,
+      "internalID" : "6754000001",
+      "localizations" : [
+        {
+          "description" : "Included-with-a-license features in FUTO Notes for iPhone and iPad. Doesn't include a license key.",
+          "displayName" : "FUTO Notes for iPhone and iPad",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.futo.notes.license",
+      "referenceName" : "FUTO Notes (App Store only)",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "6754000000",
+    "_developerTeamID" : "2W7AC6T8T5",
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 0,
+    "_locale" : "en_US",
+    "_storeKitErrors" : [],
+    "_storefront" : "USA"
+  },
+  "subscriptionGroups" : [],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

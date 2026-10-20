@@ -176,6 +176,8 @@ fun LicenseSettingsSection(
                 entering = true
             }
             LicenseAction.REMOVE -> license.remove()
+            // iOS only (ADR-0009); Rust never offers these to Android.
+            LicenseAction.BUY_IN_APP_STORE, LicenseAction.RESTORE_PURCHASES -> Unit
         }
     }
 
