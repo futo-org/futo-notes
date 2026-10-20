@@ -5,7 +5,7 @@
   "note": "LOCKED: both consumers read the full shared fixture — Swift's SyncSessionModeConformanceTests.swift and Kotlin's SyncSessionModeConformanceTest.kt each assert all 8 hostedConnectEntry and all 4 restoreBranch cases, and both assert the case counts first so a truncated fixture fails rather than passing vacuously. Desktop has NO copy on purpose: it holds ONE engine session and `SyncSession::connect_hosted` stops the previous live loop itself, so there is no teardown to sequence and `ensureConnected` already prefers hosted — a Swift/Kotlin-shaped copy there would be drift, not parity.",
   "copies": [
     {
-      "location": "apps/ios/Sources/Sync/SyncManager.swift",
+      "location": "apps/ios/Sources/Sync/SyncManager+SessionPrecedence.swift",
       "pattern": "static func hostedConnectEntry"
     },
     {

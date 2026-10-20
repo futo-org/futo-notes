@@ -13,7 +13,7 @@
       "pattern": "fun validateServerUrl"
     },
     {
-      "location": "apps/ios/Sources/Sync/SyncManager.swift",
+      "location": "apps/ios/Sources/Sync/SyncManager+OutcomeRules.swift",
       "pattern": "func validateServerURL"
     }
   ],
