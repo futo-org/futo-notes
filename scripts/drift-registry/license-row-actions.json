@@ -5,7 +5,7 @@
   "note": "Partial: the Rust side is a golden (`the_row_actions_are_the_specified_table`, `link_out_false_hides_every_way_out_of_the_app_and_nothing_else`) and both native shells read it — iOS through `LicenseModel.rowActions(linkOut:)` (`licenseEvidenceRowActions`, which adds the App Store purchase's controls, ADR-0009), Android through `LicenseModel.actions()` (`licenseSurfaceRowActions`) — so they cannot drift from each other. The desktop Svelte copy is covered only by the spec table it was written from.",
   "copies": [
     {
-      "location": "crates/futo-notes-ffi/src/license/contract.rs",
+      "location": "crates/futo-notes-ffi/src/license/contract/links.rs",
       "pattern": "pub fn license_row_actions"
     },
     {
@@ -15,7 +15,11 @@
   ],
   "locks": [
     {
-      "path": "crates/futo-notes-ffi/src/license/contract.rs",
+      "path": "crates/futo-notes-ffi/src/license/contract/tests/row_actions.rs",
+      "kind": "test"
+    },
+    {
+      "path": "crates/futo-notes-ffi/src/license/contract/tests/crate_rule_mapping.rs",
       "kind": "test"
     }
   ]

@@ -127,7 +127,7 @@ const STAGING_PAYLOADS = {
 const STAGING_V1 = { format: 'v1', key: STAGING_FIXTURE_KEY };
 
 const STAGING_CONSUMERS = [
-  'crates/futo-notes-ffi/src/license/contract.rs (all three constants)',
+  'crates/futo-notes-ffi/src/license/contract/tests/mod.rs (all three constants)',
   'apps/ios/Tests/License/LicenseFixture.swift (ACTIVATION)',
   'apps/android/app/src/androidTest/java/com/futo/notes/license/LicenseFixture.kt (ACTIVATION)',
 ];
