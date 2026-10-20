@@ -1,6 +1,8 @@
-import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+
+import { readJustfileSource } from './lib/justfile.mjs';
 
 const tauriRoot = new URL('../apps/tauri/src-tauri/', import.meta.url);
 
@@ -27,7 +29,7 @@ describe('Linux desktop packaging identity', () => {
   });
 
   it('overlays package versions without changing the tracked Tauri config', () => {
-    const justfile = readFileSync(new URL('../justfile', import.meta.url), 'utf8');
+    const justfile = readJustfileSource(fileURLToPath(new URL('..', import.meta.url)));
     for (const [name, bundle] of [
       ['deploy-deb', 'deb'],
       ['deploy-rpm', 'rpm'],

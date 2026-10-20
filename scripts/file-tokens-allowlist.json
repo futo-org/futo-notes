@@ -1,0 +1,57 @@
+{
+  "$comment": "Files allowed over the 5,000-token pre-commit limit because they are large by design (scripts/check-file-tokens.mjs). Exact paths only, each with a reason. Not a debt list: a file that could be split gets split, never listed. An entry whose file is removed or back under the limit fails as stale.",
+  "entries": [
+    {
+      "path": "Cargo.lock",
+      "reason": "Lockfile written by cargo; never hand-edited."
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "reason": "Lockfile written by pnpm; never hand-edited."
+    },
+    {
+      "path": ".papercuts.jsonl",
+      "reason": "Append-only log written by the papercuts CLI and union-merged across branches (.gitattributes); one file is the format."
+    },
+    {
+      "path": "patches/prosemirror-view@1.42.3.patch",
+      "reason": "Written by pnpm patch-commit and named in pnpm-workspace.yaml patchedDependencies; its size is the upstream diff."
+    },
+    {
+      "path": "docs/perf/editor-bench-baseline.json",
+      "reason": "Output of scripts/perf/editor-bench.mjs, read back whole by --baseline."
+    },
+    {
+      "path": "assets/images/logo.svg",
+      "reason": "Exported vector artwork; path data, not authored text."
+    },
+    {
+      "path": "assets/images/app-icons/dark-reversed.svg",
+      "reason": "Exported vector artwork; path data, not authored text."
+    },
+    {
+      "path": "assets/images/app-icons/dark-standard.svg",
+      "reason": "Exported vector artwork; path data, not authored text."
+    },
+    {
+      "path": "assets/images/app-icons/futo.svg",
+      "reason": "Exported vector artwork; path data, not authored text."
+    },
+    {
+      "path": "assets/images/app-icons/light-reversed.svg",
+      "reason": "Exported vector artwork; path data, not authored text."
+    },
+    {
+      "path": "assets/images/app-icons/website-logo.svg",
+      "reason": "Exported vector artwork; path data, not authored text."
+    },
+    {
+      "path": "languages/en.json",
+      "reason": "One JSON file per language tag is the catalog contract (languages/README.md, catalog.schema.json)."
+    },
+    {
+      "path": "languages/zh-Hans.json",
+      "reason": "One JSON file per language tag is the catalog contract (languages/README.md, catalog.schema.json)."
+    }
+  ]
+}

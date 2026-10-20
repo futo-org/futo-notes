@@ -132,9 +132,11 @@ describe('scanText — what the kill rule must leave alone', () => {
 });
 
 describe('collectInstructionFiles', () => {
-  it('scans the root justfile, which AGENTS.md imports into every agent context', () => {
+  it('scans the root justfile and every recipe file it imports', () => {
     const relative = collectInstructionFiles(ROOT).map((file) => path.relative(ROOT, file));
     expect(relative).toContain('justfile');
+    // The deploy recipes with the two pinned pattern kills live here.
+    expect(relative).toContain('just/desktop.justfile');
   });
 });
 

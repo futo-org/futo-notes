@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { justfilePaths } from './lib/justfile.mjs';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (relativePath) => readFileSync(join(ROOT, relativePath), 'utf8');
 
@@ -43,7 +45,7 @@ describe('Android Gradle JDK pin', () => {
       'scripts/build-rust-android.sh',
       'scripts/ci-android-instrumentation.sh',
       'scripts/android-env.sh',
-      'justfile',
+      ...justfilePaths(ROOT),
     ]) {
       expect(read(entryPoint), `${entryPoint} exports JAVA_HOME`).not.toMatch(/JAVA_HOME=/);
     }

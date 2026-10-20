@@ -45,12 +45,12 @@
 // is not an identity — so it is the same gate, not a sibling.
 //
 // SCOPE / LIMITS. This gate reads instruction surfaces (Markdown + agent/skill
-// definitions) plus the root `justfile`, not source code: a comparison harness
+// definitions) plus the justfile and the just/ files it imports, not source code: a comparison harness
 // may legitimately script a DIFFERENT application (the removed factory/ judge
 // drove Obsidian that way), and banning the mechanism in TypeScript would be a
 // different rule with different trade-offs. The justfile is in on its own
 // terms — every agent runs recipes from it literally, and it is the one file
-// in this repo that demonstrates a pattern kill: `deploy-deb`/`deploy-rpm`
+// set in this repo that demonstrates a pattern kill: `deploy-deb`/`deploy-rpm`
 // legitimately stop every instance right before overwriting /usr/bin. Those
 // two lines are pinned; a THIRD one is a violation.
 //
@@ -64,6 +64,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { justfilePaths } from './lib/justfile.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ALLOWLIST_PATH = 'scripts/qa-input-safety-allowlist.json';
@@ -199,10 +201,10 @@ function findFiles(dir, matches, out = []) {
 export function collectInstructionFiles(root) {
   const files = [];
 
-  // `justfile` is an instruction surface, not just tooling: every agent runs
-  // recipes from it literally, and it is where the pattern-kill idiom is
-  // demonstrated (see the header).
-  for (const name of ['README.md', 'CONTRIBUTING.md', 'justfile']) {
+  // The justfile and its imports are an instruction surface, not just tooling:
+  // every agent runs recipes from them literally, and they are where the
+  // pattern-kill idiom is demonstrated (see the header).
+  for (const name of ['README.md', 'CONTRIBUTING.md', ...justfilePaths(root)]) {
     const full = path.join(root, name);
     if (fs.existsSync(full)) files.push(full);
   }

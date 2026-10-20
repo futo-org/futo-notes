@@ -1,6 +1,8 @@
 #!/bin/sh
-# Pre-commit hook: Prettier + ESLint on staged files.
+# Pre-commit hook: file-size limit, then Prettier + ESLint on staged files.
 # Installed via: git config core.hooksPath .githooks
+
+node scripts/check-file-tokens.mjs || exit 1
 
 STAGED_FMT=$(git diff --cached --name-only --diff-filter=ACM -- '*.ts' '*.tsx' '*.svelte' '*.js' '*.mjs' '*.cjs' '*.css')
 

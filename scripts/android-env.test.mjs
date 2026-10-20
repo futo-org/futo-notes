@@ -4,10 +4,12 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { readJustfileSource } from './lib/justfile.mjs';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const envScript = readFileSync(join(ROOT, 'scripts/android-env.sh'), 'utf8');
 const runSh = readFileSync(join(ROOT, 'apps/android/run.sh'), 'utf8');
-const justfile = readFileSync(join(ROOT, 'justfile'), 'utf8');
+const justfile = readJustfileSource(ROOT);
 
 // The guard's whole value is WHEN it runs: a JDK 25+ or a missing SDK location
 // is knowable in ~2s, but if the check moves after the Rust/FFI build the
