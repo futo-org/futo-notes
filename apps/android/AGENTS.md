@@ -121,7 +121,7 @@ Adding or renaming a flavor moves every output path under `app/build/outputs/`
 and note the asymmetry: APKs nest as `apk/<flavor>/<buildType>/` while bundles
 use the variant name, `bundle/<flavor><BuildType>/`. A missed consumer finds
 nothing and the artifact silently stops existing rather than failing loudly, so
-treat the rename as M17 work. `scripts/premerge-test-parity.test.mjs`
+treat the rename as M17 work. `scripts/premerge-test-parity-mobile.test.mjs`
 enumerates every consumer and pins each to the flavor it is allowed to ship —
 read the list there, not from a copy here that would rot.
 

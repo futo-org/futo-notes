@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { readJustCommands } from './justfile.mjs';
+import { justfilePaths, readJustCommands, readJustfileSource } from './justfile.mjs';
 import { classifyRecipe } from '../remote-test.mjs';
 
 function withJustfile(source, action) {
@@ -58,6 +58,19 @@ describe('readJustCommands', () => {
   it('fails when just cannot parse the checkout instead of returning an empty command list', () => {
     withJustfile("import 'missing.just'\n", (root) => {
       expect(() => readJustCommands(root)).toThrow('missing.just');
+    });
+  });
+});
+
+describe('readJustfileSource', () => {
+  it('follows the root import lines so text checks see every recipe', () => {
+    withJustfile("set positional-arguments\nimport 'just/a.justfile'\n", (root) => {
+      mkdirSync(join(root, 'just'));
+      writeFileSync(join(root, 'just', 'a.justfile'), 'imported:\n  echo imported\n');
+      expect(justfilePaths(root)).toEqual(['justfile', 'just/a.justfile']);
+      const source = readJustfileSource(root);
+      expect(source).toContain('set positional-arguments');
+      expect(source).toMatch(/^imported:$/m);
     });
   });
 });

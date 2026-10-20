@@ -6,6 +6,10 @@ recipes as multi-line comments — `just --list` only ever prints the single com
 directly above a recipe, so anything longer was dead weight in the file that nobody saw
 short of opening the source. One `##` section per recipe (or per cross-cutting topic).
 
+The root `justfile` holds only the settings, aliases, and `import` lines; the recipes live in
+`just/<job>.justfile` (setup, test, desktop, mobile, editor, qa, checks). Scripts that grep
+recipe text read all of them through `readJustfileSource` in `scripts/lib/justfile.mjs`.
+
 ## positional-arguments
 
 `just` runs each unshebanged line via a fresh `sh -c`, and a variadic `*args` is joined
@@ -186,8 +190,9 @@ installs the Google Play flavor's release build instead, which is the only way t
 exact bytes Play will review on a device (Play itself is fed the AAB from CI, and an AAB
 cannot be adb-installed). NOTE: this recipe is intentionally NOT in the "Removed recipes"
 list below even though the 2026-09 usage audit flagged it as zero-invocation — it is
-asserted live by `scripts/premerge-test-parity.test.mjs` ("builds both Android distribution
-flavors..."), which requires `deploy-android flavor="direct":` to exist in the justfile.
+asserted live by `scripts/premerge-test-parity-mobile.test.mjs` ("builds both Android
+distribution flavors..."), which requires `deploy-android flavor="direct":` to exist in the
+justfile.
 
 ## Removed recipes
 

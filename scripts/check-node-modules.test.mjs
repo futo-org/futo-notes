@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { readJustfileSource } from './lib/justfile.mjs';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const GUARD = join(ROOT, 'scripts/check-node-modules.mjs');
 
@@ -48,7 +50,7 @@ describe('node_modules guard', () => {
   });
 
   it('runs before every other dependency of `just check`', () => {
-    const justfile = readFileSync(join(ROOT, 'justfile'), 'utf8');
+    const justfile = readJustfileSource(ROOT);
     const check = /^check:(.*)$/m.exec(justfile);
 
     expect(check?.[1].trim().split(/\s+/)[0]).toBe('check-node-modules');

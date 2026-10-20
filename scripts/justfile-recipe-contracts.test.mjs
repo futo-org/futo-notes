@@ -14,8 +14,10 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { readJustfileSource } from './lib/justfile.mjs';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const justfile = readFileSync(join(ROOT, 'justfile'), 'utf8');
+const justfile = readJustfileSource(ROOT);
 
 // A recipe header is `name [params]: [dependencies]`, so both helpers have to
 // tolerate a parameter list — `journal *args:` is as much a recipe named

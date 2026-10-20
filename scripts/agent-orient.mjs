@@ -37,6 +37,7 @@ export const AREA_TAGS = {
   docs: ['docs'],
   '.gitlab-ci.yml': ['ci'],
   justfile: ['tooling'],
+  just: ['tooling'],
 };
 
 /** Map changed paths to AREA_TAGS keys (longest matching prefix). */
