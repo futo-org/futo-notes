@@ -16,10 +16,11 @@ identity, driving safety, evidence, verdict ledgers, sync smoke, and teardown.
    server contents, and absolute ledger path. If the brief did not provision them,
    use the session protocol before driving anything. Never share a device with
    another concurrent leg.
-2. Map the MR diff or named feature to `docs/spec/<surface>.md`. Shared code
-   (`src/`, `packages/`, `crates/`) needs both native shells and desktop; run only
-   your assigned leg and report unavailable coverage explicitly. Sync, core, and
-   editor changes also need the cross-client smoke assigned by the orchestrator.
+2. Map the MR diff or named feature to `docs/spec/<surface>.md` (and its section
+   files under `docs/spec/<surface>/`). Shared code (`src/`, `packages/`,
+   `crates/`) needs both native shells and desktop; run only your assigned leg
+   and report unavailable coverage explicitly. Sync, core, and editor changes
+   also need the cross-client smoke assigned by the orchestrator.
 3. Number the scoped stories and honor platform qualifiers. Follow the shared
    execution/refutation rules, recording each result immediately in the ledger.
    On resume, validate the commit and evidence-reuse conditions before carrying

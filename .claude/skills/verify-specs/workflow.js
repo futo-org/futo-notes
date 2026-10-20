@@ -130,7 +130,8 @@ ${leg.serverUrl ? `- Sync server (already running): ${leg.serverUrl} · password
 ${leg.platform === 'sync-mesh' ? 'This is the CROSS-CLIENT SYNC MESH leg: follow app-qa\'s "Cross-client sync smoke" — connect every client of this worktree to the server, create/edit distinctively-named notes, and verify propagation on disk (flush-and-read), not just visually.' : ''}
 
 **Scope:** derive stories ONLY from these spec surfaces: ${leg.surfaces.join(', ')}
-(files: ${leg.surfaces.map((s) => `docs/spec/${s}.md`).join(', ')}). One behavioral
+(files: ${leg.surfaces.map((s) => `docs/spec/${s}.md`).join(', ')}, plus every section file under
+\`docs/spec/<surface>/\` where the surface's file is an index). One behavioral
 bullet = one story. Respect platform qualifiers — skip stories tagged for other
 platforms. Existing \`> **Gap:**\` notes are KNOWN divergences: SKIP them and cite
 the gap, don't re-report. Number stories traceably (${leg.idPrefix || leg.platform}-NN).

@@ -9,6 +9,11 @@ apps (Tauri desktop, native iOS, native Android):
 - **After** establishing or changing a behavior, add or update the line — "now
   Y is true."
 
+A large area keeps `<area>.md` as a short index and moves each top-level section
+into its own file under `docs/spec/<area>/` (a section that is still large splits
+again into a folder of its own). Read and edit the section file; the index only
+links to it.
+
 A spec line is a requirement, not a test. It exists even when a platform doesn't
 satisfy it yet — that's what makes gaps visible.
 
