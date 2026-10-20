@@ -1,6 +1,7 @@
 // Drift registry gate (architecture-hardening.md PKT-8 / R1). AGENTS.md's "Drift watchlist"
 // "same logic in >=2 places" watchlist as code, deny-by-default:
-// scripts/drift-registry.json enumerates every PERMITTED duplicate concept —
+// scripts/drift-registry.json (an index of scripts/drift-registry/<concept>.json)
+// enumerates every PERMITTED duplicate concept —
 // each copy's file + a pattern that must still be found there, and the lock
 // (fixture/generated-file/test) that catches drift, or an explicit
 // 'unlocked'/'partial' status when no lock exists yet.
@@ -23,7 +24,6 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const REGISTRY_PATH = path.join(ROOT, 'scripts/drift-registry.json');
 
 const SKIP_DIRS = new Set([
   'node_modules',
@@ -101,9 +101,29 @@ export function findMissingScanDirs(dirs, dirExists) {
   return dirs.filter((d) => !dirExists(d));
 }
 
+// The registry is an index (scripts/drift-registry.json) listing one file per
+// concept under scripts/drift-registry/. A concept file the index does not
+// list would silently stop being enforced, so it is reported, not skipped.
+export function loadRegistry(root) {
+  const index = JSON.parse(fs.readFileSync(path.join(root, 'scripts/drift-registry.json'), 'utf8'));
+  const listed = new Set(index.entryFiles);
+  const unlisted = fs
+    .readdirSync(path.join(root, 'scripts/drift-registry'))
+    .filter((name) => name.endsWith('.json'))
+    .map((name) => `scripts/drift-registry/${name}`)
+    .filter((file) => !listed.has(file));
+  const entries = index.entryFiles.map((file) =>
+    JSON.parse(fs.readFileSync(path.join(root, file), 'utf8')),
+  );
+  return { entries, unlisted };
+}
+
 function main() {
-  const registry = JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf8'));
-  const failures = [];
+  const registry = loadRegistry(ROOT);
+  const failures = registry.unlisted.map(
+    (file) =>
+      `'${file}' is not listed in scripts/drift-registry.json's entryFiles — list it or delete it.`,
+  );
   const rel = (p) => path.relative(ROOT, p);
 
   for (const entry of registry.entries) {

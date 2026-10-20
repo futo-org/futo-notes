@@ -1,0 +1,25 @@
+{
+  "concept": "crashlog-endpoint",
+  "description": "The crashlog base URLs (production, staging, local dev collector) and the debug-only staging switch exist once per shell, because each reads its own preference store and each debug build reaches localhost differently (browser localhost, simulator localhost, emulator 10.0.2.2).",
+  "lockStatus": "unlocked",
+  "note": "Change a host in all three copies in one commit. Release builds must always resolve to production; only debug/dev builds may select local or staging. Deliberately NOT generated: these are deployment constants that change about never, so a generator plus its gate would cost more than the drift it prevents.",
+  "copies": [
+    {
+      "location": "src/features/system/crashlogEndpoint.ts",
+      "pattern": "PRODUCTION_BASE_URL"
+    },
+    {
+      "location": "apps/ios/Sources/CrashReporting/CrashlogEndpoint.swift",
+      "pattern": "productionBaseUrl"
+    },
+    {
+      "location": "apps/android/app/src/main/java/com/futo/notes/CrashlogEndpoint.kt",
+      "pattern": "PRODUCTION_BASE_URL"
+    }
+  ],
+  "scan": {
+    "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
+    "extensions": [".ts", ".swift", ".kt"],
+    "pattern": "(PRODUCTION_BASE_URL|productionBaseUrl)\\b"
+  }
+}

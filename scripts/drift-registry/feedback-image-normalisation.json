@@ -1,0 +1,20 @@
+{
+  "concept": "feedback-image-normalisation",
+  "description": "The 5 MB per-image cap and the JPEG q95 fallback appear in each shell because each uses its own OS image codec (canvas / UIImage / Bitmap); there is no portable decoder that also handles HEIC. The server re-validates every upload, so a drifted copy costs a worse error message, never a bad row.",
+  "lockStatus": "unlocked",
+  "note": "Change the cap or the accepted-format set in all three copies in one commit. The shells only decide whether to re-encode before sending; the server decides what it accepts.",
+  "copies": [
+    {
+      "location": "src/features/feedback/normalizeImage.ts",
+      "pattern": "MAX_IMAGE_BYTES"
+    },
+    {
+      "location": "apps/ios/Sources/Feedback/FeedbackImages.swift",
+      "pattern": "maxBytes"
+    },
+    {
+      "location": "apps/android/app/src/main/java/com/futo/notes/FeedbackImages.kt",
+      "pattern": "MAX_BYTES"
+    }
+  ]
+}

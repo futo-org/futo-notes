@@ -1,0 +1,42 @@
+{
+  "concept": "language-catalog-runtime",
+  "description": "Shared JSON catalog behavior implemented in the web, Android, and iOS shells. Platform locale engines remain native, while all three adapters execute tests/localization/cases.json for matching, messages, plurals, file sizes, and relative time.",
+  "lockStatus": "partial",
+  "copies": [
+    {
+      "location": "src/shared/localization/localization.ts",
+      "pattern": "export function createLocalizationModule"
+    },
+    {
+      "location": "apps/android/app/src/main/java/com/futo/notes/localization/Localization.kt",
+      "pattern": "class Localization private constructor"
+    },
+    {
+      "location": "apps/ios/Sources/Localization/Localization.swift",
+      "pattern": "final class Localization"
+    }
+  ],
+  "locks": [
+    {
+      "path": "tests/localization/cases.json",
+      "kind": "fixture"
+    },
+    {
+      "path": "src/shared/localization/localization.test.ts",
+      "kind": "test"
+    },
+    {
+      "path": "apps/android/app/src/androidTest/java/com/futo/notes/localization/AndroidLocalizationTest.kt",
+      "kind": "platform test"
+    },
+    {
+      "path": "apps/ios/Tests/Localization/LocalizationTests.swift",
+      "kind": "test"
+    },
+    {
+      "path": "src/shared/localization/localization.test.ts",
+      "kind": "test"
+    }
+  ],
+  "note": "Partial, not locked: tests/localization/cases.json is a happy-path fixture. It does NOT cover missing messages, missing or invalid plural arguments, =N exact selectors, {{ }} escaping, unmatched braces, alias matching, or the generic-catalog fallback hop, so the three interpreters can diverge on any of those without the fixture noticing. A real divergence already existed on this axis: localization.ts falls back regionalLanguageTag ?? requestedLanguageTag when no regional tag is supplied, while both shells pass the regional tag straight through — every fixture message case supplies regionalLanguageTag, so the fixture is structurally unable to see it. Extend cases.json to those error paths before claiming locked. localizedAbsoluteDate/localizedYear (the License row's dates, localization.md) are NOT in cases.json either — the platforms' date formatters differ in separators — so each adapter locks them with the same two assertions of its own: src/shared/localization/localization.test.ts, apps/ios/Tests/Localization/LocalizationTests.swift and apps/android/app/src/androidTest/java/com/futo/notes/localization/AndroidLocalizationTest.kt (Android's went in with its caller, the License row)."
+}

@@ -1,0 +1,26 @@
+{
+  "concept": "hosted-sync-pairing-countdown",
+  "description": "How long a pairing code has left, rendered for a person: whole seconds until the relay's own expires_at, and m:ss. Presentation, per shell, because the deadline itself is Rust's — await_pairing rebuilds its poll schedule from the same timestamp and is the only thing that ends a wait.",
+  "lockStatus": "partial",
+  "note": "PARTIAL (test-reduction lever C, 2026-09-24): the TS (pairingCountdown.test.ts) and Swift (formerly PairingCodeTests.swift's PairingCountdownTests suite) copies were dropped as per-shell replays of the same inputs; Kotlin's PairingCountdownTest.kt is now the one asserted suite for this concept. All three read an unparseable timestamp as no time left, deliberately — a code shown as spent is the safe way to be wrong. Still no shared fixture, so a change to the rule must land in all three production copies by hand; only the test is consolidated.",
+  "copies": [
+    {
+      "location": "src/features/sync/pairingCountdown.ts",
+      "pattern": "export function secondsUntil"
+    },
+    {
+      "location": "apps/ios/Sources/Sync/Hosted/PairingCountdown.swift",
+      "pattern": "func pairingSecondsRemaining"
+    },
+    {
+      "location": "apps/android/app/src/main/java/com/futo/notes/sync/hosted/PairingCountdown.kt",
+      "pattern": "fun pairingSecondsRemaining"
+    }
+  ],
+  "locks": [
+    {
+      "path": "apps/android/app/src/test/java/com/futo/notes/sync/hosted/PairingCountdownTest.kt",
+      "kind": "test"
+    }
+  ]
+}

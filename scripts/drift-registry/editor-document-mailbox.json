@@ -1,0 +1,34 @@
+{
+  "concept": "editor-document-mailbox",
+  "description": "Native mailboxes route by note id, reject older generations, compare the latest generation with the edited watermark, wait once only when behind, and proceed on renderer death. Both implementations and their contract tests move together.",
+  "lockStatus": "partial",
+  "copies": [
+    {
+      "location": "apps/ios/Sources/Editor/EditorMailbox.swift",
+      "pattern": "final class EditorMailbox"
+    },
+    {
+      "location": "apps/android/app/src/main/java/com/futo/notes/ui/EditorMailbox.kt",
+      "pattern": "internal class EditorMailbox"
+    }
+  ],
+  "locks": [
+    {
+      "path": "apps/ios/Tests/Editor/EditorMailboxTests.swift",
+      "kind": "test"
+    },
+    {
+      "path": "apps/android/app/src/test/java/com/futo/notes/ui/EditorMailboxTest.kt",
+      "kind": "test"
+    },
+    {
+      "path": "docs/spec/editor.md",
+      "kind": "spec"
+    }
+  ],
+  "scan": {
+    "dirs": ["apps/ios/Sources", "apps/android/app/src/main"],
+    "extensions": [".swift", ".kt"],
+    "pattern": "class EditorMailbox"
+  }
+}

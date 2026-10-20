@@ -1,0 +1,34 @@
+{
+  "concept": "editor-exit-ordering",
+  "description": "Both native EditorSessions preserve admission -> latch -> cancel -> drain -> commit -> effect. Their shared statement is the per-note mailbox: tagged change generation >= edited watermark means current, otherwise one bounded flush wait. Both shells commit the latest delivered document; navigation commit order and move-picker drain timing remain specified divergences. Rust owns the meaning of persistence through flush_draft/persist-or-park. Each shell's ordering and mailbox unit tests pin the invariants; both hosts and docs/spec/editor.md move together.",
+  "lockStatus": "partial",
+  "copies": [
+    {
+      "location": "apps/android/app/src/main/java/com/futo/notes/ui/EditorSession.kt",
+      "pattern": "internal class EditorSession"
+    },
+    {
+      "location": "apps/ios/Sources/Notes/Editor/EditorSession.swift",
+      "pattern": "final class EditorSession"
+    }
+  ],
+  "locks": [
+    {
+      "path": "apps/android/app/src/test/java/com/futo/notes/ui/EditorSessionTest.kt",
+      "kind": "test"
+    },
+    {
+      "path": "apps/ios/Tests/Notes/Editor/EditorSessionTests.swift",
+      "kind": "test"
+    },
+    {
+      "path": "docs/spec/editor.md",
+      "kind": "spec"
+    }
+  ],
+  "scan": {
+    "dirs": ["apps/ios/Sources", "apps/android/app/src/main"],
+    "extensions": [".swift", ".kt"],
+    "pattern": "enum (class )?EditorExit\\b"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "concept": "embed-body-pin",
+  "description": "The rule that gives the editor page a real height: body pinned to the web view with position:fixed and all four offsets. src/styles/base.css owns it for the app; editor.html repeats it UNLAYERED because a Chromium 80-98 Android System WebView discards every @layer'd rule and would otherwise leave body static and zero-height, collapsing the whole #editor -> .futo-milkdown -> .ProseMirror height chain (github#33). Same declarations on purpose - change one, change the other.",
+  "lockStatus": "unlocked",
+  "copies": [
+    {
+      "location": "src/styles/base.css",
+      "pattern": "body \\{[\\s\\S]*?position: fixed;[\\s\\S]*?inset: 0;"
+    },
+    {
+      "location": "editor.html",
+      "pattern": "body \\{\\s*position: fixed;\\s*top: 0;\\s*right: 0;\\s*bottom: 0;\\s*left: 0;\\s*\\}"
+    }
+  ]
+}
