@@ -13,22 +13,7 @@
 
 import { invoke } from '$lib/platform/tauri/invoke';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import {
-  clearLegacyE2eePassword,
-  clearLegacyE2eeAuthToken,
-  commitLegacySyncStateScrub,
-  getAppState,
-  getLegacyE2eePassword,
-  getLegacyE2eeAuthToken,
-  getLegacySyncState,
-  loadAppState,
-  saveAppState,
-  updateAppState,
-} from '$shared/state/appState';
-import { getPlatformFS, isTauri } from '$lib/platform';
-import { connectHostedSync, hasHostedSavedVault } from '$lib/platform/tauri/hostedSync';
-import { hostedSyncEnabled } from './hostedSyncEnabled';
-import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
+import { clearLegacyE2eeAuthToken, getAppState, saveAppState } from '$shared/state/appState';
 import type {
   E2eeConnectInput,
   E2eeConnectOutput,
@@ -39,6 +24,18 @@ import type {
   SyncFailure,
   SyncSummary,
 } from './syncContract.generated';
+import { connectHostedE2ee } from './hostedSession';
+import { deleteStoredCredentials, withCredentialLock } from './syncCredentialStore';
+import { sessionState } from './syncSessionState';
+import { clearLastSyncedAt, scrubLegacySyncStateIfConsumed } from './syncStateCleanup';
+
+export {
+  forgetStoredSyncPassword,
+  hasStoredSyncPassword,
+  initSyncPassword,
+  whenSyncCredentialsSettled,
+} from './syncCredentialStore';
+export { connectHostedE2ee, forgetHostedE2ee } from './hostedSession';
 
 // ── Public types ────────────────────────────────────────────────────────
 
@@ -58,319 +55,17 @@ export function classifyOpenNote(facts: OpenNoteRequestInput): Promise<OpenNoteD
   return invoke<OpenNoteDispositionOutput>('e2ee_classify_open_note', { facts });
 }
 
-// ── Password store (OS keyring, held in memory for the session) ─────────
-//
-// The vault password lives in the OS keyring (Secret Service / Keychain /
-// Credential Manager) via the `e2ee_password_*` Tauri commands — never in
-// plaintext on disk (F6). `cachedPassword` is the in-memory copy for this
-// session (the same posture as iOS Keychain / Android Keystore, where the
-// secret is read out and kept in memory to re-derive the vault key); it lets
-// the synchronous `isE2eeConfigured()` / `hasStoredSyncPassword()` checks —
-// hit on every auto-sync trigger — stay synchronous. `null` means "no stored
-// password" (fresh install, forgotten, or keyring unavailable).
-
-let cachedPassword: string | null = null;
-let cachedAuthToken: string | null = null;
-
-// The one real precondition for the first auto-sync cycle. `isE2eeConfigured()`
-// reads persisted connection metadata AND the in-memory password, and BOTH are
-// loaded by `initSyncPassword` below — until it finishes, a fully configured
-// vault still reports "not configured". Auto-sync waits on this rather than on
-// a wall-clock guess, so the first cycle runs the moment it can instead of at a
-// time chosen to be safely after it. → autoSync.startAutoSync
-let markSyncCredentialsSettled: () => void = () => {};
-const syncCredentialsSettled = new Promise<void>((resolve) => {
-  markSyncCredentialsSettled = resolve;
-});
-
-/**
- * Resolves once the boot credential load has finished — successfully or not.
- * A keyring failure settles it too: "we know there is no password" is just as
- * actionable as "here it is", and either way waiting longer cannot help.
- */
-export function whenSyncCredentialsSettled(): Promise<void> {
-  return syncCredentialsSettled;
-}
-
-// Every credential-store mutation — the boot migration, connect, disconnect,
-// forget, and the pending-deletion retry — runs through this single serial
-// queue so their keyring writes, `cachedPassword` assignments, and app-state
-// scrubs can never interleave (K2). `credentialGeneration` bumps whenever a
-// user-driven op establishes new authoritative state; a boot `initSyncPassword`
-// that captured the pre-lock world and then lost the race for the lock detects
-// the change and abandons its now-stale commit, so it can't resurrect a
-// disconnected credential or clobber a fresh connect.
-let credentialLock: Promise<unknown> = Promise.resolve();
-let credentialGeneration = 0;
-
-function withCredentialLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = credentialLock.then(fn, fn);
-  // Keep the chain alive regardless of this op's outcome.
-  credentialLock = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
-}
-
-/** Delete both self-hosted keyring entries; on failure mark a retry (K3). */
-async function deleteStoredCredentials(): Promise<void> {
-  if (!isTauri) return;
-  try {
-    await invoke('e2ee_password_delete');
-    await invoke('e2ee_session_token_delete');
-    if (getAppState().pendingKeyringDeletion) {
-      // Clear the marker (undefined → dropped by JSON.stringify, not persisted).
-      await saveAppState({ ...getAppState(), pendingKeyringDeletion: undefined });
-    }
-  } catch (e) {
-    // Orphaned OS credential: don't fail the flow, but don't let it vanish
-    // silently either — tell the user and persist a marker so the next launch
-    // retries the delete (see initSyncPassword).
-    showGlobalToast({ path: 'sync.errors.forgetPasswordFailed' });
-    console.warn('[e2ee] could not delete vault password from keyring:', e);
-    await saveAppState({ ...getAppState(), pendingKeyringDeletion: true });
-  }
-}
-
-/**
- * One-time boot hook: retry any outstanding keyring deletion (K3), migrate a
- * legacy plaintext `e2eePassword` from `.app-state.json` into the OS keyring
- * (scrubbing the JSON only after the keyring write is confirmed, K1), then
- * load the stored password into memory.
- *
- * Never throws — a keyring failure (e.g. headless Linux with no Secret
- * Service) leaves any legacy value in place for a later retry and runs the
- * session password-less; the user can re-enter it from Settings, and it is
- * never written back to disk in plaintext. Safe to call un-awaited at startup.
- */
-export async function initSyncPassword(): Promise<void> {
-  try {
-    await loadCredentialsOnBoot();
-  } finally {
-    // Whatever happened, auto-sync's first cycle may stop waiting: this is the
-    // point where `isE2eeConfigured()` starts telling the truth.
-    markSyncCredentialsSettled();
-  }
-}
-
-async function loadCredentialsOnBoot(): Promise<void> {
-  await loadAppState();
-  if (!isTauri) return;
-
-  // Finish a delete that a prior disconnect/forget couldn't complete.
-  if (getAppState().pendingKeyringDeletion) {
-    await withCredentialLock(async () => {
-      if (getAppState().pendingKeyringDeletion) {
-        // A crash after the delete marker but before the state scrub must not
-        // re-import a legacy plaintext credential on the same boot.
-        clearLegacyE2eeAuthToken();
-        clearLegacyE2eePassword();
-        await deleteStoredCredentials();
-        await saveAppState(getAppState());
-      }
-    });
-    // If the delete still hasn't succeeded, do NOT load the credential the
-    // user asked us to forget — leaving it unloaded keeps sync from resuming
-    // and the delete is retried again next boot (R2).
-    if (getAppState().pendingKeyringDeletion) return;
-  }
-
-  const gen = credentialGeneration;
-  await withCredentialLock(async () => {
-    // A connect/disconnect/forget won the lock ahead of us: its credential is
-    // authoritative, so drop our stale migration/load entirely. If a legacy
-    // plaintext holdover is still pinning the old password to disk, scrub it —
-    // the old password is moot now (replaced or cleared), and leaving the
-    // holdover set would keep re-writing plaintext forever, defeating F6.
-    if (gen !== credentialGeneration) {
-      if (getLegacyE2eePassword() !== undefined) {
-        clearLegacyE2eePassword();
-        await saveAppState(getAppState());
-      }
-      if (getLegacyE2eeAuthToken() !== undefined) {
-        clearLegacyE2eeAuthToken();
-        await saveAppState(getAppState());
-      }
-      return;
-    }
-    const legacyToken = getLegacyE2eeAuthToken();
-    try {
-      cachedAuthToken = (await invoke<string | null>('e2ee_session_token_get')) ?? null;
-      if (!cachedAuthToken && legacyToken != null) {
-        await invoke('e2ee_session_token_set', { token: legacyToken });
-        cachedAuthToken = legacyToken;
-      }
-    } catch (e) {
-      console.warn('[e2ee] session token keyring unavailable; will reauthenticate:', e);
-      // The securely saved password can obtain a fresh token. An unavailable
-      // keyring must not keep the legacy bearer in the vault backup.
-      cachedAuthToken = legacyToken ?? null;
-    }
-    if (legacyToken != null) {
-      clearLegacyE2eeAuthToken();
-      await saveAppState(getAppState());
-    }
-    const legacy = getLegacyE2eePassword();
-    try {
-      if (legacy != null) {
-        // Keyring write MUST succeed before we stop re-injecting + scrub.
-        await invoke('e2ee_password_set', { password: legacy });
-        cachedPassword = legacy;
-        clearLegacyE2eePassword();
-        // getAppState() is sanitized (no e2eePassword) and the holdover is now
-        // cleared, so this save rewrites the file without the plaintext field.
-        await saveAppState(getAppState());
-        // Continue loading the token and hosted state after password migration.
-      }
-      cachedPassword = (await invoke<string | null>('e2ee_password_get')) ?? null;
-    } catch (e) {
-      console.warn('[e2ee] keyring unavailable; vault password not loaded:', e);
-    }
-    // A hosted vault keeps no password here — both its secrets live in the OS
-    // secret store where only Rust can read them — so the check above cannot
-    // see one. Ask Rust, in the same lock, before the caller settles the
-    // credential promise.
-    await resumeHostedSessionOnBoot();
-  });
-}
-
-export function hasStoredSyncPassword(): boolean {
-  return cachedPassword != null;
-}
-
-export async function forgetStoredSyncPassword(): Promise<void> {
-  await withCredentialLock(async () => {
-    credentialGeneration++;
-    cachedPassword = null;
-    cachedAuthToken = null;
-    clearLegacyE2eeAuthToken();
-    await deleteStoredCredentials();
-  });
-}
-
-// ── Hosted sessions ─────────────────────────────────────────────────────
-//
-// A hosted vault has no password to cache and no token on disk: both secrets
-// live in the OS keyring, keyed per notes root, and Rust reads them (ADR 0003,
-// decision 4). So the password-mode configured check below cannot see one, and
-// this flag is what says "the engine is holding a hosted session this process
-// connected". It is deliberately in-memory only — a restart re-derives it from
-// Rust rather than from anything written down here.
-let hostedConnected = false;
-
-// And this one says "this vault HAS hosted secrets", which is a different fact
-// and the one auto-sync actually needs. A connect that fails because the
-// machine came up with no network leaves the vault every bit as configured as
-// it was a moment earlier; saying otherwise is what made a hosted desktop skip
-// its own vault until somebody opened Settings. Set from the local read at
-// boot (and by a successful connect), cleared by sign-out and by a reset —
-// never persisted, for the same reason `hostedConnected` is not.
-let hostedSavedVault = false;
-
-/**
- * Hands this vault's hosted secrets to the engine, so cycles can run. Called
- * when the hosted wizard reaches its set-up, unlocked state, whichever door
- * got it there, and again at launch for a vault that was already set up.
- * Idempotent: Rust rebuilds the session from the same two secrets, with no
- * password.
- *
- * A hosted session that started means this machine no longer has a self-hosted
- * sync password — exactly one sync credential exists at a time, and Rust
- * dropped the keyring entry inside the connect above (`VaultSecrets::
- * delete_sync_password`). Dropping `cachedPassword` is not a second copy of
- * that rule and never re-decides it: it refreshes this module's in-memory
- * mirror of the keyring, which `hasStoredSyncPassword()` and
- * `isE2eeConfigured()` answer from synchronously and would otherwise keep
- * reporting a password that is gone. → docs/spec/sync.md
- */
-export async function connectHostedE2ee(): Promise<void> {
-  await connectHostedSync();
-  hostedConnected = true;
-  hostedSavedVault = true;
-  cachedPassword = null;
-  cachedAuthToken = null;
-  // Rust stops whatever live loop the previous session had before it swaps the
-  // session out (`SyncSession::connect_hosted` calls `stop_live` first), so
-  // this process's "the stream is already running" flag is now stale. Left
-  // set, a switch from a live self-hosted session makes `ensureLiveSync` a
-  // no-op and the hosted session gets no stream at all. Desktop needs no
-  // teardown of its own — unlike the native shells it holds ONE engine session
-  // and the engine replaces it — but it does have to stop believing this.
-  liveStarted = false;
-}
-
-/**
- * Resumes a hosted vault during the boot credential load, so
- * `isE2eeConfigured()` is already true when `markSyncCredentialsSettled()`
- * releases auto-sync's first cycle — a restart syncs at launch instead of
- * waiting for the account card to be opened. → docs/spec/sync.md
- *
- * `hasHostedSavedVault` is a local secret-store read and makes no request, so
- * a password-mode or brand-new vault costs nothing here. Only the connect
- * itself can be slow, and only when there is a hosted session to rebuild.
- *
- * Never throws: offline at launch is the ordinary case, and the vault is
- * recorded either way, so the next auto-sync trigger retries the connect
- * through `ensureConnected` rather than skipping the vault.
- */
-async function resumeHostedSessionOnBoot(): Promise<void> {
-  if (!hostedSyncEnabled()) return;
-  try {
-    if (!(await hasHostedSavedVault())) return;
-    hostedSavedVault = true;
-    await connectHostedE2ee();
-  } catch (e) {
-    console.warn('[e2ee] hosted session not resumed at launch; will retry on the next sync:', e);
-  }
-}
-
-/** Signing out ends the hosted session as far as this module is concerned;
-    Rust has already forgotten both secrets and demoted the sync state. */
-export async function forgetHostedE2ee(): Promise<void> {
-  hostedConnected = false;
-  hostedSavedVault = false;
-  liveStarted = false;
-  await clearLastSyncedAt();
-}
-
 export function isE2eeConfigured(): boolean {
   // `hostedSavedVault` without `hostedConnected` is the launch-time offline
   // case: the vault is configured, this process just has not handed its
   // secrets to the engine yet. Answering true is what lets the next auto-sync
   // trigger reach `ensureConnected`, which does the connect — so the retry
   // rides the ladder auto-sync already has instead of needing one of its own.
-  if (hostedConnected || hostedSavedVault) return true;
+  if (sessionState.hostedConnected || sessionState.hostedSavedVault) return true;
   const s = getAppState();
-  return Boolean(s.e2eeServerUrl && s.e2eeUserId && s.e2eeCollectionId && cachedPassword);
-}
-
-/**
- * PKT-17: once the Rust import has persisted `.e2ee-state.json`, the legacy
- * `e2eeObjectMap` / `e2eeMaxVersion` in `.app-state.json` are dead (`load`
- * prefers `.e2ee-state.json`), so stop re-injecting them and let the next save
- * scrub them. The trigger is the ACTUAL existence of `.e2ee-state.json`, not
- * "a connect/resume returned": `e2ee_resume` (the path the pre-port cohort hits
- * on boot) does NOT persist — only `e2ee_connect` and a completed sync cycle
- * do — so clearing on resume alone could drop the map if the app dies before
- * the first cycle.
- *
- * BEST-EFFORT: this is called AFTER a connect/sync that has already committed,
- * so it must never turn a completed operation into a reported failure — every
- * path (the read, the scrub write) is swallowed and logged. A retained holdover
- * is fully recoverable (re-captured next boot, re-scrubbed next cycle).
- */
-async function scrubLegacySyncStateIfConsumed(): Promise<void> {
-  if (!isTauri || getLegacySyncState() === undefined) return;
-  try {
-    const persisted = await (await getPlatformFS()).readAppData('.e2ee-state.json');
-    if (persisted == null) return;
-    if (!(await commitLegacySyncStateScrub())) {
-      console.warn('[e2ee] legacy sync-state scrub write failed; will retry next cycle');
-    }
-  } catch (e) {
-    console.warn('[e2ee] legacy sync-state scrub deferred; will retry next cycle:', e);
-  }
+  return Boolean(
+    s.e2eeServerUrl && s.e2eeUserId && s.e2eeCollectionId && sessionState.cachedPassword,
+  );
 }
 
 // ── Sync runner ─────────────────────────────────────────────────────────
@@ -402,24 +97,24 @@ async function ensureConnected(passwordOverride?: string): Promise<void> {
   // that made it in the first place. This is also the retry for a launch
   // connect that failed — `hostedSavedVault` without `hostedConnected` — which
   // is why it is here and not on a timer of auto-sync's own.
-  if ((hostedConnected || hostedSavedVault) && passwordOverride == null) {
+  if ((sessionState.hostedConnected || sessionState.hostedSavedVault) && passwordOverride == null) {
     await connectHostedE2ee();
     return;
   }
 
   const s = getAppState();
-  const password = passwordOverride ?? cachedPassword ?? undefined;
+  const password = passwordOverride ?? sessionState.cachedPassword ?? undefined;
   if (!s.e2eeServerUrl || !s.e2eeUserId || !s.e2eeCollectionId || !password) {
     throw new Error('E2EE sync not configured');
   }
-  if (!cachedAuthToken) {
+  if (!sessionState.cachedAuthToken) {
     await reauthenticateE2ee(password);
     return;
   }
   try {
     const input: E2eeResumeInput = {
       serverUrl: s.e2eeServerUrl,
-      token: cachedAuthToken,
+      token: sessionState.cachedAuthToken,
       userId: s.e2eeUserId,
       collectionId: s.e2eeCollectionId,
       password,
@@ -440,22 +135,20 @@ async function ensureConnected(passwordOverride?: string): Promise<void> {
 
 // ── Live sync (Rust SSE stream) ─────────────────────────────────────────
 
-let liveStarted = false;
-
 /** Idempotently start the Rust SSE live stream once per connected session. */
 export async function ensureLiveSync(): Promise<void> {
-  if (liveStarted || !isE2eeConfigured()) return;
-  liveStarted = true;
+  if (sessionState.liveStarted || !isE2eeConfigured()) return;
+  sessionState.liveStarted = true;
   try {
     await invoke('e2ee_start_live');
   } catch (e) {
-    liveStarted = false;
+    sessionState.liveStarted = false;
     console.warn('start live sync failed:', e);
   }
 }
 
 export async function stopLiveSync(): Promise<void> {
-  liveStarted = false;
+  sessionState.liveStarted = false;
   try {
     await invoke('e2ee_stop_live');
   } catch {
@@ -511,10 +204,10 @@ export async function connectE2ee(serverUrl: string, password: string): Promise<
   await withCredentialLock(async () => {
     // A fresh credential is now authoritative — invalidate any in-flight boot
     // migration/load (K2).
-    credentialGeneration++;
+    sessionState.credentialGeneration++;
     // Session works from memory immediately (like the native shells).
-    cachedPassword = password;
-    cachedAuthToken = out.token;
+    sessionState.cachedPassword = password;
+    sessionState.cachedAuthToken = out.token;
     // A new login supersedes any legacy token captured before boot migration.
     // Stop re-injecting that bearer on every app-state write.
     clearLegacyE2eeAuthToken();
@@ -556,25 +249,16 @@ export async function connectE2ee(serverUrl: string, password: string): Promise<
   await scrubLegacySyncStateIfConsumed();
 }
 
-/** Clears the "last synced" time Settings shows, so a disconnected or
-    signed-out vault can never display a stale one. Shared by self-hosted
-    disconnect and hosted sign-out — sign-out "demotes this vault's sync
-    state exactly as disconnect does" (ADR 0003 decision 9), and this is
-    part of that state. */
-async function clearLastSyncedAt(): Promise<void> {
-  await updateAppState({ lastSyncedAt: null });
-}
-
 export async function disconnectE2ee(): Promise<void> {
   // The Rust `e2ee_disconnect` already stops the live loop internally;
   // reset the flag so a future reconnect can restart the live stream.
-  liveStarted = false;
+  sessionState.liveStarted = false;
   // A hosted session is a session too: a reset must not leave this module
   // claiming one the engine has just dropped — including the saved-vault fact,
   // which would otherwise keep reporting the vault configured and resume it on
   // the next trigger (M4).
-  hostedConnected = false;
-  hostedSavedVault = false;
+  sessionState.hostedConnected = false;
+  sessionState.hostedSavedVault = false;
   try {
     await invoke('e2ee_disconnect');
   } catch {
@@ -585,9 +269,9 @@ export async function disconnectE2ee(): Promise<void> {
     // disconnectE2ee) must clear every trace of the vault credential, including
     // the keyring entry (M4). Bumping the generation invalidates a racing boot
     // migration so it can't resurrect the credential we're clearing (K2).
-    credentialGeneration++;
-    cachedPassword = null;
-    cachedAuthToken = null;
+    sessionState.credentialGeneration++;
+    sessionState.cachedPassword = null;
+    sessionState.cachedAuthToken = null;
     clearLegacyE2eeAuthToken();
     // deleteStoredCredentials handles a failed delete (toast + retry marker, K3).
     await deleteStoredCredentials();
@@ -615,8 +299,8 @@ export async function syncE2eeAuto(): Promise<SyncSummary> {
     // skipped. Stop its live loop, authenticate again, and retry exactly once;
     // the post-sync ensureLiveSync call restarts the stream on the new session.
     const s = getAppState();
-    if (isRecoverableSessionError(e) && s.e2eeServerUrl && cachedPassword) {
-      await reauthenticateE2ee(cachedPassword);
+    if (isRecoverableSessionError(e) && s.e2eeServerUrl && sessionState.cachedPassword) {
+      await reauthenticateE2ee(sessionState.cachedPassword);
       const summary = await invoke<SyncSummary>('e2ee_sync_run');
       await scrubLegacySyncStateIfConsumed();
       return summary;
