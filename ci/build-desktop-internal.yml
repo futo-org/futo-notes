@@ -95,6 +95,7 @@ build:desktop-internal:linux:
     # throwaway prerelease tag (M13).
     - if: $CI_MERGE_REQUEST_IID
       changes:
+        - ci/*.yml
         - .gitlab-ci.yml
       when: manual
       allow_failure: true
@@ -136,6 +137,7 @@ build:desktop-internal:macos:
     # run there.
     - if: $CI_MERGE_REQUEST_IID
       changes:
+        - ci/*.yml
         - .gitlab-ci.yml
         - .cirrus.yml
       when: manual

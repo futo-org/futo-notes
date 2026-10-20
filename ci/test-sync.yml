@@ -114,6 +114,7 @@ test:cross-platform-sync:
         # bump changes what every sync job proves, so it must re-run them.
         - scripts/sync-server-pin.json
         - scripts/lib/sync-server.mjs
+        - ci/*.yml
         - .gitlab-ci.yml
       variables:
         SYNC_SCENARIO_FLAGS: --skip-slow

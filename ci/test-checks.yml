@@ -164,6 +164,7 @@ test:audit:
         - pnpm-workspace.yaml
         - .cargo/**/*
         - scripts/audit.mjs
+        - ci/*.yml
         - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
@@ -184,6 +185,7 @@ test:localization-audit:
         - scripts/language-catalogs.mjs
         - package.json
         - pnpm-lock.yaml
+        - ci/*.yml
         - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
@@ -191,6 +193,7 @@ test:localization-audit:
         - scripts/language-catalogs.mjs
         - package.json
         - pnpm-lock.yaml
+        - ci/*.yml
         - .gitlab-ci.yml
 
 # Code-quality ratchet (big-code-analysis): a new or WORSENED complexity
@@ -245,5 +248,6 @@ test:quality-report:
         - scripts/bca-quality.mjs
         - bca.toml
         - .bca-baseline.toml
+        - ci/*.yml
         - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

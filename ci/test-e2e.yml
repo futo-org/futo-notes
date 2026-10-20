@@ -76,6 +76,7 @@ test:e2e:rest:
         - playwright.config.ts
         - package.json
         - pnpm-lock.yaml
+        - ci/*.yml
         - .gitlab-ci.yml
     - if: $CI_MERGE_REQUEST_IID
       when: manual
@@ -156,6 +157,7 @@ test:e2e:editor-embed:
         - playwright.editor-embed.config.ts
         - package.json
         - pnpm-lock.yaml
+        - ci/*.yml
         - .gitlab-ci.yml
     - if: $CI_MERGE_REQUEST_IID
       when: manual

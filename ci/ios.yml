@@ -97,6 +97,7 @@ test:ios-native:
         - svelte.config.js
         - scripts/build-rust-ios.sh
         - .cirrus.yml
+        - ci/*.yml
         - .gitlab-ci.yml
     - if: $CI_MERGE_REQUEST_IID
       when: manual

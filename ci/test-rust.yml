@@ -80,6 +80,7 @@ test:rust:workspace:
         # CI config changes can alter this job's toolchain/system-dep setup
         # (e.g. the GTK deps it needs to compile the tauri crate) — re-run the
         # workspace tests so an environment break is caught on that change.
+        - ci/*.yml
         - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *rust-workspace-changes
@@ -133,6 +134,7 @@ test:rust:macos:
         - crates/futo-notes-store/**/*
         - crates/futo-notes-sync/**/*
         - .cirrus.yml
+        - ci/*.yml
         - .gitlab-ci.yml
       allow_failure: true
     # Full macOS workspace tests on Rust-touching main pushes, so a macOS-only
@@ -148,6 +150,7 @@ test:rust:macos:
         - apps/tauri/src-tauri/**/*
         - scripts/build-rust-ios.sh
         - .cirrus.yml
+        - ci/*.yml
         - .gitlab-ci.yml
     - if: $CI_MERGE_REQUEST_IID
       when: manual
@@ -230,6 +233,7 @@ test:rust:ffi-android:
         - .cargo/**/*
         - crates/**/*
         - scripts/build-rust-android.sh
+        - ci/*.yml
         - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *rust-ffi-mobile-changes
