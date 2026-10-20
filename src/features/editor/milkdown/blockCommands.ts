@@ -1,6 +1,6 @@
 /** Structural formatting shared by the toolbar and slash menu. */
 import { lift, setBlockType, wrapIn } from '@milkdown/kit/prose/commands';
-import type { Node as ProseNode, NodeType, ResolvedPos, Schema } from '@milkdown/kit/prose/model';
+import type { Node as ProseNode, ResolvedPos, Schema } from '@milkdown/kit/prose/model';
 import { liftListItem, sinkListItem, wrapInList } from '@milkdown/kit/prose/schema-list';
 import {
   EditorState,
@@ -9,158 +9,23 @@ import {
   type Transaction,
 } from '@milkdown/kit/prose/state';
 import { Mapping, type Step } from '@milkdown/kit/prose/transform';
-
 import { onSelectedLines } from './paragraphLines';
 
-/**
- * The block kinds a single line can be, plus
- * `code` for the one block whose lines can carry NO markdown prefix at all.
- */
-export type BlockKind = 'none' | 'bullet' | 'ordered' | 'task' | 'heading' | 'quote' | 'code';
+import {
+  type BlockFormat,
+  isListKind,
+  sameFormat,
+  ancestorDepth,
+  isCodeTextblock,
+  blockFormatAtPos,
+} from './blockFormat';
+import { scratchState, dispatchSteps, runChain, nodeType } from './blockStepChain';
 
-export interface BlockFormat {
-  kind: BlockKind;
-  /** Heading level, 1-3. Only meaningful for `kind: 'heading'`. */
-  level?: number;
-}
+export { blockFormatAt, blockFormatAtPos, type BlockFormat, type BlockKind } from './blockFormat';
 
 /** The toolbar-manifest ids that map to a block command. */
 export type BlockCommandId =
   'bullet' | 'ordered' | 'task' | 'heading-1' | 'heading-2' | 'heading-3' | 'paragraph' | 'quote';
-
-const LIST_KINDS: ReadonlySet<BlockKind> = new Set<BlockKind>(['bullet', 'ordered', 'task']);
-
-function isListKind(kind: BlockKind): boolean {
-  return LIST_KINDS.has(kind);
-}
-
-function sameFormat(a: BlockFormat, b: BlockFormat): boolean {
-  return a.kind === b.kind && (a.level ?? 0) === (b.level ?? 0);
-}
-
-/** The depth of the innermost ancestor of `at` named `name`, or 0 for none. */
-function ancestorDepth(at: ResolvedPos, name: string): number {
-  for (let depth = at.depth; depth > 0; depth -= 1) {
-    if (at.node(depth).type.name === name) return depth;
-  }
-  return 0;
-}
-
-/**
- * Whether the textblock containing `at` is a code block.
- *
- * `spec.code` rather than the node NAME, because that flag is the schema's own
- * statement that the node's content is literal text — the property this module
- * actually depends on (the commonmark preset sets it on `code_block`, alongside
- * `marks: ''`).
- */
-function isCodeTextblock(at: ResolvedPos): boolean {
-  for (let depth = at.depth; depth >= 0; depth -= 1) {
-    const node = at.node(depth);
-    if (node.isTextblock) return node.type.spec.code === true;
-  }
-  return false;
-}
-
-/**
- * The block kind at `at`, innermost structure first.
- *
- * List membership takes precedence over the textblock format when converting lists.
- */
-export function blockFormatAtPos(at: ResolvedPos): BlockFormat {
-  // A code block is read BEFORE any wrapper, because the caret's own textblock
-  // is the innermost structure there is: a fence indented under a list item is
-  // code, not the bullet the list item would otherwise report.
-  if (isCodeTextblock(at)) return { kind: 'code' };
-
-  const itemDepth = ancestorDepth(at, 'list_item');
-  if (itemDepth > 0) {
-    const item = at.node(itemDepth);
-    if (item.attrs.checked !== null && item.attrs.checked !== undefined) return { kind: 'task' };
-    const list = itemDepth > 1 ? at.node(itemDepth - 1) : null;
-    return { kind: list?.type.name === 'ordered_list' ? 'ordered' : 'bullet' };
-  }
-
-  const block = at.node(at.depth);
-  if (block.type.name === 'heading') {
-    return { kind: 'heading', level: Number(block.attrs.level ?? 1) };
-  }
-
-  return ancestorDepth(at, 'blockquote') > 0 ? { kind: 'quote' } : { kind: 'none' };
-}
-
-/** The block kind at the selection head. */
-export function blockFormatAt(state: EditorState): BlockFormat {
-  return blockFormatAtPos(state.selection.$from);
-}
-
-/**
- * A plugin-free copy of `state`, which is what every intermediate step below
- * runs against.
- *
- * `EditorState.apply` runs the editor's plugin `appendTransaction` hooks, and
- * the commonmark preset has one (`syncListOrderPlugin`) that rewrites list item
- * labels. Rolling the real state forward would therefore fold those appended
- * changes into the rolling document but NOT into the step list being collected,
- * so the next step would be computed against a document the final transaction
- * never has — which lands as `Cannot read properties of undefined (reading
- * 'nodeSize')` when the steps are replayed. A scratch state has no plugins, so
- * rolling doc and replayed doc stay identical; the real plugins then see the
- * one transaction that is finally dispatched and append to it as usual.
- */
-function scratchState(state: EditorState): EditorState {
-  return EditorState.create({
-    schema: state.schema,
-    doc: state.doc,
-    selection: state.selection,
-  });
-}
-
-/** Replay collected steps onto one transaction built from `state`. */
-function dispatchSteps(
-  state: EditorState,
-  dispatch: ((tr: Transaction) => void) | undefined,
-  steps: Step[],
-): boolean {
-  if (steps.length === 0) return false;
-  if (dispatch) {
-    const tr = state.tr;
-    for (const step of steps) tr.step(step);
-    dispatch(tr.scrollIntoView());
-  }
-  return true;
-}
-
-/**
- * Run `commands` in sequence and dispatch their combined steps as ONE
- * transaction, so a conversion that is two primitives underneath (lift out of
- * a list, then wrap in a blockquote) is one undo step and one `change`.
- *
- * Each command sees the document the previous one left behind, which is why
- * the steps can be replayed onto a single transaction: the replayed `tr` and
- * `rolling` advance in lockstep from the same starting doc.
- */
-function runChain(
-  state: EditorState,
-  dispatch: ((tr: Transaction) => void) | undefined,
-  commands: Command[],
-): boolean {
-  const steps: Step[] = [];
-  let rolling = scratchState(state);
-
-  for (const command of commands) {
-    command(rolling, (tr) => {
-      steps.push(...tr.steps);
-      rolling = rolling.apply(tr);
-    });
-  }
-
-  return dispatchSteps(state, dispatch, steps);
-}
-
-function nodeType(schema: Schema, name: string): NodeType | null {
-  return schema.nodes[name] ?? null;
-}
 
 /**
  * Lift repeated until the selection is out of every list it was in — one tap
