@@ -3164,7 +3164,8 @@ release:
 # Changelog post on notes.futo.tech, generated from release-notes/<tag>.md.
 # After `release` so the download links are live. allow_failure and nothing
 # depends on it: a website problem must never fail a shipped release. No
-# WEBSITE_REPO_TOKEN = logged skip; an existing post (hand-written) is kept.
+# WEBSITE_REPO_TOKEN = the job fails (visible warning, release unaffected); an
+# existing post (hand-written) is kept.
 publish:website-post:
   stage: release
   interruptible: false

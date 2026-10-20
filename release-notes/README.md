@@ -61,8 +61,9 @@ to the `futo-notes/website` main branch, which deploys itself.
   bare lines in store text, so they are not turned into headings. For a richer
   post, write it by hand on the website before tagging.
 - If the website already has a post for the version, the job does nothing.
-- Without the `WEBSITE_REPO_TOKEN` CI variable it logs a skip. The job is
-  `allow_failure` and nothing depends on it, so it can never fail a release.
+- Without the `WEBSITE_REPO_TOKEN` CI variable the job fails with a clear error
+  rather than passing green having published nothing. It is `allow_failure` and
+  nothing depends on it, so the failure shows as a warning and never blocks a release.
 - `WEBSITE_RELEASE_MODE=mr` opens a website MR for a human to merge instead.
 
 ## Writing them

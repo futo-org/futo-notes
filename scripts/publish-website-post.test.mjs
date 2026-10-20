@@ -1,9 +1,26 @@
 // The website publisher against a fake GitLab API: what it commits, and the
 // cases where it must do nothing. No network.
 
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
-import { publishWebsitePost } from './publish-website-post.mjs';
+import { publishWebsitePost, readRepoFile } from './publish-website-post.mjs';
+
+const SCRIPT = fileURLToPath(new URL('./publish-website-post.mjs', import.meta.url));
+
+// Runs the real CLI entry point from a directory that is not the repo root, with
+// no token and no network: only paths that return before any fetch are safe.
+function runCli(args, env = {}) {
+  const { WEBSITE_REPO_TOKEN: _token, CI_COMMIT_TAG: _tag, ...base } = process.env;
+  return spawnSync(process.execPath, [SCRIPT, ...args], {
+    cwd: tmpdir(),
+    env: { ...base, ...env },
+    encoding: 'utf8',
+  });
+}
 
 const NOTES =
   '# v1.9.0\n\nFind in note.\n\n- Faster search.\n\n## Short\n\nFind in note and faster search.\n';
@@ -67,13 +84,44 @@ describe('publishWebsitePost', () => {
     expect(logs[0]).toMatch(/already has/);
   });
 
-  it('skips without a token and for non-stable tags', async () => {
-    const noToken = setup({ env: {} });
-    expect(await noToken.run()).toBe('skipped');
-    expect(noToken.logs[0]).toMatch(/WEBSITE_REPO_TOKEN/);
-    const rc = setup({ tag: 'v1.9.0-2' });
+  it('fails without a token on a stable tag, so the job is not silently green', async () => {
+    const { run, posts } = setup({ env: {} });
+    await expect(run()).rejects.toThrow(/WEBSITE_REPO_TOKEN/);
+    expect(posts).toEqual([]);
+  });
+
+  it('skips a non-stable tag even without a token', async () => {
+    const rc = setup({ tag: 'v1.9.0-2', env: {} });
     expect(await rc.run()).toBe('skipped');
     expect(rc.posts).toEqual([]);
+  });
+
+  it('CLI exits non-zero for a stable tag with no token', () => {
+    const res = runCli(['--tag', 'v1.9.0']);
+    expect(res.status).toBe(1);
+    expect(res.stderr).toMatch(/WEBSITE_REPO_TOKEN/);
+  });
+
+  it('CLI exits 0 with a skip message for a prerelease tag', () => {
+    const res = runCli(['--tag', 'v1.9.0-2']);
+    expect(res.status).toBe(0);
+    expect(res.stdout).toMatch(/not a stable/);
+  });
+
+  it('reads release notes relative to the repo root, not the cwd', () => {
+    const res = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `const { readRepoFile } = await import(${JSON.stringify(new URL('./publish-website-post.mjs', import.meta.url).href)});
+         process.stdout.write(readRepoFile('release-notes/README.md').slice(0, 12));`,
+      ],
+      { cwd: tmpdir(), encoding: 'utf8' },
+    );
+    expect(res.status).toBe(0);
+    expect(res.stdout).toBe(readRepoFile('release-notes/README.md').slice(0, 12));
+    expect(res.stdout.length).toBe(12);
   });
 
   it('opens a branch and MR instead when WEBSITE_RELEASE_MODE=mr', async () => {

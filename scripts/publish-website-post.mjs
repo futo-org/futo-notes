@@ -9,19 +9,29 @@
 // release exists (CI job `publish:website-post`, allow_failure).
 //
 // Never overwrites: a post already on the website (hand-written wins) means
-// nothing is done. No WEBSITE_REPO_TOKEN means skip, not fail.
+// nothing is done. A stable tag with no WEBSITE_REPO_TOKEN fails (a green job
+// that published nothing would hide the miss); `allow_failure` keeps that
+// failure from blocking the store publishes. A prerelease tag is a quiet skip.
 //
 // Env: WEBSITE_REPO_TOKEN (project access token, api scope on the website repo),
 //      WEBSITE_RELEASE_MODE = commit (default, straight to main) | mr,
 //      WEBSITE_PROJECT (default futo-notes/website), CI_API_V4_URL.
 
 import { readFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { STABLE_TAG_PATTERN, parseReleaseNotes, releaseNotesPath } from './lib/release-notes.mjs';
 
 const SITE = 'https://notes.futo.tech';
 const SUMMARY_LIMIT = 200;
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+// Repo-relative paths (release-notes/<tag>.md) resolve from the repo root, so
+// the script works from any cwd.
+export function readRepoFile(path) {
+  return readFileSync(resolve(ROOT, path), 'utf8');
+}
 
 export function postSlug(tag) {
   return `futo-notes-${tag.slice(1).replaceAll('.', '-')}`;
@@ -75,8 +85,9 @@ export async function publishWebsitePost({ tag, env, fetchImpl = fetch, readNote
   }
   const token = env.WEBSITE_REPO_TOKEN;
   if (!token) {
-    log('Skipping: WEBSITE_REPO_TOKEN is not set, so no website post was published.');
-    return 'skipped';
+    throw new Error(
+      `WEBSITE_REPO_TOKEN is not set, so no website post was published for ${tag}. Set the CI variable (project access token, api scope on the website repo) and re-run the job.`,
+    );
   }
 
   const api = `${env.CI_API_V4_URL || 'https://gitlab.futo.org/api/v4'}/projects/${encodeURIComponent(env.WEBSITE_PROJECT || 'futo-notes/website')}`;
@@ -156,7 +167,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   publishWebsitePost({
     tag,
     env: process.env,
-    readNotes: (path) => readFileSync(path, 'utf8'),
+    readNotes: readRepoFile,
     today: new Date().toISOString().slice(0, 10),
     log: (m) => process.stdout.write(`${m}\n`),
   }).catch((error) => {
