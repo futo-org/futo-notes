@@ -24,6 +24,7 @@ import {
   messagesOfType,
   openEmbed,
   waitForMessages,
+  withCaretObserved,
   type FakeHostWindow,
 } from './lib/editorEmbedHost';
 
@@ -569,36 +570,35 @@ test('applyExternalContent adopts differing content without a change echo', asyn
 });
 
 /**
- * Clicks the caret `chars` characters into the first paragraph. The point comes
- * from a DOM Range over the text node — the paragraph's own box is the full
- * content column, so dividing its width by the character count aims far past
- * the end of a short line.
+ * Puts the caret `chars` characters into the first paragraph, and returns once
+ * the EDITOR has read it (`withCaretObserved`).
  *
- * Waits for `document.fonts.ready` first: the embed warms Barlow
- * asynchronously (`warmEditorFonts.ts`), and a swap landing between the
- * measurement and the click moves every character's x-position, so the click
- * lands on a different character. Observed as an intermittent red on
- * "applyExternalContent with unchanged content preserves the selection" —
- * 3 of 3 on a loaded machine, then 25 of 25 green.
+ * The caret is set on the DOM selection, not clicked at a pixel measured from
+ * a Range: where a click lands depends on the glyph advances at that instant,
+ * and the embed's fonts are swapped in asynchronously (`warmEditorFonts.ts`),
+ * which `document.fonts.ready` did not make the measurement safe from. The
+ * callers are about what the host does to a caret that is somewhere in the
+ * text, not about where a click maps. Observed as an intermittent red on
+ * "applyExternalContent with unchanged content preserves the selection" (CI,
+ * test:e2e:editor-embed 2/3): "abcdefZ" for "abcZdef", the caret still at the
+ * end where `focus()` left it. Not reproducible locally in 300 loaded runs,
+ * so a click that missed the text is the likely cause, not a proven one; the
+ * product's identical-content path never touches the selection.
  */
-async function clickCaretInto(page: Page, chars: number): Promise<void> {
-  await page.evaluate(() => document.fonts.ready);
-  const point = await page.evaluate((offset) => {
-    const text = document.querySelector('.ProseMirror > p')?.firstChild;
-    if (!text) throw new Error('no paragraph text node');
-    const range = document.createRange();
-    range.setStart(text, offset);
-    range.setEnd(text, offset);
-    const rect = range.getBoundingClientRect();
-    return { x: rect.left, y: rect.top + rect.height / 2 };
-  }, chars);
-  await page.mouse.click(point.x, point.y);
+async function placeCaretInto(page: Page, chars: number): Promise<void> {
+  await withCaretObserved(page, () =>
+    page.evaluate((offset) => {
+      const text = document.querySelector('.ProseMirror > p')?.firstChild;
+      if (!text) throw new Error('no paragraph text node');
+      window.getSelection()!.collapse(text, offset);
+    }, chars),
+  );
 }
 
 test('applyExternalContent with unchanged content preserves the selection', async ({ page }) => {
   await hostSetContent(page, 'abcdef');
   await focusEditor(page);
-  await clickCaretInto(page, 3);
+  await placeCaretInto(page, 3);
   await clearMessages(page);
 
   // No-op adopt (content identical): must not reset the caret to 0 or the end.
@@ -957,7 +957,7 @@ test('a switch inside the change debounce shows the next note, even with the sam
 test('a host re-sending the note on screen leaves the caret where it was', async ({ page }) => {
   await hostSetContent(page, 'abcdef');
   await focusEditor(page);
-  await clickCaretInto(page, 3);
+  await placeCaretInto(page, 3);
 
   await page.evaluate(() =>
     (window as unknown as FakeHostWindow).FutoEditor.setContent('test-note', 'abcdef'),
@@ -1121,7 +1121,7 @@ test('formatState reports the block kind at the caret, deduped', async ({ page }
 
   // Into the paragraph: the heading is no longer active. Wait on the message
   // rather than a frame — the click has to land, move the selection, and post.
-  await clickCaretInto(page, 3);
+  await placeCaretInto(page, 3);
   expect((await waitForMessages(page, 'formatState')).at(-1)?.active).toEqual([]);
 
   // Moving WITHIN the paragraph changes nothing, so nothing new is posted.
