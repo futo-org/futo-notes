@@ -11,13 +11,13 @@ import java.io.File
  * This is a SOURCE-SCAN, not a real interpreter: it asserts every outbound
  * message type bridge.ts can produce (BridgeSpec.OUTBOUND_MESSAGE_TYPES,
  * generated from packages/editor/src/bridge.ts by gen-bridge-spec.ts) either
- * has a `"type" ->` handler case in EditorWebView.kt's `handle()`, or is in
+ * has a `"type" ->` handler case in EditorHostMessages.kt's `handle()`, or is in
  * [EXEMPT] with a reason. It proves textual coverage, not runtime behavior —
  * it cannot catch a handler whose body silently no-ops.
  */
 class BridgeCoverageTest {
     companion object {
-        /** Message types EditorWebView.kt intentionally does not handle. */
+        /** Message types EditorHostMessages.kt intentionally does not handle. */
         private val EXEMPT = mapOf(
             // Android DOES receive it — it mounts the same long-press block
             // drag iOS does (blockDragMode.ts) — but it has nothing to do with
@@ -28,7 +28,7 @@ class BridgeCoverageTest {
             // lifted block: the page's own defences in mobileBlockDnd.ts hold.
             // The one thing that DID leak — the WebView's own long-press
             // buzz — is handled from the strictly wider blockPress instead
-            // (EditorWebView.setBlockPressActive), because it fires before any
+            // (EditorHost.setBlockPressActive), because it fires before any
             // lift.
             "blockDrag" to
                 "Android receives it and needs no host: Chromium shows no text interaction over the lifted block (measured, Android 13 / WebView 151), and the one leak is handled from the wider blockPress",
@@ -37,13 +37,13 @@ class BridgeCoverageTest {
 
     private fun editorWebViewSource(): String {
         val candidates = listOf(
-            File("src/main/java/com/futo/notes/ui/EditorWebView.kt"),
-            File("app/src/main/java/com/futo/notes/ui/EditorWebView.kt"),
-            File("apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt"),
+            File("src/main/java/com/futo/notes/ui/EditorHostMessages.kt"),
+            File("app/src/main/java/com/futo/notes/ui/EditorHostMessages.kt"),
+            File("apps/android/app/src/main/java/com/futo/notes/ui/EditorHostMessages.kt"),
         )
         val found = candidates.firstOrNull { it.exists() }
             ?: throw AssertionError(
-                "could not locate EditorWebView.kt from cwd=${File(".").absolutePath} — tried: " +
+                "could not locate EditorHostMessages.kt from cwd=${File(".").absolutePath} — tried: " +
                     candidates.joinToString { it.path },
             )
         return found.readText()
@@ -56,7 +56,7 @@ class BridgeCoverageTest {
             type !in EXEMPT && !source.contains("\"$type\" ->")
         }
         assertTrue(
-            "EditorWebView.kt has no handler for: ${missing.joinToString()} — add a case in " +
+            "EditorHostMessages.kt has no handler for: ${missing.joinToString()} — add a case in " +
                 "handle(), or add it to BridgeCoverageTest.EXEMPT with a reason.",
             missing.isEmpty(),
         )

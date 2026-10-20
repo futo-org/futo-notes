@@ -21,11 +21,17 @@ class StorageMigrationEditorIndependenceTest {
 
     @Test
     fun `storage migration has no editor snapshot dependency`() {
-        val activitySource = productionSource("MainActivity.kt")
+        val activitySource = productionSource("MainActivityStorage.kt")
         val switchWorkflow = activitySource
-            .substringAfter("private fun performSwitch")
-            .substringBefore("private fun requestDeviceAccess")
-        val editorSource = productionSource("ui/EditorWebView.kt")
+            .substringAfter("internal fun MainActivity.performSwitch")
+            .substringBefore("internal fun MainActivity.requestDeviceAccess")
+        val editorSource = listOf(
+            "ui/EditorWebView.kt",
+            "ui/EditorHostCommands.kt",
+            "ui/EditorHostContent.kt",
+            "ui/EditorHostEngine.kt",
+            "ui/EditorHostMessages.kt",
+        ).joinToString("\n") { productionSource(it) }
 
         assertFalse(
             "performSwitch must consume committed or retained drafts, never depend on EditorHost",
