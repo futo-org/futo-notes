@@ -117,7 +117,12 @@ final class AppIconTests: XCTestCase {
     @MainActor
     func testActivationLandsOnThePickerWithAOneTimeHeader() {
         let app = makeIsolatedApplication()
-        app.launchArguments += ["-FUTOLicenseStorefront", "USA"]
+        // The toast lives ~3.5 s from the activation, and `system.open` and the sheet
+        // animations block this process for most of that. Hold it open so the test
+        // asks what it means to: is the toast drawn over the picker?
+        app.launchArguments += [
+            "-FUTOLicenseStorefront", "USA", "-FUTOTransientSeconds", "60",
+        ]
         app.launch()
         openSettings(app)
         removeLicense(app)
@@ -127,9 +132,13 @@ final class AppIconTests: XCTestCase {
         XCUIDevice.shared.system.open(deepLink)
 
         XCTAssertTrue(app.navigationBars["App icon"].waitForExistence(timeout: 15))
-        // The toast is drawn inside the picker, not under it (it lasts ~3.5 s).
+        // The toast is drawn inside the picker, not under it. A banner on the list
+        // beneath the sheets is still in the accessibility tree, so existence alone
+        // proves nothing: one copy of the toast must be reachable on top.
+        let toast = app.staticTexts.matching(identifier: "License activated")
+        XCTAssertTrue(toast.firstMatch.waitForExistence(timeout: 3), "the toast never showed")
         XCTAssertTrue(
-            app.staticTexts["License activated"].waitForExistence(timeout: 3),
+            toast.allElementsBoundByIndex.contains { $0.isHittable },
             "the toast is hidden by the picker")
         XCTAssertTrue(app.staticTexts["Thank you for purchasing FUTO Notes."].waitForExistence(timeout: 5))
         XCTAssertTrue(

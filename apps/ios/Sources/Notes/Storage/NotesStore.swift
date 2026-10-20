@@ -306,13 +306,29 @@ final class NotesStore: ObservableObject {
     @Published var transientMessage: LocalizedMessage?
     private var transientMessageTask: Task<Void, Never>?
 
+    /// How long the banner stays up: ~3.5 s. A debug UI test holds it open with
+    /// `-FUTOTransientSeconds <n>`: XCUITest cannot watch for a banner while it
+    /// blocks on a deep link or an animation, so a test that must see one while
+    /// something else lands would otherwise race the clock.
+    static let transientNanoseconds: UInt64 = {
+        #if FUTO_DEBUG_BUILD
+            let arguments = ProcessInfo.processInfo.arguments
+            if let flag = arguments.firstIndex(of: "-FUTOTransientSeconds"),
+                arguments.indices.contains(flag + 1), let seconds = UInt64(arguments[flag + 1])
+            {
+                return seconds * 1_000_000_000
+            }
+        #endif
+        return 3_500_000_000
+    }()
+
     /// Show `message` as the transient banner for ~3.5 s (a later call replaces
     /// the current one and restarts the timer).
     func showTransient(_ message: LocalizedMessage) {
         transientMessageTask?.cancel()
         transientMessage = message
         transientMessageTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            try? await Task.sleep(nanoseconds: Self.transientNanoseconds)
             if !Task.isCancelled { transientMessage = nil }
         }
     }
