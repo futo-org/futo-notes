@@ -12,6 +12,12 @@ import com.futo.notes.ui.components.FolderPickerSheet
 import com.futo.notes.ui.components.NewFolderDialog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import com.futo.notes.createFolder
+import com.futo.notes.delete
+import com.futo.notes.deleteFolder
+import com.futo.notes.moveFolder
+import com.futo.notes.moveNote
+import com.futo.notes.renameFolder
 
 /**
  * The row-action dialogs and sheets of [NoteListScreen] [list.md]: delete and

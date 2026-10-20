@@ -114,6 +114,20 @@ import uniffi.futo_notes_ffi.makeId
 import uniffi.futo_notes_ffi.sanitizeTitle
 import uniffi.futo_notes_ffi.splitId
 import uniffi.futo_notes_ffi.validateTitle
+import com.futo.notes.awaitEditorLeaves
+import com.futo.notes.claimDraftOwnership
+import com.futo.notes.delete
+import com.futo.notes.deleteAsync
+import com.futo.notes.flushAsync
+import com.futo.notes.flushDraft
+import com.futo.notes.flushRetainedEditor
+import com.futo.notes.launchEditorLeave
+import com.futo.notes.moveNote
+import com.futo.notes.releaseDraftOwnership
+import com.futo.notes.rename
+import com.futo.notes.setDraftProvider
+import com.futo.notes.setEditorFlushWaiter
+import com.futo.notes.write
 
 /** A note title that is still the auto-assigned placeholder: exactly "Untitled",
  *  or a dedup variant "Untitled-N" (the Rust store's `unique_note_id` appends `-2`,

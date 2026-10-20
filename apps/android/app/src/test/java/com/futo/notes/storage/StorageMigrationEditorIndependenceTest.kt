@@ -46,7 +46,7 @@ class StorageMigrationEditorIndependenceTest {
 
     @Test
     fun `vault migration flushes retained drafts before staging the copy`() {
-        val migrateVault = memberBody(productionSource("NotesStore.kt"), "suspend fun migrateVault(")
+        val migrateVault = memberBody(productionSource("NotesStoreMigration.kt"), "suspend fun NotesStore.migrateVault(")
 
         val snapshotDrafts = migrateVault.indexOf("pendingEditor.currentDrafts()")
         assertTrue("migrateVault must snapshot retained drafts", snapshotDrafts >= 0)
@@ -68,13 +68,13 @@ class StorageMigrationEditorIndependenceTest {
      * inside that function rather than about where other code happens to sit in
      * the file. Searching the whole file made this fail the moment the flush moved
      * into a helper shared with another caller, even though the runtime order was
-     * unchanged. Members here are declared at four-space indentation.
+     * unchanged. Members here are top-level extensions, declared at column zero.
      */
     private fun memberBody(source: String, signature: String): String {
         val start = source.indexOf(signature)
         assertTrue("could not find `$signature`", start >= 0)
         val fromSignature = source.substring(start)
-        val nextMember = Regex("""\n {4}(/\*\*|(private |internal )?(suspend )?fun |val |var )""")
+        val nextMember = Regex("""\n(/\*\*|(private |internal )?(suspend )?fun |val |var )""")
             .find(fromSignature, startIndex = 1)
         return fromSignature.substring(0, nextMember?.range?.first ?: fromSignature.length)
     }

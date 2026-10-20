@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.futo.notes.createNote
 import com.futo.notes.localization.Localization
 import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NotesStore
