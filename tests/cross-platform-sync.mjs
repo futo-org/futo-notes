@@ -720,25 +720,12 @@ async function editDuringSyncKeepsLocalDraft(a, b, server) {
   // before B's explicit startSync() runs.
   await b.pauseAutoSync();
 
-  await a.writeNote('taken sync title', '# Blocking title');
   await a.writeNote('during sync', '# Base');
   await a.syncNow();
   await b.syncNow();
-  // The rename below must be BLOCKED by the duplicate-title guard, which checks
-  // B's notes cache. syncNow() resolving doesn't guarantee the pulled note has
-  // propagated into that cache yet — wait for it, otherwise the guard misses
-  // and the rename falls through to the Rust auto-suffix (taken sync title-2).
-  await waitForNoteInSidebar(b, 'taken sync title');
 
   await b.openNote('during sync');
   await waitForEditorContent(b, '# Base');
-  await b.setTitle('taken sync title');
-  // Title edits use a deliberate 10s debounce (TITLE_SAVE_DEBOUNCE_MS) so a
-  // rename round-trip never fires mid-typing — longer than waitForSaveIdle's
-  // 5s budget. Flush so the (duplicate-title-blocked) save settles now, exactly
-  // as this scenario already does before its final savePending check below.
-  await b.flushSave();
-  await waitForSaveIdle(b);
 
   await a.writeNote('during sync', '# Remote update');
   await a.syncNow();
@@ -751,14 +738,23 @@ async function editDuringSyncKeepsLocalDraft(a, b, server) {
   // the app: the blur flush that typing triggers can open and close the pending
   // window between two bridge round trips, and the wait then fails on a scenario
   // that is working correctly.
+  //
+  // The draft is SAVED here, in the middle of B's pull. It used to be held
+  // unsaved by a duplicate title (the save was refused wholesale), which let
+  // the pull land and the sync report downloaded=1. A duplicate title now blocks
+  // only the rename and the body saves under the note's own name (editor.md,
+  // "A duplicate title blocks the rename ... The body still saves"), so the pull
+  // meets a locally-saved edit: the engine declines to overwrite it
+  // (local_apply, "will retry") and the next cycle files the conflict. What the
+  // scenario protects is unchanged — neither text is lost — and is asserted below.
   await b.flushSave();
   await waitForSaveIdle(b);
   const draftDuringSync = (await b.getOpenNoteState()).editorContent;
 
   const bResult = await b.awaitStartedSync();
   assert(
-    bResult.summary.downloaded === 1,
-    `B downloaded=${bResult.summary.downloaded}, expected 1`,
+    bResult.summary.downloaded === 0 && bResult.summary.failures.length === 1,
+    `the pull must decline to overwrite the saved draft, got ${JSON.stringify(bResult.summary)}`,
   );
 
   const preservedState = await waitForEditorContent(b, draftDuringSync);
@@ -773,14 +769,11 @@ async function editDuringSyncKeepsLocalDraft(a, b, server) {
     'route should stay on the edited note during sync',
   );
 
-  // Settle the protected draft: restoring a valid title unblocks the save, and
-  // the draft parks against the pulled base rather than fast-forwarding over it
-  // (#89). Both texts then reach the peer — the pulled update at the note's own
-  // id, the draft as a conflict copy.
-  await b.setTitle('during sync');
-  await b.flushSave();
-  await waitForSaveIdle(b);
+  // The retry cycle settles it: the draft parks against the pulled base rather
+  // than fast-forwarding over it (#89). Both texts then reach the peer — the
+  // pulled update at the note's own id, the draft as a conflict copy.
   await b.syncNow();
+  await waitForSaveIdle(b);
   await a.syncNow();
   const aContent = await a.readNote('during sync');
   assertEqual(
@@ -794,26 +787,29 @@ async function editDuringSyncKeepsLocalDraft(a, b, server) {
   assertEqual(
     await a.readNote(String(conflictCopy).replace(/\.md$/, '')),
     draftDuringSync,
-    'the conflict copy must hold the draft that was protected during sync',
+    'the conflict copy must hold the draft that was typed during sync',
   );
 }
 
 async function dirtyDraftSurvivesAPeerEditThenSettles(a, b, server) {
   // Issue #89 across two real clients, and the assertion no committed scenario
-  // made: when a peer edit meets a DIRTY local draft, BOTH texts survive — the
-  // peer's at the note's own id, the draft as a conflict copy. `flush_draft`
-  // parks exactly when the draft's base no longer matches disk, so the baseline
-  // the open-note reconcile leaves behind is what decides park vs clobber.
-  // Rebasing it onto the pulled bytes puts the next flush on its `current ==
-  // base` fast-forward arm and the peer's edit is destroyed with no copy
-  // anywhere in the vault.
+  // made: when a peer edit meets a local draft, BOTH texts survive — the peer's
+  // at the note's own id, the draft as a conflict copy. `flush_draft` parks
+  // exactly when the draft's base no longer matches disk, so the baseline the
+  // open-note reconcile leaves behind is what decides park vs clobber. Rebasing
+  // it onto the pulled bytes puts the next flush on its `current == base`
+  // fast-forward arm and the peer's edit is destroyed with no copy anywhere in
+  // the vault.
   //
-  // The draft is held dirty the way externalWatcherProtectsDirtyDraftThenSettles
-  // does it — a duplicate title blocks the save — rather than by keeping the
-  // editor focused: the editor's hasFocus() also requires document.hasFocus(),
-  // so a background window's focus is not something a scenario can rely on.
-  // This is the sync-pull twin of that watcher scenario, which asserts the same
-  // park for an external disk write.
+  // The draft is NOT held unsaved. This scenario used to hold it dirty with a
+  // duplicate title, whose refusal blocked every save; a duplicate title now
+  // blocks only the rename and the body saves under the note's own name
+  // (editor.md: "A duplicate title blocks the rename ... The body still
+  // saves"), so the pull meets a saved local edit and the engine files the
+  // conflict itself (summary.conflicts, not downloaded). The unsaved-buffer
+  // arm of the reconcile is the coordinator unit suite's
+  // (createExternalChangeCoordinator.test.ts), and the focused-editor
+  // scenarios elsewhere in this file hold a deferral deterministically.
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
   // Own the pull ordering explicitly: a background cycle waking on A's push
@@ -822,21 +818,17 @@ async function dirtyDraftSurvivesAPeerEditThenSettles(a, b, server) {
   await a.pauseAutoSync();
   await b.pauseAutoSync();
 
-  await a.writeNote('sync taken title', '# Blocking title');
   await a.writeNote('sync dirty draft', '# Base');
   await a.syncNow();
   await b.syncNow();
-  await waitForNoteInSidebar(b, 'sync taken title');
+  await waitForNoteInSidebar(b, 'sync dirty draft');
 
   await b.openNote('sync dirty draft');
   await waitForEditorContent(b, '# Base');
 
-  // Hold the draft unsaveable: the duplicate title blocks every save attempt,
-  // so the typed line is still unpersisted when the peer edit arrives.
-  await b.setTitle('sync taken title');
+  await b.typeInEditor('\nLocal draft');
   await b.flushSave();
   await waitForSaveIdle(b);
-  await b.typeInEditor('\nLocal draft');
   const typed = (await b.getOpenNoteState()).editorContent;
   assert(typed.includes('Local draft'), `B should hold the typed draft, got: ${typed}`);
 
@@ -844,22 +836,10 @@ async function dirtyDraftSurvivesAPeerEditThenSettles(a, b, server) {
   await a.syncNow();
   const pulled = await b.syncNow();
   assertEqual(
-    pulled.summary.downloaded,
+    pulled.summary.conflicts,
     1,
-    `B downloaded=${pulled.summary.downloaded}, expected 1`,
+    `the peer edit must meet the saved draft as one conflict, got ${JSON.stringify(pulled.summary)}`,
   );
-
-  // Unsaved work is never replaced: the pulled bytes did not reach the buffer.
-  const kept = await b.getOpenNoteState();
-  assert(
-    kept.editorContent.includes('Local draft'),
-    `the dirty draft must survive the peer edit, got: ${kept.editorContent}`,
-  );
-
-  // Restore a valid title so the kept draft can finally be persisted. The
-  // engine parks it, leaving the peer's bytes where they are.
-  await b.setTitle('sync dirty draft');
-  await b.flushSave();
   await waitForSaveIdle(b);
 
   const settled = await b.getOpenNoteState();
