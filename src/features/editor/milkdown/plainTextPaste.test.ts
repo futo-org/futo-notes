@@ -288,6 +288,36 @@ describe('pasting blocks into a line that has text', () => {
     expect(handle.getContent()).toBe('abone\n\n# Two\n\nthree!cd\n');
   });
 
+  // Where a pasted line stops being characters (plainTextPaste.ts `literalLine`):
+  // a marker with text after it is a block.
+  it('a numbered line with text is an ordered list, split out of the line', async () => {
+    const [handle, view] = await caretIn('abcd\n', 2);
+
+    expect(pastePlain(view, '1986. A great year')).toBe(true);
+
+    expect(handle.getContent()).toBe('ab\n\n1986. A great year\n\ncd\n');
+  });
+
+  it('a divider is a block, split out of the line', async () => {
+    const [, view] = await caretIn('abcd\n', 2);
+
+    expect(pastePlain(view, '---')).toBe(true);
+
+    // dividerCaret.ts then leaves the caret in an empty paragraph under it.
+    expect(blockTypes(view).slice(0, 2)).toEqual(['paragraph', 'hr']);
+    expect(view.state.doc.textContent).toBe('abcd');
+  });
+
+  it('a block marker alone, with a selection, replaces it with the characters', async () => {
+    const [handle, view] = await caretIn('abcd\n', 1);
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 2, 4)));
+
+    expect(pastePlain(view, '>')).toBe(true);
+    view.dispatch(view.state.tr.insertText('!'));
+
+    expect(handle.getContent()).toBe('a>!d\n');
+  });
+
   it('a list pasted at the start of a second line keeps the first line a paragraph', async () => {
     const [handle, view] = await caretIn('one\ntwo\n', 4);
     expect(view.state.selection.$from.nodeBefore?.type.name).toBe('hardbreak');

@@ -223,6 +223,24 @@ function placeListItems(tr: Transaction, blocks: Fragment): Transaction | null {
   return tr.setSelection(TextSelection.near(tr.doc.resolve(caret), -1));
 }
 
+/**
+ * The characters of a one-line paste that reads as no block a line could
+ * want, or null. Read as markdown, a block marker alone (`#`, `-`, `>`, `1.`,
+ * `- [ ]`) is an empty block; placed as one it splits the caret's line around
+ * nothing the user typed. It goes in as copied, the line kept whole. A line
+ * ending at either end of the copied line is not part of it.
+ */
+function literalLine(text: string, blocks: Fragment): string | null {
+  const line = text.replace(/^(?:[ \t]*(?:\r\n?|\n))+/, '').replace(/(?:\r\n?|\n)+$/, '');
+  if (/[\r\n]/.test(line)) return null;
+  let content = false;
+  blocks.descendants((node) => {
+    if (node.isText || node.isLeaf) content = true;
+    return !content;
+  });
+  return content ? null : line;
+}
+
 export const plainTextPaste = $prose((ctx) => {
   const schema = ctx.get(schemaCtx);
   const { paragraph } = schema.nodes;
@@ -285,6 +303,12 @@ export const plainTextPaste = $prose((ctx) => {
     // in as the characters copied, not as its text with the markup gone.
     if (oneLine !== null && only?.type !== paragraph) {
       view.dispatch(view.state.tr.insertText(text).scrollIntoView());
+      return true;
+    }
+
+    const literal = literalLine(text, blocks);
+    if (literal !== null) {
+      view.dispatch(view.state.tr.insertText(literal).scrollIntoView().setMeta('uiEvent', 'paste'));
       return true;
     }
 

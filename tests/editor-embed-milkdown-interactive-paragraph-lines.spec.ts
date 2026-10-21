@@ -450,3 +450,29 @@ test('pasted plain text keeps a space before its final newline', async ({ page }
   await settled(page);
   expect(await getContent(page)).toBe('abx cd\n');
 });
+
+// A block marker on its own read as an empty block (an empty heading, list
+// item, quote or task), and the line was split around it: `#` pasted into
+// `ab|cd` saved `ab`, `#`, `cd` as three blocks, and `*` came back as `-`.
+for (const [note, word, back, pasted, expected] of [
+  ['abcd\n', 'abcd', 2, '#', 'ab#cd\n'],
+  ['abcd\n', 'abcd', 2, '-', 'ab-cd\n'],
+  ['abcd\n', 'abcd', 2, '*', 'ab*cd\n'],
+  ['abcd\n', 'abcd', 2, '>', 'ab>cd\n'],
+  ['abcd\n', 'abcd', 2, '1.', 'ab1.cd\n'],
+  ['abcd\n', 'abcd', 2, '- [ ]', 'ab- [ ]cd\n'],
+  ['abcd\n', 'abcd', 2, '# \n', 'ab# cd\n'],
+  ['## Head\n', 'Head', 2, '-', '## He-ad\n'],
+  ['- item\n', 'item', 2, '#', '- it#em\n'],
+] as const) {
+  test(`a block marker pasted alone into ${JSON.stringify(note)} goes in as its characters: ${JSON.stringify(pasted)}`, async ({
+    page,
+  }) => {
+    await open(page, note);
+    await caretAtEndOf(page, word);
+    if (back > 0) await caretBack(page, back);
+    await pastePlainText(page, pasted);
+    await settled(page);
+    expect(await getContent(page)).toBe(expected);
+  });
+}

@@ -58,6 +58,13 @@
   `## Head` + `# Title` saves the two headings). Pasted paragraphs before or
   after the block run on into the text at the caret, as typing them would. →
   plainTextPaste.ts `placeBlocks`
+- A block marker pasted alone into a line (`#`, `-`, `*`, `>`, `1.`, `- [ ]`)
+  goes in as the characters copied and the line stays whole: `#` pasted into
+  `ab|cd` saves `ab#cd`, not `ab`, an empty heading and `cd`. A marker with text
+  after it is that block (`1986. A great year` pasted into `ab|cd` is an ordered
+  list starting at 1986, between `ab` and `cd`), and so is a divider (`---`). →
+  plainTextPaste.ts `literalLine`,
+  tests/editor-embed-milkdown-interactive-paragraph-lines.spec.ts
 - In a list or task item, a pasted block lands inside the item, under the
   caret's line (`- item` + `# Title` saves `- item` with the heading nested
   under it), and a paste of nothing but a list adds its items to the list
