@@ -35,6 +35,9 @@ export interface NoteSessionDeps {
   navigate: (path: string) => void;
   /** The desktop vault refuses writes: nothing can be saved for the rest of the launch. */
   isVaultLocked?: () => boolean;
+  /** Test automation only (`__notesShellTest.holdSaves`, gated by testHooksEnabled):
+   * while true every save declines without writing, so the draft stays dirty. */
+  savesHeld?: () => boolean;
 }
 
 /** The exact body and title a save parked as a conflict copy. */
@@ -92,6 +95,10 @@ interface NoteSessionStatePatch {
   title?: string;
 }
 
+/* Ids compared as the file system and the store's `collision_key` do: a case
+ * or Unicode-normalization variant names the same file on macOS and Windows. */
+const fileKey = (id: string): string => id.normalize('NFC').toLowerCase();
+
 function hasDuplicateNoteTitle(
   checkTitle: string,
   notes: NotePreview[],
@@ -101,7 +108,8 @@ function hasDuplicateNoteTitle(
   const leaf = sanitizeFilename(normalizeTitleForPersistence(checkTitle));
   const parentFolder = originalId ? idParent(originalId) : (pendingFolder ?? '');
   const checkId = parentFolder ? `${parentFolder}/${leaf}` : leaf;
-  return notes.some((note) => note.id === checkId && note.id !== originalId);
+  const checkKey = fileKey(checkId);
+  return notes.some((note) => fileKey(note.id) === checkKey && note.id !== originalId);
 }
 
 const BODY_SAVE_DEBOUNCE_MS = 500;
@@ -276,9 +284,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
    * whose links it rewrites, which no one knows until the store answers. A
    * note switch reads its incoming note WHILE such a save runs only when the
    * save cannot touch that file (`fenceIncomingRead`); otherwise it waits, as
-   * every switch did. Ids are compared as the file system may: a case or
-   * Unicode-normalization variant names the same file on macOS and Windows. */
-  const fileKey = (id: string): string => id.normalize('NFC').toLowerCase();
+   * every switch did. */
   const savingKeys = new Set<string>();
   let identitySavesInFlight = 0;
   /* Bumped when a save that may rename starts, so a fence notices one that
@@ -313,7 +319,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   }
 
   const saveQueue = createNoteSaveQueue({
-    save: trackSave,
+    save: () => (deps.savesHeld?.() ? Promise.resolve(false) : trackSave()),
     hasUnseenChanges: hasUnseenEditorChanges,
     editedSinceSaveRead: () => deps.getEditorContent() !== editorReadBySave,
     notifySaved,

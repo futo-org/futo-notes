@@ -1,7 +1,7 @@
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import { hasFileSystem } from '$lib/platform';
 import { idLeaf, idParent } from '$lib/platform/pathSafety';
-import { sanitizeFilename, validateTitle } from '$lib/rules';
+import { FALLBACK_TITLE, sanitizeFilename, validateTitle } from '$lib/rules';
 import type { LocalizedMessage } from '$shared/localization';
 
 import {
@@ -41,7 +41,8 @@ interface SavedNoteState {
    * editor moves to `id`, never other tabs holding the original. */
   keepsOriginal?: boolean;
   savedOriginalId: string | null;
-  requestedTitle: string;
+  /** The title this save was asked for; null when it refused that title. */
+  requestedTitle: string | null;
   title: string;
 }
 
@@ -93,15 +94,22 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
         : editorContent;
       // Navigating Home clears the tab's note id before this queued save runs.
       if (noteId === null && state.originalId === null && !state.title) return false;
-      const newTitle = normalizeTitleForPersistence(state.title);
+      /* A refused title never takes the body down with it (2026-10-20): the
+       * body saves under the note's current name — `Untitled` for a note never
+       * saved, as on the native shells — and the title waits, its warning up. */
       const refusal = titleSaveRefusal(state.title, options.hasDuplicateTitle);
-      if (refusal) {
-        options.showTitleWarning(refusal);
-        return false;
-      }
+      if (refusal) options.showTitleWarning(refusal);
+      if (refusal && state.originalId === null && newContent === state.savedContent) return false;
+      const newTitle = refusal
+        ? state.originalId
+          ? state.savedTitle
+          : FALLBACK_TITLE
+        : normalizeTitleForPersistence(state.title);
 
       let newId = sanitizeFilename(newTitle);
-      if (state.originalId) {
+      if (refusal && state.originalId) {
+        newId = state.originalId;
+      } else if (state.originalId) {
         const parent = idParent(state.originalId);
         if (parent) newId = `${parent}/${newId}`;
       } else {
@@ -147,7 +155,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
           options.onSaved({
             id: parkedId,
             title: parkedNote?.title ?? idLeaf(parkedId),
-            requestedTitle: state.title,
+            requestedTitle: refusal ? null : state.title,
             content: newContent,
             savedOriginalId: state.originalId,
             keepsOriginal: true,
@@ -164,7 +172,7 @@ export function createNotePersistence(options: CreateNotePersistenceOptions) {
       options.onSaved({
         id: result.id,
         title: savedNote?.title ?? newTitle,
-        requestedTitle: state.title,
+        requestedTitle: refusal ? null : state.title,
         content: newContent,
         savedOriginalId: state.originalId,
       });

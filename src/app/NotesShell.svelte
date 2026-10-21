@@ -49,6 +49,7 @@
 
   let editor: EditorApi | undefined = $state();
   let testEditorFocused: boolean | null = null;
+  let testSavesHeld = false;
   let noteBody: HTMLElement | undefined = $state();
   let titleTextarea: HTMLTextAreaElement | undefined = $state();
   let sidebarCollapsed = $state(false);
@@ -86,6 +87,7 @@
     focusEditor: () => editor?.focus(),
     isEditorFocused: () => testEditorFocused ?? editor?.hasFocus() ?? false,
     isComposing: () => editor?.isComposing() ?? false,
+    savesHeld: () => testSavesHeld,
     getNotes: getAllNotes,
     getNoteBody: () => noteBody,
     getTitleTextarea: () => titleTextarea,
@@ -324,6 +326,9 @@
     // just wrote has measured nothing. This reports the editor's REAL focus, so
     // an assertion on it can fail (tests/editor-focus-signal.spec.ts).
     isEditorFocused: () => editor?.hasFocus() ?? false,
+    holdSaves: (held) => {
+      testSavesHeld = held;
+    },
     getState: () => ({
       originalId: session.originalId,
       title: session.title,

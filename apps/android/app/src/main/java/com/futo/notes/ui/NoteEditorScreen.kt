@@ -251,7 +251,7 @@ fun NoteEditorScreen(
             .firstOrNull { it.kind != "empty" && it.kind != "forbidden_chars" }
         val dup = title.trim().let { t ->
             t.isNotEmpty() && makeId(splitId(noteId).folder, sanitizeTitle(t)).let { tgt ->
-                tgt != noteId && store.notes.any { it.id == tgt }
+                collidesWithOtherNote(noteId, tgt, store.notes.map { it.id })
             }
         }
         titleWarning = blocking?.let { titleValidationMessage(it.kind) }

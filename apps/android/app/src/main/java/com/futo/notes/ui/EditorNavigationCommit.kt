@@ -5,6 +5,7 @@ import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.rebasedOnRelink
 import kotlinx.coroutines.withTimeoutOrNull
 import uniffi.futo_notes_ffi.FlushDisposition
+import uniffi.futo_notes_ffi.collisionKey
 import uniffi.futo_notes_ffi.makeId
 import uniffi.futo_notes_ffi.sanitizeTitle
 import uniffi.futo_notes_ffi.splitId
@@ -44,10 +45,26 @@ internal suspend fun commitEditorTitleSnapshot(
     }
 }
 
+/**
+ * Would naming this note [targetId] land on a DIFFERENT note's name? The store
+ * resolves collisions case- and NFC-insensitively, so this compares each id's
+ * Rust `collisionKey` rather than the ids themselves — `QA ALPHA` beside
+ * `qa alpha` is a duplicate, not a `QA ALPHA-2` rename [editor.md, list.md].
+ */
+internal fun collidesWithOtherNote(
+    currentId: String,
+    targetId: String,
+    existingIds: Collection<String>,
+    key: (String) -> String = ::collisionKey,
+): Boolean {
+    val targetKey = key(targetId)
+    return existingIds.any { it != currentId && key(it) == targetKey }
+}
+
 internal fun editorTitleTarget(
     currentId: String,
     rawTitle: String,
-    existingIds: Set<String>,
+    existingIds: Collection<String>,
 ): String? {
     val trimmed = rawTitle.trim()
     if (trimmed.isEmpty()) return null
@@ -56,7 +73,7 @@ internal fun editorTitleTarget(
     val clean = sanitizeTitle(trimmed)
     if (clean == parts.title) return null
     val target = makeId(parts.folder, clean)
-    if (target != currentId && target in existingIds) return null
+    if (collidesWithOtherNote(currentId, target, existingIds)) return null
     return target
 }
 
