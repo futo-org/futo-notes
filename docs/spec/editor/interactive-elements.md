@@ -135,6 +135,12 @@
   file reads it. → packages/editor/src/milkdown-compat/inputRules.ts,
   tests/editor-embed-milkdown-interactive-typed-escapes.spec.ts
 
+- Typed delimiters convert only where a file would read them as formatting:
+  `*`, `_` or `~` text padded with whitespace inside its delimiters
+  (`2 * 3 * 4`, `** not bold **`, `~~ a ~~`) stays text. →
+  packages/editor/src/milkdown-compat/inputRules.ts,
+  tests/editor-embed-milkdown-interactive-typed-escapes.spec.ts
+
 - _(desktop)_ Selecting text raises a floating toolbar just above the
   selection — Text/H1/H2/H3, Quote, Bold, Italic, Strikethrough, Code, Link,
   plus Indent/Outdent inside lists and quotes — placed by the same

@@ -177,12 +177,43 @@ test.describe('the parked end-of-document paragraph is not written', () => {
 test.describe('typed markdown converts only where the saved line would read the same', () => {
   // The presets' input rules (milkdown-compat/inputRules.ts) disagreed with the
   // parser that reads a note back: a fence language with a capital or a `+`
-  // did not open a fence, and seven `#` made a level-7 heading.
+  // did not open a fence, seven `#` made a level-7 heading, and a delimiter run
+  // padded with spaces became formatting.
   const typed = (page: Page, variant: 'compat' | 'baseline', keys: string) =>
     page.evaluate(([v, k]) => window.__futoCensus.typeText(v as 'compat' | 'baseline', k), [
       variant,
       keys,
     ] as const);
+
+  const MARKS: [keys: string, mark: string][] = [
+    ['2 * 3 *', 'mark:emphasis'],
+    ['** not bold **', 'mark:strong'],
+    ['~~ not struck ~~', 'mark:strike_through'],
+  ];
+
+  test('canary: upstream still formats padded delimiter runs', async ({ page }) => {
+    for (const [keys, mark] of MARKS) {
+      expect((await typed(page, 'baseline', keys)).histogram[mark], keys).toBe(1);
+    }
+  });
+
+  test('compat leaves them text', async ({ page }) => {
+    for (const [keys, mark] of MARKS) {
+      expect((await typed(page, 'compat', keys)).histogram[mark], keys).toBeUndefined();
+    }
+  });
+
+  test('compat still formats a flanked, unescaped run', async ({ page }) => {
+    for (const [keys, mark] of [
+      ['2 *3*', 'mark:emphasis'],
+      ['**bold**', 'mark:strong'],
+      ['a _em_', 'mark:emphasis'],
+      ['~~gone~~', 'mark:strike_through'],
+      ['`code`', 'mark:inlineCode'],
+    ] as const) {
+      expect((await typed(page, 'compat', keys)).histogram[mark], keys).toBe(1);
+    }
+  });
 
   test('canary: upstream still opens a fence for lowercase letters only', async ({ page }) => {
     expect((await typed(page, 'baseline', '```js ')).histogram.code_block).toBe(1);

@@ -267,3 +267,45 @@ test('typing six hashes and a space still makes a level-6 heading', async ({ pag
   expect(await typeIntoEmpty(page, '###### six')).toBe('###### six\n');
   expect(await page.locator('.ProseMirror h6').allTextContents()).toEqual(['six']);
 });
+
+// ============================================================
+// Typed delimiters follow CommonMark (spec: interactive-elements.md "convert
+// as you type"; markdown-house-style.md "Text and escaping"). The preset's
+// emphasis, strong and strikethrough rules took a run padded with spaces as
+// formatting, so typing what a file reads as plain text changed it:
+// `2 * 3 * 4` saved as `2 *&#x20;3&#x20;* 4`, `** not bold **` as `**not bold**`.
+// ============================================================
+
+/** The formatting the rendered paragraph holds, as `tag:text` pairs. */
+function renderedMarks(page: Page): Promise<string[]> {
+  return page
+    .locator('.ProseMirror p :is(em, strong, code, del, s)')
+    .evaluateAll((elements) =>
+      elements.map((element) => `${element.tagName.toLowerCase()}:${element.textContent ?? ''}`),
+    );
+}
+
+for (const typed of [
+  '2 * 3 * 4',
+  '** not bold **',
+  '__ not bold __',
+  'a * b*',
+  'a *b *',
+  '~~ not struck ~~',
+]) {
+  test(`typed "${typed}" stays text, as a file reads it`, async ({ page }) => {
+    expect(await typeIntoEmpty(page, typed)).toBe(`${typed}\n`);
+    expect(await renderedMarks(page)).toEqual([]);
+  });
+}
+
+for (const [typed, saved, marks] of [
+  ['2 *3* 4', '2 *3* 4\n', ['em:3']],
+  ['a **b c** d', 'a **b c** d\n', ['strong:b c']],
+  ['run `npm i` now', 'run `npm i` now\n', ['code:npm i']],
+] as const) {
+  test(`typed "${typed}" still converts`, async ({ page }) => {
+    expect(await typeIntoEmpty(page, typed)).toBe(saved);
+    expect(await renderedMarks(page)).toEqual(marks);
+  });
+}

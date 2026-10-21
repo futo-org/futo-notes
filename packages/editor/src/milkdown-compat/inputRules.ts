@@ -13,6 +13,17 @@
  *  2. `####### ` made a level-7 heading node, which saved as six `#`. Seven or
  *     more `#` are not a heading; in a paragraph they stay text. (Inside a
  *     heading the preset's level bump, capped at six, is kept.)
+ *  3. Emphasis, strong and strikethrough took a run padded with whitespace:
+ *     `2 * 3 *` italicised ` 3 ` and saved `2 *&#x20;3&#x20;* 4`; `** not bold **`
+ *     saved `**not bold**`. CommonMark's flanking rule: an opener is not followed
+ *     by whitespace, a closer not preceded by it.
+ *
+ * Everything else is the preset's: the same delimiters, the same characters
+ * that may not touch an opener (`\w:/` before `**`/`__`/`~~`, `*` before `*`,
+ * a word character before `_`), the same code-mark guards as `markRule` in
+ * `@milkdown/prose`, the same marks and attributes. No look-behind: the
+ * character before an opener is matched as a `lead` group instead, as
+ * src/features/editor/milkdown/imageInputRule.ts does for the legacy WebView floor.
  *
  * paragraphLines.ts `lineStartShortcut` mirrors the block rules here (1, 2);
  * paragraphLines.preset.test.ts holds the two together.
@@ -21,15 +32,118 @@
  * UNPATCHED presets; when upstream fixes one, its canary fails and the fork
  * here should go.
  */
-import { codeBlockSchema, headingSchema } from '@milkdown/kit/preset/commonmark';
+import {
+  codeBlockSchema,
+  emphasisSchema,
+  headingSchema,
+  strongSchema,
+} from '@milkdown/kit/preset/commonmark';
+import { strikethroughSchema } from '@milkdown/kit/preset/gfm';
+import type { Attrs, Mark, MarkType } from '@milkdown/kit/prose/model';
 import { InputRule, textblockTypeInputRule } from '@milkdown/kit/prose/inputrules';
+import type { EditorState } from '@milkdown/kit/prose/state';
 import { $inputRule } from '@milkdown/kit/utils';
+
+/**
+ * What may come before an opener: the start of the text, or a character from
+ * `allowed` (a regex class body).
+ */
+function lead(allowed: string): string {
+  return String.raw`(?<lead>^|[${allowed}])`;
+}
+
+/** Text that neither starts nor ends with whitespace (or `edge`, the delimiter's own characters). */
+function flanked(edge: string, inner: string): string {
+  return String.raw`(?<text>[^\s${edge}](?:${inner}*?[^\s${edge}])?)`;
+}
+
+const EMPHASIS_STAR = new RegExp(
+  lead(String.raw`^*`) + String.raw`(?<open>\*)` + flanked(String.raw`*`, '[^*]') + String.raw`\*$`,
+);
+const EMPHASIS_UNDERSCORE = new RegExp(
+  lead(String.raw`^\w`) + '(?<open>_)' + flanked('_', '.') + '_$',
+);
+const STRONG = new RegExp(
+  lead(String.raw`^\w:/`) +
+    String.raw`(?<open>\*\*|__)` +
+    flanked(String.raw`*_`, '[^*_]') +
+    String.raw`(?:\*\*|__)$`,
+);
+const STRIKETHROUGH = new RegExp(
+  lead(String.raw`^\w:/`) + '(?<open>~{1,2})' + flanked('~', '.') + String.raw`\k<open>$`,
+);
 
 /** The ```lang shortcut: any info word a backtick fence can open with. */
 const CODE_FENCE = /^```(?<language>[^\s`]*)[\s\n]$/;
 const HEADING = /^(?<hashes>#+)\s$/;
 /** CommonMark's ATX heading: one to six `#`. */
 const MAX_HEADING_LEVEL = 6;
+
+function hasCodeMark(marks: readonly Mark[]): boolean {
+  return marks.some((mark) => mark.type.spec.code);
+}
+
+function rangeHasCodeMark(state: EditorState, from: number, to: number): boolean {
+  let found = false;
+  if (from < to) {
+    state.doc.nodesBetween(from, to, (node) => {
+      if (node.isInline && hasCodeMark(node.marks)) found = true;
+      return !found;
+    });
+  }
+  return found;
+}
+
+/**
+ * `markType` over the `text` group, its delimiters removed — `markRule`'s
+ * effect, with the `lead` group left where it is. The closing delimiter's last
+ * character is the keystroke itself, which an input rule never inserts.
+ */
+function delimitedMarkRule(
+  pattern: RegExp,
+  markType: MarkType,
+  attrs: (open: string) => Attrs | null = () => null,
+): InputRule {
+  return new InputRule(pattern, (state, match, start, end) => {
+    const { lead: before = '', open = '', text = '' } = match.groups ?? {};
+    if (text.trim() === '') return null;
+    const from = start + before.length;
+    const textStart = from + open.length;
+    const textEnd = textStart + text.length;
+    if (
+      rangeHasCodeMark(state, from, textStart) ||
+      rangeHasCodeMark(state, textEnd, end) ||
+      hasCodeMark(state.storedMarks ?? state.doc.resolve(end).marks())
+    ) {
+      return null;
+    }
+    const tr = state.tr;
+    const storedMarks = tr.storedMarks ?? [];
+    if (textEnd < end) tr.delete(textEnd, end);
+    tr.delete(from, textStart);
+    tr.addMark(from, from + text.length, markType.create(attrs(open)));
+    tr.setStoredMarks(storedMarks);
+    return tr;
+  });
+}
+
+export const emphasisStarInputRule = $inputRule((ctx) =>
+  delimitedMarkRule(EMPHASIS_STAR, emphasisSchema.type(ctx), () => ({ marker: '*' })),
+);
+
+export const emphasisUnderscoreInputRule = $inputRule((ctx) =>
+  delimitedMarkRule(EMPHASIS_UNDERSCORE, emphasisSchema.type(ctx), () => ({ marker: '_' })),
+);
+
+export const strongInputRule = $inputRule((ctx) =>
+  delimitedMarkRule(STRONG, strongSchema.type(ctx), (open) => ({
+    marker: open.startsWith('*') ? '*' : '_',
+  })),
+);
+
+export const strikethroughInputRule = $inputRule((ctx) =>
+  delimitedMarkRule(STRIKETHROUGH, strikethroughSchema.type(ctx)),
+);
 
 export const createCodeBlockInputRule = $inputRule((ctx) =>
   textblockTypeInputRule(CODE_FENCE, codeBlockSchema.type(ctx), (match) => ({

@@ -61,7 +61,7 @@
  *
  * `./inputRules` forks the presets' typed-markdown input rules where they read
  * a keystroke differently from how the parser reads the saved line: a fence
- * language with a capital or a `+`, seven `#`.
+ * language with a capital or a `+`, seven `#`, emphasis padded with spaces.
  *
  * `./frontmatter` is the one member that is an ADDITION rather than a fork: the
  * preset has no front matter construct at all, so `---\ntags: [a, b]\n---`
@@ -81,14 +81,22 @@
 import {
   commonmark,
   createCodeBlockInputRule as upstreamCodeBlockInputRule,
+  emphasisStarInputRule as upstreamEmphasisStarInputRule,
+  emphasisUnderscoreInputRule as upstreamEmphasisUnderscoreInputRule,
   inlineNodesCursorPlugin as upstreamInlineNodesCursorPlugin,
   remarkInlineLinkPlugin,
   remarkPreserveEmptyLinePlugin,
+  strongInputRule as upstreamStrongInputRule,
   syncHeadingIdPlugin,
   syncListOrderPlugin,
   wrapInHeadingInputRule as upstreamHeadingInputRule,
 } from '@milkdown/kit/preset/commonmark';
-import { gfm, keepTableAlignPlugin, tableEditingPlugin } from '@milkdown/kit/preset/gfm';
+import {
+  gfm,
+  keepTableAlignPlugin,
+  strikethroughInputRule as upstreamStrikethroughInputRule,
+  tableEditingPlugin,
+} from '@milkdown/kit/preset/gfm';
 import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 
 import { remarkExpandEmptyLinksPlugin } from './emptyLink';
@@ -96,7 +104,14 @@ import { remarkInlineHtmlIndentPlugin } from './inlineHtmlIndent';
 import { remarkEmptyTaskItemPlugin } from './emptyTaskItem';
 import { remarkImageTitlePlugin } from './imageTitle';
 import { inlineNodesCursorPlugin } from './inlineNodesCursor';
-import { createCodeBlockInputRule, wrapInHeadingInputRule } from './inputRules';
+import {
+  createCodeBlockInputRule,
+  emphasisStarInputRule,
+  emphasisUnderscoreInputRule,
+  strikethroughInputRule,
+  strongInputRule,
+  wrapInHeadingInputRule,
+} from './inputRules';
 import { remarkInlineUsedLinkDefinitionsPlugin } from './linkDefinitions';
 import { remarkBlankLineParagraphsPlugin } from './emptyLine';
 import { frontmatterPlugins } from './frontmatter';
@@ -182,12 +197,13 @@ function replacePresetEntry(
   upstream: MilkdownPlugin,
   replacement: MilkdownPlugin,
   what: string,
+  preset = '@milkdown/preset-commonmark',
 ): MilkdownPlugin[] {
   const at = plugins.indexOf(upstream);
   if (at < 0) {
     throw new Error(
       `milkdown-compat: expected to replace the upstream ${what} entry in the preset, ` +
-        `found none. Re-check @milkdown/preset-commonmark's composition against this module.`,
+        `found none. Re-check ${preset}'s composition against this module.`,
     );
   }
   return plugins.map((plugin, index) => (index === at ? replacement : plugin));
@@ -198,6 +214,13 @@ function replacePresetEntry(
  * parser that reads the note back, each swapped for its fork in `./inputRules`.
  */
 const FORKED_INPUT_RULES: readonly (readonly [MilkdownPlugin, MilkdownPlugin, string])[] = [
+  [upstreamEmphasisStarInputRule, emphasisStarInputRule, 'emphasis-star input rule'],
+  [
+    upstreamEmphasisUnderscoreInputRule,
+    emphasisUnderscoreInputRule,
+    'emphasis-underscore input rule',
+  ],
+  [upstreamStrongInputRule, strongInputRule, 'strong input rule'],
   [upstreamCodeBlockInputRule, createCodeBlockInputRule, 'code-block input rule'],
   [upstreamHeadingInputRule, wrapInHeadingInputRule, 'heading input rule'],
 ];
@@ -248,10 +271,16 @@ let cachedGfm: MilkdownPlugin[] | null = null;
  */
 export function gfmWithCompat(): MilkdownPlugin[] {
   cachedGfm ??= [
-    ...withoutPresetEntries(
-      gfm as MilkdownPlugin[],
-      UPSTREAM_TABLE_PASS_ENTRIES,
-      'table-pass',
+    ...replacePresetEntry(
+      withoutPresetEntries(
+        gfm as MilkdownPlugin[],
+        UPSTREAM_TABLE_PASS_ENTRIES,
+        'table-pass',
+        '@milkdown/preset-gfm',
+      ),
+      upstreamStrikethroughInputRule,
+      strikethroughInputRule,
+      'strikethrough input rule',
       '@milkdown/preset-gfm',
     ),
     scopedKeepTableAlignPlugin,
