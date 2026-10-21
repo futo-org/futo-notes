@@ -277,6 +277,31 @@ test('plain text pasted into a cell keeps a space at its start', async ({ page }
   ]);
 });
 
+// A cell holds one line of text, so a paste that reads as a block is put in as
+// the characters copied. It was parsed as that block and only its text merged
+// in: `r1a` + ` # h` saved `r1ah`, the space and the `#` gone.
+for (const [pasted, expected] of [
+  [' # h', 'r1a # h'],
+  [' - a', 'r1a - a'],
+  [' > q', 'r1a > q'],
+  [' 1. a', 'r1a 1. a'],
+  ['# h', 'r1a# h'],
+] as const) {
+  test(`a block pasted as plain text into a cell keeps its characters: ${JSON.stringify(pasted)}`, async ({
+    page,
+  }) => {
+    await open(page, TABLE);
+    await caretAtEndOf(page, 'r1a');
+    await pastePlainText(page, pasted);
+    await settled(page);
+    expect(tableRows(await getContent(page))).toEqual([
+      ['a', 'b'],
+      [expected, 'r1b'],
+      ['r2a', 'r2b'],
+    ]);
+  });
+}
+
 /*
  * RC-83: the HTML twin of RC-81. `text/html` with several blocks, caret in a
  * cell: ProseMirror wrapped each `<p>` in a new cell and prosemirror-tables
@@ -353,9 +378,11 @@ test('a lone heading pasted into an empty table cell does not split the table', 
   await settled(page);
   const content = await getContent(page);
   expect(content.match(/^\|\s*a\s*\|/gm)).toHaveLength(1);
+  // A cell cannot hold a heading, so the characters copied go in as text (the
+  // `#` was dropped until a block-shaped paste into a cell went in literally).
   expect(tableRows(content)).toEqual([
     ['a', 'b'],
-    ['x', 'y'],
+    ['# x', 'y'],
   ]);
 });
 

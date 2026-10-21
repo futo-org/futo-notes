@@ -41,6 +41,8 @@
 - Plain text pasted into a table cell stays in that cell: its line breaks
   become spaces, so no word spills into the next cell, and a space or tab at
   either end of the paste is kept (`r1a` + a pasted ` world` saves `r1a world`).
+  A cell holds no blocks, so a paste that reads as one (` # h`, ` - a`, ` > q`)
+  goes in as the characters copied: `r1a` + ` # h` saves `r1a # h`.
   → src/features/editor/milkdown/plainTextPaste.ts `flattenedForCell`,
   tests/editor-embed-milkdown-interactive-tables.spec.ts
 

@@ -20,7 +20,8 @@
  * block is left to ProseMirror, which inserts the text verbatim.
  *
  * Inside a table cell the text is first joined to one line (RC-81,
- * `transformPastedText` below).
+ * `transformPastedText` below), and a paste that reads as a block goes in as
+ * the characters copied, since a cell holds none.
  */
 import { parserCtx, schemaCtx } from '@milkdown/kit/core';
 import {
@@ -170,10 +171,17 @@ export const plainTextPaste = $prose((ctx) => {
     const slice = parsePasted(text);
     const blocks = slice?.content;
     if (!slice || !blocks || blocks.childCount === 0) return false;
+    const only = blocks.childCount === 1 ? blocks.firstChild : null;
+
+    // Nor can a cell hold a block: one the line reads as (` # h`, ` - a`) goes
+    // in as the characters copied, not as its text with the markup gone.
+    if (oneLine !== null && only?.type !== paragraph) {
+      view.dispatch(view.state.tr.insertText(text).scrollIntoView());
+      return true;
+    }
 
     const tr = view.state.tr;
     if (!tr.selection.empty) tr.deleteSelection();
-    const only = blocks.childCount === 1 ? blocks.firstChild : null;
     const placed = only?.type === paragraph ? null : placeBlocks(tr, blocks);
     if (!placed) {
       // Inline text, or blocks somewhere `placeBlocks` does not decide: what the
