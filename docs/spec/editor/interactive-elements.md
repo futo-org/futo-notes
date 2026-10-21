@@ -135,10 +135,12 @@
   file reads it. → packages/editor/src/milkdown-compat/inputRules.ts,
   tests/editor-embed-milkdown-interactive-typed-escapes.spec.ts
 
-- Typed delimiters convert only where a file would read them as formatting:
-  `*`, `_` or `~` text padded with whitespace inside its delimiters
-  (`2 * 3 * 4`, `** not bold **`, `~~ a ~~`) stays text. →
-  packages/editor/src/milkdown-compat/inputRules.ts,
+- A typed `*`, `_` or `~` run converts only where its opener can open by
+  CommonMark's flanking rule, as a file reads it: text padded with whitespace
+  inside its delimiters (`2 * 3 * 4`, `** not bold **`, `~~ a ~~`) stays text,
+  and so does an opener after a letter and before punctuation (`a*"b"*`) or an
+  `_` between letters of any script (`café_b_`). →
+  packages/editor/src/milkdown-compat/inputRules.ts `flanking`,
   tests/editor-embed-milkdown-interactive-typed-escapes.spec.ts
 
 - A delimiter escaped with a backslash, opening or closing (`\*not italic*`,

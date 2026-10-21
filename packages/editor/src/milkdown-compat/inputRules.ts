@@ -17,6 +17,9 @@
  *     `2 * 3 *` italicised ` 3 ` and saved `2 *&#x20;3&#x20;* 4`; `** not bold **`
  *     saved `**not bold**`. CommonMark's flanking rule: an opener is not followed
  *     by whitespace, a closer not preceded by it.
+ *     The punctuation half of that rule too: `a*"b"*` (an opener after a
+ *     letter and before punctuation) and `café_b_` (an `_` between letters of
+ *     any script) open nothing. `flanking` is micromark's own test.
  *  4. Every mark rule took a backslash-escaped delimiter (`\*not italic*`,
  *     `\**x**`, `\_x_`, `` \`x` ``, `\~x~`, and the closer of `*foo\*`) as a
  *     real one. An odd run of backslashes escapes the delimiter after it; an
@@ -24,11 +27,13 @@
  *     code span a backslash escapes nothing, so `` `a\` `` is still code.
  *
  * Everything else is the preset's: the same delimiters, the same characters
- * that may not touch an opener (`\w:/` before `**`/`__`/`~~`, `*` before `*`,
- * a word character before `_`), the same code-mark guards as `markRule` in
- * `@milkdown/prose`, the same marks and attributes. No look-behind: the
- * character before an opener is matched as a `lead` group instead, as
- * src/features/editor/milkdown/imageInputRule.ts does for the legacy WebView floor.
+ * that may not touch an opener (`\w:/` before `**`/`__`, `*` before `*`, a
+ * word character before `_`; and before `~`/`~~` also `~`, since a run is one
+ * delimiter: `a~~"b"~` struck `"b"` with the run's second tilde), the same
+ * code-mark guards as `markRule` in `@milkdown/prose`, the same marks and
+ * attributes. No look-behind: the character before an opener is matched as a
+ * `lead` group instead, as src/features/editor/milkdown/imageInputRule.ts does
+ * for the legacy WebView floor.
  *
  * paragraphLines.ts `lineStartShortcut` mirrors the block rules here (1, 2);
  * paragraphLines.preset.test.ts holds the two together.
@@ -82,7 +87,7 @@ const STRONG = new RegExp(
     String.raw`(?:\*\*|__)$`,
 );
 const STRIKETHROUGH = new RegExp(
-  lead(String.raw`^\w:/\\`) + '(?<open>~{1,2})' + flanked('~', '.') + String.raw`\k<open>$`,
+  lead(String.raw`^\w:/~\\`) + '(?<open>~{1,2})' + flanked('~', '.') + String.raw`\k<open>$`,
 );
 const INLINE_CODE = new RegExp(lead(String.raw`^\\`) + '(?<open>`)(?<text>[^`]+)`$');
 
@@ -91,6 +96,45 @@ const CODE_FENCE = /^```(?<language>[^\s`]*)[\s\n]$/;
 const HEADING = /^(?<hashes>#+)\s$/;
 /** CommonMark's ATX heading: one to six `#`. */
 const MAX_HEADING_LEVEL = 6;
+
+/**
+ * micromark's `classifyCharacter`: 1 for whitespace or the edge of the text,
+ * 2 for Unicode punctuation (P or S), 0 for anything else. The `\ufffc` an
+ * input rule reads for an inline leaf is most often a hard break — a line end.
+ */
+function classify(char: string | undefined): 0 | 1 | 2 {
+  if (char === undefined || char === '\ufffc' || /\s/.test(char)) return 1;
+  return /[\p{P}\p{S}]/u.test(char) ? 2 : 0;
+}
+
+/** The delimiters micromark lets an attention run open or close against. */
+const ATTENTION_MARKERS = '*_~';
+
+/**
+ * Whether a delimiter run of `marker` between `before` and `after` can open
+ * (and, read the other way round, close) — micromark's attention and GFM
+ * strikethrough rules, character for character: left-flanking is "not before
+ * whitespace, and not before punctuation unless after whitespace or
+ * punctuation"; an `_` also may not be right-flanking unless after
+ * punctuation. An input rule fires on the closer's last keystroke, so what
+ * follows the closer is the end of the text so far.
+ */
+function flanking(marker: string, before: string | undefined, after: string | undefined) {
+  const b = classify(before);
+  const a = classify(after);
+  const attention = marker !== '~';
+  const open =
+    a === 0 || (a === 2 && b !== 0) || (attention && ATTENTION_MARKERS.includes(after ?? ' '));
+  const close =
+    b === 0 || (b === 2 && a !== 0) || (attention && ATTENTION_MARKERS.includes(before ?? ' '));
+  if (marker !== '_') return { open, close };
+  return { open: open && (b !== 0 || !close), close: close && (a !== 0 || !open) };
+}
+
+/** No `String.prototype.at`: the legacy Android WebView floor (Chromium 83) lacks it. */
+function lastChar(text: string): string | undefined {
+  return text.length > 0 ? text.charAt(text.length - 1) : undefined;
+}
 
 /** Whether `text` ends in an odd run of backslashes — so the delimiter after it is escaped. */
 function endsEscaped(text: string): boolean {
@@ -117,7 +161,8 @@ function rangeHasCodeMark(state: EditorState, from: number, to: number): boolean
  * effect, with the `lead` group left where it is. The closing delimiter's last
  * character is the keystroke itself, which an input rule never inserts.
  *
- * `delimited` is false for a code span: a backslash inside it is text.
+ * `delimited` is false for a code span: its backticks follow no flanking rule
+ * and a backslash inside it is text.
  */
 function delimitedMarkRule(
   pattern: RegExp,
@@ -128,7 +173,12 @@ function delimitedMarkRule(
   return new InputRule(pattern, (state, match, start, end) => {
     const { lead: before = '', open = '', text = '' } = match.groups ?? {};
     if (text.trim() === '') return null;
-    if (delimited && endsEscaped(text)) return null;
+    if (delimited) {
+      if (endsEscaped(text)) return null;
+      const marker = open.charAt(0);
+      if (!flanking(marker, lastChar(before), text.charAt(0)).open) return null;
+      if (!flanking(marker, lastChar(text), undefined).close) return null;
+    }
     const from = start + before.length;
     const textStart = from + open.length;
     const textEnd = textStart + text.length;
