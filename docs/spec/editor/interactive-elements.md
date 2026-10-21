@@ -61,6 +61,10 @@
   `- [x] done` gives `- [ ]`, never a second `- [x]`. The item you are leaving keeps its own
   state. → src/features/editor/milkdown/keyboardParity.ts `splitCheckedTaskItem`,
   tests/editor-embed-milkdown-interactive.spec.ts
+- Enter in the middle of a checked task item's text leaves the first half checked and starts
+  the rest as a new, unchecked item.
+- Enter at the very start of a task item's text moves the text down with the caret: the new,
+  unchecked item is the empty one left above it, and the item keeps its text and its state.
 - Undoing an edit that renumbered a list reverses the edit and the renumbering
   together, as one step: the renumber rides in as an `appendTransaction` that is
   not itself recorded in history. → `@milkdown/preset-commonmark`

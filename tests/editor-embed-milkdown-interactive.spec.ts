@@ -1,5 +1,11 @@
 import { expect } from '@playwright/test';
-import { flushFrames, getContent, messagesOfType, waitForMessages } from './lib/editorEmbedHost';
+import {
+  flushFrames,
+  getContent,
+  messagesOfType,
+  waitForMessages,
+  withCaretObserved,
+} from './lib/editorEmbedHost';
 import {
   test,
   open,
@@ -82,6 +88,31 @@ test('splitting an unchecked task item stays a task', async ({ page }) => {
   await page.keyboard.type('more');
   await settled(page);
   expect(await getContent(page)).toContain('- [ ] todo\n- [ ] more');
+});
+
+// Enter at the very start of an item moves the item's text down along with the
+// caret, so the NEW item is the empty one left above it: that one is unchecked
+// and the done task keeps its check. prosemirror-schema-list applied the new
+// item's attrs only to an end-of-item split, so both came out `[x]`.
+test('Enter at the start of a checked task item inserts an unchecked item above it', async ({
+  page,
+}) => {
+  await open(page, '- [x] a');
+  await caretAtStartOf(page, 'a');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('y');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('- [ ]\n- [x] ya');
+});
+
+test('Enter in the middle of a checked task item starts the rest unchecked', async ({ page }) => {
+  await open(page, '- [x] abcd');
+  await caretAtStartOf(page, 'abcd');
+  await withCaretObserved(page, () => page.keyboard.press('ArrowRight'));
+  await withCaretObserved(page, () => page.keyboard.press('ArrowRight'));
+  await page.keyboard.press('Enter');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('- [x] ab\n- [ ] cd');
 });
 
 // Delete is a FORWARD delete in a list item and a heading, as in a paragraph.
