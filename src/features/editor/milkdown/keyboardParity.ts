@@ -62,7 +62,11 @@ import { keydownHandler } from '@milkdown/kit/prose/keymap';
 import { splitListItem } from '@milkdown/kit/prose/schema-list';
 import { type Command } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
-import { changeBlockIndent, selectionTouchesCode } from './blockCommands';
+import {
+  changeBlockIndent,
+  selectionTouchesCode,
+  selectionWithinWrittenContent,
+} from './blockCommands';
 import { enclosingListItem } from './caretContext';
 import { enterInParagraph, joinBackwardAsLine, joinForwardAsLine } from './paragraphLines';
 import { isSlashMenuOpen } from './slash';
@@ -214,22 +218,38 @@ export function handleIndentShortcut(view: ProseView, event: KeyboardEvent): boo
  * still CLAIMED: the preset claims it everywhere else, and declining here
  * would hand it straight back to that preset's keymap. Key names are the
  * preset's own, matched by the same `keydownHandler` its keymap uses.
+ *
+ * A selection reaching past the note's written content (select-all over a
+ * note ending in a list or quote) is first narrowed to that content, then the
+ * preset runs on it: otherwise the parked trailing paragraph became a saved
+ * `#` or an empty fence (blockCommands.ts `selectionWithinWrittenContent`).
+ * With no written textblock in it, the chord is claimed and does nothing.
  */
-const blockTypeChordsInCode = keydownHandler(
+const blockTypeChordGuard: Command = (state, dispatch) => {
+  if (selectionTouchesCode(state)) return true;
+  const scope = selectionWithinWrittenContent(state);
+  if (scope === state.selection) return false;
+  if (!scope) return true;
+  dispatch?.(state.tr.setSelection(scope));
+  return false;
+};
+
+const blockTypeChords = keydownHandler(
   Object.fromEntries(
     [0, 1, 2, 3, 4, 5, 6, 7, 8]
       .map((n) => `Mod-Alt-${n}`)
       .concat(['Mod-Shift-b', 'Mod-Alt-c'])
-      .map((chord): [string, Command] => [chord, (state) => selectionTouchesCode(state)]),
+      .map((chord): [string, Command] => [chord, blockTypeChordGuard]),
   ),
 );
 
 /**
  * The `handleKeyDown` direct view prop for the preset's block-type chords:
  * claims one, changing nothing, when the selection touches a code block;
- * declines everywhere else so the preset runs as before.
+ * narrows a selection that runs past the written content; declines otherwise
+ * so the preset runs as before.
  */
-export function handleBlockTypeChordInCode(view: ProseView, event: KeyboardEvent): boolean {
+export function handleBlockTypeChord(view: ProseView, event: KeyboardEvent): boolean {
   if (event.isComposing) return false;
-  return blockTypeChordsInCode(view, event);
+  return blockTypeChords(view, event);
 }

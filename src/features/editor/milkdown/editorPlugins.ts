@@ -30,11 +30,7 @@ import { landPendingDrop } from './blockDragSession';
 import { autolink } from './autolink';
 import { dividerCaretFix } from './dividerCaret';
 import { plainTextBlockPaste } from './plainTextBlockPaste';
-import {
-  handleBlockTypeChordInCode,
-  handleIndentShortcut,
-  handleParityKeyDown,
-} from './keyboardParity';
+import { handleBlockTypeChord, handleIndentShortcut, handleParityKeyDown } from './keyboardParity';
 import { handleLineStartShortcut, softBreakView } from './paragraphLines';
 import type { MobileDndHapticKind } from './mobileBlockDnd';
 import { codeHighlight } from './codeHighlight';
@@ -163,7 +159,7 @@ function configureEditor(ctx: Ctx, assembly: EditorAssembly): void {
     handleDrop: (_view, event) => getDropHandler()?.(event as DragEvent) ?? false,
     handleKeyDown: (view, event) =>
       handleIndentShortcut(view, event) ||
-      handleBlockTypeChordInCode(view, event) ||
+      handleBlockTypeChord(view, event) ||
       handleParityKeyDown(view, event),
     /* A block shortcut (`- `, `# `, …) typed at the start of a line
      * inside a paragraph starts that block from the line, for the same

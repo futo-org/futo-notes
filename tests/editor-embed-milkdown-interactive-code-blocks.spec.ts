@@ -115,6 +115,26 @@ for (const [where, markdown, selectAll] of [
   });
 }
 
+// A note ending in a list or quote has an empty paragraph parked after it
+// that a save never writes; select-all covers it, and the chord used to format
+// it too, saving a stray `#` or an empty fence.
+for (const [markdown, chord, expected] of [
+  ['- a\n', 'ControlOrMeta+Alt+1', '- a\n'],
+  ['> a\n', 'ControlOrMeta+Alt+1', '> # a\n'],
+  ['> a\n', 'ControlOrMeta+Alt+c', '> ```\n> a\n> ```\n'],
+] as const) {
+  test(`${chord} after select-all on ${JSON.stringify(markdown)} formats only the written lines`, async ({
+    page,
+  }) => {
+    await open(page, markdown);
+    await caretAtEndOf(page, 'a');
+    await withCaretObserved(page, () => page.keyboard.press('ControlOrMeta+a'));
+    await page.keyboard.press(chord);
+    await settled(page);
+    expect(await getContent(page)).toBe(expected);
+  });
+}
+
 test('Mod+Alt+1 still turns a paragraph into a heading', async ({ page }) => {
   await open(page, 'plain\n');
   await caretAtEndOf(page, 'plain');
