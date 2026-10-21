@@ -303,6 +303,26 @@ test('a pasted HTML table still overwrites cell by cell, spreadsheet-style', asy
   ]);
 });
 
+// A header-only table's empty filler row is not the clipboard's: the editor's
+// own copy of one, pasted into a cell, used to blank out the row under the one
+// its header lands on.
+test('a header-only table copied out of the editor overwrites one row only', async ({ page }) => {
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r1a');
+  await pasteHtml(
+    page,
+    '<table><tbody><tr data-is-header="true"><th><p>X</p></th><th><p>Y</p></th></tr>' +
+      '<tr data-filler=""><td><p></p></td><td><p></p></td></tr></tbody></table>',
+    '| X | Y |\n| --- | --- |',
+  );
+  await settled(page);
+  expect(tableRows(await getContent(page))).toEqual([
+    ['a', 'b'],
+    ['X', 'Y'],
+    ['r2a', 'r2b'],
+  ]);
+});
+
 test('a lone heading pasted into an empty table cell does not split the table', async ({
   page,
 }) => {

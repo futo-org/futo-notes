@@ -104,6 +104,7 @@ import { remarkPadTableRowsPlugin } from './tableWidth';
 export { FRONTMATTER_NODE } from './frontmatter';
 export type { MdastNode } from './mdast';
 export { editorMarkdownSerializer } from './ownedSerializer';
+export { isUnwrittenFillerRow } from './tableFillerRow';
 export { endsInUnwrittenBlank } from './trailingParagraph';
 
 /** The two entries `remarkPreserveEmptyLinePlugin` contributes to the preset. */

@@ -33,6 +33,11 @@
   `insertLineBreakInTableCell`,
   src/features/editor/milkdown/table/tableLineBreak.ts (reading the `<br>` back),
   src/features/editor/milkdown/table/tableLineBreak.test.ts
+- A table pasted with the caret in a table cell overwrites the cells from
+  there, spreadsheet-style, one pasted row per row; the empty row the editor
+  shows under a header-only table is not pasted, so it never blanks out the row
+  under the one the header lands on. → src/features/editor/milkdown/table/tablePaste.ts,
+  tests/editor-embed-milkdown-interactive-tables.spec.ts
 
 - Hovering a column shows a small grip above it; hovering a row shows one at
   its left edge. Clicking a grip selects that row/column (visibly, as a cell

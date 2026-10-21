@@ -25,6 +25,25 @@ const FILLER_ATTR = 'filler';
 const FILLER_DOM_ATTR = 'data-filler';
 
 /**
+ * Whether `row` is the schema's filler as no file holds it, so a save does not
+ * write it: a table row with no cells, or a marked filler row whose cells are
+ * all empty (one empty paragraph each). The serializer states the same rule
+ * over the document's JSON (`isUnwrittenRow`, ../markdown/normalize.ts).
+ */
+export function isUnwrittenFillerRow(row: ProseNode): boolean {
+  if (row.type.spec.tableRole !== 'row') return false;
+  if (row.childCount === 0) return true;
+  if (row.attrs[FILLER_ATTR] !== true) return false;
+  let empty = true;
+  row.forEach((cell) => {
+    cell.forEach((block) => {
+      if (block.type.name !== 'paragraph' || block.childCount > 0) empty = false;
+    });
+  });
+  return empty;
+}
+
+/**
  * `tr` (`fixTables`' repair) with every table row it filled from nothing
  * marked as the filler. Read off the steps: an insertion into a row that had
  * no cells just before it.
