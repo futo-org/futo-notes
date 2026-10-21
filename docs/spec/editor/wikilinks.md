@@ -33,6 +33,10 @@
   puts the selection just past it. →
   src/features/editor/milkdown/wikilink/autocomplete.ts,
   src/features/editor/wikilinkSuggestions.ts
+- Autocomplete offers the note ids that contain the text typed after `[[` as a
+  case-insensitive substring, folded exactly as find folds (every Greek sigma is
+  one letter, so `[[ΟΔΟΣ` offers `ΟΔΟΣΑ`). → src/features/editor/foldCase.ts,
+  src/features/editor/wikilinkSuggestions.ts
 - A wikilink whose target does not resolve is still decorated, styled **broken**
   (`cm-md-link cm-md-wikilink cm-md-wikilink-broken`) — not undecorated, and
   **visually distinct from a resolved link** (muted/dimmed styling so a dead

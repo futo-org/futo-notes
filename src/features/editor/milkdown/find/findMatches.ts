@@ -24,6 +24,7 @@ import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 
 import { localizedText } from '$shared/localization';
 
+import { foldCase } from '../../foldCase';
 import { isLineBreak } from '../paragraphLines';
 
 export interface FindMatch {
@@ -42,27 +43,6 @@ export interface FindMatchReport {
 export interface TextSegment {
   from: number;
   text: string;
-}
-
-/**
- * `text` lowercased WITHOUT changing its length.
- *
- * A handful of code points grow when lowercased (`İ` → `i̇`, two code units),
- * and a naive `toLowerCase()` of the haystack would shift every offset after
- * one of them — reporting matches at the wrong document positions. Growing
- * characters are therefore left as they are: they simply do not case-fold,
- * which can only ever lose a case-insensitive match, never invent one at a
- * wrong place.
- */
-export function foldCase(text: string): string {
-  const folded = text.toLowerCase();
-  if (folded.length === text.length) return folded;
-  let out = '';
-  for (const character of text) {
-    const lower = character.toLowerCase();
-    out += lower.length === character.length ? lower : character;
-  }
-  return out;
 }
 
 /**

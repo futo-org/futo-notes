@@ -16,6 +16,8 @@
 import type { NotePreview } from '$shared/types/note';
 import type { WikilinkIndex } from '$shared/note/wikilinks';
 
+import { foldCase } from './foldCase';
+
 /** How many notes the popup offers at once. */
 export const WIKILINK_SUGGESTION_LIMIT = 20;
 
@@ -59,7 +61,7 @@ export function wikilinkCandidates(
 ): WikilinkCandidate[] {
   const trimmed = query.trim();
   const matched = trimmed
-    ? notes.filter((note) => note.id.toLocaleLowerCase().includes(trimmed.toLocaleLowerCase()))
+    ? notes.filter((note) => foldCase(note.id).includes(foldCase(trimmed)))
     : notes;
   return matched.slice(0, limit).map((note) => {
     const label = index.displaySuffix(note.id);

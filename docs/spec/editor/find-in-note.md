@@ -54,6 +54,12 @@ unchanged by it.
   has none of cross-note search's retrieval semantics: no fuzzy, no
   prefix/mid-typing rule, no all-words preference — `cat` finds `concatenate`,
   and `Aug ` (trailing space) finds only `Aug` followed by a space.
+- Case-insensitive means one letter matches in either case wherever it sits in
+  a word: every Greek sigma (`Σ`, `σ`, final `ς`) is one letter, so `ΟΔΟΣ` finds
+  the start of `ΟΔΟΣΑ` and `οδος` finds `ΟΔΟΣΑ` too. Folding never moves a match
+  off the text it covers; a character whose lowercase is longer (`İ`) matches
+  only itself. → src/features/editor/foldCase.ts,
+  tests/editor-embed-milkdown-find.spec.ts
 - **Matching runs over the editor's document text.** Results never depend on
   cursor position or on what is scrolled into view, and every match is a real
   range the selection (and any future replace) operates on.

@@ -7,7 +7,6 @@ import {
   docTextSegments,
   findCurrentMatchIndex,
   findDocMatches,
-  foldCase,
   wrapFindMatchIndex,
 } from './findMatches';
 
@@ -23,20 +22,6 @@ function doc(...blocks: ProseNode[]): ProseNode {
 function covered(node: ProseNode, query: string): string[] {
   return findDocMatches(node, query).map((match) => node.textBetween(match.from, match.to));
 }
-
-describe('foldCase', () => {
-  it('lowercases ordinary text', () => {
-    expect(foldCase('CaT')).toBe('cat');
-  });
-
-  // 'İ' lowercases to two code units, which would shift every offset after it.
-  it('leaves a character whose lowercase is longer exactly as it was', () => {
-    const grows = 'İ';
-    expect(grows.toLowerCase().length).toBe(2);
-    expect(foldCase(`a${grows}b`)).toBe(`a${grows}b`);
-    expect(foldCase(`a${grows}b`)).toHaveLength(3);
-  });
-});
 
 describe('docTextSegments', () => {
   it('joins text split only by a mark into one run', () => {
@@ -115,6 +100,24 @@ describe('findDocMatches', () => {
       { from: 1, to: 3 },
       { from: 3, to: 5 },
     ]);
+  });
+
+  it('matches an upper-case Greek word ending in sigma inside a longer word', () => {
+    const node = doc(para(s.text('ΟΔΟΣΑ οδοσ')));
+    expect(findDocMatches(node, 'ΟΔΟΣ')).toEqual([
+      { from: 1, to: 5 },
+      { from: 7, to: 11 },
+    ]);
+    expect(findDocMatches(node, 'οδος')).toEqual([
+      { from: 1, to: 5 },
+      { from: 7, to: 11 },
+    ]);
+  });
+
+  // The slow, per-character fold (a growing `İ` earlier in the run) folds sigma too.
+  it('keeps a sigma match at its exact position after a character that grows', () => {
+    const node = doc(para(s.text('İ ΟΔΟΣΑ')));
+    expect(findDocMatches(node, 'ΟΔΟΣ')).toEqual([{ from: 3, to: 7 }]);
   });
 
   // The trailing space is part of the literal (docs/spec/editor.md).

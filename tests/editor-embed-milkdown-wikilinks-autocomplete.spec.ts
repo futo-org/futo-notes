@@ -55,6 +55,17 @@ test('typing filters the list case-insensitively', async ({ page }) => {
   await expect(rows(page).first()).toContainText('Projects/Roadmap');
 });
 
+// toLowerCase folds a capital sigma to ς at a word end and σ before a letter,
+// so `[[ΟΔΟΣ` must still offer the note `ΟΔΟΣΑ`.
+test('an upper-case Greek query ending in sigma offers the longer title', async ({ page }) => {
+  await open(page, '', [{ id: 'ΟΔΟΣΑ', title: 'ΟΔΟΣΑ', modifiedMs: 0 }]);
+  await focusEditor(page);
+  await page.keyboard.type('[[ΟΔΟΣ');
+  await expect(popup(page)).toBeVisible();
+  await expect(rows(page)).toHaveCount(1);
+  await expect(rows(page).first()).toContainText('ΟΔΟΣΑ');
+});
+
 test('Enter inserts the FULL path and leaves the caret AFTER the link', async ({ page }) => {
   await open(page, '');
   await focusEditor(page);
