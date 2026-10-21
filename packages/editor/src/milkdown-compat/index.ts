@@ -59,6 +59,10 @@
  * `./tableAlignment` keeps a cell's missing alignment through a paste; and
  * `./listItemSpread` makes an item the editor creates tight.
  *
+ * `./inputRules` forks the presets' typed-markdown input rules where they read
+ * a keystroke differently from how the parser reads the saved line: a fence
+ * language with a capital or a `+`.
+ *
  * `./frontmatter` is the one member that is an ADDITION rather than a fork: the
  * preset has no front matter construct at all, so `---\ntags: [a, b]\n---`
  * parsed as a thematic break plus a setext heading and the first edit anywhere
@@ -76,6 +80,7 @@
  */
 import {
   commonmark,
+  createCodeBlockInputRule as upstreamCodeBlockInputRule,
   inlineNodesCursorPlugin as upstreamInlineNodesCursorPlugin,
   remarkInlineLinkPlugin,
   remarkPreserveEmptyLinePlugin,
@@ -90,6 +95,7 @@ import { remarkInlineHtmlIndentPlugin } from './inlineHtmlIndent';
 import { remarkEmptyTaskItemPlugin } from './emptyTaskItem';
 import { remarkImageTitlePlugin } from './imageTitle';
 import { inlineNodesCursorPlugin } from './inlineNodesCursor';
+import { createCodeBlockInputRule } from './inputRules';
 import { remarkInlineUsedLinkDefinitionsPlugin } from './linkDefinitions';
 import { remarkBlankLineParagraphsPlugin } from './emptyLine';
 import { frontmatterPlugins } from './frontmatter';
@@ -186,6 +192,14 @@ function replacePresetEntry(
   return plugins.map((plugin, index) => (index === at ? replacement : plugin));
 }
 
+/**
+ * The preset's input rules that read typed markdown differently from the
+ * parser that reads the note back, each swapped for its fork in `./inputRules`.
+ */
+const FORKED_INPUT_RULES: readonly (readonly [MilkdownPlugin, MilkdownPlugin, string])[] = [
+  [upstreamCodeBlockInputRule, createCodeBlockInputRule, 'code-block input rule'],
+];
+
 /** The upstream preset minus every plugin this module forks or drops. */
 function upstreamPresetWithoutForkedPlugins(): MilkdownPlugin[] {
   const withoutEmptyLine = withoutPresetEntries(
@@ -208,11 +222,15 @@ function upstreamPresetWithoutForkedPlugins(): MilkdownPlugin[] {
     UPSTREAM_LIST_ORDER_ENTRIES,
     'list-order',
   );
-  return replacePresetEntry(
+  const withInlineCursor = replacePresetEntry(
     withoutListOrder,
     upstreamInlineNodesCursorPlugin,
     inlineNodesCursorPlugin,
     'inline-cursor',
+  );
+  return FORKED_INPUT_RULES.reduce(
+    (plugins, [upstream, fork, what]) => replacePresetEntry(plugins, upstream, fork, what),
+    withInlineCursor,
   );
 }
 

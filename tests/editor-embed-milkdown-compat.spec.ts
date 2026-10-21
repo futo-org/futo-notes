@@ -21,7 +21,7 @@
  * `<br />` placeholder upstream's plugin exists for.
  */
 
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { useCensusPage, roundTrip, twoSaves } from './lib/editorEmbedMilkdownCompat';
 
 useCensusPage();
@@ -171,5 +171,29 @@ test.describe('the parked end-of-document paragraph is not written', () => {
     const { once, twice } = await twoSaves(page, 'compat', '- a\n\n\npara\n');
     expect(once).toBe('- a\n\n\npara\n');
     expect(twice).toBe(once);
+  });
+});
+
+test.describe('typed markdown converts only where the saved line would read the same', () => {
+  // The presets' input rules (milkdown-compat/inputRules.ts) disagreed with the
+  // parser that reads a note back: a fence language with a capital or a `+`
+  // did not open a fence.
+  const typed = (page: Page, variant: 'compat' | 'baseline', keys: string) =>
+    page.evaluate(([v, k]) => window.__futoCensus.typeText(v as 'compat' | 'baseline', k), [
+      variant,
+      keys,
+    ] as const);
+
+  test('canary: upstream still opens a fence for lowercase letters only', async ({ page }) => {
+    expect((await typed(page, 'baseline', '```js ')).histogram.code_block).toBe(1);
+    expect((await typed(page, 'baseline', '```c++ ')).histogram.code_block).toBeUndefined();
+    expect((await typed(page, 'baseline', '```JavaScript ')).histogram.code_block).toBeUndefined();
+  });
+
+  test('compat opens a fence for any info word', async ({ page }) => {
+    for (const language of ['js', 'c++', 'JavaScript', 'C#', 'ps1']) {
+      const out = await typed(page, 'compat', '```' + language + ' x');
+      expect(out.markdown, language).toBe('```' + language + '\nx\n```\n');
+    }
   });
 });

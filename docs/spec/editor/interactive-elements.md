@@ -123,7 +123,13 @@
   `~~strike~~`, `![alt](file)`, and `[[target]]` all convert as you type. So are
   the keyboard shortcuts in [tabs.md](../tabs.md) "Keyboard shortcuts". →
   `@milkdown/preset-commonmark`, `@milkdown/preset-gfm`,
+  packages/editor/src/milkdown-compat/inputRules.ts,
   src/features/editor/milkdown/wikilink/inputRule.ts
+
+- ` ```lang ` takes any language word a fence can open with — anything but a
+  space or a backtick, so ` ```c++ `, ` ```C# ` and ` ```JavaScript ` open a fence
+  in that language. → packages/editor/src/milkdown-compat/inputRules.ts,
+  tests/editor-embed-milkdown-interactive-code-blocks.spec.ts
 
 - _(desktop)_ Selecting text raises a floating toolbar just above the
   selection — Text/H1/H2/H3, Quote, Bold, Italic, Strikethrough, Code, Link,
