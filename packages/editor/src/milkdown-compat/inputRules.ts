@@ -56,7 +56,7 @@ import {
 import { strikethroughSchema } from '@milkdown/kit/preset/gfm';
 import type { Attrs, Mark, MarkType } from '@milkdown/kit/prose/model';
 import { InputRule, textblockTypeInputRule } from '@milkdown/kit/prose/inputrules';
-import type { EditorState } from '@milkdown/kit/prose/state';
+import type { EditorState, Transaction } from '@milkdown/kit/prose/state';
 import { $inputRule } from '@milkdown/kit/utils';
 
 /**
@@ -162,9 +162,52 @@ function rangeHasCodeMark(state: EditorState, from: number, to: number): boolean
 }
 
 /**
- * `markType` over the `text` group, its delimiters removed — `markRule`'s
- * effect, with the `lead` group left where it is. The closing delimiter's last
- * character is the keystroke itself, which an input rule never inserts.
+ * `markType` over the `text` group of `match`, its delimiters removed —
+ * `markRule`'s effect, with the `lead` group left where it is — or null when
+ * that opener and closer cannot pair. `start` is where `match` begins in the
+ * document. The closing delimiter's last character is the keystroke itself,
+ * which an input rule never inserts.
+ */
+function applyMark(
+  state: EditorState,
+  match: RegExpMatchArray,
+  start: number,
+  end: number,
+  mark: (open: string) => Mark,
+  delimited: boolean,
+): Transaction | null {
+  const { lead: before = '', open = '', text = '' } = match.groups ?? {};
+  if (text.trim() === '') return null;
+  if (delimited) {
+    if (endsEscaped(text)) return null;
+    const marker = open.charAt(0);
+    if (!flanking(marker, lastChar(before), text.charAt(0)).open) return null;
+    if (!flanking(marker, lastChar(text), undefined).close) return null;
+  }
+  const from = start + before.length;
+  const textStart = from + open.length;
+  const textEnd = textStart + text.length;
+  if (
+    rangeHasCodeMark(state, from, textStart) ||
+    rangeHasCodeMark(state, textEnd, end) ||
+    hasCodeMark(state.storedMarks ?? state.doc.resolve(end).marks())
+  ) {
+    return null;
+  }
+  const tr = state.tr;
+  const storedMarks = tr.storedMarks ?? [];
+  if (textEnd < end) tr.delete(textEnd, end);
+  tr.delete(from, textStart);
+  tr.addMark(from, from + text.length, mark(open));
+  tr.setStoredMarks(storedMarks);
+  return tr;
+}
+
+/**
+ * A mark rule over `pattern`. The regex finds the LEFTMOST opener the closer
+ * could pair with; when that one cannot open (`café_a_ _b_`: the first `_`
+ * sits between letters), each later one is tried in turn, as a file's parser
+ * would go on to pair the closer with `_b`.
  *
  * `delimited` is false for a code span: its backticks follow no flanking rule
  * and a backslash inside it is text.
@@ -175,32 +218,20 @@ function delimitedMarkRule(
   attrs: (open: string) => Attrs | null = () => null,
   delimited = true,
 ): InputRule {
-  return new InputRule(pattern, (state, match, start, end) => {
-    const { lead: before = '', open = '', text = '' } = match.groups ?? {};
-    if (text.trim() === '') return null;
-    if (delimited) {
-      if (endsEscaped(text)) return null;
-      const marker = open.charAt(0);
-      if (!flanking(marker, lastChar(before), text.charAt(0)).open) return null;
-      if (!flanking(marker, lastChar(text), undefined).close) return null;
+  const everyOpener = new RegExp(pattern.source, 'g');
+  const mark = (open: string) => markType.create(attrs(open));
+  return new InputRule(pattern, (state, first, start, end) => {
+    const input = first.input ?? '';
+    const firstIndex = first.index ?? 0;
+    let match: RegExpMatchArray | null = first;
+    while (match) {
+      const index = match.index ?? firstIndex;
+      const tr = applyMark(state, match, start + (index - firstIndex), end, mark, delimited);
+      if (tr) return tr;
+      everyOpener.lastIndex = index + 1;
+      match = everyOpener.exec(input);
     }
-    const from = start + before.length;
-    const textStart = from + open.length;
-    const textEnd = textStart + text.length;
-    if (
-      rangeHasCodeMark(state, from, textStart) ||
-      rangeHasCodeMark(state, textEnd, end) ||
-      hasCodeMark(state.storedMarks ?? state.doc.resolve(end).marks())
-    ) {
-      return null;
-    }
-    const tr = state.tr;
-    const storedMarks = tr.storedMarks ?? [];
-    if (textEnd < end) tr.delete(textEnd, end);
-    tr.delete(from, textStart);
-    tr.addMark(from, from + text.length, markType.create(attrs(open)));
-    tr.setStoredMarks(storedMarks);
-    return tr;
+    return null;
   });
 }
 

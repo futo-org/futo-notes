@@ -141,7 +141,8 @@
   and so does an opener after a letter and before punctuation (`a*"b"*`) or an
   `_` between letters of any script (`café_b_`). A closer converts only the
   opener it matches, as a file reads it: `a **x__ b` and ``` ``x` y ``` stay
-  text. →
+  text; when an earlier opener on the line cannot open, a later one still
+  does (`café_a_ _b_` makes `b` italic). →
   packages/editor/src/milkdown-compat/inputRules.ts `flanking`,
   tests/editor-embed-milkdown-interactive-typed-escapes.spec.ts
 

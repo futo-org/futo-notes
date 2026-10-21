@@ -359,6 +359,16 @@ for (const typed of ['a **x__ b', 'a __x** b', '``x` y']) {
   });
 }
 
+test('a typed run converts when an earlier opener on the line cannot open', async ({ page }) => {
+  // The first `_` (between letters) opens nothing; the `_b_` after it is
+  // emphasis in a file, so it converts as it is typed.
+  const saved = await typeIntoEmpty(page, 'café_a_ _b_ c');
+  expect(await renderedMarks(page), saved).toEqual(['em:b']);
+  await reopen(page, saved);
+  expect(await paragraphLines(page), saved).toEqual(['café_a_ b c']);
+  expect(await renderedMarks(page), saved).toEqual(['em:b']);
+});
+
 for (const [typed, saved, marks] of [
   ['2 *3* 4', '2 *3* 4\n', ['em:3']],
   ['a **b c** d', 'a **b c** d\n', ['strong:b c']],

@@ -231,6 +231,8 @@ test.describe('typed markdown converts only where the saved line would read the 
       ['\\\\*em*', 'mark:emphasis'],
       ['a *"b"*', 'mark:emphasis'],
       ['x `a\\`', 'mark:inlineCode'],
+      // A later opener still opens when an earlier one on the line cannot.
+      ['café_a_ _b_', 'mark:emphasis'],
     ] as const) {
       expect((await typed(page, 'compat', keys)).histogram[mark], keys).toBe(1);
     }
