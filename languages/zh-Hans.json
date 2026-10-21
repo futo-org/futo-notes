@@ -24,7 +24,7 @@
         "minimizeWindowAccessibilityLabel": "最小化窗口",
         "maximizeWindowAccessibilityLabel": "最大化窗口",
         "closeWindowAccessibilityLabel": "关闭窗口",
-        "windowControlsAccessibilityLabel": "窗口控制",
+        "windowControlsAccessibilityLabel": "窗口控件",
         "menu": {
           "file": "文件",
           "edit": "编辑",
@@ -146,7 +146,7 @@
             "networkWithoutStatus": "网络（无状态码）",
             "threeFailures": "3 项失败",
             "subscriptionRequired": "已拒绝 402（同步已暂停）",
-            "quotaExceeded": "已拒绝 507（保管库已满）"
+            "quotaExceeded": "已拒绝 507（笔记库已满）"
           },
           "successfulSync": "同步成功"
         }
@@ -213,13 +213,13 @@
           "footnote": "购买 FUTO 笔记许可证即可更改应用图标。",
           "footnoteKeyOnly": "FUTO 笔记许可证包含选择应用图标的功能。",
           "footnoteWebsite": "FUTO 笔记许可证包含选择应用图标的功能，许可证在 FUTO 网站上出售。",
-          "sheetTitle": "许可证包含此功能",
+          "sheetTitle": "随许可证提供",
           "sheetBody": "购买 FUTO 笔记许可证即可更改应用图标。",
           "sheetBodyWebsite": "FUTO 笔记许可证包含选择应用图标的功能。许可证在 FUTO 网站 {url} 上出售。已经购买？请在设置中输入你的密钥。",
           "notNow": "以后再说",
           "landing": "你的许可证包含选择应用图标的功能。选一个吧。",
           "landingAppStore": "你的购买包含选择应用图标的功能。选一个吧。",
-          "a11yIncluded": "{iconName}，许可证包含"
+          "a11yIncluded": "{iconName}，随许可证提供"
         }
       }
     },
@@ -297,7 +297,7 @@
       "navigation": {
         "renamePending": "无法重命名笔记。标题仍在等待保存，因此已暂停导航。",
         "saveFailed": "无法保存笔记。更改仍在等待保存，因此已暂停导航。",
-        "unflushed": "编辑器尚未交付你的最新更改。请再次尝试离开此笔记。"
+        "unflushed": "编辑器尚未提交你的最新更改。请再试一次以离开此笔记。"
       },
       "move": {
         "createAndMove": "创建并移动",
@@ -484,7 +484,7 @@
       },
       "linkPrompt": {
         "placeholder": "粘贴或输入链接",
-        "urlAccessibilityLabel": "链接网址",
+        "urlAccessibilityLabel": "链接 URL",
         "add": "添加",
         "update": "更新",
         "addAccessibilityLabel": "添加链接",
@@ -645,7 +645,7 @@
         "uploadsTooLargeAndUnsupported": "部分文件对服务器或代理来说过大：{oversized}。其他文件的路径或名称不受支持：{unsupported}。",
         "unsupportedPaths": "以下文件无法同步，因为它们的路径或名称不受支持：{filenames}",
         "writePausedSubscription": "同步已暂停。你的订阅已过期，因此在这里做的更改不会上传。来自其他设备的笔记仍会同步过来。",
-        "writePausedQuota": "保管库已满。你已用完全部存储空间，因此在这里做的更改不会上传。",
+        "writePausedQuota": "笔记库已满。你已用完全部存储空间，因此在这里做的更改不会上传。",
         "liveUnavailable": "实时同步暂时不可用。FUTO 笔记将继续重试。",
         "hostedOffline": "目前无法连接到 FUTO。FUTO 笔记会继续重试。",
         "forgetPasswordFailed": "无法移除已保存的同步密码。",
@@ -666,17 +666,17 @@
         },
         "subscribe": {
           "title": "订阅 FUTO 同步",
-          "body": "同步需要订阅。结账页面会在浏览器中打开，应用会自动获取结果。",
+          "body": "同步需要订阅。付款页面会在浏览器中打开，应用会自动获取结果。",
           "button": "订阅",
-          "waiting": "请在浏览器中完成结账。"
+          "waiting": "请在浏览器中完成付款。"
         },
         "vaultPassword": {
-          "label": "保管库密码",
+          "label": "笔记库密码",
           "placeholder": "至少 {minimum} 个字符",
-          "repeatLabel": "再次输入保管库密码",
+          "repeatLabel": "再次输入笔记库密码",
           "repeatPlaceholder": "再输入一次",
           "mismatch": "两次输入的密码不一致。",
-          "strengthAccessibilityLabel": "保管库密码强度：{strength}",
+          "strengthAccessibilityLabel": "笔记库密码强度：{strength}",
           "strength": {
             "tooShort": "至少 {minimum} 个字符",
             "weak": "弱",
@@ -684,21 +684,21 @@
             "strong": "强"
           },
           "create": {
-            "title": "设置保管库密码",
+            "title": "设置笔记库密码",
             "body": "此密码用于加密你的笔记。它与你的 FUTO 密码不同，并且永远不会被发送到任何地方，因此 FUTO 可以存储你的笔记，却无法读取它们。",
-            "button": "创建保管库"
+            "button": "创建笔记库"
           },
           "change": {
-            "title": "设置新的保管库密码",
-            "body": "无需输入旧密码：此设备已持有你保管库的密钥。你的其他设备会继续正常工作，笔记也不会有任何变化。",
+            "title": "设置新的笔记库密码",
+            "body": "无需输入旧密码：此设备已持有你笔记库的密钥。你的其他设备会继续正常工作，笔记也不会有任何变化。",
             "button": "设置新密码",
-            "changed": "保管库密码已更改。"
+            "changed": "笔记库密码已更改。"
           }
         },
         "recoveryKey": {
           "title": "保存你的恢复密钥",
-          "body": "如果你丢失了所有设备并忘记了保管库密码，这个密钥是找回笔记的唯一途径。",
-          "warning": "没有它，FUTO 无法恢复你的保管库。FUTO 的任何人都没有副本。",
+          "body": "如果你丢失了所有设备并忘记了笔记库密码，这个密钥是你找回笔记的途径。",
+          "warning": "没有它，FUTO 无法恢复你的笔记库。FUTO 的任何人都没有副本。",
           "shownOnce": "此密钥不会再次显示。",
           "accessibilityLabel": "你的恢复密钥",
           "copy": "复制",
@@ -712,31 +712,31 @@
           "replaced": "这个新密钥出现时，你的旧恢复密钥就已失效。"
         },
         "unlock": {
-          "title": "解锁你的保管库",
+          "title": "解锁你的笔记库",
           "body": "你的笔记已经加密。请在此设备上解锁它们。",
-          "doorsAccessibilityLabel": "如何解锁此保管库",
+          "doorsAccessibilityLabel": "如何解锁此笔记库",
           "doors": {
-            "vaultPassword": "保管库密码",
+            "vaultPassword": "笔记库密码",
             "scan": "从其他设备扫描",
             "recoveryKey": "恢复密钥"
           },
-          "vaultPasswordLabel": "保管库密码",
-          "vaultPasswordPlaceholder": "你的保管库密码",
+          "vaultPasswordLabel": "笔记库密码",
+          "vaultPasswordPlaceholder": "你的笔记库密码",
           "recoveryKeyLabel": "恢复密钥",
           "recoveryKeyPlaceholder": "例如 ABCD-EFGH-JKMN-PQRS-TVWX-YZ01-2345",
-          "recoveryKeyHint": "短横线和大小写不影响。",
+          "recoveryKeyHint": "短横线和大小写均不影响。",
           "button": "解锁"
         },
         "pairing": {
           "title": "用已解锁的设备扫描此代码",
           "body": "在已有你笔记的设备上打开 FUTO 笔记，选择“扫描其他设备”，然后对准此代码。",
-          "codeAccessibilityLabel": "此电脑的配对代码",
+          "codeAccessibilityLabel": "此电脑的配对码",
           "expiresIn": "此代码将在 {remaining} 后过期。",
           "expiresInAccessibilityLabel": "此代码剩余时间：{remaining}",
-          "showCode": "显示配对代码",
+          "showCode": "显示配对码",
           "showNewCode": "显示新代码",
           "received": {
-            "title": "你的保管库已解锁",
+            "title": "你的笔记库已解锁",
             "body": "密钥已从你的其他设备送达。正在同步你的笔记…"
           },
           "expired": {
@@ -745,31 +745,31 @@
           },
           "refused": {
             "title": "该代码无法使用",
-            "body": "服务器拒绝交付此配对——它已被响应过，或属于其他账户。没有共享任何密钥。"
+            "body": "服务器不会放行此配对——它已被应答过，或属于其他账户。没有共享任何密钥。"
           },
           "ios": {
-            "codeAccessibilityLabel": "此设备的配对代码",
+            "codeAccessibilityLabel": "此设备的配对码",
             "received": {
-              "body": "密钥已从你的其他设备送达。你的保管库已在此设备上解锁。"
+              "body": "密钥已从你的其他设备送达。你的笔记库已在此设备上解锁。"
             }
           },
           "android": {
-            "codeAccessibilityLabel": "此设备的配对代码",
+            "codeAccessibilityLabel": "此设备的配对码",
             "received": {
-              "body": "密钥已从你的其他设备送达。你的保管库已在此设备上解锁。"
+              "body": "密钥已从你的其他设备送达。你的笔记库已在此设备上解锁。"
             }
           },
           "scan": {
             "action": "扫描其他设备",
-            "title": "扫描配对代码",
+            "title": "扫描配对码",
             "body": "将相机对准你正在设置的设备上显示的代码。",
             "confirm": {
               "title": "允许此设备访问你的笔记？",
-              "body": "这会将你的保管库密钥发送到 {device}。仅当这是你此刻正在设置的设备时才继续。",
+              "body": "这会将你的笔记库密钥发送到 {device}。仅当这是你此刻正在设置的设备时才继续。",
               "device": "{name}（{platform}）",
               "platform": {
                 "ios": "iPhone 或 iPad",
-                "android": "安卓",
+                "android": "Android 设备",
                 "desktop": "电脑"
               }
             },
@@ -784,14 +784,14 @@
             },
             "noCamera": {
               "title": "此设备没有相机",
-              "body": "此设备无法读取配对代码。"
+              "body": "此设备无法读取配对码。"
             },
-            "fallback": "你可以在没有相机的情况下设置另一台设备：在那台设备上选择“保管库密码”并输入密码。",
+            "fallback": "你可以在没有相机的情况下设置另一台设备：在那台设备上选择“笔记库密码”并输入密码。",
             "openSettings": "打开设置",
             "android": {
               "rationale": {
                 "title": "FUTO 笔记需要相机来读取代码",
-                "body": "相机在这里仅用于读取你其他设备上的配对代码，不作他用。不会录制或发送任何内容。"
+                "body": "相机在这里仅用于读取你其他设备上的配对码，不作他用。不会录制或发送任何内容。"
               },
               "allowCamera": "允许使用相机"
             }
@@ -801,7 +801,7 @@
           "heading": "FUTO 账户",
           "storage": "已使用 {used}，共 {quota}",
           "manageSubscription": "管理订阅",
-          "changeVaultPassword": "更改保管库密码",
+          "changeVaultPassword": "更改笔记库密码",
           "newRecoveryKey": "新的恢复密钥",
           "signOut": "退出登录",
           "state": {
@@ -822,7 +822,7 @@
             "action": "订阅"
           },
           "vaultFull": {
-            "title": "保管库已满",
+            "title": "笔记库已满",
             "body": "你已用完全部存储空间，因此在这里做的更改不会上传。",
             "action": "管理订阅"
           }
@@ -845,27 +845,27 @@
           "rateLimited": "登录尝试次数过多。请在 {seconds} 秒后重试。",
           "server": "服务器无法响应。请重试。",
           "network": "无法连接到服务器。请检查你的网络连接。",
-          "notEntitled": "需要先订阅才能创建保管库。",
-          "vaultAlreadyExists": "此账户已有保管库。请改为解锁它。",
-          "noVault": "此账户还没有保管库。",
-          "vaultPasswordTooShort": "保管库密码至少需要 {minimum} 个字符。",
-          "wrongVaultPassword": "这不是此保管库的密码。",
+          "notEntitled": "需要先订阅才能创建笔记库。",
+          "vaultAlreadyExists": "此账户已有笔记库。请改为解锁它。",
+          "noVault": "此账户还没有笔记库。",
+          "vaultPasswordTooShort": "笔记库密码至少需要 {minimum} 个字符。",
+          "wrongVaultPassword": "这不是此笔记库的密码。",
           "recoveryKeyFormat": "这看起来不像恢复密钥。",
           "recoveryKeyTypo": "该恢复密钥有输入错误。请逐个字符检查。",
-          "wrongRecoveryKey": "这不是此保管库的恢复密钥。",
-          "noRecoveryKey": "此保管库没有恢复密钥。",
-          "secretStore": "此设备的密钥存储拒绝了请求。没有保存任何内容。",
-          "crypto": "无法读取保管库的密钥材料。",
-          "pairingCodeInvalid": "这不是 FUTO 笔记的配对代码。",
-          "pairingRefused": "该配对代码已失效。请在另一台设备上显示新代码。",
-          "pairingAlreadyKeyed": "另一台设备已响应此配对代码。请显示新代码。",
-          "pairingExpired": "该配对代码已过期。请显示新代码。",
+          "wrongRecoveryKey": "这不是此笔记库的恢复密钥。",
+          "noRecoveryKey": "此笔记库没有恢复密钥。",
+          "secretStore": "此设备的安全存储拒绝了请求。没有保存任何内容。",
+          "crypto": "无法读取笔记库的密钥材料。",
+          "pairingCodeInvalid": "这不是 FUTO 笔记的配对码。",
+          "pairingRefused": "该配对码已失效。请在另一台设备上显示新代码。",
+          "pairingAlreadyKeyed": "另一台设备已应答此配对码。请显示新代码。",
+          "pairingExpired": "该配对码已过期。请显示新代码。",
           "pairingNotStarted": "此设备上没有正在进行的配对。",
-          "vaultLocked": "此设备还没有保管库密钥，因此无法将其提供给其他设备。",
-          "checkoutGaveUp": "结账结果尚未到达。请稍后重试。",
+          "vaultLocked": "此设备还没有笔记库密钥，因此无法将其提供给其他设备。",
+          "checkoutGaveUp": "付款结果尚未到达。请稍后重试。",
           "noBrowser": "此设备没有可用于登录的浏览器。",
           "unexpected": "出了点问题。请重试。",
-          "vaultKeyChangedElsewhere": "你的保管库密钥已在另一台设备上更改。请重试。"
+          "vaultKeyChangedElsewhere": "你的笔记库密钥已在另一台设备上更改。请重试。"
         }
       }
     },
@@ -1083,11 +1083,11 @@
       "appStore": {
         "buy": "在 App Store 购买",
         "caption": "iPhone 和 iPad，\n无许可证密钥",
-        "scope": "适用于使用你的 Apple 账户的 iPhone 和 iPad 上的 FUTO 笔记。它不附带许可证密钥，因此无法在其他平台上使用。",
+        "scope": "可凭你的 Apple 账户在 iPhone 和 iPad 版 FUTO 笔记中使用。它不附带许可证密钥，因此无法在其他平台上使用。",
         "restore": "恢复购买",
         "nothingToRestore": "此 Apple 账户没有可恢复的 App Store 购买项目。",
         "purchasedTitle": "已在 App Store 购买",
-        "purchasedBody": "适用于使用此 Apple 账户的 iPhone 和 iPad。此购买没有许可证密钥。"
+        "purchasedBody": "可凭此 Apple 账户在 iPhone 和 iPad 上使用。此购买没有许可证密钥。"
       },
       "card": {
         "eyebrow": "客户端许可证",

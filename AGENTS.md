@@ -81,7 +81,7 @@ infrastructure owner.
   buttons, placeholders, toasts, errors, accessibility and OS-facing labels — is added to
   `languages/en.json` and read back through the platform's accessor (`localizedText` in TS/Swift/
   Kotlin), never written as a literal at the call site. Every catalog in `languages/`
-  translates it in the same change (machine translation is fine); `test:localization-audit`
+  translates it in the same change (the `translator` agent); `test:localization-audit`
   blocks otherwise. User data is the opposite rule: note titles,
   filenames, folder names, tags, paths and URLs render verbatim (M2). `languages/README.md` owns
   the naming and placeholder grammar; `pnpm run check:languages` validates the catalogs.
