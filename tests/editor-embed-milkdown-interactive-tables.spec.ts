@@ -2,7 +2,7 @@
 // editor-embed-milkdown-interactive.spec.ts.
 
 import { expect, type Page } from '@playwright/test';
-import { flushFrames, getContent, withCaretObserved } from './lib/editorEmbedHost';
+import { getContent, withCaretObserved } from './lib/editorEmbedHost';
 import {
   test,
   open,
@@ -11,6 +11,7 @@ import {
   settled,
   tableRows,
   pastePlainText,
+  pasteClipboardData,
 } from './lib/editorEmbedMilkdownInteractive';
 
 // ============================================================
@@ -204,26 +205,11 @@ test('a body row the author wrote empty is still written after an edit', async (
 });
 
 /**
- * A paste carrying an HTML `<table>` (a spreadsheet or web-table copy) while
- * the caret sits in a table cell. Nothing in Playwright or CDP can put HTML on
- * the OS clipboard, so this is a dispatched `ClipboardEvent` with a real
- * `DataTransfer` — it still goes through ProseMirror's own paste handling.
+ * A paste carrying `text/html` and its `text/plain` twin, as a spreadsheet or
+ * web-table copy does (see `pasteClipboardData`).
  */
-async function pasteHtml(page: Page, html: string, text: string): Promise<void> {
-  await page.evaluate(
-    ([h, t]) => {
-      const transfer = new DataTransfer();
-      transfer.setData('text/html', h);
-      transfer.setData('text/plain', t);
-      document
-        .querySelector('.ProseMirror')!
-        .dispatchEvent(
-          new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }),
-        );
-    },
-    [html, text],
-  );
-  await flushFrames(page);
+function pasteHtml(page: Page, html: string, text: string): Promise<void> {
+  return pasteClipboardData(page, { 'text/html': html, 'text/plain': text });
 }
 
 test('pasting an HTML table into a table cell throws nothing and pastes the cells', async ({

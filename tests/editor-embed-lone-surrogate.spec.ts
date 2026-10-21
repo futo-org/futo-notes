@@ -12,6 +12,7 @@ import {
   type FakeHostWindow,
 } from './lib/editorEmbedHost';
 import { hostConfig, initialize } from './lib/editorEmbedSpec';
+import { pastePlainText } from './lib/editorEmbedMilkdownInteractive';
 
 /**
  * A lone UTF-16 surrogate never leaves the editor (RC-48, maintainer decision 16A).
@@ -64,18 +65,6 @@ async function lastChange(page: Page): Promise<string> {
   return changes[changes.length - 1].content as string;
 }
 
-async function pasteText(page: Page, text: string): Promise<void> {
-  await page.evaluate((data) => {
-    const dt = new DataTransfer();
-    dt.setData('text/plain', data);
-    document
-      .querySelector('.ProseMirror')!
-      .dispatchEvent(
-        new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }),
-      );
-  }, text);
-}
-
 test('a paste carrying a lone surrogate reads back as U+FFFD, in getContent and in the change report', async ({
   page,
 }) => {
@@ -84,7 +73,7 @@ test('a paste carrying a lone surrogate reads back as U+FFFD, in getContent and 
   await page.keyboard.press('End');
   await clearMessages(page);
 
-  await pasteText(page, ` a${HIGH}b`);
+  await pastePlainText(page, ` a${HIGH}b`);
 
   const content = await getContent(page);
   expect(content).toContain(`a${FFFD}b`);
@@ -154,7 +143,7 @@ test('a valid emoji pair survives untouched', async ({ page }) => {
   await hostSetContent(page, 'start');
   await focusEditor(page);
   await page.keyboard.press('End');
-  await pasteText(page, ` ${EMOJI}!`);
+  await pastePlainText(page, ` ${EMOJI}!`);
   for (const text of [await getContent(page), await lastChange(page)]) {
     // The pasted leading space is content (it was dropped until the plain-text
     // paste route kept a paste's edge whitespace).
