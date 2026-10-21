@@ -194,6 +194,10 @@ test.describe('typed markdown converts only where the saved line would read the 
     ['\\_not italic_', 'mark:emphasis'],
     ['\\`not code`', 'mark:inlineCode'],
     ['\\~not struck~', 'mark:strike_through'],
+    ['*foo\\*', 'mark:emphasis'],
+    ['**foo\\**', 'mark:strong'],
+    ['_foo\\_', 'mark:emphasis'],
+    ['~~foo\\~~', 'mark:strike_through'],
   ];
 
   test('canary: upstream still formats padded and escaped delimiter runs', async ({ page }) => {
@@ -216,6 +220,7 @@ test.describe('typed markdown converts only where the saved line would read the 
       ['~~gone~~', 'mark:strike_through'],
       ['`code`', 'mark:inlineCode'],
       ['\\\\*em*', 'mark:emphasis'],
+      ['x `a\\`', 'mark:inlineCode'],
     ] as const) {
       expect((await typed(page, 'compat', keys)).histogram[mark], keys).toBe(1);
     }

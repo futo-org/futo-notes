@@ -17,10 +17,11 @@
  *     `2 * 3 *` italicised ` 3 ` and saved `2 *&#x20;3&#x20;* 4`; `** not bold **`
  *     saved `**not bold**`. CommonMark's flanking rule: an opener is not followed
  *     by whitespace, a closer not preceded by it.
- *  4. Every mark rule took a backslash-escaped opener (`\*not italic*`,
- *     `\**x**`, `\_x_`, `` \`x` ``, `\~x~`) as a real one. An odd run of
- *     backslashes escapes the delimiter after it; an even run is escaped
- *     backslashes, and the delimiter still opens.
+ *  4. Every mark rule took a backslash-escaped delimiter (`\*not italic*`,
+ *     `\**x**`, `\_x_`, `` \`x` ``, `\~x~`, and the closer of `*foo\*`) as a
+ *     real one. An odd run of backslashes escapes the delimiter after it; an
+ *     even run is escaped backslashes, and the delimiter still counts. Inside a
+ *     code span a backslash escapes nothing, so `` `a\` `` is still code.
  *
  * Everything else is the preset's: the same delimiters, the same characters
  * that may not touch an opener (`\w:/` before `**`/`__`/`~~`, `*` before `*`,
@@ -91,6 +92,11 @@ const HEADING = /^(?<hashes>#+)\s$/;
 /** CommonMark's ATX heading: one to six `#`. */
 const MAX_HEADING_LEVEL = 6;
 
+/** Whether `text` ends in an odd run of backslashes — so the delimiter after it is escaped. */
+function endsEscaped(text: string): boolean {
+  return /(?:^|[^\\])\\(?:\\\\)*$/.test(text);
+}
+
 function hasCodeMark(marks: readonly Mark[]): boolean {
   return marks.some((mark) => mark.type.spec.code);
 }
@@ -110,15 +116,19 @@ function rangeHasCodeMark(state: EditorState, from: number, to: number): boolean
  * `markType` over the `text` group, its delimiters removed — `markRule`'s
  * effect, with the `lead` group left where it is. The closing delimiter's last
  * character is the keystroke itself, which an input rule never inserts.
+ *
+ * `delimited` is false for a code span: a backslash inside it is text.
  */
 function delimitedMarkRule(
   pattern: RegExp,
   markType: MarkType,
   attrs: (open: string) => Attrs | null = () => null,
+  delimited = true,
 ): InputRule {
   return new InputRule(pattern, (state, match, start, end) => {
     const { lead: before = '', open = '', text = '' } = match.groups ?? {};
     if (text.trim() === '') return null;
+    if (delimited && endsEscaped(text)) return null;
     const from = start + before.length;
     const textStart = from + open.length;
     const textEnd = textStart + text.length;
@@ -154,7 +164,7 @@ export const strongInputRule = $inputRule((ctx) =>
 );
 
 export const inlineCodeInputRule = $inputRule((ctx) =>
-  delimitedMarkRule(INLINE_CODE, inlineCodeSchema.type(ctx)),
+  delimitedMarkRule(INLINE_CODE, inlineCodeSchema.type(ctx), () => null, false),
 );
 
 export const strikethroughInputRule = $inputRule((ctx) =>

@@ -321,12 +321,26 @@ for (const typed of [
   });
 }
 
+for (const typed of ['*foo\\* bar', '**foo\\** bar', '_foo\\_ bar', '~~foo\\~~ bar']) {
+  test(`a typed backslash before the closer of "${typed}" keeps it text`, async ({ page }) => {
+    // An escaped CLOSING delimiter closes nothing, as an escaped opener opens
+    // nothing: a file holding `*foo\* bar` reads as plain `*foo* bar`.
+    const saved = await typeIntoEmpty(page, typed);
+    expect(await renderedMarks(page), saved).toEqual([]);
+    await reopen(page, saved);
+    expect(await paragraphLines(page), saved).toEqual([typed]);
+    expect(await renderedMarks(page), saved).toEqual([]);
+  });
+}
+
 for (const [typed, saved, marks] of [
   ['2 *3* 4', '2 *3* 4\n', ['em:3']],
   ['a **b c** d', 'a **b c** d\n', ['strong:b c']],
   // Two typed backslashes are an escaped backslash, each written escaped, so the `*` opens.
   ['x \\\\*y* z', 'x \\\\\\\\*y* z\n', ['em:y']],
   ['run `npm i` now', 'run `npm i` now\n', ['code:npm i']],
+  // A backslash escapes nothing inside a code span: `a\` is code, as a file reads it.
+  ['x `a\\` y', 'x `a\\` y\n', ['code:a\\']],
 ] as const) {
   test(`typed "${typed}" still converts`, async ({ page }) => {
     expect(await typeIntoEmpty(page, typed)).toBe(saved);
