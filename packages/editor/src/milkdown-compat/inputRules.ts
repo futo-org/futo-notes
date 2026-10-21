@@ -29,6 +29,10 @@
  *     bold (and saved `a **x** b`), and ``` ``x` ``` made `x` code. A run of
  *     `**` is closed only by `**`, and one backtick only by one backtick — a
  *     backtick before it makes the opener a longer run.
+ *  6. A delimiter typed inside a URL (`https://x.test/*a*`, `www.x.test/_a_`)
+ *     opened a mark the URL's literal swallows in a file; the autolink then
+ *     saved junk like `[https://x.test/*a*](https://x.test/a)`. It stays a
+ *     character of the URL (`INSIDE_URL`).
  *
  * Everything else is the preset's: the same delimiters, the same characters
  * that may not touch an opener (`\w:/` before `**`/`__`, `*` before `*`, a
@@ -136,6 +140,17 @@ function flanking(marker: string, before: string | undefined, after: string | un
   return { open: open && (b !== 0 || !close), close: close && (a !== 0 || !open) };
 }
 
+/**
+ * Text that ends inside a GFM autolink literal: a `http(s)://` or `www.` where
+ * a literal may start (the text's start, whitespace, or one of `(*_[]~`), with
+ * something after it and no whitespace or `<` since. A literal runs on to the
+ * next whitespace, so a delimiter typed there is a character of the URL, not
+ * an opener: a file reads `https://x.test/*a*` as a link to
+ * `https://x.test/*a` (GFM trims the last `*`). An inline leaf (`\ufffc`, most
+ * often a hard break) ends it like whitespace.
+ */
+const INSIDE_URL = /(?:^|[\s\ufffc(*_[\]~])(?:https?:\/\/|www\.)[^\s\ufffc<]+$/i;
+
 /** No `String.prototype.at`: the legacy Android WebView floor (Chromium 83) lacks it. */
 function lastChar(text: string): string | undefined {
   return text.length > 0 ? text.charAt(text.length - 1) : undefined;
@@ -178,6 +193,8 @@ function applyMark(
 ): Transaction | null {
   const { lead: before = '', open = '', text = '' } = match.groups ?? {};
   if (text.trim() === '') return null;
+  const textBefore = (match.input ?? '').slice(0, (match.index ?? 0) + before.length);
+  if (INSIDE_URL.test(textBefore)) return null;
   if (delimited) {
     if (endsEscaped(text)) return null;
     const marker = open.charAt(0);

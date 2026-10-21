@@ -142,7 +142,9 @@
   `_` between letters of any script (`café_b_`). A closer converts only the
   opener it matches, as a file reads it: `a **x__ b` and ``` ``x` y ``` stay
   text; when an earlier opener on the line cannot open, a later one still
-  does (`café_a_ _b_` makes `b` italic). →
+  does (`café_a_ _b_` makes `b` italic). A delimiter typed inside a URL
+  (`https://x.test/*a*`) is a character of the URL, as a file reads it, and
+  converts nothing. →
   packages/editor/src/milkdown-compat/inputRules.ts `flanking`,
   tests/editor-embed-milkdown-interactive-typed-escapes.spec.ts
 

@@ -205,6 +205,8 @@ test.describe('typed markdown converts only where the saved line would read the 
     // A closer that does not match its opener (`**` … `__`, two backticks … one).
     ['a **x__', 'mark:strong'],
     ['``x`', 'mark:inlineCode'],
+    // A delimiter inside a URL is the URL's.
+    ['https://x.test/*a*', 'mark:emphasis'],
   ];
 
   test('canary: upstream still formats padded, escaped and unflanked delimiter runs', async ({

@@ -369,6 +369,27 @@ test('a typed run converts when an earlier opener on the line cannot open', asyn
   expect(await renderedMarks(page), saved).toEqual(['em:b']);
 });
 
+for (const [typed, linked] of [
+  ['https://x.test/*a* ok', 'https://x.test/*a'],
+  ['see www.x.test/_a_ ok', 'www.x.test/_a'],
+] as const) {
+  test(`delimiters typed inside a URL stay part of it: "${typed}"`, async ({ page }) => {
+    // A file reads the `*`/`_` inside a URL as the URL's own characters (GFM
+    // trims only the trailing one), never as emphasis.
+    const saved = await typeIntoEmpty(page, typed);
+    expect(saved).toBe(`${typed}\n`);
+    expect(await renderedMarks(page), saved).toEqual([]);
+    const href = linked.startsWith('www.') ? `http://${linked}` : linked;
+    const links = () =>
+      page
+        .locator('.ProseMirror a')
+        .evaluateAll((as) => as.map((a) => [a.textContent ?? '', a.getAttribute('href') ?? '']));
+    expect(await links(), saved).toEqual([[linked, href]]);
+    await reopen(page, saved);
+    expect(await links(), saved).toEqual([[linked, href]]);
+  });
+}
+
 for (const [typed, saved, marks] of [
   ['2 *3* 4', '2 *3* 4\n', ['em:3']],
   ['a **b c** d', 'a **b c** d\n', ['strong:b c']],
