@@ -497,7 +497,7 @@ async fn a_root_removed_during_the_entitlement_wait_fails_the_next_poll() {
 
     let error = outcome.expect_err("the wait must end on the untrusted certificate");
     assert!(
-        matches!(&error, HostedError::Network(message) if message.contains("invalid peer certificate")),
+        matches!(&error, HostedError::Network(message) if crate::tls::test_support::is_certificate_rejection(message)),
         "expected a certificate rejection, got: {error:?}"
     );
     assert_eq!(

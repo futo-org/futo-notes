@@ -376,7 +376,7 @@ mod tests {
 
         let error = outcome.expect_err("the wait must end on the untrusted certificate");
         assert!(
-            matches!(&error, HostedError::Network(message) if message.contains("invalid peer certificate")),
+            matches!(&error, HostedError::Network(message) if crate::tls::test_support::is_certificate_rejection(message)),
             "expected a certificate rejection, got: {error:?}"
         );
         assert_eq!(

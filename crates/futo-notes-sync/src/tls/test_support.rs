@@ -160,3 +160,11 @@ pub(crate) fn remove_trusted_root(path: &Path) {
         private_authority("an unrelated authority with a deliberately much longer common name");
     std::fs::write(path, other.certificate_authority_der).unwrap();
 }
+
+/// Whether a surfaced error is rustls' rejection of an untrusted certificate.
+/// The marker is rustls' Display prefix, which every shell matches too (drift
+/// concept `certificate-rejection-message`); tests outside `tls` ask here so
+/// the string is not copied per assertion.
+pub(crate) fn is_certificate_rejection(message: &str) -> bool {
+    message.contains("invalid peer certificate")
+}
