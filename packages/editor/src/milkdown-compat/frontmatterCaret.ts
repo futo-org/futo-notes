@@ -9,6 +9,7 @@
  */
 import { $prose } from '@milkdown/kit/utils';
 import { Plugin as ProsePlugin, Selection } from '@milkdown/kit/prose/state';
+import type { EditorState, Transaction } from '@milkdown/kit/prose/state';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { FRONTMATTER_NODE } from './frontmatter';
@@ -46,5 +47,43 @@ const frontmatterClickPlugin = $prose(
     }),
 );
 
+/**
+ * The first caret position in the BODY of a document that opens with front
+ * matter, or null when it does not open with any.
+ */
+function bodyStart(doc: ProseNode): Selection | null {
+  const first = doc.firstChild;
+  if (first?.type.name !== FRONTMATTER_NODE) return null;
+  return Selection.near(doc.resolve(first.nodeSize), 1);
+}
+
+/**
+ * Keeps the caret out of the one place in front of the block: the document
+ * start.
+ *
+ * ProseMirror's gap cursor counts that position as a gap a paragraph could
+ * fill — the doc's content match there offers one — because nothing it checks
+ * looks past the front matter that has to come first. So ArrowUp or ArrowLeft
+ * from the top of the body put a gap cursor there, and the next keystroke was
+ * dropped: a paragraph cannot sit above the metadata, so the insert had
+ * nowhere to go and the file never changed. Any empty selection there, however
+ * it got there, is moved to the top of the body, which for an arrow key reads
+ * as "there is nothing above". A range from there (select-all) is left alone:
+ * it is how the whole note, metadata included, is deleted.
+ */
+function caretBeforeFrontmatter(state: EditorState): Transaction | null {
+  const { selection } = state;
+  if (!selection.empty || selection.$head.nodeAfter?.type.name !== FRONTMATTER_NODE) return null;
+  const target = bodyStart(state.doc);
+  return target ? state.tr.setSelection(target) : null;
+}
+
+const frontmatterGapPlugin = $prose(
+  () =>
+    new ProsePlugin({
+      appendTransaction: (_transactions, _oldState, newState) => caretBeforeFrontmatter(newState),
+    }),
+);
+
 /** The caret plugins, registered after {@link ./frontmatter}'s `frontmatterPlugins`. */
-export const frontmatterCaretPlugins = [frontmatterClickPlugin];
+export const frontmatterCaretPlugins = [frontmatterClickPlugin, frontmatterGapPlugin];

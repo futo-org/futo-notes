@@ -115,6 +115,11 @@
   editor has no YAML model, so it shows the bytes and refuses to edit them.
   Deleting the whole note still deletes it. →
   src/features/editor/milkdown/milkdownEditor.css `.futo-frontmatter`
+- The caret never stops in front of the block: ArrowUp or ArrowLeft from the
+  top of the body leaves it at the top of the body, so the next keystroke is
+  written there rather than dropped. →
+  packages/editor/src/milkdown-compat/frontmatterCaret.ts `caretBeforeFrontmatter`,
+  tests/editor-embed-milkdown-front-matter.spec.ts
 - A note whose ONLY content is front matter gets the empty body paragraph the
   schema requires (the document's content is `frontmatter? block+`). That
   paragraph is what gives the caret somewhere to go that is not a selection ON

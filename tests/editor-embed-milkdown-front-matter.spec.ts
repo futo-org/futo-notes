@@ -17,6 +17,7 @@ import {
   hostSetContent,
   pasteClipboard,
 } from './lib/editorEmbedMilkdown';
+import { caretAtStartOf } from './lib/editorEmbedMilkdownInteractive';
 
 // ============================================================
 // YAML front matter (the block the editor's schema owns but never edits)
@@ -111,6 +112,36 @@ test('backspace at the top of the body cannot eat the front matter', async ({ pa
   expect(await getContent(page)).toContain(
     '---\ntitle: Front Matter Test\ntags: [a, b]\ndate: 2026-09-01\n---\n',
   );
+});
+
+// ProseMirror's gap cursor counted the doc start as a gap a paragraph could
+// fill, because nothing it checks looks past the front matter that has to come
+// first. ArrowUp (or ArrowLeft) from the top of the body put a gap cursor
+// there, and the next keystroke went nowhere: a paragraph cannot sit above the
+// metadata, so the insert was dropped and the file never changed.
+for (const key of ['ArrowUp', 'ArrowLeft']) {
+  test(`${key} from the top of the body keeps the caret in the body`, async ({ page }) => {
+    await hostSetContent(page, FRONT_MATTER_NOTE);
+    await caretAtStartOf(page, 'Body');
+    await page.keyboard.press(key);
+    await page.keyboard.type('X');
+    await settleChangeDebounce(page);
+
+    expect(await getContent(page)).toBe(FRONT_MATTER_NOTE.replace('# Body', '# XBody'));
+    await expect(page.locator('.ProseMirror-gapcursor')).toHaveCount(0);
+  });
+}
+
+test('ArrowUp from the empty body of a front-matter-only note keeps the caret there', async ({
+  page,
+}) => {
+  await hostSetContent(page, '---\na: 1\n---\n');
+  await page.locator('.ProseMirror > p').click();
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.type('X');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe('---\na: 1\n---\n\nX\n');
 });
 
 test('a note that opens with an unclosed --- rule keeps its lists and quotes', async ({ page }) => {
