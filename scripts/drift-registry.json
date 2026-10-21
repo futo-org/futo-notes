@@ -940,6 +940,14 @@
         {
           "location": "crates/futo-notes-sync/src/tls/tests.rs",
           "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "crates/futo-notes-sync/src/session/live/connected_stream.rs",
+          "pattern": "invalid peer certificate"
+        },
+        {
+          "location": "crates/futo-notes-sync/src/tls/test_support.rs",
+          "pattern": "invalid peer certificate"
         }
       ],
       "scan": {

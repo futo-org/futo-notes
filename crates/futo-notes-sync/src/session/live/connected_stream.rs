@@ -81,13 +81,15 @@ pub(super) enum StreamOutcome {
 
 pub(super) async fn run_connected_stream(
     mut response: reqwest::Response,
+    generation: u64,
     live_cycle: &LiveCycle<'_>,
     cancel: &mut mpsc::Receiver<()>,
     note_changed: &mut mpsc::Receiver<()>,
     schedule: &mut LiveSchedule,
 ) -> StreamOutcome {
-    if run_cycle_and_notify(&live_cycle, SyncTrigger::LiveCatchUp).await == CycleOutcome::Stop {
-        return StreamOutcome::Stop;
+    if let Some(outcome) = run_stream_cycle(live_cycle, SyncTrigger::LiveCatchUp, generation).await
+    {
+        return outcome;
     }
 
     let mut event_stream = EventStream::default();
@@ -104,19 +106,19 @@ pub(super) async fn run_connected_stream(
             }
             _ = local_push_timer => {
                 schedule.local_push_at = None;
-                if run_cycle_and_notify(&live_cycle, SyncTrigger::LocalChange).await == CycleOutcome::Stop {
-                    return StreamOutcome::Stop;
+                if let Some(outcome) = run_stream_cycle(live_cycle, SyncTrigger::LocalChange, generation).await {
+                    return outcome;
                 }
             }
             _ = remote_pull_timer => {
                 remote_pull_at = None;
-                if run_cycle_and_notify(&live_cycle, SyncTrigger::RemoteChange).await == CycleOutcome::Stop {
-                    return StreamOutcome::Stop;
+                if let Some(outcome) = run_stream_cycle(live_cycle, SyncTrigger::RemoteChange, generation).await {
+                    return outcome;
                 }
             }
             _ = schedule.safety_poll.tick() => {
-                if run_cycle_and_notify(&live_cycle, SyncTrigger::SafetyPoll).await == CycleOutcome::Stop {
-                    return StreamOutcome::Stop;
+                if let Some(outcome) = run_stream_cycle(live_cycle, SyncTrigger::SafetyPoll, generation).await {
+                    return outcome;
                 }
             }
             events = read_stream_events(&mut response, &mut event_stream) => {
@@ -130,6 +132,17 @@ pub(super) async fn run_connected_stream(
             }
         }
     }
+}
+
+async fn run_stream_cycle(
+    live_cycle: &LiveCycle<'_>,
+    trigger: SyncTrigger,
+    generation: u64,
+) -> Option<StreamOutcome> {
+    if run_cycle_and_notify(live_cycle, trigger).await == CycleOutcome::Stop {
+        return Some(StreamOutcome::Stop);
+    }
+    (live_cycle.clients.generation() != generation).then_some(StreamOutcome::Reconnect)
 }
 
 /// The four `select!` arms above are the live loop's whole trigger taxonomy, and
@@ -202,6 +215,91 @@ async fn wait_until_scheduled(at: Option<Instant>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Recorder(std::sync::Mutex<Vec<String>>);
+
+    impl SyncSessionListener for Recorder {
+        fn on_synced(&self, _summary: crate::sync::SyncSummary) {}
+        fn on_connected(&self) {}
+        fn on_error(&self, message: String) {
+            self.0.lock().unwrap().push(message);
+        }
+        fn on_stopped(&self) {}
+    }
+
+    #[tokio::test]
+    async fn an_open_stream_reconnects_once_its_root_is_removed() {
+        use crate::tls::test_support::{
+            file_backed_trust, private_authority, remove_trusted_root, serve_https,
+        };
+
+        let authority = private_authority("futo notes live trust authority");
+        let (address, _) = serve_https(&authority).await;
+        let (trust_path, verifier) = file_backed_trust(&authority);
+        let clients = HttpClients::with_verifier(Some(verifier)).unwrap();
+        let connected = ConnectedState::new(
+            format!("https://{address}"),
+            "token".into(),
+            "user".into(),
+            "collection".into(),
+            [3; 32],
+        );
+        let root = std::env::temp_dir().join(format!("futo-live-trust-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&root).unwrap();
+        let http = super::super::super::connect::client(&clients, &connected).unwrap();
+        let generation = http.pool_generation();
+        let response = http.events().await.unwrap();
+        let state = Arc::new(Mutex::new(Some(connected)));
+        let cycle_gate = Arc::new(Mutex::new(()));
+        let listener = Recorder(std::sync::Mutex::default());
+        let no_pre_write = |_: &str| {};
+        let journal = Journal::disabled();
+        let (_cancel_sender, mut cancel) = mpsc::channel(1);
+        let (note_changed_sender, mut note_changed) = mpsc::channel(1);
+        let mut schedule = LiveSchedule::start().await;
+        let live_cycle = LiveCycle::new(
+            &state,
+            &cycle_gate,
+            &root,
+            &listener,
+            &no_pre_write,
+            &journal,
+            &clients,
+        );
+        let stream = run_connected_stream(
+            response,
+            generation,
+            &live_cycle,
+            &mut cancel,
+            &mut note_changed,
+            &mut schedule,
+        );
+        tokio::pin!(stream);
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(500), &mut stream)
+                .await
+                .is_err(),
+            "a trusted stream must stay open"
+        );
+
+        remove_trusted_root(&trust_path);
+        note_changed_sender.send(()).await.unwrap();
+
+        let outcome = tokio::time::timeout(Duration::from_secs(10), &mut stream)
+            .await
+            .expect("the stream must end once its root is removed");
+        assert!(matches!(outcome, StreamOutcome::Reconnect));
+        assert_eq!(clients.generation(), generation + 1);
+        let errors = listener.0.lock().unwrap().clone();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("invalid peer certificate")),
+            "expected a certificate rejection, got: {errors:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn auth_cycle_errors_stop_and_emit_reauthentication_signal() {
