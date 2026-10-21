@@ -281,7 +281,7 @@ struct SettingsView: View {
         .interactiveDismissDisabled(resetting)
     }
 
-    /// The coin and "With a license" on the App icon row while the license does
+    /// The coin and "More with a license" on the App icon row while the license does
     /// not include icons — on key-only builds too: it names a fact, not a sale.
     private var appIconHint: some View {
         HStack(spacing: 6) {

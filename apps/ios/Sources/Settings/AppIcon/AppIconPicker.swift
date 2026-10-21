@@ -50,16 +50,15 @@ func appIconPickerShape(
     guard let includes else {
         return AppIconPickerShape(coined: [], footnote: false, sheet: nil, resolved: false)
     }
+    let licenseIcons = Set(AppIcon.allCases).subtracting(AppIcon.everyInstallHas)
     if includes.contains(.appIcon) {
-        // D13: the coin stays on every icon but Standard, so the picker still
-        // shows which ones came with the license.
-        return AppIconPickerShape(
-            coined: Set(AppIcon.allCases.filter { $0 != .lightStandard }),
-            footnote: false, sheet: nil)
+        // D13: the coin stays on every icon the license includes, so the
+        // picker still shows which ones came with it.
+        return AppIconPickerShape(coined: licenseIcons, footnote: false, sheet: nil)
     }
     let primary = rowActions.first { $0 == .buy || $0 == .renew }
     return AppIconPickerShape(
-        coined: Set(AppIcon.allCases.filter { $0 != selected }),
+        coined: licenseIcons.subtracting([selected]),
         footnote: true,
         sheet: primary.map { .linkOut(primary: $0) } ?? .keyOnly,
         appStore: rowActions.contains(.buyInAppStore))

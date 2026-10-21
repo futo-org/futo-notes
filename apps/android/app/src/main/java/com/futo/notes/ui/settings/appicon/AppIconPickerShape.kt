@@ -59,18 +59,17 @@ fun appIconPickerShape(
     includes: Set<LicenseInclusion>?,
     rowActions: List<LicenseAction>,
     surface: LicensePurchaseSurface,
+    /** Rust's `licenseAppIconsEveryInstallHas`: never coined, never an ask. */
+    everyInstallHas: Set<AppIcon>,
 ): AppIconPickerShape {
     if (includes == null) {
         return AppIconPickerShape(coined = emptySet(), footnote = false, ask = null, resolved = false)
     }
+    val licenseIcons = AppIcon.entries.toSet() - everyInstallHas
     if (LicenseInclusion.APP_ICON in includes) {
-        // The coin stays on every icon but Standard, so the picker still shows
-        // which ones came with the license.
-        return AppIconPickerShape(
-            coined = AppIcon.entries.toSet() - AppIcon.LIGHT_STANDARD,
-            footnote = false,
-            ask = null,
-        )
+        // The coin stays on every icon the license includes, so the picker
+        // still shows which ones came with it.
+        return AppIconPickerShape(coined = licenseIcons, footnote = false, ask = null)
     }
     val primary = rowActions.firstOrNull { it == LicenseAction.BUY || it == LicenseAction.RENEW }
     val ask = when {
@@ -78,5 +77,5 @@ fun appIconPickerShape(
         surface == LicensePurchaseSurface.NAME_WEBSITE -> AppIconPickerShape.Ask.NameWebsite
         else -> AppIconPickerShape.Ask.KeyOnly
     }
-    return AppIconPickerShape(coined = AppIcon.entries.toSet() - selected, footnote = true, ask = ask)
+    return AppIconPickerShape(coined = licenseIcons - selected, footnote = true, ask = ask)
 }

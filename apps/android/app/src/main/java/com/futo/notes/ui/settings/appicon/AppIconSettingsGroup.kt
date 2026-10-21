@@ -91,7 +91,7 @@ internal fun AppIconSettingsGroup(
 }
 
 /**
- * The coin and "With a license" while the license does not include icons — on
+ * The coin and "More with a license" while the license does not include icons — on
  * key-only builds too: it names a fact, not a sale.
  */
 @Composable

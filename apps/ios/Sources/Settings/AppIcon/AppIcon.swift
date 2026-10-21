@@ -27,4 +27,8 @@ enum AppIcon: String, CaseIterable, Identifiable {
     static func from(alternateName: String?) -> AppIcon? {
         allCases.first { $0.alternateName == alternateName }
     }
+    /// The icons any install may choose, licensed or not. Rust owns the list.
+    static var everyInstallHas: Set<AppIcon> {
+        Set(licenseAppIconsEveryInstallHas().compactMap(AppIcon.init(rawValue:)))
+    }
 }

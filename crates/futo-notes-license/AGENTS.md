@@ -6,7 +6,7 @@ The single owner of every paid-client-license rule. Behavioral truth:
 FUTO Notes asks you to pay for it, and nothing enforces that. **Nothing that works is gated.** A
 license removes the ambient "Unlicensed" label, fills the License card's well with the FUTO coin,
 above a "Licensed since {date}" row (a full localized date, never a bare year), and includes the
-purely cosmetic choices listed in `license_includes` (today: choosing the app icon; docs/plan/license-cosmetics.md).
+purely cosmetic choices listed in `license_includes` (today: choosing the app icons beyond Standard and Reversed, which `app_icons_every_install_has` lists; docs/plan/license-cosmetics.md).
 That function is the whole inclusion rule: never add a licensed-only feature or limit, and never
 add an inclusion that is not cosmetic. Shells ask `license_includes`; none keeps a copy.
 Never describe the app as "free to use" either: the honest framing, and the one Grayjay and FUTO

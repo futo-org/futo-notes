@@ -209,16 +209,16 @@
         "unavailable": "Changing app icons is unavailable on this device.",
         "changing": "Changing app icon…",
         "license": {
-          "rowHint": "With a license",
-          "footnote": "Purchasing a FUTO Notes license unlocks the ability to change the app icon.",
-          "footnoteKeyOnly": "Choosing an app icon is included with a FUTO Notes license.",
-          "footnoteWebsite": "Choosing an app icon is included with a FUTO Notes license, sold on FUTO's website.",
+          "rowHint": "More with a license",
+          "footnote": "Purchasing a FUTO Notes license unlocks additional app icon choices.",
+          "footnoteKeyOnly": "Additional app icon choices are included with a FUTO Notes license.",
+          "footnoteWebsite": "Additional app icon choices are included with a FUTO Notes license, sold on FUTO's website.",
           "sheetTitle": "Included with a license",
-          "sheetBody": "Purchasing a FUTO Notes license unlocks the ability to change the app icon.",
-          "sheetBodyWebsite": "Choosing an app icon is included with a FUTO Notes license. Licenses are sold on FUTO's website at {url}. Already bought one? Enter your key in Settings.",
+          "sheetBody": "Purchasing a FUTO Notes license unlocks this icon and the others marked with a coin.",
+          "sheetBodyWebsite": "This icon is included with a FUTO Notes license, along with the others marked with a coin. Licenses are sold on FUTO's website at {url}. Already bought one? Enter your key in Settings.",
           "notNow": "Not now",
-          "landing": "Your license includes choosing your app icon. Pick one.",
-          "landingAppStore": "Your purchase includes choosing your app icon. Pick one.",
+          "landing": "Your license includes every app icon.",
+          "landingAppStore": "Your purchase includes every app icon.",
           "a11yIncluded": "{iconName}, included with a license"
         }
       }

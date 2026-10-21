@@ -161,8 +161,16 @@ pub enum LicenseStatus {
 /// (docs/spec/license.md): a working feature never appears here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LicenseInclusion {
-    /// Choosing the app icon (native shells).
+    /// Choosing any app icon beyond [`app_icons_every_install_has`] (native
+    /// shells).
     AppIcon,
+}
+
+/// The app icons every install can choose, licensed or not, by their permanent
+/// ids (docs/spec/settings/native-app-icons.md). [`LicenseInclusion::AppIcon`]
+/// is choosing any of the others. Standard is also the default.
+pub fn app_icons_every_install_has() -> Vec<&'static str> {
+    vec!["light-standard", "light-reversed"]
 }
 
 /// The one place the inclusion policy lives. Licensed includes everything
@@ -239,6 +247,15 @@ mod includes_tests {
         ] {
             assert_eq!(license_includes(status), expected, "{status:?}");
         }
+    }
+
+    /// Which icons need no license is policy too: Standard and Reversed only.
+    #[test]
+    fn every_install_has_standard_and_reversed() {
+        assert_eq!(
+            app_icons_every_install_has(),
+            ["light-standard", "light-reversed"]
+        );
     }
 
     /// 3.1.3(b) parity: whatever a key includes, the App Store purchase
