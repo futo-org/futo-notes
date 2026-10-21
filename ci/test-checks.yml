@@ -114,9 +114,12 @@ check:release-notes:mr:
         - scripts/lib/release-notes.mjs
 
 # ── Dependency vulnerability scan ──
-# NON-BLOCKING BY DESIGN — do not "fix" this into a hard gate (docs/architecture-gates.md).
-# Tags and the default branch run it unconditionally: an advisory appears when the advisory
-# database moves, not when our lockfile does.
+# Fails only on a vulnerability in code that ships — a production npm package or a crate
+# compiled into the desktop app or the FFI library — that .cargo/audit.toml / pnpm-workspace.yaml
+# has not acknowledged, so yellow means "act on this". Still absent from release:gate.needs
+# (docs/architecture-gates.md): a new advisory never blocks a tag by itself. Tags and the default
+# branch run it unconditionally: an advisory appears when the advisory database moves, not when
+# our lockfile does.
 test:audit:
   stage: test
   needs: []
@@ -168,10 +171,11 @@ test:audit:
         - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
+# Every en.json message needs a translation in every catalog (AGENTS.md §5). Blocking, and in
+# release:gate.needs.
 test:localization-audit:
   stage: test
   needs: []
-  allow_failure: true
   cache:
     - !reference [.cache-pnpm, cache]
   script:
@@ -195,59 +199,3 @@ test:localization-audit:
         - pnpm-lock.yaml
         - ci/*.yml
         - .gitlab-ci.yml
-
-# Code-quality ratchet (big-code-analysis): a new or WORSENED complexity
-# offender fails `bca check` (exit 2) against the committed .bca-baseline.toml;
-# existing debt is invisible until its baseline row is deleted, so the MR Code
-# Quality widget (gl-code-quality-report.json) annotates only what a diff
-# introduced. scripts/bca-quality.mjs owns the pin and the commands; `just
-# quality` runs the same script locally.
-#
-# Every main pipeline runs it, whatever changed: the MR widget diffs an MR's
-# report against its base commit's, and a main commit with no report (a
-# docs-only push) made every MR list the whole backlog as new. The gate itself
-# is scoped to the MR's changed files (scripts/bca-quality.mjs gateArgs).
-#
-# Non-blocking by design, deliberately absent from release:gate.needs (a
-# documented M14 exception, docs/architecture-gates.md): phase 1 of the
-# adoption plan, so thresholds and the artifact/cache behave can be observed
-# on real pipelines first. Promotion is two same-commit edits: drop
-# allow_failure and enter release:gate.needs. Exit 1 + BCA-DID-NOT-RUN means
-# the tool never ran (M11); exit 2 means findings.
-test:quality-report:
-  stage: test
-  needs: []
-  allow_failure: true
-  cache:
-    # Keyed on version AND sha256: rotating the published checksum without a
-    # version bump must not serve a stale binary that then skips the script's
-    # own sha256 verification (which only runs on a fresh download).
-    key: bca-bin-2.2.0-870a0c43
-    paths:
-      - .bca-cache/
-    when: always
-  script:
-    - node "$CI_PROJECT_DIR/scripts/bca-quality.mjs"
-  artifacts:
-    when: always
-    paths:
-      - bca-report.md
-      - gl-code-quality-report.json
-    # An MR's base report must outlive the MR, not just a week of it.
-    expire_in: 30 days
-    reports:
-      codequality: gl-code-quality-report.json
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - src/**/*
-        - packages/**/*
-        - crates/**/*
-        - apps/**/*
-        - scripts/bca-quality.mjs
-        - bca.toml
-        - .bca-baseline.toml
-        - ci/*.yml
-        - .gitlab-ci.yml
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

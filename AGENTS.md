@@ -80,8 +80,9 @@ infrastructure owner.
 - **Every new user-visible string is a catalog entry.** Authored UI text — labels, headings,
   buttons, placeholders, toasts, errors, accessibility and OS-facing labels — is added to
   `languages/en.json` and read back through the platform's accessor (`localizedText` in TS/Swift/
-  Kotlin), never written as a literal at the call site. An English entry is the minimum bar; a
-  translation is welcome but never required to land. User data is the opposite rule: note titles,
+  Kotlin), never written as a literal at the call site. Every catalog in `languages/`
+  translates it in the same change (machine translation is fine); `test:localization-audit`
+  blocks otherwise. User data is the opposite rule: note titles,
   filenames, folder names, tags, paths and URLs render verbatim (M2). `languages/README.md` owns
   the naming and placeholder grammar; `pnpm run check:languages` validates the catalogs.
 - The note cache (`notesCache` in `src/features/notes/notes.svelte.ts`) is a projection. Apply the
@@ -160,9 +161,8 @@ These are observed failures, not generic advice.
 - **M13 — Untested tag job.** Exercise tag-gated work before tagging, propagate secrets into nested
   VMs, and upload caches `when: always`. Use `/ci-doctor`.
 - **M14 — Missing release dependency.** Every new test job enters `release:gate.needs` in the same
-  commit or it cannot block publication. Deliberate exceptions: `test:audit`,
-  `test:localization-audit`, and `test:quality-report` (phase-1 ratchet) are non-blocking by
-  design (docs/architecture-gates.md).
+  commit or it cannot block publication. Deliberate exception: `test:audit` is
+  non-blocking by design (docs/architecture-gates.md).
 - **M15 — Loosening instead of diagnosing.** Wait on conditions, not sleeps; avoid exact
   cross-platform UI strings. A second timeout bump means stop and root-cause.
 - **M16 — Landed artifacts/debugging.** Gitignore generated paths before building, inspect status,
