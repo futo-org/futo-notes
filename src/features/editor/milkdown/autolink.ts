@@ -69,17 +69,33 @@ function endedWordAt(state: EditorState, previous: EditorState): number | null {
 /** Markdown in, mdast out — the editor's own remark processor's `parse`. */
 type ParseToMdast = (markdown: string) => MdastNode;
 
-/** The first link in a parsed tree, with its source offsets. */
-function firstLink(node: MdastNode): { url: string; start: number; end: number } | null {
+/** The text an mdast node shows. */
+function shownText(node: MdastNode): string {
+  if (typeof node.value === 'string') return node.value;
+  return (node.children ?? []).map(shownText).join('');
+}
+
+/**
+ * The first GFM autolink literal in a parsed `source`, with its offsets in it.
+ *
+ * A literal is the one link whose text IS its source: `[t](u)` and `<u>` parse
+ * as links too, but show other text than they are spelled with, and taking one
+ * as a bare URL marked the whole typed source as the link's text — a link
+ * quoting itself (`[\[t\](u)](u)` on disk). Those are not bare URLs, so they
+ * stay the text they were typed as (docs/spec/editor/external-links.md).
+ */
+function firstLiteral(
+  node: MdastNode,
+  source: string,
+): { url: string; start: number; end: number } | null {
   if (node.type === 'link') {
     const start = node.position?.start.offset;
     const end = node.position?.end.offset;
-    return node.url && start !== undefined && end !== undefined
-      ? { url: node.url, start, end }
-      : null;
+    if (!node.url || start === undefined || end === undefined) return null;
+    return source.slice(start, end) === shownText(node) ? { url: node.url, start, end } : null;
   }
   for (const child of node.children ?? []) {
-    const found = firstLink(child);
+    const found = firstLiteral(child, source);
     if (found) return found;
   }
   return null;
@@ -101,7 +117,7 @@ export function autolinkTransaction(
   const from = end - word.length;
   if (state.doc.rangeHasMark(from, end, link)) return null;
   if (inlineCode && state.doc.rangeHasMark(from, end, inlineCode)) return null;
-  const found = firstLink(parse(word));
+  const found = firstLiteral(parse(word), word);
   if (!found) return null;
   return state.tr.addMark(from + found.start, from + found.end, link.create({ href: found.url }));
 }

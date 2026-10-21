@@ -48,3 +48,8 @@
   src/features/editor/milkdown/autolink.ts,
   packages/editor/src/markdown/inline.ts,
   tests/editor-embed-milkdown-parity.spec.ts
+
+- Only a bare URL links as you type. Link syntax typed by hand (`[text](url)`,
+  `<url>`) is not a bare URL: it stays the text it was typed as, and is saved
+  so it reopens as that same text. → src/features/editor/milkdown/autolink.ts
+  `firstLiteral`, tests/editor-embed-milkdown-parity.spec.ts

@@ -196,6 +196,24 @@ test('a typed link is exactly what reopening the note would link', async ({ page
   );
 });
 
+test('typed markdown link syntax is not linked as if it were a bare URL', async ({ page }) => {
+  // Only a GFM autolink literal is a bare URL. The word `[t](https://x.test)`
+  // parses as an INLINE link, and taking that as "the link reopening would
+  // give" marked the whole typed source as link text: the note saved a link
+  // quoting itself, `[\\[t\\](https://x.test)](https://x.test)`.
+  for (const typed of ['[t](https://x.test) ', '<https://x.test> ']) {
+    await typeIntoEmptyNote(page, typed);
+    await page.keyboard.type('ok');
+    expect(await links(page), typed).toEqual([]);
+    await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
+    const saved = await getContent(page);
+    // Saved as the text it is on screen: reopening shows the same line, unlinked.
+    await open(page, saved);
+    expect(await links(page), saved).toEqual([]);
+    expect(await page.locator('.ProseMirror p').innerText(), saved).toBe(`${typed}ok`);
+  }
+});
+
 test('a URL typed inside inline code stays code', async ({ page }) => {
   await open(page, '`https://youtube.com`\n');
   await page.locator('.ProseMirror code').click();
