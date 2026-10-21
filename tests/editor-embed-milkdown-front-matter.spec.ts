@@ -296,6 +296,23 @@ for (const [route, reach] of routesToBodyStart) {
   });
 }
 
+// A text selection cannot end in the gap in front of the divider, so a Shift
+// move to the top of the body stops at its first text and leaves the divider
+// out: deleting the selection keeps it.
+for (const key of ['Control+Shift+Home', 'Shift+ArrowUp']) {
+  test(`${key} in a note whose body opens with a divider selects up to its first text`, async ({
+    page,
+  }) => {
+    await hostSetContent(page, DIVIDER_FIRST_NOTE);
+    await caretAtEndOf(page, 'para');
+    await page.keyboard.press(key);
+    await page.keyboard.press('Backspace');
+    await settleChangeDebounce(page);
+
+    expect(await getContent(page)).toBe('---\ntitle: T\ntags: [a, b]\n---\n\n---\n');
+  });
+}
+
 test('a note that opens with an unclosed --- rule keeps its lists and quotes', async ({ page }) => {
   // With no closing fence the `---` is a thematic break (docs/spec/editor.md,
   // YAML front matter). The front matter construct used to hunt for the fence

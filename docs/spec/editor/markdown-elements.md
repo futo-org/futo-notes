@@ -138,6 +138,11 @@
   new paragraph above it; the divider stays. →
   packages/editor/src/milkdown-compat/frontmatterCaret.ts `bodyStart`,
   tests/editor-embed-milkdown-front-matter.spec.ts
+- A Shift move to the top of the body selects up to the body's first text: a
+  divider that opens the body is left out of the selection, so deleting the
+  selection keeps it. →
+  packages/editor/src/milkdown-compat/frontmatterCaret.ts `selectBodyStart`,
+  tests/editor-embed-milkdown-front-matter.spec.ts
 - A note whose ONLY content is front matter gets the empty body paragraph the
   schema requires (the document's content is `frontmatter? block+`). That
   paragraph is what gives the caret somewhere to go that is not a selection ON
