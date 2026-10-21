@@ -182,17 +182,23 @@ export const plainTextPaste = $prose((ctx) => {
       return true;
     }
 
-    const tr = view.state.tr;
-    if (!tr.selection.empty) tr.deleteSelection();
-    const placed = only?.type === paragraph ? null : placeBlocks(tr, blocks);
-    if (!placed) {
-      // Inline text, or blocks somewhere `placeBlocks` does not decide: what the
-      // clipboard plugin did, into the open ends of the caret's block.
-      const lone = only?.type === paragraph && only.childCount === 1 ? only.firstChild : null;
-      if (lone?.isText && lone.marks.length === 0) tr.replaceSelectionWith(lone, true);
-      else tr.replaceSelection(slice);
+    // A replace the schema cannot fit throws; the paste is then ProseMirror's
+    // own, as it was under the clipboard plugin, rather than lost.
+    try {
+      const tr = view.state.tr;
+      if (!tr.selection.empty) tr.deleteSelection();
+      const placed = only?.type === paragraph ? null : placeBlocks(tr, blocks);
+      if (!placed) {
+        // Inline text, or blocks somewhere `placeBlocks` does not decide: what the
+        // clipboard plugin did, into the open ends of the caret's block.
+        const lone = only?.type === paragraph && only.childCount === 1 ? only.firstChild : null;
+        if (lone?.isText && lone.marks.length === 0) tr.replaceSelectionWith(lone, true);
+        else tr.replaceSelection(slice);
+      }
+      view.dispatch(tr.scrollIntoView().setMeta('uiEvent', 'paste'));
+    } catch {
+      return false;
     }
-    view.dispatch(tr.scrollIntoView().setMeta('uiEvent', 'paste'));
     return true;
   }
 

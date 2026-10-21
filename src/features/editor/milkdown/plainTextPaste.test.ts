@@ -14,7 +14,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { mount } from 'svelte';
-import { TextSelection } from '@milkdown/kit/prose/state';
+import { TextSelection, Transaction } from '@milkdown/kit/prose/state';
 import * as prosemirrorView from '@milkdown/kit/prose/view';
 import type { EditorView } from '@milkdown/kit/prose/view';
 import { splitListItem } from '@milkdown/kit/prose/schema-list';
@@ -295,5 +295,27 @@ describe('pasting blocks into a line that has text', () => {
     expect(pastePlain(view, '- x\n- y')).toBe(true);
 
     expect(handle.getContent()).toBe('one\n\n- x\n- y\n\ntwo\n');
+  });
+});
+
+describe('a paste whose transaction throws', () => {
+  it('falls through to the default paste instead of throwing out of the handler', async () => {
+    const handle = await mountEditor('');
+    handle.openNote('test-note', 'base');
+    const view = handle.getProseMirrorView()!;
+    view.dispatch(
+      view.state.tr.setSelection(
+        TextSelection.create(view.state.doc, view.state.doc.content.size - 1),
+      ),
+    );
+    const spy = vi.spyOn(Transaction.prototype, 'replaceSelection').mockImplementation(() => {
+      throw new RangeError('boom');
+    });
+    try {
+      expect(() => pastePlain(view, '**bold**')).not.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(view.state.doc.textContent).toBe('base');
   });
 });
