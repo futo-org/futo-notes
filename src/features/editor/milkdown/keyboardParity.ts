@@ -342,19 +342,19 @@ export function keepDeleteForward(ctx: Ctx): void {
  * instead (the earlier fix) cancelled the browser's own action, so
  * Ctrl+Shift+V pasted nothing with Caps Lock on. The rewrite is undone once
  * the editor's keydown listener returns, so listeners outside the editor see
- * the event as sent. Not on an Apple platform for a Cmd+Shift chord: the
- * keymap reads that key from its key code there (w3c-keyname), so it already
- * arrives shifted. Not for AltGr, which types characters, nor for a key that
- * is not a plain a-z letter.
+ * the event as sent. Not on a Mac for a Cmd+Shift chord: the keymap reads that
+ * key from its key code there (w3c-keyname), so it already arrives shifted.
+ * w3c-keyname tests `/Mac/` only, so an iPhone or iPad (iOS-reported) Cmd+Shift
+ * chord still arrives lowercase and is rewritten here. Not for AltGr, which
+ * types characters, nor for a key that is not a plain a-z letter.
  */
-const applePlatform =
-  typeof navigator !== 'undefined' && /Mac|iP(hone|[oa]d)/.test(navigator.platform);
+const keyNameReadsKeyCode = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);
 
 function isCapsLockedChord(event: KeyboardEvent): boolean {
   if (event.isComposing || !event.shiftKey || !/^[a-z]$/.test(event.key)) return false;
   if (!event.ctrlKey && !event.metaKey && !event.altKey) return false;
   if (event.getModifierState('AltGraph')) return false;
-  return !(applePlatform && event.metaKey && !event.ctrlKey && !event.altKey);
+  return !(keyNameReadsKeyCode && event.metaKey && !event.ctrlKey && !event.altKey);
 }
 
 /**

@@ -6,10 +6,12 @@ import {
   flushFrames,
   focusEditor,
   getContent,
+  installFakeAndroidHost,
   messagesOfType,
   waitForMessages,
   type FakeHostWindow,
 } from './lib/editorEmbedHost';
+import { EDITOR_URL } from './editorEmbedBundle';
 import {
   settleChangeDebounce,
   test,
@@ -258,4 +260,39 @@ test('Ctrl+Shift+Z with nothing to redo leaves the key to the browser', async ({
       () => (window as unknown as { lastKeyPrevented?: boolean }).lastKeyPrevented,
     ),
   ).toBe(false);
+});
+
+// iOS and iPadOS with a hardware keyboard: prosemirror-keymap reads Mod as Cmd
+// there, but w3c-keyname only reads a Cmd+Shift chord's key from its key code
+// on a platform matching /Mac/, so an iPhone's Caps-Locked Cmd+Shift+z still
+// arrives as lowercase "z" and needs the same guard.
+test('Cmd+Shift+z on an iPhone with nothing left to redo leaves the note unchanged', async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ hasTouch: true });
+  await context.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'iPhone' });
+  });
+  await context.addInitScript(installFakeAndroidHost);
+  const page = await context.newPage();
+  await page.goto(EDITOR_URL);
+  await page.waitForFunction(() =>
+    (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
+  );
+  await hostSetContent(page, 'base');
+  await focusEditor(page);
+  await page.keyboard.press('End');
+  await page.keyboard.type('a');
+  await settleChangeDebounce(page);
+  await page.keyboard.press('Meta+z');
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toBe('base\n');
+
+  await page.keyboard.press('Meta+Shift+z');
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toBe('basea\n');
+  await page.keyboard.press('Meta+Shift+z');
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toBe('basea\n');
+  await context.close();
 });
