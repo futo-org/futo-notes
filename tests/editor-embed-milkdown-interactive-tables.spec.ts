@@ -3,7 +3,14 @@
 
 import { expect, type Page } from '@playwright/test';
 import { flushFrames, getContent, withCaretObserved } from './lib/editorEmbedHost';
-import { test, open, caretAtEndOf, settled, tableRows } from './lib/editorEmbedMilkdownInteractive';
+import {
+  test,
+  open,
+  caretAtEndOf,
+  settled,
+  tableRows,
+  pastePlainText,
+} from './lib/editorEmbedMilkdownInteractive';
 
 // ============================================================
 // Tables — in-place editing keys (spec: "Table cells are individually
@@ -240,7 +247,7 @@ test('pasting an HTML table into a table cell throws nothing and pastes the cell
 /*
  * Plain-text pastes into a table cell and a list item (R10-FB13-1/-2, RC-81).
  * `text/html` is left empty, so ProseMirror takes its plain-text route — the one
- * `plainTextBlockPaste.ts` touches — and only the clipboard event is synthetic.
+ * `plainTextPaste.ts` touches — and only the clipboard event is synthetic.
  */
 test('multi-line plain text pasted into a cell stays in that cell and spares the next (RC-81)', async ({
   page,
@@ -252,6 +259,20 @@ test('multi-line plain text pasted into a cell stays in that cell and spares the
   expect(tableRows(await getContent(page))).toEqual([
     ['a', 'b'],
     ['r1aP Q', 'r1b'],
+    ['r2a', 'r2b'],
+  ]);
+});
+
+test('plain text pasted into a cell keeps a space at its start', async ({ page }) => {
+  // The cell route trimmed every edge whitespace, not only the newlines it
+  // joins: `r1a` + ` world` saved `r1aworld`.
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r1a');
+  await pastePlainText(page, ' world');
+  await settled(page);
+  expect(tableRows(await getContent(page))).toEqual([
+    ['a', 'b'],
+    ['r1a world', 'r1b'],
     ['r2a', 'r2b'],
   ]);
 });

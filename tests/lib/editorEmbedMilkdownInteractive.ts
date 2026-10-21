@@ -106,3 +106,47 @@ export async function openAtEnd(page: Page, text: string): Promise<void> {
   await page.locator('.ProseMirror').click();
   await page.keyboard.press('ControlOrMeta+End');
 }
+
+/**
+ * Pastes `text` as plain text only — `text/plain` with no `text/html`, as from a
+ * terminal or a code editor. Nothing in Playwright can put text on the OS
+ * clipboard from a `file://` page, so the event is a dispatched `ClipboardEvent`
+ * with a real `DataTransfer`; everything after it is ProseMirror's own paste.
+ *
+ * It first waits until ProseMirror's selection is the DOM's: a key like `End`
+ * moves only the DOM caret, which ProseMirror reads from an async
+ * `selectionchange`, so a paste dispatched straight after would land at the
+ * caret from before the key (see `withCaretObserved`).
+ */
+export async function pastePlainText(page: Page, text: string): Promise<void> {
+  await page.waitForFunction(() => {
+    const view = (
+      window as unknown as {
+        __futoProseMirrorView?: () => {
+          dom: Element;
+          state: { selection: { anchor: number; head: number } };
+          posAtDOM: (node: Node, offset: number) => number;
+        } | null;
+      }
+    ).__futoProseMirrorView?.();
+    const dom = document.getSelection();
+    if (!view || !dom?.anchorNode || !dom.focusNode || !view.dom.contains(dom.anchorNode)) {
+      return true;
+    }
+    const { selection } = view.state;
+    return (
+      selection.anchor === view.posAtDOM(dom.anchorNode, dom.anchorOffset) &&
+      selection.head === view.posAtDOM(dom.focusNode, dom.focusOffset)
+    );
+  });
+  await page.evaluate((plain) => {
+    const transfer = new DataTransfer();
+    transfer.setData('text/plain', plain);
+    document
+      .querySelector('.ProseMirror')!
+      .dispatchEvent(
+        new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }),
+      );
+  }, text);
+  await flushFrames(page);
+}

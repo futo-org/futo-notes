@@ -12,6 +12,8 @@ import {
   SMALL_TABLE,
   paragraphLines,
   openAtEnd,
+  caretAtStartOf,
+  pastePlainText,
 } from './lib/editorEmbedMilkdownInteractive';
 
 // ============================================================
@@ -347,3 +349,51 @@ test('a block format from the toolbar lands on the caret line only', async ({ pa
   await settled(page);
   expect(await getContent(page)).toBe('one\n\n- two\n\nthree\n');
 });
+
+// ============================================================
+// Plain-text paste into a line. The pasted text is read as markdown, but the
+// characters it puts in the line are the ones that were copied.
+// ============================================================
+
+// The paste was parsed as a markdown file on its own, which trims a line's
+// ends: `base` + ` x` saved `basex`, fusing the two words.
+for (const [note, place, pasted, expected] of [
+  ['base\n', 'end', ' x', 'base x\n'],
+  ['base\n', 'start', 'x ', 'x base\n'],
+  [
+    'base\n',
+    'end',
+    ' see [[Other note]] and [[Target|alias]]',
+    'base see [[Other note]] and [[Target|alias]]\n',
+  ],
+  ['## Head\n\nbody\n', 'end', ' more', '## Head more\n\nbody\n'],
+] as const) {
+  test(`pasted plain text keeps the space at its ${place === 'end' ? 'start' : 'end'}: ${JSON.stringify(pasted)}`, async ({
+    page,
+  }) => {
+    await open(page, note);
+    const word = note.replace(/^#+ /, '').split('\n')[0];
+    if (place === 'end') await caretAtEndOf(page, word);
+    else await caretAtStartOf(page, word);
+    await pastePlainText(page, pasted);
+    await settled(page);
+    expect(await getContent(page)).toBe(expected);
+  });
+}
+
+// The parsed paste went through the DOM, whose whitespace rules collapse every
+// run of spaces and tabs to one space.
+for (const [pasted, expected] of [
+  ['a\tb', 'basea\tb\n'],
+  ['a    b', 'basea    b\n'],
+] as const) {
+  test(`pasted plain text keeps its tabs and runs of spaces: ${JSON.stringify(pasted)}`, async ({
+    page,
+  }) => {
+    await open(page, 'base\n');
+    await caretAtEndOf(page, 'base');
+    await pastePlainText(page, pasted);
+    await settled(page);
+    expect(await getContent(page)).toBe(expected);
+  });
+}

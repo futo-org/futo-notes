@@ -29,7 +29,7 @@ import { useBlockDragPlugins } from './blockDrag.svelte';
 import { landPendingDrop } from './blockDragSession';
 import { autolink } from './autolink';
 import { dividerCaretFix } from './dividerCaret';
-import { plainTextBlockPaste } from './plainTextBlockPaste';
+import { plainTextPaste } from './plainTextPaste';
 import {
   handleBlockTypeChord,
   handleCapsLockedChord,
@@ -275,8 +275,8 @@ export function assembleEditor(assembly: EditorAssembly): Editor {
     .use(listener)
     .use(documentChanges(documentEdited))
     .use(readOnlyGuard(() => props.readonly))
-    // BEFORE clipboard: its handlePaste must see a plain-text block first.
-    .use(plainTextBlockPaste)
+    // BEFORE clipboard: it owns the plain-text paste route (plainTextPaste.ts).
+    .use(plainTextPaste)
     .use(clipboard)
     .use(gapCursorPlugin)
     .use(trailing)

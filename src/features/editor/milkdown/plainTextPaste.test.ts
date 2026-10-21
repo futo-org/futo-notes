@@ -7,7 +7,7 @@
  * `@milkdown/plugin-clipboard`'s plain-text route parses the text to a
  * document, round-trips it through the DOM and hands the slice to
  * `replaceSelection`; a slice that starts with a block lands after the empty
- * paragraph it was pasted into. `plainTextBlockPaste.ts` replaces the paragraph.
+ * paragraph it was pasted into. `plainTextPaste.ts` replaces the paragraph.
  *
  * The paste goes through ProseMirror's own `handlePaste` chain — every plugin's
  * prop, in registration order — exactly as the browser's paste event does.

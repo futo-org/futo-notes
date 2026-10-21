@@ -42,6 +42,13 @@
   becoming its own block. → paragraphLines.ts `handleLineStartShortcut` /
   `isolateSelectedLines`, paragraphLines.preset.test.ts (the shortcut list
   checked against the presets)
+- Plain text pasted into a line (a paste with no rich text) is read as
+  markdown, but the characters it puts in the line are the ones copied: a space
+  or tab at either end of the paste is kept, so `hello` + a pasted ` world`
+  saves `hello world`. → src/features/editor/milkdown/plainTextPaste.ts,
+  tests/editor-embed-milkdown-interactive-paragraph-lines.spec.ts
+- A tab or a run of spaces inside pasted plain text is kept as it was copied,
+  never collapsed to one space. → plainTextPaste.ts `parsePasted`
 - A paragraph is one block however many lines it has: the native shells'
   long-press drag moves it whole.
 - A newline at the very end of a note is not written (trailing whitespace is

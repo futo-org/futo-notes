@@ -156,7 +156,9 @@ test('a valid emoji pair survives untouched', async ({ page }) => {
   await page.keyboard.press('End');
   await pasteText(page, ` ${EMOJI}!`);
   for (const text of [await getContent(page), await lastChange(page)]) {
-    expect(text.trimEnd()).toBe(`start${EMOJI}!`);
+    // The pasted leading space is content (it was dropped until the plain-text
+    // paste route kept a paste's edge whitespace).
+    expect(text.trimEnd()).toBe(`start ${EMOJI}!`);
     expect(text).not.toContain(FFFD);
   }
 });

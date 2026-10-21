@@ -38,6 +38,11 @@
   shows under a header-only table is not pasted, so it never blanks out the row
   under the one the header lands on. → src/features/editor/milkdown/table/tablePaste.ts,
   tests/editor-embed-milkdown-interactive-tables.spec.ts
+- Plain text pasted into a table cell stays in that cell: its line breaks
+  become spaces, so no word spills into the next cell, and a space or tab at
+  either end of the paste is kept (`r1a` + a pasted ` world` saves `r1a world`).
+  → src/features/editor/milkdown/plainTextPaste.ts `flattenedForCell`,
+  tests/editor-embed-milkdown-interactive-tables.spec.ts
 
 - Hovering a column shows a small grip above it; hovering a row shows one at
   its left edge. Clicking a grip selects that row/column (visibly, as a cell
