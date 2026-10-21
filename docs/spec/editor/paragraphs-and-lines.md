@@ -21,6 +21,9 @@
   above already ends in an empty line (an Enter at its end), the next one joins
   onto that line, so a join never leaves an empty line inside a paragraph. →
   paragraphLines.ts `joinBackwardAsLine` / `joinForwardAsLine`
+- Delete at the start of the text of a list item or a heading removes the next character, as
+  in a paragraph. It never lifts the item out of its list or changes the heading's level. →
+  milkdown/keyboardParity.ts `keepDeleteForward`
 - Formatting typed across an Enter stays one run: bold carried over a newline
   saves as one `**…**` spanning both lines. Undo after an Enter takes back
   exactly that newline.

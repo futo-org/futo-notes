@@ -58,6 +58,8 @@
  * and Delete inside a block, and the list-split Enter for plain and unchecked
  * items.
  */
+import type { Ctx } from '@milkdown/kit/ctx';
+import { headingKeymap, listItemKeymap } from '@milkdown/kit/preset/commonmark';
 import { keydownHandler } from '@milkdown/kit/prose/keymap';
 import { splitListItem } from '@milkdown/kit/prose/schema-list';
 import { type Command } from '@milkdown/kit/prose/state';
@@ -252,4 +254,36 @@ const blockTypeChords = keydownHandler(
 export function handleBlockTypeChord(view: ProseView, event: KeyboardEvent): boolean {
   if (event.isComposing) return false;
   return blockTypeChords(view, event);
+}
+
+/*
+ * Delete is a FORWARD delete in a list item and in a heading, as it is in a
+ * paragraph: at the start of the text it removes the next character. The
+ * commonmark preset binds the two commands that belong to Backspace at the
+ * start of a block — lift the first list item out of its list, take one level
+ * off a heading — to Delete as well, so Delete there lifted the item or
+ * downgraded the heading and deleted nothing. This keeps them on Backspace
+ * only, through the preset's own keymap configuration (each `$useKeymap`'s ctx
+ * slice), before its shortcuts are built. Called from the editor's `.config()`.
+ * `keyboardParity.preset.test.ts` holds the canary: when upstream stops binding
+ * Delete there, this can go.
+ */
+const withoutDelete = (shortcuts: string | string[]): string[] =>
+  [shortcuts].flat().filter((key) => key !== 'Delete');
+
+export function keepDeleteForward(ctx: Ctx): void {
+  ctx.update(listItemKeymap.key, (keys) => ({
+    ...keys,
+    LiftFirstListItem: {
+      ...keys.LiftFirstListItem,
+      shortcuts: withoutDelete(keys.LiftFirstListItem.shortcuts),
+    },
+  }));
+  ctx.update(headingKeymap.key, (keys) => ({
+    ...keys,
+    DowngradeHeading: {
+      ...keys.DowngradeHeading,
+      shortcuts: withoutDelete(keys.DowngradeHeading.shortcuts),
+    },
+  }));
 }

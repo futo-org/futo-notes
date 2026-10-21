@@ -30,7 +30,12 @@ import { landPendingDrop } from './blockDragSession';
 import { autolink } from './autolink';
 import { dividerCaretFix } from './dividerCaret';
 import { plainTextBlockPaste } from './plainTextBlockPaste';
-import { handleBlockTypeChord, handleIndentShortcut, handleParityKeyDown } from './keyboardParity';
+import {
+  handleBlockTypeChord,
+  handleIndentShortcut,
+  handleParityKeyDown,
+  keepDeleteForward,
+} from './keyboardParity';
 import { handleLineStartShortcut, softBreakView } from './paragraphLines';
 import type { MobileDndHapticKind } from './mobileBlockDnd';
 import { codeHighlight } from './codeHighlight';
@@ -204,6 +209,8 @@ function configureEditor(ctx: Ctx, assembly: EditorAssembly): void {
     code: CODE_IME_ATTRIBUTES,
   }));
   ctx.set(inlineCodeAttr.key, () => ({ ...CODE_IME_ATTRIBUTES }));
+  /* Delete stays a forward delete in list items and headings (keyboardParity.ts). */
+  keepDeleteForward(ctx);
 
   const listeners = ctx.get(listenerCtx);
   listeners.focus(() => props.onfocuschange?.(true));

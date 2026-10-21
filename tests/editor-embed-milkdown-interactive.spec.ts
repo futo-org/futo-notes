@@ -84,6 +84,25 @@ test('splitting an unchecked task item stays a task', async ({ page }) => {
   expect(await getContent(page)).toContain('- [ ] todo\n- [ ] more');
 });
 
+// Delete is a FORWARD delete in a list item and a heading, as in a paragraph.
+// The commonmark preset bound its Backspace commands (lift the first item,
+// downgrade the heading) to Delete too.
+test('Delete at the start of a list item deletes the next character', async ({ page }) => {
+  await open(page, '- ab\n- cd');
+  await caretAtStartOf(page, 'ab');
+  await page.keyboard.press('Delete');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('- b\n- cd');
+});
+
+test('Delete at the start of a heading deletes the next character', async ({ page }) => {
+  await open(page, '## ab');
+  await caretAtStartOf(page, 'ab');
+  await page.keyboard.press('Delete');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('## b');
+});
+
 // ============================================================
 // External links — hit area (spec: "Only the link's own glyphs open it")
 // ============================================================
