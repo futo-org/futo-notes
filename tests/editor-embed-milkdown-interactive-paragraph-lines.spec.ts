@@ -416,6 +416,29 @@ for (const [enter, pasted, expected] of [
   });
 }
 
+// The same block after text in a heading, a list item or a task item lost its
+// markup and fused onto the text before it: `## HeadTitle`, `- itemTitle`,
+// `- [ ] taskT`, `- itemx` + `- y`. A block in a list item lands inside that
+// item; a pasted list adds items beside it.
+for (const [note, word, pasted, expected] of [
+  ['## Head\n', 'Head', '# Title', '## Head\n\n# Title\n'],
+  ['- item\n', 'item', '# Title', '- item\n  # Title\n'],
+  ['- [ ] task\n', 'task', '# T', '- [ ] task\n  # T\n'],
+  ['- item\n', 'item', '- x\n- y', '- item\n- x\n- y\n'],
+  ['- [ ] task\n', 'task', '- [ ] b', '- [ ] task\n- [ ] b\n'],
+  ['1. one\n', 'one', '- x', '1. one\n2. x\n'],
+] as const) {
+  test(`a block pasted at the end of ${JSON.stringify(note)} keeps its markup: ${JSON.stringify(pasted)}`, async ({
+    page,
+  }) => {
+    await open(page, note);
+    await caretAtEndOf(page, word);
+    await pastePlainText(page, pasted);
+    await settled(page);
+    expect(await getContent(page)).toBe(expected);
+  });
+}
+
 // A copied line carries its line ending: the space before it was dropped with
 // it, so `x ` + newline pasted into `ab|cd` saved `abxcd`.
 test('pasted plain text keeps a space before its final newline', async ({ page }) => {

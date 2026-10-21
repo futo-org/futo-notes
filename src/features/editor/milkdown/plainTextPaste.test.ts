@@ -298,6 +298,62 @@ describe('pasting blocks into a line that has text', () => {
   });
 });
 
+describe('pasting blocks mid-line in a heading or a list item', () => {
+  async function caretAfter(note: string, text: string): Promise<[EditorHandle, EditorView]> {
+    const handle = await mountEditor('');
+    handle.openNote('test-note', note);
+    const view = handle.getProseMirrorView()!;
+    let at = -1;
+    view.state.doc.descendants((node, pos) => {
+      if (at === -1 && node.isText && node.text!.includes(text)) {
+        at = pos + node.text!.indexOf(text) + text.length;
+      }
+      return at === -1;
+    });
+    expect(at).toBeGreaterThan(0);
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, at)));
+    return [handle, view];
+  }
+
+  it('a heading pasted mid-heading splits the heading around it', async () => {
+    const [handle, view] = await caretAfter('## Head\n', 'He');
+
+    expect(pastePlain(view, '# Title')).toBe(true);
+    view.dispatch(view.state.tr.insertText('!'));
+
+    expect(handle.getContent()).toBe('## He\n\n# Title!\n\n## ad\n');
+  });
+
+  it('a list pasted mid-item splits the item, the pasted items between its halves', async () => {
+    const [handle, view] = await caretAfter('- item\n- next\n', 'it');
+
+    expect(pastePlain(view, '- x\n- y')).toBe(true);
+    view.dispatch(view.state.tr.insertText('!'));
+
+    expect(handle.getContent()).toBe('- it\n- x\n- y!\n- em\n- next\n');
+  });
+
+  it('a list pasted at the end of an item with a sublist hands the sublist to the last pasted item', async () => {
+    const [handle, view] = await caretAfter('- item\n  - sub\n', 'item');
+
+    expect(pastePlain(view, '- x')).toBe(true);
+    view.dispatch(view.state.tr.insertText('!'));
+
+    expect(handle.getContent()).toBe('- item\n- x!\n  - sub\n');
+  });
+
+  it('a heading pasted at the start of a list item lands in the item ahead of its text', async () => {
+    const [handle, view] = await caretAfter('- item\n', '');
+
+    expect(pastePlain(view, '# T')).toBe(true);
+
+    const md = handle.getContent()!;
+    expect(md).toContain('# T');
+    expect(md).toContain('item');
+    expect(md).not.toMatch(/Titem|Item/);
+  });
+});
+
 describe('a paste whose transaction throws', () => {
   it('falls through to the default paste instead of throwing out of the handler', async () => {
     const handle = await mountEditor('');

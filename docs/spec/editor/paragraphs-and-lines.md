@@ -51,12 +51,19 @@
   tests/editor-embed-milkdown-interactive-paragraph-lines.spec.ts
 - A tab or a run of spaces inside pasted plain text is kept as it was copied,
   never collapsed to one space. → plainTextPaste.ts `parsePasted`
-- A block pasted as plain text into a paragraph (`# Title`, a list, a quote, a
+- A block pasted as plain text into a line (`# Title`, a list, a quote, a
   fence, a table) lands as that block. On an empty line it takes the line;
   after text it splits the line at the caret and takes a line of its own, and
-  the text on either side stays a paragraph. Pasted paragraphs before or after
-  the block run on into the text at the caret, as typing them would. →
+  the text on either side stays what it was (a paragraph, or a heading:
+  `## Head` + `# Title` saves the two headings). Pasted paragraphs before or
+  after the block run on into the text at the caret, as typing them would. →
   plainTextPaste.ts `placeBlocks`
+- In a list or task item, a pasted block lands inside the item, under the
+  caret's line (`- item` + `# Title` saves `- item` with the heading nested
+  under it), and a paste of nothing but a list adds its items to the list
+  beside the caret's item (`- item` + `- x`/`- y` saves three items), splitting
+  the item when the caret is mid-line. → plainTextPaste.ts `placeListItems`,
+  plainTextPaste.test.ts
 - A paragraph is one block however many lines it has: the native shells'
   long-press drag moves it whole.
 - A newline at the very end of a note is not written (trailing whitespace is
