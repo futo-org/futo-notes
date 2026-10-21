@@ -93,6 +93,7 @@ import { inlineNodesCursorPlugin } from './inlineNodesCursor';
 import { remarkInlineUsedLinkDefinitionsPlugin } from './linkDefinitions';
 import { remarkBlankLineParagraphsPlugin } from './emptyLine';
 import { frontmatterPlugins } from './frontmatter';
+import { frontmatterCaretPlugins } from './frontmatterCaret';
 import { scopedListOrderPlugin } from './listOrder';
 import { tightListItemSchema } from './listItemSpread';
 import { ownedSerializerPlugin } from './ownedSerializer';
@@ -287,6 +288,7 @@ export function commonmarkWithCompat(): MilkdownPlugin[] {
      * by upsert — so it must be registered after the preset, and it reads the
      * registered entry back to inherit everything but the content expression. */
     ...frontmatterPlugins,
+    ...frontmatterCaretPlugins,
     /* Every byte the editor writes (`./ownedSerializer`). */
     ownedSerializerPlugin,
   ];

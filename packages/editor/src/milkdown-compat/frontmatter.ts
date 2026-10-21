@@ -60,7 +60,7 @@
  */
 import { nodesCtx, parserCtx } from '@milkdown/kit/core';
 import { $node, $prose, $remark } from '@milkdown/kit/utils';
-import { Plugin as ProsePlugin, Selection } from '@milkdown/kit/prose/state';
+import { Plugin as ProsePlugin } from '@milkdown/kit/prose/state';
 import type { EditorState } from '@milkdown/kit/prose/state';
 import type { NodeSchema } from '@milkdown/kit/transformer';
 import type { MarkdownNode, ParserState, SerializerState } from '@milkdown/kit/transformer';
@@ -265,39 +265,6 @@ export const frontmatterSchema = $node(FRONTMATTER_NODE, () => ({
   },
 }));
 
-/**
- * A tap or click on the block puts the caret at the top of the BODY.
- *
- * Without this the block is a dead spot that still looks live: it is
- * `contenteditable="false"` and unselectable, so a tap focuses the editor and
- * raises the keyboard and then the first character goes nowhere. Measured on
- * the iOS simulator — tapping the panel and typing `X` left the file untouched,
- * while the same tap on the body wrote it — and the panel sits at the very top
- * of the note, which is exactly where a reader taps first.
- *
- * Placing the caret after the node is also the only answer that cannot lose
- * anything: there is no position INSIDE an atom, and putting a selection ON it
- * is the thing `selectable: false` exists to prevent.
- */
-export const frontmatterClickPlugin = $prose(
-  () =>
-    new ProsePlugin({
-      props: {
-        handleClickOn: (
-          view: ProseView,
-          _pos: number,
-          node: ProseNode,
-          nodePos: number,
-        ): boolean => {
-          if (node.type.name !== FRONTMATTER_NODE) return false;
-          const after = Selection.near(view.state.doc.resolve(nodePos + node.nodeSize), 1);
-          view.dispatch(view.state.tr.setSelection(after).scrollIntoView());
-          return true;
-        },
-      },
-    }),
-);
-
 /** How many front matter nodes `fragment` holds, at any depth. */
 function countFrontmatter(fragment: Fragment): number {
   let count = 0;
@@ -432,7 +399,6 @@ export const frontmatterDocSchema = $node(DOC_NODE, (ctx) => {
 export const frontmatterPlugins = [
   ...remarkFrontmatterPlugin,
   frontmatterSchema,
-  frontmatterClickPlugin,
   frontmatterPastePlugin,
   frontmatterDocSchema,
 ];
