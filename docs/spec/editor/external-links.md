@@ -40,8 +40,10 @@
 - Typing a bare URL links it the moment its word ends — Space or Enter — with
   exactly the extent and href reopening the note would give
   it (GFM's autolink literal: trailing punctuation left out, `http://` added
-  for `www.`), because the word is saved and read back by the editor's own
-  serializer and parser.
+  for `www.`), because the word is read by the editor's own markdown parser;
+  the link is applied only when the save writes it so the next open reads back
+  the same text and the same link. A URL holding markdown punctuation
+  (`…/Rust_(programming_language)`, `/~user`, `?q=a*b`) links and saves bare.
   A URL inside inline code or a code block stays text. The note keeps the URL
   as typed: a bare URL is saved bare, not as `<url>` or `[www.…](http://…)`,
   and editing a note leaves the bare URLs already in it bare, unless a bare
@@ -51,8 +53,10 @@
   tests/editor-embed-milkdown-parity.spec.ts
 
 - Link syntax typed by hand (`[text](url)`, `<url>`) does not become a link
-  of its own: it stays the text it was typed as, saved escaped. The bare URL
-  inside it links as its word ends, exactly as reopening the saved line links
-  it — typed `[t](https://x.test)` keeps `[t](` and `)` as text around a link
-  to `https://x.test`. → src/features/editor/milkdown/autolink.ts,
+  of its own: it stays the text it was typed as. The URL spelled inside it
+  links as its word ends, with the href typed, and reopens the same — typed
+  `[t](https://x.test)` keeps `[t](` and `)` as text around a link to
+  `https://x.test`; typed `<https://x.test>` keeps its brackets as text around
+  a link to `https://x.test` (saved `<<https://x.test>>`). →
+  src/features/editor/milkdown/autolink.ts,
   tests/editor-embed-milkdown-parity.spec.ts
