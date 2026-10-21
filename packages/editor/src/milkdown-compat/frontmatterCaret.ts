@@ -8,6 +8,7 @@
  * mirror.
  */
 import { $prose } from '@milkdown/kit/utils';
+import { GapCursor } from '@milkdown/kit/prose/gapcursor';
 import { keydownHandler } from '@milkdown/kit/prose/keymap';
 import { Plugin as ProsePlugin, Selection, TextSelection } from '@milkdown/kit/prose/state';
 import type { Command, EditorState, Transaction } from '@milkdown/kit/prose/state';
@@ -37,10 +38,11 @@ const frontmatterClickPlugin = $prose(
           view: ProseView,
           _pos: number,
           node: ProseNode,
-          nodePos: number,
+          _nodePos: number,
         ): boolean => {
           if (node.type.name !== FRONTMATTER_NODE) return false;
-          const after = Selection.near(view.state.doc.resolve(nodePos + node.nodeSize), 1);
+          const after = bodyStart(view.state.doc);
+          if (!after) return false;
           view.dispatch(view.state.tr.setSelection(after).scrollIntoView());
           return true;
         },
@@ -51,11 +53,21 @@ const frontmatterClickPlugin = $prose(
 /**
  * The first caret position in the BODY of a document that opens with front
  * matter, or null when it does not open with any.
+ *
+ * Always a caret, never a selection ON a block: when the body opens with a
+ * selectable leaf (a divider), the nearest selection is a node selection on
+ * it, and the next keystroke replaced it. The gap in front of that block is
+ * the caret position there — typing at it writes a new paragraph above the
+ * divider, as Ctrl+Home does in a note without front matter.
  */
 function bodyStart(doc: ProseNode): Selection | null {
   const first = doc.firstChild;
   if (first?.type.name !== FRONTMATTER_NODE) return null;
-  return Selection.near(doc.resolve(first.nodeSize), 1);
+  const $start = doc.resolve(first.nodeSize);
+  const near = Selection.near($start, 1);
+  // Not a text caret means no textblock opens the body, so the gap is a valid
+  // one: the front matter atom closes it above, and a paragraph fits it.
+  return near instanceof TextSelection ? near : new GapCursor($start);
 }
 
 /**

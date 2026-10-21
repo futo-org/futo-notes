@@ -1,7 +1,7 @@
 // Part of the futoBridge Milkdown suite: scope and input rules are in
 // editor-embed-milkdown.spec.ts.
 
-import { expect } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { EDITOR_URL } from './editorEmbedBundle';
 import {
   clearMessages,
@@ -170,6 +170,42 @@ test('Ctrl+Shift+Home selects from the caret to the top of the body', async ({ p
     '---\ntitle: Front Matter Test\ntags: [a, b]\ndate: 2026-09-01\n---\n\n# X\n',
   );
 });
+
+// A divider is a selectable leaf, so "the first place in the body" next to one
+// is a NODE selection on it, and the next keystroke replaced it: Ctrl+Home, a
+// click on the panel, or a click in the padding above it, then `X`, deleted the
+// divider. The body start there is the gap in front of the divider, where
+// typing makes a new paragraph — what Ctrl+Home does in a note without front
+// matter.
+const DIVIDER_FIRST_NOTE = '---\ntitle: T\ntags: [a, b]\n---\n\n***\n\npara\n';
+const routesToBodyStart: [string, (page: Page) => Promise<void>][] = [
+  [
+    'Control+Home',
+    async (page) => {
+      await caretAtEndOf(page, 'para');
+      await page.keyboard.press('Control+Home');
+    },
+  ],
+  ['a click on the panel', (page) => page.locator('.futo-frontmatter').click()],
+  [
+    'a click in the padding above the panel',
+    async (page) => {
+      const box = await page.locator('.ProseMirror').boundingBox();
+      if (!box) throw new Error('editor has no box');
+      await page.mouse.click(box.x + 5, box.y + 1);
+    },
+  ],
+];
+for (const [route, reach] of routesToBodyStart) {
+  test(`${route} in a note whose body opens with a divider keeps the divider`, async ({ page }) => {
+    await hostSetContent(page, DIVIDER_FIRST_NOTE);
+    await reach(page);
+    await page.keyboard.type('X');
+    await settleChangeDebounce(page);
+
+    expect(await getContent(page)).toBe('---\ntitle: T\ntags: [a, b]\n---\n\nX\n\n---\n\npara\n');
+  });
+}
 
 test('a note that opens with an unclosed --- rule keeps its lists and quotes', async ({ page }) => {
   // With no closing fence the `---` is a thematic break (docs/spec/editor.md,

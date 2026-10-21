@@ -121,9 +121,14 @@
   packages/editor/src/milkdown-compat/frontmatterCaret.ts `caretBeforeFrontmatter`,
   tests/editor-embed-milkdown-front-matter.spec.ts
 - Ctrl+Home (Cmd+Up on an Apple keyboard) in a note with front matter moves
-  the caret to the top of the body, and with Shift selects up to it; the
-  browser's own move found no caret position in the panel and did nothing. →
+  the caret to the top of the body, and with Shift selects up to it. →
   packages/editor/src/milkdown-compat/frontmatterCaret.ts `toBodyStart`,
+  tests/editor-embed-milkdown-front-matter.spec.ts
+- The top of the body is always a caret, never a selection on a block: when
+  the body opens with a divider, Ctrl+Home, a click on the panel, or a click
+  above it puts the caret in front of the divider, and typing there writes a
+  new paragraph above it; the divider stays. →
+  packages/editor/src/milkdown-compat/frontmatterCaret.ts `bodyStart`,
   tests/editor-embed-milkdown-front-matter.spec.ts
 - A note whose ONLY content is front matter gets the empty body paragraph the
   schema requires (the document's content is `frontmatter? block+`). That
