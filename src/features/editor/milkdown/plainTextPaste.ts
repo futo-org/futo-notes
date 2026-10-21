@@ -10,12 +10,14 @@
  *
  * - the spaces and tabs at either end of the paste were trimmed (a line's ends,
  *   to the parser): `hello` + ` world` saved `helloworld`;
- * - every run of spaces or tabs inside it became one space.
+ * - every run of spaces or tabs inside it became one space;
+ * - a pasted block (`# Title`, a list, a fence) after text on a line merged its
+ *   text into the paragraph, its markup gone: `start` + `# Title` saved
+ *   `startTitle`, and on the empty line an Enter makes, `start\nTitle`.
  *
- * The ends are put back on the first and last pasted paragraph and the DOM read
- * keeps whitespace. A block pasted onto an empty line takes the line
- * (`replaceEmptyLine`). A paste into a code block is left to ProseMirror, which
- * inserts the text verbatim.
+ * The ends are put back on the first and last pasted paragraph, the DOM read
+ * keeps whitespace, and blocks are placed by `placeBlocks`. A paste into a code
+ * block is left to ProseMirror, which inserts the text verbatim.
  *
  * Inside a table cell the text is first joined to one line (RC-81,
  * `transformPastedText` below).
@@ -39,6 +41,7 @@ import type { EditorView } from '@milkdown/kit/prose/view';
 import { $prose } from '@milkdown/kit/utils';
 
 import { flattenHtmlBlocks } from './cellHtmlFlatten';
+import { isLineBreak } from './paragraphLines';
 
 /**
  * The text a table cell can hold: one line. Null when the caret is not in a cell.
@@ -84,26 +87,61 @@ export const plainTextPaste = $prose((ctx) => {
   }
 
   /**
-   * Pasted blocks in place of an empty paragraph of the document or a quote, or
-   * null anywhere else (RC-59). The clipboard route left the empty paragraph
-   * above a slice that starts with a block. Not a list item's first paragraph
-   * (the fitter nests the blocks under the item's filler: `- - x`) and not a
-   * table cell (a lone `# x` fits the cell's content model and split the table).
+   * Pasted blocks at the caret in a paragraph of the document or a quote, or null
+   * anywhere else (a list item keeps the clipboard route's merge, and a cell
+   * cannot hold a block).
+   *
+   * The pasted text runs on from the text before the caret and on into the text
+   * after it, the way typing it would. A block cannot run on: the paragraph is
+   * split there, and the block takes a line of its own — the line break beside
+   * it goes, so `start`, Enter, `# Title` is `start` and a heading, with no
+   * empty line between. An empty paragraph is simply replaced.
    */
-  function replaceEmptyLine(tr: Transaction, blocks: Fragment): Transaction | null {
+  function placeBlocks(tr: Transaction, blocks: Fragment): Transaction | null {
     const { $from } = tr.selection;
     const line = $from.parent;
-    if (line.type !== paragraph || line.content.size !== 0) return null;
+    if (line.type !== paragraph) return null;
     const containerDepth = $from.depth - 1;
     const container = $from.node(containerDepth);
     if (container.type !== schema.nodes.doc && container.type !== schema.nodes.blockquote) {
       return null;
     }
+
+    let before = line.content.cut(0, $from.parentOffset);
+    let after = line.content.cut($from.parentOffset);
+    const nodes: ProseNode[] = [];
+    blocks.forEach((block) => nodes.push(block));
+    const first = nodes[0];
+    if (first.type === paragraph) {
+      nodes[0] = first.copy(before.append(first.content));
+    } else {
+      if (isLineBreak(before.lastChild)) before = before.cut(0, before.size - 1);
+      if (before.size > 0) nodes.unshift(line.copy(before));
+    }
+    // The last pasted block: a lone paragraph never comes here, so it is not
+    // the first one that took `before` above.
+    const lastIndex = nodes.length - 1;
+    const last = nodes[lastIndex];
+    let caretBack = 1;
+    if (last.type === paragraph) {
+      nodes[lastIndex] = last.copy(last.content.append(after));
+      caretBack += after.size;
+    } else {
+      if (isLineBreak(after.firstChild)) after = after.cut(1);
+      if (after.size > 0) {
+        const rest = line.copy(after);
+        nodes.push(rest);
+        caretBack += rest.nodeSize;
+      }
+    }
+
     const at = $from.index(containerDepth);
-    if (!container.canReplace(at, at + 1, blocks)) return null;
+    const content = Fragment.fromArray(nodes);
+    if (!container.canReplace(at, at + 1, content)) return null;
     const from = $from.before();
-    tr.replaceWith(from, $from.after(), blocks);
-    return tr.setSelection(TextSelection.near(tr.doc.resolve(from + blocks.size), -1));
+    tr.replaceWith(from, $from.after(), content);
+    const end = from + content.size - caretBack;
+    return tr.setSelection(TextSelection.near(tr.doc.resolve(end), -1));
   }
 
   function paste(view: EditorView, event: ClipboardEvent): boolean {
@@ -136,9 +174,9 @@ export const plainTextPaste = $prose((ctx) => {
     const tr = view.state.tr;
     if (!tr.selection.empty) tr.deleteSelection();
     const only = blocks.childCount === 1 ? blocks.firstChild : null;
-    const placed = only?.type === paragraph ? null : replaceEmptyLine(tr, blocks);
+    const placed = only?.type === paragraph ? null : placeBlocks(tr, blocks);
     if (!placed) {
-      // Inline text, or blocks anywhere but an empty line: what the
+      // Inline text, or blocks somewhere `placeBlocks` does not decide: what the
       // clipboard plugin did, into the open ends of the caret's block.
       const lone = only?.type === paragraph && only.childCount === 1 ? only.firstChild : null;
       if (lone?.isText && lone.marks.length === 0) tr.replaceSelectionWith(lone, true);

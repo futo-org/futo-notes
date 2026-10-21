@@ -254,3 +254,46 @@ describe('multi-line plain text pasted into a table cell keeps the neighboring c
     expect(md).toMatch(/a[^|]*b/);
   });
 });
+
+/*
+ * A pasted block after text on a line merged its text into the paragraph and
+ * lost its markup (`start` + `# Title` saved `startTitle`). The paragraph is
+ * split at the caret instead; pasted text still runs on into its neighbors.
+ */
+describe('pasting blocks into a line that has text', () => {
+  /** Opens `note` with the caret `offset` characters into its first paragraph. */
+  async function caretIn(note: string, offset: number): Promise<[EditorHandle, EditorView]> {
+    const handle = await mountEditor('');
+    handle.openNote('test-note', note);
+    const view = handle.getProseMirrorView()!;
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1 + offset)));
+    return [handle, view];
+  }
+
+  it('a heading pasted mid-line splits the line around it, the caret after it', async () => {
+    const [handle, view] = await caretIn('start\n', 3);
+
+    expect(pastePlain(view, '# Title')).toBe(true);
+    view.dispatch(view.state.tr.insertText('!'));
+
+    expect(handle.getContent()).toBe('sta\n\n# Title!\n\nrt\n');
+  });
+
+  it('pasted paragraphs around a heading run on into the text either side', async () => {
+    const [handle, view] = await caretIn('abcd\n', 2);
+
+    expect(pastePlain(view, 'one\n\n# Two\n\nthree')).toBe(true);
+    view.dispatch(view.state.tr.insertText('!'));
+
+    expect(handle.getContent()).toBe('abone\n\n# Two\n\nthree!cd\n');
+  });
+
+  it('a list pasted at the start of a second line keeps the first line a paragraph', async () => {
+    const [handle, view] = await caretIn('one\ntwo\n', 4);
+    expect(view.state.selection.$from.nodeBefore?.type.name).toBe('hardbreak');
+
+    expect(pastePlain(view, '- x\n- y')).toBe(true);
+
+    expect(handle.getContent()).toBe('one\n\n- x\n- y\n\ntwo\n');
+  });
+});

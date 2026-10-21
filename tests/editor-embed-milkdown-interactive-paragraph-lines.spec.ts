@@ -397,3 +397,21 @@ for (const [pasted, expected] of [
     expect(await getContent(page)).toBe(expected);
   });
 }
+
+// Its text was merged into the paragraph, `#` and all gone: `startTitle`, or
+// `start\nTitle` on the empty line an Enter makes.
+for (const [enter, pasted, expected] of [
+  [false, '# Title', 'start\n\n# Title\n'],
+  [true, '# Title', 'start\n\n# Title\n'],
+  [true, '# Title\n\nbody', 'start\n\n# Title\n\nbody\n'],
+] as const) {
+  test(`a markdown heading pasted ${enter ? 'on the empty line after' : 'at the end of'} a line stays a heading: ${JSON.stringify(pasted)}`, async ({
+    page,
+  }) => {
+    await openAtEnd(page, 'start');
+    if (enter) await page.keyboard.press('Enter');
+    await pastePlainText(page, pasted);
+    await settled(page);
+    expect(await getContent(page)).toBe(expected);
+  });
+}
