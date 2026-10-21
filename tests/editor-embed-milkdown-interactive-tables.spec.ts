@@ -7,6 +7,7 @@ import {
   test,
   open,
   caretAtEndOf,
+  caretAtStartOf,
   settled,
   tableRows,
   pastePlainText,
@@ -301,6 +302,18 @@ for (const [pasted, expected] of [
     ]);
   });
 }
+
+test('plain text pasted into a cell keeps a space before its final newline', async ({ page }) => {
+  await open(page, TABLE);
+  await caretAtStartOf(page, 'r1a');
+  await pastePlainText(page, 'x \n');
+  await settled(page);
+  expect(tableRows(await getContent(page))).toEqual([
+    ['a', 'b'],
+    ['x r1a', 'r1b'],
+    ['r2a', 'r2b'],
+  ]);
+});
 
 /*
  * RC-83: the HTML twin of RC-81. `text/html` with several blocks, caret in a

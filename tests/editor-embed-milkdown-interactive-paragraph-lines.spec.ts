@@ -415,3 +415,15 @@ for (const [enter, pasted, expected] of [
     expect(await getContent(page)).toBe(expected);
   });
 }
+
+// A copied line carries its line ending: the space before it was dropped with
+// it, so `x ` + newline pasted into `ab|cd` saved `abxcd`.
+test('pasted plain text keeps a space before its final newline', async ({ page }) => {
+  await open(page, 'abcd\n');
+  await caretAtEndOf(page, 'abcd');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  await pastePlainText(page, 'x \n');
+  await settled(page);
+  expect(await getContent(page)).toBe('abx cd\n');
+});

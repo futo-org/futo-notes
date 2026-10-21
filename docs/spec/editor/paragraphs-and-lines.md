@@ -45,7 +45,9 @@
 - Plain text pasted into a line (a paste with no rich text) is read as
   markdown, but the characters it puts in the line are the ones copied: a space
   or tab at either end of the paste is kept, so `hello` + a pasted ` world`
-  saves `hello world`. → src/features/editor/milkdown/plainTextPaste.ts,
+  saves `hello world` — at the end of a copied line, before its line ending,
+  too (`x ` + newline pasted into `ab|cd` saves `abx cd`). →
+  src/features/editor/milkdown/plainTextPaste.ts,
   tests/editor-embed-milkdown-interactive-paragraph-lines.spec.ts
 - A tab or a run of spaces inside pasted plain text is kept as it was copied,
   never collapsed to one space. → plainTextPaste.ts `parsePasted`

@@ -46,15 +46,16 @@ import { isLineBreak } from './paragraphLines';
 
 /**
  * The text a table cell can hold: one line. Null when the caret is not in a cell.
- * Only the line breaks go: a space or tab at either end is content.
+ * Only the line breaks go (with the blank lines at either end): a space or tab
+ * at either end of a line that has text is content.
  */
 function flattenedForCell(text: string, selection: Selection): string | null {
   if (!(selection instanceof TextSelection)) return null;
   const role = selection.$from.node(selection.$from.depth - 1).type.spec.tableRole;
   if (role !== 'cell' && role !== 'header_cell') return null;
   return text
-    .replace(/^\s*[\r\n]\s*/, '')
-    .replace(/\s*[\r\n]\s*$/, '')
+    .replace(/^(?:[ \t]*(?:\r\n?|\n))+/, '')
+    .replace(/(?:(?:\r\n?|\n)[ \t]*)+$/, '')
     .replace(/\s*(?:\r\n?|\n)+\s*/g, ' ');
 }
 
@@ -70,7 +71,8 @@ export const plainTextPaste = $prose((ctx) => {
     parsed.forEach((block) => blocks.push(block));
     // Only on a line that has text: spaces on a blank line are no one's edge.
     const lead = /^([ \t]+)\S/.exec(text)?.[1];
-    const trail = /\S([ \t]+)$/.exec(text)?.[1];
+    // A copied line may carry its line ending; the space before it is still the line's.
+    const trail = /\S([ \t]+)(?:\r\n?|\n)?$/.exec(text)?.[1];
     const first = blocks[0];
     if (lead && first.type === paragraph) {
       blocks[0] = first.copy(Fragment.from(schema.text(lead)).append(first.content));
