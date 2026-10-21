@@ -25,6 +25,10 @@
  *     real one. An odd run of backslashes escapes the delimiter after it; an
  *     even run is escaped backslashes, and the delimiter still counts. Inside a
  *     code span a backslash escapes nothing, so `` `a\` `` is still code.
+ *  5. A closer that is not its opener's match closed it: `a **x__` made `x`
+ *     bold (and saved `a **x** b`), and ``` ``x` ``` made `x` code. A run of
+ *     `**` is closed only by `**`, and one backtick only by one backtick — a
+ *     backtick before it makes the opener a longer run.
  *
  * Everything else is the preset's: the same delimiters, the same characters
  * that may not touch an opener (`\w:/` before `**`/`__`, `*` before `*`, a
@@ -62,8 +66,8 @@ import { $inputRule } from '@milkdown/kit/utils';
  * backslash. An odd run leaves one `\` straight before the delimiter, which
  * nothing here matches, so an escaped opener never opens.
  */
-function lead(allowed: string): string {
-  return String.raw`(?<lead>(?:^|[${allowed}]|[^\\](?=\\))(?:\\\\)*)`;
+function lead(allowed: string, never = ''): string {
+  return String.raw`(?<lead>(?:^|[${allowed}]|[^\\${never}](?=\\))(?:\\\\)*)`;
 }
 
 /** Text that neither starts nor ends with whitespace (or `edge`, the delimiter's own characters). */
@@ -84,12 +88,13 @@ const STRONG = new RegExp(
   lead(String.raw`^\w:/\\`) +
     String.raw`(?<open>\*\*|__)` +
     flanked(String.raw`*_`, '[^*_]') +
-    String.raw`(?:\*\*|__)$`,
+    String.raw`\k<open>$`,
 );
 const STRIKETHROUGH = new RegExp(
   lead(String.raw`^\w:/~\\`) + '(?<open>~{1,2})' + flanked('~', '.') + String.raw`\k<open>$`,
 );
-const INLINE_CODE = new RegExp(lead(String.raw`^\\`) + '(?<open>`)(?<text>[^`]+)`$');
+/** A backtick before the opener would make it a longer run, which one backtick cannot close. */
+const INLINE_CODE = new RegExp(lead('^\\\\`', '`') + '(?<open>`)(?<text>[^`]+)`$');
 
 /** The ```lang shortcut: any info word a backtick fence can open with. */
 const CODE_FENCE = /^```(?<language>[^\s`]*)[\s\n]$/;

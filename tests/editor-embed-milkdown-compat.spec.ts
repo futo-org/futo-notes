@@ -202,6 +202,9 @@ test.describe('typed markdown converts only where the saved line would read the 
     ['a*"b"*', 'mark:emphasis'],
     ['a~~"b"~~', 'mark:strike_through'],
     ['café_b_', 'mark:emphasis'],
+    // A closer that does not match its opener (`**` … `__`, two backticks … one).
+    ['a **x__', 'mark:strong'],
+    ['``x`', 'mark:inlineCode'],
   ];
 
   test('canary: upstream still formats padded, escaped and unflanked delimiter runs', async ({

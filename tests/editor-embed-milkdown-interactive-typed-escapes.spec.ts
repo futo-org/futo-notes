@@ -346,6 +346,19 @@ for (const typed of ['a*"b"* c', 'a**"b"** c', 'a~~"b"~~ c', 'café_b_ c']) {
   });
 }
 
+for (const typed of ['a **x__ b', 'a __x** b', '``x` y']) {
+  test(`typed "${typed}" stays text: its closer does not match its opener`, async ({ page }) => {
+    // A delimiter run closes only a run of the same character (`**` is not
+    // closed by `__`), and a code span only a backtick run of the same length.
+    // A file reads each of these as text; converting saved `a **x** b`.
+    const saved = await typeIntoEmpty(page, typed);
+    expect(await renderedMarks(page), saved).toEqual([]);
+    await reopen(page, saved);
+    expect(await paragraphLines(page), saved).toEqual([typed]);
+    expect(await renderedMarks(page), saved).toEqual([]);
+  });
+}
+
 for (const [typed, saved, marks] of [
   ['2 *3* 4', '2 *3* 4\n', ['em:3']],
   ['a **b c** d', 'a **b c** d\n', ['strong:b c']],
