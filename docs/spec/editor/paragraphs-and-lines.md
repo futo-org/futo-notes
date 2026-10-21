@@ -32,6 +32,9 @@
   a quote or a code block takes the new line inside it, and a table cell moves
   down a row (Shift+Enter there is an in-cell line break). Shift+Enter in any of
   them does what Enter does.
+- A code block inside a list item takes Enter as a new line inside it, on its last line too; it
+  never closes the fence or starts a new list item. → milkdown/keyboardParity.ts
+  `handleParityKeyDown`
 - A block shortcut typed at the start of a line — `- `, `1. `, `> `, `# `,
   ` ``` `, `---`, `|2x3| ` (a table) — starts that block from that line alone;
   the lines above stay a paragraph. A block format from the toolbar or the `/`

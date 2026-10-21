@@ -1,4 +1,4 @@
-import { expect } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import {
   flushFrames,
   getContent,
@@ -132,6 +132,41 @@ test('Delete at the start of a heading deletes the next character', async ({ pag
   await page.keyboard.press('Delete');
   await settled(page);
   expect((await getContent(page)).trimEnd()).toBe('## b');
+});
+
+/** Click the right edge of the text run `text`, so the caret lands at its end. */
+async function caretAtRightEdgeOf(page: Page, text: string): Promise<void> {
+  const target = page.getByText(text, { exact: true }).first();
+  const box = await target.boundingBox();
+  if (!box) throw new Error(`no geometry for ${text}`);
+  await withCaretObserved(page, () =>
+    target.click({ position: { x: Math.max(box.width - 2, 0), y: box.height / 2 } }),
+  );
+}
+
+// A fence inside a list item takes Enter as a new line, as a top-level fence
+// does (docs/spec/editor/paragraphs-and-lines.md "a code block takes the new
+// line inside it"). On the fence's last line the list split ran first.
+test('Enter at the end of a fence inside a list item adds a line to the fence', async ({
+  page,
+}) => {
+  await open(page, '- item\n\n  ```js\n  code\n  ```');
+  await caretAtRightEdgeOf(page, 'code');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('more');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('- item\n\n  ```js\n  code\n  more\n  ```');
+});
+
+test('Enter at the end of a fence inside a checked task item adds a line to the fence', async ({
+  page,
+}) => {
+  await open(page, '- [x] item\n\n  ```js\n  code\n  ```');
+  await caretAtRightEdgeOf(page, 'code');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('more');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('- [x] item\n\n  ```js\n  code\n  more\n  ```');
 });
 
 // ============================================================

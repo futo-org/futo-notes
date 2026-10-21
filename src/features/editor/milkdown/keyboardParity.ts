@@ -28,6 +28,9 @@
  * - Splitting a checked task item starts the new item UNCHECKED —
  *   ProseMirror's `splitListItem`
  *   otherwise clones the `checked: true` attr onto the new item.
+ * - Enter in a code block is a newline in it, inside a list item too: the
+ *   preset's list split runs before the base keymap's `newlineInCode`, and on
+ *   a fence's last line it closed the fence and started a new item.
  *
  * QA #004 (Backspace at the start of a nested list item keeps its
  * indentation rather than merging everything into the top-level item) needed
@@ -60,6 +63,7 @@
  */
 import type { Ctx } from '@milkdown/kit/ctx';
 import { headingKeymap, listItemKeymap } from '@milkdown/kit/preset/commonmark';
+import { newlineInCode } from '@milkdown/kit/prose/commands';
 import { keydownHandler } from '@milkdown/kit/prose/keymap';
 import { splitListItem } from '@milkdown/kit/prose/schema-list';
 import { type Command } from '@milkdown/kit/prose/state';
@@ -180,6 +184,7 @@ export function handleParityKeyDown(view: ProseView, event: KeyboardEvent): bool
 
   if (event.key === 'Enter' && !event.shiftKey) {
     return (
+      newlineInCode(view.state, view.dispatch) ||
       insertTableRowBelow(view.state, view.dispatch) ||
       splitCheckedTaskItem(view.state, view.dispatch) ||
       enterInParagraph(view.state, view.dispatch)
