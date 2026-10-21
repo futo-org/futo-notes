@@ -236,30 +236,84 @@ pub(crate) fn revoke_grant_for_test(granted: &Path) {
     }
 }
 
-/// The live-portal tests need a session bus with a document portal on it.
-/// Headless CI has neither, and a skipped run says so out loud instead of passing
-/// quietly (AGENTS.md M11).
+/// Set (non-empty) to turn a live-portal test's skip into a failure, for a run
+/// that exists to exercise the portal. Unset, an unusable portal skips out loud.
 #[cfg(all(test, target_os = "linux"))]
-pub(crate) fn documents_portal_available() -> bool {
-    let Ok(connection) = zbus::blocking::Connection::session() else {
-        eprintln!("SKIP document portal test: no session bus");
-        return false;
+pub(crate) const REQUIRE_PORTAL_ENV: &str = "FUTO_TEST_REQUIRE_PORTAL";
+
+/// The one gate every live-portal test goes through: `problem` is why this
+/// machine's portal cannot give the test a meaningful answer. A skip is printed
+/// rather than passed quietly (AGENTS.md M11), and is a panic when `required`.
+#[cfg(all(test, target_os = "linux"))]
+#[allow(clippy::print_stderr)] // Only unit-test builds get here.
+pub(crate) fn live_portal_ready(problem: Option<String>, required: bool) -> bool {
+    let Some(problem) = problem else {
+        return true;
     };
-    let reachable = connection
+    assert!(
+        !required,
+        "{REQUIRE_PORTAL_ENV} is set but the live portal is unusable: {problem}"
+    );
+    eprintln!("SKIP live portal test: {problem} (set {REQUIRE_PORTAL_ENV}=1 to fail instead)");
+    false
+}
+
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) fn portal_required() -> bool {
+    std::env::var_os(REQUIRE_PORTAL_ENV).is_some_and(|value| !value.is_empty())
+}
+
+/// Why `name` cannot answer on the session bus, if it cannot.
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) fn bus_name_problem(name: &str) -> Option<String> {
+    let Ok(connection) = zbus::blocking::Connection::session() else {
+        return Some("no session bus".to_owned());
+    };
+    let owned = connection
         .call_method(
             Some("org.freedesktop.DBus"),
             "/org/freedesktop/DBus",
             Some("org.freedesktop.DBus"),
             "NameHasOwner",
-            &DOCUMENTS_NAME,
+            &name,
         )
         .ok()
         .and_then(|reply| reply.body().deserialize::<bool>().ok())
         .unwrap_or(false);
-    if !reachable {
-        eprintln!("SKIP document portal test: {DOCUMENTS_NAME} has no owner");
+    (!owned).then(|| format!("{name} has no owner"))
+}
+
+/// Why `mount` is not the document portal's FUSE mount, if it is not. A portal
+/// can own its bus name while its FUSE mount is gone, and then every granted
+/// path is a missing file.
+#[cfg(all(test, target_os = "linux"))]
+fn fuse_mount_problem(mount: &Path) -> Option<String> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let c_path = std::ffi::CString::new(mount.as_os_str().as_bytes()).ok()?;
+    let mut stat: libc::statfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statfs(c_path.as_ptr(), &mut stat) } != 0 {
+        return Some(format!("{} cannot be stat'ed", mount.display()));
     }
-    reachable
+    (stat.f_type != libc::FUSE_SUPER_MAGIC).then(|| {
+        format!(
+            "{DOCUMENTS_NAME} answers but {} is not its FUSE mount",
+            mount.display()
+        )
+    })
+}
+
+/// The live-portal tests need a session bus with a working document portal on
+/// it. Headless CI has neither.
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) fn documents_portal_available() -> bool {
+    let mount = documents_mount(unsafe { libc::getuid() });
+    let problem = bus_name_problem(DOCUMENTS_NAME).or_else(|| {
+        // The mount only appears once the portal has answered a call.
+        wake_documents_portal(&mount.join("probe"));
+        fuse_mount_problem(&mount)
+    });
+    live_portal_ready(problem, portal_required())
 }
 
 #[cfg(test)]
@@ -327,6 +381,26 @@ mod tests {
         let root = std::env::temp_dir();
         assert!(!inotify_is_unreliable(&root));
         assert!(!is_portal_path(&root));
+    }
+
+    /// A portal that owns its bus name but lost its FUSE mount leaves the mount
+    /// point a plain directory; the gate must see that, not just the name.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_plain_directory_is_not_a_document_portal_mount() {
+        assert!(fuse_mount_problem(&std::env::temp_dir()).is_some());
+    }
+
+    /// An unusable portal skips by default and is a failure when the run asks
+    /// for the portal, so a portal-exercising run cannot go silently green.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn an_unusable_portal_skips_unless_required() {
+        assert!(live_portal_ready(None, true));
+        assert!(!live_portal_ready(Some("down".to_owned()), false));
+        let required =
+            std::panic::catch_unwind(|| live_portal_ready(Some("down".to_owned()), true));
+        assert!(required.is_err(), "a required portal must fail, not skip");
     }
 
     /// An ordinary directory is its own display name — no portal round trip.

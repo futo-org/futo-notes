@@ -117,30 +117,60 @@ mod tests {
     //! Tests for operating-system trash fallback behavior.
     use super::*;
 
-    /// The portal call is only exercised where a desktop portal actually answers:
-    /// headless CI has no session bus, and a skipped run says so out loud rather
-    /// than passing quietly (AGENTS.md M11).
+    /// The portal call is only exercised where a Trash portal can actually trash:
+    /// headless CI has no session bus, and a home trash the portal refuses makes
+    /// every answer a decline, which would prove nothing either way.
     #[cfg(target_os = "linux")]
     fn portal_available() -> bool {
-        let Ok(connection) = zbus::blocking::Connection::session() else {
-            eprintln!("SKIP portal trash test: no session bus");
-            return false;
-        };
-        let reachable = connection
-            .call_method(
-                Some("org.freedesktop.DBus"),
-                "/org/freedesktop/DBus",
-                Some("org.freedesktop.DBus"),
-                "NameHasOwner",
-                &"org.freedesktop.portal.Desktop",
-            )
-            .ok()
-            .and_then(|reply| reply.body().deserialize::<bool>().ok())
-            .unwrap_or(false);
-        if !reachable {
-            eprintln!("SKIP portal trash test: org.freedesktop.portal.Desktop has no owner");
+        let problem = crate::portal_vault::bus_name_problem("org.freedesktop.portal.Desktop")
+            .or_else(|| home_trash_problem(&dirs_home().join(".local/share/Trash")));
+        crate::portal_vault::live_portal_ready(problem, crate::portal_vault::portal_required())
+    }
+
+    /// The Trash portal (xdg-desktop-portal 1.22 `trash.c`, `get_child_mkdir_p_0700`)
+    /// declines every file with "Directory already exists with bad permissions"
+    /// when the home trash's `files/` or `info/` exists with a mode other than
+    /// 0700, where `gio trash` would still accept it.
+    #[cfg(target_os = "linux")]
+    fn home_trash_problem(trash: &Path) -> Option<String> {
+        use std::os::unix::fs::PermissionsExt;
+
+        ["files", "info"].iter().find_map(|child| {
+            let dir = trash.join(child);
+            let mode = std::fs::metadata(&dir).ok()?.permissions().mode() & 0o7777;
+            (mode != 0o700).then(|| {
+                format!(
+                    "{} is mode {mode:o}; the Trash portal refuses anything but 700",
+                    dir.display()
+                )
+            })
+        })
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn a_home_trash_the_portal_refuses_is_detected() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let trash = std::env::temp_dir().join(format!(
+            "futo-tauri-home-trash-{}-{}",
+            std::process::id(),
+            futo_notes_core::files::now_ms()
+        ));
+        assert!(
+            home_trash_problem(&trash).is_none(),
+            "absent: portal creates it"
+        );
+        for child in ["files", "info"] {
+            std::fs::create_dir_all(trash.join(child)).unwrap();
+            std::fs::set_permissions(trash.join(child), std::fs::Permissions::from_mode(0o700))
+                .unwrap();
         }
-        reachable
+        assert!(home_trash_problem(&trash).is_none());
+        std::fs::set_permissions(trash.join("info"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        assert!(home_trash_problem(&trash).is_some());
+        std::fs::remove_dir_all(trash).unwrap();
     }
 
     /// `portal_trash` must move a real file out of the vault and into the trash.
@@ -250,7 +280,9 @@ mod tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn portal_trash_declines_a_document_portal_path() {
-        if !crate::portal_vault::documents_portal_available() {
+        // Both portals: a Trash portal that declines everything would pass this
+        // test for the wrong reason.
+        if !crate::portal_vault::documents_portal_available() || !portal_available() {
             return;
         }
         let real = std::env::temp_dir().join(format!(
