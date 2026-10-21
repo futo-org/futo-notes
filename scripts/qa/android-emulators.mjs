@@ -198,3 +198,25 @@ export async function ensureAvd(name) {
   }
   return serial;
 }
+
+// The debug app every Android QA leg installs. Its vault and sync state outlive
+// a claim, so a fresh claim inherited an earlier leg's notes and pushed them to
+// its own new server (pc_4bc25890e000). `pm clear` takes the package's storage
+// (INTERNAL and APP vaults, prefs, sync state); DEVICE mode keeps its vault in
+// shared storage, outside the package (NotesStorage.deviceFolderName(true)).
+const DEV_PACKAGE = 'com.futo.notes.dev';
+const DEV_DEVICE_VAULT = '/storage/emulated/0/Documents/FUTO Notes Dev';
+
+// Wipe the debug app's data on a pool emulator, leaving the install. Returns an
+// error message, or null once the app and the DEVICE-mode vault are both empty.
+export function wipeDevApp(serial) {
+  const shell = (...args) => tryRun('adb', ['-s', serial, 'shell', ...args]);
+  const installed = (shell('pm', 'path', DEV_PACKAGE) || '').includes('package:');
+  if (installed && !(shell('pm', 'clear', DEV_PACKAGE) || '').includes('Success')) {
+    return `pm clear ${DEV_PACKAGE} failed`;
+  }
+  // adb shell joins its arguments into one device-side command line.
+  shell('rm', '-rf', `"${DEV_DEVICE_VAULT}"`);
+  if (shell('ls', `"${DEV_DEVICE_VAULT}"`) !== null) return `could not delete ${DEV_DEVICE_VAULT}`;
+  return null;
+}

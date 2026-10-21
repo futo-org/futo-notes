@@ -12,6 +12,9 @@
 //       from the primary checkout (btrfs / APFS; skipped with a note elsewhere),
 //       purpose recorded, ports printed.
 //   just wt list
+//   just wt clone-target <dest>   (`just qa-clone-target`)
+//       reflink-clone THIS checkout's target/ into an existing worktree; fails
+//       rather than fall back to a full copy.
 //   just wt gc [--apply] [--idle-days 30] [--sizes] [--no-fetch]
 //       dry run by default. Candidates: branch merged into origin/main, or no
 //       commit in --idle-days AND a clean tree. NEVER the primary checkout, the
@@ -322,6 +325,24 @@ function duHuman(p) {
   return r.status === 0 ? r.stdout.split('\t')[0].trim() : '?';
 }
 
+function cmdCloneTarget(dest) {
+  if (!dest) die('usage: just qa-clone-target <worktree dir>', 2);
+  const src = path.resolve('target');
+  const dst = path.join(path.resolve(dest), 'target');
+  if (!fs.existsSync(src)) die(`no target/ in ${process.cwd()} — build here once first`);
+  if (!fs.existsSync(dest)) die(`worktree '${dest}' does not exist`);
+  if (fs.existsSync(dst)) die(`'${dst}' already exists — remove it first`);
+  const cmd = cloneTargetCommand(process.platform, src, dst);
+  if (!cmd) die(`no copy-on-write clone on ${process.platform}`);
+  const r = spawnSync(cmd[0], cmd[1], { stdio: ['ignore', 'inherit', 'pipe'], encoding: 'utf8' });
+  if (r.status !== 0) {
+    // Only the path this command created; cp may have left a partial tree.
+    fs.rmSync(dst, { recursive: true, force: true });
+    die(`${cmd[0]} ${cmd[1].join(' ')} failed: ${(r.stderr || '').trim().split('\n')[0]}`);
+  }
+  info(`Cloned target/ → ${dst} (copy-on-write)`);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [cmd, ...rest] = process.argv.slice(2);
   const flags = parseFlags(rest);
@@ -329,6 +350,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (cmd === 'new') cmdNew(flags);
     else if (cmd === 'list') cmdList();
     else if (cmd === 'gc') cmdGc(flags);
+    else if (cmd === 'clone-target') cmdCloneTarget(rest[0]);
     else if (cmd && !cmd.startsWith('-')) cmdNew(parseFlags([cmd, ...rest]));
     else
       die(

@@ -31,8 +31,6 @@ const REFUSED = [
   ['deploy-ios', 'macos'],
   ['lint-swift', 'macos'],
   [/^sim-/, 'macos'],
-  // APFS copy-on-write; `cp -Rc` does not exist on Linux.
-  ['qa-clone-target', 'macos'],
   // Runs the shipped desktop app or the editor in a browser engine.
   ['test-desktop-smoke', 'wkwebview'],
   // Interactive.
@@ -46,6 +44,7 @@ const REFUSED = [
   ['qa-claim', 'localMachine'],
   ['qa-release', 'localMachine'],
   ['qa-gc', 'localMachine'],
+  ['qa-clone-target', 'localMachine'],
 ];
 
 // Allowed, but the reader gets told what a green run does and does not prove.

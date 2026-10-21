@@ -12,14 +12,40 @@ import XCTest
 /// session.
 final class AppStorePurchaseTests: XCTestCase {
     private var session: SKTestSession!
+    private static var storeKitAnswers: Bool?
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         continueAfterFailure = false
         session = try SKTestSession(configurationFileNamed: "FutoNotes")
         session.resetToDefaultState()
         session.clearTransactions()
         session.disableDialogs = true
         session.askToBuyEnabled = false
+        try await requireStoreKitTestEnvironment()
+    }
+
+    /// The same gate as `LicenseAppStoreTests`: on a simulator whose runtime
+    /// does not match Xcode's SDK (iOS 26.5 under Xcode 27.1) the session
+    /// buys nothing (`notEntitled`) and the app never loads the product, so
+    /// every test here fails on a timeout. Probed once per process with a
+    /// purchase the session then clears; skipped only when the run opted out
+    /// with `FUTO_STOREKIT_TESTS_OPTIONAL=1` (`just test-ios-native`), a
+    /// failure everywhere else, CI included (M11).
+    private func requireStoreKitTestEnvironment() async throws {
+        if Self.storeKitAnswers == nil {
+            Self.storeKitAnswers =
+                (try? await session.buyProduct(identifier: "com.futo.notes.license")) != nil
+            session.clearTransactions()
+        }
+        if Self.storeKitAnswers == true { return }
+        let reason =
+            "StoreKit's local test environment does not answer on this simulator: use a "
+            + "simulator runtime matching Xcode's iOS SDK, or set FUTO_STOREKIT_TESTS_OPTIONAL=1"
+        if ProcessInfo.processInfo.environment["FUTO_STOREKIT_TESTS_OPTIONAL"] == "1" {
+            throw XCTSkip(reason)
+        }
+        throw NSError(
+            domain: "StoreKitTest", code: 0, userInfo: [NSLocalizedDescriptionKey: reason])
     }
 
     override func tearDownWithError() throws {

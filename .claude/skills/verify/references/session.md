@@ -52,7 +52,8 @@ module, so a plain `pnpm run dev` or `playwright test` already lands on
 | Windows qemu VM | singleton | one session at a time |
 
 **Devices**: `just qa-claim [ios|android|all]` claims this worktree's pooled
-device — creating and booting it on first use — and prints the export lines.
+device — creating and booting it on first use, and wiping the `com.futo.notes.dev`
+app's data when the device last belonged to another worktree — and prints the export lines.
 Set `SIM` / `ANDROID_SERIAL` in every Bash block that drives a device: all
 `sim-*` recipes and `apps/ios/run.sh` honor `$SIM`, and `adb` honors
 `$ANDROID_SERIAL` natively. `just qa-status` shows who owns what,
@@ -201,7 +202,8 @@ server content not declared in the brief is an isolation collision; report it.
 Only release resources this session owns. From each worktree, `just qa-release --shutdown`
 frees its device claims and stops its sync server. Claims belong to the worktree, not the
 session: when sibling agents share one worktree, name your platform
-(`just qa-release android --shutdown`) so you leave theirs and the server they still use. Drop disposable test data with
+(`just qa-release android --shutdown`) so you leave theirs and the server they still use; a named
+release never stops the server, so the last leg out runs a bare `just qa-release` or `just qa-server-stop`. Drop disposable test data with
 `just qa-server-stop --drop` only when the session created it and the user is done.
 Stop desktop instances by `just qa-target kill` or the exact PID/process group this
 session started. Preserve worktrees, ledgers, and manifests needed for iteration or

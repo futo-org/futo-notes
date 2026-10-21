@@ -5,6 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { slotOf } from './lib/slot.mjs';
+
 const QA = path.join(path.dirname(fileURLToPath(import.meta.url)), 'qa.mjs');
 
 // pc_c4b48ce7a32e: two QA agents (Android + iOS) sharing one worktree — the
@@ -54,6 +56,36 @@ describe('qa.mjs release', () => {
     expect(result.status, result.stderr).toBe(0);
     expect(fs.existsSync(ownerFile('android'))).toBe(false);
     expect(fs.existsSync(ownerFile('ios'))).toBe(false);
+  });
+
+  // pc_511cd186988a: an Android leg named its platform, held the worktree's
+  // last device claim, and its release stopped the sync server the desktop
+  // leg (which claims no device) was still using.
+  describe('the slot sync server', () => {
+    const serverOwner = () =>
+      path.join(home, '.futo-notes-qa', 'server', `s${slotOf(root)}`, 'owner.json');
+
+    beforeEach(() => {
+      const dir = path.dirname(serverOwner());
+      fs.mkdirSync(dir, { recursive: true });
+      for (const file of ['owner.json', 'meta.json']) {
+        fs.writeFileSync(path.join(dir, file), JSON.stringify({ worktree: root }));
+      }
+      fs.rmSync(ownerFile('ios'));
+    });
+
+    it('stays up when the named platform held the last claim', () => {
+      const result = release('android');
+      expect(result.status, result.stderr).toBe(0);
+      expect(fs.existsSync(ownerFile('android'))).toBe(false);
+      expect(fs.existsSync(serverOwner())).toBe(true);
+    });
+
+    it('stops when no platform is named', () => {
+      const result = release();
+      expect(result.status, result.stderr).toBe(0);
+      expect(fs.existsSync(serverOwner())).toBe(false);
+    });
   });
 
   it('rejects an unknown platform instead of releasing everything', () => {

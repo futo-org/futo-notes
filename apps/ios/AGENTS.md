@@ -53,7 +53,10 @@ simulator destination `just build-ios-native` uses and the single concrete simul
 ## Testing and QA
 
 Unit tests are Swift Testing in `apps/ios/Tests/`, run by `just test-ios-native` (needs a booted
-simulator; honors `$SIM` from `just qa-claim ios`). `ServerUrlConformanceTests.swift` reads the full
+simulator; honors `$SIM` from `just qa-claim ios`). The recipe skips the StoreKit suites
+(`LicenseAppStoreTests`, `AppStorePurchaseTests`) with a stated reason when the simulator's runtime
+does not match Xcode's SDK, since local StoreKit cannot run there; CI does not opt out, so there
+they fail instead. `ServerUrlConformanceTests.swift` reads the full
 shared `validateServerUrl` fixture — it is a lock, not a sample.
 
 Device/simulator QA of the changed flow is required; keyboard, safe-area, and scroll changes need

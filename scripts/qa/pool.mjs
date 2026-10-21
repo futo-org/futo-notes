@@ -66,35 +66,55 @@ export const ownerIsStale = (owner) => !fs.existsSync(owner.worktree);
 // makes two SIMULTANEOUS claimers of the same name resolve safely: exactly
 // one wins, the loser re-reads and moves on. (Reclaiming a stale owner has a
 // tiny overwrite race — acceptable: it requires two sessions claiming within
-// milliseconds on behalf of an already-deleted worktree.)
+// milliseconds on behalf of an already-deleted worktree.) Returns 'new' when
+// this call took the device (free, or from a stale owner) or this worktree's
+// earlier claim never finished its handover wipe (`wipePending`: the boot died
+// first), 'held' when the worktree already owned it, false when a live
+// worktree owns it.
 function tryClaimOwner(platform, name, root) {
   fs.mkdirSync(DEV_DIR, { recursive: true });
   const payload = JSON.stringify(
-    { worktree: root, branch: branchOf(root), claimedAt: new Date().toISOString() },
+    {
+      worktree: root,
+      branch: branchOf(root),
+      claimedAt: new Date().toISOString(),
+      wipePending: true,
+    },
     null,
     2,
   );
   try {
     fs.writeFileSync(ownerPath(platform, name), payload, { flag: 'wx' });
-    return true;
+    return 'new';
   } catch {
     const owner = readOwner(platform, name);
-    if (owner && owner.worktree === root) return true; // already ours
+    if (owner && owner.worktree === root) return owner.wipePending ? 'new' : 'held';
     if (!owner || ownerIsStale(owner)) {
       fs.writeFileSync(ownerPath(platform, name), payload);
-      return true;
+      return 'new';
     }
     return false;
   }
 }
 
+// The handover wipe finished: later claims by this worktree are 'held'.
+export function markWiped(platform, name) {
+  const owner = readOwner(platform, name);
+  if (!owner) return;
+  delete owner.wipePending;
+  fs.writeFileSync(ownerPath(platform, name), JSON.stringify(owner, null, 2));
+}
+
 // Claim this worktree's pool device: start at slot % POOL, linear-probe past
-// devices owned by other live worktrees, reclaim stale ones.
+// devices owned by other live worktrees, reclaim stale ones. `fresh` is true
+// when the device changed hands and no wipe has completed since, i.e. its app
+// data may belong to someone else; call markWiped once it has been wiped.
 export function claimPoolName(platform, root) {
   const start = slotOf(root) % POOL;
   for (let k = 0; k < POOL; k++) {
     const name = `futo-qa-${(start + k) % POOL}`;
-    if (tryClaimOwner(platform, name, root)) return name;
+    const claim = tryClaimOwner(platform, name, root);
+    if (claim) return { name, fresh: claim === 'new' };
   }
   die(
     `all ${POOL} ${platform} pool devices are owned by live worktrees — release one (just qa-release) or run just qa-gc`,

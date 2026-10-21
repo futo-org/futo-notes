@@ -111,6 +111,10 @@ test-ios-native: _preflight-ios build-rust-ios
   echo "==> Simulator: $SIM"
   cd apps/ios
   xcodegen generate
+  # A pool simulator whose runtime does not match Xcode (iOS 26.5 under Xcode
+  # 27.1) has no usable local StoreKit: the StoreKit suites skip, visibly,
+  # rather than fail or hang. CI does not set this, so there it stays a failure.
+  export TEST_RUNNER_FUTO_STOREKIT_TESTS_OPTIONAL=1
   # Concrete destination + ad-hoc sign: see justfile-notes.md.
   xcodebuild test -project FutoNotesNative.xcodeproj \
     -scheme FutoNotesNative \
