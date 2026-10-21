@@ -160,7 +160,7 @@ rather than hard-coding it):
 ```bash
 model=$(codex debug models | jq -r '.models[].slug' | grep -E '^gpt-[0-9.]+-sol$' | sort -V | tail -1)
 cd .claude/worktrees/mr-<iid>
-codex exec -m "$model" -c model_reasoning_effort=medium -s read-only --ephemeral \
+codex exec -m "$model" -c model_reasoning_effort=high -s read-only --ephemeral \
   -o "<scratchpad>/codex-mr-<iid>.md" \
   "Adversarially review this merge request: \`git diff origin/<target>...HEAD\`. \
 You are a reviewer only — do not edit files. Report only defects that would \
