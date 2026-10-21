@@ -1,8 +1,8 @@
 # Buy everywhere: the website where allowed, the store's purchase where not
 
 > **Status: Deferred 2026-10-19.** @justin dropped in-app purchase for now: no StoreKit or Play
-> Billing purchase flow, no lib-polar change. Deferred, not cancelled. In force instead is the
-> posture of [ADR-0003](0003-every-platform-links-out-to-buy.md) and
+> Billing purchase flow, no lib-polar change. Deferred, not canceled. In force instead is the
+> posture of [ADR-0010](0010-every-platform-links-out-to-buy.md) and
 > [ADR-0005](0005-license-purchase-follows-store-rules.md): where store rules allow a link, Buy
 > opens the FUTOpay website (desktop, iOS US storefront, Android `direct`); iOS outside the US and
 > Android `play` stay key-only, and how far their copy may steer a buyer is under review. The body
@@ -17,7 +17,7 @@
 Decided by @justin on 2026-10-16 (file name kept from the iOS-only first version, so links hold).
 Supersedes [ADR-0005](0005-license-purchase-follows-store-rules.md)'s key-only surfaces
 (option A on iOS outside the US, Android `play` key-only) and, where a store forces an in-app
-purchase, two clauses of [ADR-0003](0003-every-platform-links-out-to-buy.md): "no in-app purchase"
+purchase, two clauses of [ADR-0010](0010-every-platform-links-out-to-buy.md): "no in-app purchase"
 and "the client never displays a price". Not implemented; this records the decision and the design.
 Plan: `docs/plan/license-cosmetics.md` § 7b (routing table, build list, sizing).
 
@@ -68,12 +68,12 @@ and gives Google Play the same shape.
   entitlements). The hash (SHA-1 in Google's long-standing sample) and the key format are **not stated
   by the pages read**; confirm with a real signed purchase before relying on them.
 - **Not what Google recommends.** Google's security page says purchase verification and
-  acknowledgement "should be handled in the backend": call the Developer API to confirm the purchase
+  acknowledgment "should be handled in the backend": call the Developer API to confirm the purchase
   with Google, keep every `purchaseToken` and reject duplicates, check `obfuscatedAccountId`. Without a
   server we give up: confirmation against Google's records, voided/refunded purchase detection (D3
   makes this acceptable), duplicate-token rejection (a proof is a bearer string, matching ADR-0004),
   real-time notifications.
-- **Acknowledgement can be client-side.** Google: acknowledging "on the client side through your app"
+- **Acknowledgment can be client-side.** Google: acknowledging "on the client side through your app"
   is allowed, server-side is "preferred"; an unacknowledged purchase is **refunded automatically after
   three days**. We acknowledge immediately after Rust says Licensed, retrying at every connect and
   resume. A purchase that fails our check is never acknowledged.
@@ -151,12 +151,12 @@ Consequences the design accepts (Apple half; the Google half is below):
 
 ## Consequences
 
-- **Reversed.** ADR-0003's "no IAP" and "the client never displays a price" no longer hold where a store
+- **Reversed.** ADR-0010's "no IAP" and "the client never displays a price" no longer hold where a store
   forces the purchase (iOS outside the US, Android `play`): the StoreKit or Play sheet shows the price. The price still lives in App Store Connect
   and Polar, never in our strings; "the price lives in the store" replaces "only in Polar", and
   the two prices can drift. Copy never states a price.
 - **Cost.** Apple takes a commission on IAP; the Small Business Program rate is the plan, to be
-  confirmed in App Store Connect (not re-read for this ADR). ADR-0003 rejected IAP for cost and for
+  confirmed in App Store Connect (not re-read for this ADR). ADR-0010 rejected IAP for cost and for
   binding the entitlement to an Apple account. The second cost is bounded by this design: the key
   still works, and the proof is portable inside the vault. It is not portable to a person with no
   iOS purchase and no key.

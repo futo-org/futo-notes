@@ -1,5 +1,5 @@
 // The Steel Ledger plate, one test per state (docs/spec/license.md § States and
-// copy; docs/plan/license-ship.md § Phase 4). The route-fulfilment mock that lets a
+// copy). The route-fulfillment mock that lets a
 // browser see the non-default states is in lib/licenseCard.ts. The coin tests are in
 // license-card-coin.spec.ts.
 
@@ -132,7 +132,7 @@ test.describe('License card', () => {
   // selected at all. Justin hit that on his own desktop build on 2026-09-19.
   //
   // Two assertions, because either alone would miss it: the computed value, and
-  // a real Range over the span. The desktop ships on WebKit, which honours
+  // a real Range over the span. The desktop ships on WebKit, which honors
   // `user-select: none` against the Selection API too — a scripted selection
   // there returns the empty string rather than the key.
   test('the revealed key is selectable, so select-and-copy can reach it', async ({ page }) => {

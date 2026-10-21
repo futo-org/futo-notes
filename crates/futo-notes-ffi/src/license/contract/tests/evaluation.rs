@@ -89,7 +89,7 @@ fn an_expired_view_keeps_its_key() {
 /// Unlicensed has no key to show — and neither does a stored pair that
 /// stopped verifying, including one from the other environment (M3).
 /// Rendering the key of a license this build just refused would tell the
-/// user they hold something the app does not honour.
+/// user they hold something the app does not honor.
 #[test]
 fn an_unlicensed_view_carries_no_key() {
     assert_eq!(evaluate_at(None, DEV_BUNDLE_ID, during_term()).key, None);

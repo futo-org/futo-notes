@@ -139,7 +139,7 @@ function configureEditor(ctx: Ctx, assembly: EditorAssembly): void {
    * image paste as HTML content first. Returning true means "this was
    * an image, do not paste it as text". */
   /* `handleKeyDown` rides it for the same precedence reason: the
-   * CM6-parity Enter/Tab behaviors in keyboardParity.ts must win over
+   * Enter/Tab behaviors in keyboardParity.ts must win over
    * the gfm preset's own table keymap (bare Enter there is
    * `exitTable`) without depending on plugin registration order — and
    * the code-block guard on the commonmark preset's block-type chords
@@ -188,7 +188,7 @@ function configureEditor(ctx: Ctx, assembly: EditorAssembly): void {
    * inside a fence still lands `The don't` with these attributes set.
    * They are declared anyway because they are what the HTML spec says
    * (autocapitalize inherits down the tree), they cost nothing, and
-   * Blink — Android's WebView — is expected to honour them, though that
+   * Blink — Android's WebView — is expected to honor them, though that
    * is UNVERIFIED here: no Android device was available. Do not read
    * this block as "autocorrect is scoped to prose on iOS"; it is not.
    *

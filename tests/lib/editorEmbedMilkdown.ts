@@ -2,26 +2,16 @@
 // bridge suites, moved here verbatim from editor-embed-milkdown.spec.ts.
 
 import { test as base, type Page } from '@playwright/test';
-import { BRIDGE_VERSION } from '@futo-notes/editor';
 import { EDITOR_URL } from '../editorEmbedBundle';
-import {
-  flushFrames,
-  installFakeAndroidHost,
-  withCaretObserved,
-  type FakeHostWindow,
-} from './editorEmbedHost';
+import { installFakeAndroidHost, withCaretObserved, type FakeHostWindow } from './editorEmbedHost';
 
-/** @milkdown/plugin-listener debounces `markdownUpdated` by 200 ms (trailing). */
-export const CHANGE_DEBOUNCE_MS = 200;
-
-/**
- * Bounded wait for "no message arrives". Asserting an ABSENCE needs a window,
- * and the only honest one is the debounce the editor actually runs on.
- */
-export async function settleChangeDebounce(page: Page): Promise<void> {
-  await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 80);
-  await flushFrames(page);
-}
+export {
+  CHANGE_DEBOUNCE_MS,
+  hostConfig,
+  hostSetContent,
+  initialize,
+  settleChangeDebounce,
+} from './editorEmbedSpec';
 
 /**
  * Records whether the progressive-open affordance ever appeared, for the whole
@@ -63,34 +53,6 @@ export const test = base.extend<{ page: Page }>({
     await context.close();
   },
 });
-
-export function hostConfig(overrides: Record<string, unknown> = {}): string {
-  return JSON.stringify({
-    bridgeVersion: BRIDGE_VERSION,
-    noteId: 'test-note',
-    theme: 'light',
-    content: '',
-    nativeToolbar: true,
-    contentPaddingInlinePx: 14,
-    ...overrides,
-  });
-}
-
-export async function initialize(page: Page, configJson: string): Promise<void> {
-  await page.evaluate(
-    (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
-    configJson,
-  );
-  await flushFrames(page);
-}
-
-export async function hostSetContent(page: Page, markdown: string): Promise<void> {
-  await page.evaluate(
-    (md) => (window as unknown as FakeHostWindow).FutoEditor.setContent('test-note', md),
-    markdown,
-  );
-  await settleChangeDebounce(page);
-}
 
 /**
  * Puts the caret `chars` characters into the first paragraph, and returns once

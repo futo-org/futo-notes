@@ -1,6 +1,6 @@
 ## Entering a key
 
-- One text field, labelled "License key". It accepts, after trimming
+- One text field, labeled "License key". It accepts, after trimming
   whitespace, any of:
   1. a bare license key;
   2. `{key}/{activation}`;

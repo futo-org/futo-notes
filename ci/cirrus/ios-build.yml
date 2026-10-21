@@ -180,7 +180,7 @@ build_ios_native_task:
           build | tail -5
       fi
   # A cache's auto-generated upload inherits the cache instruction's ON_SUCCESS
-  # behaviour, so a task that dies mid-compile (or hits the wall) uploads
+  # behavior, so a task that dies mid-compile (or hits the wall) uploads
   # nothing and dooms every retry to another cold start — the exact hazard
   # .gitlab-ci.yml's cache templates carry `when: always` for. Moving the
   # uploads into `always:` via `upload_caches` fixes that; cargo handles a

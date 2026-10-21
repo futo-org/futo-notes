@@ -86,31 +86,47 @@ describe('createNotePersistence', () => {
     expect(onSaved).not.toHaveBeenCalled();
   });
 
-  it('warns when a duplicate title blocks the save', async () => {
-    const showTitleWarning = vi.fn();
-    const saveNote = createNotePersistence({
-      clearPendingFolder: vi.fn(),
-      getEditorContent: () => 'edited content',
-      getNoteId: () => 'Original',
-      getPendingFolder: () => null,
-      getState: () => ({
-        originalId: 'Original',
-        savedContent: 'original content',
-        savedTitle: 'Original',
-        title: 'Duplicate',
-      }),
-      hasDuplicateTitle: () => true,
-      isLoading: () => false,
-      onSaved: vi.fn(),
-      reconcileOpenNote: vi.fn(),
-      showTitleWarning,
-    });
+  it.each([
+    ['an existing note', 'Original', 'Original', 'Original'],
+    ['a note never saved', null, '', 'Untitled'],
+  ])(
+    'a duplicate title warns but still saves the body of %s under its current name',
+    async (_, originalId, savedTitle, savedAs) => {
+      vi.mocked(updateNote).mockResolvedValue({ id: savedAs, mtime: 123, disposition: 'wrote' });
+      const showTitleWarning = vi.fn();
+      const onSaved = vi.fn();
+      const saveNote = createNotePersistence({
+        clearPendingFolder: vi.fn(),
+        getEditorContent: () => 'edited content',
+        getNoteId: () => originalId ?? 'new',
+        getPendingFolder: () => null,
+        getState: () => ({
+          content: 'edited content',
+          originalId,
+          savedContent: originalId ? 'original content' : '',
+          savedTitle,
+          title: 'Duplicate',
+        }),
+        hasDuplicateTitle: () => true,
+        isLoading: () => false,
+        onSaved,
+        reconcileOpenNote: vi.fn(),
+        showTitleWarning,
+      });
 
-    await expect(saveNote()).resolves.toBe(false);
+      await expect(saveNote()).resolves.toBe(true);
 
-    expect(showTitleWarning).toHaveBeenCalledExactlyOnceWith({ path: 'notes.title.duplicate' });
-    expect(updateNote).not.toHaveBeenCalled();
-  });
+      expect(showTitleWarning).toHaveBeenCalledExactlyOnceWith({ path: 'notes.title.duplicate' });
+      expect(updateNote).toHaveBeenCalledWith(savedAs, 'edited content', {
+        originalId: originalId ?? undefined,
+        base: originalId ? 'original content' : '',
+      });
+      // The field keeps the refused title: the save names no title it took.
+      expect(onSaved).toHaveBeenCalledWith(
+        expect.objectContaining({ id: savedAs, title: savedAs, requestedTitle: null }),
+      );
+    },
+  );
 
   it.each(['wrote', 'recreated'] as const)(
     'commits saved baselines and reports a disk write after %s',

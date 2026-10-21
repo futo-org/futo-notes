@@ -14,6 +14,7 @@
 import { invoke } from '$lib/platform/tauri/invoke';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { clearLegacyE2eeAuthToken, getAppState, saveAppState } from '$shared/state/appState';
+import { errorText } from '$shared/errorText';
 import type {
   E2eeConnectInput,
   E2eeConnectOutput,
@@ -71,7 +72,7 @@ export function isE2eeConfigured(): boolean {
 // ── Sync runner ─────────────────────────────────────────────────────────
 
 export function isRecoverableSessionError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorText(error);
   return (
     message.includes('collection-gone') ||
     message.startsWith('auth:') ||

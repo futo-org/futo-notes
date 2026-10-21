@@ -127,7 +127,7 @@ export async function parkInsideAKeyboardSwitchLeavesTheSwitchAlone(a, b, server
   // copy. When that save is the flush of a keyboard note switch (the editor
   // keeps DOM focus through Ctrl+T / Ctrl+W / Ctrl+Tab), the tab store has
   // already moved to the destination. Following the copy there retargeted the
-  // DESTINATION tab: the new tab showed the copy, the closed tab's neighbour
+  // DESTINATION tab: the new tab showed the copy, the closed tab's neighbor
   // was rewritten to the copy, Ctrl+Tab rewrote the tab it landed on. The
   // user is leaving the note, so the switch completes untouched and the copy
   // is only listed (editor.md, desktop parked disposition).

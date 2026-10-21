@@ -185,7 +185,7 @@ describe('attributeProfile', () => {
     expect(summary.functions.map((r) => r.label)).toContain('other  other.js:5 (unmapped JS)');
   });
 
-  it('honours top', () => {
+  it('honors top', () => {
     expect(attributeProfile(profile, scripts, { top: 1 }).functions).toHaveLength(1);
   });
 });

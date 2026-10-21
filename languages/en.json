@@ -21,10 +21,10 @@
         "debugDisplayName": "FUTO Notes (Dev)",
         "debugDisplayNameWithBranch": "FUTO Notes (Dev) · {branch}",
         "developmentBadge": "DEV",
-        "versionShort": "v{version}",
         "minimizeWindowAccessibilityLabel": "Minimize window",
         "maximizeWindowAccessibilityLabel": "Maximize window",
         "closeWindowAccessibilityLabel": "Close window",
+        "windowControlsAccessibilityLabel": "Window controls",
         "menu": {
           "file": "File",
           "edit": "Edit",
@@ -382,7 +382,6 @@
       "delete": {
         "heading": "Delete folder",
         "thisFolderQuestion": "Delete this folder?",
-        "moveNotesWarning": "Notes inside it will be moved to the parent folder.",
         "moveContentsWarning": "Notes and other files inside it will be moved to the parent folder. A file with the same name gets a numbered copy.",
         "recoverableConfirmation": "Delete this folder? Notes inside it will be moved to the parent folder.",
         "preservingContentsConfirmation": "Delete this folder? Notes and other files inside it will be moved to the parent folder. A file with the same name gets a numbered copy.",
@@ -479,12 +478,8 @@
       "selectionToolbar": {
         "accessibilityLabel": "Text formatting",
         "bold": "Bold",
-        "boldTitle": "Bold (Mod-B)",
         "italic": "Italic",
-        "italicTitle": "Italic (Mod-I)",
         "strikethrough": "Strikethrough",
-        "strikethroughTitle": "Strikethrough (Mod-Shift-S)",
-        "inlineCode": "Inline code",
         "code": "Code",
         "link": "Link",
         "editLink": "Edit link"
@@ -515,7 +510,6 @@
       },
       "slashMenu": {
         "heading": "Insert block",
-        "noMatches": "No matching blocks",
         "commands": {
           "paragraph": "Text",
           "paragraphHint": "Plain paragraph",
@@ -551,15 +545,6 @@
         "cameraUnavailable": "No camera app available",
         "filePickerFilter": "Images"
       },
-      "tableControls": {
-        "dragColumn": "Drag column",
-        "addColumnToRight": "Add column to right",
-        "cycleAlignment": "Cycle alignment",
-        "deleteColumn": "Delete column",
-        "dragRow": "Drag row",
-        "addRowBelow": "Add row below",
-        "deleteRow": "Delete row"
-      },
       "tableGrips": {
         "insertBefore": "Insert before",
         "insertAfter": "Insert after",
@@ -591,20 +576,6 @@
       },
       "ios": {
         "bundleMissing": "The editor is unavailable because editor.html is missing from the app bundle."
-      }
-    },
-    "codeMirror": {
-      "phrases": {
-        "completions": "Completions",
-        "controlCharacter": "Control character",
-        "selectionDeleted": "Selection deleted",
-        "foldedLines": "Folded lines",
-        "unfoldedLines": "Unfolded lines",
-        "rangeSeparator": "to",
-        "foldedCode": "folded code",
-        "unfold": "unfold",
-        "foldLine": "Fold line",
-        "unfoldLine": "Unfold line"
       }
     },
     "sync": {

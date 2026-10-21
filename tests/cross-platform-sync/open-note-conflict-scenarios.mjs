@@ -8,7 +8,6 @@ import {
   assert,
   assertEqual,
   waitForEditorContent,
-  waitForNoteInSidebar,
   waitForOpenNoteTitle,
   waitForSaveIdle,
 } from './waits-and-assertions.mjs';
@@ -209,25 +208,17 @@ export async function editDuringSyncKeepsLocalDraft(a, b, server) {
   // before B's explicit startSync() runs.
   await b.pauseAutoSync();
 
-  await a.writeNote('taken sync title', '# Blocking title');
   await a.writeNote('during sync', '# Base');
   await a.syncNow();
   await b.syncNow();
-  // The rename below must be BLOCKED by the duplicate-title guard, which checks
-  // B's notes cache. syncNow() resolving doesn't guarantee the pulled note has
-  // propagated into that cache yet — wait for it, otherwise the guard misses
-  // and the rename falls through to the Rust auto-suffix (taken sync title-2).
-  await waitForNoteInSidebar(b, 'taken sync title');
 
   await b.openNote('during sync');
   await waitForEditorContent(b, '# Base');
-  await b.setTitle('taken sync title');
-  // Title edits use a deliberate 10s debounce (TITLE_SAVE_DEBOUNCE_MS) so a
-  // rename round-trip never fires mid-typing — longer than waitForSaveIdle's
-  // 5s budget. Flush so the (duplicate-title-blocked) save settles now, exactly
-  // as this scenario already does before its final savePending check below.
-  await b.flushSave();
-  await waitForSaveIdle(b);
+  // The draft typed below must still be unsaved when the pull lands, so hold
+  // B's saves: each declines without writing and the buffer stays dirty. (A
+  // duplicate title used to do this; a refused title now saves the body,
+  // editor.md "A duplicate title blocks the rename".)
+  await b.holdSaves(true);
 
   await a.writeNote('during sync', '# Remote update');
   await a.syncNow();
@@ -262,11 +253,11 @@ export async function editDuringSyncKeepsLocalDraft(a, b, server) {
     'route should stay on the edited note during sync',
   );
 
-  // Settle the protected draft: restoring a valid title unblocks the save, and
-  // the draft parks against the pulled base rather than fast-forwarding over it
+  // Settle the protected draft: releasing the hold lets the save run, and the
+  // draft parks against the pulled base rather than fast-forwarding over it
   // (#89). Both texts then reach the peer — the pulled update at the note's own
   // id, the draft as a conflict copy.
-  await b.setTitle('during sync');
+  await b.holdSaves(false);
   await b.flushSave();
   await waitForSaveIdle(b);
   await b.syncNow();

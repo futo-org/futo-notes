@@ -31,7 +31,7 @@ export interface Props {
   onblockdrag?: (active: boolean) => void;
   /* Whether a finger is DOWN on a block on that same path — posted at
    * touch-down, so a shell can stand its WebView's DELAYED long-press
-   * recognisers down before they can win, instead of waiting for a lift that
+   * recognizers down before they can win, instead of waiting for a lift that
    * may not come (bridge.ts BlockPressMessage / mobileBlockDnd.ts). */
   onblockpress?: (pressed: boolean) => void;
   /* Find in note's `{query, current, total, label}` report, for the native

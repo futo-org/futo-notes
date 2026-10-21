@@ -1,45 +1,13 @@
 // The page fixture and command helpers shared by the editor-embed-milkdown-toolbar*.spec.ts
 // suites, moved here verbatim from editor-embed-milkdown-toolbar.spec.ts.
 
-import { test as base, type Page } from '@playwright/test';
-import { EDITOR_URL } from '../editorEmbedBundle';
-import {
-  flushFrames,
-  focusEditor,
-  getContent,
-  installFakeAndroidHost,
-  type FakeHostWindow,
-} from './editorEmbedHost';
+import type { Page } from '@playwright/test';
+import { flushFrames, focusEditor, getContent, type FakeHostWindow } from './editorEmbedHost';
+import { embedTest, hostSetContent, settleChangeDebounce } from './editorEmbedSpec';
 
-/** @milkdown/plugin-listener debounces `markdownUpdated` by 200 ms (trailing). */
-const CHANGE_DEBOUNCE_MS = 200;
-
-export const test = base.extend<{ page: Page }>({
-  page: async ({ browser }, use) => {
-    const context = await browser.newContext({ hasTouch: true });
-    await context.addInitScript(installFakeAndroidHost);
-    const page = await context.newPage();
-    await page.goto(EDITOR_URL);
-    await page.waitForFunction(() =>
-      (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
-    );
-    await use(page);
-    await context.close();
-  },
-});
-
-export async function settle(page: Page): Promise<void> {
-  await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 80);
-  await flushFrames(page);
-}
-
-export async function hostSetContent(page: Page, markdown: string): Promise<void> {
-  await page.evaluate(
-    (md) => (window as unknown as FakeHostWindow).FutoEditor.setContent('test-note', md),
-    markdown,
-  );
-  await settle(page);
-}
+export { hostSetContent };
+export const test = embedTest;
+export const settle = settleChangeDebounce;
 
 export async function exec(page: Page, ...ids: string[]): Promise<void> {
   for (const id of ids) {

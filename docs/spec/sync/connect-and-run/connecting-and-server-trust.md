@@ -62,43 +62,45 @@ Password/Uri, autoCorrectEnabled = false, capitalization = None)`
 - *(Android)* The verifier's Android backend calls into the JVM, which needs a
   one-time binding that UniFFI's JNA loading never performs: the shell loads the
   same library through JNI and hands Rust its application context before any
-  sync client exists. The Kotlin half that backend expects is vendored verbatim
-  from the crate release `Cargo.lock` pins.
+  sync client exists. The Kotlin half that backend expects is vendored from the
+  crate release `Cargo.lock` pins, with two local changes re-applied on every
+  bump: it rebuilds its trust manager when the user CA directories change, and
+  it checks revocation only from an OCSP response the server stapled, never over
+  the network — what Android's own HTTPS stack (Conscrypt) does.
   → FutoNotesApplication.kt · PlatformTrust.kt · crates/futo-notes-ffi
   `platform_trust` · apps/android/app/src/main/java/org/rustls/platformverifier/
-- **Installing or removing a CA takes effect on the next sync**, with no
-  reconnect. An already-open connection keeps its handshake until it closes.
-  Apple and Windows are asked afresh at every handshake; Linux has no trust
-  service, only files, so its verifier is rebuilt when the paths
-  `rustls-native-certs` would load from — `$SSL_CERT_FILE` and `$SSL_CERT_DIR`
-  when either is set, the probed system locations otherwise — change modification
-  time or size, stat-checked before each verification callback and never on a
-  timer, and kept as-is when they are unreadable mid-rewrite. The stat-and-rebuild
-  mechanism is unit-tested; that `update-ca-certificates` moves the probed paths
-  is asserted only by an `#[ignore]`d test that has not yet run anywhere.
-  → crates/futo-notes-sync/src/tls/reloading.rs (`tls::tests`)
-  > **Gap:** *(Android)* a CA installed or removed while the app runs goes
-  > unnoticed until the app restarts, and a revoked CA keeps working for the life
-  > of the process; neither a reconnect nor a new sync client refreshes it. The
-  > verifier's Kotlin half hands `TrustManagerFactory.init()` a non-null
-  > `AndroidCAStore` behind a private `Lazy`, so the anchors are resolved once per
-  > process. (Its `systemTrustAnchorCache` is *not* the cause — that one only
-  > classifies a root as system-vs-user for revocation policy.) Closing this needs
-  > a public invalidation hook in `rustls-platform-verifier`; patching the
-  > vendored copy would fork a file that must stay verbatim to be re-vendored on
-  > every crate bump. Measured on an emulator, tracked as futo-notes#171.
-  > → apps/android/app/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt
-  > **Gap:** *(Android)* the same vendored file's `isKnownRoot` never advances
-  > its index on its two `continue` branches. It runs for every handshake without
-  > a stapled OCSP response, and spins only when the chain's root shares a subject
-  > hash with a system anchor whose file still exists but whose keystore entry is
-  > gone — disabled by the user, or dropped by a Conscrypt update — or is not an
-  > X509 certificate. A private CA exits on the first iteration. When it does
-  > spin, the verifying thread is lost for good; the client sees the 10s connect
-  > timeout (5s on the initial `auth_mode` probe), so it reads as slow sync, and
-  > each retry burns another worker. Same fix path, same tracker.
-  > → apps/android/app/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt
-  > → crates/futo-notes-sync/src/server/mod.rs `CONNECT_TIMEOUT` `PROBE_TIMEOUT`
+- **Installing or removing a CA takes effect on the next sync**, on every
+  platform, including connections already open. Before each sync cycle, each
+  live-stream reconnect, and each hosted-setup request, every certificate chain
+  the session's handshakes accepted is put to the platform verifier again; one
+  it no longer trusts drops both of the session's connection pools, so the next
+  request makes a fresh handshake and fails with the certificate message, and
+  an open live stream reconnects after its own next cycle. The check makes no
+  handshake; it costs what the platform's verifier costs (Windows may refresh
+  expired cached revocation data over the network, as it does at a handshake).
+  It runs before anything else in the cycle, so a cycle that fails early still
+  makes it. A live stream runs a cycle at least every safety poll, so it is cut
+  within ~45 s of the removal.
+  → crates/futo-notes-sync/src/tls/remembering.rs · server/mod.rs `HttpClients`
+  (`a_root_removed_while_its_connection_is_pooled_fails_the_next_request`,
+  `an_open_stream_reconnects_once_its_root_is_removed`,
+  `a_cycle_that_fails_early_still_drops_connections_whose_root_was_removed`)
+- *(all platforms)* "Trusted" is the platform's answer at that moment. Apple and
+  Windows ask SecTrust / CryptoAPI afresh on every call. Android and Linux keep
+  trust in files, so each stat-checks them before every verification, never on a
+  timer: Android every entry of the user CA directories
+  (`/data/misc/user/<id>/cacerts-added` and `cacerts-removed`, which a Settings
+  install, removal, or disable changes — a removal may only empty its file),
+  Linux the paths `rustls-native-certs` would load from — `$SSL_CERT_FILE` and
+  `$SSL_CERT_DIR` when either is set, the probed system locations otherwise —
+  by modification time or size, kept as-is when they are unreadable mid-rewrite.
+  The Linux stat-and-rebuild is unit-tested; that `update-ca-certificates` moves
+  the probed paths is asserted only by an `#[ignore]`d test that has not yet run
+  anywhere.
+  → crates/futo-notes-sync/src/tls/reloading.rs (`tls::tests`) ·
+  CertificateVerifier.kt `reloadSystemTrustIfChanged`
+  (`aUserCaInstalledOrRemovedWhileTheAppRunsDecidesTheVeryNextConnection`, which
+  edits the user CA store as root and skips on a device without it)
 - *(iOS)* A root installed from a configuration profile also needs full trust
   enabled under Settings → General → About → Certificate Trust Settings.
 - **A rejected certificate is reported as such**, not as a generic connection

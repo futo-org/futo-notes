@@ -21,7 +21,7 @@ import {
 } from './blockFormat';
 import { scratchState, dispatchSteps, runChain, nodeType } from './blockStepChain';
 
-export { blockFormatAt, blockFormatAtPos, type BlockFormat, type BlockKind } from './blockFormat';
+export { blockFormatAtPos, type BlockFormat, type BlockKind } from './blockFormat';
 
 /** The toolbar-manifest ids that map to a block command. */
 export type BlockCommandId =
@@ -353,7 +353,7 @@ export function setBlockFormat(target: BlockFormat): Command {
  * Whether `at` sits inside a list item or a blockquote — the two containers
  * `changeBlockIndent` acts on. Used to decide Indent/Outdent visibility for a
  * bare caret (the desktop selection toolbar, the `cursorContext` bridge
- * message): `blockFormatAt` cannot serve this, because it reports only the
+ * message): `blockFormatAtPos` cannot serve this, because it reports only the
  * INNERMOST block's own kind — a heading nested inside a quote reports
  * `heading`, not `quote`, which would hide the buttons exactly where they
  * should show.

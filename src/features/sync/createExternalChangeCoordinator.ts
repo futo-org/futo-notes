@@ -267,8 +267,7 @@ export function createExternalChangeCoordinator(dependencies: ExternalChangeDepe
       pendingReconcile = null;
       return;
     }
-    // Never flush mid-composition (a blur can precede compositionend, and
-    // CodeMirror can still report composing when compositionend fires): retain
+    // Never flush mid-composition (a blur can precede compositionend): retain
     // the deferral and recheck shortly so it cannot be stranded. Bounded — a
     // composing flag stuck past the retry budget parks the deferral until the
     // next real blur/compositionend edge (which resets the budget).

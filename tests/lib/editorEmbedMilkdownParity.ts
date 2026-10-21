@@ -1,45 +1,19 @@
 // The page fixture and real-input helpers shared by the editor-embed-milkdown-parity*.spec.ts
 // suites, moved here verbatim from editor-embed-milkdown-parity.spec.ts.
 
-import { test as base, type CDPSession, type Page } from '@playwright/test';
-import { BRIDGE_VERSION } from '@futo-notes/editor';
-import { EDITOR_URL } from '../editorEmbedBundle';
-import { flushFrames, installFakeAndroidHost, type FakeHostWindow } from './editorEmbedHost';
+import type { CDPSession, Page } from '@playwright/test';
+import type { FakeHostWindow } from './editorEmbedHost';
+import { CHANGE_DEBOUNCE_MS, embedTest, hostConfig, initialize } from './editorEmbedSpec';
 
-/** @milkdown/plugin-listener debounces `markdownUpdated` by 200 ms (trailing). */
-export const CHANGE_DEBOUNCE_MS = 200;
-
-export const test = base.extend<{ page: Page }>({
-  page: async ({ browser }, use) => {
-    const context = await browser.newContext({ hasTouch: true });
-    await context.addInitScript(installFakeAndroidHost);
-    const page = await context.newPage();
-    await page.goto(EDITOR_URL);
-    await page.waitForFunction(() =>
-      (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
-    );
-    await use(page);
-    await context.close();
-  },
-});
+export { CHANGE_DEBOUNCE_MS };
+export const test = embedTest;
 
 export async function open(
   page: Page,
   content: string,
   theme: 'light' | 'dark' = 'light',
 ): Promise<void> {
-  await page.evaluate(
-    (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
-    JSON.stringify({
-      bridgeVersion: BRIDGE_VERSION,
-      noteId: 'test-note',
-      theme,
-      content,
-      nativeToolbar: true,
-      contentPaddingInlinePx: 14,
-    }),
-  );
-  await flushFrames(page);
+  await initialize(page, hostConfig({ content, theme }));
 }
 
 /** Type one character at the very end, the smallest thing that is a real edit. */

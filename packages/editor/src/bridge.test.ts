@@ -1,70 +1,10 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import {
-  BRIDGE_VERSION,
-  postToHost,
-  type FutoEditorApi,
-  type FutoEditorOutboundMessage,
-} from './bridge';
+import { BRIDGE_VERSION, postToHost, type FutoEditorOutboundMessage } from './bridge';
 
 describe('futoBridge contract', () => {
   it('pins the contract version', () => {
     // Bumping this is a deliberate, breaking change — update all three hosts.
     expect(BRIDGE_VERSION).toBe(9);
-  });
-
-  it('ready message carries the version', () => {
-    const msg: FutoEditorOutboundMessage = { type: 'ready', version: BRIDGE_VERSION };
-    expect(msg).toEqual({ type: 'ready', version: 9 });
-  });
-
-  it('initialized message carries the version', () => {
-    const msg: FutoEditorOutboundMessage = { type: 'initialized', version: BRIDGE_VERSION };
-    expect(msg).toEqual({ type: 'initialized', version: 9 });
-  });
-
-  it('FutoEditorApi surface is the eighteen host-callable methods', () => {
-    // A structural stand-in proves the shape compiles; the real impl lives in
-    // src/editor-embed/main.ts.
-    const api: FutoEditorApi = {
-      initialize: () => {},
-      setContent: () => {},
-      flush: () => {},
-      focus: () => {},
-      blur: () => {},
-      setTheme: () => {},
-      setLanguage: () => {},
-      setNotes: () => {},
-      applyExternalContent: () => {},
-      insertImage: () => {},
-      setImageBaseUrl: () => {},
-      exec: () => {},
-      setNativeToolbar: () => {},
-      openFind: () => {},
-      setFindOverlayInset: () => {},
-      setFindQuery: () => {},
-      stepFind: () => {},
-      closeFind: () => {},
-    };
-    expect(Object.keys(api).sort()).toEqual([
-      'applyExternalContent',
-      'blur',
-      'closeFind',
-      'exec',
-      'flush',
-      'focus',
-      'initialize',
-      'insertImage',
-      'openFind',
-      'setContent',
-      'setFindOverlayInset',
-      'setFindQuery',
-      'setImageBaseUrl',
-      'setLanguage',
-      'setNativeToolbar',
-      'setNotes',
-      'setTheme',
-      'stepFind',
-    ]);
   });
 });
 

@@ -217,7 +217,7 @@ export class ReflowCurtain extends CurtainWindow {
   }
 
   /** The release will commit this preview's move (`BlockDragSession.land`)
-   * once the neighbours still sliding are in place, so nothing jumps: calls
+   * once the neighbors still sliding are in place, so nothing jumps: calls
    * `onLanded` when the last slide ends, or LAND_CAP_MS after the release
    * whatever the slides are doing; at once when nothing is sliding, under a
    * reduced-motion setting, or in a hidden page; and early at a scroll (the

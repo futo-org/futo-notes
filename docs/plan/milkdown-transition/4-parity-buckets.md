@@ -27,10 +27,10 @@ embed's own host flag decides and no user-agent sniff is left in it. Consequence
 - Measured on the reference phone (moto g play 2023, Android 13, System WebView 151): Chromium shows
   NO word highlight, selection handles, floating Cut/Copy action mode or magnifier over a lifted
   block, focused or unfocused. WebKit's whole `isTextInteractionEnabled` problem simply does not
-  exist here — the page's own `selectstart`/`contextmenu`/selection defences hold. So the shell
+  exist here — the page's own `selectstart`/`contextmenu`/selection defenses hold. So the shell
   ignores `blockDrag` entirely.
 - The one leak was haptic, not visual: the WebView fires its own `LONG_PRESS` buzz 128-141 ms after
-  the editor's lift (its recogniser trips around touch-down + 480 ms against the 340 ms lift), so a
+  the editor's lift (its recognizer trips around touch-down + 480 ms against the 340 ms lift), so a
   pickup felt like a stutter. `EditorWebView.setBlockPressActive` turns the WebView's view-level
   haptics off for the press and the editor's own three opt past with `FLAG_IGNORE_VIEW_SETTING`; a
   long press the editor does not claim keeps its normal buzz.

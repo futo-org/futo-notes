@@ -88,7 +88,7 @@ function loadFixture(name: string): Fixture {
   return JSON.parse(readFileSync(join(CONFORMANCE_DIR, `${name}.json`), 'utf8')) as Fixture;
 }
 
-for (const fixtureName of ['filename', 'tags', 'image']) {
+for (const fixtureName of ['filename', 'tags', 'image', 'preview']) {
   const fixture = loadFixture(fixtureName);
   describe(`conformance: ${fixtureName} (${fixture.description})`, () => {
     for (const group of fixture.groups) {

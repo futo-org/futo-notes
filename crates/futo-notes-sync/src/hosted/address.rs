@@ -12,7 +12,7 @@ pub const HOSTED_SERVER: &str = match option_env!("FUTO_HOSTED_SERVER_BAKED") {
 };
 
 /// Debug-build override, matching the shells' existing pattern of a dev-only
-/// server default: a debug build honours `FUTO_HOSTED_SERVER` so a developer
+/// server default: a debug build honors `FUTO_HOSTED_SERVER` so a developer
 /// or a test can point the hosted flow at a local server, and a release build
 /// ignores it entirely.
 pub fn hosted_server() -> String {

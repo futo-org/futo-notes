@@ -32,13 +32,13 @@ them.
 `apps/android/app/src/main/java/com/futo/notes/license/LicenseCopy.kt` — one
 drift-registered concept, `license-card-copy`
 
-| State          | Badge        | Key                | Licensed since                      | Term                                | Actions                                             |
-| -------------- | ------------ | ------------------ | ----------------------------------- | ----------------------------------- | --------------------------------------------------- |
-| **Unlicensed** | "Unlicensed" | blank              | blank                               | blank                               | **Buy a license** · I already paid · Lost your key? |
-| **Licensed**   | none         | masked, revealable | "{date}", blank with no `issued_at` | "Perpetual" or "Valid until {date}" | Remove license                                      |
-| **Expired**    | "Expired"    | masked, revealable | "{date}"                            | "Expired {date}"                    | **Renew** · I already paid · Lost your key?         |
+| State          | Badge     | Key                | Actions (checkout available)                        | Actions (key-only: iOS non-US or unknown storefront; the App Store controls are listed under Controls below) |
+| -------------- | --------- | ------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **Unlicensed** | none      | absent             | **Buy a license** · I already paid · Lost your key? | I already paid                                       |
+| **Licensed**   | none      | masked, revealable | Remove license                                      | Remove license                                       |
+| **Expired**    | "Expired" | masked, revealable | **Renew** · I already paid · Lost your key?         | I already paid                                       |
 
-The actions above are the full checkout surface. _(ios, non-US or unknown storefront)_
+The first Actions column is the full checkout surface. _(ios, non-US or unknown storefront)_
 Unlicensed and Expired offer only **I already paid**; Licensed
 still offers Remove. The key-only Unlicensed plate has no payment headline.
 Unlicensed and Expired use `license.keyOnlyExplanation` ("Have a FUTO Notes
@@ -60,8 +60,8 @@ it does nothing. Licensed shows the ordinary thank-you and Remove. →
 `LicenseSettingsSection.kt` (`licenseWebsitePath`), `LicenseSurfaceTest`
 "playNamesTheWebsiteAsTextThatCannotBeTapped"
 
-The Key column is the whole table on every platform: the row is absent rather
-than blank when Unlicensed, and the two date columns do not exist anywhere.
+Key is the whole ledger on every platform: the row is absent rather
+than blank when Unlicensed, and the date rows (Licensed since, Term) do not exist anywhere.
 **Unlicensed wears no badge either** — the section heading says "License", and on
 desktop the sidebar already says "Unlicensed"; a third copy of the word was
 chrome.

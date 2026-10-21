@@ -100,18 +100,9 @@ import { scopedKeepTableAlignPlugin, scopedTableEditingPlugin } from './tablePas
 import { tableAlignmentSchemas } from './tableAlignment';
 import { remarkPadTableRowsPlugin } from './tableWidth';
 
-export { expandEmptyLinks } from './emptyLink';
-export { markEmptyTaskItems } from './emptyTaskItem';
-export { defaultImageTitles } from './imageTitle';
-export { fixEmptyLinePlaceholders, restoreBlankLineParagraphs } from './emptyLine';
-export {
-  FRONTMATTER_CLASS,
-  FRONTMATTER_DOC_CONTENT,
-  FRONTMATTER_MDAST_TYPE,
-  FRONTMATTER_NODE,
-} from './frontmatter';
+export { FRONTMATTER_NODE } from './frontmatter';
 export type { MdastNode } from './mdast';
-export { editorMarkdownSerializer, ownedSerializerPlugin } from './ownedSerializer';
+export { editorMarkdownSerializer } from './ownedSerializer';
 export { endsInUnwrittenBlank } from './trailingParagraph';
 
 /** The two entries `remarkPreserveEmptyLinePlugin` contributes to the preset. */

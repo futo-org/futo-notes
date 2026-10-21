@@ -14,8 +14,9 @@
  * commands are bare `wrapIn`s, so all of that lives in
  * `src/features/editor/milkdown/blockCommands.ts`.
  *
- * Engine-independent bridge contract, the load-echo guard, the undo boundary
- * and the block drag are in `editor-embed-milkdown.spec.ts`.
+ * Engine-independent bridge contract, the load-echo guard and the undo boundary
+ * are in `editor-embed-milkdown.spec.ts`; the block drag is in
+ * `editor-embed-milkdown-long-press.spec.ts` and the gutter-handle files.
  */
 
 import { expect } from '@playwright/test';

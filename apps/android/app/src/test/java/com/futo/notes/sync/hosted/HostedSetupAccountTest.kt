@@ -14,12 +14,7 @@ class HostedSetupAccountTest {
 
     @Test
     fun `signing out returns the wizard to sign in`() = runBlocking {
-        val setup = StandInSetup().apply {
-            signedIn = true
-            entitled = true
-            vaultHasKeyMaterial = true
-            deviceHoldsKey = true
-        }
+        val setup = unlockedSetup()
         val wizard = model(setup)
 
         wizard.load()
@@ -54,12 +49,7 @@ class HostedSetupAccountTest {
     @Test
     fun `an expired session is reported as sign in again, and the vault is not reset`() =
         runBlocking {
-            val setup = StandInSetup().apply {
-                signedIn = true
-                vaultHasKeyMaterial = true
-                deviceHoldsKey = true
-                entitled = true
-            }
+            val setup = unlockedSetup()
             val wizard = model(setup)
 
             wizard.load()

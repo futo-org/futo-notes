@@ -63,7 +63,7 @@
   wikilink still
   focuses, so it can be edited). The editor consumes a tap on a NAVIGABLE link
   (`consumesTap`) and deliberately leaves a broken one to ProseMirror.
-  Scrolling, dragging, cancelling, or holding through the block long-press
+  Scrolling, dragging, canceling, or holding through the block long-press
   threshold does not follow the touched link; a completed short tap follows it
   once, even if the WebView also emits a synthetic click.
   Android already follows on the first tap (verified emulator 2026-07-08). Each pushed iOS

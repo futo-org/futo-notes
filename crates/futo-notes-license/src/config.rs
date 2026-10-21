@@ -156,7 +156,7 @@ impl Environment {
     /// the FFI with `release-ffi` for their dev apps too, so a compile-profile
     /// test would have quietly put a `.dev` phone build on the production key.
     ///
-    /// An id this crate does not recognise is Production — the fail-safe
+    /// An id this crate does not recognize is Production — the fail-safe
     /// direction, since the production key cannot verify a staging license.
     pub fn for_bundle_id(bundle_id: &str) -> Self {
         LICENSE_ENV_OVERRIDE.unwrap_or_else(|| Self::from_bundle_suffix(bundle_id))

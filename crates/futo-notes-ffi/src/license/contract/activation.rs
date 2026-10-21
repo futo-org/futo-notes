@@ -7,7 +7,7 @@ use super::*;
 ///
 /// `bundle_id` is the dev/prod split (M3): a `.dev` build verifies against the
 /// staging org key and can never accept a production license, and vice versa.
-/// An unrecognised id is treated as production, which is the fail-closed
+/// An unrecognized id is treated as production, which is the fail-closed
 /// direction.
 #[uniffi::export]
 pub fn license_evaluate(stored: Option<LicensePair>, bundle_id: String) -> LicenseView {
@@ -25,7 +25,7 @@ pub fn license_handle_deep_link(url: String, bundle_id: String) -> LicenseLinkOu
     handle_deep_link_with(&url, &bundle_id, OffsetDateTime::now_utc(), &OfflineOnly)
 }
 
-/// Recognise the input, activate it if the user typed a bare key, verify, and
+/// Recognize the input, activate it if the user typed a bare key, verify, and
 /// hand back the pair to store — one call, so no shell sequences
 /// activate-then-verify (AGENTS.md §4.6).
 ///

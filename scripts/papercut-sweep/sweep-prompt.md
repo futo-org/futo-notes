@@ -73,7 +73,7 @@ itself (AGENTS.md, the justfile, the scripts, the docs).
 `mrUrl` is `null` when nothing was fixable (then `resolved` must be empty).
 Every cut you looked at appears in exactly one of the two lists.
 
-# Judgement
+# Judgment
 
 - Prefer deleting a stale instruction over adding a new one.
 - If a fix would add a `just` recipe, it also gets a one-line comment above it

@@ -1,8 +1,9 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use futo_notes_core::e2ee::KeyMaterial;
 use reqwest::{Method, StatusCode};
+use rustls::client::danger::ServerCertVerifier;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -21,6 +22,8 @@ pub(crate) use batch_upload::{
 };
 use batch_upload::{encode_batch_write_frames, parse_batch_write_results};
 pub(crate) use hosted::{hosted_error, HandoffPoll, PairingPoll};
+
+use crate::tls::RememberingVerifier;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -102,6 +105,7 @@ pub(crate) struct Http {
     token: Option<String>,
     request_client: reqwest::Client,
     event_client: reqwest::Client,
+    pool_generation: u64,
 }
 
 #[derive(Deserialize)]
@@ -219,33 +223,31 @@ impl From<WriteBody> for Write {
 /// pooled, unencrypted connections.
 #[derive(Clone)]
 pub(crate) struct HttpClients {
-    request: reqwest::Client,
-    event: reqwest::Client,
-    tls_error: Option<HttpError>,
+    trust: Result<Arc<dyn ServerCertVerifier>, HttpError>,
+    connections: Arc<Mutex<Connections>>,
 }
 
-impl HttpClients {
-    pub(crate) fn new() -> Result<Self, HttpError> {
-        Self::with_tls(None)
-    }
+struct Connections {
+    verifier: Option<Arc<RememberingVerifier>>,
+    request: reqwest::Client,
+    event: reqwest::Client,
+    generation: u64,
+}
 
-    /// `tls`: `None` builds the OS-trust-store config used in production;
-    /// `Some` lets tests pin an exact `rustls::ClientConfig` (an untrusted
-    /// private CA, a `ReloadingVerifier`, …) onto both pooled clients.
-    pub(crate) fn with_tls(tls: Option<Arc<rustls::ClientConfig>>) -> Result<Self, HttpError> {
-        let (tls, tls_error) = match tls {
-            Some(tls) => (Some(tls), None),
-            None => match crate::tls::shared_client_config() {
-                Ok(tls) => (Some(tls), None),
-                Err(message) => (
-                    None,
-                    Some(HttpError {
-                        status: None,
-                        message,
-                    }),
-                ),
-            },
-        };
+impl Connections {
+    fn open(
+        trust: Option<&Arc<dyn ServerCertVerifier>>,
+        generation: u64,
+    ) -> Result<Self, HttpError> {
+        let verifier = trust.map(|trust| Arc::new(RememberingVerifier::new(trust.clone())));
+        let tls = verifier
+            .clone()
+            .map(|verifier| crate::tls::client_config_with(verifier))
+            .transpose()
+            .map_err(|error| HttpError {
+                status: None,
+                message: crate::tls::trust_store_error(error),
+            })?;
         let builder = || {
             let builder = reqwest::Client::builder().connect_timeout(CONNECT_TIMEOUT);
             match &tls {
@@ -254,17 +256,60 @@ impl HttpClients {
             }
         };
         Ok(Self {
+            verifier,
             request: builder()
                 .timeout(REQUEST_TIMEOUT)
                 .build()
                 .map_err(transport_error)?,
             event: builder().build().map_err(transport_error)?,
-            tls_error,
+            generation,
+        })
+    }
+
+    fn still_trusted(&self) -> bool {
+        self.verifier
+            .as_ref()
+            .is_none_or(|verifier| verifier.trusts_every_verified_chain())
+    }
+}
+
+impl HttpClients {
+    pub(crate) fn new() -> Result<Self, HttpError> {
+        Self::with_verifier(None)
+    }
+
+    pub(crate) fn with_verifier(
+        verifier: Option<Arc<dyn ServerCertVerifier>>,
+    ) -> Result<Self, HttpError> {
+        let trust = verifier
+            .map_or_else(crate::tls::shared_verifier, Ok)
+            .map_err(|message| HttpError {
+                status: None,
+                message,
+            });
+        let connections = Connections::open(trust.as_ref().ok(), 0)?;
+        Ok(Self {
+            trust,
+            connections: Arc::new(Mutex::new(connections)),
         })
     }
 
     pub(crate) fn for_base(&self, base: &str) -> Result<Http, HttpError> {
-        Http::with_clients(base, self)
+        let mut connections = self
+            .connections
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if !connections.still_trusted() {
+            *connections = Connections::open(self.trust.as_ref().ok(), connections.generation + 1)?;
+        }
+        Http::with_clients(base, self, &connections)
+    }
+
+    pub(crate) fn generation(&self) -> u64 {
+        self.connections
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .generation
     }
 }
 
@@ -275,14 +320,22 @@ impl Http {
     }
 
     #[cfg(test)]
-    pub(crate) fn with_tls(
+    pub(crate) fn with_verifier(
         base: &str,
-        tls: Option<Arc<rustls::ClientConfig>>,
+        verifier: Arc<dyn ServerCertVerifier>,
     ) -> Result<Self, HttpError> {
-        HttpClients::with_tls(tls)?.for_base(base)
+        HttpClients::with_verifier(Some(verifier))?.for_base(base)
     }
 
-    fn with_clients(base: &str, clients: &HttpClients) -> Result<Self, HttpError> {
+    pub(crate) fn pool_generation(&self) -> u64 {
+        self.pool_generation
+    }
+
+    fn with_clients(
+        base: &str,
+        clients: &HttpClients,
+        connections: &Connections,
+    ) -> Result<Self, HttpError> {
         let base = base.trim().trim_end_matches('/');
         let url = url::Url::parse(base).map_err(|e| HttpError {
             status: None,
@@ -299,15 +352,16 @@ impl Http {
         // request, exactly as it would have if the store had failed while
         // building this base's own client.
         if url.scheme() == "https" {
-            if let Some(error) = &clients.tls_error {
+            if let Err(error) = &clients.trust {
                 return Err(error.clone());
             }
         }
         Ok(Self {
             base: base.to_owned(),
             token: None,
-            request_client: clients.request.clone(),
-            event_client: clients.event.clone(),
+            request_client: connections.request.clone(),
+            event_client: connections.event.clone(),
+            pool_generation: connections.generation,
         })
     }
 

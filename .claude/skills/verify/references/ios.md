@@ -106,7 +106,7 @@ label is `title, relative-date, body-preview`, so a body token like
 line stops at 34 characters.
 
 `--actions-only` is the `docs/spec/AGENTS.md` hidden-affordance check: it lists
-each row's `custom_actions` once, against the labelled row that owns them
+each row's `custom_actions` once, against the labeled row that owns them
 (`Delete`/`Move` per note, `Delete Folder…` per folder). Check it before
 declaring a feature missing.
 
@@ -190,7 +190,7 @@ _successfully_ — they print `✓` and change nothing.
   activation point and reports success even when it lies off-screen. An
   unscrolled horizontal scroll view reports its off-viewport children at their
   content coordinates, so on a 402pt screen the editor toolbar's `checklist`,
-  `camera`, and `photo` come back at x-centres 420/477/523 and a tap on them
+  `camera`, and `photo` come back at x-centers 420/477/523 and a tap on them
   does nothing. `describe-ios-ui.mjs` marks these `OFF-SCREEN`; use
   `--on-screen-only` to list only what will actually respond.
 - **Keep swipes above y≈850.** A horizontal swipe at y=852 hits the
@@ -311,7 +311,7 @@ axe button home --udid $SIM && cat "$NOTES/<note>.md"   # → **boldtext**
 ```
 
 On a 402pt-wide iPhone only the first eight sit inside the toolbar's viewport;
-`checklist`, `camera`, and `photo` report at x-centres past the right edge and
+`checklist`, `camera`, and `photo` report at x-centers past the right edge and
 cannot be tapped where they are. **This is a tooling limit, not an app defect.**
 The bar is a real `ScrollView(.horizontal)` with a measured trailing inset that
 peeks the edge icon (`EditorToolbar.swift` `computeSnap`, spec'd under "Scroll

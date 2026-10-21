@@ -9,7 +9,8 @@ before changing behavior.
 ## Categories
 
 - **Gates** (`check-*.mjs`, `drift-check.mjs`): deny-by-default checks. Most are wired into
-  `pnpm run check:arch-gate`, which is what CI's mandatory test job runs; `package.json` owns that
+  `pnpm run check:arch-gate:portable`, which is what CI's mandatory test job runs (`check:arch-gate`
+  adds the Rust-side sync-contract test locally); `package.json` owns that
   membership to keep local and CI gate membership in one place. CI installs pinned `just` through
   `ci/install-just.sh` before the docs checker, which reads its JSON command metadata.
   `check-rust-dependency-boundaries.mjs` is the exception — it needs `cargo metadata`, so it runs only in CI's Rust workspace job.

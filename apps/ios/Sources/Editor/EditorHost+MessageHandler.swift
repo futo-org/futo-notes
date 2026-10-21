@@ -104,11 +104,10 @@ extension EditorHost {
             toolbarState.inContainer = body["inContainer"] as? Bool
         case .formatState:
             // Milkdown editor — Notion-style active-state highlight on the
-            // matching toolbar button(s). Deduped by the embed. The CodeMirror
-            // editor never sends it, so this stays inert until the Milkdown
-            // transition lands. Android does the same in EditorWebView.kt.
+            // matching toolbar button(s). Deduped by the embed. Android does the
+            // same in EditorWebView.kt.
             toolbarState.activeFormats = Set(body["active"] as? [String] ?? [])
-            // QA-003: Undo/Redo greyed out with an empty prosemirror-history
+            // QA-003: Undo/Redo grayed out with an empty prosemirror-history
             // stack. Same message, same dedupe, additive field (bridge.ts).
             toolbarState.disabledFormats = Set(body["disabled"] as? [String] ?? [])
         case .haptic:

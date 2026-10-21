@@ -67,7 +67,7 @@ internal const val TILT_X = 0.24f
  * The FUTO supporter coin, turning on its spindle, [diameter] across.
  *
  * This renders the SAME object desktop and iOS render: `assets/coin/futo-coin.glb`,
- * modelled once in Blender, lit by `studio-env-ibl.ktx` — the studio from the same
+ * modeled once in Blender, lit by `studio-env-ibl.ktx` — the studio from the same
  * script, prefiltered for Filament by `scripts/build-coin-ibl.mjs`. Nothing about
  * the coin's shape or its materials is written in Kotlin; this file only frames it,
  * turns it and hands it to the GPU.

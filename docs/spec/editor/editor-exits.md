@@ -34,7 +34,7 @@ EditorSessionTest.kt, EditorSessionTests.swift
   pre-suspension step as the latch), so the drain only ever waits for work that
   was already in flight, and anything queued behind the latch touches nothing at
   all — Android's `runWork` returns null, an iOS scheduled workflow sees
-  `isActive == false`. The debounced body save is the one exception, neutralised
+  `isActive == false`. The debounced body save is the one exception, neutralized
   as the first step of the commit rather than at admission (cancel, then await
   it): a save already running has to finish and be projected before the exit
   awaits its current mailbox, or the next commit races the write it supersedes. _(iOS/Android)_

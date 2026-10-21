@@ -68,7 +68,7 @@ test('the embed toolbar highlights the command active at the caret', async ({ pa
   await expect(quoteButton).not.toHaveClass(/is-active/);
 });
 
-test('the embed toolbar greys out Undo/Redo when their stacks are empty, and blocks the tap', async ({
+test('the embed toolbar grays out Undo/Redo when their stacks are empty, and blocks the tap', async ({
   page,
 }) => {
   await showEmbedToolbar(page, 'hello');

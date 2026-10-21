@@ -3,7 +3,7 @@
  * The shared lifted-block drag (blockDragSession.ts) against a fake view: what
  * it draws, when it ticks, and the one transaction it may commit. The gestures
  * that start it are mobileBlockDnd.test.ts and handleBlockDrag.test.ts; the
- * real thing in a real engine is tests/editor-embed-milkdown.spec.ts.
+ * real thing in a real engine is tests/editor-embed-milkdown-gutter-handle.spec.ts.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -103,7 +103,7 @@ describe('BlockDragSession', () => {
     expect(fixture.dispatched.every((tr) => !tr.docChanged)).toBe(true);
   });
 
-  it('records each drag on the interaction ledger: lifted, then released and dropped — or cancelled', () => {
+  it('records each drag on the interaction ledger: lifted, then released and dropped — or canceled', () => {
     clearInteractions('block-drag');
     const fixture = makeStackedView(['a', 'b', 'c']);
     const session = new BlockDragSession(fixture.view);

@@ -6,6 +6,7 @@ import { createNotePersistence, titleSaveRefusal } from './createNotePersistence
 import { createNoteLoader } from './createNoteLoader';
 import {
   editorHasUnseenChanges,
+  fileKey,
   hasDuplicateNoteTitle,
   isEditorChangeEcho,
   titleHasUnsavedEdit,
@@ -196,9 +197,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
    * whose links it rewrites, which no one knows until the store answers. A
    * note switch reads its incoming note WHILE such a save runs only when the
    * save cannot touch that file (`fenceIncomingRead`); otherwise it waits, as
-   * every switch did. Ids are compared as the file system may: a case or
-   * Unicode-normalization variant names the same file on macOS and Windows. */
-  const fileKey = (id: string): string => id.normalize('NFC').toLowerCase();
+   * every switch did. */
   const savingKeys = new Set<string>();
   let identitySavesInFlight = 0;
   /* Bumped when a save that may rename starts, so a fence notices one that
@@ -233,7 +232,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   }
 
   const saveQueue = createNoteSaveQueue({
-    save: trackSave,
+    save: () => (deps.savesHeld?.() ? Promise.resolve(false) : trackSave()),
     hasUnseenChanges: hasUnseenEditorChanges,
     editedSinceSaveRead: () => deps.getEditorContent() !== editorReadBySave,
     notifySaved,

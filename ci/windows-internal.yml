@@ -2,7 +2,7 @@
 
 # ─────────────────────────────────────────────────────────────
 # Internal, hosted-enabled Windows build (D2, taken —
-# docs/plan/hosted-sync-to-staging.md, ticket C8). Prerelease tags only,
+# hosted-sync staging plan, ticket C8; see the futo-notes-server repo). Prerelease tags only,
 # plus the same MR manual rehearsal as build:desktop-internal:{linux,macos}.
 #
 # Reuses the EXISTING Proxmox provision→build→cleanup chain and template VM

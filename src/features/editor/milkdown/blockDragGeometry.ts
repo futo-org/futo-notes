@@ -44,7 +44,7 @@ export function contentColumnX(view: ProseView): number {
 }
 
 /** Where the drop indicator line is drawn, in viewport coordinates. `top` is
- * the line's CENTRE, so a caller that draws a 3px bar offsets by half of it. */
+ * the line's CENTER, so a caller that draws a 3px bar offsets by half of it. */
 export type DropIndicatorRect = { top: number; left: number; width: number };
 
 export type DropTarget = {
@@ -59,7 +59,7 @@ export type DropTarget = {
 };
 
 /** The one canonical target for the gap at `pos`, whichever side the pointer
- * arrived from. Returns null when neither neighbour has rendered DOM to
+ * arrived from. Returns null when neither neighbor has rendered DOM to
  * measure. */
 function slotAt(view: ProseView, pos: number): DropTarget | null {
   const at = view.state.doc.resolve(pos);
@@ -74,7 +74,7 @@ function slotAt(view: ProseView, pos: number): DropTarget | null {
   const dom = before ?? after;
   if (!dom) return null;
   const rect = dom.getBoundingClientRect();
-  // In the gap when there are blocks on both sides; on the single neighbour's
+  // In the gap when there are blocks on both sides; on the single neighbor's
   // outer edge at the document's first and last boundary.
   const top = before
     ? after
@@ -162,6 +162,23 @@ const AUTO_SCROLL_MAX_SPEED_PX_S = 1400;
 const AUTO_SCROLL_MAX_FRAME_S = 0.05;
 
 /**
+ * What scrolls the editor: the nearest scrollable ancestor of `view.dom`
+ * (`.note-body` on desktop, which scrolls the title and the editor together),
+ * or `view.dom` itself where that is the scroll box (the native embed), or the
+ * window when nothing inside the page scrolls.
+ */
+export function editorScrollContainer(view: ProseView): HTMLElement | Window {
+  const win = view.dom.ownerDocument.defaultView ?? window;
+  for (let n: HTMLElement | null = view.dom; n; n = n.parentElement) {
+    const overflowY = win.getComputedStyle(n).overflowY;
+    if (overflowY !== 'auto' && overflowY !== 'scroll' && overflowY !== 'overlay') continue;
+    if (n === view.dom && n.scrollHeight <= n.clientHeight) continue;
+    return n;
+  }
+  return win;
+}
+
+/**
  * The drop boundary under a pointer at `clientY`, with the point clamped
  * inside the editor box so a finger dragged past either end still resolves to
  * the first or last block rather than to nothing.
@@ -182,10 +199,16 @@ export interface DragAutoScroller {
 
 /**
  * Continuous edge auto-scroll for a block drag. While the pointer sits within
- * `AUTO_SCROLL_EDGE_PX` of `view.dom`'s top or bottom edge, the scroller runs on
- * its own animation-frame loop at a speed that ramps with how deep into the zone
- * the pointer is, until the pointer leaves the zone, the scroller reaches an
- * end, or `stop()` is called. `.ProseMirror` (view.dom) owns overflow-y here.
+ * `AUTO_SCROLL_EDGE_PX` of the visible top or bottom edge of whatever scrolls
+ * the editor (`editorScrollContainer`), the scroller runs on its own
+ * animation-frame loop at a speed that ramps with how deep into the zone the
+ * pointer is, until the pointer leaves the zone, the scroller reaches an end,
+ * or `stop()` is called.
+ *
+ * The zone and the `scrollTop` both belong to that container, NOT to
+ * `view.dom`. On desktop the editable is a plain box as tall as the note inside
+ * `.note-body`, so measuring its edges put the bottom zone below the window and
+ * writing its `scrollTop` moved nothing (#270).
  *
  * IT HAS TO BE A LOOP, NOT A PER-EVENT NUDGE. This used to be one 14px step per
  * `pointermove` ("rudimentary on purpose", it said), which meant a STATIONARY
@@ -210,11 +233,38 @@ export function createDragAutoScroller(view: ProseView, onStep?: () => void): Dr
   /** px/second, signed. 0 means "outside the zone", i.e. not running. */
   let velocity = 0;
   /** Sub-pixel remainder, so `MIN`-speed scrolling is not rounded away to
-   * nothing on engines that quantise `scrollTop` to integers. */
+   * nothing on engines that quantize `scrollTop` to integers. */
   let carry = 0;
+  /** Resolved once per drag (on the first `update`) and kept until `stop()`,
+   * not per pointer move:
+   * it walks the ancestors' computed styles. */
+  let container: HTMLElement | null = null;
+  let containerWin: Window | null = null;
+
+  /** The element whose `scrollTop` moves the note — the window's scrolling
+   * element when the window itself is the scroller. */
+  function resolveContainer(): HTMLElement {
+    if (container) return container;
+    const found = editorScrollContainer(view);
+    if (found instanceof HTMLElement) {
+      container = found;
+    } else {
+      containerWin = found;
+      container =
+        (found.document.scrollingElement as HTMLElement | null) ?? found.document.documentElement;
+    }
+    return container;
+  }
+
+  /** The container's visible top and bottom, in viewport coordinates. */
+  function visibleEdges(el: HTMLElement): { top: number; bottom: number } {
+    if (containerWin) return { top: 0, bottom: containerWin.innerHeight };
+    const top = el.getBoundingClientRect().top + el.clientTop;
+    return { top, bottom: top + el.clientHeight };
+  }
 
   /** Depth in the zone drives the ramp; `distance` may be negative when the
-   * finger has travelled past the edge entirely, which is simply full speed. */
+   * finger has traveled past the edge entirely, which is simply full speed. */
   function speedFor(distance: number): number {
     const depth = Math.min(Math.max((AUTO_SCROLL_EDGE_PX - distance) / AUTO_SCROLL_EDGE_PX, 0), 1);
     return (
@@ -222,12 +272,21 @@ export function createDragAutoScroller(view: ProseView, onStep?: () => void): Dr
     );
   }
 
-  function stop(): void {
+  /** Parks the loop while the pointer is outside the zone; the drag goes on. */
+  function halt(): void {
     if (frame !== null) cancelAnimationFrame(frame);
     frame = null;
     lastTime = null;
     velocity = 0;
     carry = 0;
+  }
+
+  /** The drag is over: the next one re-resolves its container, since a note
+   * that has grown since may now scroll a different element. */
+  function stop(): void {
+    halt();
+    container = null;
+    containerWin = null;
   }
 
   function step(time: number): void {
@@ -239,7 +298,7 @@ export function createDragAutoScroller(view: ProseView, onStep?: () => void): Dr
       lastTime === null ? 0 : Math.min((time - lastTime) / 1000, AUTO_SCROLL_MAX_FRAME_S);
     lastTime = time;
     if (elapsed > 0) {
-      const dom = view.dom;
+      const dom = resolveContainer();
       const wanted = velocity * elapsed + carry;
       const whole = Math.trunc(wanted);
       carry = wanted - whole;
@@ -259,16 +318,16 @@ export function createDragAutoScroller(view: ProseView, onStep?: () => void): Dr
 
   return {
     update(clientY: number): void {
-      const rect = view.dom.getBoundingClientRect();
-      const fromTop = clientY - rect.top;
-      const fromBottom = rect.bottom - clientY;
+      const edges = visibleEdges(resolveContainer());
+      const fromTop = clientY - edges.top;
+      const fromBottom = edges.bottom - clientY;
       // The NEARER edge wins, which only matters when the scroller is shorter
       // than two zones (a landscape phone with the keyboard up) and both would
       // otherwise claim the pointer.
       if (fromTop < AUTO_SCROLL_EDGE_PX && fromTop <= fromBottom) velocity = -speedFor(fromTop);
       else if (fromBottom < AUTO_SCROLL_EDGE_PX) velocity = speedFor(fromBottom);
       else {
-        stop();
+        halt();
         return;
       }
       if (frame === null) {

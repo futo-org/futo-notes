@@ -1,7 +1,7 @@
 ### Typing and IME
 
 - The editable asks the on-screen keyboard for autocorrect and sentence
-  capitalisation, and turns off red spellcheck squiggles and Apple's inline
+  capitalization, and turns off red spellcheck squiggles and Apple's inline
   writing suggestions (`autocorrect="on"`, `autocapitalize="sentences"`,
   `spellcheck="false"`, `writingsuggestions="false"`). A keyboard is not an
   implementation detail of the engine: the editor first shipped with autocorrect

@@ -46,7 +46,7 @@ extension NoteEditorView {
         let disposition = await store.flushDraft(
             PendingDraft(id: savedId, base: base, content: newContent), ownerToken: draftToken)
         // No cancellation guard here, deliberately: by the time the flush
-        // answers, its write is durable, and this task is routinely cancelled
+        // answers, its write is durable, and this task is routinely canceled
         // by the next keystroke's `session.schedule(.save)`. Skipping the
         // baseline advance on that cancellation left `savedContent` behind
         // disk, so the next flush's `base` no longer matched — and the engine

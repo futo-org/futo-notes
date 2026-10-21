@@ -18,8 +18,8 @@ extension NotesStore {
         return ready
     }
 
-    /// A cancelled keystroke search exits around the shared engine wait without
-    /// cancelling readiness for other searches. A timeout returns empty while
+    /// A canceled keystroke search exits around the shared engine wait without
+    /// canceling readiness for other searches. A timeout returns empty while
     /// the index continues healing.
     func search(_ query: String, limit: UInt32 = 50) async -> [SearchHit] {
         if Task.isCancelled { return [] }

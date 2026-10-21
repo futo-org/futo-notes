@@ -23,10 +23,10 @@ import {
 // ============================================================
 
 // Front matter is not markdown, and normalize-once used to rewrite it: with
-// nothing in the parser recognising it, `---` was a thematic break and the
+// nothing in the parser recognizing it, `---` was a thematic break and the
 // metadata lines a setext heading, so ANY edit elsewhere in the note wrote back
 // `***`, a 16-dash underline, and — the real harm — `tags: \[a, b]`, a changed
-// metadata VALUE. ADR-0002 accepts re-spelt markdown; it does not accept losing
+// metadata VALUE. ADR-0002 accepts re-spelled markdown; it does not accept losing
 // constructs the schema does not own, and front matter is named there.
 const FRONT_MATTER_NOTE =
   '---\n' +
@@ -138,11 +138,7 @@ test('a note that opens with an unclosed --- rule keeps its lists and quotes', a
 // then serialized to DOM and parsed back (Milkdown's clipboard plugin). The
 // preset's code block claims every `<pre>`, so either way the metadata used to
 // land as a fenced code block.
-test('cutting a whole note and pasting it back keeps its front matter', async ({
-  browser,
-  browserName,
-}) => {
-  test.skip(browserName !== 'chromium', 'clipboard permissions are Chromium-only in Playwright');
+test('cutting a whole note and pasting it back keeps its front matter', async ({ browser }) => {
   const context = await browser.newContext({
     hasTouch: true,
     permissions: ['clipboard-read', 'clipboard-write'],

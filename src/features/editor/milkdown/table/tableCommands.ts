@@ -34,7 +34,7 @@
  * never lets that happen: `insertRowBefore` on the header row (index 0) is
  * refused (see `rowMenuState`), so `addRow`'s target index is always >= 1,
  * which is always a body position. `addColumn` has no equivalent hazard — it
- * picks each row's cell type by copying the NEIGHBOURING cell in the SAME
+ * picks each row's cell type by copying the NEIGHBORING cell in the SAME
  * row, so it produces a `table_header` in the header row and a `table_cell`
  * everywhere else without this module telling it which is which.
  *

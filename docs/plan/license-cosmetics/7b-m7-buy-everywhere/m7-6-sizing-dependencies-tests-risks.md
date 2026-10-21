@@ -37,7 +37,7 @@ activates desktop and the other phone by paste. Cross-platform sync
    by our tester lists and by the Q12 containment (flag now, short-expiry v2 later). The Apple
    library's exception and payload names and Google's hash/key format are confirmed by the first real
    fixture of each (§ 7c.2, § 7c.5).
-5. Google's three-day refund after a missed acknowledgement; mitigated by acknowledging only after
+5. Google's three-day refund after a missed acknowledgment; mitigated by acknowledging only after
    the pair is stored and retrying on every connect and `onResume`.
 6. 3.1.3(b) in the US (D-C) and the US commission ruling can change the table; routing is one Rust
    function for that reason.

@@ -4,7 +4,7 @@
   - _History (resolved):_ Chromium 147's empty-editable surrounding-text path
     tripped a `CHECK()` (`SIGTRAP`) when FUTO Keyboard queried it on backspace.
     This was **fixed upstream by a FUTO Keyboard update**, so the in-app IME
-    shield is no longer required. → docs/learnings/ime-shield-workaround.md
+    shield is no longer required.
   - The in-app IME shield has been **removed** from the shared editor
     (`imeShieldPlugin` / `imeShield.ts`) and the `just verify-ime-shield` guard
     is gone. The native Compose app never carried it and is fine without it.

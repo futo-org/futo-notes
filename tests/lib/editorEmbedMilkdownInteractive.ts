@@ -2,46 +2,14 @@
 // editor-embed-milkdown-interactive*.spec.ts suites, moved here verbatim from
 // editor-embed-milkdown-interactive.spec.ts.
 
-import { test as base, type Page } from '@playwright/test';
-import { BRIDGE_VERSION } from '@futo-notes/editor';
-import { EDITOR_URL } from '../editorEmbedBundle';
-import {
-  flushFrames,
-  installFakeAndroidHost,
-  withCaretObserved,
-  type FakeHostWindow,
-} from './editorEmbedHost';
+import type { Page } from '@playwright/test';
+import { flushFrames, withCaretObserved, type FakeHostWindow } from './editorEmbedHost';
+import { CHANGE_DEBOUNCE_MS, embedTest, hostConfig, initialize } from './editorEmbedSpec';
 
-/** @milkdown/plugin-listener debounces `markdownUpdated` by 200 ms (trailing). */
-const CHANGE_DEBOUNCE_MS = 200;
-
-export const test = base.extend<{ page: Page }>({
-  page: async ({ browser }, use) => {
-    const context = await browser.newContext({ hasTouch: true });
-    await context.addInitScript(installFakeAndroidHost);
-    const page = await context.newPage();
-    await page.goto(EDITOR_URL);
-    await page.waitForFunction(() =>
-      (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
-    );
-    await use(page);
-    await context.close();
-  },
-});
+export const test = embedTest;
 
 export async function open(page: Page, content: string): Promise<void> {
-  await page.evaluate(
-    (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
-    JSON.stringify({
-      bridgeVersion: BRIDGE_VERSION,
-      noteId: 'test-note',
-      theme: 'light',
-      content,
-      nativeToolbar: true,
-      contentPaddingInlinePx: 14,
-    }),
-  );
-  await flushFrames(page);
+  await initialize(page, hostConfig({ content }));
 }
 
 /**

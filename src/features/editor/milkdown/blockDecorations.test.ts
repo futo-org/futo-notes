@@ -178,10 +178,10 @@ describe('repaintBlocks', () => {
     expect(next.find()).toHaveLength(2);
   });
 
-  it('never strips the neighbouring block, whose decoration abuts this one', () => {
+  it('never strips the neighboring block, whose decoration abuts this one', () => {
     // `DecorationSet.find(from, to)` returns everything TOUCHING that range,
     // and a node decoration on the next block starts exactly where this one
-    // ends — so a naive remove-then-add takes the neighbour's decorations with
+    // ends — so a naive remove-then-add takes the neighbor's decorations with
     // it and never puts them back. Node decorations (codeHighlight's fence
     // marker) abut exactly; inline ones sit a position inside their block.
     const first = para('one');

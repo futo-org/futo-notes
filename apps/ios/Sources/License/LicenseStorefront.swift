@@ -8,10 +8,11 @@ import StoreKit
 
     func observe() async {
         #if FUTO_DEBUG_BUILD
-        if let override = Self.debugCountryOverride(ProcessInfo.processInfo.arguments) {
-            linkOut = licenseLinkOut(platform: .ios, storefrontCountry: override, buildAllows: true)
-            return
-        }
+            if let override = Self.debugCountryOverride(ProcessInfo.processInfo.arguments) {
+                linkOut = licenseLinkOut(
+                    platform: .ios, storefrontCountry: override, buildAllows: true)
+                return
+            }
         #endif
 
         linkOut = licenseLinkOut(
@@ -24,13 +25,14 @@ import StoreKit
     }
 
     #if FUTO_DEBUG_BUILD
-    /// QA may choose a country without signing a simulator into an App Store account.
-    static func debugCountryOverride(_ arguments: [String]) -> String?? {
-        guard let flag = arguments.firstIndex(of: "-FUTOLicenseStorefront"),
-              arguments.indices.contains(flag + 1) else { return nil }
-        let value = arguments[flag + 1]
-        guard ["USA", "FRA", "none"].contains(value) else { return nil }
-        return .some(value == "none" ? nil : value)
-    }
+        /// QA may choose a country without signing a simulator into an App Store account.
+        static func debugCountryOverride(_ arguments: [String]) -> String?? {
+            guard let flag = arguments.firstIndex(of: "-FUTOLicenseStorefront"),
+                arguments.indices.contains(flag + 1)
+            else { return nil }
+            let value = arguments[flag + 1]
+            guard ["USA", "FRA", "none"].contains(value) else { return nil }
+            return .some(value == "none" ? nil : value)
+        }
     #endif
 }

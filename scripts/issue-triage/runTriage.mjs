@@ -13,7 +13,7 @@
  * Autonomy: the agent runs with --dangerously-skip-permissions (it must build,
  * test, drive emulators, and git-push unattended). Its blast radius is bounded
  * by the worktree, dev-only data, and the absence of any GitHub token
- * (docs/plan/github-issue-triage.md, "Guardrails").
+ * (scripts/issue-triage/DESIGN.md, "Guardrails").
  *
  * Usage:
  *   node scripts/issue-triage/runTriage.mjs             # oldest queued bug
@@ -55,7 +55,7 @@ const AGENT_ENV_ALLOWLIST = [
 const RESULT_PLATFORMS = new Set(['web', 'desktop', 'android', 'ios', 'windows', 'n/a']);
 
 /** Main checkout the triage worktree is branched from. */
-export function repoDir(env = process.env) {
+function repoDir(env = process.env) {
   return env.FUTO_TRIAGE_REPO_DIR ? resolve(env.FUTO_TRIAGE_REPO_DIR) : DEFAULT_REPO_DIR;
 }
 
@@ -79,7 +79,7 @@ const RESULT_OUTCOMES = new Set(Object.keys(OUTCOME_HANDLING));
  * untrusted, so the agent must not inherit unrelated credentials from the
  * operator's interactive shell.
  */
-export function buildAgentEnv(sourceEnv, { agentHome, dataDir, resultFile }) {
+function buildAgentEnv(sourceEnv, { agentHome, dataDir, resultFile }) {
   if (!sourceEnv.GITLAB_TOKEN) {
     throw new Error('tier-2 triage requires GITLAB_TOKEN for branch push and MR creation');
   }
@@ -131,7 +131,7 @@ function isGitLabMergeRequestUrl(value) {
 }
 
 /** Parse and validate the agent-owned result contract. */
-export function parseTriageResult(raw) {
+function parseTriageResult(raw) {
   try {
     const result = JSON.parse(raw);
     if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
@@ -154,7 +154,7 @@ export function parseTriageResult(raw) {
  * otherwise the oldest bug still at status "queued".
  * @returns {{ number: string, entry: object } | null}
  */
-export function selectIssue(state, explicitNumber) {
+function selectIssue(state, explicitNumber) {
   if (explicitNumber) {
     const entry = state.issues[explicitNumber];
     if (!entry) throw new Error(`issue #${explicitNumber} is not in the triage state`);
@@ -178,24 +178,17 @@ export function selectIssue(state, explicitNumber) {
  * deletion and be unmergeable.
  * @returns {{ worktreePath: string, dataDir: string, branch: string }}
  */
-export function createWorktree({
-  number,
-  runId,
-  stateDirectory = stateDir(),
-  repoDirectory = repoDir(),
-  mkdirImpl = mkdirSync,
-  runGitImpl = (args) => runGit(args, repoDirectory),
-}) {
+function createWorktree({ number, runId, stateDirectory = stateDir(), repoDirectory = repoDir() }) {
   const worktreePath = join(stateDirectory, 'worktrees', `gh-${number}-${runId}`);
   const branch = `triage/gh-${number}-${runId}`;
   const dataDir = join(worktreePath, '.triage-notes-data');
 
-  mkdirImpl(dirname(worktreePath), { recursive: true });
-  runGitImpl(['fetch', 'origin', 'main']);
+  mkdirSync(dirname(worktreePath), { recursive: true });
+  runGit(['fetch', 'origin', 'main'], repoDirectory);
 
   try {
-    runGitImpl(['worktree', 'add', '-b', branch, worktreePath, 'origin/main']);
-    mkdirImpl(dataDir, { recursive: true });
+    runGit(['worktree', 'add', '-b', branch, worktreePath, 'origin/main'], repoDirectory);
+    mkdirSync(dataDir, { recursive: true });
   } catch (setupError) {
     const rollbackErrors = [];
     for (const args of [
@@ -203,7 +196,7 @@ export function createWorktree({
       ['branch', '-D', branch],
     ]) {
       try {
-        runGitImpl(args);
+        runGit(args, repoDirectory);
       } catch (rollbackError) {
         rollbackErrors.push(rollbackError);
       }
@@ -267,7 +260,7 @@ function buildTaskPrompt({ number, entry, resultFile }) {
  * timebox. Resolves with the parsed result file, or null on timeout / crash /
  * missing file.
  */
-export function runAgent({
+function runAgent({
   worktreePath,
   dataDir,
   resultFile,
@@ -354,7 +347,7 @@ function readResult(resultFile) {
 }
 
 /** Compose the Zulip follow-up from the agent's result. */
-export function formatOutcome({ number, result }) {
+function formatOutcome({ number, result }) {
   if (!result) {
     return [
       `**🙋 gh#${number}: needs a human**`,
@@ -380,22 +373,16 @@ export function formatOutcome({ number, result }) {
  *   explicitNumber?: string,
  *   dryRun: boolean,
  *   stateDirectory?: string,
- *   repoDirectory?: string,
- *   dependencies?: object
+ *   repoDirectory?: string
  * }} options
  */
-export async function runTriage({
+async function runTriage({
   explicitNumber,
   dryRun,
   stateDirectory = stateDir(),
   repoDirectory = repoDir(),
-  dependencies = {},
 }) {
-  const createWorktreeImpl = dependencies.createWorktree ?? createWorktree;
-  const cleanupWorktreeImpl = dependencies.cleanupWorktree ?? cleanupWorktree;
-  const runAgentImpl = dependencies.runAgent ?? runAgent;
-  const postAlertImpl = dependencies.postAlert ?? postAlert;
-  const now = dependencies.now ?? (() => new Date());
+  const now = () => new Date();
 
   const state = loadState(stateDirectory);
   const selected = selectIssue(state, explicitNumber);
@@ -411,7 +398,7 @@ export async function runTriage({
     .slice(0, 14);
   const resultFile = join(stateDirectory, `result-gh-${number}-${runId}.json`);
 
-  const { worktreePath, dataDir, branch } = createWorktreeImpl({
+  const { worktreePath, dataDir, branch } = createWorktree({
     number,
     runId,
     stateDirectory,
@@ -429,7 +416,7 @@ export async function runTriage({
           `--- task prompt ---\n${buildTaskPrompt({ number, entry, resultFile })}\n`,
       );
     } finally {
-      cleanupWorktreeImpl({ worktreePath, branch, keepBranch: false, repoDirectory });
+      cleanupWorktree({ worktreePath, branch, keepBranch: false, repoDirectory });
     }
     return;
   }
@@ -451,7 +438,7 @@ export async function runTriage({
     });
 
     try {
-      const agentResult = await runAgentImpl({
+      const agentResult = await runAgent({
         worktreePath,
         dataDir,
         resultFile,
@@ -465,7 +452,7 @@ export async function runTriage({
     }
 
     handling = result ? OUTCOME_HANDLING[result.outcome] : OUTCOME_HANDLING.needs_human;
-    await postAlertImpl({ topic: entry.zulipTopic, content: formatOutcome({ number, result }) });
+    await postAlert({ topic: entry.zulipTopic, content: formatOutcome({ number, result }) });
 
     await updateIssue((latestEntry) => {
       latestEntry.status = handling.status;
@@ -486,7 +473,7 @@ export async function runTriage({
     }
   } finally {
     try {
-      cleanupWorktreeImpl({
+      cleanupWorktree({
         worktreePath,
         branch,
         keepBranch: Boolean(result?.mrUrl),

@@ -63,7 +63,7 @@ and the OS deep link, plus Remove back to Unlicensed. What still does not work i
 **buying** one — see the purchase-delivery Gap.
 
 2026-09-16 replaced the one-line License row with the **License card** on all
-three clients (`docs/plan/license-ship.md`), each driven on the commit that
+three clients (ship plan f0968f51, since removed), each driven on the commit that
 shipped it. _(desktop)_ Unlicensed, Licensed and the reveal/copy path through
 the dev build's webview bridge: the coin measured 160×160 inside the 184×184
 well, Copy put the exact 42-character normalized key on the pasteboard, and
@@ -90,7 +90,7 @@ simulator through `LicensePlateTests`, because this Mac's Xcode 27 ships no
 Simulator.app and a simulator with no window silently swallows every `axe` tap
 while still answering `describe-ui` — XCUITest injects events into the app
 process and is unaffected. All three plate states, the OS deep link, the reveal
-(no Copy control) and Remove. The coin's colour was checked against a build of
+(no Copy control) and Remove. The coin's color was checked against a build of
 the preceding commit rather than eyeballed: with Reduce Motion holding it at one
 angle, before and after are the same gold, and a dark-faced screenshot taken
 mid-spin is the coin's own back.

@@ -7,7 +7,7 @@
  * (`milkdown/wikilink/autocomplete.ts`). It sat one level up from that plugin
  * because a second consumer, the CodeMirror completion source, used to read it
  * too; that engine is gone, but the split still keeps "which notes come back,
- * in which order, labelled how" testable apart from the insertion mechanics.
+ * in which order, labeled how" testable apart from the insertion mechanics.
  *
  * Resolution and shortest-unique-suffix are NOT decided here — they come from
  * the conformance-locked `$shared/note/wikilinks` index that the Rust rename

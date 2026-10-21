@@ -1,6 +1,6 @@
 // The FUTO coin, in three dimensions.
 //
-// The coin itself is NOT built here. It is modelled once in Blender by
+// The coin itself is NOT built here. It is modeled once in Blender by
 // `assets/coin/build-coin.py` and exported to `futo-coin.glb`, which this file,
 // the native iOS shell and the native Android shell all render. That is the
 // whole point of the Blender step: there is one object, and the three shells
@@ -343,7 +343,7 @@ export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> 
 }
 
 /// Points the camera so the coin always fills the SHORTER side of its box: a
-/// box that is not square keeps the coin round and centred rather than
+/// box that is not square keeps the coin round and centered rather than
 /// stretching it.
 ///
 /// `fov` is the VERTICAL angle, so a wide box needs no change and a tall one has

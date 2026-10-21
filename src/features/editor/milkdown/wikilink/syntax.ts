@@ -106,7 +106,7 @@ const tokenizeWikilink: MicromarkTokenizer = function tokenizeWikilink(effects, 
   /**
    * ONE token spans the whole `[[target]]`. The target is read back in
    * `fromMarkdown` as `slice(2, -2)` of that token rather than from a nested
-   * token, because a `]` inside the target (`[[a]b]]`) is only recognisable as
+   * token, because a `]` inside the target (`[[a]b]]`) is only recognizable as
    * content one character AFTER it has been consumed — by which time a nested
    * target token would already have had to close around it.
    *

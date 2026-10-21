@@ -90,7 +90,7 @@ export * from './bridgeMessages';
  * - 9: BREAKING — document identity and flush replace native reads (#194/#244/#245).
  *      setContent/applyExternalContent name the note; getContent is removed;
  *      retarget relabels the open note in place.
- *      See docs/plan/editor-owns-the-document.md.
+ *      See commit c10fb812 and `git log --grep='bridge v9'`.
  *
  * `formatState` (Notion-style toolbar active-state — see
  * {@link FormatStateMessage}) is additive and ships WITHOUT a version bump: it
@@ -100,10 +100,10 @@ export * from './bridgeMessages';
  * behavior). Bumping BRIDGE_VERSION needs explicit sign-off (root AGENTS.md
  * §11) — the transition does not do it.
  *
- * `formatState`'s `disabled` field (QA-003, Undo/Redo greyed out when their
+ * `formatState`'s `disabled` field (QA-003, Undo/Redo grayed out when their
  * stacks are empty) shipped the SAME way, added to the message after it
  * already existed: a host that reads `active` and ignores `disabled` just
- * never greys anything out — exactly today's behavior for that host — so this
+ * never grays anything out — exactly today's behavior for that host — so this
  * is additive too and needed no version bump either.
  *
  * `haptic` (Notion-style block-drag feedback — see {@link HapticMessage})
@@ -116,7 +116,7 @@ export * from './bridgeMessages';
  * iOS the one the page cannot do without: WKWebView's own long-press text
  * interaction — the magnifier loupe and the caret it drags — is a UIKit gesture
  * the page has no way to cancel (measured: neither `pointer-events`,
- * `touch-action`, `user-select`, cancelling `selectstart`/`selectionchange`,
+ * `touch-action`, `user-select`, canceling `selectstart`/`selectionchange`,
  * nor `preventDefault()` on the touch stream stops it, because WebKit commits
  * to the gesture at touch-down). Only the shell that owns the WebView can
  * suspend it, so the editor reports when a block is airborne and the shell

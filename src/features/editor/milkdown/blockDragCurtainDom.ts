@@ -65,7 +65,7 @@ export function visibleBox(el: HTMLElement): {
 /** How far the margin of `el`'s first (`top`) or last (`bottom`) descendants
  * reaches out through that edge. In the document that margin collapses OUTSIDE
  * the block (a list's first item, say), so the block's top is its content's
- * top, and the margin joins the block's own in the gap to its neighbour. A
+ * top, and the margin joins the block's own in the gap to its neighbor. A
  * clone is absolutely positioned — a formatting context of its own — which
  * keeps the margin inside and would draw the content that much lower (2.5px
  * for a list on the reference phone) unless the clone is raised by it. */
@@ -98,8 +98,8 @@ export function collapse(a: number, b: number): number {
 
 /** What the editor's text is drawn on, so the curtain hides the real blocks
  * without a seam: the first opaque-ish background at or above `el`, else the
- * embed's `--futo-editor-surface` (the native hosts paint their own colour
- * behind a transparent page; editor.html), else the colour scheme's paper. */
+ * embed's `--futo-editor-surface` (the native hosts paint their own color
+ * behind a transparent page; editor.html), else the color scheme's paper. */
 export function backgroundBehind(el: HTMLElement): string {
   const win = el.ownerDocument.defaultView ?? window;
   for (let n: HTMLElement | null = el; n; n = n.parentElement) {

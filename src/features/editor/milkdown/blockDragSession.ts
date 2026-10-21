@@ -238,7 +238,7 @@ export class BlockDragSession extends BlockDragTargeting {
   }
 
   /** A release that will commit the move the reflow preview shows. Its
-   * neighbours may still be sliding to their places, and committing now would
+   * neighbors may still be sliding to their places, and committing now would
    * take the curtain down and make them jump the rest of the way, so the move
    * waits under the curtain until they are there (`ReflowCurtain.land`), then
    * commits and the curtain goes, in one frame: nothing moves on screen but
@@ -268,7 +268,7 @@ export class BlockDragSession extends BlockDragTargeting {
     curtain.land(() => this.landed());
   }
 
-  /** The landing drop's neighbours are in place (or the layout changed, or
+  /** The landing drop's neighbors are in place (or the layout changed, or
    * the note scrolled, or the document changed, or something reads the note:
    * `landPendingDrop`): the move commits, at its target mapped through
    * anything that happened since, and the curtain goes in the same frame. A move that no longer applies (its block was taken

@@ -13,7 +13,7 @@ against eager rendering installed BEFORE the load, so progressive open ran ident
 
 The stall is Chromium's editable-focus work meeting skipped blocks: one forced style+layout per
 skipped block, so the first focus of a document is quadratic in its block count (the `pure-crepe`
-spike characterised the trace, docs/plan/pure-crepe-spike.md). Ruled out by measurement: where the
+spike characterized the trace; the spike doc was never merged). Ruled out by measurement: where the
 caret sits at focus time, a DOM-only `focus()`, Google Autofill, accessibility services (none
 enabled), and laying every block out once before the focus (17.5 s afterwards regardless). A
 non-editable selection into the same DOM costs 34 ms, and a second focus of the same document

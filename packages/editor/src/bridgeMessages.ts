@@ -182,7 +182,7 @@ export interface OpenUrlMessage {
  * for why this ships without a version bump.
  *
  * `disabled` is the subset of manifest ids that are currently INERT — today
- * only `'undo'`/`'redo'`, greyed and non-tappable while prosemirror-history's
+ * only `'undo'`/`'redo'`, grayed and non-tappable while prosemirror-history's
  * `undoDepth`/`redoDepth` reports nothing to undo/redo. Deduped and emitted on
  * the exact same triggers as `active`, in the same message, so a host reads
  * both off one event rather than reconciling two.
@@ -238,7 +238,7 @@ export interface HapticMessage {
  * a block still for 1.2-1.6s — editable focused and unfocused, five runs — drew
  * no word highlight, no selection handles, no floating Cut/Copy action mode and
  * no magnifier over the ghost. Chromium, unlike WebKit, lets the page keep the
- * defences `mobileBlockDnd.ts` already mounts (cancelled
+ * defenses `mobileBlockDnd.ts` already mounts (canceled
  * `selectstart`/`contextmenu`, a re-collapsed selection, `preventDefault()` on
  * the drag's touch stream), so there is nothing left for the shell to stand
  * down. The one thing that DID leak is a haptic, and it arrives before any
@@ -260,16 +260,16 @@ export interface BlockDragMessage {
  *
  * What the iOS shell does with it: stands down WKWebView's DELAYED text
  * interaction (the loupe long press, the tap-and-a-half select) for the
- * duration of the press, while leaving the tap recognisers — the ones that place
+ * duration of the press, while leaving the tap recognizers — the ones that place
  * a caret and select a word — alone. That is the difference from `blockDrag`,
  * which suspends the whole text-interaction stack and the
  * `isTextInteractionEnabled` preference with it; that is safe only once the
  * gesture is known to be a drag, and it arrives 340ms too late to be the only
- * defence (see {@link BRIDGE_VERSION}'s doc comment for the measured numbers).
+ * defense (see {@link BRIDGE_VERSION}'s doc comment for the measured numbers).
  *
  * What the Android shell does with it: silences the WebView's OWN long-press
  * haptic for the duration of the press, and nothing else. Chromium's
- * long-press recogniser trips around touch-down + 480ms — 128-141ms after the
+ * long-press recognizer trips around touch-down + 480ms — 128-141ms after the
  * editor's 340ms lift, measured over five holds on a moto g play 2023 (Android
  * 13, System WebView 151) — so without this the user feels two impacts a
  * seventh of a second apart instead of one pickup. Its VISIBLE half needs no

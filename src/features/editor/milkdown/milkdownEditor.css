@@ -50,7 +50,7 @@
   pointer-events: none;
 }
 
-/* Tint off the text colour rather than a surface token, so it reads on the
+/* Tint off the text color rather than a surface token, so it reads on the
  * editor background in both themes. */
 .futo-milkdown .milkdown-block-handle:hover {
   color: var(--color-text, #0f0f0f);

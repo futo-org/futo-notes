@@ -71,7 +71,7 @@ fun SyncManager.resumeAfterStorageMigrationFailure() {
  *  clears the hosted secrets.
  *
  *  A self-hosted vault is the one with a password to reconnect with; a
- *  hosted vault has none and is recognised instead by the two secrets Rust
+ *  hosted vault has none and is recognized instead by the two secrets Rust
  *  saved. Both are local reads — no request of any kind — so a launch with
  *  no network still knows which kind of vault this is, and a restart
  *  resumes sync **without Settings ever being opened**.

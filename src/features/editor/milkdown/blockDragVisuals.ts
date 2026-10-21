@@ -92,7 +92,7 @@ export abstract class BlockDragVisuals {
 
     // Essentially full block width, grown by the card's own padding so the
     // content stays put under the finger, then clamped so the SCALED card
-    // still clears both screen edges (the scale grows it about its centre, so
+    // still clears both screen edges (the scale grows it about its center, so
     // half the growth bleeds out of each side).
     const viewportWidth = window.innerWidth || rect.width + GHOST_PAD_X_PX * 2;
     const usable = viewportWidth - GHOST_VIEWPORT_MARGIN_PX * 2;
@@ -145,7 +145,7 @@ export abstract class BlockDragVisuals {
 
   /** One line per boundary, drawn IN the gap — the geometry is the target's, so
    * a gap approached from either side puts the bar in exactly one place
-   * (blockDragGeometry.ts). The `margin-top` in the stylesheet re-centres the
+   * (blockDragGeometry.ts). The `margin-top` in the stylesheet re-centers the
    * 3px bar on `top`. */
   protected showIndicator(target: DropTarget): void {
     const el = this.ensureIndicator();

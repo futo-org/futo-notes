@@ -58,33 +58,14 @@ import {
   ROOT,
 } from './remote-test/settings.mjs';
 
-export {
-  DEFAULT_HOST,
-  DEFAULT_REMOTE_DIR,
-  DEFAULT_SOURCE_REPO,
-  DEFAULT_USER,
-  EXIT_LOCKED,
-  EXIT_MOVED,
-  EXIT_REFUSED,
-  FALLBACK_HOSTS,
-  GRADLE_JDK_CANDIDATES,
-} from './remote-test/settings.mjs';
-export { CAVEATED, REFUSED, classifyRecipe } from './remote-test/recipe-policy.mjs';
-export { ndkVersionFromGradle, remoteEnvPreamble, shQuote } from './remote-test/remote-env.mjs';
-export {
-  buildKillScript,
-  buildLockScript,
-  buildRunScript,
-  buildUnlockScript,
-} from './remote-test/remote-scripts.mjs';
-export { buildDoctorScript, pinnedPlaywrightBrowsers } from './remote-test/doctor-script.mjs';
-export { parseCliArgs } from './remote-test/cli.mjs';
+export { classifyRecipe } from './remote-test/recipe-policy.mjs';
+export { ndkVersionFromGradle } from './remote-test/remote-env.mjs';
 
 // ---------------------------------------------------------------------------
 // Local side
 // ---------------------------------------------------------------------------
 
-export const RSYNC_EXCLUDES = [
+const RSYNC_EXCLUDES = [
   '.git',
   'node_modules',
   'target',
@@ -102,10 +83,10 @@ export const RSYNC_EXCLUDES = [
 // A doctor run is only a hard failure when the box cannot run ANY suite.
 // Everything else (NDK, KVM, Postgres, browsers) gates a specific suite and is
 // reported as WARN/MISS with the command that fixes it.
-export const DOCTOR_REQUIRED = ['fnm', 'node', 'pnpm', 'cargo', 'just', 'git', 'rsync'];
+const DOCTOR_REQUIRED = ['fnm', 'node', 'pnpm', 'cargo', 'just', 'git', 'rsync'];
 
 /** `CHECK|name|status|detail` lines → rows, tolerating `|` inside detail. */
-export function parseDoctorOutput(stdout) {
+function parseDoctorOutput(stdout) {
   return stdout
     .split('\n')
     .filter((line) => line.startsWith('CHECK|'))

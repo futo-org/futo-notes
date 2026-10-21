@@ -7,8 +7,9 @@
   ~45 s safety poll covers liveness even when the stream is down (see "Live sync (SSE)"). → futo-notes-sync
   `session/`
 - **An idle cycle is cheap.** A cycle that finds nothing to push or pull opens
-  no new connection (one connection pool belongs to the `SyncSession` and
-  serves its connect, push, pull, and SSE reconnect requests, so the TLS
+  no new connection while the server's certificate stays trusted (one
+  connection pool belongs to the `SyncSession` and serves its connect, push,
+  pull, and SSE reconnect requests, so the TLS
   handshake is paid once per session rather than once per cycle) and writes
   nothing to disk (`checkpoint::save` leaves `.e2ee-state.json` alone when its
   bytes already match; a changed, torn, or missing file is still written).

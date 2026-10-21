@@ -12,7 +12,7 @@
   leading gutter (`--macos-traffic-lights-width`) for them in one place,
   independent of sidebar state — so collapsing the sidebar never exposes or
   crowds the buttons. → configureWindowChrome.ts, desktop-shell.css
-- On macOS the traffic lights sit on the sidebar toggle's centre line, with even
+- On macOS the traffic lights sit on the sidebar toggle's center line, with even
   spacing above them and to their left. → tauri.conf.json,
   configureWindowChrome.ts
 - With the sidebar collapsed the toggle carries 20px of visible air on each
@@ -114,7 +114,7 @@
   (which desktop_settings.rs's watcher also carried) was itself reverted by
   !277's own last commit (d916ee15) after review, so the snapshot now only
   ever carries theme. -->
-- Linux reads the portal's current colour scheme before relying on later change
+- Linux reads the portal's current color scheme before relying on later change
   signals, so switching Light/Dark back to Auto immediately resolves from the
   desktop rather than from WebKitGTK's app-pinned media query. Older portals
   fall back from `ReadOne` to `Read`. → desktop_settings.rs, theme.ts
@@ -171,7 +171,7 @@
   `applicationShouldTerminate:` added to tao's delegate answers
   `NSTerminateLater`, closes the window, and replies once the flush has exited
   the app (`RunEvent::ExitRequested`), so a logout or shutdown waits for the
-  flush and proceeds instead of being cancelled. The updater's install and every relaunch (vault change,
+  flush and proceeds instead of being canceled. The updater's install and every relaunch (vault change,
   Update & restart) drain the save first too (RC-87). → app_menu.rs,
   macos_terminate.rs, registerNotesShellShortcuts.ts, startNativeShell.ts,
   flushBeforeExit.ts, tests/macos-quit-flush.mjs

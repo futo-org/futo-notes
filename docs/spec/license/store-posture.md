@@ -4,7 +4,7 @@ Research summary as of 2026-09-09, re-read 2026-09-24; this area changes monthly
 and the decision, not the rules, is what this section records.
 
 - **Apple.** Guideline 3.1.1 names license keys as a forbidden unlock mechanism
-  worldwide; 3.1.3(b) permits recognising a web-bought license only if the same
+  worldwide; 3.1.3(b) permits recognizing a web-bought license only if the same
   thing is also sold as IAP. Linking out is legal in the US (no entitlement, 0%
   today, rate pending in court), in the EU and Japan at 15% with Apple's
   disclosure sheet and an IAP twin, in Brazil, and banned elsewhere. Immich

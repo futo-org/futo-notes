@@ -1,12 +1,10 @@
 # Native iOS — Modernization & Liquid Glass Plan
 
-> Status: **active backlog.** The source/test ownership tree and launch-level
-> UI-test target are complete; the Swift 6, Observation, and Liquid Glass items
-> below remain planned. Authored from a review of `apps/ios/Sources/`
-> + `project.yml` against the `swiftui-expert-skill`, `swift-concurrency-pro`,
-> and `swift-testing-pro` skills (optional: `just skills-swift`; see
-> `CONTRIBUTING.md`). Execute workstreams in order A → B → C → D → E
-> (D runs in parallel). Verification is per-workstream below.
+> Status: **open backlog.** Only unfinished work is listed here. Authored from a
+> review of `apps/ios/Sources/` + `project.yml` against the `swiftui-expert-skill`,
+> `swift-concurrency-pro`, and `swift-testing-pro` skills (optional:
+> `just skills-swift`; see `CONTRIBUTING.md`). Execute workstreams in order
+> A → B → C → D → E (D runs in parallel). Verification is per-workstream below.
 
 ## Locked decisions
 
@@ -14,22 +12,8 @@
    behind `#available(iOS 26, *)` with a `.ultraThinMaterial` fallback. Do NOT
    raise the minimum.
 2. **The `@Observable` migration (Workstream B) is in scope** and happens
-   alongside the rest of this work — not deferred. The four model classes are
-   already `@MainActor` + single-writer, so the migration is low-risk.
-
-## Baseline assessment
-
-The app is well-engineered, not a rough spike. Already correct: off-main FS I/O
-via the `NoteVault` actor, the "never gate render on I/O" boot
-(`NotesStore.init`, `bootstrap`), single-source note rules in Rust, and real
-data-loss guards (debounced save with re-read-id-at-fire in
-`Sources/Notes/Editor/NoteEditorView.swift`; ghost-note fixes on
-rename/move/delete; scenePhase flush in `Sources/App/FutoNotesApp.swift`;
-3-way conflict-copy adoption; WebContent-process-terminate recovery in
-`Sources/Editor/EditorWebView.swift`). This plan is
-modernization + hardening, not rescue.
-
----
+   alongside the rest of this work — not deferred. The `ObservableObject` model
+   classes are already `@MainActor` + single-writer, so the migration is low-risk.
 
 ## Workstream A — Build & concurrency foundation (highest leverage)
 
@@ -50,14 +34,13 @@ structured to pass.
   (`Sources/Editor/Images/EditorImages.swift`): un-isolated but
   mutates `stopped: Set` across GCD hops. Callbacks are main-thread in practice
   → mark `@MainActor` (or move the set into an actor) so it's provable.
-- [x] **Search mutation ordering:** the shared Rust `LocalNoteStore` now owns
-  the index and serializes each committed mutation before returning it to the
-  Swift projection; the separate `SearchService` was removed.
-- [ ] **Jetsam flush hardening (data-loss, F8):** wrap `flushPendingEditor` /
-  `flushAsync` (`Sources/Notes/Storage/NotesStore.swift`,
-  `Sources/App/FutoNotesApp.swift`) in a
-  `UIApplication.beginBackgroundTask` assertion so iOS grants time for the disk
-  write before suspend.
+- [ ] **Jetsam flush hardening (data-loss, F8):** make sure iOS grants time for
+  the disk write before suspend by holding a `UIApplication.beginBackgroundTask`
+  assertion across `flushPendingEditor` / `flushAsync`
+  (`Sources/Notes/Storage/NotesStore.swift`, `Sources/App/FutoNotesApp.swift`).
+  `Sources/Notes/Editor/BackgroundEditorFlush.swift` already holds one around
+  the open-note mailbox wait; confirm it covers every flush path before closing
+  this item.
 
 **Verify:** `apps/ios/run.sh` (or XcodeBuildMCP `build_sim`) compiles clean on
 the iOS 18 floor with no concurrency warnings.
@@ -68,9 +51,10 @@ the iOS 18 floor with no concurrency warnings.
 
 App targets iOS 18 but uses the pre-17 `ObservableObject` / `@Published` /
 `@EnvironmentObject` stack throughout (`NotesStore.swift`, `SyncManager.swift`,
-`CrashReporter.swift`, `EditorToolbar.swift`).
+`CrashReporter.swift`, `EditorToolbar.swift`, and the license and hosted-setup
+models).
 
-- [ ] **Migrate all four model classes to `@Observable`.** Views move from
+- [ ] **Migrate the `ObservableObject` model classes to `@Observable`.** Views move from
   `@EnvironmentObject` → `@Environment(Type.self)`; ownership moves to `@State`
   in `FutoNotesApp` (`@StateObject` → `@State`). Payoff: views invalidate only
   on properties they actually read.
@@ -107,36 +91,17 @@ list + editor.
 
 ---
 
-## Workstream D — Tests (target added; runs in parallel)
+## Workstream D — Tests (open gaps; runs in parallel)
 
-The **FutoNotesNativeTests** Swift Testing target now exists (`project.yml`,
-`type: bundle.unit-test`, hosted by the app so `@testable import` reaches its
-internal symbols). It ships an initial suite: `validateServerURL` conformance
-against the shared `tests/conformance/server-url.json` case-set (closing the
-AGENTS.md "Drift watchlist" hole — the Swift copy previously had no fixture
-check), a host→editor bridge call-surface guard (every `window.FutoEditor.*`
-call in `Sources/Editor/EditorWebView.swift` must be in the `FutoEditorApi`
-contract), and
-`VaultImages.mimeType` mapping incl. a drift lock against the shared Rust image
-list. Run it with `just test-ios-native`. Remaining coverage to add (`struct`
-suites, `#expect`/`#require`, parameterized; never XCTest):
+The **FutoNotesNativeTests** Swift Testing target exists (`project.yml`,
+`type: bundle.unit-test`) and runs via `just test-ios-native` (a concrete
+simulator, because `xcodebuild test` cannot use a generic destination) and in CI
+as `test:ios-native`. Remaining coverage to add (`struct` suites,
+`#expect`/`#require`, parameterized; never XCTest):
 
-- [x] **Open-note reconciliation** — the engine dispositions, rename-before-
-  delete ordering, focused/hidden deferral, mid-read identity changes, and
-  cancellation are covered through `OpenNoteReconcilerTests`.
 - [ ] **Path-traversal guard** — `FutoAssetSchemeHandler` rejects `../`, nested
   `/`, and non-image extensions (security-relevant).
-- [ ] **`VaultImages`** — filename uniqueness (the `mimeType` mapping vs the
-  shared image-extension set is now covered).
-- [ ] **`Keychain`** — round-trip + dev/prod service separation
-  (`com.futo.notes.dev.sync` vs `com.futo.notes.sync`).
-- [x] **`NoteVault`** — seeding / CRUD / relink through the Rust core
-  (`FlushDraftVerbTests` drives write/read/reset/flushDraft against a temp vault;
-  `SearchReadinessWaitTests` covers the readiness path).
-
-The target is wired into `project.yml` (`type: bundle.unit-test`) and runs via
-`just test-ios-native` — a concrete simulator, because `xcodebuild test` cannot
-use a generic destination — and in CI as `test:ios-native`.
+- [ ] **`VaultImages`** — filename uniqueness.
 
 ---
 

@@ -60,7 +60,7 @@ func licensePlateShape(_ card: LicenseCardModel?, linkOut: Bool, appStorePlate: 
 /// prominent than its own, so the two get equal weight. The card around a pair
 /// then holds only the choice; the text actions after it become a list of
 /// their own (@justin 2026-10-19). Where the key field leads, Buy in the App
-/// Store is an outlined, labeled secondary button (ADR-0009) and neighbouring
+/// Store is an outlined, labeled secondary button (ADR-0009) and neighboring
 /// text buttons share a row.
 enum LicenseControlGroup: Hashable {
     case filled(LicenseAction)

@@ -1,9 +1,8 @@
 import { expect, test as base, type Page } from '@playwright/test';
 
-import { BRIDGE_VERSION } from '@futo-notes/editor';
-
 import { EDITOR_URL } from './editorEmbedBundle';
-import { flushFrames, installFakeAndroidHost, type FakeHostWindow } from './lib/editorEmbedHost';
+import { installFakeAndroidHost, type FakeHostWindow } from './lib/editorEmbedHost';
+import { hostConfig, initialize } from './lib/editorEmbedSpec';
 
 /**
  * A deeply nested list stays readable at phone width, Milkdown engine.
@@ -58,18 +57,7 @@ const test = base.extend<{ page: Page }>({
 });
 
 async function open(page: Page, content: string): Promise<void> {
-  await page.evaluate(
-    (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
-    JSON.stringify({
-      bridgeVersion: BRIDGE_VERSION,
-      noteId: 'test-note',
-      theme: 'light',
-      content,
-      nativeToolbar: true,
-      contentPaddingInlinePx: 14,
-    }),
-  );
-  await flushFrames(page);
+  await initialize(page, hostConfig({ content }));
 }
 
 /** The exact note from the report: one bullet, nested `levels` deep. */
@@ -106,7 +94,7 @@ async function layout(page: Page): Promise<Layout> {
     const scroller = document.querySelector('.ProseMirror') as HTMLElement;
     const box = scroller.getBoundingClientRect();
     // One decimal, not whole pixels: a sub-pixel indent step still has to be
-    // recognisable as the ordinary 1.4em one.
+    // recognizable as the ordinary 1.4em one.
     const px = (n: number) => Math.round(n * 10) / 10;
     return {
       items: [...scroller.querySelectorAll('li > p')].map((p) => {

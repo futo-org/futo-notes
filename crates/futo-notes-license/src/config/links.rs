@@ -88,7 +88,7 @@ pub fn license_link_out(
 /// `futonotes://license/{key}/{activation}` deep link. An empty `success`
 /// instead marks the purchase client-driven, which is the JSON contract of the
 /// in-app-WebView clients this app never runs (every platform links out,
-/// ADR-0003) — observed on staging 2026-09-11, the buyer finished paying and
+/// ADR-0010) — observed on staging 2026-09-11, the buyer finished paying and
 /// their browser showed them the raw activation JSON. The parameter must also
 /// simply be present: the deployed FUTOpay 422s a `checkout-ready` without it.
 /// `platform` is attribution only and never changes price, product, or

@@ -124,7 +124,7 @@
   payload is NOT where RFC 2483 says it should be either: WebKitGTK
   ADVERTISES `text/uri-list` in `dataTransfer.types`, but `getData` on it
   always returns an empty string — the dropped path lives only in the
-  sibling `text/html` flavour, as an `<a>` element whose TEXT CONTENT is the
+  sibling `text/html` flavor, as an `<a>` element whose TEXT CONTENT is the
   `file://` URI, with no `href` attribute at all. Internal sidebar/tab
   dragging is untouched either way (pure in-page HTML5 DnD that wry's signal
   handlers never intercepted, and never advertises `text/uri-list`). Tauri's

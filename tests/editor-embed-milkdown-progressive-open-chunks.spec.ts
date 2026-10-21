@@ -217,19 +217,20 @@ for (const { name, note } of CHUNK_AGREEMENT_CASES) {
 // This is the ordinary whole-document open, not the progressive one. The edit
 // writes the house style, whose italic is `*` (docs/spec/editor.md "Markdown
 // house style"): every mark kept, and spelled the way any note's would be.
-for (const where of ['in another block', 'in the same block'] as const) {
+for (const [where, bom, body] of [
+  ['in another block', '\ufeff', 'Intro para\n\nsome **bold** and _it_ word\n\nx**y**z\n'],
+  ['in the same block', '\ufeff', 'Intro para with **bold** and _it_ and x**y**z\n'],
+  ['behind a doubled BOM', '\ufeff\ufeff', 'Intro para with **bold** and _it_ and x**y**z\n'],
+] as const) {
   test(`a BOM-leading note keeps its bold and italic markers on the first edit (${where})`, async ({
     page,
   }) => {
-    const body =
-      where === 'in another block'
-        ? 'Intro para\n\nsome **bold** and _it_ word\n\nx**y**z\n'
-        : 'Intro para with **bold** and _it_ and x**y**z\n';
-    const note = `\ufeff${body}`;
+    const note = `${bom}${body}`;
 
     await initialize(page, hostConfig({ content: note }));
     // Load echo: the host's bytes, BOM included, until the user edits.
     expect(await getContent(page)).toBe(note);
+    expect(await messagesOfType(page, 'change')).toHaveLength(0);
     expect(
       await page.evaluate(() => ({
         strong: document.querySelectorAll('.ProseMirror strong').length,
@@ -241,20 +242,6 @@ for (const where of ['in another block', 'in the same block'] as const) {
     expect(written).toBe(body.replace('Intro', 'ZIntro').replace('_it_', '*it*'));
   });
 }
-
-test('a note with a DOUBLED leading BOM keeps its emphasis and echoes the host bytes', async ({
-  page,
-}) => {
-  const body = 'Intro **b** and _it_ x**y**z\n';
-  const note = `\ufeff\ufeff${body}`;
-  await initialize(page, hostConfig({ content: note }));
-  expect(await getContent(page)).toBe(note);
-  expect(await messagesOfType(page, 'change')).toHaveLength(0);
-
-  const written = await typeInFrontOfAndReadChange(page, 'Intro');
-  // The house style's italic is `*`.
-  expect(written).toBe(body.replace('Intro', 'ZIntro').replace('_it_', '*it*'));
-});
 
 test('a BOM-leading note that IS large still opens progressively and keeps its emphasis', async ({
   page,

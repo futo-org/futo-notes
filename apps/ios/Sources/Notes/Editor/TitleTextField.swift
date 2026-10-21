@@ -13,7 +13,7 @@ func isPlaceholderTitle(_ t: String) -> Bool {
 }
 
 /// Inline, tappable note title — the iOS counterpart of Android's title
-/// `BasicTextField`. Backed by `UITextField` so the tap behaviour is exact:
+/// `BasicTextField`. Backed by `UITextField` so the tap behavior is exact:
 /// beginning to edit a placeholder title selects the whole text (a keystroke
 /// replaces it), while a real title keeps UIKit's tap-positioned caret. Text
 /// edits are reported via `onChange` (the editor debounces the rename).

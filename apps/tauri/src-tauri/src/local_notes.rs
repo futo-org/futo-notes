@@ -140,16 +140,6 @@ pub async fn local_notes_bootstrap(
     blocking(move || store.bootstrap_with_search(index_dir, Arc::new(|_| {}))).await
 }
 
-fn local_notes_startup_listing_impl(
-    store: &LocalNoteStore,
-    order: NoteSortOrder,
-    cached: Option<ListingSnapshot>,
-) -> Result<DesktopListingSnapshot, String> {
-    store
-        .startup_listing_in_order(order, cached)
-        .map(DesktopListingSnapshot::from)
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DesktopListingSnapshot {
@@ -180,14 +170,12 @@ pub(crate) async fn local_notes_startup_listing(
 ) -> Result<DesktopListingSnapshot, String> {
     let store = store(&app, &state)?;
     let cached = state.notes.take_startup_listing(store.root());
-    blocking(move || local_notes_startup_listing_impl(&store, order, cached)).await
-}
-
-fn local_notes_set_sort_order_impl(
-    store: &LocalNoteStore,
-    order: NoteSortOrder,
-) -> Result<Snapshot, String> {
-    store.set_sort_order(order)
+    blocking(move || {
+        store
+            .startup_listing_in_order(order, cached)
+            .map(DesktopListingSnapshot::from)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -197,7 +185,7 @@ pub(crate) async fn local_notes_set_sort_order(
     order: NoteSortOrder,
 ) -> Result<Snapshot, String> {
     let store = store(&app, &state)?;
-    blocking(move || local_notes_set_sort_order_impl(&store, order)).await
+    blocking(move || store.set_sort_order(order)).await
 }
 
 #[tauri::command]
@@ -490,78 +478,6 @@ mod tests {
                 "folders": ["Folder"]
             })
         );
-    }
-
-    #[test]
-    fn startup_listing_impl_returns_the_ordered_content_free_projection() {
-        let root = temp_root();
-        let store = LocalNoteStore::new(root.clone());
-        store.write("Older", "large body #tag", Some(10)).unwrap();
-        store.write("Folder/Newer", "other body", Some(20)).unwrap();
-
-        let result =
-            local_notes_startup_listing_impl(&store, NoteSortOrder::default(), None).unwrap();
-
-        assert_eq!(
-            result
-                .notes
-                .iter()
-                .map(|note| note.0.as_str())
-                .collect::<Vec<_>>(),
-            ["Folder/Newer", "Older"]
-        );
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn startup_listing_impl_resorts_a_cached_listing_into_the_requested_order() {
-        let root = temp_root();
-        let store = LocalNoteStore::new(root.clone());
-        store.write("beta", "", Some(20)).unwrap();
-        store.write("Alpha", "", Some(10)).unwrap();
-        let cached = store.startup_listing();
-        let order = NoteSortOrder {
-            key: futo_notes_store::NoteSortKey::Name,
-            direction: futo_notes_store::SortDirection::Ascending,
-        };
-
-        let result = local_notes_startup_listing_impl(&store, order, Some(cached)).unwrap();
-
-        assert_eq!(
-            result
-                .notes
-                .iter()
-                .map(|note| note.0.as_str())
-                .collect::<Vec<_>>(),
-            ["Alpha", "beta"]
-        );
-        assert_eq!(store.sort_order(), order);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn set_sort_order_impl_returns_the_vault_in_the_new_order() {
-        let root = temp_root();
-        let store = LocalNoteStore::new(root.clone());
-        store.write("beta", "", Some(20)).unwrap();
-        store.write("Alpha", "", Some(10)).unwrap();
-        let order = NoteSortOrder {
-            key: futo_notes_store::NoteSortKey::Name,
-            direction: futo_notes_store::SortDirection::Ascending,
-        };
-
-        let snapshot = local_notes_set_sort_order_impl(&store, order).unwrap();
-
-        assert_eq!(
-            snapshot
-                .notes
-                .iter()
-                .map(|note| note.id.as_str())
-                .collect::<Vec<_>>(),
-            ["Alpha", "beta"]
-        );
-        assert_eq!(store.sort_order(), order);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

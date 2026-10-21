@@ -78,6 +78,12 @@ export class TauriTestClient extends TauriSyncClient {
     } catch {
       /* may not be connected */
     }
+    // A scenario that failed while holding saves must not hand the hold on.
+    try {
+      await this.holdSaves(false);
+    } catch {
+      /* hook may be missing */
+    }
     try {
       await this.deleteAllNotes();
     } catch {

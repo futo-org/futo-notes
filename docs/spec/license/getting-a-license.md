@@ -25,7 +25,7 @@
   `Environment::for_bundle_id`, `tests/conformance/license.json` `buyUrls`,
   `a_dev_build_buys_on_staging`
 - `platform` is attribution only: it never changes price, product, or
-  entitlement, and FUTOpay drops a value it does not recognise. `success` is
+  entitlement, and FUTOpay drops a value it does not recognize. `success` is
   `redirect-to-organization-page`, the storefront's own marker (observed
   2026-09-10): the buyer pays in the system browser, and FUTOpay answers that
   marker with the **license key page** — the key as HTML plus an Activate

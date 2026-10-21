@@ -24,7 +24,7 @@
 //
 // `--gestures <dir>` serves `<dir>/handleBlockDrag.ts` and
 // `<dir>/mobileBlockDnd.ts` in place of the working tree's, for every variant
-// of the run (labelled `[<dir name>]`). It is how to A/B a change to the
+// of the run (labeled `[<dir name>]`). It is how to A/B a change to the
 // gesture layer, which the session variants below do not reach, without
 // touching the working tree: copy the old files out with `git show`, run once
 // with `--gestures` and once without. Not for `--device ios-app`, which builds

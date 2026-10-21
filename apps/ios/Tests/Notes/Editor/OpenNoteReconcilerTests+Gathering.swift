@@ -23,7 +23,7 @@ extension OpenNoteReconcilerTests {
 
         #expect(await task.value == .stale)
         #expect(!editor.events.contains("adopt:peer"))
-        // The pass had cancelled the debounced save; a cancelled pass re-arms
+        // The pass had canceled the debounced save; a canceled pass re-arms
         // it (an exit that stops short, or a dismissed move picker, cancel
         // .adopt mid-pass).
         #expect(editor.events.last == "resume-save")

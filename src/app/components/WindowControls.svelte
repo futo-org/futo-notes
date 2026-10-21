@@ -5,6 +5,7 @@
     toggleMaximizeAppWindow,
     type WindowControl,
   } from '$lib/platform';
+  import { localizedText } from '$shared/localization';
 
   interface Props {
     buttons: WindowControl[];
@@ -13,6 +14,12 @@
 
   let { buttons, side }: Props = $props();
 
+  const LABEL_PATHS = {
+    minimize: 'app.desktop.minimizeWindowAccessibilityLabel',
+    maximize: 'app.desktop.maximizeWindowAccessibilityLabel',
+    close: 'app.desktop.closeWindowAccessibilityLabel',
+  } as const satisfies Record<WindowControl, string>;
+
   function handleControlClick(control: WindowControl): void {
     if (control === 'minimize') minimizeAppWindow();
     else if (control === 'maximize') toggleMaximizeAppWindow();
@@ -20,11 +27,14 @@
   }
 </script>
 
-<div class="window-controls window-controls-{side}" aria-label="Window controls">
+<div
+  class="window-controls window-controls-{side}"
+  aria-label={localizedText('app.desktop.windowControlsAccessibilityLabel')}
+>
   {#each buttons as control}
     <button
       class="window-control-btn"
-      aria-label={control[0].toUpperCase() + control.slice(1)}
+      aria-label={localizedText(LABEL_PATHS[control])}
       onclick={() => handleControlClick(control)}
     >
       {#if control === 'minimize'}

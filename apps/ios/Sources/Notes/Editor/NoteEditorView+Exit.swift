@@ -6,7 +6,7 @@ extension NoteEditorView {
     /// A native interactive pop cannot be refused once the finger starts it, so
     /// this is `requestNavigation` run after the fact: the same drain of
     /// in-flight rename/move/adopt work, the same title-then-body commit —
-    /// with nothing left to veto. The pending debounced rename is cancelled
+    /// with nothing left to veto. The pending debounced rename is canceled
     /// first so the drain reports it uncommitted and the title commits NOW
     /// rather than after its delay. The body falls back to the shell's copy
     /// when the editor cannot answer: refusing is no longer possible, and that

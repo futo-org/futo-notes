@@ -4,6 +4,7 @@
   import { search } from '$features/notes/notes.svelte';
   import { dismissable } from '$shared/dialogs/dismissable';
   import { localizedText } from '$shared/localization';
+  import { idLeaf, idParent } from '$lib/platform/pathSafety';
   import { isSearchPopupFindShortcut } from './searchPopupShortcuts';
 
   interface Props {
@@ -143,9 +144,9 @@
           }}
         >
           <div class="search-result-title">
-            <span class="search-result-leaf">{result.title.split('/').pop()}</span>
+            <span class="search-result-leaf">{idLeaf(result.title)}</span>
             {#if result.id.includes('/')}
-              {@const parent = result.id.split('/').slice(-2, -1)[0]}
+              {@const parent = idLeaf(idParent(result.id))}
               <span class="search-result-folder-badge" data-testid="folder-badge">{parent}</span>
             {/if}
           </div>

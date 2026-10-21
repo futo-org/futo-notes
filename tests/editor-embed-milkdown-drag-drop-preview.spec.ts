@@ -19,7 +19,7 @@ import {
 // ---- the drop invariant, across block kinds -------------------------------
 //
 // The same invariant over every top-level block kind, as the source and as the
-// neighbours it slides past, up and down, near and far, on both drag gestures.
+// neighbors it slides past, up and down, near and far, on both drag gestures.
 // The note is the one the user found the multi-line case with (desktop,
 // 2026-10-08: dragging the two-line intro paragraph down past A and B moved
 // the other blocks on release; one-line blocks did not). List items are not

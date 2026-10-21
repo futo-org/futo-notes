@@ -49,6 +49,7 @@
 
   let editor: EditorApi | undefined = $state();
   let testEditorFocused: boolean | null = null;
+  let testSavesHeld = false;
   let noteBody: HTMLElement | undefined = $state();
   let titleTextarea: HTMLTextAreaElement | undefined = $state();
   let sidebarCollapsed = $state(false);
@@ -86,6 +87,7 @@
     focusEditor: () => editor?.focus(),
     isEditorFocused: () => testEditorFocused ?? editor?.hasFocus() ?? false,
     isComposing: () => editor?.isComposing() ?? false,
+    savesHeld: () => testSavesHeld,
     getNotes: getAllNotes,
     getNoteBody: () => noteBody,
     getTitleTextarea: () => titleTextarea,
@@ -276,10 +278,6 @@
       settingsOpen = true;
     },
     toggleSidebar,
-    // Find in note was a CodeMirror feature (src/features/editor/find/) and the
-    // Milkdown editor has no replacement yet, so nothing claims Ctrl/Cmd+F or
-    // Ctrl/Cmd+G on desktop. docs/spec/editor.md's "Find in note" section
-    // carries the gap; the bridge calls stay declared for the native bars.
     /* Find is the OPEN NOTE's surface, and the cross-note search popup claims
      * the same chord while it is up (searchPopupShortcuts.ts). A Home tab has
      * no document, so both accelerators are no-ops there. */
@@ -328,6 +326,9 @@
     // just wrote has measured nothing. This reports the editor's REAL focus, so
     // an assertion on it can fail (tests/editor-focus-signal.spec.ts).
     isEditorFocused: () => editor?.hasFocus() ?? false,
+    holdSaves: (held) => {
+      testSavesHeld = held;
+    },
     getState: () => ({
       originalId: session.originalId,
       title: session.title,

@@ -112,7 +112,7 @@ test('a tag is decorated as soon as it is typed', async ({ page }) => {
 
 test('a `#` typed straight onto a word is not a tag', async ({ page }) => {
   // The boundary half of the same rule: `note:#later` has no whitespace before
-  // the `#`, so it is not a tag and must not be coloured like one.
+  // the `#`, so it is not a tag and must not be colored like one.
   await open(page, 'note:\n');
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
   await page.keyboard.press('Control+End');
@@ -139,7 +139,7 @@ test('a leading header tag block stays visible, with its tags decorated', async 
 // Bare URLs — linked as they are typed, and saved as typed
 // ============================================================
 
-/* GFM autolink literals were recognised only when a note was PARSED: a typed
+/* GFM autolink literals were recognized only when a note was PARSED: a typed
  * URL stayed plain text until the note was reopened (reported: "it should
  * become a hyperlink once i hit space or enter"). autolink.ts. */
 

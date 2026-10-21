@@ -5,7 +5,7 @@
 import path from 'node:path';
 
 /**
- * Flags, parsed once and strictly: an unrecognised argument fails the run
+ * Flags, parsed once and strictly: an unrecognized argument fails the run
  * rather than being ignored, so `--stres` cannot look like a 50k run that
  * quietly measured 25k instead.
  */
@@ -13,7 +13,7 @@ const FLAGS = new Set(['--stress']);
 const unknownArgs = process.argv.slice(2).filter((arg) => !FLAGS.has(arg));
 if (unknownArgs.length > 0) {
   console.error(
-    `Unrecognised argument(s): ${unknownArgs.join(' ')}\nSupported: ${[...FLAGS].join(', ')}`,
+    `Unrecognized argument(s): ${unknownArgs.join(' ')}\nSupported: ${[...FLAGS].join(', ')}`,
   );
   process.exit(2);
 }

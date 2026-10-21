@@ -11,7 +11,7 @@
    recipes), the markdown-spec harness (mine its cases into plugin tests first). The editor gauntlet
    **stays** as the regression suite, with tier-3 byte-diff assertions relaxed to loss-only per
    ADR-0002. The factory/Obsidian judge harness was already deleted ahead of this on main
-   (docs/learnings/factory-obsidian-judge.md).
+   (2026-08-24; recover from git history).
 4. The P1 intent compiler (bake-off graduate, never merged) is not productionized; bake-off §12
    items are void.
 

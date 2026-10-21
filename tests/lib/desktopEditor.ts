@@ -105,7 +105,7 @@ export async function focusEditor(page: Page): Promise<void> {
  * Per-keystroke delay for `typeInEditor`.
  *
  * Playwright's default `type()` has NO delay, which outruns ProseMirror's input
- * rules: `> ` and `- ` are recognised in a transaction that has to land before
+ * rules: `> ` and `- ` are recognized in a transaction that has to land before
  * the next character arrives, so a zero-delay `'> hello'` produces a quote whose
  * text never got in. 40 ms is well inside human cadence and was measured to be
  * enough (a 120 ms run produces the same document).

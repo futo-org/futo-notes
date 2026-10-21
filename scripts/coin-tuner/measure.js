@@ -29,7 +29,7 @@ export function measure() {
     const peak = Math.max(pixels[at], pixels[at + 1], pixels[at + 2]);
     const dimmest = Math.min(pixels[at], pixels[at + 1], pixels[at + 2]);
     brightness += peak;
-    // How much colour is left in the pixel. Gold that has been overlit walks
+    // How much color is left in the pixel. Gold that has been overlit walks
     // this toward zero long before the whole coin is white, so it moves while
     // there is still something to save.
     saturation += peak === 0 ? 0 : (peak - dimmest) / peak;

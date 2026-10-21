@@ -1,5 +1,8 @@
 #[cfg(any(target_os = "linux", test))]
 mod reloading;
+mod remembering;
+#[cfg(test)]
+pub(crate) mod test_support;
 #[cfg(test)]
 mod tests;
 
@@ -9,25 +12,25 @@ use rustls::client::danger::ServerCertVerifier;
 use rustls::crypto::CryptoProvider;
 use rustls::ClientConfig;
 
+pub(crate) use remembering::RememberingVerifier;
+
 const ALPN_PROTOCOLS: [&[u8]; 2] = [b"h2", b"http/1.1"];
 
-static SHARED: OnceLock<Arc<ClientConfig>> = OnceLock::new();
+static SHARED: OnceLock<Arc<dyn ServerCertVerifier>> = OnceLock::new();
 
-pub(crate) fn shared_client_config() -> Result<Arc<ClientConfig>, String> {
-    if let Some(config) = SHARED.get() {
-        return Ok(config.clone());
+pub(crate) fn shared_verifier() -> Result<Arc<dyn ServerCertVerifier>, String> {
+    if let Some(verifier) = SHARED.get() {
+        return Ok(verifier.clone());
     }
-    let config = client_config()?;
-    Ok(SHARED.get_or_init(|| config).clone())
+    let verifier = server_cert_verifier().map_err(trust_store_error)?;
+    Ok(SHARED.get_or_init(|| verifier).clone())
 }
 
-fn client_config() -> Result<Arc<ClientConfig>, String> {
-    server_cert_verifier()
-        .and_then(client_config_with)
-        .map_err(|error| format!("could not build the TLS trust store: {error}"))
+pub(crate) fn trust_store_error(error: rustls::Error) -> String {
+    format!("could not build the TLS trust store: {error}")
 }
 
-fn client_config_with(
+pub(crate) fn client_config_with(
     verifier: Arc<dyn ServerCertVerifier>,
 ) -> Result<Arc<ClientConfig>, rustls::Error> {
     let mut config = ClientConfig::builder_with_provider(crypto_provider())

@@ -70,7 +70,7 @@ The first round of probing ran against a **stale installed build** (older `main`
 before `09456c00`). There, clean horizontal edge swipes popped 7/7 while diagonal
 swipes and swipes during momentum failed — which reads as a gesture-arbitration
 bug and sent the investigation down dead end 1. Those failures were ordinary iOS
-behaviour, not the reported bug.
+behavior, not the reported bug.
 
 Lesson: **install the build you are diagnosing before drawing conclusions**, and
 re-run the baseline after every install. Once the reverted build ALSO failed the

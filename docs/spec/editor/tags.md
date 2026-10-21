@@ -3,7 +3,7 @@
 - A `#tag` is extracted and decorated only when it is at a word boundary, does
   not start with a digit, is within the max length, and is NOT inside inline
   code or a fenced block. A tag stays PLAIN TEXT in the document — it is neither
-  a node nor a mark — and is decorated with colour only, so typing inside one
+  a node nor a mark — and is decorated with color only, so typing inside one
   never shifts the line. → packages/editor/src/tags.ts,
   src/features/editor/milkdown/tagDecorations.ts,
   src/features/editor/milkdown/tagDecorations.test.ts

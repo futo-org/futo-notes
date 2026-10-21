@@ -1,14 +1,5 @@
 import SwiftUI
 
-func editorMoveSourceId(currentId: String, disposition: FlushDisposition) -> String {
-    switch disposition {
-    case .parkedConflict(let parkedId):
-        return parkedId
-    case .wrote, .converged, .recreated:
-        return currentId
-    }
-}
-
 extension NoteEditorView {
     /// The open note's list item — for the move sheet. Falls back to a synthetic
     /// item when the store is mid-reload (the sheet only needs id/title/folder).
@@ -93,7 +84,7 @@ extension NoteEditorView {
         session.end(
             .delete,
             effects: EditorExitEffects(
-                // The session has already cancelled every workflow and latched
+                // The session has already canceled every workflow and latched
                 // closed, so a bridge change arriving from here on is
                 // quarantined rather than applied.
                 prepare: { EditorHost.shared.blur() },

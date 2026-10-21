@@ -5,7 +5,7 @@
 //   REAL   assets/coin/futo-coin.glb — the shipped mesh, materials and all
 //   REAL   the studio, rebuilt from scripts/lib/studio-env.mjs, which
 //          `just coin-check` holds to build-coin.py's numpy to within a
-//          quantisation step
+//          quantization step
 //   REAL   the camera framing, tilt and tone map curve the desktop shell uses
 //   STAND-IN  iOS and Android, which are shown as converted numbers rather than
 //          rendered — RealityKit and Filament each scale an image-based light

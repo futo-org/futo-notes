@@ -14,7 +14,7 @@
  * and may lift a block exactly as before. This exercises `MobileBlockDndView`
  * directly against a fake `ProseView` (see its export comment) — the real
  * gesture, a physical long-press against a real WebView, is
- * `tests/editor-embed-milkdown.spec.ts`'s job, and cf343347's own focus-
+ * `tests/editor-embed-milkdown-long-press.spec.ts`'s job, and cf343347's own focus-
  * capture guard (Chromium forcing focus onto an unfocused-start press mid-
  * gesture) already has device-measured coverage there.
  */
@@ -126,12 +126,12 @@ describe('MobileBlockDndView — focus arbitration (QA #001)', () => {
 
   // cf343347's own guard is what this gate must NOT undo: an unfocused-start
   // press that Chromium's own long-press forces focus onto mid-gesture is
-  // still de-focused, WITHOUT the in-progress drag being cancelled — this is
+  // still de-focused, WITHOUT the in-progress drag being canceled — this is
   // the reconciliation point between the two fixes (see the module doc's
   // "FOCUS ARBITRATES DRAG VS. SELECTION"). Playwright's desktop Chromium
   // does not reproduce Chromium's forced focus itself (module doc), so this
   // simulates it mid-press with a direct `view.dom` focus, same as
-  // tests/editor-embed-milkdown.spec.ts does against the real bundle.
+  // tests/editor-embed-milkdown-long-press.spec.ts does against the real bundle.
   it('an unfocused-start press that is force-focused mid-press is de-focused, and the drag keeps going', () => {
     const { view, dom, pointA } = makeView(/* hasFocus */ false);
     const { options, onDragActive, onHaptic } = makeOptions();
@@ -150,7 +150,7 @@ describe('MobileBlockDndView — focus arbitration (QA #001)', () => {
     Object.defineProperty(focusEvent, 'target', { value: dom });
     document.dispatchEvent(focusEvent);
 
-    // De-focused — the guard fired — and the drag was NOT cancelled: no
+    // De-focused — the guard fired — and the drag was NOT canceled: no
     // second `onDragActive(false)` was reported for this focus event.
     expect(onDragActive).not.toHaveBeenCalledWith(false);
 

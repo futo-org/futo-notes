@@ -21,8 +21,8 @@ Read first, in this order:
    what is specified but not built; § 8 below maps each open Gap to the workstream that closes it.
 4. Root `AGENTS.md`, then the `AGENTS.md` of every layer a workstream touches, before editing it.
 
-Older plans, absorbed: [`license-ship.md`](license-ship.md) (shipped; its execution log is
-history), [`license-store-compliance.md`](license-store-compliance.md) (M1-M5 shipped 2026-09-24;
+Older plans, absorbed: the ship plan (shipped, since deleted; last version at commit 0774e8a2e; its
+execution log is history), [`license-store-compliance.md`](license-store-compliance.md) (M1-M5 shipped 2026-09-24;
 its M6 "real purchase on each shape" and M7 "store submission" are not scheduled; the posture it
 shipped, ADR-0005, is still the one in force).
 
@@ -110,13 +110,13 @@ sync harness. Nothing in W1-W7 should make it harder; keep license storage shape
 ## 5. Explicitly not on the slate
 
 - Play Billing, and server redemption of any store purchase: deferred 2026-10-19 (ADR-0007,
-  ADR-0008), not cancelled. The one in-app purchase on the slate is W10's App Store-only
+  ADR-0008), not canceled. The one in-app purchase on the slate is W10's App Store-only
   purchase on iOS (ADR-0009), which never becomes a key.
 - Any change to lib-polar.
 - Refund / revocation handling of any kind (D18). `revocationDate` and voided purchases are ignored.
 - Share-by-hand of a store proof (deep link / QR / file): considered 2026-10-16 and dropped in
   favor of D29; a redeemed key is shared the way any key is.
-- Google Play Developer API (service account), server-side acknowledgement, Apple App Store Server
+- Google Play Developer API (service account), server-side acknowledgment, Apple App Store Server
   API keys: not needed for v1 (§ 7c.5 option (b) is the upgrade path).
 - A second Play app for staging (D27), a Mac App Store or Microsoft Store build, a web client Buy.
 - Any change to `futo-notes-server`.
@@ -173,7 +173,7 @@ in-app purchase as deferred in its Store posture section instead (2026-10-19).
 - 2026-10-16 — Program defined. D29 (redeem for a key, ADR-0008) and D30-D32 recorded; W1 is
   on `feat/license-cosmetics-ios` as MR !426, nothing else started. lib-polar `main` at `1d6c4f2`.
 - 2026-10-19 — Change of plan (@justin): **no in-app purchase** and **no lib-polar change**. The
-  store-purchase work is deferred, not cancelled: ADR-0007 and ADR-0008 are marked Deferred,
+  store-purchase work is deferred, not canceled: ADR-0007 and ADR-0008 are marked Deferred,
   cosmetics D15-D32, § 7b (M7) and § 7c (M8) are marked deferred, and W3-W6 and W8 are deferred.
   License sync (M6) stays deferred. Buy stays as shipped: the FUTOpay website where a link is
   allowed (desktop, iOS US, Android `direct`); iOS elsewhere and Android `play` stay key-only, and

@@ -81,7 +81,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--headed') opt.headed = true;
   else if (a === '--why') opt.why = args[++i];
   else {
-    console.error(`Unrecognised argument: ${a}`);
+    console.error(`Unrecognized argument: ${a}`);
     process.exit(2);
   }
 }

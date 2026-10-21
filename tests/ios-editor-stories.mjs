@@ -3,7 +3,7 @@
  * User-level iOS editor stories against one explicitly claimed simulator.
  *
  * The sustained-typing story guards the v1.7.0 autosave regression where the
- * next keystroke cancelled an in-flight save after its flush was already
+ * next keystroke canceled an in-flight save after its flush was already
  * durable. The shell skipped its baseline advance, so the following flush saw
  * its own earlier write as a peer edit and parked the draft into conflict copy
  * after conflict copy.

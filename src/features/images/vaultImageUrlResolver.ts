@@ -13,11 +13,8 @@
  *     `PlatformFS.getImageUrl` (asset protocol, `blob:` fallback), which is
  *     asynchronous, so it cannot happen inside a render.
  *
- * This is what the CodeMirror editor gets from `preloadImages(text,
- * getImageWebPath, …)` (MarkdownEditor.svelte) — it registers a URL per image
- * reference in the document. The WYSIWYG editor asks per image actually
- * rendered instead of scanning the whole document, so a large note only pays
- * for what someone looks at (M5).
+ * The editor asks per image actually rendered instead of scanning the whole
+ * document, so a large note only pays for what someone looks at (M5).
  */
 import { hasNativeBridgeHost } from '@futo-notes/editor';
 

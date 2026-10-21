@@ -171,7 +171,7 @@ class NotesStore(
      * migration cannot begin until WebView insertion is confirmed.
      *
      * [deleteImageOnFailure] removes the file [save] just wrote when
-     * [useSavedImage] fails or is cancelled (F8) — see its doc for why. */
+     * [useSavedImage] fails or is canceled (F8) — see its doc for why. */
     suspend fun saveImageIntoVault(
         save: (File) -> String?,
         useSavedImage: suspend (String) -> Unit,

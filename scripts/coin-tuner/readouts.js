@@ -13,7 +13,7 @@ const snippet = document.getElementById('snippet');
 // ── Readouts and the paste-back panel ────────────────────────────────────────
 
 /// Less than half the gold left is the point where the coin reads as a pale disc
-/// rather than as metal. It is a judgement call, and it is here so the number
+/// rather than as metal. It is a judgment call, and it is here so the number
 /// has somewhere to be judged against.
 const PALE_BELOW = 0.5;
 
@@ -115,7 +115,7 @@ ${pythonRoom()}`,
 #                       # cubemap, and re-runs the gate
 # Exposure-only changes skip all of that — they are three constants.
 # The tone map is not printed above: all three shells are on Khronos PBR
-# Neutral deliberately (ACES smears the gold's hue toward grey), so switching it
+# Neutral deliberately (ACES smears the gold's hue toward gray), so switching it
 # here is for comparison, not for pasting.`,
   );
 

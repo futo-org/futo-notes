@@ -9,7 +9,6 @@ name = "futo_notes_model"
 # Pure note-domain decisions shared by the durable store and every shell.
 [dependencies]
 futo-notes-core = { path = "../futo-notes-core" }
-serde = { version = "1", features = ["derive"] }
 # `regex` lacks lookaround; the tag grammar (`tags.ts` TAG_REGEX) uses a
 # lookbehind for whitespace-or-start and a lookahead for the terminator, so we
 # need `fancy-regex` (already in the tree via the inference tokenizer).
@@ -19,6 +18,7 @@ fancy-regex = "0.14"
 memchr = "2"
 
 [dev-dependencies]
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [lints]

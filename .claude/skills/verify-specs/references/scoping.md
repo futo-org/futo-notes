@@ -11,7 +11,7 @@ cites the source it governs (`→ wikilinkAutocomplete.ts`, `→ syncServiceE2ee
 So the reverse map is a grep: which spec file mentions a changed file's basename?
 
 ```bash
-LAST_TAG=$(git describe --tags --abbrev=0)
+LAST_TAG=$(git describe --tags --abbrev=0 --exclude '*-*')   # skip pre-release tags (v1.7.2-6, -milkdown.3)
 git diff --name-only "$LAST_TAG"..HEAD | grep -E '\.(ts|svelte|rs|swift|kt)$' | while read -r p; do
   b=$(basename "$p" | sed -E 's/\.(ts|svelte|rs|swift|kt)$//; s/\.test$//; s/\.spec$//')
   grep -rlE --include='*.md' "$b" docs/spec 2>/dev/null | sed -E 's#^docs/spec/([^/]+)(/.*)?$#\1#; s/\.md$//'
@@ -26,20 +26,20 @@ appears. This is exact where the spec names the file.
 Some source files aren't cited by basename (e.g. `searchPopupShortcuts.ts`,
 `appState.ts`). Map those by path/role:
 
-| Changed path (glob) | Surface(s) |
-|---|---|
-| `packages/editor/**`, `src/editor-embed/**`, `src/features/editor/**`, `src/**/*Editor*` | editor |
-| `src/**/NoteList*`, `src/**/*List*` (list UI), `crates/futo-notes-model` scan/sort | list, app |
-| `src/**/*Sidebar*`, `src/**/*Drawer*`, `src/**/*Nav*` | nav |
-| `src/**/*Tab*` | tabs |
-| `crates/futo-notes-search`, `src/features/search/**`, `src/**/*Search*` | search |
-| `src/shared/state/appState*`, `src/features/settings/**`, `src/**/*Settings*` | settings, settings-visual |
-| `src/styles/**`, `*.css`, theme tokens | settings-visual (+ whatever surface the component belongs to) |
-| `crates/futo-notes-sync`, `src/features/sync/**` | sync |
-| `crates/futo-notes-license`, `src/features/license/**` | license |
-| `languages/*.json` | localization |
-| `apps/tauri/src-tauri/**` | desktop-rust |
-| `src/App.svelte`, startup/scan/`initialized` paths, `src/features/notes/notes.svelte.ts` | app |
+| Changed path (glob)                                                                      | Surface(s)                                                    |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `packages/editor/**`, `src/editor-embed/**`, `src/features/editor/**`, `src/**/*Editor*` | editor                                                        |
+| `src/**/NoteList*`, `src/**/*List*` (list UI), `crates/futo-notes-model` scan/sort       | list, app                                                     |
+| `src/**/*Sidebar*`, `src/**/*Drawer*`, `src/**/*Nav*`                                    | nav                                                           |
+| `src/**/*Tab*`                                                                           | tabs                                                          |
+| `crates/futo-notes-search`, `src/features/search/**`, `src/**/*Search*`                  | search                                                        |
+| `src/shared/state/appState*`, `src/features/settings/**`, `src/**/*Settings*`            | settings, settings-visual                                     |
+| `src/styles/**`, `*.css`, theme tokens                                                   | settings-visual (+ whatever surface the component belongs to) |
+| `crates/futo-notes-sync`, `src/features/sync/**`                                         | sync                                                          |
+| `crates/futo-notes-license`, `src/features/license/**`                                   | license                                                       |
+| `languages/*.json`                                                                       | localization                                                  |
+| `apps/tauri/src-tauri/**`                                                                | desktop-rust                                                  |
+| `src/App.svelte`, startup/scan/`initialized` paths, `src/features/notes/notes.svelte.ts` | app                                                           |
 
 When a change is broad shared infra (`src/lib/rules.ts`, `packages/editor`,
 `crates/futo-notes-model|core`, `futo-notes-ffi`) it ships to all consumers —

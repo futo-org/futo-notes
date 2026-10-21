@@ -9,8 +9,7 @@
  * the handle, and drags it with a mouse.
  *
  * The decision lives here rather than in the component because `src/AGENTS.md`
- * says components never branch on platform; the CodeMirror editor keeps its own
- * iOS reads in `createMarkdownEditorRuntime.ts` for the same reason. Having one
+ * says components never branch on platform. Having one
  * named answer instead of a boolean also means the component, the stylesheet
  * gutter, and the plugin choice cannot drift apart: they all read this.
  */
@@ -32,10 +31,10 @@ function asMode(value: string | null | undefined): BlockDragMode | null {
  * page a headless harness can load is `editor.html`, whose host flag is a
  * hard-coded `nativeShell: true`, so the long-press path is the only one a
  * Playwright run reaches by default; the gutter-handle cases in
- * `tests/editor-embed-milkdown.spec.ts` load
+ * `tests/editor-embed-milkdown-gutter-handle.spec.ts` load
  * `editor.html?blockDragMode=gutter-handle` (or `=long-press`). Never set by
  * production hosts, and the sole extra input to the one gate below rather than
- * a second ad-hoc platform check. An unrecognised value is ignored, not obeyed.
+ * a second ad-hoc platform check. An unrecognized value is ignored, not obeyed.
  */
 function forcedByTest(): BlockDragMode | null {
   if (typeof window === 'undefined') return null;

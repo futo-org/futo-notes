@@ -1,11 +1,11 @@
 /*
- * Fenced-code token colours.
+ * Fenced-code token colors.
  *
  * `@lezer/highlight`'s `classHighlighter` names tokens `tok-*`, so the curated
- * grammars produce the same class names wherever they run; the colours
+ * grammars produce the same class names wherever they run; the colors
  * themselves live in theme.css (`--syntax-*`, light and dark).
  *
- * A CONTAINER scope, one rule per colour — never a per-fence decoration. A
+ * A CONTAINER scope, one rule per color — never a per-fence decoration. A
  * ProseMirror node decoration that spans a whole top-level block is stored in
  * the decoration tree's ROOT, so one per fence makes every keystroke cost
  * O(fences): measured 4.6 ms per keystroke at 1000 fences, against 0.075 ms

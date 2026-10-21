@@ -12,7 +12,7 @@ export abstract class BlockDragTargeting extends BlockDragVisuals {
 
   /** The boundary the indicator is currently drawn at. `pos` IS the boundary's
    * whole identity (blockDragGeometry.ts), so only a CHANGE of this fires
-   * `onBoundaryChange`: a finger travelling inside one gap is silent, and
+   * `onBoundaryChange`: a finger traveling inside one gap is silent, and
    * crossing from one block's lower half into the next block's upper half — the
    * same gap — is silent too, because the bar did not move. */
   protected indicatorPos: number | null = null;

@@ -9,7 +9,6 @@ import {
   assertEqual,
   externalWriteNote,
   waitForEditorContent,
-  waitForNoteInSidebar,
   waitForSaveIdle,
   waitForToastClear,
 } from './waits-and-assertions.mjs';
@@ -24,12 +23,13 @@ export async function dirtyDraftSurvivesAPeerEditThenSettles(a, b, server) {
   // base` fast-forward arm and the peer's edit is destroyed with no copy
   // anywhere in the vault.
   //
-  // The draft is held dirty the way externalWatcherProtectsDirtyDraftThenSettles
-  // does it — a duplicate title blocks the save — rather than by keeping the
-  // editor focused: CodeMirror's hasFocus() also requires document.hasFocus(),
-  // so a background window's focus is not something a scenario can rely on.
-  // This is the sync-pull twin of that watcher scenario, which asserts the same
-  // park for an external disk write.
+  // The draft is held dirty by holding B's saves (each declines without
+  // writing) rather than by keeping the editor focused: the editor's hasFocus()
+  // also requires document.hasFocus(), so a background window's focus is not
+  // something a scenario can rely on, and a focused editor defers instead of
+  // reaching the keep-draft verdict this pins. This is the sync-pull twin of
+  // externalWatcherProtectsDirtyDraftThenSettles, which asserts the same park
+  // for an external disk write.
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
   // Own the pull ordering explicitly: a background cycle waking on A's push
@@ -38,23 +38,22 @@ export async function dirtyDraftSurvivesAPeerEditThenSettles(a, b, server) {
   await a.pauseAutoSync();
   await b.pauseAutoSync();
 
-  await a.writeNote('sync taken title', '# Blocking title');
   await a.writeNote('sync dirty draft', '# Base');
   await a.syncNow();
   await b.syncNow();
-  await waitForNoteInSidebar(b, 'sync taken title');
 
   await b.openNote('sync dirty draft');
   await waitForEditorContent(b, '# Base');
 
-  // Hold the draft unsaveable: the duplicate title blocks every save attempt,
-  // so the typed line is still unpersisted when the peer edit arrives.
-  await b.setTitle('sync taken title');
+  // Hold the draft unsaved: every save declines while held, so the typed line
+  // is still only in the buffer when the peer edit arrives.
+  await b.holdSaves(true);
+  await b.typeInEditor('\nLocal draft');
   await b.flushSave();
   await waitForSaveIdle(b);
-  await b.typeInEditor('\nLocal draft');
   const typed = (await b.getOpenNoteState()).editorContent;
   assert(typed.includes('Local draft'), `B should hold the typed draft, got: ${typed}`);
+  assertEqual(await b.readNote('sync dirty draft'), '# Base', 'the held draft must not be on disk');
 
   await a.writeNote('sync dirty draft', '# Base\nPeer edit');
   await a.syncNow();
@@ -72,9 +71,9 @@ export async function dirtyDraftSurvivesAPeerEditThenSettles(a, b, server) {
     `the dirty draft must survive the peer edit, got: ${kept.editorContent}`,
   );
 
-  // Restore a valid title so the kept draft can finally be persisted. The
-  // engine parks it, leaving the peer's bytes where they are.
-  await b.setTitle('sync dirty draft');
+  // Release the hold so the kept draft can finally be persisted. The engine
+  // parks it, leaving the peer's bytes where they are.
+  await b.holdSaves(false);
   await b.flushSave();
   await waitForSaveIdle(b);
 
@@ -173,15 +172,9 @@ export async function externalAtomicSaveOntoTheOpenNoteIsAdopted(a, _b, _server)
 }
 
 export async function externalWatcherProtectsDirtyDraftThenSettles(a, _b, _server) {
-  // A blocked dirty draft is protected from the external change; restoring a
-  // valid title settles it — the draft parks as a conflict copy against the
-  // changed disk base and the editor then adopts the external bytes.
-  await a.openNewNote();
-  await a.setTitle('taken title');
-  await a.typeInEditor('# Other note');
-  await a.flushSave();
-  await a.waitForOpenNote('taken title');
-
+  // A dirty draft that cannot be saved is protected from the external change;
+  // once saves resume it settles — the draft parks as a conflict copy against
+  // the changed disk base and the editor then adopts the external bytes.
   await a.openNewNote();
   await a.setTitle('watch dirty');
   await a.typeInEditor('# Original content');
@@ -192,7 +185,10 @@ export async function externalWatcherProtectsDirtyDraftThenSettles(a, _b, _serve
   // the editor composed and saved this note (ADR-0002 normalize-once).
   await waitForEditorContent(a, '# Original content\n');
 
-  await a.setTitle('taken title');
+  // Hold saves (each declines without writing) so the draft stays dirty and
+  // unsaved when the external write lands. A duplicate title used to do this;
+  // a refused title now saves the body (editor.md).
+  await a.holdSaves(true);
   await a.typeInEditor('\nLocal draft');
   await waitForSaveIdle(a);
   await sleep(1200);
@@ -201,7 +197,7 @@ export async function externalWatcherProtectsDirtyDraftThenSettles(a, _b, _serve
 
   // Protection: wait until the watcher has processed the event (the storage
   // refresh surfaces the external bytes in the notes-cache preview), then
-  // assert the blocked dirty draft still owns the editor — no silent adoption.
+  // assert the held dirty draft still owns the editor — no silent adoption.
   await a.waitForCondition(
     `window.__testNotes.getAllNotes().some((n) => n.id === 'watch dirty' && (n.preview || '').includes('Changed on disk'))`,
     30_000,
@@ -210,12 +206,12 @@ export async function externalWatcherProtectsDirtyDraftThenSettles(a, _b, _serve
   const protectedState = await a.getOpenNoteState();
   assert(
     protectedState.editorContent.includes('Local draft'),
-    'dirty draft must be protected from the external change while blocked',
+    'dirty draft must be protected from the external change while held',
   );
 
-  // Settle: restore a valid title; the draft parks against the changed disk
-  // base and the deferred adoption applies the external content.
-  await a.setTitle('watch dirty');
+  // Settle: release the hold; the draft parks against the changed disk base
+  // and the deferred adoption applies the external content.
+  await a.holdSaves(false);
   await a.flushSave();
   const adoptedState = await waitForEditorContent(a, '# Changed on disk', 30_000);
   assertEqual(

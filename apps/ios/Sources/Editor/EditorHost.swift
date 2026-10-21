@@ -110,7 +110,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         wv.isOpaque = false
         wv.backgroundColor = .clear
         wv.scrollView.backgroundColor = .clear
-        // The page owns ALL scrolling (CM6's .cm-scroller scrolls internally;
+        // The page owns ALL scrolling (the editor's .ProseMirror scrolls internally;
         // html/body are overflow:hidden — see editor.html). The OUTER
         // UIScrollView must therefore never move: when it can, WebKit's keyboard
         // "reveal focused element" behavior pans it, after which touch and layout
@@ -154,22 +154,22 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// TWO levels, because the two things the editor reports are not equally
     /// safe to act on. A PRESS is only a maybe — it can still turn out to be a
     /// tap that places a caret or a scroll — so only the gestures that need a
-    /// HOLD to recognise stand down, and the page stays fully selectable. A
+    /// HOLD to recognize stand down, and the page stays fully selectable. A
     /// DRAG is committed, so the whole stack goes, preference included.
     enum TextInteractionLevel {
         /// Nothing suspended.
         case none
         /// A finger is down on a block: the DELAYED gestures only (the loupe
         /// long press, tap-and-a-half select, UIKit's own drag lift). The tap
-        /// and pan recognisers — caret placement, double-tap word select,
+        /// and pan recognizers — caret placement, double-tap word select,
         /// selection-handle adjustment — are deliberately left alone.
         case press
-        /// A block is airborne: every non-WebKit recogniser on the content
+        /// A block is airborne: every non-WebKit recognizer on the content
         /// view, plus `isTextInteractionEnabled`.
         case full
     }
 
-    /// Recognisers this suspended, so exactly the ones that were turned off get
+    /// Recognizers this suspended, so exactly the ones that were turned off get
     /// turned back on.
     var suspendedTextGestures: [UIGestureRecognizer] = []
     var appliedTextInteractionLevel: TextInteractionLevel = .none

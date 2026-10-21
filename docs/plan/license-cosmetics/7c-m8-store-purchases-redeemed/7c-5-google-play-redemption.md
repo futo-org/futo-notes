@@ -25,7 +25,7 @@ in the same new module as the Apple route (or `api/public/google.py`), bound fro
 - **(b) Google Play Developer API** (`purchases.products.get` with a service account linked in Play
   Console): confirms the purchase against Google's records, exposes `purchaseType == 0` (a
   license-tester purchase, which the client JSON never marks), detects voided purchases, and
-  would allow server-side acknowledgement. Costs a service-account secret, API enablement, a
+  would allow server-side acknowledgment. Costs a service-account secret, API enablement, a
   Google client dependency and an outbound call on the purchase path. Not built for v1; it is the
   containment to reach for if tester-minted production keys ever matter (the Google twin of Q12).
 
@@ -38,7 +38,7 @@ First sight mints through the same `create_key_func` (`customer_email="google:<s
 the token itself is a bearer secret and is not stored in that column); replay returns the same
 pair; two concurrent first redemptions yield one row (same lock or `ON CONFLICT` pattern as Apple).
 
-**Acknowledgement stays client-side** (§ 7b M7.3): the server never acknowledges (that needs (b)),
+**Acknowledgment stays client-side** (§ 7b M7.3): the server never acknowledges (that needs (b)),
 and Google's three-day auto-refund of an unacknowledged purchase is the correct outcome for a
 purchase that was never redeemed.
 

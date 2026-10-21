@@ -2,7 +2,7 @@ import XCTest
 
 /// Real-finger driver for `scripts/perf/block-drag-bench.mjs --device ios-app`.
 ///
-/// XCUITest supplies the touches (a long-press drag cannot be synthesised from
+/// XCUITest supplies the touches (a long-press drag cannot be synthesized from
 /// the page); the measurement lives in the page, where
 /// `scripts/perf/block-drag-bench/ios-app.mjs` injects a frame recorder over the
 /// WebKit inspector (ios_webkit_debug_proxy). The two meet through the page: the
@@ -25,7 +25,11 @@ final class BlockDragBenchTests: XCTestCase {
                 forResource: "BlockDragBenchProbe", withExtension: "js"),
             let body = try? String(contentsOf: probeURL, encoding: .utf8),
             let config = ProcessInfo.processInfo.environment["FUTO_BENCH_CONFIG"]
-        else { throw XCTSkip("no generated BlockDragBenchProbe.js or TEST_RUNNER_FUTO_BENCH_CONFIG: device-only perf driver") }
+        else {
+            throw XCTSkip(
+                "no generated BlockDragBenchProbe.js or TEST_RUNNER_FUTO_BENCH_CONFIG: device-only perf driver"
+            )
+        }
         let probe = "const CONFIG = \(config);\n" + body
         let app = makeIsolatedApplication()
         app.launchEnvironment["FUTO_BLOCK_DRAG_BENCH_JS"] = probe
@@ -42,7 +46,8 @@ final class BlockDragBenchTests: XCTestCase {
         }
         var shots = 0
         let deadline = Date().addingTimeInterval(900)
-        let command = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'BENCH:'")).firstMatch
+        let command = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'BENCH:'"))
+            .firstMatch
         while Date() < deadline {
             guard command.waitForExistence(timeout: 2) else { continue }
             let parts = command.label.split(separator: ":").map(String.init)

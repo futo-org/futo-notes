@@ -1,5 +1,5 @@
 /*
- * Keyboard parity with the CodeMirror editor's interactive elements
+ * Keyboard behavior of the editor's interactive elements
  * (docs/spec/editor.md "Interactive elements", issue #108):
  *
  * - Enter in a table cell moves the caret down to the same column of the row
@@ -11,8 +11,7 @@
  *   anywhere but the end, since the native shells have no right-click cell
  *   context menu. The gfm preset instead bound bare Enter to `exitTable`,
  *   which dropped a stray empty paragraph after the table.
- * - Tab at the very last cell appends a row (mirroring the CodeMirror
- *   `tableCellNavigation` wrap-around) instead of falling through to the
+ * - Tab at the very last cell appends a row instead of falling through to the
  *   browser's default Tab, which moved focus out of the editor and silently
  *   swallowed whatever was typed next.
  * - Tab/Shift-Tab inside a CODE BLOCK insert/remove two spaces of indentation
@@ -26,8 +25,8 @@
  *   typing any other key disarms it. Blockquotes and tables are a deliberate
  *   NON-claim — Tab stays ordinary focus navigation there (only a code fence
  *   traps it today), so this is the only new Tab claimant.
- * - Splitting a checked task item starts the new item UNCHECKED, the same as
- *   the CodeMirror `listContinuation` rule — ProseMirror's `splitListItem`
+ * - Splitting a checked task item starts the new item UNCHECKED —
+ *   ProseMirror's `splitListItem`
  *   otherwise clones the `checked: true` attr onto the new item.
  *
  * QA #004 (Backspace at the start of a nested list item keeps its

@@ -37,7 +37,7 @@
   dropped: the stream still completes exactly once and the save lock below is
   unchanged. The serializer's idle cache priming yields the same way. →
   milkdown/interactionHold.ts, milkdown/progressiveLoad.ts
-  `createYieldingIdleScheduler`, tests/editor-embed-milkdown.spec.ts
+  `createYieldingIdleScheduler`, tests/editor-embed-milkdown-progressive-open.spec.ts
 - Chunk boundaries are only ever taken where a chunk
   parses to the same document the whole note would (never inside front matter,
   never at a `---`), and a chunk that parses to nothing aborts the whole thing
@@ -88,7 +88,7 @@
   Desktop component reads use the same complete-document serialization. A pinned
   `role="status"` bar reads "Loading the rest of this note…" while it runs, and
   the streamed appends are not undoable. → milkdown/hostHandleContent.ts `flush`, `getContent`,
-  milkdown/progressiveLoad.ts, tests/editor-embed-milkdown.spec.ts
+  milkdown/progressiveLoad.ts, tests/editor-embed-milkdown-progressive-open.spec.ts
 - Every top-level block is rendered eagerly; the editor applies no
   `content-visibility` containment. A Chromium-only containment rule ran from
   #106 until 2026-09-05 and was retired after measuring it against eager
@@ -100,7 +100,7 @@
   rule also painted holes on Apple WebKit, so all three engines now render
   alike. → milkdownEditor.css (the comment where the rule was),
   docs/plan/milkdown-transition.md §5 "Containment retired",
-  tests/editor-embed-milkdown.spec.ts
+  tests/editor-embed-milkdown-progressive-open.spec.ts
 - The FIRST focus of an opened note — the tap that starts typing — is budgeted
   at **under 1 s at real-note sizes** on the reference phone and measured for
   every fixture, blurred again before the keystroke loop so the keystroke unit

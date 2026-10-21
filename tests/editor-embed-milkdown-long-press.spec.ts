@@ -105,7 +105,7 @@ mobileDndTest(
 // The system can take the touch away mid-air (an incoming call, a system
 // gesture). That path posts no change and no drop haptic — and still has to
 // hand the shell's suspended text interaction back.
-mobileDndTest('a cancelled drag reports the drag as over', async ({ page, cdp }) => {
+mobileDndTest('a canceled drag reports the drag as over', async ({ page, cdp }) => {
   await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
   await clearMessages(page);
 
@@ -119,7 +119,7 @@ mobileDndTest('a cancelled drag reports the drag as over', async ({ page, cdp })
   await settleChangeDebounce(page);
 
   expect((await messagesOfType(page, 'blockDrag')).map((m) => m.active)).toEqual([true, false]);
-  /* The finger travelled, so the indicator ticked on the way; what a cancel
+  /* The finger traveled, so the indicator ticked on the way; what a cancel
    * must NOT produce is the landing haptic, because nothing landed. */
   const kinds = (await messagesOfType(page, 'haptic')).map((m) => m.kind);
   expect(kinds[0]).toBe('lift');

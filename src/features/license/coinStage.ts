@@ -46,7 +46,7 @@ export async function openStage(
   renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
   renderer.setClearColor(0x000000, 0);
   // Khronos PBR Neutral, not ACES. ACES pushes a bright saturated highlight
-  // toward white, which on this coin turns the gold sheen into a grey smear
+  // toward white, which on this coin turns the gold sheen into a gray smear
   // exactly where it should be most golden. Neutral holds the hue.
   renderer.toneMapping = THREE.NeutralToneMapping;
   renderer.toneMappingExposure = TONE_MAPPING_EXPOSURE;

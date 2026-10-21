@@ -34,7 +34,7 @@ import {
 // ---- the drop invariant mid-slide ------------------------------------------
 //
 // The preview's clones slide to their places over 0.18s. A release, or a
-// layout change, during that slide must not teleport a neighbour to where it
+// layout change, during that slide must not teleport a neighbor to where it
 // was going: it carries on from where it is drawn. The page's animation clock
 // is slowed and then stopped through CDP, so the slide is caught part-way
 // every time, and positions are read off what is RENDERED (the clones' rects,
@@ -69,7 +69,7 @@ function expectNoneMoved(
 }
 
 mobileDndTest(
-  'a release mid-slide lets the neighbours finish their slide instead of jumping',
+  'a release mid-slide lets the neighbors finish their slide instead of jumping',
   async ({ page, cdp }) => {
     await page.setViewportSize({ width: 760, height: 1200 });
     await hostSetContent(page, SLIDE_NOTE);
@@ -135,7 +135,7 @@ mobileDndTest(
   },
 );
 
-/* After a release mid-slide the move is not committed until the neighbours
+/* After a release mid-slide the move is not committed until the neighbors
  * have finished their slide (`ReflowCurtain.land`): until then the curtain
  * shows the note as the move will leave it, and the real note under it is
  * untouched. Nothing may cut that slide short, and nothing may leave the

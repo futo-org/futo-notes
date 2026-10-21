@@ -57,7 +57,7 @@ KOTLIN_OUT="$APP/app/src/main/java"
 # x86_64 (Intel emulators, ChromeOS). The default is every ABI the app ships
 # (`abiFilters` in app/build.gradle.kts), which releases and CI need.
 # ABIS=device builds only the connected device's ABI — about a third of a cold
-# build — and is what the dev recipes pass; adb honours ANDROID_SERIAL. With no
+# build — and is what the dev recipes pass; adb honors ANDROID_SERIAL. With no
 # single device to ask (none, or several and no ANDROID_SERIAL) it builds all.
 ALL_ABIS="arm64-v8a,armeabi-v7a,x86_64"
 ABIS="${ABIS:-$ALL_ABIS}"
@@ -86,7 +86,7 @@ cargo build -p futo-notes-ffi
 
 echo "==> Generating Kotlin bindings"
 # Host dylib extension differs by OS: macOS .dylib, Linux .so.
-# Honour a relocated cargo target dir: with CARGO_TARGET_DIR set, the build
+# Honor a relocated cargo target dir: with CARGO_TARGET_DIR set, the build
 # above lands there and a hardcoded target/ path finds nothing (pc_b0e9c9e5f9f8).
 TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 case "$(uname -s)" in

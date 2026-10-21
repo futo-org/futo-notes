@@ -104,7 +104,7 @@ pub async fn an_entitled_account_is_not_sent_to_pay_again(base: &str) {
 }
 
 /// "Manage subscription" hands out a URL to open and nothing else: this app
-/// writes no billing state, so cancelling, invoices, and cards all live behind
+/// writes no billing state, so canceling, invoices, and cards all live behind
 /// this one link (ADR 0003, decision 8). It is also what the "Vault is full"
 /// banner's button opens, which is why an entitled account must get one too.
 pub async fn the_account_card_can_open_the_billing_portal(base: &str) {

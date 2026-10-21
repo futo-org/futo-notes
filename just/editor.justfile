@@ -7,14 +7,14 @@
 #   just bench-block-drag                              # current:line vs current
 #   just bench-block-drag current /path/to/other.ts --repeat 3
 bench-block-drag *args:
-  node scripts/perf/block-drag-bench.mjs {{args}}
+  node scripts/perf/block-drag-bench.mjs "$@"
 
 # Editor hill-climb score: elements restyled, layout scope and JS calls for eight
 # editor interactions (typing, opening, block drag) in headless Chromium — counts, not timings.
 # ~9.7s with the bundle build, ~4.9s with --no-build; --why <scenario> names causes. See docs/perf/editor-bench.md.
 #   just bench-editor --runs 0 --baseline docs/perf/editor-bench-baseline.json
 bench-editor *args:
-  node --experimental-strip-types scripts/perf/editor-bench.mjs {{args}}
+  node --experimental-strip-types scripts/perf/editor-bench.mjs "$@"
 
 # ACCEPT/REJECT a change against the editor bench baseline: 3 count passes, no
 # count worse, score ≥0.5 % better, then the editor-embed suite. Exits 1 on REJECT.
@@ -22,11 +22,11 @@ bench-editor *args:
 #   just bench-climb-gate            # verdict only
 #   just bench-climb-gate --accept   # and write the new baseline
 bench-climb-gate *args:
-  node --experimental-strip-types scripts/perf/editor-bench-gate.mjs {{args}}
+  node --experimental-strip-types scripts/perf/editor-bench-gate.mjs "$@"
 
 # Prove a chunked parse equals a whole-document parse over a real corpus; see justfile-notes.md.
 chunk-census *args:
-  node scripts/milkdown-chunk-census.mjs {{args}}
+  node scripts/milkdown-chunk-census.mjs "$@"
 
 # ── Editor gauntlet (the permanent editor regression suite) ──
 # The matrix and oracles live behind EditorGauntletAdapter, with one adapter
@@ -48,7 +48,7 @@ gauntlet-milkdown-perf:
 #     EDITOR_GAUNTLET_CORPUS_LIMIT=100 just gauntlet-milkdown-foreign
 # Milkdown foreign-corpus sweep (never-refuse/never-warn/never-lose).
 gauntlet-milkdown-foreign *args:
-  pnpm run test:editor-gauntlet:milkdown:foreign {{args}}
+  pnpm run test:editor-gauntlet:milkdown:foreign "$@"
 
 # ── Milkdown round-trip census ──
 # Run a corpus of real notes through the real Milkdown editor and report what
@@ -69,4 +69,4 @@ gauntlet-milkdown-foreign *args:
 # flag. Corpus default: ~/Developer/futo-notes-ml/dataset/notes_corpus.jsonl.gz.
 # Findings write-up: docs/editor/milkdown-roundtrip-census.md.
 milkdown-census *args:
-  node tests/milkdown-census/run.mjs {{args}}
+  node tests/milkdown-census/run.mjs "$@"

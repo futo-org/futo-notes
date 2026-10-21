@@ -17,7 +17,7 @@ the key-only wording is under review.
   stores (ADR-0008); supersedes D19 "no server work", D20 (Sandbox moves server-side), D22 (Google
   offline) and D26 (the card is the normal key card). The client never verifies a store proof. Q8
   below is moot in this repo (the Apple library owns roots and chain rules).
-- **D28, punt on license sync (M6), 2026-10-16:** M6 is deferred, not cancelled; M7 ships without it; D16 is superseded. Q3 below stays decided for when M6 is picked up.
+- **D28, punt on license sync (M6), 2026-10-16:** M6 is deferred, not canceled; M7 ships without it; D16 is superseded. Q3 below stays decided for when M6 is picked up.
 - **Q3, M6 carrier: the hidden engine slot**, a reserved path kept in engine state, never a file in
   the notes folder; any valid proof counts, duplicates keep one, a Remove tombstone beats an offline
   device (@justin 2026-10-16; § 7 Feasibility option (a)).

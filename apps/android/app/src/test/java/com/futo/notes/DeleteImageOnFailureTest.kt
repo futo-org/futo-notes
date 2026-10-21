@@ -30,7 +30,7 @@ class DeleteImageOnFailureTest {
     }
 
     @Test
-    fun `a failing or cancelled consumer deletes the file and rethrows`() = runBlocking {
+    fun `a failing or canceled consumer deletes the file and rethrows`() = runBlocking {
         listOf(
             IllegalStateException("insertion unavailable"),
             // Catching `Exception` also catches cancellation; it must still

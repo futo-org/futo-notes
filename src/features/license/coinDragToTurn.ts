@@ -41,7 +41,7 @@ export function attachDragToTurn(mount: HTMLElement, target: TurnTarget): () => 
   let pointer = -1;
   let lastX = 0;
   let lastMoveAt = 0;
-  /// Distance travelled and when the press began — together they separate a
+  /// Distance traveled and when the press began — together they separate a
   /// click from a drag that happened to end where it started.
   let travelled = 0;
   let pressedAt = 0;

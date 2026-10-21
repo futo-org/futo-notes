@@ -265,7 +265,7 @@ export abstract class MobileBlockDndGesture extends MobileBlockDndGuards {
     // Belt and braces: the shell has been holding WKWebView's delayed text
     // interaction down since pointerdown (`onPressActive`), so there should be
     // no range to collapse — but a host without a `blockPress` case leaves this
-    // as the page's only defence.
+    // as the page's only defense.
     this.collapseSelection();
 
     const pressed = this.pressed;

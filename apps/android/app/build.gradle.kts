@@ -24,7 +24,7 @@ val generateLocalizationResources = tasks.register<Exec>("generateLocalizationRe
     commandLine("node", "scripts/generate-native-language-resources.mjs", "--android")
 }
 
-// The supporter coin is modelled once in Blender (assets/coin/build-coin.py) and
+// The supporter coin is modeled once in Blender (assets/coin/build-coin.py) and
 // rendered by all three shells. Staging the two files the Android renderer needs
 // — the model and the prefiltered studio it reflects — rather than committing a
 // second copy under app/src/main/assets keeps `assets/coin/` the only place the
@@ -341,7 +341,6 @@ dependencies {
     implementation("com.google.android.filament:gltfio-android:1.71.5")
     implementation("com.google.android.filament:filament-utils-android:1.71.5")
 
-    debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     // JVM unit tests (pure logic only — e.g. SyncManager's seed-URL selection).

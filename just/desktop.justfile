@@ -2,8 +2,7 @@
 
 # ── Desktop (Tauri) ──
 
-# Desktop dev (Wayland, port 5180); `--fake-update[=X.Y.Z]` simulates an update banner.
-[positional-arguments]
+# Desktop dev (Wayland, Vite port 5200+slot per worktree — scripts/lib/slot.mjs); `--fake-update[=X.Y.Z]` simulates an update banner.
 tauri-dev *args:
   node scripts/tauri-dev.mjs "$@"
 
@@ -14,7 +13,6 @@ tauri-build:
   cd apps/tauri && NO_STRIP=true cargo tauri build
 
 # Read the desktop instance journal (JSONL); native shells don't journal yet.
-[positional-arguments]
 journal *args:
   @node scripts/journal.mjs "$@"
 

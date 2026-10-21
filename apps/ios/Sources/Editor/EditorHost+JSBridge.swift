@@ -201,8 +201,8 @@ extension EditorHost {
             // embed must keep its own web toolbar hidden.
             "nativeToolbar": true,
             // Aligns the note body's left edge with the inline title field
-            // (NoteEditorView's TitleTextField, 20pt); the embed's `.cm-line`
-            // contributes the remaining 6px.
+            // (NoteEditorView's TitleTextField, 20pt); the embed's own
+            // inner padding contributes the remaining 6px.
             "contentPaddingInlinePx": EditorHost.contentPaddingInlinePx,
             // Local image filenames in ![](f) resolve through the native
             // futo-asset scheme, served from the vault root.

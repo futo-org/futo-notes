@@ -16,7 +16,7 @@ build-rust-ios:
 # `direct` distribution flavor; `FUTO_ANDROID_FLAVOR=play just android-native`
 # installs the Google Play flavor instead (same applicationId, so it replaces
 # whichever is installed). FUTO_HOSTED_SERVER, if set, switches the FFI build to
-# the `dev` profile (the only one that honours the override) and launches
+# the `dev` profile (the only one that honors the override) and launches
 # already pointed at that address — see docs/qa/hosted-sync-android.md.
 # Build + run the native Android Compose app (Rust core + WebView editor).
 android-native: _preflight-android
@@ -158,7 +158,7 @@ test-android-perf *args:
     exit 1
   }
   just android-native
-  node tests/android-editor-perf.mjs {{args}}
+  node tests/android-editor-perf.mjs "$@"
 
 # The FAST loop for the numbers above: the freshly built editor.html in the
 # phone's own Chrome (same Chromium build as its System WebView), measured with
@@ -175,7 +175,7 @@ test-android-perf-quick *args:
     echo 'Set ANDROID_SERIAL to the phone (adb devices -l).' >&2
     exit 1
   }
-  node tests/android-editor-perf-quick.mjs {{args}}
+  node tests/android-editor-perf-quick.mjs "$@"
 
 # Storage-migration stories on the REAL app; CLEARS debug data — claim a device first.
 test-android-storage:

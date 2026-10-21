@@ -47,7 +47,7 @@ extension HostedSetupModel {
     }
 
     /// Stops waiting and puts the three doors back. Deliberately outside
-    /// `step`: the wait it is cancelling is what holds `busy`.
+    /// `step`: the wait it is canceling is what holds `busy`.
     func cancelPairing() {
         if pairing == .waiting { setup?.cancelWait() }
         pairing = .idle

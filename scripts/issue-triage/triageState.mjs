@@ -6,7 +6,7 @@
  * ~/.local/state/futo-notes-issue-triage/. It is read before every action and
  * written immediately after, so a crash or a machine reboot can only ever
  * delay work, never double-post or lose an issue
- * (docs/plan/github-issue-triage.md, "Idempotency").
+ * (scripts/issue-triage/DESIGN.md, "Idempotency").
  *
  * Shape:
  *   {

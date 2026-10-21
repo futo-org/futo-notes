@@ -15,7 +15,7 @@ Tags, task checkboxes, and fenced-code highlighting, on branch
   replaced. This is the first tenant of §3's `milkdown-compat/` home, with §3.5's canary shape:
   three tests lock the UNPATCHED behavior of the pinned `mdast-util-to-markdown` so the day
   upstream narrows its own rule they go red and the fix gets deleted. §3.6 reporting (upstream) still to do.
-- **Tags are decorated, not modelled.** `tagDecorations.ts` paints `scanTags` matches; the document
+- **Tags are decorated, not modeled.** `tagDecorations.ts` paints `scanTags` matches; the document
   holds a tag as ordinary text exactly as the file does. A schema node would have made a tag
   undeletable by character and put an IME-hostile boundary mid-word. Inline code and fenced blocks
   are blanked before scanning (their positions preserved), which is the spec's code/fence isolation.
@@ -79,7 +79,7 @@ Tags, task checkboxes, and fenced-code highlighting, on branch
   repaint, the checkbox, and language matching. `playwright.editor-embed.config.ts` and the
   `test:e2e:editor-embed` `changes:` list both name the new spec (T1's M11 lesson), and that list
   now also names `src/styles/**` — the embed inlines app.css and these tests assert computed
-  colours.
+  colors.
 
 Deferred, deliberately: the editor-gauntlet legs for these three surfaces. The gauntlet adapter for
 this editor is **#100**'s deliverable and did not exist when this landed; adding a second harness

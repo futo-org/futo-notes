@@ -174,7 +174,7 @@ extension LicenseSettingsSection {
     }
 
     /// One text field for all three accepted shapes (a bare key, `key/activation`,
-    /// or a `futonotes://` link) — recognising which is Rust's job, not this
+    /// or a `futonotes://` link) — recognizing which is Rust's job, not this
     /// view's. A field with no submit is not operable, so Activate and Cancel
     /// come with it; the desktop projection supplies the same three controls.
     @ViewBuilder var keyField: some View {

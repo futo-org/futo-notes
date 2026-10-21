@@ -7,6 +7,7 @@ import {
   type PendingUpdate,
 } from './updater';
 import { loadPreferences } from '$shared/state/appState';
+import { errorText } from '$shared/errorText';
 
 const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const CHECK_TIMEOUT_MS = 30 * 1000;
@@ -139,7 +140,7 @@ class UpdateChecker {
         this.phase = 'up-to-date';
       }
     } catch (e) {
-      this.error = e instanceof Error ? e.message : String(e);
+      this.error = errorText(e);
       this.phase = 'error';
     }
   }
@@ -166,7 +167,7 @@ class UpdateChecker {
       this.phase = 'restart';
       await this.restart();
     } catch (e) {
-      this.error = e instanceof Error ? e.message : String(e);
+      this.error = errorText(e);
       this.phase = 'error';
     }
   }
@@ -175,7 +176,7 @@ class UpdateChecker {
     try {
       await relaunchApp();
     } catch (e) {
-      this.error = e instanceof Error ? e.message : String(e);
+      this.error = errorText(e);
       this.phase = 'error';
     }
   }

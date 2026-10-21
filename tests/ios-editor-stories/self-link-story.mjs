@@ -11,7 +11,7 @@ import { TXT_MIGRATION_SENTINEL } from './sustained-typing-story.mjs';
 // native title field, then type into the body. The rename relinks the note's
 // own link in Rust; the editor's baseline stayed at the pre-relink draft, so
 // the next save saw disk != baseline, parked the draft as a conflict copy and
-// left the typed text out of the note. docs/plan/editor-release-hardening.md.
+// left the typed text out of the note.
 const SELF_NOTE = 'Selfy.md';
 const SELF_TITLE = 'Selfy';
 const SELF_BODY = 'back to [[Selfy]]\n';
@@ -23,7 +23,7 @@ const SELF_RELINKED_BODY = 'back to [[SelfyX]]\n';
 // the relinked self-link. `typedLanded` checks exactly that.
 const typedLanded = (body) => body.includes(SELF_RELINKED_BODY) && body !== SELF_RELINKED_BODY;
 
-/** The native title field's centre: tapping past a short title puts the caret at its end. */
+/** The native title field's center: tapping past a short title puts the caret at its end. */
 function titleFieldCentre() {
   const find = (node) => {
     if (Array.isArray(node)) {

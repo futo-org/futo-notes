@@ -305,13 +305,6 @@ value = 16.0
 body_hash = "8e204a03e1240c1e"
 
 [[entry]]
-path = "crates/futo-notes-sync/examples/peer_push.rs"
-qualified = "main"
-metric = "cyclomatic"
-value = 16.0
-body_hash = "485176174e59e92b"
-
-[[entry]]
 path = "packages/editor/src/milkdown-compat/emptyLine.ts"
 qualified = "restoreBlankLineParagraphs::<anon@L99>"
 metric = "cognitive"
@@ -401,20 +394,6 @@ qualified = "moveBlock"
 metric = "cyclomatic"
 value = 23.0
 body_hash = "c7df9a48b1ba3e53"
-
-[[entry]]
-path = "src/features/editor/milkdown/blockSerializer.ts"
-qualified = "partitionUnits"
-metric = "cognitive"
-value = 24.0
-body_hash = "f97b846ca706723e"
-
-[[entry]]
-path = "src/features/editor/milkdown/blockSerializer.ts"
-qualified = "partitionUnits"
-metric = "cyclomatic"
-value = 17.0
-body_hash = "f97b846ca706723e"
 
 [[entry]]
 path = "src/features/editor/milkdown/find/findPlugin.ts"

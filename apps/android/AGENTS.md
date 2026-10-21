@@ -158,21 +158,22 @@ Generated and gitignored: `uniffi/` Kotlin bindings, `jniLibs/`,
   `app/src/main/java/com/futo/notes/ui/EditorHostMessages.kt` (`EditorHost.handle()`)
   **and** its iOS counterpart — `packages/editor/src/bridge.ts` is the source of truth (M10).
 
-- **`app/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt` is vendored**
-  byte-for-byte from upstream tag v/0.6.2, matching the `rustls-platform-verifier` version
-  `Cargo.lock` pins. It is the JVM half of the TLS verifier the Rust core calls into by class name:
-  never edit it, and re-copy it whenever that pin moves. Its sibling `BuildConfig.kt`
-  (`TEST = false`) stands in for the field upstream's own Gradle module generates, which gates
-  test-only mock-root hooks; it is ours, not vendored. `FutoNotesApplication` binds the verifier at
-  startup, and `PlatformTrust.isBound` reports whether that worked — a binding failure must leave
-  the app usable offline and only refuse to sync, never crash at launch.
-  Android's trust decision is a **per-process snapshot** that no reconnect refreshes; the stale
-  state is on the JVM side, so never try to fix it by rebuilding the Rust verifier.
-  `docs/spec/sync.md` states the behavior and carries the Gap; futo-notes#171 tracks the fix.
-  Two upstream defects live in that vendored file — know them before debugging it: `isKnownRoot`'s
-  `while (true)` skips `i += 1` on its two `continue` branches, so a deleted or non-X509 system
-  anchor spins a handshake thread forever; and `systemTrustAnchorCache` is a bare `HashSet`
-  mutated from concurrent handshakes (the sync and SSE clients are separate reqwest clients).
+- **`app/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt` is vendored** from
+  upstream tag v/0.6.2, matching the `rustls-platform-verifier` version `Cargo.lock` pins. It is
+  the JVM half of the TLS verifier the Rust core calls into by class name. It carries two local
+  changes; when that pin moves, re-copy the file and re-apply them (`git log -p` on the file shows
+  them): `reloadSystemTrustIfChanged()` rebuilds the trust manager, which upstream snapshots once
+  per process, whenever any entry of the user CA directories changes (a removal may only empty
+  its file); and revocation is checked only against a stapled OCSP response (`NO_FALLBACK`, the
+  path below the chain's own anchor validated against that anchor, and only a definite REVOKED
+  answer rejects), never fetched, as Conscrypt does — upstream's online check, and the
+  `isKnownRoot` / `systemTrustAnchorCache` machinery that gated it, are deleted. Its sibling
+  `BuildConfig.kt` (`TEST = false`) stands in for the field upstream's own Gradle module
+  generates, which gates test-only mock-root hooks; it is ours, not vendored.
+  `FutoNotesApplication` binds the verifier at startup, and `PlatformTrust.isBound` reports
+  whether that worked — a binding failure must leave the app usable offline and only refuse to
+  sync, never crash at launch. The Rust core re-checks every remembered chain before each cycle
+  through this verifier, so never try to fix stale Android trust by rebuilding the Rust verifier.
 
 ## Testable logic goes down, not sideways
 

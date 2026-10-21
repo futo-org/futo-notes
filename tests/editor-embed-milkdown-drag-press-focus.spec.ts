@@ -127,7 +127,7 @@ mobileDndTest(
 );
 
 // The other half of the same tester report: on Android, Chromium's own
-// long-press forces focus onto the editable regardless of the page cancelling
+// long-press forces focus onto the editable regardless of the page canceling
 // selectstart/contextmenu/touchend (module doc's "a block press must never
 // focus the editor"). Playwright's desktop Chromium does not reproduce that
 // forced focus itself, so these simulate it mid-press with a direct .focus()

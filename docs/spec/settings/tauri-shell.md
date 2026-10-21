@@ -147,7 +147,7 @@
   steps, the account card, and the two refused-write banners — and discloses the
   self-hosted section above behind **"Use my own server"**. The disclosed panel
   is that same component, so what a self-hoster sees is identical either way.
-  With the flag off nothing about this section changes. Behaviour is specified
+  With the flag off nothing about this section changes. Behavior is specified
   once, in [sync.md](../sync.md) "Hosted sync". → HostedSyncSettingsSection.svelte,
   createHostedSyncSettings.svelte.ts, `hostedSyncEnabled.ts`
 - **Language**: a System-first dropdown applies the language immediately and

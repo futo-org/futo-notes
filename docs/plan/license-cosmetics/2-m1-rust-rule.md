@@ -27,7 +27,7 @@ pub fn license_includes(status: LicenseStatus) -> Vec<LicenseInclusion>
   that works is gated" + the inclusion rule), line 4 of the same file, line 637's copy claim,
   `crates/futo-notes-license/AGENTS.md:9`, `crates/futo-notes-license/src/lib.rs:4`,
   `apps/ios/Sources/License/LicenseSettingsSection.swift:83`,
-  `src/features/license/LicenseSettingsSection.svelte:9`, `docs/plan/license-ship.md:278`.
+  `src/features/license/LicenseSettingsSection.svelte:9`, the ship plan's line 278 (deleted; commit 0774e8a2e).
   Add `docs/adr/0006-a-license-may-include-cosmetics.md`.
 - Spec: new lines in `docs/spec/license.md` (a "What a license includes" section, platform
   tagged) and `docs/spec/settings.md` § Native app icons (the unlicensed rendering, the sheet,

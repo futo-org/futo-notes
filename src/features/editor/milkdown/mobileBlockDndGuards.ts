@@ -75,7 +75,7 @@ export abstract class MobileBlockDndGuards {
   /** `disarm()` (called from `finish()`, just before this) intentionally tears
    * down `onFocusCapture` at release so an ORDINARY short tap can still focus
    * and place a caret — that is the existing, load-bearing "tap-to-place-caret
-   * untouched" behaviour. But a press that reached the hold threshold is not
+   * untouched" behavior. But a press that reached the hold threshold is not
    * an ordinary tap, and measured in this very harness: releasing one in place
    * (no movement) still resolves to a native click that focuses the editable,
    * exactly the "however long it lasts... whether or not it lifts" case the

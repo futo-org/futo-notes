@@ -73,7 +73,7 @@ describe('computeActiveFormats', () => {
 
   // `storedMarks` is what makes a toolbar tap light up immediately: toggling
   // Bold on a collapsed caret sets a stored mark and changes no text.
-  it('honours storedMarks for a collapsed caret', () => {
+  it('honors storedMarks for a collapsed caret', () => {
     const doc = s.nodes.doc.create(null, s.nodes.paragraph.create(null, s.text('plain')));
     const view = stubView(doc);
     const caret = TextSelection.create(doc, 2);

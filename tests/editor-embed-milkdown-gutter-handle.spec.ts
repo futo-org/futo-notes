@@ -131,7 +131,7 @@ gutterHandleTest(
   'a ⠿ handle drag starts no HTML5 drag, draws the ghost card at the block size, and commits on drop',
   async ({ page }) => {
     // A column narrower than the viewport, so the card's own clamp to the screen
-    // edges (a full-width block would hit it) cannot colour the size check.
+    // edges (a full-width block would hit it) cannot color the size check.
     await page.addStyleTag({ content: '.futo-milkdown { max-width: 600px; }' });
     await hostSetContent(page, 'alpha\n\nbravo\n\ncharlie');
     await clearMessages(page);

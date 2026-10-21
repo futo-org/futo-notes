@@ -84,7 +84,7 @@ export async function longPressDrag(
 // drive it, there is no HTML5 drag to intercept. This is easy to break from the
 // outside without noticing: the handle is OUR element, positioned by OUR
 // getOffset, surfaced by OUR synthetic pointermove, and the plugin's own drag
-// is cancelled by listeners that only win because they are registered before
+// is canceled by listeners that only win because they are registered before
 // its own.
 const gutterHandleFixture = (query: string) =>
   base.extend<{ page: Page }>({
@@ -170,7 +170,7 @@ export function curtainUp(page: Page): Promise<boolean> {
  * gap never reports the intermediate ones.
  *
  * Plain `page.mouse` calls are the whole driver: the page listens for
- * `pointerdown` on the handle, lifts once the pointer has travelled a few
+ * `pointerdown` on the handle, lifts once the pointer has traveled a few
  * pixels, follows every `pointermove`, and commits on `pointerup`. (This used to
  * ride Playwright's HTML5 drag interception over CDP, which is why the helper
  * once needed a long explanation of `Input.dispatchDragEvent`.)
@@ -213,7 +213,7 @@ export function dropIndicatorTop(page: Page): Promise<number | null> {
   });
 }
 
-/** Centre of the ⠿ handle for the block containing `text`, surfaced by hover. */
+/** Center of the ⠿ handle for the block containing `text`, surfaced by hover. */
 export async function surfaceHandle(page: Page, text: string): Promise<{ x: number; y: number }> {
   const block = await blockCenter(page, text);
   const range = await blockBox(page, text);
@@ -240,7 +240,7 @@ export async function surfaceHandle(page: Page, text: string): Promise<{ x: numb
 
 /** A list-final document with its trailing newlines collapsed to one:
  * @milkdown/kit/plugin/trailing keeps an empty paragraph after a list-final
- * document, which is upstream behaviour and not what these assert. */
+ * document, which is upstream behavior and not what these assert. */
 export const listOnly = (markdown: string): string => markdown.replace(/\n+$/, '\n');
 
 /** The DOM selection, reduced to what these tests assert on. */

@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -9,6 +12,7 @@ import {
   androidEmulatorScript,
   androidSyncLegScript,
   topLevelBlock,
+  ROOT,
 } from './premerge-test-parity.helpers.mjs';
 
 describe('pre-merge CI routing contracts', () => {
@@ -39,7 +43,15 @@ describe('pre-merge CI routing contracts', () => {
   });
 
   it('does not repeat P0 smoke coverage in the remaining Playwright suite', () => {
-    expect(packageScripts['test:e2e:rest']).toContain('P0 Crash and IME Regressions');
+    // test:e2e:rest skips the smoke spec by describe title, so a test or
+    // describe opened beside that describe (column 0 under Prettier) instead
+    // of inside it runs in both jobs.
+    const smokeSpec = 'tests/p0-regressions.spec.ts';
+    expect(packageScripts['test:e2e:smoke']).toBe(`playwright test ${smokeSpec}`);
+    const grepInvert = /--grep-invert "([^"]+)"/.exec(packageScripts['test:e2e:rest'])?.[1];
+    expect(grepInvert).toBe('P0 Crash and IME Regressions');
+    const topLevel = readFileSync(join(ROOT, smokeSpec), 'utf8').match(/^test\b.*$/gm);
+    expect(topLevel).toEqual([`test.describe('${grepInvert}', () => {`]);
   });
 
   it('proves every Playwright shard ran as its shard and ran tests', () => {

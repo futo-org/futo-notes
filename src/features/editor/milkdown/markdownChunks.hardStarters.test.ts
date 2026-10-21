@@ -167,7 +167,7 @@ describe('planMarkdownChunks — non-blank boundaries (hard starters)', () => {
     });
 
     it('a paragraph of plain sentences has no boundary', () => {
-      // tests/editor-embed-milkdown.spec.ts's `oneParagraphNote`: no starters
+      // tests/editor-embed-milkdown-parse-cap.spec.ts's `oneParagraphNote`: no starters
       // anywhere, so it still declines exactly as before this change.
       const lines = Array.from(
         { length: 20 },

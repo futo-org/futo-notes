@@ -159,7 +159,7 @@ mobileDndTest(
 
 // Cancel (an incoming call, a system gesture) takes the touch away mid-air
 // with no drop and no doc change — and must take the loop with it.
-mobileDndTest('a cancelled drag stops the auto-scroll', async ({ page, cdp }) => {
+mobileDndTest('a canceled drag stops the auto-scroll', async ({ page, cdp }) => {
   await hostSetContent(page, scrollableNote());
   await clearMessages(page);
 

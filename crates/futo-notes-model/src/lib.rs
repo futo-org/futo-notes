@@ -23,8 +23,8 @@ pub mod wikilinks;
 // Re-export the title primitives reused from core so consumers have one import
 // surface for "the rules" regardless of which crate implements each rule.
 pub use futo_notes_core::files::{
-    is_valid_title, sanitize_title, validate_title, FilenameIssue, FilenameIssueKind,
-    FALLBACK_TITLE, MAX_FOLDER_DEPTH, MAX_TITLE_LENGTH,
+    collision_key, is_valid_title, sanitize_title, validate_title, FilenameIssue,
+    FilenameIssueKind, FALLBACK_TITLE, MAX_FOLDER_DEPTH, MAX_TITLE_LENGTH,
 };
 
 pub use filename::{

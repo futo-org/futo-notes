@@ -218,7 +218,7 @@ private fun ConfirmIconChange(icon: AppIcon, onConfirm: () -> Unit, onDismiss: (
 
 /**
  * The artwork with the supporter coin overhanging its bottom-end corner (the
- * coin's centre sits on the rounded corner, like a notification badge), so it
+ * coin's center sits on the rounded corner, like a notification badge), so it
  * never reads as part of the icon.
  */
 @Composable
@@ -236,7 +236,7 @@ private fun IconArtwork(icon: AppIcon, size: Dp, coinDiameter: Dp, coined: Boole
 }
 
 /**
- * The supporter coin's flat artwork, small, with a ring in the surface colour so
+ * The supporter coin's flat artwork, small, with a ring in the surface color so
  * it reads against any icon. Flat on purpose: the turning coin at badge size
  * reads as a dark disc, and six live renderers in a grid are not free.
  * Decorative: the tile's label carries the meaning.

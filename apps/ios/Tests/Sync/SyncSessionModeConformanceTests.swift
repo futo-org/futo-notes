@@ -41,7 +41,7 @@ private struct SessionModeFixture: Decodable {
 /// The shared cross-shell case-set (`tests/conformance/sync-session-mode.json`)
 /// is bundled as a resource — not duplicated. An empty result (missing or
 /// unreadable resource) makes `fixtureIsPresent` fail rather than letting every
-/// parameterised test pass vacuously on zero cases.
+/// parameterized test pass vacuously on zero cases.
 private func loadFixture() -> SessionModeFixture? {
     let bundle = Bundle(for: SessionModeBundleToken.self)
     guard let url = bundle.url(forResource: "sync-session-mode", withExtension: "json"),

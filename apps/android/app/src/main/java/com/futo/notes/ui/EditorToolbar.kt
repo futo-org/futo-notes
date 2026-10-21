@@ -86,7 +86,8 @@ private val FADE_WIDTH = 10.dp
  *
  * This composable owns NO editing behavior: every tap is handed to [perform],
  * which the editor screen routes over the bridge (`FutoEditor.exec`) into the
- * shared TOOLBAR_EXEC commands the web toolbar runs.
+ * shared toolbar exec commands (src/features/editor/milkdown/toolbarExec.ts)
+ * the web toolbar runs.
  *
  * [activeFormats] is the bridge `formatState` set — the manifest ids that cover
  * the caret — and tints those buttons, the Android half of the Notion-style

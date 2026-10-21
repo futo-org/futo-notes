@@ -97,7 +97,7 @@ test.describe('YAML front matter survives the round trip', () => {
 
   test('canary: upstream rewrites the fences and escapes the metadata value', async ({ page }) => {
     const out = await roundTrip(page, 'baseline', NOTE);
-    // Nothing in the unpatched parser recognises front matter, so the opening
+    // Nothing in the unpatched parser recognizes front matter, so the opening
     // `---` is a thematic break and the metadata lines are a setext heading.
     expect(out).toContain('***');
     expect(out).toContain('tags: \\[a, b]');

@@ -22,7 +22,7 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   password fields under **"Use my own server"**. The disclosed rows are the same
   `SelfHostedSyncSections` a flag-off build renders, so a self-hoster sees the
   identical screen either way, and with the flag off nothing about the Sync sheet
-  changes. Behaviour is specified once, in [sync.md](../sync.md) "Hosted sync". →
+  changes. Behavior is specified once, in [sync.md](../sync.md) "Hosted sync". →
   HostedSyncSections.swift, SyncView.swift, HostedSyncBuild.swift
 - **Sync screen, with hosted sync built in** _(Android)_: the same, on the Sync
   screen reached from Settings → Sync, gated by `BuildConfig.HOSTED_SYNC` — every

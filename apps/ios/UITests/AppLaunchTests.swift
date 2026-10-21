@@ -42,7 +42,7 @@ final class AppLaunchTests: XCTestCase {
         if waitForSoftwareKeyboard(keyboard, in: window, timeout: 5) {
             // Read the frame only once it stops moving, so a sample taken mid
             // presentation animation cannot manufacture a phantom gap.
-            let keyboardTop = settledKeyboardTop(keyboard)
+            let keyboardTop = settledKeyboardTop(keyboard, in: app)
             XCTAssertLessThanOrEqual(
                 query.frame.maxY,
                 keyboardTop,
@@ -93,15 +93,34 @@ private func waitForSoftwareKeyboard(
     return softwareKeyboardIsPresented(keyboard, in: window)
 }
 
+/// The keyboard's top edge as the user sees it. XCUITest's `Keyboard` element is
+/// only the key rows: the suggestion strip above them, which iOS 26 and 27 show
+/// even with autocorrection off, is a sibling UIKit identifies as
+/// "SystemInputAssistantView". Measuring the keys alone passed a find bar hidden
+/// BEHIND that strip on iOS 26 and failed a correctly docked one on iOS 27.
+@MainActor
+private func visibleKeyboardTop(_ keyboard: XCUIElement, in app: XCUIApplication) -> CGFloat {
+    let keysTop = keyboard.frame.minY
+    let strip = app.otherElements["SystemInputAssistantView"]
+    guard strip.exists else { return keysTop }
+    let stripFrame = strip.frame
+    guard stripFrame.height > 0, stripFrame.minY < keysTop else { return keysTop }
+    return stripFrame.minY
+}
+
 /// Poll the keyboard's top edge until two consecutive samples agree, bounding the
 /// wait so a keyboard that never settles fails the assertion instead of hanging.
 @MainActor
-private func settledKeyboardTop(_ keyboard: XCUIElement, timeout: TimeInterval = 3) -> CGFloat {
+private func settledKeyboardTop(
+    _ keyboard: XCUIElement,
+    in app: XCUIApplication,
+    timeout: TimeInterval = 3
+) -> CGFloat {
     let deadline = Date().addingTimeInterval(timeout)
-    var previous = keyboard.frame.minY
+    var previous = visibleKeyboardTop(keyboard, in: app)
     while Date() < deadline {
         Thread.sleep(forTimeInterval: 0.3)
-        let current = keyboard.frame.minY
+        let current = visibleKeyboardTop(keyboard, in: app)
         if abs(current - previous) < 0.5 { return current }
         previous = current
     }

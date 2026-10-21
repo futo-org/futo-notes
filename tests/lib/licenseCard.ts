@@ -3,13 +3,13 @@ import { expect, type Page } from '@playwright/test';
 // Fixtures and helpers shared by the license-card*.spec.ts suites, moved here
 // verbatim from license-card.spec.ts.
 // The Steel Ledger plate, one test per state (docs/spec/license.md § States and
-// copy; docs/plan/license-ship.md § Phase 4).
+// copy).
 //
 // The license *rules* live in Rust and the browser never reaches them: off
 // Tauri `src/lib/platform/license.ts` answers "Unlicensed" for everything, so
 // the only way to see the other states in a browser is to replace that module.
 // The dev server serves it as a plain ESM module, so the mock is a route
-// fulfilment — no product-code test hook, and nothing here re-implements a
+// fulfillment — no product-code test hook, and nothing here re-implements a
 // rule: the fixture *is* what Rust would have answered.
 export interface LicenseViewFixture {
   state: 'unlicensed' | 'licensed' | 'expired';

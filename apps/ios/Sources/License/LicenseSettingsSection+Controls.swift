@@ -125,7 +125,7 @@ extension LicenseSettingsSection {
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(Theme.primary)
                     .frame(width: 20)
-                // Label colours, not `.primary`: inside a Form button that
+                // Label colors, not `.primary`: inside a Form button that
                 // resolves to the tint, and the rows are not links.
                 Text(localization.localizedText(Self.copyPath(for: action)))
                     .font(.subheadline)
@@ -165,7 +165,7 @@ extension LicenseSettingsSection {
         }
     }
 
-    /// Neighbouring text buttons on one line when they fit, stacked when they
+    /// Neighboring text buttons on one line when they fit, stacked when they
     /// don't (three of them overflow a phone at larger text sizes).
     private func textRow(_ run: [LicenseAction]) -> some View {
         ViewThatFits(in: .horizontal) {

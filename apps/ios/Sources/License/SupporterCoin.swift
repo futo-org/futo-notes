@@ -172,7 +172,7 @@ struct SupporterCoin: View {
     /// Cumulative drag translation at the last change, so each event contributes
     /// the distance the thumb moved rather than the distance it has moved in total.
     @State private var lastDragX: CGFloat = 0
-    /// Total distance travelled and when the press began — together they
+    /// Total distance traveled and when the press began — together they
     /// separate a tap from a drag that happened to end where it started.
     @State private var travelled: CGFloat = 0
     @State private var pressedAt: Date?
@@ -196,7 +196,7 @@ struct SupporterCoin: View {
         .accessibilityHidden(true)
         // `minimumDistance: 0` so a press that never moves still arrives: a tap
         // IS a drag that went nowhere, which is how desktop reads a click, and
-        // recognising it any other way would have been a second definition of
+        // recognizing it any other way would have been a second definition of
         // the same gesture.
         .gesture(
             DragGesture(minimumDistance: 0)
@@ -286,7 +286,7 @@ struct SupporterCoin: View {
 
         // RealityKit's own update event rather than a SwiftUI timeline: it carries
         // the real frame delta and fires on the render loop, so the coin cannot
-        // desynchronise from the frames it is being drawn into.
+        // desynchronize from the frames it is being drawn into.
         turn.subscription = content.subscribe(to: SceneEvents.Update.self) { event in
             turn.step(Float(event.deltaTime))
         }

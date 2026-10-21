@@ -54,7 +54,7 @@ export function pointInRect(x: number, y: number, rect: Rect): boolean {
 /**
  * A rect expanded by `margin` on every side — the column/row hit zone is
  * wider than the visible grip so the pointer does not have to land on a
- * ~20px target exactly to keep it showing while travelling toward it.
+ * ~20px target exactly to keep it showing while traveling toward it.
  */
 export function expandRect(rect: Rect, margin: number): Rect {
   return {

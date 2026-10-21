@@ -11,10 +11,10 @@
  * when I use it, text or other items get selected"). The handle's drag is now
  * pointer-driven (`handleBlockDrag.ts`), which cancels that mousedown, so the
  * selection is simply never touched — until the block moves, where this puts the
- * user's selection on the move transaction: travelling with the block when it
+ * user's selection on the move transaction: traveling with the block when it
  * was inside it.
  *
- * → tests/editor-embed-milkdown.spec.ts "USING THE ⠿ HANDLE NEVER SELECTS ANYTHING"
+ * → tests/editor-embed-milkdown-gutter-handle-selection.spec.ts "USING THE ⠿ HANDLE NEVER SELECTS ANYTHING"
  */
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { Selection, TextSelection, type Transaction } from '@milkdown/kit/prose/state';

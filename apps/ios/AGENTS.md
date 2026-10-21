@@ -44,8 +44,9 @@ simulator destination `just build-ios-native` uses and the single concrete simul
   touch all.
 - **I/O belongs on the `NoteVault` actor**, and `hasBootstrapped` distinguishes loading from empty
   so the shell renders immediately. Never await work before first render.
-- **`ToolbarSpec.swift` and `TitleSpec.swift` are generated** from `packages/editor/src/toolbar.ts`
-  and `filename.ts`. Edit the manifest and run `just toolbar-spec` / `just title-spec`.
+- **`ToolbarSpec.swift`, `TitleSpec.swift`, and `BridgeSpec.swift` are generated** from
+  `packages/editor/src/toolbar.ts`, `filename.ts`, and `bridge.ts`. Edit the manifest and run
+  `just toolbar-spec` / `just title-spec` / `just bridge-spec`.
 - A new `futoBridge` message needs a hand-written host in `EditorHost+MessageHandler.swift` **and** its Android
   counterpart — the contract in `packages/editor/src/bridge.ts` is the source of truth.
 

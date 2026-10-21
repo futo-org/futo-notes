@@ -67,7 +67,7 @@ describe('appendChunkContent', () => {
   });
 
   // The `addToHistory: false` flag itself — "Ctrl-Z cannot un-load a chunk" —
-  // is proven end to end by tests/editor-embed-milkdown.spec.ts's "streamed
+  // is proven end to end by tests/editor-embed-milkdown-progressive-open-adopt.spec.ts's "streamed
   // appends are not undoable — Ctrl-Z after an open keeps the note".
 
   it('dispatches nothing for an empty chunk', () => {
@@ -242,7 +242,7 @@ describe('startProgressiveLoad', () => {
     expect(load.loading).toBe(false);
     expect(onComplete).toHaveBeenCalledTimes(1);
 
-    // The idle slice that was pending is cancelled, not run as well.
+    // The idle slice that was pending is canceled, not run as well.
     drainIdle();
     expect(applied).toEqual(['one', 'two', 'three']);
     expect(onComplete).toHaveBeenCalledTimes(1);
@@ -282,7 +282,7 @@ describe('startProgressiveLoad', () => {
     expect(load.loading).toBe(false);
   });
 
-  it('finishNow after cancel does nothing — a cancelled load is abandoned, not resumed', () => {
+  it('finishNow after cancel does nothing — a canceled load is abandoned, not resumed', () => {
     const applied: string[] = [];
     const onComplete = vi.fn();
 

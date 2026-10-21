@@ -7,7 +7,7 @@ import Testing
 ///
 /// Two kinds of vault reach `restoreSession`: one set up against someone's own
 /// server, which has a password to reconnect with, and a hosted one, which has
-/// none and is recognised instead by the two secrets Rust saved. Which branch
+/// none and is recognized instead by the two secrets Rust saved. Which branch
 /// runs is the whole of what these check — the connect itself is Rust's, and
 /// the hosted scenarios in `crates/futo-notes-sync` exercise it.
 @Suite("Restoring a sync session at launch")

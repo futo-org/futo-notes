@@ -14,7 +14,7 @@ describe('stale temp cleanup (RC-101)', () => {
   const old = `.sf-tmp-${NOW - STALE_TEMP_MIN_AGE_MS - 1}-0`;
   const fresh = `.sf-tmp-${NOW - 5_000}-1`;
 
-  it('recognises only its own temp names, and only once they are old', () => {
+  it('recognizes only its own temp names, and only once they are old', () => {
     expect(isStaleAtomicTemp(old, NOW)).toBe(true);
     expect(isStaleAtomicTemp(`.sf-tmp-${NOW - STALE_TEMP_MIN_AGE_MS}-3`, NOW)).toBe(true);
     // Young enough to be a live write, or from the future (a clock step).

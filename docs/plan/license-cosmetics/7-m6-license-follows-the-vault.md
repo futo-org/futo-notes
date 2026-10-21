@@ -89,11 +89,11 @@ of them. (Not verified at runtime.)
 **Option (a): reserved hidden path, carried as a side channel rather than a file.**
 - Path: a non-syncable extension, e.g. `.futo/license.json`, in the normal note frame. It must
   NOT end in `.md` or an image extension: an old client would `Accept` that and write it to disk.
-- Do not materialise it as a file. The push scan skips it and delete-detection would read it as
+- Do not materialize it as a file. The push scan skips it and delete-detection would read it as
   "missing locally". Keep it out of `object_map` and add one dedicated slot to `ConnectedState`
   (e.g. `license_object: Option<ObjectState>`; plain serde, `checkpoint.rs:35`, no
   `deny_unknown_fields`, so an older client reading the state file ignores it), with a hook in
-  push (publish when the local pair changed or was removed) and in pull (recognise the reserved
+  push (publish when the local pair changed or was removed) and in pull (recognize the reserved
   path before `classify_incoming_sync_path`, hand the pair up through the summary, write no
   file). This is a real sync-engine change: push-first ordering applies (publish after notes in
   the same cycle) and AGENTS.md §11.6 (sync payload) makes it ask-first.

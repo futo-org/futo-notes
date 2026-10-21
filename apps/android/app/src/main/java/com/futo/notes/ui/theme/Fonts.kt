@@ -33,7 +33,7 @@ val Barlow = FontFamily(
  * defeats the only reason the value is set in a monospace face at all.
  *
  * JetBrains Mono NL 2.304 (SIL OFL 1.1, `apps/android/licenses/`) is the face
- * the plate was mocked with (docs/plan/license-ship.md D10, which said no new
+ * the plate was mocked with (the ship plan, D10, which said no new
  * font file would ship — this is that decision reversed, with the reason
  * above). NL = no ligatures: a license key must never fuse two characters into
  * one glyph. Every character a key can contain, plus the mask's middle dot,

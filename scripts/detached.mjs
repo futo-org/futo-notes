@@ -24,14 +24,14 @@ const WRAPPER = [
   'printf \'%s\\n\' "$code" > "$DETACHED_EXIT"',
 ].join('\n');
 
-export function runsRoot(cwd = process.cwd(), env = process.env) {
+function runsRoot(cwd = process.cwd(), env = process.env) {
   if (env.FUTO_DETACHED_ROOT) return env.FUTO_DETACHED_ROOT;
   const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' });
   const base = top.status === 0 ? top.stdout.trim() : cwd;
   return path.join(base, '.futo', 'runs');
 }
 
-export function pidAlive(pid) {
+function pidAlive(pid) {
   if (!pid) return false;
   try {
     process.kill(pid, 0);
@@ -49,7 +49,7 @@ const readJson = (file) => {
   }
 };
 
-export function readRun(dir) {
+function readRun(dir) {
   const meta = readJson(path.join(dir, 'cmd.json'));
   if (!meta) return null;
   const exitFile = path.join(dir, 'exit');
@@ -60,7 +60,7 @@ export function readRun(dir) {
   return { name: path.basename(dir), ...meta, exit, alive, logBytes, dir };
 }
 
-export function start(name, argv, { root, cwd = process.cwd(), spawnImpl = spawn } = {}) {
+function start(name, argv, { root, cwd = process.cwd(), spawnImpl = spawn } = {}) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name))
     throw new Error(`run name '${name}' must be [A-Za-z0-9._-]`);
   if (!argv.length) throw new Error('nothing to run');
@@ -84,7 +84,7 @@ export function start(name, argv, { root, cwd = process.cwd(), spawnImpl = spawn
   return { dir, ...meta };
 }
 
-export async function wait(
+async function wait(
   name,
   {
     root,
@@ -109,7 +109,7 @@ export async function wait(
   }
 }
 
-export function stop(name, { root }) {
+function stop(name, { root }) {
   const run = readRun(path.join(root, name));
   if (!run) throw new Error(`no run named '${name}'`);
   if (!run.alive) return run;
@@ -122,7 +122,7 @@ export function stop(name, { root }) {
   return readRun(run.dir);
 }
 
-export function list(root) {
+function list(root) {
   if (!fs.existsSync(root)) return [];
   return fs
     .readdirSync(root)
@@ -131,7 +131,7 @@ export function list(root) {
     .sort((a, b) => String(a.started).localeCompare(String(b.started)));
 }
 
-export function tail(dir, n = 40) {
+function tail(dir, n = 40) {
   const file = path.join(dir, 'log');
   if (!fs.existsSync(file)) return '';
   const lines = fs.readFileSync(file, 'utf8').split('\n');

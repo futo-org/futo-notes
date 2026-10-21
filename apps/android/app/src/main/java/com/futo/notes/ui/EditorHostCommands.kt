@@ -7,7 +7,7 @@ import android.util.Log
 import android.webkit.WebView
 import org.json.JSONObject
 
-/** Run a shared editor command (TOOLBAR_EXEC in markdownToolbar.ts). */
+/** Run a shared editor command (toolbarExec.ts in src/features/editor/milkdown). */
 fun EditorHost.exec(commandId: String) {
     eval("window.FutoEditor && window.FutoEditor.exec(${JSONObject.quote(commandId)});")
 }

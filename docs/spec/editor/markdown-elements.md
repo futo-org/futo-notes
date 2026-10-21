@@ -4,7 +4,7 @@
 - Emphasis: bold, italic, bold-italic, strikethrough — `*` and `_` markers.
 - Code: inline (single and double backtick) and fenced (triple backticks or
   triple tildes, with optional language).
-- Fenced-code syntax colouring covers a curated language set (~35), each grammar
+- Fenced-code syntax coloring covers a curated language set (~35), each grammar
   fetched the first time a fence uses it. A fence in any other language still
   renders as a code block, just uncoloured.
   → src/features/editor/codeFenceLanguages.ts
@@ -108,7 +108,7 @@
   line as `***` only where `---` would open front matter there, because a
   later line would close it (see "Markdown house style", which lists every
   place `***` is written).
-  (`+++` TOML front matter is not recognised and round-trips as the paragraph
+  (`+++` TOML front matter is not recognized and round-trips as the paragraph
   CommonMark reads it as.)
 - The block is RENDERED, as one inert metadata panel above the body: muted, monospace, with a left rule, and no
   caret. It cannot be typed into, clicked into, dragged, or reordered — the

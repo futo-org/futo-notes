@@ -10,7 +10,7 @@ import java.io.IOException
 
 /**
  * Share-sheet launch for a note. Small notes travel as `EXTRA_TEXT`; a big body
- * would blow the ~1 MB Binder transaction limit (the intent is marshalled to the
+ * would blow the ~1 MB Binder transaction limit (the intent is marshaled to the
  * system server and again into the chooser), which surfaces as a fatal
  * `RuntimeException: Failure from system` out of `startActivity` (crash #1812).
  * Those go out as a `.md` file behind the app's FileProvider instead.

@@ -44,7 +44,6 @@ import {
   tryRun,
   worktreeRoot,
 } from './qa/pool.mjs';
-import { devicesForRelease, parseReleaseArgs } from './qa/qa-release.mjs';
 import {
   cmdServerStart,
   pidAlive,
@@ -108,18 +107,20 @@ function shutdownDevice(platform, name) {
 // and Android from one worktree must not tear down each other's device. The
 // server stops only once the worktree holds no device at all.
 function cmdRelease(flags) {
-  let options;
-  try {
-    options = parseReleaseArgs(flags);
-  } catch (error) {
-    die(error.message);
+  const unknownFlag = flags.find((arg) => arg.startsWith('--') && arg !== '--shutdown');
+  if (unknownFlag) die(`unknown release option ${unknownFlag}`);
+  const positional = flags.filter((arg) => !arg.startsWith('--'));
+  if (positional.length > 1) die('release accepts at most one platform: ios or android');
+  const platform = positional[0];
+  if (platform && platform !== 'ios' && platform !== 'android') {
+    die(`unknown release platform ${platform}; use ios or android`);
   }
+  const shutdown = flags.includes('--shutdown');
   const root = worktreeRoot();
-  for (const { platform: claimedPlatform, name } of devicesForRelease(
-    myDevices(root),
-    options.platform,
+  for (const { platform: claimedPlatform, name } of myDevices(root).filter(
+    (device) => !platform || device.platform === platform,
   )) {
-    if (options.shutdown) shutdownDevice(claimedPlatform, name);
+    if (shutdown) shutdownDevice(claimedPlatform, name);
     fs.rmSync(ownerPath(claimedPlatform, name), { force: true });
     info(`released ${claimedPlatform} ${name}`);
   }

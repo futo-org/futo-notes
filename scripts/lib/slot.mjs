@@ -29,7 +29,7 @@ export const PORT_BASES = {
 
 // The cross-platform sync harness is the one consumer that needs a RANGE, not a
 // single port: it boots a fresh server per scenario (plus a delay proxy for
-// some), so `base + slot` would hand scenario 2 the neighbouring slot's port.
+// some), so `base + slot` would hand scenario 2 the neighboring slot's port.
 // Each worktree gets a disjoint BAND instead. 21000 + 50 * 100 keeps the whole
 // span clear of PORT_BASES above and below Linux's default ephemeral range
 // (32768+), so no random outbound connection can ever be squatting a band port.

@@ -148,7 +148,7 @@ test.describe('bold or italic whose edge is punctuation next to a letter', () =>
 
 test.describe('strikethrough whose edge is punctuation next to a letter', () => {
   // The same flanking rule as bold and italic (GFM strikethrough classifies
-  // its neighbours the way `*` does), and `mdast-util-gfm-strikethrough`'s
+  // its neighbors the way `*` does), and `mdast-util-gfm-strikethrough`'s
   // `delete` handler has no `encodeInfo` at all: `~~Note:~~bar` reopened as
   // literal tildes and the next save escaped them for good.
   const STRUCK = '~~Note:~~&#x62;ar\n';
@@ -166,7 +166,7 @@ test.describe('strikethrough whose edge is punctuation next to a letter', () => 
 
 test.describe('an underscore emphasis next to a `*` run reopens as the same document', () => {
   // Guard for a dropped approach (FB-4a round 2): writing `*` in place of an
-  // `_` run that could only flank encoded ignores a neighbouring or enclosing
+  // `_` run that could only flank encoded ignores a neighboring or enclosing
   // `*` run, so `Z*b**c*` reopened with two literal `**` in the text. The house
   // style writes `*` wherever a parse says the runs do not merge, and `_` where
   // they would; either way the save reopens as the document it was.

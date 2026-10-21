@@ -1,13 +1,13 @@
 export const meta = {
   name: 'verify-specs-fanout',
   description:
-    "Fan-out engine for /verify-specs: run each provisioned (platform × surface-group) QA leg as a Sonnet low-effort story sweep, then escalate that leg's FAIL candidates to a high-effort independent refutation — pipelined so each leg verifies the moment its sweep finishes.",
+    "Fan-out engine for /verify-specs: run each provisioned (platform × surface-group) QA leg as a Sonnet medium-effort story sweep, then escalate that leg's FAIL candidates to a high-effort independent refutation — pipelined so each leg verifies the moment its sweep finishes.",
   whenToUse:
     "Invoked by the verify-specs SKILL after it has provisioned worktrees, claimed devices, pre-built the apps, and assembled the leg manifest. Not meant to be run standalone — it assumes every leg's worktree/devices/build already exist.",
   phases: [
     {
       title: 'QA',
-      detail: 'Sonnet effort=low story sweep, one app-qa agent per leg',
+      detail: 'Sonnet effort=medium story sweep, one app-qa agent per leg',
       model: 'sonnet',
     },
     {
@@ -34,10 +34,11 @@ export const meta = {
 // platform than you booted devices for.
 //
 // The pipeline (not a barrier) is deliberate: a leg's FAIL candidates get
-// re-verified at high effort the instant that leg's low-effort sweep returns,
-// concurrently with other legs still sweeping. That is the two-tier effort
-// experiment — cheap/fast on the happy path, expensive/careful only where a
-// FAIL actually showed up.
+// re-verified at high effort the instant that leg's sweep returns, concurrently
+// with other legs still sweeping: shallow on each story, careful only where a
+// FAIL actually showed up. The sweep default is medium, not low: on 2026-10-13
+// low-effort legs stopped after ~8 stories each and logged the rest as "not run
+// (budget)"; the same legs at medium drove 30-58 stories.
 
 // `args` may reach the script as a parsed object OR — depending on how the
 // caller serialized it — as a JSON string. Normalize both so the manifest is
@@ -45,7 +46,7 @@ export const meta = {
 // made `args.legs` undefined and the whole run no-op'd with agent_count=0.)
 const A = args == null ? {} : typeof args === 'string' ? JSON.parse(args) : args;
 const legs = (A && A.legs) || [];
-const effort = (A && A.effort) || { sweep: 'low', verify: 'high' };
+const effort = (A && A.effort) || { sweep: 'medium', verify: 'high' };
 if (!legs.length) {
   log(
     '⚠ no legs in manifest — nothing to run (SKILL provisioning produced an empty leg set, or args did not deserialize)',
@@ -156,12 +157,22 @@ ${leg.changes}
 `
     : ''
 }
-**Effort discipline (you are running at LOW effort on purpose):** move fast on
-the happy path. When a story looks wrong, capture the evidence, mark it **FAIL**,
-and MOVE ON — do NOT deep-dive to refute it here. A separate high-effort verify
-pass re-examines every FAIL from a clean state. Over-investigating now defeats
-the point of the two-tier design. Passes and Blocked verdicts still need real
-evidence (a spinner screenshot proves nothing).
+**Depth discipline:** move fast on the happy path. When a story looks wrong,
+capture the evidence, mark it **FAIL**, and MOVE ON — do NOT deep-dive to refute
+it here. A separate high-effort verify pass re-examines every FAIL from a clean
+state. Passes and Blocked verdicts still need real evidence (a spinner
+screenshot proves nothing).
+
+**Coverage floor:** "move fast" limits how deep you dig into one story, never
+how many stories you run. Every in-scope spec bullet${leg.changes ? ' and every changes line' : ''}${leg.focus ? ' in the focus list' : ''}
+gets a driven verdict: PASS / FAIL / BLOCKED (naming the concrete environmental
+reason) / SKIP (gap or other-platform qualifier). "Not run", "budget", or one
+catch-all row covering many behaviors is not a verdict. Group bullets into one
+story only when a single drive genuinely proves all of them. Drive real input
+paths (the desktop MCP bridge's input tools, the playbook's idb/adb input) —
+a test hook like \`replaceEditorContent\`/\`applyEdit\` is a user-edit path,
+not a load, so test load/round-trip behavior by writing the file into the vault
+and opening it.
 
 **Evidence policy — assert, don't screenshot:** for PASS and BLOCKED verdicts,
 prefer a disk/log/DOM assertion wherever the behavior is verifiable that way —
@@ -276,7 +287,23 @@ const results = await pipeline(
 );
 
 // ── Aggregate ───────────────────────────────────────────────────────────────
-const clean = results.filter(Boolean);
+// agent() RESOLVES null (it does not throw) when a subagent dies on a terminal
+// API error, so the .catch above never fires for that case and pipeline() can
+// still drop the item. On 2026-10-13 a network outage killed all six legs and
+// the run returned `legs: [], verdict: 'pass'`. Reconcile against the manifest:
+// a leg with no result is a needs-resume leg, never an absent one.
+const returned = new Set(results.filter(Boolean).map((r) => r.legId));
+const clean = [
+  ...results.filter(Boolean),
+  ...legs
+    .filter((leg) => !returned.has(leg.id))
+    .map((leg) => {
+      log(
+        `⚠ leg ${leg.id}: no result at all — ledger ${leg.ledger} may hold partial verdicts; needs resume`,
+      );
+      return { legId: leg.id, leg, sweep: null, verify: null, needsResume: true };
+    }),
+];
 const count = (stories, v) => (stories || []).filter((s) => s.verdict === v).length;
 
 const legSummaries = clean.map((r) => {

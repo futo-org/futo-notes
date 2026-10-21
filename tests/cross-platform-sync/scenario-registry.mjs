@@ -180,7 +180,7 @@ export const scenarios = [
   // times out at 30s roughly half the time. Locally they pass in <2s, so
   // keep them enabled off-CI. Investigate separately — the notify crate's
   // event loop may be starved while the single-threaded xvfb renders, or
-  // the CodeMirror update path may be blocked by unrelated IPC traffic.
+  // the editor's update path may be blocked by unrelated IPC traffic.
   {
     name: 'external watcher reloads clean note',
     fn: externalWatcherReloadsCleanNote,

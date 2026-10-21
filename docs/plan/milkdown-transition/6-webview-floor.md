@@ -61,5 +61,5 @@ the device.
 Out of scope, found and left alone: `applyExternalContent with unchanged content preserves the
 selection` (`tests/editor-embed-milkdown.spec.ts`) is **flaky on this branch already** — 3 failures
 in 8 runs with T10's changes stashed. The caret sometimes lands at the end of the document instead
-of where it was, which as a product behaviour is a sync echo moving the user's cursor mid-typing.
+of where it was, which as a product behavior is a sync echo moving the user's cursor mid-typing.
 Worth its own ticket.

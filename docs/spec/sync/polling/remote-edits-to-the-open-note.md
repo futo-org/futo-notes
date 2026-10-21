@@ -63,7 +63,7 @@
   > `applyExternalContent` and `setContent` go through one whole-document
   > `replaceAll`, so the caret and scroll are only whatever ProseMirror's
   > position mapping happens to preserve across a full replacement, and the
-  > replacement is itself undoable (see the undo Gaps in
+  > replacement is itself undoable (see the undo lines in
   > [editor.md](../../editor.md) "Interactive elements"). The CodeMirror editor
   > diffed and suppressed history (`editorContentSync.ts`, deleted with it).
   > Re-verify on device before treating the 2026-06-09 result as current. →
@@ -113,7 +113,7 @@
   missing note with `NoteStore.read_if_exists`, asks `classify_open_note`, and
   applies `Close` only to the visible editor (a buried wikilink editor must not
   pop the stack top). A hidden editor re-gathers on return, and the queued save
-  is cancelled and drained before the read so a clean note cannot be
+  is canceled and drained before the read so a clean note cannot be
   resurrected after the close. Android uses the same atomic distinction,
   renders `Close` through `EditorSession` for a clean deletion, and renders
   `KeepDraft(PeerDeleted)` for a dirty deletion; its close latch plus clean
@@ -154,7 +154,7 @@
   to the same saved-content baseline it later hands `flush_draft` as the
   expected-previous: it decides whether the editor reads as dirty AND what the
   next write is conditioned on. A shell therefore never needs a second value and
-  must not synthesise one — assign `base` to the baseline, pass that same
+  must not synthesize one — assign `base` to the baseline, pass that same
   baseline to the flush verb (desktop `updateNote({ base })`, iOS/Android
   `PendingDraft(base:)`), and let the returned disposition rebind the editor when
   it parks. A shell whose debounced save writes UNCONDITIONALLY instead destroys

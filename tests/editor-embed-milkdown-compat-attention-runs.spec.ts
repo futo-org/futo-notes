@@ -9,7 +9,7 @@ useCensusPage();
 test.describe('an attention run never invents a character reference (RC-104)', () => {
   // Milkdown trims a mark's edge spaces out of the mark and leaves the emptied
   // text node behind, so the first child of a link can be `''`. The remark-era
-  // encoder compared the empty neighbour with the empty previous result and
+  // encoder compared the empty neighbor with the empty previous result and
   // wrote `&#xNAN;` into the note, on the first save of any note holding the
   // shape. None of these needs a reference at all.
   const SHAPES: Record<string, string> = {

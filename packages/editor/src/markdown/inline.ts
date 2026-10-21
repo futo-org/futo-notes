@@ -237,7 +237,7 @@ function writeUnit(
         const context = {
           kind,
           lineStart: !lineHasContent,
-          // A neighbour needs a reference only where flanking is in doubt.
+          // A neighbor needs a reference only where flanking is in doubt.
           afterDelimiter: isDelimiter(tokens[index - 1]) && !obviouslyFlanks(tokens, index - 1),
           beforeDelimiter: isDelimiter(tokens[index + 1]) && !obviouslyFlanks(tokens, index + 1),
           nextCharacter: firstCharacter(tokens[index + 1]),

@@ -1,7 +1,7 @@
 /**
  * YAML front matter: a block the schema OWNS and never edits.
  *
- * Nothing in `@milkdown/kit`'s commonmark preset recognises front matter, and
+ * Nothing in `@milkdown/kit`'s commonmark preset recognizes front matter, and
  * CommonMark on its own reads the shape as two unrelated constructs: the
  * opening `---` is a thematic break, and the metadata lines followed by the
  * closing `---` are a setext H2. So the first edit anywhere in a note carried

@@ -40,19 +40,6 @@ export abstract class CurtainLayout {
     };
   }
 
-  /** The nearest scrollable ancestor of the editor DOM (`.note-body` on
-   * desktop), or the editor DOM itself where that is what scrolls. */
-  protected scrollContainer(): HTMLElement | Window {
-    const win = this.doc.defaultView ?? window;
-    for (let n: HTMLElement | null = this.view.dom; n; n = n.parentElement) {
-      const overflowY = win.getComputedStyle(n).overflowY;
-      if (overflowY !== 'auto' && overflowY !== 'scroll' && overflowY !== 'overlay') continue;
-      if (n === this.view.dom && n.scrollHeight <= n.clientHeight) continue;
-      return n;
-    }
-    return win;
-  }
-
   /** The scroll-content origin in client coordinates: a slot's `top` plus this
    * is where it sits on screen right now. */
   protected reflowOriginTop(): number {

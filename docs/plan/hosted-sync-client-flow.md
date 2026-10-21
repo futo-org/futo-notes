@@ -4,8 +4,8 @@ Work in progress. Decisions are in [ADR 0003](../adr/0003-hosted-sync-client-flo
 the spec is futo-notes#172 and the fourteen tickets under it are #173–#186.
 
 This file is the hand-off: what landed, what does not work yet, and what closing
-each hole actually takes. Behavioural truth stays in `docs/spec/sync.md` — every
-hole below is also a `> **Gap:**` note there, next to the behaviour it qualifies.
+each hole actually takes. Behavioral truth stays in `docs/spec/sync.md` — every
+hole below is also a `> **Gap:**` note there, next to the behavior it qualifies.
 
 ## What landed
 

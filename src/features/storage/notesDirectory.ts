@@ -13,7 +13,7 @@ export async function chooseNotesDirectory(): Promise<void> {
   try {
     // Name the folder the user picked, not the `/run/user/1000/doc/…` path a
     // sandboxed file chooser hands back. Read-only on purpose: the lasting
-    // document-portal grant is minted by `setNotesDir` below, so a cancelled
+    // document-portal grant is minted by `setNotesDir` below, so a canceled
     // dialog leaves nothing behind.
     const confirmed = await confirmDialog(
       localizedText('settings.dialogs.changeDirectoryConfirmation', {

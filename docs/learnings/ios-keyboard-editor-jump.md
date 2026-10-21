@@ -64,7 +64,7 @@ The final iOS-specific tap path is intentionally narrow:
   with `{ preventScroll: true }`, then dispatches the CodeMirror selection.
 - An off-text tap resolves against the shared near/far geometry whether focused
   or unfocused; double-tap seeds a word and triple-tap seeds a paragraph.
-- Moved, cancelled, multitouch, interactive-overlay, and unresolved gestures
+- Moved, canceled, multitouch, interactive-overlay, and unresolved gestures
   remain on their native path.
 
 The companion keyboard inset fix keeps `keyboard.offsetTop` at `0` on iOS so
@@ -79,7 +79,7 @@ The focused regression tests cover:
 
 - iOS on-text focus sets the requested selection with `preventScroll`.
 - iOS off-text single/double/triple placement and short/long tail scrolling.
-- Scroll, cancelled, multitouch, interactive-overlay, and unresolved gestures
+- Scroll, canceled, multitouch, interactive-overlay, and unresolved gestures
   are not converted into cursor placement.
 - Android native focus, on-text correction, off-text compatibility events, and
   modified/multi-tap pass-through.

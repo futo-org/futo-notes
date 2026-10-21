@@ -56,7 +56,7 @@ struct NoteEditorView: View {
     @State var findLabel = "0"
     // How much of the editor viewport the find bar covers, and the two global
     // edges it is derived from. The WebView ignores the container's bottom safe
-    // area, so the bar (a `.safeAreaInset`) is drawn OVER it — the shared find
+    // area, so the bar (a bottom overlay) is drawn OVER it — the shared find
     // engine has to know that strip's height to reveal a match above it.
     @State var editorBottomGlobalY: CGFloat = 0
     @State var findBarTopGlobalY: CGFloat = 0
@@ -121,26 +121,26 @@ struct NoteEditorView: View {
         // Back + the ⋯ menu remain in the nav bar. The note's heading/#tags
         // still render inside the editor body below.
         titleAndEditor
-            // A sibling at the bottom of the VStack can still extend into the
-            // keyboard-covered region when the WebView ignores the container's
-            // bottom safe area. A safe-area inset participates in SwiftUI's
-            // keyboard avoidance and keeps the complete bar above the IME.
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            // Docked from UIKit's keyboard frame, not SwiftUI's keyboard safe area:
+            // see KeyboardDock for the iOS 26 case that safe area gets wrong.
+            .overlay(alignment: .bottom) {
                 if findVisible {
-                    FindInNoteBar(
-                        query: $findQuery,
-                        label: findLabel,
-                        onQueryChange: { EditorHost.shared.setFindQuery($0) },
-                        onStep: { EditorHost.shared.stepFind($0) },
-                        onClose: { dismissFind() }
-                    )
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.frame(in: .global).minY
-                    } action: { top in
-                        findBarTopGlobalY = top
-                        publishFindOverlayInset()
+                    KeyboardDock {
+                        FindInNoteBar(
+                            query: $findQuery,
+                            label: findLabel,
+                            onQueryChange: { EditorHost.shared.setFindQuery($0) },
+                            onStep: { EditorHost.shared.stepFind($0) },
+                            onClose: { dismissFind() }
+                        )
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .onGeometryChange(for: CGFloat.self) { proxy in
+                            proxy.frame(in: .global).minY
+                        } action: { top in
+                            findBarTopGlobalY = top
+                            publishFindOverlayInset()
+                        }
                     }
                 }
             }
@@ -264,7 +264,7 @@ struct NoteEditorView: View {
                 }
                 session.cancel(.save)
                 // Drop any pending debounced rename on leave (Android parity — its
-                // rename coroutine is cancelled the same way).
+                // rename coroutine is canceled the same way).
                 session.cancel(.rename)
                 // Discard an untouched quick-capture note: backing out leaves
                 // nothing behind (list.md).

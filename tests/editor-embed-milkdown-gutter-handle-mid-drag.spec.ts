@@ -152,7 +152,7 @@ gutterHandleTest(
     expect(await curtainUp(page)).toBe(false);
     await expect(page.locator('.futo-mobile-dnd-ghost')).toHaveCount(0);
     await expect(page.locator('.futo-mobile-dnd-source')).toHaveCount(0);
-    // The held block no longer exists, so the drop is cancelled.
+    // The held block no longer exists, so the drop is canceled.
     expect(await getContent(page)).toBe('one\n\ntwo\n\nthree');
   },
 );

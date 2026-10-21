@@ -26,19 +26,9 @@ function detectPlatform(): PlatformName {
 export const platformName: PlatformName = detectPlatform();
 export const isTauri = platformName === 'tauri';
 export const isLinux = typeof navigator !== 'undefined' && /\blinux\b/i.test(navigator.userAgent);
-// True on iOS hardware — the native-shell embed's WKWebView and iOS Safari.
-// iPads masquerade as "Macintosh" in modern WebKit UAs, so also treat
-// Mac-with-multitouch as iOS (desktop Macs report maxTouchPoints 0). This
-// was a hardcoded `false` left over from the removed Tauri-iOS shell, which
-// silently disabled the editorPointerInteractions touchend path inside the native iOS
-// embed — first tap landed the cursor at position 0 (2026-07-02 QA).
-export const isIOS =
-  typeof navigator !== 'undefined' &&
-  (/iPhone|iPad|iPod/i.test(navigator.userAgent) ||
-    (/Mac/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
 // "Apple platform" — true on macOS desktop and on iOS hardware keyboards.
 // Used to route ⌘ vs Ctrl in keyboard shortcuts. For desktop-only checks
-// (titlebar styling, traffic-light insets) gate on `isDesktop && isMac`.
+// (titlebar styling, traffic-light insets) gate on `isTauri && isMac`.
 export const isMac =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent);
 

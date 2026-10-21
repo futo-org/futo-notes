@@ -190,7 +190,7 @@ export function summarizeAccessibilityTree(tree, options = {}) {
 /**
  * Custom actions are echoed onto a whole subtree: a note row's
  * ['Delete', 'Move'] reappears on the unnamed Groups above it and on its
- * title, date, preview, and chevron below. Keep the set on the first labelled
+ * title, date, preview, and chevron below. Keep the set on the first labeled
  * row of each owning subtree so an affordance is listed once, against
  * something a reader can act on.
  */

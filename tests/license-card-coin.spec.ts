@@ -132,7 +132,7 @@ test.describe('License card', () => {
   // what the coin owes rather than restarting one.
   //
   // It reads the queue, not the screen. Two pixel-based versions of this test
-  // were red on CI for a true behaviour, and the reason is the same both times:
+  // were red on CI for a true behavior, and the reason is the same both times:
   // past a certain speed a spinning disc looks no more different between two
   // frames than a slower one does, so churn stops tracking speed exactly where
   // this test needs it to. Measuring how long the coin stayed loud instead of
@@ -177,7 +177,7 @@ test.describe('License card', () => {
 
     // No frame runs between the taps and the reading, so nothing has been paid
     // off yet: one tap owes exactly one turn and a burst owes exactly its
-    // count. The behaviour this replaced, which set the debt to one turn per
+    // count. The behavior this replaced, which set the debt to one turn per
     // click instead of adding one, owes 1 either way.
     expect(await owedAfter(1)).toBeCloseTo(1, 5);
     expect(await owedAfter(BURST)).toBeCloseTo(BURST, 5);

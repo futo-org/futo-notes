@@ -19,7 +19,7 @@
 // records the commit whose sources the mtimes in this tree correspond to. When
 // the stamp disagrees with HEAD, the files that changed between the two commits
 // are touched, so cargo rebuilds exactly those crates and reuses every
-// third-party artifact — which is the behaviour CI was relying on by accident.
+// third-party artifact — which is the behavior CI was relying on by accident.
 //
 // Modes:
 //   (default)  repair: report the skew, touch the changed sources, re-stamp.

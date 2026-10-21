@@ -124,7 +124,7 @@ async function previewAtRest(page: Page): Promise<void> {
 }
 
 /** The drop invariant: releasing a reflow drag moves NOTHING on screen. Every
- * block the preview showed — the neighbours it slid out of the way and the
+ * block the preview showed — the neighbors it slid out of the way and the
  * dimmed source in its landing slot — is exactly where the real block sits
  * once the move has committed, and the note did not scroll. `release` lets
  * go; the returned layout is the real one after the drop. */

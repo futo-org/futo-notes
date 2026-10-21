@@ -20,7 +20,7 @@ export function gestureOverride(id, milkdownDir, dir) {
  * that routes through `ReflowCurtain` gets the flag set ahead of it. A file from
  * before the curtain has the `LIVE_REFLOW` constant instead, which is flipped.
  * A file with neither would ignore the flag and run in whatever mode it has
- * while being labelled "line", so it is rejected. */
+ * while being labeled "line", so it is rejected. */
 export function forceLineMode(code, file) {
   const legacy = /^const LIVE_REFLOW = true;$/m;
   if (legacy.test(code)) {

@@ -77,7 +77,7 @@ impl Respond for Router {
             // Who this token belongs to — what a device with a saved token
             // asks on a cold start before deciding which step to show.
             ("GET", "/api/auth") if authorised(&state) => {
-                let user = account(&state).expect("an authorised request has an account");
+                let user = account(&state).expect("an authorized request has an account");
                 let (email, name) = if user == OTHER_USER {
                     (OTHER_EMAIL, "Somebody Else")
                 } else {
@@ -173,7 +173,7 @@ impl Respond for Router {
             // lapsed subscriber still has to be able to set up a device to
             // read what they already stored.
             ("POST", "/api/pairings") if authorised(&state) => {
-                let owner = account(&state).expect("an authorised request has an account");
+                let owner = account(&state).expect("an authorized request has an account");
                 let Some(sent) = request.body_json::<serde_json::Value>().ok() else {
                     return json_response(400, json!({ "error": "invalid json" }));
                 };
@@ -223,7 +223,7 @@ impl Respond for Router {
                     && path.starts_with("/api/pairings/")
                     && path.ends_with("/key") =>
             {
-                let owner = account(&state).expect("an authorised request has an account");
+                let owner = account(&state).expect("an authorized request has an account");
                 let id = path
                     .trim_start_matches("/api/pairings/")
                     .trim_end_matches("/key")
@@ -259,7 +259,7 @@ impl Respond for Router {
             // ciphertext deletes the row in the same breath, so a second poll
             // is a 404 rather than a replay.
             ("GET", path) if authorised(&state) && path.starts_with("/api/pairings/") => {
-                let owner = account(&state).expect("an authorised request has an account");
+                let owner = account(&state).expect("an authorized request has an account");
                 let id = path.trim_start_matches("/api/pairings/").to_owned();
                 let now = time::OffsetDateTime::now_utc();
                 match state.pairings.get(&id) {

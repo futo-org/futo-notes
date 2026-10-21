@@ -16,7 +16,7 @@ This package owns the sanctioned synchronous TS mirrors of Rust note rules, the 
   `readSerialized`/`hostHandle.ts`'s in-process desktop `getContent` and the desktop `invoke` wrapper (`src/lib/platform/tauri/invoke.ts`) write each
   one as U+FFFD. Never call `String.prototype.toWellFormed` directly: the Android WebView floor (Chromium 80)
   and iOS 15 lack it, and the helper carries the fallback.
-- `src/toolbar.ts` owns toolbar items; execution belongs in shared `TOOLBAR_EXEC`, never a shell.
+- `src/toolbar.ts` owns toolbar items; execution belongs in shared `createToolbarExec` (`src/features/editor/milkdown/toolbarExec.ts`), never a shell.
 - Never edit generated native specs, or the **bundled** editor output; edit the source and
   regenerate. The repo-root `editor.html` is the hand-written source — the native copies
   (`apps/*/…/editor.html`) are generated from it by `vite build --config vite.editor.config.ts`.
@@ -30,7 +30,7 @@ patches remark-stringify any more: Milkdown's own serializer is never called.
 
 Parse-side repairs: an inline `<br>` deleted with no replacement and `[](url)`
 losing its href; the preset's `<br />` stand-in for an empty paragraph retired
-in favour of extra blank lines (`emptyLine.ts`, the parse-side transformer;
+in favor of extra blank lines (`emptyLine.ts`, the parse-side transformer;
 never register a plugin under the name `remark-preserve-empty-line`, that is
 what turns the tag back on). The presets' three whole-document passes are
 scoped to the touched blocks (`listOrder.ts`, `tablePasses.ts`,

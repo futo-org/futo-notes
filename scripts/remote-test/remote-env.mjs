@@ -61,7 +61,7 @@ export function remoteEnvPreamble({ ndkVersion }) {
     //      unit tests inherited ours, inspected a directory that did not exist,
     //      concluded "no restored cache", and exited 0 where they assert 1 — five
     //      failures running `check` remotely that do not reproduce on the Mac.
-    // Anything in this repo may reasonably assume the repo-local target/; honouring
+    // Anything in this repo may reasonably assume the repo-local target/; honoring
     // that is cheaper than auditing every consumer.
     'unset CARGO_TARGET_DIR',
     // Deliberately NOT setting CI: `cargo tauri build` maps its `--ci` flag to

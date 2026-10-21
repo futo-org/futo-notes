@@ -80,8 +80,7 @@
   content: '\200b';
 }
 
-/* A task item gives its marker column to the checkbox, exactly as the
- * CodeMirror editor does (listDecorations.ts CHECKBOX_SLOT): the item's own
+/* A task item gives its marker column to the checkbox: the item's own
  * padding IS the slot, and the widget is positioned into it. That keeps the
  * box inside the item's box — no negative offsets reaching back into the
  * list's or the editor's padding, and so nothing that can drift into the
@@ -152,17 +151,16 @@
   accent-color: var(--color-primary, #f26b1f);
 }
 
-/* `#tag` decoration (tagDecorations.ts). Colour only — no box, no
+/* `#tag` decoration (tagDecorations.ts). Color only — no box, no
  * background: the document holds a tag as plain text, so its glyphs must stay
  * on the text baseline at the text's own advance width or typing inside a tag
- * would shift the line. Same variable the CodeMirror editor's `.cm-md-tag`
- * uses. */
+ * would shift the line. */
 .futo-milkdown .ProseMirror .futo-tag {
   color: var(--color-primary, #f26b1f);
 }
 
 /* Find in note (find/findPlugin.ts). Painted as a background rather than a
-   selection colour so the CURRENT match can still carry the real selection
+   selection color so the CURRENT match can still carry the real selection
    on top of it and stay legible in both themes. */
 .futo-milkdown .ProseMirror .futo-find-match {
   background: var(--color-find-match);

@@ -2,7 +2,7 @@
 
 use super::*;
 
-// ── Instance journal (docs/plan/agentic-first.md §3 stream 1) ──
+// ── Instance journal (see journal.rs) ──
 // These drive the whole push-first cycle against the in-process mutation
 // server and then assert on what landed in the journal, not just on the
 // summary — the point of the journal is that it survives the run.

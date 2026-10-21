@@ -106,7 +106,7 @@ build_macos_task:
     - cp target/universal-apple-darwin/release/bundle/dmg/*.dmg ./
     - mkdir -p updater && cp target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz updater/ && cp target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig updater/
   # A cache's auto-generated upload inherits the cache instruction's ON_SUCCESS
-  # behaviour, so a task that dies mid-compile (or hits the wall) uploads
+  # behavior, so a task that dies mid-compile (or hits the wall) uploads
   # nothing and dooms every retry to another cold start — the exact hazard
   # .gitlab-ci.yml's cache templates carry `when: always` for. Moving the
   # uploads into `always:` via `upload_caches` fixes that; cargo handles a
@@ -123,7 +123,7 @@ build_macos_task:
     path: "updater/*"
 
 # Internal, hosted-enabled macOS build (D2, taken —
-# docs/plan/hosted-sync-to-staging.md, ticket C8). Invoked ONLY by
+# hosted-sync staging plan, ticket C8). Invoked ONLY by
 # .gitlab-ci.yml's build:desktop-internal:macos, on prerelease tags.
 #
 # Deliberately receives none of MACOS_CERT_PASSWORD/ASC_KEY_ID/ASC_ISSUER_ID/

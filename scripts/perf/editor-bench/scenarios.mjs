@@ -151,7 +151,7 @@ const touch = (cdp, type, x, y) =>
 const hapticCount = (page) =>
   page.evaluate(() => window.__msgs.filter((m) => m.type === 'haptic').length);
 
-// Centres of the source block and of the block to drop below, read in setup so
+// Centers of the source block and of the block to drop below, read in setup so
 // the measured gesture does no layout reads of its own.
 async function dragPlan(page, from, to) {
   return page.evaluate(

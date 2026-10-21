@@ -110,7 +110,7 @@ export const plainTextBlockPaste = $prose((ctx) => {
        * (or just `x<newline>`, whose trailing newline is a second, empty
        * paragraph) saved `| p | q |` and lost `y` (RC-81). Joining the lines
        * with a space before it is parsed keeps every word and touches no
-       * neighbour. */
+       * neighbor. */
       transformPastedText: (text, _plain, view) =>
         flattenedForCell(text, view.state.selection) ?? text,
       /* The HTML twin of the above (RC-83): several pasted `<p>`/`<li>`/`<h1>`

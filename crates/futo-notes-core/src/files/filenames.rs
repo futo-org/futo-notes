@@ -18,7 +18,6 @@ pub enum FilenameIssueKind {
     TooLong,
     Empty,
     ReservedName,
-    CaseCollision,
     DepthExceeded,
 }
 
@@ -31,7 +30,6 @@ impl FilenameIssueKind {
             Self::TooLong => "too_long",
             Self::Empty => "empty",
             Self::ReservedName => "reserved_name",
-            Self::CaseCollision => "case_collision",
             Self::DepthExceeded => "depth_exceeded",
         }
     }

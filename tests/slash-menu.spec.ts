@@ -7,7 +7,7 @@ import { EDITOR, editorMarkdown, openNewNote, TYPE_DELAY_MS } from './lib/deskto
  * `src/features/editor/milkdown/slash/`.
  *
  * This is the CodeMirror block-command menu's replacement
- * (docs/plan/desktop-editor-parity.md D2). Assertions are on the note's
+ * (desktop editor parity D2). Assertions are on the note's
  * MARKDOWN, not on the rendered DOM: what a menu pick is worth is what gets
  * saved.
  */
@@ -285,7 +285,7 @@ test.describe('slash menu', () => {
     expect(await editorMarkdown(page)).not.toContain('/link');
   });
 
-  test('cancelling the Link prompt with Escape leaves the note untouched', async ({ page }) => {
+  test('canceling the Link prompt with Escape leaves the note untouched', async ({ page }) => {
     await typeSlash(page, '/link');
     await expectMenuOpen(page);
     await page.keyboard.press('Enter');

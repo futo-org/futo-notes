@@ -1,8 +1,7 @@
 /*
  * Find in note — the ProseMirror half of the shared engine.
  *
- * Replaces the CodeMirror `findState.ts` + `findDecorations.ts` pair (commit
- * 8e902802, issue #26). The behavior is the spec's, unchanged: case-insensitive
+ * The behavior is the spec's (issue #26): case-insensitive
  * literal matching, a current match tracked across edits, next/previous with
  * wrap, every match highlighted with the current one distinct, and the current
  * match always scrolled clear of whatever bar covers the bottom of the

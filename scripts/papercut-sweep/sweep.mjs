@@ -33,26 +33,17 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SYSTEM_PROMPT_FILE = path.join(HERE, 'sweep-prompt.md');
 const DEFAULT_REPO_DIR = path.resolve(HERE, '..', '..');
 
-export const TIMEBOX_MS = 90 * 60 * 1000;
-export const MAX_CUTS = 40;
+const TIMEBOX_MS = 90 * 60 * 1000;
+const MAX_CUTS = 40;
 const MR_URL = /^https:\/\/gitlab\.futo\.org\/futo-notes\/futo-notes\/-\/merge_requests\/\d+\/?$/;
 const CUT_ID = /^pc_[0-9a-f]{12}$/;
 
-export function stateDir(env = process.env) {
-  return (
-    env.FUTO_PAPERCUT_SWEEP_STATE_DIR ||
-    path.join(os.homedir(), '.local', 'state', 'futo-notes-papercut-sweep')
-  );
-}
-
-export function repoDir(env = process.env) {
-  return env.FUTO_PAPERCUT_SWEEP_REPO_DIR
-    ? path.resolve(env.FUTO_PAPERCUT_SWEEP_REPO_DIR)
-    : DEFAULT_REPO_DIR;
+function stateDir() {
+  return path.join(os.homedir(), '.local', 'state', 'futo-notes-papercut-sweep');
 }
 
 /** Open cuts (no matching resolve) from the text of the append-only log. */
-export function openCuts(logText) {
+function openCuts(logText) {
   const entries = logText
     .split('\n')
     .filter(Boolean)
@@ -69,7 +60,7 @@ export function openCuts(logText) {
 }
 
 /** Blockers and majors first, then oldest first; capped so the prompt stays readable. */
-export function rankCuts(cuts, max = MAX_CUTS) {
+function rankCuts(cuts, max = MAX_CUTS) {
   const rank = { blocker: 0, major: 1, minor: 2 };
   return [...cuts]
     .sort(
@@ -88,7 +79,7 @@ export function rankCuts(cuts, max = MAX_CUTS) {
     }));
 }
 
-export function buildTaskPrompt({ cuts, resultFile, branch, runDate }) {
+function buildTaskPrompt({ cuts, resultFile, branch, runDate }) {
   return [
     `Weekly papercut sweep for FUTO Notes, ${runDate}. You are in a dedicated worktree on branch \`${branch}\`, based on a fresh origin/main.`,
     '',
@@ -104,7 +95,7 @@ export function buildTaskPrompt({ cuts, resultFile, branch, runDate }) {
 }
 
 /** Validate the agent-owned result contract; null when malformed. */
-export function parseSweepResult(raw) {
+function parseSweepResult(raw) {
   try {
     const r = JSON.parse(raw);
     if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
@@ -142,33 +133,27 @@ function runGit(args, cwd) {
  * timer runs sweep.mjs from whichever checkout installed it, and that checkout
  * can sit on an old branch whose log still lists cuts main resolved weeks ago.
  */
-export function readMainLog(repoDirectory, runGitImpl = runGit) {
-  runGitImpl(['fetch', 'origin', 'main'], repoDirectory);
-  return runGitImpl(['show', 'origin/main:.papercuts.jsonl'], repoDirectory);
+function readMainLog(repoDirectory) {
+  runGit(['fetch', 'origin', 'main'], repoDirectory);
+  return runGit(['show', 'origin/main:.papercuts.jsonl'], repoDirectory);
 }
 
 /** Fresh worktree off origin/main under the state dir; branch chore/papercut-sweep-<runId>. */
-export function createSweepWorktree({
-  runId,
-  stateDirectory,
-  repoDirectory,
-  runGitImpl = runGit,
-  mkdirImpl = fs.mkdirSync,
-}) {
+function createSweepWorktree({ runId, stateDirectory, repoDirectory }) {
   const worktreePath = path.join(stateDirectory, 'worktrees', `sweep-${runId}`);
   const branch = `chore/papercut-sweep-${runId}`;
-  mkdirImpl(path.dirname(worktreePath), { recursive: true });
-  runGitImpl(['fetch', 'origin', 'main'], repoDirectory);
+  fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
+  runGit(['fetch', 'origin', 'main'], repoDirectory);
   try {
-    runGitImpl(['worktree', 'add', '-b', branch, worktreePath, 'origin/main'], repoDirectory);
+    runGit(['worktree', 'add', '-b', branch, worktreePath, 'origin/main'], repoDirectory);
   } catch (error) {
     try {
-      runGitImpl(['worktree', 'remove', '--force', worktreePath], repoDirectory);
+      runGit(['worktree', 'remove', '--force', worktreePath], repoDirectory);
     } catch {
       // nothing to roll back
     }
     try {
-      runGitImpl(['branch', '-D', branch], repoDirectory);
+      runGit(['branch', '-D', branch], repoDirectory);
     } catch {
       // branch never created
     }
@@ -193,7 +178,7 @@ function removeWorktree({ worktreePath, branch, keepBranch, repoDirectory }) {
 }
 
 /** Spawn the headless agent with the timebox; resolve with the parsed result (or null). */
-export function runAgent({
+function runAgent({
   worktreePath,
   taskPrompt,
   resultFile,
@@ -250,21 +235,14 @@ export function runAgent({
   });
 }
 
-export async function runSweep({
+async function runSweep({
   dryRun = false,
   stateDirectory = stateDir(),
-  repoDirectory = repoDir(),
-  dependencies = {},
+  repoDirectory = DEFAULT_REPO_DIR,
 } = {}) {
-  const createWorktreeImpl = dependencies.createWorktree ?? createSweepWorktree;
-  const removeWorktreeImpl = dependencies.removeWorktree ?? removeWorktree;
-  const readLogImpl = dependencies.readLog ?? readMainLog;
-  const runAgentImpl = dependencies.runAgent ?? runAgent;
-  const installImpl =
-    dependencies.install ??
-    ((cwd) =>
-      spawnSync('pnpm', ['install', '--frozen-lockfile'], { cwd, stdio: 'inherit' }).status === 0);
-  const now = dependencies.now ?? (() => new Date());
+  const installImpl = (cwd) =>
+    spawnSync('pnpm', ['install', '--frozen-lockfile'], { cwd, stdio: 'inherit' }).status === 0;
+  const now = () => new Date();
   const model = process.env.FUTO_PAPERCUT_SWEEP_MODEL || 'opus';
 
   const startedAt = now();
@@ -278,7 +256,7 @@ export async function runSweep({
   const logFile = path.join(stateDirectory, 'logs', `run-${runId}.log`);
   const lastRunFile = path.join(stateDirectory, 'last-run.json');
 
-  const cuts = rankCuts(openCuts(readLogImpl(repoDirectory)));
+  const cuts = rankCuts(openCuts(readMainLog(repoDirectory)));
   if (cuts.length === 0) {
     fs.writeFileSync(
       lastRunFile,
@@ -288,7 +266,7 @@ export async function runSweep({
     return { status: 'nothing-open' };
   }
 
-  const { worktreePath, branch } = createWorktreeImpl({ runId, stateDirectory, repoDirectory });
+  const { worktreePath, branch } = createSweepWorktree({ runId, stateDirectory, repoDirectory });
   const taskPrompt = buildTaskPrompt({ cuts, resultFile, branch, runDate });
 
   if (dryRun) {
@@ -299,7 +277,7 @@ export async function runSweep({
           `system prompt: ${SYSTEM_PROMPT_FILE}\n\n--- task prompt (first 40 lines) ---\n${taskPrompt.split('\n').slice(0, 40).join('\n')}\n`,
       );
     } finally {
-      removeWorktreeImpl({ worktreePath, branch, keepBranch: false, repoDirectory });
+      removeWorktree({ worktreePath, branch, keepBranch: false, repoDirectory });
     }
     return { status: 'dry-run', worktreePath, branch };
   }
@@ -318,11 +296,11 @@ export async function runSweep({
   let result = null;
   try {
     if (!installImpl(worktreePath)) throw new Error('pnpm install failed in the sweep worktree');
-    result = await runAgentImpl({ worktreePath, taskPrompt, resultFile, logFile, model });
+    result = await runAgent({ worktreePath, taskPrompt, resultFile, logFile, model });
   } catch (error) {
     process.stderr.write(`sweep agent failed: ${error.message}\n`);
   } finally {
-    removeWorktreeImpl({ worktreePath, branch, keepBranch: Boolean(result?.mrUrl), repoDirectory });
+    removeWorktree({ worktreePath, branch, keepBranch: Boolean(result?.mrUrl), repoDirectory });
   }
 
   const status = result ? (result.mrUrl ? 'ok' : 'nothing-fixable') : 'no-result';

@@ -1,7 +1,7 @@
 # The supporter coin, generated-spec checks, and repo gates. Imported by the root justfile.
 
 # ── The FUTO supporter coin (Blender -> all three shells) ──
-# The coin is ONE object, modelled in assets/coin/build-coin.py and exported to
+# The coin is ONE object, modeled in assets/coin/build-coin.py and exported to
 # three files: futo-coin.glb (desktop three.js + Android Filament), futo-coin.usdz
 # (iOS RealityKit) and studio-env.hdr, the small studio every shell reflects off
 # it. Gold is a metal; a metal with nothing to reflect renders black, which is
@@ -23,7 +23,7 @@ coin:
 coin-check:
   node scripts/check-coin-assets.mjs
 
-# Per-shell exposure (no regeneration), material roughness and colour, the room,
+# Per-shell exposure (no regeneration), material roughness and color, the room,
 # and each of the five lamps. It reads out what percentage of the coin is blown
 # out and will sweep 360 degrees to find the worst angle, so "too bright at some
 # angles" becomes a number. Nothing is written to the repo: the page prints the
@@ -70,11 +70,6 @@ sync-contract:
   mkdir -p dist
   FUTO_UPDATE_SYNC_CONTRACT=1 cargo test -p futo-notes-tauri generated_typescript_contract_is_current
 
-# Fail if the generated sync IPC contract has drifted.
-sync-contract-check:
-  mkdir -p dist
-  cargo test -p futo-notes-tauri generated_typescript_contract_is_current
-
 # Fail on a stale or missing entry in the drift registry (see the script for details).
 check-drift:
   node scripts/drift-check.mjs
@@ -95,7 +90,8 @@ check-theme-single-pace:
 check-agent-docs:
   node scripts/check-agent-docs.mjs
 
-# Run the focused architecture checks embedded in GitLab's mandatory test job.
+# Run the architecture gates locally: the portable set CI's mandatory test job runs
+# (`check:arch-gate:portable`) plus the Tauri sync-contract test.
 arch-gate:
   pnpm run check:arch-gate
 
@@ -111,4 +107,4 @@ release-notes-check tag="":
 # complexity offenders against the committed .bca-baseline.toml. CI runs
 # this same script non-blocking (docs/architecture-gates.md).
 quality *args:
-  node scripts/bca-quality.mjs {{args}}
+  node scripts/bca-quality.mjs "$@"

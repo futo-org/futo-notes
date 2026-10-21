@@ -21,13 +21,13 @@
   found this way is **delivered into the pending slot**; redemption is a tap (Restore, Try again),
   never automatic (zero background network, as on iOS). The server is idempotent on `purchaseToken`,
   so a reinstall's Restore gets the same key back.
-- **Acknowledgement is client-side, after the key verifies.** Google's page: acknowledge "on the
+- **Acknowledgment is client-side, after the key verifies.** Google's page: acknowledge "on the
   client side through your app" is allowed, server-side is preferred; an unacknowledged purchase is
   **refunded automatically after three days**. Under D29 that is the right outcome: a purchase that
   was never redeemed (server down for three days, user never tapped Try again) refunds itself and
   nothing was granted. The residual failure is a crash between "pair stored" and "acknowledged";
   the acknowledge retry on every connect and `onResume` (no network of ours, it is a Play call)
-  closes it within the three days. Server-side acknowledgement needs the Developer API and is not
+  closes it within the three days. Server-side acknowledgment needs the Developer API and is not
   built (§ 7c.5).
 - Region: only needed if D-A flips to enrolling (`getBillingConfigAsync` gives the Play country).
 - Tests: a `BillingClient` fake behind `LicenseStore` plus a fake redeem (purchase ok; cancel;

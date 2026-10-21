@@ -35,7 +35,7 @@ export const SHIPPED = {
     minimum: 0.004,
   },
   /// Each lobe is a lamp: where it is, how tight its cone, how hard it burns,
-  /// and its colour. Directions are in the SHELL's frame — +Z out of the coin's
+  /// and its color. Directions are in the SHELL's frame — +Z out of the coin's
   /// face toward the viewer, +Y up the spindle.
   lobes: [
     {
@@ -72,7 +72,7 @@ export const SHIPPED = {
     },
     {
       name: 'kicker',
-      note: 'Small and hot, behind and above, purely so the bevel has a travelling spark. The tightest lamp here, and the one most likely to blow out.',
+      note: 'Small and hot, behind and above, purely so the bevel has a traveling spark. The tightest lamp here, and the one most likely to blow out.',
       direction: [-0.25, 0.62, -0.75],
       tightness: 70.0,
       intensity: 46.0,

@@ -67,7 +67,7 @@
   NativeMutationOutcomeTest / NativeMutationOutcomeTests
 - Android title edits debounce into a rename; iOS commits via the rename dialog.
   Both use the baseline-aware save-and-rename workflow after pending saves are
-  cancelled/drained. Only an actual durable result advances the saved body
+  canceled/drained. Only an actual durable result advances the saved body
   snapshot; a no-op title never marks a dirty body saved.
   → NoteEditorScreen.kt / NoteEditorView.swift
 - Leaving the editor flushes a pending save only if the content changed. The
@@ -170,8 +170,12 @@
 - A title that differs from the saved title only by leading or trailing
   whitespace leaves the session clean and skips the write. Only the saved-title
   comparison is normalized; the visible editor title keeps its whitespace.
-- A duplicate title blocks the save and shows the inline warning text
-  "A note with this name already exists".
+- A duplicate title blocks the rename and shows the inline warning text
+  "A note with this name already exists". Duplicates are judged as the store
+  judges collisions — case- and Unicode-normalization-insensitively — so `Test`
+  beside `test` warns rather than being saved as `Test-2`. The body still saves,
+  under the note's current name (`Untitled` for a note never saved), and the
+  field keeps the typed title until it is changed to a free one.
 - The editor chrome shows **no word count** (or any other document
   statistic) — just the title and the document (spec decision 2026-06-10;
   Android native previously rendered an "N words" line under the title, no

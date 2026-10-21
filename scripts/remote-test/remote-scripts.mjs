@@ -87,7 +87,7 @@ sed 's/^/    /' "$LOCK_DIR/holder" 2>/dev/null || echo "    (no holder file)" >&
 PGID="$(cat "$LOCK_DIR/pgid" 2>/dev/null || true)"
 if [ -z "$PGID" ]; then
   echo "remote-test: the holder recorded no process group (it may still be transferring)." >&2
-  echo "  Nothing was signalled. Use --force-lock if you are certain it is stale." >&2
+  echo "  Nothing was signaled. Use --force-lock if you are certain it is stale." >&2
   exit 0
 fi
 if ! kill -0 "-$PGID" 2>/dev/null; then

@@ -37,11 +37,11 @@ describe('planMarkdownChunks — the no-blank-line device fixture, at real size'
 });
 
 /*
- * The planner stops trusting itself, rather than modelling, whatever it cannot
+ * The planner stops trusting itself, rather than modeling, whatever it cannot
  * prove is top-level and block-bounded (RC-39, RC-40, RC-38 in the release-
  * hardening campaign). Each shape below is one the l6b fuzz found the scanner
  * cutting inside. The end-to-end proof that the LOADED note is right is in
- * tests/editor-embed-milkdown.spec.ts (progressive section).
+ * tests/editor-embed-milkdown-progressive-open.spec.ts (progressive section).
  */
 describe('planMarkdownChunks — stops at what it cannot prove', () => {
   const opts = { minLines: 0, firstChunkLines: 1, chunkLines: 1 };

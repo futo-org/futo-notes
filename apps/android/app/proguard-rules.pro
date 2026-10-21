@@ -9,7 +9,6 @@
 # JNA maps Java method/field names directly to native symbols and reads struct
 # field order reflectively. Renaming or stripping any of it breaks the FFI.
 -keep class com.sun.jna.** { *; }
--keepclassmembers class com.sun.jna.** { *; }
 -keepclassmembers class * extends com.sun.jna.Structure { *; }
 -dontwarn java.awt.**
 
@@ -18,7 +17,6 @@
 # 1:1 to exported Rust symbols, JNA Structure subclasses with @FieldOrder, and
 # Callback interfaces invoked from native. None of these may be renamed.
 -keep class uniffi.futo_notes_ffi.** { *; }
--keepclassmembers class uniffi.futo_notes_ffi.** { *; }
 
 # ── rustls-platform-verifier (TLS trust) ──────────────────────────────────
 -keep class org.rustls.platformverifier.** { *; }

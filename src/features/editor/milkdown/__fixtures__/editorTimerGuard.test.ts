@@ -94,7 +94,7 @@ describe('a real editor leaves a pending block-hover throttle call (RC-66)', () 
     expect(uncaught.map((e) => String((e as Error).message))).toContain('Element is not defined');
   });
 
-  it('fixes it: cancelling the tracked timers leaves nothing to fire after teardown', async () => {
+  it('fixes it: canceling the tracked timers leaves nothing to fire after teardown', async () => {
     const tracker = trackEditorTimers();
     const handle = await mountAndLeaveHoverPending();
     await unmount(handle as never);

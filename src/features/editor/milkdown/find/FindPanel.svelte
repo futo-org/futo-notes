@@ -3,8 +3,7 @@
    * The desktop find bar — a Firefox-style strip docked over the bottom of the
    * editor's own scrolling pane (docs/spec/editor.md "Find in note").
    *
-   * Replaces the CodeMirror `showPanel` bar deleted with that engine. It is
-   * mounted only when `resolveFindPanel` says so, i.e. never under a native
+   * It is mounted only when `resolveFindPanel` says so, i.e. never under a native
    * shell: iOS and Android render their own SwiftUI/Compose bars and drive the
    * same engine through the bridge.
    *

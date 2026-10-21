@@ -88,7 +88,7 @@ final class EditorCompletionQueue {
 /// (apps/android/.../ui/EditorWebView.kt).
 ///
 /// The WebView is NOT created per note-open. A cold WKWebView boot (WebKit
-/// process start + parse/exec of the editor bundle + CodeMirror mount) costs
+/// process start + parse/exec of the editor bundle + editor mount) costs
 /// ~0.2–0.5 s, which used to land on the navigation critical path: the native
 /// SwiftUI chrome painted instantly while the editor lagged behind. Instead a
 /// single [EditorHost] owns ONE WKWebView, pre-warmed once at app start
@@ -106,41 +106,16 @@ final class EditorCompletionQueue {
 /// (their reparent + external-sync adopt are gated on visibility), so the
 /// visible editor always owns it.
 ///
-/// The page exposes `window.FutoEditor` — the v7 `initialize(configJson)` boot
-/// entry point plus setContent/flush/focus/setTheme, the v2 additions
-/// setNotes/applyExternalContent/insertImage/setImageBaseUrl and the v3
-/// additions exec/blur/setNativeToolbar — and posts messages to the native
-/// handler named exactly "futoBridge":
-///   { type: 'ready' }                                          → send config
-///   { type: 'initialized', version }                           (v7)
-///   { type: 'bridgeVersionMismatch', hostVersion, bundleVersion } (v7)
-///   { type: 'change', noteId, generation, content: <markdown> }
-///   { type: 'focus', focused: <bool> }
-///   { type: 'openNote', id: <resolved note id> }
-///   { type: 'openUrl', url: <external url> }                    (v6)
-///   { type: 'pickImage', source: 'camera' | 'library' }
-///   { type: 'cursorContext', onListLine: <bool>, inContainer?: <bool> }
-///   { type: 'saveImageData', data: <base64>, ext: <string> }   (v4)
-///   { type: 'pasteClipboardImage' }                            (v5)
-///   { type: 'formatState', active: [<toolbar id>], disabled: [<toolbar id>] }
-///     (Milkdown editor, unversioned — see bridge.ts's BRIDGE_VERSION doc
-///     comment; drives toolbar highlighting AND the Undo/Redo grey-out below)
-///   { type: 'haptic', kind: 'lift' | 'move' | 'drop' } (Milkdown editor, unversioned —
-///     the long-press block-drag path both native shells mount; drives the
-///     impact and selection feedback generators below)
-///   { type: 'blockDrag', active: <bool> }              (Milkdown editor, unversioned —
-///     same path; suspends WKWebView's text interaction so the OS magnifier
-///     stays out of the drag. Android needs no equivalent — see bridge.ts)
-///   { type: 'blockPress', pressed: <bool> }            (Milkdown editor, unversioned —
-///     the same path's TOUCH-DOWN half; stands the delayed text interaction
-///     down before it can win the race the lift used to have to)
+/// The page exposes `window.FutoEditor` and posts messages to the native
+/// handler named exactly "futoBridge". The message and field contract lives in
+/// packages/editor/src/bridge.ts; the generated BridgeSpec.swift mirrors it.
 ///
 /// The markdown toolbar is NATIVE on iOS: EditorHost installs
 /// FutoKeyboardAccessory as the keyboard's inputAccessoryView (so it docks
-/// and animates with the keyboard), tells the embed to suppress its web
-/// toolbar (setNativeToolbar), and dispatches taps back over the bridge —
-/// `exec(<manifest id>)` runs the SHARED markdownToolbar.ts command, so the
-/// editing behavior is identical to the web/Android toolbar by construction.
+/// and animates with the keyboard), and the boot config tells the embed to
+/// keep its web toolbar hidden (`nativeToolbar`). Taps dispatch back over the
+/// bridge as `exec(<manifest id>)`, which runs the SHARED toolbar command, so
+/// the editing behavior is identical to the web/Android toolbar by construction.
 struct EditorWebView: UIViewRepresentable {
     let noteId: String
     /// Markdown to push into the editor once it is ready.

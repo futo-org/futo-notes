@@ -43,16 +43,27 @@ lint-swift:
   #!/usr/bin/env bash
   set -euo pipefail
   if [ "$(uname -s)" != "Darwin" ] || ! xcrun --find swift-format >/dev/null 2>&1; then
+    # CI sets LINT_SWIFT_REQUIRED (.cirrus.yml testFutoNotesIOSNative): there a
+    # missing formatter must fail the job, not skip it green (M11).
+    if [ -n "${LINT_SWIFT_REQUIRED:-}" ]; then
+      echo "ERROR: LINT_SWIFT_REQUIRED is set but swift-format is unavailable on this host" >&2
+      exit 1
+    fi
     echo "==> swift-format is unavailable on this host ($(uname -s)) — skipping Swift lint"
     exit 0
   fi
-  find apps/ios/Sources apps/ios/Tests apps/ios/UITests \
-    -name '*.swift' \
-    -not -path '*/Generated/*' \
-    -not -path '*/GeneratedContracts/*' \
-    -not -path '*/GeneratedLocalization/*' \
-    -print0 \
-    | xargs -0 xcrun swift-format lint --strict --configuration apps/ios/.swift-format
+  files=()
+  while IFS= read -r -d '' file; do files+=("$file"); done < <(
+    find apps/ios/Sources apps/ios/Tests apps/ios/UITests \
+      -name '*.swift' \
+      -not -path '*/Generated/*' \
+      -not -path '*/GeneratedContracts/*' \
+      -not -path '*/GeneratedLocalization/*' \
+      -print0)
+  [ "${#files[@]}" -gt 0 ] || { echo "ERROR: found no Swift sources to lint" >&2; exit 1; }
+  # swift-format ships with Xcode, so the toolchain line names the version.
+  echo "==> swift-format from $(xcrun swift --version 2>&1 | head -1): ${#files[@]} files"
+  xcrun swift-format lint --strict --configuration apps/ios/.swift-format "${files[@]}"
 
 # Fail fast in a fresh worktree instead of dying deep inside toolbar-spec-check.
 _require-node-modules:
@@ -96,15 +107,11 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-# Three independent fail-fast guards for the same "no node_modules" papercut; see
-# docs/agents/justfile-notes.md. This one also fails when a pnpm patchedDependencies
-# patch is not applied in the installed copy (RC-69); `just install` runs it afterwards.
+# Fail fast without node_modules, or when a pnpm patchedDependencies patch is not applied in
+# the installed copy (RC-69); `just install` runs it afterwards.
 check-node-modules:
   @node scripts/check-node-modules.mjs
 
 # Fail before tests/builds when the active Node differs from the pinned .nvmrc.
 check-node-version:
   @node scripts/check-node-version.mjs
-
-_require-install:
-  @[ -d node_modules ] || { echo 'node_modules is missing in this worktree — run: just install' >&2; exit 1; }

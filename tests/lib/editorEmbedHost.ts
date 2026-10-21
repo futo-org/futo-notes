@@ -1,11 +1,10 @@
 /**
  * Shared fake-host harness for the editor-embed Playwright specs.
  *
- * Both engine suites (`editor-embed-bridge.spec.ts` for CodeMirror,
- * `editor-embed-milkdown.spec.ts` for Milkdown) drive the SAME single-file
+ * Every `editor-embed-*.spec.ts` suite drives the SAME single-file
  * `editor.html` the native shells ship, with a fake native host installed
  * before any page script runs. The host side of that contract is identical for
- * both engines, so it lives here rather than being copied per suite.
+ * every suite, so it lives here rather than being copied per suite.
  */
 import type { Browser, Page } from '@playwright/test';
 

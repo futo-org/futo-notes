@@ -2,7 +2,7 @@
 
 # ─────────────────────────────────────────────────────────────
 # Internal, hosted-enabled desktop build (D2, taken —
-# docs/plan/hosted-sync-to-staging.md, ticket C8). Prerelease tags only
+# hosted-sync staging plan, ticket C8; see the futo-notes-server repo). Prerelease tags only
 # (v1.7.2-4, never a stable vX.Y.Z — see the negated rule below). Builds the
 # SAME deb/rpm/AppImage bundles as build:linux-packages/build:linux-appimage,
 # but with VITE_HOSTED_SYNC=true and the staging hosted address baked in

@@ -25,7 +25,7 @@ internal interface OpenNoteEffects {
 
     fun classify(facts: OpenNoteFacts): OpenNoteDisposition
 
-    /** Re-arm a dirty draft after fact gathering cancelled its debounce. */
+    /** Re-arm a dirty draft after fact gathering canceled its debounce. */
     fun resumeDraftPersistence()
 
     suspend fun apply(noteId: String, disposition: OpenNoteDisposition)
@@ -53,7 +53,7 @@ internal interface EditorExitEffects {
 
     /**
      * Synchronous work that must happen between the user's tap and the first
-     * suspension — cancelling the debounced save, dropping focus, blurring the
+     * suspension — canceling the debounced save, dropping focus, blurring the
      * editor. Runs after the latches, so a change arriving from here on is
      * already fenced.
      */
@@ -91,7 +91,7 @@ internal interface EditorExitEffects {
     /**
      * Stop the debounced body save. Called as the FIRST step inside the drain,
      * so a save already running has finished and only a queued debounce is
-     * dropped — cancelling it earlier would tear down a write mid-flight.
+     * dropped — canceling it earlier would tear down a write mid-flight.
      */
     suspend fun cancelPendingSave() {}
 

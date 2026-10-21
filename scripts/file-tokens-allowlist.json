@@ -54,10 +54,6 @@
       "reason": "One JSON file per language tag is the catalog contract (languages/README.md, catalog.schema.json)."
     },
     {
-      "path": "apps/android/app/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt",
-      "reason": "Vendored byte-for-byte from rustls-platform-verifier v/0.6.2 (apps/android/AGENTS.md); the Rust backend resolves the class by name, and an edit breaks the verified-identical copy."
-    },
-    {
       "path": "apps/android/app/src/main/java/com/futo/notes/ui/NoteEditorScreen.kt",
       "reason": "One composable whose ~18 KB of local functions close over ~30 remembered states; getting it under the limit needs a state-holder redesign, not a move. Pending that refactor, not large by design."
     }

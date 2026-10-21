@@ -1,7 +1,8 @@
 #### Block drag: autoscroll, release and touch suspension
 
-- A block drag holding the pointer within 64px of the editor scroller's top or
-  bottom edge scrolls the note continuously — 200px/s at the zone's inner lip
+- A block drag holding the pointer within 64px of the visible top or bottom edge
+  of whatever scrolls the note — the editable itself in the native embed,
+  `.note-body` (title and editor together) on desktop — scrolls it continuously — 200px/s at the zone's inner lip
   ramping to 1400px/s at the edge — so a block can be dropped at a boundary that
   was off screen when it was lifted. It runs while the pointer holds still, stops
   at the document's ends, and stops on every exit (commit, no-op release, cancel,
@@ -9,11 +10,12 @@
   now under the stationary pointer. Both drag paths share it: the native shells'
   long-press drag and the desktop ⠿ gutter handle's mouse drag. Verified on an
   Android device 2026-09-01 — a hold within the zone scrolls continuously and
-  stops on release; a hold mid-viewport does not scroll. →
+  stops on release; a hold mid-viewport does not scroll. Desktop measured the
+  editable's own box until #270, so a hold at the window edge never scrolled. →
   src/features/editor/milkdown/blockDragGeometry.ts `createDragAutoScroller`,
   src/features/editor/milkdown/blockDragSession.ts,
-  src/features/editor/milkdown/blockDragGeometry.test.ts,
-  tests/editor-embed-milkdown.spec.ts _(native shells)_
+  src/features/editor/milkdown/blockDragGeometry.autoScroll.test.ts,
+  tests/editor-embed-milkdown-drag-autoscroll.spec.ts, tests/editor-scroll.spec.ts
 - Dropping a top-level block never scrolls the note: the blocks on screen at the
   release stay exactly where the live preview drew them, and the dropped block
   lands where the preview showed it — also when edge auto-scroll carried the
@@ -30,9 +32,9 @@
   Verified in Chromium (Playwright) 2026-10-08. →
   src/features/editor/milkdown/blockDragCurtain.ts `holdScrollThroughDrop`,
   blockDragCurtainDom.ts `holdScrollExtent`, src/features/editor/milkdown/blockDragSession.ts,
-  tests/editor-embed-milkdown.spec.ts
+  tests/editor-embed-milkdown-drag-slides.spec.ts
 - Only the dropped block moves at the release, snapping into its slot: a
-  neighbour still sliding out of the way when the finger lifts finishes its
+  neighbor still sliding out of the way when the finger lifts finishes its
   slide, and the move is committed (and the note reported changed) once the
   slides end, at most ~0.18s later. A scroll or a layout change in that time (a
   resized window, an image loading) commits it at once, which is a relayout of
@@ -42,7 +44,7 @@
   lifts until it has committed. Verified in Chromium (Playwright) 2026-10-09. →
   src/features/editor/milkdown/blockDragSession.ts `land`,
   src/features/editor/milkdown/blockDragCurtain.ts `land`,
-  tests/editor-embed-milkdown.spec.ts
+  tests/editor-embed-milkdown-drag-landing.spec.ts
 - A finger landing on a block in the long-press block drag suspends the
   platform's DELAYED text interaction from touch-down — the magnifier loupe and
   tap-and-a-half select — for as long as the press lasts, and restores it the
@@ -55,10 +57,10 @@
   src/features/editor/milkdown/mobileBlockDnd.ts,
   apps/ios/Sources/Editor/EditorWebView.swift `delayedTextInteractionGestures`,
   packages/editor/src/bridge.ts `BlockPressMessage`,
-  tests/editor-embed-milkdown.spec.ts _(native shells, iOS)_
+  tests/editor-embed-milkdown-drag-press.spec.ts _(native shells, iOS)_
 - A tap still places the caret and raises the keyboard, and a double-tap still
   selects a word and shows the platform Cut/Copy/Paste callout, during and after
-  that press-level suspension: only the hold-triggered recognisers stand down,
+  that press-level suspension: only the hold-triggered recognizers stand down,
   never the tap ones. An ordinary swipe scrolls and never lifts a block.
   Verified on the simulator 2026-09-01 and on an Android device 2026-09-01. →
   apps/ios/Sources/Editor/EditorWebView.swift `delayedTextInteractionGestures`,
@@ -81,7 +83,7 @@
   it used to win a sideways block move: the editor started sliding away, and the
   page never heard the touch end, which left the block stuck in its lifted state
   with no finger on it. The airborne suspension therefore also disables the
-  interactive pop recognisers (the leading-edge swipe and the full-width content
+  interactive pop recognizers (the leading-edge swipe and the full-width content
   swipe) and restores them when the gesture resolves. Android needs nothing
   extra: its back gesture only starts at the screen edge, so a drag that began
   mid-screen is never taken for one, even when the lifted block is carried to

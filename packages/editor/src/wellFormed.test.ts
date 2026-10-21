@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { hasLoneSurrogate, toWellFormedDeep, toWellFormedText } from './wellFormed';
+import { toWellFormedDeep, toWellFormedText } from './wellFormed';
 
 const HIGH = '\ud83d';
 const LOW = '\ude00';
@@ -63,8 +63,6 @@ describe.each([
     setup();
     const text = `plain ${EMOJI} text\n`;
     expect(toWellFormedText(text)).toBe(text);
-    expect(hasLoneSurrogate(text)).toBe(false);
-    expect(hasLoneSurrogate(`a${HIGH}`)).toBe(true);
   });
 
   it('is linear on a large document with many surrogates', () => {

@@ -69,7 +69,7 @@
   the new root with no re-upload — provided the move carries the dotfiles.
   Android storage migration synchronously closes a session-operation gate, then
   drains credential restore/heal, connect, manual sync, and live-resume work
-  before gracefully cancelling and joining the live task and awaiting the Rust
+  before gracefully canceling and joining the live task and awaiting the Rust
   session's cycle gate. It never aborts an in-flight cycle before that cycle
   installs its advanced in-memory/checkpoint state. It then takes the store's
   exclusive vault gate, so sync/editor/store/image writes cannot race the staged

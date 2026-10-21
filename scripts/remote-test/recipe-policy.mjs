@@ -20,7 +20,7 @@ const REASONS = {
 
 // Matched against the recipe name AFTER justfile alias resolution, so
 // `node scripts/remote-test.mjs in` (alias for ios-native) is refused too.
-export const REFUSED = [
+const REFUSED = [
   // Xcode / iOS simulator / Swift toolchain.
   ['build-rust-ios', 'macos'],
   ['build-ios-native', 'macos'],
@@ -54,7 +54,7 @@ export const REFUSED = [
 // of which touch a real web engine, so a Linux `check` is equivalent to a macOS
 // one. `prepush` IS here, because it adds the full Playwright suite and
 // cross-platform sync (both of which boot a browser engine) on top of `check`.
-export const CAVEATED = [
+const CAVEATED = [
   [
     /^(test-e2e|test-e2e-rest)$/,
     'Playwright here runs Linux Chromium/WebKit builds. Behavior and state are equivalent; ' +
@@ -71,7 +71,7 @@ export const CAVEATED = [
     'prepush',
     'the maximal gate, minus everything only a Mac can see: no iOS build/tests, no swift-format, ' +
       'and its Playwright + cross-platform legs run on WebKitGTK, not WKWebView. A green remote ' +
-      'prepush is NOT a licence to skip the Mac.',
+      'prepush is NOT a license to skip the Mac.',
   ],
   [
     /^(test-cross-platform|prepush)$/,

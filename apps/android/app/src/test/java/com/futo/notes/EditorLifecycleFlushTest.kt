@@ -23,8 +23,8 @@ import com.futo.notes.ui.EditorMailbox
  * than by ~7 hand-synced set/clear sites.
  *
  * These pin the extracted, FFI-free register ([PendingEditorDraft]) — the only
- * piece testable without a device (apps/android ships JUnit only, and the
- * FFI-backed NotesStore can't be constructed in a JVM test). The AnimatedContent
+ * piece testable in a JVM unit test (the FFI-backed NotesStore can't be
+ * constructed there). The AnimatedContent
  * cross-fade overlap timing and the on-disk conditional write are covered by
  * device QA.
  */
@@ -407,7 +407,7 @@ class EditorLifecycleFlushTest {
         assertEquals(listOf(PendingDraft("todo", "v0", "v0 AB")), rec.writes)
     }
 
-    /** A wait that fails or is cancelled still lets the register flush as the editor last reported; a busy editor's answer of "unknown" leaves the draft as it was. */
+    /** A wait that fails or is canceled still lets the register flush as the editor last reported; a busy editor's answer of "unknown" leaves the draft as it was. */
     @Test
     fun aWaitThatCannotAnswerFlushesTheDraftAsReported() = runBlocking {
         val rec = Recorder()

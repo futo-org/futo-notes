@@ -11,7 +11,7 @@ requires the IAP to be prominent, because the key field is not a purchase option
 other way to buy. In the US there is one new limit. The Ninth Circuit (2025-12-11) let Apple stop
 a developer's web button from being *more* prominent than Apple's IAP button. Apple's guideline
 text does not use that power yet, so the US website button and the IAP button should be equal
-weight. "Website filled, IAP as a grey row" is the one layout I would not ship. Overall risk:
+weight. "Website filled, IAP as a gray row" is the one layout I would not ship. Overall risk:
 **low outside the US, low-medium in the US.**
 
 - [1. Must the IAP be equally prominent, on the same screen, or "alongside"?](buried-iap/1-iap-prominence.md)

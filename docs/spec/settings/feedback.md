@@ -11,7 +11,7 @@ replaced the "Report an issue" link to the GitHub issue tracker.
 - Screenshots are capped at **5 MB each**. A picked image is re-encoded once as
   **JPEG q95** when it is over the cap or is not a PNG/JPEG/WebP, and rejected
   with a message if it is still too large; each shell uses its own OS codec. The
-  vault-insert path stays byte-faithful — feedback normalisation never touches a
+  vault-insert path stays byte-faithful — feedback normalization never touches a
   note's own image.
   → `normalizeImage.ts`, `FeedbackImages.swift`, `FeedbackImages.kt`
 - Sends **only** the app version, platform, OS version, device model and what the

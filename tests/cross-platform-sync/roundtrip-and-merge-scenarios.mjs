@@ -37,8 +37,8 @@ export async function editorRoundtripThroughRealSync(a, b, server) {
   // re-serializes the whole note on a real edit, so composed markdown reaches
   // the editor buffer and the file in its serialized spelling: a blank line
   // between blocks and one trailing newline (ADR-0002 normalize-once,
-  // docs/spec/editor.md "WYSIWYG rendering"). Typing source and asserting the
-  // same bytes back was the CodeMirror editor's byte passthrough.
+  // docs/spec/editor.md "WYSIWYG rendering"), so the bytes asserted back are
+  // not the bytes typed.
   const typed = '# Written in Milkdown\nThis note should sync through the real save pipeline.';
   const body = '# Written in Milkdown\n\nThis note should sync through the real save pipeline.\n';
 

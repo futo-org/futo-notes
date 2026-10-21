@@ -9,9 +9,7 @@
  * conformance-locked rule the tag bar and the note index use, painted onto the
  * ranges it matches.
  *
- * What it deliberately does NOT do is hide the leading header tag block the way
- * the CodeMirror editor does. In CodeMirror the hidden line is still reachable,
- * because cursor motion there runs over the document rather than the DOM; a
+ * What it deliberately does NOT do is hide the leading header tag block: a
  * ProseMirror node rendered `display: none` cannot be reached by caret or click
  * at all, so hiding it would leave the note's tags unreadable AND uneditable —
  * and on the native shells, which have no tag bar, that is the only place they

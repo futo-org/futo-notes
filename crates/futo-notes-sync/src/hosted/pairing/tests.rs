@@ -6,6 +6,37 @@ fn payload(json: &str) -> Result<PairingRequest, HostedError> {
         .complete_pairing(json)
 }
 
+/// The same revocation, for the pairing wait: the code stays on screen for
+/// up to five minutes, and every poll in that time carries the session.
+#[tokio::test]
+async fn a_root_removed_during_the_pairing_wait_fails_the_next_poll() {
+    let rig = super::super::tests::revocable_trust(202, "").await;
+    *rig.setup.pairing.lock().unwrap() = Some(PendingPairing {
+        id: "pairing-1".into(),
+        keys: PairingKeyPair::generate(),
+        deadline: Instant::now() + Duration::from_secs(3),
+    });
+
+    let wait = rig.setup.await_pairing();
+    let revoke = async {
+        super::super::tests::until_requests(&rig.requests, 2).await;
+        (rig.revoke)();
+        rig.requests.lock().unwrap().len()
+    };
+    let (outcome, sent_before_revocation) = tokio::join!(wait, revoke);
+
+    let error = outcome.expect_err("the wait must end on the untrusted certificate");
+    assert!(
+        matches!(&error, HostedError::Network(message) if crate::tls::test_support::is_certificate_rejection(message)),
+        "expected a certificate rejection, got: {error:?}"
+    );
+    assert_eq!(
+        rig.requests.lock().unwrap().len(),
+        sent_before_revocation,
+        "a poll was sent after the root was removed"
+    );
+}
+
 fn a_valid_code() -> String {
     serde_json::to_string(&Payload {
         futo_notes_pairing: PAYLOAD_VERSION,

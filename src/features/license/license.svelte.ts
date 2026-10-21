@@ -137,7 +137,7 @@ class LicenseModel {
     }
   }
 
-  /// Recognise, activate if needed, verify and store — one Rust call.
+  /// Recognize, activate if needed, verify and store — one Rust call.
   /// Answers whether the license was accepted, so the field can close itself.
   async enterKey(input: string): Promise<boolean> {
     if (this.busy) return false;

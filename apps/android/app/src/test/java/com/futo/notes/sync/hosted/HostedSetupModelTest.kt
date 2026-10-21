@@ -92,12 +92,7 @@ class HostedSetupModelTest {
 
     @Test
     fun `the step is read from the state machine, never remembered here`() = runBlocking {
-        val setup = StandInSetup().apply {
-            signedIn = true
-            entitled = true
-            vaultHasKeyMaterial = true
-            deviceHoldsKey = true
-        }
+        val setup = unlockedSetup()
 
         val wizard = model(setup)
         wizard.load()
@@ -213,12 +208,7 @@ class HostedSetupModelTest {
 
     @Test
     fun `Manage subscription opens a portal URL minted for that press`() = runBlocking {
-        val setup = StandInSetup().apply {
-            signedIn = true
-            entitled = true
-            vaultHasKeyMaterial = true
-            deviceHoldsKey = true
-        }
+        val setup = unlockedSetup()
         val shell = StandInShell()
         val wizard = model(setup, shell)
 
@@ -281,12 +271,7 @@ class HostedSetupModelTest {
 
     @Test
     fun `a full vault raises Vault is full`() = runBlocking {
-        val setup = StandInSetup().apply {
-            signedIn = true
-            vaultHasKeyMaterial = true
-            deviceHoldsKey = true
-            entitled = true
-        }
+        val setup = unlockedSetup()
         setup.usedBytes = setup.quotaBytes
         val wizard = model(setup)
 
@@ -329,12 +314,7 @@ class HostedSetupModelTest {
 
     @Test
     fun `a refused cycle raises the banner with a healthy billing reading`() = runBlocking {
-        val setup = StandInSetup().apply {
-            signedIn = true
-            vaultHasKeyMaterial = true
-            deviceHoldsKey = true
-            entitled = true
-        }
+        val setup = unlockedSetup()
         val wizard = model(setup)
 
         wizard.load()
@@ -349,12 +329,7 @@ class HostedSetupModelTest {
 
     @Test
     fun `Sync paused wins over a full vault whichever input says so`() = runBlocking {
-        val full = StandInSetup().apply {
-            signedIn = true
-            vaultHasKeyMaterial = true
-            deviceHoldsKey = true
-            entitled = true
-        }
+        val full = unlockedSetup()
         full.usedBytes = full.quotaBytes
         val onFullVault = model(full)
         onFullVault.load()
@@ -379,12 +354,7 @@ class HostedSetupModelTest {
 
     @Test
     fun `a cycle that was not refused leaves the billing reading in charge`() = runBlocking {
-        val setup = StandInSetup().apply {
-            signedIn = true
-            vaultHasKeyMaterial = true
-            deviceHoldsKey = true
-            entitled = true
-        }
+        val setup = unlockedSetup()
         val wizard = model(setup)
 
         wizard.load()

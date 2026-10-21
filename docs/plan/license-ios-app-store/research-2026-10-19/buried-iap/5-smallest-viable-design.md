@@ -50,7 +50,7 @@ default is to keep "included with a license" outside the US.
   - a non-consumable product with Family Sharing **off** and a review screenshot;
   - review notes giving the path to the purchase and explaining the key field under 3.1.3(b).
 - **Docs:**
-  - ADR-0003's "no IAP" clause is reversed for iOS.
+  - ADR-0010's "no IAP" clause is reversed for iOS.
   - ADR-0007's routing is revived for iOS, without its offline-proof design and without
     ADR-0008's redemption: StoreKit verifies on the device and no key is minted.
   - `docs/spec/license.md`: the US "only filled button" rule (~616), the key-only lines (~175–183,

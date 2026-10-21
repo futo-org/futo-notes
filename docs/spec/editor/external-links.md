@@ -15,7 +15,7 @@
   are allowed only for the bundled `editor.html` itself (exact standardized-path
   match — any other `file://` URL is denied, since `loadFileURL` grants read
   access to the whole bundle resources directory) and the `about:blank`
-  missing-bundle fallback; `http/https/mailto/tel` navigations are cancelled and
+  missing-bundle fallback; `http/https/mailto/tel` navigations are canceled and
   routed through the same scheme-guarded external open as the `openUrl` bridge
   case; every other scheme (including `javascript:`/`data:`) is denied, so a
   programmatic top-level navigation can never replace the editor. Policy is a

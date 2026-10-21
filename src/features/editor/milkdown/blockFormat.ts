@@ -1,5 +1,4 @@
 import type { ResolvedPos } from '@milkdown/kit/prose/model';
-import { EditorState } from '@milkdown/kit/prose/state';
 
 /**
  * The block kinds a single line can be, plus
@@ -72,9 +71,4 @@ export function blockFormatAtPos(at: ResolvedPos): BlockFormat {
   }
 
   return ancestorDepth(at, 'blockquote') > 0 ? { kind: 'quote' } : { kind: 'none' };
-}
-
-/** The block kind at the selection head. */
-export function blockFormatAt(state: EditorState): BlockFormat {
-  return blockFormatAtPos(state.selection.$from);
 }

@@ -88,7 +88,7 @@ gutterHandleTest(
  * left the whole block selected, and ProseMirror hands that selection to the
  * browser as a native range over the block's text, so it painted as highlighted
  * text. Reported: "sometimes when I use it, text or other items get selected".
- * The handle's mousedown is now cancelled before the plugin sees it (the drag is
+ * The handle's mousedown is now canceled before the plugin sees it (the drag is
  * pointer-driven), so the user's own selection is never touched, and is carried
  * along with the block when it was inside the one that moved. */
 
@@ -179,7 +179,7 @@ gutterHandleTest(
 );
 
 /* The handle is a mouse target: big enough to hit without aiming, and beside
- * the line a block STARTS on — floating-ui centred it on the whole block, which
+ * the line a block STARTS on — floating-ui centered it on the whole block, which
  * put it halfway down a long paragraph. */
 gutterHandleTest('the ⠿ handle is a comfortable target on the first line', async ({ page }) => {
   const long = 'wrapping words '.repeat(60).trim();

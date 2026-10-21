@@ -44,7 +44,7 @@ export async function homeFromAStreamingEditedNote() {
 
   await device.waitFor(
     'the typed marker to reach the note before the app is suspended',
-    // Case-blind: the keyboard capitalises the first letter typed at the start
+    // Case-blind: the keyboard capitalizes the first letter typed at the start
     // of a line when the simulator has just been rebooted.
     () => device.readNote(BACKGROUND_NOTE).toLowerCase().includes(BACKGROUND_MARKER),
     {

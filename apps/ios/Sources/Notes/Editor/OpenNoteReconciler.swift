@@ -171,8 +171,8 @@ final class OpenNoteReconciler {
             }
 
             await effects.cancelAndDrainSave()
-            // From here on this pass has cancelled the debounced save. A pass
-            // cancelled before its verdict (an exit or the move picker cancels
+            // From here on this pass has canceled the debounced save. A pass
+            // canceled before its verdict (an exit or the move picker cancels
             // .adopt) re-arms it, or a draft typed before the pass waits for
             // the next keystroke to be saved.
             guard !Task.isCancelled else { return cancelled(effects) }

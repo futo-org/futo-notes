@@ -48,11 +48,6 @@ export function toWellFormedText(text: string): string {
   return scanWellFormed(text);
 }
 
-/** Does `text` hold an unpaired surrogate? */
-export function hasLoneSurrogate(text: string): boolean {
-  return toWellFormedText(text) !== text;
-}
-
 /**
  * `value` with every string in it, keys included, made well-formed. The same
  * object comes back when nothing needed changing, so a payload that was already

@@ -4,7 +4,7 @@
 > structured decision session (2026-08-27/28); the evidence behind each one is cited inline. This
 > doc is the execution source of truth for the transition. Contract context: ADR-0002 (round-trip
 > normalization accepted, tiers 1–2 stand), `docs/plan/crdt-sync-and-sharing.md` (CRDT substrate; replaces the old ADR-0003). The rich-text bake-off
-> (`docs/plan/rich-text-editor-bakeoff.md`) was scored against the now-superseded Tier-3 contract —
+> (commit 6d3c50b0; the doc was since removed) was scored against the now-superseded Tier-3 contract —
 > its measurements remain valid evidence; its verdicts do not bind this work.
 
 - [1. The decision ledger](milkdown-transition/1-the-decision-ledger.md)

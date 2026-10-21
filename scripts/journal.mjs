@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Query the desktop instance journal (docs/plan/agentic-first.md §3.3).
+// Query the desktop instance journal (see crates/futo-notes-sync/src/journal.rs).
 //
 // The journal is JSONL written by futo_notes_core::journal — one event per
 // line, `{"v","ts","type","data"}` — under the app data dir, never inside a

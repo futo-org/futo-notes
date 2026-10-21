@@ -11,10 +11,10 @@
   tests/editor-embed-milkdown-toolbar.spec.ts
 - Undo and Redo are the FIRST two items, ahead of every formatting control,
   and run prosemirror-history's own commands — never a hand-rolled stack.
-  Each greys out and stops accepting taps exactly when its stack is empty (no
+  Each grays out and stops accepting taps exactly when its stack is empty (no
   visual-only disable): the editor reports this in `formatState`'s `disabled`
   field, on the same triggers and with the same dedupe as the active-format
-  set, and all three toolbar surfaces (iOS, Android, the embed fallback) grey
+  set, and all three toolbar surfaces (iOS, Android, the embed fallback) gray
   the button AND refuse the tap. Verified emulator 2026-09-11 (`enabled=false`
   on the platform semantics node, not just a dimmed icon). →
   packages/editor/src/bridge.ts `FormatStateMessage.disabled`,
@@ -48,7 +48,7 @@
 - **An open Link URL prompt belongs to the note it opened on.** It holds that
   note's document positions, and the editor is reused across notes, so opening
   a different note (or tearing the editor down) cancels it and leaves both
-  notes untouched. A click outside already cancelled it; a KEYBOARD note switch
+  notes untouched. A click outside already canceled it; a KEYBOARD note switch
   moves no focus and fires no pointer event, so without this the next submit
   wrote a link — or rewrote link marks over an unrelated range — in a note the
   user never opened the prompt on. The desktop selection toolbar's own inline

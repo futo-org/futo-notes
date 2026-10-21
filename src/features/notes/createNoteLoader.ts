@@ -1,4 +1,5 @@
 import { hasFileSystem } from '$lib/platform';
+import { idLeaf } from '$lib/platform/pathSafety';
 import { sanitizeFilename } from '$lib/rules';
 import { markNoteSwitch } from '$shared/perf/noteSwitchTimeline';
 import type { NotePreview } from '$shared/types/note';
@@ -172,9 +173,7 @@ export function createNoteLoader(options: CreateNoteLoaderOptions) {
     try {
       if ('error' in read) throw read.error;
       const loadedContent = read.content;
-      const slash = id.lastIndexOf('/');
-      const fallbackTitle = slash === -1 ? id : id.slice(slash + 1);
-      const title = getNoteById(id)?.title || fallbackTitle;
+      const title = getNoteById(id)?.title || idLeaf(id);
       options.patchState({
         title,
         content: loadedContent,

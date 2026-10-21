@@ -32,20 +32,6 @@ one catalog entry, `license.enterKey`, so all three shells moved together
   false failure. →
   `apps/ios/Sources/License/LicenseSettingsSection.swift`,
   `apps/android/app/src/main/java/com/futo/notes/ui/LicenseSettingsSection.kt`
-- **Term** is blank with no license: "Perpetual" there would be a claim the app
-  cannot make. It is "Perpetual" when `expires_at` is null **and** for a v1
-  activation, which is perpetual by format rather than by guess; "Valid until
-  {date}" while a v2 expiry is still in the future; "Expired {date}" once it has
-  passed. → `licenseCopy.test.ts` "reads a license with no expiry as Perpetual",
-  _(ios)_ `LicenseCopyTests`, _(android)_ `LicenseCopyTest`
-- **With no `issued_at` — a v1 activation — the "Licensed since" row is present
-  and blank.** There is no dateless variant of the line, no placeholder date,
-  and the activation-fetch time is never used as a stand-in. Production mints v1
-  today, so a blank "Licensed since" row is what a real buyer sees: the coin,
-  the key and the "Perpetual" term carry the state on their own. Observed on the
-  simulator 2026-09-16. → `licenseCopy.test.ts` "leaves the since row blank for
-  a v1 license and calls the term perpetual"; _(ios)_ `LicenseCopyTests`;
-  _(android)_ `LicenseCopyTest`
 - **The card shows the stored key masked to its last group** — every character
   before that group replaced by a middle dot, its hyphens left where they are
   (`··-····-····-····-····-····-····-····-RS78` for a key carrying an org

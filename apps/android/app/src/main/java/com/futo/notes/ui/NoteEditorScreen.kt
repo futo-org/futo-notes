@@ -184,7 +184,7 @@ fun NoteEditorScreen(
             .firstOrNull { it.kind != "empty" && it.kind != "forbidden_chars" }
         val dup = title.trim().let { t ->
             t.isNotEmpty() && makeId(splitId(noteId).folder, sanitizeTitle(t)).let { tgt ->
-                tgt != noteId && store.notes.any { it.id == tgt }
+                collidesWithOtherNote(noteId, tgt, store.notes.map { it.id })
             }
         }
         titleWarning = blocking?.let { titleValidationMessage(it.kind) }
@@ -1175,7 +1175,7 @@ fun NoteEditorScreen(
             // exactly like iOS's inputAccessoryView rather than tracking focus
             // alone (the two can legitimately differ — a hardware keyboard, or
             // the frame in which the IME is still animating). Exec items dispatch
-            // into the SHARED TOOLBAR_EXEC commands — no editing logic in
+            // into the SHARED toolbar exec commands (toolbarExec.ts) — no editing logic in
             // Kotlin — and `activeFormats` (bridge `formatState`) tints the
             // buttons that cover the caret.
             if (host.editorFocused && WindowInsets.isImeVisible) {

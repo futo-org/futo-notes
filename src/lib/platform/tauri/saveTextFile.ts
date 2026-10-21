@@ -19,7 +19,7 @@ export interface SaveTextFileRequest {
 }
 
 /**
- * Returns `true` when a file was written, `false` when the person cancelled.
+ * Returns `true` when a file was written, `false` when the person canceled.
  * A cancel is an outcome, not a failure; anything else throws.
  */
 export async function saveTextFile(request: SaveTextFileRequest): Promise<boolean> {

@@ -33,7 +33,7 @@ pages and secondary summaries, so confirm in Play Console before deciding):
   as IAP, plus disclosure sheet, monthly reporting, self-remitted tax, parental gate rules, and in
   Japan an IAP twin anyway. (b) StoreKit IAP. **Recommend (b).**
 - **D-C, US iOS and guideline 3.1.3(b).** The US storefront shows Buy to the website, as decided.
-  Guideline 3.1.3(b) legitimises a key field because the thing is "also available as in-app
+  Guideline 3.1.3(b) legitimizes a key field because the thing is "also available as in-app
   purchase"; in the US the argument rests on 3.1.1(a) instead. Keep the StoreKit product, Restore
   Purchases and the verifier live in the US build (they are the same binary). If App Review
   objects, the fallback is a secondary "Buy in the App Store" button in the US, not a rewrite.

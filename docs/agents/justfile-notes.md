@@ -61,16 +61,6 @@ drags whoever is typing to another space (parallel QA sessions on one Mac). Pass
 when a human needs to watch, or when measuring anything that awaits a frame — an occluded
 window has its rendering suspended.
 
-## sim-logs
-
-The app logs mostly via `print()`, which `os_log` does NOT capture. For stdout, relaunch
-with `xcrun simctl launch --console-pty booted com.futo.notes.dev`.
-
-## emu-boot
-
-Waits for the package service too, not just `boot_completed`: the property flips first,
-and an `adb install` issued in that window fails with `cmd: Can't find service: package`.
-
 ## cdp-forward
 
 Debug builds only; re-run after every app restart (the WebView pid changes). `adb forward`
@@ -131,7 +121,7 @@ equivalence claim over the same corpus/harness: the save path's per-block cache
 (`createDocumentSerializer`, serializationLoop.ts) must match the editor's serializer writing
 the whole document. A serializer that throws counts as a failure, never as a match.
 
-## check-node-modules / _require-install / _require-node-modules
+## check-node-modules
 
 A fresh worktree has no `node_modules`, and the first JS recipe `check` reaches dies with
 `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL Command "tsx" not found` — an error that names a
@@ -139,10 +129,10 @@ binary, not the missing install (pc_40406aa84bc1). Not an auto-install: `check` 
 and installing behind your back changes what it just verified. `check` deliberately does
 NOT depend on `editor-deps`, even though every other recipe `editor-deps` guards does:
 `editor-deps` self-installs (`pnpm install`) on a missing/stale `node_modules`, which is
-exactly the behind-your-back mutation this forbids for a gate. All three guards only
-refuse and tell you the command; they never run it for you. Three independent fixes for
-this same papercut landed on parallel MR stacks (mr-298, mr-318, mr-320) — kept all three
-rather than dropping any.
+exactly the behind-your-back mutation this forbids for a gate. The guard only
+refuses and tells you the command; it never runs it for you. Three independent fixes for
+this same papercut once landed on parallel MR stacks (mr-298, mr-318, mr-320); the
+duplicates were later collapsed, so `check-node-modules` is now the one guard on `check`.
 
 `check-node-modules` (scripts/check-node-modules.mjs) also guards RC-69: for every entry in
 `patchedDependencies` it verifies the patch is APPLIED in every installed copy the app
@@ -152,7 +142,7 @@ link). An INCREMENTAL `pnpm install` over an existing `node_modules` can link a
 a patch file is extended, so a dev or agent checkout silently runs unpatched code; CI installs
 fresh and never sees it. It is a pure-JS, read-only check (each hunk's post-image must be present
 in the installed file, the question `git apply --check --reverse` answers, without needing git or
-`patch`), ~50 ms. It runs from `check` (so `prepush` and the pre-push hook) and after `just install`.
+`patch`), ~50 ms. It runs from `check` (so `prepush`) and after `just install`; the pre-push hook that once ran it was removed in 72096a0b.
 Recovery it prints: `rm -rf node_modules && pnpm install`.
 
 ## release-notes-check

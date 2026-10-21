@@ -21,10 +21,8 @@ import {
 /**
  * futoBridge contract, Milkdown engine — executable.
  *
- * A bare `editor.html` mounts the Milkdown (ProseMirror) WYSIWYG editor while
- * the transition is in flight (docs/plan/milkdown-transition.md); `?cm` selects
- * the shipping CodeMirror editor, whose own contract lives in
- * `editor-embed-bridge.spec.ts`.
+ * `editor.html` mounts the Milkdown (ProseMirror) WYSIWYG editor both native
+ * shells ship; this file is its bridge contract.
  *
  * SCOPE: the ENGINE-INDEPENDENT half of the bridge contract plus the two
  * invariants that are specific to a normalizing editor, both of them data
@@ -37,32 +35,30 @@ import {
  *      `resetHistory()` on every open, and a Milkdown undo stack that survived
  *      it would write the PREVIOUS note's text into the current note's file.
  *
- * Plus the two surfaces the Milkdown work added to the bridge: `formatState`
- * (native toolbar highlighting) and `haptic` (the iOS long-press block drag).
+ * Plus `formatState` (native toolbar highlighting), a surface the Milkdown work
+ * added to the bridge. The other, `haptic`, belongs to the block drag
+ * (`editor-embed-milkdown-gutter-handle*`, `-long-press*`, `-drag-*`); opening a
+ * large note progressively is `editor-embed-milkdown-progressive-open*.spec.ts`.
  *
  * Plus images (#103): vault-relative rendering and clipboard paste, which one
  * bundle settles for all three shells.
  *
- * NOT here, deliberately: toolbar command parity (#104). That is an open parity
- * ticket with its own acceptance criteria — the transition plan's §4 bucket 1 —
- * and writing failing assertions for it here would just be a second copy of the
- * backlog. Wikilinks (#101) and tags/task checkboxes/fence highlighting (#102)
- * have landed and have their own files,
+ * NOT here: toolbar command parity (#104), wikilinks (#101) and tags/task
+ * checkboxes/fence highlighting (#102) have their own files,
+ * `editor-embed-milkdown-toolbar.spec.ts`,
  * `editor-embed-milkdown-wikilinks.spec.ts` and
  * `editor-embed-milkdown-parity.spec.ts`.
  *
- * Real user input only: Playwright keyboard/mouse, and CDP `Input.dispatch-
- * TouchEvent` for the long-press drag (a genuine browser touch stream, not DOM
- * `dispatchEvent` — AGENTS.md M21).
+ * Real user input only: Playwright keyboard/mouse, not DOM `dispatchEvent`
+ * (AGENTS.md M21).
  *
  * The ONE exception is clipboard image paste, and it is a limit of the tool, not
  * a shortcut: nothing in Playwright or CDP can put an image on the OS clipboard,
  * so `Ctrl+V` has nothing to paste. A dispatched `ClipboardEvent` carrying a
  * real `DataTransfer` is as close to the real thing as this harness reaches, and
  * it still goes through ProseMirror's own paste handling rather than calling the
- * editor's handler directly. The CodeMirror suite has the same limit for the
- * same reason. What it therefore cannot prove is that a given WebView exposes
- * the bitmap on the event at all — that is what the `pasteClipboardImage`
+ * editor's handler directly. What it therefore cannot prove is that a given
+ * WebView exposes the bitmap on the event at all — that is what the `pasteClipboardImage`
  * fallback exists for, and it is a device check.
  *
  * The suite is split by surface: this file holds the handshake, content in and

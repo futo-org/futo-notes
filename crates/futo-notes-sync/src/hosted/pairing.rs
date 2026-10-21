@@ -260,7 +260,6 @@ impl HostedSetup {
             let pending = pending.as_ref().ok_or(HostedError::PairingNotStarted)?;
             (pending.id.clone(), pending.keys.secret, pending.deadline)
         };
-        let http = self.authorized().await?;
         // The wait never outlives what it is waiting on: the relay stops
         // serving this pairing at its own five-minute mark.
         let schedule = PollSchedule {
@@ -270,7 +269,10 @@ impl HostedSetup {
 
         let waited = self
             .wait(schedule, || async {
-                match http.collect_pairing(&id).await? {
+                // Per poll, not per wait: `authorized` is where the TLS trust
+                // is re-checked, so a root removed while the code is on screen
+                // ends the wait instead of vouching for the rest of it.
+                match self.authorized().await?.collect_pairing(&id).await? {
                     crate::server::PairingPoll::Pending => Ok(None),
                     crate::server::PairingPoll::Delivered(ciphertext) => Ok(Some(ciphertext)),
                     // Unknown, expired, already collected, or another

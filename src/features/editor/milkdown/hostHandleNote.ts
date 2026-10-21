@@ -122,9 +122,7 @@ export function createNoteCommands(
    * note switch replays the PREVIOUS note's steps into this document, and the
    * save that follows writes them to THIS note's file. See `resetHistory`.
    *
-   * There is no per-note undo stash: the CodeMirror
-   * editor kept one (`noteHistory.ts`, keyed by note id) and this engine does
-   * not.
+   * There is no per-note undo stash.
    */
   function openNote(noteId: string | null, text: string): void {
     setContent(noteId ?? '', text);

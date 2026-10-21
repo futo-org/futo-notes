@@ -47,7 +47,7 @@ class EditorSessionNavigationTest {
 
     /**
      * The commit outlives the screen. The screen's composition scope is
-     * cancelled when the pop animation ends; a commit still waiting on the
+     * canceled when the pop animation ends; a commit still waiting on the
      * editor or the disk then must keep going on the scope it was handed.
      */
     @Test

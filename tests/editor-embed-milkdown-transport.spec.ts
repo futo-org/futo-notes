@@ -17,10 +17,8 @@ import { test, hostConfig, initialize } from './lib/editorEmbedMilkdown';
 // ============================================================
 // Transport, host config and theming
 //
-// Engine-independent halves of the bridge contract, moved here verbatim when
-// `editor-embed-bridge.spec.ts` (the CodeMirror engine's copy) was deleted at
-// the swap. They assert `bridge.ts`'s wiring, not any editor's behaviour, and
-// were the only place that asserted it.
+// Engine-independent halves of the bridge contract. They assert `bridge.ts`'s
+// wiring, not any editor's behavior, and are the only place that asserts it.
 // ============================================================
 
 test('prefers the iOS webkit transport when both hosts are present', async ({ browser }) => {

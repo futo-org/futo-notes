@@ -77,14 +77,22 @@ test('an edit to a note that ends in a list adds no trailing blank line', async 
 test('a table pasted as plain text is written the way an opened one is', async ({ page }) => {
   // A paste goes through the DOM, where the gfm preset read a cell with no
   // alignment back as `left`: the pasted table saved `| :- |`, the same table
-  // opened and edited saved `| -- |` (RC-59).
-  await hostSetContent(page, 'one\n');
-  await focusEditor(page);
-  await page.keyboard.press('Control+End');
-  await pasteClipboard(page, { 'text/plain': '| a | b |\n| --- | --- |\n| 1 | 2 |\n' });
-  await settleChangeDebounce(page);
+  // opened and edited saved `| -- |` (RC-59). Into an empty note the paste
+  // takes the empty line: Milkdown's plain-text route used to keep it, saving a
+  // blank line above the table.
+  const table = '| a | b |\n| --- | --- |\n| 1 | 2 |\n';
+  for (const [note, expected] of [
+    ['one\n', `one\n\n${table}`],
+    ['', table],
+  ] as const) {
+    await hostSetContent(page, note);
+    await focusEditor(page);
+    await page.keyboard.press('Control+End');
+    await pasteClipboard(page, { 'text/plain': table });
+    await settleChangeDebounce(page);
 
-  expect(await getContent(page)).toBe('one\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n');
+    expect(await getContent(page)).toBe(expected);
+  }
 });
 
 test('applyExternalContent adopts differing content without a change echo', async ({ page }) => {

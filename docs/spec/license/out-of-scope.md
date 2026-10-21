@@ -7,7 +7,7 @@
 
 > **Gap:** License sync — the license is entered per device. Carrying it in the
 > E2EE sync payload so one entry licenses every synced device is **deferred**
-> (plan M6, decision D28 2026-10-16), not cancelled. It touches the sync payload
+> (plan M6, decision D28 2026-10-16), not canceled. It touches the sync payload
 > (AGENTS.md §11.6) and must be its own change. Until then a license reaches
 > another device by entering the key the card reveals (or the deep link) on that
 > device.
@@ -67,7 +67,7 @@ relaunching confirmed the state persisted. → 49-shot ledger in
 > none). Polar webhooks to staging FUTOpay were also rejected 403 `Invalid
 webhook signature` the whole time (`polar_sdk._webhooks.validate_event`
 > base64-encodes the secret before HMAC; a Standard-Webhooks signature decodes it
-> first), so the webhook fulfilment path was dead too. None of that reproduced on
+> first), so the webhook fulfillment path was dead too. None of that reproduced on
 > 2026-09-15's purchase — this is one verified success, not proof either fault is
 > permanently fixed on Polar's side; re-verify if purchases start failing again.
 >

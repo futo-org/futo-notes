@@ -145,7 +145,7 @@ struct ScanAnotherDeviceView: View {
     }
 
     /// The scanned device, as the confirmation names it: its self-reported name
-    /// verbatim, and its platform in words. An unrecognised platform is shown
+    /// verbatim, and its platform in words. An unrecognized platform is shown
     /// as it came rather than as a missing catalog path.
     private func describe(_ scanned: any ScannedPairing) -> String {
         let platform =

@@ -16,7 +16,7 @@ import { $node } from '@milkdown/kit/utils';
  * spellings, and an alignment nobody chose.
  *
  * The cell's DOM keeps the same `text-align: left` it always had (a header
- * cell is centred by default, so dropping the style would move it), and a
+ * cell is centered by default, so dropping the style would move it), and a
  * cell with no alignment is marked `data-align-unset`. On the way back in that
  * mark — or no inline `text-align` at all, which is what a table copied from
  * another app has — reads as `null`. An explicit `left`, `center` or `right`

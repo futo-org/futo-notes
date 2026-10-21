@@ -11,14 +11,6 @@ pub fn now_ms() -> i64 {
         .unwrap_or_default()
 }
 
-pub fn mtime_or_now(modified_at: i64) -> i64 {
-    if modified_at > 0 {
-        modified_at
-    } else {
-        now_ms()
-    }
-}
-
 pub fn file_mtime_ms(metadata: &fs::Metadata) -> i64 {
     metadata
         .modified()
@@ -50,12 +42,5 @@ mod tests {
         set_file_mtime_ms(&path, 1_700_000_123_000).unwrap();
         let actual = file_mtime_ms(&fs::metadata(path).unwrap());
         assert!((actual - 1_700_000_123_000).abs() < 2_000);
-    }
-
-    #[test]
-    fn mtime_fallback_preserves_positive_values_and_replaces_nonpositive_values() {
-        assert_eq!(mtime_or_now(1_700_000_123_000), 1_700_000_123_000);
-        assert!(mtime_or_now(0) > 0);
-        assert!(mtime_or_now(-1) > 0);
     }
 }

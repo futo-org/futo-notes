@@ -160,7 +160,7 @@ export async function unportableNameNeverSyncsAndIsLeftAlone(a, b, server) {
     `B must record no sync failure for an unportable name, got ${JSON.stringify(bFailures)}`,
   );
 
-  // The control note proves the cycle ran and was not aborted by its neighbour.
+  // The control note proves the cycle ran and was not aborted by its neighbor.
   assert(
     await b.noteExists('portable control'),
     'B should have the control note — the unportable name must not break the cycle',
@@ -209,7 +209,7 @@ export async function overdeepLocalPathIsReportedBeforeUpload(a, b, server) {
     `sender must report the path peers reject: ${JSON.stringify(failures)}`,
   );
   const received = await b.syncNow();
-  assert(await b.noteExists('portable control'), 'a valid neighbour must still sync');
+  assert(await b.noteExists('portable control'), 'a valid neighbor must still sync');
   assert(!(await b.noteExists(overdeep)), 'the rejected path must never reach a peer');
   assert(
     !received?.summary?.failures?.length,

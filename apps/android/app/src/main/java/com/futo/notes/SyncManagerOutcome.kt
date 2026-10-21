@@ -92,7 +92,7 @@ internal fun SyncManager.healSession(fallbackMessage: String) {
             }
         } finally {
             // Also release when migration began before this queued heal
-            // acquired the operation gate, or when the task is cancelled.
+            // acquired the operation gate, or when the task is canceled.
             healing = false
         }
     }

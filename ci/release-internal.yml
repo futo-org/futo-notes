@@ -2,7 +2,7 @@
 
 # ─────────────────────────────────────────────────────────────
 # Internal release — hosted-enabled Android + desktop builds, prerelease
-# tags only (D2, taken — docs/plan/hosted-sync-to-staging.md, ticket C8)
+# tags only (D2, taken — hosted-sync staging plan, ticket C8)
 # ─────────────────────────────────────────────────────────────
 # Distribution for the hosted-enabled builds that already exist and go
 # nowhere: build:android-native turns hosted sync on for a prerelease tag

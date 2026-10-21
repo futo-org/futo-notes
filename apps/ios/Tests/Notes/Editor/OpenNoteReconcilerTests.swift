@@ -91,7 +91,7 @@ struct OpenNoteReconcilerTests {
         return await reconciler.reconcile(change: change, effects: editor.effects())
     }
 
-    @Test("leave resumes a draft save cancelled for fact gathering")
+    @Test("leave resumes a draft save canceled for fact gathering")
     func leaveResumesDirtyDraftSave() async {
         let editor = FakeEditor()
         editor.snapshot.draft = "mine"

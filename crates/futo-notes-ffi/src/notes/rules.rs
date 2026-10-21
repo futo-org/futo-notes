@@ -58,6 +58,13 @@ pub fn validate_title(title: String) -> Vec<TitleIssue> {
         .collect()
 }
 
+/// The key two note ids collide under on disk (case- and NFC-folded) — the
+/// store's own comparison, so a shell's duplicate check never disagrees with it.
+#[uniffi::export]
+pub fn collision_key(id: String) -> String {
+    model::collision_key(&id)
+}
+
 #[uniffi::export]
 pub fn make_rich_preview(content: String) -> String {
     model::make_rich_preview(&content)

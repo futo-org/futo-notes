@@ -204,6 +204,17 @@ export class TauriNotesClient extends TauriBridgeClient {
     return this._executeMutation(`window.__notesShellTest.flushSave()`, 'flushSave');
   }
 
+  // Hold every save of the open note (debug-only hook): while held a save
+  // declines without writing, so a typed draft stays dirty and unsaved for as
+  // long as a scenario needs — across a peer edit's pull or an external write.
+  // Releasing writes nothing by itself; the scenario's next flushSave() does.
+  async holdSaves(held) {
+    return this._executeMutation(
+      `window.__notesShellTest.holdSaves(${JSON.stringify(Boolean(held))})`,
+      'holdSaves',
+    );
+  }
+
   // Deliver a single file-watcher event to the shell and await its handling.
   // The resolved promise is the observable "external change processed" signal,
   // so a test can drive the watcher aftermath of a sync deterministically

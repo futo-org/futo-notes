@@ -128,7 +128,7 @@ export function buildControls() {
         body,
         'Roughness is the dial for a highlight that is too hot without making the coin ' +
           'darker: a rougher metal spreads the same light over more of the face, so the ' +
-          'peak drops while the body does not. Base colour multiplies the reflection ' +
+          'peak drops while the body does not. Base color multiplies the reflection ' +
           'itself, because gold is a metal — it dims the highlight too.',
       );
       return [
@@ -154,13 +154,13 @@ export function buildControls() {
         }),
         control(body, {
           kind: 'colour',
-          label: 'Face colour',
+          label: 'Face color',
           get: () => `#${state.material.faceHex.toString(16).padStart(6, '0')}`,
           set: (value) => (state.material.faceHex = Number.parseInt(value.slice(1), 16)),
         }),
         control(body, {
           kind: 'colour',
-          label: 'Rim colour',
+          label: 'Rim color',
           get: () => `#${state.material.rimHex.toString(16).padStart(6, '0')}`,
           set: (value) => (state.material.rimHex = Number.parseInt(value.slice(1), 16)),
         }),
@@ -281,7 +281,7 @@ export function buildControls() {
         });
         body.appendChild(triple);
 
-        // The lamp colours are LINEAR radiance multipliers, not sRGB, so the
+        // The lamp colors are LINEAR radiance multipliers, not sRGB, so the
         // swatch is a convenience that writes linear values back. Untouched, the
         // state keeps build-coin.py's exact numbers rather than a round trip
         // through eight bits.

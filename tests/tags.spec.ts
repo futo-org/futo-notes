@@ -9,7 +9,7 @@ import { EDITOR, editorMarkdown, openNewNote } from './lib/desktopEditor';
  * with the CodeMirror engine. Hiding the leading `#a #b` line was a decoration
  * over markdown source; the WYSIWYG editor renders it as ordinary text, so a
  * note's tags currently show twice on desktop — as pills and as the literal
- * first line, and asserting the old behaviour here would contradict that.
+ * first line, and asserting the old behavior here would contradict that.
  */
 
 async function seedNote(page: Page, id: string, body: string): Promise<void> {

@@ -141,14 +141,14 @@ export class AndroidNativeAppClient {
     await this.device.tap('Sync now', { scroll: false });
   }
 
-  /** Type `value` into the labelled text field, replacing whatever is there.
+  /** Type `value` into the labeled text field, replacing whatever is there.
    *  `expectVisibleValue` re-types once if the IME dropped characters — only
    *  usable for a field that renders its value (a password renders as dots). */
   async #fillField(label, value, { expectVisibleValue = false } = {}) {
     const field = await this.device.waitFor(`the "${label}" field`, UI_TIMEOUT_MS, () =>
       this.device.findNode(label),
     );
-    // The label is drawn inside the text field's box, so its centre focuses the
+    // The label is drawn inside the text field's box, so its center focuses the
     // field itself.
     this.device.tapPoint(field.x, field.y);
     await this.device.waitFor(`the "${label}" field to accept input`, UI_TIMEOUT_MS, () =>

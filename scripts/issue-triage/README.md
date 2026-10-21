@@ -7,7 +7,7 @@ reproduction attempt, and — when reproduced — a `/bugfix`-protocol fix MR on
 GitLab that links back to the issue. **No bot ever writes to GitHub.**
 
 Design rationale and decisions live in
-[`docs/plan/github-issue-triage.md`](../../docs/plan/github-issue-triage.md);
+[`DESIGN.md`](./DESIGN.md);
 this file is the operator's manual.
 
 ## Two tiers

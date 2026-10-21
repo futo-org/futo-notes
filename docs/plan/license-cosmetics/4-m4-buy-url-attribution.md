@@ -6,7 +6,7 @@
 pub enum BuySource { LicenseCard, AppIconPicker }
 ```
 
-serialised as `&from=license-card` / `&from=app-icon`, after the existing `platform`. Every
+serialized as `&from=license-card` / `&from=app-icon`, after the existing `platform`. Every
 caller names its source; there is no default. `license_links` grows a `source` parameter;
 the desktop command and both shells pass it.
 

@@ -45,10 +45,10 @@ private const val MAX_FRAME_SECONDS = 1f / 20f
 /// Desktop is the reference (@justin 2026-09-18): this is whatever value makes
 /// Android's coin read like the three.js one, and it is MEASURED, never reasoned
 /// about. The previous value, 4.5, was reasoned about — its comment said cmgen
-/// had "already normalised" the cubemap, so Filament's lux-denominated intensity
+/// had "already normalized" the cubemap, so Filament's lux-denominated intensity
 /// needed scaling back up. That premise is false. studio-env-ibl.ktx is
 /// R11F_G11F_B10F carrying absolute radiance: its mean is 3.41 against the
-/// source .hdr's 3.15 and its peak is 47.0 against 46.75, so cmgen normalised
+/// source .hdr's 3.15 and its peak is 47.0 against 46.75, so cmgen normalized
 /// nothing, and 4.5 was multiplying light that was already at full strength.
 /// On a phone the coin spent most of its rotation paler than desktop's — worst
 /// angle 20% saturation against desktop's 44%.
@@ -62,7 +62,7 @@ private const val MAX_FRAME_SECONDS = 1f / 20f
 /// matched desktop's saturation exactly (69.3 against 67.7) while landing 9
 /// points under on brightness. On a screen beside the desktop app it still read
 /// bright (@justin), so this sits a further step down. The eye wins: the capture
-/// path goes through screencap and a colour key, a side-by-side comparison on one
+/// path goes through screencap and a color key, a side-by-side comparison on one
 /// display does not.
 ///
 /// 1.25 was accepted on a REAL DEVICE, which is the bar that matters: a Moto G
@@ -100,7 +100,7 @@ internal class CoinScene(
     // Khronos PBR Neutral, not Filament's default ACES. ACES pushes a bright
     // saturated highlight toward white, and on this coin that turns the gold
     // sheen into a pale smear exactly where it should be most golden — the
-    // first Android render came out looking like brushed aluminium. Desktop's
+    // first Android render came out looking like brushed aluminum. Desktop's
     // three.js renderer is set to the same tone mapper, which is what keeps the
     // two shells showing the same METAL and not just the same shape.
     private val colorGrading = ColorGrading.Builder()
@@ -237,7 +237,7 @@ internal class CoinScene(
 
             override fun onResized(width: Int, height: Int) {
                 filamentView.viewport = Viewport(0, 0, width, height)
-                // A box that is not square keeps the coin round and centred
+                // A box that is not square keeps the coin round and centered
                 // rather than stretching it: the camera always frames the SHORTER
                 // side, widening the vertical angle when the box is tall.
                 val aspect = width.toDouble() / height.toDouble()

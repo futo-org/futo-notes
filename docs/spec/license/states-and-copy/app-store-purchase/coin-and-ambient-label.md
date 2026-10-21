@@ -9,13 +9,13 @@
   platform. It was a machined recess with an inset-shadow edge until 2026-09-16,
   when @justin asked for the circle border gone on all three; on Android that
   edge had been the entire well. On desktop the well is also **vertically
-  centred** against the field column rather than pinned to its top — the coin is
+  centered** against the field column rather than pinned to its top — the coin is
   the only thing on that side, and a circle at the top of a taller column reads
   as having slipped. Its dimensions are the storefront's, ported from lib-polar
   `pylib/futopay_server/static/js/coin-bounce.js` without that file's physics
   world.
-  Since 2026-09-16 the coin is **one 3D model, modelled in Blender** by
-  `assets/coin/build-coin.py` and rendered by all three shells: a bevelled disc
+  Since 2026-09-16 the coin is **one 3D model, modeled in Blender** by
+  `assets/coin/build-coin.py` and rendered by all three shells: a beveled disc
   with the FUTO diamond punched clean through it, gold face over a darker rim.
   The script exports `futo-coin.glb` (desktop, Android), `futo-coin.usdz` (iOS)
   and `studio-env.hdr`, the small studio every shell reflects off it. **The
@@ -103,7 +103,7 @@
     view or the window is hidden (M5), and falls back to the flat SVG coin where
     WebGL is unavailable or either asset fails to load. Tone mapping is Khronos
     PBR Neutral rather than ACES, which pushes a bright saturated highlight
-    toward white and turns the gold sheen grey exactly where it should be most
+    toward white and turns the gold sheen gray exactly where it should be most
     golden. The
     spin-up was measured on the real app 2026-09-16, not inferred: per-frame
     pixel motion decays 8.9× from the opening half-second to rest.
@@ -125,10 +125,10 @@
     image-based light differently and the same studio arrives at a different
     brightness in each: Filament's IBL intensity is 4.5 where three.js uses 1.0,
     and RealityKit's intensity exponent is -1.5. Both are **measured**, not
-    guessed — each is where the mean colour of the coin's gold pixels lands
+    guessed — each is where the mean color of the coin's gold pixels lands
     within a few points per channel of the other shells. Filament's tone mapper
     is also set to PBR Neutral for the reason desktop's is; at its ACES default
-    the coin read as brushed aluminium.
+    the coin read as brushed aluminum.
     Each holds still — as a whole, correct coin — under `prefers-reduced-motion`
     (iOS) and a zero animator scale (Android), falls back to the flat glyph if
     the renderer cannot start, and appears only in Settings, never beside the

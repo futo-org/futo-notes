@@ -72,7 +72,7 @@ func confirmedSavedContent(
 ///
 /// The flush is DURABLE by the time it returns a disposition, so what happens
 /// next must not be conditional on the calling task still being live. The
-/// debounced save is cancelled by the very next keystroke
+/// debounced save is canceled by the very next keystroke
 /// (`EditorSession.schedule` cancels the previous `.save`), and gating the
 /// baseline advance on that cancellation left `savedContent` behind disk — which
 /// made the NEXT flush's `base` a lie, so the engine read this editor's own

@@ -7,7 +7,7 @@ import Testing
 /// This is the rule the debounced autosave lost when it moved off
 /// `store.write` + `confirmedSavedContent` (a tested pure function) onto
 /// `store.flushDraft` with the decision inlined in the view: a keystroke landing
-/// while the flush was in flight cancelled the save task, the write stayed on
+/// while the flush was in flight canceled the save task, the write stayed on
 /// disk, and the baseline advance was skipped — so the next flush's `base` was
 /// behind disk and the engine parked the editor's own earlier write as a
 /// conflict copy. Typing at roughly 2.5 characters per second minted nine copies

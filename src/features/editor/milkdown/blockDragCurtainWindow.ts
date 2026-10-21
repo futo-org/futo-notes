@@ -9,6 +9,7 @@ import {
   REFLOW_WINDOW_URGENT_VIEWPORTS,
 } from './blockDragCurtainConfig';
 import { collapsedMargin } from './blockDragCurtainDom';
+import { editorScrollContainer } from './blockDragGeometry';
 import type { CurtainWindowPlan, Reflow } from './blockDragCurtainTypes';
 
 /** The drawing half of the reflow preview: the curtain's window of clones,
@@ -45,7 +46,7 @@ export abstract class CurtainWindow extends CurtainClones {
     if (!ok || sourceIndex < 0) return null;
     const count = doc.childCount;
     const unmeasured = () => new Float64Array(count).fill(NaN);
-    const scroller = this.scrollContainer();
+    const scroller = editorScrollContainer(this.view);
     const box = this.curtainBox(scroller);
     const clip = this.doc.createElement('div');
     clip.className = 'futo-mobile-dnd-reflow-clip';

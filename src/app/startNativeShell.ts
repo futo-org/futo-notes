@@ -30,7 +30,7 @@ export interface NativeShellDeps {
 
 // Wires the Tauri window/file-watcher glue on desktop. Registration of the
 // close handler is async (it resolves an unlisten fn), so every disposer is
-// funnelled through `track`: one that resolves after teardown is disposed
+// funneled through `track`: one that resolves after teardown is disposed
 // immediately rather than leaking a listener past the shell's lifetime.
 export function startNativeShell(deps: NativeShellDeps): () => void {
   if (!isTauri) return () => {};

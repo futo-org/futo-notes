@@ -17,16 +17,16 @@
   commands mutate the doc and autosave; Indent/Outdent appear inside a list or
   quote; pickers open natively; chevron blurs). → EditorToolbar.swift,
   EditorWebView.swift `futo_overrideInputAccessoryView`
-- The toolbar band behind the buttons is the EDITOR's own background colour, so
+- The toolbar band behind the buttons is the EDITOR's own background color, so
   the bar reads as the bottom edge of the note rather than a strip pasted onto
-  the keyboard. Nothing between the note and the band shows a colour step, in
+  the keyboard. Nothing between the note and the band shows a color step, in
   light or dark. _(native shells)_
 - iOS native: the accessory is a `UIInputView` (`inputViewStyle` `.default`)
   painted `Theme.background`, and the buttons float on it in Liquid Glass
   capsules (`glassEffect` on iOS 26+, `.regularMaterial` below), one for the
   scrolling formatting items and one for the dismiss chevron, with no hairline
   behind the band. The system's `.keyboard` backdrop, used until 2026-09-23, is a
-  translucent material that came out a near miss of the editor colour right
+  translucent material that came out a near miss of the editor color right
   where the two meet, a difference a user saw on a device. `Theme.surface`
   (#F2F2F2/#171717) before that was a visible slab. Apple's own accessory in
   Safari matches the PAGE behind it (242,242,247 on the iOS 26.5 simulator,
@@ -35,7 +35,7 @@
 
 - Android native: the bar and both of its edge fades paint `c.surface`, and so
   does the editor screen's `Scaffold`, which is what shows through the
-  transparent editor page. The note and the band are therefore one colour by
+  transparent editor page. The note and the band are therefore one color by
   construction: #FFFFFF in light and #1F1C19 in dark, sampled on the pixels
   either side of the bar's top edge. A 1 dp `c.border` hairline marks that edge,
   where iOS deliberately draws none. Verified on the emulator (API 36)
