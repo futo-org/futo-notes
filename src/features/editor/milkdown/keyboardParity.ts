@@ -91,10 +91,12 @@ import { indentCodeBlockOnTab, outdentCodeBlockOnShiftTab } from './keyboardPari
  * Which half is new depends on where the caret was: at the very start of the
  * item's text, the text moves down WITH the caret, so the new item is the
  * empty one left above; anywhere else the caret leaves the upper half and the
- * new item is the lower one. `splitListItem` alone cannot say that — it
- * applies its `itemAttrs` only to an end-of-item split and clones
- * `checked: true` onto both halves everywhere else — so the attrs are set on
- * its transaction. An unchecked or non-task item declines — the default split
+ * new item is the lower one. A selection is deleted first and Enter then acts
+ * where it started, so a selection from the start of the text, even one
+ * covering all of it, counts as a caret there. `splitListItem` alone cannot
+ * say that — it applies its `itemAttrs` only to an end-of-item split and
+ * clones `checked: true` onto both halves everywhere else — so the attrs are
+ * set on its transaction. An unchecked or non-task item declines — the default split
  * already clones `checked: false` / `null` correctly — and so does an empty
  * last line, which `splitListItem` answers by leaving the list or splitting
  * the WRAPPING item, cloning nothing from this one.
@@ -102,12 +104,12 @@ import { indentCodeBlockOnTab, outdentCodeBlockOnShiftTab } from './keyboardPari
 const splitCheckedTaskItem: Command = (state, dispatch) => {
   const item = enclosingListItem(state.selection);
   if (!item || item.node.attrs.checked !== true) return false;
-  const { $from, empty } = state.selection;
+  const { $from } = state.selection;
   if ($from.depth < 2 || $from.node(-1) !== item.node) return false;
   if ($from.parent.content.size === 0 && $from.indexAfter(-1) === item.node.childCount) {
     return false;
   }
-  const newItemAbove = empty && $from.parentOffset === 0 && $from.index(-1) === 0;
+  const newItemAbove = $from.parentOffset === 0 && $from.index(-1) === 0;
   return splitListItem(item.node.type)(
     state,
     dispatch &&

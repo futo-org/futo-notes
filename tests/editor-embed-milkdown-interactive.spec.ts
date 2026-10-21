@@ -115,6 +115,34 @@ test('Enter in the middle of a checked task item starts the rest unchecked', asy
   expect((await getContent(page)).trimEnd()).toBe('- [x] ab\n- [ ] cd');
 });
 
+// A selection is deleted first, and Enter then acts where it started: from
+// the very start of a checked task's text, what is left moves down with the
+// caret, as it does for a caret there, so the done task keeps its check and the
+// new, unchecked item is the empty one above.
+test('Enter over a selection from the start of a checked task item keeps it checked', async ({
+  page,
+}) => {
+  await open(page, '- [x] abcd');
+  await caretAtStartOf(page, 'abcd');
+  await withCaretObserved(page, () => page.keyboard.press('Shift+ArrowRight'));
+  await withCaretObserved(page, () => page.keyboard.press('Shift+ArrowRight'));
+  await page.keyboard.press('Enter');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('- [ ]\n- [x] cd');
+});
+
+test('Enter over the whole text of a checked task item keeps the caret item checked', async ({
+  page,
+}) => {
+  await open(page, '- [x] ab');
+  await caretAtStartOf(page, 'ab');
+  await withCaretObserved(page, () => page.keyboard.press('Shift+End'));
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('y');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('- [ ]\n- [x] y');
+});
+
 // Delete is a FORWARD delete in a list item and a heading, as in a paragraph.
 // The commonmark preset bound its Backspace commands (lift the first item,
 // downgrade the heading) to Delete too.

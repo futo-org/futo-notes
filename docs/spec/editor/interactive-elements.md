@@ -65,6 +65,9 @@
   the rest as a new, unchecked item.
 - Enter at the very start of a task item's text moves the text down with the caret: the new,
   unchecked item is the empty one left above it, and the item keeps its text and its state.
+- Enter over a selection inside a task item's text removes the selection first and then acts
+  where it started: a selection from the very start of the text, even one covering all of it,
+  splits like the caret at the start (the done task keeps its check).
 - Undoing an edit that renumbered a list reverses the edit and the renumbering
   together, as one step: the renumber rides in as an `appendTransaction` that is
   not itself recorded in history. → `@milkdown/preset-commonmark`
