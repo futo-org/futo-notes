@@ -99,8 +99,9 @@
   Ctrl/Cmd+Shift+I or Ctrl/Cmd+Alt+Shift+X, which are not shortcuts, never turn on italic or
   strikethrough. → milkdown/keyboardParity.ts `handleCapsLockedChord`,
   tests/editor-embed-milkdown-interactive.spec.ts
-- A Shift shortcut the editor does not use is left to the browser or the OS. →
-  tests/editor-embed-milkdown-undo.spec.ts
+- A Shift shortcut the editor does not use is left to the browser or the OS, whatever the
+  Caps Lock state: Ctrl/Cmd+Shift+V still pastes as plain text with Caps Lock on. →
+  tests/editor-embed-milkdown-undo.spec.ts, tests/editor-embed-milkdown-interactive.spec.ts
 
 - A change that arrives from OUTSIDE the editor — a note open, a sync adopt, a
   host content push — is applied outside the undo history, so no Ctrl-Z can

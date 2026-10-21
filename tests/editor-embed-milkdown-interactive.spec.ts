@@ -412,3 +412,39 @@ for (const [chord, name] of [
     expect((await getContent(page)).trimEnd()).toBe('paraX');
   });
 }
+
+// A Shift chord the editor does not use stays the browser's with Caps Lock on
+// too. An earlier version of the guard above claimed every lowercase Shift
+// chord, so Ctrl+Shift+V (paste as plain text) pasted nothing whenever Caps
+// Lock was on.
+test('ControlOrMeta+Shift+v with a lowercase key still pastes', async ({ page }) => {
+  await open(page, 'para\n\nword');
+  await caretAtEndOf(page, 'word');
+  await page.keyboard.press('Shift+Home');
+  await page.keyboard.press('ControlOrMeta+c');
+  await caretAtEndOf(page, 'para');
+  // The editor reads a moved caret on the next selectionchange; a paste before
+  // that lands over the copied "word" instead of after "para".
+  await page.waitForFunction(() => {
+    const view = (
+      window as unknown as {
+        __futoProseMirrorView: () => { state: { selection: { from: number; to: number } } };
+      }
+    ).__futoProseMirrorView();
+    return view.state.selection.from === 5 && view.state.selection.to === 5;
+  });
+  await page.evaluate(() => {
+    const w = window as unknown as { lowercaseVPrevented?: boolean };
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'v' && event.shiftKey) w.lowercaseVPrevented = event.defaultPrevented;
+    });
+  });
+  await page.keyboard.press('ControlOrMeta+Shift+v');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('paraword\n\nword');
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { lowercaseVPrevented?: boolean }).lowercaseVPrevented,
+    ),
+  ).toBe(false);
+});

@@ -334,12 +334,18 @@ export function keepDeleteForward(ctx: Ctx): void {
  * and Ctrl+Alt+Shift+X ran Strikethrough. With Caps Lock off the key arrives
  * uppercase and that retry never matches a binding.
  *
- * So the chord is offered to every key handler again as the uppercase key the
- * same keys send with Caps Lock off, which is exactly what they do then, and
- * the lowercase original is claimed so it never reaches the retry. Not on an
- * Apple platform for a Cmd+Shift chord: the keymap reads that key from its key
- * code there (w3c-keyname), so it already arrives shifted. Not for AltGr,
- * which types characters, nor for a key that is not a plain a-z letter.
+ * So the event's key is rewritten to the uppercase letter the same keys send
+ * with Caps Lock off, before any other key handler reads it: this handler is
+ * the editor's own `handleKeyDown` prop, which ProseMirror asks first. Every
+ * handler then does exactly what it does with Caps Lock off, and a chord none
+ * of them takes is still left to the browser. Claiming the lowercase event
+ * instead (the earlier fix) cancelled the browser's own action, so
+ * Ctrl+Shift+V pasted nothing with Caps Lock on. The rewrite is undone once
+ * the editor's keydown listener returns, so listeners outside the editor see
+ * the event as sent. Not on an Apple platform for a Cmd+Shift chord: the
+ * keymap reads that key from its key code there (w3c-keyname), so it already
+ * arrives shifted. Not for AltGr, which types characters, nor for a key that
+ * is not a plain a-z letter.
  */
 const applePlatform =
   typeof navigator !== 'undefined' && /Mac|iP(hone|[oa]d)/.test(navigator.platform);
@@ -351,22 +357,13 @@ function isCapsLockedChord(event: KeyboardEvent): boolean {
   return !(applePlatform && event.metaKey && !event.ctrlKey && !event.altKey);
 }
 
-/** The `handleKeyDown` direct view prop for a Shift chord sent with Caps Lock on. */
-export function handleCapsLockedChord(view: ProseView, event: KeyboardEvent): boolean {
+/**
+ * The first `handleKeyDown` view prop. Never claims the key: it only makes a
+ * Caps Lock Shift chord read as it does with Caps Lock off.
+ */
+export function handleCapsLockedChord(_view: ProseView, event: KeyboardEvent): boolean {
   if (!isCapsLockedChord(event)) return false;
-  const shifted = new KeyboardEvent('keydown', {
-    key: event.key.toUpperCase(),
-    code: event.code,
-    shiftKey: true,
-    ctrlKey: event.ctrlKey,
-    metaKey: event.metaKey,
-    altKey: event.altKey,
-    bubbles: true,
-    cancelable: true,
-  });
-  // prosemirror-keymap matches a Shift chord through the key code; the
-  // constructor leaves it 0.
-  Object.defineProperty(shifted, 'keyCode', { value: event.keyCode });
-  view.someProp('handleKeyDown', (handle) => handle(view, shifted));
-  return true;
+  Object.defineProperty(event, 'key', { value: event.key.toUpperCase(), configurable: true });
+  queueMicrotask(() => Reflect.deleteProperty(event, 'key'));
+  return false;
 }
