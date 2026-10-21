@@ -936,10 +936,15 @@ async function externalAtomicSaveOntoTheOpenNoteIsAdopted(a, _b, _server) {
   assertEqual(await a.readNote('watch atomic'), '# Saved through a hidden temp');
 }
 
-async function externalWatcherProtectsDirtyDraftThenSettles(a, _b, _server) {
-  // A blocked dirty draft is protected from the external change; restoring a
-  // valid title settles it — the draft parks as a conflict copy against the
-  // changed disk base and the editor then adopts the external bytes.
+async function externalWriteAfterADuplicateTitleBodySaveReloadsTheEditor(a, _b, _server) {
+  // A duplicate title blocks only the rename; the body still saves under the
+  // note's own name (editor.md). So the typed draft is on disk, the session is
+  // CLEAN, and an external write to that file is adopted immediately (sync.md:
+  // "A watcher `change` whose disk content differs from the session's
+  // last-saved baseline is adopted immediately when the session is clean").
+  // The unsaved-buffer case (draft protected, adoption deferred, park as a
+  // conflict copy) is createExternalChangeCoordinator.test.ts's: an unsaved
+  // draft can no longer be held deterministically here.
   await a.openNewNote();
   await a.setTitle('taken title');
   await a.typeInEditor('# Other note');
@@ -956,51 +961,40 @@ async function externalWatcherProtectsDirtyDraftThenSettles(a, _b, _server) {
   // the editor composed and saved this note (ADR-0002 normalize-once).
   await waitForEditorContent(a, '# Original content\n');
 
+  // The refused title leaves the note where it is and the body saves.
   await a.setTitle('taken title');
   await a.typeInEditor('\nLocal draft');
+  await a.flushSave();
   await waitForSaveIdle(a);
+  const savedDraft = await a.readNote('watch dirty');
+  assert(
+    savedDraft.includes('Local draft'),
+    `the body must save under the note's own name despite the duplicate title, got: ${savedDraft}`,
+  );
   await sleep(1200);
 
   await externalWriteNote(a, 'watch dirty', '# Changed on disk');
 
-  // Protection: wait until the watcher has processed the event (the storage
-  // refresh surfaces the external bytes in the notes-cache preview), then
-  // assert the blocked dirty draft still owns the editor — no silent adoption.
-  await a.waitForCondition(
-    `window.__testNotes.getAllNotes().some((n) => n.id === 'watch dirty' && (n.preview || '').includes('Changed on disk'))`,
-    30_000,
-    'watcher refreshed the notes projection with the external content',
-  );
-  const protectedState = await a.getOpenNoteState();
-  assert(
-    protectedState.editorContent.includes('Local draft'),
-    'dirty draft must be protected from the external change while blocked',
-  );
-
-  // Settle: restore a valid title; the draft parks against the changed disk
-  // base and the deferred adoption applies the external content.
-  await a.setTitle('watch dirty');
-  await a.flushSave();
   const adoptedState = await waitForEditorContent(a, '# Changed on disk', 30_000);
   assertEqual(
     adoptedState.originalId,
     'watch dirty',
-    'settled external change should keep the disk-backed note open',
+    'the external change should keep the disk-backed note open',
   );
-  const diskContent = await a.readNote('watch dirty');
+  const settled = await waitForSaveIdle(a);
+  assertEqual(settled.savePending, false, 'adopting the external change must not leave a save');
   assertEqual(
-    diskContent,
+    await a.readNote('watch dirty'),
     '# Changed on disk',
     'external disk content should remain on disk after the UI adopts it',
   );
+  await sleep(1200);
   const files = (await a.listNotes()).map((f) => f.filename || f.name || f);
-  const conflictCopy = files.find((name) => name.includes('conflict'));
-  assert(conflictCopy, 'the parked draft must survive as a conflict copy');
-  const conflictContent = await a.readNote(conflictCopy.replace(/\.md$/, ''));
   assert(
-    conflictContent.includes('Local draft'),
-    `the conflict copy must hold the parked draft bytes, got: ${conflictContent}`,
+    !files.some((name) => name.includes('conflict')),
+    `a clean session adopts the external write with no conflict copy, got: ${files.join(', ')}`,
   );
+  assertEqual(await a.readNote('watch dirty'), '# Changed on disk');
 }
 
 async function deleteVsEdit(a, b, server) {
@@ -3330,8 +3324,8 @@ const scenarios = [
     skipOnCi: true,
   },
   {
-    name: 'external watcher protects dirty draft then settles',
-    fn: externalWatcherProtectsDirtyDraftThenSettles,
+    name: 'external write after a duplicate title body save reloads the editor',
+    fn: externalWriteAfterADuplicateTitleBodySaveReloadsTheEditor,
     matrices: ['desktop-desktop'],
     skipOnCi: true,
   },
