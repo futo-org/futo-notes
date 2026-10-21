@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -52,7 +53,7 @@ import uniffi.futo_notes_ffi.LicenseInclusion
 import uniffi.futo_notes_ffi.LicensePurchaseSurface
 
 /**
- * The App icon picker. Choosing an icon is included with a license
+ * The App icon picker. Choosing an icon beyond Standard and Reversed is included with a license
  * (docs/spec/license.md § What a license includes): what the grid shows per
  * license state is [appIconPickerShape], from Rust's `includes` (`null` while
  * the license is still being read) and row actions.
@@ -75,7 +76,8 @@ fun AppIconSheet(
 ) {
     val localization = LocalLocalization.current
     val colors = FutoTheme.colors
-    val shape = appIconPickerShape(controller.selected, includes, rowActions, surface)
+    val everyInstallHas = remember { AppIcon.everyInstallHas() }
+    val shape = appIconPickerShape(controller.selected, includes, rowActions, surface, everyInstallHas)
     // Disabling the launcher alias that rooted the task makes Android finish
     // that task, so a change is confirmed first (Signal's convention). Full
     // reset calls controller.reset() directly and never passes through here.

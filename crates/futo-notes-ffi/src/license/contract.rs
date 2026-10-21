@@ -2,7 +2,8 @@
 //! back. Records and enums only — no copy, no storage, no platform branching.
 
 use futo_notes_license::{
-    buy_url, enter_license_key, evaluate, evidence_includes as core_evidence_includes,
+    app_icons_every_install_has as core_app_icons_every_install_has, buy_url, enter_license_key,
+    evaluate, evidence_includes as core_evidence_includes,
     license_includes as core_license_includes, license_plate as core_license_plate,
     license_purchase_surface as core_license_purchase_surface, parse_deep_link,
     ActivationTransport, BuySource as CoreBuySource, Distribution, EnterKeyError, Environment,
@@ -22,8 +23,9 @@ mod links;
 use activation::{enter_key_with, evaluate_at, handle_deep_link_with, unlicensed};
 pub use activation::{license_enter_key, license_evaluate, license_handle_deep_link};
 pub use evidence::{
-    license_app_store_product_id, license_evidence_includes, license_evidence_row_actions,
-    license_includes, license_plate, LicenseEvidence, LicenseInclusion, LicensePlate,
+    license_app_icons_every_install_has, license_app_store_product_id, license_evidence_includes,
+    license_evidence_row_actions, license_includes, license_plate, LicenseEvidence,
+    LicenseInclusion, LicensePlate,
 };
 pub use links::{
     license_deep_link_scheme, license_link_out, license_links, license_purchase_surface,

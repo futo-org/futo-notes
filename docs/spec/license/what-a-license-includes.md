@@ -1,12 +1,13 @@
 ## What a license includes
 
 - **Today a license includes choosing the app icon**, and nothing else cosmetic:
-  all six existing choices, as the picker labels them: "Standard", "Reversed",
-  "Dark", "Dark, Reversed", "FUTO" and "Scanlines". There is no seventh,
-  licensee-only icon. Standard is the default every install has, not a "free
-  tier". → `license_includes`
+  the four choices beyond the two every install has, as the picker labels them:
+  "Dark", "Dark, Reversed", "FUTO" and "Scanlines". "Standard" (the default)
+  and "Reversed" come with every install, licensed or not; they are not a
+  "free tier". There is no seventh, licensee-only icon. → `license_includes`,
+  `app_icons_every_install_has`
 - **Rust owns the answer.** Licensed includes everything on the list; Unlicensed
-  and Expired include nothing. Shells and the desktop webview only ask; no
+  and Expired include nothing. Which icons need no license is Rust's list too. Shells and the desktop webview only ask; no
   Swift, Kotlin, or TypeScript copy of the rule. Desktop projects the answer but
   renders nothing from it (no picker). → `license_includes`,
   `LicenseInclusion`
@@ -28,10 +29,11 @@
   does not change for this.
 - **Vocabulary:** "included with a license", "comes with a license", and
   "unlock(s)" for what a license includes (cosmetics; allowed on link-out builds
-  only, @justin 2026-10-16: the footnote and sheet say a license "unlocks the
-  ability to change the app icon"). Builds without a link never say "unlock":
+  only, @justin 2026-10-16: the footnote says a license "unlocks additional app
+  icon choices", the sheet that it "unlocks this icon and the others marked
+  with a coin"). Builds without a link never say "unlock":
   key-only builds' footnote is `settings.appIcon.license.footnoteKeyOnly`,
-  "included with a license"; Android `play`'s is
+  "…included with a FUTO Notes license"; Android `play`'s is
   `settings.appIcon.license.footnoteWebsite`, "…, sold on FUTO's website". Never "paywall", "premium", "free" or "donate".
 - **Key-only builds** (iOS outside the US) get the key-only ask:
   `license.keyOnlyExplanation` and "I already paid", no Buy, no "Lost your

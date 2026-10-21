@@ -119,7 +119,7 @@ class AppIconSheetTest {
     @Test fun unlicensedLinkOutCoinsTilesAsksWithBuyAndNeverChangesTheIcon() {
         showSheet(includes = emptySet(), rowActions = linkOut)
         compose.onNodeWithTag("app-icon-footnote").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Purchasing a FUTO Notes license unlocks the ability to change the app icon.", substring = true)
+        compose.onNodeWithText("Purchasing a FUTO Notes license unlocks additional app icon choices.", substring = true)
             .assertExists()
         // The current tile is a no-op, never an ask.
         compose.onNodeWithTag("app-icon-light-standard").performScrollTo().performClick()
@@ -139,6 +139,22 @@ class AppIconSheetTest {
         assertEquals(AppIcon.LIGHT_STANDARD, icons.active)
     }
 
+    /** Standard and Reversed come with every install: Rust's list, read through the real FFI. */
+    @Test fun unlicensedChangesToReversedWithoutAnAsk() {
+        showSheet(includes = emptySet(), rowActions = linkOut)
+        compose.onNodeWithTag("app-icon-light-reversed").assertContentDescriptionEquals("Reversed")
+            .performScrollTo().performClick()
+        compose.onNodeWithTag("app-icon-ask-title").assertDoesNotExist()
+        compose.onNodeWithText("Change").performClick()
+        compose.waitUntil(5000) { icons.active == AppIcon.LIGHT_REVERSED }
+        // Back to Standard needs no license either.
+        compose.onNodeWithTag("app-icon-light-standard").assertContentDescriptionEquals("Standard")
+            .performScrollTo().performClick()
+        compose.onNodeWithTag("app-icon-ask-title").assertDoesNotExist()
+        compose.onNodeWithText("Change").performClick()
+        compose.waitUntil(5000) { icons.active == AppIcon.LIGHT_STANDARD }
+    }
+
     @Test fun expiredAsksTheSameWithRenew() {
         showSheet(includes = emptySet(), rowActions = listOf(LicenseAction.RENEW, LicenseAction.ENTER_KEY, LicenseAction.LOST_KEY))
         compose.onNodeWithTag("app-icon-dark-standard").performScrollTo().performClick()
@@ -148,7 +164,7 @@ class AppIconSheetTest {
 
     @Test fun keyOnlyAsksForTheKeyWithNoBuyAndNoUnlock() {
         showSheet(includes = emptySet(), rowActions = listOf(LicenseAction.ENTER_KEY), surface = LicensePurchaseSurface.KEY_ONLY)
-        compose.onNodeWithText("Choosing an app icon is included with a FUTO Notes license.", substring = true)
+        compose.onNodeWithText("Additional app icon choices are included with a FUTO Notes license.", substring = true)
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("unlocks", substring = true).assertDoesNotExist()
         compose.onNodeWithTag("app-icon-website").performScrollTo().performClick()
@@ -197,13 +213,14 @@ class AppIconSheetTest {
             rowActions = listOf(LicenseAction.ENTER_KEY, LicenseAction.LOST_KEY),
             surface = LicensePurchaseSurface.NAME_WEBSITE,
         )
-        compose.onNodeWithText("Choosing an app icon is included with a FUTO Notes license, sold on FUTO's website.", substring = true)
+        compose.onNodeWithText("Additional app icon choices are included with a FUTO Notes license, sold on FUTO's website.", substring = true)
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("unlocks", substring = true).assertDoesNotExist()
         compose.onNodeWithTag("app-icon-futo").performScrollTo().performClick()
         compose.onNodeWithTag("app-icon-ask-body")
             .assertTextEquals(
-                "Choosing an app icon is included with a FUTO Notes license. Licenses are sold on FUTO's " +
+                "This icon is included with a FUTO Notes license, along with the others marked with a coin. " +
+                    "Licenses are sold on FUTO's " +
                     "website at pay.futo.org. Already bought one? Enter your key in Settings.",
             )
             .assertHasNoClickAction()

@@ -16,7 +16,7 @@ Plan: [`docs/plan/license-cosmetics.md`](../plan/license-cosmetics.md). Behavior
 
 | # | Decision |
 |---|---|
-| D1 | Today a license includes **choosing the app icon**: all six existing choices. Standard is the default every install has, not a "free tier". No seventh, licensee-only icon. |
+| D1 | (Amended by D14.) Today a license includes **choosing the app icon**: all six existing choices. Standard is the default every install has, not a "free tier". No seventh, licensee-only icon. |
 | D2 | The gate is on choosing, never on keeping. A removed or expired license leaves the icon set; only Full reset changes it, to Standard. |
 | D3 | Expired does not include the icons: Unlicensed with a story, asking "Renew" where Buy would be. |
 | D4 | The ask appears only where the user walked in: the picker (badges, footnote, sheet) and the Settings row hint. Never on launch, never a popup, never in the editor or the list. |
@@ -26,9 +26,10 @@ Plan: [`docs/plan/license-cosmetics.md`](../plan/license-cosmetics.md). Behavior
 | D8 | Rust owns the rule (`license_includes`), projected through UniFFI and Tauri. No Swift/Kotlin/TS copy. |
 | D9 | The spec principle is rewritten, in the same change as the Rust rule. |
 | D10 | License sync (carrying the license inside the vault) is its own change, after approval; it touches the sync payload. |
-| D11 | Picker: coin badges on every tile but the current one, one footnote, a sheet on tap. An ask card inside the picker was rejected. |
+| D11 | (Amended by D14.) Picker: coin badges on every tile but the current one, one footnote, a sheet on tap. An ask card inside the picker was rejected. |
 | D12 | The License card does not change. |
-| D13 | Once licensed, the coin stays on every icon but Standard, so the picker shows which came with the license. |
+| D13 | Once licensed, the coin stays on every icon but Standard, so the picker shows which came with the license. (Amended by D14.) |
+| D14 | Amends D1, D11 and D13 (@justin, 2026-10-21): **Reversed joins Standard** as an icon every install can choose. Neither ever wears a coin, so an unlicensed install can always switch between them, including back to Standard. Rust owns the list (`app_icons_every_install_has`). |
 
 ## Consequences
 

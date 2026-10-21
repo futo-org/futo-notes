@@ -97,7 +97,7 @@ pub fn license_evidence_row_actions(
 /// What a license includes beyond the card. Cosmetic only, by policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum LicenseInclusion {
-    /// Choosing the app icon.
+    /// Choosing any app icon beyond `license_app_icons_every_install_has`.
     AppIcon,
 }
 
@@ -107,6 +107,16 @@ impl From<CoreLicenseInclusion> for LicenseInclusion {
             CoreLicenseInclusion::AppIcon => LicenseInclusion::AppIcon,
         }
     }
+}
+
+/// The app icons every install can choose, licensed or not, by permanent id.
+/// The rule is `futo_notes_license::app_icons_every_install_has`.
+#[uniffi::export]
+pub fn license_app_icons_every_install_has() -> Vec<String> {
+    core_app_icons_every_install_has()
+        .into_iter()
+        .map(String::from)
+        .collect()
 }
 
 /// What this status includes. The rule is `futo_notes_license::license_includes`;

@@ -5,7 +5,7 @@ final class AppIconTests: XCTestCase {
 
     @MainActor
     func testSelectingAnIconKeepsPickerOpenAndDoneReturnsToSettings() {
-        // Choosing an icon comes with a license, and the license is the one
+        // Choosing most icons comes with a license, and the license is the one
         // cross-run state a simulator keeps: activate the staging pair first.
         // The landing opens the picker over Settings by itself.
         let app = makeIsolatedApplication()
@@ -45,11 +45,13 @@ final class AppIconTests: XCTestCase {
             openUnlicensedPicker(app, storefront: country)
 
             XCTAssertTrue(app.staticTexts["app-icon-footnote"].waitForExistence(timeout: 5))
-            // A reused simulator may keep any icon; the current one is the
-            // only tile without a coin.
+            // A reused simulator may keep any icon; the current one, Standard
+            // and Reversed are the tiles without a coin.
             let current = Self.tiles(app).first { $0.isSelected }!
-            let tile = Self.tiles(app).first { !$0.isSelected }!
+            let tile = Self.licenseTiles(app).first { !$0.isSelected }!
             XCTAssertFalse(current.label.contains("included with a license"))
+            XCTAssertEqual(app.buttons["app-icon-light-standard"].label, "Standard")
+            XCTAssertEqual(app.buttons["app-icon-light-reversed"].label, "Reversed")
             XCTAssertTrue(tile.label.hasSuffix(", included with a license"), tile.label)
             attach(app, named: "picker-unlicensed-\(country)")
             tile.tap()
@@ -79,7 +81,7 @@ final class AppIconTests: XCTestCase {
     func testAlreadyPaidOpensTheKeyFieldOnTheCard() {
         let app = makeIsolatedApplication()
         openUnlicensedPicker(app, storefront: "USA")
-        Self.tiles(app).first { !$0.isSelected }!.tap()
+        Self.licenseTiles(app).first { !$0.isSelected }!.tap()
         let paid = app.buttons["app-icon-ask-already-paid"]
         XCTAssertTrue(paid.waitForExistence(timeout: 5))
         paid.tap()
@@ -96,7 +98,8 @@ final class AppIconTests: XCTestCase {
         openSettings(app)
         removeLicense(app)
         let row = scrollToAppIconRow(app)
-        XCTAssertTrue(app.staticTexts["With a license"].exists, "the App icon row lost its hint")
+        XCTAssertTrue(
+            app.staticTexts["More with a license"].exists, "the App icon row lost its hint")
         attach(app, named: "settings-row-hint-\(storefront)")
         row.tap()
         XCTAssertTrue(app.navigationBars["App icon"].waitForExistence(timeout: 10))
@@ -111,8 +114,14 @@ final class AppIconTests: XCTestCase {
         iconIds.map { app.buttons["app-icon-\($0)"] }
     }
 
+    /// The tiles a license includes: all but Standard and Reversed.
+    @MainActor
+    private static func licenseTiles(_ app: XCUIApplication) -> [XCUIElement] {
+        iconIds.dropFirst(2).map { app.buttons["app-icon-\($0)"] }
+    }
+
     /// Activating by deep link lands on the picker over Settings with the
-    /// one-time header; the licensed grid keeps the coin on all but Standard
+    /// one-time header; the licensed grid keeps the coin on all but Standard and Reversed
     /// and drops the footnote, and reopening shows the plain grid.
     @MainActor
     func testActivationLandsOnThePickerWithAOneTimeHeader() {
@@ -143,16 +152,18 @@ final class AppIconTests: XCTestCase {
         XCTAssertTrue(
             app.staticTexts["Thank you for purchasing FUTO Notes."].waitForExistence(timeout: 5))
         XCTAssertTrue(
-            app.staticTexts["Your license includes choosing your app icon. Pick one."].exists)
+            app.staticTexts["Your license includes every app icon."].exists)
         XCTAssertFalse(app.staticTexts["app-icon-footnote"].exists)
         XCTAssertEqual(app.buttons["app-icon-light-standard"].label, "Standard")
+        XCTAssertEqual(app.buttons["app-icon-light-reversed"].label, "Reversed")
         XCTAssertEqual(app.buttons["app-icon-futo"].label, "FUTO, included with a license")
         attach(app, named: "landing")
 
         app.navigationBars["App icon"].buttons["Done"].tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
         XCTAssertFalse(
-            app.staticTexts["With a license"].exists, "the hint stayed after the license arrived")
+            app.staticTexts["More with a license"].exists,
+            "the hint stayed after the license arrived")
         scrollToAppIconRow(app).tap()
         XCTAssertTrue(app.navigationBars["App icon"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["Thank you for purchasing FUTO Notes."].exists)

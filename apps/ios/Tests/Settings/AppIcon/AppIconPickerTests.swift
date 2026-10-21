@@ -27,25 +27,32 @@ struct AppIconPickerTests {
     }
 
     static let all = Set(AppIcon.allCases)
+    /// Standard and Reversed come with every install; a license includes the rest.
+    static let licenseIcons = all.subtracting([.lightStandard, .lightReversed])
 
     static let rows = [
         Row(
-            name: "unlicensed: coins but the current, footnote, a Buy sheet",
-            status: .unlicensed, linkOut: true, coined: all.subtracting([.darkStandard]),
+            name: "unlicensed: coins the license icons but the current, footnote, a Buy sheet",
+            status: .unlicensed, linkOut: true, coined: licenseIcons.subtracting([.darkStandard]),
             footnote: true, sheet: .linkOut(primary: .buy)),
         Row(
+            name: "unlicensed on a license icon: Standard and Reversed still need no license",
+            status: .unlicensed, linkOut: true, selected: .futo,
+            coined: licenseIcons.subtracting([.futo]), footnote: true,
+            sheet: .linkOut(primary: .buy)),
+        Row(
             name: "expired asks the same, with Renew where Buy would be",
-            status: .expired, linkOut: true, coined: all.subtracting([.darkStandard]),
+            status: .expired, linkOut: true, coined: licenseIcons.subtracting([.darkStandard]),
             footnote: true, sheet: .linkOut(primary: .renew)),
         Row(
             name: "key-only build: the key-only sheet, still coins and the footnote",
-            status: .unlicensed, linkOut: false, coined: all.subtracting([.darkStandard]),
+            status: .unlicensed, linkOut: false, coined: licenseIcons.subtracting([.darkStandard]),
             footnote: true, sheet: .keyOnly, footnoteKey: "settings.appIcon.license.footnoteKeyOnly"
         ),
         Row(
-            name: "licensed: coin on every tile but Standard, no footnote, nothing to ask",
+            name: "licensed: coin on every license icon, no footnote, nothing to ask",
             status: .licensed, linkOut: true, selected: .website,
-            coined: all.subtracting([.lightStandard]), footnote: false, sheet: nil),
+            coined: licenseIcons, footnote: false, sheet: nil),
         Row(
             name: "unknown (still loading): no coins, no footnote, no ask, inert",
             status: nil, linkOut: true, coined: [], footnote: false, sheet: nil, resolved: false),
@@ -56,17 +63,17 @@ struct AppIconPickerTests {
         Row(
             name: "App Store offered in the US: the Buy sheet gains Buy in the App Store",
             status: .unlicensed, linkOut: true, offered: true,
-            coined: all.subtracting([.darkStandard]), footnote: true,
+            coined: licenseIcons.subtracting([.darkStandard]), footnote: true,
             sheet: .linkOut(primary: .buy), appStoreButton: true),
         Row(
             name: "App Store offered elsewhere: the key-only sheet gains it too",
             status: .unlicensed, linkOut: false, offered: true,
-            coined: all.subtracting([.darkStandard]), footnote: true, sheet: .keyOnly,
+            coined: licenseIcons.subtracting([.darkStandard]), footnote: true, sheet: .keyOnly,
             footnoteKey: "settings.appIcon.license.footnoteKeyOnly", appStoreButton: true),
         Row(
             name: "App Store purchase owned: the picker reads exactly as Licensed",
             status: .expired, linkOut: false, selected: .website, offered: true, owned: true,
-            coined: all.subtracting([.lightStandard]), footnote: false, sheet: nil),
+            coined: licenseIcons, footnote: false, sheet: nil),
     ]
 
     @Test("the shape follows the license", arguments: rows)

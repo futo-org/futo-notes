@@ -111,6 +111,10 @@ fn includes_maps_the_status_through_to_the_crate_rule() {
         vec![LicenseInclusion::AppIcon]
     );
     assert!(license_includes(LicenseStatus::Expired).is_empty());
+    assert_eq!(
+        license_app_icons_every_install_has(),
+        ["light-standard", "light-reversed"]
+    );
 }
 
 /// The defect this split fixed: a `.dev` build's Buy button opened the
