@@ -42,6 +42,7 @@ interface NotesShellTestHookOptions {
   focusEditor: () => void;
   setEditorFocused: (focused: boolean) => Promise<void>;
   isEditorFocused: () => boolean;
+  holdSaves: (held: boolean) => void;
   getState: () => NotesShellTestState;
 }
 
@@ -54,6 +55,9 @@ interface NotesShellTestHook {
   typeInEditor: (text: string) => string;
   setEditorFocused: NotesShellTestHookOptions['setEditorFocused'];
   isEditorFocused: NotesShellTestHookOptions['isEditorFocused'];
+  /** While held, every save declines without writing — a dirty draft that
+   * cannot reach disk, held across a peer edit or an external write. */
+  holdSaves: NotesShellTestHookOptions['holdSaves'];
   replaceEditorContent: (content: string) => string;
   getState: NotesShellTestHookOptions['getState'];
   noteSwitchTimelines: () => readonly NoteSwitchTimeline[];
@@ -84,6 +88,7 @@ export function installNotesShellTestHook(options: NotesShellTestHookOptions): (
     typeInEditor: (text) => typeInEditor(options.getEditor(), text),
     setEditorFocused: options.setEditorFocused,
     isEditorFocused: options.isEditorFocused,
+    holdSaves: options.holdSaves,
     replaceEditorContent: (content) => replaceEditorContent(options.getEditor(), content),
     getState: options.getState,
     noteSwitchTimelines: getNoteSwitchTimelines,

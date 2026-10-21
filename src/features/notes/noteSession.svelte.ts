@@ -35,6 +35,9 @@ export interface NoteSessionDeps {
   navigate: (path: string) => void;
   /** The desktop vault refuses writes: nothing can be saved for the rest of the launch. */
   isVaultLocked?: () => boolean;
+  /** Test automation only (`__notesShellTest.holdSaves`, gated by testHooksEnabled):
+   * while true every save declines without writing, so the draft stays dirty. */
+  savesHeld?: () => boolean;
 }
 
 /** The exact body and title a save parked as a conflict copy. */
@@ -316,7 +319,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   }
 
   const saveQueue = createNoteSaveQueue({
-    save: trackSave,
+    save: () => (deps.savesHeld?.() ? Promise.resolve(false) : trackSave()),
     hasUnseenChanges: hasUnseenEditorChanges,
     editedSinceSaveRead: () => deps.getEditorContent() !== editorReadBySave,
     notifySaved,
