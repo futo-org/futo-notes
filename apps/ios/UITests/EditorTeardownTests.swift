@@ -52,7 +52,7 @@ private func reopenASeededNote(in app: XCUIApplication) {
     create.tap()
     // The system back button's presence is also the signal that the editor
     // screen is up.
-    XCTAssertTrue(backButton(in: app).waitForExistence(timeout: 5))
+    XCTAssertTrue(systemBackButton(in: app).waitForExistence(timeout: 5))
 
     let titleField = app.textFields.firstMatch
     XCTAssertTrue(titleField.waitForExistence(timeout: 5))
@@ -77,21 +77,14 @@ private func reopenASeededNote(in app: XCUIApplication) {
         .firstMatch
     XCTAssertTrue(row.waitForExistence(timeout: 5), "the seeded note is not in the list")
     row.tap()
-    XCTAssertTrue(backButton(in: app).waitForExistence(timeout: 5), "the note did not reopen")
+    XCTAssertTrue(systemBackButton(in: app).waitForExistence(timeout: 5), "the note did not reopen")
 }
 
 private let seededNoteTitle = "QA Teardown"
 
-/// The editor shows the SYSTEM back button, labelled with the previous
-/// screen's title rather than "Back"; UIKit identifies it as "BackButton".
-@MainActor
-private func backButton(in app: XCUIApplication) -> XCUIElement {
-    app.navigationBars.buttons["BackButton"]
-}
-
 @MainActor
 private func tapBack(in app: XCUIApplication) {
-    let back = backButton(in: app)
+    let back = systemBackButton(in: app)
     XCTAssertTrue(back.waitForExistence(timeout: 5))
     back.tap()
 }

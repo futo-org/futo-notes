@@ -728,8 +728,9 @@ hand-reviewed goldens, one or more per line below)
   the document undoes it for a press that began unfocused. →
   src/features/editor/milkdown/mobileBlockDnd.ts, packages/editor/src/bridge.ts
   `FocusMessage`, tests/editor-embed-milkdown-block-drag.spec.ts _(native shells, Android)_
-- A block drag holding the pointer within 64px of the editor scroller's top or
-  bottom edge scrolls the note continuously — 200px/s at the zone's inner lip
+- A block drag holding the pointer within 64px of the visible top or bottom edge
+  of whatever scrolls the note — the editable itself in the native embed,
+  `.note-body` (title and editor together) on desktop — scrolls it continuously — 200px/s at the zone's inner lip
   ramping to 1400px/s at the edge — so a block can be dropped at a boundary that
   was off screen when it was lifted. It runs while the pointer holds still, stops
   at the document's ends, and stops on every exit (commit, no-op release, cancel,
@@ -737,11 +738,12 @@ hand-reviewed goldens, one or more per line below)
   now under the stationary pointer. Both drag paths share it: the native shells'
   long-press drag and the desktop ⠿ gutter handle's mouse drag. Verified on an
   Android device 2026-09-01 — a hold within the zone scrolls continuously and
-  stops on release; a hold mid-viewport does not scroll. →
+  stops on release; a hold mid-viewport does not scroll. Desktop measured the
+  editable's own box until #270, so a hold at the window edge never scrolled. →
   src/features/editor/milkdown/blockDragGeometry.ts `createDragAutoScroller`,
   src/features/editor/milkdown/blockDragSession.ts,
   src/features/editor/milkdown/blockDragGeometry.test.ts,
-  tests/editor-embed-milkdown-block-drag.spec.ts _(native shells)_
+  tests/editor-embed-milkdown-block-drag.spec.ts, tests/editor-scroll.spec.ts
 - Dropping a top-level block never scrolls the note: the blocks on screen at the
   release stay exactly where the live preview drew them, and the dropped block
   lands where the preview showed it — also when edge auto-scroll carried the

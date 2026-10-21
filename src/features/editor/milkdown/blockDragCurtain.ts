@@ -31,7 +31,7 @@
  */
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
-import type { DropTarget } from './blockDragGeometry';
+import { editorScrollContainer, type DropTarget } from './blockDragGeometry';
 
 /**
  * TEST/BENCH-ONLY switch, read when a drag starts: `?blockDragReflow=off` in
@@ -301,7 +301,7 @@ export class ReflowCurtain {
     if (!ok || sourceIndex < 0) return null;
     const count = doc.childCount;
     const unmeasured = () => new Float64Array(count).fill(NaN);
-    const scroller = this.scrollContainer();
+    const scroller = editorScrollContainer(this.view);
     const box = this.curtainBox(scroller);
     const clip = this.doc.createElement('div');
     clip.className = 'futo-mobile-dnd-reflow-clip';
@@ -467,19 +467,6 @@ export class ReflowCurtain {
     curtain.style.left = `${box.left}px`;
     curtain.style.width = `${box.width}px`;
     curtain.style.height = `${box.height}px`;
-  }
-
-  /** The nearest scrollable ancestor of the editor DOM (`.note-body` on
-   * desktop), or the editor DOM itself where that is what scrolls. */
-  private scrollContainer(): HTMLElement | Window {
-    const win = this.doc.defaultView ?? window;
-    for (let n: HTMLElement | null = this.view.dom; n; n = n.parentElement) {
-      const overflowY = win.getComputedStyle(n).overflowY;
-      if (overflowY !== 'auto' && overflowY !== 'scroll' && overflowY !== 'overlay') continue;
-      if (n === this.view.dom && n.scrollHeight <= n.clientHeight) continue;
-      return n;
-    }
-    return win;
   }
 
   /** The scroll-content origin in client coordinates: a slot's `top` plus this

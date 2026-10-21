@@ -76,3 +76,36 @@ test.describe('long-note scrolling (desktop shell)', () => {
     await expect(lastLine).toBeInViewport({ timeout: 5000 });
   });
 });
+
+test.describe('block drag edge auto-scroll (desktop shell)', () => {
+  // Issue #270: the auto-scroll zone was measured against `.ProseMirror`, which
+  // on desktop is a plain box as tall as the note inside `.note-body`, so its
+  // bottom edge was far below the window and holding a dragged block at the
+  // window's bottom edge never scrolled the note.
+  test('holding a dragged block at the bottom of the window scrolls the note', async ({ page }) => {
+    await openNewNote(page);
+    await setEditorMarkdown(page, LONG_NOTE);
+    const firstLine = page.locator(EDITOR).locator('p', { hasText: 'FIRST LINE' }).first();
+    await expect(page.locator(EDITOR).locator('p', { hasText: 'Paragraph 120 of' })).toHaveCount(1);
+
+    const line = (await firstLine.boundingBox())!;
+    await page.mouse.move(line.x + line.width / 2, line.y + line.height / 2);
+    const handle = page.locator('.milkdown-block-handle[data-show="true"]');
+    await handle.waitFor({ state: 'attached' });
+    const grip = (await handle.boundingBox())!;
+
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+    await page.mouse.down();
+    const viewport = page.viewportSize()!;
+    // Into the bottom edge zone, then hold still: no further events arrive,
+    // so only the loop can scroll.
+    await page.mouse.move(line.x + line.width / 2, viewport.height - 8, { steps: 8 });
+
+    await expect
+      .poll(async () => (await firstLine.boundingBox())?.y ?? line.y, { timeout: 5000 })
+      .toBeLessThan(line.y - 300);
+
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+  });
+});

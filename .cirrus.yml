@@ -240,7 +240,12 @@ test_ios_native_task:
     fingerprint_key: futo-notes-target-ios-$CIRRUS_OS-v1
     reupload_on_changes: true
   testFutoNotesIOSNative_script:
-    - brew install fnm xcodegen
+    - brew install fnm xcodegen just
+    # Swift lint first: seconds, and it needs none of the toolchain below.
+    # Nothing ran `just lint-swift` in CI before, so main drifted to 157
+    # findings unnoticed. It lives in this task, whose GitLab job
+    # (test:ios-native) is already in release:gate.needs.
+    - LINT_SWIFT_REQUIRED=1 just lint-swift
     - eval "$(fnm env --shell bash)"
     - fnm use --install-if-missing
     - corepack enable

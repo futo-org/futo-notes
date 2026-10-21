@@ -87,12 +87,12 @@ private func openRow(in app: XCUIApplication, title: String) {
     let target = row(in: app, title: title)
     XCTAssertTrue(target.waitForExistence(timeout: 5))
     target.tap()
-    XCTAssertTrue(app.navigationBars.buttons["BackButton"].waitForExistence(timeout: 5))
+    XCTAssertTrue(systemBackButton(in: app).waitForExistence(timeout: 5))
 }
 
 @MainActor
 private func tapBack(in app: XCUIApplication) {
-    let back = app.navigationBars.buttons["BackButton"]
+    let back = systemBackButton(in: app)
     XCTAssertTrue(back.waitForExistence(timeout: 5))
     back.tap()
 }
