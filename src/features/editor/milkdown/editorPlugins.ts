@@ -34,6 +34,7 @@ import {
   handleBlockTypeChord,
   handleIndentShortcut,
   handleParityKeyDown,
+  handleShiftedChordFallback,
   keepDeleteForward,
 } from './keyboardParity';
 import { handleLineStartShortcut, softBreakView } from './paragraphLines';
@@ -165,6 +166,7 @@ function configureEditor(ctx: Ctx, assembly: EditorAssembly): void {
     handleKeyDown: (view, event) =>
       handleIndentShortcut(view, event) ||
       handleBlockTypeChord(view, event) ||
+      handleShiftedChordFallback(view, event) ||
       handleParityKeyDown(view, event),
     /* A block shortcut (`- `, `# `, …) typed at the start of a line
      * inside a paragraph starts that block from the line, for the same

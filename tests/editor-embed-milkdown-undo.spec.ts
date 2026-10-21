@@ -195,3 +195,45 @@ test('a version adopted from outside the editor is not something undo can revive
 
   expect(await getContent(page)).toBe('theirs\n');
 });
+
+/*
+ * Redo never undoes. A Ctrl+Shift+Z whose key arrives as lowercase "z" (Caps
+ * Lock on, or a host that reports it so) found nothing to redo, and
+ * prosemirror-keymap then retried the chord WITHOUT Shift — Ctrl+Z, undo — and
+ * took back the user's last edit. Playwright's `ControlOrMeta+Shift+z` sends
+ * exactly that event.
+ */
+test('Ctrl+Shift+z with nothing left to redo leaves the note unchanged', async ({ page }) => {
+  await hostSetContent(page, 'base');
+  await focusEditor(page);
+  await page.keyboard.press('End');
+  await page.keyboard.type('a');
+  await settleChangeDebounce(page);
+  await page.keyboard.press('ControlOrMeta+z');
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toBe('base\n');
+
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toBe('basea\n');
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toBe('basea\n');
+});
+
+test('Ctrl+Shift+z after new typing that follows an undo keeps the new text', async ({ page }) => {
+  await hostSetContent(page, 'base');
+  await focusEditor(page);
+  await page.keyboard.press('End');
+  await page.keyboard.type('a');
+  await settleChangeDebounce(page);
+  await page.keyboard.press('ControlOrMeta+z');
+  await settleChangeDebounce(page);
+  await page.keyboard.type('b');
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toBe('baseb\n');
+
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toBe('baseb\n');
+});

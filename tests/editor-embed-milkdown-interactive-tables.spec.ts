@@ -394,3 +394,26 @@ test('pasting an HTML table into the header row, and a <th> table into a body ro
     ['v1', ''],
   ]);
 });
+
+// A shifted chord never runs its unshifted twin. Ctrl+Shift+B (Quote) cannot
+// wrap a table cell, and when its key arrived as lowercase "b" (Caps Lock on —
+// Playwright's `ControlOrMeta+Shift+b` sends that event) prosemirror-keymap
+// retried it without Shift: Ctrl+B, and the next typed text came out bold.
+test('Ctrl+Shift+b with a lowercase key in a table cell does not turn on bold', async ({
+  page,
+}) => {
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r1a');
+  await page.keyboard.press('ControlOrMeta+Shift+b');
+  await page.keyboard.type('X');
+  await settled(page);
+  expect(tableRows(await getContent(page))[1]).toEqual(['r1aX', 'r1b']);
+});
+
+test('Ctrl+Shift+b with a lowercase key still quotes a paragraph', async ({ page }) => {
+  await open(page, 'para');
+  await caretAtEndOf(page, 'para');
+  await page.keyboard.press('ControlOrMeta+Shift+b');
+  await settled(page);
+  expect(await getContent(page)).toBe('> para\n');
+});

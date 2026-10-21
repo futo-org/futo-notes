@@ -63,7 +63,8 @@
  */
 import type { Ctx } from '@milkdown/kit/ctx';
 import { headingKeymap, listItemKeymap } from '@milkdown/kit/preset/commonmark';
-import { newlineInCode } from '@milkdown/kit/prose/commands';
+import { newlineInCode, wrapIn } from '@milkdown/kit/prose/commands';
+import { redo } from '@milkdown/kit/prose/history';
 import { keydownHandler } from '@milkdown/kit/prose/keymap';
 import { splitListItem } from '@milkdown/kit/prose/schema-list';
 import { type Command } from '@milkdown/kit/prose/state';
@@ -320,4 +321,31 @@ export function keepDeleteForward(ctx: Ctx): void {
       shortcuts: withoutDelete(keys.DowngradeHeading.shortcuts),
     },
   }));
+}
+
+/*
+ * A shifted chord never runs its unshifted twin. When a chord's key arrives
+ * as a lowercase letter with Shift held (Caps Lock on, on every platform but
+ * macOS, where the keymap reads the shifted key from the key code instead),
+ * prosemirror-keymap first runs the `Shift-` binding and, if that declines,
+ * retries the chord WITHOUT Shift. The editor binds two such pairs: Redo
+ * (Shift-Mod-z) over Undo (Mod-z), so a Redo with nothing to redo undid the
+ * last edit; and Quote (Mod-Shift-b) over Bold (Mod-b), so a Quote that cannot
+ * wrap — in a table cell — turned on bold. Each guard here CLAIMS its chord,
+ * changing nothing, exactly when the shifted command would decline; when it
+ * would run, the guard declines and the editor's keymap runs it as before.
+ * `keyboardParity.preset.test.ts` checks this list against every shifted
+ * binding the presets carry.
+ */
+export const SHIFTED_CHORD_GUARDS: Record<string, Command> = {
+  'Shift-Mod-z': (state) => !redo(state),
+  'Mod-Shift-b': (state) => !wrapIn(state.schema.nodes.blockquote)(state),
+};
+
+const shiftedChordGuards = keydownHandler(SHIFTED_CHORD_GUARDS);
+
+/** The `handleKeyDown` direct view prop for `SHIFTED_CHORD_GUARDS`. */
+export function handleShiftedChordFallback(view: ProseView, event: KeyboardEvent): boolean {
+  if (event.isComposing) return false;
+  return shiftedChordGuards(view, event);
 }
