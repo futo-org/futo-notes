@@ -4,7 +4,7 @@
 > structured decision session (2026-08-27/28); the evidence behind each one is cited inline. This
 > doc is the execution source of truth for the transition. Contract context: ADR-0002 (round-trip
 > normalization accepted, tiers 1–2 stand), `docs/plan/crdt-sync-and-sharing.md` (CRDT substrate; replaces the old ADR-0003). The rich-text bake-off
-> (`docs/plan/rich-text-editor-bakeoff.md`) was scored against the now-superseded Tier-3 contract —
+> (commit 6d3c50b0; the doc was since removed) was scored against the now-superseded Tier-3 contract —
 > its measurements remain valid evidence; its verdicts do not bind this work.
 
 ## 1. The decision ledger
@@ -878,7 +878,7 @@ against eager rendering installed BEFORE the load, so progressive open ran ident
 
 The stall is Chromium's editable-focus work meeting skipped blocks: one forced style+layout per
 skipped block, so the first focus of a document is quadratic in its block count (the `pure-crepe`
-spike characterised the trace, docs/plan/pure-crepe-spike.md). Ruled out by measurement: where the
+spike characterised the trace; the spike doc was never merged). Ruled out by measurement: where the
 caret sits at focus time, a DOM-only `focus()`, Google Autofill, accessibility services (none
 enabled), and laying every block out once before the focus (17.5 s afterwards regardless). A
 non-editable selection into the same DOM costs 34 ms, and a second focus of the same document
@@ -1051,7 +1051,7 @@ Worth its own ticket.
    recipes), the markdown-spec harness (mine its cases into plugin tests first). The editor gauntlet
    **stays** as the regression suite, with tier-3 byte-diff assertions relaxed to loss-only per
    ADR-0002. The factory/Obsidian judge harness was already deleted ahead of this on main
-   (docs/learnings/factory-obsidian-judge.md).
+   (2026-08-24; recover from git history).
 4. The P1 intent compiler (bake-off graduate, never merged) is not productionized; bake-off §12
    items are void.
 
@@ -1161,7 +1161,7 @@ Gap it closes so a later pass can grep for it.
 - **iOS swift-format debt.** `apps/ios/Sources/Editor/EditorWebView.swift` carries 11 pre-existing
   `swift-format` lint errors (`just lint-swift`); not introduced by this branch, not cleaned up by
   it either.
-- ~~Android's anonymous late `change` could reach the next note (#194).~~ Superseded by bridge v9 in [editor-owns-the-document.md](editor-owns-the-document.md): both hosts route by note id and generation. Native device verification is recorded in that living plan.
+- ~~Android's anonymous late `change` could reach the next note (#194).~~ Superseded by bridge v9 (commit c10fb812): both hosts route by note id and generation.
 - **`dividerCaret.ts` runs two whole-document walks per doc-changing transaction.**
   `newlyCreatedDivider` (`dividerCaret.ts:87-118`) calls `hrPositions()` — a `doc.descendants` walk —
   once each on `oldState.doc` and `newState.doc`, inside `appendTransaction`, so it re-walks the

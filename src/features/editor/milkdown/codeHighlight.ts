@@ -1,15 +1,12 @@
 /*
  * Fenced-code syntax colouring for the Milkdown editor.
  *
- * Same grammars, same curated set, same lazy load as the CodeMirror editor:
  * `codeFenceLanguages.ts` is the single list, a fence in an unlisted language
  * still renders as a code block just uncoloured, and a grammar is fetched the
- * first time a fence uses it (docs/spec/editor.md, "Markdown elements"). What
- * changes is only the renderer — Lezer's `highlightTree` walks the parse tree
- * and `classHighlighter` names the tokens, and those names become ProseMirror
- * inline decorations instead of CodeMirror ones. The `tok-*` classes are
- * therefore identical, so both editors are painted by one stylesheet
- * (src/styles/code-tokens.css) off one palette.
+ * first time a fence uses it (docs/spec/editor.md, "Markdown elements").
+ * Lezer's `highlightTree` walks the parse tree and `classHighlighter` names
+ * the tokens, and those names become ProseMirror inline decorations, painted
+ * by src/styles/code-tokens.css.
  *
  * Why the plugin is ours and not a dependency: see blockDecorations.ts, which
  * has the measurements. Both published ProseMirror highlight plugins cost work

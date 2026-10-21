@@ -2,7 +2,7 @@ param(
     [string]$RepoUrl,
     [string]$Branch = "main",
     [string]$Version = "0.1.0",
-    # Internal, hosted-enabled build only (D2 — docs/plan/hosted-sync-to-staging.md,
+    # Internal, hosted-enabled build only (D2 — hosted-sync staging plan,
     # ticket C8). Both default off, matching every existing (store) caller of this
     # script exactly: build:windows never passes them, so its build is byte-for-byte
     # unchanged. When set, VITE_HOSTED_SYNC/FUTO_HOSTED_SERVER_BAKED are exported

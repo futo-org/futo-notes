@@ -4,7 +4,7 @@
  * Reads issues from the public mirror (futo-org/futo-notes) with NO credential
  * at all. The repo is public, so an anonymous GET returns the same issues a
  * token would, and "the bot never writes to GitHub"
- * (docs/plan/github-issue-triage.md, "Guardrails") stops depending on a token's
+ * (scripts/issue-triage/DESIGN.md, "Guardrails") stops depending on a token's
  * scope being set correctly: a request that carries no identity cannot write.
  * This module therefore exposes no write operation at all.
  *
@@ -88,10 +88,10 @@ function rateLimitNote(response) {
  * harmless. Fetches state=all: a bug closed on the mirror between polls should
  * still be surfaced once.
  *
- * @param {{ repo: string, since: string, fetchImpl?: typeof fetch }} params
+ * @param {{ repo: string, since: string }} params
  * @returns {Promise<Issue[]>}
  */
-export async function fetchIssuesSince({ repo, since, fetchImpl = fetch }) {
+export async function fetchIssuesSince({ repo, since }) {
   const collected = [];
   let page = 1;
 
@@ -106,7 +106,7 @@ export async function fetchIssuesSince({ repo, since, fetchImpl = fetch }) {
     url.searchParams.set('page', String(page));
 
     // No Authorization header on purpose — see the module comment.
-    const response = await fetchImpl(url, {
+    const response = await fetch(url, {
       headers: {
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': API_VERSION,

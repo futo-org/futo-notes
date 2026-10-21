@@ -341,7 +341,6 @@ dependencies {
     implementation("com.google.android.filament:gltfio-android:1.71.5")
     implementation("com.google.android.filament:filament-utils-android:1.71.5")
 
-    debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     // JVM unit tests (pure logic only — e.g. SyncManager's seed-URL selection).

@@ -61,7 +61,9 @@ Example lines to imitate:
 
 ## Mode B — Recording a gap
 
-A gap is a **known missing or divergent behavior**, recorded inline where the requirement lives:
+A gap is a **known missing or divergent behavior**, recorded inline where the requirement lives.
+**Exception: never add a `> **Gap:**` note to `docs/spec/editor.md`** (maintainer decision #264, commit
+8b4cac8c, 2026-10-06) — that file carries none and no separate record of them. Other area files:
 
 ```markdown
 > **Gap:** Android pre-11 (API < 30) devices can't use Device storage (All-files

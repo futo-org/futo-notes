@@ -406,7 +406,7 @@ describe('planMarkdownChunks — non-blank boundaries (hard starters)', () => {
     });
 
     it('a paragraph of plain sentences has no boundary', () => {
-      // tests/editor-embed-milkdown.spec.ts's `oneParagraphNote`: no starters
+      // tests/editor-embed-milkdown-progressive.spec.ts's `oneParagraphNote`: no starters
       // anywhere, so it still declines exactly as before this change.
       const lines = Array.from(
         { length: 20 },
@@ -459,7 +459,7 @@ describe('planMarkdownChunks — the no-blank-line device fixture, at real size'
  * prove is top-level and block-bounded (RC-39, RC-40, RC-38 in the release-
  * hardening campaign). Each shape below is one the l6b fuzz found the scanner
  * cutting inside. The end-to-end proof that the LOADED note is right is in
- * tests/editor-embed-milkdown.spec.ts (progressive section).
+ * tests/editor-embed-milkdown-progressive.spec.ts (progressive section).
  */
 describe('planMarkdownChunks — stops at what it cannot prove', () => {
   const opts = { minLines: 0, firstChunkLines: 1, chunkLines: 1 };

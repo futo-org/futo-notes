@@ -22,6 +22,8 @@ satisfy it yet — that's what makes gaps visible.
   The notes in these files ARE the inventory — nothing generates an index from
   them. List every open gap with `rg '> \*\*Gap' docs/spec/`. Close one by
   deleting the note in the same commit that makes the behavior true.
+  **Exception:** `editor.md` carries no Gap notes and no separate record of them (maintainer
+  decision #264, commit 8b4cac8c) — it states what the editor does; do not add one there.
 
 ## Areas
 

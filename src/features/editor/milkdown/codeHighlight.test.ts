@@ -53,7 +53,7 @@ describe('matchFenceLanguage', () => {
 describe('highlightFence', () => {
   const js = javascript();
 
-  it('names tokens with the same `tok-*` classes CodeMirror uses', () => {
+  it('names tokens with the `tok-*` classes code-tokens.css paints', () => {
     const node = fence('js', 'const a = "s";');
     const found = highlightFence(node, 0, js).map(
       (d) => `${classOf(d)}:${node.textContent.slice(d.from - 1, d.to - 1)}`,

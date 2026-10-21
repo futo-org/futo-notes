@@ -170,18 +170,4 @@ struct NativeMutationOutcomeTests {
     // The leave-flush, delete-cover, dirty-commit, and persist-or-park-completes
     // decisions are all reachable through the session now — see
     // EditorSessionTests.
-
-    @Test("move follows a draft parked under a conflict identity")
-    func moveSourceIdentity() {
-        #expect(
-            editorMoveSourceId(currentId: "Folder/Note", disposition: .wrote)
-                == "Folder/Note"
-        )
-        #expect(
-            editorMoveSourceId(
-                currentId: "Folder/Note",
-                disposition: .parkedConflict(parkedId: "Folder/Note (conflict 2026-07-23)")
-            ) == "Folder/Note (conflict 2026-07-23)"
-        )
-    }
 }

@@ -26,7 +26,6 @@ export {
   setFindOverlayInset,
   setFindQuery,
   stepFind,
-  type FindPluginState,
 } from './findPlugin';
 export { createFindMatchReport, type FindMatch, type FindMatchReport } from './findMatches';
 

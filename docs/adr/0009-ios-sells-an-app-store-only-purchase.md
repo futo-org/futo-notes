@@ -43,7 +43,7 @@ picker on iOS, shipping the gate as-is, and gating only in the US were all rejec
 
 ## Consequences
 
-- ADR-0003's "no IAP anywhere" and ADR-0005's "no IAP" no longer hold on iOS; both stand for
+- ADR-0010's "no IAP anywhere" and ADR-0005's "no IAP" no longer hold on iOS; both stand for
   Android and desktop.
 - The spec rule that Buy is "the only filled button" on the License card changes for the iOS US
   storefront.

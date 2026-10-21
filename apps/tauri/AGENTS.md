@@ -50,7 +50,7 @@ TypeScript handles reactive note projection state, preferences, and sync coordin
 
 | Target | Port | Command |
 |---|---|---|
-| Desktop | 5180 | `just tauri-dev` |
+| Desktop | 5200 + worktree slot (`scripts/lib/slot.mjs`) | `just tauri-dev` |
 
 (Mobile is native now — see `apps/ios` / `apps/android` and root AGENTS.md.)
 

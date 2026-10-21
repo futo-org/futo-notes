@@ -6,6 +6,7 @@ import type { SyncTrigger } from './autoSync';
 import type { createExternalChangeCoordinator } from './createExternalChangeCoordinator';
 import type { WriteRefusalOutput } from './syncContract.generated';
 import type { SyncSummary } from './syncServiceE2ee';
+import { idLeaf } from '$lib/platform/pathSafety';
 import type { WriteSuppressor } from '$lib/platform/writeSuppression';
 import type { LocalizedMessage } from '$shared/localization';
 import type { ToastMessage } from '$shared/notifications/toastBus.svelte';
@@ -81,10 +82,7 @@ export function createSyncCompletionReconciler(options: SyncCompletionOptions) {
   function projectReportedRenames(summary: SyncSummary, followedRenameFromIds: Set<string>): void {
     for (const rename of summary.renamed) {
       if (followedRenameFromIds.has(rename.fromId)) continue;
-      const slash = rename.toId.lastIndexOf('/');
-      const title =
-        getNoteById(rename.toId)?.title ??
-        (slash === -1 ? rename.toId : rename.toId.slice(slash + 1));
+      const title = getNoteById(rename.toId)?.title ?? idLeaf(rename.toId);
       dependencies.onRename(rename.fromId, rename.toId, title);
     }
   }

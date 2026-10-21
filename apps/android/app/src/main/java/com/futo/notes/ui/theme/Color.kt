@@ -56,24 +56,6 @@ object FutoPalette {
 }
 
 /**
- * The well's inset shadow — the only thing that says the 184dp circle is sunk
- * into the plate, since it carries no fill and no ring (D1).
- *
- * Identical in both themes on purpose: a depression is geometry, not colour,
- * and the CSS the desktop plate uses
- * (`inset 0 2px 6px rgba(0,0,0,.28), inset 0 -1px 0 rgba(255,255,255,.35)`)
- * is likewise one declaration for both. Kept out of [FutoColors] for exactly
- * that reason — there is nothing for the dark variant to override.
- */
-object FutoPlateWell {
-    /** rgba(0, 0, 0, .28) — the cast shadow under the top edge and around the rim. */
-    val Shadow = Color(0x47000000)
-
-    /** rgba(255, 255, 255, .35) — the light line along the bottom inside edge. */
-    val Highlight = Color(0x59FFFFFF)
-}
-
-/**
  * Extended semantic tokens that don't map cleanly onto a Material3 ColorScheme.
  * Exposed via [LocalFutoColors] so composables can read e.g.
  * `FutoTheme.colors.textSecondary`. Light values are the defaults; the dark

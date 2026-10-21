@@ -1980,7 +1980,7 @@ journal --dir` has nothing to read from a phone.
   > `applyExternalContent` and `setContent` go through one whole-document
   > `replaceAll`, so the caret and scroll are only whatever ProseMirror's
   > position mapping happens to preserve across a full replacement, and the
-  > replacement is itself undoable (see the undo Gaps in
+  > replacement is itself undoable (see the undo lines in
   > [editor.md](editor.md) "Interactive elements"). The CodeMirror editor
   > diffed and suppressed history (`editorContentSync.ts`, deleted with it).
   > Re-verify on device before treating the 2026-06-09 result as current. →

@@ -1,17 +1,14 @@
-import { expect, test as base, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
-import { BRIDGE_VERSION } from '@futo-notes/editor';
-
-import { EDITOR_URL } from './editorEmbedBundle';
 import {
   flushFrames,
   getContent,
-  installFakeAndroidHost,
   messagesOfType,
   waitForMessages,
   withCaretObserved,
   type FakeHostWindow,
 } from './lib/editorEmbedHost';
+import { CHANGE_DEBOUNCE_MS, embedTest, hostConfig, initialize } from './lib/editorEmbedSpec';
 
 /**
  * Interactive-element parity, Milkdown engine — the docs/spec/editor.md
@@ -24,36 +21,10 @@ import {
  * Real keyboard/mouse input throughout (AGENTS.md M21).
  */
 
-/** @milkdown/plugin-listener debounces `markdownUpdated` by 200 ms (trailing). */
-const CHANGE_DEBOUNCE_MS = 200;
-
-const test = base.extend<{ page: Page }>({
-  page: async ({ browser }, use) => {
-    const context = await browser.newContext({ hasTouch: true });
-    await context.addInitScript(installFakeAndroidHost);
-    const page = await context.newPage();
-    await page.goto(EDITOR_URL);
-    await page.waitForFunction(() =>
-      (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
-    );
-    await use(page);
-    await context.close();
-  },
-});
+const test = embedTest;
 
 async function open(page: Page, content: string): Promise<void> {
-  await page.evaluate(
-    (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
-    JSON.stringify({
-      bridgeVersion: BRIDGE_VERSION,
-      noteId: 'test-note',
-      theme: 'light',
-      content,
-      nativeToolbar: true,
-      contentPaddingInlinePx: 14,
-    }),
-  );
-  await flushFrames(page);
+  await initialize(page, hostConfig({ content }));
 }
 
 /**

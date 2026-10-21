@@ -248,8 +248,8 @@ async function editorRoundtripThroughRealSync(a, b, server) {
   // re-serializes the whole note on a real edit, so composed markdown reaches
   // the editor buffer and the file in its serialized spelling: a blank line
   // between blocks and one trailing newline (ADR-0002 normalize-once,
-  // docs/spec/editor.md "WYSIWYG rendering"). Typing source and asserting the
-  // same bytes back was the CodeMirror editor's byte passthrough.
+  // docs/spec/editor.md "WYSIWYG rendering"), so the bytes asserted back are
+  // not the bytes typed.
   const typed = '# Written in Milkdown\nThis note should sync through the real save pipeline.';
   const body = '# Written in Milkdown\n\nThis note should sync through the real save pipeline.\n';
 
@@ -810,7 +810,7 @@ async function dirtyDraftSurvivesAPeerEditThenSettles(a, b, server) {
   //
   // The draft is held dirty the way externalWatcherProtectsDirtyDraftThenSettles
   // does it — a duplicate title blocks the save — rather than by keeping the
-  // editor focused: CodeMirror's hasFocus() also requires document.hasFocus(),
+  // editor focused: the editor's hasFocus() also requires document.hasFocus(),
   // so a background window's focus is not something a scenario can rely on.
   // This is the sync-pull twin of that watcher scenario, which asserts the same
   // park for an external disk write.
@@ -3342,7 +3342,7 @@ const scenarios = [
   // times out at 30s roughly half the time. Locally they pass in <2s, so
   // keep them enabled off-CI. Investigate separately — the notify crate's
   // event loop may be starved while the single-threaded xvfb renders, or
-  // the CodeMirror update path may be blocked by unrelated IPC traffic.
+  // the editor's update path may be blocked by unrelated IPC traffic.
   {
     name: 'external watcher reloads clean note',
     fn: externalWatcherReloadsCleanNote,

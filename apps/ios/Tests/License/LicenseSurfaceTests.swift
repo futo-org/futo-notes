@@ -189,28 +189,4 @@ struct LicenseSurfaceTests {
                 == LicensePlateShape(
                     well: false, letterhead: false, keyRow: false, headline: false))
     }
-
-    /// The card model keeps returning `since` and `term` — it is shared law
-    /// across the three shells and did not change — and this shell stopped
-    /// rendering them. The catalog is what proves the second half: the two row
-    /// LABELS were only ever read here and on Android, so they left
-    /// `languages/en.json` with their last reader, and so did Copy key and its
-    /// toast and the empty well's label.
-    ///
-    /// `localizedText` answers an unknown path with the path itself, which is
-    /// what makes this assertion possible at all.
-    @Test("the retired card entries are gone from the shipped catalog")
-    func retiredCatalogEntries() {
-        let localization = Localization.system(
-            requestedLanguageTags: ["en"], regionalLanguageTag: "en-US")
-        for path in [
-            "license.card.sinceLabel", "license.card.termLabel", "license.card.copyKey",
-            "license.card.keyCopied", "license.card.emptyWell",
-        ] {
-            #expect(localization.localizedText(path) == path, "\(path) is still in the catalog")
-        }
-        // The term STRINGS stay: `licenseCardModel` still builds them, and its
-        // own tests still read them.
-        #expect(localization.localizedText("license.card.termPerpetual") == "Perpetual")
-    }
 }

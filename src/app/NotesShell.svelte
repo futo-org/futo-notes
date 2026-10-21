@@ -276,10 +276,6 @@
       settingsOpen = true;
     },
     toggleSidebar,
-    // Find in note was a CodeMirror feature (src/features/editor/find/) and the
-    // Milkdown editor has no replacement yet, so nothing claims Ctrl/Cmd+F or
-    // Ctrl/Cmd+G on desktop. docs/spec/editor.md's "Find in note" section
-    // carries the gap; the bridge calls stay declared for the native bars.
     /* Find is the OPEN NOTE's surface, and the cross-note search popup claims
      * the same chord while it is up (searchPopupShortcuts.ts). A Home tab has
      * no document, so both accelerators are no-ops there. */

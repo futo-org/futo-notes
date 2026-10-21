@@ -9,8 +9,8 @@
 //      from raw classes at capture time.
 //
 // This contract was the FUTO-side half of the deleted factory/ Obsidian parity
-// judge (docs/learnings/factory-obsidian-judge.md); the gauntlet is the only
-// remaining consumer, so it lives here.
+// judge (removed 2026-08-24; recover from git history); the gauntlet is the
+// only remaining consumer, so it lives here.
 
 export interface Position {
   line: number;

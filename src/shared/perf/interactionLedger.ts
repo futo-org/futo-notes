@@ -106,10 +106,6 @@ export function setKeystrokeTripwire(enabled: boolean): void {
   keystrokeTripwire = enabled;
 }
 
-export function isKeystrokeTripwireEnabled(): boolean {
-  return keystrokeTripwire;
-}
-
 function closeKeystrokeFrame(): void {
   keystrokeFramePending = false;
   markInteraction('keystroke', 'frame');

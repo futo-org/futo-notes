@@ -27,7 +27,7 @@ key touch saved. The software-keyboard rerun passed with a 60,000-section note: 
 retained the typed marker and section 59,999 on disk after terminating the app.
 The automated story checks disk after termination; it does not relaunch to inspect
 the note visually. Protocol and native
-unit checks are recorded in `docs/plan/editor-owns-the-document.md`.
+unit checks are recorded in commit c10fb812 (bridge v9) and its tests.
 
 ## Not proven
 

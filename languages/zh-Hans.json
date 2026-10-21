@@ -338,7 +338,6 @@
       "delete": {
         "heading": "删除文件夹",
         "thisFolderQuestion": "要删除此文件夹吗？",
-        "moveNotesWarning": "其中的笔记将移至上一级文件夹。",
         "recoverableConfirmation": "要删除此文件夹吗？其中的笔记将移至上一级文件夹。",
         "permanentConfirmation": "要删除此文件夹吗？其中的笔记将移至上一级文件夹，其他内容将被永久删除。",
         "movedNotes": {
@@ -431,12 +430,8 @@
       "selectionToolbar": {
         "accessibilityLabel": "文本格式",
         "bold": "粗体",
-        "boldTitle": "粗体（Mod-B）",
         "italic": "斜体",
-        "italicTitle": "斜体（Mod-I）",
         "strikethrough": "删除线",
-        "strikethroughTitle": "删除线（Mod-Shift-S）",
-        "inlineCode": "行内代码",
         "link": "链接"
       },
       "find": {
@@ -457,7 +452,6 @@
       },
       "slashMenu": {
         "heading": "插入内容块",
-        "noMatches": "没有匹配的内容块",
         "commands": {
           "paragraph": "段落",
           "paragraphHint": "纯文本",
@@ -491,15 +485,6 @@
         "cameraUnavailable": "没有可用的相机应用",
         "filePickerFilter": "图片"
       },
-      "tableControls": {
-        "dragColumn": "拖动列",
-        "addColumnToRight": "在右侧添加列",
-        "cycleAlignment": "切换对齐方式",
-        "deleteColumn": "删除列",
-        "dragRow": "拖动行",
-        "addRowBelow": "在下方添加行",
-        "deleteRow": "删除行"
-      },
       "android": {
         "bridgeVersionMismatch": "桥接版本不匹配：编辑器 v{editorVersion}，原生端 v{nativeVersion}",
         "legacyWebView": {
@@ -513,20 +498,6 @@
       },
       "ios": {
         "bundleMissing": "编辑器不可用，因为应用包中缺少 editor.html。"
-      }
-    },
-    "codeMirror": {
-      "phrases": {
-        "completions": "补全",
-        "controlCharacter": "控制字符",
-        "selectionDeleted": "所选内容已删除",
-        "foldedLines": "已折叠行",
-        "unfoldedLines": "已展开行",
-        "rangeSeparator": "至",
-        "foldedCode": "已折叠代码",
-        "unfold": "展开",
-        "foldLine": "折叠行",
-        "unfoldLine": "展开行"
       }
     },
     "sync": {

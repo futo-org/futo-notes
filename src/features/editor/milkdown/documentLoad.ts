@@ -64,8 +64,7 @@ export type DocumentLoad = ReturnType<typeof createDocumentLoad>;
  * landed restored the version it superseded and handed that to autosave,
  * writing the stale note over the fresh one. `addToHistory: false` keeps the
  * load off the stack; the user's own earlier edits stay undoable, rebased
- * over it by prosemirror-history the way the CodeMirror editor's
- * `EXTERNAL_CONTENT_OPTS` did. It also means documentChanges.ts never reports
+ * over it by prosemirror-history. It also means documentChanges.ts never reports
  * the load itself — correct, since a load is never an edit.
  * → docs/spec/editor.md "Saving & rename", tests/editor-embed-milkdown.spec.ts
  *

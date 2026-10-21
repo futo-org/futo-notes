@@ -96,15 +96,11 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-# Three independent fail-fast guards for the same "no node_modules" papercut; see
-# docs/agents/justfile-notes.md. This one also fails when a pnpm patchedDependencies
-# patch is not applied in the installed copy (RC-69); `just install` runs it afterwards.
+# Fail fast without node_modules, or when a pnpm patchedDependencies patch is not applied in
+# the installed copy (RC-69); `just install` runs it afterwards.
 check-node-modules:
   @node scripts/check-node-modules.mjs
 
 # Fail before tests/builds when the active Node differs from the pinned .nvmrc.
 check-node-version:
   @node scripts/check-node-version.mjs
-
-_require-install:
-  @[ -d node_modules ] || { echo 'node_modules is missing in this worktree — run: just install' >&2; exit 1; }

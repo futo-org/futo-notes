@@ -1,18 +1,15 @@
-import { expect, test as base, type CDPSession, type Page } from '@playwright/test';
-
-import { BRIDGE_VERSION } from '@futo-notes/editor';
+import { expect, type CDPSession, type Page } from '@playwright/test';
 
 import { extractHeaderTagBlock, extractTags } from '../packages/editor/src/tags';
 import { CHECKBOX_SIZE_PX } from '../src/features/editor/milkdown/taskCheckbox';
-import { EDITOR_URL } from './editorEmbedBundle';
 import {
   clearMessages,
   flushFrames,
   getContent,
-  installFakeAndroidHost,
   messagesOfType,
   type FakeHostWindow,
 } from './lib/editorEmbedHost';
+import { CHANGE_DEBOUNCE_MS, embedTest, hostConfig, initialize } from './lib/editorEmbedSpec';
 
 /**
  * Editing-surface parity, Milkdown engine — tags, task checkboxes, and fenced
@@ -31,36 +28,10 @@ import {
  * matters on a phone — that tapping a checkbox does not raise the keyboard.
  */
 
-/** @milkdown/plugin-listener debounces `markdownUpdated` by 200 ms (trailing). */
-const CHANGE_DEBOUNCE_MS = 200;
-
-const test = base.extend<{ page: Page }>({
-  page: async ({ browser }, use) => {
-    const context = await browser.newContext({ hasTouch: true });
-    await context.addInitScript(installFakeAndroidHost);
-    const page = await context.newPage();
-    await page.goto(EDITOR_URL);
-    await page.waitForFunction(() =>
-      (window as unknown as FakeHostWindow).__msgs?.some((m) => m.type === 'ready'),
-    );
-    await use(page);
-    await context.close();
-  },
-});
+const test = embedTest;
 
 async function open(page: Page, content: string, theme: 'light' | 'dark' = 'light'): Promise<void> {
-  await page.evaluate(
-    (json) => (window as unknown as FakeHostWindow).FutoEditor.initialize(json),
-    JSON.stringify({
-      bridgeVersion: BRIDGE_VERSION,
-      noteId: 'test-note',
-      theme,
-      content,
-      nativeToolbar: true,
-      contentPaddingInlinePx: 14,
-    }),
-  );
-  await flushFrames(page);
+  await initialize(page, hostConfig({ content, theme }));
 }
 
 /** Type one character at the very end, the smallest thing that is a real edit. */

@@ -64,7 +64,7 @@
  * - 9: BREAKING — document identity and flush replace native reads (#194/#244/#245).
  *      setContent/applyExternalContent name the note; getContent is removed;
  *      retarget relabels the open note in place.
- *      See docs/plan/editor-owns-the-document.md.
+ *      See commit c10fb812 and `git log --grep='bridge v9'`.
  *
  * `formatState` (Notion-style toolbar active-state — see
  * {@link FormatStateMessage}) is additive and ships WITHOUT a version bump: it

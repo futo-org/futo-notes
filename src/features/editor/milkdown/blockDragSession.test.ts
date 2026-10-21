@@ -3,7 +3,7 @@
  * The shared lifted-block drag (blockDragSession.ts) against a fake view: what
  * it draws, when it ticks, and the one transaction it may commit. The gestures
  * that start it are mobileBlockDnd.test.ts and handleBlockDrag.test.ts; the
- * real thing in a real engine is tests/editor-embed-milkdown.spec.ts.
+ * real thing in a real engine is tests/editor-embed-milkdown-block-drag.spec.ts.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 

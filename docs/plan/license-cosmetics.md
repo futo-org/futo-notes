@@ -23,7 +23,7 @@ summary` form with a `Verified:` line.
 **D15–D32 are deferred (2026-10-19, @justin).** They describe selling the license through
 StoreKit and Play Billing and redeeming the purchase on FUTOpay. That work is parked, not
 cancelled: it needs a lib-polar change and a store-submission cycle that are not wanted now. They
-stay here as the record of the reasoning and are **not** in force. In force instead: ADR-0003 and
+stay here as the record of the reasoning and are **not** in force. In force instead: ADR-0010 and
 ADR-0005's posture (Buy opens the FUTOpay website on desktop, iOS US storefront and Android
 `direct`; iOS elsewhere and Android `play` stay key-only). The wording of the key-only surfaces
 is under review separately; do not change it from this plan.
@@ -123,7 +123,7 @@ pub fn license_includes(status: LicenseStatus) -> Vec<LicenseInclusion>
   that works is gated" + the inclusion rule), line 4 of the same file, line 637's copy claim,
   `crates/futo-notes-license/AGENTS.md:9`, `crates/futo-notes-license/src/lib.rs:4`,
   `apps/ios/Sources/License/LicenseSettingsSection.swift:83`,
-  `src/features/license/LicenseSettingsSection.svelte:9`, `docs/plan/license-ship.md:278`.
+  `src/features/license/LicenseSettingsSection.svelte:9`, the ship plan's line 278 (deleted; commit 0774e8a2e).
   Add `docs/adr/0006-a-license-may-include-cosmetics.md`.
 - Spec: new lines in `docs/spec/license.md` (a "What a license includes" section, platform
   tagged) and `docs/spec/settings.md` § Native app icons (the unlicensed rendering, the sheet,

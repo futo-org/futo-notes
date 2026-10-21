@@ -3,6 +3,7 @@ import { invoke } from './invoke';
 import { listen } from '@tauri-apps/api/event';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { toWellFormedText } from '@futo-notes/editor';
+import { errorText } from '$shared/errorText';
 
 import type { FileChangeEvent, PlatformFS } from '../types';
 
@@ -77,7 +78,7 @@ export function createTauriAdapter() {
     onStartFailed?: (message: string) => void,
   ): () => void {
     void startWatcher().catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       console.warn('Failed to start file watcher:', error);
       onStartFailed?.(message);
     });

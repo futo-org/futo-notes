@@ -119,8 +119,8 @@ describe('wikilink tokenizing', () => {
    * The ONE place the two are meant to disagree, and it is the editor that is
    * right: docs/spec/editor.md — "Wikilinks and tags inside inline code or
    * fenced blocks are NOT decorated and NOT extracted". `findWikilinks` is a
-   * raw-text scanner with no notion of code, which is why the CodeMirror path
-   * filters code separately and this one gets it from micromark for free.
+   * raw-text scanner with no notion of code; the editor gets code exclusion
+   * from micromark for free.
    */
   it.each(['`[[code]]`', '``a [[code]] b``', '    [[indented code]]', '```\n[[fence]]\n```'])(
     'does not make a wikilink inside code: %j',

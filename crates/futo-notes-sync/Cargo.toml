@@ -41,9 +41,6 @@ jni = "0.21"
 [target.'cfg(target_os = "linux")'.dependencies]
 openssl-probe = "0.2"
 
-[target.'cfg(unix)'.dependencies]
-rustix = { version = "1", features = ["fs"] }
-
 [dev-dependencies.futo-notes-core]
 path = "../futo-notes-core"
 features = ["test-support"]

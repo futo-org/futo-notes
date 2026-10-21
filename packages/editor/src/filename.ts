@@ -46,7 +46,6 @@ export type FilenameIssueKind =
   | 'too_long'
   | 'empty'
   | 'reserved_name'
-  | 'case_collision'
   | 'depth_exceeded';
 
 /**

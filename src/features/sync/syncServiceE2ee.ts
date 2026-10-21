@@ -29,6 +29,7 @@ import { getPlatformFS, isTauri } from '$lib/platform';
 import { connectHostedSync, hasHostedSavedVault } from '$lib/platform/tauri/hostedSync';
 import { hostedSyncEnabled } from './hostedSyncEnabled';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
+import { errorText } from '$shared/errorText';
 import type {
   E2eeConnectInput,
   E2eeConnectOutput,
@@ -376,7 +377,7 @@ async function scrubLegacySyncStateIfConsumed(): Promise<void> {
 // ── Sync runner ─────────────────────────────────────────────────────────
 
 export function isRecoverableSessionError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorText(error);
   return (
     message.includes('collection-gone') ||
     message.startsWith('auth:') ||

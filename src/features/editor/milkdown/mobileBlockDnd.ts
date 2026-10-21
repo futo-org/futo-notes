@@ -294,7 +294,7 @@ type PressedBlock = {
  * gate (module doc's "focus arbitrates drag vs. selection") can be unit-tested
  * directly against a fake `ProseView`, without standing up a real Milkdown
  * editor — the physical long-press gesture itself still needs a device/
- * Playwright's touch stream, which is what `tests/editor-embed-milkdown.spec.ts`
+ * Playwright's touch stream, which is what `tests/editor-embed-milkdown-block-drag.spec.ts`
  * covers. */
 export class MobileBlockDndView {
   private readonly view: ProseView;

@@ -9,7 +9,7 @@ const BOUNDARIES = [
   },
   {
     roots: ['futo-notes-ffi'],
-    forbidden: ['futo-notes-inference', 'ort', 'ort-sys'],
+    forbidden: ['ort', 'ort-sys'],
     reason: 'the native FFI facade must stay free of ORT/SPLADE',
   },
 ];

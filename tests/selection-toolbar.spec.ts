@@ -14,7 +14,7 @@ import {
  * plugin, wired in `src/features/editor/milkdown/selectionToolbar/`.
  *
  * This is the CodeMirror selection toolbar's replacement
- * (docs/plan/desktop-editor-parity.md D1). Assertions are on the note's
+ * (desktop editor parity D1). Assertions are on the note's
  * MARKDOWN: what a button is worth is what gets saved.
  */
 

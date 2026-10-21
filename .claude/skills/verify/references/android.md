@@ -230,10 +230,9 @@ setup: see "Features that need a sync server" in SKILL.md.
 ## Known gotchas
 
 - **IME/keyboard**: keyboard-specific WebView crashes have history here — the
-  retired Tauri shell needed a shadow-InputConnection workaround
-  (`docs/learnings/ime-shield-workaround.md`, kept as prior art). If a
-  keyboard-triggered renderer crash appears in the native shell, read that
-  doc before debugging from scratch. IME/status-bar issues generally need
+  retired Tauri shell needed a shadow-InputConnection workaround that was
+  later removed once FUTO Keyboard fixed the crash upstream (see
+  `docs/spec/editor.md`, "Backspace on an empty note"). IME/status-bar issues generally need
   device/emulator QA — Playwright can't see them.
 - Some Compose surfaces (dialogs, menus) render in separate windows; if a
   node is missing from the uiautomator dump, re-dump after a short sleep.

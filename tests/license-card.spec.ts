@@ -1,7 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 
 // The Steel Ledger plate, one test per state (docs/spec/license.md § States and
-// copy; docs/plan/license-ship.md § Phase 4).
+// copy).
 //
 // The license *rules* live in Rust and the browser never reaches them: off
 // Tauri `src/lib/platform/license.ts` answers "Unlicensed" for everything, so

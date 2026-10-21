@@ -1,4 +1,5 @@
 import { hasFileSystem } from '$lib/platform';
+import { idParent } from '$lib/platform/pathSafety';
 import { sanitizeFilename } from '$lib/rules';
 import type { NotePreview } from '$shared/types/note';
 import { notifySaved } from '$features/sync/autoSync';
@@ -98,12 +99,7 @@ function hasDuplicateNoteTitle(
   pendingFolder: string | null,
 ): boolean {
   const leaf = sanitizeFilename(normalizeTitleForPersistence(checkTitle));
-  const slash = originalId?.lastIndexOf('/') ?? -1;
-  const parentFolder = originalId
-    ? slash === -1
-      ? ''
-      : originalId.slice(0, slash)
-    : (pendingFolder ?? '');
+  const parentFolder = originalId ? idParent(originalId) : (pendingFolder ?? '');
   const checkId = parentFolder ? `${parentFolder}/${leaf}` : leaf;
   return notes.some((note) => note.id === checkId && note.id !== originalId);
 }

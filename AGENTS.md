@@ -24,7 +24,7 @@ CRITICAL rules and behavioral specs take priority; report any conflict.
 
 Use `just` from the repo root (`just install`, `just tauri-dev`, `just check`). The justfile owns
 commands, overlays, dev IDs, worktree isolation, and device detection. Never call `cargo tauri`.
-`just tauri-dev` is desktop dev: Wayland, port 5180.
+`just tauri-dev` is desktop dev: Wayland, Vite port 5200 plus the worktree slot (`scripts/lib/slot.mjs`; `just ports`).
 
 ## 2. CRITICAL — mobile is native, not Tauri
 
@@ -62,7 +62,9 @@ pinned in `scripts/sync-server-pin.json`, so no checkout of it is needed here.
 3. **View, reactive state, coordination, or shell?** TypeScript/Svelte in `src/`.
 4. **Compute-heavy or protocol-shaped?** Rust.
 5. **OS capability?** Extend `PlatformFS`; components never branch on platform, never invoke note
-   commands or plugin-fs directly (`pnpm run lint:platform`, `pnpm run check:platform-discipline`).
+   commands or plugin-fs directly. `pnpm run check:platform-discipline` gates `@tauri-apps` imports
+   outside `src/lib/platform/` against an allowlist; the rest is review (`pnpm run lint:platform` only
+   greps for leftover Electron/Capacitor strings).
 6. **Two domain calls in sequence?** Make one atomic Rust workflow, not a shell-side stitch.
    This has no reliable gate: an experiment produced a green check-then-act race that resurrected
    a deleted note. If every caller must remember an ordering invariant, push it down.
@@ -147,7 +149,7 @@ These are observed failures, not generic advice.
   `just build-rust-android`) before native testing. `just *-native` does; direct Xcode/Gradle
   does not.
 - **M10 — One-shell bridge change.** `bridge.ts` and `toolbar.ts` are authoritative. A new message
-  needs both native hosts; toolbar behavior belongs in shared `TOOLBAR_EXEC`, never a shell.
+  needs both native hosts; toolbar behavior belongs in shared `createToolbarExec` (`src/features/editor/milkdown/toolbarExec.ts`), never a shell.
 
 ### C. CI and release (the single most-churned area of this repo)
 
@@ -246,12 +248,16 @@ requires `scripts/win-vm/`.
 `docs/spec/` states cross-platform behavior once. Read/update the area file with behavior; record
 divergence as an inline `> **Gap:**` note in that same file — the notes are the source of truth and
 there is no generated index, so list them with `rg '> \*\*Gap' docs/spec/`.
+**Exception: `docs/spec/editor.md` carries no `> **Gap:**` notes and no separate record of them**
+(maintainer decision #264, commit 8b4cac8c, 2026-10-06) — it states what the editor does; do not add one.
 `docs/spec/README.md` owns the line conventions (one behavior per line, platform tags, `→ path`
 authority refs); `docs/spec/AGENTS.md` and `/spec-sync` own the verification workflow.
 
 ## 11. When uncertain
 
-Resolve from spec → fixtures → canonical Rust → `git log` + `docs/learnings/` → nearest manual. Find
+Resolve from spec → fixtures → canonical Rust → `git log` + `docs/learnings/` → nearest manual.
+**Archive rule:** a plan or learning is deleted in the commit that ships or obsoletes it; git history is
+the archive; code never cites `docs/plan` paths. Find
 the existing pattern; do not invent one. **Act without asking** on reversible in-repo work: fixes,
 tests, refactors within a layer, running suites, dev builds/installs, spec edits that record
 verified behavior, and force-pushing a feature branch (`--force-with-lease`, never bare `--force`).

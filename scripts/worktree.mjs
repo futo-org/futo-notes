@@ -45,7 +45,7 @@ function git(args, cwd, { check = true } = {}) {
 }
 
 /** `git worktree list --porcelain` → [{ path, head, branch, detached, bare }]. */
-export function parseWorktrees(porcelain) {
+function parseWorktrees(porcelain) {
   const out = [];
   let cur = null;
   for (const line of porcelain.split('\n')) {
@@ -63,13 +63,13 @@ export function parseWorktrees(porcelain) {
 }
 
 /** The checkout that owns .git — worktrees hang off it. */
-export function primaryRoot(cwd) {
+function primaryRoot(cwd) {
   const common = git(['rev-parse', '--git-common-dir'], cwd);
   return path.dirname(path.resolve(cwd, common));
 }
 
 /** ../<repo>-<name>, the naming convention every human-made worktree here uses. */
-export function siblingPath(primary, name) {
+function siblingPath(primary, name) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) {
     throw new Error(`worktree name '${name}' must be [A-Za-z0-9._-] and start alphanumeric`);
   }
@@ -77,7 +77,7 @@ export function siblingPath(primary, name) {
 }
 
 /** How to clone target/ cheaply on this platform, or null when it cannot be cheap. */
-export function cloneTargetCommand(platform, src, dst) {
+function cloneTargetCommand(platform, src, dst) {
   if (platform === 'darwin') return ['cp', ['-Rc', src, dst]];
   if (platform === 'linux') return ['cp', ['-R', '--reflink=always', src, dst]];
   return null;
@@ -87,7 +87,7 @@ export function cloneTargetCommand(platform, src, dst) {
  * Pure gc decision for one worktree.
  * @returns {{ candidate: boolean, reason: string|null, protectedBy: string|null }}
  */
-export function classifyWorktree(wt, { now, idleDays, primary, current }) {
+function classifyWorktree(wt, { now, idleDays, primary, current }) {
   if (wt.bare) return { candidate: false, reason: null, protectedBy: 'bare' };
   if (path.resolve(wt.path) === path.resolve(primary))
     return { candidate: false, reason: null, protectedBy: 'primary' };

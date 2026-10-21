@@ -1,6 +1,7 @@
 import { makePreview } from '@futo-notes/editor';
 import { noteTags } from '$features/notes/notesIndex';
 import { DEFAULT_NOTE_SORT_ORDER } from '../localNoteStore';
+import { idLeaf, idParent } from './pathSafety';
 import type {
   NoteSortOrder,
   LocalFlushDraftResult,
@@ -18,7 +19,7 @@ import type {
 type HarnessNote = { content: string; modifiedMs: number };
 
 function titleOf(id: string): string {
-  return id.slice(id.lastIndexOf('/') + 1);
+  return idLeaf(id);
 }
 
 /** Code-point order, matching the engine's UTF-8 byte order; plain `<` compares
@@ -190,12 +191,12 @@ class WebLocalNoteStore implements LocalNoteStore {
     if (destinationParent === from || destinationParent.startsWith(`${from}/`)) {
       throw new Error('cannot move a folder into itself or a descendant');
     }
-    const leaf = from.slice(from.lastIndexOf('/') + 1);
+    const leaf = idLeaf(from);
     return this.renameFolder(from, destinationParent ? `${destinationParent}/${leaf}` : leaf);
   }
 
   async deleteFolder(path: string): Promise<LocalNoteMutation> {
-    const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+    const parent = idParent(path);
     const prefix = `${path}/`;
     const renamed: LocalNoteRename[] = [];
     for (const id of [...this.notes.keys()].filter((candidate) => candidate.startsWith(prefix))) {
@@ -244,8 +245,8 @@ class WebLocalNoteStore implements LocalNoteStore {
   private put(id: string, note: HarnessNote): void {
     this.notes.delete(id);
     this.notes.set(id, note);
-    const slash = id.lastIndexOf('/');
-    if (slash !== -1) this.addFolderAndAncestors(id.slice(0, slash));
+    const parent = idParent(id);
+    if (parent) this.addFolderAndAncestors(parent);
   }
 
   private entries(): Array<[string, HarnessNote]> {
@@ -256,12 +257,11 @@ class WebLocalNoteStore implements LocalNoteStore {
 
   private metadata(): LocalNoteMetadata[] {
     return this.entries().map(([id, note]) => {
-      const slash = id.lastIndexOf('/');
       const preview = makePreview(note.content);
       return {
         id,
         title: titleOf(id),
-        folder: slash === -1 ? '' : id.slice(0, slash),
+        folder: idParent(id),
         modifiedMs: note.modifiedMs,
         preview,
         richPreview: preview,

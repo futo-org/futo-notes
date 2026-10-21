@@ -6,6 +6,7 @@ import {
 } from '$lib/platform';
 import { notifySaved } from '$features/sync/autoSync';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
+import { errorText } from '$shared/errorText';
 import { localizedText } from '$shared/localization';
 import { showGlobalToast, type ToastMessage } from '$shared/notifications/toastBus.svelte';
 
@@ -43,7 +44,7 @@ export function createExternalFileOpenCoordinator(deps: ExternalFileOpenDependen
         deps.openNote(id);
       })
       .catch((error: unknown) => {
-        const detail = error instanceof Error ? error.message : String(error);
+        const detail = errorText(error);
         deps.showError({ path: 'notes.errors.externalOpenFailed', arguments: { detail } });
       });
   };

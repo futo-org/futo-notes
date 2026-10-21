@@ -21,7 +21,7 @@ private let futoImageExtensions = Set(imageExtensions())
 /// anything with a path separator or `..` is rejected (path-traversal guard),
 /// as is any non-image extension. Registered on the shared editor WKWebView's
 /// configuration (EditorHost); the editor resolves local image filenames via
-/// `setImageBaseUrl('futo-asset:///')`.
+/// the `imageBaseUrl` boot-config field (`futo-asset:///`).
 final class FutoAssetSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "futo-asset"
 

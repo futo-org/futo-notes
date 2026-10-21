@@ -26,9 +26,8 @@ oracles do not import a specific editor model.
   Settled-to-paint is reported separately but is not gated: a raw one-frame sample is phase-dependent
   and already approaches 16.7 ms on a 60 Hz display even when the editor does no work.
 - `driverProtocol.ts`: the `DriverState` contract every adapter reports through. It is the
-  FUTO-side half of the deleted `factory/` Obsidian parity judge
-  (docs/learnings/factory-obsidian-judge.md); the gauntlet is its only remaining consumer, so it
-  lives here.
+  FUTO-side half of the deleted `factory/` Obsidian parity judge (removed 2026-08-24; recover from
+  git history); the gauntlet is its only remaining consumer, so it lives here.
 - `milkdownAdapter.ts`: the adapter for the shipping editor. It drives the single-file
   `editor.html` the native shells ship, over `file://`, with the editor-embed harness's fake
   native host, so it measures exactly the bytes that ship. Two translations it owns: markdown
@@ -134,8 +133,9 @@ balance. The run definition is a content-derived config fingerprint shared by ev
 per-process `PW_RUN_ID` is deliberately excluded. Aggregate `wallMs` is the maximum shard duration,
 not a misleading sum. A completed shard report is therefore resumable evidence; rerun only missing
 shards.
-The exhaustive mode disables Playwright video/trace/screenshots because encoding hours of green
-interaction distorts the measurement. If a shard lacks its custom JSON report or has a hard
+The exhaustive mode (`EDITOR_GAUNTLET_ARTIFACT_CAPTURE=off-retry-on-failure`, applied by
+`playwright.editor-gauntlet.config.ts`) disables Playwright video/trace/screenshots because
+encoding hours of green interaction distorts the measurement. If a shard lacks its custom JSON report or has a hard
 infrastructure failure, rerun that shard once with artifact capture unset for diagnosis, then rerun
 it in `off-retry-on-failure` mode so its fingerprint matches the aggregate.
 Playwright traces can contain editor state and ordinal case IDs, so `test-results/` and

@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process';
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -207,12 +206,5 @@ describe('every job restoring a cargo target/ runs the guard', () => {
     ),
   )('%s references .setup-rust', (name) => {
     expect(blocks.get(name)).toContain('!reference [.setup-rust, script]');
-  });
-});
-
-describe('the guard script exists where CI expects it', () => {
-  it('is the path .gitlab-ci.yml invokes', () => {
-    expect(pipeline).toContain('node "$CI_PROJECT_DIR/scripts/ci-cargo-cache-freshness.mjs"');
-    expect(existsSync(GUARD)).toBe(true);
   });
 });

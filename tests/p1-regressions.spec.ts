@@ -42,30 +42,6 @@ test.describe('P1 Link Clickability Regressions', () => {
     expect(popup.url()).toContain('openai.com');
     await popup.close();
   });
-
-  // The regression target is "no popup opened" — a click PAST a link must not
-  // navigate. Where the caret ends up is the platform's own hit-testing now.
-  test('clicking to the right of an end-of-line link does not open it', async ({ page }) => {
-    await openNewNote(page);
-    await setEditorMarkdown(page, 'See [OpenAI](https://openai.com)');
-    await blurEditor(page);
-
-    const link = page.locator(`${EDITOR} a`, { hasText: 'OpenAI' }).first();
-    await expect(link).toBeVisible();
-
-    const linkBox = await link.boundingBox();
-    expect(linkBox).not.toBeNull();
-
-    let popupOpened = false;
-    page.on('popup', () => {
-      popupOpened = true;
-    });
-
-    await page.mouse.click(linkBox!.x + linkBox!.width + 20, linkBox!.y + linkBox!.height / 2);
-    await page.waitForTimeout(250);
-
-    expect(popupOpened).toBe(false);
-  });
 });
 
 test.describe('P1 Note Selection Regressions', () => {

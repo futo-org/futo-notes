@@ -1587,7 +1587,7 @@ build:linux-appimage:
 
 # ─────────────────────────────────────────────────────────────
 # Internal, hosted-enabled desktop build (D2, taken —
-# docs/plan/hosted-sync-to-staging.md, ticket C8). Prerelease tags only
+# hosted-sync staging plan, ticket C8; see the futo-notes-server repo). Prerelease tags only
 # (v1.7.2-4, never a stable vX.Y.Z — see the negated rule below). Builds the
 # SAME deb/rpm/AppImage bundles as build:linux-packages/build:linux-appimage,
 # but with VITE_HOSTED_SYNC=true and the staging hosted address baked in
@@ -2495,7 +2495,7 @@ windows:cleanup:
 
 # ─────────────────────────────────────────────────────────────
 # Internal, hosted-enabled Windows build (D2, taken —
-# docs/plan/hosted-sync-to-staging.md, ticket C8). Prerelease tags only,
+# hosted-sync staging plan, ticket C8; see the futo-notes-server repo). Prerelease tags only,
 # plus the same MR manual rehearsal as build:desktop-internal:{linux,macos}.
 #
 # Reuses the EXISTING Proxmox provision→build→cleanup chain and template VM
@@ -2768,8 +2768,8 @@ release:gate:
   stage: verify
   needs:
     # EVERY test job that runs on tag pipelines must be listed here, except
-    # test:audit and test:localization-audit, which are allow_failure and
-    # non-blocking by design. With
+    # test:audit, test:localization-audit and test:quality-report, which are
+    # allow_failure and non-blocking by design. With
     # DAG `needs`, release/publish:ios run as soon as their needs succeed —
     # a failed test job NOT in this list does not stop the publish (this
     # nearly shipped v1.4.0 twice: once past a failed test:e2e:rest, once
@@ -3198,7 +3198,7 @@ publish:website-post:
 
 # ─────────────────────────────────────────────────────────────
 # Internal release — hosted-enabled Android + desktop builds, prerelease
-# tags only (D2, taken — docs/plan/hosted-sync-to-staging.md, ticket C8)
+# tags only (D2, taken — hosted-sync staging plan, ticket C8)
 # ─────────────────────────────────────────────────────────────
 # Distribution for the hosted-enabled builds that already exist and go
 # nowhere: build:android-native turns hosted sync on for a prerelease tag

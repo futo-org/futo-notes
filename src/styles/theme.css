@@ -13,7 +13,6 @@
      --color-danger is tuned for red text and leaves white on it at 3.8:1. */
   --color-danger-fill: #dc2626;
   --color-text-inverse: #fcfcfc;
-  --color-active-line: #efefef;
   --color-selection: #ffe4d1;
   /* #016: inline code's own fill — `--color-surface` sits only ~3.5 L*
      units off `--color-bg` (barely visible), so inline code gets a token
@@ -53,7 +52,6 @@
   --color-danger: #ef4444;
   --color-danger-fill: #b91c1c;
   --color-text-inverse: #0a0a0a;
-  --color-active-line: #1f1f1f;
   --color-selection: #6b3f1d;
   --color-code-bg: #2a2a2a;
   --color-find-match: #4a3117;

@@ -340,11 +340,9 @@ test('an editor that never mounts is not reported as booted, so the notice can s
 // ============================================================
 // Legacy WebView CSS floor — github#8 (@layer) and github#33 (inset)
 //
-// Moved here verbatim when `editor-embed-bridge.spec.ts` was deleted at the
-// engine swap. They were written against `.cm-content`/`.cm-scroller` because
-// that was the editor at the time; the bug they lock is the BUNDLE's CSS
-// floor, not any editor's, so they are retargeted at `.ProseMirror` — which
-// under Milkdown is both the text surface and the scroll container.
+// The bug these lock is the BUNDLE's CSS floor, not any editor's. They target
+// `.ProseMirror`, which under Milkdown is both the text surface and the scroll
+// container.
 // ============================================================
 
 /**

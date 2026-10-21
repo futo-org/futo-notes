@@ -64,7 +64,7 @@ the editor's DOM blocks to the document by node identity at lift. ProseMirror ke
 DOM and view descriptor when the new document has an equal block there, without pointing the
 descriptor at the new node object. So after the host's `setContent`, every block except the
 ones that changed failed the test, and each later drag quietly fell back to the drop line. The
-check is now identity or `eq`. Locked by `tests/editor-embed-milkdown.spec.ts` → "a drag after
+check is now identity or `eq`. Locked by `tests/editor-embed-milkdown-block-drag.spec.ts` → "a drag after
 the host replaces the content still previews by reflow", which fails without the fix. This is
 what the whole-app bench's preview-mode check kept tripping on (first drag on a page `reflow`,
 every later one `line`); it was not load. The Android device bench never hit it: it sets the content to empty before

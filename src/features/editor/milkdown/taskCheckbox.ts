@@ -5,8 +5,7 @@
  * attribute (see caretContext.ts `isTaskItem`), and nothing in Milkdown's
  * presets draws it. This paints one widget per task item and owns the toggle.
  *
- * The contract is the CodeMirror editor's, because it is the one
- * docs/spec/editor.md describes and the one users already have: a real
+ * The contract is the one docs/spec/editor.md describes: a real
  * `<input type="checkbox">` inside a font-independent {@link CHECKBOX_SIZE_PX}
  * tap target, `mousedown` defaultPrevented so tapping it neither moves the
  * caret nor raises the phone keyboard ("no cursor placement needed"), and the
@@ -33,8 +32,7 @@ import { isTaskItem } from './caretContext';
 
 /**
  * Tap-target edge, in CSS pixels rather than `em`: the point of a minimum tap
- * target is that it does NOT shrink with the editor's font size. Matches the
- * CodeMirror editor's `CHECKBOX_SLOT`.
+ * target is that it does NOT shrink with the editor's font size.
  */
 export const CHECKBOX_SIZE_PX = 28;
 

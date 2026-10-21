@@ -11,11 +11,11 @@
 > in-app purchase on iOS (no key, no server) so the key field satisfies App Review 3.1.3(b). "No IAP"
 > now holds for Android and desktop only.
 
-Supersedes [ADR-0003 "Every platform links out to buy"](0003-every-platform-links-out-to-buy.md)
+Supersedes [ADR-0010 "Every platform links out to buy"](0010-every-platform-links-out-to-buy.md)
 on one point: that ADR, and the store-posture decision of 2026-09-09, shipped the Buy link
 **worldwide** on every surface and accepted the review risk. On 2026-09-24 @justin reversed
 that: we follow Apple's and Google's rules and do not ship something we expect to be rejected.
-Everything else in ADR-0003 stands — no in-app checkout of our own, no IAP, the client never
+Everything else in ADR-0010 stands — no in-app checkout of our own, no IAP, the client never
 displays a price, the buyer comes back through `futonotes://license/{key}/{activation}`.
 
 His ranking was: link out (preferably in an in-app browser), then "you can buy this on our
@@ -33,7 +33,7 @@ each surface may have:
 ## Consequences
 
 - **One iOS binary, gated at runtime.** The gate is StoreKit's `Storefront.current` country
-  code, not a build flag — ADR-0003 already noted a compile-time flag cannot express a
+  code, not a build flag — ADR-0010 already noted a compile-time flag cannot express a
   per-storefront rule. An unknown storefront (no Apple account, lookup failure) is treated as
   not-US: the fail-closed direction is "no link", never "link". Android needs no new build:
   the two flavors that already exist carry the split.

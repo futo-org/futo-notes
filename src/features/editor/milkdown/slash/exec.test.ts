@@ -33,7 +33,7 @@ describe('slash exec covers the offered items', () => {
     expect(implemented).toEqual(offered);
   });
 
-  it('offers Image — the picker the CodeMirror toolbar had before the swap', () => {
+  it('offers Image', () => {
     expect(SLASH_ITEMS.map((item) => item.id)).toContain('image');
   });
 });

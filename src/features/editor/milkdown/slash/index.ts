@@ -17,9 +17,8 @@
  * WHAT the menu offers is `items.ts`; what picking one DOES is `exec.ts`.
  * Desktop only, via `resolveSlashMenu` — see its comment for why.
  *
- * This replaces the CodeMirror editor's block-command menu, deleted with that
- * engine (docs/plan/desktop-editor-parity.md D2, docs/spec/editor.md
- * "Interactive elements"). Covered by `tests/slash-menu.spec.ts`.
+ * Spec: docs/spec/editor.md "Interactive elements". Covered by
+ * `tests/slash-menu.spec.ts`.
  */
 import type { Editor } from '@milkdown/kit/core';
 import type { Ctx, MilkdownPlugin } from '@milkdown/kit/ctx';
@@ -45,8 +44,8 @@ import { SlashMenu } from './menu';
  * menu is driven with, so on a phone `/` should stay what it is: a character.
  *
  * Named here rather than read inline because `src/AGENTS.md` says components
- * never branch on platform — the same reason `blockDragMode.ts` and
- * `blockContainment.ts` exist, off the same `nativeShell` prop.
+ * never branch on platform — the same reason `blockDragMode.ts` exists, off
+ * the same `nativeShell` prop.
  */
 export function resolveSlashMenu(nativeShell: boolean): 'enabled' | 'disabled' {
   return nativeShell ? 'disabled' : 'enabled';
@@ -55,8 +54,7 @@ export function resolveSlashMenu(nativeShell: boolean): 'enabled' | 'disabled' {
 /**
  * The `/` and its query, when the caret sits in one.
  *
- * The `/` must be the FIRST non-space character of its block — the CodeMirror
- * menu's rule too — so `and/or`, a URL and a fraction all stay text. The query
+ * The `/` must be the FIRST non-space character of its block, so `and/or`, a URL and a fraction all stay text. The query
  * runs to the caret and holds no whitespace, so typing a space after `/` is how
  * you say you meant the character.
  *

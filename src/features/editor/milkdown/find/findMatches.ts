@@ -1,12 +1,10 @@
 /*
  * Find-in-note matching over a ProseMirror document.
  *
- * Ported from the CodeMirror editor's `src/features/editor/find/findMatches.ts`
- * (commit 8e902802, issue #26). The arithmetic — which match is "current", how
- * stepping wraps, how the count is worded — is unchanged and engine-neutral.
- * What had to be rewritten is the scan itself: CodeMirror searched a flat
- * `Text` with `@codemirror/search`'s `SearchCursor`, and a ProseMirror document
- * is a tree whose text lives in many nodes at many positions.
+ * Issue #26. The arithmetic — which match is "current", how stepping wraps,
+ * how the count is worded — is engine-neutral; the scan is not, because a
+ * ProseMirror document is a tree whose text lives in many nodes at many
+ * positions.
  *
  * The scan is a run-based one. `docTextSegments` walks the document once and
  * collects every MAXIMAL run of adjacent text — adjacent in ProseMirror
@@ -19,9 +17,8 @@
  * paragraphs, and offset `i` inside a run at `from` is always document
  * position `from + i` — the break occupies one position and is one space.
  *
- * CodeMirror searched the SOURCE markdown, so `**` and a link's URL were
- * findable. Milkdown is WYSIWYG and holds no syntax characters in its
- * document, so find matches the text the reader sees.
+ * Milkdown is WYSIWYG and holds no syntax characters in its document, so find
+ * matches the text the reader sees: `**` and a link's URL are not findable.
  */
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 
@@ -125,8 +122,6 @@ export function findSegmentMatches(segments: readonly TextSegment[], query: stri
  * The match the given selection is "at" — the one it exactly covers, else the
  * first one at or after it, else the first match (a selection past the last
  * occurrence wraps to the top).
- *
- * Unchanged from the CodeMirror engine.
  */
 export function findCurrentMatchIndex(
   matches: readonly FindMatch[],

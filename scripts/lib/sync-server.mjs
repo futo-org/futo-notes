@@ -1,9 +1,9 @@
 // The futo-notes-server binary every sync harness runs against — ONE owner.
 //
 // The server is a separate repo that was rewritten in Go (2026-09-01); before
-// that it was TypeScript run with `bun src/index.ts`. Four launchers had that
-// command baked in (the cross-platform harness, `just qa-server`,
-// scripts/start-test-server.sh, and CI), so the rewrite broke all four at once
+// that it was TypeScript run with `bun src/index.ts`. Several launchers had that
+// command baked in (the cross-platform harness, `just qa-server`, a standalone
+// start script, and CI), so the rewrite broke all of them at once
 // and every MR pipeline's sync jobs went red. They now all ask this module
 // where the binary is.
 //
@@ -98,7 +98,7 @@ export async function syncServerBinary() {
  * The three shapes a harness-started server comes in.
  *
  *   password — `AUTH_MODE=password`, one shared password. The cross-platform
- *              suite and `scripts/start-test-server.sh` want this.
+ *              suite wants this.
  *   dev      — `AUTH_MODE=dev`, one fixed identity (`local@futo-notes.local`),
  *              no password. The Rust `server_integration` suite asserts
  *              `auth_mode == "dev"` and posts to `/api/auth/dev/login`.

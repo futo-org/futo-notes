@@ -70,11 +70,6 @@ sync-contract:
   mkdir -p dist
   FUTO_UPDATE_SYNC_CONTRACT=1 cargo test -p futo-notes-tauri generated_typescript_contract_is_current
 
-# Fail if the generated sync IPC contract has drifted.
-sync-contract-check:
-  mkdir -p dist
-  cargo test -p futo-notes-tauri generated_typescript_contract_is_current
-
 # Fail on a stale or missing entry in the drift registry (see the script for details).
 check-drift:
   node scripts/drift-check.mjs
@@ -95,7 +90,8 @@ check-theme-single-pace:
 check-agent-docs:
   node scripts/check-agent-docs.mjs
 
-# Run the focused architecture checks embedded in GitLab's mandatory test job.
+# Run the architecture gates locally: the portable set CI's mandatory test job runs
+# (`check:arch-gate:portable`) plus the Tauri sync-contract test.
 arch-gate:
   pnpm run check:arch-gate
 
@@ -111,4 +107,4 @@ release-notes-check tag="":
 # complexity offenders against the committed .bca-baseline.toml. CI runs
 # this same script non-blocking (docs/architecture-gates.md).
 quality *args:
-  node scripts/bca-quality.mjs {{args}}
+  node scripts/bca-quality.mjs "$@"
