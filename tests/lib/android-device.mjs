@@ -226,7 +226,7 @@ export class AndroidDevice {
     );
   }
 
-  /** Scroll the current screen until `label` is on screen, then tap its centre. */
+  /** Scroll the current screen until `label` is on screen, then tap its center. */
   async tap(label, { scroll = true, timeoutMs = 30_000 } = {}) {
     const node = await this.waitFor(`"${label}"`, timeoutMs, async () => {
       const hit = this.findNode(label);

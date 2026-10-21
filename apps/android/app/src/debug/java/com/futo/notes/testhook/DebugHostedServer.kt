@@ -8,7 +8,7 @@ import android.util.Log
  * Points a debug build's hosted sync at a local server.
  *
  * The engine already has this override — `futo_notes_sync::hosted_server()`
- * honours `FUTO_HOSTED_SERVER` in a debug build and a release build ignores it
+ * honors `FUTO_HOSTED_SERVER` in a debug build and a release build ignores it
  * entirely — but an Android app inherits no environment from the shell that
  * launched it, so there was no way to reach it. This carries the value across:
  *

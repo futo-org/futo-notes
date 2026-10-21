@@ -66,7 +66,7 @@ export async function readLicenseStatus(): Promise<LicenseView> {
   return read();
 }
 
-/** Recognise, activate if the input was a bare key, verify, and store — one
+/** Recognize, activate if the input was a bare key, verify, and store — one
  *  Rust call. The shell never sequences activate-then-verify (§4.6).
  *
  *  Off Tauri this is NOT a verdict on the input — nothing here judges a license

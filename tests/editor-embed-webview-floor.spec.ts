@@ -20,7 +20,7 @@ import { flushFrames, installFakeAndroidHost, type FakeHostWindow } from './lib/
  * `Array.prototype.at` (Chromium 92) on every parse and every serialize — so
  * this spec keeps the two halves of the floor honest:
  *
- *   1. BEHAVIOUR: with each post-floor built-in deleted (what a WebView below
+ *   1. BEHAVIOR: with each post-floor built-in deleted (what a WebView below
  *      its version actually looks like), the shipping editor still mounts,
  *      renders a document, and serializes it back to markdown — which is the
  *      round trip `.at` sits in the middle of.
@@ -50,7 +50,7 @@ function declaredChromiumFloor(): number {
  * engine looks like; `pattern` is what the audit greps the built bundle for.
  *
  * Adding an entry here is a deliberate act: it says "the shim carries this",
- * and the behaviour test then proves the shim actually does.
+ * and the behavior test then proves the shim actually does.
  */
 const SHIMMED_BUILTINS = [
   {
@@ -235,7 +235,7 @@ test('the built bundle reaches for no post-floor built-in the shims do not cover
 });
 
 // The other direction: a shim whose built-in the bundle stopped using is dead
-// weight in a file every WebView parses before the editor, and its behaviour
+// weight in a file every WebView parses before the editor, and its behavior
 // test above then proves nothing.
 test('every shim in editor.html is still earning its place in the bundle', () => {
   const source = bundleSource();
@@ -281,8 +281,8 @@ function probeEngine(page: Page): Promise<string> {
 
 /**
  * Every `remove` in SHIMMED_BUILTINS, in one array the all-at-once init script
- * closes over. Module scope because `addInitScript` serialises the function it
- * is handed, and a serialised closure can only reach module-level bindings.
+ * closes over. Module scope because `addInitScript` serializes the function it
+ * is handed, and a serialized closure can only reach module-level bindings.
  */
 const removeEveryShimmedBuiltin = SHIMMED_BUILTINS.map((b) => b.remove);
 

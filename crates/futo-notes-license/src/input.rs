@@ -1,4 +1,4 @@
-//! Recognising the three shapes a user can hand us, and the deep link.
+//! Recognizing the three shapes a user can hand us, and the deep link.
 //!
 //! Recognition is **structural**: it answers "which of the three shapes is
 //! this?", never "is this a real license?". That split is what lets the deep

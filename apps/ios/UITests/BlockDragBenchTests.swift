@@ -2,7 +2,7 @@ import XCTest
 
 /// Real-finger driver for `scripts/perf/block-drag-bench.mjs --device ios-app`.
 ///
-/// XCUITest supplies the touches (a long-press drag cannot be synthesised from
+/// XCUITest supplies the touches (a long-press drag cannot be synthesized from
 /// the page); the measurement lives in the page, where
 /// `scripts/perf/block-drag-bench/ios-app.mjs` injects a frame recorder over the
 /// WebKit inspector (ios_webkit_debug_proxy). The two meet through the page: the

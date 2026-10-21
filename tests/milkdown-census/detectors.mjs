@@ -524,7 +524,7 @@ export function classify({ body, round1, round2, round3 }) {
 
   /* The one flag here that compares round1 against the ORIGINAL BYTES rather
    * than against round2, and it has to: corrupted front matter is STABLE. With
-   * nothing in the parser recognising the construct, `---` parsed as a thematic
+   * nothing in the parser recognizing the construct, `---` parsed as a thematic
    * break and the metadata lines as a setext heading, and `***` + a dash rule
    * round-trips to itself forever — so every stability-based flag above stayed
    * silent while `tags: [a, b]` was being rewritten to `tags: \[a, b]` on disk.

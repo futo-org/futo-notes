@@ -2,7 +2,7 @@
 //!
 //! A directory chosen through the FileChooser portal is handed to the app as a
 //! document-portal FUSE path (`/run/user/<uid>/doc/<doc-id>/<name>`), not as its
-//! real location. Three portal behaviours shape the rest of the desktop adapter;
+//! real location. Three portal behaviors shape the rest of the desktop adapter;
 //! each was measured against a live portal rather than inferred:
 //!
 //! * inotify on that mount reports only the changes made *through* the mount, so

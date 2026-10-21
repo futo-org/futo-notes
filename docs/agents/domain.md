@@ -27,7 +27,7 @@ This is a **single-context** repo: one `CONTEXT.md` + `docs/adr/` at the repo ro
 └── src/
 ```
 
-For reference, a multi-context repo (signalled by a `CONTEXT-MAP.md` at the root) would instead scope a `CONTEXT.md` and `docs/adr/` per context under `src/<context>/`. This repo is governed as one shared context (a single `AGENTS.md`), so the flat layout above applies.
+For reference, a multi-context repo (signaled by a `CONTEXT-MAP.md` at the root) would instead scope a `CONTEXT.md` and `docs/adr/` per context under `src/<context>/`. This repo is governed as one shared context (a single `AGENTS.md`), so the flat layout above applies.
 
 ## Use the glossary's vocabulary
 

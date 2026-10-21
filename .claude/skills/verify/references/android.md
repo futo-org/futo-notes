@@ -80,7 +80,7 @@ it with no arguments for the command list. It honors `$ANDROID_SERIAL`, so
 
 ```bash
 just android-drive state                    # app state as JSON — fast, and not a UI read
-just android-drive tree                     # labelled tap targets: "  114,121   Groceries"
+just android-drive tree                     # labeled tap targets: "  114,121   Groceries"
 just android-drive tap 'Settings'           # find by label (scrolling if needed), tap once
 just android-drive wait shellVisible=true storageMode=DEVICE
 just android-drive hook storage-mode mode=DEVICE

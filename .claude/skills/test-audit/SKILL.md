@@ -61,7 +61,7 @@ matches one, and audits hunt for existing tests that do.
 - fixtures that supply the receipt, admission, or callback ordering the owner
   should produce, or persistence asserted against a store the path never writes;
 - capability tests that restate declared flags instead of exercising the
-  delivery or acknowledgement the flag promises;
+  delivery or acknowledgment the flag promises;
 - negative controls that pass for an unrelated reason, such as a denial from a
   different guard or a rejection the production path never reaches;
 - names or fixtures that promise more than the input exercises, such as a

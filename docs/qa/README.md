@@ -2,7 +2,7 @@
 
 A QA story is a thing a person does, written so somebody else can do it again on a
 real device, plus what was actually seen the last time somebody did. It exists for
-behaviour that no automated seam can reach — a camera, a browser sheet the OS owns,
+behavior that no automated seam can reach — a camera, a browser sheet the OS owns,
 an OS keychain, a real WebView.
 
 Everything that CAN be automated is, and is not written down here: the desktop hosted
@@ -20,7 +20,7 @@ own unit tests. A story is what is left over.
   recorded here is the point; a story that quietly implies full coverage is worse
   than no story.
 
-`docs/spec/` remains the source of truth for behaviour. A story that finds a
+`docs/spec/` remains the source of truth for behavior. A story that finds a
 divergence records it as a `> **Gap:**` note in the owning spec file, not here.
 
 ## Stories

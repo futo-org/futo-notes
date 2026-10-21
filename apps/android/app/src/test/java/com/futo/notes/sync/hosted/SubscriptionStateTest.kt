@@ -6,7 +6,7 @@ import uniffi.futo_notes_ffi.BillingStatus
 
 /**
  * The subscription in words. The payment provider's vocabulary becomes a
- * sentence exactly here, and a state nobody recognised must still say something
+ * sentence exactly here, and a state nobody recognized must still say something
  * true.
  */
 class SubscriptionStateTest {
@@ -77,7 +77,7 @@ class SubscriptionStateTest {
     }
 
     @Test
-    fun `a state nobody recognised falls back to the entitlement`() {
+    fun `a state nobody recognized falls back to the entitlement`() {
         assertEquals(
             "sync.hosted.account.state.active",
             subscriptionStateMessage(billing("something_new", entitled = true), relativeTime).path,

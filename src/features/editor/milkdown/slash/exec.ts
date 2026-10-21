@@ -14,7 +14,7 @@
  * or a prompt and returns immediately, so there is no "the command's own
  * transaction" to fold the delete into. Both delete the typed run
  * synchronously up front (`deleteRange`) and let the async result land at the
- * caret whenever it arrives — cancelling either (no file chosen, the Link
+ * caret whenever it arrives — canceling either (no file chosen, the Link
  * prompt dismissed) still leaves the typed run gone, never restored.
  */
 import type { Editor } from '@milkdown/kit/core';
@@ -82,7 +82,7 @@ export function createSlashExec(
     },
     // QA-019: shares the URL prompt the desktop selection toolbar's Link
     // button opens (`linkPrompt/`) rather than a second one — see that
-    // module's header comment for what submitting or cancelling it does.
+    // module's header comment for what submitting or canceling it does.
     link: (from, to) => {
       deleteRange(from, to);
       const editor = getEditor();

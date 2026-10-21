@@ -51,7 +51,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--min-win') opt.minWin = Number(args[++i]);
   else if (a === '--skip-suite') opt.suite = false;
   else {
-    console.error(`Unrecognised argument: ${a}`);
+    console.error(`Unrecognized argument: ${a}`);
     process.exit(2);
   }
 }

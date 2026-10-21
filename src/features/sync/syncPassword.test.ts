@@ -67,7 +67,7 @@ vi.mock('@tauri-apps/api/core', () => ({
       case 'e2ee_hosted_connect':
         // What Rust's `HostedSetup::connect_sync` does as of the C12 fix:
         // starting a hosted session drops this vault's self-hosted password,
-        // so exactly one sync credential exists at a time. Modelled here
+        // so exactly one sync credential exists at a time. Modeled here
         // because the delete happens inside the engine, not in TypeScript.
         kr.store.delete('pw');
         return undefined;

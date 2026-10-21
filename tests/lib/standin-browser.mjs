@@ -20,7 +20,7 @@
  * `lapse` and `fillQuota` are the stand-in server's own account controls
  * (`cmd/server/standin.go`, mounted only under `STANDIN_MODE`). They act for
  * whichever account's token is passed, which is how a scenario reaches a real
- * `402 subscription_required` or `507 quota_exceeded` without cancelling a card
+ * `402 subscription_required` or `507 quota_exceeded` without canceling a card
  * or uploading ten gigabytes.
  */
 

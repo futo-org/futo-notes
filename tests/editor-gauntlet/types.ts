@@ -45,7 +45,7 @@ export interface OpenMeasurement {
 /**
  * Where a keystroke run types: straight after the first rendered occurrence of
  * `text`, once `ready` (a CSS selector inside the editor) matches something —
- * a fence is only coloured after its grammar's dynamic import lands. Without a
+ * a fence is only colored after its grammar's dynamic import lands. Without a
  * target the run types wherever the open left the caret.
  */
 export interface KeystrokeTarget {

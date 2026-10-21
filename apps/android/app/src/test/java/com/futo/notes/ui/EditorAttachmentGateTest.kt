@@ -40,7 +40,7 @@ class EditorAttachmentGateTest {
     }
 
     @Test
-    fun `cancelled insertion permit rejects posted work while note remains attached`() {
+    fun `canceled insertion permit rejects posted work while note remains attached`() {
         val gate = EditorAttachmentGate()
         val note = gate.attach()
         val insertion = EditorAttachmentOperationPermit(gate, note)

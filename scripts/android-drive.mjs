@@ -27,7 +27,7 @@ import { STATE_FIELDS } from '../tests/lib/android/testHooks.mjs';
 const USAGE = `android-drive — drive the native Android app (debug build)
 
   state                    the app's own state snapshot as JSON (fast; no UI dump)
-  tree                     labelled tap targets from the accessibility tree
+  tree                     labeled tap targets from the accessibility tree
   tap <label>              tap the control carrying <label>, scrolling to find it
   text <string>            type into the focused field (not the editor WebView)
   key <code> | back | home send a key event (4 = back, 3 = home)

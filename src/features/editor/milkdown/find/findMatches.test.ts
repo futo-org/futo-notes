@@ -118,7 +118,7 @@ describe('findDocMatches', () => {
   });
 
   // The trailing space is part of the literal (docs/spec/editor.md).
-  it('honours a trailing space in the query', () => {
+  it('honors a trailing space in the query', () => {
     const node = doc(para(s.text('Aug and August')));
     expect(findDocMatches(node, 'Aug ')).toEqual([{ from: 1, to: 5 }]);
   });

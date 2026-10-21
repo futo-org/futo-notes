@@ -81,7 +81,7 @@ export async function resolveAutoTheme(
   return (await readSystemTheme()) ?? systemThemeOverride ?? resolveTheme('auto');
 }
 
-// Serialises overlapping applies. One desktop theme change is a BURST of portal
+// Serializes overlapping applies. One desktop theme change is a BURST of portal
 // signals — five on the KDE flip this was measured against — and resolving each
 // of them now crosses to the portal, so an apply can still be in flight when
 // the next starts. Without this, whichever RESOLVED last won, and a stale answer

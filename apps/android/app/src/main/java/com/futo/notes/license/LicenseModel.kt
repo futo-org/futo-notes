@@ -164,7 +164,7 @@ class LicenseModel(
         view?.let { licenseSurfaceRowActions(it.status, surface) } ?: emptyList()
 
     /**
-     * Recognise the input, activate it if it was a bare key, verify, and store
+     * Recognize the input, activate it if it was a bare key, verify, and store
      * — one Rust call. The shell never sequences activate-then-verify (§4.6).
      * Answers whether a license was accepted, so the field can close itself.
      */

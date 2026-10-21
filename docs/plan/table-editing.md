@@ -5,7 +5,7 @@ Frames: `Table / Cell Selected` (1588:4108), `Table / Row actions` (1588:3886),
 `Table / Table actions` (1588:3979), `Table / Drag` (1588:3758) — each in dark and light.
 
 Decided with Justin, 2026-09-15. This plan is the contract the implementation lanes build
-against; where it and a lane's judgement disagree, this document wins or gets amended first.
+against; where it and a lane's judgment disagree, this document wins or gets amended first.
 
 ## 1. The model
 
@@ -31,8 +31,8 @@ than leaving it beside the new one.
 ## 2. The three menus
 
 Item order and grouping are from the design; groups render as separated cards.
-`destructive` items render in the error colour. A disabled item is SHOWN disabled, never
-hidden — the design greys "Move up" on the first body row rather than dropping it.
+`destructive` items render in the error color. A disabled item is SHOWN disabled, never
+hidden — the design grays "Move up" on the first body row rather than dropping it.
 
 ### Row actions — title "Table row actions"
 

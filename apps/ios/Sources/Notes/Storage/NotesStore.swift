@@ -217,7 +217,7 @@ func confirmedSavedContent(
 ///
 /// The flush is DURABLE by the time it returns a disposition, so what happens
 /// next must not be conditional on the calling task still being live. The
-/// debounced save is cancelled by the very next keystroke
+/// debounced save is canceled by the very next keystroke
 /// (`EditorSession.schedule` cancels the previous `.save`), and gating the
 /// baseline advance on that cancellation left `savedContent` behind disk — which
 /// made the NEXT flush's `base` a lie, so the engine read this editor's own
@@ -924,8 +924,8 @@ final class NotesStore: ObservableObject {
         return ready
     }
 
-    /// A cancelled keystroke search exits around the shared engine wait without
-    /// cancelling readiness for other searches. A timeout returns empty while
+    /// A canceled keystroke search exits around the shared engine wait without
+    /// canceling readiness for other searches. A timeout returns empty while
     /// the index continues healing.
     func search(_ query: String, limit: UInt32 = 50) async -> [SearchHit] {
         if Task.isCancelled { return [] }

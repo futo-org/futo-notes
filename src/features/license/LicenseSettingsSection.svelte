@@ -51,7 +51,7 @@
 
   async function submit(): Promise<void> {
     if (draft.trim() === '') return;
-    // One call: recognise, activate if it was a bare key, verify, store.
+    // One call: recognize, activate if it was a bare key, verify, store.
     const accepted = await license.enterKey(draft);
     if (accepted) {
       entering = false;
@@ -447,7 +447,7 @@
     gap: 8px;
   }
 
-  /* The plate's own link colour. `.settings-link-btn` reads the app's muted
+  /* The plate's own link color. `.settings-link-btn` reads the app's muted
      token, which is invisible on gunmetal. */
   .license-plate-link {
     padding: 0;
@@ -497,7 +497,7 @@
   }
 
   /* The shared field styles read the app's tokens, which do not belong on the
-     plate; only the colours are restated, never the geometry. */
+     plate; only the colors are restated, never the geometry. */
   .license-fields :global(.settings-input-label) {
     color: var(--plate-ink-dim);
   }

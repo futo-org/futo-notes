@@ -72,7 +72,7 @@ The home screen: the vault root's folders and notes, folder browsing, and search
   futo-notes-core `files::vault_fs::relative_name`; futo-notes-store
   `vault::note_id_of` / `walk`
 - _(Tauri)_ A **sort button** right of the sidebar search bar (notes view only)
-  opens the same anchored dropdown the note ⋮ menu uses, in two labelled
+  opens the same anchored dropdown the note ⋮ menu uses, in two labeled
   sections: **Sort by** (**Name** / **Last Modified**) and **Order** (the
   direction pair for the active key — **A-Z** / **Z-A** for Name, **Recent
   first** / **Oldest first** for Last Modified), with the active choices
@@ -111,7 +111,7 @@ The home screen: the vault root's folders and notes, folder browsing, and search
   `NoteStore::bootstrap` / `NoteStore::set_sort_order`
 - _(Android)_ A **sort button** sits immediately left of the top-bar Search
   action (the actions read new folder, sort, search, settings). It opens an M3
-  dropdown with the same two labelled sections and a trailing check mark on each
+  dropdown with the same two labeled sections and a trailing check mark on each
   active choice. Every Android popup menu wears the product's surface (12.dp
   radius, paper fill, hairline border), not Material3's square tonal default.
   → ui/components/FutoMenu.kt. Picking KEEPS the menu

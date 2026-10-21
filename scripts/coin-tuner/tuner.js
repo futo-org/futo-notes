@@ -5,7 +5,7 @@
 //   REAL   assets/coin/futo-coin.glb — the shipped mesh, materials and all
 //   REAL   the studio, rebuilt from scripts/lib/studio-env.mjs, which
 //          `just coin-check` holds to build-coin.py's numpy to within a
-//          quantisation step
+//          quantization step
 //   REAL   the camera framing, tilt and tone map curve the desktop shell uses
 //   STAND-IN  iOS and Android, which are shown as converted numbers rather than
 //          rendered — RealityKit and Filament each scale an image-based light
@@ -33,7 +33,7 @@ const SHIPPED_COIN_PX = 160;
 
 /// The other two shells' shipped brightness, and how each converts from the
 /// desktop exposure. Both comments live next to the constants themselves:
-/// Filament measures indirect light in lux on a normalised cubemap, RealityKit
+/// Filament measures indirect light in lux on a normalized cubemap, RealityKit
 /// takes a power of two, and three.js multiplies the environment's own values.
 const SHIPPED_ANDROID_IBL = 4.5;
 const SHIPPED_IOS_EXPONENT = -1.5;
@@ -55,7 +55,7 @@ const BACKDROPS = [
   ['#0a0a0a', 'Dark app'],
   ['#f2f2f2', 'Light card'],
   ['#fcfcfc', 'Light app'],
-  ['#808080', 'Mid grey'],
+  ['#808080', 'Mid gray'],
 ];
 
 /// A pixel is blown out when EVERY channel is at the top of the 8-bit range —
@@ -65,7 +65,7 @@ const BACKDROPS = [
 /// #FFBB00, so its red channel is pinned at 255 across the whole face at
 /// perfectly ordinary brightness. Measured that way a plainly gold coin reports
 /// 93% blown out, which is a reading that cannot distinguish the thing being
-/// tuned from its own base colour.
+/// tuned from its own base color.
 const WHITE_AT = 250;
 /// Alpha above this is coin rather than backdrop. The renderer clears to
 /// transparent, so coverage is free.
@@ -330,7 +330,7 @@ function measure() {
     const peak = Math.max(pixels[at], pixels[at + 1], pixels[at + 2]);
     const dimmest = Math.min(pixels[at], pixels[at + 1], pixels[at + 2]);
     brightness += peak;
-    // How much colour is left in the pixel. Gold that has been overlit walks
+    // How much color is left in the pixel. Gold that has been overlit walks
     // this toward zero long before the whole coin is white, so it moves while
     // there is still something to save.
     saturation += peak === 0 ? 0 : (peak - dimmest) / peak;
@@ -597,7 +597,7 @@ function buildControls() {
         body,
         'Roughness is the dial for a highlight that is too hot without making the coin ' +
           'darker: a rougher metal spreads the same light over more of the face, so the ' +
-          'peak drops while the body does not. Base colour multiplies the reflection ' +
+          'peak drops while the body does not. Base color multiplies the reflection ' +
           'itself, because gold is a metal — it dims the highlight too.',
       );
       return [
@@ -623,13 +623,13 @@ function buildControls() {
         }),
         control(body, {
           kind: 'colour',
-          label: 'Face colour',
+          label: 'Face color',
           get: () => `#${state.material.faceHex.toString(16).padStart(6, '0')}`,
           set: (value) => (state.material.faceHex = Number.parseInt(value.slice(1), 16)),
         }),
         control(body, {
           kind: 'colour',
-          label: 'Rim colour',
+          label: 'Rim color',
           get: () => `#${state.material.rimHex.toString(16).padStart(6, '0')}`,
           set: (value) => (state.material.rimHex = Number.parseInt(value.slice(1), 16)),
         }),
@@ -750,7 +750,7 @@ function buildControls() {
         });
         body.appendChild(triple);
 
-        // The lamp colours are LINEAR radiance multipliers, not sRGB, so the
+        // The lamp colors are LINEAR radiance multipliers, not sRGB, so the
         // swatch is a convenience that writes linear values back. Untouched, the
         // state keeps build-coin.py's exact numbers rather than a round trip
         // through eight bits.
@@ -793,7 +793,7 @@ function syncControls() {
 // ── Readouts and the paste-back panel ────────────────────────────────────────
 
 /// Less than half the gold left is the point where the coin reads as a pale disc
-/// rather than as metal. It is a judgement call, and it is here so the number
+/// rather than as metal. It is a judgment call, and it is here so the number
 /// has somewhere to be judged against.
 const PALE_BELOW = 0.5;
 
@@ -895,7 +895,7 @@ ${pythonRoom()}`,
 #                       # cubemap, and re-runs the gate
 # Exposure-only changes skip all of that — they are three constants.
 # The tone map is not printed above: all three shells are on Khronos PBR
-# Neutral deliberately (ACES smears the gold's hue toward grey), so switching it
+# Neutral deliberately (ACES smears the gold's hue toward gray), so switching it
 # here is for comparison, not for pasting.`,
   );
 

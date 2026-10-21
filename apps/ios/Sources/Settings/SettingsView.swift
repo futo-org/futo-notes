@@ -289,7 +289,7 @@ struct SettingsView: View {
             Text(localization.localizedText("settings.appIcon.license.rowHint"))
                 .font(.subheadline)
                 // The row is a tinted Button: `.secondary` derives from the
-                // tint, so name the grey outright.
+                // tint, so name the gray outright.
                 .foregroundStyle(Color(.secondaryLabel))
         }
     }

@@ -166,7 +166,7 @@ struct AppIconPicker: View {
                     .frame(width: 80, height: 80)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     .overlay(alignment: .bottomTrailing) {
-                        // Overhangs the corner (centre on the rounded corner) so
+                        // Overhangs the corner (center on the rounded corner) so
                         // the coin never reads as part of the icon's artwork.
                         if coined { CoinBadge(diameter: 26).offset(x: 8, y: 8) }
                     }
@@ -242,7 +242,7 @@ struct AppIconPicker: View {
 }
 
 /// The supporter coin's flat artwork (the `SupporterCoin` asset, also the
-/// fallback of the turning coin), small, with a ring in the surface colour so
+/// fallback of the turning coin), small, with a ring in the surface color so
 /// it reads against any icon. Flat on purpose: a spinning 3D coin at 16-36pt
 /// reads as a dark disc, and six live RealityViews in a grid are not free.
 /// Decorative: the tile's label carries the meaning, and the coin must not

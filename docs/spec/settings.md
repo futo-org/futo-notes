@@ -61,7 +61,7 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   password fields under **"Use my own server"**. The disclosed rows are the same
   `SelfHostedSyncSections` a flag-off build renders, so a self-hoster sees the
   identical screen either way, and with the flag off nothing about the Sync sheet
-  changes. Behaviour is specified once, in [sync.md](sync.md) "Hosted sync". →
+  changes. Behavior is specified once, in [sync.md](sync.md) "Hosted sync". →
   HostedSyncSections.swift, SyncView.swift, HostedSyncBuild.swift
 - **Sync screen, with hosted sync built in** _(Android)_: the same, on the Sync
   screen reached from Settings → Sync, gated by `BuildConfig.HOSTED_SYNC` — every
@@ -310,7 +310,7 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   steps, the account card, and the two refused-write banners — and discloses the
   self-hosted section above behind **"Use my own server"**. The disclosed panel
   is that same component, so what a self-hoster sees is identical either way.
-  With the flag off nothing about this section changes. Behaviour is specified
+  With the flag off nothing about this section changes. Behavior is specified
   once, in [sync.md](sync.md) "Hosted sync". → HostedSyncSettingsSection.svelte,
   createHostedSyncSettings.svelte.ts, `hostedSyncEnabled.ts`
 - **Language**: a System-first dropdown applies the language immediately and
@@ -371,7 +371,7 @@ replaced the "Report an issue" link to the GitHub issue tracker.
 - Screenshots are capped at **5 MB each**. A picked image is re-encoded once as
   **JPEG q95** when it is over the cap or is not a PNG/JPEG/WebP, and rejected
   with a message if it is still too large; each shell uses its own OS codec. The
-  vault-insert path stays byte-faithful — feedback normalisation never touches a
+  vault-insert path stays byte-faithful — feedback normalization never touches a
   note's own image.
   → `normalizeImage.ts`, `FeedbackImages.swift`, `FeedbackImages.kt`
 - Sends **only** the app version, platform, OS version, device model and what the

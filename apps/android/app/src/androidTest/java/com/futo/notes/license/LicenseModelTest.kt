@@ -226,7 +226,7 @@ class LicenseModelTest {
     }
 
     /** The third accepted shape: the whole `futonotes://` URL, pasted rather
-     *  than delivered by the OS. Recognising which shape it is belongs to Rust,
+     *  than delivered by the OS. Recognizing which shape it is belongs to Rust,
      *  so the field and the link cannot drift apart. */
     @Test
     fun aPastedLinkActivatesOffline() = runBlocking {

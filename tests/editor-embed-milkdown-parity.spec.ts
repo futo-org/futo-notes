@@ -152,7 +152,7 @@ test('a tag is decorated as soon as it is typed', async ({ page }) => {
 
 test('a `#` typed straight onto a word is not a tag', async ({ page }) => {
   // The boundary half of the same rule: `note:#later` has no whitespace before
-  // the `#`, so it is not a tag and must not be coloured like one.
+  // the `#`, so it is not a tag and must not be colored like one.
   await open(page, 'note:\n');
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
   await page.keyboard.press('Control+End');
@@ -360,7 +360,7 @@ async function waitForTokens(page: Page): Promise<void> {
   await page.locator('.ProseMirror pre .tok-keyword').first().waitFor({ timeout: 10_000 });
 }
 
-test('a fence in a curated language is coloured', async ({ page }) => {
+test('a fence in a curated language is colored', async ({ page }) => {
   await open(page, '```js\nconst greeting = "hi";\n```\n');
   await waitForTokens(page);
   await expect(page.locator('.ProseMirror pre .tok-keyword')).toHaveText('const');
@@ -388,9 +388,9 @@ test('a fence with no language still renders, just uncoloured', async ({ page })
 });
 
 test('the shared token palette reaches this editor without a per-fence class', async ({ page }) => {
-  // The colours are scoped by container, not by a decoration on each fence —
+  // The colors are scoped by container, not by a decoration on each fence —
   // one node decoration per fence made every keystroke cost O(fences)
-  // (codeHighlight.ts). So the proof is that a token is COLOURED, and that no
+  // (codeHighlight.ts). So the proof is that a token is COLORED, and that no
   // per-fence marker class exists to be relied on.
   await open(page, '```js\nlet a = 1;\n```\n');
   await waitForTokens(page);
@@ -406,7 +406,7 @@ test('the shared token palette reaches this editor without a per-fence class', a
   expect(color).not.toBe(muted);
 });
 
-test('token colours come from the theme, and follow it', async ({ page }) => {
+test('token colors come from the theme, and follow it', async ({ page }) => {
   await open(page, '```js\nconst a = 1;\n```\n');
   await waitForTokens(page);
   const light = await page
@@ -423,7 +423,7 @@ test('token colours come from the theme, and follow it', async ({ page }) => {
   expect(dark).not.toBe(light);
 });
 
-test('editing inside a fence re-colours it', async ({ page }) => {
+test('editing inside a fence re-colors it', async ({ page }) => {
   await open(page, '```js\nconst a = 1;\n```\n');
   await waitForTokens(page);
 
@@ -448,7 +448,7 @@ test('editing inside a fence re-colours it', async ({ page }) => {
   expect(await getContent(page)).toContain('let b = 2;');
 });
 
-test('editing one fence leaves the next one coloured', async ({ page }) => {
+test('editing one fence leaves the next one colored', async ({ page }) => {
   // Regression: decorations were removed by everything TOUCHING the edited
   // block's range, and the next fence's node decoration starts exactly where
   // this one ends — so typing in the first fence stripped the second one's
@@ -464,7 +464,7 @@ test('editing one fence leaves the next one coloured', async ({ page }) => {
   await expect(page.locator('.ProseMirror pre').nth(1).locator('.tok-keyword')).toHaveText('const');
 });
 
-test('a fence typed into a note gets coloured once its grammar arrives', async ({ page }) => {
+test('a fence typed into a note gets colored once its grammar arrives', async ({ page }) => {
   await open(page, '```python\ndef f():\n    return 1\n```\n');
   await waitForTokens(page);
   await expect(page.locator('.ProseMirror pre .tok-keyword').first()).toHaveText('def');
@@ -487,7 +487,7 @@ test('tags and checkboxes and fences all survive one round trip together', async
 // Bare URLs — linked as they are typed, and saved as typed
 // ============================================================
 
-/* GFM autolink literals were recognised only when a note was PARSED: a typed
+/* GFM autolink literals were recognized only when a note was PARSED: a typed
  * URL stayed plain text until the note was reopened (reported: "it should
  * become a hyperlink once i hit space or enter"). autolink.ts. */
 

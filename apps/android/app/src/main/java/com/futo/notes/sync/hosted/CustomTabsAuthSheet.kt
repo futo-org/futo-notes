@@ -17,7 +17,7 @@ import com.futo.notes.browser.openInCustomTab
  * return redirect anywhere in this flow: the app asks the server what happened
  * (`awaitSignIn`, `awaitEntitled`). So the only thing the tab itself reports is
  * the person coming back to the app, which [onAppPaused]/[onAppResumed] detect
- * and report as `onDismiss` so the wait can be cancelled.
+ * and report as `onDismiss` so the wait can be canceled.
  *
  * **Fallback.** A device with no Custom Tabs provider — a bare emulator image,
  * a de-Googled phone whose browser does not implement the service — gets a

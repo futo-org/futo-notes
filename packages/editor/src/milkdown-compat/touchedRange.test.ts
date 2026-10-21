@@ -115,7 +115,7 @@ describe('nodesInTouchedRange', () => {
     ]);
   });
 
-  it('honours a false return by skipping that subtree, like nodesBetween', () => {
+  it('honors a false return by skipping that subtree, like nodesBetween', () => {
     const state = EditorState.create({ doc: doc(p('zero'), list('a', 'b'), p('two')) });
     const tr = state.tr.insertText('!', 14);
     const range = touchedTopLevelRange([tr], tr.doc)!;

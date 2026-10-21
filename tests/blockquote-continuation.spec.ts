@@ -15,7 +15,7 @@ import {
  * offset out of the editor's document and expected to find a literal `> ` /
  * `> > ` prefix there. A WYSIWYG editor has no such prefix to find: a quote is
  * a nested `<blockquote>`, and the `>` markers exist only in the serialized
- * file. So the same product behaviour is checked one level out — what typing
+ * file. So the same product behavior is checked one level out — what typing
  * produces in the note, and how deep the caret's quote nesting is.
  *
  * The caret-offset-after-continuation cases went with the engine: "the caret

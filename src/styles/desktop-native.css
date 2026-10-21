@@ -20,7 +20,7 @@
   /* Native desktop controls do not use the hand cursor: a Finder sidebar row, a
      Mail toolbar button and a Safari tab all show the arrow. This app sets
      `cursor: pointer` in ~30 component stylesheets owned by different surfaces,
-     so the correction is centralised here rather than edited into each one
+     so the correction is centralized here rather than edited into each one
      (AGENTS.md M17).
 
      `!important` inside the component layer is load-bearing, not laziness:

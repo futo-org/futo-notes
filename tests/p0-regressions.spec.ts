@@ -81,7 +81,7 @@ test.describe('P0 Crash and IME Regressions', () => {
    * A brand new note is one empty line at the very top, so almost the entire
    * surface the user sees is the editor's blank tail. If the editable box does
    * not reach the bottom of the note area, every press in that tail lands on a
-   * shell element that has no click behaviour of its own — no caret, no focus,
+   * shell element that has no click behavior of its own — no caret, no focus,
    * no typing — and the note reads as completely dead. docs/spec/editor.md
    * ("Blank editor surface") specifies the opposite: the tail below the final
    * line belongs to the editor and a press there places a caret.
@@ -94,7 +94,7 @@ test.describe('P0 Crash and IME Regressions', () => {
      * Press in the editor's blank tail — near the BOTTOM of the note area, where
      * a user starting a fresh note naturally clicks — then type.
      *
-     * Deliberately not `editor.click()`: that targets the centre of the editable
+     * Deliberately not `editor.click()`: that targets the center of the editable
      * box, which is exactly the region that still worked while the tail was dead.
      */
     async function clickTailAndType(page: Page, text: string): Promise<void> {

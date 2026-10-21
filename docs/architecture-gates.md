@@ -128,7 +128,7 @@ travels, so a hard gate would stop releases far more often than it would stop a 
 either turns this back into a release blocker, which is a product decision rather than a hardening
 fix.
 
-Acknowledgements live in the tools' own ignore lists:
+Acknowledgments live in the tools' own ignore lists:
 
 - Rust: `[advisories] ignore` in `.cargo/audit.toml`
 - npm: `auditConfig.ignoreGhsas` in `pnpm-workspace.yaml`

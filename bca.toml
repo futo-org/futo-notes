@@ -13,7 +13,7 @@
 #   `bca report`. Rust inline #[cfg(test)] modules are dropped from the
 #   metrics themselves (exclude_tests), so a file's lloc measures its code.
 # - Rust `?` does not count toward cyclomatic: it is linear error
-#   propagation, and counting it penalised exactly the fallible-but-flat
+#   propagation, and counting it penalized exactly the fallible-but-flat
 #   code a maintainability gate should leave alone.
 # - Baseline matching is rename-tolerant (baseline_fuzzy_match): a function
 #   renamed or moved with its body unchanged keeps its baseline row instead

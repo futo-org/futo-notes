@@ -464,22 +464,22 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// TWO levels, because the two things the editor reports are not equally
     /// safe to act on. A PRESS is only a maybe — it can still turn out to be a
     /// tap that places a caret or a scroll — so only the gestures that need a
-    /// HOLD to recognise stand down, and the page stays fully selectable. A
+    /// HOLD to recognize stand down, and the page stays fully selectable. A
     /// DRAG is committed, so the whole stack goes, preference included.
     private enum TextInteractionLevel {
         /// Nothing suspended.
         case none
         /// A finger is down on a block: the DELAYED gestures only (the loupe
         /// long press, tap-and-a-half select, UIKit's own drag lift). The tap
-        /// and pan recognisers — caret placement, double-tap word select,
+        /// and pan recognizers — caret placement, double-tap word select,
         /// selection-handle adjustment — are deliberately left alone.
         case press
-        /// A block is airborne: every non-WebKit recogniser on the content
+        /// A block is airborne: every non-WebKit recognizer on the content
         /// view, plus `isTextInteractionEnabled`.
         case full
     }
 
-    /// Recognisers this suspended, so exactly the ones that were turned off get
+    /// Recognizers this suspended, so exactly the ones that were turned off get
     /// turned back on.
     private var suspendedTextGestures: [UIGestureRecognizer] = []
     private var appliedTextInteractionLevel: TextInteractionLevel = .none
@@ -504,10 +504,10 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     ///
     /// Restores everything first and re-suspends from scratch, rather than
     /// diffing: a level change is a handful of `isEnabled` writes on a gesture
-    /// that has already been cancelled, and "restore, then apply" is the only
-    /// shape in which no recogniser can be left disabled by a level that no
+    /// that has already been canceled, and "restore, then apply" is the only
+    /// shape in which no recognizer can be left disabled by a level that no
     /// longer names it. Re-enabling mid-touch cannot resurrect a gesture — UIKit
-    /// does not hand an in-flight touch sequence to a recogniser that was
+    /// does not hand an in-flight touch sequence to a recognizer that was
     /// disabled during it.
     private func applyTextInteractionLevel() {
         let level: TextInteractionLevel =
@@ -550,12 +550,12 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         )
     }
 
-    /// The subset of ``textInteractionGestures()`` that recognises on a HOLD —
+    /// The subset of ``textInteractionGestures()`` that recognizes on a HOLD —
     /// the only ones that can take a long press away from the editor's own.
     ///
     /// Two rules, unioned, because neither alone is enough. Measured on the pool
     /// simulator (iOS 26.5), this returns exactly four of the 32 non-WebKit
-    /// recognisers: `UITapAndAHalfRecognizer` and `UIVariableDelayLoupeGesture`
+    /// recognizers: `UITapAndAHalfRecognizer` and `UIVariableDelayLoupeGesture`
     /// — the two delayed TEXT gestures, matched BY NAME because neither is a
     /// `UILongPressGestureRecognizer` subclass — plus `_UIDragLiftGestureRecognizer`
     /// and `_UIDragLiftPointerGestureRecognizer`, which the long-press rule
@@ -577,9 +577,9 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
     }
 
-    /// UIKit's text-interaction recognisers on the WebView's content view.
+    /// UIKit's text-interaction recognizers on the WebView's content view.
     ///
-    /// WebKit installs recognisers of its own on that view — including the one
+    /// WebKit installs recognizers of its own on that view — including the one
     /// that FORWARDS touch events to the page — so every WK-prefixed class is
     /// left alone: disabling those would kill the very drag this protects. What
     /// remains is UIKit's text interaction stack (the long press that magnifies,
@@ -600,7 +600,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
     }
 
-    /// The enclosing navigation controller's interactive pop recognisers — the
+    /// The enclosing navigation controller's interactive pop recognizers — the
     /// leading-edge swipe, plus the full-width content swipe on iOS 26.
     private func navigationPopGestures() -> [UIGestureRecognizer] {
         var responder: UIResponder? = webView
@@ -1020,7 +1020,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // matching toolbar button(s). Deduped by the embed. Android does the
             // same in EditorWebView.kt.
             toolbarState.activeFormats = Set(body["active"] as? [String] ?? [])
-            // QA-003: Undo/Redo greyed out with an empty prosemirror-history
+            // QA-003: Undo/Redo grayed out with an empty prosemirror-history
             // stack. Same message, same dedupe, additive field (bridge.ts).
             toolbarState.disabledFormats = Set(body["disabled"] as? [String] ?? [])
         case .haptic:

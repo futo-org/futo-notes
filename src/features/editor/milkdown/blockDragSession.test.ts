@@ -103,7 +103,7 @@ describe('BlockDragSession', () => {
     expect(fixture.dispatched.every((tr) => !tr.docChanged)).toBe(true);
   });
 
-  it('records each drag on the interaction ledger: lifted, then released and dropped — or cancelled', () => {
+  it('records each drag on the interaction ledger: lifted, then released and dropped — or canceled', () => {
     clearInteractions('block-drag');
     const fixture = makeStackedView(['a', 'b', 'c']);
     const session = new BlockDragSession(fixture.view);

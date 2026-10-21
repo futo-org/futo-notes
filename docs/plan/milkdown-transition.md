@@ -308,7 +308,7 @@ Tags, task checkboxes, and fenced-code highlighting, on branch
   replaced. This is the first tenant of §3's `milkdown-compat/` home, with §3.5's canary shape:
   three tests lock the UNPATCHED behavior of the pinned `mdast-util-to-markdown` so the day
   upstream narrows its own rule they go red and the fix gets deleted. §3.6 reporting (upstream) still to do.
-- **Tags are decorated, not modelled.** `tagDecorations.ts` paints `scanTags` matches; the document
+- **Tags are decorated, not modeled.** `tagDecorations.ts` paints `scanTags` matches; the document
   holds a tag as ordinary text exactly as the file does. A schema node would have made a tag
   undeletable by character and put an IME-hostile boundary mid-word. Inline code and fenced blocks
   are blanked before scanning (their positions preserved), which is the spec's code/fence isolation.
@@ -372,7 +372,7 @@ Tags, task checkboxes, and fenced-code highlighting, on branch
   repaint, the checkbox, and language matching. `playwright.editor-embed.config.ts` and the
   `test:e2e:editor-embed` `changes:` list both name the new spec (T1's M11 lesson), and that list
   now also names `src/styles/**` — the embed inlines app.css and these tests assert computed
-  colours.
+  colors.
 
 Deferred, deliberately: the editor-gauntlet legs for these three surfaces. The gauntlet adapter for
 this editor is **#100**'s deliverable and did not exist when this landed; adding a second harness
@@ -531,10 +531,10 @@ embed's own host flag decides and no user-agent sniff is left in it. Consequence
 - Measured on the reference phone (moto g play 2023, Android 13, System WebView 151): Chromium shows
   NO word highlight, selection handles, floating Cut/Copy action mode or magnifier over a lifted
   block, focused or unfocused. WebKit's whole `isTextInteractionEnabled` problem simply does not
-  exist here — the page's own `selectstart`/`contextmenu`/selection defences hold. So the shell
+  exist here — the page's own `selectstart`/`contextmenu`/selection defenses hold. So the shell
   ignores `blockDrag` entirely.
 - The one leak was haptic, not visual: the WebView fires its own `LONG_PRESS` buzz 128-141 ms after
-  the editor's lift (its recogniser trips around touch-down + 480 ms against the 340 ms lift), so a
+  the editor's lift (its recognizer trips around touch-down + 480 ms against the 340 ms lift), so a
   pickup felt like a stutter. `EditorWebView.setBlockPressActive` turns the WebView's view-level
   haptics off for the press and the editor's own three opt past with `FLAG_IGNORE_VIEW_SETTING`; a
   long press the editor does not claim keeps its normal buzz.
@@ -878,7 +878,7 @@ against eager rendering installed BEFORE the load, so progressive open ran ident
 
 The stall is Chromium's editable-focus work meeting skipped blocks: one forced style+layout per
 skipped block, so the first focus of a document is quadratic in its block count (the `pure-crepe`
-spike characterised the trace; the spike doc was never merged). Ruled out by measurement: where the
+spike characterized the trace; the spike doc was never merged). Ruled out by measurement: where the
 caret sits at focus time, a DOM-only `focus()`, Google Autofill, accessibility services (none
 enabled), and laying every block out once before the focus (17.5 s afterwards regardless). A
 non-editable selection into the same DOM costs 34 ms, and a second focus of the same document
@@ -965,7 +965,7 @@ handles the focus but OUTSIDE the style/layout lifecycle, with 127 ms of JavaScr
 accessibility service enabled on the device and no accessibility trace events, and the IME text-state
 update at 19 ms. That is one forced layout check per DOM node of the note (44,025 layout objects),
 somewhere in Chromium's own focus handling; CDP tracing cannot name the caller, so the next step is
-a symbolised Chromium trace rather than another guess. Context for the call: the note is 3.2× the
+a symbolized Chromium trace rather than another guess. Context for the call: the note is 3.2× the
 largest corpus note, and the same walk is what the 2026-09-05 containment retirement measured as
 quadratic when blocks were rendering-skipped.
 
@@ -1035,7 +1035,7 @@ the device.
 Out of scope, found and left alone: `applyExternalContent with unchanged content preserves the
 selection` (`tests/editor-embed-milkdown.spec.ts`) is **flaky on this branch already** — 3 failures
 in 8 runs with T10's changes stashed. The caret sometimes lands at the end of the document instead
-of where it was, which as a product behaviour is a sync echo moving the user's cursor mid-typing.
+of where it was, which as a product behavior is a sync echo moving the user's cursor mid-typing.
 Worth its own ticket.
 
 ## 7. Rollout and teardown

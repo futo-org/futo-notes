@@ -242,7 +242,7 @@ describe('startProgressiveLoad', () => {
     expect(load.loading).toBe(false);
     expect(onComplete).toHaveBeenCalledTimes(1);
 
-    // The idle slice that was pending is cancelled, not run as well.
+    // The idle slice that was pending is canceled, not run as well.
     drainIdle();
     expect(applied).toEqual(['one', 'two', 'three']);
     expect(onComplete).toHaveBeenCalledTimes(1);
@@ -282,7 +282,7 @@ describe('startProgressiveLoad', () => {
     expect(load.loading).toBe(false);
   });
 
-  it('finishNow after cancel does nothing — a cancelled load is abandoned, not resumed', () => {
+  it('finishNow after cancel does nothing — a canceled load is abandoned, not resumed', () => {
     const applied: string[] = [];
     const onComplete = vi.fn();
 

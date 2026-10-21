@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.sp
  * reading these directly (e.g. `FutoType.title`) so intent is explicit — which
  * is also why the families live in their own file: [FutoTypography] reads
  * [FutoType], so if [FutoType] read a top-level val from THIS file, the first
- * code to touch `FutoType.caption` would initialise the two in a cycle and get
+ * code to touch `FutoType.caption` would initialize the two in a cycle and get
  * a null style back.
  */
 object FutoType {
@@ -47,7 +47,7 @@ object FutoType {
     // A license key is data, not prose: [FutoMono], so the masked dots and the
     // revealed key sit on the same grid and the value does not reflow when it
     // is revealed. Weight 400 because that is the only weight the bundled file
-    // carries; asking for 500 would only buy a synthesised one.
+    // carries; asking for 500 would only buy a synthesized one.
     val plateKey  = TextStyle(fontFamily = FutoMono, fontWeight = FontWeight.Normal, fontSize = 11.sp, lineHeight = 17.sp, letterSpacing = 0.em)
 }
 

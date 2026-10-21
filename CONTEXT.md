@@ -111,7 +111,7 @@ _Avoid_: subscription, membership, donation, pro/premium, upgrade
 **License key**:
 The short human-readable string a buyer receives and can read aloud, retype, or paste. It
 identifies the purchase; on its own it proves nothing.
-_Avoid_: serial, licence code, product key
+_Avoid_: serial, license code, product key
 
 **Activation**:
 The signed blob that proves a key was issued for this product, carrying the product and the

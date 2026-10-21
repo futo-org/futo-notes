@@ -10,7 +10,7 @@
 //
 // Baseline and interpretation: docs/perf/tab-switch-baseline.md
 //
-// If check() reports framesLive:false the window is occluded or minimised —
+// If check() reports framesLive:false the window is occluded or minimized —
 // WebKit suspends requestAnimationFrame for a window it is not compositing, so
 // every measurement here would block. Bring the app forward first; the
 // sanctioned way to do that is in .claude/skills/verify/references/desktop.md.
@@ -37,7 +37,7 @@
     });
   const hook = () => window.__notesShellTest;
 
-  // WebKit suspends requestAnimationFrame for an occluded/minimised window, so
+  // WebKit suspends requestAnimationFrame for an occluded/minimized window, so
   // a bare `await raf()` never resolves and the probe hangs FOREVER with no
   // output — it looks stuck rather than blocked, and a QA leg reported the perf
   // claim BLOCKED because of it (pc_00c64855edc9). Every await here is bounded:
@@ -49,7 +49,7 @@
       super(
         'frames are stalled: requestAnimationFrame delivered no frame in ' +
           FRAME_STALL_MS +
-          'ms. The window is almost certainly occluded or minimised — WebKit ' +
+          'ms. The window is almost certainly occluded or minimized — WebKit ' +
           'suspends rAF for a window it is not compositing. Bring the app ' +
           'forward and re-run; see .claude/skills/verify/references/desktop.md ' +
           'for the sanctioned way to focus a dev window.',
@@ -187,7 +187,7 @@
           ? missing.length
             ? 'missing test hooks — is this a debug build?'
             : 'ready'
-          : 'frames are stalled (window occluded/minimised) — measurements would hang',
+          : 'frames are stalled (window occluded/minimized) — measurements would hang',
       };
     },
 

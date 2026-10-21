@@ -8,7 +8,7 @@ that were supposed to be catching defects**.
 This is the postmortem for the *classes*, not the individual bugs. Each pattern below is followed by
 the cheapest check that would have caught it.
 
-## Pattern 1 — Tests that pass whether or not the behaviour works
+## Pattern 1 — Tests that pass whether or not the behavior works
 
 The single largest cluster, and the reason a data-loss bug survived in `main` under a green suite.
 
@@ -25,12 +25,12 @@ The single largest cluster, and the reason a data-loss bug survived in `main` un
 **Prevention.** At the time, a standing harness proved every *gate* could fail by seeding one
 violation per gate and rejecting an exit-code-only pass (removed 2026-08-24 — the practice survives
 as a rule when a gate is edited; see `docs/architecture-gates.md`). Extend that idea from gates to
-the handful of **data-safety behavioural tests**: seed the bug, require red. And add a coverage attestation — for a
-pipeline to count as green, assert that the jobs proving spec-critical behaviour actually *ran*, rather
-than being skipped, manual, or absent. This is M11 generalised from "assert the outcome" to "assert the
+the handful of **data-safety behavioral tests**: seed the bug, require red. And add a coverage attestation — for a
+pipeline to count as green, assert that the jobs proving spec-critical behavior actually *ran*, rather
+than being skipped, manual, or absent. This is M11 generalized from "assert the outcome" to "assert the
 assertion ran".
 
-## Pattern 2 — Assertions that encode observed behaviour instead of required behaviour
+## Pattern 2 — Assertions that encode observed behavior instead of required behavior
 
 Two tests written during this work asserted the bug **as an invariant**:
 
@@ -44,10 +44,10 @@ Both were written by observing what the code did and freezing it. Both had to be
 fix could land, and the first one nearly convinced the reviewer (me) that the fix was wrong — see
 Pattern 6.
 
-**Prevention.** For data-safety behaviour, derive the assertion from `docs/spec/` prose and name the
+**Prevention.** For data-safety behavior, derive the assertion from `docs/spec/` prose and name the
 spec line in the test. If no spec line exists, write it first. The repo's existing rule — a bug fix's
 regression test fails before the fix and passes after — should extend to *feature* tests: a new
-behavioural test must be shown failing against the pre-feature behaviour.
+behavioral test must be shown failing against the pre-feature behavior.
 
 ## Pattern 3 — Verification instruments trusted without a control
 
@@ -79,7 +79,7 @@ that pattern is banned on instruction surfaces, and the gate cannot tell a cauti
 recommendation. The gate's own error message says *"Do not allowlist a new occurrence to get green"* —
 so the right response was to describe the hazard instead of reproducing it, not to add an allowlist
 entry for a postmortem. Worth knowing before writing any doc that discusses a banned technique: a
-prose description costs nothing, and widening the allowlist to land a document about rigour would
+prose description costs nothing, and widening the allowlist to land a document about rigor would
 have been a poor trade. It is also a small vindication of the guard — it fired on its own author.
 
 ## Pattern 4 — One rule living in four places
@@ -122,7 +122,7 @@ that F2 required `KeepDraft`'s baseline to describe disk — sourced from the F2
 property test. Reading the spec settled it: F2 (`docs/spec/sync.md`) is about the reload gate firing on
 `SyncSummary.localWritesApplied` so a stale editor's next **unconditional autosave** cannot clobber a
 push-side clean merge. Its facts are `draft == base` — the Adopt arm, not `KeepDraft`. The test cited
-F2 correctly for the *Converged* arm and its property then over-generalised to all arms.
+F2 correctly for the *Converged* arm and its property then over-generalized to all arms.
 
 The proposed alternative — carrying two baselines — would have introduced a **new** loss: with a
 disk-based dirty baseline, a draft edited back to its base during a cycle fabricates dirtiness and
@@ -143,7 +143,7 @@ runs produced two bogus results — fixed with a worktree lock.
 There is a live tradeoff worth naming. `scripts/remote-test.mjs` deliberately does **not** export
 `CARGO_TARGET_DIR`, because `ci-cargo-cache-freshness.test.mjs` reads it and fails when it is set. That
 guard is correct as far as it goes, but it forces a separate cargo target per remote directory: after
-this pass, `~/ci` on the Linux runner held **13 directories totalling 62 GB**, with targets of
+this pass, `~/ci` on the Linux runner held **13 directories totaling 62 GB**, with targets of
 7.5–13 GB each, and every new verification directory paid a ~10-minute cold build.
 
 **Prevention.** Make `ci-cargo-cache-freshness` insensitive to a legitimately-set `CARGO_TARGET_DIR`

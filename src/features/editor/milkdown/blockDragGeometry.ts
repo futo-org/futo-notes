@@ -44,7 +44,7 @@ export function contentColumnX(view: ProseView): number {
 }
 
 /** Where the drop indicator line is drawn, in viewport coordinates. `top` is
- * the line's CENTRE, so a caller that draws a 3px bar offsets by half of it. */
+ * the line's CENTER, so a caller that draws a 3px bar offsets by half of it. */
 export type DropIndicatorRect = { top: number; left: number; width: number };
 
 export type DropTarget = {
@@ -59,7 +59,7 @@ export type DropTarget = {
 };
 
 /** The one canonical target for the gap at `pos`, whichever side the pointer
- * arrived from. Returns null when neither neighbour has rendered DOM to
+ * arrived from. Returns null when neither neighbor has rendered DOM to
  * measure. */
 function slotAt(view: ProseView, pos: number): DropTarget | null {
   const at = view.state.doc.resolve(pos);
@@ -74,7 +74,7 @@ function slotAt(view: ProseView, pos: number): DropTarget | null {
   const dom = before ?? after;
   if (!dom) return null;
   const rect = dom.getBoundingClientRect();
-  // In the gap when there are blocks on both sides; on the single neighbour's
+  // In the gap when there are blocks on both sides; on the single neighbor's
   // outer edge at the document's first and last boundary.
   const top = before
     ? after
@@ -233,7 +233,7 @@ export function createDragAutoScroller(view: ProseView, onStep?: () => void): Dr
   /** px/second, signed. 0 means "outside the zone", i.e. not running. */
   let velocity = 0;
   /** Sub-pixel remainder, so `MIN`-speed scrolling is not rounded away to
-   * nothing on engines that quantise `scrollTop` to integers. */
+   * nothing on engines that quantize `scrollTop` to integers. */
   let carry = 0;
   /** Resolved once per drag (on the first `update`) and kept until `stop()`,
    * not per pointer move:
@@ -264,7 +264,7 @@ export function createDragAutoScroller(view: ProseView, onStep?: () => void): Dr
   }
 
   /** Depth in the zone drives the ramp; `distance` may be negative when the
-   * finger has travelled past the edge entirely, which is simply full speed. */
+   * finger has traveled past the edge entirely, which is simply full speed. */
   function speedFor(distance: number): number {
     const depth = Math.min(Math.max((AUTO_SCROLL_EDGE_PX - distance) / AUTO_SCROLL_EDGE_PX, 0), 1);
     return (

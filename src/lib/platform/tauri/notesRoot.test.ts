@@ -145,7 +145,7 @@ describe('vaultStatus', () => {
 });
 
 describe('vaultDisplayPath', () => {
-  it('resolves a picked directory to the name the user recognises', async () => {
+  it('resolves a picked directory to the name the user recognizes', async () => {
     mockInvoke.mockResolvedValueOnce('/home/user/Notes');
     const shown = await vaultDisplayPath('/run/user/1000/doc/A1b2C3/Notes');
     expect(mockInvoke).toHaveBeenCalledWith('vault_display_path', {

@@ -14,7 +14,7 @@ to state it plainly in the spec while saying nothing about scope in shipped copy
 
 - **The spec is precise; the product copy is silent.** The spec records that no device or
   activation count exists anywhere and that a key is never rejected for reuse. Shipped copy
-  says nothing about how many devices a license covers, in either direction — no "one licence
+  says nothing about how many devices a license covers, in either direction — no "one license
   per person", no "covers all your devices". Ambiguity is a deliberate stance in the copy and a
   bug in the spec, and they must not be confused.
 - **`max_activations` is inert, and that is load-bearing.** A populated column beside a dormant

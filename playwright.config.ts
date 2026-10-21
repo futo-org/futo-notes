@@ -4,7 +4,7 @@ import { webPort } from './scripts/lib/slot.mjs';
 const isCI = !!process.env.CI;
 const baseURL = `http://localhost:${webPort()}`;
 
-// Sanitised: this becomes a path segment, so anything that could escape
+// Sanitized: this becomes a path segment, so anything that could escape
 // test-results/ is stripped rather than trusted.
 const runId = (process.env.PW_RUN_ID ?? '').replace(/[^A-Za-z0-9._-]/g, '').slice(0, 64);
 const evidenceDir = process.env.FUTO_VERIFICATION_DIR;

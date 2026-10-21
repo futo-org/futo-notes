@@ -116,8 +116,8 @@ internal fun rebasedOnRelink(flushed: String, live: String, relinkedBody: String
  * throws, and per spec a stale or failed completion leaves no orphaned blob
  * in the vault (docs/spec/editor.md, "A delayed image completion belongs to
  * the note it was started on"). `CancellationException` is deleted-then-
- * rethrown, never swallowed, so a cancelled caller is still told it was
- * cancelled — catching plain `Exception` around this used to eat it.
+ * rethrown, never swallowed, so a canceled caller is still told it was
+ * canceled — catching plain `Exception` around this used to eat it.
  *
  * Free of `NotesStore`'s FFI-backed `core` and `Main`-dispatcher init, so
  * this is assertable in a plain JVM test unlike `saveImageIntoVault` itself.
@@ -487,7 +487,7 @@ class NotesStore(
      * migration cannot begin until WebView insertion is confirmed.
      *
      * [deleteImageOnFailure] removes the file [save] just wrote when
-     * [useSavedImage] fails or is cancelled (F8) — see its doc for why. */
+     * [useSavedImage] fails or is canceled (F8) — see its doc for why. */
     suspend fun saveImageIntoVault(
         save: (File) -> String?,
         useSavedImage: suspend (String) -> Unit,

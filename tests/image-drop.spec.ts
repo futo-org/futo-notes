@@ -36,7 +36,7 @@ interface DropFile {
   bytes: number[];
 }
 
-/** Dispatch a `drop` at the editor's centre and report whether it was claimed. */
+/** Dispatch a `drop` at the editor's center and report whether it was claimed. */
 async function dropOnto(page: Page, files: DropFile[], text?: string): Promise<boolean> {
   await page.locator(EDITOR).click();
   return page.evaluate(

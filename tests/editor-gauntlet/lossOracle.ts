@@ -148,7 +148,7 @@ export function detectTextLoss(
 }
 
 /**
- * How many distinct lost words a report keeps as evidence. Enough to recognise
+ * How many distinct lost words a report keeps as evidence. Enough to recognize
  * a pattern, small enough that a corpus-wide run stays readable.
  */
 export const LOST_TOKEN_SAMPLE_LIMIT = 50;

@@ -19,9 +19,9 @@ stand-in in `just test-android-native`, and the whole flow on desktop in
 ## Setup
 
 **The FFI profile is the step that used to be easy to get wrong.** `hosted_server()`
-honours `FUTO_HOSTED_SERVER` only in a build with `debug_assertions` on, and the default
+honors `FUTO_HOSTED_SERVER` only in a build with `debug_assertions` on, and the default
 `release-ffi` profile inherits `release`, where it is off. `just android-native` now
-honours `FUTO_HOSTED_SERVER` itself: when it is set, `apps/android/run.sh` switches to
+honors `FUTO_HOSTED_SERVER` itself: when it is set, `apps/android/run.sh` switches to
 the `dev` profile and launches the app already pointed at that address, so neither needs
 doing by hand any more. A build with `FUTO_HOSTED_SERVER` unset (or a release APK, which
 ignores it regardless) silently probes `https://notes-sync.futo.org`, which on a machine
@@ -137,7 +137,7 @@ the app had picked the session up on its own. Checkout the same. The password sc
 read "Strong" for a 16-character password. The recovery key came up once as
 `03PT-PZPX-CH68-2GTC-BZCZ-EQNR-K40N`, with Copy, Share, "FUTO cannot recover your vault
 without it. Nobody at FUTO has a copy." in red, "You will not be shown this key again.",
-and Continue greyed until the checkbox was ticked. The account card read
+and Continue grayed until the checkbox was ticked. The account card read
 `person@standin.test` · `Active` · `0 B of 10 GB used`.
 
 **2 — sign out: PASS.** The confirmation says the notes stay on the device; after
@@ -244,7 +244,7 @@ a previous launch's connections read as the current one's.
 **D9 — a stranded device resumes hosted, and the password is gone: PASS.** A genuinely
 pre-fix build (the `connect_sync` clear and the Kotlin `restoreBranch` order both reverted)
 was installed on a `pm clear`ed app and walked to the both-credentials state; its relaunch
-dialled `:3181` and never `:3131`. `:app:installDebug` upgrades in place and keeps
+dialed `:3181` and never `:3131`. `:app:installDebug` upgrades in place and keeps
 SharedPreferences, so the `SecureStore` entries and the stable vault path both survive —
 Android needs none of the iOS container pinning. The first launch on the fixed build
 connected `:3131` and never touched `:3181`; after **Sign out**, a further relaunch reached

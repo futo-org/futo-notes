@@ -30,7 +30,7 @@ patches remark-stringify any more: Milkdown's own serializer is never called.
 
 Parse-side repairs: an inline `<br>` deleted with no replacement and `[](url)`
 losing its href; the preset's `<br />` stand-in for an empty paragraph retired
-in favour of extra blank lines (`emptyLine.ts`, the parse-side transformer;
+in favor of extra blank lines (`emptyLine.ts`, the parse-side transformer;
 never register a plugin under the name `remark-preserve-empty-line`, that is
 what turns the tag back on). The presets' three whole-document passes are
 scoped to the touched blocks (`listOrder.ts`, `tablePasses.ts`,

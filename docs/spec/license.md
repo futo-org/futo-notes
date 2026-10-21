@@ -90,7 +90,7 @@ simulator through `LicensePlateTests`, because this Mac's Xcode 27 ships no
 Simulator.app and a simulator with no window silently swallows every `axe` tap
 while still answering `describe-ui` — XCUITest injects events into the app
 process and is unaffected. All three plate states, the OS deep link, the reveal
-(no Copy control) and Remove. The coin's colour was checked against a build of
+(no Copy control) and Remove. The coin's color was checked against a build of
 the preceding commit rather than eyeballed: with Reduce Motion holding it at one
 angle, before and after are the same gold, and a dark-faced screenshot taken
 mid-spin is the coin's own back.
@@ -377,7 +377,7 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
   `Environment::for_bundle_id`, `tests/conformance/license.json` `buyUrls`,
   `a_dev_build_buys_on_staging`
 - `platform` is attribution only: it never changes price, product, or
-  entitlement, and FUTOpay drops a value it does not recognise. `success` is
+  entitlement, and FUTOpay drops a value it does not recognize. `success` is
   `redirect-to-organization-page`, the storefront's own marker (observed
   2026-09-10): the buyer pays in the system browser, and FUTOpay answers that
   marker with the **license key page** — the key as HTML plus an Activate
@@ -417,7 +417,7 @@ submissions. v2 semantics are unchanged whenever a v2 activation arrives.
 
 ## Entering a key
 
-- One text field, labelled "License key". It accepts, after trimming
+- One text field, labeled "License key". It accepts, after trimming
   whitespace, any of:
   1. a bare license key;
   2. `{key}/{activation}`;
@@ -841,13 +841,13 @@ one catalog entry, `license.enterKey`, so all three shells moved together
   platform. It was a machined recess with an inset-shadow edge until 2026-09-16,
   when @justin asked for the circle border gone on all three; on Android that
   edge had been the entire well. On desktop the well is also **vertically
-  centred** against the field column rather than pinned to its top — the coin is
+  centered** against the field column rather than pinned to its top — the coin is
   the only thing on that side, and a circle at the top of a taller column reads
   as having slipped. Its dimensions are the storefront's, ported from lib-polar
   `pylib/futopay_server/static/js/coin-bounce.js` without that file's physics
   world.
-  Since 2026-09-16 the coin is **one 3D model, modelled in Blender** by
-  `assets/coin/build-coin.py` and rendered by all three shells: a bevelled disc
+  Since 2026-09-16 the coin is **one 3D model, modeled in Blender** by
+  `assets/coin/build-coin.py` and rendered by all three shells: a beveled disc
   with the FUTO diamond punched clean through it, gold face over a darker rim.
   The script exports `futo-coin.glb` (desktop, Android), `futo-coin.usdz` (iOS)
   and `studio-env.hdr`, the small studio every shell reflects off it. **The
@@ -935,7 +935,7 @@ one catalog entry, `license.enterKey`, so all three shells moved together
     view or the window is hidden (M5), and falls back to the flat SVG coin where
     WebGL is unavailable or either asset fails to load. Tone mapping is Khronos
     PBR Neutral rather than ACES, which pushes a bright saturated highlight
-    toward white and turns the gold sheen grey exactly where it should be most
+    toward white and turns the gold sheen gray exactly where it should be most
     golden. The
     spin-up was measured on the real app 2026-09-16, not inferred: per-frame
     pixel motion decays 8.9× from the opening half-second to rest.
@@ -957,10 +957,10 @@ one catalog entry, `license.enterKey`, so all three shells moved together
     image-based light differently and the same studio arrives at a different
     brightness in each: Filament's IBL intensity is 4.5 where three.js uses 1.0,
     and RealityKit's intensity exponent is -1.5. Both are **measured**, not
-    guessed — each is where the mean colour of the coin's gold pixels lands
+    guessed — each is where the mean color of the coin's gold pixels lands
     within a few points per channel of the other shells. Filament's tone mapper
     is also set to PBR Neutral for the reason desktop's is; at its ACES default
-    the coin read as brushed aluminium.
+    the coin read as brushed aluminum.
     Each holds still — as a whole, correct coin — under `prefers-reduced-motion`
     (iOS) and a zero animator scale (Android), falls back to the flat glyph if
     the renderer cannot start, and appears only in Settings, never beside the
@@ -1010,7 +1010,7 @@ Research summary as of 2026-09-09, re-read 2026-09-24; this area changes monthly
 and the decision, not the rules, is what this section records.
 
 - **Apple.** Guideline 3.1.1 names license keys as a forbidden unlock mechanism
-  worldwide; 3.1.3(b) permits recognising a web-bought license only if the same
+  worldwide; 3.1.3(b) permits recognizing a web-bought license only if the same
   thing is also sold as IAP. Linking out is legal in the US (no entitlement, 0%
   today, rate pending in court), in the EU and Japan at 15% with Apple's
   disclosure sheet and an IAP twin, in Brazil, and banned elsewhere. Immich
@@ -1049,7 +1049,7 @@ and the decision, not the rules, is what this section records.
 
 > **Gap:** License sync — the license is entered per device. Carrying it in the
 > E2EE sync payload so one entry licenses every synced device is **deferred**
-> (plan M6, decision D28 2026-10-16), not cancelled. It touches the sync payload
+> (plan M6, decision D28 2026-10-16), not canceled. It touches the sync payload
 > (AGENTS.md §11.6) and must be its own change. Until then a license reaches
 > another device by entering the key the card reveals (or the deep link) on that
 > device.
@@ -1109,7 +1109,7 @@ relaunching confirmed the state persisted. → 49-shot ledger in
 > none). Polar webhooks to staging FUTOpay were also rejected 403 `Invalid
 webhook signature` the whole time (`polar_sdk._webhooks.validate_event`
 > base64-encodes the secret before HMAC; a Standard-Webhooks signature decodes it
-> first), so the webhook fulfilment path was dead too. None of that reproduced on
+> first), so the webhook fulfillment path was dead too. None of that reproduced on
 > 2026-09-15's purchase — this is one verified success, not proof either fault is
 > permanently fixed on Polar's side; re-verify if purchases start failing again.
 >

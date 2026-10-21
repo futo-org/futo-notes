@@ -428,7 +428,7 @@ class SyncManager(
                 }
             } finally {
                 // Also release when migration began before this queued heal
-                // acquired the operation gate, or when the task is cancelled.
+                // acquired the operation gate, or when the task is canceled.
                 healing = false
             }
         }
@@ -570,7 +570,7 @@ class SyncManager(
      *  clears the hosted secrets.
      *
      *  A self-hosted vault is the one with a password to reconnect with; a
-     *  hosted vault has none and is recognised instead by the two secrets Rust
+     *  hosted vault has none and is recognized instead by the two secrets Rust
      *  saved. Both are local reads — no request of any kind — so a launch with
      *  no network still knows which kind of vault this is, and a restart
      *  resumes sync **without Settings ever being opened**.

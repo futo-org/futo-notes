@@ -37,7 +37,7 @@ internal interface OpenNoteEffects {
 
     fun classify(facts: OpenNoteFacts): OpenNoteDisposition
 
-    /** Re-arm a dirty draft after fact gathering cancelled its debounce. */
+    /** Re-arm a dirty draft after fact gathering canceled its debounce. */
     fun resumeDraftPersistence()
 
     suspend fun apply(noteId: String, disposition: OpenNoteDisposition)
@@ -146,7 +146,7 @@ internal interface EditorExitEffects {
 
     /**
      * Synchronous work that must happen between the user's tap and the first
-     * suspension — cancelling the debounced save, dropping focus, blurring the
+     * suspension — canceling the debounced save, dropping focus, blurring the
      * editor. Runs after the latches, so a change arriving from here on is
      * already fenced.
      */
@@ -184,7 +184,7 @@ internal interface EditorExitEffects {
     /**
      * Stop the debounced body save. Called as the FIRST step inside the drain,
      * so a save already running has finished and only a queued debounce is
-     * dropped — cancelling it earlier would tear down a write mid-flight.
+     * dropped — canceling it earlier would tear down a write mid-flight.
      */
     suspend fun cancelPendingSave() {}
 
@@ -265,7 +265,7 @@ internal class EditorSession(
     private val scope: CoroutineScope,
     /**
      * Starts the commit a navigation runs after it has left. It must outlive
-     * [scope]: the screen's composition scope is cancelled when the pop
+     * [scope]: the screen's composition scope is canceled when the pop
      * animation ends, mid-write for a slow disk. The shell passes the store's
      * scope (`NotesStore.launchEditorLeave`), which a reopened note waits on.
      */
@@ -371,7 +371,7 @@ internal class EditorSession(
      * state lives here rather than in Compose so a later unrelated sync cannot
      * accidentally adopt it, and a rename/navigation drops it by identity.
      *
-     * The deferral is read INSIDE the lock. The blur edge is not synchronised
+     * The deferral is read INSIDE the lock. The blur edge is not synchronized
      * with the cycle that produces the deferral — a reconciliation suspends on
      * its disk read while holding this lock, and the user can blur in that
      * window — so reading it first made such a settle pass see "nothing

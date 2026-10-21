@@ -30,7 +30,7 @@
  *         but a real capture off a packaged Fedora/Hyprland build
  *         (2026-09-15) showed `getData('text/uri-list')` returns an empty
  *         string regardless; the dropped path lives only in the sibling
- *         `text/html` flavour, as an `<a>` element whose TEXT CONTENT is the
+ *         `text/html` flavor, as an `<a>` element whose TEXT CONTENT is the
  *         `file://` URI — no `href` at all. `filePathsFromDrop` below reads
  *         that shape (falling back to a real `text/uri-list` body first, for
  *         any engine that does populate it) into the same path list the

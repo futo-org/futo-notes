@@ -2,7 +2,7 @@
  * A typed URL becomes a link the moment its word ends — Space, Enter, or a
  * hard break. → docs/spec/editor.md "Typing a bare URL links it"
  *
- * GFM's autolink literals are recognised when a note is PARSED, so a URL
+ * GFM's autolink literals are recognized when a note is PARSED, so a URL
  * already in the file rendered as a link while one just typed stayed plain
  * text until the note was closed and reopened. This closes that gap without a
  * second definition of "URL": the word that just ended is handed to the

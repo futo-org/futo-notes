@@ -633,7 +633,7 @@ class EditorHost private constructor(appContext: Context) {
                         ids?.optString(i)?.takeIf { it.isNotEmpty() }?.let { add(it) }
                     }
                 }
-                // QA-003: Undo/Redo greyed out with an empty prosemirror-history
+                // QA-003: Undo/Redo grayed out with an empty prosemirror-history
                 // stack. Same message, additive field (bridge.ts).
                 val disabledIds = msg.optJSONArray("disabled")
                 disabledFormats = buildSet {
@@ -734,14 +734,14 @@ class EditorHost private constructor(appContext: Context) {
 
     /**
      * The Android half of the press-level suspension iOS does by standing
-     * WKWebView's delayed text-interaction recognisers down (bridge.ts
+     * WKWebView's delayed text-interaction recognizers down (bridge.ts
      * `BlockPressMessage`) — and it is a MUCH smaller job here, because
      * Chromium is not WebKit.
      *
      * Measured on a moto g play 2023 (Android 13, System WebView 151), a
      * stationary hold on a block, focused and unfocused, five runs: no word
      * highlight, no selection handles, no floating Cut/Copy action mode, no
-     * magnifier — the page's own defences in `mobileBlockDnd.ts` (cancelled
+     * magnifier — the page's own defenses in `mobileBlockDnd.ts` (canceled
      * `selectstart`/`contextmenu`, re-collapsed selection, `preventDefault()`
      * on the drag's touch stream) are enough for Chromium, which — unlike
      * WebKit — lets the page have them. So none of iOS's
@@ -750,8 +750,8 @@ class EditorHost private constructor(appContext: Context) {
      *
      * ONE thing does leak through, and it is the whole reason this exists: the
      * WebView fires its OWN [HapticFeedbackConstants.LONG_PRESS] buzz when its
-     * long-press gesture recogniser trips, 128-141 ms after the editor's `lift`
-     * (measured across five holds; the recogniser fires around touch-down +
+     * long-press gesture recognizer trips, 128-141 ms after the editor's `lift`
+     * (measured across five holds; the recognizer fires around touch-down +
      * 480 ms against the editor's 340 ms lift). Two impacts a seventh of a
      * second apart read as a stutter, not as one pickup. The view-level flag is
      * the narrowest lever that silences it: it kills the WebView's own

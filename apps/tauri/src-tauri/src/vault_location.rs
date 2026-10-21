@@ -188,10 +188,10 @@ fn resolve_root(
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultStatus {
-    /// Where the vault is, in terms a user recognises — a document-portal vault
+    /// Where the vault is, in terms a user recognizes — a document-portal vault
     /// resolves back to the folder they actually picked. The raw root is
     /// deliberately not reported: nothing in the UI has a use for a path the user
-    /// would not recognise.
+    /// would not recognize.
     display_path: String,
     is_custom: bool,
     available: bool,
@@ -265,7 +265,7 @@ pub async fn vault_status(app: AppHandle) -> Result<VaultStatus, String> {
     blocking(move || Ok(status(&app))).await
 }
 
-/// Names a directory the way the user recognises it, so a confirmation dialog can
+/// Names a directory the way the user recognizes it, so a confirmation dialog can
 /// say `~/Notes` instead of `/run/user/1000/doc/A1b2C3/Notes`. Read-only: asking
 /// what a folder is called must not grant anything, because the user has not
 /// confirmed the change yet.

@@ -2,7 +2,7 @@
 // test:audit (docs/architecture-gates.md). Every step runs even after an earlier one fails.
 //
 // Staleness means "listed but not reported", so anything that makes a tool report less than
-// reality condemns live acknowledgements. Hence: every result is validated as a report before
+// reality condemns live acknowledgments. Hence: every result is validated as a report before
 // it is read, and every ignore-list bypass is asserted to have worked.
 
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -150,7 +150,7 @@ function liveNpm(realDependencyCount) {
     }
     fs.writeFileSync(path.join(dir, 'pnpm-workspace.yaml'), workspace);
     // Every scope, not `--prod`: pnpm applies ignoreGhsas to dev findings as well, so a
-    // prod-only mirror would miss a dev-only acknowledgement and name it fixed.
+    // prod-only mirror would miss a dev-only acknowledgment and name it fixed.
     const json = runJson('pnpm', ['audit', '--json'], dir, npmReport);
     if (!json) return null;
     const mirrored = json.metadata.totalDependencies;

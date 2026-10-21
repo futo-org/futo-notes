@@ -35,7 +35,7 @@ targets:
         buildPhase: resources
       - path: Assets.xcassets
         buildPhase: resources
-      # The supporter coin, modelled once in Blender and shared with the desktop
+      # The supporter coin, modeled once in Blender and shared with the desktop
       # and Android shells. Referenced in place rather than copied into
       # Resources/ so assets/coin/ stays the only place the coin exists; the
       # .glb and the Filament cubemap next to them are the other shells' forms of

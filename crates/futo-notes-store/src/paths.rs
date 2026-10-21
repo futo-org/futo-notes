@@ -49,7 +49,7 @@ pub(crate) fn unique_against(wanted: &str, occupied: &HashSet<String>) -> String
 /// Whether `candidate` is `wanted` itself or one of the numeric collision
 /// suffixes `unique_against` mints (`<wanted>-2`, `<wanted>-3`, ...). Kept
 /// beside `unique_against` so the `-<n>` suffix format lives in one place — used
-/// to recognise a note a park of `wanted` could have produced WITHOUT matching a
+/// to recognize a note a park of `wanted` could have produced WITHOUT matching a
 /// merely similarly-named note ("<wanted> draft"), which `starts_with` did.
 pub(crate) fn is_unique_variant(wanted: &str, candidate: &str) -> bool {
     candidate == wanted

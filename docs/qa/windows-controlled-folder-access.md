@@ -3,7 +3,7 @@
 ## Why a person, not a test
 
 Windows Controlled Folder Access (Microsoft Defender → Ransomware protection) blocks
-apps it doesn't recognise from creating or changing files in protected folders —
+apps it doesn't recognize from creating or changing files in protected folders —
 Documents by default, which is where the notes folder lives. It only exists on a real
 Windows install with Defender running; no CI runner or VM image here turns it on.
 
@@ -96,7 +96,7 @@ returns `WROTE` or the error word for word.
    false`. Quit.
 
 **If status in step 5 still says `available: true`,** the refusal was not
-recognised, and the probe's os error number is what the rule needs to count. (Probe
+recognized, and the probe's os error number is what the rule needs to count. (Probe
 calls the command directly, so it never raises the banner itself; a missing banner
 with `accessRefused: true` means the **toast** click missed, not the rule.)
 

@@ -11,9 +11,9 @@
   display: flex;
   flex-direction: column;
   /* The band's height, owned here because the traffic-light inset is computed
-     against it. `trafficLightPosition` in the Tauri window configs centres the
+     against it. `trafficLightPosition` in the Tauri window configs centers the
      macOS buttons on y=20 (measured: buttons span 13→26.5 logical px), which is
-     the centre line of a 40px band and of the 32px sidebar toggle inside it.
+     the center line of a 40px band and of the 32px sidebar toggle inside it.
      Changing this without re-deriving that inset unseats the traffic lights.
      Previously only a `var(--tabs-strip-height, 40px)` fallback in two files —
      the value had no owner at all. */
@@ -51,7 +51,7 @@
     var(--macos-traffic-lights-width, 0px) + var(--linux-window-controls-width, 0px)
   );
   padding-right: 8px;
-  /* When the sidebar is open the chrome extends its column colour up through
+  /* When the sidebar is open the chrome extends its column color up through
      the band; the seam falls on the existing sidebar border. */
   background-color: var(--color-sidebar);
   border-right: 1px solid var(--color-border);

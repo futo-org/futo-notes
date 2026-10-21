@@ -227,10 +227,10 @@ test('a real keystroke posts exactly one change carrying the normalized document
 // ============================================================
 
 // Front matter is not markdown, and normalize-once used to rewrite it: with
-// nothing in the parser recognising it, `---` was a thematic break and the
+// nothing in the parser recognizing it, `---` was a thematic break and the
 // metadata lines a setext heading, so ANY edit elsewhere in the note wrote back
 // `***`, a 16-dash underline, and — the real harm — `tags: \[a, b]`, a changed
-// metadata VALUE. ADR-0002 accepts re-spelt markdown; it does not accept losing
+// metadata VALUE. ADR-0002 accepts re-spelled markdown; it does not accept losing
 // constructs the schema does not own, and front matter is named there.
 const FRONT_MATTER_NOTE =
   '---\n' +
@@ -1317,7 +1317,7 @@ test('pasting text is left to the editor and posts no image message', async ({ p
 // Transport, host config and theming
 //
 // Engine-independent halves of the bridge contract. They assert `bridge.ts`'s
-// wiring, not any editor's behaviour, and are the only place that asserts it.
+// wiring, not any editor's behavior, and are the only place that asserts it.
 // ============================================================
 
 test('prefers the iOS webkit transport when both hosts are present', async ({ browser }) => {

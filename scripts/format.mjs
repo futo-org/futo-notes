@@ -16,7 +16,7 @@
 // git already draws the boundary — it does not recurse into a nested
 // repository. `--cached --others --exclude-standard` still covers new,
 // not-yet-committed files (so a fresh unformatted file is caught) while
-// honouring .gitignore. .prettierignore is applied by prettier itself, which
+// honoring .gitignore. .prettierignore is applied by prettier itself, which
 // respects it for explicitly-passed paths too.
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';

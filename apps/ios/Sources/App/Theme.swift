@@ -24,16 +24,16 @@ enum Theme {
         dark: Color(hex: 0x171717)
     )
 
-    /// The License plate's one remaining colour of its own.
+    /// The License plate's one remaining color of its own.
     ///
     /// Everything else it used to carry — a gunmetal gradient, its own ink,
     /// dim ink and hairline — went out 2026-09-18 with the desktop plate's
     /// second round: the card sits on the ordinary Settings surface and reads
-    /// the app's own text colours, because a slab of its own material read as a
+    /// the app's own text colors, because a slab of its own material read as a
     /// foreign object in the sheet. Gold stays because the app has no token for
     /// it.
     ///
-    /// Nothing here is animated: a theme-dependent colour that repaints at its
+    /// Nothing here is animated: a theme-dependent color that repaints at its
     /// own pace is exactly what `just check-theme-single-pace` exists to stop.
     enum Plate {
         /// Gold: the eyebrow, the status chip's border, and the text buttons.

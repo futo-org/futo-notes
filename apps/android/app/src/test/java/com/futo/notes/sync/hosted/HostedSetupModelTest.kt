@@ -168,7 +168,7 @@ class HostedSetupModelTest {
         var pairingFailure: HostedException? = null
         var beganPairingAs: String? = null
 
-        /** Set to hold `awaitPairing` open, so a live wait can be cancelled. */
+        /** Set to hold `awaitPairing` open, so a live wait can be canceled. */
         var pairingGate: CompletableDeferred<Unit>? = null
 
         override suspend fun beginPairing(deviceName: String): PairingCode {

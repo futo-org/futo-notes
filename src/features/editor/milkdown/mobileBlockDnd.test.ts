@@ -134,7 +134,7 @@ function makeView(hasFocus: boolean, empty = false) {
     setFocused: (value: boolean) => {
       focused = value;
     },
-    /** Centre of the block, where a real touch would land. */
+    /** Center of the block, where a real touch would land. */
     pointA: { x: BLOCK_X, y: BLOCK_TOP + BLOCK_HEIGHT / 2 },
   };
 }
@@ -276,7 +276,7 @@ describe('MobileBlockDndView — focus arbitration (QA #001)', () => {
 
   // cf343347's own guard is what this gate must NOT undo: an unfocused-start
   // press that Chromium's own long-press forces focus onto mid-gesture is
-  // still de-focused, WITHOUT the in-progress drag being cancelled — this is
+  // still de-focused, WITHOUT the in-progress drag being canceled — this is
   // the reconciliation point between the two fixes (see the module doc's
   // "FOCUS ARBITRATES DRAG VS. SELECTION"). Playwright's desktop Chromium
   // does not reproduce Chromium's forced focus itself (module doc), so this
@@ -300,7 +300,7 @@ describe('MobileBlockDndView — focus arbitration (QA #001)', () => {
     Object.defineProperty(focusEvent, 'target', { value: dom });
     document.dispatchEvent(focusEvent);
 
-    // De-focused — the guard fired — and the drag was NOT cancelled: no
+    // De-focused — the guard fired — and the drag was NOT canceled: no
     // second `onDragActive(false)` was reported for this focus event.
     expect(onDragActive).not.toHaveBeenCalledWith(false);
 

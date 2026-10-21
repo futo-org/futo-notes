@@ -376,7 +376,7 @@ struct EditorToolbarView: View {
 ///
 /// The backdrop is the editor's own `Theme.background`, so the bar reads as the
 /// bottom edge of the note with the glass capsules floating over it. The
-/// system's `.keyboard` material was a near-miss of the editor colour right
+/// system's `.keyboard` material was a near-miss of the editor color right
 /// where the two meet, and `Theme.surface` (#F2F2F2/#171717) was a visible slab.
 /// Spec: docs/spec/editor.md → "Markdown toolbar".
 class FutoKeyboardAccessory<Content: View>: UIInputView {

@@ -295,7 +295,7 @@ private fun WithoutCamera(title: String, explanation: String) {
 
 /**
  * The scanned device, as the confirmation names it: its self-reported name
- * verbatim, and its platform in words. An unrecognised platform is shown as it
+ * verbatim, and its platform in words. An unrecognized platform is shown as it
  * came rather than as a missing catalog path.
  */
 private fun describe(scanned: ScannedPairing, localization: Localization): String {

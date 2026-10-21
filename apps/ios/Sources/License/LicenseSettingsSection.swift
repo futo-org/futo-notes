@@ -61,7 +61,7 @@ func licensePlateShape(_ card: LicenseCardModel?, linkOut: Bool, appStorePlate: 
 /// prominent than its own, so the two get equal weight. The card around a pair
 /// then holds only the choice; the text actions after it become a list of
 /// their own (@justin 2026-10-19). Where the key field leads, Buy in the App
-/// Store is an outlined, labeled secondary button (ADR-0009) and neighbouring
+/// Store is an outlined, labeled secondary button (ADR-0009) and neighboring
 /// text buttons share a row.
 enum LicenseControlGroup: Hashable {
     case filled(LicenseAction)
@@ -401,7 +401,7 @@ struct LicenseSettingsSection: View {
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(Theme.primary)
                     .frame(width: 20)
-                // Label colours, not `.primary`: inside a Form button that
+                // Label colors, not `.primary`: inside a Form button that
                 // resolves to the tint, and the rows are not links.
                 Text(localization.localizedText(Self.copyPath(for: action)))
                     .font(.subheadline)
@@ -441,7 +441,7 @@ struct LicenseSettingsSection: View {
         }
     }
 
-    /// Neighbouring text buttons on one line when they fit, stacked when they
+    /// Neighboring text buttons on one line when they fit, stacked when they
     /// don't (three of them overflow a phone at larger text sizes).
     private func textRow(_ run: [LicenseAction]) -> some View {
         ViewThatFits(in: .horizontal) {
@@ -567,7 +567,7 @@ struct LicenseSettingsSection: View {
     }
 
     /// One text field for all three accepted shapes (a bare key, `key/activation`,
-    /// or a `futonotes://` link) — recognising which is Rust's job, not this
+    /// or a `futonotes://` link) — recognizing which is Rust's job, not this
     /// view's. A field with no submit is not operable, so Activate and Cancel
     /// come with it; the desktop projection supplies the same three controls.
     @ViewBuilder private var keyField: some View {

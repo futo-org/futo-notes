@@ -3,7 +3,7 @@
  * User-level iOS editor stories against one explicitly claimed simulator.
  *
  * The sustained-typing story guards the v1.7.0 autosave regression where the
- * next keystroke cancelled an in-flight save after its flush was already
+ * next keystroke canceled an in-flight save after its flush was already
  * durable. The shell skipped its baseline advance, so the following flush saw
  * its own earlier write as a peer edit and parked the draft into conflict copy
  * after conflict copy.
@@ -282,7 +282,7 @@ const SELF_RELINKED_BODY = 'back to [[SelfyX]]\n';
 // the relinked self-link. `typedLanded` checks exactly that.
 const typedLanded = (body) => body.includes(SELF_RELINKED_BODY) && body !== SELF_RELINKED_BODY;
 
-/** The native title field's centre: tapping past a short title puts the caret at its end. */
+/** The native title field's center: tapping past a short title puts the caret at its end. */
 function titleFieldCentre() {
   const find = (node) => {
     if (Array.isArray(node)) {
@@ -410,7 +410,7 @@ async function homeFromAStreamingEditedNote() {
 
   await device.waitFor(
     'the typed marker to reach the note before the app is suspended',
-    // Case-blind: the keyboard capitalises the first letter typed at the start
+    // Case-blind: the keyboard capitalizes the first letter typed at the start
     // of a line when the simulator has just been rebooted.
     () => device.readNote(BACKGROUND_NOTE).toLowerCase().includes(BACKGROUND_MARKER),
     {

@@ -6,7 +6,7 @@
      `.topband-chrome`, never here — so the strip needs no sidebar-state-specific
      padding.
 
-     Tabs FLOAT (Firefox/Brave-style): fully-rounded pills centred in the band
+     Tabs FLOAT (Firefox/Brave-style): fully-rounded pills centered in the band
      with clearance on every side, rather than trapezoids welded to the editor
      surface below. `align-items: center` is what makes any band height work off
      one set of numbers — the leftover space just redistributes, so 40px and
@@ -83,7 +83,7 @@
 }
 
 /* The active tab is the raised, filled one. Its fill is the editor's own paper
-     colour, so the selection still reads as "this tab IS the document" now that
+     color, so the selection still reads as "this tab IS the document" now that
      it no longer physically merges into the surface below; the ring plus the
      drop shadow supply the lift the shared edge used to. The shadow is black
      rather than `rgba(var(--ink-rgb), …)` on purpose — ink inverts with the
@@ -105,7 +105,7 @@
 /* Dark mode: paper (`--color-bg`, #0a0a0a) is DARKER than the band
      (`--color-surface`, #171717), so painting the active tab with it reads as a
      hole punched in the band rather than a card lifted off it. Lift the band
-     colour toward the text colour instead — the move Firefox's dark theme makes
+     color toward the text color instead — the move Firefox's dark theme makes
      — and drop the shadow, which only muddies a dark ground. */
 [data-theme='dark'] .tab-pill.active {
   --tab-active-bg: color-mix(in srgb, var(--color-surface) 92%, var(--color-text) 8%);
@@ -152,7 +152,7 @@
   color: var(--color-text);
 }
 
-/* "+" button — a floating icon button on the same centre line as the pills,
+/* "+" button — a floating icon button on the same center line as the pills,
      with the same corner radius so the whole row reads as one family. */
 .tab-new-btn {
   flex: 0 0 auto;

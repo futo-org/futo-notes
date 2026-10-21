@@ -13,7 +13,7 @@ import { installFakeAndroidHost, type FakeHostWindow } from './lib/editorEmbedHo
  * editable, `.ProseMirror`, configured through `editorViewOptionsCtx.attributes`
  * in editorPlugins.ts.
  *
- * The decision it locks: iOS autocorrect and sentence capitalisation ON, red
+ * The decision it locks: iOS autocorrect and sentence capitalization ON, red
  * spellcheck squiggles and Apple's inline writing suggestions OFF. The Milkdown
  * hook first shipped with `autocorrect: 'off'` riding along with the squiggle
  * fix, which silently took autocorrect and predictive text away from every note
@@ -101,7 +101,7 @@ test('the editor hands the keyboard the intended instructions', async ({ browser
  * `teh` -> `Teh` inside a code block). The attributes below are what the HTML
  * spec says should scope that away. WKWebView ignores them — measured on the
  * iOS 26 simulator, 2026-09-01: it reads the traits from the editing host, so
- * autocorrect still fires inside a fence — while Blink is expected to honour
+ * autocorrect still fires inside a fence — while Blink is expected to honor
  * them (unverified, no Android device at the time). So: green here means the
  * page asks correctly, NOT that iOS obeys. Suppressing it on iOS needs the
  * caret's context to reach the shell for a `reloadInputViews()`.
