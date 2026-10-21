@@ -98,7 +98,8 @@ final class AppIconTests: XCTestCase {
         openSettings(app)
         removeLicense(app)
         let row = scrollToAppIconRow(app)
-        XCTAssertTrue(app.staticTexts["More with a license"].exists, "the App icon row lost its hint")
+        XCTAssertTrue(
+            app.staticTexts["More with a license"].exists, "the App icon row lost its hint")
         attach(app, named: "settings-row-hint-\(storefront)")
         row.tap()
         XCTAssertTrue(app.navigationBars["App icon"].waitForExistence(timeout: 10))
@@ -161,7 +162,8 @@ final class AppIconTests: XCTestCase {
         app.navigationBars["App icon"].buttons["Done"].tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
         XCTAssertFalse(
-            app.staticTexts["More with a license"].exists, "the hint stayed after the license arrived")
+            app.staticTexts["More with a license"].exists,
+            "the hint stayed after the license arrived")
         scrollToAppIconRow(app).tap()
         XCTAssertTrue(app.navigationBars["App icon"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["Thank you for purchasing FUTO Notes."].exists)
