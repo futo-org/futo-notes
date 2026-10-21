@@ -92,11 +92,15 @@
 - Opening a note starts its undo empty. Leaving a note and coming back does not
   restore what you could undo before.
 - Redo with nothing left to redo changes nothing; Redo never undoes, whatever the Caps Lock
-  state. → milkdown/keyboardParity.ts `SHIFTED_CHORD_GUARDS`,
+  state. → milkdown/keyboardParity.ts `handleCapsLockedChord`,
   tests/editor-embed-milkdown-undo.spec.ts
-- A shortcut held with Shift never runs the same shortcut without Shift: Ctrl/Cmd+Shift+B
-  where a quote cannot go (a table cell) does nothing — it never turns on bold. →
-  milkdown/keyboardParity.ts `SHIFTED_CHORD_GUARDS`
+- A shortcut held with Shift never runs the same shortcut without Shift, whatever the Caps
+  Lock state: Ctrl/Cmd+Shift+B where a quote cannot go (a table cell) never turns on bold, and
+  Ctrl/Cmd+Shift+I or Ctrl/Cmd+Alt+Shift+X, which are not shortcuts, never turn on italic or
+  strikethrough. → milkdown/keyboardParity.ts `handleCapsLockedChord`,
+  tests/editor-embed-milkdown-interactive.spec.ts
+- A Shift shortcut the editor does not use is left to the browser or the OS. →
+  tests/editor-embed-milkdown-undo.spec.ts
 
 - A change that arrives from OUTSIDE the editor — a note open, a sync adopt, a
   host content push — is applied outside the undo history, so no Ctrl-Z can

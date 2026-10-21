@@ -388,3 +388,27 @@ test('Backspace on a nested item with a PRECEDING sibling joins the sibling inst
   const content = (await getContent(page)).trimEnd();
   expect(content).toBe('- a\n  - x\n    b');
 });
+
+// ============================================================
+// Shortcuts with Caps Lock on (spec: "A shortcut held with Shift never runs the
+// same shortcut without Shift")
+// ============================================================
+
+// With Caps Lock on, a Shift chord's key arrives as a lowercase letter
+// (Playwright's `ControlOrMeta+Shift+i` sends that event). prosemirror-keymap
+// then retried any chord whose Shift form nothing claimed WITHOUT Shift, so
+// Ctrl+Shift+I ran Italic (Mod-i) and Ctrl+Alt+Shift+X ran Strikethrough
+// (Mod-Alt-x). With Caps Lock off the same chords do nothing in the editor.
+for (const [chord, name] of [
+  ['ControlOrMeta+Shift+i', 'italic'],
+  ['ControlOrMeta+Alt+Shift+x', 'strikethrough'],
+] as const) {
+  test(`${chord} with a lowercase key does not turn on ${name}`, async ({ page }) => {
+    await open(page, 'para');
+    await caretAtEndOf(page, 'para');
+    await page.keyboard.press(chord);
+    await page.keyboard.type('X');
+    await settled(page);
+    expect((await getContent(page)).trimEnd()).toBe('paraX');
+  });
+}

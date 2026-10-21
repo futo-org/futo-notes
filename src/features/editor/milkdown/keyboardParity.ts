@@ -63,8 +63,7 @@
  */
 import type { Ctx } from '@milkdown/kit/ctx';
 import { headingKeymap, listItemKeymap } from '@milkdown/kit/preset/commonmark';
-import { newlineInCode, wrapIn } from '@milkdown/kit/prose/commands';
-import { redo } from '@milkdown/kit/prose/history';
+import { newlineInCode } from '@milkdown/kit/prose/commands';
 import { keydownHandler } from '@milkdown/kit/prose/keymap';
 import { splitListItem } from '@milkdown/kit/prose/schema-list';
 import { type Command } from '@milkdown/kit/prose/state';
@@ -326,28 +325,48 @@ export function keepDeleteForward(ctx: Ctx): void {
 }
 
 /*
- * A shifted chord never runs its unshifted twin. When a chord's key arrives
- * as a lowercase letter with Shift held (Caps Lock on, on every platform but
- * macOS, where the keymap reads the shifted key from the key code instead),
- * prosemirror-keymap first runs the `Shift-` binding and, if that declines,
- * retries the chord WITHOUT Shift. The editor binds two such pairs: Redo
- * (Shift-Mod-z) over Undo (Mod-z), so a Redo with nothing to redo undid the
- * last edit; and Quote (Mod-Shift-b) over Bold (Mod-b), so a Quote that cannot
- * wrap — in a table cell — turned on bold. Each guard here CLAIMS its chord,
- * changing nothing, exactly when the shifted command would decline; when it
- * would run, the guard declines and the editor's keymap runs it as before.
- * `keyboardParity.preset.test.ts` checks this list against every shifted
- * binding the presets carry.
+ * A shortcut held with Shift never runs the same shortcut without Shift,
+ * whatever the Caps Lock state. With Caps Lock on, a Shift chord's key arrives
+ * as a LOWERCASE letter, and prosemirror-keymap answers a lowercase letter
+ * with Shift held by running the `Shift-` binding and, when none claims it,
+ * retrying the chord WITHOUT Shift. So Redo with nothing to redo undid the last
+ * edit, Ctrl+Shift+B in a table cell turned on bold, Ctrl+Shift+I ran Italic
+ * and Ctrl+Alt+Shift+X ran Strikethrough. With Caps Lock off the key arrives
+ * uppercase and that retry never matches a binding.
+ *
+ * So the chord is offered to every key handler again as the uppercase key the
+ * same keys send with Caps Lock off, which is exactly what they do then, and
+ * the lowercase original is claimed so it never reaches the retry. Not on an
+ * Apple platform for a Cmd+Shift chord: the keymap reads that key from its key
+ * code there (w3c-keyname), so it already arrives shifted. Not for AltGr,
+ * which types characters, nor for a key that is not a plain a-z letter.
  */
-export const SHIFTED_CHORD_GUARDS: Record<string, Command> = {
-  'Shift-Mod-z': (state) => !redo(state),
-  'Mod-Shift-b': (state) => !wrapIn(state.schema.nodes.blockquote)(state),
-};
+const applePlatform =
+  typeof navigator !== 'undefined' && /Mac|iP(hone|[oa]d)/.test(navigator.platform);
 
-const shiftedChordGuards = keydownHandler(SHIFTED_CHORD_GUARDS);
+function isCapsLockedChord(event: KeyboardEvent): boolean {
+  if (event.isComposing || !event.shiftKey || !/^[a-z]$/.test(event.key)) return false;
+  if (!event.ctrlKey && !event.metaKey && !event.altKey) return false;
+  if (event.getModifierState('AltGraph')) return false;
+  return !(applePlatform && event.metaKey && !event.ctrlKey && !event.altKey);
+}
 
-/** The `handleKeyDown` direct view prop for `SHIFTED_CHORD_GUARDS`. */
-export function handleShiftedChordFallback(view: ProseView, event: KeyboardEvent): boolean {
-  if (event.isComposing) return false;
-  return shiftedChordGuards(view, event);
+/** The `handleKeyDown` direct view prop for a Shift chord sent with Caps Lock on. */
+export function handleCapsLockedChord(view: ProseView, event: KeyboardEvent): boolean {
+  if (!isCapsLockedChord(event)) return false;
+  const shifted = new KeyboardEvent('keydown', {
+    key: event.key.toUpperCase(),
+    code: event.code,
+    shiftKey: true,
+    ctrlKey: event.ctrlKey,
+    metaKey: event.metaKey,
+    altKey: event.altKey,
+    bubbles: true,
+    cancelable: true,
+  });
+  // prosemirror-keymap matches a Shift chord through the key code; the
+  // constructor leaves it 0.
+  Object.defineProperty(shifted, 'keyCode', { value: event.keyCode });
+  view.someProp('handleKeyDown', (handle) => handle(view, shifted));
+  return true;
 }

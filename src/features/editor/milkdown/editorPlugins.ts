@@ -32,9 +32,9 @@ import { dividerCaretFix } from './dividerCaret';
 import { plainTextBlockPaste } from './plainTextBlockPaste';
 import {
   handleBlockTypeChord,
+  handleCapsLockedChord,
   handleIndentShortcut,
   handleParityKeyDown,
-  handleShiftedChordFallback,
   keepDeleteForward,
 } from './keyboardParity';
 import { handleLineStartShortcut, softBreakView } from './paragraphLines';
@@ -164,9 +164,9 @@ function configureEditor(ctx: Ctx, assembly: EditorAssembly): void {
      * block drag carries no files and is left entirely alone. */
     handleDrop: (_view, event) => getDropHandler()?.(event as DragEvent) ?? false,
     handleKeyDown: (view, event) =>
+      handleCapsLockedChord(view, event) ||
       handleIndentShortcut(view, event) ||
       handleBlockTypeChord(view, event) ||
-      handleShiftedChordFallback(view, event) ||
       handleParityKeyDown(view, event),
     /* A block shortcut (`- `, `# `, …) typed at the start of a line
      * inside a paragraph starts that block from the line, for the same

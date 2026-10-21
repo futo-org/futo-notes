@@ -237,3 +237,25 @@ test('Ctrl+Shift+z after new typing that follows an undo keeps the new text', as
   await settleChangeDebounce(page);
   expect(await getContent(page)).toBe('baseb\n');
 });
+
+// The guard that keeps Redo from undoing claims nothing it does not run: an
+// uppercase Ctrl+Shift+Z (Caps Lock off) with nothing to redo is left to the
+// browser's default action, not swallowed.
+test('Ctrl+Shift+Z with nothing to redo leaves the key to the browser', async ({ page }) => {
+  await hostSetContent(page, 'base');
+  await focusEditor(page);
+  await page.evaluate(() => {
+    const w = window as unknown as { lastKeyPrevented?: boolean };
+    window.addEventListener('keydown', (event) => {
+      w.lastKeyPrevented = event.defaultPrevented;
+    });
+  });
+  await page.keyboard.press('ControlOrMeta+Shift+Z');
+  await settleChangeDebounce(page);
+  expect(await getContent(page)).toBe('base');
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { lastKeyPrevented?: boolean }).lastKeyPrevented,
+    ),
+  ).toBe(false);
+});
