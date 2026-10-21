@@ -212,8 +212,10 @@ adb shell am force-stop com.futo.notes.dev
 adb shell am start -n com.futo.notes.dev/com.futo.notes.MainActivity
 ```
 
-Full reset: `adb shell pm clear com.futo.notes.dev` (wipes vault + prefs +
-sync state).
+Full reset: `adb shell pm clear com.futo.notes.dev` (wipes the APP/INTERNAL
+vault, prefs and sync state) plus `adb shell rm -rf "'/storage/emulated/0/Documents/FUTO Notes Dev'"`
+for a DEVICE-mode vault, which lives outside the package. `just qa-claim` does
+both when it hands you a pool emulator another worktree used.
 
 Like iOS, backgrounding the app (`adb shell input keyevent 3` = HOME) flushes
 pending editor edits to disk — background, then read the file to verify editor

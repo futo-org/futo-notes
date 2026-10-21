@@ -14,7 +14,7 @@ qa-status:
 ports:
   @node scripts/lib/slot.mjs
 
-# Release this worktree's devices; `ios`/`android` limits it to one (--shutdown powers them off).
+# Release this worktree's devices + sync server; `ios`/`android` releases one device, server left up (--shutdown powers off).
 qa-release *flags:
   @node scripts/qa.mjs release "$@"
 
@@ -22,15 +22,9 @@ qa-release *flags:
 qa-gc:
   @node scripts/qa.mjs gc
 
-# Seed a QA worktree with a warm cargo build (APFS clone of target/).
+# Seed a QA worktree with a warm cargo build (copy-on-write clone of target/: APFS or btrfs).
 qa-clone-target dest:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  [ -d target ] || { echo "no target/ in $(pwd) — build here once first" >&2; exit 1; }
-  [ -d '{{dest}}' ] || { echo "worktree '{{dest}}' does not exist" >&2; exit 1; }
-  [ -e '{{dest}}/target' ] && { echo "'{{dest}}/target' already exists — remove it first" >&2; exit 1; }
-  cp -Rc target '{{dest}}/target'
-  echo "Cloned target/ → {{dest}}/target (APFS copy-on-write)"
+  @node scripts/worktree.mjs clone-target "$1"
 
 # Start this worktree's isolated sync server; --standin for hosted test mode — see justfile-notes.md.
 qa-server *flags:

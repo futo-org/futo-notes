@@ -97,7 +97,7 @@ prove Windows WebView2): a passing run on the wrong engine is not evidence about
    (`test-desktop-smoke`), interactive dev/QA commands
    (`tauri-dev`, `android-drive`, …), recipes needing root
    (`deploy-deb`, `deploy-rpm`), and ones that manage the machine you are sitting at (`qa-claim`,
-   `qa-release`, `qa-clone-target` — the last is APFS `cp -Rc`). Refusal resolves the justfile's
+   `qa-release`, `qa-gc`, `qa-clone-target`). Refusal resolves the justfile's
    aliases first, so `node scripts/remote-test.mjs in` is refused as `ios-native`.
 2. **Caveated** — allowed, but a `CAVEAT:` line names what a green run leaves uncovered, and the
    footer repeats it. `test-e2e*` (Linux Chromium/WebKit builds),

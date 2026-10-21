@@ -77,3 +77,22 @@ export async function ensureSim(name, { reboot = false } = {}) {
   }
   return findSim(name).udid;
 }
+
+// The iOS twin of android-emulators.mjs's wipeDevApp: a pool simulator keeps the
+// debug app's vault across claims. Uninstalling drops its container (vault,
+// defaults, sync state); the keychain outlives an uninstall, so it is reset too —
+// pool simulators hold nothing else. `just ios-native` reinstalls. Returns an
+// error message or null.
+const DEV_BUNDLE = 'com.futo.notes.dev';
+
+export function wipeDevApp(udid) {
+  if (tryRun('xcrun', ['simctl', 'get_app_container', udid, DEV_BUNDLE]) !== null) {
+    if (tryRun('xcrun', ['simctl', 'uninstall', udid, DEV_BUNDLE]) === null) {
+      return `simctl uninstall ${DEV_BUNDLE} failed`;
+    }
+  }
+  if (tryRun('xcrun', ['simctl', 'keychain', udid, 'reset']) === null) {
+    return 'simctl keychain reset failed';
+  }
+  return null;
+}

@@ -27,8 +27,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { slotOf } from './lib/slot.mjs';
-import { applyAvdBaseline, avdNames, ensureAvd, runningEmus } from './qa/android-emulators.mjs';
-import { ensureSim, findSim } from './qa/ios-simulators.mjs';
+import {
+  applyAvdBaseline,
+  avdNames,
+  ensureAvd,
+  runningEmus,
+  wipeDevApp as wipeAndroidDevApp,
+} from './qa/android-emulators.mjs';
+import { ensureSim, findSim, wipeDevApp as wipeIosDevApp } from './qa/ios-simulators.mjs';
 import {
   AVDMANAGER,
   DEV_DIR,
@@ -55,6 +61,18 @@ import {
 
 // ── commands ───────────────────────────────────────────────────────────────
 
+// A device that changed hands is handed out with the debug app's data wiped.
+// If the wipe fails, the claim is dropped so the next claim retries it.
+function wipeOnFreshClaim(platform, name, fresh, wipe) {
+  if (!fresh) return;
+  const error = wipe();
+  if (error) {
+    fs.rmSync(ownerPath(platform, name), { force: true });
+    die(`${platform} ${name}: ${error}; claim released`);
+  }
+  info(`${platform}: wiped com.futo.notes.dev data on ${name} (new claim)`);
+}
+
 async function cmdClaim(target, { reboot = false } = {}) {
   const root = worktreeRoot();
   const wantIos = target === 'ios' || target === 'all';
@@ -64,16 +82,18 @@ async function cmdClaim(target, { reboot = false } = {}) {
 
   const exports = [];
   if (wantIos && IS_MAC) {
-    const name = claimPoolName('ios', root);
+    const { name, fresh } = claimPoolName('ios', root);
     const udid = await ensureSim(name, { reboot });
+    wipeOnFreshClaim('ios', name, fresh, () => wipeIosDevApp(udid));
     info(`ios: ${name} → ${udid}`);
     exports.push(`export SIM=${udid}`);
   } else if (wantIos) {
     info('ios: skipped (not macOS)');
   }
   if (wantAndroid) {
-    const name = claimPoolName('android', root);
+    const { name, fresh } = claimPoolName('android', root);
     const serial = await ensureAvd(name);
+    wipeOnFreshClaim('android', name, fresh, () => wipeAndroidDevApp(serial));
     info(`android: ${name} → ${serial}`);
     exports.push(`export ANDROID_SERIAL=${serial}`);
   }
@@ -104,8 +124,10 @@ function shutdownDevice(platform, name) {
 }
 
 // A named platform releases only that platform's claims: two agents QA-ing iOS
-// and Android from one worktree must not tear down each other's device. The
-// server stops only once the worktree holds no device at all.
+// and Android from one worktree must not tear down each other's device. It also
+// leaves the sync server up, because a sibling leg may use it without holding
+// any device (desktop claims none). A bare release is the last one out and
+// stops the server too.
 function cmdRelease(flags) {
   const unknownFlag = flags.find((arg) => arg.startsWith('--') && arg !== '--shutdown');
   if (unknownFlag) die(`unknown release option ${unknownFlag}`);
@@ -124,7 +146,7 @@ function cmdRelease(flags) {
     fs.rmSync(ownerPath(claimedPlatform, name), { force: true });
     info(`released ${claimedPlatform} ${name}`);
   }
-  if (!myDevices(root).length) serverStop(root, false); // never leave an orphaned server running
+  if (!platform) serverStop(root, false);
 }
 
 function cmdGc() {
